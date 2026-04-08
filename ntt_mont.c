@@ -209,12 +209,6 @@ uint64_t *ntt_alloc_twiddles_mont(const ntt_params_t *p)
     uint64_t half = p->n >> 1;
     uint64_t *tw  = malloc(half * sizeof *tw);
     if (!tw) return NULL;
-    /* First build standard twiddles, then convert each to Montgomery form. */
-    tw[0] = mont_enter(1, &ctx);                      /* 1 * R mod q           */
-    for (uint64_t k = 1; k < half; k++)
-        tw[k] = (uint64_t)((__uint128_t)tw[k-1] * p->omega % p->q);
-    /* tw[k] = omega^k * R mod q only for k=0 so far;
-     * rebuild: use recurrence in Montgomery form: tw[k] = mont_mul(tw[k-1], omega_mont). */
     uint64_t omega_mont = mont_enter(p->omega, &ctx);
     tw[0] = mont_enter(1, &ctx);
     for (uint64_t k = 1; k < half; k++)
@@ -247,14 +241,13 @@ uint64_t *ntt_alloc_twiddles_inv_mont(const ntt_params_t *p)
  * Inputs:   a[0..n-1] in standard form [0, q).
  *           twiddles: from ntt_alloc_twiddles_mont(p)  (Montgomery form).
  * Output:   NTT(a) in standard form [0, q).
- * Algorithm: CT-DIT. Per-stage reduction keeps values in [0, q) at all
- *            stage boundaries, so mont_mul inputs are always in [0, q).
+ * Algorithm: CT-DIT. Each butterfly does conditional subtraction on both
+ *            outputs, keeping all values in [0, q). This ensures mont_mul
+ *            inputs are always in [0, q) without a separate reduction pass.
  *   Stage loop: bit-reverse → for each stage:
- *     butterfly: u = a[k+j]; v = a[k+j+half]
- *                t = mont_mul(tw[j·stride], v)      ← no __uint128_t
- *                a[k+j]       = u + t
- *                a[k+j+half]  = u + q - t
- *     reduction: a[i] = a[i] >= q ? a[i] - q : a[i]  (for all i)
+ *     butterfly: u = a[k+j]; t = mont_mul(tw[j·stride], a[k+j+half])
+ *                a[k+j]       = (u+t >= q) ? u+t-q : u+t
+ *                a[k+j+half]  = (u+q-t >= q) ? u-t : u+q-t
  *   Conversion: enter Montgomery on input; exit on output.
  * Ref:       Montgomery 1985; Longa & Naehrig CANS 2016, Alg. 1.
  * Invariant: twiddles must be in Montgomery form (from ntt_alloc_twiddles_mont).
@@ -285,9 +278,6 @@ void ntt_forward_mont(uint64_t *a, const uint64_t *twiddles, const ntt_params_t 
                 a[k + j + half] = d >= q ? d - q : d;
             }
         }
-        /* Per-stage reduction: ensure all values in [0, q) for next mont_mul */
-        for (uint64_t i = 0; i < n; i++)
-            if (a[i] >= q) a[i] -= q;
     }
 
     /* Convert output back to standard form: a[i] ← a[i] * R^{-1} mod q */
@@ -325,8 +315,6 @@ void ntt_inverse_mont(uint64_t *a, const uint64_t *twiddles_inv, const ntt_param
                 a[k + j + half] = d >= q ? d - q : d;
             }
         }
-        for (uint64_t i = 0; i < n; i++)
-            if (a[i] >= q) a[i] -= q;
     }
 
     /* Scale by n^{-1} mod q and exit Montgomery form */
@@ -339,8 +327,8 @@ void ntt_inverse_mont(uint64_t *a, const uint64_t *twiddles_inv, const ntt_param
  * LAZY REFERENCE (static inline — for selftest comparison only)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ntt_forward (lazy) — used only inside selftest; not exported. */
-void ntt_forward(uint64_t *a, const uint64_t *tw, const ntt_params_t *p)
+/* ref_ntt_{forward,inverse}: lazy CT-DIT reference for selftest only. */
+static void ref_ntt_forward(uint64_t *a, const uint64_t *tw, const ntt_params_t *p)
 {
     uint64_t n = p->n, q = p->q;
     bit_reverse_perm(a, n, p->log2_n);
@@ -350,29 +338,11 @@ void ntt_forward(uint64_t *a, const uint64_t *tw, const ntt_params_t *p)
             for (uint64_t j = 0; j < half; j++) {
                 uint64_t u = a[k+j];
                 uint64_t t = (uint64_t)((__uint128_t)tw[j*stride] * a[k+j+half] % q);
-                a[k+j]       = u + t;
-                a[k+j+half]  = u + q - t;
-            }
-    }
-    for (uint64_t i = 0; i < n; i++) a[i] %= q;
-}
-
-void ntt_inverse(uint64_t *a, const uint64_t *twi, const ntt_params_t *p)
-{
-    uint64_t n = p->n, q = p->q;
-    bit_reverse_perm(a, n, p->log2_n);
-    for (uint64_t len = 2; len <= n; len <<= 1) {
-        uint64_t half = len >> 1, stride = n / len;
-        for (uint64_t k = 0; k < n; k += len)
-            for (uint64_t j = 0; j < half; j++) {
-                uint64_t u = a[k+j];
-                uint64_t t = (uint64_t)((__uint128_t)twi[j*stride] * a[k+j+half] % q);
                 a[k+j]      = u + t;
                 a[k+j+half] = u + q - t;
             }
     }
-    for (uint64_t i = 0; i < n; i++)
-        a[i] = (uint64_t)((__uint128_t)(a[i] % q) * p->n_inv % q);
+    for (uint64_t i = 0; i < n; i++) a[i] %= q;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -395,7 +365,7 @@ static int selftest(const ntt_params_t *p)
     for (uint64_t i = 0; i < n; i++)
         ref[i] = mont[i] = (i * 1234567891ULL + 42) % p->q;
 
-    ntt_forward(ref, tw, p);
+    ref_ntt_forward(ref, tw, p);
     ntt_forward_mont(mont, twm, p);
 
     for (uint64_t i = 0; i < n; i++) {
@@ -450,12 +420,12 @@ static void run_benchmarks(const ntt_params_t *p, uint64_t iters)
     uint64_t *tmp = malloc(p->n * sizeof *tmp);
     if (tmp) {
         for (uint64_t i = 0; i < p->n; i++) tmp[i] = i % p->q;
-        ntt_forward(tmp, tw, p);
+        ref_ntt_forward(tmp, tw, p);
         ntt_forward_mont(tmp, twm, p);
         free(tmp);
     }
 
-    double t_lazy = bench_one(p, tw,  ntt_forward,      iters);
+    double t_lazy = bench_one(p, tw,  ref_ntt_forward,  iters);
     double t_mont = bench_one(p, twm, ntt_forward_mont, iters);
 
     double ntts_lazy = (double)iters / t_lazy;

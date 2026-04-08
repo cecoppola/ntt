@@ -5,9 +5,9 @@
  *            permutation pass required by Cooley-Tukey DIT. Double-buffer
  *            ping-pong structure maps cleanly to GPU shared-memory staging.
  * Algorithm: Stockham DIT (decimation-in-time), radix-2.
- *            Each stage reads src[j*(2t)+k] and src[j*(2t)+k+t] and writes
- *            to dst[j*(2t)+k] and dst[j*(2t)+k+t] (natural-order output after
- *            L = log2(n) stages — no bit-reversal needed).
+ *            Double-buffer ping-pong: each stage reads src[j+k*p] (first half)
+ *            and src[j+k*p+n/2] (second half), writes dst[j+k*(2p)] and
+ *            dst[j+k*(2p)+p]. Natural-order output — no bit-reversal needed.
  * Reduction: lazy — multiplications via __uint128_t reduce immediately;
  *            additions accumulate up to 2^s * q after stage s (fits uint64_t
  *            for n ≤ 2^20 and q ≤ 2^23). Final pass reduces to [0, q).
@@ -20,10 +20,8 @@
 
 #include "ntt.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 /* ── ANSI formatting ─────────────────────────────────────────────────────── */
 #define ANSI_WHT "\033[1;37m"

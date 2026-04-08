@@ -148,85 +148,52 @@ static void bit_reverse_perm(uint64_t *a, uint64_t n, uint32_t log2_n)
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /*
- * ntt_forward: in-place Cooley-Tukey DIT forward NTT over Z_q.
- * Purpose:  compute the NTT of a[], placing result back in a[].
- * Inputs:   a[0..n-1] in natural order, values in [0, q).
- *           twiddles[k] = omega^k for k in [0, n/2); natural order.
- *           p: transform parameters.
- * Output:   a[0..n-1] = NTT(a), values in [0, q).
- * Algorithm: CT-DIT radix-2. log2(n) stages; each doubles the butterfly span.
- *   Stage s uses half-length 2^(s-1), stride = n / 2^s.
- *   Butterfly: u = a[k+j], t = tw[j·stride] · a[k+j+half] mod q
- *              a[k+j] ← u + t   (lazy: deferred mod; grows to (s+1)·q max)
- *              a[k+j+half] ← u + q − t  (lazy; stays non-negative)
- *   Final pass reduces all values to [0, q).
- * Ref:      Longa & Naehrig CANS 2016, Alg. 1.
- * Invariant: p->n is a power of 2; twiddles has exactly n/2 elements.
+ * ct_dit_loop: CT-DIT butterfly stages (shared by ntt_forward and ntt_inverse).
+ * Applies log2(n) butterfly stages after bit-reversal. Lazy reduction: values
+ * grow to at most (log2(n)+1)*q; caller applies the final reduction/scaling.
+ * Ref: Longa & Naehrig CANS 2016, Alg. 1.
+ */
+static void ct_dit_loop(uint64_t *a, const uint64_t * restrict tw,
+                        uint64_t n, uint64_t q, uint32_t log2_n)
+{
+    bit_reverse_perm(a, n, log2_n);
+    for (uint64_t len = 2; len <= n; len <<= 1) {
+        uint64_t half = len >> 1, stride = n / len;
+        for (uint64_t k = 0; k < n; k += len)
+            for (uint64_t j = 0; j < half; j++) {
+                uint64_t u = a[k + j];
+                uint64_t t = (uint64_t)((__uint128_t)tw[j*stride] * a[k+j+half] % q);
+                a[k + j]        = u + t;
+                a[k + j + half] = u + q - t;
+            }
+    }
+}
+
+/*
+ * ntt_forward: in-place CT-DIT NTT over Z_q.
+ * Input:  a[0..n-1] in natural order, values in [0, q).
+ * Output: NTT(a), values in [0, q).
+ * twiddles: ntt_alloc_twiddles(p) — tw[k] = omega^k.
  */
 void ntt_forward(uint64_t *a, const uint64_t * restrict twiddles,
                  const ntt_params_t *p)
 {
-    uint64_t n = p->n;
-    uint64_t q = p->q;
-
-    bit_reverse_perm(a, n, p->log2_n);
-
-    for (uint64_t len = 2; len <= n; len <<= 1) {
-        uint64_t half   = len >> 1;
-        uint64_t stride = n / len;          /* tw[j·stride] = omega^(j·n/len) */
-        for (uint64_t k = 0; k < n; k += len) {
-            for (uint64_t j = 0; j < half; j++) {
-                uint64_t u = a[k + j];
-                uint64_t t = (uint64_t)(
-                    (__uint128_t)twiddles[j * stride] * a[k + j + half] % q);
-                a[k + j]         = u + t;       /* lazy: in [0, 2q) after stage 1 */
-                a[k + j + half]  = u + q - t;   /* lazy: in (0, 2q]               */
-            }
-        }
-    }
-
-    /* Final reduction: bring all values from [0, log2(n)·q) into [0, q) */
-    for (uint64_t i = 0; i < n; i++)
-        a[i] %= q;
+    ct_dit_loop(a, twiddles, p->n, p->q, p->log2_n);
+    for (uint64_t i = 0; i < p->n; i++) a[i] %= p->q;
 }
 
 /*
- * ntt_inverse: in-place inverse NTT (INTT) over Z_q.
- * Purpose:  recover original polynomial from its NTT representation.
- * Inputs:   a[0..n-1] in NTT domain, values in [0, q).
- *           twiddles_inv[k] = omega_inv^k for k in [0, n/2).
- *           p: transform parameters.
- * Output:   a[0..n-1] = INTT(a) = n^{-1} · NTT^{-1}(a), values in [0, q).
- * Algorithm: run ntt_forward with inverse twiddles (NTT⁻¹ = NTT with ω⁻¹),
- *            then multiply each element by n^{-1} mod q.
- * Ref:      Longa & Naehrig CANS 2016, §2.
+ * ntt_inverse: in-place INTT over Z_q.
+ * Input:  a[0..n-1] in NTT domain, values in [0, q).
+ * Output: INTT(a) = n^{-1} * NTT^{-1}(a), values in [0, q).
+ * twiddles_inv: ntt_alloc_twiddles_inv(p) — tw[k] = omega_inv^k.
  */
 void ntt_inverse(uint64_t *a, const uint64_t * restrict twiddles_inv,
                  const ntt_params_t *p)
 {
-    uint64_t n = p->n;
-    uint64_t q = p->q;
-
-    /* Forward NTT with inverse twiddles gives NTT^{-1} up to 1/n scaling */
-    bit_reverse_perm(a, n, p->log2_n);
-
-    for (uint64_t len = 2; len <= n; len <<= 1) {
-        uint64_t half   = len >> 1;
-        uint64_t stride = n / len;
-        for (uint64_t k = 0; k < n; k += len) {
-            for (uint64_t j = 0; j < half; j++) {
-                uint64_t u = a[k + j];
-                uint64_t t = (uint64_t)(
-                    (__uint128_t)twiddles_inv[j * stride] * a[k + j + half] % q);
-                a[k + j]        = u + t;
-                a[k + j + half] = u + q - t;
-            }
-        }
-    }
-
-    /* Scale by n^{-1} mod q and reduce to [0, q) */
-    for (uint64_t i = 0; i < n; i++)
-        a[i] = (uint64_t)((__uint128_t)(a[i] % q) * p->n_inv % q);
+    ct_dit_loop(a, twiddles_inv, p->n, p->q, p->log2_n);
+    for (uint64_t i = 0; i < p->n; i++)
+        a[i] = (uint64_t)((__uint128_t)(a[i] % p->q) * p->n_inv % p->q);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
