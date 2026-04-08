@@ -16,7 +16,8 @@
 | PLAN.md | done | 6-segment algorithm tables; ~49% optimal gain identified; Phase 2 stack chosen |
 | TESTS.md | pending | Stub only; test framework not yet written |
 | ntt_cpu.c | done | CT-DIT, lazy reduction, selftest PASS (ML-KEM + ML-DSA); 269k NTT/s |
-| ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean; selftest deferred to 6900XT |
+| ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean (gfx1100 + gfx942); selftest deferred to 6900XT |
+| Makefile | done | Targets: cpu, gpu-6900xt, gpu-mi300a, test/bench variants, ML-KEM/ML-DSA presets |
 
 ## API Surface
 ```c
