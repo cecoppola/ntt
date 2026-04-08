@@ -1,3 +1,9 @@
+# Claude Code agent configuration
+.claude/
+
+# Project scripts and tools (local only)
+src/gen_plan.py
+
 # Build artifacts
 build/
 *.o
