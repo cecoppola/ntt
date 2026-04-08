@@ -62,25 +62,32 @@ GPU_SRC := ntt_gpu.hip
 
 # ── Output binaries ───────────────────────────────────────────────────────────
 CPU_BIN       := ntt_cpu
+MONT_BIN      := ntt_mont
 GPU_6900XT    := ntt_gpu_6900xt
 GPU_MI300A    := ntt_gpu_mi300a
 VERIFY_6900XT := ntt_cross_verify_6900xt
 VERIFY_MI300A := ntt_cross_verify_mi300a
 
 # ── Default target ────────────────────────────────────────────────────────────
-.PHONY: all cpu gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a \
-        test-cpu test-gpu bench-cpu bench-gpu \
+.PHONY: all cpu mont gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a \
+        test-cpu test-mont test-gpu bench-cpu bench-mont bench-gpu \
         clean
 
-all: cpu gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a
+all: cpu mont gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a
 
 # ── Build rules ───────────────────────────────────────────────────────────────
 
 cpu: $(CPU_BIN)
 
-$(CPU_BIN): $(CPU_SRC)
+$(CPU_BIN): $(CPU_SRC) ntt.h
 	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (CPU reference)"
+
+mont: $(MONT_BIN)
+
+$(MONT_BIN): ntt_mont.c ntt.h
+	$(CC) $(ALL_CFLAGS) -o $@ ntt_mont.c
+	@printf '  %-20s %s\n' "BUILD OK:" "$@ (Montgomery CPU)"
 
 gpu-6900xt: $(GPU_6900XT)
 
@@ -112,6 +119,10 @@ test-cpu: $(CPU_BIN)
 	@printf '\n  Running CPU selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
 	./$(CPU_BIN) $(N) $(Q) $(OMEGA) 1
 
+test-mont: $(MONT_BIN)
+	@printf '\n  Running Montgomery selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
+	./$(MONT_BIN) $(N) $(Q) $(OMEGA) 1
+
 test-gpu: $(GPU_6900XT)
 	@printf '\n  Running GPU selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
 	./$(GPU_6900XT) $(N) $(Q) $(OMEGA) 1
@@ -134,6 +145,10 @@ test-gpu-mi300a: $(GPU_MI300A)
 bench-cpu: $(CPU_BIN)
 	@printf '\n  CPU benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
 	./$(CPU_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
+
+bench-mont: $(MONT_BIN)
+	@printf '\n  Montgomery benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
+	./$(MONT_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
 
 bench-gpu: $(GPU_6900XT)
 	@printf '\n  GPU benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
@@ -160,6 +175,6 @@ bench-mldsa-gpu: $(GPU_6900XT)
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f $(CPU_BIN) $(GPU_6900XT) $(GPU_MI300A) $(VERIFY_6900XT) $(VERIFY_MI300A)
+	rm -f $(CPU_BIN) $(MONT_BIN) $(GPU_6900XT) $(GPU_MI300A) $(VERIFY_6900XT) $(VERIFY_MI300A)
 	rm -f bench_*.txt bench_gpu_*.txt
 	@printf '  Cleaned.\n'

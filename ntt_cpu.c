@@ -13,8 +13,7 @@
  *   Build:   cc -O2 -Wall -Wextra -o ntt_cpu ntt_cpu.c
  */
 
-#include <stdint.h>
-#include <stdlib.h>
+#include "ntt.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -27,22 +26,6 @@
 #define ANSI_YLW "\033[1;33m"
 #define ANSI_RED "\033[1;31m"
 #define ANSI_RST "\033[0m"
-
-/* ── Runtime parameter struct ────────────────────────────────────────────── */
-
-/*
- * ntt_params_t: all transform parameters in one struct.
- * Passed explicitly to every function; no global mutable state.
- * All values are computed at startup and treated as read-only thereafter.
- */
-typedef struct {
-    uint64_t n;          /* transform length; must be a power of 2         */
-    uint64_t q;          /* NTT-friendly prime modulus                      */
-    uint64_t omega;      /* primitive n-th root of unity mod q              */
-    uint64_t omega_inv;  /* modular inverse of omega (for INTT twiddles)    */
-    uint64_t n_inv;      /* modular inverse of n mod q (INTT final scaling) */
-    uint32_t log2_n;     /* log2(n); precomputed to avoid repeated shifting  */
-} ntt_params_t;
 
 /* ── Hardware info struct ────────────────────────────────────────────────── */
 
@@ -257,7 +240,7 @@ void ntt_inverse(uint64_t *a, const uint64_t * restrict twiddles_inv,
  * Output:   p->omega_inv, p->n_inv, p->log2_n filled in.
  * Returns:  0 on success; -1 if n is not a power of 2.
  */
-static int ntt_params_init(ntt_params_t *p)
+int ntt_params_init(ntt_params_t *p)
 {
     if (p->n == 0 || (p->n & (p->n - 1)) != 0) return -1;  /* not power of 2 */
     p->omega_inv = mod_inv(p->omega, p->q);
