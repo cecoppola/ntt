@@ -187,7 +187,7 @@ static void mnt_ntt(uint64_t *a, const uint64_t *tw_std, const ntt_params_t *p)
         for (uint64_t i = 0; i < n; i += len << 1)
             for (uint64_t j = 0; j < len; j++) {
                 uint64_t u = a[i+j];
-                uint64_t v = mont_mul(tw_m[j*step], a[i+j+len]%q, &mc);
+                uint64_t v = mont_mul(tw_m[j*step], a[i+j+len], &mc);
                 uint64_t s = u + v; if (s >= q) s -= q;
                 uint64_t d = u - v + q; if (d >= q) d -= q;
                 a[i+j]     = s;

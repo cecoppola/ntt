@@ -19,7 +19,7 @@
 | ntt_cpu.c | done | CT-DIT, lazy reduction, selftest PASS (ML-KEM + ML-DSA); ~204k NTT/s |
 | ntt_mont.c | done | Montgomery butterfly; selftest PASS; 0.73× vs lazy on x86_64 (expected) |
 | ntt_stockham.c | done | Stockham auto-sort; all 6 tests PASS; ~247k NTT/s (fastest CPU algorithm) |
-| ntt_bench.c | done | Side-by-side CPU sweep n=64..4096; Stockham wins at all sizes by ~20% |
+| ntt_bench.c | done | Side-by-side CPU sweep n=64..4096; Stockham wins n=64..2048; Montgomery wins n=4096 |
 | ntt_polymul.c | done | Cyclic polymul (cyclic conv, omega^n=1); all 8 tests PASS; ~76k/s; notes on negacyclic |
 | ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean gfx1100+gfx942; selftest deferred to 6900XT |
 | ntt_gpu_stockham.hip | done | Stockham GPU: double-buffer ping-pong, no bit-reversal; builds clean; selftest deferred |
@@ -44,7 +44,9 @@ void polymul_ntt(const uint64_t *f, const uint64_t *g, uint64_t *c,
 - ntt_gpu.hip uses `__restrict__` not `restrict` — hipcc compiles .hip as C++; recorded in c-style.md.
 - GPU ntt_forward uses per-stage reduction (not lazy) for device-code safety (q < 2^32 constraint).
 - GPU selftest deferred: no ROCm device on 5950X build machine; must run on 6900XT.
-- Montgomery is slower than lazy on x86_64 (0.73×): hardware mulq+div beats REDC overhead.
+- Montgomery standalone (ntt_mont.c) is 0.73× vs lazy on x86_64: REDC overhead exceeds hardware mulq.
+  ntt_bench.c mnt_ntt wrapper is faster (~1.15× vs CT-DIT at n=4096) due to fused enter/butterfly/exit
+  with no separate reduction passes. Bug fixed: removed redundant %q on butterfly input (was division).
 - Stockham is ~20% FASTER than CT-DIT on CPU (unexpected): eliminates bit-reversal pass,
   more sequential memory access pattern. GPU benefit expected to be even larger.
 - polymul_ntt computes cyclic convolution (mod X^n−1), not negacyclic (mod X^n+1).

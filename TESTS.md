@@ -148,8 +148,8 @@ Benchmark sweep: `./ntt_bench` — runs all CPU algorithms n=64..4096.
 |----------|-----------|---|---|-------|--------------|
 | 5950X | CT-DIT | 256 | 3329 | ~204,000 | ~4.6 ns |
 | 5950X | Stockham | 256 | 3329 | ~247,000 | ~3.8 ns |
-| 5950X | Montgomery | 256 | 3329 | ~199,000 | ~4.7 ns |
-| 5950X | polymul (Stockham) | 256 | 3329 | ~76,000 | 13.2 µs/call |
+| 5950X | Montgomery | 256 | 3329 | ~223,000 | ~4.2 ns |
+| 5950X | polymul (Stockham) | 256 | 3329 | ~76,000 | 13.1 µs/call |
 | 6900XT GPU | CT-DIT | 256 | 3329 | pending | pending |
 | 6900XT GPU | Stockham | 256 | 3329 | pending | pending |
 | MI300A GPU | Stockham | 256 | 3329 | pending | pending |

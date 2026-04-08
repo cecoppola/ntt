@@ -133,9 +133,8 @@ void ntt_stage_kernel(uint64_t * __restrict__ a,
     uint64_t j   = tid % half;
 
     uint64_t u = a[k + j];
-    /* Per-stage reduction: a[k+j+half] may be up to 2q from prior stage */
-    uint64_t v = a[k + j + half];
-    uint64_t t = (twiddles[j * stride] * (v % q)) % q;  /* safe: both < q < 2³² */
+    uint64_t v = a[k + j + half];   /* in [0, q) — conditional subtract below keeps it */
+    uint64_t t = (twiddles[j * stride] * v) % q;         /* safe: both < q < 2³² */
 
     uint64_t sum  = u + t;
     uint64_t diff = u + q - t;

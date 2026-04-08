@@ -8,12 +8,25 @@ build/
 ntt
 ntt_cpu
 ntt_gpu
+ntt_gpu_6900xt
+ntt_gpu_mi300a
+ntt_gpu_stockham_6900xt
+ntt_gpu_stockham_mi300a
+ntt_cross_verify
+ntt_cross_verify_6900xt
+ntt_cross_verify_mi300a
 ntt_bench
+ntt_mont
+ntt_stockham
+ntt_polymul
 
 # Benchmark and test output
 benchmarks/*.csv
 benchmarks/*.tsv
 results/
+bench_*.txt
+bench_mont_*.txt
+bench_gpu_*.txt
 *.log
 
 # Generated HIP/ROCm intermediate files

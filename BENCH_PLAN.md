@@ -6,13 +6,13 @@ Build a benchmarking infrastructure that:
 
 1. Produces structured, machine-readable performance data from every algorithm
 2. Automatically computes CPU→GPU speedup when both are available
-3. Provides parameter optimization loops that sweep GPU tuning variables and
-   emit a ranked results table — runnable by the user on MI300A without an agent
-4. Stores all results in versioned CSV files so performance changes are visible
-   across development sessions
+3. Provides **single-parameter sweep tools**: pick one variable, run a sweep,
+   get a ranked output file that explains the result and names interaction effects
+4. Supports tiered run modes — quick (≤5 min), standard (≤15 min), full (overnight)
+5. Stores results in append-only CSV files for cross-session comparison
 
-This is a pre-deployment requirement: all parameter optimization loops must be
-implemented and tested on CPU/6900XT before the MI300A session.
+Pre-deployment requirement: all sweep tools must be implemented and smoke-tested on
+CPU/6900XT before the MI300A session. No agent will be available on MI300A.
 
 ---
 
@@ -20,41 +20,60 @@ implemented and tested on CPU/6900XT before the MI300A session.
 
 - **No new languages or frameworks.** Pure C + HIP + shell. No Python, no Make
   targets that require network access, no external plotting tools.
-- **Structured output first.** Every benchmark binary writes a CSV row to a
-  results file _and_ prints a human-readable table. The CSV is the ground truth.
-- **Self-contained binaries.** Each benchmark binary runs standalone via a
-  single command with no config files. All knobs are command-line arguments.
-- **Reproducible.** Results files include hostname, date, ROCm version, device
-  name. Two runs of the same binary produce directly comparable rows.
+- **Single-parameter sweeps.** Each sweep tool fixes all variables except one,
+  runs the full range, prints a ranked table, and writes a CSV + a human-readable
+  `.txt` report that names the top-3 interaction variables.
+- **Tiered run time.** Every sweep tool accepts `--quick`, `--standard`, `--full`.
+  Quick mode: ≤5 min, covers the most important configurations.
+  Standard: ≤15 min, full grid for the primary parameter.
+  Full: overnight, all cross-product combinations.
+- **Self-contained binaries.** Single command, no config files. All knobs are
+  command-line arguments.
+- **Reproducible.** Results include hostname, date, ROCm version, device name.
 
 ---
 
 ## Parameter Space
 
-### Transform parameters (all algorithms)
+### Transform parameters
 
-| Parameter | Symbol | Sweep values |
-|-----------|--------|--------------|
+| Parameter | Symbol | Values |
+|-----------|--------|--------|
 | Transform size | `n` | 64, 128, 256, 512, 1024, 2048, 4096 |
-| Modulus | `q` | 3329 (ML-KEM), 8380417 (ML-DSA) |
-| Iterations | `iters` | auto-scaled: `max(100, 20_000_000 / n)` |
+| Modulus | `q` | see table below |
+| Iterations | `iters` | auto: `max(100, 20_000_000 / n)` |
 
-### GPU tuning parameters (MI300A-specific)
+### Moduli
 
-| Parameter | Symbol | Sweep values | Notes |
-|-----------|--------|--------------|-------|
-| Launch block size | `B` | 64, 128, 256 | Must be multiple of wavefront (64) |
-| Min blocks/CU hint | `M` | 1, 2, 4 | `__launch_bounds__(B, M)` at compile time; runtime sweep uses fixed upper bound |
-| Twiddle source | `TWSRC` | HBM (current), LDS-cached | Per-stage vs preloaded in shared mem |
-| Stages per kernel | `SPK` | 1 (current), 2, 4 | Kernel fusion: amortizes launch overhead |
-| Batch size | `BATCH` | 1, 4, 16, 64 | Simultaneous NTTs per kernel launch |
+| Modulus | Name | Form | Use case |
+|---------|------|------|----------|
+| 3329 | ML-KEM | 13·2^8+1 | NIST FIPS 203 (Kyber) |
+| 8380417 | ML-DSA | 2^23−2^13+1 | NIST FIPS 204 (Dilithium) |
+| 12289 | FALCON/NewHope | 3·2^12+1 | FALCON-512/1024, NewHope KEM |
+| 1073479681 | TFHE-NTT | 2^30−2^18+1 | TFHE bootstrapping, ~1.07B |
+| 998244353 | NTT-prime | 119·2^23+1 | Competitive programming, radix-2 to n=2^23 |
+| 469762049 | NTT-prime-2 | 7·2^26+1 | BFV/CKKS RNS component |
+| 786433 | FHE-small | 3·2^18+1 | BFV small modulus RNS chain |
+
+Each prime is NTT-friendly (q = k·2^m + 1, supporting power-of-2 transforms up to
+2^m). Omega values for each are computed at runtime via `mod_pow(primitive_root, (q-1)/n, q)`.
+
+### GPU tuning parameters
+
+| Parameter | Symbol | Quick | Standard | Full | Notes |
+|-----------|--------|-------|----------|------|-------|
+| Block size | `B` | 128 only | 64, 128, 256 | 64, 128, 256 | Must be multiple of wavefront |
+| Batch size | `BATCH` | 1, 16 | 1, 4, 16, 64 | 1, 4, 16, 64 | Simultaneous NTTs per launch |
+| Twiddle source | `TWSRC` | HBM | HBM, LDS | HBM, LDS | LDS fits for n≤256 (2KB) |
+| Algorithm | `ALG` | stockham | ct-dit, stockham | ct-dit, stockham, stockham-lds | |
 
 ### CPU tuning parameters
 
-| Parameter | Symbol | Sweep values |
-|-----------|--------|--------------|
+| Parameter | Symbol | Values |
+|-----------|--------|--------|
 | Algorithm | `ALG` | ct-dit, stockham, montgomery |
-| Compiler opt level | `OPT` | -O2, -O3, -O3 -march=native |
+| Modulus | `q` | all 7 from table above |
+| Transform size | `n` | 64..4096 |
 
 ---
 
@@ -68,33 +87,53 @@ elapsed_s,ntts_per_s,ns_per_butterfly,gb_per_s,notes
 ```
 
 - `device`: CPU model string or GPU name from `hipGetDeviceProperties`
-- `algorithm`: `ct-dit-cpu`, `stockham-cpu`, `montgomery-cpu`,
-  `ct-dit-gpu`, `stockham-gpu`, `stockham-gpu-lds`, `stockham-gpu-fused2`,
-  `stockham-gpu-fused4`, `polymul-cpu`, `polymul-gpu`
-- `gb_per_s`: memory bandwidth; for CPU = estimated from cache model;
-  for GPU = measured via `n * sizeof(uint64_t) * 2 * iters / elapsed_s`
-- `notes`: free text, e.g. `"block=128 min_blocks=2 lds_twiddles=yes"`
+- `algorithm`: `ct-dit-cpu`, `stockham-cpu`, `montgomery-cpu`, `ct-dit-gpu`,
+  `stockham-gpu`, `stockham-gpu-lds`, `polymul-cpu`, `polymul-gpu`
+- `gb_per_s`: GPU = `n * 8 * 2 * iters / elapsed_s`; CPU = estimated from cache model
+- `notes`: free text, e.g. `"block=128 batch=16 lds_twiddles=yes"`
 
 ### Results files
 
 | File | Written by | Content |
 |------|-----------|---------|
-| `results/cpu_sweep.csv` | `ntt_bench` | CPU algorithm × n × q sweep |
-| `results/gpu_sweep.csv` | `ntt_gpu_bench` | GPU algorithm × n × q × B sweep |
+| `results/cpu_sweep.csv` | `ntt_bench` | CPU algorithm × n × q |
+| `results/gpu_sweep.csv` | `ntt_gpu_bench` | GPU algorithm × n × q × block |
 | `results/gpu_tune.csv` | `ntt_gpu_tune` | Full GPU parameter grid search |
-| `results/compare.csv` | `bench_compare.sh` | CPU + GPU side by side with speedup column |
+| `results/compare.csv` | `bench_compare.sh` | CPU + GPU side-by-side with speedup |
 | `results/polymul.csv` | `ntt_polymul` | End-to-end polymul benchmark |
 
-All files are append-only. Each row has a timestamp, so multiple runs produce
-a history. Directory `results/` is gitignored (data, not code).
+All files are append-only with timestamps. `results/` is gitignored.
+
+### Per-sweep report format (`.txt`)
+
+Each sweep tool writes `results/<param>_sweep_<timestamp>.txt`:
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  Block Size Sweep  —  n=256, q=3329, algo=stockham, batch=16     ║
+║  MI300A  2026-04-08  ROCm 7.0.3                                  ║
+╠══════════╦═══════════╦══════════════╦═════════════╦═════════════╣
+║ block    ║  NTT/s    ║  ns/butterfly║  GB/s       ║  vs best    ║
+╠══════════╬═══════════╬══════════════╬═════════════╬═════════════╣
+║   128 ★  ║  486,200  ║     0.52     ║  15.2       ║  1.00×      ║
+║   256    ║  441,000  ║     0.57     ║  13.8       ║  0.91×      ║
+║    64    ║  312,000  ║     0.81     ║   9.8       ║  0.64×      ║
+╚══════════╩═══════════╩══════════════╩═════════════╩═════════════╝
+  Recommendation: block=128
+  Top interaction effects:
+    1. batch size (batch=16 was fixed; try --sweep-batch to see its effect)
+    2. twiddle source (LDS twiddles not tested; add --lds to enable)
+    3. transform size (result is n=256 specific; rerun with --all-n for full picture)
+```
+
+The "Top interaction effects" section names the next variables worth sweeping,
+so the user knows which optimization cycle to run next.
 
 ---
 
 ## New Files
 
 ### `ntt_timing.h` — shared timing and result struct
-
-Inline header included by all benchmark binaries. Provides:
 
 ```c
 typedef struct {
@@ -111,72 +150,68 @@ typedef struct {
     char      notes[128];
 } bench_result_t;
 
-/* Timing */
 void bench_clock_start(struct timespec *t);
 double bench_clock_elapsed(const struct timespec *t);
-
-/* Output */
-void bench_print_table(const bench_result_t *r);  /* pretty terminal table  */
-void bench_write_csv(const bench_result_t *r,     /* append one CSV row     */
-                     const char *outfile);
-
-/* Auto-scale iters for a target ~2s wall time at the given n */
-uint64_t bench_iters_for_n(uint64_t n);
+void bench_print_table(const bench_result_t *r);     /* terminal table  */
+void bench_write_csv(const bench_result_t *r, const char *outfile);
+void bench_write_report(const bench_result_t *results, int count,
+                        const char *swept_param, const char *fixed_params,
+                        const char *outfile);         /* .txt ranked report */
+uint64_t bench_iters_for_n(uint64_t n);              /* auto-scale iters  */
 ```
 
-### `ntt_gpu_bench.hip` — GPU algorithm × parameter sweep
+### `ntt_gpu_bench.hip` — GPU sweep binary
 
-Standalone binary. Sweeps n × q × block_size for both `ct-dit-gpu` and
-`stockham-gpu`. Usage:
+Sweeps n × q × block_size for both `ct-dit-gpu` and `stockham-gpu`.
 
 ```
-./ntt_gpu_bench_mi300a [--csv results/gpu_sweep.csv] [--n 256] [--all-n]
-                       [--block 128] [--all-blocks] [--iters 0 (auto)]
+./ntt_gpu_bench [--csv results/gpu_sweep.csv]
+                [--n 256] [--all-n]
+                [--q 3329] [--all-q]
+                [--block 128] [--all-blocks]
+                [--algo stockham] [--all-algos]
+                [--iters 0]
+                [--quick | --standard | --full]
 ```
 
-With `--all-n --all-blocks` it runs the full sweep grid (~42 configurations)
-and writes every result as a CSV row, printing a sorted table at the end.
+With `--quick`: n=256, q=3329 only, block=128 (~1 min).
+With `--standard`: all n, q=3329, all blocks (~8 min).
+With `--full`: all n × all q × all blocks (~45 min).
 
 ### `ntt_gpu_tune.hip` — MI300A parameter optimization loop
 
-This is the primary tool for deployment on MI300A. Runs a grid search over:
-
-- `n` ∈ {64, 128, 256, 512, 1024}
-- `block_size` ∈ {64, 128, 256}
-- `batch` ∈ {1, 4, 16, 64}
-- `algorithm` ∈ {ct-dit, stockham, stockham-lds (twiddles in LDS)}
-
-For each configuration, runs `iters` forward NTTs, records result, writes CSV.
-At the end: prints ranked table (best NTT/s first), emits recommendation:
+Grid search over all GPU tuning parameters. Accepts a `--sweep-<param>` flag
+to fix all others and sweep one:
 
 ```
-╔══════════════════════════════════════════════════════════════════════╗
-║  MI300A Parameter Optimization — 180 configurations × 2 param sets  ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  OPTIMAL  n=256 q=3329:  stockham-lds  block=128  batch=16          ║
-║           486,200 NTT/s  (2.39× vs CPU baseline 203,600 NTT/s)      ║
-╚══════════════════════════════════════════════════════════════════════╝
+./ntt_gpu_tune [--outfile results/gpu_tune.csv]
+               [--quick | --standard | --full]
+               [--sweep-block]    # sweep block size, fix others
+               [--sweep-batch]    # sweep batch size, fix others
+               [--sweep-n]        # sweep transform size, fix others
+               [--sweep-q]        # sweep modulus, fix others
+               [--sweep-algo]     # sweep algorithm variant, fix others
+               [--n 256] [--q 3329] [--block 128] [--batch 16] [--algo stockham]
 ```
 
-All 180 rows written to `results/gpu_tune.csv`. User reads this file to
-set the optimized parameters for the production kernel.
+Each `--sweep-<param>` run:
+1. Runs all values of that parameter, holding all others at their defaults
+2. Prints ranked table to terminal
+3. Appends rows to `--outfile` CSV
+4. Writes `results/<param>_sweep_<timestamp>.txt` with ranked table + interaction notes
 
-Usage:
+Quick mode per sweep: ≤5 min. Standard: ≤15 min. Full: all cross-products.
+
+Default values (pre-optimized for MI300A):
+- n=256, q=3329, block=128, batch=16, algo=stockham
+
+### `bench_compare.sh` — CPU vs GPU comparison
+
+Shell script using `awk`. Reads `results/cpu_sweep.csv` and `results/gpu_sweep.csv`,
+joins on (algorithm_base, n, q), computes speedup, prints table.
+
 ```
-./ntt_gpu_tune_mi300a [--outfile results/gpu_tune.csv] [--quick] [--full]
-  --quick: n=256 only, 3×3×4 = 36 configs (~3 min on MI300A)
-  --full:  all n, all configs, ~180 configs (~15 min on MI300A)
-```
-
-### `bench_compare.sh` — CPU vs GPU comparison runner
-
-Shell script. Runs `ntt_bench` (CPU) and `ntt_gpu_bench` (GPU), reads their
-CSV output files, joins on (n, q), computes speedup column, prints comparison
-table. No Python required — uses `awk`.
-
-Usage:
-```
-bash bench_compare.sh [--n 256] [--q 3329]
+bash bench_compare.sh [--n 256] [--q 3329] [--all]
 ```
 
 Output:
@@ -190,126 +225,105 @@ Output:
 └──────────────┴──────┴──────────┴──────────────┴──────────────┴─────────┘
 ```
 
-The speedup column is the primary optimization signal. It is populated
-automatically whenever both a CPU and GPU result exist in the CSV files.
-
 ---
 
 ## Changes to Existing Files
 
-### `ntt_cpu.c`, `ntt_stockham.c`, `ntt_mont.c`
-
-- Replace ad-hoc timing code with calls to `bench_timing.h` helpers
-- Add `--csv <outfile>` flag; default behavior unchanged
-- Remove per-binary timestamped output files (superseded by `results/cpu_sweep.csv`)
-- Add `--sweep` mode: runs all (n, q) combinations and writes one CSV row each
-
 ### `ntt_bench.c`
+- Add `--csv results/cpu_sweep.csv` flag; append one row per (algorithm, n, q)
+- Add `--sweep` mode: all algorithm × n × q combinations
+- Add `--all-q` flag: sweep all 7 moduli from the table above
 
-- Replace current custom timing with `bench_timing.h`
-- Add `--csv results/cpu_sweep.csv` output
-- Already does the algorithm × n sweep; align column names to CSV schema
+### `ntt_cpu.c`, `ntt_stockham.c`, `ntt_mont.c`
+- Add `--csv <outfile>` and `--sweep` flags (consistent with bench interface)
+- Replace inline timing with `bench_timing.h` helpers
 
 ### `ntt_polymul.c`
-
-- Add `--csv results/polymul.csv` output
-- Add `--sweep` mode: runs ML-KEM and ML-DSA at n ∈ {64, 128, 256}
+- Add `--csv results/polymul.csv` and `--sweep` flags
+- Add `--all-q` flag to test all 7 moduli
 
 ### `ntt_gpu.hip`, `ntt_gpu_stockham.hip`
-
-- Add `bench_timing.h` output (HIP side: use `hipEvent_t` for device-side timing
-  and `clock_gettime` for wall-clock timing, report both)
 - Add `--csv results/gpu_sweep.csv` and `--sweep` flags
-- GPU timing note: measure wall time around the full `gpu_stockham()` call
-  (includes H→D copy, kernel, D→H copy) AND kernel-only time via `hipEvent_t`.
-  Report both as separate columns: `wall_ntts_per_s` and `kernel_ntts_per_s`.
+- Report both wall time (H↔D + kernel) and kernel-only time via `hipEvent_t`
+- GPU timing note: MI300A unified HBM → H↔D ≈ 0; 6900XT PCIe → wall time matters
 
 ### `Makefile`
 
-New targets:
 ```makefile
-bench-sweep:     run ntt_bench --sweep → results/cpu_sweep.csv
-gpu-bench-sweep: run ntt_gpu_bench --sweep → results/gpu_sweep.csv (requires GPU)
-gpu-tune:        run ntt_gpu_tune --quick → results/gpu_tune.csv (requires GPU)
-compare:         run bench_compare.sh
-results-clean:   rm results/*.csv
+bench-sweep:        ntt_bench --sweep --all-q → results/cpu_sweep.csv
+gpu-bench-sweep:    ntt_gpu_bench --standard  → results/gpu_sweep.csv (GPU required)
+gpu-tune-quick:     ntt_gpu_tune --quick       → results/gpu_tune.csv (GPU required)
+gpu-tune-full:      ntt_gpu_tune --full        → results/gpu_tune_full.csv
+compare:            bench_compare.sh
+results-clean:      rm results/*.csv results/*.txt
 ```
 
 ### `.gitignore`
-
-Add `results/` directory.
+Add `results/`.
 
 ---
 
-## MI300A Deployment Sequence (no agent)
-
-The user runs these commands in order after logging into MI300A:
+## MI300A Deployment Sequence
 
 ```bash
-# 1. Build all GPU targets
+# 1. Build
 module load PrgEng-cray-amd/8.5.0 rocm/7.0.3 craype-accel-amd-gfc942
 make gpu-stok-mi300a gpu-bench-mi300a gpu-tune-mi300a
 
-# 2. Run the environment probe (already exists)
+# 2. Environment probe
 bash mi300a_probe.sh 2>&1 | tee results/mi300a_probe.txt
 
-# 3. Run the quick parameter optimization loop (~3 min)
-./ntt_gpu_tune_mi300a --quick --outfile results/gpu_tune.csv
+# 3. Quick block size sweep (~3 min) — start here
+./ntt_gpu_tune_mi300a --sweep-block --quick
 
-# 4. View the recommendation (terminal table printed by gpu_tune)
-# Optimal block_size and batch printed at the end
+# 4. Read the recommendation; set optimal block size
+# e.g. optimal is block=128 → use --block 128 in subsequent runs
 
-# 5. Run the full sweep with optimal parameters
-./ntt_gpu_bench_mi300a --all-n --all-blocks --csv results/gpu_sweep.csv
+# 5. Batch size sweep with optimal block (~3 min)
+./ntt_gpu_tune_mi300a --sweep-batch --block 128 --quick
 
-# 6. Compare against CPU baseline (if ntt_bench was built)
-bash bench_compare.sh
+# 6. Modulus sweep (which q benefits most from GPU?) (~4 min)
+./ntt_gpu_tune_mi300a --sweep-q --block 128 --batch 16 --quick
 
-# 7. Optionally run the full tune (~15 min)
+# 7. Transform size sweep (~3 min)
+./ntt_gpu_tune_mi300a --sweep-n --block 128 --batch 16 --quick
+
+# 8. Compare all results against CPU baseline
+bash bench_compare.sh --all
+
+# 9. Optional: full grid (~15-45 min overnight)
 ./ntt_gpu_tune_mi300a --full --outfile results/gpu_tune_full.csv
 ```
 
-After step 3, the user has everything needed to set compile-time constants
-for the production kernel (block_size, LDS config, batch size). After step 7,
-the full parameter sensitivity surface is in `results/gpu_tune_full.csv`.
+Each step ≤5 min. After step 4, optimal block size is known. Each subsequent step
+applies the findings from previous steps. The sweep `.txt` report names what to run next.
 
 ---
 
 ## Phase Mapping
 
-| Phase | Bench work | Blocking on |
-|-------|-----------|-------------|
-| Now (CPU-only) | Implement `ntt_timing.h`; refactor existing CPU benches; add `--sweep`/`--csv` to all CPU binaries; `ntt_bench.c` alignment | Nothing |
-| On 6900XT | Build and test `ntt_gpu_bench.hip`; validate `bench_compare.sh` speedup column | 6900XT |
-| On MI300A | Run `ntt_gpu_tune_mi300a --quick`; apply optimal params to production kernel | MI300A |
+| Phase | Work | Blocking |
+|-------|------|---------|
+| Now (CPU-only) | `ntt_timing.h`; `--csv`/`--sweep` for all CPU binaries; `ntt_bench.c` `--all-q` | Nothing |
+| On 6900XT | `ntt_gpu_bench.hip`; validate `bench_compare.sh`; test all moduli on GPU | 6900XT |
+| On MI300A | Run deployment sequence; apply optimal params to production kernel | MI300A |
 
 ---
 
-## Open Questions for Review
+## Open Questions
 
-1. **GPU timing granularity**: should kernel-only time (`hipEvent_t`) be the
-   primary metric, or wall time (includes H↔D transfers)?
-   - Recommendation: report both; use kernel-only for optimization decisions
-     (the MI300A APU has unified memory so H↔D copies will be near-zero there,
-     but 6900XT has PCIe — wall time is meaningful on 6900XT, misleading on MI300A)
+1. **Kernel-only vs wall time**: use kernel-only (`hipEvent_t`) as primary optimization
+   metric; report wall time as secondary. MI300A APU: H↔D ≈ 0 so they converge.
+   6900XT PCIe: wall time is the real-world cost.
 
-2. **Batch dimension**: should `ntt_gpu_tune` sweep batch sizes, or is that
-   a separate Phase 4 kernel design decision?
-   - Recommendation: include batch=1 and batch=16 at minimum; the tuner should
-     flag if batching gives >10% gain (it likely will, especially for small n)
+2. **Batch dimension**: include batch=1 and batch=16 in quick mode; all 4 values
+   in standard. Flag if batching gives >10% gain (likely for small n).
 
-3. **CSV append vs overwrite**: append means the file grows across sessions and
-   shows history; overwrite means the file always reflects the latest run.
-   - Recommendation: append with timestamp; `results-clean` target for reset
+3. **CSV append vs overwrite**: append with timestamp; `results-clean` for reset.
 
-4. **`ntt_bench.c` scope**: it currently runs all 3 CPU algorithms in one binary.
-   Should it be split into per-algorithm binaries for `--sweep` mode, or stay
-   combined?
-   - Recommendation: keep combined (it is the CPU comparison tool); add `--csv`
-     flag that writes one row per (algorithm, n, q) combination
+4. **Stages-per-kernel fusion** (SPK parameter): defer to Phase 4 — requires new
+   fused kernel variant, not a runtime parameter.
 
-5. **Stages-per-kernel fusion** (the `SPK` parameter above): this requires
-   writing a new fused kernel variant, not just passing a runtime parameter.
-   Should the tuner cover it, or defer to a separate Phase 4 task?
-   - Recommendation: defer; `ntt_gpu_tune` sweeps only runtime parameters
-     (block_size, batch, LDS flag). Kernel fusion is a separate implementation.
+5. **RNS multi-modulus chains** (BFV/CKKS): add moduli 469762049 and 786433 to
+   the sweep table. RNS chains use simultaneous NTTs at multiple primes — the
+   batch sweep will naturally reveal whether this pattern is GPU-efficient.
