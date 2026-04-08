@@ -8,7 +8,16 @@ build/
 bin/
 
 # Root-level markdown (docs are not tracked; edit locally)
-/*.md
+# README.md is excluded from this rule (tracked for GitHub)
+/BENCH_PLAN.md
+/BUILD.md
+/CLAUDE.md
+/PLAN.md
+/REFERENCE.md
+/RULES.md
+/STATUS.md
+/TESTS.md
+/table_style.md
 
 # Benchmark and test output
 benchmarks/*.csv
