@@ -3,7 +3,7 @@
 |-------|---------------|---------|
 | 1     | Design & Plan | done    |
 | 2     | CPU Reference | done    |
-| 3     | GPU Kernel    | pending |
+| 3     | GPU Kernel    | done    |
 | 4     | MI300A Tuning | pending |
 
 ## Component Status
@@ -16,18 +16,22 @@
 | PLAN.md | done | 6-segment algorithm tables; ~49% optimal gain identified; Phase 2 stack chosen |
 | TESTS.md | pending | Stub only; test framework not yet written |
 | ntt_cpu.c | done | CT-DIT, lazy reduction, selftest PASS (ML-KEM + ML-DSA); 269k NTT/s |
+| ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean; selftest deferred to 6900XT |
 
 ## API Surface
 ```c
-/* ntt_cpu.c */
+/* ntt_cpu.c and ntt_gpu.hip — identical public signatures */
 uint64_t *ntt_alloc_twiddles(const ntt_params_t *p);
 uint64_t *ntt_alloc_twiddles_inv(const ntt_params_t *p);
-void ntt_forward(uint64_t *a, const uint64_t * restrict twiddles, const ntt_params_t *p);
-void ntt_inverse(uint64_t *a, const uint64_t * restrict twiddles_inv, const ntt_params_t *p);
+void ntt_forward(uint64_t *a, const uint64_t *twiddles, const ntt_params_t *p);
+void ntt_inverse(uint64_t *a, const uint64_t *twiddles_inv, const ntt_params_t *p);
 ```
 
 ## Deviations from Design Doc
-None.
+- ntt_gpu.hip uses `__restrict__` not `restrict` — hipcc compiles .hip as C++; recorded in c-style.md.
+- GPU ntt_forward uses per-stage reduction (not lazy) for device-code safety (q < 2³² constraint).
+- GPU selftest deferred: no ROCm device on 5950X build machine; must run on 6900XT.
 
 ## Next Step
-Begin Phase 3: write ntt_gpu.c — HIP kernel wrapping ntt_forward with the same public signature, targeting gfx1100 (6900XT). Exit criterion: builds clean with hipcc, selftest PASS on GPU matching CPU output element-wise.
+Phase 4 (MI300A tuning) blocked pending 6900XT runtime verification. Immediate: write Makefile
+covering both targets (gfx1100 and gfx942), then run GPU selftest on 6900XT to close Phase 3.

@@ -14,6 +14,9 @@ paths:
 
 - C only. Reject all C++ constructs: no classes, templates, namespaces, references,
   RAII, or `new`/`delete`. This applies to both host code and GPU kernels.
+- hipcc compiles all .hip files as C++ internally. Use `__restrict__` (not `restrict`)
+  in .hip files — `restrict` is a C99 keyword not recognised by the C++ frontend.
+  Host-only .c files compiled with cc/clang may use plain `restrict`.
 - Compiler: hipcc or direct clang with `--offload-arch=gfx942` (MI300A) or
   `--offload-arch=gfx1100` (6900XT). Enable `-Wall -Wextra`; fix all warnings.
 - Build must be clean (zero warnings) before a unit is marked done.
