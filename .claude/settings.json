@@ -102,7 +102,7 @@
       "Set to 31000 to restore the default for complex architectural decisions.",
       "WARNING: this is a string value, not a number."
     ],
-    "MAX_THINKING_TOKENS": "16000"
+    "MAX_THINKING_TOKENS": "8000"
   },
 
   "permissions": {
