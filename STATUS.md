@@ -21,6 +21,8 @@
 | ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean (gfx1100 + gfx942); selftest deferred to 6900XT |
 | Makefile | done | Targets: cpu, gpu-6900xt, gpu-mi300a, verify-6900xt, verify-mi300a, test/bench presets |
 | ntt_cross_verify.hip | done | 7-test CPU vs GPU verifier; builds clean gfx1100+gfx942; run on 6900XT |
+| ntt_stockham.c | done | Stockham auto-sort NTT; all 6 tests PASS (ML-KEM+ML-DSA); ~241k NTT/s |
+| mi300a_probe.sh | done | 10-section MI300A environment probe; run on target, save output |
 
 ## API Surface
 ```c
@@ -38,7 +40,14 @@ void ntt_inverse(uint64_t *a, const uint64_t *twiddles_inv, const ntt_params_t *
 - Montgomery is slower than lazy on x86_64 (0.73×): hardware mulq+div beats REDC overhead.
   Expected to reverse on GPU where no 128-bit multiply instruction exists.
 
+## Stockham Algorithm
+- Auto-sort DIT: u=src[j+k*p], v=src[j+k*p+n/2], dst[j+k*2p]/dst[j+k*2p+p], twiddle tw[j*qs]
+  where p=2^s, qs=n/2^(s+1). Result in natural order without bit-reversal.
+- ~241k NTT/s on 5950X (slightly slower than CT-DIT ~269k due to malloc+memcpy overhead).
+- Same twiddle table layout as CT-DIT (tw[k]=omega^k, k in [0,n/2)).
+
 ## Next Step
-CPU-side: implement Stockham FFT variant (ntt_stockham.c) — eliminates bit-reversal,
-GPU-preferred algorithm, same public API. Verify vs lazy CPU output.
+GPU kernel: port Stockham auto-sort to ntt_gpu_stockham.hip — the double-buffer ping-pong
+maps to per-stage shared-memory staging on MI300A. Exit criterion: builds gfx942,
+same 6 selftests pass vs CPU reference on 6900XT.
 Hardware: run `make cross-verify` on 6900XT when available (Phase 3 close).
