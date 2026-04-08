@@ -15,10 +15,9 @@
 #   make test-cpu             run CT-DIT CPU selftest
 #   make test-stockham        run Stockham CPU selftest
 #   make test-mont            run Montgomery CPU selftest
-#   make bench-cpu/stockham/mont   run individual CPU benchmarks
 #   make bench-sweep          run side-by-side algorithm sweep (all n)
 #   make cross-verify         run CPU vs GPU cross-validation (requires 6900XT)
-#   make clean                remove all built binaries
+#   make clean                remove bin/ directory
 #
 # Environment variables (override on command line):
 #   CC          C compiler for host code  (default: cc)
@@ -34,8 +33,6 @@
 #   Load modules before building:
 #     module load PrgEng-cray-amd/8.5.0 rocm/7.0.3 craype-accel-amd-gfc942
 #   Then: make gpu-mi300a
-#   The craype-accel-amd-gfc942 module sets --offload-arch=gfx942 automatically
-#   via $PE_OFFLOAD_ARCH; we pass it explicitly below for reproducibility.
 # =============================================================================
 
 # ── Compilers ─────────────────────────────────────────────────────────────────
@@ -43,18 +40,13 @@ CC    ?= cc
 HIPCC ?= hipcc
 
 # ── Base flags ────────────────────────────────────────────────────────────────
-# -Wall -Wextra: all warnings required; zero warnings = build clean.
-# -O2: optimised but debuggable; bump to -O3 during MI300A tuning phase.
 BASE_CFLAGS   := -O2 -Wall -Wextra
 BASE_HIPFLAGS := -O2 -Wall -Wextra
 
-# Append any caller-supplied flags
 ALL_CFLAGS   := $(BASE_CFLAGS)   $(CFLAGS)
 ALL_HIPFLAGS := $(BASE_HIPFLAGS) $(HIPFLAGS)
 
 # ── Offload arch flags ────────────────────────────────────────────────────────
-# gfx1100: AMD Radeon RX 6900 XT (RDNA3), wavefront=32, dev/test platform.
-# gfx942:  AMD MI300A (CDNA3), wavefront=64, production target.
 ARCH_6900XT := --offload-arch=gfx1100
 ARCH_MI300A := --offload-arch=gfx942
 
@@ -64,24 +56,29 @@ Q     ?= 3329
 OMEGA ?= 17
 ITERS ?= 100000
 
+# ── Directory layout ──────────────────────────────────────────────────────────
+S := src
+B := bin
+
 # ── Source files ──────────────────────────────────────────────────────────────
-CPU_SRC   := ntt_cpu.c
-STOK_SRC  := ntt_stockham.c
-GPU_SRC   := ntt_gpu.hip
-GSTOK_SRC := ntt_gpu_stockham.hip
+CPU_SRC   := $(S)/ntt_cpu.c
+STOK_SRC  := $(S)/ntt_stockham.c
+GPU_SRC   := $(S)/ntt_gpu.hip
+GSTOK_SRC := $(S)/ntt_gpu_stockham.hip
+HDR       := $(S)/ntt.h
 
 # ── Output binaries ───────────────────────────────────────────────────────────
-CPU_BIN        := ntt_cpu
-MONT_BIN       := ntt_mont
-STOK_BIN       := ntt_stockham
-BENCH_BIN      := ntt_bench
-POLYMUL_BIN    := ntt_polymul
-GPU_6900XT     := ntt_gpu_6900xt
-GPU_MI300A     := ntt_gpu_mi300a
-GSTOK_6900XT   := ntt_gpu_stockham_6900xt
-GSTOK_MI300A   := ntt_gpu_stockham_mi300a
-VERIFY_6900XT  := ntt_cross_verify_6900xt
-VERIFY_MI300A  := ntt_cross_verify_mi300a
+CPU_BIN        := $(B)/ntt_cpu
+MONT_BIN       := $(B)/ntt_mont
+STOK_BIN       := $(B)/ntt_stockham
+BENCH_BIN      := $(B)/ntt_bench
+POLYMUL_BIN    := $(B)/ntt_polymul
+GPU_6900XT     := $(B)/ntt_gpu_6900xt
+GPU_MI300A     := $(B)/ntt_gpu_mi300a
+GSTOK_6900XT   := $(B)/ntt_gpu_stockham_6900xt
+GSTOK_MI300A   := $(B)/ntt_gpu_stockham_mi300a
+VERIFY_6900XT  := $(B)/ntt_cross_verify_6900xt
+VERIFY_MI300A  := $(B)/ntt_cross_verify_mi300a
 
 # ── Default target ────────────────────────────────────────────────────────────
 .PHONY: all cpu mont stockham bench polymul \
@@ -96,71 +93,75 @@ all: cpu mont stockham bench polymul \
      gpu-6900xt gpu-mi300a gpu-stok-6900xt gpu-stok-mi300a \
      verify-6900xt verify-mi300a
 
+# ── bin/ directory ────────────────────────────────────────────────────────────
+$(B):
+	mkdir -p $(B)
+
 # ── Build rules ───────────────────────────────────────────────────────────────
 
 cpu: $(CPU_BIN)
 
-$(CPU_BIN): $(CPU_SRC) ntt.h
+$(CPU_BIN): $(CPU_SRC) $(HDR) | $(B)
 	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (CPU reference)"
 
 mont: $(MONT_BIN)
 
-$(MONT_BIN): ntt_mont.c ntt.h
-	$(CC) $(ALL_CFLAGS) -o $@ ntt_mont.c
+$(MONT_BIN): $(S)/ntt_mont.c $(HDR) | $(B)
+	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (Montgomery CPU)"
 
 stockham: $(STOK_BIN)
 
-$(STOK_BIN): $(STOK_SRC) ntt.h
+$(STOK_BIN): $(STOK_SRC) $(HDR) | $(B)
 	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (Stockham auto-sort CPU)"
 
 bench: $(BENCH_BIN)
 
-$(BENCH_BIN): ntt_bench.c ntt.h
-	$(CC) $(ALL_CFLAGS) -o $@ ntt_bench.c
+$(BENCH_BIN): $(S)/ntt_bench.c $(HDR) | $(B)
+	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (CPU algorithm sweep)"
 
 polymul: $(POLYMUL_BIN)
 
-$(POLYMUL_BIN): ntt_polymul.c ntt.h
-	$(CC) $(ALL_CFLAGS) -o $@ ntt_polymul.c
+$(POLYMUL_BIN): $(S)/ntt_polymul.c $(HDR) | $(B)
+	$(CC) $(ALL_CFLAGS) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (polynomial multiplication)"
 
 gpu-6900xt: $(GPU_6900XT)
 
-$(GPU_6900XT): $(GPU_SRC)
+$(GPU_6900XT): $(GPU_SRC) | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_6900XT) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx1100 / 6900XT)"
 
 gpu-mi300a: $(GPU_MI300A)
 
-$(GPU_MI300A): $(GPU_SRC)
+$(GPU_MI300A): $(GPU_SRC) | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_MI300A) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx942 / MI300A)"
 
 verify-6900xt: $(VERIFY_6900XT)
 
-$(VERIFY_6900XT): ntt_cross_verify.hip
+$(VERIFY_6900XT): $(S)/ntt_cross_verify.hip | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_6900XT) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx1100 / 6900XT)"
 
 verify-mi300a: $(VERIFY_MI300A)
 
-$(VERIFY_MI300A): ntt_cross_verify.hip
+$(VERIFY_MI300A): $(S)/ntt_cross_verify.hip | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_MI300A) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx942 / MI300A)"
 
 gpu-stok-6900xt: $(GSTOK_6900XT)
 
-$(GSTOK_6900XT): $(GSTOK_SRC)
+$(GSTOK_6900XT): $(GSTOK_SRC) | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_6900XT) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (Stockham gfx1100 / 6900XT)"
 
 gpu-stok-mi300a: $(GSTOK_MI300A)
 
-$(GSTOK_MI300A): $(GSTOK_SRC)
+$(GSTOK_MI300A): $(GSTOK_SRC) | $(B)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_MI300A) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (Stockham gfx942 / MI300A)"
 
@@ -168,78 +169,73 @@ $(GSTOK_MI300A): $(GSTOK_SRC)
 
 test-cpu: $(CPU_BIN)
 	@printf '\n  Running CPU selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
-	./$(CPU_BIN) $(N) $(Q) $(OMEGA) 1
+	$(CPU_BIN) $(N) $(Q) $(OMEGA) 1
 
 test-mont: $(MONT_BIN)
 	@printf '\n  Running Montgomery selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
-	./$(MONT_BIN) $(N) $(Q) $(OMEGA) 1
+	$(MONT_BIN) $(N) $(Q) $(OMEGA) 1
 
 test-stockham: $(STOK_BIN)
 	@printf '\n  Running Stockham selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
-	./$(STOK_BIN) $(N) $(Q) $(OMEGA) 1
+	$(STOK_BIN) $(N) $(Q) $(OMEGA) 1
 
 test-gpu: $(GPU_6900XT)
 	@printf '\n  Running GPU selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
-	./$(GPU_6900XT) $(N) $(Q) $(OMEGA) 1
+	$(GPU_6900XT) $(N) $(Q) $(OMEGA) 1
 
-# Phase 3 exit criterion: CPU vs GPU cross-verification
 cross-verify: $(VERIFY_6900XT)
 	@printf '\n  Running CPU vs GPU cross-verification (n=$(N) q=$(Q) omega=$(OMEGA))...\n'
-	./$(VERIFY_6900XT) $(N) $(Q) $(OMEGA)
+	$(VERIFY_6900XT) $(N) $(Q) $(OMEGA)
 
 cross-verify-mi300a: $(VERIFY_MI300A)
 	@printf '\n  Running CPU vs GPU cross-verification on MI300A...\n'
-	./$(VERIFY_MI300A) $(N) $(Q) $(OMEGA)
+	$(VERIFY_MI300A) $(N) $(Q) $(OMEGA)
 
 test-gpu-mi300a: $(GPU_MI300A)
 	@printf '\n  Running GPU selftest on MI300A (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
-	./$(GPU_MI300A) $(N) $(Q) $(OMEGA) 1
+	$(GPU_MI300A) $(N) $(Q) $(OMEGA) 1
 
 # ── Benchmark rules ───────────────────────────────────────────────────────────
 
 bench-cpu: $(CPU_BIN)
 	@printf '\n  CPU benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
-	./$(CPU_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
+	$(CPU_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
 
 bench-mont: $(MONT_BIN)
 	@printf '\n  Montgomery benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
-	./$(MONT_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
+	$(MONT_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
 
 bench-stockham: $(STOK_BIN)
 	@printf '\n  Stockham benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
-	./$(STOK_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
+	$(STOK_BIN) $(N) $(Q) $(OMEGA) $(ITERS)
 
 bench-sweep: $(BENCH_BIN)
 	@printf '\n  CPU algorithm sweep: all sizes, all algorithms\n'
-	./$(BENCH_BIN)
+	$(BENCH_BIN)
 
 bench-gpu: $(GPU_6900XT)
 	@printf '\n  GPU benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
-	./$(GPU_6900XT) $(N) $(Q) $(OMEGA) $(ITERS)
+	$(GPU_6900XT) $(N) $(Q) $(OMEGA) $(ITERS)
 
 bench-gpu-mi300a: $(GPU_MI300A)
 	@printf '\n  GPU (MI300A) benchmark: n=$(N) q=$(Q) omega=$(OMEGA) iters=$(ITERS)\n'
-	./$(GPU_MI300A) $(N) $(Q) $(OMEGA) $(ITERS)
+	$(GPU_MI300A) $(N) $(Q) $(OMEGA) $(ITERS)
 
-# ML-KEM parameter set (n=256, q=3329, omega=17)
 bench-mlkem-cpu: $(CPU_BIN)
-	./$(CPU_BIN) 256 3329 17 $(ITERS)
+	$(CPU_BIN) 256 3329 17 $(ITERS)
 
 bench-mlkem-gpu: $(GPU_6900XT)
-	./$(GPU_6900XT) 256 3329 17 $(ITERS)
+	$(GPU_6900XT) 256 3329 17 $(ITERS)
 
-# ML-DSA parameter set (n=256, q=8380417, omega=1753)
 bench-mldsa-cpu: $(CPU_BIN)
-	./$(CPU_BIN) 256 8380417 1753 $(ITERS)
+	$(CPU_BIN) 256 8380417 1753 $(ITERS)
 
 bench-mldsa-gpu: $(GPU_6900XT)
-	./$(GPU_6900XT) 256 8380417 1753 $(ITERS)
+	$(GPU_6900XT) 256 8380417 1753 $(ITERS)
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f $(CPU_BIN) $(MONT_BIN) $(STOK_BIN) $(BENCH_BIN) $(POLYMUL_BIN)
-	rm -f $(GPU_6900XT) $(GPU_MI300A) $(GSTOK_6900XT) $(GSTOK_MI300A)
-	rm -f $(VERIFY_6900XT) $(VERIFY_MI300A)
+	rm -rf $(B)
 	rm -f bench_*.txt bench_gpu_*.txt
 	@printf '  Cleaned.\n'
