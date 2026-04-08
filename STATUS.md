@@ -14,10 +14,11 @@
 | .claude/hooks/ | done | 5 hook scripts: block-bash-builtins, block-destructive, compact-reinject, stop-verify, notify |
 | .claude/rules/c-style.md | done | Path-scoped C/HIP rules; loads only when editing .c/.h/.hip |
 | PLAN.md | done | 6-segment algorithm tables; ~49% optimal gain identified; Phase 2 stack chosen |
-| TESTS.md | pending | Stub only; test framework not yet written |
+| TESTS.md | done | 9 CPU unit tests (PASS), 5 GPU tests (pending HW), 7 cross-val tests (pending HW) |
 | ntt_cpu.c | done | CT-DIT, lazy reduction, selftest PASS (ML-KEM + ML-DSA); 269k NTT/s |
 | ntt_gpu.hip | done | CT-DIT per-stage kernels; builds clean (gfx1100 + gfx942); selftest deferred to 6900XT |
-| Makefile | done | Targets: cpu, gpu-6900xt, gpu-mi300a, test/bench variants, ML-KEM/ML-DSA presets |
+| Makefile | done | Targets: cpu, gpu-6900xt, gpu-mi300a, verify-6900xt, verify-mi300a, test/bench presets |
+| ntt_cross_verify.hip | done | 7-test CPU vs GPU verifier; builds clean gfx1100+gfx942; run on 6900XT |
 
 ## API Surface
 ```c
@@ -34,5 +35,6 @@ void ntt_inverse(uint64_t *a, const uint64_t *twiddles_inv, const ntt_params_t *
 - GPU selftest deferred: no ROCm device on 5950X build machine; must run on 6900XT.
 
 ## Next Step
-Phase 4 (MI300A tuning) blocked pending 6900XT runtime verification. Immediate: write Makefile
-covering both targets (gfx1100 and gfx942), then run GPU selftest on 6900XT to close Phase 3.
+Run `make cross-verify` on the 6900XT system to close Phase 3. Command: 
+`./ntt_cross_verify_6900xt 256 3329 17` and `./ntt_cross_verify_6900xt 256 8380417 1753`.
+All 7 tests must pass before Phase 4 (MI300A tuning) begins.

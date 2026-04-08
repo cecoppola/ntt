@@ -64,13 +64,15 @@ GPU_SRC := ntt_gpu.hip
 CPU_BIN       := ntt_cpu
 GPU_6900XT    := ntt_gpu_6900xt
 GPU_MI300A    := ntt_gpu_mi300a
+VERIFY_6900XT := ntt_cross_verify_6900xt
+VERIFY_MI300A := ntt_cross_verify_mi300a
 
 # ── Default target ────────────────────────────────────────────────────────────
-.PHONY: all cpu gpu-6900xt gpu-mi300a \
+.PHONY: all cpu gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a \
         test-cpu test-gpu bench-cpu bench-gpu \
         clean
 
-all: cpu gpu-6900xt gpu-mi300a
+all: cpu gpu-6900xt gpu-mi300a verify-6900xt verify-mi300a
 
 # ── Build rules ───────────────────────────────────────────────────────────────
 
@@ -92,6 +94,18 @@ $(GPU_MI300A): $(GPU_SRC)
 	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_MI300A) -o $@ $<
 	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx942 / MI300A)"
 
+verify-6900xt: $(VERIFY_6900XT)
+
+$(VERIFY_6900XT): ntt_cross_verify.hip
+	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_6900XT) -o $@ $<
+	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx1100 / 6900XT)"
+
+verify-mi300a: $(VERIFY_MI300A)
+
+$(VERIFY_MI300A): ntt_cross_verify.hip
+	$(HIPCC) $(ALL_HIPFLAGS) $(ARCH_MI300A) -o $@ $<
+	@printf '  %-20s %s\n' "BUILD OK:" "$@ (gfx942 / MI300A)"
+
 # ── Test rules ────────────────────────────────────────────────────────────────
 
 test-cpu: $(CPU_BIN)
@@ -101,6 +115,15 @@ test-cpu: $(CPU_BIN)
 test-gpu: $(GPU_6900XT)
 	@printf '\n  Running GPU selftest (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
 	./$(GPU_6900XT) $(N) $(Q) $(OMEGA) 1
+
+# Phase 3 exit criterion: CPU vs GPU cross-verification
+cross-verify: $(VERIFY_6900XT)
+	@printf '\n  Running CPU vs GPU cross-verification (n=$(N) q=$(Q) omega=$(OMEGA))...\n'
+	./$(VERIFY_6900XT) $(N) $(Q) $(OMEGA)
+
+cross-verify-mi300a: $(VERIFY_MI300A)
+	@printf '\n  Running CPU vs GPU cross-verification on MI300A...\n'
+	./$(VERIFY_MI300A) $(N) $(Q) $(OMEGA)
 
 test-gpu-mi300a: $(GPU_MI300A)
 	@printf '\n  Running GPU selftest on MI300A (n=$(N) q=$(Q) omega=$(OMEGA) iters=1)...\n'
@@ -137,6 +160,6 @@ bench-mldsa-gpu: $(GPU_6900XT)
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 clean:
-	rm -f $(CPU_BIN) $(GPU_6900XT) $(GPU_MI300A)
+	rm -f $(CPU_BIN) $(GPU_6900XT) $(GPU_MI300A) $(VERIFY_6900XT) $(VERIFY_MI300A)
 	rm -f bench_*.txt bench_gpu_*.txt
 	@printf '  Cleaned.\n'
