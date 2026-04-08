@@ -1,0 +1,31 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+
+# Compiled executables (no extension on Linux)
+ntt
+ntt_cpu
+ntt_gpu
+ntt_bench
+
+# Benchmark and test output
+benchmarks/*.csv
+benchmarks/*.tsv
+results/
+*.log
+
+# Generated HIP/ROCm intermediate files
+*.bc
+*.co
+*.hsaco
+
+# Notification log (from notify hook)
+.claude/notifications.log
+
+# Editor and OS artifacts
+.DS_Store
+*.swp
+*.swo
+*~
