@@ -23,24 +23,29 @@ multiplication over NTT-friendly prime fields.
 
 ---
 
-## Performance — CPU Reference (AMD Ryzen 9 5950X)
+## Performance — CPU Reference (AMD Ryzen 9 5905X)
 
-**Forward NTT throughput across sizes, q = 3329 (ML-KEM)**
+**15-prime sweep at min(max\_n, 1024) — forward NTT throughput**
 
-| n | CT-DIT | Stockham | Montgomery |
-|--:|-------:|---------:|-----------:|
-| 64 | 1,064k/s | **1,251k/s** | 979k/s |
-| 128 | 476k/s | **548k/s** | 429k/s |
-| 256 | 204k/s | **244k/s** | 197k/s |
-| 512 | 91k/s | **111k/s** | 94k/s |
-| 1,024 | 42k/s | **51k/s** | 42k/s |
-| 2,048 | 19k/s | **23k/s** | 20k/s |
-| 4,096 | 8.8k/s | 9.5k/s | **10.2k/s** |
+| Prime | Form | n | CT-DIT | Stockham | Montgomery |
+|-------|------|--:|-------:|---------:|-----------:|
+| Fermat-8 | 2⁸+1 | 256 | 222k/s | **242k/s** | 220k/s |
+| ML-KEM | 13·2⁸+1 | 256 | 207k/s | **228k/s** | 224k/s |
+| FALCON | 3·2¹²+1 | 1024 | 43k/s | 46k/s | **47k/s** |
+| Fermat-16 | 2¹⁶+1 | 1024 | 50k/s | **56k/s** | 48k/s |
+| FHE-RNS-sm | 3·2¹⁸+1 | 1024 | 42k/s | 46k/s | **48k/s** |
+| TFHE-NTT | ~2³⁰ | 1024 | 42k/s | 46k/s | **48k/s** |
+| FHE-RNS | 7·2²⁰+1 | 1024 | 41k/s | 46k/s | **48k/s** |
+| ML-DSA | 2²³−2¹³+1 | 1024 | 39k/s | 40k/s | **48k/s** |
+| NTT-gen | 119·2²³+1 | 1024 | 22k/s | **46k/s** | 27k/s |
+| HElib-RNS | 479·2²¹+1 | 1024 | 41k/s | 46k/s | **48k/s** |
+| BFV-RNS | 7·2²⁶+1 | 1024 | 41k/s | 46k/s | **48k/s** |
+| FHE-RNS-lg | 15·2²⁷+1 | 1024 | 41k/s | 46k/s | **48k/s** |
+| 2-term | 17·2²⁷+1 | 1024 | 41k/s | 46k/s | **48k/s** |
+| Large-NTT | 3·2³⁰+1 | 1024 | 42k/s | 37k/s | **47k/s** |
+| Goldilocks | 2⁶⁴−2³²+1 | 1024 | 36k/s | **38k/s** | N/A¹ |
 
-Stockham wins at all sizes up to n=2048 (~20% faster than CT-DIT) due to
-elimination of the bit-reversal pass and a more sequential memory access pattern.
-Montgomery becomes competitive at n=4096 where cache pressure equalises the field.
-GPU results pending hardware access.
+¹ Montgomery with R=2³² requires R>q; not valid for Goldilocks (q≈2⁶⁴).
 
 **Polynomial multiplication (cyclic, n=256)**
 
@@ -53,17 +58,31 @@ GPU results pending hardware access.
 
 ## Supported Moduli
 
-| q | Form | Scheme |
-|--:|------|--------|
-| 3,329 | 13·2⁸+1 | ML-KEM (NIST FIPS 203) |
-| 8,380,417 | 2²³−2¹³+1 | ML-DSA (NIST FIPS 204) |
-| 12,289 | 3·2¹²+1 | FALCON-512/1024, NewHope |
-| 998,244,353 | 119·2²³+1 | General NTT (n up to 2²³) |
-| 469,762,049 | 7·2²⁶+1 | BFV/CKKS RNS component |
-| 786,433 | 3·2¹⁸+1 | BFV small-modulus RNS chain |
-| 1,073,479,681 | 2³⁰−2¹⁸+1 | TFHE bootstrapping |
+All 15 primes are registered in `src/ntt_moduli.h` with fast reduction functions.
+Primitive roots ω are computed at runtime — nothing hardcoded.
 
-All ω values are computed at runtime via modular exponentiation — no hardcoded roots.
+| q | Form | max n | Reduction | Scheme / Use |
+|--:|------|------:|-----------|--------------|
+| 257 | 2⁸+1 | 2⁸ | Fermat (exact) | Toy / reference |
+| 3,329 | 13·2⁸+1 | 2⁸ | generic | ML-KEM (NIST FIPS 203) |
+| 12,289 | 3·2¹²+1 | 2¹² | generic | FALCON-512/1024, NewHope |
+| 65,537 | 2¹⁶+1 | 2¹⁶ | Fermat (exact) | General-purpose Fermat |
+| 786,433 | 3·2¹⁸+1 | 2¹⁸ | generic | FHE small-modulus RNS chain |
+| 1,073,479,681 | ~2³⁰ | 2¹⁸ | generic | TFHE bootstrapping |
+| 7,340,033 | 7·2²⁰+1 | 2²⁰ | generic | FHE RNS chain |
+| 8,380,417 | 2²³−2¹³+1 | 2¹³ | Solinas (exact) | ML-DSA (NIST FIPS 204) |
+| 998,244,353 | 119·2²³+1 | 2²³ | generic | General NTT benchmark prime |
+| 1,004,535,809 | 479·2²¹+1 | 2²¹ | generic | HElib RNS chain |
+| 469,762,049 | 7·2²⁶+1 | 2²⁶ | generic | BFV/CKKS RNS component |
+| 2,013,265,921 | 15·2²⁷+1 | 2²⁷ | generic | Large FHE RNS chain |
+| 2,281,701,377 | 17·2²⁷+1 | 2²⁷ | generic | 2-term Proth NTT |
+| 3,221,225,473 | 3·2³⁰+1 | 2³⁰ | generic | Large-n polynomial mult |
+| 2⁶⁴−2³²+1 | Goldilocks | 2³² | 2-step exact | 64-bit field; FRI/STARK |
+
+Reduction notes: **Fermat** uses the exact `(t & mask) − (t >> m)` formula.
+**Solinas** (ML-DSA) uses `B + (A << 13) − A` since 2²³ ≡ 2¹³−1 (mod q).
+**Goldilocks** uses a two-step 128→64-bit reduction via 2⁶⁴ ≡ 2³²−1 (mod q).
+All others use a 128-bit hardware divide (K²RED is an FPGA technique, not software).
 
 ---
 
