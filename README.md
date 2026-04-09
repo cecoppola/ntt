@@ -68,12 +68,12 @@ Primitive roots ω are computed at runtime — nothing hardcoded.
 | 12,289 | 3·2¹²+1 | 2¹² | generic | FALCON-512/1024, NewHope |
 | 65,537 | 2¹⁶+1 | 2¹⁶ | Fermat (exact) | General-purpose Fermat |
 | 786,433 | 3·2¹⁸+1 | 2¹⁸ | generic | FHE small-modulus RNS chain |
-| 1,073,479,681 | ~2³⁰ | 2¹⁸ | generic | TFHE bootstrapping |
 | 7,340,033 | 7·2²⁰+1 | 2²⁰ | generic | FHE RNS chain |
 | 8,380,417 | 2²³−2¹³+1 | 2¹³ | Solinas (exact) | ML-DSA (NIST FIPS 204) |
+| 469,762,049 | 7·2²⁶+1 | 2²⁶ | generic | BFV/CKKS RNS component |
 | 998,244,353 | 119·2²³+1 | 2²³ | generic | General NTT benchmark prime |
 | 1,004,535,809 | 479·2²¹+1 | 2²¹ | generic | HElib RNS chain |
-| 469,762,049 | 7·2²⁶+1 | 2²⁶ | generic | BFV/CKKS RNS component |
+| 1,073,479,681 | ~2³⁰ | 2¹⁸ | generic | TFHE bootstrapping |
 | 2,013,265,921 | 15·2²⁷+1 | 2²⁷ | generic | Large FHE RNS chain |
 | 2,281,701,377 | 17·2²⁷+1 | 2²⁷ | generic | 2-term Proth NTT |
 | 3,221,225,473 | 3·2³⁰+1 | 2³⁰ | generic | Large-n polynomial mult |
