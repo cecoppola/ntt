@@ -61,6 +61,8 @@ int ntt_params_init(ntt_params_t *p)
     uint64_t tmp = p->n;
     p->log2_n    = 0;
     while (tmp > 1) { tmp >>= 1; p->log2_n++; }
+    const ntt_modulus_info_t *mi = ntt_modulus_find(p->q);
+    p->reduce = mi ? mi->reduce : reduce_generic;
     return 0;
 }
 
@@ -132,7 +134,8 @@ uint64_t *ntt_alloc_twiddles_inv(const ntt_params_t *p)
  */
 static uint64_t *stockham_core(uint64_t * restrict a, uint64_t * restrict b,
                                 const uint64_t * restrict tw,
-                                uint64_t n, uint64_t q, uint32_t log2_n)
+                                uint64_t n, uint64_t q, uint32_t log2_n,
+                                reduce_fn_t reduce)
 {
     uint64_t *src  = a;
     uint64_t *dst  = b;
@@ -144,16 +147,15 @@ static uint64_t *stockham_core(uint64_t * restrict a, uint64_t * restrict b,
         uint64_t p2 = p << 1;              /* 2*p: stride in destination   */
 
         for (uint64_t j = 0; j < p; j++) {
-            uint64_t w = tw[j * qs];       /* omega^(j * qs)               */
+            uint64_t w = tw[j * qs];       /* omega^(j * qs)                */
             for (uint64_t k = 0; k < qs; k++) {
                 uint64_t idx = j + k * p;
                 uint64_t u   = src[idx];
-                /* v is always in the second half of src (idx + n/2).        *
-                 * Reduce v mod q before multiplying (lazy: no add reduction).*
-                 * wv lands in [0, q); u+wv accumulates across stages.       */
-                uint64_t wv  = (uint64_t)((__uint128_t)w * (src[idx + half] % q) % q);
-                dst[j + k * p2]      = u + wv;       /* [0, (s+2)*q) */
-                dst[j + k * p2 + p]  = u + q - wv;  /* keep ≥ 0     */
+                /* v is in the second half of src; apply fast reduce then    *
+                 * addmod/submod to stay in [0, q) — safe for Goldilocks.    */
+                uint64_t wv  = reduce((__uint128_t)w * src[idx + half], q);
+                dst[j + k * p2]      = addmod(u, wv, q);
+                dst[j + k * p2 + p]  = submod(u, wv, q);
             }
         }
 
@@ -161,11 +163,8 @@ static uint64_t *stockham_core(uint64_t * restrict a, uint64_t * restrict b,
         uint64_t *tmp = src; src = dst; dst = tmp;
     }
 
-    /* src now points to the result buffer.
-     * Final reduction: bring all values into [0, q). */
-    for (uint64_t i = 0; i < n; i++)
-        src[i] %= q;
-
+    /* addmod/submod in the butterfly keeps all values in [0, q) throughout;
+     * no final reduction pass is needed. */
     return src;
 }
 
@@ -183,7 +182,7 @@ void ntt_forward(uint64_t *a, const uint64_t *twiddles, const ntt_params_t *p)
     uint64_t *scratch = malloc(p->n * sizeof(uint64_t));
     if (!scratch) { fprintf(stderr, "ntt_forward: malloc failed\n"); return; }
 
-    uint64_t *result = stockham_core(a, scratch, twiddles, p->n, p->q, p->log2_n);
+    uint64_t *result = stockham_core(a, scratch, twiddles, p->n, p->q, p->log2_n, p->reduce);
 
     if (result != a) {
         /* Result ended up in scratch; copy back to a. */
@@ -200,10 +199,8 @@ void ntt_inverse(uint64_t *a, const uint64_t *twiddles_inv, const ntt_params_t *
 {
     ntt_forward(a, twiddles_inv, p);
 
-    uint64_t q    = p->q;
-    uint64_t ninv = p->n_inv;
     for (uint64_t i = 0; i < p->n; i++)
-        a[i] = (uint64_t)((__uint128_t)a[i] * ninv % q);
+        a[i] = p->reduce((__uint128_t)a[i] * p->n_inv, p->q);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -236,14 +233,12 @@ static void ref_ct_forward(uint64_t *a, const uint64_t *tw, const ntt_params_t *
         for (uint64_t i = 0; i < n; i += len << 1) {
             for (uint64_t j = 0; j < len; j++) {
                 uint64_t u = a[i + j];
-                uint64_t v = (uint64_t)((__uint128_t)tw[j * step] *
-                                        (a[i + j + len] % q) % q);
-                a[i + j]       = u + v;
-                a[i + j + len] = u - v + q;
+                uint64_t v = p->reduce((__uint128_t)tw[j * step] * a[i + j + len], q);
+                a[i + j]       = addmod(u, v, q);
+                a[i + j + len] = submod(u, v, q);
             }
         }
     }
-    for (uint64_t i = 0; i < n; i++) a[i] %= q;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -374,8 +369,8 @@ int main(int argc, char *argv[])
 
     /* Selftests for both standard parameter sets. */
     int fail = 0;
-    ntt_params_t mlkem = { 256, 3329, 17, 0, 0, 0 };
-    ntt_params_t mldsa = { 256, 8380417, 1753, 0, 0, 0 };
+    ntt_params_t mlkem = { 256, 3329, 17, 0, 0, 0, NULL };
+    ntt_params_t mldsa = { 256, 8380417, 1753, 0, 0, 0, NULL };
     if (ntt_params_init(&mlkem) == 0) fail |= selftest(&mlkem);
     if (ntt_params_init(&mldsa) == 0) fail |= selftest(&mldsa);
 

@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>   /* size_t, malloc */
+#include "ntt_moduli.h"  /* reduce_fn_t, addmod, submod, NTT_MODULI table  */
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,14 +23,17 @@ extern "C" {
 /* ── Parameter struct ────────────────────────────────────────────────────────
  * All transform parameters in one struct. Passed explicitly to every
  * function; no global mutable state. Filled by ntt_params_init().
+ * ntt_params_init() looks up 'q' in NTT_MODULI and sets 'reduce' to the
+ * fastest available reduction function; falls back to reduce_generic.
  */
 typedef struct {
-    uint64_t n;          /* transform length; must be a power of 2          */
-    uint64_t q;          /* NTT-friendly prime modulus                       */
-    uint64_t omega;      /* primitive n-th root of unity mod q               */
-    uint64_t omega_inv;  /* modular inverse of omega (for INTT twiddles)     */
-    uint64_t n_inv;      /* modular inverse of n mod q (INTT final scaling)  */
-    uint32_t log2_n;     /* log2(n); precomputed                             */
+    uint64_t    n;          /* transform length; must be a power of 2        */
+    uint64_t    q;          /* NTT-friendly prime modulus                     */
+    uint64_t    omega;      /* primitive n-th root of unity mod q             */
+    uint64_t    omega_inv;  /* modular inverse of omega (for INTT twiddles)   */
+    uint64_t    n_inv;      /* modular inverse of n mod q (INTT final scale)  */
+    uint32_t    log2_n;     /* log2(n); precomputed                           */
+    reduce_fn_t reduce;     /* fast modular reduction: reduce(a*b, q) → [0,q)*/
 } ntt_params_t;
 
 /* ── Parameter initialisation ────────────────────────────────────────────────

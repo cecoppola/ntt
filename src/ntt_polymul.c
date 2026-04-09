@@ -53,6 +53,8 @@ int ntt_params_init(ntt_params_t *p)
     p->n_inv     = h_mod_pow(p->n,    p->q-2, p->q);
     uint64_t t = p->n; p->log2_n = 0;
     while (t > 1) { t >>= 1; p->log2_n++; }
+    const ntt_modulus_info_t *mi = ntt_modulus_find(p->q);
+    p->reduce = mi ? mi->reduce : reduce_generic;
     return 0;
 }
 
@@ -311,12 +313,12 @@ int main(int argc, char *argv[])
     uint64_t iters = (argc >= 2) ? (uint64_t)atoll(argv[1]) : 100000;
 
     /* ML-KEM: omega=17 is a primitive 256th root of unity mod 3329 (17^256≡1). */
-    ntt_params_t mlkem = { 256, 3329, 17, 0, 0, 0 };
+    ntt_params_t mlkem = { 256, 3329, 17, 0, 0, 0, NULL };
     /* ML-DSA: omega=1753 has order 512 (1753^256≡-1), so cyclic polymul requires
      * omega_cyclic = 1753^2 = 3073009 (order 256, 3073009^256≡1 mod 8380417).
      * The true ML-DSA NTT uses the negacyclic structure with omega=1753 and a
      * pre-twist — this is deferred to Phase 4 (twisted-NTT implementation). */
-    ntt_params_t mldsa_cyc = { 256, 8380417, 3073009, 0, 0, 0 };
+    ntt_params_t mldsa_cyc = { 256, 8380417, 3073009, 0, 0, 0, NULL };
     int fail = 0;
     if (ntt_params_init(&mlkem)     == 0) fail |= selftest(&mlkem);
     if (ntt_params_init(&mldsa_cyc) == 0) fail |= selftest(&mldsa_cyc);

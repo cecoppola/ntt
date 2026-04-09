@@ -149,12 +149,15 @@ static void bit_reverse_perm(uint64_t *a, uint64_t n, uint32_t log2_n)
 
 /*
  * ct_dit_loop: CT-DIT butterfly stages (shared by ntt_forward and ntt_inverse).
- * Applies log2(n) butterfly stages after bit-reversal. Lazy reduction: values
- * grow to at most (log2(n)+1)*q; caller applies the final reduction/scaling.
+ * Applies log2(n) butterfly stages after bit-reversal. Uses the caller-supplied
+ * reduce function for the multiply-reduce step; addmod/submod keep values in
+ * [0, q) after every butterfly, making the code safe for Goldilocks (q ≈ 2^64)
+ * where lazy accumulation (u + q in uint64_t) would overflow.
  * Ref: Longa & Naehrig CANS 2016, Alg. 1.
  */
 static void ct_dit_loop(uint64_t *a, const uint64_t * restrict tw,
-                        uint64_t n, uint64_t q, uint32_t log2_n)
+                        uint64_t n, uint64_t q, uint32_t log2_n,
+                        reduce_fn_t reduce)
 {
     bit_reverse_perm(a, n, log2_n);
     for (uint64_t len = 2; len <= n; len <<= 1) {
@@ -162,9 +165,9 @@ static void ct_dit_loop(uint64_t *a, const uint64_t * restrict tw,
         for (uint64_t k = 0; k < n; k += len)
             for (uint64_t j = 0; j < half; j++) {
                 uint64_t u = a[k + j];
-                uint64_t t = (uint64_t)((__uint128_t)tw[j*stride] * a[k+j+half] % q);
-                a[k + j]        = u + t;
-                a[k + j + half] = u + q - t;
+                uint64_t t = reduce((__uint128_t)tw[j*stride] * a[k+j+half], q);
+                a[k + j]        = addmod(u, t, q);
+                a[k + j + half] = submod(u, t, q);
             }
     }
 }
@@ -174,12 +177,13 @@ static void ct_dit_loop(uint64_t *a, const uint64_t * restrict tw,
  * Input:  a[0..n-1] in natural order, values in [0, q).
  * Output: NTT(a), values in [0, q).
  * twiddles: ntt_alloc_twiddles(p) — tw[k] = omega^k.
+ * Uses p->reduce for the butterfly multiply-reduce; addmod/submod keep all
+ * intermediate values in [0, q), so no final reduction pass is needed.
  */
 void ntt_forward(uint64_t *a, const uint64_t * restrict twiddles,
                  const ntt_params_t *p)
 {
-    ct_dit_loop(a, twiddles, p->n, p->q, p->log2_n);
-    for (uint64_t i = 0; i < p->n; i++) a[i] %= p->q;
+    ct_dit_loop(a, twiddles, p->n, p->q, p->log2_n, p->reduce);
 }
 
 /*
@@ -191,9 +195,10 @@ void ntt_forward(uint64_t *a, const uint64_t * restrict twiddles,
 void ntt_inverse(uint64_t *a, const uint64_t * restrict twiddles_inv,
                  const ntt_params_t *p)
 {
-    ct_dit_loop(a, twiddles_inv, p->n, p->q, p->log2_n);
+    ct_dit_loop(a, twiddles_inv, p->n, p->q, p->log2_n, p->reduce);
+    /* Scale by n^{-1}: values from ct_dit_loop are already in [0, q). */
     for (uint64_t i = 0; i < p->n; i++)
-        a[i] = (uint64_t)((__uint128_t)(a[i] % p->q) * p->n_inv % p->q);
+        a[i] = p->reduce((__uint128_t)a[i] * p->n_inv, p->q);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -215,6 +220,9 @@ int ntt_params_init(ntt_params_t *p)
     uint64_t tmp = p->n;
     p->log2_n    = 0;
     while (tmp > 1) { tmp >>= 1; p->log2_n++; }
+    /* Wire up fast reduction: look up q in NTT_MODULI; fall back to generic. */
+    const ntt_modulus_info_t *mi = ntt_modulus_find(p->q);
+    p->reduce = mi ? mi->reduce : reduce_generic;
     return 0;
 }
 

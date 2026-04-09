@@ -158,6 +158,8 @@ int ntt_params_init(ntt_params_t *p)
     p->n_inv     = mod_pow(p->n,     p->q - 2, p->q);
     uint64_t t   = p->n; p->log2_n = 0;
     while (t > 1) { t >>= 1; p->log2_n++; }
+    const ntt_modulus_info_t *mi = ntt_modulus_find(p->q);
+    p->reduce = mi ? mi->reduce : reduce_generic;
     return 0;
 }
 

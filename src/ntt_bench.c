@@ -2,7 +2,7 @@
  * ntt_bench.c — Side-by-side CPU algorithm benchmark across transform sizes
  *
  * Purpose:   Compare CT-DIT (lazy), Stockham (lazy), and Montgomery NTT
- *            across n = 256, 512, 1024, 2048, 4096 for ML-KEM and ML-DSA
+ *            across all 15 moduli at min(max_n, 1024)
  *            parameter sets. Output a formatted table for analysis.
  * Algorithm: All three algorithms implement the same ntt_forward() signature;
  *            this file compiles all three inline as static functions with
@@ -46,6 +46,8 @@ int ntt_params_init(ntt_params_t *p)
     p->n_inv     = h_mod_inv(p->n,     p->q);
     uint64_t t = p->n; p->log2_n = 0;
     while (t > 1) { t >>= 1; p->log2_n++; }
+    const ntt_modulus_info_t *mi = ntt_modulus_find(p->q);
+    p->reduce = mi ? mi->reduce : reduce_generic;
     return 0;
 }
 
@@ -92,12 +94,11 @@ static void ct_ntt(uint64_t *a, const uint64_t *tw, const ntt_params_t *p)
         for (uint64_t i = 0; i < n; i += len << 1)
             for (uint64_t j = 0; j < len; j++) {
                 uint64_t u = a[i+j];
-                uint64_t v = (uint64_t)((__uint128_t)tw[j*step] * (a[i+j+len]%q) % q);
-                a[i+j]     = u + v;
-                a[i+j+len] = u - v + q;
+                uint64_t v = p->reduce((__uint128_t)tw[j*step] * a[i+j+len], q);
+                a[i+j]     = addmod(u, v, q);
+                a[i+j+len] = submod(u, v, q);
             }
     }
-    for (uint64_t i = 0; i < n; i++) a[i] %= q;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -117,14 +118,13 @@ static void stk_ntt(uint64_t *a, const uint64_t *tw, const ntt_params_t *p)
             for (uint64_t k = 0; k < qs; k++) {
                 uint64_t idx = j + k*pp;
                 uint64_t u   = src[idx];
-                uint64_t wv  = (uint64_t)((__uint128_t)w * (src[idx+half]%q) % q);
-                dst[j+k*p2]    = u + wv;
-                dst[j+k*p2+pp] = u + q - wv;
+                uint64_t wv  = p->reduce((__uint128_t)w * src[idx+half], q);
+                dst[j+k*p2]    = addmod(u, wv, q);
+                dst[j+k*p2+pp] = submod(u, wv, q);
             }
         }
         uint64_t *t = src; src = dst; dst = t;
     }
-    for (uint64_t i = 0; i < n; i++) src[i] %= q;
     if (src != a) memcpy(a, src, n * sizeof(uint64_t));
     free(buf);
 }
@@ -230,94 +230,87 @@ static double time_ntt(ntt_fn fn, const ntt_params_t *p, uint64_t iters)
  * MAIN
  * ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Montgomery not valid for q ≥ 2^32 (R=2^32 must exceed q for REDC). ─── */
+#define MONT_MAX_Q  UINT64_C(0xFFFFFFFF)   /* 2^32 - 1 */
+
 int main(void)
 {
     printf("\n" ANSI_WHT
            "╔══════════════════════════════════════════════════════════╗\n"
-           "║       NTT CPU Algorithm Benchmark — size sweep          ║\n"
+           "║      NTT CPU Algorithm Benchmark — 15 moduli sweep      ║\n"
            "╚══════════════════════════════════════════════════════════╝\n"
            ANSI_RST "\n");
 
-    /* Parameter sets */
-    struct { const char *name; uint64_t q, omega; } psets[] = {
-        { "ML-KEM", 3329, 17 },
-        { "ML-DSA", 8380417, 1753 },
-    };
+    /* One benchmark row per modulus at the maximum supported transform size. */
+    printf("  ┌─────────────┬────────────────────┬────────┬──────────────┬──────────────┬──────────────┐\n");
+    printf("  │ " ANSI_CYN "%-11s" ANSI_RST
+           " │ " ANSI_CYN "%-18s" ANSI_RST
+           " │ " ANSI_CYN "%-6s" ANSI_RST
+           " │ " ANSI_CYN "%-12s" ANSI_RST
+           " │ " ANSI_CYN "%-12s" ANSI_RST
+           " │ " ANSI_CYN "%-12s" ANSI_RST " │\n",
+           "Prime", "Form", "max n", "CT-DIT NTT/s", "Stk NTT/s", "Mont NTT/s");
+    printf("  ├─────────────┼────────────────────┼────────┼──────────────┼──────────────┼──────────────┤\n");
 
-    /* Transform sizes (n must divide q-1; ML-KEM/DSA both support up to n=256
-     * for their specific q; we test larger n with surrogate q values).
-     * For the sweep we keep q=3329 fixed and only n=256 is a true ML-KEM point;
-     * larger n are algorithmic throughput tests with the same modulus. */
-    uint64_t sizes[] = { 64, 128, 256, 512, 1024, 2048, 4096 };
-    int nsizes = (int)(sizeof sizes / sizeof sizes[0]);
+    for (int mi = 0; mi < NTT_NUM_MODULI; mi++) {
+        const ntt_modulus_info_t *m = &NTT_MODULI[mi];
+        uint64_t max_n = UINT64_C(1) << m->max_log2_n;
+        /* Cap benchmark n to avoid excessive runtime for huge sizes. */
+        uint64_t bench_n = (max_n > 1024) ? 1024 : max_n;
 
-    /* Determine iteration counts: scale down as n grows */
-    uint64_t base_iters = 200000;
-
-    for (int pi = 0; pi < 2; pi++) {
-        printf(ANSI_CYN "\n  ═══ %s (q=%lu ω=%lu) ═══\n" ANSI_RST,
-               psets[pi].name, psets[pi].q, psets[pi].omega);
-
-        /* Header */
-        printf("  ┌──────┬──────────────┬──────────────┬──────────────┐\n");
-        printf("  │ " ANSI_CYN "n    " ANSI_RST
-               " │ " ANSI_CYN "CT-DIT NTT/s " ANSI_RST
-               " │ " ANSI_CYN "Stockham NTT/s" ANSI_RST
-               " │ " ANSI_CYN "Montgomery NTT/s" ANSI_RST " │\n");
-        printf("  ├──────┼──────────────┼──────────────┼──────────────┤\n");
-
-        for (int si = 0; si < nsizes; si++) {
-            ntt_params_t p;
-            p.n = sizes[si]; p.q = psets[pi].q; p.omega = psets[pi].omega;
-            /* For n > 256 with standard params, omega may not be a primitive
-             * n-th root. Use omega = omega^(256/n) to get a valid root. */
-            if (p.n > 256) {
-                /* omega^256 = 1 mod q for ML-KEM/DSA, so for larger n we use
-                 * a generator that cycles n times. Since we only care about
-                 * throughput (not correctness), use a fixed primitive root. */
-                p.omega = h_mod_pow(psets[pi].omega, 256 / p.n > 0 ? 256 / p.n : 1, p.q);
-                if (p.omega == 1 || p.omega == 0) {
-                    /* No valid primitive n-th root for this q; skip */
-                    printf("  │ %-4lu │ %-12s │ %-12s │ %-12s │\n",
-                           p.n, "n/a", "n/a", "n/a");
-                    continue;
-                }
-            }
-            if (ntt_params_init(&p) != 0) continue;
-
-            uint64_t iters = base_iters / (p.n / 64);
-            if (iters < 100) iters = 100;
-
-            double t_ct  = time_ntt(ct_ntt,  &p, iters);
-            double t_stk = time_ntt(stk_ntt, &p, iters);
-            double t_mnt = time_ntt(mnt_ntt, &p, iters);
-
-            double r_ct  = (t_ct  > 0) ? iters / t_ct  : 0;
-            double r_stk = (t_stk > 0) ? iters / t_stk : 0;
-            double r_mnt = (t_mnt > 0) ? iters / t_mnt : 0;
-
-            /* Highlight fastest algorithm */
-            double best = r_ct;
-            if (r_stk > best) best = r_stk;
-            if (r_mnt > best) best = r_mnt;
-
-            const char *hl_ct  = (r_ct  == best) ? ANSI_GRN : "";
-            const char *hl_stk = (r_stk == best) ? ANSI_GRN : "";
-            const char *hl_mnt = (r_mnt == best) ? ANSI_GRN : "";
-
-            printf("  │ %-4lu │ %s%-12.0f" ANSI_RST
-                   " │ %s%-12.0f" ANSI_RST
-                   " │ %s%-12.0f" ANSI_RST " │\n",
-                   p.n,
-                   hl_ct,  r_ct,
-                   hl_stk, r_stk,
-                   hl_mnt, r_mnt);
+        /* Compute primitive bench_n-th root of unity for this prime. */
+        uint64_t omega = ntt_modulus_omega(m, bench_n);
+        if (omega == 0) {
+            printf("  │ %-11s │ %-18s │ %-6lu │ %-12s │ %-12s │ %-12s │\n",
+                   m->name, m->form, bench_n, "skip", "skip", "skip");
+            continue;
         }
-        printf("  └──────┴──────────────┴──────────────┴──────────────┘\n");
+
+        ntt_params_t p;
+        p.n = bench_n; p.q = m->q; p.omega = omega;
+        if (ntt_params_init(&p) != 0) continue;
+
+        /* Scale iterations: fewer for large n to keep runtime reasonable. */
+        uint64_t iters = 10000 / (bench_n / 64);
+        if (iters < 200) iters = 200;
+
+        double t_ct  = time_ntt(ct_ntt,  &p, iters);
+        double t_stk = time_ntt(stk_ntt, &p, iters);
+        double r_ct  = (t_ct  > 0) ? iters / t_ct  : 0;
+        double r_stk = (t_stk > 0) ? iters / t_stk : 0;
+
+        /* Montgomery only valid for q < 2^32 (R = 2^32 must exceed q). */
+        int mont_ok = (m->q <= MONT_MAX_Q);
+        double r_mnt = 0;
+        if (mont_ok) {
+            double t_mnt = time_ntt(mnt_ntt, &p, iters);
+            r_mnt = (t_mnt > 0) ? iters / t_mnt : 0;
+        }
+
+        /* Green-highlight the fastest algorithm in each row. */
+        double best = r_ct;
+        if (r_stk > best) best = r_stk;
+        if (mont_ok && r_mnt > best) best = r_mnt;
+
+        const char *hl_ct  = (r_ct  == best) ? ANSI_GRN : "";
+        const char *hl_stk = (r_stk == best) ? ANSI_GRN : "";
+        const char *hl_mnt = (mont_ok && r_mnt == best) ? ANSI_GRN : "";
+
+        char mont_str[20];
+        if (mont_ok) snprintf(mont_str, sizeof mont_str, "%.0f", r_mnt);
+        else         snprintf(mont_str, sizeof mont_str, "N/A");
+
+        printf("  │ %-11s │ %-18s │ %6lu │ %s%-12.0f" ANSI_RST
+               " │ %s%-12.0f" ANSI_RST " │ %s%-12s" ANSI_RST " │\n",
+               m->name, m->form, bench_n,
+               hl_ct,  r_ct,
+               hl_stk, r_stk,
+               hl_mnt, mont_str);
     }
 
+    printf("  └─────────────┴────────────────────┴────────┴──────────────┴──────────────┴──────────────┘\n");
     printf("\n  " ANSI_YLW "Note:" ANSI_RST
-           " n > 256 uses a surrogate primitive root derived from the n=256 root.\n"
-           "  Performance trend is valid; absolute values at n>256 are throughput only.\n\n");
+           " Benchmarked at min(max_n, 1024). Mont N/A for q ≥ 2^32 (R=2^32 < q).\n"
+           "  All algorithms use correct primitive roots via ntt_modulus_omega().\n\n");
     return 0;
 }
