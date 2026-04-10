@@ -1,26 +1,22 @@
 /*
  * ntt_moduli.h — NTT-friendly prime moduli: table, reduction functions,
- *                and arithmetic helpers for all 15 supported primes.
+ *                and arithmetic helpers for all 14 supported primes.
  *
  * Include this header in any binary that needs multi-modulus support.
  * The reduction functions replace the generic `% q` division in hot paths.
  *
  * REDUCTION STRATEGY BY PRIME CLASS
  * ──────────────────────────────────
- * MOD_FERMAT      (q = 2^m + 1):   exact: t mod q = (t & mask) - (t >> m); 1 sub
- * MOD_KYBER       (q = 13·2^8+1):  software uses reduce_generic (K²RED is FPGA-only)
- * MOD_PROTH_K3    (q = 3·2^m+1):   software uses reduce_generic (K²RED is FPGA-only)
- * MOD_PROTH_K7    (q = 7·2^m+1):   software uses reduce_generic (K²RED is FPGA-only)
- * MOD_PROTH_K15   (q = 15·2^m+1):  software uses reduce_generic (K²RED is FPGA-only)
- * MOD_PROTH_K17   (q = 17·2^m+1):  software uses reduce_generic (K²RED is FPGA-only)
- * MOD_DILITHIUM   (q = 2^23-2^13+1): exact Solinas: t mod q = B + (A<<13) - A
- * MOD_GOLDILOCKS  (q = 2^64-2^32+1): exact 2-step; no 128-bit divide needed
- * MOD_GENERIC     (any):            __uint128_t product % q (hardware divide)
+ * MOD_FERMAT      (q = 2^m + 1):           exact: (t&mask) - (t>>m); 1 sub
+ * MOD_DILITHIUM   (q = 2^23 - 2^13 + 1):  exact Solinas: B + (A<<13) - A
+ * MOD_SOLINAS_60  (q = 2^60 - 2^18 + 1):  exact 2-pass Solinas; no 128-bit div
+ * MOD_GOLDILOCKS  (q = 2^64 - 2^32 + 1):  exact 2-step; no 128-bit div
+ * MOD_GENERIC     (any Proth or other):    __uint128_t product % q (hw divide)
  *
- * NOTE on K²RED: the formula B - k·A (where A = t>>m, B = t&mask) gives
- * t - A·(2^m + k) which is NOT congruent to t mod q in software. K²RED is
- * useful on FPGA where bounded-width arithmetic makes the formula cycle-exact.
- * In software, use Barrett or hardware % for Proth-family primes.
+ * NOTE on K²RED: the Proth formula B - k·A (where A = t>>m, B = t&mask) gives
+ * t - A·(2^m+k), which is NOT ≡ t (mod q) in software. K²RED is exact only on
+ * FPGA where bounded-width arithmetic keeps A small enough. All Proth primes here
+ * use reduce_generic (128-bit divide) until a correct Barrett table is added.
  *
  * OVERFLOW-SAFE BUTTERFLY HELPERS
  * ─────────────────────────────────
@@ -51,26 +47,22 @@ typedef uint64_t (*reduce_fn_t)(__uint128_t product, uint64_t q);
 
 /* ── Modulus classes ─────────────────────────────────────────────────────── */
 typedef enum {
-    MOD_GENERIC    = 0,  /* fall back to hardware % */
-    MOD_FERMAT,          /* q = 2^m + 1 */
-    MOD_KYBER,           /* q = 13·2^8+1 (k=13, m=8) */
-    MOD_PROTH_K3,        /* q = 3·2^m+1  (k=3) */
-    MOD_PROTH_K7,        /* q = 7·2^m+1  (k=7) */
-    MOD_PROTH_K15,       /* q = 15·2^m+1 (k=15 = 2^4-1) */
-    MOD_PROTH_K17,       /* q = 17·2^m+1 (k=17 = 2^4+1) */
-    MOD_DILITHIUM,       /* q = 2^23 - 2^13 + 1 (Solinas) */
-    MOD_GOLDILOCKS,      /* q = 2^64 - 2^32 + 1 */
+    MOD_GENERIC    = 0,  /* hardware %: correct for any prime; use as fallback */
+    MOD_FERMAT,          /* q = 2^m + 1: exact (t&mask)-(t>>m) reduction       */
+    MOD_DILITHIUM,       /* q = 2^23 - 2^13 + 1: exact Solinas reduction       */
+    MOD_SOLINAS_60,      /* q = 2^60 - 2^18 + 1: exact 2-pass Solinas          */
+    MOD_GOLDILOCKS,      /* q = 2^64 - 2^32 + 1: exact 2-step reduction        */
 } modulus_class_t;
 
 /* ── Modulus table entry ─────────────────────────────────────────────────── */
 typedef struct {
-    uint64_t         q;            /* the prime modulus                       */
-    uint64_t         g;            /* primitive root mod q                    */
-    uint32_t         max_log2_n;   /* max NTT size: n = 2^max_log2_n         */
-    modulus_class_t  cls;          /* reduction class                         */
-    const char      *name;         /* short label                             */
-    const char      *form;         /* algebraic form string                   */
-    reduce_fn_t      reduce;       /* fast reduction function                 */
+    uint64_t         q;            /* the prime modulus                        */
+    uint64_t         g;            /* primitive root mod q                     */
+    uint32_t         max_log2_n;   /* max NTT size: n = 2^max_log2_n          */
+    modulus_class_t  cls;          /* reduction class                          */
+    const char      *name;         /* short label                              */
+    const char      *form;         /* algebraic form string                    */
+    reduce_fn_t      reduce;       /* fast reduction function                  */
 } ntt_modulus_info_t;
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -123,17 +115,16 @@ static inline uint64_t reduce_generic(__uint128_t t, uint64_t q)
  * Fermat primes: q = 2^m + 1.
  * t mod q = (t & mask) - (t >> m)   where mask = 2^m - 1.
  * Negative result: add q once.
- * q = 257  → m=8,  mask=0xFF
+ * q = 257   → m=8,  mask=0xFF
  * q = 65537 → m=16, mask=0xFFFF
  */
 static inline uint64_t reduce_fermat8(__uint128_t t, uint64_t q_unused)
 {
     (void)q_unused;
-    /* q = 257 = 2^8 + 1 */
+    /* q = 257 = 2^8 + 1; A = t>>8 can be up to q^2/256 ≈ 258 */
     uint64_t A = (uint64_t)(t >> 8);
     uint64_t B = (uint64_t)t & 0xFFULL;
-    int64_t  r = (int64_t)B - (int64_t)(A % 257);  /* A may be > 257 */
-    /* Normalise A first: A can be up to 257^2/256 ≈ 258. A % 257 ∈ {0,1}. */
+    int64_t  r = (int64_t)B - (int64_t)(A % 257);  /* A % 257 ∈ {0, 1} */
     if (r < 0) r += 257;
     return (uint64_t)r;
 }
@@ -141,11 +132,9 @@ static inline uint64_t reduce_fermat8(__uint128_t t, uint64_t q_unused)
 static inline uint64_t reduce_fermat16(__uint128_t t, uint64_t q_unused)
 {
     (void)q_unused;
-    /* q = 65537 = 2^16 + 1 */
-    /* t < 65537^2 ≈ 2^32; split at bit 16 */
-    uint64_t A = (uint64_t)(t >> 16);   /* A < 65537^2 / 2^16 ≈ 65537 */
+    /* q = 65537 = 2^16 + 1; t < 65537^2 ≈ 2^32; split at bit 16 */
+    uint64_t A = (uint64_t)(t >> 16);   /* A ≤ 65537; at most one subtract */
     uint64_t B = (uint64_t)t & 0xFFFFULL;
-    /* A mod 65537: A ≤ 65537, so at most one subtract */
     if (A >= 65537) A -= 65537;
     int64_t r = (int64_t)B - (int64_t)A;
     if (r < 0) r += 65537;
@@ -153,130 +142,11 @@ static inline uint64_t reduce_fermat16(__uint128_t t, uint64_t q_unused)
 }
 
 /*
- * ML-KEM: q = 3329 = 13·2^8 + 1.
- * K²RED: t mod q ≈ B - 13A = B - (A<<3) - (A<<2) - A   (B = t & 255, A = t>>8)
- * t < 3329^2 ≈ 11.1M; A = t>>8 ≤ 43316; 13A ≤ 563108.
- * Need multiple corrections; use int64 and add q until positive.
- */
-static inline uint64_t reduce_kyber(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    /* q = 3329 = 13*2^8+1 */
-    uint64_t A = (uint64_t)(t >> 8);
-    uint64_t B = (uint64_t)t & 0xFFULL;
-    int64_t  r = (int64_t)B - (int64_t)((A << 3) + (A << 2) + A); /* B - 13A */
-    /* r ∈ [-13*43316, 255] = [-563108, 255]; need up to ceil(563108/3329)=170 adds.
-     * Use modulo for correctness; K²RED benefit is on FPGA, not software. */
-    r = ((r % 3329) + 3329) % 3329;
-    return (uint64_t)r;
-}
-
-/*
- * k=3 Proth family: q = 3·2^m + 1.
- * t mod q = B - 3A = B - (A<<1) - A   where A = t>>m, B = t & (2^m-1).
- * Primes: q=12289 (m=12), q=786433 (m=18), q=3221225473 (m=30).
- * m is encoded in each specific function.
- */
-static inline uint64_t reduce_proth_k3_m12(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    /* q = 12289 = 3*2^12+1 */
-    const uint64_t Q = 12289, MASK = (1ULL<<12)-1;
-    uint64_t A = (uint64_t)(t >> 12);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A << 1) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-static inline uint64_t reduce_proth_k3_m18(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    /* q = 786433 = 3*2^18+1 */
-    const uint64_t Q = 786433, MASK = (1ULL<<18)-1;
-    uint64_t A = (uint64_t)(t >> 18);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A << 1) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-static inline uint64_t reduce_proth_k3_m30(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    /* q = 3221225473 = 3*2^30+1 */
-    const uint64_t Q = 3221225473ULL, MASK = (1ULL<<30)-1;
-    uint64_t A = (uint64_t)(t >> 30);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A << 1) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-/*
- * k=7 Proth family: q = 7·2^m + 1.
- * t mod q = B - 7A = B - (A<<2) - (A<<1) - A.
- * Primes: q=7340033 (m=20), q=469762049 (m=26).
- */
-static inline uint64_t reduce_proth_k7_m20(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    const uint64_t Q = 7340033, MASK = (1ULL<<20)-1;
-    uint64_t A = (uint64_t)(t >> 20);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A<<2) + (A<<1) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-static inline uint64_t reduce_proth_k7_m26(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    const uint64_t Q = 469762049, MASK = (1ULL<<26)-1;
-    uint64_t A = (uint64_t)(t >> 26);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A<<2) + (A<<1) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-/*
- * k=15 = 2^4-1: q = 15·2^27+1 = 2013265921.
- * t mod q = B - 15A = B - (A<<4) + A.
- */
-static inline uint64_t reduce_proth_k15(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    const uint64_t Q = 2013265921, MASK = (1ULL<<27)-1;
-    uint64_t A = (uint64_t)(t >> 27);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A<<4) - A);  /* -(16A-A) = -15A */
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-/*
- * k=17 = 2^4+1: q = 17·2^27+1 = 2281701377.
- * t mod q = B - 17A = B - (A<<4) - A.
- * Most efficient non-trivial K²RED: only 2 nonzero bits in k.
- */
-static inline uint64_t reduce_proth_k17(__uint128_t t, uint64_t q_unused)
-{
-    (void)q_unused;
-    const uint64_t Q = 2281701377, MASK = (1ULL<<27)-1;
-    uint64_t A = (uint64_t)(t >> 27);
-    uint64_t B = (uint64_t)t & MASK;
-    int64_t  r = (int64_t)B - (int64_t)((A<<4) + A);
-    r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
-    return (uint64_t)r;
-}
-
-/*
  * ML-DSA / Dilithium: q = 8380417 = 2^23 - 2^13 + 1 (Solinas form).
  * 2^23 ≡ 2^13 - 1 (mod q).  For t = A·2^23 + B:
  *   t mod q = B + A·(2^13 - 1) = B + (A<<13) - A.
- * Note: the `% q` here is not a hardware division — it applies only to
- * the intermediate signed result, which is small relative to q.
+ * A < q^2 / 2^23 ≈ q; the intermediate int64_t result may be slightly
+ * negative; the final mod+add handles wrap-around.
  */
 static inline uint64_t reduce_dilithium(__uint128_t t, uint64_t q_unused)
 {
@@ -287,6 +157,37 @@ static inline uint64_t reduce_dilithium(__uint128_t t, uint64_t q_unused)
     int64_t  r = (int64_t)B + (int64_t)((A<<13) - A);
     r = ((r % (int64_t)Q) + (int64_t)Q) % (int64_t)Q;
     return (uint64_t)r;
+}
+
+/*
+ * 60-bit Solinas: q = 2^60 - 2^18 + 1 = 1152921504606584833.
+ * 2^60 ≡ 2^18 - 1 (mod q).  For t = A·2^60 + B  (t < q^2 < 2^120):
+ *   t mod q ≡ A·(2^18 - 1) + B.
+ *
+ * Pass 1: r128 = A·(2^18-1) + B   (A < q < 2^60; r128 < 2^79)
+ * Pass 2: A2 = r128>>60, B2 = r128&mask; r = A2·(2^18-1) + B2
+ *         A2 < 2^19, so A2·(2^18-1) < 2^37; r < 2^61 < 2q.
+ * One conditional subtract yields the result in [0, q).
+ */
+static inline uint64_t reduce_solinas_60(__uint128_t t, uint64_t q_unused)
+{
+    (void)q_unused;
+    const uint64_t Q    = UINT64_C(1152921504606584833);  /* 2^60 - 2^18 + 1 */
+    const uint64_t MASK = (UINT64_C(1) << 60) - 1;
+    const uint64_t MOD  = (UINT64_C(1) << 18) - 1;       /* 2^60 mod q = 2^18-1 */
+
+    /* Pass 1: 120→79 bits */
+    uint64_t A = (uint64_t)(t >> 60);
+    uint64_t B = (uint64_t)t & MASK;
+    __uint128_t r128 = (__uint128_t)A * MOD + B;
+
+    /* Pass 2: 79→61 bits (fits uint64_t) */
+    uint64_t A2 = (uint64_t)(r128 >> 60);
+    uint64_t B2 = (uint64_t)r128 & MASK;
+    uint64_t r  = A2 * MOD + B2;   /* A2 < 2^19, A2*MOD < 2^37; r < 2^61 < 2q */
+
+    if (r >= Q) r -= Q;
+    return r;
 }
 
 /*
@@ -324,41 +225,46 @@ static inline uint64_t reduce_goldilocks(__uint128_t t, uint64_t q_unused)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * MODULI TABLE
- * 15 NTT-friendly primes with all parameters.
- * Access via ntt_modulus_find() or iterate NTT_MODULI[i].
+ * MODULI TABLE — 14 NTT-friendly primes
+ *
+ * Entries are ordered by q.  Access via ntt_modulus_find() or iterate
+ * NTT_MODULI[i].  Reduction class and function summarised below:
+ *
+ *  Class         Reduction path
+ *  ─────────────────────────────────────────────────────────────────────────
+ *  MOD_FERMAT    reduce_fermat8 / reduce_fermat16 — exact, 1 subtract
+ *  MOD_DILITHIUM reduce_dilithium — exact Solinas, 2^23≡2^13−1 identity
+ *  MOD_SOLINAS_60 reduce_solinas_60 — exact 2-pass, 2^60≡2^18−1 identity
+ *  MOD_GOLDILOCKS reduce_goldilocks — exact 2-step, 2^64≡2^32−1 identity
+ *  MOD_GENERIC   reduce_generic — __uint128_t % q; always correct
+ *
+ * CRT-NTT triple: 167772161 + 469762049 + 998244353 (all g=3).
+ *   Product covers integers up to 167772161·469762049·998244353 ≈ 7.9×10^25.
+ *   Use these three together for polynomial multiplication over ℤ.
+ *
+ * NOTE: primitive roots (g) for the two large Solinas primes
+ *   (q=1152921504606584833, q=2287828610704211969) are unverified.
+ *   Run `ntt_cpu <n> <q> 3` and confirm round-trip before relying on them.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-#define NTT_NUM_MODULI 15
+#define NTT_NUM_MODULI 14
 
-/*
- * NTT_MODULI table: 15 primes with all parameters.
- *
- * Reduction notes:
- *   Fermat (q=2^m+1): B - A reduction is exact — (t>>m) + (t&mask) mod q = 1 sub.
- *   Dilithium (Solinas q=2^23-2^13+1): B + (A<<13) - A is exact via 2^23≡2^13-1 mod q.
- *   Goldilocks (q=2^64-2^32+1): 2-step 128-bit reduction is exact.
- *   All Proth (k=3,7,15,17) and Kyber (k=13): K²RED formula B-k*A is only an
- *   approximation in software (exact on FPGA); use reduce_generic (128-bit divide)
- *   until a correct software Barrett reduction is added for each.
- */
 static const ntt_modulus_info_t NTT_MODULI[NTT_NUM_MODULI] = {
-    /*  q                    g   maxlog2n  class              name             form             reduce            */
-    {          257,          3,   8, MOD_FERMAT,    "Fermat-8",   "2^8+1",         reduce_fermat8      },
-    {         3329,          3,   8, MOD_KYBER,     "ML-KEM",     "13*2^8+1",      reduce_generic      },
-    {        12289,         11,  12, MOD_PROTH_K3,  "FALCON",     "3*2^12+1",      reduce_generic      },
-    {        65537,          3,  16, MOD_FERMAT,    "Fermat-16",  "2^16+1",        reduce_fermat16     },
-    {       786433,         10,  18, MOD_PROTH_K3,  "FHE-RNS-sm","3*2^18+1",      reduce_generic      },
-    {   1073479681,         11,  18, MOD_GENERIC,   "TFHE-NTT",   "~2^30",         reduce_generic      },
-    {     7340033,           3,  20, MOD_PROTH_K7,  "FHE-RNS",    "7*2^20+1",      reduce_generic      },
-    {     8380417,          10,  13, MOD_DILITHIUM, "ML-DSA",     "2^23-2^13+1",   reduce_dilithium    },
-    {   998244353,           3,  23, MOD_GENERIC,   "NTT-gen",    "119*2^23+1",    reduce_generic      },
-    {  1004535809,           3,  21, MOD_GENERIC,   "HElib-RNS",  "479*2^21+1",    reduce_generic      },
-    {  469762049,            3,  26, MOD_PROTH_K7,  "BFV-RNS",    "7*2^26+1",      reduce_generic      },
-    { 2013265921,           31,  27, MOD_PROTH_K15, "FHE-RNS-lg", "15*2^27+1",     reduce_generic      },
-    { 2281701377,            3,  27, MOD_PROTH_K17, "2-term",     "17*2^27+1",     reduce_generic      },
-    { 3221225473ULL,         5,  30, MOD_PROTH_K3,  "Large-NTT",  "3*2^30+1",      reduce_generic      },
-    { GOLDILOCKS_Q,          7,  32, MOD_GOLDILOCKS,"Goldilocks", "2^64-2^32+1",   reduce_goldilocks   },
+    /*  q                    g   ml2n  class            name            form                 reduce            */
+    { UINT64_C(         257),  3,   8, MOD_FERMAT,    "Fermat-8",    "2^8+1",               reduce_fermat8    },
+    { UINT64_C(        3329),  3,   8, MOD_GENERIC,   "ML-KEM",      "13*2^8+1",            reduce_generic    },
+    { UINT64_C(        7681),  3,   9, MOD_GENERIC,   "ML-KEM-v0",   "15*2^9+1",            reduce_generic    },
+    { UINT64_C(       12289), 11,  12, MOD_GENERIC,   "FALCON",      "3*2^12+1",            reduce_generic    },
+    { UINT64_C(       40961),  3,  13, MOD_GENERIC,   "Proth-5-13",  "5*2^13+1",            reduce_generic    },
+    { UINT64_C(       65537),  3,  16, MOD_FERMAT,    "Fermat-16",   "2^16+1",              reduce_fermat16   },
+    { UINT64_C(     8380417), 10,  13, MOD_DILITHIUM, "ML-DSA",      "2^23-2^13+1",         reduce_dilithium  },
+    { UINT64_C(   167772161),  3,  25, MOD_GENERIC,   "CRT-lo",      "5*2^25+1",            reduce_generic    },
+    { UINT64_C(   469762049),  3,  26, MOD_GENERIC,   "CRT-mid",     "7*2^26+1",            reduce_generic    },
+    { UINT64_C(   998244353),  3,  23, MOD_GENERIC,   "CRT-hi",      "119*2^23+1",          reduce_generic    },
+    { UINT64_C(  2013265921), 31,  27, MOD_GENERIC,   "FHE-RNS",     "15*2^27+1",           reduce_generic    },
+    { UINT64_C(1152921504606584833), 3, 18, MOD_SOLINAS_60, "Solinas-60", "2^60-2^18+1",    reduce_solinas_60 },
+    { UINT64_C(2287828610704211969), 3, 54, MOD_GENERIC,   "Solinas-61", "2^61-2^54+1",     reduce_generic    },
+    { GOLDILOCKS_Q,            7,  32, MOD_GOLDILOCKS,"Goldilocks",  "2^64-2^32+1",         reduce_goldilocks },
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════

@@ -25,27 +25,26 @@ multiplication over NTT-friendly prime fields.
 
 ## Performance — CPU Reference (AMD Ryzen 9 5905X)
 
-**15-prime sweep at min(max\_n, 1024) — forward NTT throughput**
+**14-prime sweep at min(max\_n, 1024) — forward NTT throughput**
 
 | Prime | Form | n | CT-DIT | Stockham | Montgomery |
 |-------|------|--:|-------:|---------:|-----------:|
-| Fermat-8 | 2⁸+1 | 256 | 222k/s | **242k/s** | 220k/s |
-| ML-KEM | 13·2⁸+1 | 256 | 207k/s | **228k/s** | 224k/s |
-| FALCON | 3·2¹²+1 | 1024 | 43k/s | 46k/s | **47k/s** |
-| Fermat-16 | 2¹⁶+1 | 1024 | 50k/s | **56k/s** | 48k/s |
-| FHE-RNS-sm | 3·2¹⁸+1 | 1024 | 42k/s | 46k/s | **48k/s** |
-| TFHE-NTT | ~2³⁰ | 1024 | 42k/s | 46k/s | **48k/s** |
-| FHE-RNS | 7·2²⁰+1 | 1024 | 41k/s | 46k/s | **48k/s** |
-| ML-DSA | 2²³−2¹³+1 | 1024 | 39k/s | 40k/s | **48k/s** |
-| NTT-gen | 119·2²³+1 | 1024 | 22k/s | **46k/s** | 27k/s |
-| HElib-RNS | 479·2²¹+1 | 1024 | 41k/s | 46k/s | **48k/s** |
-| BFV-RNS | 7·2²⁶+1 | 1024 | 41k/s | 46k/s | **48k/s** |
-| FHE-RNS-lg | 15·2²⁷+1 | 1024 | 41k/s | 46k/s | **48k/s** |
-| 2-term | 17·2²⁷+1 | 1024 | 41k/s | 46k/s | **48k/s** |
-| Large-NTT | 3·2³⁰+1 | 1024 | 42k/s | 37k/s | **47k/s** |
-| Goldilocks | 2⁶⁴−2³²+1 | 1024 | 36k/s | **38k/s** | N/A¹ |
+| Fermat-8 | 2⁸+1 | 256 | 233k/s | **235k/s** | 220k/s |
+| ML-KEM | 13·2⁸+1 | 256 | 209k/s | **223k/s** | 220k/s |
+| ML-KEM-v0 | 15·2⁹+1 | 512 | 92k/s | 95k/s | **101k/s** |
+| FALCON | 3·2¹²+1 | 1024 | 24k/s | 42k/s | **47k/s** |
+| Proth-5-13 | 5·2¹³+1 | 1024 | 41k/s | 41k/s | **47k/s** |
+| Fermat-16 | 2¹⁶+1 | 1024 | 50k/s | **51k/s** | 46k/s |
+| ML-DSA | 2²³−2¹³+1 | 1024 | 39k/s | 39k/s | **47k/s** |
+| CRT-lo | 5·2²⁵+1 | 1024 | 42k/s | 42k/s | **47k/s** |
+| CRT-mid | 7·2²⁶+1 | 1024 | 41k/s | 42k/s | **47k/s** |
+| CRT-hi | 119·2²³+1 | 1024 | 42k/s | 42k/s | **48k/s** |
+| FHE-RNS | 15·2²⁷+1 | 1024 | 41k/s | 42k/s | **48k/s** |
+| Solinas-60 | 2⁶⁰−2¹⁸+1 | 1024 | 37k/s | **39k/s** | N/A¹ |
+| Solinas-61 | 2⁶¹−2⁵⁴+1 | 1024 | 40k/s | **41k/s** | N/A¹ |
+| Goldilocks | 2⁶⁴−2³²+1 | 1024 | **36k/s** | 35k/s | N/A¹ |
 
-¹ Montgomery with R=2³² requires R>q; not valid for Goldilocks (q≈2⁶⁴).
+¹ Montgomery with R=2³² requires R>q; not valid for q ≥ 2³².
 
 **Polynomial multiplication (cyclic, n=256)**
 
@@ -58,31 +57,33 @@ multiplication over NTT-friendly prime fields.
 
 ## Supported Moduli
 
-All 15 primes are registered in `src/ntt_moduli.h` with fast reduction functions.
+All 14 primes are registered in `src/ntt_moduli.h` with fast reduction functions.
 Primitive roots ω are computed at runtime — nothing hardcoded.
 
 | q | Form | max n | Reduction | Scheme / Use |
 |--:|------|------:|-----------|--------------|
 | 257 | 2⁸+1 | 2⁸ | Fermat (exact) | Toy / reference |
 | 3,329 | 13·2⁸+1 | 2⁸ | generic | ML-KEM (NIST FIPS 203) |
+| 7,681 | 15·2⁹+1 | 2⁹ | generic | ML-KEM v0 (Kyber round 1) |
 | 12,289 | 3·2¹²+1 | 2¹² | generic | FALCON-512/1024, NewHope |
+| 40,961 | 5·2¹³+1 | 2¹³ | generic | Small Proth; NTT testing |
 | 65,537 | 2¹⁶+1 | 2¹⁶ | Fermat (exact) | General-purpose Fermat |
-| 786,433 | 3·2¹⁸+1 | 2¹⁸ | generic | FHE small-modulus RNS chain |
-| 7,340,033 | 7·2²⁰+1 | 2²⁰ | generic | FHE RNS chain |
 | 8,380,417 | 2²³−2¹³+1 | 2¹³ | Solinas (exact) | ML-DSA (NIST FIPS 204) |
-| 469,762,049 | 7·2²⁶+1 | 2²⁶ | generic | BFV/CKKS RNS component |
-| 998,244,353 | 119·2²³+1 | 2²³ | generic | General NTT benchmark prime |
-| 1,004,535,809 | 479·2²¹+1 | 2²¹ | generic | HElib RNS chain |
-| 1,073,479,681 | ~2³⁰ | 2¹⁸ | generic | TFHE bootstrapping |
+| 167,772,161 | 5·2²⁵+1 | 2²⁵ | generic | CRT-NTT triple (low) |
+| 469,762,049 | 7·2²⁶+1 | 2²⁶ | generic | CRT-NTT triple (mid) |
+| 998,244,353 | 119·2²³+1 | 2²³ | generic | CRT-NTT triple (hi) |
 | 2,013,265,921 | 15·2²⁷+1 | 2²⁷ | generic | Large FHE RNS chain |
-| 2,281,701,377 | 17·2²⁷+1 | 2²⁷ | generic | 2-term Proth NTT |
-| 3,221,225,473 | 3·2³⁰+1 | 2³⁰ | generic | Large-n polynomial mult |
-| 2⁶⁴−2³²+1 | Goldilocks | 2³² | 2-step exact | 64-bit field; FRI/STARK |
+| 2⁶⁰−2¹⁸+1 | Solinas-60 | 2¹⁸ | Solinas-60 (exact) | STARK / large field |
+| 2⁶¹−2⁵⁴+1 | Solinas-61 | 2⁵⁴ | generic | STARK / large field |
+| 2⁶⁴−2³²+1 | Goldilocks | 2³² | 2-step exact | ZK / Plonky2 / FRI/STARK |
 
-Reduction notes: **Fermat** uses the exact `(t & mask) − (t >> m)` formula.
-**Solinas** (ML-DSA) uses `B + (A << 13) − A` since 2²³ ≡ 2¹³−1 (mod q).
-**Goldilocks** uses a two-step 128→64-bit reduction via 2⁶⁴ ≡ 2³²−1 (mod q).
-All others use a 128-bit hardware divide (K²RED is an FPGA technique, not software).
+Reduction notes: **Fermat** uses `(t & mask) − (t >> m)`.
+**ML-DSA Solinas** uses `B + (A<<13) − A` since 2²³ ≡ 2¹³−1 (mod q).
+**Solinas-60** uses a 2-pass reduction: 2⁶⁰ ≡ 2¹⁸−1 (mod q); no 128-bit divide.
+**Goldilocks** uses a 2-step reduction: 2⁶⁴ ≡ 2³²−1 (mod q); no 128-bit divide.
+**CRT-NTT triple** (5·2²⁵+1, 7·2²⁶+1, 119·2²³+1): use all three together for
+polynomial multiplication over ℤ (covers products up to ~3.9×10²⁵).
+All Proth primes use hardware 128-bit divide (K²RED is FPGA-only, not software).
 
 ---
 
@@ -120,7 +121,7 @@ make cross-verify       # CPU vs GPU correctness check (7 tests)
 ### GPU — MI300A (gfx942)
 
 ```sh
-module load PrgEng-cray-amd/8.5.0 rocm/7.0.3 craype-accel-amd-gfc942
+module load PrgEng-cray-amd/8.5.0 rocm/7.0.3 craype-accel-amd-gfx942
 make gpu-mi300a gpu-stok-mi300a
 ```
 

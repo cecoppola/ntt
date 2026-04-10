@@ -2,7 +2,7 @@
  * ntt_bench.c — Side-by-side CPU algorithm benchmark across transform sizes
  *
  * Purpose:   Compare CT-DIT (lazy), Stockham (lazy), and Montgomery NTT
- *            across all 15 moduli at min(max_n, 1024)
+ *            across all 14 moduli at min(max_n, 1024)
  *            parameter sets. Output a formatted table for analysis.
  * Algorithm: All three algorithms implement the same ntt_forward() signature;
  *            this file compiles all three inline as static functions with
@@ -237,7 +237,7 @@ int main(void)
 {
     printf("\n" ANSI_WHT
            "╔══════════════════════════════════════════════════════════╗\n"
-           "║      NTT CPU Algorithm Benchmark — 15 moduli sweep      ║\n"
+           "║      NTT CPU Algorithm Benchmark — 14 moduli sweep      ║\n"
            "╚══════════════════════════════════════════════════════════╝\n"
            ANSI_RST "\n");
 
