@@ -1,0 +1,420 @@
+# ============================================================================
+# MI300A HPC DEVELOPMENT ENVIRONMENT — DEFINITIVE REFERENCE
+# ============================================================================
+# All values confirmed by direct query on the live system, April 2026.
+# Confirmed methods: rocminfo, hipDeviceProp_t, hipconfig, module list,
+# direct shell inspection, and compilation/execution of 52 source files
+# with zero errors and zero warnings.
+#
+# PURPOSE
+# An offline agent writing HIP code on any other machine can use this file
+# to produce source code that compiles and runs correctly on this system the
+# first time, and is optimally structured for the MI300A hardware.
+
+
+# ============================================================================
+# 1. HARDWARE
+# ============================================================================
+
+# -- CPU ---------------------------------------------------------------------
+# Model:         AMD EPYC "Genoa" (Zen 4)
+# Clock:         3700 MHz                      (confirmed: rocminfo CPU agent)
+# Cache line:    64 bytes                      (CPU L1/L2/L3 cache line)
+# Module:        craype-x86-genoa              (confirmed: NOT craype-x86-milan)
+
+# -- GPU ---------------------------------------------------------------------
+# Model:         AMD Instinct MI300A           (APU — no PCIe bus to CPU)
+#   rocm-smi:    Card Series: AMD Instinct MI300A
+#                Card Model:  0x74a0
+# Architecture:  CDNA3, gfx942
+# Full target:   amdgcn-amd-amdhsa--gfx942:sramecc+:xnack+
+#   sramecc:     ENABLED  (hardware ECC on SRAM)
+#   XNACK:       ENABLED  (on-demand page fault / retry supported)
+#
+# Clock:         2100 MHz  (confirmed: hipDeviceProp_t.clockRate = 2100000 kHz
+#                           and rocminfo GPU agent Clock: 2100 MHz)
+#                Cycle-to-ns conversion: ns = cycles / 2.1
+#                Use CLOCK_MHZ 2100.0 in all timing code.
+#
+# Compute Units: 228 CUs                       (confirmed: hipDeviceProp_t)
+# SIMDs per CU:  4                             (confirmed: rocminfo)
+# Wavefront:     64 threads                    (confirmed: hipDeviceProp_t.warpSize)
+# Max waves/CU:  32                            (confirmed: rocminfo)
+# Waves/SIMD:    8  (= 32 waves / 4 SIMDs)
+# Max threads/block: 1024                      (confirmed: hipDeviceProp_t)
+# LDS per block: 65536 bytes = 64 KB           (confirmed: hipDeviceProp_t)
+#
+# GPU cache line: 128 bytes = 16 doubles        (confirmed: rocminfo GPU agent
+#                                                Cacheline: 128(0x80))
+#   CRITICAL: CPU cache line is 64 bytes; GPU cache line is 128 bytes.
+#   Any stride >= 16 doubles fetches one full 128-byte line per element.
+#   Design all GPU kernels, P2P patterns, and SpMV structures around 128 bytes.
+#
+# L2 cache:      4 MB as reported by HIP       (confirmed: hipDeviceProp_t
+#                                                l2CacheSize = 4194304)
+#   NOTE: MI300A has 3 XCDs. The 4 MB figure may be per-XCD, giving 12 MB
+#   total. Do not assume either 4 MB or 32 MB; use 4 MB for conservative
+#   tiling decisions.
+
+# -- Memory ------------------------------------------------------------------
+# Capacity:      ~96 GB HBM3 per APU, physically unified.
+#                CPU and GPU share the same pool. No PCIe bus between them.
+#                Any pointer (hipMalloc, hipMallocManaged, malloc) is
+#                accessible by both CPU and GPU without hipMemcpy.
+#
+# Memory clock:  1300 MHz  (confirmed: hipDeviceProp_t.memoryClockRate = 1300000)
+# Bus width:     8192 bits = 1024 bytes        (confirmed: hipDeviceProp_t)
+#
+# Bandwidth — three figures, use as appropriate:
+#   HIP formula: 2 x 1300 MHz x 1024 bytes = 2.66 TB/s  (undercounts HBM3)
+#   AMD spec:    5.2 TB/s                                 (upper bound / roofline)
+#   Achieved:    ~3.5 TB/s  (hipMalloc, GPU read, measured on this system)
+#   Managed mem: ~2.1 TB/s  (hipMallocManaged)
+#   CPU-side:    ~200 GB/s  (CPU read from HBM3)
+#   Use 5.2 TB/s for roofline; 3.5 TB/s as practical ceiling for hipMalloc.
+
+# -- Occupancy and Kernel Sizing ---------------------------------------------
+# Max concurrent threads: 228 CUs x 32 waves x 64 threads = 467,072
+#
+# Minimum blocks for full occupancy:
+#   Formula: (32 waves/CU) / (block_threads / 64) x 228 CUs
+#   256 threads/block  (4 waves):  8 blocks/CU x 228 =  1,824 blocks
+#   512 threads/block  (8 waves):  4 blocks/CU x 228 =    912 blocks
+#   1024 threads/block (16 waves): 2 blocks/CU x 228 =    456 blocks
+#
+# Latency hiding budget:
+#   Each SIMD holds 8 wavefronts. HBM load latency ~300 ns = ~630 cycles
+#   at 2100 MHz. The 7 non-stalled wavefronts per SIMD fill this gap.
+#   Full occupancy (1,824+ blocks at 256 threads) is needed for memory-
+#   bandwidth-bound kernels to fully hide HBM latency.
+#
+# Guidelines:
+#   Default:              256 threads/block, 1,824+ blocks  (BW-bound)
+#   Compute-bound GEMM:   256 threads/block, 1,824+ blocks
+#   Small/latency work:    64 threads/block (1 wavefront per SIMD)
+#   Max LDS reuse:        1024 threads/block
+#   LDS budget at full occupancy (8 blocks/CU): 64 KB / 8 = 8 KB per block
+#   512-1024 total blocks is sufficient for bandwidth-bound kernels.
+
+# -- System Topology ---------------------------------------------------------
+# Nodes:         2 test nodes
+# APUs per node: 4  (HIP devices 0, 1, 2, 3)
+# Total APUs:    8
+# Intra-node:    Fully connected K4 via xGMI3 Infinity Fabric
+#                6 undirected links, 128 GB/s bidirectional (theoretical)
+#                ~90 GB/s achieved SDMA (hipMalloc both ends)
+#                ~104 GB/s achieved kernel-driven (CU load/store)
+# Inter-node:    Cray Slingshot (OFI/libfabric)
+#                "cxil_map: write error" at startup is benign, not fatal.
+
+
+# ============================================================================
+# 2. SOFTWARE AND MODULES
+# ============================================================================
+
+# ROCm:          7.0.3  (build 7.0.51831-7c9236b16)  (confirmed: hipconfig)
+# ROCm root:     /opt/rocm-7.0.3
+# Compiler:      hipcc -> AMD clang 20.0.0
+#   hipcc:       /opt/rocm-7.0.3/bin/hipcc
+#   clang:       /opt/rocm-7.0.3/lib/llvm/bin/clang++  (ROCm-bundled)
+#                NOT the system llvm/18.1.1
+# SHMEM:         cray-shmem/12.0.0  (OpenSHMEM 1.5)
+#   SHMEM root:  /opt/cray/shmem/sma/12.0.0/ofi  (= $CRAY_SHMEM_DIR)
+# PMI:           cray-pmi/6.1.16
+#   PMI lib:     /opt/cray/pe/pmi/6.1.16/lib/libpmi.so  (confirmed present)
+# Launcher:      srun  (SLURM)
+#   Partition:   -p mi
+#   Full 2-node: srun -p mi -N 2 -n 8 --ntasks-per-node=4
+
+# Loaded modules (confirmed by module list):
+#   craype-x86-genoa           Zen 4 CPU target  (NOT milan)
+#   craype-accel-amd-gfx942    Injects --offload-arch=gfx942
+#   PrgEnv-amd/8.6.0           AMD programming environment
+#   amd/8.6.0                  PrgEnv component
+#   amd/7.0.3                  ROCm 7.0.3 component
+#   rocm/7.0.3                 Sets ROCM_PATH. Pinned in ~/.bashrc.
+#   cray-shmem/12.0.0          OpenSHMEM 1.5. Sets CRAY_SHMEM_DIR.
+#   cray-pmi/6.1.16            PMI
+#   craype/2.7.35              Cray PE wrappers
+#   cray-libsci/25.09.0        Cray scientific libraries
+#   cray-libsci_acc/25.09.2    GPU-accelerated sci libs
+#   cray-mpich/9.0.1           MPI (built against ROCm 6.0)
+#   cray-dsmml/0.4.0           Distributed shared memory
+#   libfabric/1.22.0           OFI fabric
+#   craype-network-ofi         OFI network target
+#   perftools-base/25.09.0     Cray profiling
+#   llvm/18.1.1                System LLVM  -- do NOT use for HIP
+#   gcc/14.3.0  cmake/3.29.6  binutils/2.45  xpmem/2.11.5
+#   jemalloc/5.3.0  gmp/6.3.0
+
+# ~/.bashrc: one line only:
+#   module load rocm/7.0.3
+
+
+# ============================================================================
+# 3. ENVIRONMENT VARIABLES
+# ============================================================================
+# Critical for Makefile writers. All confirmed by direct shell query
+# and "module show rocm/7.0.3".
+
+# REAL shell variables (set by modules, usable in Makefiles):
+#
+#   ROCM_PATH = /opt/rocm-7.0.3
+#     Set by: rocm/7.0.3 module via setenv("ROCM_PATH", ...)
+#     USE:    ROCM_LIB := $(ROCM_PATH)/lib   in Makefile
+#
+#   CRAY_SHMEM_DIR = /opt/cray/shmem/sma/12.0.0/ofi
+#     Set by: cray-shmem module
+#     USE:    -I$(CRAY_SHMEM_DIR)/include   and   -L$(CRAY_SHMEM_DIR)/lib64
+
+# NOT in the shell (internal to hipcc, confirmed empty by echo):
+#
+#   HIP_PATH       -- empty in shell; hipconfig shows /opt/rocm-7.0.3
+#                     DO NOT use $(HIP_PATH) in Makefiles -- expands to empty
+#                     USE $(ROCM_PATH) instead
+#   HIP_PLATFORM   -- not in shell  (hipconfig value: amd)
+#   HIP_RUNTIME    -- not in shell  (hipconfig value: rocclr)
+#   HIP_COMPILER   -- not in shell  (hipconfig value: clang)
+#   HIP_CLANG_PATH -- not in shell  (hipconfig value: /opt/rocm-7.0.3/lib/llvm/bin)
+
+# hipconfig output (confirmed):
+#   HIP version:    7.0.51831-7c9236b16
+#   HIP_PATH:       /opt/rocm-7.0.3          (compiled into hipcc)
+#   ROCM_PATH:      /opt/rocm-7.0.3          (compiled into hipcc)
+#   HIP_COMPILER:   clang
+#   HIP_PLATFORM:   amd
+#   HIP_RUNTIME:    rocclr
+#   HIP_CLANG_PATH: /opt/rocm-7.0.3/lib/llvm/bin
+#   CPP_CONFIG:     -D__HIP_PLATFORM_HCC__=  -D__HIP_PLATFORM_AMD__=
+#                   -I/opt/rocm-7.0.3/include  -I/include
+
+
+# ============================================================================
+# 4. BUILDING: COMPILER AND MAKEFILE
+# ============================================================================
+
+# Always compile .hip files with hipcc.
+# Never use: gcc, g++, system clang++, or the bundled clang++ directly.
+#
+# hipcc auto-injects (do NOT add any of these manually):
+#   -D__HIP_PLATFORM_HCC__=     adding manually causes duplicate definition
+#   -D__HIP_PLATFORM_AMD__=     adding manually causes duplicate definition
+#   -I/opt/rocm-7.0.3/include   already present
+#   -I/include                  injected automatically
+#   --offload-arch=gfx942       injected by craype-accel-amd-gfx942 module
+#
+# You supply only:
+#   --offload-arch=gfx942       explicit in Makefile for safety
+#   -O3
+
+# Reference Makefile (confirmed correct and tested):
+#
+#   HIPCC         := hipcc
+#   ROCM_LIB      := $(ROCM_PATH)/lib        # ROCM_PATH is a real shell var
+#   CFLAGS        := --offload-arch=gfx942 -O3
+#   LDFLAGS       := -L$(ROCM_LIB) -Wl,--allow-shlib-undefined
+#
+#   PMI_DIR       := /opt/cray/pe/pmi/6.1.16
+#   CFLAGS_SHMEM  := $(CFLAGS) -I$(CRAY_SHMEM_DIR)/include
+#   LDFLAGS_SHMEM := $(LDFLAGS) -L$(CRAY_SHMEM_DIR)/lib64 -lsma \
+#                    -L$(PMI_DIR)/lib -lpmi
+#
+#   %: %.hip
+#       $(HIPCC) $(CFLAGS) $(LDFLAGS) $< -o $@
+
+# Library link flags (all confirmed present and tested):
+#
+#   -lhipblas                   hipBLAS
+#   -lhipblas -lhipblaslt       hipBLASLt (always pair with hipBLAS)
+#   -lhiprand                   hipRAND
+#   -lhipfft                    hipFFT  (NOT -lfft — libfft.so does not exist)
+#   -lhipsolver -lhipblas       hipSOLVER
+#   -lhipsparse                 hipSPARSE
+#   -lrccl                      RCCL  (must be explicit; not auto-linked)
+#   -lrt                        POSIX shm_open (fork-based multi-process)
+#   (none)                      hipCUB  (header-only)
+
+# Library headers and .so files (all confirmed in /opt/rocm-7.0.3/lib/):
+#
+#   Library    Link flag      Header
+#   --------   -----------    ----------------------------
+#   hipBLAS    -lhipblas      hipblas/hipblas.h
+#   hipBLASLt  -lhipblaslt    hipblaslt/hipblaslt.h
+#   hipSOLVER  -lhipsolver    hipsolver/hipsolver.h
+#   hipSPARSE  -lhipsparse    hipsparse/hipsparse.h
+#   hipFFT     -lhipfft       hipfft/hipfft.h
+#   hipRAND    -lhiprand      hiprand/hiprand.h
+#   RCCL       -lrccl         rccl/rccl.h
+#   hipCUB     (none)         hipcub/hipcub.hpp
+
+
+# ============================================================================
+# 5. SOURCE CODE RULES
+# ============================================================================
+# All rules confirmed by live compilation. Violations produce the errors noted.
+
+# -- Required includes -------------------------------------------------------
+#   #include <hip/hip_runtime.h>    always first in every .hip file
+#   #include <stdio.h>              C header; cstdio is unavailable here
+#
+#   For fork()/waitpid()/POSIX shm, include sys/wait.h explicitly:
+#     #include <unistd.h>
+#     #include <sys/mman.h>
+#     #include <sys/stat.h>
+#     #include <fcntl.h>
+#     #include <sys/wait.h>         NOT pulled in transitively; must be explicit
+
+# -- Return value wrapping ---------------------------------------------------
+#   Wrap ALL HIP and ROCm library API calls in (void)():
+#     (void)(hipMalloc(&p, n));
+#     (void)(hipMemcpy(dst, src, n, hipMemcpyDeviceToHost));
+#     (void)(hipDeviceSynchronize());
+#     (void)(hipEventCreate(&t));
+#     (void)(hipEventRecord(t, s));
+#     (void)(hipEventSynchronize(t));
+#     (void)(hipEventElapsedTime(&ms, t0, t1));
+#     (void)(hipblasCreate(&h));     etc.
+#   hipCUB [[nodiscard]] functions also require (void)().
+#
+#   Do NOT wrap — these are void and the cast is a syntax error:
+#     hipLaunchKernelGGL(fn, grid, block, shm, stream, args...);
+#     mykernel<<<grid, block, shm, stream>>>(args...);
+
+# -- 64-bit GPU atomics ------------------------------------------------------
+#   AMD hardware requires unsigned long long* for 64-bit atomic targets.
+#   signed long long* causes a compile error.
+#
+#     WRONG:   long long *p;           atomicAdd(p, 1LL);
+#     CORRECT: unsigned long long *p;  atomicAdd(p, 1ULL);
+#
+#   Applies to: atomicAdd, atomicCAS, atomicExch, atomicMin, atomicMax,
+#               atomicAnd, atomicOr, atomicXor
+#   Unaffected: int/uint atomics, float atomicAdd, double atomicAdd
+
+# -- Reserved variable names -------------------------------------------------
+#   These conflict with C stdlib symbols and cause errors:
+#     labs   (= long abs)      ->  use slabs, size_labels, etc.
+#     llabs  (= long long abs) ->  use a different name
+#     abs    (= int abs)       ->  use a different name
+
+# -- Disabled code blocks ----------------------------------------------------
+#   Use #if 0 / #endif, NOT /* ... */
+#   Block comments break on any embedded */ sequence (e.g. /* spin */).
+
+# -- hipBLAS types (ROCm 7, confirmed) ---------------------------------------
+#   Use hipDataType for all matrix/vector data type arguments:
+#     HIP_R_64F    FP64       HIP_R_32F    FP32
+#     HIP_R_16F    FP16       HIP_R_16BF   BF16
+#     HIP_R_8F_E4M3_FNUZ      FP8  (guard with #if defined(...))
+#
+#   Compute type: hipblasComputeType_t (unchanged from prior ROCm versions)
+#     HIPBLAS_COMPUTE_64F     HIPBLAS_COMPUTE_32F
+#
+#   hipblasLtMatmulDescCreate(&desc, HIPBLAS_COMPUTE_32F, HIP_R_32F)
+#     second arg: hipblasComputeType_t
+#     third arg:  hipDataType (scale type; always HIP_R_32F for low precision)
+#
+#   hipblasLtMatrixLayoutCreate(&layout, HIP_R_16BF, rows, cols, ld)
+#     second arg: hipDataType
+#
+#   DO NOT USE — removed in ROCm 7, all cause compile errors:
+#     hipblasDatatype_t        hipblasltDatatype_t    hipblasLtComputeType_t
+#     HIPBLAS_R_*              HIPBLASLT_R_*          HIPBLASLT_COMPUTE_F32
+
+# -- RCCL --------------------------------------------------------------------
+#   -lrccl must be explicit. hipcc does not auto-link it.
+
+# -- hipFFT ------------------------------------------------------------------
+#   Link with -lhipfft. There is no libfft.so on this system.
+
+# -- SHMEM (cray-shmem/12.0.0, OpenSHMEM 1.5) --------------------------------
+#   #include <shmem.h>  only — not shmemx.h
+#   Broadcast: shmem_broadcastmem(SHMEM_TEAM_WORLD, dst, src, nbytes, root)
+#              NOT shmem_broadcast64 (legacy pSync API not available)
+#   Reduce:    shmem_double_sum_reduce(SHMEM_TEAM_WORLD, dest, src, nelem)
+#   Device:    hipSetDevice(shmem_my_pe() % 4)  immediately after shmem_init()
+#   Run:       srun -p mi -N 2 -n 8 --ntasks-per-node=4 ./program
+
+# -- hipCUB ------------------------------------------------------------------
+#   Header-only. No link flag. #include <hipcub/hipcub.hpp>
+#   All Device* functions are [[nodiscard]]. Wrap all calls in (void)().
+#   Two-pass pattern: first call with nullptr sizes the temp buffer;
+#   second call with allocated temp buffer performs the operation.
+
+
+# ============================================================================
+# 6. P2P INFINITY FABRIC
+# ============================================================================
+
+# The correct pattern for concurrent P2P transfers is one dedicated
+# hipStream_t per directed link (src, dst pair). Each stream has its own
+# HSA command queue (~4096 packets deep); sharing a stream across multiple
+# concurrent async copies will exhaust the queue and cause a crash.
+#
+# Required pattern:
+#   hipSetDevice(src);
+#   hipStreamCreate(&streams[src][dst]);
+#   hipMemcpyPeerAsync(dst_buf, dst, src_buf, src, bytes, streams[src][dst]);
+#   hipStreamSynchronize(streams[src][dst]);   // sync after every round
+#
+# 64-bit atomics on peer memory: unsigned long long* required (same as above).
+#
+# Enable peer access before any transfer:
+#   hipDeviceCanAccessPeer(&can, src, dst);    // check first
+#   hipDeviceEnablePeerAccess(dst, 0);         // then enable
+#
+# Performance on this system:
+#   SDMA (hipMemcpyPeerAsync, hipMalloc both ends):  ~90 GB/s per link
+#   Kernel remote write (CU load/store over IF):     ~104 GB/s per link
+#   Theoretical per-link peak:                       128 GB/s
+#   One-way latency (SDMA, small messages):          ~4-8 us
+#   Remote atomicAdd (1 target) vs local:            ~2x slower
+#
+# Environment overrides:
+#   HSA_ENABLE_SDMA=0    force CU-driven (blit) copies instead of SDMA
+#   HIP_LAUNCH_BLOCKING=1  serialize all kernel launches (debug)
+
+
+# ============================================================================
+# 7. VALIDATION CHECKLIST
+# ============================================================================
+# Run through this before presenting any .hip source file.
+
+# Includes and headers:
+# [ ] #include <hip/hip_runtime.h> is the first include
+# [ ] #include <stdio.h>  not  #include <cstdio>
+# [ ] #include <sys/wait.h> present when using fork() or waitpid()
+
+# Return values:
+# [ ] All HIP and ROCm library API returns wrapped in (void)()
+# [ ] hipLaunchKernelGGL NOT wrapped in (void)()
+# [ ] Kernel <<<...>>> launches NOT wrapped in (void)()
+
+# Types and names:
+# [ ] 64-bit atomic targets: unsigned long long*
+# [ ] 64-bit atomic increments: ULL suffix  (1ULL not 1LL)
+# [ ] No variable named labs, llabs, or abs
+# [ ] No HIPBLASLT_COMPUTE_*, HIPBLASLT_R_*, hipblasltDatatype_t
+# [ ] No HIPBLAS_R_*  (use HIP_R_*)
+# [ ] hipDataType used for hipBLAS/hipBLASLt data type arguments
+
+# Build:
+# [ ] Link flag is -lhipfft  not  -lfft
+# [ ] -lrccl present explicitly when using RCCL headers
+# [ ] No -D__HIP_PLATFORM_AMD__ in CFLAGS
+# [ ] No -I flags in CFLAGS (hipcc injects them)
+# [ ] Makefile uses $(ROCM_PATH)/lib  not  $(HIP_PATH)/lib
+# [ ] HIP_PATH not referenced anywhere (empty in shell)
+# [ ] CRAY_SHMEM_DIR used for SHMEM paths
+
+# Code structure:
+# [ ] Extension/disabled blocks use #if 0 / #endif  not  /* ... */
+# [ ] hipDeviceSynchronize() before any CPU read of GPU-written data
+# [ ] SHMEM: hipSetDevice(me % 4) immediately after shmem_init()
+# [ ] P2P: one stream per directed link; hipStreamSynchronize after every round
+
+# Hardware constants:
+# [ ] GPU cache line is 128 bytes (16 doubles)  not  64 bytes
+# [ ] CLOCK_MHZ = 2100.0 in any cycle-counting or latency timing code
+# [ ] Block size 256 threads (4 wavefronts) as default
+# [ ] 1,824+ blocks for full occupancy at 256 threads/block
