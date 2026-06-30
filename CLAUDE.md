@@ -98,17 +98,23 @@
 
 [1;35m  6. MD-FORMATTING MANDATE[0m
 
-  All MD files in this project MUST follow the README.md formatting style:
+  Canonical MD files use the ANSI-boxed terminal style (see ARCHITECTURE.md):
   ANSI-coloured boxed titles, ANSI-coloured section headers, fixed-width
   Unicode tables (use the tablize helper for auto-sized columns), dividers
   between sections, and a "View with: cat / less -R" hint near the top.
 
-  CANONICAL DOCS ARE HAND-MAINTAINED. README.md, ARCHITECTURE.md,
-  PERFORMANCE.md, ROADMAP.md, and the per-layer lib*/README.md files
-  are the single source of truth and are edited IN PLACE with targeted
-  edits that preserve their ANSI/box structure. Do NOT keep a parallel
-  generator script for an existing doc — that creates two drifting
-  sources (the mistake this rule retires).
+  EXCEPTIONS — plain / GitHub-flavored markdown (NOT ANSI):
+    - README.md — the GitHub repo landing page; must render on github.com, so
+      it uses GitHub-flavored markdown (headings, pipe tables, fenced code).
+      Do NOT convert it back to the ANSI box style.
+    - AGENT_BRIEF.md, DEPLOYMENT_DIAGNOSTIC.md — agent-executed docs; plain
+      markdown so the ANSI escapes are not token-noise to an LLM.
+
+  CANONICAL DOCS ARE HAND-MAINTAINED. ARCHITECTURE.md, PERFORMANCE.md,
+  ROADMAP.md, STATUS.md, and the per-layer lib*/README.md files are the single
+  source of truth and are edited IN PLACE with targeted edits that preserve
+  their ANSI/box structure. Do NOT keep a parallel generator script for an
+  existing doc — that creates two drifting sources (the mistake this rule retires).
 
   When CREATING A NEW boxed MD file from scratch, use ./pretty_md.py
   (in repo root; box/hint/divider/section/tablize + colour helpers,
