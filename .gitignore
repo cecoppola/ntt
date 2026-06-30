@@ -92,3 +92,8 @@ isa_check-*.resolution.txt
 
 # Local-only dev-box GPU-safety tooling (restored from archive for dev runs)
 scripts/gpu_*.sh
+
+# Untracked per request 2026-06-30 (kept local, not pushed)
+/mi300a_environment_0509.txt
+/pretty_md.py
+/.github/
