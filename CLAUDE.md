@@ -117,7 +117,7 @@
   existing doc — that creates two drifting sources (the mistake this rule retires).
 
   When CREATING A NEW boxed MD file from scratch, use ./pretty_md.py
-  (in repo root; box/hint/divider/section/tablize + colour helpers,
+  (local-only, gitignored; box/hint/divider/section/tablize + colour helpers,
   emits real ESC bytes — replicate if absent) via a one-shot script,
   then maintain the resulting .md by direct edit thereafter. Python is
   permitted for MD generation only. Plain Markdown is acceptable ONLY
@@ -164,16 +164,19 @@
     ROADMAP.md         phase status, open MI300A tasks, future work
     CLAUDE.md          this file (agent guidance)
     ref/README.md  lib/README.md  app/README.md   per-layer overviews
-    mi300a_environment_0509.txt    env reference (Cray PE module set, 2026-05-09)
 
   Tooling docs (tracked):
-    pretty_md.py    in-repo MD-formatting helper (see §6)
     scripts/        kept = host gates + MI300A bring-up: check.sh, ci.sh,
                     coverage.sh, coverage_full.sh, test_asan.sh, cpu_testbench.sh,
                     verify_nonvacuous.sh, test_compute_e.sh, setup_mi300a.sh,
                     mi300a_first_run.sh. (Dev-box GPU-safety scripts moved to
                     archive/scripts_devbox/.)
-    .github/workflows/ci.yml    GPU-free host gate; runs scripts/ci.sh
+
+  Local-only (kept on the dev box, gitignored — NOT in a fresh clone):
+    mi300a_environment_0509.txt  Cray PE module set (also embedded in
+                                 scripts/setup_mi300a.sh + README build-env section)
+    pretty_md.py                 MD-formatting helper (see §6; replicate if absent)
+    .github/workflows/ci.yml     GitHub Actions host gate (runs scripts/ci.sh)
 
   perf/ — LOCAL-ONLY, not pushed (.gitignore). Raw per-run measurement
   data is regenerated on the GPU host; current consolidated numbers

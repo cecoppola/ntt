@@ -145,7 +145,8 @@ gfx942 (`-DNTT_SOLINAS_P0`, default on gfx942). Reductions are full `[0,p)`.
   the rename. Recalled memories appear in `<system-reminder>` blocks; verify a named file/flag
   still exists before relying on it.
 - **Cross-project refs:** `~/MI300A_TARGET_ENVIRONMENT.md` (definitive target) ·
-  `~/HIP_6900XT_KNOWLEDGE.md` (dev-side) · `mi300a_environment_0509.txt` (Cray module set).
+  `~/HIP_6900XT_KNOWLEDGE.md` (dev-side). The Cray module set is embedded in
+  `scripts/setup_mi300a.sh` + README's build-env section.
 - **History:** git log + `archive/docs/{ARCHIVE,OPT_LEDGER,GPU_CRASH_RECIPE}.md`.
 
 ## 9. Working norms (from CLAUDE.md + .claude/rules/c-style.md)
@@ -155,5 +156,6 @@ gfx942 (`-DNTT_SOLINAS_P0`, default on gfx942). Reductions are full `[0,p)`.
 - Be token-efficient; prefer running commands over reading bytes. Source-of-truth order:
   code → STATUS.md → design docs.
 - Build `-Wall -Wextra` clean before "done." Persist test/bench results to files; sweep ranges.
-- Canonical `.md` files use the ANSI-boxed house style (see CLAUDE.md §6 + `./pretty_md.py`).
+- Canonical `.md` files use the ANSI-boxed house style (see CLAUDE.md §6; `pretty_md.py`
+  is local-only — replicate if absent).
 - Commit only when the user asks; end commit messages with the Co-Authored-By line.

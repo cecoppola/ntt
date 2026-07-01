@@ -33,7 +33,6 @@ single-prime reference (ML-KEM / ML-DSA / Goldilocks NTTs).
 | [STATUS.md](STATUS.md) | current state, API surface, next step |
 | [CLAUDE.md](CLAUDE.md) | agent guidance (agent-driven sessions) |
 | [ref/README.md](ref/README.md) · [lib/README.md](lib/README.md) · [app/README.md](app/README.md) | per-layer overviews |
-| `mi300a_environment_0509.txt` | definitive MI300A environment reference (2026-05-09) |
 | `~/MI300A_TARGET_ENVIRONMENT.md` · `~/HIP_6900XT_KNOWLEDGE.md` | cross-project references |
 
 > The other canonical docs use an ANSI-boxed terminal style — view them with `less -R`.

@@ -34,7 +34,7 @@ Work the phases in order. Check the boxes. Appendix D is the full `file:constant
   **USE:** if the node reports e.g. `gfx942:sramecc+:xnack-`, append it to every `--offload-arch` so codegen matches the silicon (affects ECC + page-fault behavior).
 - [ ] **WHAT:** Cray PE toolchain — `PrgEnv-amd/8.6.0 rocm/7.0.3 craype-accel-amd-gfx942 cray-shmem/12.0.0 cray-mpich/9.0.1 gcc/14.3.0`.
   **GET:** `module avail`, `module list`, `hipcc --version`, `oshcc --version`, `sinfo`, `scontrol show node <node>`.
-  **USE:** reconcile with `mi300a_environment_0509.txt`; fix any version drift before building.
+  **USE:** reconcile with the recorded module set in `scripts/setup_mi300a.sh` (+ README build-env section); fix any version drift before building.
 - [ ] **WHAT:** the gfx942 cross-compile proof — `make all-mi300a`.
   **GET:** run it **on the node** with the deployed toolchain; diff the `results/all_mi300a_*.log` against the dev-box log.
   **USE:** it was built for exactly this drift check; any new warning/error is an environment or codegen difference to resolve first.
