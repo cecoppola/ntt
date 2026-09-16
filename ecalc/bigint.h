@@ -21,7 +21,6 @@ typedef struct { uint64_t *l; size_t n, cap; } bigint;
 #define BI_B10 1000000000000000000ULL
 #ifdef __cplusplus
 extern "C" {
-#endif
 extern int bi_decimal;
 void bi_set_decimal(int on);
 int  bi_env_base(void);                 /* reads LIMB_BASE, returns bi_decimal */
@@ -102,3 +101,4 @@ uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);     /* returns r
 #ifdef __cplusplus
 }
 #endif
+#endif /* EC_BIGINT_H */
