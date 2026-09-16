@@ -65,7 +65,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     memset(&bs_st, 0, sizeof bs_st);
     unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
     /* seed spans: Q(a,b) < b^S, P < S b^S: reserve (S log2(N+1) + 64 + 64) / 64 limbs each */
-    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / 64 + 2;
+    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
     struct level cur, nxt;
     cur.n = nspan; cur.nd = (struct node *)malloc(nspan * sizeof *cur.nd);
     cur.pool = pool_get(0, 2 * per * nspan);
