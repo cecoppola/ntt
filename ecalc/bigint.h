@@ -21,6 +21,7 @@ typedef struct { uint64_t *l; size_t n, cap; } bigint;
 #define BI_B10 1000000000000000000ULL
 #ifdef __cplusplus
 extern "C" {
+#endif
 extern int bi_decimal;
 void bi_set_decimal(int on);
 int  bi_env_base(void);                 /* reads LIMB_BASE, returns bi_decimal */
@@ -56,7 +57,6 @@ static inline size_t bi_bits(const bigint *a)
     if (!a->n) return 0;
     return 64 * (a->n - 1) + (64 - __builtin_clzll(a->l[a->n - 1]));
 }
-#endif
 
 /* ---- limb-array primitives (bigint.c) ------------------------------------- */
 #ifdef __cplusplus
