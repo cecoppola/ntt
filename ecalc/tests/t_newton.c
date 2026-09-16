@@ -18,7 +18,8 @@
 
 static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
 {
-    mpz_set_ui(mu, 1); mpz_mul_2exp(mu, mu, 64 * (nq + k)); mpz_fdiv_q(mu, mu, Q);
+    if (bi_decimal) mpz_ui_pow_ui(mu, BI_B10, nq + k); else { mpz_set_ui(mu, 1); mpz_mul_2exp(mu, mu, 64 * (nq + k)); }
+    mpz_fdiv_q(mu, mu, Q);
 }
 static int check_div(const char *what, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {

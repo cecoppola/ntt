@@ -76,7 +76,8 @@ int main(int argc, char **argv)
             for (size_t i = 0; i < sizeof lc / sizeof *lc; i++) for (int kind = 0; kind < GEN_KINDS; kind += 2) {
                 bi_random(&A, lc[i].na, kind, &rng); bi_random(&B, lc[i].nb, kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
                 rns_mul_low(&C, A.l, A.n, B.l, B.n, lc[i].w);
-                bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b); mpz_fdiv_r_2exp(c, c, 64 * lc[i].w);
+                bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b);
+                if (bi_decimal) { mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m); } else mpz_fdiv_r_2exp(c, c, 64 * lc[i].w);
                 VERIFY(bi_eq_mpz(&C, c), "low product %zux%zu w %zu %s", lc[i].na, lc[i].nb, lc[i].w, gen_name[kind]);
             }
             mpz_clears(a, b, c, m, NULL);
