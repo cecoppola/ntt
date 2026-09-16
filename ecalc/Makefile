@@ -52,20 +52,20 @@ tests/t_dec: tests/t_dec.c $(OBJS) todec.h tests/harness.h
 tests/t_verify: tests/t_verify.c verify.o binsplit.o bigint.o rns_mul.o ntt.o mem.o crt.o newton.o verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
 
-tests/t_crt: tests/t_crt.c crt.o mem.o crt.h mem.h tests/harness.h
-	$(HIPC) $< -x none crt.o mem.o -o $@ -lgmp
+tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o crt.h mem.h tests/harness.h
+	$(HIPC) $< -x none crt.o mem.o bigint.o -o $@ -lgmp
 
-tests/t_ntt: tests/t_ntt.c ntt.o ntt.h modarith.h tests/harness.h
-	$(HIPC) $< -x none ntt.o -o $@ -lgmp
+tests/t_ntt: tests/t_ntt.c ntt.o bigint.o ntt.h modarith.h tests/harness.h
+	$(HIPC) $< -x none ntt.o bigint.o -o $@ -lgmp
 
-tests/t_ntt2: tests/t_ntt2.c ntt2.o ntt2.h modarith2.h tests/harness.h
-	$(HIPC) $< -x none ntt2.o -o $@ -lgmp
+tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o ntt2.h modarith2.h tests/harness.h
+	$(HIPC) $< -x none ntt2.o bigint.o -o $@ -lgmp
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< -lgmp -lm
 
-tests/t_modarith: tests/t_modarith.c modarith.h tests/harness.h bigint.h
-	$(HIPC) -o $@ $< -lgmp
+tests/t_modarith: tests/t_modarith.c bigint.o modarith.h tests/harness.h bigint.h
+	$(HIPC) $< -x none bigint.o -o $@ -lgmp
 
 clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc
