@@ -194,8 +194,8 @@ int main(int argc, char **argv)
             double dt = mem_now() - t0;
             size_t bad = 0, pts = 0;
             for (size_t i = 0; i < N; i++) {
-                mpz_import(a, P[i].na, -1, 8, 0, 0, P[i].a); mpz_import(b, P[i].nb, -1, 8, 0, 0, P[i].b);
-                mpz_mul(c, a, b); mpz_import(d, P[i].na + P[i].nb, -1, 8, 0, 0, P[i].c);
+                mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb);
+                mpz_mul(c, a, b); mpz_from_limbs(d, P[i].c, P[i].na + P[i].nb);
                 if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu\n", i, P[i].na, P[i].nb); bad++; }
                 pts += L;
             }
