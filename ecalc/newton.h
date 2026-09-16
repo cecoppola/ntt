@@ -4,8 +4,8 @@
  *   newton_recip(mu, Q, k)   mu ~ floor(2^(64 (nq + k)) / Q), k limbs of
  *                            precision (mu has k + 1 limbs), |error| <= a few
  *                            units.  Doubling from a schoolbook seed in the
- *                            correction form: u = (Q r) >> 64(nq - j),
- *                            d = 2^(128 j) - u, r' = (r << 64 j) + (r d >> 64 j)
+ *                            correction form: u = (Q_t r) / B^(take - j),
+ *                            d = B^(2j) - u (B = 2^64 or 10^18), r' = (r << 64 j) + (r d >> 64 j)
  *                            (j -> 2j) - products Q r and r d instead of the
  *                            paper's r^2 and Q_t r^2 (3 mdevs instead of 4 plus
  *                            a split at the top).  Overshoot (r' <= 0) shrinks

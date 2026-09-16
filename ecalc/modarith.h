@@ -39,6 +39,29 @@ static const uint64_t ec_MU115[EC_NP] = {10588265656658394641ULL, 11406682325772
                                          14485786757268845297ULL, 16062471030168855059ULL};
 /* LEAF kernel: floor(2^123 / 10^18) */
 #define EC_MU_1E18 10633823966279326983ULL
+#define EC_1E18 1000000000000000000ULL
+/* q = floor(x / 10^18), r = x mod 10^18 for x = hi 2^64 + lo < 2^124 (hi < 10^18):
+ * Barrett with mu = floor(2^123 / 10^18), q_est <= q, at most 3 corrections */
+EC_HD static inline void ec_div1e18(uint64_t hi, uint64_t lo, uint64_t *q, uint64_t *r)
+{
+    unsigned __int128 x = ((unsigned __int128)hi << 64) | lo;
+    unsigned __int128 m_lo = (unsigned __int128)lo * EC_MU_1E18;
+    unsigned __int128 m_hi = (unsigned __int128)hi * EC_MU_1E18 + (m_lo >> 64);
+    uint64_t qe = (uint64_t)(m_hi >> 59);
+    unsigned __int128 rem = x - (unsigned __int128)qe * EC_1E18;
+    while (rem >= EC_1E18) { rem -= EC_1E18; qe++; }
+    *q = qe; *r = (uint64_t)rem;
+}
+/* a 4-word (little-endian, < 2^206) value into 4 base-10^18 digits */
+EC_HD static inline void ec_words_to_dec4(const uint64_t c[4], uint64_t d[4])
+{
+    uint64_t w[4] = { c[0], c[1], c[2], c[3] };
+    for (int k = 0; k < 4; k++) {
+        uint64_t rem = 0;
+        for (int i = 3; i >= 0; i--) { uint64_t q; ec_div1e18(rem, w[i], &q, &rem); w[i] = q; }
+        d[k] = rem;
+    }
+}
 
 /* per-prime constants, passed by value to kernels */
 typedef struct { double p, pinv; uint64_t pu, mu; int idx; } ec_mod;

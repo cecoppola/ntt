@@ -64,25 +64,44 @@ static void gen_limbs(uint64_t *a, size_t n, int kind, rng_t *r)
                       for (i = 0; i < n / 16 + 1; i++) a[rng_next(r) % n] |= 1ULL << (rng_next(r) & 63);
                       break;
     }
+    if (bi_decimal) {                                    /* limbs must be < 10^18: ones -> B-1, others reduced */
+        for (i = 0; i < n; i++) a[i] = kind == GEN_ONES ? BI_B10 - 1 : a[i] % BI_B10;
+        if (a[n - 1] == 0) a[n - 1] = 1;
+    }
 }
 
 static void mpz_from_limbs(mpz_t z, const uint64_t *a, size_t n)
 {
     if (!n) { mpz_set_ui(z, 0); return; }
+    if (bi_decimal) {                                    /* decimal limbs: 18 digits each, via a string */
+        char *s = (char *)malloc(n * 18 + 1);
+        for (size_t i = 0; i < n; i++) snprintf(s + 18 * i, 19, "%018llu", (unsigned long long)a[n - 1 - i]);
+        mpz_set_str(z, s, 10); free(s); return;
+    }
     mpz_import(z, n, -1, sizeof *a, 0, 0, a);
 }
-/* returns limbs written; cap must be >= mpz_size */
+/* returns limbs written; cap must be large enough */
 static size_t mpz_to_limbs(uint64_t *a, size_t cap, const mpz_t z)
 {
     size_t n = 0;
     if (mpz_sgn(z) == 0) return 0;
+    if (bi_decimal) {
+        char *s = mpz_get_str(NULL, 10, z); size_t len = strlen(s); n = (len + 17) / 18;
+        if (n > cap) { fprintf(stderr, "mpz_to_limbs: cap %zu < %zu\n", cap, n); abort(); }
+        for (size_t i = 0; i < n; i++) {                /* limb i = digits [len-18(i+1), len-18 i) */
+            size_t end = len - 18 * i, beg = end >= 18 ? end - 18 : 0; uint64_t v = 0;
+            for (size_t j = beg; j < end; j++) v = v * 10 + (uint64_t)(s[j] - '0');
+            a[i] = v;
+        }
+        free(s); return n;
+    }
     if (mpz_size(z) > cap) { fprintf(stderr, "mpz_to_limbs: cap %zu < %zu\n", cap, mpz_size(z)); abort(); }
     mpz_export(a, &n, -1, sizeof *a, 0, 0, z);
     return n;
 }
 static void bi_from_mpz(bigint *a, const mpz_t z)
 {
-    size_t n = mpz_size(z);
+    size_t n = bi_decimal ? (mpz_sizeinbase(z, 10) + 17) / 18 + 1 : mpz_size(z);
     bi_reserve(a, n ? n : 1);
     a->n = mpz_to_limbs(a->l, a->cap, z);
 }
@@ -105,6 +124,8 @@ static void harness_meta(const char *bench)
     char host[128] = "?"; char date[64];
     time_t t = time(0);
     hv_bench = bench;
+    bi_env_base();
+    if (bi_decimal) printf("META limb_base=10^18\n");
     gethostname(host, sizeof host);
     strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));
     printf("META bench=%s host=%s date=%s\n", bench, host, date);
@@ -127,11 +148,11 @@ static inline uint64_t m61_mul(uint64_t a, uint64_t b)
 }
 static uint64_t limbs_mod_m61(const uint64_t *a, size_t n)
 {
-    uint64_t r = 0;
+    uint64_t r = 0, bm = bi_decimal ? BI_B10 % HV_M61 : 8;   /* B mod M61 */
     for (size_t i = n; i-- > 0;) {
         uint64_t x = (a[i] & HV_M61) + (a[i] >> 61);            /* a[i] mod M61 */
         if (x >= HV_M61) x -= HV_M61;
-        r = m61_add(m61_mul(r, 8), x);
+        r = m61_add(m61_mul(r, bm), x);
     }
     return r;
 }

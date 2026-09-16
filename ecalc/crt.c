@@ -6,6 +6,7 @@
 #include "crt.h"
 #include "modarith.h"
 #include "mem.h"
+#include "bigint.h"
 
 typedef unsigned __int128 u128;
 #define PR ec_P
@@ -62,22 +63,38 @@ void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T)
 #pragma omp parallel for num_threads(T) schedule(static)
     for (t = 0; t < T; t++) {
         size_t k0 = n * t / T, k1 = n * (t + 1) / T, k;
-        uint64_t w0 = 0, w1 = 0, w2 = 0;
+        uint64_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
         for (k = k0; k < k1; k++) {
             uint64_t r[4] = { res[0][k], res[1][k], res[2][k], res[3][k] }, c[4];
-            u128 s;
             garner4(r, c);
-            s = (u128)w0 + c[0]; out[k] = (uint64_t)s;
-            s = (s >> 64) + w1 + c[1]; w0 = (uint64_t)s;
-            s = (s >> 64) + w2 + c[2]; w1 = (uint64_t)s;
-            w2 = (uint64_t)(s >> 64) + c[3];
+            if (bi_decimal) {                            /* four base-B digits; window of 4 digits + carry */
+                uint64_t d[4]; ec_words_to_dec4(c, d);
+                uint64_t s = w0 + d[0], cy = s >= BI_B10; out[k] = cy ? s - BI_B10 : s;
+                s = w1 + d[1] + cy; cy = s >= BI_B10; w0 = cy ? s - BI_B10 : s;
+                s = w2 + d[2] + cy; cy = s >= BI_B10; w1 = cy ? s - BI_B10 : s;
+                s = w3 + d[3] + cy; cy = s >= BI_B10; w2 = cy ? s - BI_B10 : s;
+                w3 = cy;
+            } else {
+                u128 s;
+                s = (u128)w0 + c[0]; out[k] = (uint64_t)s;
+                s = (s >> 64) + w1 + c[1]; w0 = (uint64_t)s;
+                s = (s >> 64) + w2 + c[2]; w1 = (uint64_t)s;
+                w2 = (uint64_t)(s >> 64) + c[3];
+            }
         }
-        spill[t][0] = w0; spill[t][1] = w1; spill[t][2] = w2;
+        spill[t][0] = w0; spill[t][1] = w1; spill[t][2] = w2; spill[t][3] = w3;
     }
     for (t = 0; t < T; t++) {
-        size_t k1 = n * (t + 1) / T, i; u128 s = 0;
-        for (i = 0; i < 3; i++) { s += (u128)out[k1 + i] + spill[t][i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
-        for (i = 3; s && k1 + i < n + 4; i++) { s += out[k1 + i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
+        size_t k1 = n * (t + 1) / T, i;
+        if (bi_decimal) {
+            uint64_t cy = 0;
+            for (i = 0; i < 4 && k1 + i < n + 4; i++) { uint64_t s = out[k1 + i] + spill[t][i] + cy; cy = s >= BI_B10; out[k1 + i] = cy ? s - BI_B10 : s; }
+            for (; cy && k1 + i < n + 4; i++) { uint64_t s = out[k1 + i] + cy; cy = s >= BI_B10; out[k1 + i] = cy ? s - BI_B10 : s; }
+        } else {
+            u128 s = 0;
+            for (i = 0; i < 3; i++) { s += (u128)out[k1 + i] + spill[t][i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
+            for (i = 3; s && k1 + i < n + 4; i++) { s += out[k1 + i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
+        }
     }
     free(spill);
 }
@@ -85,6 +102,7 @@ void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T)
 void crt_carry_par4_q(uint64_t *const buf[4], size_t Q, size_t n, uint64_t *out, int T)
 {
     crt_init();
+    if (bi_decimal) { fprintf(stderr, "crt_carry_par4_q: binary base only\n"); abort(); }
     for (size_t i = n; i < n + 4; i++) out[i] = 0;
     if (T < 4) T = 4;
     T = T / 4 * 4;

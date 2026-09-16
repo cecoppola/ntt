@@ -51,6 +51,7 @@ int rns_init(int pool_log)
     if (getenv("RNS_CRT_LAYOUT")) rns_crt_layout = atoi(getenv("RNS_CRT_LAYOUT"));
     if (getenv("RNS_REPACK_WIDE")) rns_repack_wide = atoi(getenv("RNS_REPACK_WIDE"));
     if (getenv("RNS_ENGINE")) rns_engine = atoi(getenv("RNS_ENGINE"));
+    bi_env_base();
     crt_init();
     size_t bytes = (size_t)8 << g_pool_log;
     for (int d = 0; d < g_nd; d++) {
@@ -340,6 +341,7 @@ static void mul_rec(bigint *C, const uint64_t *a, size_t na, const uint64_t *b, 
         return;
     }
     if (rns_engine == 2) {
+        if (bi_decimal) { fprintf(stderr, "engine 2 is binary-base only\n"); exit(1); }
         size_t pts = e2_points(nc);
         if (pts <= pool) { rns2_mul_mdev(C, a, na, b, nb); return; }
         size_t lim = pool * E2_BITS / 64 - 2;        /* limbs whose 45-bit points fit a plane */
@@ -432,8 +434,9 @@ __device__ static inline void dgarner4(const struct gconst *g, const uint64_t r[
 #define CRT_THREADS 256
 __global__ __launch_bounds__(CRT_THREADS)
 void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
-                 const struct bdesc *P, size_t first_stripe, int S, int logL, struct gconst g, uint64_t *stripe_spill)
+                 const struct bdesc *P, size_t first_stripe, int S, int logL, struct gconst g, uint64_t *stripe_spill, int dec)
 {
+    const uint64_t BB = EC_1E18;
     __shared__ uint64_t C0[CRT_THREADS], C1[CRT_THREADS + 3], C2[CRT_THREADS + 3], C3[CRT_THREADS + 3];
     __shared__ uint64_t V[CRT_THREADS], CY[CRT_THREADS];
     __shared__ uint64_t carry;
@@ -449,10 +452,15 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     for (uint32_t c0 = K0; c0 < K1; c0 += CRT_THREADS) {
         uint32_t k = c0 + j;
         uint64_t c[4] = {0, 0, 0, 0};
-        if (k < K1) { uint64_t r[4] = { p0[base + k], p1[base + k], p2[base + k], p3[base + k] }; dgarner4(&g, r, c); }
+        if (k < K1) { uint64_t r[4] = { p0[base + k], p1[base + k], p2[base + k], p3[base + k] }; dgarner4(&g, r, c);
+                      if (dec) { uint64_t d[4]; ec_words_to_dec4(c, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2]; c[3] = d[3]; } }
         C0[j] = c[0]; C1[j + 3] = c[1]; C2[j + 3] = c[2]; C3[j + 3] = c[3];
         __syncthreads();
-        {   /* limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] (indices shifted by 3) */
+        if (dec) {  /* digits < B: the sum of four digits < 4B fits a word */
+            uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j], q = 0;
+            while (sm >= BB) { sm -= BB; q++; }
+            V[j] = sm; CY[j] = q;
+        } else {   /* limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] (indices shifted by 3) */
             unsigned __int128 sm = (unsigned __int128)C0[j] + C1[j + 2] + C2[j + 1] + C3[j];
             V[j] = (uint64_t)sm; CY[j] = (uint64_t)(sm >> 64);
         }
@@ -460,7 +468,8 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
         if (j == 0) {
             uint64_t cy = carry;
             int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
-            for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i] + (sm < V[i]); V[i] = sm; }
+            if (dec) for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i]; if (sm >= BB) { sm -= BB; cy++; } V[i] = sm; }
+            else for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i] + (sm < V[i]); V[i] = sm; }
             carry = cy;
         }
         __syncthreads();
@@ -472,11 +481,18 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     }
     if (j == 0) {
         /* spill at K1: [C1[-1] + C2[-2] + C3[-3] + carry, C2[-1] + C3[-2], C3[-1], overflow] */
-        unsigned __int128 s0 = (unsigned __int128)C1[2] + C2[1] + C3[0] + carry;
-        unsigned __int128 s1 = (unsigned __int128)C2[2] + C3[1] + (uint64_t)(s0 >> 64);
-        unsigned __int128 s2 = (unsigned __int128)C3[2] + (uint64_t)(s1 >> 64);
         uint64_t *sp = stripe_spill + gs * 4;
-        sp[0] = (uint64_t)s0; sp[1] = (uint64_t)s1; sp[2] = (uint64_t)s2; sp[3] = (uint64_t)(s2 >> 64);
+        if (dec) {
+            uint64_t s0 = C1[2] + C2[1] + C3[0] + carry, q0 = 0; while (s0 >= BB) { s0 -= BB; q0++; }
+            uint64_t s1 = C2[2] + C3[1] + q0, q1 = 0; while (s1 >= BB) { s1 -= BB; q1++; }
+            uint64_t s2 = C3[2] + q1, q2 = 0; while (s2 >= BB) { s2 -= BB; q2++; }
+            sp[0] = s0; sp[1] = s1; sp[2] = s2; sp[3] = q2;
+        } else {
+            unsigned __int128 s0 = (unsigned __int128)C1[2] + C2[1] + C3[0] + carry;
+            unsigned __int128 s1 = (unsigned __int128)C2[2] + C3[1] + (uint64_t)(s0 >> 64);
+            unsigned __int128 s2 = (unsigned __int128)C3[2] + (uint64_t)(s1 >> 64);
+            sp[0] = (uint64_t)s0; sp[1] = (uint64_t)s1; sp[2] = (uint64_t)s2; sp[3] = (uint64_t)(s2 >> 64);
+        }
     }
 }
 
@@ -603,7 +619,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 HIP_CHECK(hipEventRecord(e2, v->s));
                 if (g1 > g0)
                     k_crt_batch<<<(unsigned)(g1 - g0), CRT_THREADS, 0, v->s>>>((const uint64_t *)D[0].da.p, (const uint64_t *)D[1].da.p,
-                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, logL, G, g_spill);
+                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, logL, G, g_spill, bi_decimal);
                 HIP_CHECK(hipEventRecord(e3, v->s));
                 HIP_CHECK(hipStreamSynchronize(v->s));
                 HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
@@ -626,8 +642,13 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 size_t nc = Q[first + i].na + Q[first + i].nb; uint64_t *out = Q[first + i].c;
                 for (int s = 0; s + 1 < S; s++) {
                     size_t k = nc * (s + 1) / S; const uint64_t *sp = g_spill + (i * S + s) * 4; uint64_t cy = 0;
+                    if (bi_decimal) {
+                        for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+                        while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
+                    } else {
                     for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
                     while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+                    }
                 }
             }
         }
@@ -680,15 +701,20 @@ static void mdev_gpu_crt(int d, size_t nc, int logn, uint64_t *dst)
     size_t g0 = (size_t)S * d / g_nd, g1 = (size_t)S * (d + 1) / g_nd;
     if (g1 > g0)
         k_crt_batch<<<(unsigned)(g1 - g0), CRT_THREADS, 0, v->s>>>((const uint64_t *)D[0].da.p, (const uint64_t *)D[1].da.p,
-            (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, logn, G, g_spill);
+            (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, logn, G, g_spill, bi_decimal);
     HIP_CHECK(hipStreamSynchronize(v->s));
 #pragma omp barrier
     if (d == 0) {
         uint64_t *out = dst;
         for (int s = 0; s + 1 < S; s++) {
             size_t k = nc * (s + 1) / S; const uint64_t *sp = g_spill + s * 4; uint64_t cy = 0;
+            if (bi_decimal) {
+                for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+                while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
+            } else {
             for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
             while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+            }
         }
     }
 }

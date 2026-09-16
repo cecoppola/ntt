@@ -30,13 +30,14 @@ static void meta_line(const char *bench)
 {
     char host[128] = "?", date[64]; time_t t = time(0);
     gethostname(host, sizeof host); strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));
-    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d engine=%d\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, rns_engine);
+    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d engine=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, rns_engine, bi_decimal ? "10^18" : "2^64");
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
-/* T = 10^d: 5^d by left-to-right binary powering, then << d */
+/* T = 10^d: decimal limbs: B^(d/18) x 10^(d%18); binary: 5^d by powering, then << d */
 static void pow10_big(bigint *T, unsigned long d)
 {
+    if (bi_decimal) { bi_set_base_pow(T, d / 18); if (d % 18) bi_mul_pow10(T, T, (unsigned)(d % 18)); return; }
     bigint five, t2; bi_init(&five); bi_init(&t2);
     bi_set_u64(&five, 1);
     int top = 63; while (top > 0 && !((d >> top) & 1)) top--;
@@ -59,7 +60,8 @@ int main(int argc, char **argv)
     if (getenv("PW_FUSE")) ntt_pw_fuse = atoi(getenv("PW_FUSE"));
     if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));
     setvbuf(stdout, NULL, _IOLBF, 0);
-    printf("== ecalc: e to %lu digits ==\n", d);
+    bi_env_base();
+    printf("== ecalc: e to %lu digits%s ==\n", d, bi_decimal ? " (decimal limbs, base 10^18)" : "");
     meta_line("ecalc");
     double t00 = mem_now(), t;
     rns_init(pool_log);
@@ -92,11 +94,17 @@ int main(int argc, char **argv)
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
 
     t = mem_now();
-    pow10_big(&T, d);
     bi_add(&S, &P, &Q);
     bi_free(&P);
     memset(&rns_st, 0, sizeof rns_st);
-    rns_mul(&A, &T, &S);
+    if (bi_decimal) {                           /* WP2: 10^d (P+Q) is a limb shift and one small multiply */
+        bi_shl_limbs(&A, &S, d / 18);
+        if (d % 18) bi_mul_pow10(&A, &A, (unsigned)(d % 18));
+        bi_set_u64(&T, 0); T.n = (d + 17) / 18;   /* for the size print only */
+    } else {
+        pow10_big(&T, d);
+        rns_mul(&A, &T, &S);
+    }
     double t_10dp = mem_now() - t;
     printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, T.n, A.n, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
@@ -123,11 +131,27 @@ int main(int argc, char **argv)
     uint64_t Xres[T1_NQ];
     for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
     t = mem_now();
-    todec_free_input = 1;
-    todec(0, &X, d + 1);                       /* allocates the 40 GB digit string only at the LEAF step */
-    char *digits = todec_out;
+    char *digits;
+    if (bi_decimal) {                          /* WP2: the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
+        digits = (char *)mem_hreg_alloc(d + 2);
+        size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);     /* leading zeros to drop */
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < nl; i++) {
+            char buf[19]; uint64_t v = i < X.n ? X.l[i] : 0;
+            snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
+            size_t pos = (nl - 1 - i) * 18;                      /* padded position of this limb's first digit */
+            for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
+        }
+        digits[d + 1] = 0;
+        free(X.l); X.l = 0; X.n = X.cap = 0;
+    } else {
+        todec_free_input = 1;
+        todec(0, &X, d + 1);                   /* allocates the 40 GB digit string only at the LEAF step */
+        digits = todec_out;
+    }
     double t_dc = mem_now() - t;
-    printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
+    if (bi_decimal) printf("dc    %8.2f s   digits formatted from %zu decimal limbs (no conversion)\n", t_dc, (d + 1 + 17) / 18);
+    else printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
            t_dc, dec_st.pieces, dec_st.levels, dec_st.t_prewarm, dec_st.t_top, dec_st.t_mid, dec_st.t_deep, dec_st.t_leaf);
     RESULT("dc", "s", t_dc);
     printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
