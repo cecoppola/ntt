@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <omp.h>
 #include "verify.h"
+#include "bigint.h"
 
 typedef unsigned __int128 u128;
 const uint64_t t1_q[T1_NQ] = {4611686018427388039ULL, 4611686018427388083ULL, 4611686018427388087ULL,
@@ -24,7 +25,7 @@ uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
     if (!n) return 0;
     int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc(2 * T * 8), *cw = cv + T;
-    uint64_t b64 = (uint64_t)(((u128)1 << 64) % q);
+    uint64_t b64 = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q);   /* B mod q */
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
         size_t k0 = n * t / T, k1 = n * (t + 1) / T;

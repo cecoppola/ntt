@@ -4,10 +4,22 @@
 #include "bigint.h"
 
 typedef unsigned __int128 u128;
+#define B10 BI_B10
+int bi_decimal = 0;
+void bi_set_decimal(int on) { bi_decimal = on ? 1 : 0; }
+int bi_env_base(void) { const char *e = getenv("LIMB_BASE"); if (e && atoi(e) == 10) bi_decimal = 1; return bi_decimal; }
+static void need_binary(const char *what) { if (bi_decimal) { fprintf(stderr, "bigint: %s is a bit operation; not valid in the decimal base\n", what); abort(); } }
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
 {
-    u128 s = cin; size_t i;
+    size_t i;
+    if (bi_decimal) {
+        uint64_t c = cin;
+        for (i = 0; i < nb; i++) { uint64_t s = a[i] + b[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
+        for (; i < na; i++) { uint64_t s = a[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
+        return c;
+    }
+    u128 s = cin;
     for (i = 0; i < nb; i++) { s += (u128)a[i] + b[i]; r[i] = (uint64_t)s; s >>= 64; }
     for (; i < na; i++) { s += a[i]; r[i] = (uint64_t)s; s >>= 64; }
     return (uint64_t)s;
@@ -15,6 +27,11 @@ static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint
 static uint64_t sub_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t bin)
 {
     uint64_t br = bin; size_t i;
+    if (bi_decimal) {
+        for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i] + br; br = ai < bi; r[i] = br ? ai + B10 - bi : ai - bi; }
+        for (; i < na; i++) { uint64_t ai = a[i]; uint64_t d = br; br = ai < d; r[i] = br ? ai + B10 - d : ai - d; }
+        return br;
+    }
     for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i], d = ai - bi - br; br = (ai < bi) | (ai == bi && br); r[i] = d; }
     for (; i < na; i++) { uint64_t ai = a[i], d = ai - br; br = ai < br; r[i] = d; }
     return br;
@@ -36,7 +53,7 @@ uint64_t limb_add(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, 
     uint64_t c = 0;
     for (t = 0; t < nch; t++) {
         size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
-        while (c && i < hi) { r[i] += 1; c = r[i] == 0; i++; }
+        while (c && i < hi) { r[i] += 1; if (bi_decimal) { c = r[i] == B10; if (c) r[i] = 0; } else c = r[i] == 0; i++; }
         c |= cout[t];
     }
     free(cout);
@@ -56,7 +73,7 @@ uint64_t limb_sub(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, 
     uint64_t c = 0;
     for (t = 0; t < nch; t++) {
         size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
-        while (c && i < hi) { c = r[i] == 0; r[i] -= 1; i++; }
+        while (c && i < hi) { c = r[i] == 0; r[i] = c ? bi_limb_max() : r[i] - 1; i++; }
         c |= bout[t];
     }
     free(bout);
@@ -67,6 +84,16 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     size_t n = na + nb, k;
     if (!na || !nb) return;
     if (na < nb) { const uint64_t *t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
+    if (bi_decimal) {                                /* row by row, carries reduced mod B (small products only) */
+        size_t i, j;
+        for (k = 0; k < n; k++) r[k] = 0;
+        for (i = 0; i < na; i++) {
+            u128 c = 0;
+            for (j = 0; j < nb; j++) { c += (u128)a[i] * b[j] + r[i + j]; r[i + j] = (uint64_t)(c % B10); c /= B10; }
+            r[i + nb] = (uint64_t)c;
+        }
+        return;
+    }
     if (n <= 64) {                                   /* row by row, serial */
         size_t i, j;
         for (k = 0; k < n; k++) r[k] = 0;
@@ -103,6 +130,10 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
 uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
+    if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
+        for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)(c % B10); c /= B10; }
+        return (uint64_t)c;
+    }
     for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)c; c >>= 64; }
     return (uint64_t)c;
 }
@@ -124,6 +155,7 @@ static void limb_move(uint64_t *r, const uint64_t *a, size_t n)
 void limb_shr_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
 {
     if (!bits) { limb_move(r, a, n); return; }
+    need_binary("limb_shr_bits");
     if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
         for (size_t i = 0; i + 1 < n; i++) r[i] = (a[i] >> bits) | (a[i + 1] << (64 - bits));
         if (n) r[n - 1] = a[n - 1] >> bits;
@@ -145,6 +177,7 @@ void limb_shr_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
 uint64_t limb_shl_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
 {
     if (!bits) { limb_move(r, a, n); return 0; }
+    need_binary("limb_shl_bits");
     uint64_t out = n ? a[n - 1] >> (64 - bits) : 0;
     if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
         for (size_t i = n; i-- > 1;) r[i] = (a[i] << bits) | (a[i - 1] >> (64 - bits));
@@ -203,6 +236,7 @@ void bi_sub_shifted(bigint *r, const bigint *a, size_t k)
 void bi_shl(bigint *r, const bigint *a, size_t bits)
 {
     size_t k = bits / 64; unsigned b = bits % 64;
+    if (b) need_binary("bi_shl by bits");
     if (!a->n) { r->n = 0; return; }
     bi_reserve(r, a->n + k + 1);
     uint64_t out = limb_shl_bits(r->l + k, a->l, a->n, b);
@@ -213,6 +247,7 @@ void bi_shl(bigint *r, const bigint *a, size_t bits)
 void bi_shr(bigint *r, const bigint *a, size_t bits)
 {
     size_t k = bits / 64; unsigned b = bits % 64;
+    if (b) need_binary("bi_shr by bits");
     if (a->n <= k) { r->n = 0; return; }
     bi_reserve(r, a->n - k);
     limb_shr_bits(r->l, a->l + k, a->n - k, b);
@@ -235,8 +270,13 @@ void bi_mul_u64(bigint *r, const bigint *a, uint64_t m)
 }
 void bi_add_u64(bigint *r, uint64_t v)
 {
-    bi_reserve(r, r->n + 1);
+    bi_reserve(r, r->n + 2);
     u128 s = v;
+    if (bi_decimal) {
+        for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)(s % B10); s /= B10; }
+        while (s) { r->l[r->n++] = (uint64_t)(s % B10); s /= B10; }
+        return;
+    }
     for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)s; s >>= 64; }
     if (s) r->l[r->n++] = (uint64_t)s;
 }
@@ -244,7 +284,20 @@ uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d)
 {
     u128 rem = 0;
     bi_reserve(q, a->n ? a->n : 1);
-    for (size_t i = a->n; i-- > 0;) { rem = (rem << 64) | a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
+    if (bi_decimal) for (size_t i = a->n; i-- > 0;) { rem = rem * B10 + a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
+    else for (size_t i = a->n; i-- > 0;) { rem = (rem << 64) | a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
     q->n = a->n; bi_norm(q);
     return (uint64_t)rem;
+}
+void bi_shl_limbs(bigint *r, const bigint *a, size_t k) { bi_shl(r, a, 64 * k); }
+void bi_shr_limbs(bigint *r, const bigint *a, size_t k) { bi_shr(r, a, 64 * k); }
+void bi_mul_pow10(bigint *r, const bigint *a, unsigned k)
+{
+    static const uint64_t p10[19] = {1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,1000000000000ULL,10000000000000ULL,100000000000000ULL,1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,1000000000000000000ULL};
+    if (!bi_decimal) { fprintf(stderr, "bi_mul_pow10: decimal base only\n"); abort(); }
+    bi_mul_u64(r, a, p10[k]);
+}
+void bi_set_base_pow(bigint *r, size_t k)
+{
+    bi_reserve(r, k + 1); memset(r->l, 0, k * 8); r->l[k] = 1; r->n = k + 1;
 }

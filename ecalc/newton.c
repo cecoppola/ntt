@@ -10,12 +10,48 @@ typedef unsigned __int128 u128;
 newton_stats newton_st;
 int newton_seed_perturb = 0;
 
+/* ---- Knuth algorithm D, base B = 10^18 (decimal limbs) ---------------------- */
+static void divmod_school_dec(bigint *X, bigint *R, const bigint *A, const bigint *Q)
+{
+    const u128 B = BI_B10;
+    size_t n = Q->n, m = A->n - n;
+    uint64_t f = (uint64_t)(B / (Q->l[n - 1] + 1));          /* normalise: v_top >= B/2 */
+    uint64_t *v = (uint64_t *)malloc(n * 8), *u = (uint64_t *)malloc((A->n + 1) * 8);
+    limb_mul_1(v, Q->l, n, f, 0);
+    u[A->n] = limb_mul_1(u, A->l, A->n, f, 0);
+    bi_reserve(X, m + 1);
+    for (size_t j = m + 1; j-- > 0;) {
+        u128 num = (u128)u[j + n] * B + u[j + n - 1];
+        u128 qhat = num / v[n - 1], rhat = num % v[n - 1];
+        while (qhat >= B || qhat * v[n - 2] > rhat * B + u[j + n - 2]) { qhat--; rhat += v[n - 1]; if (rhat >= B) break; }
+        /* u[j..j+n] -= qhat v */
+        u128 carry = 0; uint64_t borrow = 0;
+        for (size_t i = 0; i < n; i++) {
+            carry += qhat * v[i];
+            uint64_t pl = (uint64_t)(carry % B); carry /= B;
+            uint64_t s = pl + borrow; borrow = u[i + j] < s; u[i + j] = borrow ? u[i + j] + BI_B10 - s : u[i + j] - s;
+        }
+        { uint64_t s = (uint64_t)carry + borrow; int neg = u[j + n] < s; u[j + n] = neg ? u[j + n] + BI_B10 - s : u[j + n] - s;
+          if (neg) {                            /* add back */
+              qhat--; uint64_t c = 0;
+              for (size_t i = 0; i < n; i++) { uint64_t t = u[i + j] + v[i] + c; c = t >= BI_B10; u[i + j] = c ? t - BI_B10 : t; }
+              u[j + n] += c; if (u[j + n] >= BI_B10) u[j + n] -= BI_B10;
+          } }
+        X->l[j] = (uint64_t)qhat;
+    }
+    X->n = m + 1; bi_norm(X);
+    bigint un = { u, n, 0 }; un.n = limb_norm(u, n);
+    bi_divmod_u64(R, &un, f);                                /* remainder / f */
+    free(v); free(u);
+}
+
 /* ---- Knuth algorithm D ----------------------------------------------------- */
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 {
     if (!Q->n) { fprintf(stderr, "divmod: Q = 0\n"); abort(); }
     if (bi_cmp(A, Q) < 0) { bi_set_zero(X); bi_copy(R, A); return; }
     if (Q->n == 1) { uint64_t r = bi_divmod_u64(X, A, Q->l[0]); bi_set_u64(R, r); return; }
+    if (bi_decimal) { divmod_school_dec(X, R, A, Q); return; }
     unsigned s = __builtin_clzll(Q->l[Q->n - 1]);
     size_t n = Q->n, m = A->n - n;
     uint64_t *v = (uint64_t *)malloc(n * 8), *u = (uint64_t *)malloc((A->n + 1) * 8);
@@ -64,11 +100,11 @@ static void seed(bigint *r, const bigint *Q, size_t *j)
     bigint qt, num, rem; bi_init(&qt); bi_init(&num); bi_init(&rem);
     bi_set_limbs(&qt, Q->l + (nq - top), top);
     if (top < nq) bi_add_u64(&qt, 1);                 /* round the divisor up so r <= true */
-    /* r = 2^(64 (top + 2)) / qt  ~  2^(64 (nq + 2)) / Q */
-    bi_reserve(&num, top + 3); memset(num.l, 0, (top + 3) * 8); num.l[top + 2] = 1; num.n = top + 3;
+    /* r = B^(top + 2) / qt  ~  B^(nq + 2) / Q */
+    bi_set_base_pow(&num, top + 2);
     bi_divmod_school(r, &rem, &num, &qt);
     *j = 2;
-    if (newton_seed_perturb) { bi_mul_u64(r, r, newton_seed_perturb); bi_shr(r, r, 4); }
+    if (newton_seed_perturb) { bi_mul_u64(r, r, newton_seed_perturb); bi_divmod_u64(r, r, 16); }
     bi_free(&qt); bi_free(&num); bi_free(&rem);
 }
 
@@ -96,7 +132,7 @@ void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *se
             bi_set_limbs(&qt, Q->l + (nq - take), take);
             rns_mul(&t1, &qt, &r);                                  /* Q_t r ~ 2^(64 (take + j)) */
             if (j <= take) bi_shr(&t2, &t1, 64 * (take - j)); else bi_shl(&t2, &t1, 64 * (j - take));   /* u ~ 2^(128 j) */
-            bigint pw; bi_init(&pw); bi_reserve(&pw, 2 * j + 1); memset(pw.l, 0, (2 * j + 1) * 8); pw.l[2 * j] = 1; pw.n = 2 * j + 1;   /* 2^(128 j) */
+            bigint pw; bi_init(&pw); bi_set_base_pow(&pw, 2 * j);        /* B^(2j) */
             int neg = bi_cmp(&t2, &pw) > 0;                         /* u > 2^(128j): r too large */
             if (neg) bi_sub(&t1, &t2, &pw); else bi_sub(&t1, &pw, &t2);   /* |d| */
             bi_free(&pw);
@@ -107,7 +143,7 @@ void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *se
             if (neg) {
                 if (bi_cmp(&t2, &t1) <= 0) {                        /* would go to zero or below: overshoot, shrink */
                     newton_st.overshoots++;
-                    bigint d; bi_init(&d); bi_shr(&d, &r, 4); bi_sub(&r, &r, &d); bi_free(&d);
+                    bigint d; bi_init(&d); bi_divmod_u64(&d, &r, 16); bi_sub(&r, &r, &d); bi_free(&d);
                     continue;
                 }
                 bi_sub(&r2, &t2, &t1);
@@ -165,7 +201,7 @@ void newton_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const
     }
     size_t nc = 0;
     for (;;) {
-        if (R->l[w - 1] >> 63) {                             /* negative: X too large */
+        if (bi_limb_negative(R->l[w - 1])) {                 /* negative: X too large */
             bigint one; bi_init(&one); bi_set_u64(&one, 1); bi_sub(X, X, &one); bi_free(&one);
             uint64_t c = limb_add(R->l, R->l, w, Q->l, Q->n); (void)c;
             newton_st.down_corr++;
