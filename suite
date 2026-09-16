@@ -1,0 +1,51 @@
+#!/bin/bash
+# ./suite [-w node] [-t walltime] [bench ...]
+#   Build everything, run the named benchmarks (default: the current set) on one
+#   node under srun, tee each program's output to results/<date>_<node>/<bench>.log,
+#   and collect every RESULT/META line into results.tsv.  Sample amd-smi
+#   clocks/power/temperature in the background while each program runs.
+#
+#   NODE=... T=... may also be given as environment variables.
+set -u
+cd "$(dirname "$0")"
+: "${P:=PPAC_MI300A_SPX}"
+: "${NODE:=ppac-pl1-s24-16}"
+: "${T:=00:30:00}"
+while getopts "w:t:p:" o; do case $o in w) NODE=$OPTARG;; t) T=$OPTARG;; p) P=$OPTARG;; esac; done
+shift $((OPTIND-1))
+
+[ -z "${MODULEPATH:-}" ] && source /etc/profile.d/lmod.sh 2>/dev/null
+module load rocm >/dev/null 2>&1 || { echo "module load rocm failed"; exit 1; }
+make -s all || exit 1
+
+# default set: current programs only (04, 05, 08 are superseded)
+DEFAULT="01_butterfly 02_capacity 03_fabric 06_ntt_opt 07_ntt_tw 09_logic 10_lds 11_fabric_ntt 12_ntt_inv 13_multiply2 14_sustained 15_barrett_f64 16_ntt_tile 17_hostreg 18_staging 19_peer_gather 20_cpu 21_alloc 22_clock 23_d2h mem/infcache arith/mfma"
+[ $# -gt 0 ] && SET="$*" || SET="$DEFAULT"
+
+OUT=results/$(date +%Y%m%d_%H%M)_$NODE
+mkdir -p "$OUT"
+echo "suite: node=$NODE walltime=$T out=$OUT"
+echo "set: $SET"
+
+# one allocation for the whole set; each program is one srun step inside it
+salloc -p "$P" -w "$NODE" -N1 --gpus=4 --time="$T" --no-shell -J ntt-suite >"$OUT/salloc.log" 2>&1
+JOB=$(grep -o "allocation [0-9]*" "$OUT/salloc.log" | head -1 | cut -d" " -f2)
+[ -z "$JOB" ] && { echo "allocation failed:"; cat "$OUT/salloc.log"; exit 1; }
+trap 'scancel $JOB 2>/dev/null' EXIT
+
+srun --jobid="$JOB" -N1 bash -lc 'module load rocm; ./envcheck.sh' >"$OUT/env.log" 2>&1
+
+for b in $SET; do
+    bin=bench/$b
+    # per-benchmark arguments, if any, come from bench/<name>.args
+    args=""; [ -f "$bin.args" ] && args=$(cat "$bin.args")
+    echo "== $b $args"
+    # telemetry sampler runs on the compute node alongside the benchmark
+    srun --jobid="$JOB" -N1 --overlap bash -lc "module load rocm; while true; do echo \"\$(date +%s) \$(amd-smi metric --clock --power --temperature --json 2>/dev/null | tr -d '\n ')\"; sleep 2; done" >"$OUT/${b//\//_}.smi" 2>/dev/null &
+    SMI=$!
+    srun --jobid="$JOB" -N1 --gpus=4 bash -lc "module load rocm; ./$bin $args" 2>&1 | tee "$OUT/${b//\//_}.log"
+    kill $SMI 2>/dev/null; wait $SMI 2>/dev/null
+done
+
+grep -h "^META\|^RESULT" "$OUT"/*.log > "$OUT/results.tsv"
+echo "done: $(grep -c ^RESULT "$OUT/results.tsv") results in $OUT/results.tsv"

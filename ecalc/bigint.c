@@ -1,0 +1,250 @@
+/* bigint.c - see bigint.h */
+#include <stdio.h>
+#include <omp.h>
+#include "bigint.h"
+
+typedef unsigned __int128 u128;
+
+static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
+{
+    u128 s = cin; size_t i;
+    for (i = 0; i < nb; i++) { s += (u128)a[i] + b[i]; r[i] = (uint64_t)s; s >>= 64; }
+    for (; i < na; i++) { s += a[i]; r[i] = (uint64_t)s; s >>= 64; }
+    return (uint64_t)s;
+}
+static uint64_t sub_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t bin)
+{
+    uint64_t br = bin; size_t i;
+    for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i], d = ai - bi - br; br = (ai < bi) | (ai == bi && br); r[i] = d; }
+    for (; i < na; i++) { uint64_t ai = a[i], d = ai - br; br = ai < br; r[i] = d; }
+    return br;
+}
+#define PAR_MIN (1u << 22)
+#define PAR_CHUNK (1u << 20)
+/* parallel: chunks added independently, then carries rippled chunk by chunk */
+uint64_t limb_add(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb)
+{
+    if (na < PAR_MIN) return add_serial(r, a, na, b, nb, 0);
+    size_t nch = (na + PAR_CHUNK - 1) / PAR_CHUNK, t;
+    uint64_t *cout = (uint64_t *)malloc(nch * 8);
+#pragma omp parallel for schedule(static)
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na;
+        size_t nbb = nb > hi ? PAR_CHUNK : nb > lo ? nb - lo : 0;
+        cout[t] = add_serial(r + lo, a + lo, hi - lo, b + lo, nbb, 0);
+    }
+    uint64_t c = 0;
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
+        while (c && i < hi) { r[i] += 1; c = r[i] == 0; i++; }
+        c |= cout[t];
+    }
+    free(cout);
+    return c;
+}
+uint64_t limb_sub(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb)
+{
+    if (na < PAR_MIN) return sub_serial(r, a, na, b, nb, 0);
+    size_t nch = (na + PAR_CHUNK - 1) / PAR_CHUNK, t;
+    uint64_t *bout = (uint64_t *)malloc(nch * 8);
+#pragma omp parallel for schedule(static)
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na;
+        size_t nbb = nb > hi ? PAR_CHUNK : nb > lo ? nb - lo : 0;
+        bout[t] = sub_serial(r + lo, a + lo, hi - lo, b + lo, nbb, 0);
+    }
+    uint64_t c = 0;
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
+        while (c && i < hi) { c = r[i] == 0; r[i] -= 1; i++; }
+        c |= bout[t];
+    }
+    free(bout);
+    return c;
+}
+void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb)
+{
+    size_t n = na + nb, k;
+    if (!na || !nb) return;
+    if (na < nb) { const uint64_t *t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
+    if (n <= 64) {                                   /* row by row, serial */
+        size_t i, j;
+        for (k = 0; k < n; k++) r[k] = 0;
+        for (i = 0; i < na; i++) {
+            u128 c = 0;
+            for (j = 0; j < nb; j++) { c += (u128)a[i] * b[j] + r[i + j]; r[i + j] = (uint64_t)c; c >>= 64; }
+            r[i + nb] = (uint64_t)c;
+        }
+        return;
+    }
+    /* column k = sum_i a[i] b[k-i] as a 3-word value, columns independent; then one carry pass */
+    uint64_t *w1 = (uint64_t *)malloc(2 * n * sizeof *w1), *w2 = w1 + n;
+#pragma omp parallel for schedule(dynamic, 64) if (!omp_in_parallel() && n > 4096)
+    for (k = 0; k < n; k++) {
+        size_t i0 = k >= nb - 1 ? k - (nb - 1) : 0, i1 = k < na ? k : na - 1, i;
+        uint64_t c0 = 0, c1 = 0, c2 = 0;
+        for (i = i0; i <= i1; i++) {
+            u128 p = (u128)a[i] * b[k - i];
+            u128 s = (u128)c0 + (uint64_t)p; c0 = (uint64_t)s;
+            s = (s >> 64) + c1 + (uint64_t)(p >> 64); c1 = (uint64_t)s;
+            c2 += (uint64_t)(s >> 64);
+        }
+        r[k] = c0; w1[k] = c1; w2[k] = c2;
+    }
+    u128 s = 0;
+    for (k = 0; k < n; k++) {
+        s += r[k];
+        if (k >= 1) s += w1[k - 1];
+        if (k >= 2) s += w2[k - 2];
+        r[k] = (uint64_t)s; s >>= 64;
+    }
+    free(w1);
+}
+uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
+{
+    u128 c = add;
+    for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)c; c >>= 64; }
+    return (uint64_t)c;
+}
+/* parallel chunked copy that tolerates overlap in the memmove sense (chunks
+ * processed in the safe order when r and a overlap) */
+static void limb_move(uint64_t *r, const uint64_t *a, size_t n)
+{
+    if (r == a || !n) return;
+    if (n < PAR_MIN) { memmove(r, a, n * 8); return; }
+    size_t nch = (n + PAR_CHUNK - 1) / PAR_CHUNK;
+    size_t dist = r < a ? (size_t)(a - r) : (size_t)(r - a);
+    if (dist < n) { memmove(r, a, n * 8); return; }       /* overlapping: serial (parallel chunks would race) */
+#pragma omp parallel for schedule(static)
+    for (size_t t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
+        memcpy(r + lo, a + lo, (hi - lo) * 8);
+    }
+}
+void limb_shr_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
+{
+    if (!bits) { limb_move(r, a, n); return; }
+    if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
+        for (size_t i = 0; i + 1 < n; i++) r[i] = (a[i] >> bits) | (a[i + 1] << (64 - bits));
+        if (n) r[n - 1] = a[n - 1] >> bits;
+        return;
+    }
+    /* each chunk reads a[hi] (the next chunk's first limb) before it is overwritten: save the chunk heads first */
+    size_t nch = (n + PAR_CHUNK - 1) / PAR_CHUNK;
+    uint64_t *heads = (uint64_t *)malloc(nch * 8);
+    for (size_t t = 0; t < nch; t++) heads[t] = a[t * PAR_CHUNK];
+#pragma omp parallel for schedule(static)
+    for (size_t t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
+        for (size_t i = lo; i + 1 < hi; i++) r[i] = (a[i] >> bits) | (a[i + 1] << (64 - bits));
+        uint64_t next = hi < n ? heads[t + 1] : 0;
+        r[hi - 1] = (a[hi - 1] >> bits) | (next << (64 - bits));
+    }
+    free(heads);
+}
+uint64_t limb_shl_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
+{
+    if (!bits) { limb_move(r, a, n); return 0; }
+    uint64_t out = n ? a[n - 1] >> (64 - bits) : 0;
+    if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
+        for (size_t i = n; i-- > 1;) r[i] = (a[i] << bits) | (a[i - 1] >> (64 - bits));
+        if (n) r[0] = a[0] << bits;
+        return out;
+    }
+    size_t nch = (n + PAR_CHUNK - 1) / PAR_CHUNK;
+    uint64_t *tails = (uint64_t *)malloc(nch * 8);      /* last limb of each chunk, read before overwrite */
+    for (size_t t = 0; t < nch; t++) { size_t hi = (t + 1) * PAR_CHUNK < n ? (t + 1) * PAR_CHUNK : n; tails[t] = a[hi - 1]; }
+#pragma omp parallel for schedule(static)
+    for (size_t t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
+        for (size_t i = hi; i-- > lo + 1;) r[i] = (a[i] << bits) | (a[i - 1] >> (64 - bits));
+        uint64_t prev = t ? tails[t - 1] : 0;
+        r[lo] = (a[lo] << bits) | (prev >> (64 - bits));
+    }
+    free(tails);
+    return out;
+}
+size_t limb_norm(const uint64_t *a, size_t n) { while (n && a[n - 1] == 0) n--; return n; }
+
+void bi_copy(bigint *r, const bigint *a) { if (r == a) return; bi_reserve(r, a->n ? a->n : 1); limb_move(r->l, a->l, a->n); r->n = a->n; }
+void bi_set_u64(bigint *r, uint64_t v) { bi_reserve(r, 1); r->l[0] = v; r->n = v ? 1 : 0; }
+void bi_add(bigint *r, const bigint *a, const bigint *b)
+{
+    if (a->n < b->n) { const bigint *t = a; a = b; b = t; }
+    bi_reserve(r, a->n + 1);
+    uint64_t c = limb_add(r->l, a->l, a->n, b->l, b->n);
+    r->n = a->n; if (c) r->l[r->n++] = c;
+}
+void bi_sub(bigint *r, const bigint *a, const bigint *b)
+{
+    if (bi_cmp(a, b) < 0) { fprintf(stderr, "bi_sub: a < b\n"); abort(); }
+    bi_reserve(r, a->n);
+    limb_sub(r->l, a->l, a->n, b->l, b->n);
+    r->n = a->n; bi_norm(r);
+}
+void bi_add_shifted(bigint *r, const bigint *a, size_t k)
+{
+    size_t need = (a->n + k > r->n ? a->n + k : r->n) + 1;
+    bi_reserve(r, need);
+    { size_t i;
+#pragma omp parallel for schedule(static) if (need - r->n > (1u << 22))
+      for (i = r->n; i < need; i++) r->l[i] = 0; }
+    uint64_t c = limb_add(r->l + k, r->l + k, need - k - 1, a->l, a->n);
+    r->l[need - 1] = c;
+    r->n = need; bi_norm(r);
+}
+void bi_sub_shifted(bigint *r, const bigint *a, size_t k)
+{
+    if (r->n < a->n + k) { fprintf(stderr, "bi_sub_shifted: r too small\n"); abort(); }
+    uint64_t br = limb_sub(r->l + k, r->l + k, r->n - k, a->l, a->n);
+    if (br) { fprintf(stderr, "bi_sub_shifted: negative\n"); abort(); }
+    bi_norm(r);
+}
+void bi_shl(bigint *r, const bigint *a, size_t bits)
+{
+    size_t k = bits / 64; unsigned b = bits % 64;
+    if (!a->n) { r->n = 0; return; }
+    bi_reserve(r, a->n + k + 1);
+    uint64_t out = limb_shl_bits(r->l + k, a->l, a->n, b);
+    r->l[a->n + k] = out;
+    for (size_t i = 0; i < k; i++) r->l[i] = 0;
+    r->n = a->n + k + 1; bi_norm(r);
+}
+void bi_shr(bigint *r, const bigint *a, size_t bits)
+{
+    size_t k = bits / 64; unsigned b = bits % 64;
+    if (a->n <= k) { r->n = 0; return; }
+    bi_reserve(r, a->n - k);
+    limb_shr_bits(r->l, a->l + k, a->n - k, b);
+    r->n = a->n - k; bi_norm(r);
+}
+void bi_mul_school(bigint *r, const bigint *a, const bigint *b)
+{
+    if (!a->n || !b->n) { r->n = 0; return; }
+    if (r == a || r == b) { bigint t; bi_init(&t); bi_mul_school(&t, a, b); bi_free(r); *r = t; return; }
+    bi_reserve(r, a->n + b->n);
+    limb_mul_school(r->l, a->l, a->n, b->l, b->n);
+    r->n = a->n + b->n; bi_norm(r);
+}
+void bi_mul_u64(bigint *r, const bigint *a, uint64_t m)
+{
+    if (!a->n || !m) { r->n = 0; return; }
+    bi_reserve(r, a->n + 1);
+    uint64_t c = limb_mul_1(r->l, a->l, a->n, m, 0);
+    r->n = a->n; if (c) r->l[r->n++] = c;
+}
+void bi_add_u64(bigint *r, uint64_t v)
+{
+    bi_reserve(r, r->n + 1);
+    u128 s = v;
+    for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)s; s >>= 64; }
+    if (s) r->l[r->n++] = (uint64_t)s;
+}
+uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d)
+{
+    u128 rem = 0;
+    bi_reserve(q, a->n ? a->n : 1);
+    for (size_t i = a->n; i-- > 0;) { rem = (rem << 64) | a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
+    q->n = a->n; bi_norm(q);
+    return (uint64_t)rem;
+}

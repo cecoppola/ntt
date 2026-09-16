@@ -1,0 +1,11 @@
+#!/bin/bash
+# ./run [-j jobid] <program> [args]   - run one ecalc program on the allocated node
+#   (all 4 GPUs, rocm loaded), tee to results/<program>.txt.  Without -j uses
+#   the newest allocation of $USER.
+JOB=""
+if [ "$1" = "-j" ]; then JOB=$2; shift 2; fi
+[ -z "$JOB" ] && JOB=$(squeue -u "$USER" -h -o "%i" | sort -n | tail -1)
+[ -z "$JOB" ] && { echo "no allocation; salloc -p PPAC_MI300A_SPX -N1 -t 6:00:00 --no-shell" >&2; exit 1; }
+prog=$1; shift
+mkdir -p results
+srun --jobid="$JOB" -N1 --gpus=4 bash -lc "module load rocm; cd ~/ntt/ecalc; ./$prog $*" 2>&1 | tee "results/$(basename "$prog").txt"
