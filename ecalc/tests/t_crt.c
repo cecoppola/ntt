@@ -43,7 +43,8 @@ static void crt_gmp(mpz_t v, uint64_t *const res[4], size_t n)
         mpz_set_ui(c, 0);
         for (int i = 0; i < 4; i++) { mpz_mul_ui(t, E[i], res[i][k]); mpz_add(c, c, t); }
         mpz_mod(c, c, M);
-        mpz_mul_2exp(v, v, 64); mpz_add(v, v, c);
+        if (bi_decimal) mpz_mul_ui(v, v, BI_B10); else mpz_mul_2exp(v, v, 64);
+        mpz_add(v, v, c);
     }
     mpz_clears(c, t, NULL);
 }
@@ -56,6 +57,7 @@ static void to_quartered(uint64_t *const res[4], size_t n, uint64_t *q[4], size_
 }
 static int check(const char *what, uint64_t *const res[4], size_t n, int T, int layout)
 {
+    if (layout && bi_decimal) return 1;                   /* the quartered layout is binary-only */
     uint64_t *out = (uint64_t *)malloc((n + 4) * 8);
     mpz_t v, w; mpz_inits(v, w, NULL);
     for (size_t i = 0; i < n + 4; i++) out[i] = 0xDEADBEEFULL;
@@ -67,7 +69,7 @@ static int check(const char *what, uint64_t *const res[4], size_t n, int T, int 
         for (int i = 0; i < 4; i++) free(q[i]);
     } else crt_carry_par4(res, n, out, T);
     crt_gmp(v, res, n);
-    mpz_import(w, n + 4, -1, 8, 0, 0, out);
+    mpz_from_limbs(w, out, n + 4);
     int ok = mpz_cmp(v, w) == 0;
     VERIFY(ok, "%s n=%zu T=%d layout %d", what, n, T, layout);
     mpz_clears(v, w, NULL); free(out);
@@ -99,7 +101,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < 4; i++) free(res[i]);
     }
     /* 3. throughput */
-    {
+    if (!bi_decimal) {
         size_t n = (size_t)1 << LOG, Q = n / 4;
         uint64_t *res[4], *q[4], *out = (uint64_t *)malloc((n + 4) * 8);
         printf("-- throughput, n = 2^%d, best of 3 (s)\n", LOG);
