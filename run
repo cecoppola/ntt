@@ -1,0 +1,9 @@
+#!/bin/sh
+# ./run <binary> [args...]   run one benchmark under srun on a 4-APU node
+#   P=<partition> G=<gpus> T=<walltime> ./run ...
+set -u
+cd "$(dirname "$0")"
+: "${P:=PPAC_MI300A_SPX}"
+: "${G:=4}"
+: "${T:=00:20:00}"
+exec srun -p "$P" -N1 --gpus="$G" --time="$T" "$@"
