@@ -131,6 +131,14 @@ int main(int argc, char **argv)
         mpz_sub_ui(e, p, 1); mpz_fdiv_q_2exp(e, e, 33);
         mpz_powm(w, g, e, p);
         VERIFY(mpz_cmp_ui(w, ec_W33[i]) == 0, "P%d w33 table %llu, GMP %s", i, (unsigned long long)ec_W33[i], mpz_get_str(NULL, 10, w));
+        if (ec_has_radix3()) {                                        /* w3x33 = g^((p-1)/(3 2^33)), exact order 3 2^33 */
+            mpz_sub_ui(e, p, 1); mpz_fdiv_q_2exp(e, e, 33); VERIFY(mpz_divisible_ui_p(e, 3), "P%d: 3 | (p-1)/2^33", i); mpz_fdiv_q_ui(e, e, 3);
+            mpz_powm(w, g, e, p);
+            VERIFY(mpz_cmp_ui(w, ec_W3X33[i]) == 0, "P%d w3x33 table %llu, GMP %s", i, (unsigned long long)ec_W3X33[i], mpz_get_str(NULL, 10, w));
+            VERIFY(ec_powmod(ec_W3X33[i], 3, ec_P[i]) == ec_W33[i], "P%d w3x33^3 == w33", i);
+            VERIFY(ec_powmod(ec_W3X33[i], 3ULL << 32, ec_P[i]) != 1 && ec_powmod(ec_W3X33[i], 1ULL << 33, ec_P[i]) != 1, "P%d w3x33 has exact order 3 2^33", i);
+            VERIFY(ec_powmod(ec_root3(i, 10), 3 << 10, ec_P[i]) == 1 && ec_powmod(ec_root3(i, 10), 1 << 10, ec_P[i]) != 1, "P%d root3(10) order", i);
+        }
         for (li = 0; li < (int)(sizeof logs / sizeof *logs); li++) {
             int ln = logs[li];
             uint64_t r = ec_root(i, ln), ri = ec_root_inv(i, ln);

@@ -28,15 +28,35 @@
 #define EC_NP 4
 #define EC_LOGN_MAX 33                      /* 2^33 | p-1 for all four primes */
 
+#ifndef EC_PRIMES
+#define EC_PRIMES 1                         /* 1: the WP8 set (3 * 2^44 | p-1: 3*2^k lengths); 0: the Phase 3-7 set */
+#endif
+#if EC_PRIMES
+/* c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147 (RESULTS.md 57); two are the old p1, p3 */
+static const uint64_t ec_P[EC_NP] = {4222124650659841ULL, 3799912185593857ULL,
+                                     3641582511194113ULL, 2586051348529153ULL};
+static const uint64_t ec_G[EC_NP] = {19, 5, 5, 10};
+/* w33 = g^((p-1)/2^33): exact order 2^33 */
+static const uint64_t ec_W33[EC_NP] = {1664894315601502ULL, 1343624525396189ULL,
+                                       3536920527846901ULL, 2276121144993249ULL};
+/* w3x33 = g^((p-1)/(3 2^33)): exact order 3 2^33 (w3x33^3 = w33) */
+static const uint64_t ec_W3X33[EC_NP] = {2693318777493321ULL, 1846280463207194ULL,
+                                         633252398701382ULL, 250170307597761ULL};
+/* mu115 = floor(2^115 / p), 64 bits each */
+static const uint64_t ec_MU115[EC_NP] = {9838263505978425198ULL, 10931403895531583266ULL,
+                                         11406682325772086755ULL, 16062471030168855059ULL};
+#else
 static const uint64_t ec_P[EC_NP] = {3923057487904769ULL, 3641582511194113ULL,
                                      2867526325239809ULL, 2586051348529153ULL};
 static const uint64_t ec_G[EC_NP] = {3, 5, 3, 10};
 /* w33 = g^((p-1)/2^33): exact order 2^33 (results/0_params.txt) */
 static const uint64_t ec_W33[EC_NP] = {678007507195576ULL, 3536920527846901ULL,
                                        1501474000275416ULL, 2276121144993249ULL};
+static const uint64_t ec_W3X33[EC_NP] = {0, 0, 0, 0};   /* p0, p2 have no factor 3 in p-1: no 3 2^k lengths */
 /* mu115 = floor(2^115 / p), 64 bits each */
 static const uint64_t ec_MU115[EC_NP] = {10588265656658394641ULL, 11406682325772086755ULL,
                                          14485786757268845297ULL, 16062471030168855059ULL};
+#endif
 /* LEAF kernel: floor(2^123 / 10^18) */
 #define EC_MU_1E18 10633823966279326983ULL
 #define EC_1E18 1000000000000000000ULL
@@ -154,5 +174,12 @@ static inline uint64_t ec_root(int i, int logn)
     return ec_powmod(ec_W33[i], 1ULL << (EC_LOGN_MAX - logn), ec_P[i]);
 }
 static inline uint64_t ec_root_inv(int i, int logn) { return ec_inv(ec_root(i, logn), ec_P[i]); }
+/* primitive 3 2^logk-th root of unity for prime i (0 when the prime set has none) */
+static inline uint64_t ec_root3(int i, int logk)
+{
+    return ec_W3X33[i] ? ec_powmod(ec_W3X33[i], 1ULL << (EC_LOGN_MAX - logk), ec_P[i]) : 0;
+}
+static inline uint64_t ec_root3_inv(int i, int logk) { return ec_inv(ec_root3(i, logk), ec_P[i]); }
+static inline int ec_has_radix3(void) { return ec_W3X33[0] != 0; }
 
 #endif
