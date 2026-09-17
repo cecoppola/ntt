@@ -98,8 +98,11 @@ int mem_dev_of(const void *p)
 void *mem_dev_alloc(int dev, size_t bytes)
 {
     void *p; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    double t0 = mem_now();
     HIP_CHECK(hipMalloc(&p, bytes));
-    HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize());   /* map the pages now: the first CPU touch of unmapped device pages runs at a few GB/s */
+    double t1 = mem_now();
+    if (!getenv("MEM_NO_DEV_MEMSET")) { HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize()); }   /* map the pages now */
+    if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB: malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, t1 - t0, mem_now() - t1);
     HIP_CHECK(hipSetDevice(cur));
     if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++; }
     return p;
