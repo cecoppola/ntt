@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "newton.h"
+static int newton_verbose = -1;
 #include "rns_mul.h"
 #include "mem.h"
 
@@ -118,6 +119,7 @@ void newton_free_scratch(void)
 void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *seed_r, size_t seed_j)
 {
     double t0 = mem_now();
+    if (newton_verbose < 0) newton_verbose = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0;
     size_t nq = Q->n, j;
     bigint r = g_r, r2 = g_r2, qt = g_qt, t1 = g_t1, t2 = g_t2;
     if (seed_r) { bi_copy(&r, seed_r); j = seed_j; } else seed(&r, Q, &j);
@@ -149,6 +151,7 @@ void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *se
                 bi_sub(&r2, &t2, &t1);
             } else bi_add(&r2, &t2, &t1);
             bi_shr(&r, &r2, converged ? 0 : 64 * j);
+            if (newton_verbose) printf("newton j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   VmRSS %.1f GB, VmHWM %.1f GB\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
