@@ -33,6 +33,18 @@ void  mem_hstage_free(void *p);
 void *mem_hreg_alloc(size_t bytes);
 void  mem_hreg_free(void *p);
 int   mem_is_registered(const void *p, size_t bytes);
+/* WP3: device pools the CPU also uses (hipMalloc on dev; CPU read/write at the local rate with
+ * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
+void *mem_dev_alloc(int dev, size_t bytes);
+void  mem_dev_free(void *p);
+int   mem_dev_of(const void *p);
+size_t mem_dev_pool_bytes(void);
+int   mem_device_count(void);                    /* total in device pools (not in RSS) */
+/* WP3: pin every OpenMP thread to its home node (thread t -> node t nnodes / nthreads) so that
+ * region-aware loops touch node-local memory; mem_unpin() returns a thread to its home */
+void mem_pin_threads(int nnodes);
+int  mem_thread_home(void);                          /* -1 before mem_pin_threads */
+int  mem_region_threads(int *rank);                 /* count of threads on this node, and this thread's rank among them */
 
 typedef struct { void *p; size_t cap; int dev; } dpool;
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */
