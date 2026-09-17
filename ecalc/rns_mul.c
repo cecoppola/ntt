@@ -82,6 +82,7 @@ int rns_init(int pool_log)
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
+uint64_t *rns_hstage(int dev) { return D[dev].hstage; }
 int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {

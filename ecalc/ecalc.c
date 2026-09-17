@@ -70,6 +70,8 @@ int main(int argc, char **argv)
     bs_verbose = dec_verbose = verbose >= 2;
 
     unsigned long N = e_terms(d);
+    binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
+    printf("      device pools %.1f GB after pregrow (bs regions included)\n", mem_dev_pool_bytes() / 1e9);
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
 
