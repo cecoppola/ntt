@@ -98,7 +98,9 @@ int mem_dev_of(const void *p)
 void *mem_dev_alloc(int dev, size_t bytes)
 {
     void *p; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipMalloc(&p, bytes)); HIP_CHECK(hipSetDevice(cur));
+    HIP_CHECK(hipMalloc(&p, bytes));
+    HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize());   /* map the pages now: the first CPU touch of unmapped device pages runs at a few GB/s */
+    HIP_CHECK(hipSetDevice(cur));
     if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++; }
     return p;
 }
