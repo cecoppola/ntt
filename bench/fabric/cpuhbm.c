@@ -61,6 +61,7 @@ int main(int argc, char **argv)
     printf("%-28s %8s %8s %8s %8s %9s %9s   GB/s\n", "allocation on APU0", "cpu0 rd", "cpu0 wr", "cpu3 rd", "cpu3 wr", "gpu0 rd", "gpu3 rd");
     for (int kind = 0; kind < 5; kind++) {
         uint64_t *p = 0; hipError_t e = hipSuccess;
+        HIP_CHECK(hipSetDevice(0));                      /* gpu_bw(far) leaves device far current */
         if (kind == 0) { p = (uint64_t *)aligned_alloc(1 << 21, bytes); pin_node(0); memset(p, 1, bytes); }
         else if (kind == 1) e = hipHostMalloc((void **)&p, bytes, 0);
         else if (kind == 2) e = hipMallocManaged((void **)&p, bytes, hipMemAttachGlobal);
