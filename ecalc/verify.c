@@ -30,7 +30,8 @@ uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
     for (int t = 0; t < T; t++) {
         size_t k0 = n * t / T, k1 = n * (t + 1) / T;
         u128 v = 0;
-        for (size_t k = k1; k-- > k0;) v = ((v << 64) | a[k]) % q;
+        if (bi_decimal) for (size_t k = k1; k-- > k0;) v = (v * BI_B10 + a[k]) % q;
+        else for (size_t k = k1; k-- > k0;) v = ((v << 64) | a[k]) % q;
         cv[t] = (uint64_t)v; cw[t] = vf_pow_mod(b64, k1 - k0, q);
     }
     uint64_t r = 0;
