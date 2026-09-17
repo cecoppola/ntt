@@ -51,6 +51,11 @@ void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size
 void ntt_load(ntt_ctx *c, uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, hipStream_t s);
 
 /* pass structure for a given logn (for tests and timing) */
+/* WP8: length 3 * 2^logk (ntt3.c); same conventions as above, output order: third r holds X[3 t' + r] */
+void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
+void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
+void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);
+void ntt_inv3_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
 void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 
