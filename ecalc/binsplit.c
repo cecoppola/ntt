@@ -94,8 +94,9 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
 void binsplit_pregrow(unsigned long N)
 {
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
-    size_t total0 = seed_limbs(N, 0, 0);
-    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, total0 / NR + total0 / (NR * 4) + (1 << 20));
+    size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
+    if (per_region < total0 / 2 + total0 / 16) per_region = total0 / 2 + total0 / 16;   /* the two-node level puts half the total in one region */
+    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, per_region);
 }
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
@@ -112,7 +113,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
      * pool_get still grows if a level needs more); binsplit_pregrow does this at init, outside the timed phase */
     size_t total0 = 2 * per * nspan;
-    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, total0 / NR + total0 / (NR * 4) + (1 << 20));
+    binsplit_pregrow(N);
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
     if (mem_dev_of(cur.pool[0]) >= 0 && (size_t)rns_pool_log() && ((size_t)8 << rns_pool_log()) < (2 * per * (r0[1] - r0[0]) + 2) * 8) { fprintf(stderr, "bs: seed region larger than the staging buffer\n"); abort(); }
     if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
@@ -168,7 +169,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         for (int r = 0; r < NR; r++) { nxt.pool[r] = pool_get(which, r, offr[r] + 2); off += offr[r]; }
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
-        const char *tier; int normed = 0;
+        const char *tier; int normed = 0, finished = 0;
         if (max_nl <= (size_t)bs_school_nl) {
             tier = "school"; bs_st.school_levels++;
 #pragma omp parallel
@@ -203,21 +204,30 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             free(pr);
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
-            bigint A1, A2, B, C1, C2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2);
+            bigint A1, A2, B, C1, C2, P2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2); bi_init(&P2);
             for (size_t i = 0; i < npairs; i++) {
                 struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                /* views into the pools (no copies) */
+                /* views into the pools (rns_mul_pair stages them by DMA when they are device pools) */
                 A1.l = NODE_P(cur, a); A1.n = a->pn; A2.l = NODE_Q(cur, a); A2.n = a->qn; B.l = NODE_Q(cur, b); B.n = b->qn;
                 A1.cap = A2.cap = B.cap = 0;
                 rns_mul_pair(&C1, &A1, &C2, &A2, &B);
-                uint64_t *pp = NODE_P(nxt, o), *qq = NODE_Q(nxt, o);
-                memcpy(pp, C1.l, C1.n * 8); if (C1.n < a->pn + b->qn + 1) memset(pp + C1.n, 0, (a->pn + b->qn + 1 - C1.n) * 8);
-                pp[a->pn + b->qn] = limb_add(pp, pp, a->pn + b->qn, NODE_P(cur, b), b->pn);
-                memcpy(qq, C2.l, C2.n * 8); if (C2.n < a->qn + b->qn) memset(qq + C2.n, 0, (a->qn + b->qn - C2.n) * 8);
+                /* P = C1 + P2 on the host (a read-modify-write pass over device memory is slow), then one DMA */
+                size_t pn = a->pn + b->qn + 1;
+                bi_reserve(&C1, pn); if (C1.n < pn) memset(C1.l + C1.n, 0, (pn - C1.n) * 8);
+                bi_reserve(&P2, b->pn); region_copy(P2.l, NODE_P(cur, b), b->pn, b->r); P2.n = b->pn;
+                C1.l[pn - 1] = limb_add(C1.l, C1.l, pn - 1, P2.l, P2.n); C1.n = pn;
+                if (nxt.n == 1) {                            /* the top: straight into the outputs, no pool */
+                    bigint sw = *P; *P = C1; C1 = sw; sw = *Q; *Q = C2; C2 = sw; P->n = limb_norm(P->l, P->n); Q->n = limb_norm(Q->l, Q->n);
+                    finished = 1;
+                } else {
+                    region_copy(NODE_P(nxt, o), C1.l, pn, o->r);
+                    if (C2.n < a->qn + b->qn) { bi_reserve(&C2, a->qn + b->qn); memset(C2.l + C2.n, 0, (a->qn + b->qn - C2.n) * 8); }
+                    region_copy(NODE_Q(nxt, o), C2.l, a->qn + b->qn, o->r);
+                }
             }
-            A1.l = A2.l = B.l = 0; bi_free(&C1); bi_free(&C2);
+            A1.l = A2.l = B.l = 0; bi_free(&C1); bi_free(&C2); bi_free(&P2);
         }
-        if (normed) {                                   /* lengths came back from the device-local batch path */
+        if (normed || finished) {                       /* lengths came back from the device-local batch path, or the top is done */
         } else if (npairs >= 64) {
 #pragma omp parallel
             {
@@ -244,9 +254,12 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         memset(&rns_st, 0, sizeof rns_st);
         free(cur.nd);
         cur = nxt;
+        if (finished) { free(cur.nd); cur.nd = 0; break; }
     }
-    bi_reserve(P, cur.nd[0].pn); region_copy(P->l, NODE_P(cur, &cur.nd[0]), cur.nd[0].pn, cur.nd[0].r); P->n = cur.nd[0].pn;
-    bi_reserve(Q, cur.nd[0].qn); region_copy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn, cur.nd[0].r); Q->n = cur.nd[0].qn;
+    if (cur.nd) {
+        bi_reserve(P, cur.nd[0].pn); region_copy(P->l, NODE_P(cur, &cur.nd[0]), cur.nd[0].pn, cur.nd[0].r); P->n = cur.nd[0].pn;
+        bi_reserve(Q, cur.nd[0].qn); region_copy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn, cur.nd[0].r); Q->n = cur.nd[0].qn;
+    }
     free(cur.nd);
     bs_st.t_total = mem_now() - t0;
 }

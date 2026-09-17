@@ -101,6 +101,7 @@ static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; re
 /* parallel memcpy by the threads of one NUMA node (called inside the per-device team) */
 static void node_copy(uint64_t *dst, const uint64_t *src, size_t n, int node, int nthreads)
 {
+    if (mem_dev_of(src) >= 0 || mem_dev_of(dst) >= 0) { mem_dev_copy_on(node, dst, src, n * 8); return; }   /* WP3: device pools by DMA */
     if (n < (1u << 20)) { memcpy(dst, src, n * 8); return; }      /* small: no nested team (20 ms of overhead otherwise) */
 #pragma omp parallel num_threads(nthreads)
     {
@@ -121,6 +122,7 @@ int rns_mdev_gpucrt = 1;
 
 static void par_copy(uint64_t *dst, const uint64_t *src, size_t n)
 {
+    if (mem_dev_of(src) >= 0 || mem_dev_of(dst) >= 0) { mem_dev_copy(dst, src, n * 8); return; }
 #pragma omp parallel for schedule(static) if (n > (1u << 22))
     for (size_t i = 0; i < n; i += 1 << 18) { size_t m = n - i < (1 << 18) ? n - i : (1 << 18); memcpy(dst + i, src + i, m * 8); }
 }
