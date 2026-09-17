@@ -2,7 +2,7 @@
 # Phase 5 task 1: N identical 4e10 runs with amd-smi sampling -> results/variance/
 #   srun --jobid=<id> -N1 --gpus=4 bash variance.sh [N]
 module load rocm; cd ~/ntt/ecalc
-N=${1:-5}; OUT=results/variance; mkdir -p $OUT
+N=${1:-5}; OUT=results/variance${LIMB_BASE:+_b$LIMB_BASE}; mkdir -p $OUT
 for i in $(seq 1 $N); do
   ( while true; do echo "$(date +%s) $(amd-smi metric --clock --power --temperature --json 2>/dev/null | tr -d '\n ')"; sleep 2; done ) > $OUT/run$i.smi &
   SP=$!
