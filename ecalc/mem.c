@@ -44,17 +44,38 @@ void mem_pin_to_node(int node)
     cpu_set_t set;
     if (node_cpuset(node, &set) > 0) sched_setaffinity(0, sizeof set, &set);
 }
+static __thread int t_home = -1;                    /* WP3: the thread's home node once mem_pin_threads ran */
 void mem_unpin(void)
 {
+    if (t_home >= 0) { mem_pin_to_node(t_home); return; }
     cpu_set_t set; CPU_ZERO(&set);
     for (int c = 0; c < CPU_SETSIZE; c++) CPU_SET(c, &set);
     sched_setaffinity(0, sizeof set, &set);
 }
+static int g_nnodes = 0;
+void mem_pin_threads(int nnodes)
+{
+    g_nnodes = nnodes;
+#pragma omp parallel
+    {
+        int nth = omp_get_num_threads(), tid = omp_get_thread_num();
+        t_home = tid * nnodes / nth;
+        mem_pin_to_node(t_home);
+    }
+}
+int mem_thread_home(void) { return t_home; }
+int mem_region_threads(int *rank)                    /* this thread's rank and count within its node's threads */
+{
+    int nth = omp_get_num_threads(), tid = omp_get_thread_num(), n = g_nnodes ? g_nnodes : 1;
+    int node = tid * n / nth, t0 = (node * nth + n - 1) / n, t1 = ((node + 1) * nth + n - 1) / n;
+    *rank = tid - t0;
+    return t1 - t0;
+}
 
-/* registry of registered blocks */
-static struct { void *p; size_t bytes; } reg[256];
+/* registry of registered blocks (dev = -1) and device pools (dev >= 0: hipMalloc, CPU-accessible) */
+static struct { void *p; size_t bytes; int dev; } reg[256];
 static int nreg = 0;
-static void reg_add(void *p, size_t bytes) { if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; nreg++; } }
+static void reg_add(void *p, size_t bytes) { if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; nreg++; } }
 static void reg_del(void *p) { for (int i = 0; i < nreg; i++) if (reg[i].p == p) { reg[i] = reg[--nreg]; return; } }
 int mem_is_registered(const void *p, size_t bytes)
 {
@@ -64,6 +85,32 @@ int mem_is_registered(const void *p, size_t bytes)
         if (c >= b && c + bytes <= b + reg[i].bytes) return 1;
     }
     return 0;
+}
+int mem_dev_of(const void *p)
+{
+    const char *c = (const char *)p;
+    for (int i = 0; i < nreg; i++) {
+        const char *b = (const char *)reg[i].p;
+        if (c >= b && c < b + reg[i].bytes) return reg[i].dev;
+    }
+    return -1;
+}
+void *mem_dev_alloc(int dev, size_t bytes)
+{
+    void *p; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    HIP_CHECK(hipMalloc(&p, bytes)); HIP_CHECK(hipSetDevice(cur));
+    if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++; }
+    return p;
+}
+void mem_dev_free(void *p)
+{
+    int dev = mem_dev_of(p), cur; if (dev < 0) return;
+    HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur));
+    reg_del(p);
+}
+int mem_device_count(void) { int n = 0; if (hipGetDeviceCount(&n) != hipSuccess) n = 0; return n; }
+size_t mem_dev_pool_bytes(void) { size_t s = 0; for (int i = 0; i < nreg; i++) if (reg[i].dev >= 0) s += reg[i].bytes; return s; }
+
 }
 void *mem_hreg_alloc(size_t bytes)
 {
