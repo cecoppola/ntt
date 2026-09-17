@@ -60,6 +60,7 @@ static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
     if (limbs < ((size_t)1 << 20)) { memcpy(dst, src, limbs * 8); return; }
+    if (mem_dev_of(src) >= 0 || mem_dev_of(dst) >= 0) { mem_dev_copy(dst, src, limbs * 8); return; }
 #pragma omp parallel
     {
         int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
@@ -139,16 +140,10 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bi_free(&p); bi_free(&q);
     }
     double t_span = mem_now() - t;
+#pragma omp parallel for num_threads(NR) schedule(static, 1)
     for (int r = 0; r < NR; r++) {
         size_t limbs = 2 * per * (r0[r + 1] - r0[r]);
-#pragma omp parallel
-        {
-            int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
-            if (home < 0 || r % NR == home % NR) {                        /* this node's threads copy their region */
-                size_t chunk = (limbs + cnt - 1) / cnt, lo = chunk * rk, hi = lo + chunk < limbs ? lo + chunk : limbs;
-                if (lo < hi) memcpy(cur.pool[r] + lo, stage[r] + lo, (hi - lo) * 8);
-            }
-        }
+        if (own_stage) memcpy(cur.pool[r], stage[r], limbs * 8); else mem_dev_copy(cur.pool[r], stage[r], limbs * 8);   /* DMA from the pinned staging */
         if (own_stage) free(stage[r]);
     }
     bs_st.t_seed = mem_now() - t;

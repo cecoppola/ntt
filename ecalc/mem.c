@@ -110,6 +110,13 @@ void mem_dev_free(void *p)
     HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur));
     reg_del(p);
 }
+void mem_dev_copy(void *dst, const void *src, size_t bytes)   /* DMA copy between any of: device pools, registered host, pageable host */
+{
+    int cur, dd = mem_dev_of(dst), ds = mem_dev_of(src); HIP_CHECK(hipGetDevice(&cur));
+    HIP_CHECK(hipSetDevice(dd >= 0 ? dd : ds >= 0 ? ds : cur));
+    HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
+    HIP_CHECK(hipSetDevice(cur));
+}
 int mem_device_count(void) { int n = 0; if (hipGetDeviceCount(&n) != hipSuccess) n = 0; return n; }
 size_t mem_dev_pool_bytes(void) { size_t s = 0; for (int i = 0; i < nreg; i++) if (reg[i].dev >= 0) s += reg[i].bytes; return s; }
 
