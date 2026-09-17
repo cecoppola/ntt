@@ -149,19 +149,6 @@ static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t 
 {
     u128 c = add;
     if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
-        if (m < ((uint64_t)1 << 36)) {               /* a[i] m + c < 2^96: the quotient (< 2^37) is exact from a double after +-1 */
-            for (size_t i = 0; i < na; i++) {
-                c += (u128)a[i] * m;
-                double cd = (double)(uint64_t)(c >> 64) * 18446744073709551616.0 + (double)(uint64_t)c;   /* u128 -> double without the libgcc call */
-                uint64_t q = (uint64_t)(cd * (1.0 / 1e18)), rem;
-                u128 qb = (u128)q * B10;
-                if (qb > c) { q--; qb -= B10; }
-                rem = (uint64_t)(c - qb);
-                if (rem >= B10) { q++; rem -= B10; }
-                r[i] = rem; c = q;
-            }
-            return (uint64_t)c;
-        }
         for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)(c % B10); c /= B10; }
         return (uint64_t)c;
     }
