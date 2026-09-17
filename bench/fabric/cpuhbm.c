@@ -62,18 +62,19 @@ int main(int argc, char **argv)
     for (int kind = 0; kind < 5; kind++) {
         uint64_t *p = 0; hipError_t e = hipSuccess;
         HIP_CHECK(hipSetDevice(0));                      /* gpu_bw(far) leaves device far current */
-        if (kind == 0) { p = (uint64_t *)aligned_alloc(1 << 21, bytes); pin_node(0); memset(p, 1, bytes); }
+        if (kind == 0) { p = (uint64_t *)aligned_alloc(1 << 21, bytes); pin_node(0); memset(p, 1, bytes); HIP_CHECK(hipHostRegister(p, bytes, hipHostRegisterDefault)); }
         else if (kind == 1) e = hipHostMalloc((void **)&p, bytes, 0);
         else if (kind == 2) e = hipMallocManaged((void **)&p, bytes, hipMemAttachGlobal);
         else if (kind == 3) e = hipMalloc((void **)&p, bytes);
         else e = hipExtMallocWithFlags((void **)&p, bytes, hipDeviceMallocFinegrained);
         if (e != hipSuccess || !p) { printf("%-28s allocation failed: %s\n", names[kind], hipGetErrorString(e)); continue; }
         if (kind >= 1) { HIP_CHECK(hipMemset(p, 1, bytes)); HIP_CHECK(hipDeviceSynchronize()); }
+        if (kind >= 3 && getenv("CPU_ON_DEVICE_MEM") == NULL) { printf("%-28s CPU access skipped (set CPU_ON_DEVICE_MEM=1 to try; may fault without XNACK)\n", names[kind]); double g0 = gpu_bw(0, p, n), g3 = gpu_bw(far, p, n); printf("%-28s %8s %8s %8s %8s %9.0f %9.0f\n", "", "", "", "", "", g0, g3); HIP_CHECK(hipFree(p)); continue; }
         double c0r = cpu_bw(p, n, 0, 0), c0w = cpu_bw(p, n, 0, 1), c3r = cpu_bw(p, n, far, 0), c3w = cpu_bw(p, n, far, 1);
         double g0 = gpu_bw(0, p, n), g3 = gpu_bw(far, p, n);
         printf("%-28s %8.1f %8.1f %8.1f %8.1f %9.0f %9.0f\n", names[kind], c0r, c0w, c3r, c3w, g0, g3);
         printf("RESULT fabric/cpuhbm kind%d GB/s %.1f %.1f %.1f %.1f %.0f %.0f\n", kind, c0r, c0w, c3r, c3w, g0, g3);
-        if (kind == 0) free(p); else if (kind == 1) HIP_CHECK(hipHostFree(p)); else HIP_CHECK(hipFree(p));
+        if (kind == 0) { HIP_CHECK(hipHostUnregister(p)); free(p); } else if (kind == 1) HIP_CHECK(hipHostFree(p)); else HIP_CHECK(hipFree(p));
     }
     return 0;
 }
