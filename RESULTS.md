@@ -1947,10 +1947,48 @@ T1 1.4, dc 1.2, T2 0.5; VmHWM 150.5 GB). **4 × 10¹⁰: all six decimal runs
 were killed (host OOM) in dm**, after bs 101.7–106.6 s (binary ≈ 96) and
 10dP 2.6–3.0 s (binary ≈ 11); the last VmHWM printed before the kill was
 271 GB (binary: 248 GB peak for the whole run). Decimal has 7 % more limbs
-(59.8 bits per limb), which alone does not explain it; the per-phase RSS
-lines of the run logs (`results/variance_b10/run*.log`) are to be read when
-aac6 is reachable again — the cause is open, and the WP1 gate is **not
-passed** at 4 × 10¹⁰ until it is found.
+(59.8 bits per limb), which alone does not explain it; the run logs showed
+why: `ecalc.c` sized the reciprocal prewarm with the binary formula
+d·log₂10/64, so in decimal μ was 2.076 × 10⁹ limbs where 2.222 × 10⁹ were
+needed, `newton_divmod` discarded it and recomputed the reciprocal with A
+alive — the peak the prewarm exists to avoid. Fixed (`ff35352`, base-aware
+limb count). (The first rerun on s24-16 executed a stale copy of the binary
+from the shared filesystem and that node then failed; s24-16/30/35 are down.)
+
+**4 × 10¹⁰ decimal, five runs on s24-26 (job 20630), all VERIFY OK:**
+
+| phase | binary mean ± sd (Phase 4, §42) | decimal mean ± sd | ratio |
+|---|---:|---:|---:|
+| bs | 74.7 ± 1.6 | 103.1 ± 1.7 | 1.38 |
+| 10dP | 9.3 ± 0.3 | 2.6 ± 0.1 | 0.28 |
+| dm | 51.1 ± 1.4 | 139.3 ± 7.1 (recip 111.7) | 2.73 |
+| T1 | 5.2 ± 1.4 | 5.9 ± 2.0 | — |
+| dc | 82.5 ± 0.2 | 4.9 ± 0.8 | 0.06 |
+| T2 | 2.1 ± 0.9 | 1.8 ± 0.9 | — |
+| **total** | **291.2 ± 3.5** | **323.2 ± 9.8** | **1.11** |
+| peak RSS | 248 GB | **351.5 GB** | 1.42 |
+
+Per run: 324.4, 332.6, 312.3, 332.7, 313.9 s. The limb count is 7 % larger
+(59.8 bits per limb): P, Q 2 222 222 226 limbs vs 2 076 205 062.
+
+**Reading.** The switch does what WP2 intended — 10dP and dc fall from
+92 s to 7 s — but the gain is eaten twice over: bs is 38 % slower
+(seeds 20.6 vs 7.7 s, mdev 25 vs 12.5 s, batch 50 vs 46 s) and dm is
+2.7× slower, almost all of it the reciprocal (112 vs 41 s; 67 mdev
+products vs 48, 31 iterations vs 30). And the peak RSS rises from 248 to
+351.5 GB — near the node's ceiling (375 GB, §45). Neither is explained by
+7 % more limbs; the candidates are the decimal schoolbook (a `% 10¹⁸` per
+column), the decimal CRT digit split (a Barrett step per Garner result on
+every point of the mdev/batch tiers), and the tier thresholds, which are in
+limbs and so shift with the base (67 vs 48 mdev products; the larger
+peak is consistent with the top products landing in a heavier tier). These
+are tuning items (WP4-style) if decimal is adopted; none was pursued, per
+the rule that the user decides on the collected data.
+
+**Net for the decision:** correctness ✓ at every size; single-node time
+323 s vs 291 s (+11 %), peak 352 vs 248 GB; the multi-node reason for
+decimal (no 10dP, no dc, digits are the limbs) stands, and the two
+regressions have identifiable, un-attempted fixes.
 
 ## 51. Phase 7 WP5 — the distributed four-step transform (draft, 2026-09-16)
 
@@ -1959,8 +1997,13 @@ decision): `ecalc/ntt_dist.{h,c}` (plan, `dist_fwd/pw/inv`, and the
 `_pre/_post` halves around the all-to-all for slab pipelining),
 `ecalc/comm_sim4.c` (four synthetic ranks in one APU, driven by one thread),
 `ecalc/tests/t_dist.c` (four-rank convolution vs the one-rank engine, all
-four primes, R, C ∈ 2¹⁰..2¹³, plus 2²⁶ and 2³⁰). Not yet run — the node was
-unreachable when it was written.
+four primes, R, C ∈ 2¹⁰..2¹³, plus 2²⁶). **`t_dist 26`: VERIFY OK (65
+checks)** on s24-26 (2026-09-17) — the distributed transform, twiddles,
+slab pack/unpack and the block-cyclic convention are right on the first
+run. WP6's `comm_tcp` (`ecalc/comm_tcp.c`, TCP full mesh, pinned staging)
+passes `t_comm` with 4 forked ranks on the node and 1–8 on littleblue;
+`wp6run.sh` launches one process per APU across nodes (untested across
+nodes: only one node is up today).
 
 **Design as written.** Forward: local length-C pass on this rank's rows →
 twiddle w_n^(i·j) (j read bit-reversed, as the local engine leaves it; two
