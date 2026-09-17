@@ -54,7 +54,7 @@ int rns_init(int pool_log)
     if (g_nd < EC_NP) { fprintf(stderr, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); exit(1); }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
-    if (!getenv("MEM_NO_PIN")) mem_pin_threads(g_nd);   /* WP3: threads home on their node (region-aware CPU loops) */
+    if (getenv("MEM_PIN") && atoi(getenv("MEM_PIN"))) mem_pin_threads(g_nd);   /* WP3: optional; no CPU pass touches device memory now, and pinning costs the decimal seeds 30 % (RESULTS.md 56) */
     if (getenv("RNS_CRT_LAYOUT")) rns_crt_layout = atoi(getenv("RNS_CRT_LAYOUT"));
     if (getenv("RNS_REPACK_WIDE")) rns_repack_wide = atoi(getenv("RNS_REPACK_WIDE"));
     if (getenv("RNS_ENGINE")) rns_engine = atoi(getenv("RNS_ENGINE"));
