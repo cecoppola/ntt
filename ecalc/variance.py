@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # summarise results/variance: per-run phase times, mean/sd, per-APU clock and power while running
 import re, json, glob, statistics as st, sys
-runs = sorted(glob.glob('results/variance/run*.log'))
+import os
+D = 'results/variance' + ('_b' + os.environ['LIMB_BASE'] if os.environ.get('LIMB_BASE') else '')
+runs = sorted(glob.glob(D + '/run*.log'))
 ph = ['bs', '10dP', 'dm', 'T1', 'dc', 'T2', 'total']
+print('dir', D)
 tab = {}
 for r in runs:
     t = open(r).read()
