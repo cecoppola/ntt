@@ -2290,3 +2290,47 @@ are unchanged within noise (they still stage through the host; WP5), and
 the wall time drops a further ≈ 45 s in both bases from the `e_terms`
 fix. Peak memory is set by dm and unchanged. Decimal seeds 21.8 s
 (unpinned; 28 s pinned) remain the WP4 item.
+
+## 57. WP8 — transform lengths 3·2ᵏ (2026-09-17, s24-16, job 20642)
+
+**Built.** (1) A prime set with 3·2⁴⁴ ∣ p−1 (`EC_PRIMES=1`, default; the
+Phase 3–7 set stays buildable with `EC_PRIMES=0`): 4 222 124 650 659 841,
+3 799 912 185 593 857, 3 641 582 511 194 113, 2 586 051 348 529 153
+(c = 240, 216, 207, 147 in c·2⁴⁴ + 1; two are the old p₁, p₃; all < 2⁵²,
+product 2²⁰⁶·⁶), with primitive 3·2³³-th roots (`ec_root3`), checked by
+`t_modarith` against GMP. Every test and the 10⁹ digits are unchanged with
+the new set at 2ᵏ lengths. (2) `ntt3.c`: length 3·2ᵏ as a DIF radix-3
+stage over the thirds followed by three 2ᵏ transforms through the existing
+engine (batch 3), the mirrored inverse, two-level twiddle tables per
+(device, prime, k); `t_ntt3` (identity and convolution against the 2ᵏ⁺²
+engine, all primes, k = 10..24): 120 checks. (3) Length choice in the
+mdev and locality-aware batch tiers: 3·2ᵏ⁻² whenever nc ≤ 3·2ᵏ⁻² (0.75×
+the points); stride-aware scatter and CRT; `RNS_R3=0` disables it.
+
+**Correctness.** `t_mul` 133 / big 137 / batch 16 (against GMP, the mdev
+tier now on 3·2ᵏ), `t_crt` 24, `t_bs` and `t_newton` in both bases, e to
+10⁹ byte-identical in both bases with 3·2ᵏ transforms in use, 4 × 10¹⁰
+VERIFY OK in both bases.
+
+**4 × 10¹⁰ (one run each; WP3 = §56):**
+
+| | binary WP3 | binary WP8 | decimal WP3 | decimal WP8 |
+|---|---:|---:|---:|---:|
+| bs | 47.7 | 48.2 (mdev 9.8 → 11.3, noise) | 75.2 | 71.6 (mdev 22.9 → 21.7) |
+| dm (recip) | 41.1 (29.7) | 42.0 (30.0) | 67.8 (41.3) | 64.0 (38.9) |
+| **phases** | 186.5 | 185.9 | 156.2 | **149.2** |
+| peak RSS | 246 | 246 | 293 | 293 |
+
+Where the lengths land: decimal's Newton products run as 35 × 3·2²⁹
+(1.11 × 10⁹-limb halves, 0.96 s each) instead of 2³¹; binary's as 18 × 2³¹
+(nothing of binary's sits just above a power of two at this d).
+
+**Correction to §53's projection (−25 s / −40 GB).** The top-level
+products (4.4 × 10⁹ limbs) exceed the 2³¹-point mdev pool in both bases
+and go through the Karatsuba-split tier; only their halves get the 0.75×,
+and the 293 GB peak is that tier's host temporaries (sized in limbs), not
+a transform. The measured value of WP8 is −7 s in decimal, 0 in binary,
+and 0 in memory at this digit count. Its structural value stands: both
+bases are now insensitive to where d falls against powers of two (the
+crossing that cost decimal 2.7× in dm before the Newton anchoring cannot
+recur), which matters for the multi-node digit counts.
