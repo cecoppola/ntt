@@ -99,7 +99,7 @@ int main(int argc, char **argv)
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul(&C, &A, &B);
             char what[64]; snprintf(what, sizeof what, "2^31 pool %zu x %zu limbs", n, n);
-            check_product(what, &A, &B, &C, n <= (1 << 26));
+            check_product(what, &A, &B, &C, n <= (bi_decimal ? (1 << 20) : (1 << 26)));   /* decimal: the GMP string bridge is slow above 2^20 */
             printf("   %-36s %.3f s: repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total,
                    rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
             if (n == (1 << 30)) {
