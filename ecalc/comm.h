@@ -19,7 +19,11 @@
 #define EC_COMM_H
 #include <stddef.h>
 #include <stdint.h>
+#ifdef COMM_HOST_ONLY
+typedef void *hipStream_t;              /* host-only build of the TCP communicator (no GPU) */
+#else
 #include <hip/hip_runtime.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +56,7 @@ static inline void comm_destroy(comm *c) { c->ops->destroy(c); }
 
 comm *comm_local_create(void);                 /* size 1 */
 comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
+comm *comm_tcp_create(void);                   /* WP6: TCP sockets, one process per rank; COMM_RANK/SIZE/HOSTS/PORT */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
 static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }
