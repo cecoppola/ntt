@@ -719,7 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
-| 2026-09-17 | WP1 gate: decimal identical to 10⁹, 10¹⁰ verified in 84.5 s / 150 GB; **4 × 10¹⁰ decimal killed by host OOM in dm (6 of 6 runs)** — cause open, logs on aac6 (link down) | RESULTS.md §50 |
+| 2026-09-17 | **WP1 gate complete**: decimal identical to 10⁹; 4 × 10¹⁰ verified, five runs 323 ± 10 s vs 291 binary, peak 352 vs 248 GB (bs +38 %, recip 2.7×; 10dP+dc −85 s). OOM cause was the binary-formula prewarm length (fixed). WP5 `t_dist` OK (65), WP6 `t_comm` OK on the node. **Awaiting the user's decision on WP1** | RESULTS.md §50–51 |
 | 2026-09-16 | WP5 code written while the WP1 gate ran (`ntt_dist`, `comm_sim4`, `t_dist`; untested — aac6 unreachable from littleblue tonight). **Layout finding:** doing the local pass first forces the point convention m = i + R·j, i.e. block-cyclic limb ownership (runs of R/size limbs); contiguous ownership would cost two all-to-alls per transform instead of one. Recorded in `ntt_dist.h`; decision for the user with the WP5 data | RESULTS.md §51 (pending) |
 | 2026-09-16 | WP1 in progress on `wp1-decimal-base`: decimal base implemented; both bases pass all tests; decimal 10⁸/10⁹ byte-identical; WP2's phase removals fall out of the switch. Gate running | RESULTS.md §50 |
 | 2026-09-15 | **Phase 7 planned** (§15): the single-node cell of multi-node design A — decimal base as a switch, device-resident pools, rank abstraction, inter-node correctness on aac6, radix-3 last; 8 WPs, ≈ 25 days; every change adopted by the user's decision on measured data; repository github.com/cecoppola/ntt | — |
