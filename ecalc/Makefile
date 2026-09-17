@@ -5,8 +5,8 @@ HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench
 HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify
-OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o comm_local.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist
+OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o ntt_dist.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
@@ -23,7 +23,13 @@ rns_mul.o: rns_mul.c rns_mul.h ntt.h mem.h crt.h bigint.h modarith.h
 mem.o: mem.c mem.h
 	$(HIPC) -c -o $@ $<
 comm_local.o: comm_local.c comm.h
-	$(HIPC) -c -o $@ $<
+	$(HIPC) -c $< -o $@
+
+comm_sim4.o: comm_sim4.c comm.h
+	$(HIPC) -c $< -o $@
+
+ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
+	$(HIPC) -c $< -o $@
 crt2.o: crt2.c crt.h modarith2.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 crt.o: crt.c crt.h modarith.h
@@ -43,6 +49,9 @@ tests/t_mul: tests/t_mul.c $(OBJS) rns_mul.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
 
 tests/t_newton: tests/t_newton.c $(OBJS) newton.h tests/harness.h
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+
+tests/t_dist: tests/t_dist.c $(OBJS) ntt_dist.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
 
 tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
