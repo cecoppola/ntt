@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-16 | WP5 code written while the WP1 gate ran (`ntt_dist`, `comm_sim4`, `t_dist`; untested — aac6 unreachable from littleblue tonight). **Layout finding:** doing the local pass first forces the point convention m = i + R·j, i.e. block-cyclic limb ownership (runs of R/size limbs); contiguous ownership would cost two all-to-alls per transform instead of one. Recorded in `ntt_dist.h`; decision for the user with the WP5 data | RESULTS.md §51 (pending) |
 | 2026-09-16 | WP1 in progress on `wp1-decimal-base`: decimal base implemented; both bases pass all tests; decimal 10⁸/10⁹ byte-identical; WP2's phase removals fall out of the switch. Gate running | RESULTS.md §50 |
 | 2026-09-15 | **Phase 7 planned** (§15): the single-node cell of multi-node design A — decimal base as a switch, device-resident pools, rank abstraction, inter-node correctness on aac6, radix-3 last; 8 WPs, ≈ 25 days; every change adopted by the user's decision on measured data; repository github.com/cecoppola/ntt | — |
 | 2026-09-15 | **Phase 6 complete**: system/alloc, mem/stride, lds/xchg, kernel/rowN; 7-smooth analysis (dc pads 37 % of points; 3·2ᵏ lengths would save ≈ 11 s) | RESULTS.md §49 |
