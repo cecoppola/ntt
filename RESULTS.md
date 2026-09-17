@@ -2223,3 +2223,61 @@ cross APUs (they are mdev-tier stripes already). The dm-phase numbers
 with the 4-APU distributed transform — that is WP5's `ntt_dist` on real
 APUs, so it is done there, on this layout. Device-pool bytes do not appear
 in RSS: the memory accounting will report host RSS + device pools.
+
+## 56. WP3 — device-resident level pools and the locality-aware batch tier (2026-09-17/18, s24-26 and s24-16)
+
+**What was built** (branch `wp1-decimal-base`, all on top of WP1 + the
+k-anchored Newton):
+- `mem`: device pools the CPU can also use (`mem_dev_alloc`, hipMalloc, XNACK
+  off), `mem_dev_of`, DMA copies (`mem_dev_copy`), optional thread pinning.
+- `binsplit`: the level pools are four device regions with subtree ownership
+  (node i of a level of n → region ⌊4i/n⌋); seeds computed into the pinned
+  NUMA-local `hstage` buffers and DMA'd in; the mdev-tier levels (top three)
+  keep their results in a host pool pregrown at init (a single region can need
+  the whole level there; WP5 replaces this tier); the top level is computed
+  straight into P and Q; all pools pregrown at init.
+- `rns_mul_batch`: the **locality-aware path** — APU d computes all four
+  primes of the products in its own region (`k_scatter4`, four contexts per
+  device, CRT on its own four planes, results in place), no staging, no peer
+  traffic except boundary pairs; the striped prime-per-device path remains for
+  host-resident or very few/huge products (`RNS_BATCH_LOCAL_MIN`).
+- The binary-splitting add P = P₁Q₂ + P₂ is folded into the CRT kernel
+  (`rns_prod.x`); normalised lengths come back from a kernel (`k_norm`).
+  No CPU pass touches the pools in the batch levels.
+- `e_terms` by bisection: the linear `lgamma` scan cost ≈ 45 s at 4 × 10¹⁰ and
+  had been inside the wall time since Phase 3 (outside every phase timer).
+- The run now prints `phases`, `init` and `other` separately.
+
+**What was learned on the way** (each a measured dead end, kept out):
+CPU read-modify-write and single-limb reads of device memory are
+latency-bound (add+norm 3.0 → 10 s; fixed by moving both to the device);
+CPU streaming stores into device pools run at ≈ 8 GB/s (fixed by DMA);
+hipMalloc after peer access is enabled costs ≈ 0.06 s/GB (pools pregrown at
+init); pinning threads to their node costs the decimal seeds 30 % and is now
+unnecessary (off by default).
+
+**Batch tier, per level (10¹⁰, binary, level 1):** scatter 0.141 → 0.024 s,
+crt 0.077 → 0.017 s, GPU part 0.44 → 0.18 s. Whole batch tier at 10¹⁰:
+11.2 → 6.9 s (binary), 12.9 → 9.9 s (decimal); bs 13.7 → 10.6 / 21.0 → 18.9.
+
+**4 × 10¹⁰, one run each, VERIFY OK, 10⁹ byte-identical in both bases**
+(job 20642, s24-16; "before" = §54, the same code without WP3):
+
+| | binary before | binary WP3 | decimal before | decimal WP3 |
+|---|---:|---:|---:|---:|
+| bs | 72.3 | **47.7** (seeds 10.3, batch 27.5, mdev 9.8) | 107.1 | **75.2** (seeds 21.8, batch 30.4, mdev 22.9) |
+| 10dP | 9.1 | 9.3 | 2.8 | 3.1 |
+| dm (recip) | 44.2 (33.1) | 41.1 (29.7) | 72.2 (45.2) | 67.8 (41.3) |
+| T1 + T2 | 5.4 | 5.5 | 6.3 | 5.9 |
+| dc | 78.1 | 82.7 | 4.8 | 4.2 |
+| **phases** | **209.1** | **186.5** | **193.2** | **156.2** |
+| init / other | 11.5 / 50 | 19.5 / 7.9 | 12 / 54 | 20.4 / 7.8 |
+| **wall** | 271.0 | **213.9** | 259.0 | **184.4** |
+| peak RSS | 246 | 246 | 294 | 293 |
+| device pools | 128 | 119 (bs) / 128 | 128 | 116 / 128 |
+
+The batch tier is 1.6× faster (44.8 → 27.5 s binary), the mdev levels
+are unchanged within noise (they still stage through the host; WP5), and
+the wall time drops a further ≈ 45 s in both bases from the `e_terms`
+fix. Peak memory is set by dm and unchanged. Decimal seeds 21.8 s
+(unpinned; 28 s pinned) remain the WP4 item.
