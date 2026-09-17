@@ -87,7 +87,8 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
     bigint MU; bi_init(&MU);
-    size_t na_est = 2 * Q.n + (size_t)ceil(d * log2(10.0) / 64.0) - Q.n + 2, k_mu = na_est - Q.n + 1;
+    size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
+    size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
     newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
