@@ -462,6 +462,19 @@ to 2.9× latency, with a visibly non-uniform matrix (report §10.3). First-touch
 every plane from the APU that will own it, from a host thread pinned to that
 APU's cores.
 
+**Phase 7 WP3 (RESULTS §55–56) sharpened this into the pipeline's layout:**
+the GPU side obeys the same rule — own-node memory at ≈ 3.8 TB/s, remote at
+≈ 93 GB/s, regardless of whether it is hipMalloc'd or host pages — so the
+binary-splitting level pools are four per-APU device regions with subtree
+ownership, and the batch tier is *locality-aware*: APU d transforms all four
+primes of the products in its own region (instead of one prime for every
+product), reading its own node's memory, CRT on its own four planes, results
+in place. No operand staging, no peer traffic. The CPU never touches those
+pools (the P₁Q₂ + P₂ add and the normalisation are done in the CRT kernel;
+copies in and out are DMA). The mdev-tier levels and the dm-phase numbers
+are still host-resident until WP5 puts the 4-APU distributed transform on
+device-resident, block-cyclic numbers.
+
 ---
 
 ## 7. What not to do, and why

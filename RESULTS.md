@@ -1549,6 +1549,15 @@ integration test, then the end-to-end ladder with every check.
 | T2 (not in the paper's total) | 6.2 | — | — | — |
 | peak RSS | 350 GB | 256 GB | 1.37 | **no** |
 
+> **Correction (2026-09-18, found in WP3, §56):** the "total" rows in
+> §40–§42 are wall time from program start. They include init (11–15 s:
+> staging touch/register, device pools) and a linear `lgamma` scan in
+> `e_terms` (≈ 45 s at 4 × 10¹⁰) that no phase timer covered. The sum of
+> the phases in the accepted runs was **≈ 229 s (0.80 × the paper's
+> 285.7 s)**; the 281–290 s wall figure is what was compared. Both are
+> stated here; from §56 on the run prints phases, init and other
+> separately, and the scan is a bisection.
+
 ### Verdict
 The paper's **results are reproduced**: the algorithm as described, on the
 stated hardware class, produces the correct 40 billion digits (verified by
