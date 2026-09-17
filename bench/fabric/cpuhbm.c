@@ -9,6 +9,8 @@
 #include <sched.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 __global__ void k_read(const uint64_t *p, size_t n, uint64_t *sink)
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x; uint64_t acc = 0;
