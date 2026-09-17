@@ -111,7 +111,6 @@ void mem_dev_free(void *p)
 int mem_device_count(void) { int n = 0; if (hipGetDeviceCount(&n) != hipSuccess) n = 0; return n; }
 size_t mem_dev_pool_bytes(void) { size_t s = 0; for (int i = 0; i < nreg; i++) if (reg[i].dev >= 0) s += reg[i].bytes; return s; }
 
-}
 void *mem_hreg_alloc(size_t bytes)
 {
     const size_t huge = 2u << 20;
