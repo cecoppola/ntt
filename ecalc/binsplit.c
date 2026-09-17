@@ -91,6 +91,7 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
 
 static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
 {
+    if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
     unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
     size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
