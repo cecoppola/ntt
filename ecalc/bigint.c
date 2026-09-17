@@ -149,6 +149,19 @@ static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t 
 {
     u128 c = add;
     if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
+        if (m < ((uint64_t)1 << 33)) {
+            /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
+             * with mu = floor(2^94 / 10^18) < 2^35, then at most two corrections (WP4, RESULTS.md 58) */
+            const uint64_t MU = 19807040628ULL;      /* floor(2^94 / 10^18) */
+            for (size_t i = 0; i < na; i++) {
+                c += (u128)a[i] * m;
+                uint64_t q = (uint64_t)(((u128)(uint64_t)(c >> 30) * MU) >> 64);
+                uint64_t rem = (uint64_t)(c - (u128)q * B10);
+                while (rem >= B10) { rem -= B10; q++; }
+                r[i] = rem; c = q;
+            }
+            return (uint64_t)c;
+        }
         for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)(c % B10); c /= B10; }
         return (uint64_t)c;
     }
