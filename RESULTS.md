@@ -1908,3 +1908,37 @@ the 285 s run. That needs a radix-3 pass in the engine (the 52-bit primes
 have 2³³ | p − 1 only; a 3 | p − 1 prime set or the 62-bit primes' 2⁴⁰·3·5·7
 would be required), so it is recorded as the one structural gain left on the
 table rather than built. **Phase 6 complete.**
+
+## 50. Phase 7 WP1 — decimal limbs as a run-time switch (2026-09-16, branch `wp1-decimal-base`)
+
+`LIMB_BASE=10` selects base-10¹⁸ limbs (60 bits each) everywhere; the
+default remains the paper's 2⁶⁴. What changed (git log on the branch):
+every `bigint` primitive carries at B (adds, subtracts, `mul_1`, schoolbook,
+`divmod_u64`, the parallel ripples), a base-10¹⁸ Knuth D for the Newton
+seed, all bit shifts replaced by limb shifts or divisions (audit in the
+commit), the CPU and striped GPU CRTs split each ≤ 206-bit Garner result
+into four base-B digits with the LEAF kernel's Barrett step and carry in
+base B, the harness's GMP bridges and generators are base-aware, and in
+decimal mode the driver forms 10^d·(P+Q) as a limb shift plus one
+`mul_pow10` and prints the digits straight from X's limbs — i.e. **10dP and
+dc are bypassed** (WP2 falls out of the switch; the binary code is kept).
+Engine 2 stays binary-only. Test oracles that assumed 2⁶⁴ (low product,
+reciprocal, batch import, T1 Horner) were fixed on the way — each first
+appeared as a "failure" of correct code.
+
+**Correctness (both bases):** binary — `t_mul` 133, `t_newton` 658, `t_bs`,
+`t_crt`, 10⁸ and 10⁹ identical to `ref/` (the paper's path is unchanged).
+Decimal — `t_newton` 658 (reciprocal error 0 units at every size), `t_crt`
+12, `t_bs` 10, `t_verify` 334, and **e to 10⁸ and 10⁹ byte-identical to
+`ref/`** with T1, T2 and digit residues passing.
+
+| 10⁹, one node | binary (Phase 4) | decimal |
+|---|---:|---:|
+| bs | 1.9 | 2.2 |
+| 10dP | 0.5 | 1.1 (single-thread `mul_pow10`; parallelised since) |
+| dm | 4.0 | 5.1 |
+| dc | 4.9 | **0.2** (formatting) |
+| compute total | ≈ 11 s | ≈ 9 s |
+
+(The gate — decimal `accept.sh` to 4 × 10¹⁰ and five variance runs — is
+appended below when it completes.)

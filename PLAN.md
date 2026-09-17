@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-16 | WP1 in progress on `wp1-decimal-base`: decimal base implemented; both bases pass all tests; decimal 10⁸/10⁹ byte-identical; WP2's phase removals fall out of the switch. Gate running | RESULTS.md §50 |
 | 2026-09-15 | **Phase 7 planned** (§15): the single-node cell of multi-node design A — decimal base as a switch, device-resident pools, rank abstraction, inter-node correctness on aac6, radix-3 last; 8 WPs, ≈ 25 days; every change adopted by the user's decision on measured data; repository github.com/cecoppola/ntt | — |
 | 2026-09-15 | **Phase 6 complete**: system/alloc, mem/stride, lds/xchg, kernel/rowN; 7-smooth analysis (dc pads 37 % of points; 3·2ᵏ lengths would save ≈ 11 s) | RESULTS.md §49 |
 | 2026-09-15 | **Phase 5 sequence complete (tasks 1–6)**; ALGORITHM.md Part 6 CORRECTIONs; campaign report artifact https://claude.ai/code/artifact/928ec61d-c221-402f-81a8-5341c427b483 | — |
