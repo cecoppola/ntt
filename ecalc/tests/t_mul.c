@@ -164,7 +164,7 @@ int main(int argc, char **argv)
         mpz_t a, b, c, d; mpz_inits(a, b, c, d, NULL);
         for (size_t ci = 0; ci < sizeof bc / sizeof *bc; ci++) {
             size_t L = (size_t)1 << bc[ci].logL, N = bc[ci].N;
-            rns_prod *P = (rns_prod *)malloc(N * sizeof *P);
+            rns_prod *P = (rns_prod *)calloc(1, N * sizeof *P);
             size_t need = 0;
             uint64_t *pool;
             size_t *na = (size_t *)malloc(N * 8), *nb = (size_t *)malloc(N * 8);

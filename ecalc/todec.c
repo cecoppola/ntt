@@ -200,7 +200,7 @@ void todec(char *out, const bigint *X, unsigned long ndig)
             if (g_scr_cap < g_scr_need) { if (g_scr) mem_hreg_free(g_scr); g_scr_cap = g_scr_need; g_scr = (uint64_t *)mem_hreg_alloc(g_scr_cap * 8); }
             uint64_t *scr = g_scr;
             if (g_scr_cap < np * npr) { fprintf(stderr, "dc: scratch undersized\n"); abort(); }
-            rns_prod *pr = (rns_prod *)malloc(np * sizeof *pr);
+            rns_prod *pr = (rns_prod *)calloc(1, np * sizeof *pr);
             for (size_t j = 0; j < np; j++) { pr[j].a = cur + j * nl; pr[j].na = nl; pr[j].b = d->mu.l; pr[j].nb = d->mu.n; pr[j].c = scr + j * npr; }
             q1 = mem_now();
             rns_mul_batch(pr, np);
