@@ -37,6 +37,7 @@ static struct dev {
     size_t spill_cap;
 } D[EC_NP];
 int rns_batch_local = -1;        /* RNS_BATCH_LOCAL: 1 (default) products in device pools are done by their own APU */
+int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
 
 __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -624,7 +625,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
 {
     if (!N) return;
     if (rns_engine == 2) { rns2_mul_batch(P, N); return; }
-    if (rns_batch_local < 0) rns_batch_local = getenv("RNS_BATCH_LOCAL") ? atoi(getenv("RNS_BATCH_LOCAL")) : 1;
+    if (rns_batch_local < 0) { rns_batch_local = getenv("RNS_BATCH_LOCAL") ? atoi(getenv("RNS_BATCH_LOCAL")) : 1; if (getenv("RNS_BATCH_LOCAL_MIN")) rns_batch_local_min = atoi(getenv("RNS_BATCH_LOCAL_MIN")); }
     size_t maxnc = 0, in_limbs = 0, out_limbs = 0;
     int staged = 0;
     for (size_t i = 0; i < N; i++) {
@@ -641,8 +642,8 @@ void rns_mul_batch(rns_prod *P, size_t N)
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
     for (size_t i = 1; i < N && grpB; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
-    if (rns_batch_local && !staged) {
-        int local = 1;
+    if (rns_batch_local && !staged && N >= (size_t)rns_batch_local_min && (((size_t)1 << g_pool_log) / (EC_NP * L)) >= 1) {
+        int local = 1;                                  /* few or huge products: the prime-per-device path balances the four APUs */
         for (size_t i = 0; i < N && local; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
             double tl = mem_now();
