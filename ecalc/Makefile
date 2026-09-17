@@ -5,8 +5,8 @@ HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench
 HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist
-OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o ntt_dist.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm
+OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_tcp.o ntt_dist.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
@@ -27,6 +27,12 @@ comm_local.o: comm_local.c comm.h
 
 comm_sim4.o: comm_sim4.c comm.h
 	$(HIPC) -c $< -o $@
+
+comm_tcp.o: comm_tcp.c comm.h
+	$(HIPC) -c $< -o $@
+
+tests/t_comm: tests/t_comm.c comm_tcp.c comm.h
+	$(CC) -O2 -DCOMM_HOST_ONLY -I. $< comm_tcp.c -lpthread -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
