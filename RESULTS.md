@@ -2086,3 +2086,53 @@ temporaries). The last doubling is computed at full 2j precision even when
 k is only slightly above j; truncating it to k (`take = k + 2`) would make
 the final step cost k, not 2j, in both bases. Item 2 verifies this at
 4 × 10¹⁰.
+
+## 53. WP1 attribution, items 2–3 — the reciprocal and the 352 GB peak (2026-09-17)
+
+4 × 10¹⁰ in both bases with `NEWTON_VERBOSE=1` (per iteration: j → j′,
+product size, r length, VmRSS/VmHWM) and `RNS_VERBOSE=1`
+(`results/attr/e4e10_b{2,10}.log`, job 20630, s24-26). Whole-run totals
+this pass: binary 286.6 s / 248.3 GB, decimal 328.5 s / 351.5 GB.
+
+**The Newton sequences are identical through j = 2³⁰** (30 doublings, RSS
+within 0.5 GB of each other after subtracting the bs-phase offset). Then:
+
+| | binary (k = 2 076 205 063) | decimal (k = 2 222 222 226) |
+|---|---|---|
+| step from 2³⁰ | → k directly (×1.93): take 2.08 × 10⁹, r 2³¹ + 1 limbs, RSS 231.7 GB | → 2³¹ (full doubling): r 2³¹ + 1, RSS 254.5 GB |
+| step from 2³¹ | — | → k (×1.035): take 2.22 × 10⁹, **r 2³² + 1 limbs, RSS 333.8 GB** |
+| recip | 41.0 s, 48 mdev | 116.0 s, 67 mdev |
+| peak (recip) | 248.3 GB | 351.5 GB |
+
+Because k is 3.5 % above 2³¹ in decimal and 3.3 % below it in binary,
+decimal pays one extra doubling, and the last step — needed for only 3.5 %
+more precision — is computed as a full step from j = 2³¹: products of
+2³²–2³³ points and an r₂ of 2³² + 1 limbs (34 GB). That step is the
+reciprocal's +75 s and the peak's +100 GB. **Item 3 needs no further
+measurement: the 352 GB is this iteration** (333.8 GB RSS inside it, 351.5
+at its products), exactly as the binary 248 GB peak is its own last step
+(231.7 → 248.3).
+
+The same power-of-two crossing appears twice more: the top bs level
+(P·Q = 4.44 × 10⁹ limbs > 2³² vs binary 4.15 × 10⁹ < 2³²: mdev 25.6 vs
+12.7 s, bs-phase HWM 227 vs 184 GB) and dm's A·μ (18 mdev vs 6; division
+after recip 26 vs 11 s). Together with §52 (seeds, batch levels) every
+decimal regression at 4 × 10¹⁰ is now attributed; none is a per-limb cost
+of base 10¹⁸ except the CPU schoolbook's division.
+
+**Fixes identified (not applied — the user's decision):**
+1. *Anchor the doubling sequence at k* (j_i = ⌈k/2ⁱ⌉ instead of powers of
+   two): the last step then goes 1.11 × 10⁹ → 2.22 × 10⁹ with 2³²-point
+   products, the same size as binary's last step; the extra iteration
+   becomes a tiny one at the start. Expected: recip ≈ 41 × 1.07 ≈ 44 s, peak
+   ≈ 248 × 1.07 ≈ 265 GB. Small change in `newton_recip_seeded`; benefits
+   binary too (every level slightly smaller). Removes ~72 s and ~85 GB.
+2. *Lazy reduction in the decimal schoolbook/mul_1* (§52): seeds 21.7 → ≈ 9 s.
+3. *The genuine crossings* (top bs level, A·μ): ~+13 s in bs and ~+15 s in
+   dm remain unless transform lengths 3·2ᵏ exist (WP8: 2³³ → 3·2³¹, 0.75×)
+   or the top level is split (Karatsuba: same work, half the memory).
+
+**Projection (item 4, from these measurements, not a measurement):**
+decimal with fixes 1 + 2: bs ≈ 95, 10dP 2.5, dm ≈ 70, T1 + T2 ≈ 6, dc 4.4 →
+**≈ 178 s and ≈ 265–275 GB peak, vs binary 287 s / 248 GB**; with WP8's
+3·2ᵏ lengths as well ≈ 165 s. Fix 1 alone brings decimal to ≈ 250 s / 265 GB.
