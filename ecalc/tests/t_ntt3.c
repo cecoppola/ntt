@@ -17,7 +17,7 @@ int main(int argc, char **argv)
             uint64_t *hx = (uint64_t *)malloc(L2 * 8), *hy = (uint64_t *)malloc(L2 * 8), *r3 = (uint64_t *)malloc(L * 8), *r2 = (uint64_t *)malloc(L2 * 8);
             size_t na = L / 2 + rng_next(&rg) % (L / 2), nb = L - na;               /* na + nb == L: the linear product fits 3m exactly */
             for (size_t i = 0; i < L2; i++) { hx[i] = i < na ? rng_next(&rg) % p : 0; hy[i] = i < nb ? rng_next(&rg) % p : 0; }
-            uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, L2 * 8)); HIP_CHECK(hipMalloc(&dy, L2 * 8));
+            uint64_t *dx, *dy; HIP_CHECK(hipMalloc(&dx, 2 * L * 8)); HIP_CHECK(hipMalloc(&dy, L2 * 8));   /* dx: batch 2 of 3m, or 4m */
             /* identity */
             HIP_CHECK(hipMemcpy(dx, hx, L * 8, hipMemcpyHostToDevice));
             ntt_fwd3(ctx, dx, logk, 1, 0); ntt_inv3(ctx, dx, logk, 1, 0);
