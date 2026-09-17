@@ -127,7 +127,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     }
     free(w1);
 }
-uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
+static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
     if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
@@ -136,6 +136,29 @@ uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint6
     }
     for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)c; c >>= 64; }
     return (uint64_t)c;
+}
+/* parallel: chunks multiplied independently, each chunk's carry-out (< m) added into the next chunk with a ripple */
+uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
+{
+    if (na < PAR_MIN) return mul1_serial(r, a, na, m, add);
+    size_t nch = (na + PAR_CHUNK - 1) / PAR_CHUNK, t;
+    uint64_t *cout = (uint64_t *)malloc(nch * 8);
+#pragma omp parallel for schedule(static)
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na;
+        cout[t] = mul1_serial(r + lo, a + lo, hi - lo, m, t == 0 ? add : 0);
+    }
+    uint64_t c = 0;
+    for (t = 0; t < nch; t++) {
+        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
+        if (c) {                                      /* add the previous chunk's carry with ripple */
+            if (bi_decimal) { while (c && i < hi) { uint64_t s = r[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; i++; } }
+            else { while (c && i < hi) { uint64_t s = r[i] + c; c = s < c; r[i] = s; i++; } }
+        }
+        c += cout[t];
+    }
+    free(cout);
+    return c;
 }
 /* parallel chunked copy that tolerates overlap in the memmove sense (chunks
  * processed in the safe order when r and a overlap) */
