@@ -65,13 +65,14 @@ int main(int argc, char **argv)
     meta_line("ecalc");
     double t00 = mem_now(), t;
     rns_init(pool_log);
-    RESULT("init", "s", mem_now() - t00);
-    printf("      VmRSS %.1f GB after init (staging 64 GB pinned + device pools 128 GB)\n", mem_vmrss() / 1e9);
-    bs_verbose = dec_verbose = verbose >= 2;
-
     unsigned long N = e_terms(d);
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
-    printf("      device pools %.1f GB after pregrow (bs regions included)\n", mem_dev_pool_bytes() / 1e9);
+    double t_init = mem_now() - t00;
+    RESULT("init", "s", t_init);
+    printf("      VmRSS %.1f GB after init (staging 64 GB pinned + device pools %.0f GB incl. bs regions); init %.1f s\n", mem_vmrss() / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    bs_verbose = dec_verbose = verbose >= 2;
+
+
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
 
@@ -168,10 +169,10 @@ int main(int argc, char **argv)
     RESULT("T2", "s", t_t2);
     printf("digits: %.62s...%.20s\n", digits, digits + d + 1 - 20);
 
-    double total = mem_now() - t00;
-    printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f); VmHWM %.1f GB\n",
-           total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, mem_vmhwm() / 1e9);
-    RESULT("total", "s", total);
+    double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
+    printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
+           total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, phases, t_init, total - phases - t_init, mem_vmhwm() / 1e9);
+    RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
     RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
     printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
 

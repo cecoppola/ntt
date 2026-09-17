@@ -166,7 +166,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         }
         if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = region_of(npairs, nxt.n); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
         which ^= 1;
-        for (int r = 0; r < NR; r++) { nxt.pool[r] = pool_get(which, r, offr[r] + 2); off += offr[r]; }
+        int top_direct = nxt.n == 1 && max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << RNS_BATCH_LOGL_MAX);   /* mdev top level: straight to P, Q */
+        for (int r = 0; r < NR; r++) { off += offr[r]; nxt.pool[r] = top_direct ? 0 : pool_get(which, r, offr[r] + 2); }
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
         const char *tier; int normed = 0, finished = 0;
