@@ -791,6 +791,23 @@ the Phase 4 accepted state before WP1 begins.
 |---|---|---|---|
 | **WP1 — decimal base** (D1) | **the base is a switch** (`LIMB_BASE` ∈ {2⁶⁴, 10¹⁸}): the paper-faithful binary path stays alive as the regression oracle and every test runs in both modes against GMP. First task: an **audit of every bit-level operation** — limb add/sub carry at 10¹⁸ instead of 2⁶⁴, Knuth-D schoolbook division in base 10¹⁸, `bi_shl/bi_shr` by bits (the seed, the reciprocal scaling), Newton's overshoot shrink `r ≫ 4` (becomes a division by 16), the T1 Horner (10¹⁸ instead of 2⁶⁴); limb-granular shifts are unchanged. Then base-10¹⁸ limbs in `bigint` (multiply-by-10ᵏ as a limb shift, limb-wise normalisation), seed spans producing decimal limbs, `ntt_load` from 60-bit decimal points, **decimal carry in the striped GPU CRT and the CPU CRT** (Barrett by 10¹⁸ per coefficient, from the LEAF kernel), `rns_mul_low` and `rns_mul_split` over decimal limbs (Karatsuba is base-agnostic), Newton unchanged in structure (limb shifts are decimal), T1 residues of decimal limbs, prime set re-checked for 2·60 + log₂n ≤ 206 | 5 d | `t_mul` and `t_newton` vs GMP in both bases (new generators); e to 10⁹ from `ref/` byte-identical in both bases |
 | **WP2 — phases removed by WP1** | delete 10dP (A = (P+Q) shifted by d/18 limbs) and dc (X's limbs are the digit blocks; print pads leading zeros); T2 windows and digit residues read straight from limbs (T1 residues chunk-local) | 1 d | 10⁶–10⁹ identical; 10¹⁰ and 4 × 10¹⁰ verified; expected ≈ 285 → ≈ 195 s |
+
+Sizing of the alternative (binary base kept, 2026-09-17, for the WP1
+decision): with binary limbs the multi-node pipeline must also contain
+**10dP** (one more full-size distributed product: +9 s single-node
+compute, +1 product's worth of all-to-alls) and a **distributed dc**. dc is
+the binary-splitting tree in reverse: 24 levels, of which the top ≈ 13
+(products larger than a rank) are distributed Newton divisions by
+10^(d/2ˡ) — each level touches all n limbs (2 products + a reciprocal, the
+reciprocal precomputable per level), so the summed size is ≈ 13 n limbs,
+≈ the whole bs tree again. Cost relative to the decimal design: compute
++ ≈ 30 % (dc is 82 s of the 287 s single-node run); communication ≈ 2×
+(≈ 12.5 → ≈ 25 s of network per 4 × 10¹⁰-equivalent on the target fabric);
+memory: no new peak (the top level is a dm-sized division). Engineering:
+a rank-partitioned division tree (the mirror of WP5's bs partition) with
+per-level reciprocal prewarm, leaf conversion and T2 verification — ≈ 6–8
+days on top of the plan, plus the same correctness testing as WP6. With
+decimal limbs none of this exists (dc 4.4 s, local formatting).
 | **WP3 — everything on device** (D2) | level pools in HBM split by product (scatter reads local + peer), the P₂ add and level normalisation as kernels, `POOL_LOG` a run-time function of the digit target (2³² at ≥ 10¹⁰), mdev operands read from HBM (no repack; staging buffers retired except for host-resident bigints, which become the *only* host memory), the batch tier's planes double-buffered so the CRT of one tile overlaps the next tile's transforms (not the 2³² pools — those are the planes); `t_mul`/`t_bs`/`t_dec`-style tests on device pools | 4 d | all tests; host peak ≈ 110 GB at 4 × 10¹⁰; bs ≈ 72 → ≈ 55 s; dm without splits |
 | **WP4 — compute tuning on the final layout** | seed spans as a batched GPU level (2¹⁰-point products), register-blocked body for batch products with log L ≥ 17, operand reuse extended to dm (fwd(Q) for the reciprocal's top step and X·Q; fwd(r) for r·d) | 2 d | `t_ntt` bit-identical where applicable, GMP elsewhere; 4 × 10¹⁰ ≈ 80 s |
 | **WP5 — the rank abstraction** (D3, D5, GPU-direct, slabs) | a communicator interface (rank, size, all-to-all of slabs, barrier) with two implementations: single-rank identity and a synthetic four-rank layout inside one APU's HBM; the four-step distributed transform (local column pass → slab transpose → twiddle → local row pass) written against it, slab-pipelined, sourced from HBM; tree partition by rank (subtree per rank, top levels distributed); the same transform validated bit-for-bit against `ntt_fwd` on one rank and against GMP on four synthetic ranks | 5 d | `t_ntt` extended with the distributed path; the whole pipeline runs unchanged through the one-rank communicator |
