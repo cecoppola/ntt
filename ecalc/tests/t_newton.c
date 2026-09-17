@@ -78,8 +78,8 @@ int main(int argc, char **argv)
         }
     }
 
-    printf("-- 3. divmod vs mpz_tdiv_qr\n");
-    for (int lg = 10; lg <= LOGMAX; lg += 4) {
+    printf("-- 3. divmod vs mpz_tdiv_qr%s\n", bi_decimal ? " (decimal: exact to 2^22, the GMP string bridge is slow above)" : "");
+    for (int lg = 10; lg <= (bi_decimal && LOGMAX > 22 ? 22 : LOGMAX); lg += 4) {
         size_t nq = (size_t)1 << lg;
         bi_random(&Q, nq, GEN_UNIFORM, &rng);
         bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);       check_div("random", &A, &Q, 0);
