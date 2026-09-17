@@ -7,6 +7,17 @@
  * pattern), 4 APUs concurrently.  Reports GB/s per APU and aggregate. */
 #include "common_ntt.h"
 #include <omp.h>
+#include <sched.h>
+#include <string.h>
+static void pin_node(int node)
+{
+    cpu_set_t s; CPU_ZERO(&s);
+    char path[64]; snprintf(path, sizeof path, "/sys/devices/system/node/node%d/cpulist", node);
+    FILE *f = fopen(path, "r"); char buf[256] = ""; if (f) { if (!fgets(buf, sizeof buf, f)) buf[0] = 0; fclose(f); }
+    for (char *t = strtok(buf, ",\n"); t; t = strtok(NULL, ",\n")) { int a, b; if (sscanf(t, "%d-%d", &a, &b) == 2) for (int c = a; c <= b; c++) CPU_SET(c, &s); else if (sscanf(t, "%d", &a) == 1) CPU_SET(a, &s); }
+    sched_setaffinity(0, sizeof s, &s);
+}
+static void unpin(void) { cpu_set_t s; CPU_ZERO(&s); for (int c = 0; c < CPU_SETSIZE; c++) CPU_SET(c, &s); sched_setaffinity(0, sizeof s, &s); }
 __global__ void k_read4(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, size_t nq, uint64_t *sink)
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
@@ -28,8 +39,20 @@ int main(int argc, char **argv)
     /* (b) quarters in HBM; (c) full copies in HBM (only if memory allows: 32 GiB each) */
     uint64_t *q[MAXD], *full[MAXD], *sink[MAXD];
     for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&q[d], nq * 8)); HIP_CHECK(hipMemset(q[d], 1, nq * 8)); HIP_CHECK(hipMalloc(&full[d], bytes)); HIP_CHECK(hipMemset(full[d], 1, bytes)); HIP_CHECK(hipMalloc(&sink[d], 8)); }
-    const char *names[3] = {"(a) host registered, pages spread", "(b) quarters in HBM, 3/4 peer", "(c) replicated in HBM, all local"};
-    for (int mode = 0; mode < 3; mode++) {
+    /* (d) host pool in four NUMA-local quarters (touched by each node's CPUs, registered), each APU
+     * reads only its own quarter -- the locality-aware batch tier; (e) same pool, every APU reads all */
+    uint64_t *hq = (uint64_t *)aligned_alloc(1 << 21, bytes);
+    for (int d = 0; d < nd; d++) {
+#pragma omp parallel
+        { pin_node(d);
+#pragma omp for schedule(static)
+          for (size_t i = d * nq; i < (d + 1) * nq; i += 512) hq[i] = i; }
+    }
+#pragma omp parallel
+    unpin();
+    HIP_CHECK(hipHostRegister(hq, bytes, hipHostRegisterDefault));
+    const char *names[5] = {"(a) host registered, pages spread", "(b) quarters in HBM, 3/4 peer", "(c) replicated in HBM, all local", "(d) host NUMA quarters, own quarter only", "(e) host NUMA quarters, all read all"};
+    for (int mode = 0; mode < 5; mode++) {
         double t0, t1; float ms[MAXD];
 #pragma omp parallel num_threads(nd)
         {
@@ -37,7 +60,9 @@ int main(int argc, char **argv)
             const uint64_t *p0, *p1, *p2, *p3;
             if (mode == 0) { p0 = h; p1 = h + nq; p2 = h + 2 * nq; p3 = h + 3 * nq; }
             else if (mode == 1) { p0 = q[0]; p1 = q[1]; p2 = q[2]; p3 = q[3]; }
-            else { p0 = full[d]; p1 = full[d] + nq; p2 = full[d] + 2 * nq; p3 = full[d] + 3 * nq; }
+            else if (mode == 2) { p0 = full[d]; p1 = full[d] + nq; p2 = full[d] + 2 * nq; p3 = full[d] + 3 * nq; }
+            else if (mode == 3) { p0 = hq + d * nq; p1 = p0; p2 = p0; p3 = p0; }      /* own quarter, read 4 times (same bytes as the others) */
+            else { p0 = hq; p1 = hq + nq; p2 = hq + 2 * nq; p3 = hq + 3 * nq; }
             hipEvent_t e0, e1; HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1));
             k_read4<<<228 * 8, 256>>>(p0, p1, p2, p3, nq, sink[d]); HIP_CHECK(hipDeviceSynchronize());
 #pragma omp barrier
