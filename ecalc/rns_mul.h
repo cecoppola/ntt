@@ -61,7 +61,8 @@ void rns_mul_pair(bigint *C1, const bigint *A1, bigint *C2, const bigint *A2, co
  * through the device staging buffers first (slower). */
 /* c = a b, or c = a b + x when x is given (nx <= na + nb; c then has na + nb + 1 limbs, the top one the
  * final carry) -- the binary-splitting P = P1 Q2 + P2 in one pass (WP3: no CPU add over the pools) */
-typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uint64_t *c; const uint64_t *x; size_t nx; } rns_prod;
+typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uint64_t *c; const uint64_t *x; size_t nx;
+                 size_t ncn; /* out: normalised length of c when the device-local path ran (0: not computed) */ } rns_prod;
 #define RNS_BATCH_LOGL_MAX 30
 extern size_t rns_batch_tile_bytes;   /* default 15e9 (paper) */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */

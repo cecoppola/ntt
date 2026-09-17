@@ -145,7 +145,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         for (int r = 0; r < NR; r++) { nxt.pool[r] = pool_get(which, r, offr[r] + 2); off += offr[r]; }
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
-        const char *tier;
+        const char *tier; int normed = 0;
         if (max_nl <= (size_t)bs_school_nl) {
             tier = "school"; bs_st.school_levels++;
 #pragma omp parallel
@@ -172,6 +172,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             tl1 = mem_now();
             rns_mul_batch(pr, 2 * npairs);
             tl2 = mem_now();
+            normed = 1;
+            for (size_t i = 0; i < npairs; i++) {
+                if (!pr[2 * i].ncn || !pr[2 * i + 1].ncn) { normed = 0; break; }
+                nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn;
+            }
             free(pr);
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
@@ -189,7 +194,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             }
             A1.l = A2.l = B.l = 0; bi_free(&C1); bi_free(&C2);
         }
-        if (npairs >= 64) {
+        if (normed) {                                   /* lengths came back from the device-local batch path */
+        } else if (npairs >= 64) {
 #pragma omp parallel
             {
                 int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
