@@ -375,7 +375,7 @@ void rns_mul(bigint *C, const bigint *A, const bigint *B)
 /* ======================================================================== */
 /* batch tier                                                                */
 /* ======================================================================== */
-struct bdesc { const uint64_t *a, *b; uint64_t *c; uint32_t na, nb; };
+struct bdesc { const uint64_t *a, *b, *x; uint64_t *c; uint32_t na, nb, nx; };
 
 __global__ void k_scatter(uint64_t *da, uint64_t *db, const struct bdesc *P, size_t M, int logL, ec_mod m)
 {
@@ -458,16 +458,17 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     for (uint32_t c0 = K0; c0 < K1; c0 += CRT_THREADS) {
         uint32_t k = c0 + j;
         uint64_t c[4] = {0, 0, 0, 0};
+        uint64_t xk = (k < K1 && k < d.nx) ? d.x[k] : 0;                 /* the added operand's limb */
         if (k < K1) { uint64_t r[4] = { p0[base + k], p1[base + k], p2[base + k], p3[base + k] }; dgarner4(&g, r, c);
                       if (dec) { uint64_t d[4]; ec_words_to_dec4(c, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2]; c[3] = d[3]; } }
         C0[j] = c[0]; C1[j + 3] = c[1]; C2[j + 3] = c[2]; C3[j + 3] = c[3];
         __syncthreads();
-        if (dec) {  /* digits < B: the sum of four digits < 4B fits a word */
-            uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j], q = 0;
+        if (dec) {  /* digits < B: the sum of five digits < 5B fits a word */
+            uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;
             while (sm >= BB) { sm -= BB; q++; }
             V[j] = sm; CY[j] = q;
-        } else {   /* limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] (indices shifted by 3) */
-            unsigned __int128 sm = (unsigned __int128)C0[j] + C1[j + 2] + C2[j + 1] + C3[j];
+        } else {   /* limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] + x[k] (indices shifted by 3) */
+            unsigned __int128 sm = (unsigned __int128)C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk;
             V[j] = (uint64_t)sm; CY[j] = (uint64_t)(sm >> 64);
         }
         __syncthreads();
@@ -493,11 +494,13 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
             uint64_t s1 = C2[2] + C3[1] + q0, q1 = 0; while (s1 >= BB) { s1 -= BB; q1++; }
             uint64_t s2 = C3[2] + q1, q2 = 0; while (s2 >= BB) { s2 -= BB; q2++; }
             sp[0] = s0; sp[1] = s1; sp[2] = s2; sp[3] = q2;
+            if (d.nx && s == S - 1) out[nc] = s0;                 /* a b + x < 2 B^nc: the final carry is the top limb */
         } else {
             unsigned __int128 s0 = (unsigned __int128)C1[2] + C2[1] + C3[0] + carry;
             unsigned __int128 s1 = (unsigned __int128)C2[2] + C3[1] + (uint64_t)(s0 >> 64);
             unsigned __int128 s2 = (unsigned __int128)C3[2] + (uint64_t)(s1 >> 64);
             sp[0] = (uint64_t)s0; sp[1] = (uint64_t)s1; sp[2] = (uint64_t)s2; sp[3] = (uint64_t)(s2 >> 64);
+            if (d.nx && s == S - 1) out[nc] = (uint64_t)s0;
         }
     }
 }
@@ -544,15 +547,15 @@ __global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, const struc
 }
 static void spill_merge(const rns_prod *q, const uint64_t *sp, int S)
 {
-    size_t nc = q->na + q->nb; uint64_t *out = q->c;
+    size_t nc = q->na + q->nb, top = nc + (q->x && q->nx ? 1 : 0); uint64_t *out = q->c;   /* with x the carry limb nc exists */
     for (int s = 0; s + 1 < S; s++) {
         size_t k = nc * (s + 1) / S; const uint64_t *w = sp + s * 4; uint64_t cy = 0;
         if (bi_decimal) {
             for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
-            while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
+            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
         } else {
             for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
-            while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
         }
     }
 }
@@ -584,7 +587,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB)
         }
         for (size_t first = start[d]; first < start[d + 1]; first += Mmax) {
             size_t M = start[d + 1] - first < Mmax ? start[d + 1] - first : Mmax, plane = M * L;
-            for (size_t i = 0; i < M; i++) { const rns_prod *q = &P[idx[first + i]]; hd[i].a = q->a; hd[i].b = q->b; hd[i].c = q->c; hd[i].na = (uint32_t)q->na; hd[i].nb = (uint32_t)q->nb; }
+            for (size_t i = 0; i < M; i++) { const rns_prod *q = &P[idx[first + i]]; hd[i].a = q->a; hd[i].b = q->b; hd[i].c = q->c; hd[i].x = q->x; hd[i].na = (uint32_t)q->na; hd[i].nb = (uint32_t)q->nb; hd[i].nx = (uint32_t)(q->x ? q->nx : 0); }
             if (g_desc_cap[d] < M) { if (g_desc[d]) HIP_CHECK(hipFree(g_desc[d])); HIP_CHECK(hipMalloc(&g_desc[d], M * sizeof(struct bdesc))); g_desc_cap[d] = M; }
             HIP_CHECK(hipMemcpyAsync(g_desc[d], hd, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));
             int S = (int)((rns_gpucrt_blocks + M - 1) / M); if (S < 1) S = 1;
@@ -632,7 +635,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         size_t nc = P[i].na + P[i].nb;
         if (nc > maxnc) maxnc = nc;
         in_limbs += nc; out_limbs += nc;
-        if (!mem_is_registered(P[i].a, P[i].na * 8) || !mem_is_registered(P[i].b, P[i].nb * 8) || !mem_is_registered(P[i].c, nc * 8)) {
+        if (!mem_is_registered(P[i].a, P[i].na * 8) || !mem_is_registered(P[i].b, P[i].nb * 8) || !mem_is_registered(P[i].c, (nc + (P[i].x ? 1 : 0)) * 8) || (P[i].x && !mem_is_registered(P[i].x, P[i].nx * 8))) {
             if (!staged && getenv("RNS_VERBOSE")) printf("batch: product %zu not registered (a %p na %zu, b %p, c %p nc %zu)\n", i, (void *)P[i].a, P[i].na, (void *)P[i].b, (void *)P[i].c, nc);
             staged = 1;
         }
@@ -670,9 +673,10 @@ void rns_mul_batch(rns_prod *P, size_t N)
             rns_mul_batch(P, half); rns_mul_batch(P + half, N - half);
             return;
         }
-        stagedP = (rns_prod *)malloc(N * sizeof *stagedP);
+        stagedP = (rns_prod *)calloc(N, sizeof *stagedP);
         size_t off = cap;
         for (size_t i = 0; i < N; i++) {
+            if (P[i].x && P[i].nx) { fprintf(stderr, "rns_mul_batch: an added operand needs registered products\n"); exit(1); }
             stagedP[i].na = P[i].na; stagedP[i].nb = P[i].nb;
             stagedP[i].a = D[0].hstage + off; off += P[i].na;
             stagedP[i].b = D[0].hstage + off; off += P[i].nb;
@@ -688,7 +692,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     }
 
     struct bdesc *hd = (struct bdesc *)malloc(N * sizeof *hd);
-    for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; }
+    for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].x = Q[i].x; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; hd[i].nx = (uint32_t)(Q[i].x ? Q[i].nx : 0); }
 
     if (grpB) {
 #pragma omp parallel num_threads(g_nd)
@@ -756,15 +760,15 @@ void rns_mul_batch(rns_prod *P, size_t N)
             /* merge the stripe spills on the CPU: stripe s of product i spills at coefficient nc (s+1) / S */
 #pragma omp parallel for schedule(dynamic, 16)
             for (size_t i = 0; i < M; i++) {
-                size_t nc = Q[first + i].na + Q[first + i].nb; uint64_t *out = Q[first + i].c;
+                size_t nc = Q[first + i].na + Q[first + i].nb, top = nc + (Q[first + i].x && Q[first + i].nx ? 1 : 0); uint64_t *out = Q[first + i].c;
                 for (int s = 0; s + 1 < S; s++) {
                     size_t k = nc * (s + 1) / S; const uint64_t *sp = g_spill + (i * S + s) * 4; uint64_t cy = 0;
                     if (bi_decimal) {
                         for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
-                        while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
+                        while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
                     } else {
                     for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
-                    while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+                    while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
                     }
                 }
             }
@@ -780,7 +784,8 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 /* out needs nc + 4 limbs of room: use a small tail buffer */
                 uint64_t *o = (uint64_t *)malloc((nc + 4) * 8);
                 crt_carry_par4(pl, nc, o, 1);
-                memcpy(Q[first + i].c, o, nc * 8);
+                if (Q[first + i].x && Q[first + i].nx) { o[nc] = limb_add(o, o, nc, Q[first + i].x, Q[first + i].nx); memcpy(Q[first + i].c, o, (nc + 1) * 8); }
+                else memcpy(Q[first + i].c, o, nc * 8);
                 free(o); (void)tmp;
             }
             (void)planes;
@@ -991,7 +996,7 @@ static void rns2_mul_batch(rns_prod *P, size_t N)
         Q = stagedP;
     }
     struct bdesc *hd = (struct bdesc *)malloc(N * sizeof *hd);
-    for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; }
+    for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].x = Q[i].x; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; hd[i].nx = (uint32_t)(Q[i].x ? Q[i].nx : 0); }
     /* product halves per device pair; within a pair both devices see the same products */
     size_t h0[2] = { 0, N / 2 }, h1[2] = { N / 2, N };
     if (grpB) {

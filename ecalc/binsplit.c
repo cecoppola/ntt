@@ -82,9 +82,17 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     cur.n = nspan; cur.nd = (struct node *)malloc(nspan * sizeof *cur.nd);
     size_t r0[NR + 1];                               /* first node of each region at level 0 */
     for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
+    /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
+     * pool_get still grows if a level needs more) */
+    size_t total0 = 2 * per * nspan;
+    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, total0 / NR + total0 / (NR * 4) + (1 << 20));
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
-    if (bs_st.peak_pool_limbs < 2 * per * nspan) bs_st.peak_pool_limbs = 2 * per * nspan;
+    if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
     t = mem_now();
+    /* seeds go to a host staging area per region (small scattered writes into device memory are slow,
+     * RESULTS.md 56), then one bulk copy per region */
+    uint64_t *stage[NR];
+    for (int r = 0; r < NR; r++) stage[r] = (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8);
 #pragma omp parallel
     {
         bigint p, q; bi_init(&p); bi_init(&q);
@@ -98,10 +106,22 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 struct node *nd = &cur.nd[i];
                 nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
                 if (p.n > per || q.n > per) { fprintf(stderr, "bs: seed span overflow\n"); abort(); }
-                memcpy(NODE_P(cur, nd), p.l, p.n * 8); memcpy(NODE_Q(cur, nd), q.l, q.n * 8);
+                memcpy(stage[r] + nd->po, p.l, p.n * 8); memcpy(stage[r] + nd->qo, q.l, q.n * 8);
             }
         }
         bi_free(&p); bi_free(&q);
+    }
+    for (int r = 0; r < NR; r++) {
+        size_t limbs = 2 * per * (r0[r + 1] - r0[r]);
+#pragma omp parallel
+        {
+            int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
+            if (home < 0 || r % NR == home % NR) {                        /* this node's threads copy their region */
+                size_t chunk = (limbs + cnt - 1) / cnt, lo = chunk * rk, hi = lo + chunk < limbs ? lo + chunk : limbs;
+                if (lo < hi) memcpy(cur.pool[r] + lo, stage[r] + lo, (hi - lo) * 8);
+            }
+        }
+        free(stage[r]);
     }
     bs_st.t_seed = mem_now() - t;
     if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s\n", N, nspan, S, bs_st.t_seed);
@@ -142,32 +162,17 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             }
         } else if (2 * max_nl + 1 <= ((size_t)1 << RNS_BATCH_LOGL_MAX)) {
             tier = "batch"; bs_st.batch_levels++;
-            rns_prod *pr = (rns_prod *)malloc(2 * npairs * sizeof *pr);
+            rns_prod *pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
             for (size_t i = 0; i < npairs; i++) {
                 struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
                 pr[2 * i].a = NODE_P(cur, a); pr[2 * i].na = a->pn; pr[2 * i].b = NODE_Q(cur, b); pr[2 * i].nb = b->qn; pr[2 * i].c = NODE_P(nxt, o);
+                pr[2 * i].x = NODE_P(cur, b); pr[2 * i].nx = b->pn;                 /* P = P1 Q2 + P2 in the CRT */
                 pr[2 * i + 1].a = NODE_Q(cur, a); pr[2 * i + 1].na = a->qn; pr[2 * i + 1].b = pr[2 * i].b; pr[2 * i + 1].nb = b->qn; pr[2 * i + 1].c = NODE_Q(nxt, o);
             }
             tl1 = mem_now();
             rns_mul_batch(pr, 2 * npairs);
             tl2 = mem_now();
             free(pr);
-            if (npairs >= 64) {
-#pragma omp parallel
-                {
-                    int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
-                    for (size_t i = (size_t)rk; i < npairs; i += (size_t)cnt) {
-                        struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                        if (home >= 0 && o->r % NR != home % NR) continue;
-                        uint64_t *pp = NODE_P(nxt, o);
-                        pp[a->pn + b->qn] = limb_add(pp, pp, a->pn + b->qn, NODE_P(cur, b), b->pn);
-                    }
-                }
-            } else for (size_t i = 0; i < npairs; i++) {           /* few big pairs: limb_add is parallel inside */
-                struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                uint64_t *pp = NODE_P(nxt, o);
-                pp[a->pn + b->qn] = limb_add(pp, pp, a->pn + b->qn, NODE_P(cur, b), b->pn);
-            }
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
             bigint A1, A2, B, C1, C2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2);
