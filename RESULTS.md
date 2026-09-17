@@ -2136,3 +2136,46 @@ of base 10¹⁸ except the CPU schoolbook's division.
 decimal with fixes 1 + 2: bs ≈ 95, 10dP 2.5, dm ≈ 70, T1 + T2 ≈ 6, dc 4.4 →
 **≈ 178 s and ≈ 265–275 GB peak, vs binary 287 s / 248 GB**; with WP8's
 3·2ᵏ lengths as well ≈ 165 s. Fix 1 alone brings decimal to ≈ 250 s / 265 GB.
+
+## 54. WP1 assessment — measured with the two experimental fixes (2026-09-17, job 20638, s24-26)
+
+Fix 1: k-anchored Newton doubling (`NEWTON_ANCHOR=1` default; 0 restores
+the Phase 4 sequence). Fix 2: decimal schoolbook as column sums reduced
+once per column (node: 0.98–1.2 ns/limb² at n ≥ 128, was 4–5.5; binary
+1.4). A double-quotient `mul_1` was tried and dropped (slower than the
+compiler's constant division on the node: 7.2 vs 4.4 ns/limb).
+
+Correctness with the fixes: `t_mul` 133/135, `t_newton` 658/658, `t_bs`
+10/10 in binary/decimal; **e to 10⁹ byte-identical to the reference in both
+bases**; 4 × 10¹⁰ VERIFY OK in both (T1, T2, digit residues).
+
+| 4 × 10¹⁰, one run each | binary before (mean of 5) | binary + fix 1 | decimal before (mean of 5) | decimal + fixes |
+|---|---:|---:|---:|---:|
+| bs | 74.7 | 72.3 | 103.1 | 107.1 (seeds 21.1, batch 50.1, mdev 26.5) |
+| 10dP | 9.3 | 9.1 | 2.6 | 2.8 |
+| dm (recip) | 51.1 (41.0) | **44.2 (33.1)** | 139.3 (111.7) | **72.2 (45.2)** |
+| T1 + T2 | 7.3 | 5.4 | 7.7 | 6.3 |
+| dc | 82.5 | 78.1 | 4.9 | 4.8 |
+| **total** | **291.2 ± 3.5** | **271.0** | **323.2 ± 9.8** | **259.0** |
+| peak RSS | 248.3 | 246.3 | 351.5 | 293.5 |
+
+Newton trace with anchoring: binary 30 iterations ending
+521 187 878 → 1 042 375 754 → k; decimal 31 ending 1 111 111 113 → k with
+products of 2³² points (r 2 222 222 227 limbs, RSS 275.7 GB inside the
+step) — the 2³³ step of §53 is gone.
+
+**Reading.**
+- Fix 1 is a **binary improvement too**: 291 → 271 s (−7 %, recip 41 → 33 s)
+  with identical digits; it is base-independent and can be taken on `main`
+  regardless of the WP1 decision (one run; the Phase 4 variance is 1.2 %).
+- Decimal is now **faster than binary on one node: 259 vs 271 s**, with the
+  base's structural gain (10dP + dc: 92 → 8 s) no longer cancelled. Its
+  peak is 294 GB vs 246 — 47 GB more, 80 GB under the node ceiling.
+- What remains decimal-specific: the seeds (21.1 vs 7.3 s) — fix 2 did not
+  touch them because their cost is `mul_1` in the span loop (4.4 vs 0.8
+  ns/limb, the 128-bit division by 10¹⁸ per limb); a faster constant
+  division (Barrett on the split words) is the un-attempted fix, ≈ 10 s.
+  The top-level crossing (bs mdev 26.5 vs 11.5, dm's A·μ 27 vs 11 s,
+  bs-phase peak 227 vs 184 GB) is the 2³³-point products of 4.44 × 10⁹-limb
+  operands; only 3·2ᵏ lengths (WP8) or a top-level split remove it
+  (≈ 25 s, ≈ 40 GB).
