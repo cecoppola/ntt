@@ -84,14 +84,32 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     size_t n = na + nb, k;
     if (!na || !nb) return;
     if (na < nb) { const uint64_t *t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
-    if (bi_decimal) {                                /* row by row, carries reduced mod B (small products only) */
-        size_t i, j;
-        for (k = 0; k < n; k++) r[k] = 0;
-        for (i = 0; i < na; i++) {
-            u128 c = 0;
-            for (j = 0; j < nb; j++) { c += (u128)a[i] * b[j] + r[i + j]; r[i + j] = (uint64_t)(c % B10); c /= B10; }
-            r[i + nb] = (uint64_t)c;
+    if (bi_decimal) {
+        /* columns as 3-word sums (a b < 10^36 < 2^120: up to 2^8 products per u128 before
+         * spilling), reduced mod B once per column with the carry rippled: two 128-bit
+         * divisions per column instead of one per product */
+        uint64_t *w1 = (uint64_t *)malloc(2 * n * sizeof *w1), *w2 = w1 + n;
+#pragma omp parallel for schedule(dynamic, 64) if (!omp_in_parallel() && n > 4096)
+        for (k = 0; k < n; k++) {
+            size_t i0 = k >= nb - 1 ? k - (nb - 1) : 0, i1 = k < na ? k : na - 1, i;
+            u128 acc = 0; uint64_t hi = 0;
+            for (i = i0; i <= i1; i++) {
+                u128 p = (u128)a[i] * b[k - i];
+                acc += p; if (acc < p) hi++;
+            }
+            r[k] = (uint64_t)acc; w1[k] = (uint64_t)(acc >> 64); w2[k] = hi;
         }
+        u128 carry = 0;                              /* < n B / B ... < 2^70 */
+        for (k = 0; k < n; k++) {
+            /* V = w2 2^128 + w1 2^64 + r[k] + carry; H = w2 2^64 + w1 (+ carry's high part) */
+            u128 lo = (u128)r[k] + carry; uint64_t l1 = (uint64_t)(lo >> 64), l0 = (uint64_t)lo;
+            u128 H = ((u128)w2[k] << 64) + w1[k] + l1;
+            u128 qH = H / B10, rH = H % B10;
+            u128 L = (rH << 64) + l0;                /* < B 2^64 */
+            u128 q2 = L / B10; r[k] = (uint64_t)(L % B10);
+            carry = (qH << 64) + q2;
+        }
+        free(w1);
         return;
     }
     if (n <= 64) {                                   /* row by row, serial */
@@ -131,6 +149,19 @@ static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t 
 {
     u128 c = add;
     if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
+        if (m < ((uint64_t)1 << 36)) {               /* a[i] m + c < 2^96: the quotient (< 2^37) is exact from a double after +-1 */
+            for (size_t i = 0; i < na; i++) {
+                c += (u128)a[i] * m;
+                double cd = (double)(uint64_t)(c >> 64) * 18446744073709551616.0 + (double)(uint64_t)c;   /* u128 -> double without the libgcc call */
+                uint64_t q = (uint64_t)(cd * (1.0 / 1e18)), rem;
+                u128 qb = (u128)q * B10;
+                if (qb > c) { q--; qb -= B10; }
+                rem = (uint64_t)(c - qb);
+                if (rem >= B10) { q++; rem -= B10; }
+                r[i] = rem; c = q;
+            }
+            return (uint64_t)c;
+        }
         for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)(c % B10); c /= B10; }
         return (uint64_t)c;
     }
