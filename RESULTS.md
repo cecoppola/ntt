@@ -1942,3 +1942,36 @@ Decimal — `t_newton` 658 (reciprocal error 0 units at every size), `t_crt`
 
 (The gate — decimal `accept.sh` to 4 × 10¹⁰ and five variance runs — is
 appended below when it completes.)
+
+## 51. Phase 7 WP5 — the distributed four-step transform (draft, 2026-09-16)
+
+Code on `wp1-decimal-base` (to be moved to its own branch at the WP1
+decision): `ecalc/ntt_dist.{h,c}` (plan, `dist_fwd/pw/inv`, and the
+`_pre/_post` halves around the all-to-all for slab pipelining),
+`ecalc/comm_sim4.c` (four synthetic ranks in one APU, driven by one thread),
+`ecalc/tests/t_dist.c` (four-rank convolution vs the one-rank engine, all
+four primes, R, C ∈ 2¹⁰..2¹³, plus 2²⁶ and 2³⁰). Not yet run — the node was
+unreachable when it was written.
+
+**Design as written.** Forward: local length-C pass on this rank's rows →
+twiddle w_n^(i·j) (j read bit-reversed, as the local engine leaves it; two
+tables of R and C entries, two `ec_mm` per point) → one slab all-to-all with
+a local block transpose → local length-R pass on the columns. The result
+stays in the column layout, so the pointwise product needs no transpose;
+the inverse is the mirror (R⁻¹ and C⁻¹ split across the two local inverse
+passes). One all-to-all per transform, three per product.
+
+**Layout finding (a decision for the user).** Doing the local pass first
+without an input permutation is only a DFT under the convention
+*row i, column j ↔ point m = i + R·j* (F_n = P (F_R ⊗ I_C) D (I_R ⊗ F_C) S,
+S = sort by m mod R). So a rank's rows are not one contiguous range of the
+number's limbs but C runs of R/size contiguous limbs — block-cyclic
+ownership with block R/size (e.g. R = 2¹⁷, 8 192 ranks → runs of 16 limbs).
+Consequences: limb load/store is a local rows×C ↔ C×rows transpose (no
+communication); carries and the CRT are limb-local except at run boundaries,
+which need one neighbour exchange of C carry/propagate flags per product
+(≈ 64 KB per rank, a parallel-prefix carry). The alternative — contiguous
+limb ownership — makes the first pass the distributed one and costs two
+all-to-alls per transform (≈ 25 s instead of ≈ 12.5 s of network per
+4 × 10¹⁰ run on the target fabric). This is the "column-major four-step" note
+from Phase 2, now with its cost quantified.
