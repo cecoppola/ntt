@@ -701,3 +701,28 @@ in this document:
    integer; twiddles from two-level tables; NUMA-pinned first touch of the
    staging (55× otherwise); kernel stores instead of `hipMemcpy` D2H;
    report rates, derive cycles only from in-kernel clocks.
+9. **Memory placement on MI300A (Phase 7 WP3, RESULTS §55–56).** A GPU
+   reads memory on its own NUMA node at ≈ 3.8 TB/s whether it is
+   hipMalloc'd or OS pages touched by that node's CPUs, and any other
+   node's at ≈ 93 GB/s; the allocation kind is irrelevant, the node is
+   everything. So a layout in which every APU reads a whole shared pool
+   is capped at ≈ 700 GB/s by the links whatever the pool is made of, and
+   the gain comes only from locality — each product transformed by the
+   APU whose node holds its operands (the batch tier's scatter went from
+   0.141 to 0.024 s per level). The CPU reads and writes hipMalloc'd memory
+   on its own node at full rate with XNACK off (164/114 GB/s), but
+   read-modify-write passes, single-limb reads and streaming stores into
+   device memory are 3–20× slower than on host pages: keep the CPU out of
+   the pools (adds and normalisation moved into the CRT kernel, copies by
+   DMA). `HSA_XNACK=1` doubles the run time. hipMalloc after peer access is
+   enabled costs ≈ 0.06 s/GB: pregrow at init. Pinning threads to their
+   node is unnecessary once the CPU no longer touches the pools and costs
+   the decimal seeds 30 %.
+10. **Setup time in the wall clock.** The term count N = min{m :
+   lgamma(m+1)/ln 10 ≥ d + 50} was found by a linear scan — 4.3 × 10⁹
+   lgamma calls, ≈ 45 s at 4 × 10¹⁰ — inside the run's wall time but
+   outside every phase timer, from Phase 3 to WP3. Bisection gives the
+   same N in microseconds. The Phase 4 comparison with the paper used the
+   wall figure; the per-phase sum was 229 s against the paper's 285.7
+   (RESULTS §40, correction).
+
