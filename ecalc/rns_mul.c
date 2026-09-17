@@ -35,6 +35,7 @@ static struct dev {
     ntt_ctx *ctxp[EC_NP];        /* WP3 local mode: this device transforms all EC_NP primes of its own products */
     uint64_t *spill;             /* WP3 local mode: this device's stripe spills (host registered) */
     size_t spill_cap;
+    uint32_t *len, *dlen; size_t len_cap;   /* WP3 local mode: normalised lengths (pinned host, device) */
 } D[EC_NP];
 int rns_batch_local = -1;        /* RNS_BATCH_LOCAL: 1 (default) products in device pools are done by their own APU */
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
@@ -545,6 +546,14 @@ __global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, const struc
             db[i] = ec_canon64(b, m0.pu, m0.mu); db[i + plane] = ec_canon64(b, m1.pu, m1.mu); db[i + 2 * plane] = ec_canon64(b, m2.pu, m2.mu); db[i + 3 * plane] = ec_canon64(b, m3.pu, m3.mu); }
     }
 }
+__global__ void k_norm(const struct bdesc *P, size_t M, uint32_t *len)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= M) return;
+    const struct bdesc d = P[i]; uint32_t n = d.na + d.nb + (d.nx ? 1 : 0);
+    while (n && d.c[n - 1] == 0) n--;
+    len[i] = n;
+}
 static void spill_merge(const rns_prod *q, const uint64_t *sp, int S)
 {
     size_t nc = q->na + q->nb, top = nc + (q->x && q->nx ? 1 : 0); uint64_t *out = q->c;   /* with x the carry limb nc exists */
@@ -610,6 +619,12 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB)
             HIP_CHECK(hipStreamSynchronize(v->s));
             double tm0 = mem_now();
             if (S > 1) for (size_t i = 0; i < M; i++) spill_merge(&P[idx[first + i]], v->spill + i * S * 4, S);
+            /* normalised lengths (the CPU reading one limb per product from device memory is latency-bound) */
+            if (v->len_cap < M) { if (v->len) { HIP_CHECK(hipHostFree(v->len)); HIP_CHECK(hipFree(v->dlen)); } v->len_cap = M + 1024; HIP_CHECK(hipHostMalloc((void **)&v->len, v->len_cap * 4, 0)); HIP_CHECK(hipMalloc(&v->dlen, v->len_cap * 4)); }
+            k_norm<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->dlen);
+            HIP_CHECK(hipMemcpyAsync(v->len, v->dlen, M * 4, hipMemcpyDeviceToHost, v->s));
+            HIP_CHECK(hipStreamSynchronize(v->s));
+            for (size_t i = 0; i < M; i++) P[idx[first + i]].ncn = v->len[i];
             lmg += mem_now() - tm0;
             HIP_CHECK(hipEventElapsedTime(&ms1, e0, e1)); HIP_CHECK(hipEventElapsedTime(&ms2, e1, e2)); HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
             lsc += ms1 * 1e-3; lnt += ms2 * 1e-3; lcr += ms3 * 1e-3;
@@ -811,7 +826,7 @@ static void mdev_gpu_crt(int d, size_t nc, int logn, uint64_t *dst)
     if (d == 0) {
         if (!ginit) { G = make_gconst(); ginit = 1; }
         if (!hinit) { hdesc = (struct bdesc *)malloc(sizeof *hdesc); hinit = 1; }
-        hdesc->a = hdesc->b = 0; hdesc->c = dst; hdesc->na = (uint32_t)nc; hdesc->nb = 0;
+        hdesc->a = hdesc->b = hdesc->x = 0; hdesc->c = dst; hdesc->na = (uint32_t)nc; hdesc->nb = 0; hdesc->nx = 0;
         int S = rns_gpucrt_blocks; if ((size_t)S > (nc >> 10)) S = (int)(nc >> 10) > 0 ? (int)(nc >> 10) : 1;
         if (g_spill_cap < (size_t)S) { if (g_spill) mem_hreg_free(g_spill); g_spill_cap = S + 64; g_spill = (uint64_t *)mem_hreg_alloc(g_spill_cap * 4 * 8); }
         g_mdev_S = S;
