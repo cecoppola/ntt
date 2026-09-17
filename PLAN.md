@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-17 | WP1 attribution item 1 done: seeds = 128-bit division by 10¹⁸ per inner product (4–5× per op, lazy reduction fixes it); batch tier = every level 2× NTT length from the 7 % limb growth crossing powers of two (seed-span parameter fixes it); decimal CRT split only +6 %. Lead for items 2–3: one extra Newton doubling (precision crosses 2²⁹ at 10¹⁰, 2³¹ at 4 × 10¹⁰) | RESULTS.md §52 |
 | 2026-09-17 | **WP1 gate complete**: decimal identical to 10⁹; 4 × 10¹⁰ verified, five runs 323 ± 10 s vs 291 binary, peak 352 vs 248 GB (bs +38 %, recip 2.7×; 10dP+dc −85 s). OOM cause was the binary-formula prewarm length (fixed). WP5 `t_dist` OK (65), WP6 `t_comm` OK on the node. **Awaiting the user's decision on WP1** | RESULTS.md §50–51 |
 | 2026-09-16 | WP5 code written while the WP1 gate ran (`ntt_dist`, `comm_sim4`, `t_dist`; untested — aac6 unreachable from littleblue tonight). **Layout finding:** doing the local pass first forces the point convention m = i + R·j, i.e. block-cyclic limb ownership (runs of R/size limbs); contiguous ownership would cost two all-to-alls per transform instead of one. Recorded in `ntt_dist.h`; decision for the user with the WP5 data | RESULTS.md §51 (pending) |
 | 2026-09-16 | WP1 in progress on `wp1-decimal-base`: decimal base implemented; both bases pass all tests; decimal 10⁸/10⁹ byte-identical; WP2's phase removals fall out of the switch. Gate running | RESULTS.md §50 |

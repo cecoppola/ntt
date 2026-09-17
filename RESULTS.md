@@ -2027,3 +2027,62 @@ limb ownership — makes the first pass the distributed one and costs two
 all-to-alls per transform (≈ 25 s instead of ≈ 12.5 s of network per
 4 × 10¹⁰ run on the target fabric). This is the "column-major four-step" note
 from Phase 2, now with its cost quantified.
+
+## 52. WP1 attribution, item 1 — where the decimal bs time goes (2026-09-17)
+
+Measured on s24-26 (job 20630): `t_school` (CPU limb arithmetic, both
+bases, node CPU, `tests/t_school.c`) and the 10¹⁰ run in both bases with
+`RNS_VERBOSE=1` (`results/attr/e1e10_b{2,10}.log`), per-tier sums over the
+bs phase.
+
+**CPU schoolbook and mul_1 (ns per limb² / ns per limb, node CPU):**
+
+| n | 2⁶⁴ school | 10¹⁸ school | ratio | 2⁶⁴ mul_1 | 10¹⁸ mul_1 | ratio |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 0.94 | 3.95 | 4.2 | 1.32 | 3.60 | 2.7 |
+| 32 | 0.83 | 4.93 | 5.9 | 0.94 | 3.98 | 4.2 |
+| 128 | 1.43 | 5.41 | 3.8 | 0.85 | 4.39 | 5.2 |
+| 512 | 1.39 | 5.52 | 4.0 | 0.83 | 4.43 | 5.3 |
+| 2048 | 1.37 | 5.55 | 4.1 | 0.82 | 4.46 | 5.4 |
+
+Big passes at 2²⁶ limbs (ms): add 12.0/12.0, sub 12.3/13.0, cmp 0/0,
+shr_limbs 5.8/4.4, mul_1 4.8/14.3 — add, sub, cmp and shifts are
+base-independent; only the multiply-by-word costs more. (On littleblue the
+ratios are 12–20×: its compiler emits `__umodti3` for the 128-bit `% 10¹⁸`.)
+**Cause:** `limb_mul_school` and `mul1_serial` reduce every inner product
+with a 128-bit division by 10¹⁸ (`bigint.c`); a product a·b < 10³⁶ ≈ 2¹¹⁹·⁶
+leaves room for ≈ 2⁸ products in a u128 accumulator, so a lazy reduction
+(reduce once per 256 products, or one Barrett step per column) would remove
+essentially all of the 4–5×. This is the seeds' 20.6 vs 7.7 s at 4 × 10¹⁰.
+
+**GPU batch tier, bs phase at 10¹⁰ (22 levels, s):**
+
+| | scatter | ntt | crt | merge | total |
+|---|---:|---:|---:|---:|---:|
+| 2⁶⁴ | 2.56 | 3.65 | 1.78 | 0.09 | 7.64 |
+| 10¹⁸ | 1.79 | **5.60** | 1.89 | 0.14 | 9.54 |
+
+The decimal CRT digit split costs +6 % (crt 1.78 → 1.89): cheap. The +53 %
+is the transform length: **at every one of the 20 levels the decimal
+products use a 2× longer NTT** (L = 2¹¹ where binary used 2¹⁰, … 2³⁰ vs
+2²⁹), because the 7 % larger limb count pushes each level's product size
+from just under a power of two to just over it (the levels' sizes double,
+so one crossing repeats at every level). This is an alignment accident of
+the term count, not a property of the base: it is removed by choosing the
+seed span so the decimal node sizes land under the powers of two again
+(e.g. `bs_seed_terms` 512 → 480 in decimal), or by 3·2ᵏ lengths (WP8).
+The same crossing is the likely cause of bs's mdev 25 vs 12.5 s at
+4 × 10¹⁰ (the top levels; to be confirmed with `RNS_VERBOSE` at that size).
+
+**Lead for items 2–3 (from the same logs):** the reciprocal's Newton
+sequence is identical in both bases (40 mdev products, 2¹¹ … 2³⁰) **plus one
+extra doubling in decimal** (2 × 2³¹ products), because the required
+precision k = 5.56 × 10⁸ limbs crosses 2²⁹ while binary's 5.19 × 10⁸ does
+not; that iteration is the whole difference (mdev 5.8 vs 3.5 s, recip 17.8
+vs 10.7 s). At 4 × 10¹⁰ the decimal k = 2.22 × 10⁹ crosses 2³¹ (binary
+2.08 × 10⁹ does not), which would explain both the reciprocal's 112 vs 41 s
+and the 352 GB peak (one more doubling with 2³²-point products and their
+temporaries). The last doubling is computed at full 2j precision even when
+k is only slightly above j; truncating it to k (`take = k + 2`) would make
+the final step cost k, not 2j, in both bases. Item 2 verifies this at
+4 × 10¹⁰.
