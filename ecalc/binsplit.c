@@ -56,6 +56,19 @@ struct level { uint64_t *pool[NR]; struct node *nd; size_t n; };
 int bs_regions_on_device = -1;                       /* BS_DEVICE_POOLS: 1 device pools, 0 host */
 static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r < NR ? r : NR - 1); }
 
+/* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
+static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
+{
+    if (limbs < ((size_t)1 << 20)) { memcpy(dst, src, limbs * 8); return; }
+#pragma omp parallel
+    {
+        int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
+        if (home < 0 || r % NR == home % NR) {
+            size_t chunk = (limbs + cnt - 1) / cnt, lo = chunk * rk, hi = lo + chunk < limbs ? lo + chunk : limbs;
+            if (lo < hi) memcpy(dst + lo, src + lo, (hi - lo) * 8);
+        }
+    }
+}
 static uint64_t *g_pool[2][NR]; static size_t g_cap[2][NR];
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
@@ -125,6 +138,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         }
         bi_free(&p); bi_free(&q);
     }
+    double t_span = mem_now() - t;
     for (int r = 0; r < NR; r++) {
         size_t limbs = 2 * per * (r0[r + 1] - r0[r]);
 #pragma omp parallel
@@ -138,7 +152,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (own_stage) free(stage[r]);
     }
     bs_st.t_seed = mem_now() - t;
-    if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s\n", N, nspan, S, bs_st.t_seed);
+    if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s (spans %.2f, copy %.2f)\n", N, nspan, S, bs_st.t_seed, t_span, bs_st.t_seed - t_span);
 
     int which = 0;
     while (cur.n > 1) {
@@ -236,8 +250,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         free(cur.nd);
         cur = nxt;
     }
-    bi_reserve(P, cur.nd[0].pn); memcpy(P->l, NODE_P(cur, &cur.nd[0]), cur.nd[0].pn * 8); P->n = cur.nd[0].pn;
-    bi_reserve(Q, cur.nd[0].qn); memcpy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn * 8); Q->n = cur.nd[0].qn;
+    bi_reserve(P, cur.nd[0].pn); region_copy(P->l, NODE_P(cur, &cur.nd[0]), cur.nd[0].pn, cur.nd[0].r); P->n = cur.nd[0].pn;
+    bi_reserve(Q, cur.nd[0].qn); region_copy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn, cur.nd[0].r); Q->n = cur.nd[0].qn;
     free(cur.nd);
     bs_st.t_total = mem_now() - t0;
 }
