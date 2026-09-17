@@ -2179,3 +2179,47 @@ step) — the 2³³ step of §53 is gone.
   bs-phase peak 227 vs 184 GB) is the 2³³-point products of 4.44 × 10⁹-limb
   operands; only 3·2ᵏ lengths (WP8) or a top-level split remove it
   (≈ 25 s, ≈ 40 GB).
+
+## 55. WP3 go/no-go — where the pools should live (2026-09-17, job 20638, s24-26)
+
+`bench/fabric/poolread` (32 GiB pool, 4 APUs reading in the batch scatter's
+pattern) and `bench/fabric/cpuhbm` (4 GiB per allocation kind: CPU
+read/write from the local and a remote NUMA node, GPU read from the local
+and a remote APU); `results/attr/wp3.out`.
+
+| pool layout | aggregate GPU read |
+|---|---:|
+| (a) today: registered host pages spread over the four nodes | 553 GB/s (APU0–2 ≈ 66–99, APU3 321) |
+| (b) quarters in HBM, every APU reads everything | 702 |
+| (e) NUMA-local host quarters, every APU reads everything | 704 |
+| (c) replicated in every HBM (4 × memory) | 13 300 |
+| **(d) NUMA-local quarters, each APU reads its own quarter** | **27 700** (cache-assisted; single-read rate 3.8 TB/s per APU → ≈ 15 000) |
+
+| allocation on APU 0 (XNACK off) | CPU node 0 rd / wr | CPU node 3 rd / wr | GPU 0 rd | GPU 3 rd |
+|---|---:|---:|---:|---:|
+| malloc, touched by node 0, registered | 131 / 105 | 24 / 24 | 3 774 | 94 |
+| hipHostMalloc | 152 / 126 | 24 / 24 | 3 739 | 93 |
+| hipMalloc (coarse) | **164 / 114** | 25 / 24 | 3 769 | 94 |
+| hipExtMalloc fine-grained | 153 / 114 | 24 / 24 | 3 756 | 93 |
+
+Facts: (1) on MI300A a GPU reads any memory on its own node at ≈ 3.8 TB/s
+— hipMalloc'd or OS pages alike — and any remote node's at ≈ 93 GB/s; the
+allocation kind is irrelevant, the node is everything. (2) So every layout
+in which each APU reads the whole pool is capped at ≈ 700 GB/s by the
+links; the gain (≥ 20×) comes only from **locality: a product transformed
+by the APU whose node holds its operands**. (3) The CPU reads/writes
+hipMalloc'd memory on its own node at full rate with XNACK off (164/114
+GB/s), so device pools can hold the numbers for the CPU passes too.
+(4) `HSA_XNACK=1` doubles the pipeline time (10¹⁰: 80 → 159 s): unified
+paging is out; registered host memory or hipMalloc, both with XNACK off.
+
+**Go.** WP3 layout: the binary-splitting level pools live in four
+per-APU device pools (hipMalloc, CPU-accessible), each APU owning a subtree
+of the tree (the same partition WP5 uses for ranks), so a level's products
+are transformed where their operands are, with no operand staging copy and
+the CRT writing results back in place; only the top two levels' products
+cross APUs (they are mdev-tier stripes already). The dm-phase numbers
+(A, Q, μ, X) and their mdev-tier products move to quartered device pools
+with the 4-APU distributed transform — that is WP5's `ntt_dist` on real
+APUs, so it is done there, on this layout. Device-pool bytes do not appear
+in RSS: the memory accounting will report host RSS + device pools.
