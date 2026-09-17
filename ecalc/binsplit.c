@@ -70,29 +70,43 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
     return g_pool[which][r];
 }
 
+static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
+{
+    unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
+    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
+    if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
+    return 2 * per * nspan;
+}
+void binsplit_pregrow(unsigned long N)
+{
+    if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    size_t total0 = seed_limbs(N, 0, 0);
+    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, total0 / NR + total0 / (NR * 4) + (1 << 20));
+}
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
     double t0 = mem_now(), t;
     memset(&bs_st, 0, sizeof bs_st);
-    unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
+    unsigned long S = bs_seed_terms, nspan; size_t per;
     /* seed spans: Q(a,b) < b^S, P < S b^S: reserve (S log2(N+1) + 64 + 64) / 64 limbs each */
-    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
+    seed_limbs(N, &per, &nspan);
     struct level cur, nxt;
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     cur.n = nspan; cur.nd = (struct node *)malloc(nspan * sizeof *cur.nd);
     size_t r0[NR + 1];                               /* first node of each region at level 0 */
     for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
     /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
-     * pool_get still grows if a level needs more) */
+     * pool_get still grows if a level needs more); binsplit_pregrow does this at init, outside the timed phase */
     size_t total0 = 2 * per * nspan;
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, total0 / NR + total0 / (NR * 4) + (1 << 20));
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
+    if (mem_dev_of(cur.pool[0]) >= 0 && (size_t)rns_pool_log() && ((size_t)8 << rns_pool_log()) < (2 * per * (r0[1] - r0[0]) + 2) * 8) { fprintf(stderr, "bs: seed region larger than the staging buffer\n"); abort(); }
     if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
     t = mem_now();
     /* seeds go to a host staging area per region (small scattered writes into device memory are slow,
      * RESULTS.md 56), then one bulk copy per region */
-    uint64_t *stage[NR];
-    for (int r = 0; r < NR; r++) stage[r] = (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8);
+    uint64_t *stage[NR]; int own_stage = mem_dev_of(cur.pool[0]) < 0;
+    for (int r = 0; r < NR; r++) stage[r] = own_stage ? (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8) : rns_hstage(r % mem_device_count());
 #pragma omp parallel
     {
         bigint p, q; bi_init(&p); bi_init(&q);
@@ -121,7 +135,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 if (lo < hi) memcpy(cur.pool[r] + lo, stage[r] + lo, (hi - lo) * 8);
             }
         }
-        free(stage[r]);
+        if (own_stage) free(stage[r]);
     }
     bs_st.t_seed = mem_now() - t;
     if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s\n", N, nspan, S, bs_st.t_seed);

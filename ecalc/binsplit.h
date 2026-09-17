@@ -26,6 +26,7 @@ extern int bs_verbose;
 
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
+void binsplit_pregrow(unsigned long N);                  /* WP3: allocate the region pools at init (outside the timed phase) */
 void binsplit_free_pools(void);                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
