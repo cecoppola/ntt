@@ -1940,8 +1940,17 @@ Decimal — `t_newton` 658 (reciprocal error 0 units at every size), `t_crt`
 | dc | 4.9 | **0.2** (formatting) |
 | compute total | ≈ 11 s | ≈ 9 s |
 
-(The gate — decimal `accept.sh` to 4 × 10¹⁰ and five variance runs — is
-appended below when it completes.)
+**Gate (2026-09-17, job 20614, s24-26):** decimal `t_newton 26` 696,
+`t_bs` 10, `t_verify` 334; e to 10⁶, 10⁷, 10⁸, 10⁹ byte-identical to `ref/`
+(T1, T2 OK); **e to 10¹⁰ verified in 84.5 s** (bs 23.3, 10dP 0.8, dm 30.2,
+T1 1.4, dc 1.2, T2 0.5; VmHWM 150.5 GB). **4 × 10¹⁰: all six decimal runs
+were killed (host OOM) in dm**, after bs 101.7–106.6 s (binary ≈ 96) and
+10dP 2.6–3.0 s (binary ≈ 11); the last VmHWM printed before the kill was
+271 GB (binary: 248 GB peak for the whole run). Decimal has 7 % more limbs
+(59.8 bits per limb), which alone does not explain it; the per-phase RSS
+lines of the run logs (`results/variance_b10/run*.log`) are to be read when
+aac6 is reachable again — the cause is open, and the WP1 gate is **not
+passed** at 4 × 10¹⁰ until it is found.
 
 ## 51. Phase 7 WP5 — the distributed four-step transform (draft, 2026-09-16)
 
