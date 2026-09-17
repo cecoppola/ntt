@@ -6,7 +6,7 @@ HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify
-OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
+OBJS  = ntt.o ntt2.o mem.o crt.o crt2.o comm_local.o bigint.o rns_mul.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
@@ -21,6 +21,8 @@ ntt2.o: ntt2.c ntt2.h modarith2.h
 rns_mul.o: rns_mul.c rns_mul.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
 mem.o: mem.c mem.h
+	$(HIPC) -c -o $@ $<
+comm_local.o: comm_local.c comm.h
 	$(HIPC) -c -o $@ $<
 crt2.o: crt2.c crt.h modarith2.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
