@@ -9,6 +9,8 @@
  * valid limbs copied in parallel; small ones stay with realloc */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 {
+    static int huge = -1; if (huge < 0) huge = getenv("BI_HUGE") ? atoi(getenv("BI_HUGE")) : 0;   /* measured harmful on this node (THP defrag stalls: 10dP 3.5-10 s -> 26 s), off by default */
+    if (!huge) { uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) abort(); return p; }
     size_t bytes = (cap * 8 + ((size_t)2 << 20) - 1) & ~(((size_t)2 << 20) - 1);
     uint64_t *p = (uint64_t *)aligned_alloc((size_t)2 << 20, bytes);
     if (!p) abort();
