@@ -108,6 +108,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
     reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++;
     return p;
 }
+void mem_dev_forget(void *p) { reg_del(p); }         /* drop from the registry without freeing (ownership passed on) */
 void mem_dev_free(void *p)
 {
     int dev = mem_dev_of(p), cur; if (dev < 0) return;

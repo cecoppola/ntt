@@ -41,9 +41,32 @@ static void q_free(int d, int lq, uint64_t *p)
 {
     if (g_free[d][lq].n < 64) g_free[d][lq].p[g_free[d][lq].n++] = p; else { q_release(d, p); g_pool_bytes -= ((size_t)8 << lq); }
 }
+/* donated regions (e.g. the binary-splitting pools once bs is done): carved into class blocks for the free
+ * lists, freed as regions by db_release_pools -- the dm phase then allocates nothing (hipMalloc costs
+ * 0.057 s/GB, RESULTS.md 59) */
+static struct { void *p; int dev; size_t bytes; } g_donated[64]; static int g_ndonated;
+static int g_carved[DB_NQ][40];                          /* blocks per class that came from regions (not hipMalloc'd) */
+void db_donate(int dev, void *p, size_t bytes)
+{
+    if (g_ndonated >= 64) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
+    g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_ndonated++;
+    char *b = (char *)p; size_t left = bytes;
+    for (int l = 39; l >= 20 && left >= ((size_t)8 << 20); l--) {                    /* largest classes first, down to 2^20 limbs */
+        size_t bl = (size_t)8 << l;
+        while (left >= bl && g_free[dev][l].n < 64) { g_free[dev][l].p[g_free[dev][l].n++] = (uint64_t *)b; g_carved[dev][l]++; b += bl; left -= bl; }
+    }
+}
 void db_release_pools(void)
 {
-    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) { while (g_free[d][l].n) { q_release(d, g_free[d][l].p[--g_free[d][l].n]); g_pool_bytes -= ((size_t)8 << l); } }
+    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) {
+        /* carved blocks are not hipFree'd individually: their regions are */
+        while (g_free[d][l].n) { uint64_t *p = g_free[d][l].p[--g_free[d][l].n]; int carved = 0;
+            for (int i = 0; i < g_ndonated && !carved; i++) { char *r0 = (char *)g_donated[i].p; if ((char *)p >= r0 && (char *)p < r0 + g_donated[i].bytes) carved = 1; }
+            if (!carved) { q_release(d, p); g_pool_bytes -= ((size_t)8 << l); } }
+        g_carved[d][l] = 0;
+    }
+    for (int i = 0; i < g_ndonated; i++) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
+    g_ndonated = 0;
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }

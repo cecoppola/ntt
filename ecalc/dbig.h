@@ -19,7 +19,8 @@ void db_init(dbig *x);
 void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
 extern struct db_stats db_st;                        /* accumulated; the caller resets */
-void db_release_pools(void);                          /* free the cached quarter blocks (end of a phase) */
+void db_release_pools(void);                          /* free the cached quarter blocks and donated regions (end of a phase) */
+void db_donate(int dev, void *p, size_t bytes);      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
 void db_from_bi(dbig *x, const bigint *a);            /* DMA in */

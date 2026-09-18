@@ -201,6 +201,48 @@ void rns_mul_dist(bigint *Cout, const bigint *A, const bigint *B)
     Cout->n = nc; bi_norm(Cout);
     rns_dist_st.t_merge += mem_now() - t2;
 }
+/* host A (registered) x device B -> device C */
+void rns_mul_dist_hd(dbig *Cd, const uint64_t *a, size_t na, const dbig *B)
+{
+    size_t nb = B->n, nc = na + nb;
+    if (!na || !nb) { Cd->n = 0; return; }
+    db_reserve(Cd, nc + 8);
+    if (nc <= ((size_t)1 << DIST_LOGN_MAX)) {
+        dist_core(acc_flat(a, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
+        Cd->n = nc; db_norm(Cd);
+        return;
+    }
+    size_t h = na / 2;                                         /* split A: C = a_lo B + (a_hi B) << h */
+    dbig t1, t2; db_init(&t1); db_init(&t2);
+    size_t nlo = h; while (nlo && !a[nlo - 1]) nlo--;
+    rns_mul_dist_hd(&t1, a, nlo, B);
+    rns_mul_dist_hd(&t2, a + h, na - h, B);
+    db_add_shifted(Cd, &t2, h, &t1);
+    db_free(&t1); db_free(&t2);
+}
+/* the low w limbs of A B (device operands): the host tier's recursion (rns_mul_low) on device */
+void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
+{
+    dbig a = db_view(A, 0, A->n < w ? A->n : w), b = db_view(B, 0, B->n < w ? B->n : w);
+    db_norm(&a); db_norm(&b);
+    size_t na = a.n, nb = b.n;
+    if (!na || !nb || !w) { Cd->n = 0; return; }
+    if (na + nb <= ((size_t)1 << DIST_LOGN_MAX) || na + nb <= w) {
+        rns_mul_dist_db(Cd, &a, &b);
+        if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
+        return;
+    }
+    if (na < nb) { dbig t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
+    size_t h = (na + 1) / 2;                                   /* a = a0 + a1 B^h */
+    dbig a0 = db_view(&a, 0, h), a1 = db_view(&a, h, na - h), z; db_norm(&a0); db_init(&z);
+    rns_mul_low_db(Cd, &a0, &b, w);                            /* low_w(a0 b) */
+    if (w > h) {
+        rns_mul_low_db(&z, &a1, &b, w - h);                    /* low_(w-h)(a1 b) */
+        db_add_shifted(Cd, &z, h, Cd);                         /* Cd = (z << h) + Cd */
+        if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
+    }
+    db_free(&z);
+}
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products split
  * into four half products (the halves reuse this routine; temporaries on device) */
 void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)

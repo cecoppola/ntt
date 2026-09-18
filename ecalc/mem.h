@@ -37,6 +37,7 @@ int   mem_is_registered(const void *p, size_t bytes);
  * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
 void *mem_dev_alloc(int dev, size_t bytes);
 void  mem_dev_free(void *p);
+void  mem_dev_forget(void *p);
 int   mem_dev_of(const void *p);
 size_t mem_dev_pool_bytes(void);
 int   mem_device_count(void);
