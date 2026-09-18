@@ -122,7 +122,7 @@ int main(int argc, char **argv)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    if (newton_dev) rns_release_staging();       /* 64 GB of pinned memory the device path does not use (binary: 10dP needed it until here) */
+    /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
     if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
@@ -141,7 +141,6 @@ int main(int argc, char **argv)
     /* X's residues now, so X can go as soon as dc has copied it into its level pool */
     uint64_t Xres[T1_NQ];
     for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
-    if (newton_dev && !bi_decimal) rns_ensure_staging();   /* dc's tiers need the staging (re-created here, counted in "other") */
     t = mem_now();
     char *digits;
     if (bi_decimal) {                          /* WP2: the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
