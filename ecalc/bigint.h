@@ -25,13 +25,13 @@ extern "C" {
 extern int bi_decimal;
 void bi_set_decimal(int on);
 int  bi_env_base(void);                 /* reads LIMB_BASE, returns bi_decimal */
+uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);   /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (first-touch faults are the 10dP/T1 variance, RESULTS.md 62) */
 #ifdef __cplusplus
 }
 #endif
 
 static inline void bi_init(bigint *a) { a->l = 0; a->n = a->cap = 0; }
 static inline void bi_free(bigint *a) { free(a->l); bi_init(a); }
-uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);   /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (first-touch faults are the 10dP/T1 variance, RESULTS.md 62) */
 static inline void bi_reserve(bigint *a, size_t cap)
 {
     if (cap <= a->cap) return;
