@@ -125,7 +125,9 @@ static void t_destroy(comm *c)
     if (p->hs) { HOST_FREE(p->hs); HOST_FREE(p->hr); }
     free(p->fd); free(p->th); free(p->th_peer); free(p); free(c);
 }
-static const struct comm_ops tcp_ops = { t_rank, t_size, t_alltoall, t_wait, t_barrier, t_modq, t_max2, t_destroy };
+static void t_send(comm *c, int to, const void *b, size_t n) { tcp_priv *p = (tcp_priv *)c->priv; write_all(p->fd[to], b, n); }
+static void t_recv(comm *c, int from, void *b, size_t n) { tcp_priv *p = (tcp_priv *)c->priv; read_all(p->fd[from], b, n); }
+static const struct comm_ops tcp_ops = { t_rank, t_size, t_alltoall, t_wait, t_barrier, t_modq, t_max2, t_destroy, t_send, t_recv };
 
 static int listen_on(int port)
 {
