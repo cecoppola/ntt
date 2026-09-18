@@ -11,9 +11,17 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define NR 4
-static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR]; } G;
+static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR];
+                hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR]; } G;
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 static void g_init(void) { pthread_barrier_init(&G.bar, NULL, NR); }
+/* push: 16-byte vectors, one kernel per peer on its own stream so the three links run concurrently
+ * (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11; the copies were serialised on one stream) */
+__global__ void k_push(const ulonglong2 *src, ulonglong2 *dst, size_t n)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += stride) dst[i] = src[i];
+}
 static int x_rank(comm *c) { return c->rank; }
 static int x_size(comm *c) { (void)c; return NR; }
 static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
@@ -21,8 +29,18 @@ static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     int me = c->rank; G.rb[me] = rb; G.bytes = bytes; G.s[me] = s;
     pthread_barrier_wait(&G.bar);                       /* every receive buffer is known */
     HIP_CHECK(hipSetDevice(me));
-    for (int r = 0; r < NR; r++)                         /* my slab r -> rank r's slab me */
-        HIP_CHECK(hipMemcpyPeerAsync((char *)G.rb[r] + (size_t)me * bytes, r, (const char *)sb + (size_t)r * bytes, me, bytes, s));
+    if (!G.streams[me]) { for (int r = 0; r < NR; r++) { HIP_CHECK(hipStreamCreateWithFlags(&G.ps[me][r], hipStreamNonBlocking)); HIP_CHECK(hipEventCreateWithFlags(&G.ev[me][r], hipEventDisableTiming)); } HIP_CHECK(hipEventCreateWithFlags(&G.start[me], hipEventDisableTiming)); G.streams[me] = 1; }
+    HIP_CHECK(hipEventRecord(G.start[me], s));            /* the peers' kernels wait for the caller's stream */
+    size_t nvec = bytes / 16;
+    for (int r = 0; r < NR; r++) {                       /* my slab r -> rank r's slab me */
+        const void *src = (const char *)sb + (size_t)r * bytes; void *dst = (char *)G.rb[r] + (size_t)me * bytes;
+        if (r == me) { HIP_CHECK(hipMemcpyAsync(dst, src, bytes, hipMemcpyDeviceToDevice, s)); continue; }
+        HIP_CHECK(hipStreamWaitEvent(G.ps[me][r], G.start[me], 0));
+        size_t blocks = (nvec + 255) / 256; if (blocks > 228 * 4) blocks = 228 * 4;
+        k_push<<<(unsigned)blocks, 256, 0, G.ps[me][r]>>>((const ulonglong2 *)src, (ulonglong2 *)dst, nvec);
+        HIP_CHECK(hipEventRecord(G.ev[me][r], G.ps[me][r]));
+        HIP_CHECK(hipStreamWaitEvent(s, G.ev[me][r], 0));  /* the caller's stream continues after every push */
+    }
 }
 static void x_wait(comm *c)
 {

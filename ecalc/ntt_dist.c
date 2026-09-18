@@ -41,6 +41,23 @@ __global__ void k_unpack(const uint64_t *rb, uint64_t *x, size_t rows, size_t co
         x[jl * R + i] = rb[r * (cols * rows) + jl * rows + il];
     }
 }
+/* fused unpack + inverse twiddle (the mirror of k_twpack): slabs (sb[s][jl][il]) -> rows x C, twiddled */
+__global__ void k_unpacktw(const uint64_t *rb, uint64_t *x, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols;
+        tile[ty + k][tx] = rb[s * (cols * rows) + jl * rows + il];
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, j = brev((unsigned)jb, logC), e = i * j;
+        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
+        x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
+    }
+}
 /* the reverse pair for the inverse: columns -> slabs -> rows */
 __global__ void k_pack_cols(const uint64_t *x, uint64_t *sb, size_t rows, size_t cols, int size)
 {
@@ -91,14 +108,34 @@ static unsigned nblocks(size_t total) { size_t b = (total + 255) / 256; return (
 struct dist_stats dist_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 #define TS(field, stmt) do { double t0_ = 0; if (dist_st.on) { HIP_CHECK(hipStreamSynchronize(s)); t0_ = tnow(); } stmt; if (dist_st.on) { HIP_CHECK(hipStreamSynchronize(s)); dist_st.field += tnow() - t0_; } } while (0)
+/* fused twiddle + pack through a 32 x 32 LDS tile: read rows x C coalesced (row-major), twiddle, write the
+ * slab (column-major per slab: sb[s][jl][i]) coalesced along i.  grid (C/32, rows/32), block (32, 8). */
+__global__ void k_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, j = brev((unsigned)jb, logC), e = i * j;
+        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
+        tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols;
+        sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
+    }
+}
+/* tiled unpack: slab r (my cols x rank r's rows, column-major per column) -> my columns of R points: reads
+ * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int size = comm_size(p->cm), r = comm_rank(p->cm);
     size_t C = (size_t)1 << p->logC;
     ec_mod m = ec_mod_get(p->prime);
     TS(t_local1, ntt_fwd(p->ctx, x, p->logC, p->rows, s));                         /* rows: length-C, bit-reversed columns */
-    TS(t_tw, (k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr, p->twc, m, 0)));
-    TS(t_pack, (k_pack<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->sbuf, p->rows, C, p->cols, size)));
+    { dim3 grid((unsigned)(C / 32), (unsigned)(p->rows / 32)), blk(32, 8);
+      TS(t_pack, (k_twpack<<<grid, blk, 0, s>>>(x, p->sbuf, p->rows, (size_t)r * p->rows, p->logC, p->cols, size, p->twr, p->twc, m))); }
     HIP_CHECK(hipStreamSynchronize(s));
     if (dist_st.on) dist_st.t0_a2a = tnow();
     comm_alltoall(p->cm, p->sbuf, p->rbuf, p->cols * p->rows * 8, s);
@@ -136,9 +173,8 @@ void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s)
     ec_mod m = ec_mod_get(p->prime);
     comm_wait(p->cm);
     if (dist_st.on) dist_st.t_a2a += tnow() - dist_st.t0_a2a;
-    k_unpack_rows<<<nblocks(p->rows * C), 256, 0, s>>>(p->rbuf, x, p->rows, C, p->cols, size);
-    /* inverse twiddle: the rows are back in bit-reversed column order (as after the forward row pass) */
-    TS(t_tw, (k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr_i, p->twc_i, m, 0)));
+    { dim3 grid((unsigned)(C / 32), (unsigned)(p->rows / 32)), blk(32, 8);
+      TS(t_pack, (k_unpacktw<<<grid, blk, 0, s>>>(p->rbuf, x, p->rows, (size_t)r * p->rows, p->logC, p->cols, size, p->twr_i, p->twc_i, m))); }
     TS(t_local1, ntt_inv(p->ctx, x, p->logC, p->rows, s));                         /* rows: length-C inverse, x C^-1 */
 }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
