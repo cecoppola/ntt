@@ -7,6 +7,7 @@
 #include "binsplit.h"
 #include "rns_mul.h"
 #include "mem.h"
+#include "dbig.h"
 
 bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
@@ -283,10 +284,15 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     free(cur.nd);
     bs_st.t_total = mem_now() - t0;
 }
+int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */
 void binsplit_free_pools(void)
 {
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) {
-        if (g_pool[w][r]) { if (mem_dev_of(g_pool[w][r]) >= 0) mem_dev_free(g_pool[w][r]); else mem_hreg_free(g_pool[w][r]); }
+        if (g_pool[w][r]) {
+            int dev = mem_dev_of(g_pool[w][r]);
+            if (dev >= 0 && bs_donate_pools) { db_donate(dev, g_pool[w][r], g_cap[w][r] * 8); mem_dev_forget(g_pool[w][r]); }
+            else if (dev >= 0) mem_dev_free(g_pool[w][r]); else mem_hreg_free(g_pool[w][r]);
+        }
         g_pool[w][r] = 0; g_cap[w][r] = 0;
     }
     for (int w = 0; w < 2; w++) hpool_free(&g_hpool[w]);
