@@ -70,7 +70,11 @@ extern int rns_gpucrt_blocks;
 extern int rns_engine;               /* RNS_ENGINE: 1 paper's (4 x 52-bit FP64 Barrett), 2 two 62-bit primes / 45-bit points (Phase 5 item 5) */
 extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */
 void rns_mul_batch(rns_prod *P, size_t N);
-uint64_t *rns_hstage(int dev);                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
+uint64_t *rns_hstage(int dev);
+/* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform */
+void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);
+struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; };
+extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 
 #ifdef __cplusplus
 }

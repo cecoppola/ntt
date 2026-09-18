@@ -41,11 +41,27 @@ int main(int argc, char **argv)
     int big32 = argc > 2 && !strcmp(argv[2], "big32");     /* Q1 (ii): 2^32 pools, the 10dP product as one mdev */
     if (big32) big = 1;
     int only_batch = argc > 2 && !strcmp(argv[2], "batch");
+    int only_dist = argc > 2 && !strcmp(argv[2], "dist");     /* WP5: the distributed tier against GMP, and against mdev for time */
     rng_t rng = {0xB1B0ULL};
     bigint A, B, C; bi_init(&A); bi_init(&B); bi_init(&C);
     printf("== t_mul ==\n");
     harness_meta("t_mul");
 
+    if (only_dist) {
+        rns_init(pool ? pool : 31);
+        struct { size_t na, nb; } dc[] = { {600000, 500000}, {1u << 20, 1u << 20}, {(1u << 22) + 3, (1u << 22) - 5}, {1u << 25, 1u << 25}, {(1u << 27) + 11, (1u << 27) - 11} };
+        for (size_t i = 0; i < sizeof dc / sizeof *dc; i++) for (int kind = 0; kind < 2; kind++) {
+            bi_random(&A, dc[i].na, kind, &rng); bi_random(&B, dc[i].nb, kind, &rng);
+            double t0 = now(); rns_mul_dist(&C, &A, &B); double t1 = now();
+            char what[96]; snprintf(what, sizeof what, "dist %zux%zu %s", dc[i].na, dc[i].nb, gen_name[kind]);
+            check_product(what, &A, &B, &C, 1);
+            if (kind == 0) { bigint D; bi_init(&D); double t2 = now(); rns_mul(&D, &A, &B); double t3 = now();
+                             VERIFY(bi_cmp(&C, &D) == 0, "dist == rns_mul %zux%zu", dc[i].na, dc[i].nb);
+                             printf("   %-40s dist %.3f s   rns_mul %.3f s\n", what, t1 - t0, t3 - t2); bi_free(&D); }
+        }
+        bi_free(&A); bi_free(&B); bi_free(&C);
+        return verify_done("t_mul");
+    }
     /* 1. small pool: every tier */
     printf("-- 1. pool 2^%d: tiers and boundaries\n", pool);
     if (pool) {

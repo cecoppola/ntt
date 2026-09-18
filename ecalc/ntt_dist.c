@@ -71,11 +71,19 @@ void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR,
     p->twr_i = dev_pow_table(prime, ec_root_inv(prime, logR), (size_t)1 << logR);
     p->twc_i = dev_pow_table(prime, ec_root_inv(prime, logn), (size_t)1 << logC);
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
+    p->own_slabs = 1;
     HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes));
+}
+void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf)
+{
+    dist_plan_create(p, cm, ctx, prime, logR, logC);
+    HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf));
+    p->sbuf = sbuf; p->rbuf = rbuf; p->own_slabs = 0;
 }
 void dist_plan_free(dist_plan *p)
 {
-    HIP_CHECK(hipFree(p->twr)); HIP_CHECK(hipFree(p->twc)); HIP_CHECK(hipFree(p->twr_i)); HIP_CHECK(hipFree(p->twc_i)); HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf));
+    HIP_CHECK(hipFree(p->twr)); HIP_CHECK(hipFree(p->twc)); HIP_CHECK(hipFree(p->twr_i)); HIP_CHECK(hipFree(p->twc_i));
+    if (p->own_slabs) { HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf)); }
 }
 static unsigned nblocks(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
 

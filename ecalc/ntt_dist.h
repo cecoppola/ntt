@@ -36,8 +36,10 @@ typedef struct {
     uint64_t *twr, *twc;    /* device: twr[k] = w_R^k (= w_n^(kC)), twc[k] = w_n^k: w_n^(ij) = twr[(ij)>>logC] twc[(ij)&(C-1)] */
     uint64_t *twr_i, *twc_i; /* the same with inverse roots */
     uint64_t *sbuf, *rbuf;  /* device slab buffers, rows x C each */
+    int own_slabs;
 } dist_plan;
 void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC);
+void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf);   /* caller's slab buffers (rows x C each) */
 void dist_plan_free(dist_plan *p);
 /* x: this rank's rows (rows x C, canonical); result in column layout in x (cols x R) */
 void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s);
@@ -47,8 +49,10 @@ void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s);
 /* the halves around the all-to-all (pre posts it, post waits for it): for slab pipelining, and for the
  * synthetic communicator, whose ranks are driven by one thread and must all post before any waits */
-/* the transposed inverse: from the column layout to CONTIGUOUS ownership -- this rank ends with points
- * [r n/size, (r+1) n/size) in natural order (rows x C row-major = one contiguous range), one all-to-all */
+/* the transposed inverse: the same algorithm as the forward run backwards on the column layout (which is
+ * the row layout of the C x R problem).  It ends in the SAME block-cyclic row layout as dist_inv (row k1
+ * holds a[k1 + R k2]) -- there is no single-all-to-all inverse to contiguous ownership (RESULTS.md 59);
+ * kept as an equivalent inverse. */
 void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_t_pre(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s);
