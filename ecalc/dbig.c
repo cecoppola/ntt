@@ -31,58 +31,58 @@ __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; fo
  * depends on it, so the bs phase's many sizes and the dm phase's few large ones share the pool without
  * fragmentation (RESULTS.md 64).  Extents come from donated regions (db_donate) or from hipMalloc when
  * nothing fits (0.057 s/GB); regions are freed whole by db_release_pools. */
-struct ext { char *p; size_t bytes; };
+struct ext { char *p; size_t bytes; int reg; };                   /* reg: the whole region (g_donated) it lies in; extents never merge across regions, since a block must stay inside one hipMalloc allocation */
 static struct { struct ext e[8192]; int n; } g_ext[DB_NQ];
 static size_t g_pool_bytes;
-static struct { uint64_t *p; int dev; size_t bytes; } g_live[8192]; static int g_nlive;
+static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
 static struct { void *p; int dev; size_t bytes; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions */
 static size_t fsize(int fam, int l) { return (size_t)(fam ? 3 : 1) * 8 << l; }
-static void live_add(uint64_t *p, int d, size_t bytes) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
-static size_t live_take(uint64_t *p) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
-static void ext_insert(int d, char *p, size_t bytes)
+static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
+static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
+static void ext_insert(int d, char *p, size_t bytes, int reg)
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, i = 0;
     while (i < n && e[i].p < p) i++;
-    int mprev = i > 0 && e[i - 1].p + e[i - 1].bytes == p, mnext = i < n && p + bytes == e[i].p;
+    int mprev = i > 0 && e[i - 1].reg == reg && e[i - 1].p + e[i - 1].bytes == p, mnext = i < n && e[i].reg == reg && p + bytes == e[i].p;
     if (mprev && mnext) { e[i - 1].bytes += bytes + e[i].bytes; memmove(&e[i], &e[i + 1], (n - i - 1) * sizeof *e); g_ext[d].n--; }
     else if (mprev) e[i - 1].bytes += bytes;
     else if (mnext) { e[i].p = p; e[i].bytes += bytes; }
-    else { if (n >= 8192) { fprintf(stderr, "dbig: extent table full\n"); abort(); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; g_ext[d].n++; }
+    else { if (n >= 8192) { fprintf(stderr, "dbig: extent table full\n"); abort(); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
 }
-static char *ext_take(int d, size_t need)                  /* best fit, carved from the front */
+static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, best = -1;
     for (int i = 0; i < n; i++) if (e[i].bytes >= need && (best < 0 || e[i].bytes < e[best].bytes)) best = i;
     if (best < 0) return 0;
-    char *p = e[best].p; e[best].p += need; e[best].bytes -= need;
+    char *p = e[best].p; *reg = e[best].reg; e[best].p += need; e[best].bytes -= need;
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
     return p;
 }
 static uint64_t *q_alloc(int d, int fam, int l)
 {
-    size_t need = fsize(fam, l);
-    char *p = ext_take(d, need);
+    size_t need = fsize(fam, l); int reg;
+    char *p = ext_take(d, need, &reg);
     if (!p) {
         g_pool_bytes += need;
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
         void *m; HIP_CHECK(hipMalloc(&m, need)); HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
-        if (g_ndonated < 256) { g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
+        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
         p = (char *)m;
     }
-    live_add((uint64_t *)p, d, need); return (uint64_t *)p;
+    live_add((uint64_t *)p, d, need, reg); return (uint64_t *)p;
 }
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, uint64_t *p)
 {
-    size_t bytes = live_take(p); if (!bytes) { fprintf(stderr, "dbig: freeing an unknown block\n"); abort(); }
-    ext_insert(d, (char *)p, bytes);
+    int reg; size_t bytes = live_take(p, &reg); if (!bytes) { fprintf(stderr, "dbig: freeing an unknown block\n"); abort(); }
+    ext_insert(d, (char *)p, bytes, reg);
 }
 void db_donate(int dev, void *p, size_t bytes)
 {
     if (g_ndonated >= 256) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
     g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_ndonated++;
-    ext_insert(dev, (char *)p, bytes);
+    ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
