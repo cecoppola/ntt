@@ -2676,8 +2676,10 @@ points. No source change was needed in `comm_tcp.c`, `ntt_dist.c` or
 between back-to-back runs, and the no-deadlock argument for the
 all-to-all (one sender thread per peer, the caller reads in rank order)
 all held with 8 ranks and slabs larger than the socket buffers. A second
-2-node job (20657) is queued for the 2²⁴ case on two real nodes; it
-changes nothing in the design.
+2-node window did not come (two of the partition's four nodes were down
+all session, the third taken by another user's 8 h job); the 2²⁴ case on
+two real nodes is staged on aac6 (`~/ntt-wp6`, `~/wp6watch.sh`) for the
+next free window — it changes nothing in the design.
 
 ## 66. The device product split as a grid (2026-09-18, job 20655)
 
