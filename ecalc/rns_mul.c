@@ -83,6 +83,8 @@ int rns_init(int pool_log)
 }
 int rns_pool_log(void) { return g_pool_log; }
 uint64_t *rns_hstage(int dev) { return D[dev].hstage; }
+/* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
+void *rns_dpool(int dev, int which, size_t bytes) { return dpool_get(which ? &D[dev].db : &D[dev].da, dev, bytes); }
 int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {

@@ -73,6 +73,8 @@ void rns_mul_batch(rns_prod *P, size_t N);
 uint64_t *rns_hstage(int dev);
 /* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform */
 void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);
+struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
+void *rns_dpool(int dev, int which, size_t bytes);
 struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; };
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 

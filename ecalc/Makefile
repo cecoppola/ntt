@@ -23,7 +23,7 @@ ntt2.o: ntt2.c ntt2.h modarith2.h
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h
+rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h
 	$(HIPC) -c -o $@ $<
 
 dbig.o: dbig.c dbig.h bigint.h mem.h
