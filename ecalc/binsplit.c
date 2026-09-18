@@ -270,6 +270,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         } else printf("bs: no checkpoint for this run in %s: full run\n", bs_ckpt_dir);
     }
     if (!resumed) {
+    if (bs_ckpt_dir) { mkdir(bs_ckpt_dir, 0777); for (int l = 1; l < 128; l++) ckpt_remove(l); }   /* a fresh run owns the directory: stale sets go */
     cur.n = nspan; cur.nd = (struct node *)malloc(nspan * sizeof *cur.nd);
     size_t r0[NR + 1];                               /* first node of each region at level 0 */
     for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
