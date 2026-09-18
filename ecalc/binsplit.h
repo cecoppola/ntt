@@ -18,11 +18,17 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, school_levels, batch_levels, mdev_levels; size_t peak_pool_limbs; } bs_stats;
+typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total, t_ckpt, t_restart; int levels, school_levels, batch_levels, mdev_levels, n_ckpt, restart_level; size_t peak_pool_limbs, ckpt_bytes; } bs_stats;
 extern bs_stats bs_st;
 extern int bs_seed_terms;     /* 512 */
 extern int bs_school_nl;      /* 160 limbs */
 extern int bs_verbose;
+/* WP7: per-level checkpoints of the level loop (ecalc/README.md: BS_CKPT_DIR, BS_CKPT_EVERY, BS_RESTART) */
+extern const char *bs_ckpt_dir;  /* directory; 0 = no checkpoints */
+extern int bs_ckpt_every;        /* every this many levels (4) */
+extern int bs_ckpt_min_level;    /* from this level on (8), or once the level pool exceeds bs_ckpt_min_bytes (1 GiB) */
+extern size_t bs_ckpt_min_bytes;
+extern int bs_restart;           /* 1: resume from the latest complete set in bs_ckpt_dir */
 
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
