@@ -3,6 +3,7 @@
 #include "harness.h"
 #include "../dbig.h"
 #include "../rns_mul.h"
+#include <string.h>
 static rng_t rg = { 99 };
 static void rnd_bi(bigint *a, size_t n, int kind) { bi_reserve(a, n ? n : 1); gen_limbs(a->l, n, kind, &rg); a->n = n; bi_norm(a); }
 static int same(const dbig *x, const bigint *a, const char *what)
@@ -36,6 +37,20 @@ int main(int argc, char **argv)
         VERIFY(db_top(&x) == (a.n ? a.l[a.n - 1] : 0), "top n %zu", n);
     }
     for (size_t k = 0; k < 5000; k += 1237) { bi_set_base_pow(&r, k); db_set_base_pow(&z, k); VERIFY(same(&z, &r, "base pow"), "base_pow %zu", k); }
+    /* products on device operands against rns_mul (which is GMP-checked in t_mul) */
+    if (argc > 2) {
+        int big = !strcmp(argv[2], "big");                    /* include the products that split (> 2^31 points) */
+        struct { size_t na, nb; } pc[] = { {1000, 1000}, {600000, 500000}, {1u << 20, (1u << 20) + 7}, {(1u << 24) + 3, 1u << 23}, {1u << 27, 1u << 27}, {(size_t)1 << 30, ((size_t)1 << 30) + 5}, {(size_t)1 << 31, (size_t)1 << 30} };
+        size_t npc = big ? 7 : 5;
+        for (size_t i = 0; i < npc; i++) for (int kind = 0; kind < 2; kind++) {
+            rnd_bi(&a, pc[i].na, kind); rnd_bi(&b, pc[i].nb, kind);
+            db_from_bi(&x, &a); db_from_bi(&y, &b);
+            double t0 = now(); rns_mul_dist_db(&z, &x, &y); double t1 = now();
+            rns_mul(&r, &a, &b);
+            VERIFY(same(&z, &r, "dist_db"), "dist_db %zux%zu %s", pc[i].na, pc[i].nb, gen_name[kind]);
+            if (kind == 0) printf("   dist_db %zux%zu: %.3f s\n", pc[i].na, pc[i].nb, t1 - t0);
+        }
+    }
     bi_free(&a); bi_free(&b); bi_free(&r); db_free(&x); db_free(&y); db_free(&z);
     return verify_done("t_dbig");
 }
