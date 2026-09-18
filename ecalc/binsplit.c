@@ -88,6 +88,14 @@ static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 }
 static uint64_t *g_pool[2][NR]; static size_t g_cap[2][NR];
 static hpool g_hpool[2];                              /* host pools for the mdev levels (WP3; WP5 removes them) */
+static int g_hpool_taken[2];
+/* hand one of the (already faulted) host pools to the caller before binsplit_free_pools: a fresh 35 GB
+ * allocation for A costs 4-10 s of first-touch faults (RESULTS.md 62) */
+uint64_t *binsplit_take_hpool(size_t *cap_limbs)
+{
+    for (int w = 0; w < 2; w++) if (g_hpool[w].p && !g_hpool_taken[w]) { g_hpool_taken[w] = 1; *cap_limbs = g_hpool[w].cap / 8; return (uint64_t *)g_hpool[w].p; }
+    *cap_limbs = 0; return 0;
+}
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
     if (g_cap[which][r] < limbs) {
@@ -460,5 +468,5 @@ void binsplit_free_pools(void)
         }
         g_pool[w][r] = 0; g_cap[w][r] = 0;
     }
-    for (int w = 0; w < 2; w++) hpool_free(&g_hpool[w]);
+    for (int w = 0; w < 2; w++) if (!g_hpool_taken[w]) hpool_free(&g_hpool[w]); else { g_hpool[w].p = 0; g_hpool[w].cap = 0; g_hpool_taken[w] = 0; }
 }

@@ -33,6 +33,7 @@ extern int bs_restart;           /* 1: resume from the latest complete set in bs
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);                  /* WP3: allocate the region pools at init (outside the timed phase) */
+uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
 extern int bs_donate_pools;                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
