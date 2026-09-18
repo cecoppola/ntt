@@ -103,18 +103,13 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     db_from_bi(&Qd, Q);
     if (mu_opt && mu_opt->n >= k + 1) { bigint mh; bi_init(&mh); bi_shr(&mh, mu_opt, 64 * (mu_opt->n - (k + 1))); db_from_bi(&mu, &mh); bi_free(&mh); }
     else recip_db(&mu, &Qd, Q, k);
-    /* A stays on the host: its top k limbs go through the pinned staging (registered) for the gather, its low
-     * window is used by the CPU below.  X = ((A >> (nq-1)) mu) >> (k + 1) */
-    const uint64_t *a = A->l; int staged = 0;
-    if (!mem_is_registered(a, na * 8)) {
-        uint64_t *hs = rns_hstage(0); size_t cap = (size_t)1 << rns_pool_log();
-        if (na > cap) { fprintf(stderr, "newton_db_divmod: A (%zu limbs) exceeds the staging (%zu)\n", na, cap); abort(); }
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < na; i += 1 << 20) { size_t m = na - i < (1 << 20) ? na - i : (1 << 20); memcpy(hs + i, a + i, m * 8); }
-        a = hs; staged = 1;
-    }
-    if (newton_db_free_inputs && staged) bi_free((bigint *)A);          /* the pageable copy is no longer needed */
-    rns_mul_dist_hd(&t, a + (nq - 1), na - (nq - 1), &mu);
+    /* A's top k limbs go to device for the gather (the host copy stays for the remainder window below).
+     * X = ((A >> (nq-1)) mu) >> (k + 1) */
+    const uint64_t *a = A->l;
+    { dbig Ah; db_init(&Ah); bigint hv = { (uint64_t *)(A->l + (nq - 1)), na - (nq - 1), 0 };
+      db_from_bi(&Ah, &hv);
+      rns_mul_dist_db(&t, &Ah, &mu);
+      db_free(&Ah); }
     db_shr_limbs(&Xd, &t, k + 1);
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path) */
     size_t w = nq + 2;
