@@ -80,7 +80,7 @@ void rns_mul_dist(bigint *Cout, const bigint *A, const bigint *B)
     int logR = logn / 2, logC = logn - logR;
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
-    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; }
+    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
     /* operands and result in memory the kernels can reach */
     const uint64_t *a = A->l, *b = B->l; uint64_t *c;
     int stage_a = !mem_is_registered(a, na * 8), stage_b = !mem_is_registered(b, nb * 8);
@@ -165,4 +165,6 @@ void rns_mul_dist(bigint *Cout, const bigint *A, const bigint *B)
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
     if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs): stage %.3f load %.3f ntt %.3f crt %.3f merge %.3f total %.3f s\n",
                                       logn, logR, logC, nc, t1 - t0, ml, mf, mc, t3 - t2, t3 - t0);
+    if (dist_st.on) { printf("   ntt parts (all ranks summed / 4): local rows %.3f cols %.3f twiddle %.3f pack+unpack %.3f all-to-all %.3f\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_tw / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
+                      dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
