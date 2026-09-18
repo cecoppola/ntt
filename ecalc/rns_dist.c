@@ -27,6 +27,8 @@
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define NR 4
 #define DIST_LOGN_MAX 31
+/* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
+static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
 
 /* a limb accessor: either one flat array or four quarters (a dbig view) */
 struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int lq, m3, flat; dbig *owner; };
@@ -97,7 +99,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
 {
     int logn = 0; while (((size_t)1 << logn) < nc) logn++;
     if (logn < 20) logn = 20;                                  /* R, C >= 2^10 */
-    if (logn > DIST_LOGN_MAX) { fprintf(stderr, "dist_core: %zu limbs > 2^%d points\n", nc, DIST_LOGN_MAX); exit(1); }
+    if (logn > dist_logn_max()) { fprintf(stderr, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); exit(1); }
     int logR = logn / 2, logC = logn - logR;
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
@@ -209,7 +211,7 @@ void rns_mul_dist_hd(dbig *Cd, const uint64_t *a, size_t na, const dbig *B)
     size_t nb = B->n, nc = na + nb;
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
-    if (nc <= ((size_t)1 << DIST_LOGN_MAX)) {
+    if (nc <= ((size_t)1 << dist_logn_max())) {
         dist_core(acc_flat(a, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
         Cd->n = nc; db_norm(Cd);
         return;
@@ -229,7 +231,7 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     db_norm(&a); db_norm(&b);
     size_t na = a.n, nb = b.n;
     if (!na || !nb || !w) { Cd->n = 0; return; }
-    if (na + nb <= ((size_t)1 << DIST_LOGN_MAX) || na + nb <= w) {
+    if (na + nb <= ((size_t)1 << dist_logn_max()) || na + nb <= w) {
         rns_mul_dist_db(Cd, &a, &b);
         if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
         return;
@@ -253,7 +255,7 @@ static size_t plane_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) 
  * (2.22e9 x 2.22e9 limbs: halves of 1.11e9 still exceed a plane together); 2 x 3 pieces give 6 (RESULTS.md 66) */
 static void split_grid(size_t na, size_t nb, int *ka, int *kb)
 {
-    size_t cap = (size_t)1 << DIST_LOGN_MAX, best = 0; *ka = *kb = 0;
+    size_t cap = (size_t)1 << dist_logn_max(), best = 0; *ka = *kb = 0;
     for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
         size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
         if (pa + pb > cap) continue;
@@ -270,7 +272,7 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
     size_t na = A->n, nb = B->n, nc = na + nb;
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
-    if (nc <= ((size_t)1 << DIST_LOGN_MAX)) {
+    if (nc <= ((size_t)1 << dist_logn_max())) {
         struct db_stats s0 = db_st; double t0 = mem_now();
         dist_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
         Cd->n = nc; db_norm(Cd);
