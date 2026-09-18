@@ -26,6 +26,7 @@
 #include "dbig.h"
 #include <pthread.h>
 #include <semaphore.h>
+#include <omp.h>
 #include "ntt.h"
 #include <math.h>
 
