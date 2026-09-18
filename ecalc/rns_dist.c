@@ -245,8 +245,26 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     }
     db_free(&z);
 }
-/* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products split
- * into four half products (the halves reuse this routine; temporaries on device) */
+/* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
+static size_t plane_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) n <<= 1; return n; }
+/* piece counts (ka, kb) for a product too long for one plane: every piece product ceil(na/ka) + ceil(nb/kb)
+ * must fit 2^31 points; choose the grid with the fewest plane points in total (then the fewest products).
+ * Halving the longer operand alone -- the first version -- gave 8 planes of 2^31 for the decimal top product
+ * (2.22e9 x 2.22e9 limbs: halves of 1.11e9 still exceed a plane together); 2 x 3 pieces give 6 (RESULTS.md 66) */
+static void split_grid(size_t na, size_t nb, int *ka, int *kb)
+{
+    size_t cap = (size_t)1 << DIST_LOGN_MAX, best = 0; *ka = *kb = 0;
+    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
+        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
+        if (pa + pb > cap) continue;
+        size_t cost = (size_t)i * j * plane_pts(pa + pb);
+        if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
+    }
+    if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
+}
+/* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
+ * piece products (views, no copies): the first straight into C, the others through one temporary and a
+ * shifted in-place add */
 void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
 {
     size_t na = A->n, nb = B->n, nc = na + nb;
@@ -260,13 +278,18 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
                                           db_st.t_shift - s0.t_shift, db_st.t_addsub - s0.t_addsub, db_st.t_maxidx - s0.t_maxidx, db_st.t_reserve - s0.t_reserve);
         return;
     }
-    /* split the longer operand in halves (views, no copies): C = L_lo S + (L_hi S) << h, the low product
-     * straight into C and the high one through a single temporary (recursive on the halves) */
-    const dbig *L = na >= nb ? A : B, *S = na >= nb ? B : A;
-    size_t h = L->n / 2;
-    dbig lo = db_view(L, 0, h), hi = db_view(L, h, L->n - h), t2; db_norm(&lo); db_norm(&hi); db_init(&t2);
-    rns_mul_dist_db(Cd, &lo, S);
-    rns_mul_dist_db(&t2, &hi, S);
-    db_add_shifted(Cd, &t2, h, Cd);                            /* in place */
-    db_free(&t2);
+    int ka, kb; split_grid(na, nb, &ka, &kb);
+    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
+    if (getenv("RNS_VERBOSE")) printf("   dist_db %zu x %zu limbs: %d x %d pieces of %zu + %zu\n", na, nb, ka, kb, pa, pb);
+    dbig t; db_init(&t); int first = 1;
+    for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
+        size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
+        dbig ai = db_view(A, oa, na - oa < pa ? na - oa : pa), bj = db_view(B, ob, nb - ob < pb ? nb - ob : pb);
+        db_norm(&ai); db_norm(&bj);
+        if (first) { rns_mul_dist_db(Cd, &ai, &bj); first = 0; continue; }   /* (0,0): shift 0, straight into C */
+        if (!ai.n || !bj.n) continue;
+        rns_mul_dist_db(&t, &ai, &bj);
+        db_add_shifted(Cd, &t, oa + ob, Cd);                   /* in place */
+    }
+    db_free(&t);
 }
