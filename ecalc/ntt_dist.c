@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "ntt_dist.h"
 #include "modarith.h"
+#include <time.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 
@@ -87,15 +88,19 @@ void dist_plan_free(dist_plan *p)
 }
 static unsigned nblocks(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
 
+struct dist_stats dist_st;
+static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+#define TS(field, stmt) do { double t0_ = 0; if (dist_st.on) { HIP_CHECK(hipStreamSynchronize(s)); t0_ = tnow(); } stmt; if (dist_st.on) { HIP_CHECK(hipStreamSynchronize(s)); dist_st.field += tnow() - t0_; } } while (0)
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int size = comm_size(p->cm), r = comm_rank(p->cm);
     size_t C = (size_t)1 << p->logC;
     ec_mod m = ec_mod_get(p->prime);
-    ntt_fwd(p->ctx, x, p->logC, p->rows, s);                                       /* rows: length-C, bit-reversed columns */
-    k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr, p->twc, m, 0);
-    k_pack<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->sbuf, p->rows, C, p->cols, size);
+    TS(t_local1, ntt_fwd(p->ctx, x, p->logC, p->rows, s));                         /* rows: length-C, bit-reversed columns */
+    TS(t_tw, (k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr, p->twc, m, 0)));
+    TS(t_pack, (k_pack<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->sbuf, p->rows, C, p->cols, size)));
     HIP_CHECK(hipStreamSynchronize(s));
+    if (dist_st.on) dist_st.t0_a2a = tnow();
     comm_alltoall(p->cm, p->sbuf, p->rbuf, p->cols * p->rows * 8, s);
 }
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
@@ -103,8 +108,9 @@ void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
     int size = comm_size(p->cm);
     size_t R = (size_t)1 << p->logR;
     comm_wait(p->cm);
-    k_unpack<<<nblocks(p->cols * R), 256, 0, s>>>(p->rbuf, x, p->rows, p->cols, size);
-    ntt_fwd(p->ctx, x, p->logR, p->cols, s);                                       /* columns: length-R */
+    if (dist_st.on) dist_st.t_a2a += tnow() - dist_st.t0_a2a;
+    TS(t_pack, (k_unpack<<<nblocks(p->cols * R), 256, 0, s>>>(p->rbuf, x, p->rows, p->cols, size)));
+    TS(t_local2, ntt_fwd(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R */
 }
 void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s) { dist_fwd_pre(p, x, s); dist_fwd_post(p, x, s); }
 void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s)
@@ -117,9 +123,10 @@ void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int size = comm_size(p->cm);
     size_t R = (size_t)1 << p->logR;
-    ntt_inv(p->ctx, x, p->logR, p->cols, s);                                       /* columns: length-R inverse, x R^-1, natural */
-    k_pack_cols<<<nblocks(p->cols * R), 256, 0, s>>>(x, p->sbuf, p->rows, p->cols, size);
+    TS(t_local2, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
+    TS(t_pack, (k_pack_cols<<<nblocks(p->cols * R), 256, 0, s>>>(x, p->sbuf, p->rows, p->cols, size)));
     HIP_CHECK(hipStreamSynchronize(s));
+    if (dist_st.on) dist_st.t0_a2a = tnow();
     comm_alltoall(p->cm, p->sbuf, p->rbuf, p->cols * p->rows * 8, s);
 }
 void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s)
@@ -128,10 +135,11 @@ void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s)
     size_t C = (size_t)1 << p->logC;
     ec_mod m = ec_mod_get(p->prime);
     comm_wait(p->cm);
+    if (dist_st.on) dist_st.t_a2a += tnow() - dist_st.t0_a2a;
     k_unpack_rows<<<nblocks(p->rows * C), 256, 0, s>>>(p->rbuf, x, p->rows, C, p->cols, size);
     /* inverse twiddle: the rows are back in bit-reversed column order (as after the forward row pass) */
-    k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr_i, p->twc_i, m, 0);
-    ntt_inv(p->ctx, x, p->logC, p->rows, s);                                       /* rows: length-C inverse, x C^-1 */
+    TS(t_tw, (k_twiddle<<<nblocks(p->rows * C), 256, 0, s>>>(x, p->rows, (size_t)r * p->rows, p->logC, p->twr_i, p->twc_i, m, 0)));
+    TS(t_local1, ntt_inv(p->ctx, x, p->logC, p->rows, s));                         /* rows: length-C inverse, x C^-1 */
 }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
 
