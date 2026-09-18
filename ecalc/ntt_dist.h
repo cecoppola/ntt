@@ -47,6 +47,11 @@ void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s);
 /* the halves around the all-to-all (pre posts it, post waits for it): for slab pipelining, and for the
  * synthetic communicator, whose ranks are driven by one thread and must all post before any waits */
+/* the transposed inverse: from the column layout to CONTIGUOUS ownership -- this rank ends with points
+ * [r n/size, (r+1) n/size) in natural order (rows x C row-major = one contiguous range), one all-to-all */
+void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s);
+void dist_inv_t_pre(dist_plan *p, uint64_t *x, hipStream_t s);
+void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s);

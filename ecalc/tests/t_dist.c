@@ -3,6 +3,7 @@
  * ranks must equal the single-rank ntt_fwd/ntt_pw/ntt_inv cyclic convolution. */
 #include "harness.h"
 #include <omp.h>
+#include <string.h>
 #include "../ntt.h"
 #include "../ntt_dist.h"
 #include "../modarith.h"
@@ -10,6 +11,7 @@
 static rng_t rg = { 12345 };
 static comm *tcp;            /* set when run as one process per rank (COMM_RANK in the environment) */
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
+static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
 static int one(int prime, int logR, int logC)
 {
@@ -42,13 +44,14 @@ static int one(int prime, int logR, int logC)
     for (int r = r0; r < r1; r++) dist_fwd_pre(&pl[r], ry[r], 0);
     for (int r = r0; r < r1; r++) dist_fwd_post(&pl[r], ry[r], 0);
     for (int r = r0; r < r1; r++) dist_pw(&pl[r], rx[r], ry[r], 0);
-    for (int r = r0; r < r1; r++) dist_inv_pre(&pl[r], rx[r], 0);
-    for (int r = r0; r < r1; r++) dist_inv_post(&pl[r], rx[r], 0);
+    for (int r = r0; r < r1; r++) { if (tinv) dist_inv_t_pre(&pl[r], rx[r], 0); else dist_inv_pre(&pl[r], rx[r], 0); }
+    for (int r = r0; r < r1; r++) { if (tinv) dist_inv_t_post(&pl[r], rx[r], 0); else dist_inv_post(&pl[r], rx[r], 0); }
     HIP_CHECK(hipDeviceSynchronize());
     size_t bad = 0, first = n;
     for (int r = r0; r < r1; r++) {
         HIP_CHECK(hipMemcpy(tmp, rx[r], rows * 8, hipMemcpyDeviceToHost));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
+        if (tinv) memcpy(got + (size_t)r * rows, tmp, rows * 8);                 /* contiguous ownership */
+        else for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
         dist_plan_free(&pl[r]); if (!tcp) comm_destroy(cm[r]); HIP_CHECK(hipFree(rx[r])); HIP_CHECK(hipFree(ry[r]));
     }
     for (size_t i = 0; i < n; i++) if (tcp && (size_t)((i % R) / rr) != (size_t)r0) continue; else if (got[i] != ref[i]) { if (first == n) first = i; bad++; }
@@ -80,10 +83,12 @@ static int one_xgmi(int prime, int logR, int logC)
         HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
-        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s); dist_inv(&pl, rx, s);
+        dist_fwd(&pl, rx, s); dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s);
+        if (tinv) dist_inv_t(&pl, rx, s); else dist_inv(&pl, rx, s);
         HIP_CHECK(hipStreamSynchronize(s));
         HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
-        for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
+        if (tinv) memcpy(got + (size_t)r * rows, tmp, rows * 8);
+        else for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
         dist_plan_free(&pl); comm_destroy(cm); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); free(tmp);
     }
     size_t bad = 0, first = n;
@@ -97,6 +102,8 @@ int main(int argc, char **argv)
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
+    tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
+    if (tinv) printf("t_dist: transposed inverse (contiguous result)\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
     if (!xgmi && getenv("COMM_RANK")) {                 /* one process per rank over TCP (WP6); rank r uses APU r mod 4 */
         int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
