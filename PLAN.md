@@ -878,3 +878,73 @@ Remaining, in the order I would do them:
 5. The multi-node pipeline itself (rank-partitioned tree, slab pipelining,
    per-rank checkpoints) on the target system.
 
+
+---
+
+## 16. Phase 8 — the idea list (opened 2026-09-18; add, test, decide)
+
+Baseline: `main` @ `phase7-decimal-final`, decimal, 4 × 10¹⁰: phases
+108.9 ± 1.1 s (bs 61.1 = seeds 10.4 + batch 29.7 + top levels 19.1 + 1.9;
+10dP 1.7; dm 37.0 = recip 14.8 + division 22.2; T1 3.7; dc 4.2; T2 1.2),
+init 20.2, other 4.0, **wall 133.7 ± 1.8 s**, peak host 160 GB, device
+≈ 250 GB. Each item: what, the expected gain (sized from the record), the
+cost, and the status. The user decides on measured data; items land behind
+a switch.
+
+| # | idea | expected | cost | status |
+|---|---|---|---|---|
+| I1 | **Phase-level overlap of disjoint work** (§18): init in parallel per APU; T1's P, Q recurrence during the GPU levels; A = 10ᵈ(P+Q) and P's copy-out during the reciprocal; Q kept on device; digit formatting + T2 + digit residue during the low product | wall −15…−20 s (init −8, T1 −3.5, 10dP/copies −3, dc/T2 −5) | 1–2 d | **in progress** |
+| I2 | Seeds pipelined with level 1 per region (the GPU starts region r's level 1 while the CPU seeds region r+1) — coordinated interleaving | −8 s (seeds hidden behind the batch tier) | 1 d, after I1 | idea |
+| I3 | A formed on device (dbig add + limb shift), the remainder window on device: no A copy-in, no host A at all | −2 s, host peak −36 GB (A's pool) | 1 d | idea |
+| I4 | Reciprocal warm start: μ's top from a lower-precision run, or the last doubling's product reused across the two division products (fwd(Q) computed once for X Q and the recip's Q_t r) | −3…−5 s of dm | 2 d | idea |
+| I5 | Karatsuba for products whose half-sums fit a plane (binary's 2 × 2; decimal's do not) | binary only −2.5 s | 1 d | idea, low priority |
+| I6 | Batch tier: operand reuse across the tree add (Q₂ transformed once for P₁Q₂ and Q₁Q₂) | −4…−6 s of the batch levels (one transform in three saved) | 2 d | idea |
+| I7 | Seeds on the GPU as a batched level of 2¹⁰-point products (WP4's original item) | seeds 10.4 → ~2 s | 2–3 d | idea |
+| I8 | Decimal `mul_1` in the seeds: Montgomery-style by 10¹⁸ or two limbs per step | seeds −2…−3 s | 0.5 d | idea |
+| I9 | dm: A μ's top half only through the grid (the low pieces of the 2 × 3 grid are not needed either) | −2…−3 s | 0.5 d | idea |
+| I10 | 3·2³⁰-point planes for the very top products where the grid is 1 × 2 at 52 % fill (levels 23–24) | −3 s of the top levels; +60 GB device | 1 d | idea, memory trade |
+| I11 | Init: pools zeroed by kernels instead of `hipMemset` serial per device; contexts built on the CPU side once | init −3 s | 0.5 d | idea (part of I1) |
+| I12 | The 40 GB output write overlapped with T2 (write while checking) and `O_DIRECT` | outside the timed run | 0.5 d | idea |
+| I13 | Two-prime 62-bit engine for the batch tier only (planes transient, density irrelevant): rejected end-to-end in §44 but never measured for the batch levels alone | unknown; likely none | 1 d | idea, low priority |
+| I14 | Multi-node: hierarchical all-to-all (xGMI group first), slab pipelining through `dist_fwd_pre/_post` | hides most of the fabric time | see §17 | idea |
+
+## 17. Phase 8 — the work to run on 2 048 nodes, and the form the code takes now
+
+Target: rank = APU, `size` = 4 × nodes; the same binary runs with `size`
+1, 2, 3, 4 on one aac6 node (one process per APU) and 8 across two nodes
+(TCP), so that every piece is tested here before the fabric exists. The
+numbers are verified at every size against the single-rank run. Order and
+estimates (sessions of work):
+
+| step | what | test on aac6 | est. |
+|---|---|---|---|
+| M1 | **The driver as a rank program**: `ecalc` reads `COMM_RANK/COMM_SIZE/COMM_HOSTS` (as `t_dist`), one process per rank, rank r on APU r mod 4, a `comm` opened at start (xGMI within a node, TCP across; `size` 1 = today's driver); every phase timer and RESULT line per rank; rank 0 prints the summary; the hybrid communicator (xGMI inside the node group, TCP between groups) | `size` 1 = baseline; `size` 2, 4 on one node; 8 on two nodes | 2 d |
+| M2 | **Leaf partition by term range**: rank r owns terms [N r/size, N (r+1)/size); seeds and the rank-local levels exactly as today on the rank's own APU (the four regions become one region per rank; subtree ownership generalises to `region = rank`); each rank ends with P_r, Q_r as device numbers | P_r, Q_r vs the single-rank tree's node at that level (GMP-checked at 10⁶–10⁸; residues at 10¹⁰) | 2 d |
+| M3 | **Distributed top levels**: level ℓ above the rank-local ones pairs rank groups of 2^ℓ; the pair's product through `rns_mul_dist` over the group's communicator (the four-APU tier with `size` = the group) with block-cyclic inside and the numbers contiguous per rank (each rank holds a contiguous 1/size of every number); the tree add and normalisation as today | `size` 2, 4: the final P, Q equal to the single-rank run's (identical digits) | 3 d |
+| M4 | **Distributed division**: the reciprocal and the division on the whole-machine number (the dbig quarters become `size` shares), the window and corrections rank 0's | digits identical at `size` 1, 2, 4, 8 | 2 d |
+| M5 | **Per-rank output and verification**: each rank formats its share of X (18-digit blocks) and writes its part file; T1 residues rank-local (P_r, Q_r by the recurrence over the rank's term range, X_r, R by Horner over the rank's limbs with the base power of the rank's offset) and combined by the communicator's reduction; T2 windows by the rank holding the position | `cat` of the part files identical to the single-rank output; T1/T2 pass at every size | 1 d |
+| M6 | **Checkpoint per rank** at level boundaries (the WP7 format per rank, restart with the same `size`) | restart identical at `size` 4 | 1 d |
+| M7 | **Hierarchical all-to-all** (xGMI group first, then the fabric) and slab pipelining (`_pre`/`_post`) | correctness only here; 8 ranks on two nodes | 2 d |
+| M8 | **RDMA communicator** (libfabric or MPI behind `comm.h`) | on the target system | 2 d + tuning |
+| M9 | Memory per rank at `size` 4: each rank's share of the planes (2 × 16 GiB stays), regions, block pool — the single-node profile divided by 4 per rank; the host share likewise | RSS per rank | in M2–M4 |
+
+What exists already: `comm.h` with sim4/xGMI/TCP, `ntt_dist` (verified to
+8 ranks across nodes), `rns_dist` on the four APUs, `dbig` quarters,
+`wp6run.sh`. The phase-level overlap (§18) is done on the single-rank
+driver first and carried into M1.
+
+## 18. Phase 8 — overlap of disjoint work (started 2026-09-18)
+
+The timeline (paper §7, Fig. 1): CPU periods 40 s, GPU periods 81 s, DMA
+a few seconds, never overlapping. The easy version overlaps work that is
+already independent, with threads, behind `ECALC_OVERLAP=1`:
+
+| step | what runs concurrently | dependency kept | expected |
+|---|---|---|---|
+| O1 | init per APU in four threads (staging touch/register, plane pools, contexts) and the bs regions | peer access after all contexts exist | init 20 → ~10 s |
+| O2 | T1's P, Q mod q by the term recurrence (CPU, 768 chunks) during the GPU levels of bs, on a bounded thread count | none (it uses N only) | T1 3.7 → ~0.5 s |
+| O3 | during the reciprocal (GPU): P copied out, S = P + Q, A = 10ᵈ S on the CPU; Q not copied back (stays on device from the top level) | the division needs A: join before divmod | 10dP + copies 3.6 → hidden; Q in 0.6 → 0 |
+| O4 | during the low product X Q and the corrections (GPU ≈ 9 s): X copied out first, then the digit formatting, the T2 windows and the digit residue on the CPU; if a correction changes X (0 of 6 runs so far) the formatting is redone | the final X | dc + T2 5.4 → hidden |
+| O5 | the residues of X, R (Horner, CPU) overlapped with the frees and pool release | — | other 4 → ~2 |
+
+Measured per step in RESULTS §68. Later (coordinated interleaving): I2, I3.

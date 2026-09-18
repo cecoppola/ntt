@@ -24,6 +24,8 @@
 #include "verify.h"
 #include "mem.h"
 #include "dbig.h"
+#include <pthread.h>
+#include <semaphore.h>
 #include "ntt.h"
 #include <math.h>
 
@@ -49,6 +51,62 @@ static void pow10_big(bigint *T, unsigned long d)
     bi_shl(T, &five, d);
     bi_free(&five); bi_free(&t2);
 }
+
+
+/* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
+ * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
+static int g_overlap = 0, g_bg_threads = 96;
+struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t; };
+static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
+    for (int i = 0; i < T1_NQ; i++) vf_pq_mod(b->N, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0; return 0; }
+static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
+
+struct a_bg { bigint *P, *Q, *S, *A, *T; unsigned long d; uint64_t Pres[T1_NQ], Qres[T1_NQ]; pthread_t th; sem_t q_done; double t_copy, t_res, t_10dp; };
+static void *a_bg_run(void *a)                        /* O3: P, Q out of the device, their residues, A = 10^d (P + Q) -- during the reciprocal */
+{
+    struct a_bg *b = (struct a_bg *)a; omp_set_num_threads(g_bg_threads);
+    double t0 = mem_now();
+    db_to_bi(b->Q, &bs_Qd); sem_post(&b->q_done);      /* the reciprocal's seed and mu tag need the host Q: it goes first */
+    db_to_bi(b->P, &bs_Pd);
+    double t1 = mem_now();
+    for (int i = 0; i < T1_NQ; i++) { b->Pres[i] = vf_limbs_mod(b->P->l, b->P->n, t1_q[i]); b->Qres[i] = vf_limbs_mod(b->Q->l, b->Q->n, t1_q[i]); }
+    double t2 = mem_now();
+    bi_add(b->S, b->P, b->Q); bi_free(b->P);
+    bi_shl_limbs(b->A, b->S, b->d / 18);
+    if (b->d % 18) bi_mul_pow10(b->A, b->A, (unsigned)(b->d % 18));
+    bi_set_u64(b->T, 0); b->T->n = (b->d + 17) / 18;
+    bi_free(b->S);
+    b->t_copy = t1 - t0; b->t_res = t2 - t1; b->t_10dp = mem_now() - t2;
+    return 0;
+}
+
+struct x_bg { bigint *X; unsigned long d; char *digits; uint64_t Xres[T1_NQ]; int bad2, bad3, verbose; pthread_t th; int started; double t_res, t_fmt, t_t2; };
+static void digits_format(char *digits, const bigint *X, unsigned long d)   /* the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
+{
+    size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);     /* leading zeros to drop */
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < nl; i++) {
+        char buf[19]; uint64_t v = i < X->n ? X->l[i] : 0;
+        snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
+        size_t pos = (nl - 1 - i) * 18;                      /* padded position of this limb's first digit */
+        for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
+    }
+    digits[d + 1] = 0;
+}
+static void *x_bg_run(void *a)                        /* O4: X's residues, the digits, T2 and the digit residue -- during the low product */
+{
+    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    double t0 = mem_now();
+    for (int i = 0; i < T1_NQ; i++) b->Xres[i] = vf_limbs_mod(b->X->l, b->X->n, t1_q[i]);
+    double t1 = mem_now();
+    digits_format(b->digits, b->X, b->d);
+    double t2 = mem_now();
+    b->bad2 = tier2(b->digits, b->d + 1, b->verbose);
+    b->bad3 = tier1_digits_res(b->digits, b->d + 1, b->Xres, b->verbose);
+    b->t_res = t1 - t0; b->t_fmt = t2 - t1; b->t_t2 = mem_now() - t2;
+    return 0;
+}
+static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
 
 int main(int argc, char **argv)
 {
@@ -79,6 +137,12 @@ int main(int argc, char **argv)
     if (getenv("BS_CKPT_EVERY")) bs_ckpt_every = atoi(getenv("BS_CKPT_EVERY"));
     if (getenv("BS_CKPT_MIN_LEVEL")) bs_ckpt_min_level = atoi(getenv("BS_CKPT_MIN_LEVEL"));
     bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
+    g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;
+    if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
+    int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
+    int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev;               /* the overlapped flow needs the device top levels and the device dm */
+    struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
+    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
 
 
     bigint P, Q, T, A, X, R, S;
@@ -86,6 +150,7 @@ int main(int argc, char **argv)
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
+    if (bs_keep_dev) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }   /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, P.n, Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
@@ -101,7 +166,7 @@ int main(int argc, char **argv)
 
     /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
     uint64_t Pres[T1_NQ], Qres[T1_NQ];
-    for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
+    if (!ovl) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
 
     /* dm part 1: the reciprocal of Q first, while A does not exist yet (memory peak) */
     t = mem_now();
@@ -109,15 +174,31 @@ int main(int argc, char **argv)
     bigint MU; bi_init(&MU);
     size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
-    int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
     newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
     if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
-    if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
+    struct a_bg ab; memset(&ab, 0, sizeof ab);
+    double t_10dp = 0;
+    if (ovl) {                                        /* O3: P, Q come off the device and A is formed on the CPU while the reciprocal runs */
+        na_est = 2 * bs_Qd.n + dl - bs_Qd.n + 2; k_mu = na_est - bs_Qd.n + 1;
+        P.n = Q.n = 0;
+        ab.P = &P; ab.Q = &Q; ab.S = &S; ab.A = &A; ab.T = &T; ab.d = d; sem_init(&ab.q_done, 0, 0);
+        pthread_create(&ab.th, 0, a_bg_run, &ab);
+        newton_db_Qd = &bs_Qd; newton_db_mu_host = 0; newton_db_free_inputs = 0;
+        sem_wait(&ab.q_done);                         /* the seed reads Q's top limbs and the kept mu is tagged by the host Q */
+        newton_db_recip(&MU, &Q, k_mu);
+    } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
 
     t = mem_now();
+    if (ovl) {
+        pthread_join(ab.th, 0);
+        memcpy(Pres, ab.Pres, sizeof Pres); memcpy(Qres, ab.Qres, sizeof Qres);
+        db_free(&bs_Pd);
+        t_10dp = ab.t_10dp;
+        printf("      overlapped with the reciprocal: P, Q out %.2f s, residues %.2f s, A %.2f s\n", ab.t_copy, ab.t_res, ab.t_10dp);
+    } else {
     bi_add(&S, &P, &Q);
     bi_free(&P);
     memset(&rns_st, 0, sizeof rns_st);
@@ -129,7 +210,8 @@ int main(int argc, char **argv)
         pow10_big(&T, d);
         rns_mul(&A, &T, &S);
     }
-    double t_10dp = mem_now() - t;
+    t_10dp = mem_now() - t;
+    }
     printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, T.n, A.n, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
     bi_free(&S); bi_free(&T); rns_free_scratch();
@@ -137,7 +219,16 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
+    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.verbose = verbose >= 2;
+    char *digits = 0; int digits_reg = 1;
+    if (ovl) {                                        /* O4: the digit buffer now (plain pages; the formatting thread touches them), the hook starts the formatting */
+        digits_reg = 0;
+        if (posix_memalign((void **)&digits, 2u << 20, d + 2)) { fprintf(stderr, "digits: %lu bytes\n", d + 2); return 1; }
+        xb.digits = digits; newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;
+    }
     if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
+    newton_db_x_hook = 0; newton_db_Qd = 0;
+    if (ovl) db_free(&bs_Qd);
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
@@ -145,36 +236,46 @@ int main(int argc, char **argv)
     RESULT("dm", "s", t_dm);
 
     t = mem_now();
-    int bad1 = tier1_res(N, d, Pres, Qres, &X, &R, verbose >= 2);
+    if (ovl && pqb.started) pthread_join(pqb.th, 0);
+    int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, verbose >= 2);
     double t_t1 = mem_now() - t;
-    printf("T1    %8.2f s   %s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes");
+    printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", ovl && pqb.started ? " (P, Q recurrence overlapped with bs)" : "");
+    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s\n", pqb.t);
     RESULT("T1", "s", t_t1);
     bi_free(&A); bi_free(&R); bi_free(&Q);
     printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
 
     /* X's residues now, so X can go as soon as dc has copied it into its level pool */
     uint64_t Xres[T1_NQ];
+    double t_dc, t_t2; int bad2, bad3;
+    if (ovl && xb.started) {                          /* O4: the formatting, T2 and the digit residue ran during the low product */
+        t = mem_now();
+        pthread_join(xb.th, 0);
+        if (newton_st.down_corr + newton_st.up_corr) {   /* X changed after the hook: redo from the final X */
+            printf("      X corrected after the formatting started: redoing the digits\n");
+            for (int i = 0; i < T1_NQ; i++) xb.Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
+            digits_format(digits, &X, d);
+            xb.bad2 = tier2(digits, d + 1, verbose >= 2); xb.bad3 = tier1_digits_res(digits, d + 1, xb.Xres, verbose >= 2);
+        }
+        free(X.l); X.l = 0; X.n = X.cap = 0;
+        t_dc = mem_now() - t; t_t2 = 0; bad2 = xb.bad2; bad3 = xb.bad3;
+        printf("dc    %8.2f s   digits formatted from %zu decimal limbs (overlapped with the low product: residues %.2f, format %.2f, T2 + digit residue %.2f)\n", t_dc, (d + 1 + 17) / 18, xb.t_res, xb.t_fmt, xb.t_t2);
+        RESULT("dc", "s", t_dc);
+        printf("T2    %8.2f s   windows %s, digits == X mod q %s (overlapped)\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
+        RESULT("T2", "s", t_t2);
+    } else {
     for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
     t = mem_now();
-    char *digits;
     if (bi_decimal) {                          /* WP2: the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
         digits = (char *)mem_hreg_alloc(d + 2);
-        size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);     /* leading zeros to drop */
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < nl; i++) {
-            char buf[19]; uint64_t v = i < X.n ? X.l[i] : 0;
-            snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
-            size_t pos = (nl - 1 - i) * 18;                      /* padded position of this limb's first digit */
-            for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
-        }
-        digits[d + 1] = 0;
+        digits_format(digits, &X, d);
         free(X.l); X.l = 0; X.n = X.cap = 0;
     } else {
         todec_free_input = 1;
         todec(0, &X, d + 1);                   /* allocates the 40 GB digit string only at the LEAF step */
         digits = todec_out;
     }
-    double t_dc = mem_now() - t;
+    t_dc = mem_now() - t;
     if (bi_decimal) printf("dc    %8.2f s   digits formatted from %zu decimal limbs (no conversion)\n", t_dc, (d + 1 + 17) / 18);
     else printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
            t_dc, dec_st.pieces, dec_st.levels, dec_st.t_prewarm, dec_st.t_top, dec_st.t_mid, dec_st.t_deep, dec_st.t_leaf);
@@ -182,11 +283,12 @@ int main(int argc, char **argv)
     printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
 
     t = mem_now();
-    int bad2 = tier2(digits, d + 1, verbose >= 2);
-    int bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
-    double t_t2 = mem_now() - t;
+    bad2 = tier2(digits, d + 1, verbose >= 2);
+    bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
+    t_t2 = mem_now() - t;
     printf("T2    %8.2f s   windows %s, digits == X mod q %s\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
     RESULT("T2", "s", t_t2);
+    }
     printf("digits: %.62s...%.20s\n", digits, digits + d + 1 - 20);
 
     double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
@@ -202,7 +304,7 @@ int main(int argc, char **argv)
     }
     int fail = bad1 || bad2 || bad3;
     printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
-    mem_hreg_free(digits);
+    if (digits_reg) mem_hreg_free(digits); else free(digits);
     rns_shutdown();
     return fail;
 }

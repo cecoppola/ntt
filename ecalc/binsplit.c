@@ -138,11 +138,14 @@ void binsplit_pregrow(unsigned long N)
 {
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
-    for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, per_region);
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
-    if (bs_regions_on_device && total0 > ((size_t)1 << 28)) {          /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
-        for (int w = 0; w < (bs_dev_mdev ? 1 : 2); w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
-#pragma omp parallel for schedule(static)
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
+    int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
+#pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
+    for (int r = 0; r <= NR; r++) {
+        if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, per_region); }
+        else for (int w = 0; w < nhp; w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
+#pragma omp parallel for schedule(static) num_threads(par ? 96 : omp_get_max_threads())
             for (size_t i = 0; i < total0 + total0 / 8; i += 512) hp[i] = 0; }
     }
 }
@@ -340,6 +343,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     }
     bs_st.t_seed = mem_now() - t;
     if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s (spans %.2f, copy %.2f)\n", N, nspan, S, bs_st.t_seed, t_span, bs_st.t_seed - t_span);
+    if (bs_after_seeds_hook) bs_after_seeds_hook(bs_hook_arg);   /* Phase 8 overlap: the CPU is free from here until the top level */
     }                                                /* !resumed */
 
     while (cur.n > 1) {
@@ -424,7 +428,10 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                            o->pn = o->pd->n; o->qn = o->qd->n; }
                 for (size_t i = 0; i < cur.n; i++) { if (cur.nd[i].pd) { db_free(cur.nd[i].pd); free(cur.nd[i].pd); } if (cur.nd[i].qd) { db_free(cur.nd[i].qd); free(cur.nd[i].qd); } cur.nd[i].pd = cur.nd[i].qd = 0; }
                 if (cur.pool[0] && mem_dev_of(cur.pool[0]) >= 0) donate_pools(which ^ 1);   /* the children's pools are consumed */
-                if (nxt.n == 1) { db_to_bi(P, nxt.nd[0].pd); db_to_bi(Q, nxt.nd[0].qd); db_free(nxt.nd[0].pd); free(nxt.nd[0].pd); db_free(nxt.nd[0].qd); free(nxt.nd[0].qd); nxt.nd[0].pd = nxt.nd[0].qd = 0; finished = 1; }
+                if (nxt.n == 1) {
+                    if (bs_keep_dev) { bs_Pd = *nxt.nd[0].pd; bs_Qd = *nxt.nd[0].qd; P->n = Q->n = 0; }   /* the caller copies them out (overlapped with the reciprocal) */
+                    else { db_to_bi(P, nxt.nd[0].pd); db_to_bi(Q, nxt.nd[0].qd); db_free(nxt.nd[0].pd); db_free(nxt.nd[0].qd); }
+                    free(nxt.nd[0].pd); free(nxt.nd[0].qd); nxt.nd[0].pd = nxt.nd[0].qd = 0; finished = 1; }
                 normed = 1;
             } else {
             bigint A1, A2, B, C1, C2, P2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2); bi_init(&P2);
@@ -498,6 +505,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     free(cur.nd);
     bs_st.t_total = mem_now() - t0;
 }
+void (*bs_after_seeds_hook)(void *) = 0; void *bs_hook_arg = 0;   /* Phase 8: called once the seeds are in the regions */
+int bs_keep_dev = 0; dbig bs_Pd, bs_Qd;                             /* Phase 8: the top level's P, Q left on device */
 int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */
 void binsplit_free_pools(void)
 {

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
+#include <pthread.h>
 #include <hip/hip_runtime.h>
 #include "dbig.h"
 #include "mem.h"
@@ -134,6 +135,7 @@ void db_reserve(dbig *x, size_t limbs)
  * another (concurrent hipMemcpy with pageable memory faults, RESULTS.md 59), chunks pipelined by two. */
 #define BOUNCE ((size_t)1 << 27)                              /* limbs: 1 GiB */
 static uint64_t *g_bounce[DB_NQ][2]; static hipStream_t g_bs[DB_NQ];
+static pthread_mutex_t g_bounce_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: copies may be issued from a background thread; one at a time per process */
 static void bounce_init(int d)
 {
     if (g_bounce[d][0]) return;
@@ -148,6 +150,7 @@ static void par_memcpy(uint64_t *dst, const uint64_t *src, size_t n)
 }
 void db_from_bi(dbig *x, const bigint *a)
 {
+    pthread_mutex_lock(&g_bounce_mx);
     db_reserve(x, a->n ? a->n : 1); x->n = a->n;
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
@@ -161,9 +164,11 @@ void db_from_bi(dbig *x, const bigint *a)
         }
         HIP_CHECK(hipStreamSynchronize(g_bs[d]));
     }
+    pthread_mutex_unlock(&g_bounce_mx);
 }
 void db_to_bi(bigint *r, const dbig *x)
 {
+    pthread_mutex_lock(&g_bounce_mx);
     bi_reserve(r, x->n ? x->n : 1); r->n = x->n;
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
@@ -178,6 +183,7 @@ void db_to_bi(bigint *r, const dbig *x)
         }
         if (have) par_memcpy(r->l + lo + prev, g_bounce[d][b ^ 1], prevm);
     }
+    pthread_mutex_unlock(&g_bounce_mx);
 }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
 __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
