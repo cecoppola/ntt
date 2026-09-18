@@ -9,7 +9,7 @@
 #include "mem.h"
 
 bs_stats bs_st;
-int bs_seed_terms = 512;
+int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
 int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU schoolbook tier below this many limbs; 0 = never (WP4: the device batch tier is faster at any size, and the pools are device memory) */
 int bs_verbose = 0;
 
