@@ -97,6 +97,7 @@ int main(int argc, char **argv)
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
     int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0;   /* WP5: the reciprocal and division on device-resident numbers */
     newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
+    if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
     if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
@@ -121,9 +122,8 @@ int main(int argc, char **argv)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    if (newton_dev) rns_release_staging();       /* 64 GB of pinned memory the device path does not use */
+    if (newton_dev) rns_release_staging();       /* 64 GB of pinned memory the device path does not use (binary: 10dP needed it until here) */
     if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
-    if (newton_dev && !bi_decimal) rns_ensure_staging();   /* dc's tiers need it (registration ~ seconds, outside dm) */
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     /* X's residues now, so X can go as soon as dc has copied it into its level pool */
     uint64_t Xres[T1_NQ];
     for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
+    if (newton_dev && !bi_decimal) rns_ensure_staging();   /* dc's tiers need the staging (re-created here, counted in "other") */
     t = mem_now();
     char *digits;
     if (bi_decimal) {                          /* WP2: the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
