@@ -23,6 +23,7 @@
 #include "todec.h"
 #include "verify.h"
 #include "mem.h"
+#include "dbig.h"
 #include "ntt.h"
 #include <math.h>
 
@@ -119,7 +120,7 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
-    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
+    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);

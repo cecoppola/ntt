@@ -19,8 +19,27 @@ static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ
 static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
 
 __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
+/* quarter blocks come from per-device free lists by size class (hipMalloc costs ~0.06 s/GB and the Newton
+ * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
+static struct { uint64_t *p[64]; int n; } g_free[DB_NQ][40];
+static size_t g_pool_bytes;
+static uint64_t *q_alloc(int d, int lq)
+{
+    if (g_free[d][lq].n) return g_free[d][lq].p[--g_free[d][lq].n];
+    g_pool_bytes += ((size_t)8 << lq);
+    return (uint64_t *)mem_dev_alloc(d, (size_t)8 << lq);
+}
+static void q_free(int d, int lq, uint64_t *p)
+{
+    if (g_free[d][lq].n < 64) g_free[d][lq].p[g_free[d][lq].n++] = p; else { mem_dev_free(p); g_pool_bytes -= ((size_t)8 << lq); }
+}
+void db_release_pools(void)
+{
+    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) { while (g_free[d][l].n) { mem_dev_free(g_free[d][l].p[--g_free[d][l].n]); g_pool_bytes -= ((size_t)8 << l); } }
+}
+size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
-void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]); memset(x, 0, sizeof *x); }
+void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->lq, x->q[d]); memset(x, 0, sizeof *x); }
 void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
@@ -28,7 +47,7 @@ void db_reserve(dbig *x, size_t limbs)
     size_t qc = 1 << 10; int lq = 10;
     while (qc * DB_NQ < limbs) { qc <<= 1; lq++; }
     dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc; y.lq = lq;
-    for (int d = 0; d < DB_NQ; d++) y.q[d] = (uint64_t *)mem_dev_alloc(d, qc * 8);
+    for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, lq);
     if (getenv("DBIG_WARM")) {                             /* touch every 2 MiB page of each quarter from every other device */
         for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
             HIP_CHECK(hipSetDevice(c));
@@ -48,7 +67,7 @@ void db_reserve(dbig *x, size_t limbs)
         }
         y.n = n;
     }
-    for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]);
+    for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->lq, x->q[d]);
     *x = y;
 }
 void db_from_bi(dbig *x, const bigint *a)
