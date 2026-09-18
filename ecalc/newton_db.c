@@ -28,16 +28,19 @@ static void shrink_db(dbig *r)
     db_to_bi(&h, r); bi_divmod_u64(&d, &h, 16); bi_sub(&h, &h, &d); db_from_bi(r, &h);
     bi_free(&h); bi_free(&d);
 }
+/* is any limb of a below index e nonzero? (a - B^e test when a has e+1 limbs with top 1) */
+static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.n = e; db_norm(&v); return v.n != 0; }
+/* (a << j) <= b, both with the same limb count (rare path: an explicit shift) */
+static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b) { dbig t; db_init(&t); db_shl_limbs(&t, a, j); int le = db_cmp(&t, b) <= 0; db_free(&t); return le; }
 static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
 {
     double t0 = mem_now();
     if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
     size_t nq = Qd->n, j;
-    dbig r = g_r, r2 = g_r2, t1 = g_t1, t2 = g_t2, pw; db_init(&pw);
-    /* the loop's scratch at its final capacity, once: no reallocation inside the loop, and one common quarter
-     * size so shifts and adds between them read locally (RESULTS.md 59) */
-    { size_t top = 2 * k + 8; if (nq + k + 4 > top) top = nq + k + 4;
-      db_reserve(&r, top); db_reserve(&r2, top); db_reserve(&t1, top); db_reserve(&t2, top); db_reserve(&pw, top); db_reserve(mu, top); }
+    dbig r = g_r, r2 = g_r2, t1 = g_t1, t2 = g_t2;
+    /* the loop's scratch at its final capacity, once (no reallocation inside the loop): r and mu k + 2 limbs,
+     * t1 the Q_t r product (nq + k + 2), r2 the r d product (2k + 2), t2 the shifted u (2k + 2) */
+    db_reserve(&r, k + 4); db_reserve(mu, k + 4); db_reserve(&t1, nq + k + 8); db_reserve(&r2, 2 * k + 8); db_reserve(&t2, 2 * k + 8);
     seed_db(&r, Q, &j);
     while (j < k) {
         size_t jn = k;
@@ -48,17 +51,17 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q, in place */
             rns_mul_dist_db(&t1, &qt, &r);                          /* Q_t r */
             if (j <= take) db_shr_limbs(&t2, &t1, take - j); else db_shl_limbs(&t2, &t1, j - take);   /* u ~ B^(2j) */
-            db_set_base_pow(&pw, 2 * j);
-            int neg = db_cmp(&t2, &pw) > 0;
-            if (neg) db_sub(&t1, &t2, &pw); else db_sub(&t1, &pw, &t2);   /* |d| */
+            /* neg: u > B^(2j), i.e. u has 2j+1 limbs and is not exactly B^(2j) */
+            int neg = t2.n > 2 * j + 1 || (t2.n == 2 * j + 1 && (db_top(&t2) > 1 || maxidx_below(&t2, 2 * j)));
+            if (neg) db_sub_pow(&t1, &t2, 2 * j); else db_pow_sub(&t1, 2 * j, &t2);   /* |d| */
             rns_mul_dist_db(&r2, &r, &t1);                          /* r |d| */
             db_shr_limbs(&t1, &r2, j);                              /* |corr| */
             int converged = t1.n <= j + 1;
-            db_shl_limbs(&t2, &r, j);                               /* r << 64 j */
-            if (neg) {
-                if (db_cmp(&t2, &t1) <= 0) { newton_st.overshoots++; shrink_db(&r); continue; }
-                db_sub(&r2, &t2, &t1);
-            } else db_add(&r2, &t2, &t1);
+            if (neg) {                                              /* r' = (r << j) - corr; overshoot if that would be <= 0 */
+                size_t rn = r.n + j; int over = rn < t1.n || (rn == t1.n && shifted_cmp_le(&r, j, &t1));
+                if (over) { newton_st.overshoots++; shrink_db(&r); continue; }
+                db_sub_shifted(&r2, &r, j, &t1);
+            } else db_add_shifted(&r2, &r, j, &t1);
             if (converged) db_copy(&r, &r2); else db_shr_limbs(&r, &r2, j);
             if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9);
             if (!converged) { newton_st.repeats++; continue; }
@@ -70,7 +73,6 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
     }
     if (j > k) { db_shr_limbs(&t2, &r, j - k); dbig sw = r; r = t2; t2 = sw; }
     db_copy(mu, &r);
-    db_free(&pw);
     g_r = r; g_r2 = r2; g_t1 = t1; g_t2 = t2;
     newton_st.t_recip += mem_now() - t0;
     if (getenv("RNS_VERBOSE")) {
@@ -89,6 +91,7 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
     db_free(&Qd); db_free(&mud);
 }
 /* X = floor(A / Q), R = A - X Q; mu_opt: a reciprocal of Q with >= k + 1 limbs (host) */
+int newton_db_free_inputs = 0;                       /* NEWTON_DEVICE_FREE=1: release the host A and Q once they are on device */
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     double t0 = mem_now();
@@ -97,6 +100,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     size_t nq = Q->n, na = A->n, k = na - nq + 1;
     dbig Ad, Qd, mu = g_mu, t = g_t, xq = g_xq, Xd, Rd, one, tmp; db_init(&Ad); db_init(&Qd); db_init(&Xd); db_init(&Rd); db_init(&one); db_init(&tmp);
     db_from_bi(&Ad, A); db_from_bi(&Qd, Q);
+    if (newton_db_free_inputs) { bi_free((bigint *)A); bi_free((bigint *)Q); }   /* the caller keeps only residues of them */
     if (mu_opt && mu_opt->n >= k + 1) { bigint mh; bi_init(&mh); bi_shr(&mh, mu_opt, 64 * (mu_opt->n - (k + 1))); db_from_bi(&mu, &mh); bi_free(&mh); }
     else recip_db(&mu, &Qd, Q, k);
     /* X = ((A >> (nq-1)) mu) >> (k + 1) */
