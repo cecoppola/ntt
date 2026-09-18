@@ -97,7 +97,7 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
     db_free(&Qd);
 }
 /* X = floor(A / Q), R = A - X Q; mu_opt: a reciprocal of Q with >= k + 1 limbs (host) */
-int newton_db_free_inputs = 0;                       /* NEWTON_DEVICE_FREE=1: release the host A once it is in the staging */
+int newton_db_free_inputs = 0;                       /* the host A shrinks to its remainder window once its top is on device */
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     double t0 = mem_now();
@@ -119,6 +119,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     const uint64_t *a = A->l;
     { dbig Ah; db_init(&Ah); bigint hv = { (uint64_t *)(A->l + (nq - 1)), na - (nq - 1), 0 };
       db_from_bi(&Ah, &hv);
+      if (newton_db_free_inputs) { bigint *Am = (bigint *)A; uint64_t *s = (uint64_t *)realloc(Am->l, (nq + 2) * 8); if (s) { Am->l = s; Am->cap = nq + 2; } a = A->l; }   /* the host A shrinks to its window (its n stays: only limbs < nq + 2 are read below) */
       rns_mul_dist_db(&t, &Ah, &mu);
       db_free(&Ah); }
     db_shr_limbs(&Xd, &t, k + 1);
