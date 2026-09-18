@@ -2426,3 +2426,12 @@ deeper split above.
   **`t_newton` 658 checks in both bases; e to 10⁹ byte-identical in both
   bases with the Newton phase on device.** Timing: pending the allocator fix
   (fresh `hipMalloc` per temporary dominated: 1 s per 17 GB number).
+- **4 × 10¹⁰ binary with the dm phase on device — VERIFY OK (2026-09-18):**
+  reciprocal **15.1 s vs 29.7 s** on the host path (the products 7.3 s, the
+  limb passes 3.1 s, allocation 3.7 s), peak RSS 224 GB (host path 246), but
+  the division 26 s vs 11.5 (low-product recursion splitting twice, two
+  17 GB host round trips of μ, a 34 GB temporary allocated). Fixes applied
+  (views for the shifted operands, swaps for the iterate and μ, μ kept on
+  device, full-then-truncate low product, a 3·2ˡ quarter class so decimal's
+  4.44 × 10⁹-limb temporaries take 51 GB instead of 68); re-measurement
+  running in both bases.
