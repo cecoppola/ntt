@@ -435,6 +435,9 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             double dtc = mem_now() - tc;
             if (bytes) { ckpt_level = bs_st.levels; bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; }
             if (bs_verbose || !bytes) printf("bs: checkpoint level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", bs_st.levels, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
+            if (bytes && getenv("BS_CKPT_ABORT") && atoi(getenv("BS_CKPT_ABORT")) == bs_st.levels) {   /* test hook: die here, as a failed run would */
+                printf("bs: BS_CKPT_ABORT: exiting after the level %d checkpoint\n", bs_st.levels); fflush(stdout); _exit(3);
+            }
         }
     }
     if (cur.nd) {
