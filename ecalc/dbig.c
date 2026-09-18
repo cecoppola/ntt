@@ -37,7 +37,6 @@ void db_reserve(dbig *x, size_t limbs)
     }
     if (x->n) {                                           /* keep the contents: quarter-wise DMA through the limb map */
         size_t n = x->n;
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
         for (int d = 0; d < DB_NQ; d++) {
             size_t lo = (size_t)d * y.qc, hi = lo + y.qc; if (hi > n) hi = n;
             for (size_t i = lo; i < hi;) {                 /* the source run containing i */
@@ -53,13 +52,11 @@ void db_reserve(dbig *x, size_t limbs)
 void db_from_bi(dbig *x, const bigint *a)
 {
     db_reserve(x, a->n ? a->n : 1); x->n = a->n;
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
-    for (int d = 0; d < DB_NQ; d++) { size_t lo = (size_t)d * x->qc; if (lo < a->n) { size_t len = a->n - lo < x->qc ? a->n - lo : x->qc; mem_dev_copy_on(d, x->q[d], a->l + lo, len * 8); } }
+    for (int d = 0; d < DB_NQ; d++)                       /* serial: concurrent hipMemcpy with pageable host memory faults (RESULTS.md 59) */ { size_t lo = (size_t)d * x->qc; if (lo < a->n) { size_t len = a->n - lo < x->qc ? a->n - lo : x->qc; mem_dev_copy_on(d, x->q[d], a->l + lo, len * 8); } }
 }
 void db_to_bi(bigint *r, const dbig *x)
 {
     bi_reserve(r, x->n ? x->n : 1); r->n = x->n;
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) { size_t lo = (size_t)d * x->qc; if (lo < x->n) { size_t len = x->n - lo < x->qc ? x->n - lo : x->qc; mem_dev_copy_on(d, r->l + lo, x->q[d], len * 8); } }
 }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
