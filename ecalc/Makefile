@@ -6,12 +6,12 @@ HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o ntt_dist.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o ntt_dist.o mn.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
 
-ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h
+ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h
 	$(HIPC) $< -x none $(OBJS) -o $@
 
 ntt.o: ntt.c ntt.h modarith.h
@@ -43,6 +43,9 @@ comm_sim4.o: comm_sim4.c comm.h
 	$(HIPC) -c $< -o $@
 
 comm_tcp.o: comm_tcp.c comm.h
+	$(HIPC) -c $< -o $@
+
+mn.o: mn.c mn.h comm.h ntt_dist.h ntt.h mem.h
 	$(HIPC) -c $< -o $@
 
 comm_xgmi.o: comm_xgmi.c comm.h
