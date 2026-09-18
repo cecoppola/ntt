@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **Final variance, everything on device** (§62b): decimal 4 × 10¹⁰ phases **119.2 ± 1.7 s**, wall 142.0 ± 1.8, peak host 160 GB; binary 166.6 ± 1.4 / 189.1 ± 1.6 / 233 GB; ten runs VERIFY OK. Top bs levels on the device tier adopted as default (`BS_DEV_MDEV=1`, §64) after the coalescing block pool; the decimal CPU-phase spread of §62 is gone with the host pools. §63 and the HTML report updated | RESULTS.md §62b–64 |
 | 2026-09-18 | **WP7 (checkpoint/restart) done** (§61, `results/WP7.md`): per-level bs snapshots, restart bit-identical at 10⁸/10⁹ both bases (15/15 cmp), ≈ 1 GB/s; merged | RESULTS.md §61 |
 | 2026-09-18 | **WP5 single-node cell complete** (§59): device bigint, distributed tier on real APUs, dm on device-resident numbers — 4 × 10¹⁰ verified in both bases: binary phases 187 → 175 s, decimal 138 → 130.5 s; dm-phase host RSS 155 → 80 GB. Multi-node pieces (TCP correctness) with the WP6 agent | RESULTS.md §59 |
 | 2026-09-18 | Autonomous 8-hour session started: WP5 step 3 (device-resident dm) being brought to 4 × 10¹⁰; WP6 (TCP multi-node correctness) and WP7 (bs checkpoint/restart) delegated to agents in isolated worktrees (`results/WP6.md`, `results/WP7.md`), to be merged and recorded here; then five-run variance per base on the final code and the final comparison | — |
@@ -841,27 +842,27 @@ Total ≈ 25 days of sessions, WP1–WP4 ≈ 12 of them; WP6's performance half 
 ### Status at the end of the autonomous session (2026-09-18) and what remains
 
 Done and recorded: WP1 (§50–54), WP2 (falls out of WP1), WP3 (§55–56),
-WP4 (§58), WP5 single-node cell (§59), WP7 (§61), WP8 (§57); five-run
-variance on the final code (§62); the final single-node comparison and the
-design-choice table (§60, §63). Everything is on `wp1-decimal-base`;
+WP4 (§58), WP5 single-node cell (§59), WP6 (2-node TCP correctness, §65),
+WP7 (§61), WP8 (§57); the top bs levels on the device tier (§64, default);
+five-run variance on the final code (§62b); the final single-node
+comparison and the design-choice table (§60, §63). Final: decimal
+119.2 ± 1.7 s of phases / 142 s wall / 160 GB; binary 166.6 / 189 / 233 GB;
+paper design 229 / 291 / 248 GB. Everything is on `wp1-decimal-base`;
 `main` still holds the Phase 4 reproduction. The decision on the base and
 on merging is the user's (§63 carries the recommendation).
 
 Remaining, in the order I would do them:
-1. **WP6 on the fabric-less cluster**: `t_dist` over TCP on 2–3 nodes
-   (the code and launcher exist; blocked only by node availability during
-   the session — see `results/WP6.md` when the agent gets nodes).
-2. **bs top levels through the device tier** — built (`BS_DEV_MDEV=1`,
-   RESULTS §64): levels 23–24 3× faster and the bs peak host RSS 232 →
-   160 GB, but the block allocator fragments without buddy coalescing and
-   the division then runs out of memory; add coalescing (≈ half a day) and
-   switch it on.
-3. **3·2³⁰-point planes for the device tier** (exact-size pools, +53 GB of
+1. **3·2³⁰-point planes for the device tier** (exact-size pools, +53 GB of
    device memory that the device-resident dm phase now leaves free):
-   removes the second split of the 4.4 × 10⁹-limb products (≈ −25 s
+   removes the second split of the 4.4 × 10⁹-limb products (≈ −20 s
    decimal; ≈ 1 day).
-4. Decimal's CPU-phase variance (§62): a per-phase thread policy
-   (measurement in `results/bind.out`).
+2. Binary's peak host memory (233 GB) is now set by dc's host-resident
+   tiers; if binary is chosen, dc on device numbers is the same move as the
+   dm phase (§59) — irrelevant for decimal.
+3. Decimal's CPU-phase variance: closed by §62b (the page-fault cost went
+   with the host pools; wall sd 1.3 %). `results/bind.out` kept.
+4. WP6 beyond correctness: the TCP path is for verification only; the
+   fabric numbers (§63) come from the xGMI measurements and the sizing.
 5. The multi-node pipeline itself (rank-partitioned tree, slab pipelining,
    per-rank checkpoints) on the target system.
 
