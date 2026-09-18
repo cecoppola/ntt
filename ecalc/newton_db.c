@@ -87,12 +87,14 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
     }
     db_free(&g_r); db_free(&g_r2); db_free(&g_t1); db_free(&g_t2);          /* back to the free lists: the division reuses the blocks */
 }
-static dbig g_mu_kept; static size_t g_mu_k;               /* the prewarm's mu stays on device for the division */
+static dbig g_mu_kept; static size_t g_mu_k;               /* the prewarm's mu stays on device for the division ... */
+static const uint64_t *g_mu_ql; static size_t g_mu_qn; static uint64_t g_mu_qtop;   /* ... tagged with the Q it belongs to */
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
     db_from_bi(&Qd, Q);
     recip_db(&g_mu_kept, &Qd, Q, k); g_mu_k = k;
+    g_mu_ql = Q->l; g_mu_qn = Q->n; g_mu_qtop = Q->n ? Q->l[Q->n - 1] : 0;
     db_to_bi(mu, &g_mu_kept);                                    /* the host copy too (tests, the host path's fallback) */
     db_free(&Qd);
 }
@@ -107,7 +109,9 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     dbig Qd, mu = g_mu, t = g_t, xq = g_xq, Xd, one; db_init(&Qd); db_init(&Xd); db_init(&one);
     double ta = mem_now();
     db_from_bi(&Qd, Q);
-    if (g_mu_kept.n >= k + 1) {                                  /* the prewarm's mu, on device: use its top k+1 limbs */
+    int kept_ok = g_mu_kept.n >= k + 1 && g_mu_ql == Q->l && g_mu_qn == Q->n && g_mu_qtop == Q->l[Q->n - 1];
+    if (g_mu_kept.n && !kept_ok) db_free(&g_mu_kept);           /* a reciprocal of some other Q */
+    if (kept_ok) {                                               /* the prewarm's mu, on device: use its top k+1 limbs */
         if (g_mu_kept.n == k + 1) { dbig sw = mu; mu = g_mu_kept; g_mu_kept = sw; }
         else db_shr_limbs(&mu, &g_mu_kept, g_mu_kept.n - (k + 1));
         db_free(&g_mu_kept);
