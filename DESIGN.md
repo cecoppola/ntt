@@ -471,9 +471,12 @@ primes of the products in its own region (instead of one prime for every
 product), reading its own node's memory, CRT on its own four planes, results
 in place. No operand staging, no peer traffic. The CPU never touches those
 pools (the P₁Q₂ + P₂ add and the normalisation are done in the CRT kernel;
-copies in and out are DMA). The mdev-tier levels and the dm-phase numbers
-are still host-resident until WP5 puts the 4-APU distributed transform on
-device-resident, block-cyclic numbers.
+copies in and out are DMA). The mdev-tier levels of bs are still host-resident; the dm phase now runs on
+device-resident numbers (WP5: `dbig` quarters, the four-APU distributed
+transform as the product tier, the bs regions recycled as the dm phase's
+block pool — RESULTS §59). The numbers are contiguous at every interface;
+the transform is block-cyclic inside (the one-all-to-all inverse to
+contiguous ownership does not exist, §59).
 
 ---
 

@@ -725,4 +725,20 @@ in this document:
    same N in microseconds. The Phase 4 comparison with the paper used the
    wall figure; the per-phase sum was 229 s against the paper's 285.7
    (RESULTS §40, correction).
+11. **The dm phase on device-resident numbers (Phase 7 WP5, RESULTS
+   §59).** A big integer in four quarters, one per APU; every limb
+   operation a kernel per APU over its quarter with a parallel-prefix carry
+   (chunk flags scanned on the host, one thread per 16 limbs — a
+   one-thread-per-chunk chain is latency-bound at ~100 GB/s and an atomic
+   ripple is pathological on long carry chains); products through the
+   four-APU four-step transform (block-cyclic inside, contiguous at the
+   interfaces, one push kernel per all-to-all over the three links); the
+   Newton loop with views and pointer swaps instead of temporaries; all
+   blocks from a buddy allocator fed by the binary-splitting regions once
+   bs is done (hipMalloc is 0.057 s/GB whatever the block size). Host
+   memory reached only through a pinned bounce buffer (pageable hipMemcpy:
+   3 GB/s; pinned: 50 GB/s) and never concurrently from several threads
+   (it faults). Result at 4 × 10¹⁰: reciprocal 2.5× faster than the
+   host-resident one, dm-phase host RSS 155 → 80 GB, phases binary 187 →
+   175 s, decimal 138 → 130.5 s.
 
