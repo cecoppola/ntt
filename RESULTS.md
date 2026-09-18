@@ -2398,5 +2398,14 @@ deeper split above.
   inverse over the four APUs (3 all-to-alls), a local transpose so each
   column run is contiguous, CRT with one stripe per run into a local
   buffer, runs scattered to their limb positions, run spills merged on the
-  host in limb order. Correctness and time against GMP and the mdev tier:
-  pending.
+  host in limb order. **Correct** (GMP-checked products from 1.1 × 10⁶ to
+  2.7 × 10⁸ limbs in both bases, equal to `rns_mul`'s at every size).
+- **Time at 2³¹ points (four primes, 2 forward + 1 inverse each):** the
+  transform parts per rank after tuning — local passes 0.33 s, fused
+  LDS-tiled twiddle+pack/unpack 0.12 s (was 0.36 in three passes),
+  all-to-all 0.18 s (was 0.45 with `hipMemcpyPeerAsync` and with three push
+  kernels on separate streams; one kernel serving the three links at once
+  runs them concurrently), CRT 0.08 s — **0.75 s against the mdev tier's
+  1.30 s** for the same product. The tier's wall time (4.7 s) is host
+  staging: `memcpy` of 16 GB operands in and the result out. That is what
+  step 3 (device-resident numbers) removes.
