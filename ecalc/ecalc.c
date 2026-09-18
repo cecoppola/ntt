@@ -93,6 +93,9 @@ int main(int argc, char **argv)
                bs_st.n_ckpt, bs_st.ckpt_bytes * 1e-9, bs_st.t_ckpt, bs_st.n_ckpt ? bs_st.t_ckpt / bs_st.n_ckpt : 0.0, bs_st.restart_level, bs_st.t_restart);
         RESULT("bs_ckpt", "s", bs_st.t_ckpt); RESULT("bs_ckpt_bytes", "GB", bs_st.ckpt_bytes * 1e-9);
     }
+    { size_t hc = 0; uint64_t *hp = binsplit_take_hpool(&hc);   /* the bs host pool (already faulted) becomes A's buffer */
+      size_t need = bi_decimal ? (d + 17) / 18 + P.n + 4 : 0;
+      if (hp && need && hc >= need) { A.l = hp; A.cap = hc; A.n = 0; } else if (hp) free(hp); }
     binsplit_free_pools();
 
     /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
