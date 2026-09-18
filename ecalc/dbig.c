@@ -126,6 +126,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
         k_gather_shift<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
         HIP_CHECK(hipDeviceSynchronize());
     }
@@ -149,6 +150,7 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
         if (!chunks[d]) continue;
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
         k_addsub<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], va, a->n, vb, b->n, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipDeviceSynchronize());
     }
@@ -165,6 +167,7 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
     for (int d = 0; d < DB_NQ; d++) {
         if (!chunks[d]) continue;
         HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
         k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub, bi_decimal);
         HIP_CHECK(hipDeviceSynchronize());
     }
@@ -183,6 +186,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         flags_reserve(d, 1);
         HIP_CHECK(hipSetDevice(d));
         unsigned blocks = nblk(hi - lo);
+#pragma omp critical
         k_maxidx<<<blocks, 256>>>(a->q[d], b ? b->q[d] : 0, hi - lo, g_red[d]);
         HIP_CHECK(hipMemcpy(g_hred + d * 228 * 8, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
         size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (g_hred[d * 228 * 8 + i] > m) m = g_hred[d * 228 * 8 + i];
