@@ -2435,3 +2435,31 @@ deeper split above.
   device, full-then-truncate low product, a 3·2ˡ quarter class so decimal's
   4.44 × 10⁹-limb temporaries take 51 GB instead of 68); re-measurement
   running in both bases.
+
+## 60. Design choices, as measured (draft, 2026-09-18; final numbers at the end of the session)
+
+Every choice below was decided on a measurement in this record; the section
+lists the choice, the alternative, the number that decided it, and where
+the number is.
+
+| choice | alternative | measured | where |
+|---|---|---|---|
+| FP64 Barrett modmul (engine 1, 4 × 52-bit primes) | Shoup / Montgomery, 62-bit primes (engine 2) | Shoup 2–3 % slower in a real pass; engine 2 2.2× slower end to end | §44, §47 |
+| register-blocked 7-stage b16 body | the paper's tile kernel | +19 % / +15 % at 2³¹, bit-identical | §43 |
+| striped GPU CRT into registered host memory | 192-thread CPU Garner | 0.5 s vs 0.8–1.5 s per 2³¹; batch tier 1.2 → 4.3 Gpt/s | §39, §43 |
+| correction-form Newton, k-anchored doubling | the paper's truncated step; power-of-two doubling | anchoring: 291 → 271 s binary, decimal recip 112 → 45 s | §53, §54 |
+| decimal limbs (base 10¹⁸) as the pipeline's base | binary limbs + 10dP + radix conversion | 10dP + dc 92 → 8 s; bs +38 % (seeds, since tuned), peak +47 GB; multi-node: no distributed dc | §50–54, §58 |
+| level pools as four device regions, subtree ownership, locality-aware batch tier | prime-per-device stripes from spread host pools | own-node reads 3.8 TB/s vs 93 GB/s remote; batch tier 44.8 → 27.5 s | §55, §56 |
+| the CPU kept out of device pools (adds/normalisation in the CRT kernel, DMA copies) | CPU passes over device memory | RMW/latency-bound passes 3–20× slower; CPU streaming stores 8 GB/s | §56 |
+| pools pregrown at init; bs regions donated to the dm phase | allocate per phase | hipMalloc 0.057 s/GB (flat), 0.02 s/GB to free | §59 |
+| 3·2ᵏ transform lengths, prime set with 3·2⁴⁴ ∣ p−1 | 2ᵏ only | removes the power-of-two crossings; decimal −7 s at 4 × 10¹⁰, no memory change (the top products are split) | §57 |
+| seed span 256, no CPU schoolbook tier, Barrett mul_1 for the decimal seeds | 512, school tier at ≤ 160 limbs | seeds 9.9 → 6.4 s (binary), 15.8 → 9.7 (decimal); the school tier cost 42–59 s once the pools were device memory | §58 |
+| block-cyclic limb ownership inside the transform (3 all-to-alls per product), contiguous numbers at the interfaces | contiguous ownership throughout | no single-all-to-all inverse exists (modelled and run); 3 + gather/scatter vs 6 | §51, §59 |
+| all-to-all as one push kernel over the three links | hipMemcpyPeerAsync; one kernel per link on separate streams | 0.45 → 0.18 s per 2³¹ product's 12 exchanges | §59 |
+| dm phase on device-resident numbers (dbig + distributed tier) | host-resident numbers, prime-per-device mdev with staging copies | reciprocal 29.7 → 12.0 s at 4 × 10¹⁰; division on par (the two split products dominate) | §59 |
+| dbig carries by chunk flags + a parallel-prefix kernel; spills as a sparse operand | one thread per chunk; atomic ripple | latency-bound at ~100 GB/s; pathological on long carry chains | §59 |
+
+Open trade-offs (sized, not chosen): a 3·2³⁰-point plane pool for the
+dist tier (+40 GB of device pools, removes the second split of the
+4.4 × 10⁹-limb products, ≈ −5 s per such product); Karatsuba instead of the
+2×2 split in the device tier (¾ of the work, one more temporary).
