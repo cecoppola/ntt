@@ -27,7 +27,7 @@ typedef unsigned __int128 u128;
 #define B10 BI_B10
 int bi_decimal = 0;
 void bi_set_decimal(int on) { bi_decimal = on ? 1 : 0; }
-int bi_env_base(void) { const char *e = getenv("LIMB_BASE"); if (e && atoi(e) == 10) bi_decimal = 1; return bi_decimal; }
+int bi_env_base(void) { const char *e = getenv("LIMB_BASE"); if (e) bi_decimal = atoi(e) == 10; return bi_decimal; }   /* the tests default to binary (bit operations); ecalc defaults to decimal */
 static void need_binary(const char *what) { if (bi_decimal) { fprintf(stderr, "bigint: %s is a bit operation; not valid in the decimal base\n", what); abort(); } }
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)

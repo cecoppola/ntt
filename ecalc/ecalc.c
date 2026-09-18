@@ -61,8 +61,9 @@ int main(int argc, char **argv)
     if (getenv("PW_FUSE")) ntt_pw_fuse = atoi(getenv("PW_FUSE"));
     if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));
     setvbuf(stdout, NULL, _IOLBF, 0);
+    if (!getenv("LIMB_BASE")) bi_set_decimal(1);      /* the decimal base is the pipeline's default (RESULTS.md 63, 67); LIMB_BASE=2 reproduces the paper's binary limbs */
     bi_env_base();
-    printf("== ecalc: e to %lu digits%s ==\n", d, bi_decimal ? " (decimal limbs, base 10^18)" : "");
+    printf("== ecalc: e to %lu digits%s ==\n", d, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)");
     meta_line("ecalc");
     double t00 = mem_now(), t;
     rns_init(pool_log);
