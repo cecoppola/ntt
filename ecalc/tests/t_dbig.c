@@ -37,6 +37,22 @@ int main(int argc, char **argv)
         VERIFY(db_top(&x) == (a.n ? a.l[a.n - 1] : 0), "top n %zu", n);
     }
     for (size_t k = 0; k < 5000; k += 1237) { bi_set_base_pow(&r, k); db_set_base_pow(&z, k); VERIFY(same(&z, &r, "base pow"), "base_pow %zu", k); }
+    /* the block pool under a bs-like pattern: a donated region per device, then many numbers of mixed sizes
+     * allocated and freed in waves; with coalescing the pool must never need more than the donation */
+    {
+        size_t region = (size_t)1 << 30; void *reg[DB_NQ];
+        for (int d = 0; d < DB_NQ; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&reg[d], region)); db_donate(d, reg[d], region); }
+        size_t before = db_pool_bytes(); dbig w[24]; for (int i = 0; i < 24; i++) db_init(&w[i]);
+        rng_t r2 = { 5 };
+        for (int wave = 0; wave < 6; wave++) {
+            for (int i = 0; i < 24; i++) { size_t n = (rng_next(&r2) % (1u << 24)) + 1000; db_reserve(&w[i], n); w[i].n = n; }
+            for (int i = wave % 2; i < 24; i += 2) db_free(&w[i]);
+        }
+        for (int i = 0; i < 24; i++) db_free(&w[i]);
+        VERIFY(db_pool_bytes() == before, "block pool grew beyond the donation: +%.2f GB (extents %d)", (db_pool_bytes() - before) / 1e9, db_pool_extents(0));
+        VERIFY(db_pool_extents(0) == 1, "free extents coalesced back to one per device (have %d)", db_pool_extents(0));
+        db_release_pools();
+    }
     /* products on device operands against rns_mul (which is GMP-checked in t_mul) */
     if (argc > 2) {
         int big = !strcmp(argv[2], "big");                    /* include the products that split (> 2^31 points) */
