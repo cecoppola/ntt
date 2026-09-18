@@ -916,10 +916,13 @@ kernel as the single-node pipeline does today, with the host-side numbers
 shared inside the process. `size` counts processes; the communicator is
 layered — the intra-process exchange over xGMI plus an inter-process
 exchange (TCP on aac6, RDMA on the target) — so a transform's all-to-all
-is hierarchical from the start (M7's structure). For testing on one aac6
-node a process takes `g` = 1, 2 or 4 APUs (`COMM_APUS`), so one node runs
-4 processes of 1 APU, 2 of 2, or 1 of 4 (= today); 2 nodes × 4 APUs when
-two nodes are free. The alternative — one process per APU, as first written
+is hierarchical from the start (M7's structure). g stays 4 in the code
+(primes = devices = quarters = regions everywhere); for testing on one
+aac6 node **several node-processes share the node**, each driving all
+four APUs with a smaller memory share (as WP6's 8-rank `t_dist` did): sizes
+1, 2, 4 on one node exercise every partitioned code path (timing
+meaningless, as on the 1 GbE fabric anyway), and 2 × 1 on two real nodes
+when free. The alternative — one process per APU, as first written
 here and in the paper — was rejected: it gives up the shared host memory
 and puts sockets between the APUs of one node. The paper's §10 is to be
 corrected accordingly. The numbers are verified at every size against the
@@ -927,7 +930,7 @@ single-process run. Order and estimates (sessions of work):
 
 | step | what | test on aac6 | est. |
 |---|---|---|---|
-| M1 | **The driver as a process of a rank group**: `ecalc` reads `COMM_RANK/COMM_SIZE/COMM_HOSTS/COMM_APUS` (process rank, process count, hosts, APUs per process), uses APUs [g·(rank mod (4/g)), …) of its node, opens the layered communicator (xGMI inside, TCP between; `size` 1 = today's driver, bit for bit); every phase timer and RESULT line per process; rank 0 prints the summary; `wp6run.sh` generalised to g | `size` 1 = baseline; 4 × 1 APU and 2 × 2 APUs on one node; 2 × 4 on two nodes | 2 d |
+| M1 | **The driver as a node-process**: `ecalc` reads `COMM_RANK/COMM_SIZE/COMM_HOSTS/COMM_PORT` (node rank, node count), opens the inter-node communicator (one TCP mesh per APU thread at global rank 4·node + d, so the distributed tier's rank space is 4·size; `size` 1 = today's driver, bit for bit); a distributed-product self-test across all ranks at start; until M3, rank 0 computes and the others wait at the barrier; per-process META/RESULT lines, rank 0 the summary; `wp6run.sh` → `mnrun.sh <processes> [nodes]` | `size` 1 = baseline; 2 and 4 processes on one node; 2 on two nodes | 2 d |
 | M2 | **Leaf partition by term range**: process r owns terms [N r/size, N (r+1)/size); seeds and the process-local levels exactly as today on its g APUs (the g regions with subtree ownership, as now); each process ends with P_r, Q_r as device numbers | P_r, Q_r vs the single-rank tree's node at that level (GMP-checked at 10⁶–10⁸; residues at 10¹⁰) | 2 d |
 | M3 | **Distributed top levels**: level ℓ above the rank-local ones pairs rank groups of 2^ℓ; the pair's product through `rns_mul_dist` over the group's communicator (the four-APU tier with `size` = the group) with block-cyclic inside and the numbers contiguous per rank (each rank holds a contiguous 1/size of every number); the tree add and normalisation as today | `size` 2, 4: the final P, Q equal to the single-rank run's (identical digits) | 3 d |
 | M4 | **Distributed division**: the reciprocal and the division on the whole-machine number (the dbig quarters become `size` shares), the window and corrections rank 0's | digits identical at `size` 1, 2, 4, 8 | 2 d |
