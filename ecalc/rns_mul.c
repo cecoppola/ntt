@@ -61,6 +61,9 @@ int rns_init(int pool_log)
     bi_env_base();
     crt_init();
     size_t bytes = (size_t)8 << g_pool_log;
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;   /* Phase 8 (PLAN 18, O1): one thread per device */
+    mem_par_init = par;
+#pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         double tt, tr;
         HIP_CHECK(hipSetDevice(d));
@@ -71,14 +74,19 @@ int rns_init(int pool_log)
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
         dpool_get(&D[d].da, d, bytes);           /* pregrow to 2^pool_log (paper) */
         dpool_get(&D[d].db, d, bytes);
+        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, pools 2 x %.1f GiB, %d cpus\n",
+                                          d, bytes / 1073741824.0, tt, tr, bytes / 1073741824.0, D[d].ncpu);
+    }
+    mem_par_init = 0;
+    for (int d = 0; d < g_nd; d++) {
+        HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d) {
             hipError_t e = hipDeviceEnablePeerAccess(c, 0);
             if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "peer access %d->%d: %s\n", d, c, hipGetErrorString(e)); exit(1); }
             (void)hipGetLastError();
         }
-        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, pools 2 x %.1f GiB, %d cpus\n",
-                                          d, bytes / 1073741824.0, tt, tr, bytes / 1073741824.0, D[d].ncpu);
     }
+    HIP_CHECK(hipSetDevice(0));
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }

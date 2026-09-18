@@ -14,6 +14,7 @@
 #ifndef EC_BINSPLIT_H
 #define EC_BINSPLIT_H
 #include "bigint.h"
+struct dbig_s;
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +36,10 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);                  /* WP3: allocate the region pools at init (outside the timed phase) */
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
-extern int bs_donate_pools;                          /* release the two level pools */
+extern int bs_donate_pools;
+extern int bs_dev_mdev;
+extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;   /* Phase 8 overlap */
+extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;             /* Phase 8: P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
 #ifdef __cplusplus

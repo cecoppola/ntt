@@ -22,6 +22,7 @@ int  mem_numa_node_of_device(int dev);              /* node index (== dev here) 
 void mem_pin_to_node(int node);                     /* sched_setaffinity to the node's cpulist */
 void mem_unpin(void);                               /* back to all cpus */
 int  mem_ncpus_node(int node);
+extern int mem_par_init;                 /* Phase 8: parallel per-device init (touch teams sized to the node) */
 
 /* pinned staging on the device's NUMA node; bytes is rounded up to 2 MiB */
 void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s);

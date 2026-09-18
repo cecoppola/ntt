@@ -39,6 +39,9 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k);
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt);
 void newton_db_free_scratch(void);
 extern int newton_db_free_inputs;
+extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on device (owned by the caller) */
+extern int newton_db_mu_host;                        /* 0: no host copy of mu after the reciprocal */
+extern void (*newton_db_x_hook)(bigint *X, void *arg); extern void *newton_db_x_arg;   /* X on the host before the low product */
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
 void newton_recip(bigint *mu, const bigint *Q, size_t k);

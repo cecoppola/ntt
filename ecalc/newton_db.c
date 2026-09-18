@@ -89,14 +89,19 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
 }
 static dbig g_mu_kept; static size_t g_mu_k;               /* the prewarm's mu stays on device for the division ... */
 static const uint64_t *g_mu_ql; static size_t g_mu_qn; static uint64_t g_mu_qtop;   /* ... tagged with the Q it belongs to */
+/* Phase 8 overlap: Q may already be on device (the top level of bs left it there); the caller owns it.
+ * mu_host: 0 = no host copy of mu (the division takes the kept device mu) */
+dbig *newton_db_Qd = 0; int newton_db_mu_host = 1;
+void (*newton_db_x_hook)(bigint *X, void *arg) = 0; void *newton_db_x_arg = 0;   /* called with X on the host before the low product */
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
-    db_from_bi(&Qd, Q);
+    if (newton_db_Qd) Qd = *newton_db_Qd; else db_from_bi(&Qd, Q);
     recip_db(&g_mu_kept, &Qd, Q, k); g_mu_k = k;
     g_mu_ql = Q->l; g_mu_qn = Q->n; g_mu_qtop = Q->n ? Q->l[Q->n - 1] : 0;
-    db_to_bi(mu, &g_mu_kept);                                    /* the host copy too (tests, the host path's fallback) */
-    db_free(&Qd);
+    if (newton_db_mu_host) db_to_bi(mu, &g_mu_kept);             /* the host copy too (tests, the host path's fallback) */
+    else { mu->n = 0; }
+    if (!newton_db_Qd) db_free(&Qd);
 }
 /* X = floor(A / Q), R = A - X Q; mu_opt: a reciprocal of Q with >= k + 1 limbs (host) */
 int newton_db_free_inputs = 0;                       /* the host A shrinks to its remainder window once its top is on device */
@@ -108,7 +113,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     size_t nq = Q->n, na = A->n, k = na - nq + 1;
     dbig Qd, mu = g_mu, t = g_t, xq = g_xq, Xd, one; db_init(&Qd); db_init(&Xd); db_init(&one);
     double ta = mem_now();
-    db_from_bi(&Qd, Q);
+    if (newton_db_Qd) Qd = *newton_db_Qd; else db_from_bi(&Qd, Q);
     int kept_ok = g_mu_kept.n >= k + 1 && g_mu_ql == Q->l && g_mu_qn == Q->n && g_mu_qtop == Q->l[Q->n - 1];
     if (g_mu_kept.n && !kept_ok) db_free(&g_mu_kept);           /* a reciprocal of some other Q */
     if (kept_ok) {                                               /* the prewarm's mu, on device: use its top k+1 limbs */
@@ -132,11 +137,12 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path).  The low
      * product: the grid with the pieces above w skipped (NEWTON_LOWPROD=0: the full X Q truncated) */
     size_t w = nq + 2;
+    if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }   /* Phase 8: the CPU formats X while the low product runs */
     if (getenv("NEWTON_LOWPROD") && !atoi(getenv("NEWTON_LOWPROD"))) { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
     else rns_mul_low_db(&xq, &Xd, &Qd, w);
     double td = mem_now();
     bigint hxq; bi_init(&hxq); db_to_bi(&hxq, &xq);
-    db_to_bi(X, &Xd);
+    if (!newton_db_x_hook) db_to_bi(X, &Xd);
     double te = mem_now();
     bi_reserve(R, w + 1); bi_reserve(&hxq, w + 1);
     {
@@ -163,7 +169,8 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     R->n = w; bi_norm(R);
     bi_free(&hxq);
     g_mu = mu; g_t = t; g_xq = xq;
-    db_free(&Qd); db_free(&Xd); db_free(&one);
+    if (!newton_db_Qd) db_free(&Qd);
+    db_free(&Xd); db_free(&one);
     if (getenv("RNS_VERBOSE")) printf("divmod(db) %.2f s: Q in + mu %.2f, A mu + shift %.2f, low product %.2f, copies out %.2f, window + corrections %.2f; pools %.1f GB\n",
                                       mem_now() - t0, tb - ta, tc - tb, td - tc, te - td, mem_now() - te, db_pool_bytes() / 1e9);
     newton_st.t_div += mem_now() - t0;
