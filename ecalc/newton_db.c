@@ -34,6 +34,10 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
     if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
     size_t nq = Qd->n, j;
     dbig r = g_r, r2 = g_r2, t1 = g_t1, t2 = g_t2, pw; db_init(&pw);
+    /* the loop's scratch at its final capacity, once: no reallocation inside the loop, and one common quarter
+     * size so shifts and adds between them read locally (RESULTS.md 59) */
+    { size_t top = 2 * k + 8; if (nq + k + 4 > top) top = nq + k + 4;
+      db_reserve(&r, top); db_reserve(&r2, top); db_reserve(&t1, top); db_reserve(&t2, top); db_reserve(&pw, top); db_reserve(mu, top); }
     seed_db(&r, Q, &j);
     while (j < k) {
         size_t jn = k;
