@@ -56,6 +56,7 @@ static inline void comm_destroy(comm *c) { c->ops->destroy(c); }
 
 comm *comm_local_create(void);                 /* size 1 */
 comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
+comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 comm *comm_tcp_create(void);                   /* WP6: TCP sockets, one process per rank; COMM_RANK/SIZE/HOSTS/PORT */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
