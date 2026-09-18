@@ -2759,3 +2759,17 @@ minute earlier) costs the binary run's fresh 35 GB host allocation in
 page faults; it does not appear in the variance series, which run one
 base at a time.
 
+## 67. Decision: the decimal final version is the code (2026-09-18)
+
+The user's decision on the data of §63/§66: the decimal pipeline —
+limbs of 10¹⁸, the top bs levels and the Newton division on device
+numbers through the four-APU distributed transform, 3·2ᵏ lengths, the
+grid split — is the default configuration and `main` (fast-forward from
+`wp1-decimal-base`). Reference figures, 4 × 10¹⁰ digits on one MI300A
+node, three runs (`results/variance_b10_final/`): **phases 108.9 ± 1.1 s
+(bs 61.1, 10dP 1.7, dm 37.0, T1 3.7, dc 4.2, T2 1.2), wall 133.7 ±
+1.8 s, peak host RSS 159.9 GB**, device pools 128 GiB staging + 117 GB
+regions; digits identical to `results/e_4e10.out`. `LIMB_BASE=2` runs
+the paper's binary-limb pipeline on the same code (167.1 / 191.5 /
+233 GB); the Phase 4 reproduction as accepted is tag `phase4-accepted`.
+

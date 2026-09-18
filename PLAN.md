@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **Decision (user): the decimal final version is the code** — `LIMB_BASE=10` default in `ecalc`, `wp1-decimal-base` merged to `main` (fast-forward), Phase 4 stays at tag `phase4-accepted`; write-up as a paper (`~/xetex/e40b.tex`) before further development | RESULTS.md §67 |
 | 2026-09-18 | **Session close**: low product as the grid with the pieces above the window skipped (decimal dm 37.9 → 37.0); pool bug found by `t_newton` and fixed (extents never merge across hipMalloc regions); full test set green in both bases; final three-run series decimal **108.9 ± 1.1** phases / 133.7 wall / 160 GB, binary 167.1 / 191.5 / 233 GB | RESULTS.md §66 |
 | 2026-09-18 | **Grid split of the device products** (§66): pieces chosen for the fewest plane points instead of halving the longer operand — decimal 4 × 10¹⁰ dm 48.9 → 37.9 s, phases **108.3 ± 1.0**, wall 132.0 ± 3.1, 160 GB; binary 165.4 / 187.9 / 233 GB; digits identical, three runs each. The 3·2³⁰ plane pool is no longer needed. WP6 merged (§65). `NEWTON_DEVICE` and `BS_DEV_MDEV` default on; all six switch combinations verified at 10⁹ | RESULTS.md §65–66 |
 | 2026-09-18 | **Final variance, everything on device** (§62b): decimal 4 × 10¹⁰ phases **119.2 ± 1.7 s**, wall 142.0 ± 1.8, peak host 160 GB; binary 166.6 ± 1.4 / 189.1 ± 1.6 / 233 GB; ten runs VERIFY OK. Top bs levels on the device tier adopted as default (`BS_DEV_MDEV=1`, §64) after the coalescing block pool; the decimal CPU-phase spread of §62 is gone with the host pools. §63 and the HTML report updated | RESULTS.md §62b–64 |
@@ -840,6 +841,15 @@ radix-3 prime search (WP4; may need a new set); the all-to-all efficiency
 (WP6 on the target system; on aac6 only correctness can be tested — 1 GbE, no RDMA).
 
 Total ≈ 25 days of sessions, WP1–WP4 ≈ 12 of them; WP6's performance half moves to the target system; WP8 only if chosen after WP7.
+
+### Decision (2026-09-18)
+
+The user chose the **decimal final version** (§63: 108.9 s of phases,
+133.7 s wall, 160 GB) as the code: it is the default configuration on
+`main`; the binary pipeline stays reachable with `LIMB_BASE=2` for
+reproducing the paper; the Phase 4 acceptance is tag `phase4-accepted`.
+Next: the paper (`~/xetex/e40b.tex`), then the multi-node work on the
+target system.
 
 ### Status at the end of the autonomous session (2026-09-18) and what remains
 
