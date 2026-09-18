@@ -17,6 +17,8 @@ extern "C" {
 typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; int lq; } dbig;   /* off: a view's first limb (cap 0: not owning) */
 void db_init(dbig *x);
 void db_free(dbig *x);
+void db_release_pools(void);                          /* free the cached quarter blocks (end of a phase) */
+size_t db_pool_bytes(void);
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
 void db_from_bi(dbig *x, const bigint *a);            /* DMA in */
 void db_to_bi(bigint *r, const dbig *x);              /* DMA out */
