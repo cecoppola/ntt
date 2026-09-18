@@ -33,6 +33,10 @@ int  db_cmp(const dbig *a, const dbig *b);
 void db_add(dbig *r, const dbig *a, const dbig *b);
 void db_sub(dbig *r, const dbig *a, const dbig *b);   /* a >= b */
 void db_add_spills(dbig *r, const dbig *a, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, size_t n);   /* r = a + spills (rns_dist) */
+void db_add_shifted(dbig *r, const dbig *a, size_t k, const dbig *b);   /* r = (a << k limbs) + b */
+void db_sub_shifted(dbig *r, const dbig *a, size_t k, const dbig *b);   /* r = (a << k limbs) - b, >= 0 */
+void db_sub_pow(dbig *r, const dbig *a, size_t e);   /* r = a - B^e */
+void db_pow_sub(dbig *r, size_t e, const dbig *a);   /* r = B^e - a */
 void db_shl_limbs(dbig *r, const dbig *a, size_t k);
 void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */

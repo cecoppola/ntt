@@ -16,9 +16,9 @@ static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t)
 static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
 static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
 
-struct dv { const uint64_t *q[DB_NQ]; size_t qc, off; int lq; };
-__device__ static inline uint64_t dget(const struct dv v, size_t i) { size_t g = v.off + i; return v.q[g >> v.lq][g & (v.qc - 1)]; }
-static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; v.off = a->off; return v; }
+struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; int lq; };            /* shift: the operand as a << shift limbs */
+__device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift; return v.q[g >> v.lq][g & (v.qc - 1)]; }
+static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; v.off = a->off; v.shift = 0; return v; }
 static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
 
 __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
@@ -102,9 +102,10 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * touches its own limbs).  cout/prop per chunk for the host scan across chunks and quarters.
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
-struct sparse { const uint64_t *sp[4]; size_t R, rows, C; };
+struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val; };   /* single: one limb val at pos */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
+    if (s.single) return i == s.pos ? s.val : 0;
     /* i = R j + (r+1) rows + t, t < 4: j = i / R, rem = i - R j; r+1 = rem / rows if rem % rows < 4 */
     size_t j = i / s.R, rem = i - j * s.R, q = rem / s.rows, t = rem - q * s.rows;
     if (t >= 4) return 0;
@@ -217,17 +218,16 @@ void db_shr_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, (long)k, 
 void db_shl_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, -(long)k, a->n ? a->n + k : 0); }
 void db_copy(dbig *r, const dbig *a) { if (r == a) return; shift_into(r, a, 0, a->n); }
 
-static void addsub_core(dbig *r, const dbig *a, const dbig *b, const struct sparse *spx, size_t bn, int sub)
+static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub)
 {
     double t0 = tnow(); db_st.n_addsub++;
-    size_t n = a->n > bn ? a->n : bn; if (!sub) n++;
+    size_t an = a->n ? a->n + ashift : 0, n = an > bn ? an : bn; if (!sub) n++;
     /* in place is fine when the layouts match (a thread only touches its own limbs); otherwise a temporary */
-    dbig tmp; int inplace = (r == a || r == b), same = (r == a && !r->off) || (b && r == b && !r->off && a->qc == b->qc);
+    dbig tmp; int inplace = (r == a || r == b), same = (r == a && !r->off && !ashift) || (b && r == b && !r->off && a->qc == b->qc && !ashift);
     dbig *out = r;
     if (inplace && !same) { db_init(&tmp); out = &tmp; }
     need_owner(out, "add/sub"); db_reserve(out, n ? n : 1);
-    if (inplace && same && out->cap < n) { fprintf(stderr, "dbig: in-place add outgrew the operand\n"); abort(); }
-    struct dv va = view_of(a), vb = b ? view_of(b) : va; struct sparse sp; memset(&sp, 0, sizeof sp); if (spx) sp = *spx;
+    struct dv va = view_of(a), vb = b ? view_of(b) : va; va.shift = ashift; struct sparse sp; memset(&sp, 0, sizeof sp); if (spx) sp = *spx;
     size_t chunks[DB_NQ], lo[DB_NQ], hi[DB_NQ];
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
@@ -236,7 +236,7 @@ static void addsub_core(dbig *r, const dbig *a, const dbig *b, const struct spar
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, a->n, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipDeviceSynchronize());
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
@@ -260,13 +260,44 @@ static void addsub_core(dbig *r, const dbig *a, const dbig *b, const struct spar
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
     db_st.t_addsub += tnow() - t0;
 }
-void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, b, 0, b->n, 0); }
-void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, b, 0, b->n, 1); }
+void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 0); }
+void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 1); }
+void db_add_shifted(dbig *r, const dbig *a, size_t k, const dbig *b) { addsub_core(r, a, k, b, 0, b->n, 0); }   /* r = (a << k) + b */
+void db_sub_shifted(dbig *r, const dbig *a, size_t k, const dbig *b) { addsub_core(r, a, k, b, 0, b->n, 1); }   /* r = (a << k) - b */
 /* r = a + the sparse spill set (4 limbs at R j + (q+1) rows for q = 0..3, j < C), n limbs of result */
 void db_add_spills(dbig *r, const dbig *a, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, size_t n)
 {
-    struct sparse s; for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C;
-    addsub_core(r, a, 0, &s, n, 0);
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C;
+    addsub_core(r, a, 0, 0, &s, n, 0);
+}
+/* r = a - B^e  (a >= B^e) */
+void db_sub_pow(dbig *r, const dbig *a, size_t e)
+{
+    struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = e; s.val = 1;
+    addsub_core(r, a, 0, 0, &s, e + 1, 1);
+}
+/* r = B^e - a  (0 < a < B^e): the limb-wise complement (B-1-a[i], i < e) plus one */
+__global__ void k_complement(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, uint64_t top)
+{
+    size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < hi; i += stride) out[i - lo] = top - (i < an ? dget(a, i) : 0);
+}
+void db_pow_sub(dbig *r, size_t e, const dbig *a)
+{
+    if (r == a) { fprintf(stderr, "db_pow_sub: in place\n"); abort(); }
+    need_owner(r, "pow_sub"); db_reserve(r, e + 1);
+    struct dv va = view_of(a); uint64_t top = bi_decimal ? B10 - 1 : ~0ULL;
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+    for (int d = 0; d < DB_NQ; d++) {
+        size_t lo, hi; qrange(r, d, e, &lo, &hi); if (lo >= hi) continue;
+        HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
+        k_complement<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, va, a->n, top);
+        HIP_CHECK(hipDeviceSynchronize());
+    }
+    r->n = e; db_norm(r);
+    struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = 0; s.val = 1;
+    addsub_core(r, r, 0, 0, &s, 1, 0);
 }
 
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
