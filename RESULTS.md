@@ -2533,11 +2533,13 @@ that are global synchronisation points anyway, is the restart design.
 All ten runs VERIFY OK. The GPU-heavy phases are stable (dm 1–2 %, dc
 1 %); decimal's spread is entirely in the CPU-side phases (10dP 3.5–10 s,
 T1 4.6–9.9, T2 1.2–3.5, "other" 6.9–13.4) — the same code in binary varies
-less because those phases are shorter relative to the rest. The likely
-cause is thread placement across the four NUMA nodes for the CPU passes
-(residues, the decimal 10dP shift, the T2 windows); pinning was measured
-harmful for the seeds (§56) but a per-phase policy has not been tried.
-Best observed decimal run: 129.6 s of phases, 157.0 s wall.
+less because those phases are shorter relative to the rest. Not thread
+placement: at 10¹⁰ the same phases are stable to 0.1 s with no binding,
+`OMP_PROC_BIND=spread` and `close` alike (`results/bind.out`). The spread
+appears only with ≈ 230 GB of resident host memory, i.e. page management
+(THP compaction / NUMA balancing) on the CPU-side passes — a system
+setting to look at (DESIGN §6.3), not a code change. Best observed
+decimal run: 129.6 s of phases, 157.0 s wall.
 
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
 
