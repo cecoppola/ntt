@@ -1,0 +1,50 @@
+== job 20649 nodes=ppac-pl1-s24-[16,26] nn=2 start 2026-09-18 02:59:35
+--- t_comm on 2 nodes (02:59:35)
+t_comm: rank 0 of 8: VERIFY OK (0 bad)
+t_comm: rank 6 of 8: VERIFY OK (0 bad)
+t_comm: rank 1 of 8: VERIFY OK (0 bad)
+t_comm: rank 2 of 8: VERIFY OK (0 bad)
+t_comm: rank 3 of 8: VERIFY OK (0 bad)
+t_comm: rank 4 of 8: VERIFY OK (0 bad)
+t_comm: rank 5 of 8: VERIFY OK (0 bad)
+t_comm: rank 7 of 8: VERIFY OK (0 bad)
+--- exit 0 (02:59:42)
+--- t_dist 20 on 2 nodes (02:59:47)
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-18T02:59:48
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-18T02:59:48
+t_dist: rank 0 of 8 over TCP
+t_dist: rank 1 of 8 over TCP
+t_dist: rank 2 of 8 over TCP
+t_dist: rank 3 of 8 over TCP
+t_dist: rank 5 of 8 over TCP
+t_dist: rank 6 of 8 over TCP
+t_dist: rank 4 of 8 over TCP
+t_dist: rank 7 of 8 over TCP
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+--- exit 0 (02:59:50)
+--- t_dist 24 on 2 nodes (02:59:55)
+srun: error: Slurm job 20649 has expired
+srun: Check SLURM_JOB_ID environment variable. Expired or invalid job 20649
+--- exit 1 (02:59:55)
+== done 2026-09-18 03:00:00
