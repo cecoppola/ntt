@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reproducing e to 40 Billion Digits</title>
+<style>
+:root{--bg:#f6f4ee;--ink:#1d1c19;--mute:#6b675c;--rule:#d8d3c6;--accent:#8a3b12;--good:#2e6b3a;--bad:#a12e2e;--card:#fbfaf6;--code:#efece3}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#18171a;--ink:#e8e4da;--mute:#a19b8d;--rule:#3a373c;--accent:#e08a55;--good:#7fc48c;--bad:#e07a7a;--card:#201f23;--code:#26252a}}
+:root[data-theme="dark"]{--bg:#18171a;--ink:#e8e4da;--mute:#a19b8d;--rule:#3a373c;--accent:#e08a55;--good:#7fc48c;--bad:#e07a7a;--card:#201f23;--code:#26252a}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Serif",Georgia,serif;margin:0;padding-block:40px 80px;padding-inline:20px}
+main{max-width:860px;margin:0 auto}
+h1{font:600 34px/1.15 "IBM Plex Sans",system-ui,sans-serif;letter-spacing:-.01em;margin:0 0 6px;text-wrap:balance}
+h2{font:600 21px/1.25 "IBM Plex Sans",system-ui,sans-serif;margin:44px 0 12px;padding-top:14px;border-top:1px solid var(--rule)}
+h3{font:600 16px/1.3 "IBM Plex Sans",system-ui,sans-serif;margin:24px 0 8px}
+p{max-width:66ch;margin:0 0 12px}
+.sub{color:var(--mute);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif;margin-bottom:28px}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:22px 0 8px}
+.tile{background:var(--card);border:1px solid var(--rule);padding:14px 16px}
+.tile b{display:block;font:600 26px/1.1 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)}
+.tile span{font:13px/1.4 "IBM Plex Sans",system-ui,sans-serif;color:var(--mute)}
+table{border-collapse:collapse;width:100%;font:14px/1.45 "IBM Plex Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;margin:10px 0 18px}
+.tw{overflow-x:auto}
+th{text-align:left;font-weight:600;border-bottom:2px solid var(--rule);padding:6px 10px 6px 0;color:var(--mute);font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+td{border-bottom:1px solid var(--rule);padding:6px 10px 6px 0;vertical-align:top}
+td.n,th.n{text-align:right;padding-right:0;padding-left:10px}
+.ok{color:var(--good);font-weight:600}.no{color:var(--bad);font-weight:600}
+code,.mono{font:13px/1.5 "IBM Plex Mono",ui-monospace,monospace;background:var(--code);padding:1px 5px;border-radius:3px}
+ol,ul{max-width:70ch;padding-left:22px}li{margin-bottom:6px}
+.note{border-left:3px solid var(--accent);padding:2px 0 2px 14px;color:var(--mute);font-size:15px;max-width:66ch}
+</style>
+</head>
+<body>
+<main>
+<h1>Reproducing “e to 40 Billion Digits on a Single MI300A Node”</h1>
+<div class="sub">Campaign report · aac6, 4 × AMD Instinct MI300A (ppac-pl1-s24-16), ROCm 7.2.4 · 12–18 September 2026 · full record in <code>~/ntt/RESULTS.md</code> §17–48 and <code>PLAN.md</code></div>
+
+<p>The paper describes a pipeline — binary splitting of Σ 1/k!, a Newton division, and a top-down radix conversion, all on a four-prime FP64 NTT with one prime per APU — and reports 40 billion digits in 285.7 s on 256 GB. This campaign built that pipeline from the paper's description, verified it, matched its time and memory, then tested the design choices the paper left open.</p>
+
+<div class="verdict">
+<div class="tile"><b>4 × 10¹⁰</b><span>digits computed and verified — tier-1 residues, tier-2 windows, and a digit-string residue check the paper does not have</span></div>
+<div class="tile"><b>289 ± 3.5 s</b><span>five identical runs, vs the paper's 285.7 s (1.01×); bs, 10dP and dc faster than the paper, dm 1.04–1.09×</span></div>
+<div class="tile"><b>248 GB</b><span>peak host RSS vs the paper's 256 GB, plus the same 128 GiB of device pools</span></div>
+<div class="tile"><b>5 × 10¹⁰</b><span>digits beyond the paper — verified — at 442 s and 375 GB: this pipeline's ceiling on one node</span></div>
+</div>
+
+<h2>Method</h2>
+<p>Six phases, each gated by measurement (PLAN.md §5–11). Phase 1 tested every hardware claim the paper's numbers rest on with nine microbenchmarks; Phase 1b took the thirteen discrepancies that surfaced and decided each as the paper's, ours, or a configuration difference; Phase 3 built the pipeline as nine modules, each with a GMP-checked test before the next module used it; Phase 4 ran the acceptance ladder; Phase 5 ran the alternatives.</p>
+<p>The reference for correctness was GMP itself: e to 10⁹ digits generated once (442 s, SHA-256 per 10⁶-digit block), so every run to 10⁹ is compared byte for byte. Above that, the paper's own tier-1 identity T·(P+Q) ≡ X·Q + R modulo eight 62-bit primes, plus the digit string reduced modulo the same primes against X, plus 50-digit windows.</p>
+
+<h2>What the paper does not say, and what was wrong in it</h2>
+<ol>
+<li><b>The FP64 modmul is exact only with one lazy operand.</b> Two corrections each way are exact for lazy × canonical; both operands lazy in [0, 2p) fail 0.4–21 % of the time on the two larger primes (exact on P2, P3). The paper's kernels would produce silent wrong answers without a fold before every multiply. Butterfly adds must be integer: u + v with u, v < 2p does not fit a double.</li>
+<li><b>Its modmul rate (775 Gmodmul/s/APU) is not reproducible</b> under any variant — ILP, occupancy, rounding; we measure 1 330–1 370. Its implied 2.1 GHz is a datasheet number: under 64-bit VALU load the shader clock is 1.47–1.60 GHz, a per-APU power limit (550 W cap).</li>
+<li><b>It omits the top-level split.</b> With 64-bit limbs, 10^d·P is a 4.16 × 10⁹-limb product — a 2³²-point transform — but its pools are 2³¹. Only a Karatsuba over halves at 2³¹ pools is consistent with its 128 GB and 12.6 s. Built that way; the unsplit 2³² alternative was measured (2.6× faster for that one product) and rejected: it needs 256 GiB of pools.</li>
+<li><b>Its truncated Newton step is not sound as printed</b> — dropping low limbs of r² perturbs the correction by exactly the precision the step computes. A correction-form iteration with a self-correcting doubling, the high half of A·μ and a low product for X·Q reach its dm time.</li>
+<li><b>NUMA placement is the difference between 3.7 TB/s and 67 GB/s</b> for registered host staging (55×); its “+20 s for interleave” is this mechanism. The first-touch threads must be pinned to the APU's node.</li>
+</ol>
+
+<h2>Final numbers against Table I (A22)</h2>
+<div class="tw"><table>
+<tr><th>phase</th><th class="n">ours, 5 runs (s)</th><th class="n">paper (s)</th><th class="n">ratio</th><th>within 15 %?</th></tr>
+<tr><td>bs — binary splitting</td><td class="n">74.7 ± 1.6</td><td class="n">112.2</td><td class="n">0.67</td><td class="ok">yes, faster</td></tr>
+<tr><td>10dP — 10^d·(P+Q)</td><td class="n">9.3 ± 0.3</td><td class="n">12.6</td><td class="n">0.74</td><td class="ok">yes, faster</td></tr>
+<tr><td>dm — Newton division</td><td class="n">51.1 ± 1.4</td><td class="n">46.8</td><td class="n">1.09</td><td class="ok">yes</td></tr>
+<tr><td>T1 — verification</td><td class="n">5.2</td><td class="n">~3</td><td class="n">—</td><td>—</td></tr>
+<tr><td>dc — radix conversion</td><td class="n">82.5 ± 0.2</td><td class="n">110.3</td><td class="n">0.75</td><td class="ok">yes, faster</td></tr>
+<tr><td><b>total, paper's accounting</b></td><td class="n"><b>289.1 ± 3.5</b></td><td class="n"><b>285.7</b></td><td class="n"><b>1.01</b></td><td class="ok">yes</td></tr>
+<tr><td>peak host RSS</td><td class="n">248 GB</td><td class="n">256 GB</td><td class="n">0.97</td><td class="ok">yes</td></tr>
+</table></div>
+<p class="note">Run-to-run spread is 1–3 % on the real phases; per-APU clocks match within ±1 %. The best single run was 281 s. Substitutions from the paper, all documented: a kernel store instead of D2H memcpy; a striped, coalesced GPU CRT for both the batch and the single-product tiers; Karatsuba over halves above 2³¹ points; the Newton formulation above; the digit string residue-checked.</p>
+
+<h2>Where the time went, and how it moved</h2>
+<div class="tw"><table>
+<tr><th>run</th><th class="n">total (s)</th><th>what changed</th></tr>
+<tr><td>first verified run</td><td class="n">1 021</td><td>faithful build; dc's middle levels through per-piece divisions, unseeded divisor cache, CPU CRT everywhere</td></tr>
+<tr><td>pass 1</td><td class="n">456</td><td>batched division for the middle dc levels; seeded prewarm; coalesced striped GPU CRT (batch 1.2 → 4.3 Gpoint/s), GPU CRT for mdev</td></tr>
+<tr><td>pass 2</td><td class="n">337</td><td>parallel limb shifts and copies (the reciprocal's 17–50 GB shifts were serial); dc scratch sized once</td></tr>
+<tr><td>pass 3</td><td class="n">317</td><td>T2 residue in 18-digit steps; correction-form Newton</td></tr>
+<tr><td>exceptions closed</td><td class="n">281–290</td><td>high half of A·μ, low product for X·Q; lazy allocation and scratch release in dc (peak 355 → 248 GB)</td></tr>
+</table></div>
+
+<h2>Phase 5 — the alternatives, measured</h2>
+<div class="tw"><table>
+<tr><th>question</th><th>result</th><th>decision</th></tr>
+<tr><td>2 × 62-bit primes, 45-bit points (2.81 vs 2.0 bits per plane byte) — the ~/ntt design's premise</td><td>built and verified to 4 × 10¹⁰: 641 s vs 291, peak 282 vs 248 GB. In a host-resident pipeline the numbers live as 64-bit limbs; planes are transient, so plane density does not set the ceiling and more products split</td><td class="no">engine 1 stays; the density argument applies only to memory-resident planes</td></tr>
+<tr><td>2³² pools without the split (Q1 ii)</td><td>2.68 s vs 6.88 s for the one 2³²-point product, but 256 GiB of pools</td><td class="no">does not fit beside the host footprint</td></tr>
+<tr><td>register-blocked 7-stage pass body</td><td>+19 % forward, +15 % inverse at 2³¹, bit-identical; ≈ 2 % on the run</td><td class="ok">kept as a switch</td></tr>
+<tr><td>radix-4 stages</td><td>no measurable gain once rows are in registers</td><td>answered</td></tr>
+<tr><td>Shoup integer modmul (b1 pass)</td><td>2–3 % slower, bit-identical; Montgomery chains 25 % below FP64 Barrett</td><td class="no">FP64 stays</td></tr>
+<tr><td>b = 48 with 3 primes</td><td>same bytes and the same transform work as 4 × 64-bit (arithmetic)</td><td class="no">dropped</td></tr>
+<tr><td>four-step corner turn vs one prime per device</td><td>same device memory per product under any distribution; corner turns only add fabric time</td><td class="no">dropped; multi-node path only</td></tr>
+<tr><td>run-to-run variance</td><td>1.2 % on the total, 0.3–3 % per phase, no per-APU asymmetry</td><td>baseline</td></tr>
+</table></div>
+
+<h2>Beyond the paper</h2>
+<p><b>5 × 10¹⁰ digits, verified</b> (residues, and windows at 10¹⁰, 2 × 10¹⁰, 3 × 10¹⁰ and 4 × 10¹⁰ from the 40-billion run): 442 s, 375 GB host + 128 GiB pools = 503 GB of the node's 512 GB. That is the ceiling of this pipeline here; 6 × 10¹⁰ does not fit. The ~/ntt goal of 10¹¹ digits on one node needs a memory-resident-plane design, not a denser prime set — the ALGORITHM.md estimate of 3.4 bytes per digit is now corrected to 6.2 bytes per digit plus 192 GB fixed for this structure.</p>
+
+<h2>Hardware facts established on the way</h2>
+<ul>
+<li>Tiled FP64 NTT: 1.20 TB/s effective at 2³¹ (paper 1.08); 1.44 TB/s with the register-blocked body. LDS is the limiter: 36 TB/s at 3 blocks/CU, 19 at 1.</li>
+<li>CPU CRT is compute-bound at 0.4–0.65 s per 2³⁰ whatever the placement; the GPU CRT does 2³¹ in ≈ 0.5 s including the copy back.</li>
+<li>A kernel storing into registered host memory is 31× the D2H blit (1.8 TB/s vs 58 GB/s); registered memory on the wrong NUMA node reads at 67 GB/s.</li>
+<li>Launch 3.4 µs, launch + sync 11 µs; streams overlap fully; no TLB cliff on a 64 GiB pinned arena.</li>
+<li>xGMI: 91 GB/s per direction per pair from one copy kernel, 1.2 µs remote round trip; two of the six pairs share a link bidirectionally.</li>
+<li>FP64 Barrett modmul 1 340 Gmodmul/s per APU, insensitive to occupancy; FP32 FMA 86 TFLOP/s at the measured 1.5 GHz.</li>
+</ul>
+
+<h2>Phase 7 — the single-node cell of the 2048-node design (16–18 September)</h2>
+<p>After the reproduction, the pipeline was rebuilt into what the multi-node design needs, with every change measured and kept as a switch. Same node, same verification, five runs each; the paper-design column is the accepted reproduction above.</p>
+<div class="tw"><table>
+<tr><th>4 × 10¹⁰ digits, one node</th><th class="n">paper's design (Phase 4)</th><th class="n">binary, final</th><th class="n">decimal, final</th></tr>
+<tr><td>binary splitting (bs)</td><td class="n">74.7</td><td class="n">46.0</td><td class="n">63.1</td></tr>
+<tr><td>10dP</td><td class="n">9.3</td><td class="n">10.7</td><td class="n">5.1</td></tr>
+<tr><td>Newton division (dm)</td><td class="n">51.1</td><td class="n">31.7</td><td class="n">56.6</td></tr>
+<tr><td>radix conversion (dc)</td><td class="n">82.5</td><td class="n">80.7</td><td class="n">5.5</td></tr>
+<tr><td>T1 + T2</td><td class="n">7.3</td><td class="n">5.4</td><td class="n">9.4</td></tr>
+<tr><td><b>phases</b></td><td class="n"><b>229 s</b></td><td class="n"><b>174.5 s</b></td><td class="n"><b>139.6 s</b> (best 129.6)</td></tr>
+<tr><td>wall incl. init</td><td class="n">291 ± 3.5</td><td class="n">209 ± 1.6</td><td class="n">170 ± 12</td></tr>
+<tr><td>peak host RSS</td><td class="n">248 GB</td><td class="n">233 GB</td><td class="n">233 GB</td></tr>
+<tr><td>digits verified</td><td class="n"><span class="ok">T1, T2, 10⁹ identical</span></td><td class="n"><span class="ok">same</span></td><td class="n"><span class="ok">same</span></td></tr>
+</table></div>
+<p>What changed, each on a measurement (RESULTS §50–63): the limb base as a run-time switch (decimal limbs of 10¹⁸ remove 10dP and the radix conversion — 92 s → 11 s); the Newton doubling anchored at the target precision (a binary gain too: 291 → 271 s); the binary-splitting level pools as four device regions with subtree ownership and a locality-aware batch tier (an APU reads its own node at 3.8 TB/s, another's at 93 GB/s; the tier went 44.8 → 27.5 s); transform lengths 3·2ᵏ on a prime set with 3·2⁴⁴ | p−1; the seed span halved; and the Newton phase on device-resident numbers through a four-APU distributed transform (reciprocal 29.7 → 12.4 s, dm-phase host memory 155 → 80 GB). A 45-second linear scan hidden in the wall clock since Phase 3 was found and removed; the paper comparison is restated with both figures.</p>
+<p><b>Multi-node.</b> The distributed four-step transform is verified on the four real APUs over xGMI (one push kernel drives the three links; 3 all-to-alls per product), block-cyclic inside and contiguous at the interfaces — a single-all-to-all inverse to contiguous ownership was shown not to exist. Sized from the measured cell for 2048 nodes at 2 × 400 Gb/s per APU: ≈ 12.5 s of exposed network per 4 × 10¹⁰-per-node with decimal limbs, ≈ 25 s with binary (a distributed radix conversion). A TCP communicator exists for correctness runs on this fabric-less cluster (pending two free nodes). Per-level checkpoint/restart of the binary splitting is implemented and bit-identical on restart up to 10¹⁰.</p>
+<p><b>Recommendation</b> (the decision is the user's): the decimal base — 20 % faster on one node at the same memory, no distributed radix conversion, digits are the limbs — with a 3·2³⁰-point plane pool as the next item (removes the deeper split of decimal's top products, ≈ −25 s); binary kept as the switch for reproducing the paper.</p>
+
+<h2>Artefacts</h2>
+<p><code>~/ntt/ecalc/</code> — the pipeline (13 modules, 10 GMP-checked tests, <code>accept.sh</code>, <code>variance.sh</code>); <code>~/ntt/bench/</code> — 28 microbenchmarks in seven groups with the <code>./suite</code> runner; <code>ref/e_1000000000.txt</code>; <code>results/e_4e10.out</code> (40 GB) and <code>results/e_5e10.out</code> (50 GB); <code>RESULTS.md</code> §17–48; <code>ALGORITHM.md</code> Part 6 (corrections).</p>
+</main>
+
+</body>
+</html>
