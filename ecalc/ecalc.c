@@ -135,14 +135,13 @@ int main(int argc, char **argv)
     double t00 = mem_now(), t;
     rns_init(pool_log);
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
-    if (mn_size_ > 1) {
-        if (!mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-        if (mn_rank() != 0) {                       /* until M3 the partitioned tree does not exist: rank 0 computes, the others hold the meshes open */
-            printf("mn: node %d waits for node 0\n", mn_rank());
-            mn_barrier(); mn_finalize(); rns_shutdown(); return 0;
-        }
-    }
+    if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     unsigned long N = e_terms(d);
+    if (mn_size_ > 1) {                             /* M2: this process's term range; the top combine is on node 0 until M3 */
+        unsigned __int128 nn = N;
+        bs_a0 = 1 + (unsigned long)(nn * mn_rank() / mn_size_); bs_b1 = 1 + (unsigned long)(nn * (mn_rank() + 1) / mn_size_);
+        printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
+    }
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
     RESULT("init", "s", t_init);
@@ -157,7 +156,7 @@ int main(int argc, char **argv)
     g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
-    int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev;               /* the overlapped flow needs the device top levels and the device dm */
+    int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
@@ -166,6 +165,25 @@ int main(int argc, char **argv)
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
+    if (mn_size_ > 1) {                             /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
+        comm *c = mn_comm(0); double tg = mem_now();
+        if (mn_rank() != 0) {
+            uint64_t n2[2] = { P.n, Q.n }; comm_send(c, 0, n2, 16); comm_send(c, 0, P.l, P.n * 8); comm_send(c, 0, Q.l, Q.n * 8);
+            printf("mn: node %d sent P (%zu limbs), Q (%zu limbs) to node 0 in %.2f s; waiting\n", mn_rank(), P.n, Q.n, mem_now() - tg);
+            mn_barrier(); mn_finalize(); rns_shutdown(); return 0;
+        }
+        bigint Pr, Qr, tt; bi_init(&Pr); bi_init(&Qr); bi_init(&tt);
+        for (int r = 1; r < mn_size_; r++) {
+            uint64_t n2[2]; comm_recv(c, 4 * r, n2, 16);
+            bi_reserve(&Pr, n2[0] + 1); bi_reserve(&Qr, n2[1] + 1); Pr.n = n2[0]; Qr.n = n2[1];
+            comm_recv(c, 4 * r, Pr.l, Pr.n * 8); comm_recv(c, 4 * r, Qr.l, Qr.n * 8);
+            rns_mul(&tt, &P, &Qr); bi_add(&P, &tt, &Pr);        /* P = P Q_r + P_r,  Q = Q Q_r */
+            rns_mul(&tt, &Q, &Qr); bi_copy(&Q, &tt);
+        }
+        bi_free(&Pr); bi_free(&Qr); bi_free(&tt);
+        printf("mn: node 0 combined %d ranges in %.2f s: P %zu limbs, Q %zu limbs\n", mn_size_, mem_now() - tg, P.n, Q.n);
+        t_bs += mem_now() - tg;
+    }
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */

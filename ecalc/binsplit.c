@@ -129,7 +129,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
-    unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
+    unsigned long S = bs_seed_terms, nterms = bs_b1 ? bs_b1 - bs_a0 : N, nspan = (nterms + S - 1) / S;
     size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
     return 2 * per * nspan;
@@ -324,7 +324,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             if (home >= 0 && r % NR != home % NR) continue;               /* (home < 0: threads not pinned, every thread does everything by rank) */
             size_t lo = r0[r], hi = r0[r + 1];
             for (size_t i = lo + (size_t)rk; i < hi; i += (size_t)cnt) {
-                unsigned long a = 1 + i * S, b = a + S; if (b > N + 1) b = N + 1;
+                unsigned long a = bs_a0 + i * S, b = a + S, bend = bs_b1 ? bs_b1 : N + 1; if (b > bend) b = bend;
                 span(&p, &q, a, b);
                 struct node *nd = &cur.nd[i];
                 nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
@@ -505,6 +505,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     free(cur.nd);
     bs_st.t_total = mem_now() - t0;
 }
+unsigned long bs_a0 = 1, bs_b1 = 0;                                 /* M2: this process's term range [a0, b1) (b1 = 0: all of [1, N+1)) */
 void (*bs_after_seeds_hook)(void *) = 0; void *bs_hook_arg = 0;   /* Phase 8: called once the seeds are in the regions */
 int bs_keep_dev = 0; dbig bs_Pd, bs_Qd;                             /* Phase 8: the top level's P, Q left on device */
 int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */

@@ -39,6 +39,7 @@ void binsplit_free_pools(void);
 extern int bs_donate_pools;
 extern int bs_dev_mdev;
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;   /* Phase 8 overlap */
+extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process computes (b1 = 0: [1, N+1)) */
 extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;             /* Phase 8: P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b);
