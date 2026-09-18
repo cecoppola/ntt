@@ -126,3 +126,56 @@ void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s)
     ntt_inv(p->ctx, x, p->logC, p->rows, s);                                       /* rows: length-C inverse, x C^-1 */
 }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
+
+/* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row
+ * layout of the C x R problem, so the same algorithm as the forward -- local pass on the contiguous index
+ * first -- with inverse roots computes the inverse DFT and lands in the column layout of the C x R
+ * problem: R/size "columns" of C contiguous points each, i.e. this rank holds the contiguous point range
+ * [r n/size, (r+1) n/size) in natural order.  Steps: ntt_inv on the cols columns (length R, bit-reversed
+ * in, natural out, x R^-1) -> twiddle w_n^(-k1 k2), k1 = position (natural), k2 = brev(column) ->
+ * pack/all-to-all/unpack into rows of length C: row k1 of this rank holds, for every k2 in stored
+ * (bit-reversed) order, one value -> ntt_inv on the rows (length C, bit-reversed in, natural out,
+ * x C^-1).  Output: rows x C, row k1 (global) = points [C k1, C k1 + C). */
+__global__ void k_twiddle_t(uint64_t *x, size_t cols, size_t col0, int logR, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    size_t R = (size_t)1 << logR, total = cols * R;
+    size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t jl = t / R, k1 = t % R, k2 = brev((unsigned)(col0 + jl), logC);
+        size_t e = k1 * k2;                                               /* < R C = n */
+        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (((size_t)1 << logC) - 1)], m.p, m.pinv);
+        x[t] = (uint64_t)ec_mm((double)ec_fold(x[t], m.pu), w, m.p, m.pinv);
+    }
+}
+/* columns (cols x R, column-major per column) -> slabs: slab s holds my columns' entries for the rows of rank s */
+__global__ void k_pack_t(const uint64_t *x, uint64_t *sb, size_t rows, size_t cols, int size)
+{
+    size_t R = rows * size, total = cols * R, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t jl = t / R, i = t % R, s = i / rows, il = i % rows; sb[s * (cols * rows) + il * cols + jl] = x[t]; }
+}
+/* slabs -> rows: my row il, stored column position (r cols + jl) */
+__global__ void k_unpack_t(const uint64_t *rb, uint64_t *x, size_t rows, size_t cols, int size)
+{
+    size_t C = cols * size, total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t il = t / C, j = t % C, r = j / cols, jl = j % cols; x[t] = rb[r * (cols * rows) + il * cols + jl]; }
+}
+void dist_inv_t_pre(dist_plan *p, uint64_t *x, hipStream_t s)
+{
+    int size = comm_size(p->cm), r = comm_rank(p->cm);
+    size_t R = (size_t)1 << p->logR;
+    ec_mod m = ec_mod_get(p->prime);
+    ntt_inv(p->ctx, x, p->logR, p->cols, s);                                       /* columns: length-R inverse, natural, x R^-1 */
+    k_twiddle_t<<<nblocks(p->cols * R), 256, 0, s>>>(x, p->cols, (size_t)r * p->cols, p->logR, p->logC, p->twr_i, p->twc_i, m);
+    k_pack_t<<<nblocks(p->cols * R), 256, 0, s>>>(x, p->sbuf, p->rows, p->cols, size);
+    HIP_CHECK(hipStreamSynchronize(s));
+    comm_alltoall(p->cm, p->sbuf, p->rbuf, p->cols * p->rows * 8, s);
+}
+void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s)
+{
+    int size = comm_size(p->cm);
+    size_t C = (size_t)1 << p->logC;
+    comm_wait(p->cm);
+    k_unpack_t<<<nblocks(p->rows * C), 256, 0, s>>>(p->rbuf, x, p->rows, p->cols, size);
+    ntt_inv(p->ctx, x, p->logC, p->rows, s);                                       /* rows: length-C inverse (bit-reversed in), natural, x C^-1 */
+}
+void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_t_pre(p, x, s); dist_inv_t_post(p, x, s); }
