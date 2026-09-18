@@ -22,6 +22,8 @@ extern struct db_stats db_st;                        /* accumulated; the caller 
 void db_release_pools(void);                          /* free the cached quarter blocks and donated regions (end of a phase) */
 void db_donate(int dev, void *p, size_t bytes);      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
+size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
+int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
 void db_from_bi(dbig *x, const bigint *a);            /* DMA in */
 void db_to_bi(bigint *r, const dbig *x);              /* DMA out */
