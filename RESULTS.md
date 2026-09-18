@@ -2700,7 +2700,7 @@ reference) and at 4 × 10¹⁰ in both bases — digits identical to
 | 4 × 10¹⁰ | decimal, §62b | **decimal, grid** | binary, §62b | **binary, grid** |
 |---|---:|---:|---:|---:|
 | bs (mdev tier) | 59.6 (22.0) | 59.7 ± 0.6 (19.1) | 42.4 | 42.7 ± 1.1 |
-| dm (recip / division) | 48.9 (17.6 / 30.3) | **37.9 ± 0.2** (14.8 / 22.4) | 28.3 | 26.5 ± 0.1 |
+| dm (recip / division) | 48.9 (17.6 / 30.3) | **37.9 ± 0.2** (14.8 / 22.4); 36.3 with the low grid | 28.3 | 26.5 ± 0.1 |
 | **phases** | 119.2 | **108.3** (107.3–109.2) | 166.6 | **165.4** (164.1–167.1) |
 | wall | 142.0 ± 1.8 | **132.0 ± 3.1** (init 18.9–22.9) | 189.1 ± 1.6 | 187.9 ± 1.9 |
 | peak host RSS | 160 GB | 160 GB | 233 GB | 233 GB |
@@ -2713,4 +2713,37 @@ from the single temporary). Binary's products were already 2 × 2; its dm
 gain is the single temporary and the 2 × 1 split of A_top μ. The 3·2³⁰
 plane pool of §63 is no longer the next item: the grid already reaches
 its plane-point count.
+
+**The low product as the same grid, pieces above the window skipped**
+(`NEWTON_LOWPROD`, now default 1): the division's X Q is only needed
+modulo B^w (w = n_Q + 2), so the pieces whose limbs start at or above w
+are not formed. Decimal: the (1,2) piece of the 2 × 3 grid starts at
+2.59 × 10⁹ > w, **5 planes instead of 6 — low product 10.0 → 8.5 s, dm
+36.3 s, phases 108.3** (one run; bs 61.4 in that run, its usual 1–2 s
+spread); binary: the (1,1) piece starts two limbs below w, nothing to
+skip, dm 26.9 (unchanged). Digits identical in both bases; `t_dbig` checks
+the low grid at three windows per shape (561 checks). The earlier
+halving recursion (`rns_mul_low_db`) is gone — it needed the same 6
+planes.
+
+**A pool bug found by the test set, fixed (dbig.c):** `t_newton` with
+`NEWTON_DEVICE=1` failed at 2¹⁴ limbs with a HIP "invalid argument" in
+`db_to_bi`; bisected to the coalescing pool of §64 (3ee763a passes at
+its parent, fails at itself). Two separate `hipMalloc` regions that
+happen to be adjacent in the address space were merged into one free
+extent, and a block carved across that seam is not a valid copy source.
+The 4 × 10¹⁰ runs were unaffected (the pool there is the donated bs
+regions, large and far apart; the small `hipMalloc` fallbacks of the
+tests are the ones that land adjacent). Extents now carry their region
+and never merge across regions. After the fix: `t_newton` 696 checks
+(binary) and 658 (decimal) VERIFY OK, `t_dbig 0 big` 561, 10⁹ in both
+bases identical to the reference.
+
+**An observation for the run logs, not the design:** a binary run started
+right after a decimal run shows 10dP ≈ 17 s and "other" ≈ 9 s (twice out
+of twice today), while back-to-back binary runs give 8.8 ± 0.2 and 3.1
+— the host memory the decimal run leaves behind (its 160 GB freed a
+minute earlier) costs the binary run's fresh 35 GB host allocation in
+page faults; it does not appear in the variance series, which run one
+base at a time.
 
