@@ -62,6 +62,13 @@ int main(int argc, char **argv)
                 db_from_bi(&x, &a); db_from_bi(&y, &b);
                 rns_mul_dist_db(&z, &x, &y); rns_mul(&r, &a, &b);
                 VERIFY(same(&z, &r, "grid"), "grid %zux%zu %s", gc[i].na, gc[i].nb, gen_name[kind]);
+                for (int wv = 0; wv < 3; wv++) {                              /* low products: pieces above w skipped */
+                    size_t w = wv == 0 ? gc[i].na + 2 : wv == 1 ? gc[i].na / 2 + 1 : r.n - 1;
+                    rns_mul_low_db(&z, &x, &y, w);
+                    bigint rl; bi_init(&rl); bi_reserve(&rl, r.n); memcpy(rl.l, r.l, (r.n < w ? r.n : w) * 8); rl.n = r.n < w ? r.n : w; bi_norm(&rl);
+                    VERIFY(same(&z, &rl, "low grid"), "low grid %zux%zu w %zu %s", gc[i].na, gc[i].nb, w, gen_name[kind]);
+                    bi_free(&rl);
+                }
             }
             unsetenv("DIST_LOGN_TEST");
         }
