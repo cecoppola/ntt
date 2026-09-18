@@ -2458,11 +2458,16 @@ the number is.
 | all-to-all as one push kernel over the three links | hipMemcpyPeerAsync; one kernel per link on separate streams | 0.45 → 0.18 s per 2³¹ product's 12 exchanges | §59 |
 | dm phase on device-resident numbers (dbig + distributed tier) | host-resident numbers, prime-per-device mdev with staging copies | reciprocal 29.7 → 12.0 s at 4 × 10¹⁰; division on par (the two split products dominate) | §59 |
 | dbig carries by chunk flags + a parallel-prefix kernel; spills as a sparse operand | one thread per chunk; atomic ripple | latency-bound at ~100 GB/s; pathological on long carry chains | §59 |
+| top bs levels as device numbers through the distributed tier, region pools donated | host mdev tier with staging copies | levels 23–24 3× faster; peak host RSS 233 → 160 GB (decimal); CPU-phase variance gone | §64, §62b |
+| device products over one plane split as a cost-minimising grid of pieces | halving the longer operand recursively | decimal 2.2e9² products 8 → 6 planes; dm 48.9 → 38.0 s, phases 119 → 108 s; no memory change; the same work a 3·2³⁰ plane pool would give | §66 |
 
 Open trade-offs (sized, not chosen): a 3·2³⁰-point plane pool for the
-dist tier (+40 GB of device pools, removes the second split of the
-4.4 × 10⁹-limb products, ≈ −5 s per such product); Karatsuba instead of the
-2×2 split in the device tier (¾ of the work, one more temporary).
+dist tier (+60 GB of device pools; after §66 it would only lift the fill of
+the 2.2e9² products from 86 % to 69 %-of-a-larger-plane — no longer worth
+it); Karatsuba instead of the grid in the device tier: for binary's 2.07e9²
+products 3 planes instead of 4 (≈ −2.5 s of dm), but decimal's half-sums
+(1.11 + 1.11 × 10⁹ limbs) do not fit a plane, so it does not apply where
+the split costs most — untested.
 - **4 × 10¹⁰ with the dm phase on device, both bases — VERIFY OK
   (2026-09-18, job 20644, s24-16, one run each, final WP5 code):**
 
@@ -2577,18 +2582,18 @@ design (291 s, §40) at 65 % of its peak host memory; binary at 189 s is
 
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
 
-Same code, same node (s24-16), five runs each (§62b); the base is the only
-switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
+Same code, same node (s24-16), five runs each (§62b) plus the three with
+the grid split (§66, the numbers below); the base is the only switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
 
 | 4 × 10¹⁰ digits, one MI300A node | Phase 4 (paper's design) | **binary, final** | **decimal, final** |
 |---|---:|---:|---:|
-| bs | 74.7 | 42.4 | 59.6 |
-| 10dP | 9.3 | 8.9 | 1.6 |
-| dm | 51.1 | 28.3 | 48.9 |
-| dc | 82.5 | 80.9 | 4.2 |
-| T1 + T2 | 7.3 | 6.1 | 5.0 |
-| **phases** | **229** | **166.6 ± 1.4** | **119.2 ± 1.7** |
-| wall incl. init (paper-style total) | 291 | 189.1 ± 1.6 | 142.0 ± 1.8 |
+| bs | 74.7 | 42.7 | 59.7 |
+| 10dP | 9.3 | 8.8 | 1.6 |
+| dm | 51.1 | 26.5 | 37.9 |
+| dc | 82.5 | 81.5 | 4.2 |
+| T1 + T2 | 7.3 | 5.7 | 4.9 |
+| **phases** | **229** | **165.4 ± 1.5** | **108.3 ± 1.0** |
+| wall incl. init (paper-style total) | 291 | 187.9 ± 1.9 | 132.0 ± 3.1 |
 | peak host RSS | 248 GB | 233 GB (dc's host tiers) | 160 GB |
 | device pools (not in RSS) | 128 GB | 128 + 120 (bs regions, reused by dm) | 128 + 117 |
 | digits verified | T1, T2, 10⁹ identical | same, both dm paths | same, both dm paths |
@@ -2601,16 +2606,18 @@ levels and the dm phase on device-resident numbers through the four-APU
 distributed transform, `e_terms` by bisection — with the base as a switch.
 
 **Where the bases differ, final code.** Decimal removes 10dP and dc
-(90 → 6 s) and pays in bs (+17 s: seeds 9 vs 6, and the 4.44 × 10⁹-limb
-top products split one level deeper than binary's 4.15 × 10⁹) and dm
-(+21 s: one more Newton doubling and the same deeper split in A μ and
-X Q). Net: decimal is **28 % faster** on one node (phases; 25 % on wall)
+(90 → 6 s) and pays in bs (+17 s: seeds 10 vs 5, and the 4.44 × 10⁹-limb
+top products in 6 planes where binary's 4.15 × 10⁹ take 4) and dm
+(+11 s: one more Newton doubling and the same 6-vs-4 planes in A μ and
+X Q). Net: decimal is **35 % faster** on one node (phases; 30 % on wall)
 at **31 % less peak host memory** — 160 GB, because the last host-resident
-phase of any size, dc, does not exist in decimal. Both remaining decimal costs are the 2³¹-point cap of
-the device tier's planes, not the base: a 3·2³⁰-point plane pool (+40 GB
-of device memory, which the device-resident dm phase now leaves free)
-would remove most of the 21 + 12 s. That is the next single-node step if
-decimal is chosen.
+phase of any size, dc, does not exist in decimal. Against the reproduced
+paper design: 2.2 × on wall, 2.1 × on phases. The 6-vs-4 planes are the
+2³¹-point cap of the device tier, not the base; a 3·2³⁰-point plane pool
+(+60 GB of device memory) was the sized next step, but the grid split of
+§66 reaches the same plane-point count without it. What remains of
+decimal's extra cost is the seeds (+5 s, CPU) and the 6-vs-4 planes
+(≈ 6 s in bs, 8 in dm).
 
 **Multi-node (2048 nodes, 8 192 APU ranks, 2 × 400 Gb/s per APU),
 sized from the measured cell.** Per 4 × 10¹⁰-per-node equivalent:
@@ -2624,9 +2631,8 @@ node is the single-node profile; decimal's digits need no gather phase
 (each rank formats its own limbs). Checkpoint/restart (§61) is per rank at
 level boundaries.
 
-**Recommendation for the user's decision:** the decimal base, with the
-3·2³⁰ plane pool as the next item; binary kept as the switch for
-reproduction of the paper. Every number above is in the run logs
+**Recommendation for the user's decision:** the decimal base; binary
+kept as the switch for reproduction of the paper. Every number above is in the run logs
 (`results/variance_b{2,10}_dev2/`, `results/attr/`).
 
 ## 64. The top bs levels on the device tier — measured, not yet adopted (2026-09-18, job 20644)
@@ -2685,6 +2691,26 @@ the fewest plane points in total — decimal's top product becomes 2 × 3
 pieces, **6 planes** at 86 %, the same total work the 3·2³⁰ plane pool
 would give (4 × 3.2 × 10⁹ points) without the extra 60 GB of device
 memory; one temporary instead of nested ones; binary unchanged.
-Verified in `t_dbig 0 big` (that exact size against the GMP-checked
-host tier) and at 4 × 10¹⁰ in both bases (digits identical):
+Verified in `t_dbig 0 big` (the grid shapes at small sizes under a
+test-only plane cap, `DIST_LOGN_TEST=24`, against the GMP-checked host
+tier; the 2.2e9² case itself does not fit the node beside its host
+reference) and at 4 × 10¹⁰ in both bases — digits identical to
+`results/e_4e10.out`. Three runs each (`results/variance_b{10,2}_grid/`):
+
+| 4 × 10¹⁰ | decimal, §62b | **decimal, grid** | binary, §62b | **binary, grid** |
+|---|---:|---:|---:|---:|
+| bs (mdev tier) | 59.6 (22.0) | 59.7 ± 0.6 (19.1) | 42.4 | 42.7 ± 1.1 |
+| dm (recip / division) | 48.9 (17.6 / 30.3) | **37.9 ± 0.2** (14.8 / 22.4) | 28.3 | 26.5 ± 0.1 |
+| **phases** | 119.2 | **108.3** (107.3–109.2) | 166.6 | **165.4** (164.1–167.1) |
+| wall | 142.0 ± 1.8 | **132.0 ± 3.1** (init 18.9–22.9) | 189.1 ± 1.6 | 187.9 ± 1.9 |
+| peak host RSS | 160 GB | 160 GB | 233 GB | 233 GB |
+
+Where the 11 s went in decimal: the division's two 2.2e9²-limb products
+(A μ and X Q) 8 → 6 planes each (10.8 + 10.0 s from 16.2 + 13.1), the
+reciprocal's last doubling (3 × 1 pieces instead of 4), and bs level 24
+(the 1.06 × 1.13e9 product was already 2 planes; level 23's pairs gain
+from the single temporary). Binary's products were already 2 × 2; its dm
+gain is the single temporary and the 2 × 1 split of A_top μ. The 3·2³⁰
+plane pool of §63 is no longer the next item: the grid already reaches
+its plane-point count.
 
