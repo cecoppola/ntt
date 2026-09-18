@@ -36,6 +36,7 @@ struct ext { char *p; size_t bytes; int reg; };                   /* reg: the wh
 static struct { struct ext e[8192]; int n; } g_ext[DB_NQ];
 static size_t g_pool_bytes;
 static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
+static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
 static struct { void *p; int dev; size_t bytes; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions */
 static size_t fsize(int fam, int l) { return (size_t)(fam ? 3 : 1) * 8 << l; }
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
@@ -59,7 +60,9 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
     return p;
 }
-static uint64_t *q_alloc(int d, int fam, int l)
+static uint64_t *q_alloc_locked(int d, int fam, int l);
+static uint64_t *q_alloc(int d, int fam, int l) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, fam, l); pthread_mutex_unlock(&g_pool_mx); return p; }
+static uint64_t *q_alloc_locked(int d, int fam, int l)
 {
     size_t need = fsize(fam, l); int reg;
     char *p = ext_take(d, need, &reg);
@@ -76,14 +79,18 @@ static uint64_t *q_alloc(int d, int fam, int l)
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, uint64_t *p)
 {
+    pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { fprintf(stderr, "dbig: freeing an unknown block\n"); abort(); }
     ext_insert(d, (char *)p, bytes, reg);
+    pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes)
 {
+    pthread_mutex_lock(&g_pool_mx);
     if (g_ndonated >= 256) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
     g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
+    pthread_mutex_unlock(&g_pool_mx);
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
