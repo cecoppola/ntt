@@ -392,7 +392,7 @@ void rns_mul(bigint *C, const bigint *A, const bigint *B)
 /* ======================================================================== */
 /* batch tier                                                                */
 /* ======================================================================== */
-struct bdesc { const uint64_t *a, *b, *x; uint64_t *c; uint32_t na, nb, nx; };
+#include "rns_int.h"
 
 __global__ void k_scatter(uint64_t *da, uint64_t *db, const struct bdesc *P, size_t M, int logL, ec_mod m)
 {
@@ -407,7 +407,6 @@ __global__ void k_scatter(uint64_t *da, uint64_t *db, const struct bdesc *P, siz
 }
 
 /* device Garner: FP64-Barrett for the modular steps */
-struct gconst { ec_mod m[4]; uint64_t c64[4]; uint64_t c1, c2, c3, M1[2], M2[3]; };
 __device__ static inline uint64_t dmod128(uint64_t hi, uint64_t lo, const ec_mod m, uint64_t c64)
 {
     uint64_t r = (uint64_t)ec_mm((double)ec_canon64(hi, m.pu, m.mu), (double)c64, m.p, m.pinv) + ec_canon64(lo, m.pu, m.mu);
@@ -454,7 +453,6 @@ __device__ static inline void dgarner4(const struct gconst *g, const uint64_t r[
  * limb k = C0[k] + C1[k-1] + C2[k-2] + C3[k-3] + carry, the carry chain run
  * by thread 0 over LDS, then a coalesced store.  Contributions past the
  * stripe's end form its 4-limb spill for the CPU merge. */
-#define CRT_THREADS 256
 __global__ __launch_bounds__(CRT_THREADS)
 void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
                  const struct bdesc *P, size_t first_stripe, int S, size_t Lpts, struct gconst g, uint64_t *stripe_spill, int dec)
@@ -522,7 +520,7 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     }
 }
 
-static struct gconst make_gconst(void)
+struct gconst rns_gconst(void)
 {
     struct gconst g;
     unsigned __int128 m1 = (unsigned __int128)ec_P[0] * ec_P[1];
@@ -591,7 +589,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
     size_t Mmax = plane_cap / (EC_NP * L); if (Mmax < 1) { fprintf(stderr, "rns_mul_batch_local: L %zu does not fit the pools\n", L); exit(1); }
     size_t tile_limit = rns_batch_tile_bytes / (3 * L * 8) / EC_NP; if (tile_limit >= 1 && Mmax > tile_limit) Mmax = tile_limit;
     static struct gconst G; static int ginit = 0;
-    if (!ginit) { G = make_gconst(); ginit = 1; }
+    if (!ginit) { G = rns_gconst(); ginit = 1; }
     /* products by owning device */
     size_t *idx = (size_t *)malloc(N * sizeof *idx), cnt[EC_NP] = {0}, start[EC_NP + 1];
     for (size_t i = 0; i < N; i++) cnt[mem_dev_of(P[i].c)]++;
@@ -691,7 +689,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     if (Mmax > ((size_t)1 << g_pool_log) / L / 2) Mmax = ((size_t)1 << g_pool_log) / L / 2;   /* plane stores use the low half of hstage */
     if (Mmax < 1) Mmax = 1;
     static struct gconst G; static int ginit = 0;
-    if (!ginit) { G = make_gconst(); ginit = 1; }
+    if (!ginit) { G = rns_gconst(); ginit = 1; }
     double t0 = mem_now();
 
     /* staging fallback: copy the tile's operands into every device's staging
@@ -841,7 +839,7 @@ static void mdev_gpu_crt(int d, size_t nc, int logn, uint64_t *dst)
     static struct bdesc *hdesc; static int hinit = 0;
     struct dev *v = &D[d];
     if (d == 0) {
-        if (!ginit) { G = make_gconst(); ginit = 1; }
+        if (!ginit) { G = rns_gconst(); ginit = 1; }
         if (!hinit) { hdesc = (struct bdesc *)malloc(sizeof *hdesc); hinit = 1; }
         hdesc->a = hdesc->b = hdesc->x = 0; hdesc->c = dst; hdesc->na = (uint32_t)nc; hdesc->nb = 0; hdesc->nx = 0;
         int S = rns_gpucrt_blocks; if ((size_t)S > (nc >> 10)) S = (int)(nc >> 10) > 0 ? (int)(nc >> 10) : 1;
