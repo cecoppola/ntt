@@ -26,26 +26,42 @@ __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; fo
  * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
 static struct { uint64_t *p[64]; int n; } g_free[DB_NQ][40];
 static size_t g_pool_bytes;
-/* quarter blocks bypass mem's pointer registry (every dbig op addresses its quarters explicitly) */
+/* quarter blocks bypass mem's pointer registry (every dbig op addresses its quarters explicitly).
+ * Buddy-style: a request of class l with no free block splits the smallest larger free block down to l
+ * (the pieces join the lower classes); a block is freed to the class it was carved at.  hipMalloc only
+ * when nothing larger is free. */
+static struct { uint64_t *p; int dev, cls; } g_live[4096]; static int g_nlive;
+static struct { void *p; int dev; size_t bytes; } g_donated[64]; static int g_ndonated;   /* whole hipMalloc'd or donated regions, freed at release */
+static void live_add(uint64_t *p, int d, int cls) { if (g_nlive < 4096) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].cls = cls; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
+static int live_take(uint64_t *p) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { int c = g_live[i].cls; g_live[i] = g_live[--g_nlive]; return c; } return -1; }
 static uint64_t *q_alloc(int d, int lq)
 {
-    if (g_free[d][lq].n) return g_free[d][lq].p[--g_free[d][lq].n];
-    g_pool_bytes += ((size_t)8 << lq);
-    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
-    void *p; HIP_CHECK(hipMalloc(&p, (size_t)8 << lq)); HIP_CHECK(hipMemset(p, 0, (size_t)8 << lq)); HIP_CHECK(hipDeviceSynchronize());
-    HIP_CHECK(hipSetDevice(cur));
-    return (uint64_t *)p;
+    if (!g_free[d][lq].n) {
+        int l = lq + 1; while (l < 40 && !g_free[d][l].n) l++;
+        if (l < 40) {                                       /* split down */
+            uint64_t *b = g_free[d][l].p[--g_free[d][l].n];
+            for (int m = l - 1; m >= lq; m--) { uint64_t *hi = (uint64_t *)((char *)b + ((size_t)8 << m)); if (g_free[d][m].n < 64) g_free[d][m].p[g_free[d][m].n++] = hi; }
+            live_add(b, d, lq); return b;
+        }
+        g_pool_bytes += ((size_t)8 << lq);
+        int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
+        void *p; HIP_CHECK(hipMalloc(&p, (size_t)8 << lq)); HIP_CHECK(hipMemset(p, 0, (size_t)8 << lq)); HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipSetDevice(cur));
+        if (g_ndonated < 64) { g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = (size_t)8 << lq; g_ndonated++; }   /* freed whole at release */
+        live_add((uint64_t *)p, d, lq); return (uint64_t *)p;
+    }
+    uint64_t *p = g_free[d][lq].p[--g_free[d][lq].n]; live_add(p, d, lq); return p;
 }
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, int lq, uint64_t *p)
 {
-    if (g_free[d][lq].n < 64) g_free[d][lq].p[g_free[d][lq].n++] = p; else { q_release(d, p); g_pool_bytes -= ((size_t)8 << lq); }
+    int cls = live_take(p); if (cls < 0) cls = lq;
+    if (g_free[d][cls].n < 64) g_free[d][cls].p[g_free[d][cls].n++] = p; else { fprintf(stderr, "dbig: free list full\n"); abort(); }
 }
 /* donated regions (e.g. the binary-splitting pools once bs is done): carved into class blocks for the free
  * lists, freed as regions by db_release_pools -- the dm phase then allocates nothing (hipMalloc costs
  * 0.057 s/GB, RESULTS.md 59) */
-static struct { void *p; int dev; size_t bytes; } g_donated[64]; static int g_ndonated;
-static int g_carved[DB_NQ][40];                          /* blocks per class that came from regions (not hipMalloc'd) */
+static int g_carved[DB_NQ][40];                          /* (unused) */
 void db_donate(int dev, void *p, size_t bytes)
 {
     if (g_ndonated >= 64) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
@@ -58,15 +74,9 @@ void db_donate(int dev, void *p, size_t bytes)
 }
 void db_release_pools(void)
 {
-    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) {
-        /* carved blocks are not hipFree'd individually: their regions are */
-        while (g_free[d][l].n) { uint64_t *p = g_free[d][l].p[--g_free[d][l].n]; int carved = 0;
-            for (int i = 0; i < g_ndonated && !carved; i++) { char *r0 = (char *)g_donated[i].p; if ((char *)p >= r0 && (char *)p < r0 + g_donated[i].bytes) carved = 1; }
-            if (!carved) { q_release(d, p); g_pool_bytes -= ((size_t)8 << l); } }
-        g_carved[d][l] = 0;
-    }
+    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) g_free[d][l].n = 0;   /* every block is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
-    g_ndonated = 0;
+    g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
@@ -246,7 +256,7 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
     double t0 = tnow(); db_st.n_addsub++;
     size_t an = a->n ? a->n + ashift : 0, n = an > bn ? an : bn; if (!sub) n++;
     /* in place is fine when the layouts match (a thread only touches its own limbs); otherwise a temporary */
-    dbig tmp; int inplace = (r == a || r == b), same = (r == a && !r->off && !ashift) || (b && r == b && !r->off && a->qc == b->qc && !ashift);
+    dbig tmp; int inplace = (r == a || r == b), same = (r == a && !r->off && !ashift) || (b && r == b && !r->off);   /* r == b is safe even with a shifted: a thread reads only its own limbs of r */
     dbig *out = r;
     if (inplace && !same) { db_init(&tmp); out = &tmp; }
     need_owner(out, "add/sub"); db_reserve(out, n ? n : 1);

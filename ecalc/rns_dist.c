@@ -212,13 +212,13 @@ void rns_mul_dist_hd(dbig *Cd, const uint64_t *a, size_t na, const dbig *B)
         Cd->n = nc; db_norm(Cd);
         return;
     }
-    size_t h = na / 2;                                         /* split A: C = a_lo B + (a_hi B) << h */
-    dbig t1, t2; db_init(&t1); db_init(&t2);
+    size_t h = na / 2;                                         /* split A: C = a_lo B + (a_hi B) << h, a_lo B straight into C */
+    dbig t2; db_init(&t2);
     size_t nlo = h; while (nlo && !a[nlo - 1]) nlo--;
-    rns_mul_dist_hd(&t1, a, nlo, B);
+    rns_mul_dist_hd(Cd, a, nlo, B);
     rns_mul_dist_hd(&t2, a + h, na - h, B);
-    db_add_shifted(Cd, &t2, h, &t1);
-    db_free(&t1); db_free(&t2);
+    db_add_shifted(Cd, &t2, h, Cd);                            /* in place */
+    db_free(&t2);
 }
 /* the low w limbs of A B (device operands): the host tier's recursion (rns_mul_low) on device */
 void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
@@ -258,15 +258,13 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
                                           db_st.t_shift - s0.t_shift, db_st.t_addsub - s0.t_addsub, db_st.t_maxidx - s0.t_maxidx, db_st.t_reserve - s0.t_reserve);
         return;
     }
-    /* split the longer operand in halves: C = A_lo B + (A_hi B) << h (recursive on the halves) */
+    /* split the longer operand in halves (views, no copies): C = L_lo S + (L_hi S) << h, the low product
+     * straight into C and the high one through a single temporary (recursive on the halves) */
     const dbig *L = na >= nb ? A : B, *S = na >= nb ? B : A;
     size_t h = L->n / 2;
-    dbig hi, t1, t2; db_init(&hi); db_init(&t1); db_init(&t2);
-    db_shr_limbs(&hi, L, h);                                   /* hi = L >> h */
-    dbig lo = db_view(L, 0, h); db_norm(&lo);                  /* the low h limbs, in place */
-    rns_mul_dist_db(&t1, &lo, S);
+    dbig lo = db_view(L, 0, h), hi = db_view(L, h, L->n - h), t2; db_norm(&lo); db_norm(&hi); db_init(&t2);
+    rns_mul_dist_db(Cd, &lo, S);
     rns_mul_dist_db(&t2, &hi, S);
-    db_shl_limbs(Cd, &t2, h);
-    db_add(Cd, Cd, &t1);
-    db_free(&hi); db_free(&t1); db_free(&t2);
+    db_add_shifted(Cd, &t2, h, Cd);                            /* in place */
+    db_free(&t2);
 }
