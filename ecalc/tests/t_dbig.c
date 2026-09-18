@@ -42,8 +42,8 @@ int main(int argc, char **argv)
     /* products on device operands against rns_mul (which is GMP-checked in t_mul) */
     if (argc > 2) {
         int big = !strcmp(argv[2], "big");                    /* include the products that split (> 2^31 points) */
-        struct { size_t na, nb; } pc[] = { {1000, 1000}, {600000, 500000}, {1u << 20, (1u << 20) + 7}, {(1u << 24) + 3, 1u << 23}, {1u << 27, 1u << 27}, {(size_t)1 << 30, ((size_t)1 << 30) + 5}, {(size_t)1 << 31, (size_t)1 << 30} };
-        size_t npc = big ? 7 : 5;
+        struct { size_t na, nb; } pc[] = { {1000, 1000}, {600000, 500000}, {1u << 20, (1u << 20) + 7}, {(1u << 24) + 3, 1u << 23}, {1u << 27, 1u << 27}, {(size_t)1 << 30, ((size_t)1 << 30) + 5}, {(size_t)1 << 31, (size_t)1 << 30}, {2222222226, 2222222226} };   /* the last: decimal's 4e10 top product, a 2 x 3 grid */
+        size_t npc = big ? 8 : 5;
         for (size_t i = 0; i < npc; i++) for (int kind = 0; kind < 2; kind++) {
             rnd_bi(&a, pc[i].na, kind); rnd_bi(&b, pc[i].nb, kind);
             db_from_bi(&x, &a); db_from_bi(&y, &b);
