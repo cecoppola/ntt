@@ -1,0 +1,40 @@
+== extra on job 20656 2026-09-18 03:03:01
+--- t_dist 26, 4 ranks (03:03:01)
+t_dist: rank 1 of 4 over TCP
+t_dist: rank 0 of 4 over TCP
+t_dist: rank 2 of 4 over TCP
+t_dist: rank 3 of 4 over TCP
+t_dist: VERIFY OK (65 checks)
+t_dist: VERIFY OK (65 checks)
+t_dist: VERIFY OK (65 checks)
+t_dist: VERIFY OK (65 checks)
+--- exit 0 (03:03:36)
+--- t_dist 20 immediately again, same ports (03:03:36)
+t_dist: rank 0 of 4 over TCP
+t_dist: rank 2 of 4 over TCP
+t_dist: rank 1 of 4 over TCP
+t_dist: rank 3 of 4 over TCP
+t_dist: VERIFY OK (4 checks)
+t_dist: VERIFY OK (4 checks)
+t_dist: VERIFY OK (4 checks)
+t_dist: VERIFY OK (4 checks)
+--- exit 0 (03:03:38)
+--- t_dist 24 with 8 ranks on one node (two processes per APU) (03:03:38)
+t_dist: rank 1 of 8 over TCP
+t_dist: rank 0 of 8 over TCP
+t_dist: rank 4 of 8 over TCP
+t_dist: rank 5 of 8 over TCP
+t_dist: rank 2 of 8 over TCP
+t_dist: rank 6 of 8 over TCP
+t_dist: rank 3 of 8 over TCP
+t_dist: rank 7 of 8 over TCP
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+t_dist: VERIFY OK (52 checks)
+--- exit 0 (03:03:50)
+== extra done 2026-09-18 03:03:50
