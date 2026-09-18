@@ -2611,7 +2611,12 @@ Then the run was killed in the division: the bs results and the split
 temporaries fragment the donated blocks (the allocator splits blocks but
 does not coalesce buddies), the reciprocal had to `hipMalloc` 129 GB on top
 (22 allocations, 14 s), and the division's temporaries no longer fit.
-Kept behind the switch, off by default. What it needs: buddy coalescing in
-`dbig`'s free lists (≈ half a day); the gain is ≈ −25 s and −70 GB of peak
-host memory in decimal (−10 s / −70 GB in binary), and it makes P, Q, S
-and A device-resident into dm, removing the last host round trips.
+**Then fixed the same night:** the block pool is now address-ordered
+free extents with coalescing (best fit, carve from the front; `t_dbig`'s
+stress test: a bs-like allocate/free pattern never grows the pool beyond
+the donation and the extents merge back to one). With `BS_DEV_MDEV=1`
+(job 20644's last minutes, then 20655): **decimal 4 × 10¹⁰ VERIFY OK,
+phases 117.9 s** (bs 58.6, dm 48.9 — recip 17.6, division 30.3 — 10dP
+1.8, dc 4.1), **peak host RSS 160 GB**; **binary 165.9 s** (dm 28.3), peak
+233 GB (set by dc's host tiers now). Adopted as the default; the five-run
+variance follows in §62b.
