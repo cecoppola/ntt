@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | Autonomous 8-hour session started: WP5 step 3 (device-resident dm) being brought to 4 × 10¹⁰; WP6 (TCP multi-node correctness) and WP7 (bs checkpoint/restart) delegated to agents in isolated worktrees (`results/WP6.md`, `results/WP7.md`), to be merged and recorded here; then five-run variance per base on the final code and the final comparison | — |
 | 2026-09-17 | **WP4 done** (§58): decimal `mul_1` Barrett (2.6 ns/limb), school tier off, seed span 256 (both bases). 4 × 10¹⁰ phases: decimal **138 s** / 294 GB, binary 187 s / 246 GB, verified. The deeper decimal split (≈ 20 s) is a pool-size trade that opens with WP5. Next: WP5 | RESULTS.md §58 |
 | 2026-09-17 | **WP8 done** (§57): prime set with 3·2⁴⁴ ∣ p−1 (switch), radix-3 layer on the 2ᵏ engine, 3·2ᵏ lengths in the mdev and batch tiers; all tests and digits unchanged; 4 × 10¹⁰ decimal phases 156 → 149 s, binary unchanged, no memory change (§53 projection corrected: the top products are split, not single transforms). Next: WP4 | RESULTS.md §57 |
 | 2026-09-18 | **WP3 done** (§56): four device regions with subtree ownership, locality-aware batch tier (APU d does all four primes of its region), +P₂ in the CRT, lengths from a kernel, pools pregrown at init, `e_terms` bisection (−45 s of hidden wall time). 4 × 10¹⁰: binary phases 209 → 187 s, wall 271 → 214; decimal phases 193 → 156, wall 259 → 184; both verified, 10⁹ identical. Next: WP8 | RESULTS.md §56 |
