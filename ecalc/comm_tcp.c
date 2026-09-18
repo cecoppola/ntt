@@ -158,7 +158,12 @@ comm *comm_tcp_create(void)
 {
     const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT");
     if (!er || !es || !eh) { fprintf(stderr, "comm_tcp: need COMM_RANK, COMM_SIZE, COMM_HOSTS\n"); exit(1); }
-    int me = atoi(er), n = atoi(es), base = ep ? atoi(ep) : 27000;
+    return comm_tcp_create_at(atoi(er), atoi(es), eh, ep ? atoi(ep) : 27000);
+}
+/* the mesh for rank me of n at the given hosts (comma list of n names) and port base (rank r listens on base + r);
+ * several meshes may live in one process on distinct port bases (Phase 8 M1: one per APU thread) */
+comm *comm_tcp_create_at(int me, int n, const char *eh, int base)
+{
     if (n < 1 || n > 4096 || me < 0 || me >= n) { fprintf(stderr, "comm_tcp: bad rank/size\n"); exit(1); }
     char *hosts = strdup(eh), *host[4096]; int nh = 0;
     for (char *t = strtok(hosts, ","); t && nh < n; t = strtok(NULL, ",")) host[nh++] = t;

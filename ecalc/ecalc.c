@@ -24,6 +24,7 @@
 #include "verify.h"
 #include "mem.h"
 #include "dbig.h"
+#include "mn.h"
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -126,6 +127,14 @@ int main(int argc, char **argv)
     meta_line("ecalc");
     double t00 = mem_now(), t;
     rns_init(pool_log);
+    int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
+    if (mn_size_ > 1) {
+        if (!mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
+        if (mn_rank() != 0) {                       /* until M3 the partitioned tree does not exist: rank 0 computes, the others hold the meshes open */
+            printf("mn: node %d waits for node 0\n", mn_rank());
+            mn_barrier(); mn_finalize(); rns_shutdown(); return 0;
+        }
+    }
     unsigned long N = e_terms(d);
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
@@ -307,6 +316,7 @@ int main(int argc, char **argv)
     int fail = bad1 || bad2 || bad3;
     printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
     if (digits_reg) mem_hreg_free(digits); else free(digits);
+    mn_barrier(); mn_finalize();
     rns_shutdown();
     return fail;
 }
