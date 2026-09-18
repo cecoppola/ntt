@@ -2463,3 +2463,23 @@ Open trade-offs (sized, not chosen): a 3·2³⁰-point plane pool for the
 dist tier (+40 GB of device pools, removes the second split of the
 4.4 × 10⁹-limb products, ≈ −5 s per such product); Karatsuba instead of the
 2×2 split in the device tier (¾ of the work, one more temporary).
+- **4 × 10¹⁰ with the dm phase on device, both bases — VERIFY OK
+  (2026-09-18, job 20644, s24-16, one run each, final WP5 code):**
+
+| | binary host-resident dm (§58) | binary device dm | decimal host-resident dm (§58) | decimal device dm |
+|---|---:|---:|---:|---:|
+| recip | 31.8 | **12.4** | 39.4 | **23.3** |
+| division | 10.9 | 19.7 (A μ 9.5, low product 7.4, copies 0.7) | 22.7 | 32.7 (A μ 16.2, low product 13.1) |
+| dm | 42.7 | **32.1** | 62.1 | **56.0** |
+| **phases** | 187.1 | **175.0** | 138.1 | **130.5** |
+| host RSS in dm | 155 | 79 | 161 | 82 |
+
+  What made the difference: no host staging of the Newton temporaries
+  (bounce-buffer copies only at the phase boundary: 0.7 s), the products
+  through the four-APU distributed transform (§59 tier: 1.2 s per 2³¹-point
+  product against mdev's 1.3), the bs regions donated to the dm phase's
+  block allocator (no hipMalloc inside the loop except a few GB), views and
+  swaps instead of temporaries. What remains: the two products of
+  4.15–4.44 × 10⁹ limbs (A μ and X Q) each split into four 2³¹-point tier
+  calls (≈ 5 s per product in binary, 8 in decimal) — a 3·2³⁰-point plane
+  pool (+40 GB device) or Karatsuba would take ~30–40 % off them (§60).
