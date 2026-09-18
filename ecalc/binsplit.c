@@ -65,11 +65,26 @@ void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
  * bs_regions_on_device (default when there are devices), else registered
  * host memory. */
 #define NR 4
-struct node { size_t po, pn, qo, qn; int r; };
+struct node { size_t po, pn, qo, qn; int r; dbig *pd, *qd; };   /* pd/qd: the node as device numbers (top levels on the device tier, WP5) */
 struct level { uint64_t *pool[NR]; struct node *nd; size_t n; };
 #define NODE_P(lv, nd) ((lv).pool[(nd)->r] + (nd)->po)
 #define NODE_Q(lv, nd) ((lv).pool[(nd)->r] + (nd)->qo)
 int bs_regions_on_device = -1;                       /* BS_DEVICE_POOLS: 1 device pools, 0 host */
+int bs_dev_mdev = -1;                                /* BS_DEV_MDEV: 1 (default with device pools) the top (mdev-tier) levels through the device
+                                                      * tier on device numbers; 0 the host mdev tier through the host pools */
+int bs_mdev_logl = RNS_BATCH_LOGL_MAX;                /* BS_MDEV_LOGL: products above 2^this go to the mdev tier (lower it to test at 10^9) */
+static uint64_t *g_pool[2][NR]; static size_t g_cap[2][NR];
+/* a node in a region pool as a (non-owning, single-quarter) device number */
+static dbig pool_view(const uint64_t *p, size_t n)
+{
+    dbig v; memset(&v, 0, sizeof v); v.q[0] = (uint64_t *)p; v.n = n; v.qc = (size_t)1 << 40; v.lq = 40; return v;
+}
+static dbig node_p(const struct level *lv, const struct node *nd) { return nd->pd ? *nd->pd : pool_view(lv->pool[nd->r] + nd->po, nd->pn); }
+static dbig node_q(const struct level *lv, const struct node *nd) { return nd->qd ? *nd->qd : pool_view(lv->pool[nd->r] + nd->qo, nd->qn); }
+static void donate_pools(int which)                  /* the region pools of one parity to the device block allocator */
+{
+    for (int r = 0; r < NR; r++) if (g_pool[which][r] && mem_dev_of(g_pool[which][r]) >= 0) { db_donate(r % mem_device_count(), g_pool[which][r], g_cap[which][r] * 8); mem_dev_forget(g_pool[which][r]); g_pool[which][r] = 0; g_cap[which][r] = 0; }
+}
 static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r < NR ? r : NR - 1); }
 
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
@@ -86,7 +101,6 @@ static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
         }
     }
 }
-static uint64_t *g_pool[2][NR]; static size_t g_cap[2][NR];
 static hpool g_hpool[2];                              /* host pools for the mdev levels (WP3; WP5 removes them) */
 static int g_hpool_taken[2];
 /* hand one of the (already faulted) host pools to the caller before binsplit_free_pools: a fresh 35 GB
@@ -113,6 +127,8 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
 {
     if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
+    if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
+    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;
     unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
     size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
@@ -123,8 +139,9 @@ void binsplit_pregrow(unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, per_region);
-    if (bs_regions_on_device && total0 > ((size_t)1 << 28)) {          /* host pools for the mdev levels, first-touched now */
-        for (int w = 0; w < 2; w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
+    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;
+    if (bs_regions_on_device && total0 > ((size_t)1 << 28)) {          /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
+        for (int w = 0; w < (bs_dev_mdev ? 1 : 2); w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
 #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < total0 + total0 / 8; i += 512) hp[i] = 0; }
     }
@@ -281,7 +298,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     }
     if (!resumed) {
     if (bs_ckpt_dir) { mkdir(bs_ckpt_dir, 0777); for (int l = 1; l < 128; l++) ckpt_remove(l); }   /* a fresh run owns the directory: stale sets go */
-    cur.n = nspan; cur.nd = (struct node *)malloc(nspan * sizeof *cur.nd);
+    cur.n = nspan; cur.nd = (struct node *)calloc(nspan, sizeof *cur.nd);
     size_t r0[NR + 1];                               /* first node of each region at level 0 */
     for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
     /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
@@ -330,7 +347,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;
         for (size_t i = 0; i < cur.n; i++) { if (cur.nd[i].pn > max_nl) max_nl = cur.nd[i].pn; if (cur.nd[i].qn > max_nl) max_nl = cur.nd[i].qn; }
         /* next level layout: P slot n(P1)+n(Q2)+1, Q slot n(Q1)+n(Q2) */
-        nxt.n = npairs + odd; nxt.nd = (struct node *)malloc(nxt.n * sizeof *nxt.nd);
+        nxt.n = npairs + odd; nxt.nd = (struct node *)calloc(nxt.n, sizeof *nxt.nd);
         size_t offr[NR] = {0}, off = 0;
         for (size_t i = 0; i < npairs; i++) {
             struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
@@ -340,10 +357,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         }
         if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = region_of(npairs, nxt.n); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
         which ^= 1;
-        int mdev_level = max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << RNS_BATCH_LOGL_MAX);
+        int mdev_level = max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);
+        int dev_mdev = mdev_level && bs_regions_on_device && bs_dev_mdev;
         int top_direct = nxt.n == 1 && mdev_level;                     /* mdev top level: straight to P, Q */
         for (int r = 0; r < NR; r++) off += offr[r];
-        if (top_direct) for (int r = 0; r < NR; r++) nxt.pool[r] = 0;
+        if (top_direct || dev_mdev) for (int r = 0; r < NR; r++) nxt.pool[r] = 0;
         else if (mdev_level && bs_regions_on_device) {
             /* mdev levels: results in one host pool (the tier stages through the host anyway and a
              * single region may need the whole level); the batch levels stay in the device regions */
@@ -367,7 +385,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                     limb_mul_school(qq, NODE_Q(cur, a), a->qn, NODE_Q(cur, b), b->qn);
                 }
             }
-        } else if (2 * max_nl + 1 <= ((size_t)1 << RNS_BATCH_LOGL_MAX)) {
+        } else if (2 * max_nl + 1 <= ((size_t)1 << bs_mdev_logl)) {
             tier = "batch"; bs_st.batch_levels++;
             rns_prod *pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
             for (size_t i = 0; i < npairs; i++) {
@@ -387,6 +405,28 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             free(pr);
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
+            if (dev_mdev) {
+                /* the top levels on the device tier: operands are region-pool views or the children's device
+                 * numbers; results are device numbers (blocks from the region pools no longer needed) */
+                if (!cur.nd[0].pd) donate_pools(which);                   /* the first such level: the other parity's pools are free */
+                for (size_t i = 0; i < npairs; i++) {
+                    struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
+                    dbig A1 = node_p(&cur, a), A2 = node_q(&cur, a), B = node_q(&cur, b), P2 = node_p(&cur, b);
+                    o->pd = (dbig *)calloc(1, sizeof(dbig)); o->qd = (dbig *)calloc(1, sizeof(dbig));
+                    rns_mul_dist_db(o->pd, &A1, &B);
+                    db_add(o->pd, o->pd, &P2);                              /* P = P1 Q2 + P2 */
+                    rns_mul_dist_db(o->qd, &A2, &B);
+                    o->pn = o->pd->n; o->qn = o->qd->n;
+                }
+                if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
+                           if (a->pd) { o->pd = a->pd; o->qd = a->qd; a->pd = a->qd = 0; }
+                           else { o->pd = (dbig *)calloc(1, sizeof(dbig)); o->qd = (dbig *)calloc(1, sizeof(dbig)); dbig vp = node_p(&cur, a), vq = node_q(&cur, a); db_copy(o->pd, &vp); db_copy(o->qd, &vq); }
+                           o->pn = o->pd->n; o->qn = o->qd->n; }
+                for (size_t i = 0; i < cur.n; i++) { if (cur.nd[i].pd) { db_free(cur.nd[i].pd); free(cur.nd[i].pd); } if (cur.nd[i].qd) { db_free(cur.nd[i].qd); free(cur.nd[i].qd); } cur.nd[i].pd = cur.nd[i].qd = 0; }
+                if (cur.pool[0] && mem_dev_of(cur.pool[0]) >= 0) donate_pools(which ^ 1);   /* the children's pools are consumed */
+                if (nxt.n == 1) { db_to_bi(P, nxt.nd[0].pd); db_to_bi(Q, nxt.nd[0].qd); db_free(nxt.nd[0].pd); free(nxt.nd[0].pd); db_free(nxt.nd[0].qd); free(nxt.nd[0].qd); nxt.nd[0].pd = nxt.nd[0].qd = 0; finished = 1; }
+                normed = 1;
+            } else {
             bigint A1, A2, B, C1, C2, P2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2); bi_init(&P2);
             for (size_t i = 0; i < npairs; i++) {
                 struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
@@ -409,6 +449,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 }
             }
             A1.l = A2.l = B.l = 0; bi_free(&C1); bi_free(&C2); bi_free(&P2);
+            }
         }
         if (normed || finished) {                       /* lengths came back from the device-local batch path, or the top is done */
         } else if (npairs >= 64) {
@@ -427,7 +468,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             o->pn = limb_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
             o->qn = limb_norm(NODE_Q(nxt, o), a->qn + b->qn);
         }
-        if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
+        if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
                    region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r); }
         double dt = mem_now() - t, tl3 = mem_now();
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
@@ -439,7 +480,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         cur = nxt;
         if (finished) { free(cur.nd); cur.nd = 0; break; }
         /* WP7: snapshot the level just finished (never the top: the loop ends there) */
-        if (bs_ckpt_dir && cur.n > 1 && bs_ckpt_every > 0 && bs_st.levels % bs_ckpt_every == 0 && (bs_st.levels >= bs_ckpt_min_level || off * 8 > bs_ckpt_min_bytes)) {
+        if (bs_ckpt_dir && !dev_mdev && !nxt.nd[0].pd && cur.n > 1 && bs_ckpt_every > 0 && bs_st.levels % bs_ckpt_every == 0 && (bs_st.levels >= bs_ckpt_min_level || off * 8 > bs_ckpt_min_bytes)) {   /* (levels held as device numbers are not snapshotted yet) */
             double tc = mem_now();
             size_t bytes = ckpt_write(&cur, which, bs_st.levels, mdev_level && bs_regions_on_device, offr, off, N, ckpt_level);
             double dtc = mem_now() - tc;
