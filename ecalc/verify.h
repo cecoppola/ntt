@@ -24,7 +24,7 @@ void     vf_pq_mod(unsigned long N, uint64_t q, uint64_t *p, uint64_t *qq);   /*
 uint64_t vf_pow_mod(uint64_t b, unsigned long e, uint64_t q);
 /* returns the number of failing primes (0 = pass); prints per-prime lines when verbose */
 int tier1_res(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, int verbose);
-int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, int verbose);
+int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, const uint64_t *xres_pre, int verbose);
 int tier1(unsigned long N, unsigned long d, const bigint *P, const bigint *Q, const bigint *X, const bigint *R, int verbose);
 int tier1_digits_res(const char *digits, size_t ndig, const uint64_t *Xres, int verbose);
 int tier1_digits(const char *digits, size_t ndig, const bigint *X, int verbose);

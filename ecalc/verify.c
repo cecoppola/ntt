@@ -86,16 +86,16 @@ void vf_pq_mod(unsigned long N, uint64_t q, uint64_t *p, uint64_t *qq)
 }
 
 int tier1_res(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, int verbose)
-{ return tier1_res_pq(N, d, Pres, Qres, X, R, 0, 0, verbose); }
-/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (Phase 8: in the background during bs) */
-int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, int verbose)
+{ return tier1_res_pq(N, d, Pres, Qres, X, R, 0, 0, 0, verbose); }
+/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (Phase 8: in the background during bs); xres_pre: X mod q likewise */
+int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, const uint64_t *xres_pre, int verbose)
 {
     int bad = 0;
     for (int i = 0; i < T1_NQ; i++) {
         uint64_t q = t1_q[i], p, qq;
         if (pq_pre) { p = pq_pre[i]; qq = qq_pre[i]; } else vf_pq_mod(N, q, &p, &qq);
         uint64_t Pm = Pres[i], Qm = Qres[i];
-        uint64_t Xm = vf_limbs_mod(X->l, X->n, q), Rm = vf_limbs_mod(R->l, R->n, q);
+        uint64_t Xm = xres_pre ? xres_pre[i] : vf_limbs_mod(X->l, X->n, q), Rm = vf_limbs_mod(R->l, R->n, q);
         uint64_t Tm = vf_pow_mod(10, d, q);
         uint64_t lhs = mulmod(Tm, (p + qq) % q, q), rhs = (mulmod(Xm, Qm, q) + Rm) % q;
         int ok = Pm == p && Qm == qq && lhs == rhs;
