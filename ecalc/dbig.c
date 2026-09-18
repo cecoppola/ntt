@@ -10,12 +10,14 @@
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define CH 1024                                        /* limbs per carry chunk */
 static const uint64_t B10 = 1000000000000000000ULL;
+static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
+static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
 
 struct dv { const uint64_t *q[DB_NQ]; size_t qc; int lq; };
 __device__ static inline uint64_t dget(const struct dv v, size_t i) { return v.q[i >> v.lq][i & (v.qc - 1)]; }
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; return v; }
 
-void db_init(dbig *x) { memset(x, 0, sizeof *x); }
+void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
 void db_free(dbig *x) { for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]); memset(x, 0, sizeof *x); }
 void db_reserve(dbig *x, size_t limbs)
 {
@@ -26,7 +28,7 @@ void db_reserve(dbig *x, size_t limbs)
     for (int d = 0; d < DB_NQ; d++) y.q[d] = (uint64_t *)mem_dev_alloc(d, qc * 8);
     if (x->n) {                                           /* keep the contents: quarter-wise DMA through the limb map */
         size_t n = x->n;
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
         for (int d = 0; d < DB_NQ; d++) {
             size_t lo = (size_t)d * y.qc, hi = lo + y.qc; if (hi > n) hi = n;
             for (size_t i = lo; i < hi;) {                 /* the source run containing i */
@@ -42,13 +44,13 @@ void db_reserve(dbig *x, size_t limbs)
 void db_from_bi(dbig *x, const bigint *a)
 {
     db_reserve(x, a->n ? a->n : 1); x->n = a->n;
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) { size_t lo = (size_t)d * x->qc; if (lo < a->n) { size_t len = a->n - lo < x->qc ? a->n - lo : x->qc; mem_dev_copy_on(d, x->q[d], a->l + lo, len * 8); } }
 }
 void db_to_bi(bigint *r, const dbig *x)
 {
     bi_reserve(r, x->n ? x->n : 1); r->n = x->n;
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) { size_t lo = (size_t)d * x->qc; if (lo < x->n) { size_t len = x->n - lo < x->qc ? x->n - lo : x->qc; mem_dev_copy_on(d, r->l + lo, x->q[d], len * 8); } }
 }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
@@ -120,7 +122,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
     if (r == a) { fprintf(stderr, "db shift: in place\n"); abort(); }
     db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
@@ -141,7 +143,7 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
     db_reserve(out, n ? n : 1);
     struct dv va = view_of(a), vb = view_of(b);
     size_t chunks[DB_NQ], lo[DB_NQ], hi[DB_NQ];
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         qrange(out, d, n, &lo[d], &hi[d]); chunks[d] = (hi[d] - lo[d] + CH - 1) / CH;
         if (!chunks[d]) continue;
@@ -159,7 +161,7 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
     }
     if (cy && !sub) { fprintf(stderr, "db_add: carry out of the top (n undersized)\n"); abort(); }
     if (cy && sub) { fprintf(stderr, "db_sub: a < b\n"); abort(); }
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         if (!chunks[d]) continue;
         HIP_CHECK(hipSetDevice(d));
@@ -175,7 +177,7 @@ void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub(r, a, b, 1); }
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
     size_t best = 0;
-#pragma omp parallel for num_threads(DB_NQ) reduction(max:best)
+#pragma omp parallel for num_threads(DB_NQ) reduction(max:best) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
         flags_reserve(d, 1);
@@ -205,7 +207,7 @@ void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy(r->q[0], &
 void db_set_base_pow(dbig *r, size_t k)
 {
     db_reserve(r, k + 1);
-#pragma omp parallel for num_threads(DB_NQ)
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
     uint64_t one = 1; mem_dev_copy(r->q[k >> r->lq] + (k & (r->qc - 1)), &one, 8);
     r->n = k + 1;
