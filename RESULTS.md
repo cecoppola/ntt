@@ -2409,3 +2409,20 @@ deeper split above.
   1.30 s** for the same product. The tier's wall time (4.7 s) is host
   staging: `memcpy` of 16 GB operands in and the result out. That is what
   step 3 (device-resident numbers) removes.
+- **Step 3 — device-resident numbers (correct, 2026-09-17).** `dbig`: a big
+  integer in four quarters (one per APU, power-of-two quarter size, views with
+  an offset), every operation one kernel per APU over its quarter with chunk
+  carry flags scanned on the host (add, sub, limb shifts, compare, normalise,
+  B^k); `t_dbig` against the host bigint: 505 checks in each base. Two
+  platform facts found on the way: concurrent `hipMemcpy` with pageable host
+  memory from several threads faults (the phase-boundary copies are serial);
+  concurrent peer reads in all directions are fine (`bench/fabric/peerconc`).
+  `rns_mul_dist_db`: the tier on device operands through limb accessors,
+  one B plane at a time so 2³¹ points fit the standard pools, products above
+  that split in halves on device, the run spills added as a sparse temporary
+  with a chunked-carry `db_add` (an atomic ripple was pathological on long
+  carry chains). `newton_db`: the reciprocal and division mirrored on `dbig`
+  (same anchored doubling, corrections and statistics), `NEWTON_DEVICE=1`.
+  **`t_newton` 658 checks in both bases; e to 10⁹ byte-identical in both
+  bases with the Newton phase on device.** Timing: pending the allocator fix
+  (fresh `hipMalloc` per temporary dominated: 1 s per 17 GB number).
