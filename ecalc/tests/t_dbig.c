@@ -1,7 +1,9 @@
 /* t_dbig - the device bigint against the host bigint: shifts, add, sub, cmp, norm, set_base_pow,
  * from/to host, across quarter boundaries and both bases (LIMB_BASE). */
 #include "harness.h"
+#include <hip/hip_runtime.h>
 #include "../dbig.h"
+#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #include "../rns_mul.h"
 #include <string.h>
 static rng_t rg = { 99 };
