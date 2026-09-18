@@ -910,16 +910,25 @@ a switch.
 
 ## 17. Phase 8 — the work to run on 2 048 nodes, and the form the code takes now
 
-Target: rank = APU, `size` = 4 × nodes; the same binary runs with `size`
-1, 2, 3, 4 on one aac6 node (one process per APU) and 8 across two nodes
-(TCP), so that every piece is tested here before the fabric exists. The
-numbers are verified at every size against the single-rank run. Order and
-estimates (sessions of work):
+**Rank model (decided 2026-09-18): a process is a node group of g APUs**
+(g = 4 on the target), driving its APUs with threads and the xGMI push
+kernel as the single-node pipeline does today, with the host-side numbers
+shared inside the process. `size` counts processes; the communicator is
+layered — the intra-process exchange over xGMI plus an inter-process
+exchange (TCP on aac6, RDMA on the target) — so a transform's all-to-all
+is hierarchical from the start (M7's structure). For testing on one aac6
+node a process takes `g` = 1, 2 or 4 APUs (`COMM_APUS`), so one node runs
+4 processes of 1 APU, 2 of 2, or 1 of 4 (= today); 2 nodes × 4 APUs when
+two nodes are free. The alternative — one process per APU, as first written
+here and in the paper — was rejected: it gives up the shared host memory
+and puts sockets between the APUs of one node. The paper's §10 is to be
+corrected accordingly. The numbers are verified at every size against the
+single-process run. Order and estimates (sessions of work):
 
 | step | what | test on aac6 | est. |
 |---|---|---|---|
-| M1 | **The driver as a rank program**: `ecalc` reads `COMM_RANK/COMM_SIZE/COMM_HOSTS` (as `t_dist`), one process per rank, rank r on APU r mod 4, a `comm` opened at start (xGMI within a node, TCP across; `size` 1 = today's driver); every phase timer and RESULT line per rank; rank 0 prints the summary; the hybrid communicator (xGMI inside the node group, TCP between groups) | `size` 1 = baseline; `size` 2, 4 on one node; 8 on two nodes | 2 d |
-| M2 | **Leaf partition by term range**: rank r owns terms [N r/size, N (r+1)/size); seeds and the rank-local levels exactly as today on the rank's own APU (the four regions become one region per rank; subtree ownership generalises to `region = rank`); each rank ends with P_r, Q_r as device numbers | P_r, Q_r vs the single-rank tree's node at that level (GMP-checked at 10⁶–10⁸; residues at 10¹⁰) | 2 d |
+| M1 | **The driver as a process of a rank group**: `ecalc` reads `COMM_RANK/COMM_SIZE/COMM_HOSTS/COMM_APUS` (process rank, process count, hosts, APUs per process), uses APUs [g·(rank mod (4/g)), …) of its node, opens the layered communicator (xGMI inside, TCP between; `size` 1 = today's driver, bit for bit); every phase timer and RESULT line per process; rank 0 prints the summary; `wp6run.sh` generalised to g | `size` 1 = baseline; 4 × 1 APU and 2 × 2 APUs on one node; 2 × 4 on two nodes | 2 d |
+| M2 | **Leaf partition by term range**: process r owns terms [N r/size, N (r+1)/size); seeds and the process-local levels exactly as today on its g APUs (the g regions with subtree ownership, as now); each process ends with P_r, Q_r as device numbers | P_r, Q_r vs the single-rank tree's node at that level (GMP-checked at 10⁶–10⁸; residues at 10¹⁰) | 2 d |
 | M3 | **Distributed top levels**: level ℓ above the rank-local ones pairs rank groups of 2^ℓ; the pair's product through `rns_mul_dist` over the group's communicator (the four-APU tier with `size` = the group) with block-cyclic inside and the numbers contiguous per rank (each rank holds a contiguous 1/size of every number); the tree add and normalisation as today | `size` 2, 4: the final P, Q equal to the single-rank run's (identical digits) | 3 d |
 | M4 | **Distributed division**: the reciprocal and the division on the whole-machine number (the dbig quarters become `size` shares), the window and corrections rank 0's | digits identical at `size` 1, 2, 4, 8 | 2 d |
 | M5 | **Per-rank output and verification**: each rank formats its share of X (18-digit blocks) and writes its part file; T1 residues rank-local (P_r, Q_r by the recurrence over the rank's term range, X_r, R by Horner over the rank's limbs with the base power of the rank's offset) and combined by the communicator's reduction; T2 windows by the rank holding the position | `cat` of the part files identical to the single-rank output; T1/T2 pass at every size | 1 d |
