@@ -22,34 +22,30 @@ int mn_init(void)
     if (g_size <= 1) { g_size = 1; g_rank = 0; return 1; }
     if (!eh) { fprintf(stderr, "mn: COMM_SIZE %d needs COMM_HOSTS\n", g_size); exit(1); }
     int base = ep ? atoi(ep) : 27000;
-    /* the hosts of the 4 size ranks: each node's name four times */
-    char *hosts = strdup(eh), *h4 = (char *)malloc(4 * strlen(eh) + 4 * g_size + 8); h4[0] = 0; int nh = 0;
-    for (char *t = strtok(hosts, ","); t && nh < g_size; t = strtok(NULL, ","), nh++) for (int d = 0; d < NA; d++) { if (h4[0]) strcat(h4, ","); strcat(h4, t); }
-    if (nh != g_size) { fprintf(stderr, "mn: COMM_HOSTS lists %d hosts for size %d\n", nh, g_size); exit(1); }
+    /* mesh d joins APU thread d of every node: rank = node, size = nodes */
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
-    for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_tcp_create_at(NA * g_rank + d, NA * g_size, h4, base + 64 * d); }
+    for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_tcp_create_at(g_rank, g_size, eh, base + 64 * d); }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: node %d of %d, meshes of %d ranks on %s (port base %d): connected in %.2f s\n", g_rank, g_size, NA * g_size, eh, base, mem_now() - t0);
-    free(hosts); free(h4);
+    printf("mn: node %d of %d, four meshes of %d ranks on %s (port base %d): connected in %.2f s\n", g_rank, g_size, g_size, eh, base, mem_now() - t0);
     return g_size;
 }
 void mn_barrier(void) { if (g_size > 1) comm_barrier(g_cm[0]); }
 void mn_finalize(void) { if (g_size > 1) for (int d = 0; d < NA; d++) if (g_cm[d]) { comm_destroy(g_cm[d]); g_cm[d] = 0; } }
 /* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
- * ranks share; the distributed fwd/pw/inv over the 4 size ranks must equal the one-rank engine on this rank's
- * block-cyclic rows (rank r holds rows [r R/nr, (r+1) R/nr); row i, column j <-> point i + R j) */
+ * nodes share; the distributed fwd/pw/inv over mesh d's `size` ranks must equal the one-rank engine on this
+ * rank's block-cyclic rows (rank r holds rows [r R/nr, (r+1) R/nr); row i, column j <-> point i + R j) */
 static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
 int mn_selftest(int logR, int logC, int verbose)
 {
     if (g_size <= 1) return 1;
-    int ok = 1, nr = NA * g_size, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
+    int ok = 1, nr = g_size, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr == 0) { fprintf(stderr, "mn_selftest: R < ranks\n"); return 0; }
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = d, r = NA * g_rank + d; uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
+        int prime = d, r = g_rank; uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
         uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
         for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
         ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
@@ -67,12 +63,12 @@ int mn_selftest(int logR, int logC, int verbose)
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
         size_t bad = 0;
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
-        if (bad || verbose) printf("mn: rank %d prime %d 2^%d points: %zu of %zu differ\n", r, prime, logn, bad, rows);
+        if (bad || verbose) printf("mn: node %d mesh %d 2^%d points: %zu of %zu differ\n", r, d, logn, bad, rows);
         if (bad) ok = 0;
         dist_plan_free(&pl); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
         free(hx); free(hy); free(ref); free(tmp);
     }
     HIP_CHECK(hipSetDevice(0));
-    printf("mn: self-test over %d ranks at 2^%d points: %s (%.2f s)\n", nr, logn, ok ? "ok" : "FAILED", mem_now() - t0);
+    printf("mn: self-test, four meshes over %d nodes at 2^%d points: %s (%.2f s)\n", nr, logn, ok ? "ok" : "FAILED", mem_now() - t0);
     return ok;
 }
