@@ -41,7 +41,7 @@ __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
     return a.flat ? a.w[0] + m : a.w[m >> a.lq] + (m & (a.qc - 1));
 }
 static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
-static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lq = x->lq; a.lo = lo; a.n = n; return a; }
+static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lq = x->lq; a.lo = x->off + lo; a.n = n; return a; }
 
 struct rank_state {
     comm *cm; ntt_ctx *ctx[EC_NP]; hipStream_t s;
@@ -211,14 +211,12 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
     /* split the longer operand in halves: C = A_lo B + (A_hi B) << h (recursive on the halves) */
     const dbig *L = na >= nb ? A : B, *S = na >= nb ? B : A;
     size_t h = L->n / 2;
-    dbig lo, hi, t1, t2; db_init(&lo); db_init(&hi); db_init(&t1); db_init(&t2);
+    dbig hi, t1, t2; db_init(&hi); db_init(&t1); db_init(&t2);
     db_shr_limbs(&hi, L, h);                                   /* hi = L >> h */
-    lo.q[0] = L->q[0]; lo.q[1] = L->q[1]; lo.q[2] = L->q[2]; lo.q[3] = L->q[3]; lo.qc = L->qc; lo.lq = L->lq; lo.cap = L->cap; lo.n = h;   /* a view: the low h limbs */
-    db_norm(&lo);
+    dbig lo = db_view(L, 0, h); db_norm(&lo);                  /* the low h limbs, in place */
     rns_mul_dist_db(&t1, &lo, S);
     rns_mul_dist_db(&t2, &hi, S);
     db_shl_limbs(Cd, &t2, h);
     db_add(Cd, Cd, &t1);
-    memset(&lo, 0, sizeof lo);                                  /* the view owns nothing */
     db_free(&hi); db_free(&t1); db_free(&t2);
 }

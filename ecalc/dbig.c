@@ -13,16 +13,18 @@ static const uint64_t B10 = 1000000000000000000ULL;
 static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
 static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
 
-struct dv { const uint64_t *q[DB_NQ]; size_t qc; int lq; };
-__device__ static inline uint64_t dget(const struct dv v, size_t i) { return v.q[i >> v.lq][i & (v.qc - 1)]; }
-static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; return v; }
+struct dv { const uint64_t *q[DB_NQ]; size_t qc, off; int lq; };
+__device__ static inline uint64_t dget(const struct dv v, size_t i) { size_t g = v.off + i; return v.q[g >> v.lq][g & (v.qc - 1)]; }
+static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; v.off = a->off; return v; }
+static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
 
 __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
-void db_free(dbig *x) { for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]); memset(x, 0, sizeof *x); }
+void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]); memset(x, 0, sizeof *x); }
 void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
+    if (x->off) { fprintf(stderr, "db_reserve: a view\n"); abort(); }
     size_t qc = 1 << 10; int lq = 10;
     while (qc * DB_NQ < limbs) { qc <<= 1; lq++; }
     dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc; y.lq = lq;
@@ -96,12 +98,12 @@ __global__ void k_carry(uint64_t *out, size_t lo, size_t hi, const uint8_t *cin,
         else { if (sub) { o[i - c0] = v - 1; if (v) return; } else { o[i - c0] = v + 1; if (v != ~0ULL) return; } }
     }
 }
-__global__ void k_maxidx(const uint64_t *a, const uint64_t *b, size_t len, size_t *res)   /* highest index with a != b (b may be null: a != 0); res per block */
+__global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t hi, size_t *res)   /* 1 + highest i in [lo,hi) with a[i] != b[i] (or != 0), per block */
 {
     __shared__ size_t sm[256];
     size_t best = 0; int found = 0;
-    for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < len; i += (size_t)gridDim.x * blockDim.x)
-        if (b ? a[i] != b[i] : a[i] != 0) { if (!found || i > best) best = i; found = 1; }
+    for (size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < hi; i += (size_t)gridDim.x * blockDim.x)
+        if (hasb ? dget(a, i) != dget(b, i) : dget(a, i) != 0) { if (!found || i > best) best = i; found = 1; }
     sm[threadIdx.x] = found ? best + 1 : 0;
     __syncthreads();
     for (int s = 128; s > 0; s >>= 1) { if (threadIdx.x < s && sm[threadIdx.x + s] > sm[threadIdx.x]) sm[threadIdx.x] = sm[threadIdx.x + s]; __syncthreads(); }
@@ -120,13 +122,18 @@ static void flags_reserve(int d, size_t chunks)
     if (!g_red[d]) { HIP_CHECK(hipMalloc(&g_red[d], 228 * 8 * 8)); }
     if (!g_hred) g_hred = (size_t *)malloc(228 * 8 * 8 * DB_NQ);
 }
-/* quarter ranges of a result with n limbs */
-static void qrange(const dbig *r, int d, size_t n, size_t *lo, size_t *hi) { *lo = (size_t)d * r->qc; *hi = *lo + r->qc; if (*hi > n) *hi = n; if (*lo > n) *lo = n; }
+/* the limbs [lo, hi) of x (n limbs, possibly a view at x->off) whose storage is in quarter d */
+static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi)
+{
+    size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc;              /* global limb range of quarter d */
+    *lo = g0 > x->off ? g0 - x->off : 0; *hi = g1 > x->off ? g1 - x->off : 0;
+    if (*hi > n) *hi = n; if (*lo > n) *lo = n;
+}
 
 static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i] = a[i + shift], n limbs */
 {
     if (r == a) { fprintf(stderr, "db shift: in place\n"); abort(); }
-    db_reserve(r, n ? n : 1);
+    need_owner(r, "shift"); db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
@@ -147,7 +154,7 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
     size_t n = a->n > b->n ? a->n : b->n; if (!sub) n++;
     dbig tmp; int inplace = (r == a || r == b); dbig *out = r;
     if (inplace) { db_init(&tmp); out = &tmp; }
-    db_reserve(out, n ? n : 1);
+    need_owner(out, "add/sub"); db_reserve(out, n ? n : 1);
     struct dv va = view_of(a), vb = view_of(b);
     size_t chunks[DB_NQ], lo[DB_NQ], hi[DB_NQ];
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
@@ -185,7 +192,7 @@ void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub(r, a, b, 1); }
 
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
-    size_t best = 0;
+    size_t best = 0; struct dv va = view_of(a), vb = b ? view_of(b) : va;
 #pragma omp parallel for num_threads(DB_NQ) reduction(max:best) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
@@ -193,23 +200,21 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         HIP_CHECK(hipSetDevice(d));
         unsigned blocks = nblk(hi - lo);
 #pragma omp critical
-        k_maxidx<<<blocks, 256>>>(a->q[d], b ? b->q[d] : 0, hi - lo, g_red[d]);
+        k_maxidx<<<blocks, 256>>>(va, vb, b != 0, lo, hi, g_red[d]);
         HIP_CHECK(hipMemcpy(g_hred + d * 228 * 8, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
         size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (g_hred[d * 228 * 8 + i] > m) m = g_hred[d * 228 * 8 + i];
-        if (m) m += lo;
         if (m > best) best = m;
     }
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
-uint64_t db_top(const dbig *a) { if (!a->n) return 0; uint64_t v; size_t i = a->n - 1; mem_dev_copy(&v, a->q[i >> a->lq] + (i & (a->qc - 1)), 8); return v; }
+uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i; mem_dev_copy(&v, a->q[g >> a->lq] + (g & (a->qc - 1)), 8); return v; }
+uint64_t db_top(const dbig *a) { return a->n ? db_limb(a, a->n - 1) : 0; }
 int db_cmp(const dbig *a, const dbig *b)
 {
     if (a->n != b->n) return a->n < b->n ? -1 : 1;
-    if (a->qc != b->qc) { fprintf(stderr, "db_cmp: layouts differ (n %zu): not supported\n", a->n); abort(); }
     size_t m = maxidx(a, b, a->n); if (!m) return 0;
-    uint64_t x, y; size_t i = m - 1;
-    mem_dev_copy(&x, a->q[i >> a->lq] + (i & (a->qc - 1)), 8); mem_dev_copy(&y, b->q[i >> b->lq] + (i & (b->qc - 1)), 8);
+    uint64_t x = db_limb(a, m - 1), y = db_limb(b, m - 1);
     return x < y ? -1 : 1;
 }
 void db_set_zero(dbig *r) { r->n = 0; }
@@ -222,7 +227,7 @@ void db_set_base_pow(dbig *r, size_t k)
     uint64_t one = 1; mem_dev_copy(r->q[k >> r->lq] + (k & (r->qc - 1)), &one, 8);
     r->n = k + 1;
 }
-dview db_view(const dbig *a, size_t lo, size_t len)
+dbig db_view(const dbig *a, size_t lo, size_t len)
 {
-    dview v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; v.lo = lo; v.len = len; return v;
+    dbig v = *a; v.off = a->off + lo; v.n = len; v.cap = 0; return v;   /* not owning: never db_free it */
 }

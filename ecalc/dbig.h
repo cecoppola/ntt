@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 #define DB_NQ 4
-typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc; int lq; } dbig;
+typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; int lq; } dbig;   /* off: a view's first limb (cap 0: not owning) */
 void db_init(dbig *x);
 void db_free(dbig *x);
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
@@ -31,9 +31,9 @@ void db_sub(dbig *r, const dbig *a, const dbig *b);   /* a >= b */
 void db_shl_limbs(dbig *r, const dbig *a, size_t k);
 void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
-/* a view of limbs [lo, lo+len) of a, for the product tiers (no copy) */
-typedef struct { const uint64_t *q[DB_NQ]; size_t qc, lo, len; int lq; } dview;
-dview db_view(const dbig *a, size_t lo, size_t len);
+uint64_t db_limb(const dbig *a, size_t i);
+/* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
+dbig db_view(const dbig *a, size_t lo, size_t len);
 #ifdef __cplusplus
 }
 #endif
