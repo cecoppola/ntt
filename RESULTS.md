@@ -2536,9 +2536,14 @@ T1 4.6–9.9, T2 1.2–3.5, "other" 6.9–13.4) — the same code in binary vari
 less because those phases are shorter relative to the rest. Not thread
 placement: at 10¹⁰ the same phases are stable to 0.1 s with no binding,
 `OMP_PROC_BIND=spread` and `close` alike (`results/bind.out`). The spread
-appears only with ≈ 230 GB of resident host memory, i.e. page management
-(THP compaction / NUMA balancing) on the CPU-side passes — a system
-setting to look at (DESIGN §6.3), not a code change. Best observed
+appears only with ≈ 230 GB of resident host memory: the decimal 10dP is a
+limb shift into a fresh 35 GB allocation, and its time is first-touch page
+faults (4–10 GB/s). Huge pages were tried (`MADV_HUGEPAGE`, the node's
+THP mode is `madvise` with `defer+madvise` defrag): **worse** — 10dP
+26 s, bs +6 s, peak RSS +17 GB from compaction stalls; kept behind
+`BI_HUGE=1`, off. The remaining fix is to reuse a pre-faulted buffer for
+A (S's, grown in place) — a small code change not made in this session —
+or a system THP setting; either way it is ≈ 5 s of a 140-s run. Best observed
 decimal run: 129.6 s of phases, 157.0 s wall.
 
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
