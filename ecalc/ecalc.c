@@ -174,9 +174,9 @@ int main(int argc, char **argv)
         }
         bigint Pr, Qr, tt; bi_init(&Pr); bi_init(&Qr); bi_init(&tt);
         for (int r = 1; r < mn_size_; r++) {
-            uint64_t n2[2]; comm_recv(c, 4 * r, n2, 16);
+            uint64_t n2[2]; comm_recv(c, r, n2, 16);
             bi_reserve(&Pr, n2[0] + 1); bi_reserve(&Qr, n2[1] + 1); Pr.n = n2[0]; Qr.n = n2[1];
-            comm_recv(c, 4 * r, Pr.l, Pr.n * 8); comm_recv(c, 4 * r, Qr.l, Qr.n * 8);
+            comm_recv(c, r, Pr.l, Pr.n * 8); comm_recv(c, r, Qr.l, Qr.n * 8);
             rns_mul(&tt, &P, &Qr); bi_add(&P, &tt, &Pr);        /* P = P Q_r + P_r,  Q = Q Q_r */
             rns_mul(&tt, &Q, &Qr); bi_copy(&Q, &tt);
         }
