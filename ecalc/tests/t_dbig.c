@@ -15,7 +15,7 @@ static int same(const dbig *x, const bigint *a, const char *what)
 int main(int argc, char **argv)
 {
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
-    harness_meta("t_dbig"); bi_env_base(); rns_init(20);
+    harness_meta("t_dbig"); bi_env_base(); rns_init(argc > 3 ? atoi(argv[3]) : 31);
     bigint a, b, r; bi_init(&a); bi_init(&b); bi_init(&r);
     dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);
     size_t sizes[] = { 1, 5, 1023, 1024, 1025, 4097, 100000, (size_t)1 << 20, ((size_t)1 << 22) + 3, (size_t)1 << logmax };
