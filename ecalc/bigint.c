@@ -2,6 +2,24 @@
 #include <stdio.h>
 #include <omp.h>
 #include "bigint.h"
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+/* large host numbers: 2 MiB-aligned, transparent huge pages requested (the node's THP mode is "madvise"), the
+ * valid limbs copied in parallel; small ones stay with realloc */
+uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
+{
+    size_t bytes = (cap * 8 + ((size_t)2 << 20) - 1) & ~(((size_t)2 << 20) - 1);
+    uint64_t *p = (uint64_t *)aligned_alloc((size_t)2 << 20, bytes);
+    if (!p) abort();
+    madvise(p, bytes, MADV_HUGEPAGE);
+    if (old && oldn) {
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < oldn; i += 1 << 18) { size_t m = oldn - i < (1 << 18) ? oldn - i : (1 << 18); memcpy(p + i, old + i, m * 8); }
+    }
+    free(old);
+    return p;
+}
 
 typedef unsigned __int128 u128;
 #define B10 BI_B10
