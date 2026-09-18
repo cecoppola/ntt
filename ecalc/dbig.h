@@ -1,6 +1,6 @@
 /* dbig.h - a big integer resident in device memory (WP5 step 3): the limbs
  * [0, n) live in four quarters, quarter d on APU d, each qc = cap/4 limbs
- * (qc a power of two, so limb i is at q[i >> lq][i & (qc-1)]).  Every
+ * (qc = 2^lq or 3 2^lq, quarter of limb i = (i >> lq) [/ 3]).  Every
  * operation runs as one kernel per APU over that APU's quarter of the result,
  * reading the operands wherever they are (peer access); carries across chunks
  * and quarters are resolved by a scan on the host (n / 4096 chunk flags).
@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 #define DB_NQ 4
-typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; int lq; } dbig;   /* off: a view's first limb (cap 0: not owning) */
+typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; int lq, m3; } dbig;   /* qc = (m3 ? 3 : 1) << lq; off: a view's first limb (cap 0: not owning) */
 void db_init(dbig *x);
 void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
