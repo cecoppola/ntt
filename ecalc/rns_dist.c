@@ -89,13 +89,6 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
 /* this rank's run spills into a sparse temporary S (4 limbs at limb R j + (r+1) rows for every column j);
  * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
  * pathological on long carry chains */
-__global__ void k_spill_place(const uint64_t *spill, struct acc s, size_t R, size_t rows, size_t row0, size_t C)
-{
-    size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x; if (j >= C) return;
-    size_t k = R * j + row0 + rows; const uint64_t *w = spill + j * 4;
-    for (int t = 0; t < 4 && k < s.n; t++, k++) *acc_ptr(s, k) = w[t];
-}
-static dbig g_sparse;                                          /* the temporary, grown on demand */
 
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
@@ -153,31 +146,25 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
     }
-    /* the spills: S zeroed (its own quarters, n limbs), placed by every rank, then C += S */
+    /* the spills: device results add them as a sparse operand of the carry kernel; host results add them on the host */
     double tsp = mem_now();
-    db_reserve(&g_sparse, nc); g_sparse.n = nc;
-    for (int d = 0; d < NR; d++) { size_t lo = (size_t)d * g_sparse.qc; if (lo < nc) { size_t len = nc - lo < g_sparse.qc ? nc - lo : g_sparse.qc; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemsetAsync(g_sparse.q[d], 0, len * 8, 0)); } }
-    for (int d = 0; d < NR; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
-    struct acc Sw = acc_db(&g_sparse, 0, nc);
-#pragma omp parallel num_threads(NR)
-    {
-        int r = omp_get_thread_num(); struct rank_state *v = &RS[r];
-        HIP_CHECK(hipSetDevice(r));
-        k_spill_place<<<(unsigned)((C + 255) / 256), 256, 0, v->s>>>(v->spill, Sw, R, rows, (size_t)r * rows, C);
-        HIP_CHECK(hipStreamSynchronize(v->s));
-    }
-    if (Cw.flat) {                                               /* host result: the spills are few; add them on the host */
-        bigint h; bi_init(&h); db_to_bi(&h, &g_sparse);
+    if (Cw.flat) {
         const uint64_t BB = EC_1E18; uint64_t *cc = Cw.w[0];
-        for (size_t i = 0; i < h.n; i++) if (h.l[i]) {
-            size_t k = i; uint64_t v = h.l[i], cy;
-            if (bi_decimal) { uint64_t sm = cc[k] + v; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; while (cy && k < nc) { sm = cc[k] + 1; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; } }
-            else { uint64_t sm = cc[k] + v; cy = sm < v; cc[k] = sm; k++; while (cy && k < nc) { cc[k]++; cy = cc[k] == 0; k++; } }
+        uint64_t *hs = (uint64_t *)malloc(C * 4 * 8);
+        for (int r = 0; r < NR; r++) {
+            HIP_CHECK(hipSetDevice(r)); HIP_CHECK(hipMemcpy(hs, RS[r].spill, C * 4 * 8, hipMemcpyDeviceToHost));
+            for (size_t j = 0; j < C; j++) {
+                size_t k = R * j + (size_t)(r + 1) * rows; const uint64_t *w = hs + j * 4; uint64_t cy = 0;
+                if (k >= nc) continue;
+                if (bi_decimal) { for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; } }
+                else { for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t], c1 = sm < cc[k]; sm += cy; c1 += sm < cy; cc[k] = sm; cy = c1; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm < cy; cc[k] = sm; k++; } }
+            }
         }
-        bi_free(&h);
+        free(hs);
     } else {
         dbig *Cd = Cw.owner; Cd->n = nc;
-        db_add(Cd, Cd, &g_sparse);                              /* chunked carries, in place */
+        const uint64_t *sp[4] = { RS[0].spill, RS[1].spill, RS[2].spill, RS[3].spill };
+        db_add_spills(Cd, Cd, sp, R, rows, C, nc);               /* in place, one chunked-carry pass */
         if (Cd->n > nc) { fprintf(stderr, "dist: carry out of the product\n"); exit(1); }
     }
     rns_dist_st.t_merge += mem_now() - tsp;
