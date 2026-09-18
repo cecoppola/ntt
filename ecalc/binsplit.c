@@ -19,8 +19,10 @@ int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU school
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
 int bs_ckpt_every = 4;                               /* BS_CKPT_EVERY: a checkpoint every this many levels */
-int bs_ckpt_min_level = 8;                           /* BS_CKPT_MIN_LEVEL: never the tiny bottom levels, unless the level's pool exceeds bs_ckpt_min_bytes */
-size_t bs_ckpt_min_bytes = (size_t)1 << 30;
+int bs_ckpt_min_level = 16;                          /* BS_CKPT_MIN_LEVEL: only the top levels, where the time is (a snapshot costs
+                                                      * a full pass of the pools: 5.7 s per 8 GB at 10^10, RESULTS.md 61; from level
+                                                      * 16 a 24-level run writes two) */
+size_t bs_ckpt_min_bytes = (size_t)64 << 30;         /* ... unless the level's pool is already this large */
 int bs_restart = 0;                                  /* BS_RESTART=1: resume from the latest complete checkpoint in bs_ckpt_dir */
 
 unsigned long e_terms(unsigned long d)

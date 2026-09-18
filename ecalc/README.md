@@ -29,8 +29,8 @@ Phase 7 switches: `LIMB_BASE` (2 default, 10 = base-10¹⁸ limbs: 10dP and dc v
 Checkpoint/restart of bs (WP7, `results/WP7.md`): `BS_CKPT_DIR=<dir>` writes a snapshot of the
 level loop at the end of a level — the node table (`level_LLL.hdr`) and the used limbs of the
 four region pools (`level_LLL.r0..r3`; the mdev levels' host pool is saved the same way) — every
-`BS_CKPT_EVERY` levels (default 4), from level `BS_CKPT_MIN_LEVEL` (default 8) on or as soon as a
-level's pool exceeds 1 GiB; only the latest level is kept (files written to `.tmp` names and
+`BS_CKPT_EVERY` levels (default 4), from level `BS_CKPT_MIN_LEVEL` (default 16: the top levels, where the time is — a snapshot is a full pass of the pools, ≈ 5.7 s per 8 GB) on or as soon as a
+level's pool exceeds 64 GiB; only the latest level is kept (files written to `.tmp` names and
 renamed, header last, the previous set removed after). `BS_RESTART=1` with the same `<dir>`,
 digits and base resumes from the latest complete set (seeds and the levels below it are
 skipped; the digits are bit-identical to an uninterrupted run); a set from another run (N, base
