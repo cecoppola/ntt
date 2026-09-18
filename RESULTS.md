@@ -2599,3 +2599,19 @@ level boundaries.
 3·2³⁰ plane pool as the next item; binary kept as the switch for
 reproduction of the paper. Every number above is in the run logs
 (`results/variance_b{2,10}_dev/`, `results/attr/`).
+
+## 64. The top bs levels on the device tier — measured, not yet adopted (2026-09-18, job 20644)
+
+`BS_DEV_MDEV=1`: the mdev-tier levels (the top two or three) hold their
+nodes as device numbers and multiply through the distributed tier; the
+region pools are donated to the block allocator as they free up. Decimal
+4 × 10¹⁰: level 23 **4.8 s** (host mdev tier 19.5), level 24 **7.7 s**
+(18.0), bs peak host RSS **160 GB** (232 — the host mdev pools are gone).
+Then the run was killed in the division: the bs results and the split
+temporaries fragment the donated blocks (the allocator splits blocks but
+does not coalesce buddies), the reciprocal had to `hipMalloc` 129 GB on top
+(22 allocations, 14 s), and the division's temporaries no longer fit.
+Kept behind the switch, off by default. What it needs: buddy coalescing in
+`dbig`'s free lists (≈ half a day); the gain is ≈ −25 s and −70 GB of peak
+host memory in decimal (−10 s / −70 GB in binary), and it makes P, Q, S
+and A device-resident into dm, removing the last host round trips.
