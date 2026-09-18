@@ -117,8 +117,8 @@ static void flags_reserve(int d, size_t chunks)
 {
     if (g_flags_cap[d] >= chunks) return;
     HIP_CHECK(hipSetDevice(d));
-    if (g_flags[d][0]) { HIP_CHECK(hipFree(g_flags[d][0])); HIP_CHECK(hipFree(g_flags[d][1])); }
-    HIP_CHECK(hipMallocManaged((void **)&g_flags[d][0], chunks + 16)); HIP_CHECK(hipMallocManaged((void **)&g_flags[d][1], chunks + 16));
+    if (g_flags[d][0]) { HIP_CHECK(hipHostFree(g_flags[d][0])); HIP_CHECK(hipHostFree(g_flags[d][1])); }
+    HIP_CHECK(hipHostMalloc((void **)&g_flags[d][0], chunks + 16, 0)); HIP_CHECK(hipHostMalloc((void **)&g_flags[d][1], chunks + 16, 0));   /* pinned host: written by the kernel, scanned by the host */
     g_flags_cap[d] = chunks;
     if (!g_red[d]) { HIP_CHECK(hipMalloc(&g_red[d], 228 * 8 * 8)); }
     if (!g_hred) g_hred = (size_t *)malloc(228 * 8 * 8 * DB_NQ);
