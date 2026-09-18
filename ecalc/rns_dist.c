@@ -29,7 +29,7 @@
 #define DIST_LOGN_MAX 31
 
 /* a limb accessor: either one flat array or four quarters (a dbig view) */
-struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int lq, flat; };
+struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int lq, flat; dbig *owner; };
 __device__ static inline uint64_t acc_get(const struct acc a, size_t i)      /* i < n */
 {
     size_t m = a.lo + i;
@@ -41,7 +41,7 @@ __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
     return a.flat ? a.w[0] + m : a.w[m >> a.lq] + (m & (a.qc - 1));
 }
 static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
-static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lq = x->lq; a.lo = x->off + lo; a.n = n; return a; }
+static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lq = x->lq; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
 
 struct rank_state {
     comm *cm; ntt_ctx *ctx[EC_NP]; hipStream_t s;
@@ -86,22 +86,16 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
     size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) { size_t j = t / rows, il = t % rows, mm = R * j + row0 + il; if (mm < c.n) *acc_ptr(c, mm) = loc[t]; }
 }
-/* add this rank's run spills (4 limbs at limb R j + (r+1) rows, then a carry ripple) with atomics; in the
- * decimal base an atomic CAS loop keeps every limb below B */
-__device__ static inline uint64_t atomic_add_limb(uint64_t *p, uint64_t v, int dec)   /* returns the carry out */
-{
-    if (!dec) { uint64_t old = atomicAdd((unsigned long long *)p, (unsigned long long)v); return old + v < old; }
-    uint64_t old = *p, nw, cy;
-    for (;;) { uint64_t s = old + v; cy = s >= EC_1E18; nw = cy ? s - EC_1E18 : s;
-               uint64_t seen = atomicCAS((unsigned long long *)p, (unsigned long long)old, (unsigned long long)nw); if (seen == old) return cy; old = seen; }
-}
-__global__ void k_spill_add(const uint64_t *spill, struct acc c, size_t R, size_t rows, size_t row0, size_t C, int dec)
+/* this rank's run spills into a sparse temporary S (4 limbs at limb R j + (r+1) rows for every column j);
+ * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
+ * pathological on long carry chains */
+__global__ void k_spill_place(const uint64_t *spill, struct acc s, size_t R, size_t rows, size_t row0, size_t C)
 {
     size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x; if (j >= C) return;
-    size_t k = R * j + row0 + rows; const uint64_t *w = spill + j * 4; uint64_t cy = 0;
-    for (int t = 0; t < 4 && k < c.n; t++, k++) { uint64_t v = w[t] + cy; cy = 0; if (dec && v >= EC_1E18) { v -= EC_1E18; cy = 1; } cy += atomic_add_limb(acc_ptr(c, k), v, dec); }
-    while (cy && k < c.n) { cy = atomic_add_limb(acc_ptr(c, k), cy, dec); k++; }
+    size_t k = R * j + row0 + rows; const uint64_t *w = spill + j * 4;
+    for (int t = 0; t < 4 && k < s.n; t++, k++) *acc_ptr(s, k) = w[t];
 }
+static dbig g_sparse;                                          /* the temporary, grown on demand */
 
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
@@ -157,11 +151,36 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, rns_gconst(), v->spill, bi_decimal);
         k_scatter_runs<<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C);
         HIP_CHECK(hipStreamSynchronize(v->s));
-#pragma omp barrier                                          /* every run is in place before any spill is added */
-        k_spill_add<<<(unsigned)((C + 255) / 256), 256, 0, v->s>>>(v->spill, Cw, R, rows, (size_t)r * rows, C, bi_decimal);
-        HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
     }
+    /* the spills: S zeroed (its own quarters, n limbs), placed by every rank, then C += S */
+    double tsp = mem_now();
+    db_reserve(&g_sparse, nc); g_sparse.n = nc;
+    for (int d = 0; d < NR; d++) { size_t lo = (size_t)d * g_sparse.qc; if (lo < nc) { size_t len = nc - lo < g_sparse.qc ? nc - lo : g_sparse.qc; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemsetAsync(g_sparse.q[d], 0, len * 8, 0)); } }
+    for (int d = 0; d < NR; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+    struct acc Sw = acc_db(&g_sparse, 0, nc);
+#pragma omp parallel num_threads(NR)
+    {
+        int r = omp_get_thread_num(); struct rank_state *v = &RS[r];
+        HIP_CHECK(hipSetDevice(r));
+        k_spill_place<<<(unsigned)((C + 255) / 256), 256, 0, v->s>>>(v->spill, Sw, R, rows, (size_t)r * rows, C);
+        HIP_CHECK(hipStreamSynchronize(v->s));
+    }
+    if (Cw.flat) {                                               /* host result: the spills are few; add them on the host */
+        bigint h; bi_init(&h); db_to_bi(&h, &g_sparse);
+        const uint64_t BB = EC_1E18; uint64_t *cc = Cw.w[0];
+        for (size_t i = 0; i < h.n; i++) if (h.l[i]) {
+            size_t k = i; uint64_t v = h.l[i], cy;
+            if (bi_decimal) { uint64_t sm = cc[k] + v; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; while (cy && k < nc) { sm = cc[k] + 1; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; } }
+            else { uint64_t sm = cc[k] + v; cy = sm < v; cc[k] = sm; k++; while (cy && k < nc) { cc[k]++; cy = cc[k] == 0; k++; } }
+        }
+        bi_free(&h);
+    } else {
+        dbig *Cd = Cw.owner; Cd->n = nc;
+        db_add(Cd, Cd, &g_sparse);                              /* chunked carries, in place */
+        if (Cd->n > nc) { fprintf(stderr, "dist: carry out of the product\n"); exit(1); }
+    }
+    rns_dist_st.t_merge += mem_now() - tsp;
     double t3 = mem_now();
     rns_dist_st.n++; rns_dist_st.t_total += t3 - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
