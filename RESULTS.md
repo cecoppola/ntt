@@ -2504,8 +2504,14 @@ in all 15 comparisons** (against each other and the reference files).
 0.5–0.9 s each (NVMe write + fsync ≈ 1 GB/s; the DMA side 1.6–2 GB/s);
 restart load 0.13–0.22 s. Extrapolated: ≈ 9 GB / 9 s at 10¹⁰, ≈ 35 GB /
 35 s at 4 × 10¹⁰ — every 4 levels of a 24-level tree, i.e. ≈ 4 snapshots.
-The mdev-level (host pool) path is implemented but only exercised at
-10¹⁰ and above: to be run once before relying on it (recipe in WP7.md §4).
+**10¹⁰ (binary, run by the main session on the merged code):** five
+snapshots of 8.3 GB at levels 4–20 (the 1 GiB threshold fired from level
+4), 5.7 s each (1.3–2.1 GB/s), restart from level 20 loaded in 1.2 s,
+**digits identical** — this exercises the mdev-level host-pool path. The
+cost showed the default policy was too eager at scale (28 s of snapshots
+over a 12-s bs phase; ≈ 175 s at 4 × 10¹⁰): the defaults are now level ≥
+16 (or a 64 GiB pool), i.e. two snapshots of a 24-level run, ≈ 70 s at
+4 × 10¹⁰ — the top levels are where a restart saves time.
 For the multi-node run the same snapshot per rank, at the level boundaries
 that are global synchronisation points anyway, is the restart design.
 
