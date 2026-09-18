@@ -83,6 +83,16 @@ int rns_init(int pool_log)
 }
 int rns_pool_log(void) { return g_pool_log; }
 uint64_t *rns_hstage(int dev) { return D[dev].hstage; }
+/* WP5: the pinned staging (64 GB) is idle while the dm phase runs on device: release it, re-create for dc */
+void rns_release_staging(void)
+{
+    for (int d = 0; d < g_nd; d++) if (D[d].hstage) { mem_hstage_free(D[d].hstage); D[d].hstage = 0; }
+}
+void rns_ensure_staging(void)
+{
+    size_t bytes = (size_t)8 << g_pool_log;
+    for (int d = 0; d < g_nd; d++) if (!D[d].hstage) { double tt, tr; HIP_CHECK(hipSetDevice(d)); D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr); }
+}
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
 void *rns_dpool(int dev, int which, size_t bytes) { return dpool_get(which ? &D[dev].db : &D[dev].da, dev, bytes); }
 int rns_ndev(void) { return g_nd; }

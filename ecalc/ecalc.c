@@ -121,7 +121,9 @@ int main(int argc, char **argv)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
+    if (newton_dev) rns_release_staging();       /* 64 GB of pinned memory the device path does not use */
     if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
+    if (newton_dev && !bi_decimal) rns_ensure_staging();   /* dc's tiers need it (registration ~ seconds, outside dm) */
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",

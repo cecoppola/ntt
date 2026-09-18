@@ -126,15 +126,55 @@ void db_reserve(dbig *x, size_t limbs)
     *x = y;
     db_st.t_reserve += tnow() - t0;
 }
+/* host <-> device copies through a pinned bounce buffer per device (1 GiB): hipMemcpy with pageable host
+ * memory runs at ~3 GB/s, pinned at ~50 GB/s; the host side is a parallel memcpy.  Quarters one after
+ * another (concurrent hipMemcpy with pageable memory faults, RESULTS.md 59), chunks pipelined by two. */
+#define BOUNCE ((size_t)1 << 27)                              /* limbs: 1 GiB */
+static uint64_t *g_bounce[DB_NQ][2]; static hipStream_t g_bs[DB_NQ];
+static void bounce_init(int d)
+{
+    if (g_bounce[d][0]) return;
+    HIP_CHECK(hipSetDevice(d));
+    HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
+    HIP_CHECK(hipStreamCreate(&g_bs[d]));
+}
+static void par_memcpy(uint64_t *dst, const uint64_t *src, size_t n)
+{
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n; i += 1 << 18) { size_t m = n - i < (1 << 18) ? n - i : (1 << 18); memcpy(dst + i, src + i, m * 8); }
+}
 void db_from_bi(dbig *x, const bigint *a)
 {
     db_reserve(x, a->n ? a->n : 1); x->n = a->n;
-    for (int d = 0; d < DB_NQ; d++)                       /* serial: concurrent hipMemcpy with pageable host memory faults (RESULTS.md 59) */ { size_t lo = (size_t)d * x->qc; if (lo < a->n) { size_t len = a->n - lo < x->qc ? a->n - lo : x->qc; mem_dev_copy_on(d, x->q[d], a->l + lo, len * 8); } }
+    for (int d = 0; d < DB_NQ; d++) {
+        size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
+        size_t len = a->n - lo < x->qc ? a->n - lo : x->qc;
+        bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0;
+        for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
+            size_t m = len - i < BOUNCE ? len - i : BOUNCE;
+            HIP_CHECK(hipStreamSynchronize(g_bs[d]));               /* the buffer's previous upload is done */
+            par_memcpy(g_bounce[d][b], a->l + lo + i, m);
+            HIP_CHECK(hipMemcpyAsync(x->q[d] + i, g_bounce[d][b], m * 8, hipMemcpyHostToDevice, g_bs[d]));
+        }
+        HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+    }
 }
 void db_to_bi(bigint *r, const dbig *x)
 {
     bi_reserve(r, x->n ? x->n : 1); r->n = x->n;
-    for (int d = 0; d < DB_NQ; d++) { size_t lo = (size_t)d * x->qc; if (lo < x->n) { size_t len = x->n - lo < x->qc ? x->n - lo : x->qc; mem_dev_copy_on(d, r->l + lo, x->q[d], len * 8); } }
+    for (int d = 0; d < DB_NQ; d++) {
+        size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
+        size_t len = x->n - lo < x->qc ? x->n - lo : x->qc;
+        bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0; size_t prev = 0, prevm = 0; int have = 0;
+        for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
+            size_t m = len - i < BOUNCE ? len - i : BOUNCE;
+            HIP_CHECK(hipMemcpyAsync(g_bounce[d][b], x->q[d] + i, m * 8, hipMemcpyDeviceToHost, g_bs[d]));
+            if (have) par_memcpy(r->l + lo + prev, g_bounce[d][b ^ 1], prevm);   /* the previous chunk, already landed */
+            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            prev = i; prevm = m; have = 1;
+        }
+        if (have) par_memcpy(r->l + lo + prev, g_bounce[d][b ^ 1], prevm);
+    }
 }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
 __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */

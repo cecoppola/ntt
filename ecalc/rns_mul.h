@@ -77,6 +77,8 @@ struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, co
 void rns_mul_dist_hd(struct dbig_s *C, const uint64_t *a, size_t na, const struct dbig_s *B);           /* registered host A x device B */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
 void *rns_dpool(int dev, int which, size_t bytes);
+void rns_release_staging(void);
+void rns_ensure_staging(void);
 struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; };
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 
