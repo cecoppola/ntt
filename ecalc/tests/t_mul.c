@@ -49,12 +49,15 @@ int main(int argc, char **argv)
 
     if (only_dist) {
         rns_init(pool ? pool : 31);
-        struct { size_t na, nb; } dc[] = { {600000, 500000}, {1u << 20, 1u << 20}, {(1u << 22) + 3, (1u << 22) - 5}, {1u << 25, 1u << 25}, {(1u << 27) + 11, (1u << 27) - 11} };
-        for (size_t i = 0; i < sizeof dc / sizeof *dc; i++) for (int kind = 0; kind < 2; kind++) {
+        int big = getenv("DIST_BIG") != 0;                   /* DIST_BIG=1: the 2^30 and 2^31-point products (time only) */
+        struct { size_t na, nb; } dc[] = { {600000, 500000}, {1u << 20, 1u << 20}, {(1u << 22) + 3, (1u << 22) - 5}, {1u << 25, 1u << 25}, {(1u << 27) + 11, (1u << 27) - 11}, {(size_t)1 << 29, (size_t)1 << 29}, {(size_t)1 << 30, (size_t)1 << 30} };
+        size_t ndc = big ? 7 : 5;
+        for (size_t i = big ? 5 : 0; i < ndc; i++) for (int kind = 0; kind < (big ? 1 : 2); kind++) {
             bi_random(&A, dc[i].na, kind, &rng); bi_random(&B, dc[i].nb, kind, &rng);
+            rns_mul_dist(&C, &A, &B);                          /* first call builds the plans */
             double t0 = now(); rns_mul_dist(&C, &A, &B); double t1 = now();
             char what[96]; snprintf(what, sizeof what, "dist %zux%zu %s", dc[i].na, dc[i].nb, gen_name[kind]);
-            check_product(what, &A, &B, &C, 1);
+            if (!big) check_product(what, &A, &B, &C, 1);
             if (kind == 0) { bigint D; bi_init(&D); double t2 = now(); rns_mul(&D, &A, &B); double t3 = now();
                              VERIFY(bi_cmp(&C, &D) == 0, "dist == rns_mul %zux%zu", dc[i].na, dc[i].nb);
                              printf("   %-40s dist %.3f s   rns_mul %.3f s\n", what, t1 - t0, t3 - t2); bi_free(&D); }
