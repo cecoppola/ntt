@@ -2532,3 +2532,56 @@ cause is thread placement across the four NUMA nodes for the CPU passes
 (residues, the decimal 10dP shift, the T2 windows); pinning was measured
 harmful for the seeds (§56) but a per-phase policy has not been tried.
 Best observed decimal run: 129.6 s of phases, 157.0 s wall.
+
+## 63. The two pipelines, final single-node comparison (2026-09-18)
+
+Same code, same node (s24-16), five runs each (§62); the base is the only
+switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
+
+| 4 × 10¹⁰ digits, one MI300A node | Phase 4 (paper's design) | **binary, final** | **decimal, final** |
+|---|---:|---:|---:|
+| bs | 74.7 | 46.0 | 63.1 |
+| 10dP | 9.3 | 10.7 | 5.1 |
+| dm | 51.1 | 31.7 | 56.6 |
+| dc | 82.5 | 80.7 | 5.5 |
+| T1 + T2 | 7.3 | 5.4 | 9.4 |
+| **phases** | **229** | **174.5** | **139.6** (best 129.6) |
+| wall incl. init (paper-style total) | 291 | 209 | 170 (best 157) |
+| peak host RSS | 248 GB | 233 GB | 233 GB |
+| device pools (not in RSS) | 128 GB | 128 + 120 (bs regions, reused by dm) | 128 + 117 |
+| digits verified | T1, T2, 10⁹ identical | same, both dm paths | same, both dm paths |
+
+**What each column is.** Phase 4: the paper's algorithm as reproduced
+(host-resident numbers, prime-per-device tiers). Final: the WP1–WP8
+changes — k-anchored Newton, device regions with subtree ownership and
+the locality-aware batch tier, 3·2ᵏ lengths, seed span 256, the dm phase
+on device-resident numbers through the four-APU distributed transform,
+`e_terms` by bisection — with the base as a switch.
+
+**Where the bases differ, final code.** Decimal removes 10dP and dc
+(92 → 11 s) and pays in bs (+17 s: seeds 9 vs 6, mdev 21 vs 9 — the
+4.44 × 10⁹-limb top products split one level deeper than binary's
+4.15 × 10⁹) and dm (+25 s: one more Newton doubling and the same deeper
+split in A μ and X Q). Net: decimal is **20 % faster** on one node with
+the same peak memory. Both remaining decimal costs are the 2³¹-point cap of
+the device tier's planes, not the base: a 3·2³⁰-point plane pool (+40 GB
+of device memory, which the device-resident dm phase now leaves free)
+would remove most of the 25 + 12 s. That is the next single-node step if
+decimal is chosen.
+
+**Multi-node (2048 nodes, 8 192 APU ranks, 2 × 400 Gb/s per APU),
+sized from the measured cell.** Per 4 × 10¹⁰-per-node equivalent:
+decimal ≈ 12.5 s of exposed all-to-all time (3 per product, the WP5
+transform verified on real APUs and, pending WP6, across nodes over TCP);
+binary ≈ 25 s (10dP and a distributed radix conversion, PLAN §15 WP2). The
+distributed transform's parts on one node at 2³¹ points — local passes
+0.33 s, pack/unpack 0.12, all-to-all 0.18 over three 91 GB/s links — are
+the per-rank costs that scale; the fabric replaces the third. Memory per
+node is the single-node profile; decimal's digits need no gather phase
+(each rank formats its own limbs). Checkpoint/restart (§61) is per rank at
+level boundaries.
+
+**Recommendation for the user's decision:** the decimal base, with the
+3·2³⁰ plane pool as the next item; binary kept as the switch for
+reproduction of the paper. Every number above is in the run logs
+(`results/variance_b{2,10}_dev/`, `results/attr/`).
