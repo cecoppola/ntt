@@ -2541,9 +2541,10 @@ limb shift into a fresh 35 GB allocation, and its time is first-touch page
 faults (4–10 GB/s). Huge pages were tried (`MADV_HUGEPAGE`, the node's
 THP mode is `madvise` with `defer+madvise` defrag): **worse** — 10dP
 26 s, bs +6 s, peak RSS +17 GB from compaction stalls; kept behind
-`BI_HUGE=1`, off. The remaining fix is to reuse a pre-faulted buffer for
-A (S's, grown in place) — a small code change not made in this session —
-or a system THP setting; either way it is ≈ 5 s of a 140-s run. Best observed
+`BI_HUGE=1`, off. **Fixed by reusing a pre-faulted buffer:** in decimal, A takes the bs
+phase's host pool (≈ 40 GB, already faulted) instead of a fresh allocation
+— 10dP 6.9 → **2.2 s** at 4 × 10¹⁰ (job 20644, digits verified at 10⁹ and
+4 × 10¹⁰); the same page-fault cost is what makes "other" and T1 vary. Best observed
 decimal run: 129.6 s of phases, 157.0 s wall.
 
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
