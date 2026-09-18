@@ -181,11 +181,10 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         if (Cd->n > nc) { fprintf(stderr, "dist: carry out of the product\n"); exit(1); }
     }
     rns_dist_st.t_merge += mem_now() - tsp;
-    double t3 = mem_now();
-    rns_dist_st.n++; rns_dist_st.t_total += t3 - t0;
+    rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
-    if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs): load %.3f ntt %.3f crt %.3f total %.3f s\n", logn, logR, logC, nc, ml, mf, mc, t3 - t0);
+    if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", logn, logR, logC, nc, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     if (dist_st.on) { printf("   ntt parts (all ranks summed / 4): local rows %.3f cols %.3f pack+unpack %.3f all-to-all %.3f\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
@@ -223,8 +222,11 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
     if (nc <= ((size_t)1 << DIST_LOGN_MAX)) {
+        struct db_stats s0 = db_st; double t0 = mem_now();
         dist_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
         Cd->n = nc; db_norm(Cd);
+        if (getenv("RNS_VERBOSE")) printf("   dist_db %zu limbs: %.3f s (dbig: shift %.3f addsub %.3f maxidx %.3f reserve %.3f)\n", nc, mem_now() - t0,
+                                          db_st.t_shift - s0.t_shift, db_st.t_addsub - s0.t_addsub, db_st.t_maxidx - s0.t_maxidx, db_st.t_reserve - s0.t_reserve);
         return;
     }
     /* split the longer operand in halves: C = A_lo B + (A_hi B) << h (recursive on the halves) */
