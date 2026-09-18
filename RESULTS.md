@@ -2508,3 +2508,27 @@ The mdev-level (host pool) path is implemented but only exercised at
 10¹⁰ and above: to be run once before relying on it (recipe in WP7.md §4).
 For the multi-node run the same snapshot per rank, at the level boundaries
 that are global synchronisation points anyway, is the restart design.
+
+## 62. Five-run variance on the final single-node code (2026-09-18, job 20644, s24-16; `NEWTON_DEVICE=1`, seed span 256, 3·2ᵏ lengths)
+
+| 4 × 10¹⁰ | binary mean ± sd | decimal mean ± sd |
+|---|---:|---:|
+| bs | 46.0 ± 1.6 | 63.1 ± 3.0 |
+| 10dP | 10.7 ± 1.5 | 5.1 ± 2.8 |
+| dm | 31.7 ± 0.3 | 56.6 ± 1.1 |
+| T1 | 4.1 ± 0.3 | 6.8 ± 2.3 |
+| dc | 80.7 ± 0.9 | 5.5 ± 0.9 |
+| T2 | 1.3 ± 0.1 | 2.6 ± 1.2 |
+| **phases** | **174.5** (173.2–175.2) | **139.6** (129.6–150.3) |
+| init / other | 20.7 / 14.2 | 20.8 / 10.0 |
+| **wall** | **209.4 ± 1.6 (0.8 %)** | **170.3 ± 11.7 (6.9 %)** |
+| peak RSS | 232.9 GB | 232.7 GB |
+
+All ten runs VERIFY OK. The GPU-heavy phases are stable (dm 1–2 %, dc
+1 %); decimal's spread is entirely in the CPU-side phases (10dP 3.5–10 s,
+T1 4.6–9.9, T2 1.2–3.5, "other" 6.9–13.4) — the same code in binary varies
+less because those phases are shorter relative to the rest. The likely
+cause is thread placement across the four NUMA nodes for the CPU passes
+(residues, the decimal 10dP shift, the T2 windows); pinning was measured
+harmful for the seeds (§56) but a per-phase policy has not been tried.
+Best observed decimal run: 129.6 s of phases, 157.0 s wall.
