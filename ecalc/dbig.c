@@ -118,7 +118,7 @@ void db_reserve(dbig *x, size_t limbs)
         for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
             HIP_CHECK(hipSetDevice(c));
             k_touch<<<1, 256>>>(y.q[d], qc);
-            HIP_CHECK(hipDeviceSynchronize());
+            HIP_CHECK(hipStreamSynchronize(0));
         }
         HIP_CHECK(hipSetDevice(0));
     }
@@ -137,6 +137,8 @@ void db_reserve(dbig *x, size_t limbs)
     *x = y;
     db_st.t_reserve += tnow() - t0;
 }
+/* (the kernels above synchronise the null stream only, not the device: a background copy on the non-blocking
+ * stream below must not be waited for by every kernel of the Newton loop -- Phase 8, RESULTS.md 68) */
 /* host <-> device copies through a pinned bounce buffer per device (1 GiB): hipMemcpy with pageable host
  * memory runs at ~3 GB/s, pinned at ~50 GB/s; the host side is a parallel memcpy.  Quarters one after
  * another (concurrent hipMemcpy with pageable memory faults, RESULTS.md 59), chunks pipelined by two. */
@@ -313,7 +315,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_gather_shift<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
-        HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipStreamSynchronize(0));
     }
     r->n = n; db_norm(r);
     db_st.t_shift += tnow() - t0;
@@ -341,7 +343,7 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
-        HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
     uint8_t cy = 0;
@@ -358,7 +360,7 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub, bi_decimal);
-        HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipStreamSynchronize(0));
     }
     out->n = n; db_norm(out);
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
@@ -397,7 +399,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_complement<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, va, a->n, top);
-        HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipStreamSynchronize(0));
     }
     r->n = e; db_norm(r);
     struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = 0; s.val = 1;
