@@ -2773,3 +2773,28 @@ regions; digits identical to `results/e_4e10.out`. `LIMB_BASE=2` runs
 the paper's binary-limb pipeline on the same code (167.1 / 191.5 /
 233 GB); the Phase 4 reproduction as accepted is tag `phase4-accepted`.
 
+
+## 68. Phase 8 — overlap of disjoint work (2026-09-18, branch `phase8-overlap`, job 20683, s24-16; PLAN §18)
+
+`ECALC_OVERLAP=1`: init per APU in parallel (O1); T1's P, Q term
+recurrence in a background thread from the end of the seeds (O2); P and
+Q left on the device by the top level and copied out, their residues
+taken and A = 10ᵈ(P+Q) formed on the CPU while the reciprocal runs, Q
+never copied back (O3); X copied out before the low product and the
+formatting, the T2 windows and the digit residue done on the CPU during
+it (O4); if a correction changes X afterwards the digits are redone.
+Background threads run a bounded OpenMP team; host↔device copies and the
+block pool are mutex-protected since two threads now use them.
+
+**First run, 4 × 10¹⁰, VERIFY OK, digits identical:** wall **133.7 →
+120.7 s**. Per period: init 20.2 → 15.5; seeds 10.4 → 8.1; batch levels
+29.7 → 31.1 (the recurrence competes); top levels 19.1 → 17.5 (no
+synchronous copy-out); reciprocal 14.8 → **19.9** (P's device blocks
+stayed alive during it: pool 39 → 90 GB, 4 s of `hipMalloc` fallback in
+`db_reserve`; CPU contention from the 96-thread residue/A work);
+division 22.2 → 23.9 (the formatting competes with the low product's
+host side); T1 3.7 → 2.6 (X's residues recomputed although the
+formatting thread had them); dc + T2 5.4 → 0.1. Peak host 166.7 GB
+(A's shrink in the division had been switched off by mistake; VmRSS
+after bs 118 GB — the host copies of P, Q now arrive after the pools are
+gone, so the bs peak is lower than before).
