@@ -2334,3 +2334,43 @@ and 0 in memory at this digit count. Its structural value stands: both
 bases are now insensitive to where d falls against powers of two (the
 crossing that cost decimal 2.7× in dm before the Newton anchoring cannot
 recur), which matters for the multi-node digit counts.
+
+## 58. WP4 — compute tuning on the final layout (2026-09-17, s24-16, job 20642)
+
+Three items, all measured at 4 × 10¹⁰, both bases verified after each:
+
+1. **Decimal `mul_1`** (the seed spans multiply by term indices < 2³³): a
+   64-bit Barrett step (μ = ⌊2⁹⁴/10¹⁸⌋, one multiply-high, ≤ 1 correction;
+   exact on 2 × 10⁸ random inputs) replaces the 128-bit division. Node:
+   4.4 → **2.6 ns/limb** (binary 0.82). Decimal seeds 22.4 → 16.3 s.
+2. **CPU schoolbook tier off** (`bs_school_nl` 160 → 0): with the pools
+   in device memory the tier's read-modify-write costs 42–59 s at a level
+   the device batch tier does in 1.4–2.5 s; it had been dormant at S = 512
+   (level-0 nodes are larger than its threshold) and appeared the moment
+   the seed span shrank.
+3. **Seed span** S (`BS_SEED_TERMS`): seed work is ∝ N·S, each halving
+   adds one small batch level.
+
+| S | binary seeds / bs | decimal seeds / bs |
+|---|---:|---:|
+| 512 (old) | 9.9 / 50.4 | 15.8 / 65.0 |
+| **256 (new default)** | **6.4 / 44.2** | **9.7 / 61.4** |
+| 128 | 5.1 / 53.6 | 5.8 / 57.7 |
+
+**Full runs, S = 256** (one each): decimal bs 62.1, dm 62.1 (recip 39.4),
+**phases 138.1 s**, wall 166.7, peak 293.5 GB; binary bs 47.5, dm 42.7,
+dc 80.1, **phases 187.1 s**, wall 214.7, peak 246.3 GB. Digits verified
+(T1, T2, residues) in both.
+
+**Not done, sized:** decimal's split halves (2.22 × 10⁹ limbs) do not fit
+the 2³¹-point mdev pool where binary's 2.08 × 10⁹ do, so decimal splits
+one level deeper (35 × 3·2²⁹ vs 18 × 2³¹ calls) — ≈ 10 s in bs's mdev
+levels and ≈ 10 s in dm's division. Fitting them needs 3·2³⁰-point planes
+(51.5 GB per device, 206 GB of pools), which with the host copies of the
+dm numbers exceeds the node (RSS 293 + 206 GB); it becomes possible when
+WP5 makes those numbers device-resident.
+
+**Where the bases stand after WP1–WP4 + WP8 (4 × 10¹⁰, one node):**
+decimal 138 s of phases and 294 GB against binary 187 s and 246 GB; the
+decimal-specific per-limb costs left are the seeds (9.4 vs 5.4 s) and the
+deeper split above.
