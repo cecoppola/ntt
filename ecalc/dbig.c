@@ -6,10 +6,13 @@
 #include <hip/hip_runtime.h>
 #include "dbig.h"
 #include "mem.h"
+#include <time.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define CH 1024                                        /* limbs per carry chunk */
 static const uint64_t B10 = 1000000000000000000ULL;
+struct db_stats db_st;
+static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
 static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
 
@@ -43,6 +46,7 @@ void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d])
 void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
+    double t0 = tnow(); db_st.n_reserve++;
     if (x->off) { fprintf(stderr, "db_reserve: a view\n"); abort(); }
     size_t qc = 1 << 10; int lq = 10;
     while (qc * DB_NQ < limbs) { qc <<= 1; lq++; }
@@ -69,6 +73,7 @@ void db_reserve(dbig *x, size_t limbs)
     }
     for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->lq, x->q[d]);
     *x = y;
+    db_st.t_reserve += tnow() - t0;
 }
 void db_from_bi(dbig *x, const bigint *a)
 {
@@ -151,6 +156,7 @@ static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi)
 
 static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i] = a[i + shift], n limbs */
 {
+    double t0 = tnow(); db_st.n_shift++;
     if (r == a) { fprintf(stderr, "db shift: in place\n"); abort(); }
     need_owner(r, "shift"); db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
@@ -163,6 +169,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
         HIP_CHECK(hipDeviceSynchronize());
     }
     r->n = n; db_norm(r);
+    db_st.t_shift += tnow() - t0;
 }
 void db_shr_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, (long)k, a->n > k ? a->n - k : 0); }
 void db_shl_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, -(long)k, a->n ? a->n + k : 0); }
@@ -170,6 +177,7 @@ void db_copy(dbig *r, const dbig *a) { if (r == a) return; shift_into(r, a, 0, a
 
 static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
 {
+    double t0 = tnow(); db_st.n_addsub++;
     size_t n = a->n > b->n ? a->n : b->n; if (!sub) n++;
     dbig tmp; int inplace = (r == a || r == b); dbig *out = r;
     if (inplace) { db_init(&tmp); out = &tmp; }
@@ -205,12 +213,14 @@ static void addsub(dbig *r, const dbig *a, const dbig *b, int sub)
     }
     out->n = n; db_norm(out);
     if (inplace) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
+    db_st.t_addsub += tnow() - t0;
 }
 void db_add(dbig *r, const dbig *a, const dbig *b) { addsub(r, a, b, 0); }
 void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub(r, a, b, 1); }
 
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
+    double t0 = tnow(); db_st.n_maxidx++;
     size_t best = 0; struct dv va = view_of(a), vb = b ? view_of(b) : va;
 #pragma omp parallel for num_threads(DB_NQ) reduction(max:best) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
@@ -224,6 +234,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (g_hred[d * 228 * 8 + i] > m) m = g_hred[d * 228 * 8 + i];
         if (m > best) best = m;
     }
+    db_st.t_maxidx += tnow() - t0;
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
