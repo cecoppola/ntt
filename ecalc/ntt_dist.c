@@ -77,7 +77,9 @@ static uint64_t *dev_pow_table(int prime, uint64_t w, size_t cnt)
     HIP_CHECK(hipMalloc(&d, cnt * 8)); HIP_CHECK(hipMemcpy(d, h, cnt * 8, hipMemcpyHostToDevice)); free(h);
     return d;
 }
-void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC)
+static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, int slabs);
+void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC) { plan_create(p, cm, ctx, prime, logR, logC, 1); }
+static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, int slabs)
 {
     int size = comm_size(cm);
     p->cm = cm; p->ctx = ctx; p->prime = prime; p->logR = logR; p->logC = logC;
@@ -89,14 +91,13 @@ void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR,
     p->twr_i = dev_pow_table(prime, ec_root_inv(prime, logR), (size_t)1 << logR);
     p->twc_i = dev_pow_table(prime, ec_root_inv(prime, logn), (size_t)1 << logC);
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
-    p->own_slabs = 1;
-    HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes));
+    p->own_slabs = slabs; p->sbuf = p->rbuf = 0;
+    if (slabs) { HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
 }
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf)
 {
-    dist_plan_create(p, cm, ctx, prime, logR, logC);
-    HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf));
-    p->sbuf = sbuf; p->rbuf = rbuf; p->own_slabs = 0;
+    plan_create(p, cm, ctx, prime, logR, logC, 0);
+    p->sbuf = sbuf; p->rbuf = rbuf;
 }
 void dist_plan_free(dist_plan *p)
 {
