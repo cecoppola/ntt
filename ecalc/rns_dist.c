@@ -224,28 +224,17 @@ void rns_mul_dist_hd(dbig *Cd, const uint64_t *a, size_t na, const dbig *B)
     db_add_shifted(Cd, &t2, h, Cd);                            /* in place */
     db_free(&t2);
 }
-/* the low w limbs of A B (device operands): the host tier's recursion (rns_mul_low) on device */
+/* the low w limbs of A B (device operands): the grid below with the pieces above w skipped, then truncated
+ * (the earlier halving recursion is no cheaper than the grid: for decimal's X Q at 4e10 both need 6 planes,
+ * the skip makes it 5) */
+static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t w);
 void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
 {
     dbig a = db_view(A, 0, A->n < w ? A->n : w), b = db_view(B, 0, B->n < w ? B->n : w);
     db_norm(&a); db_norm(&b);
-    size_t na = a.n, nb = b.n;
-    if (!na || !nb || !w) { Cd->n = 0; return; }
-    if (na + nb <= ((size_t)1 << dist_logn_max()) || na + nb <= w) {
-        rns_mul_dist_db(Cd, &a, &b);
-        if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
-        return;
-    }
-    if (na < nb) { dbig t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
-    size_t h = (na + 1) / 2;                                   /* a = a0 + a1 B^h */
-    dbig a0 = db_view(&a, 0, h), a1 = db_view(&a, h, na - h), z; db_norm(&a0); db_init(&z);
-    rns_mul_low_db(Cd, &a0, &b, w);                            /* low_w(a0 b) */
-    if (w > h) {
-        rns_mul_low_db(&z, &a1, &b, w - h);                    /* low_(w-h)(a1 b) */
-        db_add_shifted(Cd, &z, h, Cd);                         /* Cd = (z << h) + Cd */
-        if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
-    }
-    db_free(&z);
+    if (!a.n || !b.n || !w) { Cd->n = 0; return; }
+    mul_grid(Cd, &a, &b, w);
+    if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
 }
 /* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
 static size_t plane_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) n <<= 1; return n; }
@@ -267,7 +256,9 @@ static void split_grid(size_t na, size_t nb, int *ka, int *kb)
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
-void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
+void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B) { mul_grid(Cd, A, B, (size_t)-1); }
+/* the grid; only the pieces whose limbs start below w are formed (w = -1: all) */
+static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t w)
 {
     size_t na = A->n, nb = B->n, nc = na + nb;
     if (!na || !nb) { Cd->n = 0; return; }
@@ -289,7 +280,7 @@ void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B)
         dbig ai = db_view(A, oa, na - oa < pa ? na - oa : pa), bj = db_view(B, ob, nb - ob < pb ? nb - ob : pb);
         db_norm(&ai); db_norm(&bj);
         if (first) { rns_mul_dist_db(Cd, &ai, &bj); first = 0; continue; }   /* (0,0): shift 0, straight into C */
-        if (!ai.n || !bj.n) continue;
+        if (!ai.n || !bj.n || oa + ob >= w) continue;                          /* nothing of it below w */
         rns_mul_dist_db(&t, &ai, &bj);
         db_add_shifted(Cd, &t, oa + ob, Cd);                   /* in place */
     }

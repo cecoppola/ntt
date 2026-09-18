@@ -130,10 +130,10 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     db_free(&t);                                                 /* its blocks serve the low product below */
     double tc = mem_now();
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path).  The low
-     * product: the full X Q truncated (one split product; the low-product recursion splits twice here) */
+     * product: the grid with the pieces above w skipped (NEWTON_LOWPROD=0: the full X Q truncated) */
     size_t w = nq + 2;
-    if (getenv("NEWTON_LOWPROD")) rns_mul_low_db(&xq, &Xd, &Qd, w);
-    else { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
+    if (getenv("NEWTON_LOWPROD") && !atoi(getenv("NEWTON_LOWPROD"))) { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
+    else rns_mul_low_db(&xq, &Xd, &Qd, w);
     double td = mem_now();
     bigint hxq; bi_init(&hxq); db_to_bi(&hxq, &xq);
     db_to_bi(X, &Xd);
