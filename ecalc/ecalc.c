@@ -93,7 +93,8 @@ int main(int argc, char **argv)
     bigint MU; bi_init(&MU);
     size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
-    newton_recip(&MU, &Q, k_mu);
+    int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0;   /* WP5: the reciprocal and division on device-resident numbers */
+    if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
@@ -117,8 +118,8 @@ int main(int argc, char **argv)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    newton_divmod(&X, &R, &A, &Q, &MU);
-    bi_free(&MU); newton_free_scratch(); rns_free_scratch();
+    if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
+    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);

@@ -33,6 +33,11 @@ extern "C" {
 typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; } newton_stats;
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
+void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
+/* WP5: the same on device-resident numbers (newton_db.c); NEWTON_DEVICE=1 in ecalc selects them */
+void newton_db_recip(bigint *mu, const bigint *Q, size_t k);
+void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt);
+void newton_db_free_scratch(void);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
 void newton_recip(bigint *mu, const bigint *Q, size_t k);

@@ -96,7 +96,7 @@ void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 
 /* ---- reciprocal ------------------------------------------------------------ */
 /* seed: j = 2 limbs of precision by schoolbook on the top 4 limbs of Q */
-static void seed(bigint *r, const bigint *Q, size_t *j)
+void newton_seed_host(bigint *r, const bigint *Q, size_t *j)
 {
     size_t nq = Q->n, top = nq < 4 ? nq : 4;
     bigint qt, num, rem; bi_init(&qt); bi_init(&num); bi_init(&rem);
@@ -123,7 +123,7 @@ void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *se
     if (newton_verbose < 0) { newton_verbose = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) newton_anchor = atoi(getenv("NEWTON_ANCHOR")); }
     size_t nq = Q->n, j;
     bigint r = g_r, r2 = g_r2, qt = g_qt, t1 = g_t1, t2 = g_t2;
-    if (seed_r) { bi_copy(&r, seed_r); j = seed_j; } else seed(&r, Q, &j);
+    if (seed_r) { bi_copy(&r, seed_r); j = seed_j; } else newton_seed_host(&r, Q, &j);
     while (j < k) {
         /* targets anchored at k: k, ceil(k/2), ceil(k/4), ... so every step is a
          * (near-)exact doubling and the last one lands on k -- a final step to

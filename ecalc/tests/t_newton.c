@@ -13,6 +13,9 @@
  */
 #include "harness.h"
 #include "../newton.h"
+static int use_db = -1;
+#define newton_recip(m, q, k) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_recip(m, q, k) : newton_recip(m, q, k))
+#define newton_divmod(x, r, a, q, mu) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_divmod(x, r, a, q, mu) : newton_divmod(x, r, a, q, mu))
 #include "../rns_mul.h"
 #include "../mem.h"
 
