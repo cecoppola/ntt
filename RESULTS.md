@@ -2649,3 +2649,42 @@ phases 117.9 s** (bs 58.6, dm 48.9 — recip 17.6, division 30.3 — 10dP
 1.8, dc 4.1), **peak host RSS 160 GB**; **binary 165.9 s** (dm 28.3), peak
 233 GB (set by dc's host tiers now). Adopted as the default (`BS_DEV_MDEV=0`
 restores the host mdev tier); the five-run variance is §62b.
+
+## 65. WP6 — the communicator and the distributed transform across nodes (2026-09-18, jobs 20649/20656; details in `results/WP6.md`)
+
+TCP full mesh (`comm_tcp.c`), one process per rank, launched by
+`wp6run.sh` over a Slurm allocation; aac6 has one 1 GbE NIC per node, so
+this is correctness only. Two nodes (s24-16 + s24-26), 8 ranks, one per
+APU: `t_comm` (all-to-all of 1 B … 3 MiB slabs checked word for word,
+barrier, reductions) **VERIFY OK on all 8 ranks**; `t_dist 20` (the
+four-step transform, every prime, each rank checking its block-cyclic
+rows against the one-rank engine) **VERIFY OK on all 8 ranks**. The job
+had 22 s of overlap with the single-node allocation, enough for those
+two; `t_dist 24` with 8 ranks was then run on one node with two
+processes per APU (the transform does not know where a rank lives, only
+the socket path differs): VERIFY OK, and size 4 over TCP up to 2²⁶
+points. No source change was needed in `comm_tcp.c`, `ntt_dist.c` or
+`t_dist.c`; `t_comm` gained the per-rank mode. Connection ordering
+(listen first, connect upward, accept downward with a hello), port reuse
+between back-to-back runs, and the no-deadlock argument for the
+all-to-all (one sender thread per peer, the caller reads in rank order)
+all held with 8 ranks and slabs larger than the socket buffers. A second
+2-node job (20657) is queued for the 2²⁴ case on two real nodes; it
+changes nothing in the design.
+
+## 66. The device product split as a grid (2026-09-18, job 20655)
+
+`rns_mul_dist_db` split a product too long for one 2³¹-point plane by
+halving the longer operand recursively. For decimal's top bs product
+(2.22 × 10⁹ × 2.22 × 10⁹ limbs) the halves still do not fit together
+(1.11 + 1.11 > 2.15 × 10⁹ limbs), so it went to **8 planes** of 2³¹ at
+78 % fill through three nested temporaries; binary's 2.07 × 10⁹-limb
+operands fit at the first halving (4 planes, 97 %). The split is now a
+grid: piece counts (kₐ, k_b) with ⌈nₐ/kₐ⌉ + ⌈n_b/k_b⌉ ≤ 2³¹ chosen for
+the fewest plane points in total — decimal's top product becomes 2 × 3
+pieces, **6 planes** at 86 %, the same total work the 3·2³⁰ plane pool
+would give (4 × 3.2 × 10⁹ points) without the extra 60 GB of device
+memory; one temporary instead of nested ones; binary unchanged.
+Verified in `t_dbig 0 big` (that exact size against the GMP-checked
+host tier) and at 4 × 10¹⁰ in both bases (digits identical):
+
