@@ -2374,3 +2374,29 @@ WP5 makes those numbers device-resident.
 decimal 138 s of phases and 294 GB against binary 187 s and 246 GB; the
 decimal-specific per-limb costs left are the seeds (9.4 vs 5.4 s) and the
 deeper split above.
+
+## 59. WP5 (in progress) — the distributed transform on real APUs, and the ownership question settled (2026-09-17)
+
+- `comm_xgmi`: four real ranks (one per APU, peer copies on the rank's
+  stream, a shared barrier), driven by four host threads. **`t_dist` on four
+  real APUs: VERIFY OK (66 checks, up to 2³⁰ points)** — the distributed
+  four-step transform, twiddles, slab transposes and the block-cyclic
+  convention are right on real hardware.
+- **Ownership settled.** §51 asked whether contiguous limb ownership could
+  avoid the second all-to-all per transform. I tried a "transposed
+  inverse" (the same algorithm as the forward run on the column layout);
+  modelled on a 16-point case and run on the node it ends in the same
+  block-cyclic layout — the last local pass's row index is always the
+  residue mod R, whichever factorisation is used. So: block-cyclic
+  ownership = 3 all-to-alls per product; contiguous ownership = the same 3
+  plus a redistribution in and out (on one node a peer gather/scatter, on
+  the fabric two more all-to-all-sized exchanges). The single-node product
+  tier below keeps the numbers contiguous at its interfaces (what every
+  limb operation wants) and is block-cyclic inside.
+- `rns_mul_dist` (the tier): gather the operands' block-cyclic rows from
+  contiguous memory (coalesced column runs), forward transforms and the
+  inverse over the four APUs (3 all-to-alls), a local transpose so each
+  column run is contiguous, CRT with one stripe per run into a local
+  buffer, runs scattered to their limb positions, run spills merged on the
+  host in limb order. Correctness and time against GMP and the mdev tier:
+  pending.
