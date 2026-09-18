@@ -148,7 +148,7 @@ static void bounce_init(int d)
     if (g_bounce[d][0]) return;
     HIP_CHECK(hipSetDevice(d));
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
-    HIP_CHECK(hipStreamCreate(&g_bs[d]));
+    HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking));   /* Phase 8: copies from a background thread must not serialise with the kernels on the null stream */
 }
 static void par_memcpy(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -163,6 +163,7 @@ void db_from_bi(dbig *x, const bigint *a)
         size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
         size_t len = a->n - lo < x->qc ? a->n - lo : x->qc;
         bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0;
+        HIP_CHECK(hipStreamSynchronize(0));                         /* nothing of ours still runs on the target */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
             size_t m = len - i < BOUNCE ? len - i : BOUNCE;
             HIP_CHECK(hipStreamSynchronize(g_bs[d]));               /* the buffer's previous upload is done */
@@ -181,6 +182,7 @@ void db_to_bi(bigint *r, const dbig *x)
         size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
         size_t len = x->n - lo < x->qc ? x->n - lo : x->qc;
         bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0; size_t prev = 0, prevm = 0; int have = 0;
+        HIP_CHECK(hipStreamSynchronize(0));                         /* the source is complete (its kernels ran on the null stream) */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
             size_t m = len - i < BOUNCE ? len - i : BOUNCE;
             HIP_CHECK(hipMemcpyAsync(g_bounce[d][b], x->q[d] + i, m * 8, hipMemcpyDeviceToHost, g_bs[d]));
