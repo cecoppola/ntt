@@ -128,7 +128,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
     if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
-    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;
+    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 0;   /* off: fragments the block pool (RESULTS.md 64) */
     unsigned long S = bs_seed_terms, nspan = (N + S - 1) / S;
     size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
@@ -139,7 +139,7 @@ void binsplit_pregrow(unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) pool_get(w, r, per_region);
-    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;
+    if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 0;   /* off: fragments the block pool (RESULTS.md 64) */
     if (bs_regions_on_device && total0 > ((size_t)1 << 28)) {          /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
         for (int w = 0; w < (bs_dev_mdev ? 1 : 2); w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
 #pragma omp parallel for schedule(static)

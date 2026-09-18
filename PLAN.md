@@ -851,11 +851,11 @@ Remaining, in the order I would do them:
 1. **WP6 on the fabric-less cluster**: `t_dist` over TCP on 2–3 nodes
    (the code and launcher exist; blocked only by node availability during
    the session — see `results/WP6.md` when the agent gets nodes).
-2. **bs top levels through the device tier**: the three mdev-tier levels
-   still stage through the host (decimal 21 s, binary 9 s); holding the
-   top nodes as `dbig`s and multiplying with `rns_mul_dist_db` removes the
-   copies and lets P, Q, S and A stay on device into dm (≈ −15 s decimal,
-   −8 s binary; ≈ 1 day).
+2. **bs top levels through the device tier** — built (`BS_DEV_MDEV=1`,
+   RESULTS §64): levels 23–24 3× faster and the bs peak host RSS 232 →
+   160 GB, but the block allocator fragments without buddy coalescing and
+   the division then runs out of memory; add coalescing (≈ half a day) and
+   switch it on.
 3. **3·2³⁰-point planes for the device tier** (exact-size pools, +53 GB of
    device memory that the device-resident dm phase now leaves free):
    removes the second split of the 4.4 × 10⁹-limb products (≈ −25 s
