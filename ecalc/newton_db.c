@@ -93,7 +93,7 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
     dbig Qd; db_init(&Qd);
     db_from_bi(&Qd, Q);
     recip_db(&g_mu_kept, &Qd, Q, k); g_mu_k = k;
-    mu->n = 0; bi_reserve(mu, 1); mu->n = g_mu_kept.n;          /* the host mu is only a length marker now */
+    db_to_bi(mu, &g_mu_kept);                                    /* the host copy too (tests, the host path's fallback) */
     db_free(&Qd);
 }
 /* X = floor(A / Q), R = A - X Q; mu_opt: a reciprocal of Q with >= k + 1 limbs (host) */
