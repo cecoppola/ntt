@@ -2582,18 +2582,19 @@ design (291 s, §40) at 65 % of its peak host memory; binary at 189 s is
 
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
 
-Same code, same node (s24-16), five runs each (§62b) plus the three with
-the grid split (§66, the numbers below); the base is the only switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
+Same code, same node (s24-16); the columns are the final three-run series
+of §66 (`results/variance_b{10,2}_final/`, the grid split, the low grid
+and the pool fix); the base is the only switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
 
 | 4 × 10¹⁰ digits, one MI300A node | Phase 4 (paper's design) | **binary, final** | **decimal, final** |
 |---|---:|---:|---:|
-| bs | 74.7 | 42.7 | 59.7 |
-| 10dP | 9.3 | 8.8 | 1.6 |
-| dm | 51.1 | 26.5 | 37.9 |
-| dc | 82.5 | 81.5 | 4.2 |
+| bs | 74.7 | 43.2 | 61.1 |
+| 10dP | 9.3 | 12.2 (8.8 earlier in the allocation) | 1.7 |
+| dm | 51.1 | 26.6 | 37.0 |
+| dc | 82.5 | 79.3 | 4.2 |
 | T1 + T2 | 7.3 | 5.7 | 4.9 |
-| **phases** | **229** | **165.4 ± 1.5** | **108.3 ± 1.0** |
-| wall incl. init (paper-style total) | 291 | 187.9 ± 1.9 | 132.0 ± 3.1 |
+| **phases** | **229** | **167.1 ± 2.2** (165.4 with 10dP at 8.8) | **108.9 ± 1.1** |
+| wall incl. init (paper-style total) | 291 | 191.5 ± 2.2 | 133.7 ± 1.8 |
 | peak host RSS | 248 GB | 233 GB (dc's host tiers) | 160 GB |
 | device pools (not in RSS) | 128 GB | 128 + 120 (bs regions, reused by dm) | 128 + 117 |
 | digits verified | T1, T2, 10⁹ identical | same, both dm paths | same, both dm paths |
@@ -2738,6 +2739,15 @@ tests are the ones that land adjacent). Extents now carry their region
 and never merge across regions. After the fix: `t_newton` 696 checks
 (binary) and 658 (decimal) VERIFY OK, `t_dbig 0 big` 561, 10⁹ in both
 bases identical to the reference.
+
+**Final series on the closing code** (grid, low grid, pool fix; three
+runs each, `results/variance_b{10,2}_final/`): decimal phases **108.9 ±
+1.1** (107.8–110.0; bs 61.1, dm 37.0 ± 0.2), wall 133.7 ± 1.8, 159.9 GB;
+binary phases 167.1 ± 2.2 (bs 43.2, 10dP 12.2 ± 0.4, dm 26.6, dc 79.3),
+wall 191.5 ± 2.2, 232.8 GB; six of six VERIFY OK. Binary's 10dP drifted
+8.8 → 12.2 s over the four-hour allocation (the host-side product into a
+fresh 35 GB allocation, the page-state effect below); every device phase
+is within its earlier spread.
 
 **An observation for the run logs, not the design:** a binary run started
 right after a decimal run shows 10dP ≈ 17 s and "other" ≈ 9 s (twice out
