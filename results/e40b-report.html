@@ -33,7 +33,7 @@ ol,ul{max-width:70ch;padding-left:22px}li{margin-bottom:6px}
 <body>
 <main>
 <h1>Reproducing “e to 40 Billion Digits on a Single MI300A Node”</h1>
-<div class="sub">Campaign report · aac6, 4 × AMD Instinct MI300A (ppac-pl1-s24-16), ROCm 7.2.4 · 12–18 September 2026 · full record in <code>~/ntt/RESULTS.md</code> §17–48 and <code>PLAN.md</code></div>
+<div class="sub">Campaign report · aac6, 4 × AMD Instinct MI300A (ppac-pl1-s24-16), ROCm 7.2.4 · 12–18 September 2026 · full record in <code>~/ntt/RESULTS.md</code> §17–66 and <code>PLAN.md</code></div>
 
 <p>The paper describes a pipeline — binary splitting of Σ 1/k!, a Newton division, and a top-down radix conversion, all on a four-prime FP64 NTT with one prime per APU — and reports 40 billion digits in 285.7 s on 256 GB. This campaign built that pipeline from the paper's description, verified it, matched its time and memory, then tested the design choices the paper left open.</p>
 
@@ -125,7 +125,7 @@ ol,ul{max-width:70ch;padding-left:22px}li{margin-bottom:6px}
 <p><b>Recommendation</b> (the decision is the user's): the decimal base — 35 % faster on one node at 31 % less peak host memory (2.2 × the paper design's wall), no distributed radix conversion, digits are the limbs; binary kept as the switch for reproducing the paper.</p>
 
 <h2>Artefacts</h2>
-<p><code>~/ntt/ecalc/</code> — the pipeline (13 modules, 10 GMP-checked tests, <code>accept.sh</code>, <code>variance.sh</code>); <code>~/ntt/bench/</code> — 28 microbenchmarks in seven groups with the <code>./suite</code> runner; <code>ref/e_1000000000.txt</code>; <code>results/e_4e10.out</code> (40 GB) and <code>results/e_5e10.out</code> (50 GB); <code>RESULTS.md</code> §17–48; <code>ALGORITHM.md</code> Part 6 (corrections).</p>
+<p><code>~/ntt/ecalc/</code> — the pipeline (13 modules, 10 GMP-checked tests, <code>accept.sh</code>, <code>variance.sh</code>); <code>~/ntt/bench/</code> — 28 microbenchmarks in seven groups with the <code>./suite</code> runner; <code>ref/e_1000000000.txt</code>; <code>results/e_4e10.out</code> (40 GB) and <code>results/e_5e10.out</code> (50 GB); <code>RESULTS.md</code> §17–66; <code>results/WP6.md</code>, <code>results/WP7.md</code>; <code>ALGORITHM.md</code> Part 6 (corrections).</p>
 </main>
 
 </body>
