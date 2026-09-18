@@ -2547,40 +2547,69 @@ phase's host pool (≈ 40 GB, already faulted) instead of a fresh allocation
 4 × 10¹⁰); the same page-fault cost is what makes "other" and T1 vary. Best observed
 decimal run: 129.6 s of phases, 157.0 s wall.
 
+## 62b. Five-run variance, everything on device (2026-09-18, job 20655, s24-16; `BS_DEV_MDEV=1 NEWTON_DEVICE=1`, `results/variance_b{2,10}_dev2/`)
+
+Same as §62 plus the top bs levels on the device tier (§64, now the
+default).
+
+| 4 × 10¹⁰ | binary mean ± sd | decimal mean ± sd |
+|---|---:|---:|
+| bs | 42.4 ± 0.7 | 59.6 ± 1.2 |
+| 10dP | 8.9 ± 0.3 | 1.6 ± 0.3 |
+| dm | 28.3 ± 0.1 | 48.9 ± 0.3 |
+| T1 | 4.2 ± 0.2 | 3.7 ± 0.1 |
+| dc | 80.9 ± 0.8 | 4.2 ± 0.1 |
+| T2 | 1.9 ± 1.0 | 1.3 ± 0.1 |
+| **phases** | **166.6** (165.1–168.8) | **119.2** (117.4–121.3) |
+| init / other | 19.4 / 3.1 | 19.8 / 3.1 |
+| **wall** | **189.1 ± 1.6 (0.8 %)** | **142.0 ± 1.8 (1.3 %)** |
+| peak RSS | 232.8 GB | 160.0 GB |
+
+All ten runs VERIFY OK. The decimal spread of §62 (6.9 % on wall) is
+gone: the CPU-side phases that varied — 10dP, T1, T2, "other" — all lost
+their page-fault cost once the bs host pools (≈ 72 GB) stopped existing;
+"other" fell from 10 s to 3 s in both bases for the same reason. Every
+phase is now within 2.5 % run to run except binary's T2 (one 3.7 s
+outlier in 1.3–1.8 s). In the paper's own accounting (wall including
+init), decimal at 142 s is **2.05 × faster** than the reproduced paper
+design (291 s, §40) at 65 % of its peak host memory; binary at 189 s is
+1.54 × faster at the same memory.
+
 ## 63. The two pipelines, final single-node comparison (2026-09-18)
 
-Same code, same node (s24-16), five runs each (§62); the base is the only
+Same code, same node (s24-16), five runs each (§62b); the base is the only
 switch. "Before" = the Phase 4 acceptance (§40, host-resident, binary).
 
 | 4 × 10¹⁰ digits, one MI300A node | Phase 4 (paper's design) | **binary, final** | **decimal, final** |
 |---|---:|---:|---:|
-| bs | 74.7 | 46.0 | 63.1 |
-| 10dP | 9.3 | 10.7 | 5.1 |
-| dm | 51.1 | 31.7 | 56.6 |
-| dc | 82.5 | 80.7 | 5.5 |
-| T1 + T2 | 7.3 | 5.4 | 9.4 |
-| **phases** | **229** | **174.5** | **139.6** (best 129.6) |
-| wall incl. init (paper-style total) | 291 | 209 | 170 (best 157) |
-| peak host RSS | 248 GB | 233 GB | 233 GB |
+| bs | 74.7 | 42.4 | 59.6 |
+| 10dP | 9.3 | 8.9 | 1.6 |
+| dm | 51.1 | 28.3 | 48.9 |
+| dc | 82.5 | 80.9 | 4.2 |
+| T1 + T2 | 7.3 | 6.1 | 5.0 |
+| **phases** | **229** | **166.6 ± 1.4** | **119.2 ± 1.7** |
+| wall incl. init (paper-style total) | 291 | 189.1 ± 1.6 | 142.0 ± 1.8 |
+| peak host RSS | 248 GB | 233 GB (dc's host tiers) | 160 GB |
 | device pools (not in RSS) | 128 GB | 128 + 120 (bs regions, reused by dm) | 128 + 117 |
 | digits verified | T1, T2, 10⁹ identical | same, both dm paths | same, both dm paths |
 
 **What each column is.** Phase 4: the paper's algorithm as reproduced
 (host-resident numbers, prime-per-device tiers). Final: the WP1–WP8
 changes — k-anchored Newton, device regions with subtree ownership and
-the locality-aware batch tier, 3·2ᵏ lengths, seed span 256, the dm phase
-on device-resident numbers through the four-APU distributed transform,
-`e_terms` by bisection — with the base as a switch.
+the locality-aware batch tier, 3·2ᵏ lengths, seed span 256, the top bs
+levels and the dm phase on device-resident numbers through the four-APU
+distributed transform, `e_terms` by bisection — with the base as a switch.
 
 **Where the bases differ, final code.** Decimal removes 10dP and dc
-(92 → 11 s) and pays in bs (+17 s: seeds 9 vs 6, mdev 21 vs 9 — the
-4.44 × 10⁹-limb top products split one level deeper than binary's
-4.15 × 10⁹) and dm (+25 s: one more Newton doubling and the same deeper
-split in A μ and X Q). Net: decimal is **20 % faster** on one node with
-the same peak memory. Both remaining decimal costs are the 2³¹-point cap of
+(90 → 6 s) and pays in bs (+17 s: seeds 9 vs 6, and the 4.44 × 10⁹-limb
+top products split one level deeper than binary's 4.15 × 10⁹) and dm
+(+21 s: one more Newton doubling and the same deeper split in A μ and
+X Q). Net: decimal is **28 % faster** on one node (phases; 25 % on wall)
+at **31 % less peak host memory** — 160 GB, because the last host-resident
+phase of any size, dc, does not exist in decimal. Both remaining decimal costs are the 2³¹-point cap of
 the device tier's planes, not the base: a 3·2³⁰-point plane pool (+40 GB
 of device memory, which the device-resident dm phase now leaves free)
-would remove most of the 25 + 12 s. That is the next single-node step if
+would remove most of the 21 + 12 s. That is the next single-node step if
 decimal is chosen.
 
 **Multi-node (2048 nodes, 8 192 APU ranks, 2 × 400 Gb/s per APU),
@@ -2598,7 +2627,7 @@ level boundaries.
 **Recommendation for the user's decision:** the decimal base, with the
 3·2³⁰ plane pool as the next item; binary kept as the switch for
 reproduction of the paper. Every number above is in the run logs
-(`results/variance_b{2,10}_dev/`, `results/attr/`).
+(`results/variance_b{2,10}_dev2/`, `results/attr/`).
 
 ## 64. The top bs levels on the device tier — measured, not yet adopted (2026-09-18, job 20644)
 
@@ -2618,5 +2647,5 @@ the donation and the extents merge back to one). With `BS_DEV_MDEV=1`
 (job 20644's last minutes, then 20655): **decimal 4 × 10¹⁰ VERIFY OK,
 phases 117.9 s** (bs 58.6, dm 48.9 — recip 17.6, division 30.3 — 10dP
 1.8, dc 4.1), **peak host RSS 160 GB**; **binary 165.9 s** (dm 28.3), peak
-233 GB (set by dc's host tiers now). Adopted as the default; the five-run
-variance follows in §62b.
+233 GB (set by dc's host tiers now). Adopted as the default (`BS_DEV_MDEV=0`
+restores the host mdev tier); the five-run variance is §62b.
