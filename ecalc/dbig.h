@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 #define DB_NQ 4
-typedef struct { uint64_t *q[DB_NQ]; size_t n, cap, qc; int lq; } dbig;
+typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc; int lq; } dbig;
 void db_init(dbig *x);
 void db_free(dbig *x);
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
