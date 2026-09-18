@@ -26,19 +26,24 @@ __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; fo
  * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
 static struct { uint64_t *p[64]; int n; } g_free[DB_NQ][40];
 static size_t g_pool_bytes;
+/* quarter blocks bypass mem's pointer registry (every dbig op addresses its quarters explicitly) */
 static uint64_t *q_alloc(int d, int lq)
 {
     if (g_free[d][lq].n) return g_free[d][lq].p[--g_free[d][lq].n];
     g_pool_bytes += ((size_t)8 << lq);
-    return (uint64_t *)mem_dev_alloc(d, (size_t)8 << lq);
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
+    void *p; HIP_CHECK(hipMalloc(&p, (size_t)8 << lq)); HIP_CHECK(hipMemset(p, 0, (size_t)8 << lq)); HIP_CHECK(hipDeviceSynchronize());
+    HIP_CHECK(hipSetDevice(cur));
+    return (uint64_t *)p;
 }
+static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, int lq, uint64_t *p)
 {
-    if (g_free[d][lq].n < 64) g_free[d][lq].p[g_free[d][lq].n++] = p; else { mem_dev_free(p); g_pool_bytes -= ((size_t)8 << lq); }
+    if (g_free[d][lq].n < 64) g_free[d][lq].p[g_free[d][lq].n++] = p; else { q_release(d, p); g_pool_bytes -= ((size_t)8 << lq); }
 }
 void db_release_pools(void)
 {
-    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) { while (g_free[d][l].n) { mem_dev_free(g_free[d][l].p[--g_free[d][l].n]); g_pool_bytes -= ((size_t)8 << l); } }
+    for (int d = 0; d < DB_NQ; d++) for (int l = 0; l < 40; l++) { while (g_free[d][l].n) { q_release(d, g_free[d][l].p[--g_free[d][l].n]); g_pool_bytes -= ((size_t)8 << l); } }
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
@@ -284,7 +289,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
-uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i; mem_dev_copy(&v, a->q[g >> a->lq] + (g & (a->qc - 1)), 8); return v; }
+uint64_t db_limb(const dbig *a, size_t i) { uint64_t v; size_t g = a->off + i; mem_dev_copy_on((int)(g >> a->lq), &v, a->q[g >> a->lq] + (g & (a->qc - 1)), 8); return v; }
 uint64_t db_top(const dbig *a) { return a->n ? db_limb(a, a->n - 1) : 0; }
 int db_cmp(const dbig *a, const dbig *b)
 {
@@ -294,13 +299,13 @@ int db_cmp(const dbig *a, const dbig *b)
     return x < y ? -1 : 1;
 }
 void db_set_zero(dbig *r) { r->n = 0; }
-void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy(r->q[0], &v, 8); r->n = v ? 1 : 0; }
+void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy_on(0, r->q[0], &v, 8); r->n = v ? 1 : 0; }
 void db_set_base_pow(dbig *r, size_t k)
 {
     db_reserve(r, k + 1);
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
-    uint64_t one = 1; mem_dev_copy(r->q[k >> r->lq] + (k & (r->qc - 1)), &one, 8);
+    uint64_t one = 1; mem_dev_copy_on((int)(k >> r->lq), r->q[k >> r->lq] + (k & (r->qc - 1)), &one, 8);
     r->n = k + 1;
 }
 dbig db_view(const dbig *a, size_t lo, size_t len)

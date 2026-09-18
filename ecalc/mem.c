@@ -73,9 +73,10 @@ int mem_region_threads(int *rank)                    /* this thread's rank and c
 }
 
 /* registry of registered blocks (dev = -1) and device pools (dev >= 0: hipMalloc, CPU-accessible) */
-static struct { void *p; size_t bytes; int dev; } reg[256];
-static int nreg = 0;
-static void reg_add(void *p, size_t bytes) { if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; nreg++; } }
+static struct { void *p; size_t bytes; int dev; } *reg;
+static int nreg = 0, reg_cap = 0;
+static void reg_grow(void) { if (nreg >= reg_cap) { reg_cap = reg_cap ? 2 * reg_cap : 256; reg = (typeof(reg))realloc(reg, reg_cap * sizeof *reg); } }
+static void reg_add(void *p, size_t bytes) { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; nreg++; }
 static void reg_del(void *p) { for (int i = 0; i < nreg; i++) if (reg[i].p == p) { reg[i] = reg[--nreg]; return; } }
 int mem_is_registered(const void *p, size_t bytes)
 {
@@ -104,7 +105,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
     if (!getenv("MEM_NO_DEV_MEMSET")) { HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize()); }   /* map the pages now */
     if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB: malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, t1 - t0, mem_now() - t1);
     HIP_CHECK(hipSetDevice(cur));
-    if (nreg < 256) { reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++; }
+    reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++;
     return p;
 }
 void mem_dev_free(void *p)
