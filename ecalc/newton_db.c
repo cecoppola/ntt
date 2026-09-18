@@ -69,6 +69,12 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
     db_free(&pw);
     g_r = r; g_r2 = r2; g_t1 = t1; g_t2 = t2;
     newton_st.t_recip += mem_now() - t0;
+    if (getenv("RNS_VERBOSE")) {
+        printf("recip(db) %.2f s: dist %zu calls %.2f s (load %.2f ntt %.2f crt %.2f spills %.2f); dbig shift %zu/%.2f addsub %zu/%.2f maxidx %zu/%.2f reserve %zu/%.2f; pools %.1f GB\n",
+               mem_now() - t0, rns_dist_st.n, rns_dist_st.t_total, rns_dist_st.t_load, rns_dist_st.t_ntt, rns_dist_st.t_crt, rns_dist_st.t_merge,
+               db_st.n_shift, db_st.t_shift, db_st.n_addsub, db_st.t_addsub, db_st.n_maxidx, db_st.t_maxidx, db_st.n_reserve, db_st.t_reserve, db_pool_bytes() / 1e9);
+        memset(&rns_dist_st, 0, sizeof rns_dist_st); memset(&db_st, 0, sizeof db_st);
+    }
 }
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
