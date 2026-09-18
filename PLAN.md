@@ -837,3 +837,31 @@ radix-3 prime search (WP4; may need a new set); the all-to-all efficiency
 (WP6 on the target system; on aac6 only correctness can be tested — 1 GbE, no RDMA).
 
 Total ≈ 25 days of sessions, WP1–WP4 ≈ 12 of them; WP6's performance half moves to the target system; WP8 only if chosen after WP7.
+
+### Status at the end of the autonomous session (2026-09-18) and what remains
+
+Done and recorded: WP1 (§50–54), WP2 (falls out of WP1), WP3 (§55–56),
+WP4 (§58), WP5 single-node cell (§59), WP7 (§61), WP8 (§57); five-run
+variance on the final code (§62); the final single-node comparison and the
+design-choice table (§60, §63). Everything is on `wp1-decimal-base`;
+`main` still holds the Phase 4 reproduction. The decision on the base and
+on merging is the user's (§63 carries the recommendation).
+
+Remaining, in the order I would do them:
+1. **WP6 on the fabric-less cluster**: `t_dist` over TCP on 2–3 nodes
+   (the code and launcher exist; blocked only by node availability during
+   the session — see `results/WP6.md` when the agent gets nodes).
+2. **bs top levels through the device tier**: the three mdev-tier levels
+   still stage through the host (decimal 21 s, binary 9 s); holding the
+   top nodes as `dbig`s and multiplying with `rns_mul_dist_db` removes the
+   copies and lets P, Q, S and A stay on device into dm (≈ −15 s decimal,
+   −8 s binary; ≈ 1 day).
+3. **3·2³⁰-point planes for the device tier** (exact-size pools, +53 GB of
+   device memory that the device-resident dm phase now leaves free):
+   removes the second split of the 4.4 × 10⁹-limb products (≈ −25 s
+   decimal; ≈ 1 day).
+4. Decimal's CPU-phase variance (§62): a per-phase thread policy
+   (measurement in `results/bind.out`).
+5. The multi-node pipeline itself (rank-partitioned tree, slab pipelining,
+   per-rank checkpoints) on the target system.
+
