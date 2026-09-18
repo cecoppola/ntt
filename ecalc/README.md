@@ -26,4 +26,14 @@
 
 Env knobs: `NTT_B16_STG` (via `ntt_stg`), `PW_FUSE` (`ntt_pw_fuse`), `RNS_CRT_LAYOUT` (0 plane per node, 1 quartered), `RNS_VERBOSE` (1 per-call times, 2 CRT re-runs).
 Phase 7 switches: `LIMB_BASE` (2 default, 10 = base-10¹⁸ limbs: 10dP and dc vanish, WP1), `NEWTON_ANCHOR` (1 default: doubling sequence anchored at the target precision; 0 = Phase 4 powers of two), `NEWTON_VERBOSE` (per-iteration trace with RSS), `BS_DEVICE_POOLS` (1 default: level pools as four device regions, WP3; 0 = registered host), `RNS_BATCH_LOCAL` (1 default: locality-aware batch tier) and `RNS_BATCH_LOCAL_MIN` (16: fewer products use the striped path), `MEM_PIN` (0 default: pin OpenMP threads to their node), `ECALC_STOP_AFTER_BS` (exit after bs), `BS_SEED_TERMS` (256), `BS_SCHOOL_NL` (0), `RNS_R3` (1: 3·2ᵏ transform lengths), `NEWTON_DEVICE` (1: the reciprocal and division on device-resident numbers — `dbig.c`, `rns_dist.c`, `newton_db.c`; the bs regions are donated to the dbig block allocator and, in decimal, the pinned staging is released for dm), `DIST_STATS` (1: per-part timing of the distributed transform), `NEWTON_LOWPROD` (the low-product recursion instead of full-then-truncate). Multi-node (WP5/6): `comm.h` rank abstraction, `comm_sim4` (four synthetic ranks), `comm_xgmi` (the four real APUs), `comm_tcp` (`COMM_RANK/SIZE/HOSTS/PORT`, `wp6run.sh`), `ntt_dist` (distributed four-step, `tests/t_dist` with `DIST_XGMI=1` / `COMM_RANK` modes), `dbig` (device bigint, `tests/t_dbig`), `rns_dist` (the distributed product tier, `tests/t_mul ... dist`).
+Checkpoint/restart of bs (WP7, `results/WP7.md`): `BS_CKPT_DIR=<dir>` writes a snapshot of the
+level loop at the end of a level — the node table (`level_LLL.hdr`) and the used limbs of the
+four region pools (`level_LLL.r0..r3`; the mdev levels' host pool is saved the same way) — every
+`BS_CKPT_EVERY` levels (default 4), from level `BS_CKPT_MIN_LEVEL` (default 8) on or as soon as a
+level's pool exceeds 1 GiB; only the latest level is kept (files written to `.tmp` names and
+renamed, header last, the previous set removed after). `BS_RESTART=1` with the same `<dir>`,
+digits and base resumes from the latest complete set (seeds and the levels below it are
+skipped; the digits are bit-identical to an uninterrupted run); a set from another run (N, base
+or `BS_SEED_TERMS` differ) aborts. Snapshots are periodic, not a streamed working set; a 10⁹
+checkpoint is ≈ 1 GB, a 10¹⁰ one ≈ 10 GB, so point `<dir>` at local disk with room.
 Results: RESULTS.md §38 (steps 0–4), §39 (steps 5–8, end-to-end runs).

@@ -73,6 +73,11 @@ int main(int argc, char **argv)
     printf("      VmRSS %.1f GB after init (staging 64 GB pinned + device pools %.0f GB incl. bs regions); init %.1f s\n", mem_vmrss() / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     bs_verbose = dec_verbose = verbose >= 2;
     bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0;   /* WP5: the bs regions become the dm phase's blocks */
+    bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
+    if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
+    if (getenv("BS_CKPT_EVERY")) bs_ckpt_every = atoi(getenv("BS_CKPT_EVERY"));
+    if (getenv("BS_CKPT_MIN_LEVEL")) bs_ckpt_min_level = atoi(getenv("BS_CKPT_MIN_LEVEL"));
+    bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
 
 
     bigint P, Q, T, A, X, R, S;
@@ -83,6 +88,11 @@ int main(int argc, char **argv)
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, P.n, Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
+    if (bs_st.n_ckpt || bs_st.restart_level) {
+        printf("      bs checkpoints: %d written, %.2f GB, %.2f s (%.2f s each); restart from level %d in %.2f s\n",
+               bs_st.n_ckpt, bs_st.ckpt_bytes * 1e-9, bs_st.t_ckpt, bs_st.n_ckpt ? bs_st.t_ckpt / bs_st.n_ckpt : 0.0, bs_st.restart_level, bs_st.t_restart);
+        RESULT("bs_ckpt", "s", bs_st.t_ckpt); RESULT("bs_ckpt_bytes", "GB", bs_st.ckpt_bytes * 1e-9);
+    }
     binsplit_free_pools();
 
     /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
