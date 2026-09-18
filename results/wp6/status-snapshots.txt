@@ -142,3 +142,58 @@ ppac-pl1-s24-16 allocated
 ppac-pl1-s24-30 down
 20657 chcoppola wp6 PENDING  0:00 2:00:00 2
 20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 4:35 4:00:00 1
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:31:39 4:00:00 1
+== 2026-09-18 04:32:35
+ppac-pl1-s24-26 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:32:39 4:00:00 1
+== 2026-09-18 04:33:35
+ppac-pl1-s24-26 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:33:39 4:00:00 1
+== 2026-09-18 04:34:35
+ppac-pl1-s24-26 mixed-
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 0:01 8:00:00 1
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:34:39 4:00:00 1
+== 2026-09-18 04:35:35
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 1:01 8:00:00 1
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:35:39 4:00:00 1
+== 2026-09-18 04:36:35
+--
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 1:22:04 8:00:00 1
+== 2026-09-18 05:57:38
+ppac-pl1-s24-16 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 1:23:04 8:00:00 1
+== 2026-09-18 05:58:38
+ppac-pl1-s24-16 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 1:24:04 8:00:00 1
+== 2026-09-18 05:59:38
+ppac-pl1-s24-16 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20662 amkagade rocprofsys-ctest RUNNING ppac-pl1-s24-26 1:25:04 8:00:00 1

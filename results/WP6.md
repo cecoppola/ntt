@@ -31,7 +31,20 @@ request 20649. Request 20649 (`-N2 --gpus-per-node=4 -t 1:00:00 -J wp6`,
 submitted by the main session) started at 02:59:31 when 20644 ended and
 was cancelled 22 s later (from the main session, to let 20655 in), which
 was enough for two of the three planned runs. A second 2-node request
-(20657, 2 h) was queued afterwards; it can only start when 20655 ends.
+(20657, 2 h) was queued at 03:00; at 04:33 another user's job (20662,
+`rocprofsys-ctest`, 8 h limit) was backfilled onto the idle s24-26, and
+when 20655 ended early at 05:58 s24-26 was still held, so no second
+2-node window appeared before the session's ~6 h budget ran out; 20657
+was cancelled at 06:00 (it was holding s24-16 as "planned"). Snapshots
+in `results/wp6/status-snapshots.txt` and `~/wp6status.log` on aac6.
+The only piece not demonstrated across nodes is `t_dist 24` with 8
+ranks on two nodes; its two ingredients were: `t_dist 24` with 8 ranks
+on one node over TCP, and 3 MiB-per-peer slab all-to-alls across the
+two nodes (t_comm), so a repeat on the next free 2-node window
+(`salloc -N2 --gpus-per-node=4 -J wp6 --no-shell`, then
+`SLURM_JOB_ID=<id> ./wp6run.sh 2 bash -lc "module load rocm; cd
+~/ntt-wp6/ecalc; ./tests/t_dist 24"`) is expected to pass; `~/ntt-wp6`
+on aac6 is built and ready (`~/wp6watch.sh` automates the run).
 
 ## Runs
 
@@ -45,7 +58,7 @@ was enough for two of the three planned runs. A second 2-node request
 | 20656 | s24-26 | 4 | `t_dist 20` again immediately after, same ports | VERIFY OK (port reuse after a clean exit is fine) |
 | 20656 | s24-26 | 8 (two processes per APU, `srun --ntasks-per-node=8`, `COMM_PORT=27100`) | `t_dist 24` | **VERIFY OK on all 8 ranks** (52 checks each) |
 | login node | aac6-fe1 | 4 and 8 forked | `t_comm` (host-only build) | VERIFY OK |
-| 20657 | (2 nodes, pending) | 8 | `t_comm`, `t_dist 20`, `t_dist 24` | see the addendum below if it ran |
+| 20657 | (2 nodes, requested 03:00) | 8 | `t_dist 24` across nodes | **did not run**: no second window in the ~6 h session (see below); request cancelled at 06:00 |
 
 So: the communicator and the distributed transform are correct **across
 two nodes with 8 ranks** (t_comm and t_dist 20), the transform is correct
