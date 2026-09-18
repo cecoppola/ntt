@@ -17,6 +17,7 @@ struct dv { const uint64_t *q[DB_NQ]; size_t qc; int lq; };
 __device__ static inline uint64_t dget(const struct dv v, size_t i) { return v.q[i >> v.lq][i & (v.qc - 1)]; }
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; return v; }
 
+__global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
 void db_free(dbig *x) { for (int d = 0; d < DB_NQ; d++) if (x->q[d]) mem_dev_free(x->q[d]); memset(x, 0, sizeof *x); }
 void db_reserve(dbig *x, size_t limbs)
@@ -26,6 +27,14 @@ void db_reserve(dbig *x, size_t limbs)
     while (qc * DB_NQ < limbs) { qc <<= 1; lq++; }
     dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc; y.lq = lq;
     for (int d = 0; d < DB_NQ; d++) y.q[d] = (uint64_t *)mem_dev_alloc(d, qc * 8);
+    if (getenv("DBIG_WARM")) {                             /* touch every 2 MiB page of each quarter from every other device */
+        for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
+            HIP_CHECK(hipSetDevice(c));
+            k_touch<<<1, 256>>>(y.q[d], qc);
+            HIP_CHECK(hipDeviceSynchronize());
+        }
+        HIP_CHECK(hipSetDevice(0));
+    }
     if (x->n) {                                           /* keep the contents: quarter-wise DMA through the limb map */
         size_t n = x->n;
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
