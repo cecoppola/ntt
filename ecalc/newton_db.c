@@ -123,6 +123,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
       rns_mul_dist_db(&t, &Ah, &mu);
       db_free(&Ah); }
     db_shr_limbs(&Xd, &t, k + 1);
+    db_free(&t);                                                 /* its blocks serve the low product below */
     double tc = mem_now();
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path).  The low
      * product: the full X Q truncated (one split product; the low-product recursion splits twice here) */
