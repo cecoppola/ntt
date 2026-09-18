@@ -1,6 +1,8 @@
 /* t_comm - the TCP communicator (WP6) on N forked localhost processes:
  * all-to-all of random slabs checked against the senders, barrier, reductions.
- * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c -lpthread */
+ * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c -lpthread
+ * With COMM_RANK set (one process per rank, e.g. under wp6run.sh across nodes)
+ * this process is that rank: it prints its own VERIFY line and exits nonzero on failure. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +38,12 @@ static int run_rank(int me, int n, const char *hosts, int port)
 }
 int main(int argc, char **argv)
 {
+    if (getenv("COMM_RANK")) {
+        int me = atoi(getenv("COMM_RANK")), n = atoi(getenv("COMM_SIZE")), port = getenv("COMM_PORT") ? atoi(getenv("COMM_PORT")) : 27000;
+        int bad = run_rank(me, n, getenv("COMM_HOSTS"), port);
+        printf("t_comm: rank %d of %d: %s (%d bad)\n", me, n, bad ? "VERIFY FAILED" : "VERIFY OK", bad);
+        return bad != 0;
+    }
     int n = argc > 1 ? atoi(argv[1]) : 4, port = argc > 2 ? atoi(argv[2]) : 27100;
     char hosts[4096] = ""; for (int r = 0; r < n; r++) strcat(hosts, r ? ",localhost" : "localhost");
     pid_t pid[64];
