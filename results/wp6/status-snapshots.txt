@@ -1,0 +1,144 @@
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:50:04 4:00:00 1
+== 2026-09-18 00:50:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:51:04 4:00:00 1
+== 2026-09-18 00:51:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:52:04 4:00:00 1
+== 2026-09-18 00:52:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:53:04 4:00:00 1
+== 2026-09-18 00:53:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:54:04 4:00:00 1
+== 2026-09-18 00:54:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:55:04 4:00:00 1
+== 2026-09-18 00:55:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20651 chcoppola wp7 PENDING  0:00 2:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:56:04 4:00:00 1
+== 2026-09-18 00:56:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20645_3 admin cdash-nightly RUNNING ppac-pl1-s24-26 17:13 3:00:00 1
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:57:04 4:00:00 1
+== 2026-09-18 00:57:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20645_3 admin cdash-nightly RUNNING ppac-pl1-s24-26 18:13 3:00:00 1
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:58:04 4:00:00 1
+== 2026-09-18 00:58:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20645_3 admin cdash-nightly RUNNING ppac-pl1-s24-26 19:13 3:00:00 1
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:59:04 4:00:00 1
+== 2026-09-18 00:59:30
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-26 mixed
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20645_4 admin cdash-nightly PENDING  0:00 3:00:00 1
+20645_3 admin cdash-nightly RUNNING ppac-pl1-s24-26 20:13 3:00:00 1
+--
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 3:58:09 4:00:00 1
+== 2026-09-18 02:58:35
+ppac-pl1-s24-26 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20649 chcoppola wp6 PENDING  0:00 1:00:00 2
+20655 chcoppola wp1d PENDING  0:00 4:00:00 1
+20644 chcoppola wp1d RUNNING ppac-pl1-s24-16 3:59:09 4:00:00 1
+== 2026-09-18 02:59:35
+ppac-pl1-s24-26 allocated
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20655 chcoppola wp1d PENDING  0:00 4:00:00 1
+20649 chcoppola wp6 RUNNING ppac-pl1-s24-[16,26] 0:04 1:00:00 2
+== 2026-09-18 03:01:00
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-26 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 1:04 4:00:00 1
+20656 chcoppola wp6 RUNNING ppac-pl1-s24-26 0:40 1:00:00 1
+== 2026-09-18 03:02:31
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-26 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 2:35 4:00:00 1
+20656 chcoppola wp6 RUNNING ppac-pl1-s24-26 2:11 1:00:00 1
+== 2026-09-18 03:03:31
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-26 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 3:35 4:00:00 1
+20656 chcoppola wp6 RUNNING ppac-pl1-s24-26 3:11 1:00:00 1
+== 2026-09-18 03:04:31
+ppac-pl1-s24-26 planned
+ppac-pl1-s24-35 down*
+ppac-pl1-s24-16 allocated
+ppac-pl1-s24-30 down
+20657 chcoppola wp6 PENDING  0:00 2:00:00 2
+20655 chcoppola wp1d RUNNING ppac-pl1-s24-16 4:35 4:00:00 1

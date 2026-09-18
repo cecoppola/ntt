@@ -1,0 +1,44 @@
+== job 20656 nodes=ppac-pl1-s24-26 nn=1 start 2026-09-18 03:01:00
+--- t_comm on 1 nodes (03:01:00)
+t_comm: rank 1 of 4: VERIFY OK (0 bad)
+t_comm: rank 3 of 4: VERIFY OK (0 bad)
+t_comm: rank 2 of 4: VERIFY OK (0 bad)
+t_comm: rank 0 of 4: VERIFY OK (0 bad)
+--- exit 0 (03:01:00)
+--- t_dist 20 on 1 nodes (03:01:05)
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:06
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:06
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:06
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:06
+t_dist: rank 1 of 4 over TCP
+t_dist: rank 0 of 4 over TCP
+t_dist: rank 2 of 4 over TCP
+t_dist: rank 3 of 4 over TCP
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+
+t_dist: VERIFY OK (4 checks)
+--- exit 0 (03:01:07)
+--- t_dist 24 on 1 nodes (03:01:12)
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:13
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:13
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:13
+META bench=t_dist host=ppac-pl1-s24-26 date=2026-09-18T03:01:13
+t_dist: rank 0 of 4 over TCP
+t_dist: rank 2 of 4 over TCP
+t_dist: rank 1 of 4 over TCP
+t_dist: rank 3 of 4 over TCP
+
+t_dist: VERIFY OK (52 checks)
+
+t_dist: VERIFY OK (52 checks)
+
+t_dist: VERIFY OK (52 checks)
+
+t_dist: VERIFY OK (52 checks)
+--- exit 0 (03:01:26)
+== done 2026-09-18 03:01:31
