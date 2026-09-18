@@ -2483,3 +2483,28 @@ dist tier (+40 GB of device pools, removes the second split of the
   4.15–4.44 × 10⁹ limbs (A μ and X Q) each split into four 2³¹-point tier
   calls (≈ 5 s per product in binary, 8 in decimal) — a 3·2³⁰-point plane
   pool (+40 GB device) or Karatsuba would take ~30–40 % off them (§60).
+
+## 61. WP7 — checkpoint and restart of the binary-splitting phase (2026-09-18; details in `results/WP7.md`)
+
+Implemented by an agent in an isolated worktree, merged into the branch.
+Per-level snapshots of the bs level loop (node table + the used limbs of
+the four region pools, or of the mdev levels' host pool), every
+`BS_CKPT_EVERY` levels from level 8 or 1 GiB of pool, written to temporary
+names and renamed with the header last (a complete set always exists);
+`BS_RESTART=1` resumes from the latest complete set, skipping the seeds and
+the lower levels. No numerical code touched; no streaming of the working
+set (periodic snapshots only).
+
+**Verified (job 20644, s24-16):** at 10⁸ and 10⁹ in both bases, four runs
+each — checkpointing, restart from its last set, a run killed right after a
+checkpoint, restart from that — all VERIFY OK and **digits `cmp`-identical
+in all 15 comparisons** (against each other and the reference files).
+
+**Cost:** 0.83 GB (binary) / 0.89 GB (decimal) per checkpoint at 10⁹,
+0.5–0.9 s each (NVMe write + fsync ≈ 1 GB/s; the DMA side 1.6–2 GB/s);
+restart load 0.13–0.22 s. Extrapolated: ≈ 9 GB / 9 s at 10¹⁰, ≈ 35 GB /
+35 s at 4 × 10¹⁰ — every 4 levels of a 24-level tree, i.e. ≈ 4 snapshots.
+The mdev-level (host pool) path is implemented but only exercised at
+10¹⁰ and above: to be run once before relying on it (recipe in WP7.md §4).
+For the multi-node run the same snapshot per rank, at the level boundaries
+that are global synchronisation points anyway, is the restart design.

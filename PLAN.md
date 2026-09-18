@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **WP7 (checkpoint/restart) done** (§61, `results/WP7.md`): per-level bs snapshots, restart bit-identical at 10⁸/10⁹ both bases (15/15 cmp), ≈ 1 GB/s; merged | RESULTS.md §61 |
 | 2026-09-18 | **WP5 single-node cell complete** (§59): device bigint, distributed tier on real APUs, dm on device-resident numbers — 4 × 10¹⁰ verified in both bases: binary phases 187 → 175 s, decimal 138 → 130.5 s; dm-phase host RSS 155 → 80 GB. Multi-node pieces (TCP correctness) with the WP6 agent | RESULTS.md §59 |
 | 2026-09-18 | Autonomous 8-hour session started: WP5 step 3 (device-resident dm) being brought to 4 × 10¹⁰; WP6 (TCP multi-node correctness) and WP7 (bs checkpoint/restart) delegated to agents in isolated worktrees (`results/WP6.md`, `results/WP7.md`), to be merged and recorded here; then five-run variance per base on the final code and the final comparison | — |
 | 2026-09-17 | **WP4 done** (§58): decimal `mul_1` Barrett (2.6 ns/limb), school tier off, seed span 256 (both bases). 4 × 10¹⁰ phases: decimal **138 s** / 294 GB, binary 187 s / 246 GB, verified. The deeper decimal split (≈ 20 s) is a pool-size trade that opens with WP5. Next: WP5 | RESULTS.md §58 |
