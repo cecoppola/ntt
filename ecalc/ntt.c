@@ -536,8 +536,8 @@ void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
     unsigned blocks = logn >= 11 ? (unsigned)(batch << (logn - 11)) : 0;
     for (int i = 0; i < pl.npass; i++)
         launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->f[i], 0, 0.0, blocks, s);
-    if (ntt_b1_shoup) k_b1s<B1_LGL, 0><<<(unsigned)(batch << (logn - B1_LGL)), THREADS, 0, s>>>(x, 0, 0, c->m, c->tab1s_f, c->tab1sp_f, 0.0);
-    else k_b1<B1_LGL, 0><<<(unsigned)(batch << (logn - B1_LGL)), THREADS, 0, s>>>(x, 0, 0, c->m, c->tab1_f, 0.0);
+    if (ntt_b1_shoup) k_b1s<B1_LGL, 0><<<(unsigned)(batch << (logn - B1_LGL)), THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1s_f, c->tab1sp_f, 0.0);
+    else k_b1<B1_LGL, 0><<<(unsigned)(batch << (logn - B1_LGL)), THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1_f, 0.0);
 }
 
 /* the inverse with the pointwise product fused into the b1 pass; Lt = points per transform of the y layout
