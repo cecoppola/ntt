@@ -180,6 +180,39 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     newton_st.t_div += mem_now() - t0;
 }
 
+/* B3 (Phase 9, A-div): the product t = A_h mu of which only t >> cut is used, as a grid of piece products (the split of
+ * rns_dist.c's mul_grid: the fewest plane points in total) with the pieces that end at or below the cut skipped -- each
+ * skipped piece is < B^cut, so X = t >> cut is low by at most their number (+1), absorbed by the up-corrections.  Products
+ * that fit one plane (< 2^31 points) are unchanged.  NEWTON_HIGHPROD=0: the full product as before. */
+static size_t high_cap(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : 31; if (v < 20 || v > 31) v = 31; return (size_t)1 << v; }
+static size_t high_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) n <<= 1; return n; }
+static void mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut)
+{
+    size_t na = A->n, nb = B->n, nc = na + nb, cap = high_cap();
+    if (!na || !nb || nc <= cap || (getenv("NEWTON_HIGHPROD") && !atoi(getenv("NEWTON_HIGHPROD")))) { rns_mul_dist_db(Cd, A, B); return; }
+    int ka = 0, kb = 0; size_t best = 0;
+    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
+        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j; if (pa + pb > cap) continue;
+        size_t cost = (size_t)i * j * high_pts(pa + pb);
+        if (!ka || cost < best || (cost == best && i * j < ka * kb)) { best = cost; ka = i; kb = j; }
+    }
+    if (!ka) { fprintf(stderr, "mul_high_db: %zu x %zu limbs\n", na, nb); abort(); }
+    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, skipped = 0;
+    db_reserve(Cd, nc + 8); Cd->n = 0;
+    dbig t; db_init(&t); int first = 1;
+    for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
+        size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
+        dbig ai = db_view(A, oa, na - oa < pa ? na - oa : pa), bj = db_view(B, ob, nb - ob < pb ? nb - ob : pb);
+        db_norm(&ai); db_norm(&bj);
+        if (!ai.n || !bj.n) continue;
+        if (oa + ob + ai.n + bj.n <= cut) { skipped++; continue; }                  /* the whole piece lies below the cut */
+        if (first) { if (oa + ob) { rns_mul_dist_db(&t, &ai, &bj); db_shl_limbs(Cd, &t, oa + ob); } else rns_mul_dist_db(Cd, &ai, &bj); first = 0; continue; }
+        rns_mul_dist_db(&t, &ai, &bj);
+        db_add_shifted(Cd, &t, oa + ob, Cd);                                           /* in place */
+    }
+    db_free(&t);
+    if (getenv("RNS_VERBOSE")) printf("   mul_high_db %zu x %zu limbs, cut %zu: %d x %d pieces, %zu skipped\n", na, nb, cut, ka, kb, skipped);
+}
 /* Phase 8 I3 (decimal): X = floor(A / Q) with A = S B^dl entirely on the device (S = P + Q, dl = d/18 limbs):
  * the top of A is S shifted right by (nq - 1) - dl limbs (a view: dl < nq always, since 10^d < N!), the
  * remainder window A mod B^w (w = nq + 2) is S's low w - dl limbs shifted up by dl, and the corrections run
@@ -205,7 +238,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
      * last use: the block pool (the donated bs regions and the plane tails) must hold the peak, or hipMalloc costs
      * 0.057 s/GB inside the phase (RESULTS.md 70) */
     { size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
-      rns_mul_dist_db(&t, &Ah, &mu); }
+      mul_high_db(&t, &Ah, &mu, k + 1); }                                /* B3: the pieces below the cut skipped */
     db_free(&mu);                                                     /* the reciprocal's last use */
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
