@@ -34,7 +34,7 @@ s1v1) # a set written by main's ecalc (the v1 header and names), restarted by th
   runmain v1c $D $E BS_CKPT_ABORT=8;    note "v1c (main): $(grep -E 'ABORT' $OUT/v1c.log | tail -1)"; note "  sets: $(sets ${CK}_v1)"
   run1 v1d $D $E BS_RESTART=1;          chk v1d $D;;
 s1dev) # single node 10^9 with device top levels in the leaf (BS_MDEV_LOGL=25): a set at a device-number level
-  D=1000000000; E="POOL_LOG=29 BS_MDEV_LOGL=25 BS_CKPT_EVERY=1 BS_CKPT_MIN_LEVEL=2 BS_CKPT_DIR=${CK}_s1dev"
+  D=1000000000; E="POOL_LOG=29 BS_MDEV_LOGL=23 BS_CKPT_EVERY=1 BS_CKPT_MIN_LEVEL=2 BS_CKPT_DIR=${CK}_s1dev"   # (23: levels 18 and 19 are mdev; 25 makes only the top one mdev, which is never snapshotted)
   run1 s1deva $D $E;                    chk s1deva $D; L=$(mdev_level s1deva); note "  first mdev level $L; sets: $(sets ${CK}_s1dev)"
   run1 s1devc $D $E BS_CKPT_ABORT=$L;   note "s1devc: $(grep -E 'ABORT|checkpoint level' $OUT/s1devc.log | tail -2 | tr '\n' ';')"; note "  sets: $(sets ${CK}_s1dev)"
   run1 s1devd $D $E BS_RESTART=1;       chk s1devd $D;;
@@ -55,10 +55,10 @@ m8|m9) # sizes 2 and 4 on one node
     runm ${T}u $p $D 900 $E BS_RESTART=1;                 chk ${T}u $D
     for x in b d f h u; do cmp -s $OUT/${T}a.txt $OUT/${T}$x.txt || note "$T: a and $x DIFFER"; done
   done;;
-mdev) # 10^8 at sizes 2 and 4 with the leaf's device top levels (BS_MDEV_LOGL=21): sets at a device-number level of the leaf
-  D=100000000
+mdev) # 10^9 at sizes 2 and 4 with the leaf's device top levels (BS_MDEV_LOGL=22: the leaf's last two or three levels): sets at a device-number level of the leaf
+  D=1000000000
   for p in 2 4; do
-    T=mdev.$p; E="POOL_LOG=27 BS_MDEV_LOGL=21 BS_CKPT_EVERY=1 BS_CKPT_MIN_LEVEL=2 BS_CKPT_DIR=${CK}_$T"
+    T=mdev.$p; E="POOL_LOG=29 BS_MDEV_LOGL=22 BS_CKPT_EVERY=1 BS_CKPT_MIN_LEVEL=2 BS_CKPT_DIR=${CK}_$T"
     runm ${T}a $p $D 900 $E;                              chk ${T}a $D; L=$(mdev_level ${T}a); note "  first mdev level $L; sets: $(sets ${CK}_$T)"
     runm ${T}c $p $D 900 $E BS_CKPT_ABORT=$L;             note "${T}c: $(grep -c 'BS_CKPT_ABORT' $OUT/${T}c.log) nodes exited; sets: $(sets ${CK}_$T)"
     runm ${T}d $p $D 900 $E BS_RESTART=1;                 chk ${T}d $D
