@@ -71,7 +71,7 @@ int main(void)
                 if ((size_t)pl != fe - fb || memcmp(pb, rb + fb, pl)) { fails++; if (size == 1) { int q = 0; while (q < pl && pb[q] == rb[fb + q]) q++; printf("first diff at %d: part %.40s ref %.40s\n", q, pb + (q > 10 ? q - 10 : 0), rb + fb + (q > 10 ? q - 10 : 0)); } printf("it %d size %d node %d: part %ld bytes vs [%zu, %zu) of the file (d_out %lu, k [%zu, %zu), L %zu)\n", it, size, r, pl, fb, fe, d_out, o.k0, o.k1, L); }
                 free(pb); free(rb);
                 if (o.k1 > o.k0 && r == size - 1) { checks++; if (strncmp(o.first, ref, strlen(o.first))) { fails++; printf("it %d: first mismatch\n", it); } }
-                if (r == 0 && o.k1 > o.k0) { checks++; size_t t = strlen(o.last); if (memcmp(o.last, ref + d + 1 - t, t)) { fails++; printf("it %d: last mismatch\n", it); } }
+                if (o.k0 <= d_out && d_out < o.k1) { checks++; size_t t = strlen(o.last); if (memcmp(o.last, ref + d_out + 1 - t, t)) { fails++; printf("it %d: last mismatch\n", it); } }
             }
             checks++; if (ndig_tot != d + 1) { fails++; printf("it %d size %d: ndig %zu vs %lu\n", it, size, ndig_tot, d + 1); }
             checks++; if (memcmp(D, Dref, sizeof D)) { fails++; printf("it %d size %d: digit residue mismatch\n", it, size); }

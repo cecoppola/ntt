@@ -220,7 +220,7 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
         { size_t t = len < 49 ? len : 49; if (t < 49 && nhead) { size_t keep = 49 - t < nhead ? 49 - t : nhead; memmove(head, head + nhead - keep, keep); memcpy(head + keep, s, t); nhead = keep + t; } else { memcpy(head, s + len - t, t); nhead = t; } }
         o->t_t2 += mem_now() - t4;
         if (bb == hi) { size_t f = len < 62 ? len : 62; memcpy(o->first, s, f); o->first[f] = 0; }
-        if (a == lo) { size_t t = len < 20 ? len : 20; memcpy(o->last, s + len - t, t); o->last[t] = 0; }
+        if (ck0 <= o->d_out && o->d_out < ck1) { size_t e = o->d_out + 1 - ck0, t = e < 20 ? e : 20; memcpy(o->last, s + e - t, t); o->last[t] = 0; }   /* the 20 digits ending at d_out */
         /* the write: digits [ck0, min(ck1, kw_end)); "2." before digit 0, the newline after digit d_out */
         size_t we = ck1 < kw_end ? ck1 : kw_end;
         if (w->fd >= 0 && ck0 < we) {
