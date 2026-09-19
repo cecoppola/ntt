@@ -358,6 +358,9 @@ static size_t slab_limbs(size_t maxshare, size_t R, size_t rows, size_t q)
     return (S + 15) / 16 * 16;
 }
 static size_t max_share(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
+static int g_node_of(mn_group *G) { return G->g0 + G->me; }
+static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_max(G->all[0], v) : v; }
+
 static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->tr[d], d); return G->lay[d]; }
 struct mn_ctx { mn_group *G; int node, gt, g; size_t R, rows, C, n; };
 /* node r's part of a view, in view coordinates [lo, hi) (its share of m cut to the window and to the view's length) */
@@ -402,12 +405,21 @@ static int node_carry_in(mn_group *G, int c, int p)
     if (top) { fprintf(stderr, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); exit(1); }
     return cin;
 }
-/* the carries across the nodes after a fixed-length add on the shares: the scan, then + 1 on the shares that receive one */
+/* the carries across the nodes after a fixed-length add on the shares (n limbs; co, pr its flags -- a node that had nothing
+ * to add reports co = 0 and pr = 0 unless n = 0, since it did not look at its limbs): the scan, then + 1 on the shares that
+ * receive a carry.  A + 1 that carries out of a share whose add reported propagate was already passed on by the scan; one
+ * that carries out of a share that reported no propagate (it had nothing to add) is a new carry: another scan round
+ * (at most g rounds; none in practice) */
 static void share_carry_fix(mn_group *G, dbig *sh, size_t n, int co, int pr)
 {
-    int cin = node_carry_in(G, co, pr), co2 = 0;
-    if (cin && n) { db_share_add_one(sh, n, &co2); if (co2 && G->me == G->g - 1) { fprintf(stderr, "rns_mul_dist_mn: carry out of the top share\n"); exit(1); } }
-    /* (a carry out of a share's + 1 is caught by the scan's propagate flag: the share propagated, so the next node already added it) */
+    int cin = node_carry_in(G, co, pr);
+    for (;;) {
+        int co2 = 0;
+        if (cin && n) db_share_add_one(sh, n, &co2);
+        int newc = (cin && !pr) ? co2 : 0;
+        if (!grp_max(G, (size_t)newc)) break;
+        cin = node_carry_in(G, newc, 0); pr = 0;
+    }
 }
 /* the window of node r's share of C that a piece product delivered at `shift` with basis Np covers: [lo, hi) in the piece's
  * coordinates */
@@ -530,12 +542,12 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     }
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
-    double t4 = mem_now(); int co = 0, pr = 1;
+    double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (tn) db_share_add_spills(dst, tn, tlo, sp, R, rows, C, gt, &co, &pr);
     share_carry_fix(G, dst, tn, co, pr);
     for (int d = 0; d < NR; d++) db_pool_free(d, spill_rb[d]);
     if (!direct) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
-        co = 0; pr = 1;
+        co = 0; pr = cn == 0;
         if (tn) db_share_add_shifted(&Cn->sh, cn, &T, tlo + shift - clo, &co, &pr);
         share_carry_fix(G, &Cn->sh, cn, co, pr);
         db_free(&T);
@@ -548,8 +560,6 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks (%zu + %zu%s limbs at %zu, window [%zu, %zu) of share [%zu, %zu)%s): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f total %.3f s\n",
                         node, logn, logR, logC, gt, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt);
 }
-static int g_node_of(mn_group *G) { return G->g0 + G->me; }
-static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_max(G->all[0], v) : v; }
 mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G)
 {
     mdbv v; v.m = m; v.off = off; v.len = 0;
@@ -569,6 +579,14 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
     size_t clo, chi; mdb_share(C, g_node_of(G), &clo, &chi); if (chi > lim) chi = lim; if (clo > chi) clo = chi;
     if (chi > clo) { dbig t = db_view(&C->sh, 0, chi - clo); db_norm(&t); if (t.n) top = clo + t.n; }
     C->n = grp_max(G, top);
+}
+__global__ void k_zero_acc(struct acc a, size_t n) { size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; t < n; t += st) *acc_ptr(a, t) = 0; }
+/* the limbs of C's share at or above `from` (global) set to zero: a truncated result stays a valid operand of the adds */
+static void share_zero_from(mdb *C, mn_group *G, size_t from)
+{
+    size_t clo, chi; mdb_share(C, g_node_of(G), &clo, &chi); if (from < clo) from = clo; if (from >= chi) return;
+    struct acc a = acc_db(&C->sh, from - clo, chi - from);
+    HIP_CHECK(hipSetDevice(0)); k_zero_acc<<<nblk(chi - from), 256>>>(a, chi - from); HIP_CHECK(hipDeviceSynchronize());
 }
 /* the plane cap of the mn tier: one plane per node pool (4 q limbs, q = n / 4 gt, in pool 0 of 2^pool_log limbs), at most 2^31 per node */
 static int mn_logn_cap(int gt) { int lgt = 0; while ((1 << lgt) < gt) lgt++; int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log(); return c + lgt; }
@@ -601,6 +619,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (X) mdb_add_shifted(&Cn, X, 0, G);
     }
     mdb_norm(&Cn, G, w);
+    if (w < N) share_zero_from(&Cn, G, w);                    /* the limbs above the window are not part of the result */
     if (Cm->sh.cap) db_free(&Cm->sh);
     *Cm = Cn;
     if (verbose) printf("dist_mn node %d: %zu + %zu%s limbs -> %zu (share %zu): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f, total %.3f s\n",
@@ -613,21 +632,12 @@ void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group
 }
 void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, w); }
 static void mdb_empty(mdb *Cm, mn_group *G) { if (Cm->sh.cap) db_free(&Cm->sh); memset(Cm, 0, sizeof *Cm); db_init(&Cm->sh); Cm->g0 = G->g0; Cm->g = G->g; }
-__global__ void k_zero_acc(struct acc a, size_t n) { size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; t < n; t += st) *acc_ptr(a, t) = 0; }
-/* the limbs of C's share at or above `from` (global) set to zero: a truncated result stays a valid operand of the adds */
-static void share_zero_from(mdb *C, mn_group *G, size_t from)
-{
-    size_t clo, chi; mdb_share(C, g_node_of(G), &clo, &chi); if (from < clo) from = clo; if (from >= chi) return;
-    struct acc a = acc_db(&C->sh, from - clo, chi - from);
-    HIP_CHECK(hipSetDevice(0)); k_zero_acc<<<nblk(chi - from), 256>>>(a, chi - from); HIP_CHECK(hipDeviceSynchronize());
-}
 void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w)
 {
     if (!w) { mdb_empty(Cm, G); return; }
     mdbv a = mdb_view(A, 0, w, G), b = mdb_view(B, 0, w, G);
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
     mn_grid(Cm, &a, &b, 0, G, w);
-    share_zero_from(Cm, G, w);
 }
 
 /* ---- the shifted distributed add: C += X << k on C's shares (Phase 9 A3) -------------------------------------
@@ -701,7 +711,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     }
     HIP_CHECK(hipSetDevice(0));
     }
-    int co = 0, pr = 1;
+    int co = 0, pr = cn == 0;
     if (tn) db_share_add_shifted(&C->sh, cn, &T, tlo - clo, &co, &pr);
     share_carry_fix(G, &C->sh, cn, co, pr);
     db_free(&T);
