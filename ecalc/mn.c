@@ -134,6 +134,8 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     if (g_size <= 1) return 1;
     int L = 0; while ((1 << L) < g_size) L++;
     mn_group *G = mn_group_at(L); int gt = G->gt;
+    int dbg_local = getenv("MN_LAYERED_LOCAL") != 0;         /* debug: the layered comm over a size-1 inter comm (4 ranks, intra only) */
+    if (dbg_local) gt = 1;
     if (g_rank >= gt) return 1;
     int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
@@ -149,7 +151,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
-        comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
+        comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
         if (comm_rank(cm) != r || comm_size(cm) != nr) { fprintf(stderr, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); exit(1); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
