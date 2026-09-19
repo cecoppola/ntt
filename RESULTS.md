@@ -2798,3 +2798,40 @@ formatting thread had them); dc + T2 5.4 → 0.1. Peak host 166.7 GB
 (A's shrink in the division had been switched off by mistake; VmRSS
 after bs 118 GB — the host copies of P, Q now arrive after the pools are
 gone, so the bs peak is lower than before).
+
+**What the first run hid, found over rounds 2–4 (job 20685).** Three
+couplings between the background thread and the reciprocal, each fixed:
+(1) the copy stream was a blocking stream, so every `hipMemcpyAsync` of
+the copy-out was ordered against the reciprocal's kernels on the null
+stream and vice versa (non-blocking stream, null-stream sync before a
+copy of a just-computed number); (2) the dbig kernels synchronised the
+whole device after each launch, so each waited for the 1 GiB copy chunk
+in flight (they synchronise the null stream now; the division fell back
+from 24–32 s to 21.3 s); (3) the copy-out wrote into freshly allocated
+host buffers — 35 GB of page faults, 10–26 s when the page cache was full
+of the 40 GB reference file from the previous comparison (the buffers are
+pre-faulted in the background during the GPU levels: 0.22 s). Measuring
+after a 40 GB comparison pollutes the run: the scripts now evict the file
+(`posix_fadvise DONTNEED`) before a timed run — the baseline itself is
+128.8 s under that condition against 133.7 in the §66 series.
+
+**Clean pair (page cache evicted, all fixes; one run each, both VERIFY
+OK, digits identical):**
+
+| 4 × 10¹⁰ | baseline | overlapped | difference |
+|---|---:|---:|---:|
+| init | 19.6 | 15.3 | −4.3 |
+| bs (seeds / batch / top levels) | 60.5 (11.5 / 29.9 / 18.9) | 58.2 (7.8 / 31.0 / 19.4) | −2.3 |
+| reciprocal | 14.4 | 20.0 (P, Q out 5.4 s inside it) | +5.6 |
+| 10dP | 1.3 | 2.4 (hidden) | — |
+| division | 20.7 | 21.3 | +0.6 |
+| T1 / dc / T2 | 3.4 / 4.1 / 1.3 | 1.7 / 0.1 / 0.0 | −7.0 |
+| other | 2.7 | ≈ 0 | −2.7 |
+| **wall** | **128.8** | **117.9** | **−10.9** |
+| peak host | 160.0 GB | 154.3 GB | (pre-faulted P/Q beside bs) |
+
+The one remaining loss is the reciprocal: the device-to-host DMA of P and
+Q (35 GB) contends with its kernels for the HBM; the CPU work beside it
+(residues 5.3 s, A 2.4 s) does not show. Next: the copies before the
+reciprocal (1.8 s synchronous; `ECALC_OVERLAP_COPY=1` keeps them inside),
+expected ≈ 114 s; then I3 (A on the device) removes P's copy altogether.
