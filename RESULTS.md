@@ -2881,3 +2881,44 @@ contention), so the net is −4.4 s of the 7.9 the seeds cost; the rest of
 init is the allocation floor. All runs VERIFY OK, digits identical.
 I7 (seeds on the GPU) is dropped from the list: the seeds are off the
 critical path.
+
+## 70. Phase 8 I3 — the decimal division entirely on the device (2026-09-18, jobs 20688–20692, s24-16)
+
+In base 10¹⁸, A = 10ᵈ(P+Q) = S·B^(d/18) with S = P + Q, so the division
+needs no A: its "top of A" is a view of S shifted by (n_Q − 1) − d/18
+limbs, and the remainder window A mod B^w (w = n_Q + 2) is zeros plus S's
+lowest w − d/18 limbs (six at 4 × 10¹⁰). With P and Q left on the device
+by the top level, S = P + Q is one device add, the reciprocal takes Q from
+the device (seed from its top four limbs, μ tagged by the device Q), the
+window and the ±Q corrections run on device numbers, and the T1 residues
+of P, Q and R come from a device kernel (`db_mod_q`: one block per 16 384
+limbs, thread-strided reads, per-thread Horner with B²⁵⁶, block reduction
+with a table of Bᵗ, all eight primes per launch, quarters in parallel).
+Nothing of P, Q, S, A or R ever exists on the host; only X and the digit
+string do. The digit count is computed to the next multiple of 18 (the
+requested digits are a prefix — ⌊⌊10^{d'}e⌋/10^{d'−d}⌋ = ⌊10^{d}e⌋ — the
+full string is residue-checked, the requested one written and windowed),
+which also removes the 10^(d mod 18) multiply. `newton_db_divmod_shifted`,
+`db_set_shifted_low`, `db_mod_qs`; checks in `t_dbig` (residues against
+the host Horner across quarter and chunk boundaries) and the reference
+digits at 10⁸, 10⁹, 10¹⁰ with the device top levels forced
+(`BS_MDEV_LOGL`), and 4 × 10¹⁰.
+
+| 4 × 10¹⁰ (clean conditions) | I2 (§69) | I3 first | + fast residues | + one launch, fill kernel, plane tails | + temporaries freed |
+|---|---:|---:|---:|---:|---:|
+| residues P, Q (device) | (host, hidden) | 3.5 | 2.1 | 1.3 | |
+| reciprocal (proper) | 14.2 | 18.6 | 16.8 | 17.3 | |
+| division | 21.6 | 25.2 | 24.7 | 23.5 | |
+| **wall** | 107.7 | 116.3 | 114.1 | 113.0 | |
+| peak host | 140.1 GB | **74.5 GB** | 74.5 | 74.5 | |
+
+The host peak halves (the staging, X and the digit string remain). The
+time went up first because the device division keeps more large numbers
+alive at once and each quarter is a 2ˡ/3·2ˡ class: S, Q, μ, the 51 GB
+product, X, X·Q, the window and R overflowed the donated regions and the
+block pool fell back to `hipMalloc` for ≈ 116 GB inside the phase
+(0.057 s/GB — this, not compute, was the "window 2.8 s" and the slower
+reciprocal). Fixes in order: residues coalesced (2.0 → 0.07 s at 10⁹),
+all primes in one launch, the window filled by a kernel (hipMemset runs
+at ~10 GB/s here), the plane pools' unused tails (17 GB) donated to the
+block pool as borrowed regions, and every temporary freed at its last use.
