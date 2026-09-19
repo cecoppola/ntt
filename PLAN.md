@@ -988,3 +988,50 @@ already independent, with threads, behind `ECALC_OVERLAP=1`:
 | O5 | the residues of X, R (Horner, CPU) overlapped with the frees and pool release | — | other 4 → ~2 |
 
 Measured per step in RESULTS §68. Later (coordinated interleaving): I2, I3.
+
+## 19. Phase 9 — work plan: the multi-node pipeline, the last concurrency, the remaining optimizations (proposed 2026-09-19)
+
+Three tracks; A is the critical path, B and C run beside it in their own
+worktrees and aac6 clones (one agent each), sharing the node in separate
+allocations. Every step ends with digits identical to the reference at
+every size it touches and a RESULTS section; the user decides adoption.
+
+**Track A — the multi-node pipeline (question 1), ≈ 8 days**
+| step | what | test | days |
+|---|---|---|---|
+| A1 M4 | the division over the whole machine: reciprocal and division as `rns_mul_dist_mn` products over the full group (S, Q, μ, X sharded; the window and corrections on the sharded numbers with the cross-node carry scan; residues of R by the sharded kernel + reduction); node 0's gather goes | sizes 1–4 on one node, 2–3 real nodes, 10⁸–10⁹ identical | 2 |
+| A2 M5 | per-node output and verification: each node formats and writes its share of X (18-digit blocks, one part file per node, `cat` = the digit string); T1 residues rank-local (P_r, Q_r by the term recurrence over the node's range, X, R shares by the device kernel with the share's base power) combined by a mod-q reduction; T2 windows by the node holding the position | part files identical to the reference; T1/T2 at every size | 1 |
+| A3 grid over shares | products beyond 2^(31+log₂ g_t) points over shares (M3's open item): the grid split with share views and a shifted distributed add — needed for 4 × 10¹⁰ at size < 8 and for the division at any size | 4 × 10¹⁰ at size 2 on one node (memory shares) — the first multi-process 4 × 10¹⁰ | 1.5 |
+| A4 M6 | per-node checkpoints at level boundaries (the WP7 format per node, the tree levels' shares included), restart with the same size | restart identical at size 4 | 1 |
+| A5 M7 | slab pipelining through `dist_fwd_pre/_post` (the local pass of slab k+1 under the exchange of slab k); an `allgather` op in `comm.h` replacing the O(g) loops | correctness here; measured on the target | 1.5 |
+| A6 M9 | memory per node accounted (planes, regions, block pool, packed slabs, layered scratch, host); the per-node digit capacity in the multi-node run; regions' second parity and plane sizing revisited (the memory levers of question 3) | 4 × 10¹⁰ at size 2 and the largest count at size 4 | 1 |
+| A7 M8 | the RDMA communicator (libfabric/MPI behind `comm.h`, sub-communicators per level) | on the target system | (target) |
+
+**Track B — inside the GPU phases (question 2), ≈ 4 days, agent in a worktree**
+The overlap across resources is spent (GPU-busy 85 % of the wall, the rest
+the allocation floor); the lever is memory traffic per product. In order
+of expected gain per day:
+| step | what | expected | days |
+|---|---|---|---|
+| B1 | I6: Q₂ transformed once per pair in the batch tier (power-of-two levels; paired y-index mapping in the fused inverse) | −2…−3 s | 1.5 |
+| B2 | I4: reuse across the reciprocal's last doubling and the division (fwd(Q) shared where the grids coincide; the reciprocal's r·δ with the same forward transform of r) | −2…−3 s | 1.5 |
+| B3 | I9: the A·μ grid piece below the cut skipped (one correction at most) | −1.5 s | 0.5 |
+| B4 | the transform's bandwidth: the b16 body's LDS round trips (Phase 6 §48 lds/xchg: DPP/`ds_swizzle` for the last exchange, ≈ 5 % of the kernel) | −2…−3 s | 1 |
+
+**Track C — memory and small items (question 3), ≈ 2.5 days, agent in a worktree**
+| step | what | expected | days |
+|---|---|---|---|
+| C1 | I12: the digit string streamed to the file in chunks as it is formatted (no 40 GB host string; the digit residue accumulated per chunk) | host peak 70 → ≈ 30 GB | 0.5 |
+| C2 | I15: the region-0 imbalance at the five-node level (split the heavy pair across regions or size region 0) | −1.3 s | 0.5 |
+| C3 | I16: the reciprocal's pool at 6–7 × 10¹⁰ (donate the second parity earlier; size from the reciprocal's scratch) | −10…−15 s at 7 × 10¹⁰; raises the ceiling | 0.5 |
+| C4 | I11: init — pool-1 planes sized to 3q (the tail then not needed), contexts built once, regions from a single allocation per device | −1…−2 s of init | 0.5 |
+| C5 | I10 measured, not adopted unless it wins: 3·2³⁰ planes for the top levels (+60 GB device) | −3 s at 4 × 10¹⁰ | 0.5 |
+
+Sequence: A1 ∥ B1 ∥ C1 (three agents, day 1–2) → A2 ∥ B2 ∥ C2–C3 → A3
+∥ B3–B4 ∥ C4–C5 → A4–A6 alone (they touch the same files as C) → A7 on
+the target. Merges after each step's gate, `main` always green (10⁹
+identical, size 1 bit-for-bit). Total ≈ 8 days of sessions with
+parallel agents (≈ 14 sequential). Expected end state on one node:
+≈ 90 s and ≈ 30 GB host at 4 × 10¹⁰; the multi-node pipeline complete
+except the RDMA transport, verified at 2–4 node-processes and on the 3
+real nodes of aac6.
