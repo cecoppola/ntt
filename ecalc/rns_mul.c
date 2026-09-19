@@ -51,6 +51,19 @@ void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
 size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the paper's) */
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
+size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
+size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned */
+{
+    size_t q = (size_t)1 << ((pool_log ? pool_log : 31) - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20;
+    return (b + al - 1) / al * al;
+}
+static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
+void (*rns_shutdown_hook)(void) = 0;                               /* Phase 9 C4: binsplit releases its region arenas here (they outlive the block pool's use of them) */
+static void rns_acct(int ndev, size_t b[][MEM_DEV_NCAT])
+{
+    for (int d = 0; d < ndev && d < EC_NP; d++) { b[d][MEM_DEV_PLANES] += D[d].da.cap + D[d].db.cap; b[d][MEM_DEV_TABLES] += g_tables[d]; }
+}
+static size_t dev_used(int d) { size_t f = 0, t = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; HIP_CHECK(hipSetDevice(cur)); return t - f; }
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -72,21 +85,27 @@ int rns_init(int pool_log)
     for (int d = 0; d < g_nd; d++) {
         double tt, tr;
         HIP_CHECK(hipSetDevice(d));
+        size_t u0 = dev_used(d);
         D[d].ctx = ntt_ctx_create(d);
         D[d].ctx2 = ntt2_ctx_create(d & 1);
+        size_t u1 = dev_used(d); g_tables[d] = u1 > u0 ? u1 - u0 : 0;
         HIP_CHECK(hipStreamCreate(&D[d].s));
         D[d].hstage = (uint64_t *)mem_hstage_alloc(d, sbytes, &tt, &tr);
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu);
     }
     if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
+    size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
+    if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         dpool_get(&D[d].da, d, bytes);           /* pregrow to 2^pool_log (paper) */
-        dpool_get(&D[d].db, d, bytes);
+        dpool_get_exact(&D[d].db, d, b1);
     }
     mem_par_init = 0;
+    mem_acct_register(rns_acct);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB, staging %.2f GiB, tables %.3f GB\n", bytes / 1073741824.0, b1 / 1073741824.0, sbytes / 1073741824.0, g_tables[0] / 1e9);
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d) {
@@ -125,6 +144,7 @@ size_t rns_dpool_donate_tail(int dev, int which, size_t used)
 int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {
+    if (rns_shutdown_hook) rns_shutdown_hook();
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         dpool_free(&D[d].da); dpool_free(&D[d].db);

@@ -15,7 +15,8 @@ static const uint64_t B10 = 1000000000000000000ULL;
 struct db_stats db_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
-static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
+static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
+static void par_init(void) { if (g_par < 0) { g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); mem_acct_register(db_acct); } }
 
 struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; };     /* shift: the operand as a << shift limbs; qc: limbs per quarter (any multiple of DB_ALIGN) */
 /* the quarter of global limb g: the number of quarter boundaries at or below g (no division: qc is any size) */
@@ -39,9 +40,10 @@ static struct { struct ext e[8192]; int n; } g_ext[DB_NQ];
 static size_t g_pool_bytes;
 static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
 static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
-static struct { void *p; int dev; size_t bytes; int own; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools) */
-static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
-static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
+static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
+static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
+static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
+static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, i = 0;
@@ -72,7 +74,7 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
         void *m; HIP_CHECK(hipMalloc(&m, need)); HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
-        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
+        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
         p = (char *)m;
     }
     live_add((uint64_t *)p, d, need, reg); return (uint64_t *)p;
@@ -98,13 +100,40 @@ void db_pregrow(int dev, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx); g_pool_bytes += bytes; pthread_mutex_unlock(&g_pool_mx);
     db_donate_ext(dev, m, bytes, 1);
+    g_donated[g_ndonated - 1].kind = 2;                   /* M9: the pool's own hipMalloc */
 }
 void db_donate_ext(int dev, void *p, size_t bytes, int own)
 {
     pthread_mutex_lock(&g_pool_mx);
     if (g_ndonated >= 256) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
-    g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_ndonated++;
+    g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_donated[g_ndonated].kind = own ? 0 : 1; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
+    pthread_mutex_unlock(&g_pool_mx);
+    mem_acct_register(db_acct);
+}
+/* Phase 9 C4: a borrowed range that is part of the same allocation as an already borrowed region next to it (the
+ * two parities of a bs region arena, donated at different moments): joined into that region's record, so that
+ * their extents coalesce (extents never merge across regions, a block must stay inside one allocation).  With no
+ * neighbour it is an ordinary borrowed region. */
+void db_donate_adjacent(int dev, void *p, size_t bytes)
+{
+    pthread_mutex_lock(&g_pool_mx);
+    for (int i = 0; i < g_ndonated; i++) {
+        if (g_donated[i].dev != dev || g_donated[i].own) continue;
+        char *rp = (char *)g_donated[i].p; size_t rb = g_donated[i].bytes;
+        if ((char *)p == rp + rb) { g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+        if ((char *)p + bytes == rp) { g_donated[i].p = p; g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+    }
+    pthread_mutex_unlock(&g_pool_mx);
+    db_donate_ext(dev, p, bytes, 0);
+}
+/* M9: the block pool's bytes per device for mem_report */
+static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
+{
+    pthread_mutex_lock(&g_pool_mx);
+    for (int i = 0; i < g_ndonated; i++) { int d = g_donated[i].dev; if (d < 0 || d >= ndev) continue;
+        b[d][g_donated[i].kind == 2 ? MEM_DEV_POOL_HIPMALLOC : g_donated[i].kind == 1 ? MEM_DEV_POOL_BORROWED : MEM_DEV_POOL_DONATED] += g_donated[i].bytes; }
+    for (int d = 0; d < DB_NQ && d < ndev; d++) { b[d][MEM_DEV_POOL_LIVE] += g_live_bytes[d]; b[d][MEM_DEV_POOL_PEAK_LIVE] += g_peak_live[d]; b[d][MEM_DEV_POOL_FREE] += db_pool_free_bytes(d); }
     pthread_mutex_unlock(&g_pool_mx);
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
@@ -114,6 +143,7 @@ void db_release_pools(void)
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
+    memset(g_live_bytes, 0, sizeof g_live_bytes);
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }

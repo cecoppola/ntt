@@ -121,7 +121,9 @@ int main(int argc, char **argv)
     if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
-      if (stg && devflow && !getenv("COMM_SIZE")) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; } }
+      if (stg && devflow && !getenv("COMM_SIZE")) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; }
+      /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
+      if (devflow && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"))) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     rns_init(pool_log);
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
@@ -131,7 +133,8 @@ int main(int argc, char **argv)
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
     RESULT("init", "s", t_init);
-    printf("      VmRSS %.1f GB after init (staging 64 GB pinned + device pools %.0f GB incl. bs regions); init %.1f s\n", mem_vmrss() / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     bs_verbose = dec_verbose = verbose >= 2;
     bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the bs regions become the dm phase's blocks (default since RESULTS.md 62b) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
@@ -161,7 +164,8 @@ int main(int argc, char **argv)
         double tt = mem_now();
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
-        if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
+        mem_report("tree");
+        if (mn_rank() != 0) { mn_barrier(); mem_report_summary(); mn_finalize(); rns_shutdown(); return 0; }
         printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
         t_bs += mem_now() - tg;
     } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
@@ -189,6 +193,8 @@ int main(int argc, char **argv)
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, P.n, Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
+    if (bs_st.n_grow) printf("      bs: region pools grew %d times inside the phase (%.1f GB of hipMalloc)\n", bs_st.n_grow, bs_st.grow_bytes / 1e9);
+    mem_report("bs");
     if (bs_st.n_ckpt || bs_st.restart_level) {
         printf("      bs checkpoints: %d written, %.2f GB, %.2f s (%.2f s each); restart from level %d in %.2f s\n",
                bs_st.n_ckpt, bs_st.ckpt_bytes * 1e-9, bs_st.t_ckpt, bs_st.n_ckpt ? bs_st.t_ckpt / bs_st.n_ckpt : 0.0, bs_st.restart_level, bs_st.t_restart);
@@ -215,7 +221,7 @@ int main(int argc, char **argv)
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
         db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
-        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, (size_t)3 * ((size_t)8 << (pool_log - 2))); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q of pool 1 */
+        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that (C4) */
         t_res3 = mem_now() - tr;
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
@@ -225,6 +231,7 @@ int main(int argc, char **argv)
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    mem_report("recip");
 
     t = mem_now();
     if (ovl3) {
@@ -269,6 +276,7 @@ int main(int argc, char **argv)
     double t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report_host_item(MEM_HOST_DIGITS, digits ? d + 2 : 0); mem_report("dm");
     RESULT("dm", "s", t_dm);
 
     t = mem_now();
@@ -280,6 +288,7 @@ int main(int argc, char **argv)
     printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", ovl && pqb.started ? " (P, Q recurrence overlapped with bs)" : "");
     if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s, block pool pregrown by %.0f GB in %.2f s\n", pqb.t, 4.0 * pqb.grow / 1e9, pqb.t_grow);
     RESULT("T1", "s", t_t1);
+    mem_report("T1");
     bi_free(&A); bi_free(&R); bi_free(&Q);
     printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
 
@@ -333,6 +342,7 @@ int main(int argc, char **argv)
            total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, phases, t_init, total - phases - t_init, mem_vmhwm() / 1e9);
     RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
     RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
     printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
 
     if (outfile) {
