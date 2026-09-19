@@ -6,9 +6,13 @@
  * COMM_PORT (base port, default 27000; rank r listens on base + r).
  * Rank r accepts connections from ranks < r and connects to ranks > r.
  * all-to-all: device slabs are staged through pinned host buffers; one
- * sender thread per peer writes its slab while the caller's thread reads
+ * sender thread per peer writes its slab while a receiver thread reads
  * from every peer in turn (sends and receives overlap, so blocking sockets
- * cannot deadlock).  wait() joins the senders and uploads the received slabs.
+ * cannot deadlock); alltoall returns once the send slabs are staged (M7: the
+ * caller's GPU work and the layered communicator's xGMI stage of the next
+ * slab run under the transfer).  wait() joins the threads and uploads the
+ * received slabs.  allgather: the same with one block sent to every peer;
+ * blocks up to 4 KiB (the flags and descriptors) go without threads.
  *
  * Build with -DCOMM_HOST_ONLY to use host memory and memcpy instead of HIP
  * (for testing on a machine without GPUs). */
@@ -43,7 +47,7 @@ typedef struct {
     int *fd;                    /* fd[r] socket to rank r (-1 for self) */
     char *hs, *hr;              /* host staging: size slabs each */
     size_t cap;                 /* bytes per slab the staging can hold */
-    pthread_t *th; int *th_peer; size_t bytes; int pending;
+    pthread_t *th, rth; int *th_peer; size_t bytes; int pending;
     void *rb_dev; hipStream_t st;
 } tcp_priv;
 #define PRIV(c) ((tcp_priv *)(c)->priv)
@@ -64,35 +68,79 @@ static int t_size(comm *c) { return c->size; }
 
 typedef struct { int fd; const char *buf; size_t n; } send_job;
 static void *sender(void *a) { send_job *j = (send_job *)a; write_all(j->fd, j->buf, j->n); free(j); return NULL; }
-
+/* the receiver: from every peer in rank order (sender r writes only to us on fd[r], so order is irrelevant) */
+typedef struct { comm *c; char *dst; size_t bytes; } recv_job;
+static void *receiver(void *a)
+{
+    recv_job *j = (recv_job *)a; tcp_priv *p = PRIV(j->c); int n = j->c->size, me = j->c->rank;
+    for (int r = 0; r < n; r++) if (r != me) read_all(p->fd[r], j->dst + (size_t)r * j->bytes, j->bytes);
+    free(j); return NULL;
+}
+static void staging(tcp_priv *p, int n, size_t bytes)
+{
+    if (bytes <= p->cap) return;
+    if (p->hs) { HOST_FREE(p->hs); HOST_FREE(p->hr); }
+    p->cap = bytes; p->hs = (char *)HOST_ALLOC(bytes * n); p->hr = (char *)HOST_ALLOC(bytes * n);
+}
+/* the threads of one exchange: peer r gets src + stride r (stride 0: the same block to everyone), dst receives [r][bytes] */
+static void exchange_start(comm *c, const char *src, size_t stride, char *dst, size_t bytes)
+{
+    tcp_priv *p = PRIV(c); int n = c->size, me = c->rank, k = 0;
+    for (int r = 0; r < n; r++) if (r != me) {
+        send_job *j = (send_job *)malloc(sizeof *j); j->fd = p->fd[r]; j->buf = src + stride * (size_t)r; j->n = bytes;
+        if (pthread_create(&p->th[k], NULL, sender, j)) die("pthread_create");
+        p->th_peer[k++] = r;
+    }
+    recv_job *j = (recv_job *)malloc(sizeof *j); j->c = c; j->dst = dst; j->bytes = bytes;
+    if (pthread_create(&p->rth, NULL, receiver, j)) die("pthread_create");
+}
+static void exchange_join(comm *c)
+{
+    tcp_priv *p = PRIV(c);
+    for (int k = 0; k < c->size - 1; k++) pthread_join(p->th[k], NULL);
+    pthread_join(p->rth, NULL);
+}
 static void t_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     tcp_priv *p = PRIV(c); int n = c->size, me = c->rank;
     if (p->pending) { fprintf(stderr, "comm_tcp: alltoall while one is pending\n"); exit(1); }
-    if (bytes > p->cap) {
-        if (p->hs) { HOST_FREE(p->hs); HOST_FREE(p->hr); }
-        p->cap = bytes; p->hs = (char *)HOST_ALLOC(bytes * n); p->hr = (char *)HOST_ALLOC(bytes * n);
-    }
+    staging(p, n, bytes);
     DEV_TO_HOST(p->hs, sb, bytes * n, s);
     p->bytes = bytes; p->rb_dev = rb; p->st = s; p->pending = 1;
-    /* self slab */
-    memcpy(p->hr + (size_t)me * bytes, p->hs + (size_t)me * bytes, bytes);
-    int k = 0;
-    for (int r = 0; r < n; r++) if (r != me) {
-        send_job *j = (send_job *)malloc(sizeof *j); j->fd = p->fd[r]; j->buf = p->hs + (size_t)r * bytes; j->n = bytes;
-        if (pthread_create(&p->th[k], NULL, sender, j)) die("pthread_create");
-        p->th_peer[k++] = r;
-    }
-    /* receive from every peer in rank order: sender r writes only to us on fd[r], so order is irrelevant */
-    for (int r = 0; r < n; r++) if (r != me) read_all(p->fd[r], p->hr + (size_t)r * bytes, bytes);
+    memcpy(p->hr + (size_t)me * bytes, p->hs + (size_t)me * bytes, bytes);   /* self slab */
+    exchange_start(c, p->hs, bytes, p->hr, bytes);
 }
 static void t_wait(comm *c)
 {
     tcp_priv *p = PRIV(c);
     if (!p->pending) return;
-    for (int k = 0; k < c->size - 1; k++) pthread_join(p->th[k], NULL);
+    exchange_join(c);
     HOST_TO_DEV(p->rb_dev, p->hr, p->bytes * c->size, p->st);
     p->pending = 0;
+}
+/* all-gather of host blocks: below 4 KiB write to all then read from all (never fills a socket buffer); else threads */
+static void t_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
+{
+    tcp_priv *p = PRIV(c); int n = c->size, me = c->rank;
+    if (p->pending) { fprintf(stderr, "comm_tcp: allgather while an all-to-all is pending\n"); exit(1); }
+    char *self = (char *)rb + (size_t)me * bytes;
+    if (self != sb) memcpy(self, sb, bytes);
+    if (bytes <= 4096) {
+        for (int r = 0; r < n; r++) if (r != me) write_all(p->fd[r], sb, bytes);
+        for (int r = 0; r < n; r++) if (r != me) read_all(p->fd[r], (char *)rb + (size_t)r * bytes, bytes);
+        return;
+    }
+    exchange_start(c, (const char *)sb, 0, (char *)rb, bytes); exchange_join(c);
+}
+/* device blocks: staged through the host buffers (hs: my block; hr: size blocks) */
+static void t_allgather(comm *c, const void *sb, void *rb, size_t bytes)
+{
+    tcp_priv *p = PRIV(c); int n = c->size;
+    if (p->pending) { fprintf(stderr, "comm_tcp: allgather while an all-to-all is pending\n"); exit(1); }
+    staging(p, n, bytes);
+    DEV_TO_HOST(p->hs, sb, bytes, 0);
+    t_allgather_host(c, p->hs, p->hr, bytes);
+    HOST_TO_DEV(rb, p->hr, bytes * n, 0);
 }
 /* small exchanges (barrier, reductions): a host-side all-to-all of 8-byte values, no threads needed
  * because 8 bytes never fill a socket buffer */
@@ -127,7 +175,7 @@ static void t_destroy(comm *c)
 }
 static void t_send(comm *c, int to, const void *b, size_t n) { tcp_priv *p = (tcp_priv *)c->priv; write_all(p->fd[to], b, n); }
 static void t_recv(comm *c, int from, void *b, size_t n) { tcp_priv *p = (tcp_priv *)c->priv; read_all(p->fd[from], b, n); }
-static const struct comm_ops tcp_ops = { t_rank, t_size, t_alltoall, t_wait, t_barrier, t_modq, t_max2, t_destroy, t_send, t_recv };
+static const struct comm_ops tcp_ops = { t_rank, t_size, t_alltoall, t_wait, t_barrier, t_modq, t_max2, t_destroy, t_send, t_recv, t_allgather, t_allgather_host };
 
 static int listen_on(int port)
 {
@@ -171,7 +219,7 @@ comm *comm_tcp_create_at(int me, int n, const char *eh, int base)
     char *sp; for (char *t = strtok_r(hosts, ",", &sp); t && nh < n; t = strtok_r(NULL, ",", &sp)) host[nh++] = t;   /* (strtok_r: four meshes are created by four threads at once) */
     if (nh != n) { fprintf(stderr, "comm_tcp: COMM_HOSTS lists %d hosts for size %d\n", nh, n); exit(1); }
     comm *c = (comm *)calloc(1, sizeof *c); tcp_priv *p = (tcp_priv *)calloc(1, sizeof *p);
-    c->ops = &tcp_ops; c->priv = p; c->rank = me; c->size = n;
+    c->ops = &tcp_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
     p->fd = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->fd[r] = -1;
     p->th = (pthread_t *)calloc(n, sizeof(pthread_t)); p->th_peer = (int *)calloc(n, sizeof(int));
     int lfd = me > 0 ? listen_on(base + me) : -1;

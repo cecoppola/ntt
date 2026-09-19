@@ -120,14 +120,8 @@ mn_group *mn_group_at(int level)
     g_groups[level] = G;
     return G;
 }
-/* all-gather of k u64 per node over a mesh (host point-to-point; small: write to all, then read from all) */
-void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out)
-{
-    int n = comm_size(c), me = comm_rank(c);
-    memcpy(out + (size_t)me * k, v, k * 8);
-    for (int r = 0; r < n; r++) if (r != me) comm_send(c, r, v, k * 8);
-    for (int r = 0; r < n; r++) if (r != me) comm_recv(c, r, out + (size_t)r * k, k * 8);
-}
+/* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
+void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
 /* the layered communicator's self-test (the mn_selftest pattern over 4 gt ranks, gt = the largest power of two <= size,
  * rank rho = gt d + node): one plane of one prime spread over all 4 gt ranks (the four APUs of a node hold rows of the
  * same plane, as in the product tier), each rank's distributed convolution against the one-rank engine on its rows */

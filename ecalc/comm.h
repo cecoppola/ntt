@@ -46,11 +46,18 @@ struct comm_ops {
     /* point-to-point of host buffers (M2: the gather of the node-processes' P_r, Q_r); 0 where not implemented */
     void (*send)(comm *c, int to, const void *buf, size_t bytes);
     void (*recv)(comm *c, int from, void *buf, size_t bytes);
-    /* all-gather: every rank's block of `bytes` (device memory) into recvbuf[size][bytes] in rank order;
+    /* all-gather: every rank's block of `bytes` (device memory) into recvbuf[size][bytes] in rank order, complete on
+     * return (the synthetic communicator: when its fourth rank has called); sendbuf may be recvbuf + rank * bytes.
      * 0 = not implemented: comm_allgather falls back to an all-to-all of `size` copies (Phase 9 day 0) */
     void (*allgather)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
+    /* the same for host buffers (M7: the descriptors, carry flags and residues the tree gathers -- k u64 per node) */
+    void (*allgather_host)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
 };
-struct comm { const struct comm_ops *ops; void *priv; int rank, size; };
+/* inflight: how many all-to-alls may be posted before a wait (M7's slab pipelining, ntt_dist.c): 1 for the real
+ * transports, 2 for the layered one (its xGMI stage of the next exchange runs under the inter-node stage of the
+ * previous), 0 for the synthetic one (every rank must post before any waits -- no pipelining).  comm_wait completes
+ * the oldest pending exchange; a transport may complete more than that (never less). */
+struct comm { const struct comm_ops *ops; void *priv; int rank, size; int inflight; };
 
 static inline int  comm_rank(comm *c) { return c->rank; }
 static inline int  comm_size(comm *c) { return c->size; }
@@ -60,6 +67,7 @@ static inline void comm_barrier(comm *c) { c->ops->barrier(c); }
 static inline size_t comm_allreduce_max(comm *c, size_t v) { return c->ops->allreduce_max(c, v); }
 static inline void comm_destroy(comm *c) { c->ops->destroy(c); }
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);   /* comm_util.c: the transport's op or the all-to-all fallback */
+void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);   /* host buffers: the transport's op or the device op through temporaries */
 static inline void comm_send(comm *c, int to, const void *b, size_t n) { c->ops->send(c, to, b, n); }
 static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->recv(c, from, b, n); }
 

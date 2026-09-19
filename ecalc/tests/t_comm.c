@@ -1,5 +1,6 @@
 /* t_comm - the TCP communicator (WP6) on N forked localhost processes:
- * all-to-all of random slabs checked against the senders, barrier, reductions.
+ * all-to-all of random slabs checked against the senders, barrier, reductions, and (M7) the all-gathers
+ * (host blocks below and above the no-thread threshold; the "device" op, which is the host one in this build).
  * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c -lpthread
  * With COMM_RANK set (one process per rank, e.g. under wp6run.sh across nodes)
  * this process is that rank: it prints its own VERIFY line and exits nonzero on failure. */
@@ -27,6 +28,19 @@ static int run_rank(int me, int n, const char *hosts, int port)
         for (int s = 0; s < n; s++) for (size_t k = 0; k < words; k++) if (rb[s * words + k] != slab_word(s, me, round, k)) bad++;
         free(sb); free(rb);
         comm_barrier(c);
+    }
+    size_t ag_sizes[] = { 1, 8, 4096, 4097, 1 << 16, 3 << 20 };
+    for (int round = 0; round < 6; round++) {
+        size_t bytes = ag_sizes[round], words = (bytes + 7) / 8, alloc = words * 8;
+        uint64_t *sb = malloc(alloc), *rb = malloc(alloc * n);
+        for (size_t k = 0; k < words; k++) sb[k] = slab_word(me, 99, round, k);
+        if (round & 1) comm_allgather_host(c, sb, rb, alloc); else comm_allgather(c, sb, rb, alloc);
+        for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (rb[r * words + k] != slab_word(r, 99, round, k)) bad++;
+        /* in place: my block already at its slot */
+        memcpy(rb + me * words, sb, alloc); memset(sb, 0, alloc);
+        comm_allgather_host(c, rb + me * words, rb, alloc);
+        for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (rb[r * words + k] != slab_word(r, 99, round, k)) bad++;
+        free(sb); free(rb);
     }
     size_t mx = comm_allreduce_max(c, (size_t)(me * 7 + 3));
     if (mx != (size_t)((n - 1) * 7 + 3)) bad++;
