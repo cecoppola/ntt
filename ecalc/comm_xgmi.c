@@ -2,7 +2,11 @@
  * device r.  alltoall: slab s of my send buffer goes to rank s's receive slab r
  * by a peer copy on my stream; wait() synchronises my stream and then the
  * shared barrier, so every rank's receive buffer is complete.  Ranks are driven
- * by four host threads (one per device), as the batch tier does. */
+ * by four host threads (one per device), as the batch tier does.
+ * allgather (M7): every rank pushes its one block into the three peers' receive
+ * buffers (the same push kernel; a memcpy for blocks that are not 16-byte
+ * multiples) and copies its own; complete after the closing barrier.  The host
+ * variant is three memcpys from the peers' host blocks between two barriers. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +16,8 @@
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define NR 4
 static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR];
-                hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR]; } G;
+                hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR];
+                const void *ag_sb[NR]; void *ag_rb[NR]; } G;
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 static void g_init(void) { pthread_barrier_init(&G.bar, NULL, NR); }
 /* push: 16-byte vectors, one kernel per peer on its own stream so the three links run concurrently
@@ -28,12 +33,17 @@ __global__ void k_push3(struct push3 a, size_t n)
 }
 static int x_rank(comm *c) { return c->rank; }
 static int x_size(comm *c) { (void)c; return NR; }
+static void streams_init(int me)
+{
+    if (G.streams[me]) return;
+    for (int r = 0; r < NR; r++) { HIP_CHECK(hipStreamCreateWithFlags(&G.ps[me][r], hipStreamNonBlocking)); HIP_CHECK(hipEventCreateWithFlags(&G.ev[me][r], hipEventDisableTiming)); }
+    HIP_CHECK(hipEventCreateWithFlags(&G.start[me], hipEventDisableTiming)); G.streams[me] = 1;
+}
 static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     int me = c->rank; G.rb[me] = rb; G.bytes = bytes; G.s[me] = s;
     pthread_barrier_wait(&G.bar);                       /* every receive buffer is known */
-    HIP_CHECK(hipSetDevice(me));
-    if (!G.streams[me]) { for (int r = 0; r < NR; r++) { HIP_CHECK(hipStreamCreateWithFlags(&G.ps[me][r], hipStreamNonBlocking)); HIP_CHECK(hipEventCreateWithFlags(&G.ev[me][r], hipEventDisableTiming)); } HIP_CHECK(hipEventCreateWithFlags(&G.start[me], hipEventDisableTiming)); G.streams[me] = 1; }
+    HIP_CHECK(hipSetDevice(me)); streams_init(me);
     size_t nvec = bytes / 16; struct push3 a; int k = 0;
     for (int r = 0; r < NR; r++) {                       /* my slab r -> rank r's slab me */
         const void *src = (const char *)sb + (size_t)r * bytes; void *dst = (char *)G.rb[r] + (size_t)me * bytes;
@@ -66,13 +76,36 @@ static size_t x_max(comm *c, size_t v)
     return (size_t)m;
 }
 static void x_destroy(comm *c) { free(c); }
-static const struct comm_ops xgmi_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, x_modq, x_max, x_destroy };
+static void x_allgather(comm *c, const void *sb, void *rb, size_t bytes)
+{
+    int me = c->rank; G.ag_sb[me] = sb; G.ag_rb[me] = rb;
+    pthread_barrier_wait(&G.bar);                       /* every receive buffer is known */
+    HIP_CHECK(hipSetDevice(me)); streams_init(me);
+    hipStream_t s = G.ps[me][me];
+    void *self = (char *)rb + (size_t)me * bytes;
+    if (self != sb) HIP_CHECK(hipMemcpyAsync(self, sb, bytes, hipMemcpyDeviceToDevice, s));
+    if (bytes >= 16 && bytes % 16 == 0) {
+        struct push3 a; int k = 0;
+        for (int r = 0; r < NR; r++) if (r != me) { a.src[k] = (const ulonglong2 *)sb; a.dst[k] = (ulonglong2 *)((char *)G.ag_rb[r] + (size_t)me * bytes); k++; }
+        k_push3<<<228 * 3, 256, 0, s>>>(a, bytes / 16);
+    } else for (int r = 0; r < NR; r++) if (r != me) HIP_CHECK(hipMemcpyAsync((char *)G.ag_rb[r] + (size_t)me * bytes, sb, bytes, hipMemcpyDeviceToDevice, s));
+    HIP_CHECK(hipStreamSynchronize(s));
+    pthread_barrier_wait(&G.bar);                       /* everyone's block has landed */
+}
+static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
+{
+    int me = c->rank; G.ag_sb[me] = sb;
+    pthread_barrier_wait(&G.bar);
+    for (int r = 0; r < NR; r++) { void *dst = (char *)rb + (size_t)r * bytes; if (dst != G.ag_sb[r]) memcpy(dst, G.ag_sb[r], bytes); }
+    pthread_barrier_wait(&G.bar);                       /* nobody's send block is reused before every read */
+}
+static const struct comm_ops xgmi_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, x_modq, x_max, x_destroy, 0, 0, x_allgather, x_allgather_host };
 comm *comm_xgmi_create(int rank)
 {
     pthread_once(&g_once, g_init);
     HIP_CHECK(hipSetDevice(rank));
     for (int r = 0; r < NR; r++) if (r != rank) { hipError_t e = hipDeviceEnablePeerAccess(r, 0); (void)e; (void)hipGetLastError(); }
     comm *c = (comm *)calloc(1, sizeof *c);
-    c->ops = &xgmi_ops; c->rank = rank; c->size = NR;
+    c->ops = &xgmi_ops; c->rank = rank; c->size = NR; c->inflight = 1;
     return c;
 }

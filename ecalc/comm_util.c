@@ -1,6 +1,7 @@
 /* comm_util.c - operations built on the transports' ops (Phase 9, PLAN.md 19).
- * comm_allgather: the transport's allgather when it has one; otherwise an all-to-all of `size` copies of the
- * block (a device temporary of size x bytes) -- correct for every transport, replaced per transport by A-comm. */
+ * comm_allgather: the transport's allgather (every transport has one since M7); otherwise an all-to-all of `size`
+ * copies of the block (a device temporary of size x bytes).  comm_allgather_host: the transport's host op, else
+ * the device op through temporaries. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,5 +31,19 @@ void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
     for (int r = 0; r < n; r++) memcpy(tmp + (size_t)r * bytes, sendbuf, bytes);
     comm_alltoall(c, tmp, recvbuf, bytes, 0); comm_wait(c);
     free(tmp);
+#endif
+}
+void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
+{
+    if (c->ops->allgather_host) { c->ops->allgather_host(c, sendbuf, recvbuf, bytes); return; }
+#ifndef COMM_HOST_ONLY
+    int n = comm_size(c); void *ds, *dr;
+    HIP_CHECK(hipMalloc(&ds, bytes)); HIP_CHECK(hipMalloc(&dr, (size_t)n * bytes));
+    HIP_CHECK(hipMemcpy(ds, sendbuf, bytes, hipMemcpyHostToDevice));
+    comm_allgather(c, ds, dr, bytes);
+    HIP_CHECK(hipMemcpy(recvbuf, dr, (size_t)n * bytes, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
+#else
+    comm_allgather(c, sendbuf, recvbuf, bytes);
 #endif
 }

@@ -21,6 +21,13 @@
  * back -> inverse twiddle -> local length-C inverse on the rows; the n^-1
  * scaling is split between the two local inverse passes (R^-1 and C^-1).
  * One all-to-all per transform.  logR, logC >= 10 (the local engine's minimum).
+ * M7 slab pipelining (DIST_CHUNKS, default 4; 1 = one exchange): the rank's rows are cut into K chunks of
+ * rows/K rows (>= 32), the slab buffers into K chunk regions [k][size][cols][rows/K], and each chunk is
+ * exchanged as its own all-to-all on the plan's transfer stream while the compute stream works on the next:
+ * forward -- the row pass and twiddle-pack of chunk k+1 under the exchange of chunk k, the unpacks of the
+ * earlier chunks under the last exchange; inverse -- the unpack-twiddle and row inverse of chunk k under the
+ * exchange of chunk k+1.  Over a communicator with inflight 2 (the layered one) two chunks are on the wire.
+ * The synthetic communicator (inflight 0) runs one exchange.  The values are the same in either mode.
  */
 #ifndef EC_NTT_DIST_H
 #define EC_NTT_DIST_H
@@ -37,6 +44,9 @@ typedef struct {
     uint64_t *twr_i, *twc_i; /* the same with inverse roots */
     uint64_t *sbuf, *rbuf;  /* device slab buffers, rows x C each */
     int own_slabs;
+    int K, k_resume;        /* M7: chunks of the slab pipeline; the inverse's loop index between _pre and _post */
+    hipStream_t ts;         /* the transfer stream (the exchanges), events: pack done (s -> ts), exchange done (ts -> s) */
+    hipEvent_t ev, evt;
 } dist_plan;
 /* timing of the parts (DIST_STATS=1; per rank, summed over calls; the caller resets) */
 struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t0_a2a; };

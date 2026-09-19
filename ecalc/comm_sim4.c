@@ -1,7 +1,9 @@
 /* comm_sim4.c - four synthetic ranks inside one APU (WP5 test harness).  The
  * four rank objects share a table; alltoall posts (send, recv) and wait()
  * performs the slab copies once every rank has posted.  Ranks are driven
- * sequentially by one host thread, so no synchronisation is needed. */
+ * sequentially by one host thread, so no synchronisation is needed; the
+ * all-gathers likewise complete when the fourth rank has called (inflight 0:
+ * ntt_dist does not pipeline over this communicator). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +11,8 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define NR 4
-static struct { const void *sb[NR]; void *rb[NR]; size_t bytes; int posted, done[NR]; hipStream_t s[NR]; } G;
+static struct { const void *sb[NR]; void *rb[NR]; size_t bytes; int posted, done[NR]; hipStream_t s[NR];
+                const void *ag_sb[NR]; void *ag_rb[NR]; int ag_posted; } G;
 static int s_rank(comm *c) { return c->rank; }
 static int s_size(comm *c) { (void)c; return NR; }
 static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
@@ -30,10 +33,24 @@ static void s_barrier(comm *c) { (void)c; }
 static uint64_t s_modq(comm *c, uint64_t v, uint64_t q, uint64_t w) { (void)c; (void)q; (void)w; return v; }
 static size_t s_max(comm *c, size_t v) { (void)c; return v; }
 static void s_destroy(comm *c) { free(c); }
-static const struct comm_ops sim_ops = { s_rank, s_size, s_alltoall, s_wait, s_barrier, s_modq, s_max, s_destroy };
+/* all-gather: the fourth caller performs every rank's copies (device or host) */
+static void s_allgather_any(comm *c, const void *sb, void *rb, size_t bytes, int host)
+{
+    G.ag_sb[c->rank] = sb; G.ag_rb[c->rank] = rb;
+    if (++G.ag_posted < NR) return;
+    G.ag_posted = 0;
+    for (int me = 0; me < NR; me++) for (int r = 0; r < NR; r++) {
+        void *dst = (char *)G.ag_rb[me] + (size_t)r * bytes; const void *src = G.ag_sb[r];
+        if (dst == src) continue;
+        if (host) memcpy(dst, src, bytes); else HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDeviceToDevice));
+    }
+}
+static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes) { s_allgather_any(c, sb, rb, bytes, 0); }
+static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes) { s_allgather_any(c, sb, rb, bytes, 1); }
+static const struct comm_ops sim_ops = { s_rank, s_size, s_alltoall, s_wait, s_barrier, s_modq, s_max, s_destroy, 0, 0, s_allgather, s_allgather_host };
 comm *comm_sim4_create(int rank)
 {
     comm *c = (comm *)calloc(1, sizeof *c);
-    c->ops = &sim_ops; c->rank = rank; c->size = NR;
+    c->ops = &sim_ops; c->rank = rank; c->size = NR; c->inflight = 0;
     return c;
 }
