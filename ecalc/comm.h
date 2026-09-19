@@ -64,6 +64,10 @@ comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks shar
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 comm *comm_tcp_create(void);                   /* WP6: TCP sockets, one process per rank; COMM_RANK/SIZE/HOSTS/PORT */
 comm *comm_tcp_create_at(int me, int n, const char *hosts_csv, int port_base);   /* the same for an explicit rank/size/hosts/port (M1) */
+/* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
+ * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
+comm *comm_layered_create(comm *intra, comm *inter, int d);
+void  comm_layered_scratch(comm *c, void *p, size_t bytes);   /* a device scratch of one slab buffer for the block transposes (else hipMalloc'd) */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
 static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }

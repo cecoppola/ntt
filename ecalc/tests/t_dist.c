@@ -7,6 +7,7 @@
 #include "../ntt.h"
 #include "../ntt_dist.h"
 #include "../modarith.h"
+#include "../mn.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 static rng_t rg = { 12345 };
 static comm *tcp;            /* set when run as one process per rank (COMM_RANK in the environment) */
@@ -103,6 +104,13 @@ int main(int argc, char **argv)
     tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
     if (tinv) printf("t_dist: transposed inverse\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
+    if (getenv("DIST_LAYERED") && atoi(getenv("DIST_LAYERED"))) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
+        int sz = mn_init(); printf("t_dist: layered communicator, node %d of %d\n", mn_rank(), sz);
+        for (int logR = 10; logR <= 12; logR++) for (int logC = 10; logC <= 12; logC++) if (logR + logC <= logmax) VERIFY(mn_selftest_layered(logR, logC, 0), "layered conv %dx%d", logR, logC);
+        if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");
+        mn_barrier(); mn_finalize();
+        return verify_done("t_dist");
+    }
     if (!xgmi && getenv("COMM_RANK")) {                 /* one process per rank over TCP (WP6); rank r uses APU r mod 4 */
         int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
         tcp = comm_tcp_create();
