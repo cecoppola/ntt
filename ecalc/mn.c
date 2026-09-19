@@ -84,8 +84,8 @@ static mn_group *g_groups[MN_MAXL];
 /* the comma list of the hosts of nodes [g0, g0+g) */
 static char *hosts_of(int g0, int g)
 {
-    char *all = strdup(g_hosts), *out = (char *)malloc(strlen(g_hosts) + 2), *o = out; int i = 0; *o = 0;
-    for (char *t = strtok(all, ","); t; t = strtok(NULL, ","), i++) if (i >= g0 && i < g0 + g) { if (o != out) *o++ = ','; strcpy(o, t); o += strlen(t); }
+    char *all = strdup(g_hosts), *out = (char *)malloc(strlen(g_hosts) + 2), *o = out, *sp; int i = 0; *o = 0;
+    for (char *t = strtok_r(all, ",", &sp); t; t = strtok_r(NULL, ",", &sp), i++) if (i >= g0 && i < g0 + g) { if (o != out) *o++ = ','; strcpy(o, t); o += strlen(t); }   /* (four threads at once: strtok_r) */
     free(all); return out;
 }
 /* mesh d over the nodes [g0, g0+g): rank = node - g0; port slot s (0 = the M1 meshes): member r listens on
