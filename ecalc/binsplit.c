@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <omp.h>
+#include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -277,6 +278,49 @@ static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out)
     } else for (int r = 0; r < NR; r++) cur->pool[r] = pool_get(h.which, r, offr[r] + 2);
     return ckpt_regions(level, cur, offr, 0);
 }
+/* the seeds of level 0 into the per-region staging: region r's spans computed by the node's threads (or by
+ * every thread when unpinned) with the schoolbook, P and Q of each span side by side (per limbs each) */
+static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0, uint64_t **stage)
+{
+#pragma omp parallel
+    {
+        bigint p, q; bi_init(&p); bi_init(&q);
+        int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();   /* region-aware: this node's threads do this region's spans */
+        for (int r = 0; r < NR; r++) {
+            if (home >= 0 && r % NR != home % NR) continue;               /* (home < 0: threads not pinned, every thread does everything by rank) */
+            size_t lo = r0[r], hi = r0[r + 1];
+            for (size_t i = lo + (size_t)rk; i < hi; i += (size_t)cnt) {
+                unsigned long a = bs_a0 + i * S, b = a + S, bend = bs_b1 ? bs_b1 : N + 1; if (b > bend) b = bend;
+                span(&p, &q, a, b);
+                struct node *nd = &cur->nd[i];
+                nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
+                if (p.n > per || q.n > per) { fprintf(stderr, "bs: seed span overflow\n"); abort(); }
+                memcpy(stage[r] + nd->po, p.l, p.n * 8); memcpy(stage[r] + nd->qo, q.l, q.n * 8);
+            }
+        }
+        bi_free(&p); bi_free(&q);
+    }
+}
+/* Phase 8 I2: the seeds computed in a background thread during init's device allocations (PLAN.md 16), into the
+ * pinned staging, which exists before the pools; binsplit_e joins and takes the level-0 table from here */
+static struct { int active; pthread_t th; unsigned long N, nspan; size_t per, r0[NR + 1]; struct node *nd; double t; } g_pre;
+static void *pre_seeds_run(void *a)
+{
+    (void)a; double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
+    uint64_t *stage[NR]; for (int r = 0; r < NR; r++) stage[r] = rns_hstage(r % mem_device_count());
+    seeds_compute(&cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0, stage);
+    g_pre.t = mem_now() - t0; return 0;
+}
+void binsplit_seeds_begin(unsigned long N)
+{
+    if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    if (!bs_regions_on_device || (bs_restart && bs_ckpt_dir)) return;      /* the staging path only; a restart skips the seeds */
+    seed_limbs(N, &g_pre.per, &g_pre.nspan); g_pre.N = N;
+    for (int r = 0; r <= NR; r++) { g_pre.r0[r] = 0; while (g_pre.r0[r] < g_pre.nspan && region_of(g_pre.r0[r], g_pre.nspan) < r) g_pre.r0[r]++; }
+    if (((size_t)8 << rns_pool_log()) < (2 * g_pre.per * (g_pre.r0[1] - g_pre.r0[0]) + 2) * 8) return;   /* would not fit the staging: binsplit_e will report it */
+    g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
+    pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
+}
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
     double t0 = mem_now(), t;
@@ -316,23 +360,13 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
      * RESULTS.md 56), then one bulk copy per region */
     uint64_t *stage[NR]; int own_stage = mem_dev_of(cur.pool[0]) < 0;
     for (int r = 0; r < NR; r++) stage[r] = own_stage ? (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8) : rns_hstage(r % mem_device_count());
-#pragma omp parallel
-    {
-        bigint p, q; bi_init(&p); bi_init(&q);
-        int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();   /* region-aware: this node's threads do this region's spans */
-        for (int r = 0; r < NR; r++) {
-            if (home >= 0 && r % NR != home % NR) continue;               /* (home < 0: threads not pinned, every thread does everything by rank) */
-            size_t lo = r0[r], hi = r0[r + 1];
-            for (size_t i = lo + (size_t)rk; i < hi; i += (size_t)cnt) {
-                unsigned long a = bs_a0 + i * S, b = a + S, bend = bs_b1 ? bs_b1 : N + 1; if (b > bend) b = bend;
-                span(&p, &q, a, b);
-                struct node *nd = &cur.nd[i];
-                nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
-                if (p.n > per || q.n > per) { fprintf(stderr, "bs: seed span overflow\n"); abort(); }
-                memcpy(stage[r] + nd->po, p.l, p.n * 8); memcpy(stage[r] + nd->qo, q.l, q.n * 8);
-            }
-        }
-        bi_free(&p); bi_free(&q);
+    if (g_pre.active && !own_stage && g_pre.N == N) {                      /* I2: computed during init; take the table */
+        pthread_join(g_pre.th, 0); g_pre.active = 0;
+        free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
+        if (bs_verbose) printf("bs: seeds were computed during init (%.2f s)\n", g_pre.t);
+    } else {
+        if (g_pre.active) { pthread_join(g_pre.th, 0); g_pre.active = 0; free(g_pre.nd); g_pre.nd = 0; }
+        seeds_compute(&cur, per, S, N, r0, stage);
     }
     double t_span = mem_now() - t;
 #pragma omp parallel for num_threads(NR) schedule(static, 1)

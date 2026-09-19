@@ -46,6 +46,7 @@ __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
     for (; i < n; i += stride) dst[i] = src[i];
 }
 
+void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -72,10 +73,14 @@ int rns_init(int pool_log)
         HIP_CHECK(hipStreamCreate(&D[d].s));
         D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr);
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
+        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, bytes / 1073741824.0, tt, tr, D[d].ncpu);
+    }
+    if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
+#pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
+    for (int d = 0; d < g_nd; d++) {
+        HIP_CHECK(hipSetDevice(d));
         dpool_get(&D[d].da, d, bytes);           /* pregrow to 2^pool_log (paper) */
         dpool_get(&D[d].db, d, bytes);
-        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, pools 2 x %.1f GiB, %d cpus\n",
-                                          d, bytes / 1073741824.0, tt, tr, bytes / 1073741824.0, D[d].ncpu);
     }
     mem_par_init = 0;
     for (int d = 0; d < g_nd; d++) {
