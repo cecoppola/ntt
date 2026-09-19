@@ -2970,3 +2970,23 @@ at a third of its host memory; at 2 048 nodes that is 1.4 × 10¹⁴ digits per
 run before any memory work. Time per digit grows mildly with size (2.5 →
 2.6 ns/digit from 4 to 7 × 10¹⁰: the reciprocal's pool growth and the
 2³¹-point plane cap in the top levels).
+
+## 72. Phase 8 step 3 — init: the pinned staging sized to its use (2026-09-18, job 20703, s24-26)
+
+In the decimal device flow the 64 GiB of pinned staging (16 GiB per APU,
+the paper's) serves only the seeds (each region's spans, ≈ 10 GB at
+4 × 10¹⁰) and the checkpoint copies; it is now sized to the largest
+region's seed stage rounded up to 1 GiB (`binsplit_seed_stage_bytes`,
+`ECALC_STAGING=0` restores the paper's size; the binary path and the
+multi-node path keep it). 4 × 10¹⁰: init 18.3 → **15.3 s**, wall
+**98.5 s**, peak host **70.8 GB** (RSS during bs 47 GB); 10⁹: staging
+2 GiB, peak host 73 → 16 GB. Digits identical.
+
+Tried and rejected: region slack 1/16 instead of 1/4 (`BS_REGION_SLACK`).
+The tree's node counts are not powers of two, so at the level with five
+output nodes region 0 holds two of them — 40 % of the level — and its
+pool must grow by `hipMalloc` inside the phase; with the smaller slack
+both parities grew (101.3 s). At the default slack the same imbalance
+costs one 19 GB growth (≈ 1.3 s) in every 4 × 10¹⁰ run; sizing the
+regions for it (0.4 of the level instead of 0.31) costs about as much at
+init, so it is recorded as an item (PLAN §16 I15), not changed.

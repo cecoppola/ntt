@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **Steps 1–3 done**: baseline pinned 101.0 ± 0.5 s / 74.5 GB (§71), ceiling **7 × 10¹⁰ digits verified** (182.7 s, 114 GB), 5 × 10¹⁰ identical to its reference; paper refreshed (`~/xetex/e40b.tex`, 13 pp.); step 3 staging sized to the seeds: **98.5 s / 70.8 GB** (§72), region slack rejected. M3 agent in progress | RESULTS.md §71–72 |
 | 2026-09-18 | **I3 done** (§70): the decimal division entirely on the device, exact-size quarters; 4 × 10¹⁰ wall **104.8 s**, peak host **74.5 GB**; found: hipMalloc cannot hide behind GPU work; quarter classes wasted 45 %. Baseline now 104.8 s / 74.5 GB (main) | RESULTS.md §70 |
 | 2026-09-18 | **I2 done** (§69): seeds during init, 4 × 10¹⁰ wall 112.1 → **107.7 s**, peak host 140 GB; default. I7 dropped. Next: I3 (decimal division entirely on device) | RESULTS.md §69 |
 | 2026-09-18 | **Multi-node work paused** (user decision) at M2 done, M3 not started; state and resume instructions in §17. Single-node work continues (§16 ideas: I2, I3 next) | PLAN §17 |
@@ -912,6 +913,8 @@ a switch.
 | I12 | The 40 GB output write overlapped with T2 (write while checking) and `O_DIRECT` | outside the timed run | 0.5 d | idea |
 | I13 | Two-prime 62-bit engine for the batch tier only (planes transient, density irrelevant): rejected end-to-end in §44 but never measured for the batch levels alone | unknown; likely none | 1 d | idea, low priority |
 | I14 | Multi-node: hierarchical all-to-all (xGMI group first), slab pipelining through `dist_fwd_pre/_post` | hides most of the fabric time | see §17 | idea |
+| I15 | Region pools: the level with five output nodes puts two in region 0 (40 % of the level) — one 19 GB `hipMalloc` mid-phase (≈ 1.3 s); balance the layout (split the heavy node's pair across regions, or size region 0 for it) | −1.3 s | 0.5 d | idea (§72) |
+| I16 | The reciprocal's block pool at 6–7 × 10¹⁰ overflows the donated regions again (reciprocal 16 → 31 s at 7 × 10¹⁰): donate the second parity's regions earlier / size the pool from the reciprocal's scratch | −10…−15 s at 7 × 10¹⁰, nothing at 4 × 10¹⁰ | 0.5 d | idea (§71) |
 
 ## 17. Phase 8 — the work to run on 2 048 nodes, and the form the code takes now
 
