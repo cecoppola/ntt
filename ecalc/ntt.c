@@ -18,6 +18,17 @@ int ntt_stg = 7;
 int ntt_pw_fuse = 14;
 int ntt_b16_body = 0;
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
+int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->C exchange by ds_swizzle instead of LDS (Phase 9 B4); -1 = from the environment, default 0 */
+
+/* Phase 9 B1: where block `base` of x (a batch of transforms of Lt points) reads its pointwise operand:
+ * transform t = base / Lt, point k; y transform is t (FULL), 0 (BCAST) or t >> 1 (PAIR).  Blocks never
+ * straddle a transform (Lt is a multiple of the block length). */
+__device__ static inline size_t y_base(size_t base, size_t Lt, int ymode)
+{
+    if (ymode == NTT_Y_FULL) return base;
+    size_t t = base / Lt, k = base - t * Lt;
+    return (ymode == NTT_Y_BCAST ? 0 : (t >> 1)) * Lt + k;
+}
 
 /* ------------------------------------------------------------------------ */
 /* b16 pass: STG stages over tiles of 2^STG elements spaced hmin = 2^s_lo
@@ -115,7 +126,22 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
  *   group C  h = 1            rows 8 tt + i
  * Same butterflies, folds and twiddle products as k_b16, so the output is
  * bit-identical.  INV runs the groups in reverse (DIT). */
-template <int INV, int R4>
+/* Phase 9 B4: the B <-> C exchange is between threads tt and tt ^ 1, i.e. lanes l and l ^ 16 of one
+ * wavefront (lane = 16 tt + bb), and each thread keeps half of its 8 rows: 4 values cross per thread.
+ * SW = 1 does it with ds_swizzle (xor 16 within 32 lanes, RESULTS.md 49: 2x ds_bpermute, 1.6x an LDS
+ * round trip) and no barrier; the values are the same, so the output stays bit-identical.
+ * Forward, o = tt & 1: row 16 j + 2 i + o (B, register i) -> row 16 j + 8 o + c (C, register c):
+ *   send[i] = o ? v[i] : v[4 + i];  C[2 i] = o ? recv[i] : v[i];  C[2 i + 1] = o ? v[4 + i] : recv[i]
+ * Inverse (C -> B):
+ *   send[i] = o ? v[2 i] : v[2 i + 1];  B[i] = o ? recv[i] : v[2 i];  B[4 + i] = o ? v[2 i + 1] : recv[i] */
+__device__ static inline uint64_t xchg16(uint64_t v)
+{
+    uint32_t lo = (uint32_t)v, hi = (uint32_t)(v >> 32);
+    lo = (uint32_t)__builtin_amdgcn_ds_swizzle((int)lo, 0x401F);     /* bitmask mode: and 0x1f, or 0, xor 0x10 */
+    hi = (uint32_t)__builtin_amdgcn_ds_swizzle((int)hi, 0x401F);
+    return ((uint64_t)hi << 32) | lo;
+}
+template <int INV, int R4, int SW>
 __global__ __launch_bounds__(THREADS)
 void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
             const double *tabT, double scale)
@@ -198,20 +224,38 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BP + bb] = v[i]
 #define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BP + bb]
 
+    const int odd = tt & 1;
     if (!INV) {
         LOAD_G(ROW_A);
         if (R4) { STAGE4(6, 2, ROW_A); STAGE(4, 0, ROW_A); } else { STAGE(6, 2, ROW_A); STAGE(5, 1, ROW_A); STAGE(4, 0, ROW_A); }
         TO_SH(ROW_A); __syncthreads(); FROM_SH(ROW_B);
         if (R4) { STAGE4(3, 2, ROW_B); STAGE(1, 0, ROW_B); } else { STAGE(3, 2, ROW_B); STAGE(2, 1, ROW_B); STAGE(1, 0, ROW_B); }
-        __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_C);
+        if (SW) {
+            uint64_t r[4], nv[8];
+#pragma unroll
+            for (i = 0; i < 4; i++) r[i] = xchg16(odd ? v[i] : v[4 + i]);
+#pragma unroll
+            for (i = 0; i < 4; i++) { nv[2 * i] = odd ? r[i] : v[i]; nv[2 * i + 1] = odd ? v[4 + i] : r[i]; }
+#pragma unroll
+            for (i = 0; i < 8; i++) v[i] = nv[i];
+        } else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_C); }
         STAGE(0, 0, ROW_C);
         STORE_G(ROW_C);
     } else {
         LOAD_G(ROW_C);
         STAGE(0, 0, ROW_C);
-        TO_SH(ROW_C); __syncthreads(); FROM_SH(ROW_B);
+        if (SW) {
+            uint64_t r[4], nv[8];
+#pragma unroll
+            for (i = 0; i < 4; i++) r[i] = xchg16(odd ? v[2 * i] : v[2 * i + 1]);
+#pragma unroll
+            for (i = 0; i < 4; i++) { nv[i] = odd ? r[i] : v[2 * i]; nv[4 + i] = odd ? v[2 * i + 1] : r[i]; }
+#pragma unroll
+            for (i = 0; i < 8; i++) v[i] = nv[i];
+        } else { TO_SH(ROW_C); __syncthreads(); FROM_SH(ROW_B); }
         if (R4) { STAGE(1, 0, ROW_B); STAGE4(3, 2, ROW_B); } else { STAGE(1, 0, ROW_B); STAGE(2, 1, ROW_B); STAGE(3, 2, ROW_B); }
-        __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A);
+        if (SW) { TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
+        else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
         if (R4) { STAGE(4, 0, ROW_A); STAGE4(6, 2, ROW_A); } else { STAGE(4, 0, ROW_A); STAGE(5, 1, ROW_A); STAGE(6, 2, ROW_A); }
         STORE_G(ROW_A);
     }
@@ -234,18 +278,18 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
  * multiplier). */
 template <int LGL, int MODE>
 __global__ __launch_bounds__(THREADS)
-void k_b1s(uint64_t *x, const uint64_t *y, size_t ymask, ec_mod m, const uint64_t *tab1s, const uint64_t *tab1sp, double scale)
+void k_b1s(uint64_t *x, const uint64_t *y, size_t Lt, int ymode, ec_mod m, const uint64_t *tab1s, const uint64_t *tab1sp, double scale)
 {
     constexpr int L = 1 << LGL;
     __shared__ uint64_t sh[L];
     __shared__ uint64_t tab[L / 2], tabp[L / 2];
-    const size_t base = (size_t)blockIdx.x * L;
+    const size_t base = (size_t)blockIdx.x * L, ybase = MODE == 2 ? y_base(base, Lt, ymode) : 0;
     const double p = m.p, pinv = m.pinv;
     const uint64_t pu = m.pu, p2 = 2 * pu;
     int k;
     for (k = threadIdx.x; k < L / 2; k += THREADS) { tab[k] = tab1s[k]; tabp[k] = tab1sp[k]; }
     for (k = threadIdx.x; k < L; k += THREADS)
-        sh[k] = MODE == 2 ? (uint64_t)ec_mm((double)x[base + k], (double)y[(base + k) & ymask], p, pinv) : x[base + k];
+        sh[k] = MODE == 2 ? (uint64_t)ec_mm((double)x[base + k], (double)y[ybase + k], p, pinv) : x[base + k];
     __syncthreads();
 #pragma unroll
     for (int st = 0; st < LGL; st++) {
@@ -284,18 +328,18 @@ void k_b1s(uint64_t *x, const uint64_t *y, size_t ymask, ec_mod m, const uint64_
  * the pointwise product x[i] y[i] fused into the load. */
 template <int LGL, int MODE>
 __global__ __launch_bounds__(THREADS)
-void k_b1(uint64_t *x, const uint64_t *y, size_t ymask, ec_mod m, const double *tab1, double scale)
+void k_b1(uint64_t *x, const uint64_t *y, size_t Lt, int ymode, ec_mod m, const double *tab1, double scale)
 {
     constexpr int L = 1 << LGL;
     __shared__ uint64_t sh[L];
     __shared__ double tab[L / 2];
-    const size_t base = (size_t)blockIdx.x * L;
+    const size_t base = (size_t)blockIdx.x * L, ybase = MODE == 2 ? y_base(base, Lt, ymode) : 0;
     const double p = m.p, pinv = m.pinv;
     const uint64_t pu = m.pu, p2 = 2 * pu;
     int k;
     for (k = threadIdx.x; k < L / 2; k += THREADS) tab[k] = tab1[k];
     for (k = threadIdx.x; k < L; k += THREADS)
-        sh[k] = MODE == 2 ? (uint64_t)ec_mm((double)x[base + k], (double)y[(base + k) & ymask], p, pinv) : x[base + k];
+        sh[k] = MODE == 2 ? (uint64_t)ec_mm((double)x[base + k], (double)y[ybase + k], p, pinv) : x[base + k];
     __syncthreads();
 #pragma unroll
     for (int st = 0; st < LGL; st++) {
@@ -333,6 +377,16 @@ __global__ void k_pw(uint64_t *x, const uint64_t *y, size_t ymask, size_t n, ec_
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; i < n; i += stride) x[i] = (uint64_t)ec_mm((double)x[i], (double)y[i & ymask], m.p, m.pinv);
+}
+/* B1: the pointwise product with a y layout; transforms of Lt = (r3 ? 3 : 1) << logk points */
+__global__ void k_pw_y(uint64_t *x, const uint64_t *y, size_t Lt, int logk, int r3, int ymode, size_t n, ec_mod m)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += stride) {
+        size_t t = r3 ? (i >> logk) / 3 : i >> logk, k = i - t * Lt;
+        size_t yi = (ymode == NTT_Y_FULL ? t : ymode == NTT_Y_BCAST ? 0 : (t >> 1)) * Lt + k;
+        x[i] = (uint64_t)ec_mm((double)x[i], (double)y[yi], m.p, m.pinv);
+    }
 }
 __global__ void k_load(uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, ec_mod m)
 {
@@ -459,10 +513,14 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
 {
     if (stg == 7 && ntt_b16_body >= 1) {
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
-        if (ntt_b16_body == 2) { if (inv) k_b16r<1, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale);
-                                 else     k_b16r<0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale); }
-        else                   { if (inv) k_b16r<1, 0><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale);
-                                 else     k_b16r<0, 0><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale); }
+        if (ntt_b16_xchg < 0) ntt_b16_xchg = getenv("NTT_B16_XCHG") ? atoi(getenv("NTT_B16_XCHG")) : 0;
+#define LAUNCH_R(INV, R4, SW) k_b16r<INV, R4, SW><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale)
+        int sel = (inv ? 4 : 0) | (ntt_b16_body == 2 ? 2 : 0) | (ntt_b16_xchg ? 1 : 0);
+        switch (sel) {
+        case 0: LAUNCH_R(0, 0, 0); break; case 1: LAUNCH_R(0, 0, 1); break; case 2: LAUNCH_R(0, 1, 0); break; case 3: LAUNCH_R(0, 1, 1); break;
+        case 4: LAUNCH_R(1, 0, 0); break; case 5: LAUNCH_R(1, 0, 1); break; case 6: LAUNCH_R(1, 1, 0); break; default: LAUNCH_R(1, 1, 1); break;
+        }
+#undef LAUNCH_R
         return;
     }
     if (inv) switch (stg) { LAUNCH_B16(1, 1) LAUNCH_B16(2, 1) LAUNCH_B16(3, 1) LAUNCH_B16(4, 1) LAUNCH_B16(5, 1) LAUNCH_B16(6, 1) LAUNCH_B16(7, 1) default: abort(); }
@@ -482,7 +540,9 @@ void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
     else k_b1<B1_LGL, 0><<<(unsigned)(batch << (logn - B1_LGL)), THREADS, 0, s>>>(x, 0, 0, c->m, c->tab1_f, 0.0);
 }
 
-static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t ymask, int logn, size_t batch, hipStream_t s)
+/* the inverse with the pointwise product fused into the b1 pass; Lt = points per transform of the y layout
+ * (2^logn, or 3 2^logn for the thirds of a radix-3 transform, where batch counts the thirds) */
+static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int logn, size_t batch, hipStream_t s)
 {
     struct plan pl;
     check_logn(logn);
@@ -492,24 +552,26 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t ymask,
     double sc = c->ninv[logn];
     unsigned b1 = (unsigned)(batch << (logn - B1_LGL));
     if (ntt_b1_shoup) {
-        if (y) k_b1s<B1_LGL, 2><<<b1, THREADS, 0, s>>>(x, y, ymask, c->m, c->tab1s_i, c->tab1sp_i, pl.npass ? 0.0 : sc);
-        else   k_b1s<B1_LGL, 1><<<b1, THREADS, 0, s>>>(x, 0, 0, c->m, c->tab1s_i, c->tab1sp_i, pl.npass ? 0.0 : sc);
-    } else if (y) k_b1<B1_LGL, 2><<<b1, THREADS, 0, s>>>(x, y, ymask, c->m, c->tab1_i, pl.npass ? 0.0 : sc);
-    else   k_b1<B1_LGL, 1><<<b1, THREADS, 0, s>>>(x, 0, 0, c->m, c->tab1_i, pl.npass ? 0.0 : sc);
+        if (y) k_b1s<B1_LGL, 2><<<b1, THREADS, 0, s>>>(x, y, Lt, ymode, c->m, c->tab1s_i, c->tab1sp_i, pl.npass ? 0.0 : sc);
+        else   k_b1s<B1_LGL, 1><<<b1, THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1s_i, c->tab1sp_i, pl.npass ? 0.0 : sc);
+    } else if (y) k_b1<B1_LGL, 2><<<b1, THREADS, 0, s>>>(x, y, Lt, ymode, c->m, c->tab1_i, pl.npass ? 0.0 : sc);
+    else   k_b1<B1_LGL, 1><<<b1, THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1_i, pl.npass ? 0.0 : sc);
     for (int i = pl.npass - 1; i >= 0; i--)
         launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
 }
-void ntt_inv(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s) { inv_common(c, x, 0, 0, logn, batch, s); }
-void ntt_inv_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t batch, hipStream_t s)
+void ntt_inv(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s) { inv_common(c, x, 0, 0, 0, logn, batch, s); }
+void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logn, size_t batch, hipStream_t s)
 {
-    if (logn >= ntt_pw_fuse) inv_common(c, x, y, ~(size_t)0, logn, batch, s);
-    else { ntt_pw(c, x, y, batch << logn, s); inv_common(c, x, 0, 0, logn, batch, s); }
+    if (logn >= ntt_pw_fuse) inv_common(c, x, y, (size_t)1 << logn, ymode, logn, batch, s);
+    else { ntt_pw_y(c, x, y, ymode, 0, logn, batch, s); inv_common(c, x, 0, 0, 0, logn, batch, s); }
 }
-void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t batch, hipStream_t s)
+void ntt_inv_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t batch, hipStream_t s) { ntt_inv_pw_y(c, x, y, NTT_Y_FULL, logn, batch, s); }
+void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t batch, hipStream_t s) { ntt_inv_pw_y(c, x, y, NTT_Y_BCAST, logn, batch, s); }
+/* B1: the inverse of a radix-3 batch (3 batch thirds of 2^logk points; ntt3.c applies the radix-3 stage after)
+ * with the pointwise product against y in the given layout fused into the b1 pass */
+void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
-    size_t mask = ((size_t)1 << logn) - 1;
-    if (logn >= ntt_pw_fuse) inv_common(c, x, y, mask, logn, batch, s);
-    else { ntt_pw_bcast(c, x, y, logn, batch << logn, s); inv_common(c, x, 0, 0, logn, batch, s); }
+    inv_common(c, x, y, (size_t)3 << logk, ymode, logk, 3 * batch, s);
 }
 void ntt_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t count, hipStream_t s)
 {
@@ -520,6 +582,14 @@ void ntt_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t c
 {
     size_t blocks = (count + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
     k_pw<<<(unsigned)blocks, 256, 0, s>>>(x, y, ((size_t)1 << logn) - 1, count, c->m);
+}
+void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s)
+{
+    size_t Lt = (size_t)(r3 ? 3 : 1) << logk, count = batch * Lt;
+    if (ymode == NTT_Y_FULL) { ntt_pw(c, x, y, count, s); return; }
+    if (ymode == NTT_Y_BCAST && !r3) { ntt_pw_bcast(c, x, y, logk, count, s); return; }
+    size_t blocks = (count + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
+    k_pw_y<<<(unsigned)blocks, 256, 0, s>>>(x, y, Lt, logk, r3, ymode, count, c->m);
 }
 void ntt_load(ntt_ctx *c, uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, hipStream_t s)
 {
