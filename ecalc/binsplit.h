@@ -19,7 +19,8 @@ struct dbig_s;
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total, t_ckpt, t_restart; int levels, school_levels, batch_levels, mdev_levels, n_ckpt, restart_level; size_t peak_pool_limbs, ckpt_bytes; } bs_stats;
+typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total, t_ckpt, t_restart; int levels, school_levels, batch_levels, mdev_levels, n_ckpt, restart_level; size_t peak_pool_limbs, ckpt_bytes;
+                 int n_grow; size_t grow_bytes; } bs_stats;   /* Phase 9: region pool growths inside the phase (count, bytes) */
 extern bs_stats bs_st;
 extern int bs_seed_terms;     /* 512 */
 extern int bs_school_nl;      /* 160 limbs */
@@ -39,6 +40,8 @@ size_t binsplit_seed_stage_bytes(unsigned long N);       /* the pinned staging t
 extern int bs_region_slack;              /* Phase 8 I2: the seeds in a background thread during init (needs the pinned staging) */                  /* WP3: allocate the region pools at init (outside the timed phase) */
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
+void binsplit_release_arenas(void);                      /* Phase 9 C4: the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
+extern int bs_balance_n;                                 /* Phase 9 C2: levels with at most this many nodes are laid out least-loaded-first (16) */
 extern int bs_donate_pools;
 extern int bs_dev_mdev;
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;   /* Phase 8 overlap */
