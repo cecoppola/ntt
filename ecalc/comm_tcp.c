@@ -145,7 +145,7 @@ static int connect_to(const char *host, int port)
     char ps[16]; snprintf(ps, sizeof ps, "%d", port);
     if (getaddrinfo(host, ps, &hints, &res)) { fprintf(stderr, "comm_tcp: cannot resolve %s\n", host); exit(1); }
     int fd = -1;
-    for (int tries = 0; tries < 600; tries++) {                 /* peers may start later: retry for 60 s */
+    for (int tries = 0; tries < 6000; tries++) {                /* peers may start later (M3: a level's group meshes open when its members arrive): retry for 600 s */
         fd = socket(AF_INET, SOCK_STREAM, 0);
         if (connect(fd, res->ai_addr, res->ai_addrlen) == 0) break;
         close(fd); fd = -1; usleep(100000);
