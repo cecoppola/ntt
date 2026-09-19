@@ -42,6 +42,7 @@ static uint64_t xs(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17;
 int mn_selftest(int logR, int logC, int verbose)
 {
     if (g_size <= 1) return 1;
+    if (g_size & (g_size - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", g_size); return 1; }
     int ok = 1, nr = g_size, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr == 0) { fprintf(stderr, "mn_selftest: R < ranks\n"); return 0; }
     double t0 = mem_now();
