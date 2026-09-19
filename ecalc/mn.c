@@ -173,6 +173,11 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         size_t bad = 0;
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
         if (bad || verbose) printf("mn: node %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", g_rank, r, nr, logn, bad, rows);
+        if (bad && getenv("MN_DEBUG")) {                      /* where do my values come from? search the reference for got[0], got[1] */
+            for (int k = 0; k < 3; k++) { size_t il = k, j = 0; uint64_t got = tmp[il * C + j]; size_t where = n;
+                for (size_t i = 0; i < n; i++) if (ref[i] == got) { where = i; break; }
+                printf("mn: node %d rank %d: row %zu col 0 (point %zu): got %llu, ref %llu; got is ref[%zu] (row %zu col %zu)\n", g_rank, r, r * rr + il, r * rr + il, (unsigned long long)got, (unsigned long long)ref[r * rr + il], where, where < n ? where % R : 0, where < n ? where / R : 0); }
+        }
         if (bad) ok = 0;
         dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
         HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
