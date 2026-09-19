@@ -198,33 +198,43 @@ void db_to_bi(bigint *r, const dbig *x)
 }
 
 /* ---- residue mod q of a device number (Phase 8 I3: the T1 residues of P, Q, R without host copies) ----
- * one thread per chunk of MODQ_CH limbs computes v_c = sum x[i] B^(i - lo) mod q (Horner from the top of the
- * chunk); the host combines the chunks: r = sum v_c B^(lo_c) mod q, Horner over the chunks from the top */
-#define MODQ_CH 4096
-__device__ static uint64_t mulmod_dev(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((unsigned __int128)a * b % q); }
-__global__ void k_modq(const uint64_t *x, size_t n, uint64_t q, uint64_t Bq, uint64_t *out)
+ * coalesced: a block of MQ_T threads owns a chunk of MQ_T MQ_K limbs; thread t takes the limbs i = t (mod MQ_T)
+ * of the chunk (Horner with B^MQ_T from the top), scales by B^t and the block sums mod q; the host combines
+ * the chunk values with B^(MQ_T MQ_K), Horner from the top quarter down */
+#define MQ_T 256
+#define MQ_K 64
+#define MQ_CH ((size_t)MQ_T * MQ_K)
+__global__ void k_modq(const uint64_t *x, size_t n, uint64_t q, uint64_t Bt, const uint64_t *powt, uint64_t *out)
 {
-    size_t c = (size_t)blockIdx.x * blockDim.x + threadIdx.x, lo = c * MODQ_CH; if (lo >= n) return;
-    size_t hi = lo + MODQ_CH < n ? lo + MODQ_CH : n;
+    __shared__ uint64_t sh[MQ_T];
+    size_t base = (size_t)blockIdx.x * MQ_CH; unsigned t = threadIdx.x;
     uint64_t v = 0;
-    for (size_t k = hi; k-- > lo;) v = (uint64_t)(((unsigned __int128)v * Bq + x[k]) % q);
-    out[c] = v;
+    for (int k = MQ_K; k-- > 0;) { size_t i = base + (size_t)k * MQ_T + t; uint64_t xi = i < n ? x[i] : 0; v = (uint64_t)(((unsigned __int128)v * Bt + xi) % q); }
+    sh[t] = (uint64_t)((unsigned __int128)v * powt[t] % q);
+    __syncthreads();
+    for (unsigned s2 = MQ_T / 2; s2 > 0; s2 >>= 1) { if (t < s2) { uint64_t a = sh[t] + sh[t + s2]; sh[t] = a >= q ? a - q : a; } __syncthreads(); }
+    if (t == 0) out[blockIdx.x] = sh[0];
 }
 static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
+static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 uint64_t db_mod_q(const dbig *x, uint64_t q)
 {
     if (!x->n) return 0;
-    uint64_t Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q), Bch = powmod_h(Bq, MODQ_CH, q);
-    uint64_t r = 0; size_t maxc = x->qc / MODQ_CH + 2;
+    uint64_t Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q), Bt = powmod_h(Bq, MQ_T, q), Bch = powmod_h(Bq, MQ_CH, q);
+    uint64_t powt[MQ_T]; powt[0] = 1; for (int t = 1; t < MQ_T; t++) powt[t] = (uint64_t)((unsigned __int128)powt[t - 1] * Bq % q);
+    uint64_t r = 0; size_t maxc = x->qc / MQ_CH + 2;
     uint64_t *hv = (uint64_t *)malloc(maxc * 8);
     for (int d = DB_NQ; d-- > 0;) {                                 /* from the top quarter down: r = r B^len + v_quarter */
         size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
-        size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MODQ_CH - 1) / MODQ_CH;
-        uint64_t *dv; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&dv, nc * 8));
-        k_modq<<<(unsigned)((nc + 255) / 256), 256>>>(x->q[d] + first, len, q, Bq, dv);
+        size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH;
+        HIP_CHECK(hipSetDevice(d));
+        if (g_mq_cap[d] < nc) { if (g_mq_out[d]) HIP_CHECK(hipFree(g_mq_out[d])); HIP_CHECK(hipMalloc(&g_mq_out[d], (nc + 1024) * 8)); g_mq_cap[d] = nc + 1024; }
+        if (!g_mq_pow[d]) HIP_CHECK(hipMalloc(&g_mq_pow[d], MQ_T * 8));
+        HIP_CHECK(hipMemcpy(g_mq_pow[d], powt, MQ_T * 8, hipMemcpyHostToDevice));
+        k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, q, Bt, g_mq_pow[d], g_mq_out[d]);
         HIP_CHECK(hipStreamSynchronize(0));
-        HIP_CHECK(hipMemcpy(hv, dv, nc * 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(dv));
+        HIP_CHECK(hipMemcpy(hv, g_mq_out[d], nc * 8, hipMemcpyDeviceToHost));
         uint64_t vq = 0; for (size_t c = nc; c-- > 0;) vq = (uint64_t)(((unsigned __int128)vq * Bch + hv[c]) % q);   /* chunks below the top one are full */
         r = (uint64_t)(((unsigned __int128)r * powmod_h(Bq, len, q) + vq) % q);
     }
