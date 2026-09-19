@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-19 | **M3 done** (§73): the distributed top levels over node groups with a layered communicator; digits identical at sizes 1–4 on one node and on 2 and 3 real nodes (10⁶–10⁹); merged to `main`. Steps 1–4 of the sequence complete | RESULTS.md §73, results/M3.md |
 | 2026-09-18 | **Steps 1–3 done**: baseline pinned 101.0 ± 0.5 s / 74.5 GB (§71), ceiling **7 × 10¹⁰ digits verified** (182.7 s, 114 GB), 5 × 10¹⁰ identical to its reference; paper refreshed (`~/xetex/e40b.tex`, 13 pp.); step 3 staging sized to the seeds: **98.5 s / 70.8 GB** (§72), region slack rejected. M3 agent in progress | RESULTS.md §71–72 |
 | 2026-09-18 | **I3 done** (§70): the decimal division entirely on the device, exact-size quarters; 4 × 10¹⁰ wall **104.8 s**, peak host **74.5 GB**; found: hipMalloc cannot hide behind GPU work; quarter classes wasted 45 %. Baseline now 104.8 s / 74.5 GB (main) | RESULTS.md §70 |
 | 2026-09-18 | **I2 done** (§69): seeds during init, 4 × 10¹⁰ wall 112.1 → **107.7 s**, peak host 140 GB; default. I7 dropped. Next: I3 (decimal division entirely on device) | RESULTS.md §69 |
@@ -918,15 +919,19 @@ a switch.
 
 ## 17. Phase 8 — the work to run on 2 048 nodes, and the form the code takes now
 
-**ON HOLD (user decision, 2026-09-18).** State at the pause, all on `main`
+**Resumed 2026-09-18 (step 4 of the agreed sequence): M3 done and merged
+(RESULTS §73, `results/M3.md`).** State before that, all on `main`
 (tag `phase8-overlap-default`): M1 and M2 done and verified — the
 node-process driver (`ecalc/mn.c`, `mn.h`), four TCP meshes over the
 nodes with a start-up self-test, `mnrun.sh <procs> <cmd>`, the term-range
 partition (`bs_a0/bs_b1`), node 0 gathering and combining P_r, Q_r with
 its own tier; digits identical at sizes 1, 2, 4 on one node (10⁸, 10⁹).
-Not started: M3 (distributed top levels over node groups — the step that
-makes work per node constant), M4 (distributed division), M5 (per-node
-output and verification), M6–M9. To resume: read this section and
+M3 done (2026-09-19): layered communicator, sharded numbers, the product
+over a group, the tree — verified at sizes 1–4 on one node and on 2–3
+real nodes. Not started: M4 (distributed division — the division already
+lives on device numbers, so it is the group product tier over the whole
+machine), M5 (per-node output and verification), M6–M9; plus M3's open
+items (grid split over shares, an `allgather` op). To resume: read this section and
 RESULTS §68's last paragraph, run `SLURM_JOB_ID=<id> ./mnrun.sh 2 env
 POOL_LOG=27 ./ecalc 100000000 /tmp/e.txt` to confirm the scaffolding
 still works, then start M3. aac6 offers up to 3–4 real nodes in
