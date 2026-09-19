@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **Multi-node work paused** (user decision) at M2 done, M3 not started; state and resume instructions in §17. Single-node work continues (§16 ideas: I2, I3 next) | PLAN §17 |
 | 2026-09-18 | **Decision (user): the overlapped flow (112.1 s) is the default** — `ECALC_OVERLAP=1`, `main` = tag `phase8-overlap-default`. Multi-node status: structure in place (node-process, four meshes, term-range partition, transform verified over the meshes); the combine, division and output are still centralised on node 0 (M3–M5); aac6 can exercise up to 8 node-processes (2 nodes × 4) | RESULTS.md §68 |
 | 2026-09-18 | **Phase 8 started**: overlap of disjoint work (§18) measured — 4 × 10¹⁰ wall 128.8 → **112.1 s** (−13 %) under clean conditions, peak host 154 GB, digits identical; three couplings found and fixed (blocking copy stream, device-wide syncs in dbig, un-faulted host buffers); page-cache pollution of measurements identified (baseline 133.7 → 128.8 with the reference file evicted). M1 + M2 built: node-process driver, four TCP meshes, term-range partition, node 0 combining — sizes 1, 2, 4 on one node identical to the reference. `ECALC_OVERLAP` default: user decision | RESULTS.md §68 |
 | 2026-09-18 | **Decision (user): the decimal final version is the code** — `LIMB_BASE=10` default in `ecalc`, `wp1-decimal-base` merged to `main` (fast-forward), Phase 4 stays at tag `phase4-accepted`; write-up as a paper (`~/xetex/e40b.tex`) before further development | RESULTS.md §67 |
@@ -911,6 +912,21 @@ a switch.
 | I14 | Multi-node: hierarchical all-to-all (xGMI group first), slab pipelining through `dist_fwd_pre/_post` | hides most of the fabric time | see §17 | idea |
 
 ## 17. Phase 8 — the work to run on 2 048 nodes, and the form the code takes now
+
+**ON HOLD (user decision, 2026-09-18).** State at the pause, all on `main`
+(tag `phase8-overlap-default`): M1 and M2 done and verified — the
+node-process driver (`ecalc/mn.c`, `mn.h`), four TCP meshes over the
+nodes with a start-up self-test, `mnrun.sh <procs> <cmd>`, the term-range
+partition (`bs_a0/bs_b1`), node 0 gathering and combining P_r, Q_r with
+its own tier; digits identical at sizes 1, 2, 4 on one node (10⁸, 10⁹).
+Not started: M3 (distributed top levels over node groups — the step that
+makes work per node constant), M4 (distributed division), M5 (per-node
+output and verification), M6–M9. To resume: read this section and
+RESULTS §68's last paragraph, run `SLURM_JOB_ID=<id> ./mnrun.sh 2 env
+POOL_LOG=27 ./ecalc 100000000 /tmp/e.txt` to confirm the scaffolding
+still works, then start M3. aac6 offers up to 3–4 real nodes in
+`PPAC_MI300A_SPX` (plus `SH5_MI300A_*`, untried) and 4 node-processes
+per node for logic tests. `size` 1 is untouched by any of this.
 
 **Rank model (decided 2026-09-18): a process is a node group of g APUs**
 (g = 4 on the target), driving its APUs with threads and the xGMI push
