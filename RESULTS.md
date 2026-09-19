@@ -2934,3 +2934,23 @@ quarter found by three comparisons instead of a shift and a division by
 3), the pool coalescing any sizes. Final: **104.8 s wall, 74.5 GB peak
 host**, all runs VERIFY OK and digits identical; `t_dbig 0 big` 609
 checks, `t_newton` 658.
+
+## 71. Phase 8 — the new baseline pinned, and the single-node ceiling (2026-09-18, job 20696, s24-16)
+
+Three runs of `main` @ 62d81bb (overlap, seeds in init, division on
+device, exact quarters), clean conditions, `results/variance_b10_p8/`:
+
+| 4 × 10¹⁰ | run 1 | run 2 | run 3 | mean ± sd |
+|---|---:|---:|---:|---:|
+| init | 17.7 | 18.8 | 18.4 | 18.3 ± 0.6 |
+| bs (batch / top levels) | 45.2 (30.2 / 14.7) | 45.1 (30.4 / 14.4) | 44.7 (29.6 / 14.7) | 45.0 ± 0.3 |
+| dm (reciprocal / division) | 37.5 (15.8) | 37.4 (16.0) | 37.8 (16.1) | 37.6 ± 0.2 |
+| phases | 82.8 | 82.7 | 82.6 | 82.7 ± 0.1 |
+| **wall** | 100.5 | 101.5 | 101.1 | **101.0 ± 0.5** |
+| peak host | 74.5 GB | 74.5 | 74.5 | **74.5 GB** |
+
+All VERIFY OK, digits identical to the reference. The binary path
+(`LIMB_BASE=2`, 10⁹) is still byte-identical after all of Phase 8.
+Against the day's starting point (§66/§67: 108.9 s phases, 133.7 s wall,
+160 GB) the wall is −24 %, the host memory −53 %; against the reproduced
+paper design (291 s, 248 GB): 2.9 × and 30 %.
