@@ -191,7 +191,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
 /* Phase 9 C4: what each region must hold, by laying out every level of the tree in advance with the seed bound
  * `per` for every span (level l's node i covers spans [i 2^l, (i+1) 2^l) of the nspan, P and Q slots as the level
  * loop lays them out, regions by the same place_node), over the levels that live in the region pools: with the
- * device top levels, the batch levels (the tier switch taken at 0.9 x the bound, so a level whose real sizes fall
+ * device top levels, the batch levels (the tier switch taken at 0.85 x the bound, so a level whose real sizes fall
  * just below the threshold is still counted); with host regions or the host mdev tier, every level.  The bound
  * is ~11 % above the real sizes (RESULTS 72: level 1 = 0.895 of total0) and pool_get adds 1/8: the margin.  This
  * replaces the flat total0 / NR (1 + 1/4), which held 1.4 x the live data and still grew at the five-node level. */
@@ -205,7 +205,7 @@ static void region_need(unsigned long N, size_t need[NR])
     for (int l = 0; ; l++) {
         size_t n_in = (nspan + ((size_t)1 << l) - 1) >> l; if (n_in <= 1) break;
         size_t m_full = (size_t)1 << l, max_nl = m_full * per + l;                 /* the bound on any node of level l */
-        int mdev_level = 2 * (size_t)(0.9 * max_nl) + 1 > ((size_t)1 << bs_mdev_logl);
+        int mdev_level = 2 * (size_t)(0.85 * max_nl) + 1 > ((size_t)1 << bs_mdev_logl);   /* the real sizes are 0.90-0.93 of the bound (RESULTS 72) */
         if (mdev_level && bs_regions_on_device) break;                            /* the mdev levels use device numbers or the host pool */
         size_t npairs = n_in / 2, odd = n_in & 1, n = npairs + odd, offr[NR] = {0};
         if (n <= (size_t)bs_balance_n) nxt_r = (int *)malloc(n * sizeof *nxt_r);
