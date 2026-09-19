@@ -243,17 +243,19 @@ static size_t plane_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) 
  * must fit 2^31 points; choose the grid with the fewest plane points in total (then the fewest products).
  * Halving the longer operand alone -- the first version -- gave 8 planes of 2^31 for the decimal top product
  * (2.22e9 x 2.22e9 limbs: halves of 1.11e9 still exceed a plane together); 2 x 3 pieces give 6 (RESULTS.md 66) */
-static void split_grid(size_t na, size_t nb, int *ka, int *kb)
+static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int *ka, int *kb)   /* cap, minpts: plane points (the mn tier's differ) */
 {
-    size_t cap = (size_t)1 << dist_logn_max(), best = 0; *ka = *kb = 0;
+    size_t best = 0; *ka = *kb = 0;
     for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
         size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
         if (pa + pb > cap) continue;
-        size_t cost = (size_t)i * j * plane_pts(pa + pb);
+        size_t pts = plane_pts(pa + pb); if (pts < minpts) pts = minpts;
+        size_t cost = (size_t)i * j * pts;
         if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
     if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
 }
+static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, (size_t)1 << dist_logn_max(), 0, ka, kb); }
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
