@@ -225,7 +225,7 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
         size_t we = ck1 < kw_end ? ck1 : kw_end;
         if (w->fd >= 0 && ck0 < we) {
             struct wjob j; j.buf = b; j.prefix = ck0 == 0; j.first = s[0]; j.data = s + j.prefix; j.len = we - ck0 - j.prefix; j.off = (j.prefix ? 0 : ck0 + 1) - fbase; j.newline = ck0 <= o->d_out && o->d_out < ck1;
-            w->job = j; sem_post(&w->job_ready); sem_wait(&w->job_taken);
+            double tw = mem_now(); w->job = j; sem_post(&w->job_ready); sem_wait(&w->job_taken); o->t_wait += mem_now() - tw;   /* the writer still busy with the previous chunk */
         } else sem_post(&w->buf_free[b]);
         o->nchunks++;
         bb = a;

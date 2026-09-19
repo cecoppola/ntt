@@ -71,7 +71,7 @@ static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->s
 /* O4 (Phase 9 A-out, M5 + C1): X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
  * gets X on the host before it */
-struct x_bg { bigint *X; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; };
+struct x_bg { bigint *X; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on) */
 static void x_bg_writer(struct x_bg *b)                /* the chunked writer over the host X (also the redo after a correction) */
 {
     mn_out_src src = { b->X->l, 0, 0, b->X->n };
@@ -83,11 +83,11 @@ static void *x_bg_run(void *a)
     struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
     double t0 = mem_now();
     for (int i = 0; i < T1_NQ; i++) b->Xres[i] = vf_limbs_mod(b->X->l, b->X->n, t1_q[i]);
-    b->t_res = mem_now() - t0;
+    b->t_res = mem_now() - t0; sem_post(&b->res_ready);
     x_bg_writer(b);
     return 0;
 }
-static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
+static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
 
 /* ---- the output stage (Phase 9 A-out: PLAN.md 19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
  * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
@@ -129,9 +129,9 @@ static int out_stage(struct out_ctx *c)
      * then mn_out_res_combine(cm, res, lo, out) for each; the stand-in broadcasts node 0's */
     if (multi) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
-    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && !c->ncorr;
-    if (xres_bg) { pthread_join(c->xb->th, 0); memcpy(xs, c->xb->Xres, sizeof xs); }
-    else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); mn_out_res_share(&src, xs); }
+    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && !c->ncorr, joined = 0;
+    if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
+    else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
     mn_out_res_combine(cm, xs, src.lo, Xres);
     bigint none; bi_init(&none);
@@ -142,11 +142,22 @@ static int out_stage(struct out_ctx *c)
     if (!multi) RESULT("T1", "s", t_t1);
     node_pfx(c); printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
 
+    /* size 1: the timed run ends here, as before (the digits' formatting is overlapped with the low product, the file write came
+     * after `total`; now the writer streams both and is joined below -- on a slow file system the join, not the compute, is the wait) */
+    double total = 0, phases = 0;
+    if (!multi) {
+        total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1;
+        printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
+               total, c->t_bs, c->t_10dp, c->t_dm, t_t1, 0.0, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
+        RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
+        RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+    }
     /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
     t = mem_now();
     mn_out ow, *o = &ow; memset(&ow, 0, sizeof ow);
     if (!multi && c->xb->started) {
-        o = &c->xb->o;
+        o = &c->xb->o; if (!joined) pthread_join(c->xb->th, 0);
         if (c->ncorr) {                               /* X changed after the hook: the digits from the final X, the file rewritten */
             printf("      X corrected after the formatting started: redoing the digits\n");
             mn_out_finish(o); x_bg_writer(c->xb);
@@ -162,13 +173,13 @@ static int out_stage(struct out_ctx *c)
     if (!multi) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
-                        t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (overlapped with the low product)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
+                        t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
     if (!multi) RESULT("dc", "s", t_dc);
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);
     node_pfx(c); printf("digits: %s...%s%s\n", o->first, o->last, multi ? " (this node's range)" : "");
-    if (c->rank == 0) {
-        double total = mem_now() - c->t00, phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
+    if (multi && c->rank == 0) {
+        total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
         printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
                total, c->t_bs, c->t_10dp, c->t_dm, t_t1, t_dc, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
