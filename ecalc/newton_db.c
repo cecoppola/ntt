@@ -199,35 +199,39 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
         db_free(&g_mu_kept);
     } else recip_db(&mu, Qd, 0, k);
     double tb = mem_now();
-    /* X = ((A >> (nq - 1)) mu) >> (k + 1);  A >> (nq - 1) = S >> (nq - 1 - dl) */
+    /* X = ((A >> (nq - 1)) mu) >> (k + 1);  A >> (nq - 1) = S >> (nq - 1 - dl).  Every large temporary is freed at its
+     * last use: the block pool (the donated bs regions and the plane tails) must hold the peak, or hipMalloc costs
+     * 0.057 s/GB inside the phase (RESULTS.md 70) */
     { size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
       rns_mul_dist_db(&t, &Ah, &mu); }
+    db_free(&mu);                                                     /* the reciprocal's last use */
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
     double tc = mem_now();
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
     rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q) */
+    if (newton_db_x_hook) db_free(&Xd);                               /* X is on the host; corrections go to the host copy */
     double td = mem_now();
-    /* the window: A mod B^w = (S mod B^(w - dl)) B^dl */
-    db_set_shifted_low(&Aw, S, w - dl, dl, w);                        /* zeros with S's low w - dl limbs at dl: no 17 GB shift */
+    /* the window: A mod B^w = (S mod B^(w - dl)) B^dl; R formed in place in it */
+    db_set_shifted_low(&Aw, S, w - dl, dl, w);
     size_t nc = 0; long dx = 0;                                       /* corrections to X: applied to the host copy at the end */
     if (db_cmp(&Aw, &xq) >= 0) {                                      /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
-        db_sub(&Rd, &Aw, &xq);
+        db_sub(&Aw, &Aw, &xq); db_free(&xq); Rd = Aw; db_init(&Aw);
         while (db_cmp(&Rd, Qd) >= 0) { db_sub(&Rd, &Rd, Qd); dx++; if (++nc > 64) { fprintf(stderr, "newton_db_divmod_shifted: %zu corrections\n", nc); abort(); } }
     } else {                                                          /* D = xq - Aw > 0: X -= 1, R = Q - D; while D > Q: D -= Q, X -= 1 */
-        db_sub(&Rd, &xq, &Aw);
+        db_sub(&xq, &xq, &Aw); db_free(&Aw); Rd = xq; db_init(&xq);
         for (;;) { dx--; if (++nc > 64) { fprintf(stderr, "newton_db_divmod_shifted: %zu corrections\n", nc); abort(); }
                    if (db_cmp(&Rd, Qd) <= 0) { db_sub(&Rd, Qd, &Rd); break; } db_sub(&Rd, &Rd, Qd); }
         newton_st.down_corr += (size_t)(-dx);
     }
     if (dx > 0) newton_st.up_corr += (size_t)dx;
     double te = mem_now();
-    if (!newton_db_x_hook) db_to_bi(X, &Xd);
+    if (!newton_db_x_hook) { db_to_bi(X, &Xd); db_free(&Xd); }
     if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
     db_mod_qs(&Rd, qs, nres, rres);
     double tf = mem_now();
-    g_mu = mu; g_t = t; g_xq = xq;
-    db_free(&Xd); db_free(&Aw); db_free(&Rd);
+    db_free(&Rd); db_free(&xq); db_free(&Aw);
+    db_init(&g_mu); db_init(&g_t); db_init(&g_xq);
     if (getenv("RNS_VERBOSE")) printf("divmod(dev) %.2f s: mu %.2f, A mu + shift %.2f, X out + low product %.2f, window + corrections %.2f (%ld), X out + R residues %.2f; pools %.1f GB\n",
                                       mem_now() - t0, tb - ta, tc - tb, td - tc, te - td, dx, tf - te, db_pool_bytes() / 1e9);
     newton_st.t_div += mem_now() - t0;
