@@ -49,6 +49,12 @@ uint64_t db_limb(const dbig *a, size_t i);
 uint64_t db_mod_q(const dbig *x, uint64_t q);
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */
+/* M3 (the multi-node product, rns_dist.c): a node's share of a sharded number */
+uint64_t *db_pool_alloc(int dev, size_t bytes);      /* per-APU scratch from the block pool */
+void db_pool_free(int dev, uint64_t *p);
+void db_zero_fill(dbig *r, size_t n);                 /* r = n zero limbs (n kept, not normalised) */
+void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop);   /* r += the spills (fixed n limbs; carry out, propagate) */
+void db_share_add_one(dbig *r, size_t n, int *cout);  /* r += 1 (fixed n limbs) */
 /* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
 dbig db_view(const dbig *a, size_t lo, size_t len);
 #ifdef __cplusplus
