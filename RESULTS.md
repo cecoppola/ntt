@@ -2990,3 +2990,44 @@ both parities grew (101.3 s). At the default slack the same imbalance
 costs one 19 GB growth (≈ 1.3 s) in every 4 × 10¹⁰ run; sizing the
 regions for it (0.4 of the level instead of 0.31) costs about as much at
 init, so it is recorded as an item (PLAN §16 I15), not changed.
+
+## 73. Phase 8 M3 — the top levels of the tree as distributed products over node groups (2026-09-18/19; `results/M3.md`)
+
+Built by an agent on branch `m3-dist-top-levels`, merged. The structure:
+a **layered communicator** (`comm_layered.c`) composes the four APUs
+over xGMI with the inter-node mesh d into one communicator of 4g ranks
+(rank ρ = g·d + node, APU-major, so a sender's slabs for the APUs of all
+nodes are contiguous and the intra-node stage is the existing push kernel
+with slabs of g × bytes) — the hierarchical all-to-all of M7 from the
+start; **sharded numbers** (`mdb`: n, a sharding basis N, the group,
+each node's contiguous share in its own dbig); **the product over a
+group** (`rns_mul_dist_mn`): each share meets a rank's column-major row
+sequence in exactly one segment, so an operand is redistributed by one
+all-to-all-sized exchange with a g-entry segment table, the four-step
+transform runs over the layered communicator (three layered all-to-alls
+per prime), the striped CRT writes the rank's result sequence, one
+reverse exchange places the shares, the stripe spills are all-gathered
+and added by a fixed-length dbig add whose (carry, propagate) flags are
+scanned across nodes; the tree add P = P_A Q_B + P_B rides as the CRT's
+x operand. **The tree** (`mn_tree`): level ℓ pairs node groups of
+2^(ℓ−1) (lower terms × higher terms), results sharded over the joined
+group; per-level group meshes on unique port slots; at the end node 0
+gathers the shares and runs the single-node division and output (until
+M4/M5). `MN_COMBINE=host` keeps M2's centralised combine.
+
+**Verified** (all digits byte-identical to the references, VERIFY OK):
+the layered communicator at 2, 3, 4 node-processes up to 2²⁶ points;
+ecalc at 10⁶ (sizes 2, 3, 4), 10⁸ (sizes 1, 2, 4 on one node; with the
+leaf's device top levels; **2 and 3 node-processes on 2 and 3 real
+nodes**), 10⁹ (sizes 1, 2, 4; with the device top levels across real
+nodes). Size 1 is the unchanged single-process path. Timing on the 1 GbE
+fabric is meaningless (10⁸ over two real nodes 11.5 s of which the tree
+6.3).
+
+Open (M3.md): no grid split over shares for products beyond
+2^(31+log₂ g_t) points (needed at 4 × 10¹⁰ below size 8); descriptor and
+flag all-gathers are O(g) point-to-point loops (an `allgather` op, M8);
+per-level TCP meshes (RDMA sub-communicators later); no load balance at
+non-power-of-two sizes; the packed slabs' memory (≈ 4 q per APU from the
+block pool) to be accounted in M9. The division and the output remain
+node 0's (M4, M5).
