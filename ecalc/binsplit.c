@@ -115,7 +115,7 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
 {
     if (g_cap[which][r] < limbs) {
         if (g_pool[which][r]) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
-        size_t cap = limbs + limbs / 8 + 4096;
+        size_t cap = limbs + limbs / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
         int nd = bs_regions_on_device ? mem_device_count() : 0;
         g_pool[which][r] = (uint64_t *)(nd > 0 ? mem_dev_alloc(r % nd, cap * 8) : mem_hreg_alloc(cap * 8));
         g_cap[which][r] = cap;
@@ -138,7 +138,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
 void binsplit_pregrow(unsigned long N)
 {
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
-    size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
+    size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * (bs_region_slack ? bs_region_slack : 4)) + (1 << 20);   /* slack: 1/4 (paper-era) or 1/16 (BS_REGION_SLACK=16; the levels stay within a few percent of level 0) */
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
     int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
@@ -191,7 +191,7 @@ static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int wr
     int dev = mem_dev_of(pool), ok = 1, own = 0;
     uint64_t *buf = 0;
     if (dev >= 0) {
-        if (mem_device_count() >= NR && ((size_t)8 << rns_pool_log()) >= CKPT_CHUNK) buf = rns_hstage(r % mem_device_count());   /* region r's pinned staging (idle between levels) */
+        if (mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) buf = rns_hstage(r % mem_device_count());   /* region r's pinned staging (idle between levels) */
         else { buf = (uint64_t *)malloc(CKPT_CHUNK); own = 1; }
     }
     for (size_t lo = 0; lo < limbs && ok; lo += CKPT_CHUNK / 8) {
@@ -313,13 +313,22 @@ static void *pre_seeds_run(void *a)
     seeds_compute(&cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0, stage);
     g_pre.t = mem_now() - t0; return 0;
 }
+/* the pinned staging a region's seeds need (bytes, the largest region): the decimal device flow sizes the staging to this */
+size_t binsplit_seed_stage_bytes(unsigned long N)
+{
+    size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
+    size_t r0[NR + 1], mx = 0;
+    for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
+    for (int r = 0; r < NR; r++) { size_t b = (2 * per * (r0[r + 1] - r0[r]) + 2) * 8; if (b > mx) mx = b; }
+    return mx;
+}
 void binsplit_seeds_begin(unsigned long N)
 {
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     if (!bs_regions_on_device || (bs_restart && bs_ckpt_dir)) return;      /* the staging path only; a restart skips the seeds */
     seed_limbs(N, &g_pre.per, &g_pre.nspan); g_pre.N = N;
     for (int r = 0; r <= NR; r++) { g_pre.r0[r] = 0; while (g_pre.r0[r] < g_pre.nspan && region_of(g_pre.r0[r], g_pre.nspan) < r) g_pre.r0[r]++; }
-    if (((size_t)8 << rns_pool_log()) < (2 * g_pre.per * (g_pre.r0[1] - g_pre.r0[0]) + 2) * 8) return;   /* would not fit the staging: binsplit_e will report it */
+    if (rns_staging_bytes() < (2 * g_pre.per * (g_pre.r0[1] - g_pre.r0[0]) + 2) * 8) return;   /* would not fit the staging: binsplit_e will report it */
     g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
     pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
 }
@@ -355,7 +364,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     size_t total0 = 2 * per * nspan;
     binsplit_pregrow(N);
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
-    if (mem_dev_of(cur.pool[0]) >= 0 && (size_t)rns_pool_log() && ((size_t)8 << rns_pool_log()) < (2 * per * (r0[1] - r0[0]) + 2) * 8) { fprintf(stderr, "bs: seed region larger than the staging buffer\n"); abort(); }
+    if (mem_dev_of(cur.pool[0]) >= 0 && rns_staging_bytes() && rns_staging_bytes() < (2 * per * (r0[1] - r0[0]) + 2) * 8) { fprintf(stderr, "bs: seed region larger than the staging buffer\n"); abort(); }
     if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
     t = mem_now();
     /* seeds go to a host staging area per region (small scattered writes into device memory are slow,
@@ -544,6 +553,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 unsigned long bs_a0 = 1, bs_b1 = 0;                                 /* M2: this process's term range [a0, b1) (b1 = 0: all of [1, N+1)) */
 void (*bs_after_seeds_hook)(void *) = 0; void *bs_hook_arg = 0;   /* Phase 8: called once the seeds are in the regions */
 int bs_keep_dev = 0; dbig bs_Pd, bs_Qd;                             /* Phase 8: the top level's P, Q left on device */
+int bs_region_slack = 0;                             /* BS_REGION_SLACK: 4 (default) or 16 */
 int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */
 void binsplit_free_pools(void)
 {
