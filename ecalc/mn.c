@@ -128,7 +128,8 @@ void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out)
     for (int r = 0; r < n; r++) if (r != me) comm_recv(c, r, out + (size_t)r * k, k * 8);
 }
 /* the layered communicator's self-test (the mn_selftest pattern over 4 gt ranks, gt = the largest power of two <= size,
- * rank rho = gt d + node): every APU thread's distributed convolution against the one-rank engine on its rows */
+ * rank rho = gt d + node): one plane of one prime spread over all 4 gt ranks (the four APUs of a node hold rows of the
+ * same plane, as in the product tier), each rank's distributed convolution against the one-rank engine on its rows */
 int mn_selftest_layered(int logR, int logC, int verbose)
 {
     if (g_size <= 1) return 1;
@@ -143,7 +144,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d));
-        int prime = d, r = gt * d + g_rank; uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;
+        int prime = (logR + logC) & 3, r = gt * d + g_rank; uint64_t p = ec_P[prime], seed = 0x9E3779B97F4A7C15ull + prime;   /* one plane (one prime) over all 4 gt ranks, as the product tier runs it */
         uint64_t *hx = (uint64_t *)malloc(n * 8), *hy = (uint64_t *)malloc(n * 8), *ref = (uint64_t *)malloc(n * 8), *tmp = (uint64_t *)malloc(rows * 8);
         for (size_t i = 0; i < n; i++) { hx[i] = xs(&seed) % p; hy[i] = xs(&seed) % p; }
         ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
