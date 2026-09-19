@@ -209,7 +209,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q) */
     double td = mem_now();
     /* the window: A mod B^w = (S mod B^(w - dl)) B^dl */
-    { dbig Sl = db_view(S, 0, S->n < w - dl ? S->n : w - dl); db_norm(&Sl); db_shl_limbs(&Aw, &Sl, dl); }
+    db_set_shifted_low(&Aw, S, w - dl, dl, w);                        /* zeros with S's low w - dl limbs at dl: no 17 GB shift */
     size_t nc = 0; long dx = 0;                                       /* corrections to X: applied to the host copy at the end */
     if (db_cmp(&Aw, &xq) >= 0) {                                      /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
         db_sub(&Rd, &Aw, &xq);
