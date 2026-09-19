@@ -85,6 +85,16 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
+/* grow the block pool of device dev by one region of `bytes` now (Phase 8: from a background thread while the GPUs run
+ * the levels -- hipMalloc is 0.057 s/GB of CPU-side driver work, hidden there instead of inside the Newton loop) */
+void db_pregrow(int dev, size_t bytes)
+{
+    void *m; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    HIP_CHECK(hipMalloc(&m, bytes)); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
+    HIP_CHECK(hipSetDevice(cur));
+    pthread_mutex_lock(&g_pool_mx); g_pool_bytes += bytes; pthread_mutex_unlock(&g_pool_mx);
+    db_donate_ext(dev, m, bytes, 1);
+}
 void db_donate_ext(int dev, void *p, size_t bytes, int own)
 {
     pthread_mutex_lock(&g_pool_mx);

@@ -58,9 +58,12 @@ static void pow10_big(bigint *T, unsigned long d)
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
 static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
-struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t; };
+struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_grow; size_t grow; };
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_mod(b->N, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
+    t0 = mem_now();
+    if (b->grow) for (int dv = 0; dv < 4; dv++) db_pregrow(dv, b->grow);   /* the dm phase's block pool beyond the donated regions, allocated while the GPUs run the levels */
+    b->t_grow = mem_now() - t0;
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
 
@@ -137,7 +140,8 @@ int main(int argc, char **argv)
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
-    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
+    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
+               pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : (d >= 20000000000ul ? (size_t)24e9 : 0); }   /* per device; the 4e10 dm phase needs ~90 GB beyond the regions (RESULTS.md 70) */
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
@@ -255,7 +259,7 @@ int main(int argc, char **argv)
     int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, xres_ok ? xb.Xres : 0, rres_ok ? Rres : 0, verbose >= 2);
     double t_t1 = mem_now() - t;
     printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", ovl && pqb.started ? " (P, Q recurrence overlapped with bs)" : "");
-    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s\n", pqb.t);
+    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s, block pool pregrown by %.0f GB in %.2f s\n", pqb.t, 4.0 * pqb.grow / 1e9, pqb.t_grow);
     RESULT("T1", "s", t_t1);
     bi_free(&A); bi_free(&R); bi_free(&Q);
     printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
