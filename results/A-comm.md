@@ -69,6 +69,11 @@ orders the unpack on `s` behind the transfer. The kernels take a row offset (twi
 
 The numerics are untouched: a row's transform does not depend on its batch, the packs are permutations.
 
+### mnrun.sh
+
+Unchanged; no launching problem was reported by the other agents during this session (their batches ran
+`mnrun.sh` with 1–4 node-processes on one node alongside mine).
+
 ## Tests
 
 Build in `~/ntt-acomm` on aac6 from the branch bundle. Batch 1: job 20710 (one node, s24-26); batch 2: job
@@ -92,6 +97,14 @@ Build in `~/ntt-acomm` on aac6 from the branch bundle. Batch 1: job 20710 (one n
 (`t_dist` in the COMM_RANK mode at 3 ranks is not a valid configuration — the rank's rows must be a power
 of two ≥ 32; it never was. The layered mode covers 3 node-processes.)
 
+### Batch 2 (job 20728, one node s24-30; the other two nodes were allocated throughout, so no real-node runs)
+
+| test | command | result |
+|---|---|---|
+| synthetic four ranks, with the `s_wait` fix | `./tests/t_dist 26`, `DIST_TINV=1 ./tests/t_dist 26` | VERIFY OK (66 checks) both |
+| TCP communicator, 3 and 8 ranks | `./tests/t_comm 3 27500; ./tests/t_comm 8 27600` | VERIFY OK both |
+| four APUs to 2^31, K = 1 / 4 / 8 / 4 | `DIST_XGMI=1 DIST_CHUNKS=K ./tests/t_dist 31` | VERIFY OK (67 checks) each; timings below |
+
 ### The xGMI pipeline at 2^30 points (four APUs, `DIST_XGMI=1 ./tests/t_dist 31`, job 20710)
 
 One transform per rank of 2^30 / 4 points, prime 1, R = C = 2^15 (rows = 8192 per rank). Times are rank 0's
@@ -104,12 +117,60 @@ wall clock of one forward, and of the whole convolution (two forwards, the point
 | 4 (default) | 0.0257 | 0.0811 / 0.0806 | −13 % / −8 % |
 | 8 | 0.0249 | 0.0784 | −16 % / −11 % |
 
+At 2^31 points (batch 2, R = 2^16, C = 2^15, rows = 16384 per rank; the same node's second run of each):
+
+| DIST_CHUNKS | fwd 2^30 | conv 2^30 | fwd 2^31 | conv 2^31 | stats (K = 1, 2^31, three transforms) |
+|---|---|---|---|---|---|
+| 1 | 0.0315 / 0.0303 | 0.0929 / 0.0931 | 0.0597 / 0.0595 | 0.1792 / 0.1771 | rows 0.0430, cols 0.0427, pack 0.0320, exchange 0.0536 |
+| 4 | 0.0285 / 0.0280 | 0.0873 / 0.0877 | 0.0578 / 0.0569 | 0.1737 / 0.1734 | −4 % / −2.5 % at 2^31 |
+| 8 | 0.0273 | 0.0849 | 0.0567 | 0.1704 | −5 % / −4 % at 2^31 |
+
+(batch 2's node ran the K = 1 case 5 % slower than batch 1's node at 2^30; compare within a batch.)
 The exchange is 0.0264 s of the 0.0883 s convolution (30 %); the pipeline hides 0.0072 s of it at K = 4 and
 0.0099 s at K = 8, i.e. 27–37 % of the exchange, 8–11 % of the transform. What can be hidden: in the forward
 only the row pass and pack of the next chunk (0.012 s per transform); in the inverse the unpack and row
 inverse of the previous one; the push kernel and the NTT kernels share the CUs (a push kernel overlaps
 compute at ≈ 74 %, RESULTS §11), so the ceiling is roughly half the exchange. At 2^26 the chunks cost
 nothing at K ≤ 4 (0.0059 vs 0.0058–0.0063 s) and 20 % at K = 8 (0.0072–0.0077 s: launch overhead on
-1-ms transforms); hence the default 4. Whole `t_dist 31` runs (dominated by the host reference): `main`'s
+1-ms transforms); hence the default 4. At 2^31 the gain is smaller (2.5–4 %): with 16384 rows the push
+kernel (228 x 3 blocks) and the row NTT of the next chunk contend for the CUs for longer, and the
+exchange itself (0.054 s for 3 x 4 GB per rank ≈ 220 GB/s per rank, one direction) is memory-bound
+against the row pass that reads and writes the same HBM. The measured overlap: **27–37 % of the exchange
+hidden at 2^30, 15–25 % at 2^31** (K = 4 / 8) — the fabric stage is the part that a pipelined transform
+can hide; the row pass it overlaps is the shorter part. Whole `t_dist 31` runs (dominated by the host reference): `main`'s
 binary 64.7 s / 63.4 s, this branch 65.0 s — the same. The 10⁹ single-node run (whose products go through
 `dist_core` over the xGMI communicator, now chunked) is identical and 8.27 s wall (M3's table: 8.9 / 7.8 s).
+
+## Gate status
+
+| item | status |
+|---|---|
+| t_comm, t_dist in DIST_XGMI=1, COMM_RANK (2, 4) and DIST_LAYERED=1 (2, 3, 4 node-processes) modes on one node, to 2^26 | OK |
+| the same on 2–3 real nodes | **not run**: the other two nodes were allocated by other agents for the whole session (batch 2 checked `sinfo` and found one idle node). The layered code paths across hosts are M3's, verified there on 2–3 real nodes; what is new on the wire is the TCP receiver thread and the second exchange in flight, both host-side logic that does not depend on the hosts being distinct. To run when idle: `mnrun.sh 2/4 env DIST_LAYERED=1 ./tests/t_dist 26` and `mnrun.sh 2 env POOL_LOG=27 ./ecalc 100000000 out` on `-N2` (the script `~/acomm_batch2.sh` does it when two nodes are idle). |
+| ecalc 10⁸ at sizes 2 and 4 identical | OK (one node) |
+| the single-node 10⁹ bit-for-bit | OK |
+| xgmi t_dist 31 timing not slower | OK: the transform is 2.5–8 % faster at 2^30–2^31; the whole run is equal to `main`'s (65.0 vs 63.4–64.7 s, host-bound) |
+
+## Open issues
+
+- `rns_dist.c` (A-grid) still has the two O(g) loops (`node_carry_in`, the spill all-gather as g copies +
+  all-to-all); the one-line replacements are given above. Not changed here to avoid a merge conflict with
+  A-grid's rewrite of that file.
+- The `DIST_STATS` breakdown in the chunked mode: only the exposed exchange and the column pass are
+  measured (the row pass and packs run under the exchange); `dist_core`'s "ntt parts" line therefore
+  shows rows/pack as 0 unless `DIST_CHUNKS=1`.
+- The layered communicator's two-in-flight mode needs two scratch slots (2 x 4 g x chunk bytes); the
+  product tier hands it one slab buffer (q x 8), which holds two slots for K ≥ 2 — so `rns_mul_dist_mn`'s
+  transforms pipeline the xGMI stage under the TCP stage automatically. Not measured (1 GbE).
+- The forward pipeline cannot overlap the unpack of chunk k with the row pass of chunk k+1 (both are in
+  x); the alternative — unpacking into the receive buffer's own region and running the column pass from
+  there — would need the column layout in a second plane. The inverse has the same constraint in the
+  packs. A ring of two extra chunk-sized planes would lift it; not done (memory).
+- The sim4 harness's all-gather completes when the fourth rank calls; `mn_selftest`-style sequential
+  drivers must call all four before reading (as `t_dist` does).
+- `t_dist` in the COMM_RANK mode requires a power-of-two rank count (rows ≥ 32); 3 ranks is not a valid
+  configuration of that mode (the layered mode handles 3 node-processes with gt = 2).
+
+## Files touched outside my list
+
+`ecalc/mn.c`: `mn_allgather`'s body only (→ `comm_allgather_host`), as allowed.
