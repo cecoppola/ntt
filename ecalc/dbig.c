@@ -490,6 +490,16 @@ void db_set_base_pow(dbig *r, size_t k)
     uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on((int)d, r->q[d] + (k - d * r->qc), &one, 8);
     r->n = k + 1;
 }
+/* r = (the low m limbs of a) B^k, as an n-limb number: zeros plus a small copy (I3: the division's remainder window) */
+void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
+{
+    db_reserve(r, n);
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipStreamSynchronize(0)); } }
+    if (m > a->n) m = a->n;
+    for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on((int)d, r->q[d] + (g - d * r->qc), &v, 8); }
+    r->n = n; db_norm(r);
+}
 dbig db_view(const dbig *a, size_t lo, size_t len)
 {
     dbig v = *a; v.off = a->off + lo; v.n = len; v.cap = 0; return v;   /* not owning: never db_free it */
