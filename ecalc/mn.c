@@ -202,13 +202,13 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include "binsplit.h"
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
-static int g_cktree = -1; static unsigned long g_ckN;
+static int g_cktree = -1;
 int mn_ckpt_tree_level(unsigned long N)
 {
     if (g_cktree >= 0) return g_cktree;
-    if (N) g_ckN = N;
+    if (N) bs_N = N;
     if (g_size <= 1 || !bs_restart || !bs_ckpt_dir) { g_cktree = 0; return 0; }
-    uint64_t my = (uint64_t)bs_ckpt_tree_find(g_ckN), *all = (uint64_t *)malloc((size_t)g_size * 8), mn = my;
+    uint64_t my = (uint64_t)bs_ckpt_tree_find(bs_N), *all = (uint64_t *)malloc((size_t)g_size * 8), mn = my;
     mn_allgather(g_cm[0], &my, 1, all);
     for (int r = 0; r < g_size; r++) if (all[r] < mn) mn = all[r];
     free(all); g_cktree = (int)mn;
@@ -225,7 +225,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
         double t0 = mem_now(); uint64_t d[10]; dbig ps, qs;
-        if (!bs_ckpt_tree_read(lr, g_ckN, d, &ps, &qs)) { fprintf(stderr, "mn: node %d: restart from tree level %d failed\n", g_rank, lr); exit(1); }
+        if (!bs_ckpt_tree_read(lr, bs_N, d, &ps, &qs)) { fprintf(stderr, "mn: node %d: restart from tree level %d failed\n", g_rank, lr); exit(1); }
         db_free(&P->sh); db_free(&Q->sh);
         P->sh = ps; P->n = d[0]; P->N = d[1]; P->g0 = (int)d[2]; P->g = (int)d[3]; Q->sh = qs; Q->n = d[5]; Q->N = d[6]; Q->g0 = (int)d[7]; Q->g = (int)d[8];
         bs_st.t_restart += mem_now() - t0;
@@ -236,7 +236,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         if (g > half) tree_level(P, Q, l, g0, g, half);      /* (no sibling group: carried up unchanged) */
         if (ck) {                                            /* M6: this node's shares after level l; the previous set goes once every node has this one */
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
-            size_t bytes = bs_ckpt_tree_write(l, g_ckN, d, &P->sh, &Q->sh); double dtc = mem_now() - tc;
+            size_t bytes = bs_ckpt_tree_write(l, bs_N, d, &P->sh, &Q->sh); double dtc = mem_now() - tc;
             if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; }
             printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", g_rank, l, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
             if (bytes && getenv("BS_CKPT_ABORT_TREE") && atoi(getenv("BS_CKPT_ABORT_TREE")) == l && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == g_rank)) {   /* test hook: die before the barrier (BS_CKPT_ABORT_NODE: this node only) */

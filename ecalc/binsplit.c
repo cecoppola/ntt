@@ -15,6 +15,7 @@
 #include "dbig.h"
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
+unsigned long bs_N = 0;                              /* M6: the run's N, for the tree sets written by mn.c */
 
 bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
@@ -491,7 +492,7 @@ void binsplit_seeds_begin(unsigned long N)
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
     double t0 = mem_now(), t;
-    memset(&bs_st, 0, sizeof bs_st);
+    memset(&bs_st, 0, sizeof bs_st); bs_N = N;
     unsigned long S = bs_seed_terms, nspan; size_t per;
     /* seed spans: Q(a,b) < b^S, P < S b^S: reserve (S log2(N+1) + 64 + 64) / 64 limbs each */
     seed_limbs(N, &per, &nspan);
