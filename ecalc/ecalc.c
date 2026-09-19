@@ -191,7 +191,8 @@ int main(int argc, char **argv)
     double t_10dp = 0, t_res3 = 0;
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
-        for (int i = 0; i < T1_NQ; i++) { Pres[i] = db_mod_q(&bs_Pd, t1_q[i]); Qres[i] = db_mod_q(&bs_Qd, t1_q[i]); }
+        db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
+        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, (size_t)3 * ((size_t)8 << (pool_log - 2))); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q of pool 1 */
         t_res3 = mem_now() - tr;
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;

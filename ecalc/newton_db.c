@@ -224,7 +224,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     double te = mem_now();
     if (!newton_db_x_hook) db_to_bi(X, &Xd);
     if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
-    for (int i = 0; i < nres; i++) rres[i] = db_mod_q(&Rd, qs[i]);
+    db_mod_qs(&Rd, qs, nres, rres);
     double tf = mem_now();
     g_mu = mu; g_t = t; g_xq = xq;
     db_free(&Xd); db_free(&Aw); db_free(&Rd);
