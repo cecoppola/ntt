@@ -61,7 +61,7 @@ int rns_init(int pool_log)
     bi_env_base();
     crt_init();
     size_t bytes = (size_t)8 << g_pool_log;
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;   /* Phase 8 (PLAN 18, O1): one thread per device */
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {

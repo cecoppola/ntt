@@ -139,7 +139,7 @@ void binsplit_pregrow(unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * 4) + (1 << 20);
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
     int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
 #pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
     for (int r = 0; r <= NR; r++) {
