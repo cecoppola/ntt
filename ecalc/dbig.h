@@ -21,7 +21,8 @@ struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift,
 extern struct db_stats db_st;                        /* accumulated; the caller resets */
 void db_release_pools(void);                          /* free the cached quarter blocks and donated regions (end of a phase) */
 void db_donate(int dev, void *p, size_t bytes);
-void db_donate_ext(int dev, void *p, size_t bytes, int own);   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */      /* a device region for the block free lists; released by db_release_pools */
+void db_donate_ext(int dev, void *p, size_t bytes, int own);
+void db_pregrow(int dev, size_t bytes);              /* one owned region of `bytes` into the pool now (callable from a background thread) */   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
 size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
 int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
