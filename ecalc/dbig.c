@@ -86,6 +86,9 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
+/* M3: per-APU scratch from the block pool (the multi-node product's packed slabs and the layered comm's transposes) */
+uint64_t *db_pool_alloc(int dev, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8; return q_alloc(dev, (bytes + al - 1) / al * al); }
+void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
 /* grow the block pool of device dev by one region of `bytes` now (Phase 8: from a background thread while the GPUs run
  * the levels -- hipMalloc is 0.057 s/GB of CPU-side driver work, hidden there instead of inside the Newton loop) */
 void db_pregrow(int dev, size_t bytes)
@@ -278,10 +281,19 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * touches its own limbs).  cout/prop per chunk for the host scan across chunks and quarters.
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
-struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val; };   /* single: one limb val at pos */
+struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
+                size_t lo; int gt; };   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                                         * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
     if (s.single) return i == s.pos ? s.val : 0;
+    if (s.gt) {
+        size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q = rem / s.rows, t = rem - q * s.rows;
+        if (t >= 4) return 0;
+        int nr = 4 * s.gt, rho; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
+        int d = rho / s.gt, r = rho - d * s.gt;
+        return s.sp[d][((size_t)r * s.C + j) * 4 + t];
+    }
     /* i = R j + (r+1) rows + t, t < 4: j = i / R, rem = i - R j; r+1 = rem / rows if rem % rows < 4 */
     size_t j = i / s.R, rem = i - j * s.R, q = rem / s.rows, t = rem - q * s.rows;
     if (t >= 4) return 0;
@@ -394,10 +406,15 @@ void db_shr_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, (long)k, 
 void db_shl_limbs(dbig *r, const dbig *a, size_t k) { shift_into(r, a, -(long)k, a->n ? a->n + k : 0); }
 void db_copy(dbig *r, const dbig *a) { if (r == a) return; shift_into(r, a, 0, a->n); }
 
-static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub)
+static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub, size_t nfix, int *cout, int *prop);
+static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub) { addsub_core2(r, a, ashift, b, spx, bn, sub, 0, 0, 0); }
+/* nfix > 0 (M3): the result has exactly nfix limbs, the carry out of the top is reported in *cout instead of aborting, and
+ * *prop tells whether a carry-in at limb 0 would ripple through every limb (the node-level carry scan of a sharded number) */
+static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, const struct sparse *spx, size_t bn, int sub, size_t nfix, int *cout, int *prop)
 {
     double t0 = tnow(); db_st.n_addsub++;
     size_t an = a->n ? a->n + ashift : 0, n = an > bn ? an : bn; if (!sub) n++;
+    if (nfix) n = nfix;
     /* in place is fine when the layouts match (a thread only touches its own limbs); otherwise a temporary */
     dbig tmp; int inplace = (r == a || r == b), same = (r == a && !r->off && !ashift) || (b && r == b && !r->off);   /* r == b is safe even with a shifted: a thread reads only its own limbs of r */
     dbig *out = r;
@@ -416,14 +433,17 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
         HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
-    uint8_t cy = 0;
+    uint8_t cy = 0; int allp = 1;
     for (int d = 0; d < DB_NQ; d++) for (size_t c = 0; c < chunks[d]; c++) {
         uint8_t co = g_flags[d][0][c], pr = g_flags[d][1][c];
         g_flags[d][0][c] = cy;                          /* reuse as carry-in */
-        cy = co | (pr & cy);
+        cy = co | (pr & cy); allp &= pr;
     }
+    if (nfix) { if (cout) *cout = cy; if (prop) *prop = allp; }
+    else {
     if (cy && !sub) { fprintf(stderr, "db_add: carry out of the top (n undersized)\n"); abort(); }
     if (cy && sub) { fprintf(stderr, "db_sub: a < b\n"); abort(); }
+    }
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
         if (!chunks[d]) continue;
@@ -432,9 +452,22 @@ static void addsub_core(dbig *r, const dbig *a, size_t ashift, const dbig *b, co
         k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub, bi_decimal);
         HIP_CHECK(hipStreamSynchronize(0));
     }
-    out->n = n; db_norm(out);
+    out->n = n; if (!nfix) db_norm(out);
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
     db_st.t_addsub += tnow() - t0;
+}
+/* M3: r (n limbs, a node's share, in place) += the spills of a product over 4 gt ranks, sp[d] = [r][j][4] on APU d;
+ * fixed length, carry out and propagate reported */
+void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
+{
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
+    addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
+}
+/* M3: r (n limbs, in place) += 1 at limb 0; the carry out reported */
+void db_share_add_one(dbig *r, size_t n, int *cout)
+{
+    struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = 0; s.val = 1;
+    addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, 0);
 }
 void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 0); }
 void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 1); }
@@ -528,6 +561,17 @@ void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
     if (m > a->n) m = a->n;
     for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on((int)d, r->q[d] + (g - d * r->qc), &v, 8); }
     r->n = n; db_norm(r);
+}
+/* M3: r = n zero limbs (r->n = n, not normalised: a share to be filled by a scatter) */
+void db_zero_fill(dbig *r, size_t n)
+{
+    db_reserve(r, n ? n : 1);
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
+        k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);
+        HIP_CHECK(hipStreamSynchronize(0)); } }
+    r->n = n;
 }
 dbig db_view(const dbig *a, size_t lo, size_t len)
 {

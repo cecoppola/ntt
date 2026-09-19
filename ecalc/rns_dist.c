@@ -22,6 +22,7 @@
 #include "rns_int.h"
 #include "ntt_dist.h"
 #include "dbig.h"
+#include "mdb.h"
 #include "mem.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
@@ -50,7 +51,7 @@ static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; mem
 struct rank_state {
     comm *cm; ntt_ctx *ctx[EC_NP]; hipStream_t s;
     dpool desc; uint64_t *spill; size_t spill_cap;
-    struct { dist_plan pl; int logR, logC, built; } plan[EC_NP];
+    struct { dist_plan pl; int logR, logC, built; comm *cm; } plan[EC_NP];   /* cm: the plan's communicator (the node's xGMI, or a group's layered one) */
 };
 static struct rank_state RS[NR];
 static int g_init;
@@ -115,10 +116,10 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q, *xt = sl;
         for (int p = 0; p < EC_NP; p++) xa[p] = pl + (size_t)p * q;
         for (int p = 0; p < EC_NP; p++) {
-            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC) {
+            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != v->cm) {
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
                 dist_plan_create_shared(&v->plan[p].pl, v->cm, v->ctx[p], p, logR, logC, sl, sl + q);
-                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1;
+                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = v->cm;
             }
         }
         double s0 = mem_now(), lg = 0, lf = 0;
@@ -285,4 +286,219 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t w)
         db_add_shifted(Cd, &t, oa + ob, Cd);                   /* in place */
     }
     db_free(&t);
+}
+
+/* ---- Phase 8 M3: the product over a node group (mdb.h) -------------------------------------------------
+ * Rank rho = gt d + r (APU d of the group's node r < gt) holds the block-cyclic rows [rho rows, (rho+1) rows)
+ * of the R x C plane, rows = R / (4 gt); its row sequence is t = j rows + il <-> limb m = R j + rho rows + il
+ * (columns j in order, so m increases with t).  A node's contiguous share [lo, hi) meets the sequence in
+ * one segment [seq_start(lo), seq_start(hi)). */
+__host__ __device__ static inline size_t seq_start(size_t m, size_t R, size_t rows, size_t rho)   /* the first t with m(t) >= m */
+{
+    size_t j = m / R, i = m - j * R, a = rho * rows;
+    if (i <= a) return j * rows;
+    if (i < a + rows) return j * rows + (i - a);
+    return (j + 1) * rows;
+}
+struct seg { size_t t0, t1; };
+/* pack this node's share (limbs [lo, hic) of the operand, local index m - lo) for the ranks (r, d), r < gt: slab r of sb */
+__global__ void k_pack_mn(uint64_t *sb, struct acc src, size_t lo, size_t hic, size_t R, size_t rows, int gt, int d, size_t S)
+{
+    size_t total = (size_t)gt * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t r = t / S, k = t - r * S, rho = (size_t)gt * d + r;
+        size_t t0 = seq_start(lo, R, rows, rho), t1 = seq_start(hic, R, rows, rho);
+        if (k >= t1 - t0) continue;
+        size_t u = t0 + k, j = u / rows, il = u - j * rows, m = R * j + rho * rows + il;
+        sb[t] = acc_get(src, m - lo);
+    }
+}
+/* the received slabs (segment r of node r at rb + r S, [sg[r].t0, sg[r].t1) of my sequence, contiguous in node order)
+ * -> my rows: x[il C + j] (transpose = 1, the transform's row layout) or x[t] (the sequence, the CRT's added operand) */
+__global__ void k_gather_mn(uint64_t *x, const uint64_t *rb, const struct seg *sg, int g, size_t S, size_t rows, size_t C, ec_mod m, int canon, int transpose)
+{
+    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        int lo = 0, hi = g;                                     /* the last segment with t0 <= t */
+        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (sg[mid].t0 <= t) lo = mid; else hi = mid; }
+        uint64_t v = (sg[lo].t0 <= t && t < sg[lo].t1) ? rb[(size_t)lo * S + (t - sg[lo].t0)] : 0;
+        if (canon) v = ec_canon64(v, m.pu, m.mu);
+        size_t j = t / rows, il = t - j * rows;
+        x[transpose ? il * C + j : t] = v;
+    }
+}
+/* my result sequence (the CRT output, q limbs) -> slabs: slab r' = the segment of node r' */
+__global__ void k_pack_out_mn(uint64_t *sb, const uint64_t *xb, const struct seg *sg, int g, size_t S)
+{
+    size_t total = (size_t)g * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t r = t / S, k = t - r * S; if (k < sg[r].t1 - sg[r].t0) sb[t] = xb[sg[r].t0 + k]; }
+}
+/* the received slabs of the ranks (r, d), r < gt (segments of my share [lo, ..)) -> the share's limbs */
+__global__ void k_scatter_mn(struct acc dst, size_t lo, const uint64_t *rb, const struct seg *sg, int gt, size_t S, size_t R, size_t rows, int d)
+{
+    size_t total = (size_t)gt * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t r = t / S, k = t - r * S; if (k >= sg[r].t1 - sg[r].t0) continue;
+        size_t u = sg[r].t0 + k, j = u / rows, il = u - j * rows, rho = (size_t)gt * d + r, m = R * j + rho * rows + il;
+        *acc_ptr(dst, m - lo) = rb[t];
+    }
+}
+/* the slab (limbs) that holds any node's segment of an operand sharded with shares of at most `maxshare` limbs */
+static size_t slab_limbs(size_t maxshare, size_t R, size_t rows, size_t q)
+{
+    size_t S = maxshare ? ((maxshare - 1) / R + 2) * rows : rows;
+    if (S > q) S = q;
+    return (S + 15) / 16 * 16;
+}
+static size_t max_share(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
+static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->tr[d], d); return G->lay[d]; }
+struct mn_ctx { mn_group *G; int node, gt, g; size_t R, rows, C, n; };
+/* one operand: pack my share, exchange over mesh d, and the segment table of the receiver (rank (me, d)) */
+static void redistribute(const struct mn_ctx *X, const mdb *op, size_t S, uint64_t *sb, uint64_t *rb, struct seg *hseg, struct seg *dseg, int d, hipStream_t s)
+{
+    size_t lo, hi; mdb_share(op, X->node, &lo, &hi);
+    size_t loc = lo < op->n ? lo : op->n, hic = hi < op->n ? hi : op->n;
+    if (hic > loc) {
+        struct acc a = acc_db(&op->sh, 0, hi - lo);
+        k_pack_mn<<<nblk((size_t)X->gt * S), 256, 0, s>>>(sb, a, lo, hic, X->R, X->rows, X->gt, d, S);
+    }
+    HIP_CHECK(hipStreamSynchronize(s));
+    comm_alltoall(X->G->all[d], sb, rb, S * 8, s); comm_wait(X->G->all[d]);
+    size_t rho = (size_t)X->gt * d + X->G->me;
+    for (int r = 0; r < X->g; r++) {
+        mdb_share(op, X->G->g0 + r, &lo, &hi); loc = lo < op->n ? lo : op->n; hic = hi < op->n ? hi : op->n;
+        hseg[r].t0 = seq_start(loc, X->R, X->rows, rho); hseg[r].t1 = seq_start(hic, X->R, X->rows, rho);
+    }
+    HIP_CHECK(hipMemcpyAsync(dseg, hseg, X->g * sizeof *hseg, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
+}
+/* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
+ * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1) */
+static int node_carry_in(mn_group *G, int c, int p)
+{
+    comm *cm = G->all[0]; int g = G->g, me = G->me, cin = 0;
+    uint8_t v = (uint8_t)(c | (p << 1)), *all = (uint8_t *)malloc(g); all[me] = v;
+    for (int r = 0; r < g; r++) if (r != me) comm_send(cm, r, &v, 1);
+    for (int r = 0; r < g; r++) if (r != me) comm_recv(cm, r, &all[r], 1);
+    for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
+    free(all);
+    return cin;
+}
+void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group *G)
+{
+    int g = G->g, gt = G->gt, me = G->me, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
+    int node = G->g0 + me, tnode = me < gt, verbose = getenv("RNS_VERBOSE") != 0;
+    size_t na = A->n, nb = B->n, nc = na + nb, N = nc + (X ? 1 : 0);
+    if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
+    int logn = 0; while (((size_t)1 << logn) < nc) logn++;
+    int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;   /* rows = R / nr >= 32 (the tiled pack), R, C >= 2^10 */
+    if (logn < logmin) logn = logmin;
+    if (logn > DIST_LOGN_MAX + lgt) { fprintf(stderr, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d transform nodes (no grid split yet)\n", nc, DIST_LOGN_MAX + lgt, gt); exit(1); }
+    int logR = logn / 2, logC = logn - logR;
+    size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / nr, q = n / nr;
+    double t0 = mem_now();
+    if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
+    struct mn_ctx X0 = { G, node, gt, g, R, rows, C, n };
+    /* slab sizes per operand and for the result */
+    size_t SA = slab_limbs(max_share(A), R, rows, q), SB = slab_limbs(max_share(B), R, rows, q), SX = X ? slab_limbs(max_share(X), R, rows, q) : 0;
+    mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = N; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
+    size_t SC = slab_limbs(max_share(&Cn), R, rows, q), Smax = SA; if (SB > Smax) Smax = SB; if (SX > Smax) Smax = SX; if (SC > Smax) Smax = SC;
+    size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); size_t cn = chi - clo;
+    db_zero_fill(&Cn.sh, cn);
+    const uint64_t *sp[NR]; uint64_t *spill_rb[NR];
+    double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
+#pragma omp parallel num_threads(NR)
+    {
+        int d = omp_get_thread_num(); struct rank_state *v = &RS[d]; hipStream_t s = v->s;
+        HIP_CHECK(hipSetDevice(d));
+        uint64_t *sb = db_pool_alloc(d, g * Smax * 8), *rbA = db_pool_alloc(d, g * Smax * 8), *rbB = db_pool_alloc(d, g * SB * 8);
+        uint64_t *cx = (X && tnode) ? db_pool_alloc(d, q * 8) : 0, *tmp = tnode ? db_pool_alloc(d, q * 8) : 0;
+        uint64_t *spill_sb = db_pool_alloc(d, (size_t)g * C * 4 * 8); spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
+        struct seg *hseg = (struct seg *)malloc(4 * g * sizeof *hseg), *hsA = hseg, *hsB = hseg + g, *hsX = hseg + 2 * g, *hsO = hseg + 3 * g;
+        struct seg *dseg = (struct seg *)db_pool_alloc(d, 4 * g * sizeof *hseg), *dsA = dseg, *dsB = dseg + g, *dsX = dseg + 2 * g, *dsO = dseg + 3 * g;
+        /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
+        uint64_t *pl = (uint64_t *)rns_dpool(d, 0, (size_t)EC_NP * q * 8), *p1 = (uint64_t *)rns_dpool(d, 1, (size_t)(3 * q + 16) * 8);
+        uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q + 16, *xt = sl;
+        for (int p = 0; p < EC_NP; p++) xa[p] = pl + (size_t)p * q;
+        comm *cl = 0;
+        if (tnode) {
+            cl = lay_get(G, d); comm_layered_scratch(cl, tmp, q * 8);
+            for (int p = 0; p < EC_NP; p++) {
+                if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl) {
+                    if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
+                    dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q);
+                    v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl;
+                }
+            }
+        }
+        double s0 = mem_now();
+        /* A: every node packs and exchanges; the transform ranks gather their rows for the four primes */
+        redistribute(&X0, A, SA, sb, rbA, hsA, dsA, d, s);
+        if (tnode) for (int p = 0; p < EC_NP; p++) k_gather_mn<<<nblk(q), 256, 0, s>>>(xa[p], rbA, dsA, g, SA, rows, C, ec_mod_get(p), 1, 1);
+        redistribute(&X0, B, SB, sb, rbB, hsB, dsB, d, s);
+        if (X) { redistribute(&X0, X, SX, sb, rbA, hsX, dsX, d, s); if (tnode) k_gather_mn<<<nblk(q), 256, 0, s>>>(cx, rbA, dsX, g, SX, rows, C, ec_mod_get(0), 0, 0); }
+        HIP_CHECK(hipStreamSynchronize(s));
+        double s1 = mem_now(); tr[d] = s1 - s0;
+        if (tnode) {
+            for (int p = 0; p < EC_NP; p++) {
+                k_gather_mn<<<nblk(q), 256, 0, s>>>(xb, rbB, dsB, g, SB, rows, C, ec_mod_get(p), 1, 1);
+                dist_fwd(&v->plan[p].pl, xa[p], s);
+                dist_fwd(&v->plan[p].pl, xb, s);
+                dist_pw(&v->plan[p].pl, xa[p], xb, s);
+                dist_inv(&v->plan[p].pl, xa[p], s);
+                HIP_CHECK(hipStreamSynchronize(s));
+            }
+            double s2 = mem_now(); tf[d] = s2 - s1;
+            for (int p = 0; p < EC_NP; p++) {
+                dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
+                k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
+                HIP_CHECK(hipMemcpyAsync(xa[p], xt, q * 8, hipMemcpyDeviceToDevice, s));
+            }
+            struct bdesc hd = { 0, 0, cx, xb, (uint32_t)q, 0, (uint32_t)(cx ? q : 0) };
+            struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
+            HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
+            if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
+            k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, rns_gconst(), v->spill, bi_decimal);
+            HIP_CHECK(hipStreamSynchronize(s));
+            tc[d] = mem_now() - s2;
+            /* the result's rows -> the nodes' shares: segments of every node's share in my sequence */
+            size_t rho = (size_t)gt * d + me;
+            for (int r = 0; r < g; r++) { size_t lo, hi; mdb_share(&Cn, G->g0 + r, &lo, &hi); if (lo > n) lo = n; if (hi > n) hi = n;
+                                          hsO[r].t0 = seq_start(lo, R, rows, rho); hsO[r].t1 = seq_start(hi, R, rows, rho); }
+            HIP_CHECK(hipMemcpyAsync(dsO, hsO, g * sizeof *hsO, hipMemcpyHostToDevice, s));
+            k_pack_out_mn<<<nblk((size_t)g * SC), 256, 0, s>>>(sb, xb, dsO, g, SC);
+            for (int r = 0; r < g; r++) HIP_CHECK(hipMemcpyAsync(spill_sb + (size_t)r * C * 4, v->spill, C * 4 * 8, hipMemcpyDeviceToDevice, s));
+            HIP_CHECK(hipStreamSynchronize(s));
+        }
+        double s3 = mem_now();
+        comm_alltoall(G->all[d], sb, rbA, SC * 8, s); comm_wait(G->all[d]);
+        { size_t lo = clo < n ? clo : n, hi = chi < n ? chi : n;
+          for (int r = 0; r < gt; r++) { size_t rho = (size_t)gt * d + r; hsA[r].t0 = seq_start(lo, R, rows, rho); hsA[r].t1 = seq_start(hi, R, rows, rho); }
+          HIP_CHECK(hipMemcpyAsync(dsA, hsA, gt * sizeof *hsA, hipMemcpyHostToDevice, s)); }
+        if (cn) { struct acc c = acc_db(&Cn.sh, 0, cn); k_scatter_mn<<<nblk((size_t)gt * SC), 256, 0, s>>>(c, clo, rbA, dsA, gt, SC, R, rows, d); }
+        comm_alltoall(G->all[d], spill_sb, spill_rb[d], C * 4 * 8, s); comm_wait(G->all[d]);
+        HIP_CHECK(hipStreamSynchronize(s));
+        sp[d] = spill_rb[d];
+        to[d] = mem_now() - s3;
+        db_pool_free(d, sb); db_pool_free(d, rbA); db_pool_free(d, rbB); if (cx) db_pool_free(d, cx); db_pool_free(d, spill_sb);
+        db_pool_free(d, (uint64_t *)dseg); free(hseg);
+        if (tmp) { comm_layered_scratch(cl, 0, 0); db_pool_free(d, tmp); }
+    }
+    HIP_CHECK(hipSetDevice(0));
+    /* the spills into the shares, then the carries across the nodes */
+    double t4 = mem_now(); int co = 0, pr = 1;
+    if (cn) db_share_add_spills(&Cn.sh, cn, clo, sp, R, rows, C, gt, &co, &pr);
+    int cin = node_carry_in(G, co, pr), co2 = 0;
+    if (cin && cn) db_share_add_one(&Cn.sh, cn, &co2);
+    if (cin && !cn) { fprintf(stderr, "rns_mul_dist_mn: a carry into an empty share\n"); exit(1); }
+    for (int d = 0; d < NR; d++) db_pool_free(d, spill_rb[d]);
+    /* normalise: the highest nonzero limb over the group */
+    size_t top = 0; if (cn) { dbig t = Cn.sh; db_norm(&t); top = t.n ? clo + t.n : 0; }
+    top = comm_allreduce_max(G->all[0], top);
+    Cn.n = top; Cn.sh.n = cn;
+    if (Cm->sh.cap) db_free(&Cm->sh);
+    *Cm = Cn;
+    double mr = 0, mf = 0, mc = 0, mo = 0; for (int d = 0; d < NR; d++) { if (tr[d] > mr) mr = tr[d]; if (tf[d] > mf) mf = tf[d]; if (tc[d] > mc) mc = tc[d]; if (to[d] > mo) mo = to[d]; }
+    rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0; rns_dist_st.t_load += mr; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc; rns_dist_st.t_merge += mo + mem_now() - t4;
+    if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks (%zu + %zu%s limbs -> %zu, share %zu): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f (carry in %d) total %.3f s\n",
+                        node, logn, logR, logC, gt, na, nb, X ? " + x" : "", top, cn, mr, mf, mc, mo, mem_now() - t4, cin, mem_now() - t0);
 }

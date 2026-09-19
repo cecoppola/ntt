@@ -145,7 +145,7 @@ static int connect_to(const char *host, int port)
     char ps[16]; snprintf(ps, sizeof ps, "%d", port);
     if (getaddrinfo(host, ps, &hints, &res)) { fprintf(stderr, "comm_tcp: cannot resolve %s\n", host); exit(1); }
     int fd = -1;
-    for (int tries = 0; tries < 600; tries++) {                 /* peers may start later: retry for 60 s */
+    for (int tries = 0; tries < 6000; tries++) {                /* peers may start later (M3: a level's group meshes open when its members arrive): retry for 600 s */
         fd = socket(AF_INET, SOCK_STREAM, 0);
         if (connect(fd, res->ai_addr, res->ai_addrlen) == 0) break;
         close(fd); fd = -1; usleep(100000);
@@ -168,7 +168,7 @@ comm *comm_tcp_create_at(int me, int n, const char *eh, int base)
 {
     if (n < 1 || n > 4096 || me < 0 || me >= n) { fprintf(stderr, "comm_tcp: bad rank/size\n"); exit(1); }
     char *hosts = strdup(eh), *host[4096]; int nh = 0;
-    for (char *t = strtok(hosts, ","); t && nh < n; t = strtok(NULL, ",")) host[nh++] = t;
+    char *sp; for (char *t = strtok_r(hosts, ",", &sp); t && nh < n; t = strtok_r(NULL, ",", &sp)) host[nh++] = t;   /* (strtok_r: four meshes are created by four threads at once) */
     if (nh != n) { fprintf(stderr, "comm_tcp: COMM_HOSTS lists %d hosts for size %d\n", nh, n); exit(1); }
     comm *c = (comm *)calloc(1, sizeof *c); tcp_priv *p = (tcp_priv *)calloc(1, sizeof *p);
     c->ops = &tcp_ops; c->priv = p; c->rank = me; c->size = n;
