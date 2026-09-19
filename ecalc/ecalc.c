@@ -119,6 +119,7 @@ static void *x_bg_run(void *a)                        /* O4: X's residues, the d
 }
 static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
 
+static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
 int main(int argc, char **argv)
 {
     if (argc < 2) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
@@ -135,15 +136,15 @@ int main(int argc, char **argv)
     printf("== ecalc: e to %lu digits%s ==\n", d, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)");
     meta_line("ecalc");
     double t00 = mem_now(), t;
+    unsigned long N = e_terms(d);
+    { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
+      if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
+    int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
+    if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     rns_init(pool_log);
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-    unsigned long N = e_terms(d);
-    if (mn_size_ > 1) {                             /* M2: this process's term range; the top combine is on node 0 until M3 */
-        unsigned __int128 nn = N;
-        bs_a0 = 1 + (unsigned long)(nn * mn_rank() / mn_size_); bs_b1 = 1 + (unsigned long)(nn * (mn_rank() + 1) / mn_size_);
-        printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
-    }
+    if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
     RESULT("init", "s", t_init);

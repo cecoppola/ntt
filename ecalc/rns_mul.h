@@ -35,6 +35,7 @@ extern int rns_crt_threads;       /* default: all */
 extern int rns_crt_layout;        /* RNS_CRT_LAYOUT: 0 one plane per node (default), 1 quartered node-local planes */
 
 int  rns_init(int pool_log);      /* 31 (default, paper) or 32; allocates staging + pools, returns ndev */
+extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
 int  rns_pool_log(void);
 int  rns_ndev(void);
 void rns_shutdown(void);
