@@ -95,14 +95,106 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
  * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
  * pathological on long carry chains */
 
+/* ---- Phase 9 C5 (PLAN 16, I10; DIST_R3=1, measured only): planes of 3 2^k points for the single-node products of
+ * 2^30 points and above (n = 3 2^(logn-2) when nc fits it: 3 2^28, 3 2^29, 3 2^30 -- the last above the 2^31 cap, so
+ * the top product's grid has fewer, fuller planes).  The four-step with rows of length C = 3 2^logk through the
+ * radix-3 layer (ntt3.c: position t of third r holds X[3 brev(t) + r]) and columns of R = 2^logR; the twiddle
+ * w_n^(i j) = twr[e / C] twc[e % C] (twr[k] = w_R^k, twc[k] = w_n^k, w_n the 3 2^(logR+logk)-th root).  The planes
+ * xa[4] take 4 q = 3 2^30 limbs of pool 0 (grown to 32 GiB per APU); xb and the slabs (3 q + 16) come from the dbig
+ * block pool (pool 1's tail is donated to it at 3 q of the 2^31 layout).  Same comm (xGMI), same CRT. */
+static int dist_r3(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_R3"); v = e ? atoi(e) : 0; if (v && !ec_has_radix3()) { fprintf(stderr, "DIST_R3: the prime set has no 3 2^k roots\n"); v = 0; } } return v; }
+static size_t dist_cap(void) { return dist_r3() ? (size_t)3 << (dist_logn_max() - 1) : (size_t)1 << dist_logn_max(); }   /* plane points */
+struct plan3 { int built, logR, logk; uint64_t *twr, *twc, *twr_i, *twc_i; };
+static struct plan3 P3[NR][EC_NP];
+static uint64_t *pow_table(int prime, uint64_t w, size_t cnt)
+{
+    uint64_t p = ec_P[prime], *h = (uint64_t *)malloc(cnt * 8), *d, a = 1;
+    for (size_t k = 0; k < cnt; k++) { h[k] = a; a = ec_mulmod_ref(a, w, p); }
+    HIP_CHECK(hipMalloc(&d, cnt * 8)); HIP_CHECK(hipMemcpy(d, h, cnt * 8, hipMemcpyHostToDevice)); free(h);
+    return d;
+}
+static void plan3_get(struct plan3 *q, int prime, int logR, int logk)
+{
+    if (q->built && q->logR == logR && q->logk == logk) return;
+    if (q->built) { HIP_CHECK(hipFree(q->twr)); HIP_CHECK(hipFree(q->twc)); HIP_CHECK(hipFree(q->twr_i)); HIP_CHECK(hipFree(q->twc_i)); }
+    uint64_t wn = ec_root3(prime, logR + logk), wR = ec_root(prime, logR), pp = ec_P[prime];
+    q->twr = pow_table(prime, wR, (size_t)1 << logR); q->twc = pow_table(prime, wn, (size_t)3 << logk);
+    q->twr_i = pow_table(prime, ec_inv(wR, pp), (size_t)1 << logR); q->twc_i = pow_table(prime, ec_inv(wn, pp), (size_t)3 << logk);
+    q->built = 1; q->logR = logR; q->logk = logk;
+}
+__device__ static inline unsigned brev3(unsigned v, int bits) { return __brev(v) >> (32 - bits); }
+/* the logical column j of position jb of a radix-3 row: third r = jb >> logk, t = jb mod 2^logk -> 3 brev(t) + r */
+__device__ static inline size_t col3(size_t jb, int logk) { size_t m = (size_t)1 << logk; return 3 * (size_t)brev3((unsigned)(jb & (m - 1)), logk) + (jb >> logk); }
+/* twiddle + pack (rows x C row-major -> slab s = the columns of rank s, column-major per slab) */
+__global__ void k3_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t row0, int logk, size_t cols, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)3 << logk, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, e = i * col3(jb, logk);
+        double w = ec_mm((double)twr[e / C], (double)twc[e % C], m.p, m.pinv);
+        tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) { size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols; sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k]; }
+}
+__global__ void k3_unpack(const uint64_t *rb, uint64_t *x, size_t rows, size_t cols, int size)   /* slabs -> my columns of R points */
+{
+    size_t R = rows * size, total = cols * R, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t jl = t / R, i = t % R, r = i / rows, il = i % rows; x[jl * R + i] = rb[r * (cols * rows) + jl * rows + il]; }
+}
+__global__ void k3_pack_cols(const uint64_t *x, uint64_t *sb, size_t rows, size_t cols, int size)
+{
+    size_t R = rows * size, total = cols * R, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t jl = t / R, i = t % R, r = i / rows, il = i % rows; sb[r * (cols * rows) + jl * rows + il] = x[t]; }
+}
+__global__ void k3_unpacktw(const uint64_t *rb, uint64_t *x, size_t rows, size_t row0, int logk, size_t cols, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)3 << logk, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) { size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols; tile[ty + k][tx] = rb[s * (cols * rows) + jl * rows + il]; }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, e = i * col3(jb, logk);
+        double w = ec_mm((double)twr[e / C], (double)twc[e % C], m.p, m.pinv);
+        x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
+    }
+}
+struct ctx3 { comm *cm; ntt_ctx *ctx; int prime, logR, logk; size_t rows, cols; uint64_t *sb, *rb; const struct plan3 *pl; };
+static void dist3_fwd(const struct ctx3 *c, uint64_t *x, hipStream_t s)
+{
+    size_t C = (size_t)3 << c->logk, R = (size_t)1 << c->logR; ec_mod m = ec_mod_get(c->prime); int r = comm_rank(c->cm), size = comm_size(c->cm);
+    ntt_fwd3(c->ctx, x, c->logk, c->rows, s);
+    dim3 grid((unsigned)(C / 32), (unsigned)(c->rows / 32)), blk(32, 8);
+    k3_twpack<<<grid, blk, 0, s>>>(x, c->sb, c->rows, (size_t)r * c->rows, c->logk, c->cols, c->pl->twr, c->pl->twc, m);
+    HIP_CHECK(hipStreamSynchronize(s));
+    comm_alltoall(c->cm, c->sb, c->rb, c->cols * c->rows * 8, s); comm_wait(c->cm);
+    k3_unpack<<<nblk(c->cols * R), 256, 0, s>>>(c->rb, x, c->rows, c->cols, size);
+    ntt_fwd(c->ctx, x, c->logR, c->cols, s);
+}
+static void dist3_inv(const struct ctx3 *c, uint64_t *x, hipStream_t s)
+{
+    size_t C = (size_t)3 << c->logk, R = (size_t)1 << c->logR; ec_mod m = ec_mod_get(c->prime); int r = comm_rank(c->cm), size = comm_size(c->cm);
+    ntt_inv(c->ctx, x, c->logR, c->cols, s);
+    k3_pack_cols<<<nblk(c->cols * R), 256, 0, s>>>(x, c->sb, c->rows, c->cols, size);
+    HIP_CHECK(hipStreamSynchronize(s));
+    comm_alltoall(c->cm, c->sb, c->rb, c->cols * c->rows * 8, s); comm_wait(c->cm);
+    dim3 grid((unsigned)(C / 32), (unsigned)(c->rows / 32)), blk(32, 8);
+    k3_unpacktw<<<grid, blk, 0, s>>>(c->rb, x, c->rows, (size_t)r * c->rows, c->logk, c->cols, c->pl->twr_i, c->pl->twc_i, m);
+    ntt_inv3(c->ctx, x, c->logk, c->rows, s);
+}
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
 {
     int logn = 0; while (((size_t)1 << logn) < nc) logn++;
     if (logn < 20) logn = 20;                                  /* R, C >= 2^10 */
+    int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
+    if (r3) logn--;                                            /* the 2^k length whose pool this replaces: n = 3 2^(logn-1) */
     if (logn > dist_logn_max()) { fprintf(stderr, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); exit(1); }
-    int logR = logn / 2, logC = logn - logR;
-    size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / NR, q = n / NR;
+    int logR = r3 ? (logn - 1) / 2 : logn / 2, logk = logn - 1 - logR, logC = r3 ? 0 : logn - logR;
+    size_t n = r3 ? (size_t)3 << (logn - 1) : (size_t)1 << logn, R = (size_t)1 << logR, C = r3 ? (size_t)3 << logk : (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
     double tl[NR], tf[NR], tc[NR];
@@ -111,11 +203,13 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         int r = omp_get_thread_num(); struct rank_state *v = &RS[r];
         HIP_CHECK(hipSetDevice(r));
         /* planes: xa[4] in pool 0 (4 q = the standard 2^pool_log limbs at n = 2^31); xb | sbuf | rbuf in pool 1 (3 q);
-         * the transpose scratch reuses the slab buffers after the last inverse */
-        uint64_t *pl = (uint64_t *)rns_dpool(r, 0, (size_t)EC_NP * q * 8), *p1 = (uint64_t *)rns_dpool(r, 1, (size_t)3 * q * 8);
-        uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q, *xt = sl;
+         * the transpose scratch reuses the slab buffers after the last inverse.  r3: xb and the slabs from the block pool */
+        uint64_t *pl = (uint64_t *)rns_dpool(r, 0, (size_t)EC_NP * q * 8), *p1 = r3 ? db_pool_alloc(r, ((size_t)3 * q + 16) * 8) : (uint64_t *)rns_dpool(r, 1, (size_t)3 * q * 8);
+        uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q + (r3 ? 16 : 0), *xt = sl;
         for (int p = 0; p < EC_NP; p++) xa[p] = pl + (size_t)p * q;
+        struct ctx3 c3[EC_NP];
         for (int p = 0; p < EC_NP; p++) {
+            if (r3) { plan3_get(&P3[r][p], p, logR, logk); struct ctx3 c = { v->cm, v->ctx[p], p, logR, logk, rows, C / NR, sl, sl + q, &P3[r][p] }; c3[p] = c; continue; }
             if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != v->cm) {
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
                 dist_plan_create_shared(&v->plan[p].pl, v->cm, v->ctx[p], p, logR, logC, sl, sl + q);
@@ -129,10 +223,13 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
             k_gather<<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m);
             k_gather<<<nblk(q), 256, 0, v->s>>>(xb, B, R, rows, (size_t)r * rows, C, m);
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
+            if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], xb, v->s); ntt_pw(v->ctx[p], xa[p], xb, q, v->s); dist3_inv(&c3[p], xa[p], v->s); }
+            else {
             dist_fwd(&v->plan[p].pl, xa[p], v->s);
             dist_fwd(&v->plan[p].pl, xb, v->s);
             dist_pw(&v->plan[p].pl, xa[p], xb, v->s);
             dist_inv(&v->plan[p].pl, xa[p], v->s);
+            }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
         double s2 = mem_now(); lf = s2 - s0 - lg;
@@ -150,6 +247,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
         k_scatter_runs<<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C);
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
+        if (r3) db_pool_free(r, p1);
     }
     /* the spills: device results add them as a sparse operand of the carry kernel; host results add them on the host */
     double tsp = mem_now();
@@ -176,7 +274,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc)
     rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
-    if (getenv("RNS_VERBOSE")) printf("dist 2^%d = 2^%d x 2^%d (%zu limbs): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", logn, logR, logC, nc, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
+    if (getenv("RNS_VERBOSE")) printf("dist %s2^%d = 2^%d x %s2^%d (%zu limbs): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", r3 ? "3*" : "", r3 ? logn - 1 : logn, logR, r3 ? "3*" : "", r3 ? logk : logC, nc, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     if (dist_st.on) { printf("   ntt parts (all ranks summed / 4): local rows %.3f cols %.3f pack+unpack %.3f all-to-all %.3f\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
@@ -212,7 +310,7 @@ void rns_mul_dist_hd(dbig *Cd, const uint64_t *a, size_t na, const dbig *B)
     size_t nb = B->n, nc = na + nb;
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
-    if (nc <= ((size_t)1 << dist_logn_max())) {
+    if (nc <= dist_cap()) {
         dist_core(acc_flat(a, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
         Cd->n = nc; db_norm(Cd);
         return;
@@ -238,7 +336,11 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
 }
 /* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
-static size_t plane_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) n <<= 1; return n; }
+static size_t plane_pts(size_t nc)
+{
+    size_t n = (size_t)1 << 20; while (n < nc) { if (dist_r3() && n >= ((size_t)1 << (dist_logn_max() - 2)) && (n / 2 * 3) >= nc) return n / 2 * 3; n <<= 1; }   /* C5: 3 2^(k-1) between 2^k and 2^(k+1) */
+    return n;
+}
 /* piece counts (ka, kb) for a product too long for one plane: every piece product ceil(na/ka) + ceil(nb/kb)
  * must fit 2^31 points; choose the grid with the fewest plane points in total (then the fewest products).
  * Halving the longer operand alone -- the first version -- gave 8 planes of 2^31 for the decimal top product
@@ -255,7 +357,7 @@ static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int 
     }
     if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
 }
-static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, (size_t)1 << dist_logn_max(), 0, ka, kb); }
+static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, dist_cap(), 0, ka, kb); }
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
@@ -266,7 +368,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     size_t na = A->n, nb = B->n, nc = na + nb;
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
-    if (nc <= ((size_t)1 << dist_logn_max())) {
+    if (nc <= dist_cap()) {
         struct db_stats s0 = db_st; double t0 = mem_now();
         dist_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc);
         Cd->n = nc; db_norm(Cd);
