@@ -121,6 +121,8 @@ int main(int argc, char **argv)
     rns_init(pool_log);
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
+    int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */
+    if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
@@ -140,12 +142,25 @@ int main(int argc, char **argv)
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
+    if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
                pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : 0; }   /* per device; off: hipMalloc in the background stalls the GPU levels (RESULTS.md 70) */
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
-    if (mn_size_ > 1) {                             /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
+    if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups; then node 0 gathers the shares (M4 distributes the division) */
+        double tg = mem_now(); dbig Pl, Ql; db_init(&Pl); db_init(&Ql);
+        if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
+        else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
+        printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
+        mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
+        double tt = mem_now();
+        mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
+        printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
+        if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
+        printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
+        t_bs += mem_now() - tg;
+    } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
         comm *c = mn_comm(0); double tg = mem_now();
         if (mn_rank() != 0) {
             uint64_t n2[2] = { P.n, Q.n }; comm_send(c, 0, n2, 16); comm_send(c, 0, P.l, P.n * 8); comm_send(c, 0, Q.l, Q.n * 8);

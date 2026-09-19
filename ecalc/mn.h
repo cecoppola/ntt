@@ -8,6 +8,7 @@
 #ifndef EC_MN_H
 #define EC_MN_H
 #include "comm.h"
+#include "mdb.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,6 +18,12 @@ int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
+/* M3 (PLAN.md 17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
+mn_group *mn_group_at(int level);                            /* this node's group of 2^level nodes (meshes created collectively on first use) */
+void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
+int   mn_selftest_layered(int logR, int logC, int verbose);  /* the layered comm over 4 x (largest power of two <= size) ranks; 1 = ok */
+void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* the leaves (taken over) -> shares of P, Q over all nodes */
+void  mn_gather_host(bigint *out, const mdb *X);             /* node 0 assembles the number on the host; the others send their share */
 void  mn_finalize(void);
 #ifdef __cplusplus
 }
