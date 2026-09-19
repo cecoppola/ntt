@@ -118,6 +118,10 @@ int main(int argc, char **argv)
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
     int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
+    if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
+    { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them */
+      int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
+      if (stg && devflow && !getenv("COMM_SIZE")) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; } }
     rns_init(pool_log);
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }

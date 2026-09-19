@@ -36,6 +36,8 @@ extern int rns_crt_layout;        /* RNS_CRT_LAYOUT: 0 one plane per node (defau
 
 int  rns_init(int pool_log);      /* 31 (default, paper) or 32; allocates staging + pools, returns ndev */
 extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
+extern size_t rns_staging_bytes_req;   /* set before rns_init: pinned staging per APU (0 = 8 << pool_log); the decimal device flow needs only the seed stage */
+size_t rns_staging_bytes(void);
 int  rns_pool_log(void);
 int  rns_ndev(void);
 void rns_shutdown(void);

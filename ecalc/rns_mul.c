@@ -48,6 +48,9 @@ __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
 }
 
 void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
+size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the paper's) */
+static size_t g_staging_bytes;
+size_t rns_staging_bytes(void) { return g_staging_bytes; }
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -62,7 +65,7 @@ int rns_init(int pool_log)
     if (getenv("RNS_ENGINE")) rns_engine = atoi(getenv("RNS_ENGINE"));
     bi_env_base();
     crt_init();
-    size_t bytes = (size_t)8 << g_pool_log;
+    size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
@@ -72,9 +75,9 @@ int rns_init(int pool_log)
         D[d].ctx = ntt_ctx_create(d);
         D[d].ctx2 = ntt2_ctx_create(d & 1);
         HIP_CHECK(hipStreamCreate(&D[d].s));
-        D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr);
+        D[d].hstage = (uint64_t *)mem_hstage_alloc(d, sbytes, &tt, &tr);
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
-        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, bytes / 1073741824.0, tt, tr, D[d].ncpu);
+        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu);
     }
     if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
@@ -104,7 +107,7 @@ void rns_release_staging(void)
 }
 void rns_ensure_staging(void)
 {
-    size_t bytes = (size_t)8 << g_pool_log;
+    size_t bytes = g_staging_bytes ? g_staging_bytes : (size_t)8 << g_pool_log;
     for (int d = 0; d < g_nd; d++) if (!D[d].hstage) { double tt, tr; HIP_CHECK(hipSetDevice(d)); D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr); }
 }
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
