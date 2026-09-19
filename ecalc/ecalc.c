@@ -25,6 +25,7 @@
 #include "mem.h"
 #include "dbig.h"
 #include "mn.h"
+#include "mn_out.h"
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -58,43 +59,130 @@ static void pow10_big(bigint *T, unsigned long d)
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
 static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
-struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_grow; size_t grow; };
+struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
-    for (int i = 0; i < T1_NQ; i++) vf_pq_mod(b->N, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
+    for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     t0 = mem_now();
     if (b->grow) for (int dv = 0; dv < 4; dv++) db_pregrow(dv, b->grow);   /* the dm phase's block pool beyond the donated regions, allocated while the GPUs run the levels */
     b->t_grow = mem_now() - t0;
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
 
-struct x_bg { bigint *X; unsigned long d, d_out; char *digits; uint64_t Xres[T1_NQ]; int bad2, bad3, verbose; pthread_t th; int started; double t_res, t_fmt, t_t2; };
-static void digits_format(char *digits, const bigint *X, unsigned long d)   /* the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
+/* O4 (Phase 9 A-out, M5 + C1): X's residues and the digits -- formatted in chunks and written as they are formatted
+ * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
+ * gets X on the host before it */
+struct x_bg { bigint *X; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; };
+static void x_bg_writer(struct x_bg *b)                /* the chunked writer over the host X (also the redo after a correction) */
 {
-    size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);     /* leading zeros to drop */
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < nl; i++) {
-        char buf[19]; uint64_t v = i < X->n ? X->l[i] : 0;
-        snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
-        size_t pos = (nl - 1 - i) * 18;                      /* padded position of this limb's first digit */
-        for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
-    }
-    digits[d + 1] = 0;
+    mn_out_src src = { b->X->l, 0, 0, b->X->n };
+    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose;
+    mn_out_run(&b->o, &src);
 }
-static void *x_bg_run(void *a)                        /* O4: X's residues, the digits, T2 and the digit residue -- during the low product */
+static void *x_bg_run(void *a)
 {
     struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
     double t0 = mem_now();
     for (int i = 0; i < T1_NQ; i++) b->Xres[i] = vf_limbs_mod(b->X->l, b->X->n, t1_q[i]);
-    double t1 = mem_now();
-    digits_format(b->digits, b->X, b->d);
-    double t2 = mem_now();
-    b->bad2 = tier2(b->digits, b->d_out + 1, b->verbose);
-    b->bad3 = tier1_digits_res(b->digits, b->d + 1, b->Xres, b->verbose);
-    b->t_res = t1 - t0; b->t_fmt = t2 - t1; b->t_t2 = mem_now() - t2;
+    b->t_res = mem_now() - t0;
+    x_bg_writer(b);
     return 0;
 }
 static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
 
+/* ---- the output stage (Phase 9 A-out: PLAN.md 19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
+ * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
+ * X (device kernel, placed at the share's offset and summed over the nodes); its share of the digits formatted in
+ * chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and written to its part file as it
+ * goes; node 0 the summary.  Size 1: the same code over the host X (the writer ran in the background from the hook).
+ * Until A-div lands, X exists on node 0's host after its division and is scattered here as a stand-in for the
+ * sharded X of the distributed division (the HOOK comments below say what plugs in). */
+struct out_ctx {
+    unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
+    bigint *X;                                     /* size 1 / node 0: X on the host after the division (empty elsewhere) */
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* node 0's residues of P, Q, R (stand-in: broadcast; A-div: per share + combine) */
+    struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
+    double t00, t_init, t_bs, t_10dp, t_dm;
+};
+static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: node %d: ", c->rank); }
+static int out_stage(struct out_ctx *c)
+{
+    comm *cm = mn_comm(0); int multi = c->size > 1;
+    double t = mem_now();
+    /* T1 (a): P, Q mod q over this node's terms, joined over the nodes */
+    uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
+    if (c->pqb->started) { pthread_join(c->pqb->th, 0); memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
+    else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
+    mn_out_pq_combine(cm, pr, qr, Pg, Qg);
+    /* the share of X this node holds */
+    mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->X->n;
+    if (!multi) { src.host = c->X->l; src.lo = 0; src.cnt = c->X->n; }
+    else {
+        /* HOOK A-div: with the distributed division X is an mdb over all nodes: src.dev = &Xm.sh, mdb_share(&Xm, rank, &lo, &hi),
+         * src.lo = lo, src.cnt = hi - lo, xn = Xm.n -- and the stand-in scatter below goes */
+        double ts = mem_now(); size_t lo, cnt;
+        mn_out_scatter_standin(cm, c->X->l, c->X->n, &xsh, &lo, &cnt, &xn);
+        src.dev = &xsh; src.lo = lo; src.cnt = cnt;
+        if (c->rank == 0) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
+        node_pfx(c); printf("X share [%zu, %zu) of %zu limbs on the device (stand-in scatter from node 0: %.2f s)\n", lo, lo + cnt, xn, mem_now() - ts);
+    }
+    /* T1 (b): the residues of P, Q, R.  HOOK A-div: from the mdb shares -- db_mod_qs(&Pm.sh) etc. with sh.n = the share length,
+     * then mn_out_res_combine(cm, res, lo, out) for each; the stand-in broadcasts node 0's */
+    if (multi) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
+    /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
+    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && !c->ncorr;
+    if (xres_bg) { pthread_join(c->xb->th, 0); memcpy(xs, c->xb->Xres, sizeof xs); }
+    else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); mn_out_res_share(&src, xs); }
+    else mn_out_res_share(&src, xs);
+    mn_out_res_combine(cm, xs, src.lo, Xres);
+    bigint none; bi_init(&none);
+    int bad1 = tier1_res_pq(c->N, c->d, c->Pres, c->Qres, &none, &none, Pg, Qg, Xres, c->Rres, c->verbose >= 2);
+    double t_t1 = mem_now() - t;
+    node_pfx(c); printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", c->pqb->started ? (multi ? " (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)" : " (P, Q recurrence overlapped with bs)") : "");
+    if (c->pqb->started) { node_pfx(c); printf("      overlapped with bs: P, Q mod q recurrence %.2f s, block pool pregrown by %.0f GB in %.2f s\n", c->pqb->t, 4.0 * c->pqb->grow / 1e9, c->pqb->t_grow); }
+    if (!multi) RESULT("T1", "s", t_t1);
+    node_pfx(c); printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
+
+    /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
+    t = mem_now();
+    mn_out ow, *o = &ow; memset(&ow, 0, sizeof ow);
+    if (!multi && c->xb->started) {
+        o = &c->xb->o;
+        if (c->ncorr) {                               /* X changed after the hook: the digits from the final X, the file rewritten */
+            printf("      X corrected after the formatting started: redoing the digits\n");
+            mn_out_finish(o); x_bg_writer(c->xb);
+        }
+    } else {
+        o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
+        mn_out_boundaries(o, &src, cm);
+        mn_out_run(o, &src);
+    }
+    uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
+    int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2);
+    double t_dc = mem_now() - t;
+    if (!multi) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
+    db_free(&xsh);
+    node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
+                        t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (overlapped with the low product)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
+    if (!multi) RESULT("dc", "s", t_dc);
+    node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
+    if (!multi) RESULT("T2", "s", 0.0);
+    node_pfx(c); printf("digits: %s...%s%s\n", o->first, o->last, multi ? " (this node's range)" : "");
+    if (c->rank == 0) {
+        double total = mem_now() - c->t00, phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
+        printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
+               total, c->t_bs, c->t_10dp, c->t_dm, t_t1, t_dc, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
+        RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
+        RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+    }
+    t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
+    if (c->outfile) { node_pfx(c); if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
+                      else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
+    int fail = bad1 || bad2 || bad3;
+    node_pfx(c); printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
+    if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d nodes: %s\n", c->size, any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
+    return fail;
+}
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
 int main(int argc, char **argv)
 {
@@ -145,10 +233,14 @@ int main(int argc, char **argv)
     int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
-    struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
+    struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
+    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
+    struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
+    oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
                pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : 0; }   /* per device; off: hipMalloc in the background stalls the GPU levels (RESULTS.md 70) */
+    else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
@@ -161,15 +253,16 @@ int main(int argc, char **argv)
         double tt = mem_now();
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
-        if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
+        if (mn_rank() != 0) { int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f; }   /* M5: the other nodes go to the output stage (X's share, T1/T2, the part file) */
         printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
         t_bs += mem_now() - tg;
     } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
         comm *c = mn_comm(0); double tg = mem_now();
         if (mn_rank() != 0) {
             uint64_t n2[2] = { P.n, Q.n }; comm_send(c, 0, n2, 16); comm_send(c, 0, P.l, P.n * 8); comm_send(c, 0, Q.l, Q.n * 8);
-            printf("mn: node %d sent P (%zu limbs), Q (%zu limbs) to node 0 in %.2f s; waiting\n", mn_rank(), P.n, Q.n, mem_now() - tg);
-            mn_barrier(); mn_finalize(); rns_shutdown(); return 0;
+            printf("mn: node %d sent P (%zu limbs), Q (%zu limbs) to node 0 in %.2f s\n", mn_rank(), P.n, Q.n, mem_now() - tg);
+            bi_free(&P); bi_free(&Q);
+            int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f;
         }
         bigint Pr, Qr, tt; bi_init(&Pr); bi_init(&Qr); bi_init(&tt);
         for (int r = 1; r < mn_size_; r++) {
@@ -254,13 +347,8 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
-    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.verbose = verbose >= 2;
-    char *digits = 0; int digits_reg = 1;
-    if (ovl) {                                        /* O4: the digit buffer now (plain pages; the formatting thread touches them), the hook starts the formatting */
-        digits_reg = 0;
-        if (posix_memalign((void **)&digits, 2u << 20, d + 2)) { fprintf(stderr, "digits: %lu bytes\n", d + 2); return 1; }
-        xb.digits = digits; newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;
-    }
+    char *digits = 0;
+    if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) with X on the host */
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0;
@@ -271,77 +359,55 @@ int main(int argc, char **argv)
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("dm", "s", t_dm);
 
-    t = mem_now();
-    if (ovl && pqb.started) pthread_join(pqb.th, 0);
-    if (ovl && xb.started) pthread_join(xb.th, 0);   /* its X residues serve T1 (if X was corrected afterwards they are redone below and T1 recomputes) */
-    int xres_ok = ovl && xb.started && !(newton_st.down_corr + newton_st.up_corr);
-    int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, xres_ok ? xb.Xres : 0, rres_ok ? Rres : 0, verbose >= 2);
-    double t_t1 = mem_now() - t;
-    printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", ovl && pqb.started ? " (P, Q recurrence overlapped with bs)" : "");
-    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s, block pool pregrown by %.0f GB in %.2f s\n", pqb.t, 4.0 * pqb.grow / 1e9, pqb.t_grow);
-    RESULT("T1", "s", t_t1);
-    bi_free(&A); bi_free(&R); bi_free(&Q);
-    printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
-
-    /* X's residues now, so X can go as soon as dc has copied it into its level pool */
-    uint64_t Xres[T1_NQ];
-    double t_dc, t_t2; int bad2, bad3;
-    if (ovl && xb.started) {                          /* O4: the formatting, T2 and the digit residue ran during the low product */
+    if (!bi_decimal) {                                /* the binary-limb path (LIMB_BASE=2): the radix conversion produces the whole string; unchanged */
         t = mem_now();
-        if (newton_st.down_corr + newton_st.up_corr) {   /* X changed after the hook: redo from the final X */
-            printf("      X corrected after the formatting started: redoing the digits\n");
-            for (int i = 0; i < T1_NQ; i++) xb.Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
-            digits_format(digits, &X, d);
-            xb.bad2 = tier2(digits, d_out + 1, verbose >= 2); xb.bad3 = tier1_digits_res(digits, d + 1, xb.Xres, verbose >= 2);
-        }
-        free(X.l); X.l = 0; X.n = X.cap = 0;
-        t_dc = mem_now() - t; t_t2 = 0; bad2 = xb.bad2; bad3 = xb.bad3;
-        printf("dc    %8.2f s   digits formatted from %zu decimal limbs (overlapped with the low product: residues %.2f, format %.2f, T2 + digit residue %.2f)\n", t_dc, (d + 1 + 17) / 18, xb.t_res, xb.t_fmt, xb.t_t2);
-        RESULT("dc", "s", t_dc);
-        printf("T2    %8.2f s   windows %s, digits == X mod q %s (overlapped)\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
-        RESULT("T2", "s", t_t2);
-    } else {
-    for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
-    t = mem_now();
-    if (bi_decimal) {                          /* WP2: the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
-        digits = (char *)mem_hreg_alloc(d + 2);
-        digits_format(digits, &X, d);
-        free(X.l); X.l = 0; X.n = X.cap = 0;
-    } else {
+        if (ovl && pqb.started) pthread_join(pqb.th, 0);
+        int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, 0, rres_ok ? Rres : 0, verbose >= 2);
+        double t_t1 = mem_now() - t;
+        printf("T1    %8.2f s   %s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes");
+        RESULT("T1", "s", t_t1);
+        bi_free(&A); bi_free(&R); bi_free(&Q);
+        uint64_t Xres[T1_NQ];
+        for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
+        t = mem_now();
         todec_free_input = 1;
         todec(0, &X, d + 1);                   /* allocates the 40 GB digit string only at the LEAF step */
         digits = todec_out;
+        double t_dc = mem_now() - t;
+        printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
+               t_dc, dec_st.pieces, dec_st.levels, dec_st.t_prewarm, dec_st.t_top, dec_st.t_mid, dec_st.t_deep, dec_st.t_leaf);
+        RESULT("dc", "s", t_dc);
+        printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
+        t = mem_now();
+        int bad2 = tier2(digits, d_out + 1, verbose >= 2);
+        int bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
+        double t_t2 = mem_now() - t;
+        printf("T2    %8.2f s   windows %s, digits == X mod q %s\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
+        RESULT("T2", "s", t_t2);
+        printf("digits: %.62s...%.20s\n", digits, digits + d_out + 1 - 20);
+        double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
+        printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
+               total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, phases, t_init, total - phases - t_init, mem_vmhwm() / 1e9);
+        RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
+        RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
+        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+        if (outfile) {
+            FILE *f = fopen(outfile, "w");
+            if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); fclose(f); printf("wrote %s\n", outfile); }
+        }
+        int fail = bad1 || bad2 || bad3;
+        printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
+        mem_hreg_free(digits);
+        mn_barrier(); mn_finalize();
+        rns_shutdown();
+        return fail;
     }
-    t_dc = mem_now() - t;
-    if (bi_decimal) printf("dc    %8.2f s   digits formatted from %zu decimal limbs (no conversion)\n", t_dc, (d + 1 + 17) / 18);
-    else printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
-           t_dc, dec_st.pieces, dec_st.levels, dec_st.t_prewarm, dec_st.t_top, dec_st.t_mid, dec_st.t_deep, dec_st.t_leaf);
-    RESULT("dc", "s", t_dc);
-    printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
-
-    t = mem_now();
-    bad2 = tier2(digits, d_out + 1, verbose >= 2);
-    bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
-    t_t2 = mem_now() - t;
-    printf("T2    %8.2f s   windows %s, digits == X mod q %s\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
-    RESULT("T2", "s", t_t2);
-    }
-    printf("digits: %.62s...%.20s\n", digits, digits + d_out + 1 - 20);
-
-    double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
-    printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
-           total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, phases, t_init, total - phases - t_init, mem_vmhwm() / 1e9);
-    RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
-    RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
-    printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
-
-    if (outfile) {
-        FILE *f = fopen(outfile, "w");
-        if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); fclose(f); printf("wrote %s\n", outfile); }
-    }
-    int fail = bad1 || bad2 || bad3;
-    printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
-    if (digits_reg) mem_hreg_free(digits); else free(digits);
+    /* decimal: the output stage (M5 + C1) -- T1 from the residues, the digits streamed to the file in chunks, T2 */
+    if (!rres_ok) for (int i = 0; i < T1_NQ; i++) Rres[i] = vf_limbs_mod(R.l, R.n, t1_q[i]);   /* the host flow's R (the device flow's came from the kernel) */
+    memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);
+    oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
+    bi_free(&A); bi_free(&R); bi_free(&Q);
+    int fail = out_stage(&oc);
     mn_barrier(); mn_finalize();
     rns_shutdown();
     return fail;
