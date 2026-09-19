@@ -23,6 +23,7 @@ mn_group *mn_group_at(int level);                            /* this node's grou
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
 int   mn_selftest_layered(int logR, int logC, int verbose);  /* the layered comm over 4 x (largest power of two <= size) ranks; 1 = ok */
 void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* the leaves (taken over) -> shares of P, Q over all nodes */
+int   mn_ckpt_tree_level(unsigned long N);                    /* M6: the tree level every node can restart from (0: none; N = 0 after the first call) */
 void  mn_gather_host(bigint *out, const mdb *X);             /* node 0 assembles the number on the host; the others send their share */
 void  mn_finalize(void);
 #ifdef __cplusplus

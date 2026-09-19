@@ -196,32 +196,76 @@ int mn_selftest_layered(int logR, int logC, int verbose)
  * operand sharded over its own group's nodes and the results over the joined group.  The other side's
  * descriptors (n, N, g0, g) come from an all-gather over the group; nothing else is exchanged outside the
  * products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares of P, Q over all nodes. */
+/* M6 (PLAN.md 19, results/A-ckpt.md): the tree level every node restarts from -- the lowest, over the nodes, of each
+ * node's highest complete tree set (a node writes level l, then all nodes meet at a barrier, then the superseded
+ * set goes: so the lowest level present is present everywhere); computed once, the sets above it discarded */
+#include "binsplit.h"
+#include <unistd.h>
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
+static int g_cktree = -1; static unsigned long g_ckN;
+int mn_ckpt_tree_level(unsigned long N)
+{
+    if (g_cktree >= 0) return g_cktree;
+    if (N) g_ckN = N;
+    if (g_size <= 1 || !bs_restart || !bs_ckpt_dir) { g_cktree = 0; return 0; }
+    uint64_t my = (uint64_t)bs_ckpt_tree_find(g_ckN), *all = (uint64_t *)malloc((size_t)g_size * 8), mn = my;
+    mn_allgather(g_cm[0], &my, 1, all);
+    for (int r = 0; r < g_size; r++) if (all[r] < mn) mn = all[r];
+    free(all); g_cktree = (int)mn;
+    bs_ckpt_tree_clear(g_cktree);
+    printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)my, g_cktree);
+    return g_cktree;
+}
 void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
 {
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = g_rank; P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = g_rank; Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
     int L = 0; while ((1 << L) < g_size) L++;
-    for (int l = 1; l <= L; l++) {
-        int k = g_rank >> l, g0 = k << l, g = (1 << l) < g_size - g0 ? (1 << l) : g_size - g0, half = 1 << (l - 1);
-        if (g <= half) continue;                             /* no sibling group: carried up */
-        double t0 = mem_now();
-        mn_group *G = mn_group_at(l);
-        uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
-        mn_allgather(G->all[0], v, 8, all);
-        int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
-        mdb PA, QA, PB, QB; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA); memset(&PB, 0, sizeof PB); memset(&QB, 0, sizeof QB);
-        PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
-        PB.n = dbb[0]; PB.N = dbb[1]; PB.g0 = (int)dbb[2]; PB.g = (int)dbb[3]; QB.n = dbb[4]; QB.N = dbb[5]; QB.g0 = (int)dbb[6]; QB.g = (int)dbb[7];
-        if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
-        free(all);
-        mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
-        rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
-        rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
-        db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
-        size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
-        printf("mn: node %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
+    int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
+    if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
+        double t0 = mem_now(); uint64_t d[10]; dbig ps, qs;
+        if (!bs_ckpt_tree_read(lr, g_ckN, d, &ps, &qs)) { fprintf(stderr, "mn: node %d: restart from tree level %d failed\n", g_rank, lr); exit(1); }
+        db_free(&P->sh); db_free(&Q->sh);
+        P->sh = ps; P->n = d[0]; P->N = d[1]; P->g0 = (int)d[2]; P->g = (int)d[3]; Q->sh = qs; Q->n = d[5]; Q->N = d[6]; Q->g0 = (int)d[7]; Q->g = (int)d[8];
+        bs_st.t_restart += mem_now() - t0;
+        printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
+    for (int l = lr + 1; l <= L; l++) {
+        int k = g_rank >> l, g0 = k << l, g = (1 << l) < g_size - g0 ? (1 << l) : g_size - g0, half = 1 << (l - 1);
+        if (g > half) tree_level(P, Q, l, g0, g, half);      /* (no sibling group: carried up unchanged) */
+        if (ck) {                                            /* M6: this node's shares after level l; the previous set goes once every node has this one */
+            double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
+            size_t bytes = bs_ckpt_tree_write(l, g_ckN, d, &P->sh, &Q->sh); double dtc = mem_now() - tc;
+            if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; }
+            printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", g_rank, l, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
+            if (bytes && getenv("BS_CKPT_ABORT_TREE") && atoi(getenv("BS_CKPT_ABORT_TREE")) == l && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == g_rank)) {   /* test hook: die before the barrier (BS_CKPT_ABORT_NODE: this node only) */
+                printf("mn: node %d: BS_CKPT_ABORT_TREE: exiting after the tree level %d checkpoint\n", g_rank, l); fflush(stdout); _exit(3);
+            }
+            mn_barrier();
+            if (bytes) bs_ckpt_tree_remove_below(l);
+        }
+    }
+}
+/* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
+static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
+{
+    double t0 = mem_now();
+    mn_group *G = mn_group_at(l);
+    uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
+    mn_allgather(G->all[0], v, 8, all);
+    int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
+    mdb PA, QA, PB, QB; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA); memset(&PB, 0, sizeof PB); memset(&QB, 0, sizeof QB);
+    PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
+    PB.n = dbb[0]; PB.N = dbb[1]; PB.g0 = (int)dbb[2]; PB.g = (int)dbb[3]; QB.n = dbb[4]; QB.N = dbb[5]; QB.g0 = (int)dbb[6]; QB.g = (int)dbb[7];
+    if (inA) { PA.sh = P->sh; QA.sh = Q->sh; } else { PB.sh = P->sh; QB.sh = Q->sh; }
+    free(all);
+    mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
+    rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
+    rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
+    db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
+    size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
+    printf("mn: node %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
 }
 /* M3's end: node 0 assembles the whole number on the host from the shares (over mesh 0); the others send theirs */
 void mn_gather_host(bigint *out, const mdb *X)
