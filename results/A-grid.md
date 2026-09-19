@@ -75,4 +75,91 @@ per APU over the 2³¹ layout (+136 GB per node).
 
 ## Tests
 
-(filled in below from the aac6 batches; job 20709 on ppac-pl1-s24-16, clone `~/ntt-agrid`)
+Job 20709 (one node, ppac-pl1-s24-16, 45 min; the node-processes share it), clone `~/ntt-agrid` built
+from the branch bundle; the batch scripts are `~/agrid/agrid_b1..4.sh`, the logs `~/agrid/out/`.
+
+### `tests/t_mn_grid` (the grid over shares against the host product)
+
+`SLURM_JOB_ID=$J ./mnrun.sh <procs> ./tests/t_mn_grid 1 28` (scale 1, POOL_LOG 28; `DIST_LOGN_TEST=24` set by
+the test: cap 2^(24 + log₂ gt)). Every node checks its own share limb by limb, the length, and the zeros
+above the length. Per shape and generator (uniform, all-ones): the product, the product + X, three low
+products (w = na + 2, na/2 + 1, n − 1), a product of two views (A[na/3, +na/2) × B[7, ..)) and its low product,
+and `mdb_add_shifted` at k = 0, 7, na/2, na on the product's shares; 120 checks per node.
+
+| node-processes | gt | cap | shapes (limbs) → grids | result |
+|---|---|---|---|---|
+| 2 | 2 | 2^25 | 1.0e7 × 8.4e6 (one plane), 2.0e7 × 1.7e7 (1 × 2), 3.5e7 × 3.5e7 (2 × 3, the 4 × 10¹⁰ shape), 5.0e7 × 1.3e7 (3 × 1), 3.0e7 × 3.0e7 with A on node 0 and B, X on node 1 (the tree's layout, 1 × 2) | VERIFY OK (120) on both |
+| 3 | 2 | 2^25 | the same (node 2 redistributes only; A on node 0, B and X on nodes 1–2) | VERIFY OK (120) on all three |
+| 4 | 4 | 2^26 | the same shapes doubled (2.0e7 × 1.7e7 … 1.0e8 × 2.7e7); A on nodes 0–1, B, X on 2–3 | VERIFY OK (120) on all four |
+| 2, decimal (`LIMB_BASE=10`) | 2 | 2^25 | the same | VERIFY OK (120) on both |
+
+Times (TCP over loopback, meaningless as performance): the 2 × 3 product of 3.5e7 × 3.5e7 limbs 3.2 s at
+2 processes; the doubled one 2.6 s at 4.
+
+The first version failed the low products: a share that had nothing to add reported propagate = 1 (M3's
+convention for an empty share) although its limbs were not all B − 1, so a real carry into it was passed on
+to the next node and also added locally ("carry out of the top share"). Fixed as described above (propagate = 0
+for a share that did not add, another scan round if its + 1 carries out).
+
+### ecalc
+
+| digits | size | env | result | wall |
+|---|---|---|---|---|
+| 10⁹ | 1 | (default) | VERIFY OK, `cmp` identical to `ref/e_1000000000.txt` | 9.0 s |
+| 10⁹ | 2 | `POOL_LOG=29 BS_MDEV_LOGL=25` | identical (tree level 1: P, Q 5.6e7 limbs, one plane) | 12 s |
+| 10⁹ | 4 | `POOL_LOG=29 BS_MDEV_LOGL=25` | identical (levels 1–2) | 13 s |
+| 4 × 10¹⁰ | 2 (one node) | `POOL_LOG=30` | **out of device memory** at the first tree product: `HIP out of memory at dbig.c:73` in both node-processes, right after `dist_mn node 0: 1074769838 x 1147452389 limbs over 2 x 4 ranks (cap 2^31): 1 x 2 pieces` — the grid split itself works (the pieces were chosen), the node cannot hold two processes' leaf trees (112 GB of device pools each after init, the leaf P, Q of 1.1 × 10⁹ limbs each per process, the planes 2 × 8 GiB × 4 APUs per process, the slabs) | — |
+| 2 × 10¹⁰ | 2 (one node) | `POOL_LOG=30` | see below | |
+| 2 × 10¹⁰ | 1 | (default) | see below | |
+
+(The `META pool_log=31` in every log is printed before `rns_init`; the cap line "cap 2^31" at size 2 with
+`POOL_LOG=30` confirms the pool size reached the process.)
+
+### C5 measurements (4 × 10¹⁰, size 1, `ECALC_VERBOSE=2 RNS_VERBOSE=1`, the reference file evicted)
+
+`DIST_R3=0` (the baseline, this branch): bs 43.5 s, dm 34.1 s, phases 77.7 s, wall 98.8 s, VERIFY OK,
+digits identical to `results/e_4e10.out`. `DIST_R3=1`: bs 56.5 s, then the job's time limit ended the run in
+the division (no digits). Per plane (load / ntt / crt / total):
+
+| plane | limbs | load | ntt | crt | total |
+|---|---|---|---|---|---|
+| 2^30 | 1.06e9 | 0.16 | 0.37 | 0.05 | 0.55 s |
+| 3·2^29 | 1.13e9 | 0.27 | 0.54 | 0.07 | 0.88 s (first call 2.94 s: tables, block-pool growth) |
+| 2^31 | 1.13e9–1.85e9 | 0.32–0.35 | 0.67 | 0.08–0.10 | 1.08–1.17 s |
+| 3·2^30 | 2.19e9–2.96e9 | 0.54–0.57 | 1.06 | 0.13–0.14 | 1.75–1.82 s (first call 14.6 s: pool 0 grown to 32 GiB, the 18 GiB block from the dbig pool, tables) |
+
+The 3·2^30 plane costs 1.57× the 2^31 plane for 1.5× the points (the radix-3 layer and the non-power-of-two
+column count cost ≈ 5 % per point). The top levels with it (steady state, the first-call costs excluded):
+
+| product | 2^31 planes (baseline) | 3·2^k planes | change |
+|---|---|---|---|
+| level 23 (two products 1.06e9 × 1.13e9 ... the pairs of 5.7e8) | 2 × 2^30 + 2 × 2^31 = 3.3 s (level 4.10 s) | 2 × 2^30 + 2 × 3·2^29 = 2.9 s | −0.4 s |
+| level 24 (two products 1.06e9 × 1.13e9: 1 × 2 pieces) | 4 × 2^31 = 4.5 s (level 5.36 s) | 2 × 3·2^30 = 3.5 s | −1.0 s |
+| level 25 (2.19e9 × 2.7e7: 5 × 1 pieces of 2^29) | 10 × 0.28 = 2.8 s (level 3.54 s) | 2 × 3·2^30 = 3.5 s (1 × 1: the cost model prefers one big plane; the 5 × 1 grid would be as before) | +0.7 s (0 with the cost model fixed) |
+| dm: Q_t r 2.22e9 × 1.11e9 (3 × 1 → 1 × 2) | 3 × 1.13 = 3.4 s | 2 × 1.8 = 3.6 s | +0.2 s |
+| dm: A μ 2.22e9 × 2.22e9 (2 × 3 → 1 × 3) | 6 × 1.13 = 6.8 s | 3 × 1.8 = 5.4 s | −1.4 s |
+| dm: the low product X Q (2 × 3 with pieces skipped → 1 × 3) | 5 × 1.13 = 5.7 s | 3 × 1.8 = 5.4 s (no piece skipped in a 1 × 3 grid: all three start below w) | −0.3 s |
+
+Net ≈ −2.5 s of the 77.7 s of phases in steady state — PLAN §16's I10 estimate (−3 s) — at +34 GiB of device
+memory per APU (pool 0 32 GiB instead of 16, the 18 GiB block for xb and the slabs), and a one-time 15 s
+unless the pools are sized for it at init. The first-time cost aside, the measured levels were 23: 5.89 s
+(+1.8, of which 2.1 first call), 24: 16.65 s (+11.3, of which 12.9 first call), 25: 3.57 s (+0.0). Not
+adopted: `DIST_R3` stays 0; the code is a switch in `rns_dist.c` only. Open: the 4 × 10¹⁰ digits with
+`DIST_R3=1` were not verified end to end (the run was cut by the job limit after bs; `t_dbig 24 big` with
+`DIST_R3=1` verified the 2^30 × 2^30 product on the 3·2^30 plane against the host product before the test was
+killed at the next, 3.2e9-limb product — host memory, the reference product of 2^31 limbs).
+
+## Open issues
+
+- 4 × 10¹⁰ at size 2 needs two real nodes (or a node with the leaf tree of one process only): on one node the
+  two node-processes run out of device memory at the first tree product. The grid at that size is exercised
+  by 2 × 10¹⁰ at size 2 (1 × 2 pieces at the top level) and by the t_mn_grid shapes.
+- `mdb_add_shifted` pads every slab to the round size and every node takes part in every round (g × 2^26 × 8 B
+  per APU and buffer); a point-to-point exchange (comm_send/recv are host-buffer only today) would avoid the
+  padding. Used only for X in the grid case (the tree's P_B: one add per level with a grid).
+- The piece temporaries: a piece's window T on a node is up to the share's length (2.2 × 10⁹ limbs at size 2,
+  4 × 10¹⁰: 17.6 GB per node spread over the four APUs) — allocated from the dbig block pool per piece.
+- A node group of one node (g = 1) is not a valid argument of the products (the tree never forms one); A-div
+  should call the single-node `rns_mul_dist_db` at size 1.
+- The carry scan runs at most g rounds when a + 1 carries out of a share that had nothing to add; that share
+  is then all B − 1 up to the carry — never seen; each extra round is one byte all-gather and one allreduce.
