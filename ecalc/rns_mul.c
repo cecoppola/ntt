@@ -4,6 +4,7 @@
 #include <string.h>
 #include <omp.h>
 #include "rns_mul.h"
+#include "dbig.h"
 #include "ntt.h"
 #include "mem.h"
 #include "crt.h"
@@ -108,6 +109,16 @@ void rns_ensure_staging(void)
 }
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
 void *rns_dpool(int dev, int which, size_t bytes) { return dpool_get(which ? &D[dev].db : &D[dev].da, dev, bytes); }
+/* Phase 8 I3: the part of plane pool `which` above `used` bytes (the dist tier's slabs take 3 q of pool 1's 4 q at 2^31 points)
+ * goes to the dbig block pool; the pool keeps its size (the tail is never handed out again by dpool_get, which only grows) */
+size_t rns_dpool_donate_tail(int dev, int which, size_t used)
+{
+    dpool *dp = which ? &D[dev].db : &D[dev].da;
+    if (!dp->p || dp->cap <= used) return 0;
+    size_t tail = dp->cap - used; if (tail < ((size_t)1 << 30)) return 0;
+    db_donate_ext(dev, (char *)dp->p + used, tail, 0);
+    return tail;
+}
 int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {

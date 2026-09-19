@@ -20,7 +20,8 @@ void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
 extern struct db_stats db_st;                        /* accumulated; the caller resets */
 void db_release_pools(void);                          /* free the cached quarter blocks and donated regions (end of a phase) */
-void db_donate(int dev, void *p, size_t bytes);      /* a device region for the block free lists; released by db_release_pools */
+void db_donate(int dev, void *p, size_t bytes);
+void db_donate_ext(int dev, void *p, size_t bytes, int own);   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
 size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
 int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
@@ -45,6 +46,7 @@ void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
 uint64_t db_limb(const dbig *a, size_t i);
 uint64_t db_mod_q(const dbig *x, uint64_t q);
+void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */
 /* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
 dbig db_view(const dbig *a, size_t lo, size_t len);

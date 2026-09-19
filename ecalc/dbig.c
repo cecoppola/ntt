@@ -37,7 +37,7 @@ static struct { struct ext e[8192]; int n; } g_ext[DB_NQ];
 static size_t g_pool_bytes;
 static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
 static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
-static struct { void *p; int dev; size_t bytes; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions */
+static struct { void *p; int dev; size_t bytes; int own; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools) */
 static size_t fsize(int fam, int l) { return (size_t)(fam ? 3 : 1) * 8 << l; }
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
@@ -71,7 +71,7 @@ static uint64_t *q_alloc_locked(int d, int fam, int l)
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
         void *m; HIP_CHECK(hipMalloc(&m, need)); HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
-        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
+        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
         p = (char *)m;
     }
     live_add((uint64_t *)p, d, need, reg); return (uint64_t *)p;
@@ -84,11 +84,12 @@ static void q_free(int d, uint64_t *p)
     ext_insert(d, (char *)p, bytes, reg);
     pthread_mutex_unlock(&g_pool_mx);
 }
-void db_donate(int dev, void *p, size_t bytes)
+void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
+void db_donate_ext(int dev, void *p, size_t bytes, int own)
 {
     pthread_mutex_lock(&g_pool_mx);
     if (g_ndonated >= 256) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
-    g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_ndonated++;
+    g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
     pthread_mutex_unlock(&g_pool_mx);
 }
@@ -97,7 +98,7 @@ int db_pool_extents(int d) { return g_ext[d].n; }
 void db_release_pools(void)
 {
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
-    for (int i = 0; i < g_ndonated; i++) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
+    for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
@@ -204,43 +205,57 @@ void db_to_bi(bigint *r, const dbig *x)
 #define MQ_T 256
 #define MQ_K 64
 #define MQ_CH ((size_t)MQ_T * MQ_K)
-__global__ void k_modq(const uint64_t *x, size_t n, uint64_t q, uint64_t Bt, const uint64_t *powt, uint64_t *out)
+__global__ void k_modq(const uint64_t *x, size_t n, int nq, const uint64_t *qs, const uint64_t *Bts, const uint64_t *powt, uint64_t *out)   /* nq primes at once; powt[j MQ_T + t] = B^t mod q_j; out[c nq + j] */
 {
     __shared__ uint64_t sh[MQ_T];
     size_t base = (size_t)blockIdx.x * MQ_CH; unsigned t = threadIdx.x;
-    uint64_t v = 0;
-    for (int k = MQ_K; k-- > 0;) { size_t i = base + (size_t)k * MQ_T + t; uint64_t xi = i < n ? x[i] : 0; v = (uint64_t)(((unsigned __int128)v * Bt + xi) % q); }
-    sh[t] = (uint64_t)((unsigned __int128)v * powt[t] % q);
-    __syncthreads();
-    for (unsigned s2 = MQ_T / 2; s2 > 0; s2 >>= 1) { if (t < s2) { uint64_t a = sh[t] + sh[t + s2]; sh[t] = a >= q ? a - q : a; } __syncthreads(); }
-    if (t == 0) out[blockIdx.x] = sh[0];
+    for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j], Bt = Bts[j], v = 0;
+        for (int k = MQ_K; k-- > 0;) { size_t i = base + (size_t)k * MQ_T + t; uint64_t xi = i < n ? x[i] : 0; v = (uint64_t)(((unsigned __int128)v * Bt + xi) % q); }
+        sh[t] = (uint64_t)((unsigned __int128)v * powt[j * MQ_T + t] % q);
+        __syncthreads();
+        for (unsigned s2 = MQ_T / 2; s2 > 0; s2 >>= 1) { if (t < s2) { uint64_t a = sh[t] + sh[t + s2]; sh[t] = a >= q ? a - q : a; } __syncthreads(); }
+        if (t == 0) out[blockIdx.x * nq + j] = sh[0];
+        __syncthreads();
+    }
 }
 static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
-uint64_t db_mod_q(const dbig *x, uint64_t q)
+#define MQ_MAXQ 16
+/* residues of x modulo nq primes (each < 2^63) at once: the quarters in parallel, one launch per quarter */
+void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {
-    if (!x->n) return 0;
-    uint64_t Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q), Bt = powmod_h(Bq, MQ_T, q), Bch = powmod_h(Bq, MQ_CH, q);
-    uint64_t powt[MQ_T]; powt[0] = 1; for (int t = 1; t < MQ_T; t++) powt[t] = (uint64_t)((unsigned __int128)powt[t - 1] * Bq % q);
-    uint64_t r = 0; size_t maxc = x->qc / MQ_CH + 2;
-    uint64_t *hv = (uint64_t *)malloc(maxc * 8);
-    for (int d = DB_NQ; d-- > 0;) {                                 /* from the top quarter down: r = r B^len + v_quarter */
-        size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
-        size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH;
-        HIP_CHECK(hipSetDevice(d));
-        if (g_mq_cap[d] < nc) { if (g_mq_out[d]) HIP_CHECK(hipFree(g_mq_out[d])); HIP_CHECK(hipMalloc(&g_mq_out[d], (nc + 1024) * 8)); g_mq_cap[d] = nc + 1024; }
-        if (!g_mq_pow[d]) HIP_CHECK(hipMalloc(&g_mq_pow[d], MQ_T * 8));
-        HIP_CHECK(hipMemcpy(g_mq_pow[d], powt, MQ_T * 8, hipMemcpyHostToDevice));
-        k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, q, Bt, g_mq_pow[d], g_mq_out[d]);
-        HIP_CHECK(hipStreamSynchronize(0));
-        HIP_CHECK(hipMemcpy(hv, g_mq_out[d], nc * 8, hipMemcpyDeviceToHost));
-        uint64_t vq = 0; for (size_t c = nc; c-- > 0;) vq = (uint64_t)(((unsigned __int128)vq * Bch + hv[c]) % q);   /* chunks below the top one are full */
-        r = (uint64_t)(((unsigned __int128)r * powmod_h(Bq, len, q) + vq) % q);
+    if (nq > MQ_MAXQ) { fprintf(stderr, "db_mod_qs: %d primes\n", nq); abort(); }
+    for (int j = 0; j < nq; j++) res[j] = 0;
+    if (!x->n) return;
+    uint64_t Bq[MQ_MAXQ], Bt[MQ_MAXQ], Bch[MQ_MAXQ], powt[MQ_MAXQ * MQ_T];
+    for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j]; Bq[j] = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
+        powt[j * MQ_T] = 1; for (int t = 1; t < MQ_T; t++) powt[j * MQ_T + t] = (uint64_t)((unsigned __int128)powt[j * MQ_T + t - 1] * Bq[j] % q);
     }
-    free(hv);
-    return r;
+    uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen);
+#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+    for (int d = 0; d < DB_NQ; d++) {
+        size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
+        size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH; qlen[d] = len;
+        HIP_CHECK(hipSetDevice(d));
+        if (g_mq_cap[d] < nc * MQ_MAXQ) { if (g_mq_out[d]) HIP_CHECK(hipFree(g_mq_out[d])); HIP_CHECK(hipMalloc(&g_mq_out[d], (nc * MQ_MAXQ + 1024) * 8)); g_mq_cap[d] = nc * MQ_MAXQ + 1024; }
+        if (!g_mq_pow[d]) HIP_CHECK(hipMalloc(&g_mq_pow[d], (MQ_MAXQ * MQ_T + 2 * MQ_MAXQ) * 8));
+        uint64_t *dq = g_mq_pow[d] + MQ_MAXQ * MQ_T, *dbt = dq + MQ_MAXQ;
+        HIP_CHECK(hipMemcpy(g_mq_pow[d], powt, (size_t)nq * MQ_T * 8, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMemcpy(dq, qs, (size_t)nq * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dbt, Bt, (size_t)nq * 8, hipMemcpyHostToDevice));
+#pragma omp critical
+        k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[d], g_mq_out[d]);
+        HIP_CHECK(hipStreamSynchronize(0));
+        uint64_t *hv = (uint64_t *)malloc(nc * nq * 8);
+        HIP_CHECK(hipMemcpy(hv, g_mq_out[d], nc * nq * 8, hipMemcpyDeviceToHost));
+        for (int j = 0; j < nq; j++) { uint64_t v = 0; for (size_t c = nc; c-- > 0;) v = (uint64_t)(((unsigned __int128)v * Bch[j] + hv[c * nq + j]) % qs[j]); vq[d][j] = v; }
+        free(hv);
+    }
+    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = DB_NQ; d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
 }
+uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
 __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
 {
@@ -491,11 +506,15 @@ void db_set_base_pow(dbig *r, size_t k)
     r->n = k + 1;
 }
 /* r = (the low m limbs of a) B^k, as an n-limb number: zeros plus a small copy (I3: the division's remainder window) */
+__global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) p[i] = 0; }
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
 {
     db_reserve(r, n);
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
-    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipStreamSynchronize(0)); } }
+    for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
+#pragma omp critical
+        k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);                  /* (hipMemset runs at ~10 GB/s here) */
+        HIP_CHECK(hipStreamSynchronize(0)); } }
     if (m > a->n) m = a->n;
     for (size_t i = 0; i < m && k + i < n; i++) { uint64_t v = db_limb(a, i); size_t g = k + i, d = hq(r, g); mem_dev_copy_on((int)d, r->q[d] + (g - d * r->qc), &v, 8); }
     r->n = n; db_norm(r);
