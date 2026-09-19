@@ -15,11 +15,11 @@ static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); db_free(&g_mu); db_free(&g_t); db_free(&g_xq); }
 
 /* the seed is small: the host version, copied in */
-static void seed_db(dbig *r, const bigint *Q, const dbig *Qd, size_t *j)
+static void seed_db(dbig *r, const bigint *Q, const dbig *Qd, size_t nq_seed, size_t *j)   /* nq_seed (M4): Qd is only the top of a Q of nq_seed limbs; 0 = Qd is Q */
 {
     bigint hr; bi_init(&hr);
     if (Q && Q->l) newton_seed_host(&hr, Q, j);
-    else { size_t nq = Qd->n, top = nq < 4 ? nq : 4; uint64_t t4[4]; for (size_t i = 0; i < top; i++) t4[i] = db_limb(Qd, nq - top + i); newton_seed_top(&hr, t4, top, nq, j); }   /* I3: Q only on the device */
+    else { size_t nq = Qd->n, top = nq < 4 ? nq : 4; uint64_t t4[4]; for (size_t i = 0; i < top; i++) t4[i] = db_limb(Qd, nq - top + i); newton_seed_top(&hr, t4, top, nq_seed ? nq_seed : nq, j); }   /* I3: Q only on the device */
     db_from_bi(r, &hr); bi_free(&hr);
 }
 /* r -= r / 16 (overshoot shrink), through the host: rare */
@@ -33,7 +33,9 @@ static void shrink_db(dbig *r)
 static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.n = e; db_norm(&v); return v.n != 0; }
 /* (a << j) <= b, both with the same limb count (rare path: an explicit shift) */
 static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b) { dbig t; db_init(&t); db_shl_limbs(&t, a, j); int le = db_cmp(&t, b) <= 0; db_free(&t); return le; }
-static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
+static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed);
+static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { recip_db2(mu, Qd, Q, k, 0); }
+static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed)
 {
     double t0 = mem_now();
     if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
@@ -44,7 +46,7 @@ static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k)
     dbig r = g_r, r2 = g_r2, t1 = g_t1, t2 = g_t2;
     size_t tcap = (nq + k > 2 * k ? nq + k : 2 * k) + 8;
     db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap);
-    seed_db(&r, Q, Qd, &j);
+    seed_db(&r, Q, Qd, nq_seed, &j);
     while (j < k) {
         size_t jn = k;
         if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
@@ -237,3 +239,355 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     newton_st.t_div += mem_now() - t0;
 }
 
+
+/* ==== Phase 9 M4 (A-div, PLAN.md 17/19): the reciprocal and the division over sharded numbers ====================
+ * After the tree P and Q are mdb over the whole machine (the top-level group G).  Every big product is
+ * rns_mul_dist_mn over G; everything else is one of a few share-level primitives:
+ *   mdb_shift    Y = X >> s (s < 0: <<) in a chosen basis N2 -- one all-to-all per APU thread of the pieces
+ *                (a piece = one source share x one target share; APU d carries its quarter of each piece),
+ *                truncating to N2 limbs when asked (the window, low(X Q));
+ *   mdb_addsub   Y = A +/- B in one basis: the fixed-length share add with the (carry, propagate) scan over
+ *                the nodes (the pattern of the product's spill add), a second pass on the nodes receiving one;
+ *   mdb_add_val  +/- a small value at one limb (the corrections of X);
+ *   mdb_cmp, mdb_norm, mdb_limb, mdb_mod_qs   all-gathers / max-reductions of per-share values.
+ * The reciprocal: the anchored doubling chain from k is followed on every node identically with the
+ * single-node recip_db on the top limbs of Q up to the largest target <= NEWTON_MN_SPLIT limbs (the iterates
+ * depend only on Q's top 2j + 2 limbs, so they are the single-node ones); each node then takes its share of
+ * r, and the remaining steps run the correction-form step of recip_db over shares.  The division mirrors
+ * newton_db_divmod_shifted: S = P + Q, X = ((S >> (nq - 1 - dl)) mu) >> (k + 1), the window and the +/-Q
+ * corrections on shares, R's residues by the sharded kernel scaled by B^lo per node and reduced over G. */
+#include <omp.h>
+#include "mdb.h"
+#include "mn.h"
+#define MN_HIP(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+struct sacc { uint64_t *q[4]; size_t qc, off; };                     /* a dbig's limbs by index (any quarter: peer access) */
+__device__ static inline uint64_t *sacc_p(const struct sacc a, size_t i) { size_t g = a.off + i, d = (g >= a.qc) + (g >= 2 * a.qc) + (g >= 3 * a.qc); return a.q[d] + (g - d * a.qc); }
+static struct sacc sacc_of(const dbig *x) { struct sacc a; for (int d = 0; d < 4; d++) a.q[d] = x->q[d]; a.qc = x->qc; a.off = x->off; return a; }
+struct piece { size_t a, len; };                                     /* target indices [a, a + len) of one (source, target) piece's part on this APU */
+__global__ void k_mn_pack(uint64_t *sb, struct sacc src, long off, const struct piece *pc, int g, size_t SL)   /* sb[r' SL + k] = src[a + k + off] */
+{
+    size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) sb[t] = *sacc_p(src, (size_t)((long)(pc[r].a + k) + off)); }
+}
+__global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, const struct piece *pc, int g, size_t SL)
+{
+    size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) *sacc_p(dst, pc[r].a + k - lo2) = rb[t]; }
+}
+static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
+static hipStream_t g_ms[4]; static int g_ms_init;
+static void ms_init(void) { if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1; }
+static struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; } mn_st;
+static void mfree(mdb *x) { if (x->sh.cap) db_free(&x->sh); memset(x, 0, sizeof *x); }
+static size_t mshare_max(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
+/* the piece (source node r, target node rt): target indices [a, b); APU d's quarter of it */
+static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt, int d, struct piece *pc)
+{
+    size_t lo1, hi1, lo2, hi2; mdb_share(X, r, &lo1, &hi1); mdb_share(Y, rt, &lo2, &hi2);
+    if (hi1 > X->n) hi1 = X->n; if (hi2 > n2) hi2 = n2;
+    pc->a = pc->len = 0;
+    if (hi1 <= lo1 || hi2 <= lo2) return 0;
+    long a = (long)lo2, b = (long)hi2; if ((long)lo1 - s > a) a = (long)lo1 - s; if ((long)hi1 - s < b) b = (long)hi1 - s;
+    if (b <= a) return 0;
+    size_t len = (size_t)(b - a), a0 = (size_t)a + len * d / 4, a1 = (size_t)a + len * (d + 1) / 4;
+    pc->a = a0; pc->len = a1 - a0; return 1;
+}
+/* Y = X >> s (s < 0: X << -s) in basis N2 over G; if N2 is below the shifted length the result is truncated to N2
+ * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
+static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G)
+{
+    double t0 = mem_now(); mn_st.n_shift++;
+    ms_init();
+    int g = G->g, me = G->me, node = G->g0 + me;
+    size_t n2 = s >= 0 ? (X->n > (size_t)s ? X->n - (size_t)s : 0) : X->n + (size_t)(-s);
+    int trunc = n2 > N2; if (trunc) n2 = N2;
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = g; Yn.n = n2; db_init(&Yn.sh);
+    size_t lo2, hi2; mdb_share(&Yn, node, &lo2, &hi2); size_t cn = hi2 - lo2;
+    db_zero_fill(&Yn.sh, cn);
+    size_t lo1, hi1; mdb_share(X, node, &lo1, &hi1);
+    /* the slab: the longest piece part on any APU (a piece lies inside one source share and one target share) */
+    size_t pm = mshare_max(X) < mshare_max(&Yn) ? mshare_max(X) : mshare_max(&Yn), SL = (pm + 3) / 4 + 1; SL = (SL + 15) / 16 * 16;
+    if (X->n && n2) {
+#pragma omp parallel num_threads(4)
+    {
+        int d = omp_get_thread_num(); hipStream_t st = g_ms[d];
+        MN_HIP(hipSetDevice(d));
+        uint64_t *sb = db_pool_alloc(d, (size_t)g * SL * 8), *rb = db_pool_alloc(d, (size_t)g * SL * 8);
+        struct piece *hp = (struct piece *)malloc(g * sizeof *hp), *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp);
+        int any = 0; for (int r = 0; r < g; r++) any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]);
+        if (any) {
+            MN_HIP(hipMemcpyAsync(dp, hp, g * sizeof *hp, hipMemcpyHostToDevice, st));
+            k_mn_pack<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SL);
+        }
+        MN_HIP(hipStreamSynchronize(st));
+        comm_alltoall(G->all[d], sb, rb, SL * 8, st); comm_wait(G->all[d]);
+        any = 0; for (int r = 0; r < g; r++) any |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hp[r]);
+        if (any && cn) {
+            MN_HIP(hipMemcpyAsync(dp, hp, g * sizeof *hp, hipMemcpyHostToDevice, st));
+            k_mn_scatter<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SL);
+        }
+        MN_HIP(hipStreamSynchronize(st));
+        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dp); free(hp);
+    }
+    MN_HIP(hipSetDevice(0));
+    }
+    Yn.sh.n = cn;
+    if (trunc) { size_t top = 0; if (cn) { dbig t = Yn.sh; db_norm(&t); top = t.n ? lo2 + t.n : 0; } Yn.n = comm_allreduce_max(G->all[0], top); }
+    if (Y->sh.cap) db_free(&Y->sh);
+    *Y = Yn;
+    mn_st.t_shift += mem_now() - t0;
+}
+/* the node-level carry scan: my (carry-out, propagate) with everyone's -> my carry-in; the top node's carry-out in *top_out */
+static int node_scan(mn_group *G, int c, int p, int *top_out)
+{
+    int g = G->g, me = G->me, cin = 0; uint64_t v = (uint64_t)(c | (p << 1)), *all = (uint64_t *)malloc((size_t)g * 8);
+    mn_allgather(G->all[0], &v, 1, all);
+    for (int r = 0; r < me; r++) cin = (int)(all[r] & 1) | ((int)((all[r] >> 1) & 1) & cin);
+    int cc = 0; for (int r = 0; r < g; r++) cc = (int)(all[r] & 1) | ((int)((all[r] >> 1) & 1) & cc);
+    if (top_out) *top_out = cc;
+    free(all); return cin;
+}
+static void mdb_norm(mdb *Y, mn_group *G)
+{
+    size_t lo, hi; mdb_share(Y, G->g0 + G->me, &lo, &hi); size_t cn = hi - lo, top = 0;
+    if (cn) { dbig t = Y->sh; db_norm(&t); top = t.n ? lo + t.n : 0; Y->sh.n = cn; }
+    Y->n = comm_allreduce_max(G->all[0], top);
+}
+/* Y = A +/- B in one basis (A->N == B->N; Y may be A or B, else a fresh number); sub needs A >= B */
+static void mdb_addsub(mdb *Y, const mdb *A, const mdb *B, int sub, mn_group *G)
+{
+    double t0 = mem_now(); mn_st.n_addsub++;
+    if (A->N != B->N || A->g0 != B->g0 || A->g != B->g) { fprintf(stderr, "mdb_addsub: bases %zu / %zu\n", A->N, B->N); exit(1); }
+    int node = G->g0 + G->me; size_t lo, hi; mdb_share(A, node, &lo, &hi); size_t cn = hi - lo;
+    mdb Yn; if (Y == A || Y == B) Yn = *Y; else { memset(&Yn, 0, sizeof Yn); Yn.N = A->N; Yn.g0 = A->g0; Yn.g = A->g; db_init(&Yn.sh); db_zero_fill(&Yn.sh, cn); }
+    int co = 0, pr = 1, top = 0;
+    if (cn) db_share_addsub(&Yn.sh, &A->sh, &B->sh, cn, sub, &co, &pr);
+    int cin = node_scan(G, co, pr, &top);
+    if (top) { fprintf(stderr, "mdb_addsub: %s out of the top (basis %zu)\n", sub ? "borrow" : "carry", A->N); exit(1); }
+    if (cin) { int c2 = 0; if (!cn) { fprintf(stderr, "mdb_addsub: a carry into an empty share\n"); exit(1); } db_share_add_val(&Yn.sh, cn, 0, 1, sub, &c2, 0); }
+    Yn.sh.n = cn;
+    if (Y != A && Y != B && Y->sh.cap) db_free(&Y->sh);
+    *Y = Yn; mdb_norm(Y, G);
+    mn_st.t_addsub += mem_now() - t0;
+}
+/* Y +/- val at limb pos (val < B), in place */
+static void mdb_add_val(mdb *Y, size_t pos, uint64_t val, int sub, mn_group *G)
+{
+    double t0 = mem_now(); mn_st.n_small++;
+    int node = G->g0 + G->me; size_t lo, hi; mdb_share(Y, node, &lo, &hi); size_t cn = hi - lo;
+    int co = 0, pr = 1, top = 0, mine = pos >= lo && pos < hi;
+    if (cn) db_share_add_val(&Y->sh, cn, mine ? pos - lo : 0, mine ? val : 0, sub, &co, &pr);
+    int cin = node_scan(G, co, pr, &top);
+    if (top) { fprintf(stderr, "mdb_add_val: %s out of the top\n", sub ? "borrow" : "carry"); exit(1); }
+    if (cin) { int c2 = 0; db_share_add_val(&Y->sh, cn, 0, 1, sub, &c2, 0); }
+    Y->sh.n = cn; mdb_norm(Y, G);
+    mn_st.t_small += mem_now() - t0;
+}
+/* Y = B^e in basis N2 */
+static void mdb_pow(mdb *Y, size_t e, size_t N2, mn_group *G)
+{
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = e + 1; db_init(&Yn.sh);
+    int node = G->g0 + G->me; size_t lo, hi; mdb_share(&Yn, node, &lo, &hi); size_t cn = hi - lo;
+    if (e >= N2) { fprintf(stderr, "mdb_pow: B^%zu in basis %zu\n", e, N2); exit(1); }
+    db_zero_fill(&Yn.sh, cn);
+    if (e >= lo && e < hi) { uint64_t one = 1; size_t gg = e - lo, d = (gg >= Yn.sh.qc) + (gg >= 2 * Yn.sh.qc) + (gg >= 3 * Yn.sh.qc); mem_dev_copy_on((int)d, Yn.sh.q[d] + (gg - d * Yn.sh.qc), &one, 8); }
+    Yn.sh.n = cn;
+    if (Y->sh.cap) db_free(&Y->sh);
+    *Y = Yn;
+}
+/* sign of A - B (one basis): the highest node whose shares differ decides */
+static int mdb_cmp(const mdb *A, const mdb *B, mn_group *G)
+{
+    if (A->N != B->N) { fprintf(stderr, "mdb_cmp: bases %zu / %zu\n", A->N, B->N); exit(1); }
+    int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(A, node, &lo, &hi); size_t cn = hi - lo;
+    int c = 0; if (cn) { dbig a = A->sh, b = B->sh; a.n = b.n = cn; c = db_cmp(&a, &b); }
+    uint64_t v = (uint64_t)(c + 1), *all = (uint64_t *)malloc((size_t)g * 8);
+    mn_allgather(G->all[0], &v, 1, all);
+    int res = 0; for (int r = g; r-- > 0;) if (all[r] != 1) { res = (int)all[r] - 1; break; }
+    free(all); return res;
+}
+/* limb i of X (every node gets it) */
+static uint64_t mdb_limb(const mdb *X, size_t i, mn_group *G)
+{
+    int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi);
+    uint64_t v = (i >= lo && i < hi) ? db_limb(&X->sh, i - lo) : 0, *all = (uint64_t *)malloc((size_t)g * 8);
+    mn_allgather(G->all[0], &v, 1, all);
+    uint64_t r = 0; for (int k = 0; k < g; k++) r |= all[k];
+    free(all); return r;
+}
+/* is any limb of X below index e nonzero? */
+static int mdb_nonzero_below(const mdb *X, size_t e, mn_group *G)
+{
+    int node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > e) hi = e; if (hi > X->n) hi = X->n;
+    size_t nz = 0; if (hi > lo) { dbig v = db_view(&X->sh, 0, hi - lo); db_norm(&v); nz = v.n != 0; }
+    return comm_allreduce_max(G->all[0], nz) != 0;
+}
+/* residues of X mod nq primes: each share's residue scaled by B^lo mod q, summed over the group */
+static uint64_t mn_powmod(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
+static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, mn_group *G)
+{
+    int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
+    uint64_t v[16]; memset(v, 0, sizeof v);
+    if (hi > lo) { dbig s = X->sh; s.n = hi - lo; db_mod_qs(&s, qs, nq, v);
+                   for (int j = 0; j < nq; j++) { uint64_t q = qs[j], Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); v[j] = (uint64_t)((unsigned __int128)v[j] * mn_powmod(Bq, lo, q) % q); } }
+    uint64_t *all = (uint64_t *)malloc((size_t)g * nq * 8);
+    mn_allgather(G->all[0], v, nq, all);
+    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int k = 0; k < g; k++) { r += all[(size_t)k * nq + j]; if (r >= qs[j]) r -= qs[j]; } res[j] = r; }
+    free(all);
+}
+/* the whole number on every node's host (small numbers: Q's top for the seed phase; the rare shrink) */
+static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
+{
+    int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); size_t ms = mshare_max(X); if (!ms) ms = 1;
+    if (ms > 0x7fffffff) { fprintf(stderr, "mdb_to_host_all: share too large\n"); exit(1); }
+    uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
+    if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
+    mn_allgather(G->all[0], buf, (int)ms, all);
+    bi_reserve(out, X->N + 1);
+    for (int r = 0; r < g; r++) { mdb_share(X, G->g0 + r, &lo, &hi); if (hi > lo) memcpy(out->l + lo, all + (size_t)r * ms, (hi - lo) * 8); }
+    out->n = X->n; free(buf); free(all);
+}
+/* a number every node holds (device) -> its shares in basis N2 */
+static void mdb_from_db(mdb *Y, const dbig *r, size_t N2, mn_group *G)
+{
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = r->n; db_init(&Yn.sh);
+    if (r->n > N2) { fprintf(stderr, "mdb_from_db: %zu limbs in basis %zu\n", r->n, N2); exit(1); }
+    int node = G->g0 + G->me; size_t lo, hi; mdb_share(&Yn, node, &lo, &hi); size_t cn = hi - lo;
+    db_zero_fill(&Yn.sh, cn);
+    if (cn && lo < r->n) { size_t h = hi < r->n ? hi : r->n; dbig v = db_view(r, lo, h - lo); db_copy(&Yn.sh, &v); }
+    Yn.sh.n = cn;
+    if (Y->sh.cap) db_free(&Y->sh);
+    *Y = Yn;
+}
+static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig t; db_init(&t); db_from_bi(&t, h); mdb_from_db(Y, &t, N2, G); db_free(&t); }
+static void mn_prod(mdb *C, const mdb *A, const mdb *B, mn_group *G) { double t0 = mem_now(); rns_mul_dist_mn(C, A, B, 0, G); mn_st.t_prod += mem_now() - t0; }
+
+/* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
+static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
+{
+    double t0 = mem_now();
+    if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
+    size_t nq = Q->n, split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16);
+    int me = G->me, verbose = getenv("RNS_VERBOSE") != 0;
+    /* the anchored chain from k: k, ceil(k/2), ...; the single-node part ends at the largest target <= split (or the seed's 2) */
+    size_t kp = k;
+    if (anchor) { while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2; if (kp > split) kp = 2; }
+    else { kp = 2; while (2 * kp <= split && 2 * kp < k) kp *= 2; if (kp > k) kp = k; }
+    size_t T = 2 * kp + 2 < nq ? 2 * kp + 2 : nq;                     /* the top limbs of Q the single-node part reads */
+    mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
+    bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    dbig Qtop, r0; db_init(&Qtop); db_init(&r0); db_from_bi(&Qtop, &hq); bi_free(&hq);
+    recip_db2(&r0, &Qtop, 0, kp, nq);                                  /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
+    db_free(&Qtop);
+    double t1 = mem_now();
+    mdb r; memset(&r, 0, sizeof r); mdb_from_db(&r, &r0, r0.n, G); db_free(&r0);
+    size_t j = kp;
+    mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
+    if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes\n", kp, t1 - t0, k, G->g);
+    while (j < k) {
+        size_t jn = k;
+        if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
+        else jn = 2 * j < k ? 2 * j : k;
+        for (;;) {
+            double s0 = mem_now();
+            size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
+            mdb_shift(&qt, Q, (long)(nq - take), take, G);            /* Q_t: the top limbs of Q */
+            mn_prod(&t, &qt, &r, G);                                   /* Q_t r */
+            mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, G);     /* u ~ B^(2j) */
+            int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, G) > 1 || mdb_nonzero_below(&u, 2 * j, G)));
+            mdb_pow(&pw, 2 * j, 2 * j + 2, G);
+            if (neg) mdb_addsub(&d, &u, &pw, 1, G); else mdb_addsub(&d, &pw, &u, 1, G);   /* d = |B^(2j) - u| */
+            mfree(&u); mfree(&pw);
+            size_t NB = (r.n + j > t.n ? r.n + j : t.n) + 2;          /* the basis of r' (>= r << j and corr) */
+            if (d.n) { mn_prod(&t, &r, &d, G); mdb_shift(&corr, &t, (long)j, NB, G); }   /* |corr| = r |d| >> j */
+            else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, G); }              /* d = 0: corr = 0 */
+            mfree(&d);
+            int converged = corr.n <= j + 1;
+            mdb_shift(&rs, &r, -(long)j, NB, G);                        /* r << j */
+            if (neg) {
+                int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, G) <= 0);
+                if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
+                    newton_st.overshoots++; bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, G);
+                    bi_divmod_u64(&dd, &h, 16); bi_sub(&h, &h, &dd); mdb_from_bi(&r, &h, r.N, G); bi_free(&h); bi_free(&dd);
+                    mfree(&corr); mfree(&rs); continue;
+                }
+                mdb_addsub(&rs, &rs, &corr, 1, G);
+            } else mdb_addsub(&rs, &rs, &corr, 0, G);
+            mfree(&corr);
+            if (converged) { mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
+            else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, G); mfree(&rs); }
+            if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0);
+            if (!converged) { newton_st.repeats++; continue; }
+            break;
+        }
+        if (jn < 2 * j) { mdb_shift(&rs, &r, (long)(2 * j - jn), r.n - (2 * j - jn), G); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
+        j = jn;
+        newton_st.iters++;
+    }
+    if (j > k) { mdb_shift(&rs, &r, (long)(j - k), r.n - (j - k), G); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
+    mfree(&qt); mfree(&t);
+    if (mu->sh.cap) db_free(&mu->sh);
+    *mu = r;
+    newton_st.t_recip += mem_now() - t0;
+    if (verbose && me == 0) printf("recip(mn) %.2f s: single-node part %.2f, products %.2f, shifts %zu/%.2f, addsub %zu/%.2f, small %zu/%.2f\n", mem_now() - t0, t1 - t0, mn_st.t_prod, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub, mn_st.n_small, mn_st.t_small);
+}
+/* X = floor((P + Q) B^dl / Q) over G (P, Q consumed); pres/qres/rres: residues mod qs[nres] of P, Q and R = A - X Q;
+ * t_recip: the reciprocal's seconds.  Mirrors newton_db_divmod_shifted with S = P + Q. */
+void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
+{
+    double t0 = mem_now(); int me = G->me;
+    memset(&mn_st, 0, sizeof mn_st);
+    size_t nq = Q->n;
+    mdb_mod_qs(P, qs, nres, pres, G); mdb_mod_qs(Q, qs, nres, qres, G);
+    /* the reciprocal first (the memory peak, as on one node: S does not exist yet); k from S's largest possible length */
+    size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1;
+    mdb mu; memset(&mu, 0, sizeof mu);
+    recip_mn(&mu, Q, k_mu, G);
+    double ta = mem_now(); *t_recip = ta - t0;
+    double p_rec = mn_st.t_prod;
+    /* S = P + Q in P's basis (P.N = na + nb + 1 > P.n, so the sum fits) */
+    mdb Qp, S; memset(&Qp, 0, sizeof Qp); memset(&S, 0, sizeof S);
+    mdb_shift(&Qp, Q, 0, P->N, G);
+    mdb_addsub(P, P, &Qp, 0, G); mfree(&Qp); S = *P; memset(P, 0, sizeof *P);
+    size_t na = S.n + dl, k = na - nq + 1, w = nq + 2;
+    if (!nq || na < nq) { fprintf(stderr, "newton_mn_divmod: A < Q not supported\n"); exit(1); }
+    if (dl + 1 > nq) { fprintf(stderr, "newton_mn_divmod: dl >= nq\n"); exit(1); }
+    if (mu.n < k + 1) { fprintf(stderr, "newton_mn_divmod: mu has %zu limbs, k %zu\n", mu.n, k); exit(1); }
+    if (mu.n > k + 1) { mdb m2; memset(&m2, 0, sizeof m2); mdb_shift(&m2, &mu, (long)(mu.n - (k + 1)), k + 1, G); mfree(&mu); mu = m2; }
+    double tb = mem_now();
+    /* X = ((S >> (nq - 1 - dl)) mu) >> (k + 1) */
+    mdb Ah, t, Xn; memset(&Ah, 0, sizeof Ah); memset(&t, 0, sizeof t); memset(&Xn, 0, sizeof Xn);
+    { size_t sh = nq - 1 - dl; mdb_shift(&Ah, &S, (long)sh, S.n > sh ? S.n - sh : 1, G); }
+    mn_prod(&t, &Ah, &mu, G); mfree(&Ah); mfree(&mu);
+    mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
+    double tc = mem_now();
+    /* the low product X Q mod B^w (the full product here: skipping the pieces above w is the grid split's, A-grid), the
+     * window A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
+    mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
+    mn_prod(&xq, &Xn, Q, G);
+    mdb_shift(&xql, &xq, 0, w, G); mfree(&xq);
+    mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
+    mdb_shift(&Qw, Q, 0, w, G); mfree(Q);
+    double td = mem_now();
+    size_t nc = 0; long dx = 0;
+    if (mdb_cmp(&Aw, &xql, G) >= 0) {                                 /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
+        mdb_addsub(&Aw, &Aw, &xql, 1, G); mfree(&xql); Rd = Aw; memset(&Aw, 0, sizeof Aw);
+        while (mdb_cmp(&Rd, &Qw, G) >= 0) { mdb_addsub(&Rd, &Rd, &Qw, 1, G); dx++; if (++nc > 64) { fprintf(stderr, "newton_mn_divmod: %zu corrections\n", nc); exit(1); } }
+    } else {                                                          /* D = xq - Aw > 0: X -= 1, R = Q - D; while D > Q: D -= Q, X -= 1 */
+        mdb_addsub(&xql, &xql, &Aw, 1, G); mfree(&Aw); Rd = xql; memset(&xql, 0, sizeof xql);
+        for (;;) { dx--; if (++nc > 64) { fprintf(stderr, "newton_mn_divmod: %zu corrections\n", nc); exit(1); }
+                   if (mdb_cmp(&Rd, &Qw, G) <= 0) { mdb_addsub(&Rd, &Qw, &Rd, 1, G); break; } mdb_addsub(&Rd, &Rd, &Qw, 1, G); }
+        newton_st.down_corr += (size_t)(-dx);
+    }
+    if (dx > 0) newton_st.up_corr += (size_t)dx;
+    if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
+    mfree(&Qw);
+    double te = mem_now();
+    mdb_mod_qs(&Rd, qs, nres, rres, G);
+    mfree(&Rd);
+    if (X->sh.cap) db_free(&X->sh);
+    *X = Xn;
+    newton_st.t_div += mem_now() - ta;
+    if (me == 0) printf("divmod(mn) %.2f s: reciprocal %.2f (products %.2f), S = P + Q %.2f, A mu + shift %.2f, X Q + window %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
+                        mem_now() - t0, ta - t0, p_rec, tb - ta, tc - tb, td - tc, te - td, dx, mem_now() - te, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
+}

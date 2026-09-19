@@ -26,7 +26,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { dbig sh; size_t n, N; int g0, g; } mdb;
+typedef struct mdb_s { dbig sh; size_t n, N; int g0, g; } mdb;   /* (the tag: newton.h's forward declaration, A-div) */
 /* the share of global node r: [lo, hi) (empty outside the group) */
 static inline void mdb_share(const mdb *x, int r, size_t *lo, size_t *hi)
 {

@@ -29,7 +29,7 @@ rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig
 dbig.o: dbig.c dbig.h bigint.h mem.h
 	$(HIPC) -c -o $@ $<
 
-newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h
+newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h
 	$(HIPC) -c -o $@ $<
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
