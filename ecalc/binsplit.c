@@ -13,7 +13,8 @@
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
-#include "mn.h"                                       /* M6: the node-process rank/size in the checkpoint names and headers, the tree-level restart */
+/* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
+int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
 
 bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
