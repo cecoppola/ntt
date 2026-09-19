@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 #define DB_NQ 4
-typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; int lq, m3; } dbig;   /* qc = (m3 ? 3 : 1) << lq; off: a view's first limb (cap 0: not owning) */
+typedef struct dbig_s { uint64_t *q[DB_NQ]; size_t n, cap, qc, off; } dbig;   /* qc: limbs per quarter (exact, a multiple of 4096); off: a view's first limb (cap 0: not owning) */
 void db_init(dbig *x);
 void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };

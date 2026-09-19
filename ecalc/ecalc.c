@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
-               pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : (d >= 20000000000ul ? (size_t)24e9 : 0); }   /* per device; the 4e10 dm phase needs ~90 GB beyond the regions (RESULTS.md 70) */
+               pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : 0; }   /* per device; off: hipMalloc in the background stalls the GPU levels (RESULTS.md 70) */
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;

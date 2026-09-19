@@ -78,7 +78,7 @@ static uint64_t *g_pool[2][NR]; static size_t g_cap[2][NR];
 /* a node in a region pool as a (non-owning, single-quarter) device number */
 static dbig pool_view(const uint64_t *p, size_t n)
 {
-    dbig v; memset(&v, 0, sizeof v); v.q[0] = (uint64_t *)p; v.n = n; v.qc = (size_t)1 << 40; v.lq = 40; return v;
+    dbig v; memset(&v, 0, sizeof v); v.q[0] = (uint64_t *)p; v.n = n; v.qc = (size_t)1 << 40; return v;
 }
 static dbig node_p(const struct level *lv, const struct node *nd) { return nd->pd ? *nd->pd : pool_view(lv->pool[nd->r] + nd->po, nd->pn); }
 static dbig node_q(const struct level *lv, const struct node *nd) { return nd->qd ? *nd->qd : pool_view(lv->pool[nd->r] + nd->qo, nd->qn); }
