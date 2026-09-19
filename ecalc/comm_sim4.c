@@ -24,6 +24,7 @@ static void s_wait(comm *c)
 {
     if (G.posted != NR) { fprintf(stderr, "comm_sim4: wait before all ranks posted\n"); exit(1); }
     if (G.done[c->rank]) return;
+    HIP_CHECK(hipDeviceSynchronize());   /* the four ranks' packs ran on their own streams (M7: non-blocking transfer streams) */
     for (int r = 0; r < NR; r++)      /* my slab r comes from rank r's slab c->rank */
         HIP_CHECK(hipMemcpyAsync((char *)G.rb[c->rank] + (size_t)r * G.bytes, (const char *)G.sb[r] + (size_t)c->rank * G.bytes, G.bytes, hipMemcpyDeviceToDevice, G.s[c->rank]));
     HIP_CHECK(hipStreamSynchronize(G.s[c->rank]));
