@@ -2835,3 +2835,20 @@ Q (35 GB) contends with its kernels for the HBM; the CPU work beside it
 (residues 5.3 s, A 2.4 s) does not show. Next: the copies before the
 reciprocal (1.8 s synchronous; `ECALC_OVERLAP_COPY=1` keeps them inside),
 expected ≈ 114 s; then I3 (A on the device) removes P's copy altogether.
+
+**With the copies before the reciprocal (default now; one run, VERIFY
+OK):** init 15.2, bs 56.3, P/Q out 2.6 (synchronous), reciprocal 14.2,
+division 21.3, T1 1.3, dc + T2 0.1 — **wall 112.1 s**, peak host
+154.3 GB. Against the clean baseline of 128.8 s: **−16.7 s (−13 %)**, and
+−21.6 s against the §66 series (133.7, measured behind a full page
+cache). The phases that remain on the wall clock are init 15, seeds 8,
+the GPU levels 48, the copies 3, the reciprocal 14, the division 21, and
+≈ 1.5 s of residues at the end: the CPU-only periods are down from 40 s
+to ≈ 12 (init and seeds), the rest is device time. The next overlaps are
+coordinated ones (PLAN §16: I2 seeds with level 1, I3 A on the device).
+
+**M1/M2 on the same allocation:** 2 and 4 node-processes on one node at
+10⁸ and 2 at 10⁹ — meshes connected, self-test over the meshes ok, each
+process its term range, node 0 combining — **VERIFY OK and digits
+identical to the reference at every size**; the single-process run
+unchanged.
