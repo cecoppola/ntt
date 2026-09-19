@@ -17,11 +17,13 @@ static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t)
 static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
 static void par_init(void) { if (g_par < 0) g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); }
 
-struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; int lq, m3; };     /* shift: the operand as a << shift limbs; qc = (m3 ? 3 : 1) << lq */
-__device__ static inline size_t dq(size_t g, int lq, int m3) { return m3 ? (g >> lq) / 3 : g >> lq; }
-__device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.lq, v.m3); return v.q[d][g - d * v.qc]; }
-static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.lq = a->lq; v.m3 = a->m3; v.off = a->off; v.shift = 0; return v; }
-static inline size_t hq(const dbig *a, size_t g) { return a->m3 ? (g >> a->lq) / 3 : g >> a->lq; }   /* host: quarter of global limb g */
+struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; };     /* shift: the operand as a << shift limbs; qc: limbs per quarter (any multiple of DB_ALIGN) */
+/* the quarter of global limb g: the number of quarter boundaries at or below g (no division: qc is any size) */
+__device__ static inline size_t dq(size_t g, size_t qc) { return (g >= qc) + (g >= 2 * qc) + (g >= 3 * qc); }
+__device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return v.q[d][g - d * v.qc]; }
+static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.off = a->off; v.shift = 0; return v; }
+static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2 * a->qc) + (g >= 3 * a->qc); }   /* host: quarter of global limb g */
+#define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
 static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
 
 __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
@@ -38,7 +40,6 @@ static size_t g_pool_bytes;
 static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
 static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
 static struct { void *p; int dev; size_t bytes; int own; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools) */
-static size_t fsize(int fam, int l) { return (size_t)(fam ? 3 : 1) * 8 << l; }
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
@@ -60,11 +61,11 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
     return p;
 }
-static uint64_t *q_alloc_locked(int d, int fam, int l);
-static uint64_t *q_alloc(int d, int fam, int l) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, fam, l); pthread_mutex_unlock(&g_pool_mx); return p; }
-static uint64_t *q_alloc_locked(int d, int fam, int l)
+static uint64_t *q_alloc_locked(int d, size_t need);
+static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
+static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
 {
-    size_t need = fsize(fam, l); int reg;
+    int reg;
     char *p = ext_take(d, need, &reg);
     if (!p) {
         g_pool_bytes += need;
@@ -119,12 +120,11 @@ void db_reserve(dbig *x, size_t limbs)
     if (limbs <= x->cap) return;
     double t0 = tnow(); db_st.n_reserve++;
     if (x->off) { fprintf(stderr, "db_reserve: a view\n"); abort(); }
-    /* the smallest quarter of the form 2^l or 3 2^l that holds limbs/4 */
-    size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (size_t)1 << 10; int lq = 10, m3 = 0;
-    while (qc < need) { qc <<= 1; lq++; }
-    if (lq >= 12 && ((size_t)3 << (lq - 2)) >= need) { m3 = 1; lq -= 2; qc = (size_t)3 << lq; }
-    dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc; y.lq = lq; y.m3 = m3;
-    for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, m3, lq);
+    /* quarters of exactly ceil(limbs/4) rounded up to DB_ALIGN: no size classes (a 2^l / 3 2^l class wasted up to
+     * 45 % of the dm phase's device memory at 4e10, RESULTS.md 70); the pool coalesces any sizes */
+    size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
+    dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc;
+    for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, qc * 8);
     if (getenv("DBIG_WARM")) {                             /* touch every 2 MiB page of each quarter from every other device */
         for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
             HIP_CHECK(hipSetDevice(c));

@@ -31,21 +31,21 @@
 static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
 
 /* a limb accessor: either one flat array or four quarters (a dbig view) */
-struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int lq, m3, flat; dbig *owner; };
+struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int flat; dbig *owner; };
 __device__ static inline uint64_t acc_get(const struct acc a, size_t i)      /* i < n */
 {
     size_t m = a.lo + i;
     if (a.flat) return a.q[0][m];
-    size_t d = a.m3 ? (m >> a.lq) / 3 : m >> a.lq; return a.q[d][m - d * a.qc];
+    size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); return a.q[d][m - d * a.qc];
 }
 __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
 {
     size_t m = a.lo + i;
     if (a.flat) return a.w[0] + m;
-    size_t d = a.m3 ? (m >> a.lq) / 3 : m >> a.lq; return a.w[d] + (m - d * a.qc);
+    size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); return a.w[d] + (m - d * a.qc);
 }
 static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
-static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lq = x->lq; a.m3 = x->m3; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
+static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
 
 struct rank_state {
     comm *cm; ntt_ctx *ctx[EC_NP]; hipStream_t s;
