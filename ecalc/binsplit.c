@@ -146,6 +146,7 @@ void binsplit_pregrow(unsigned long N)
     for (int r = 0; r <= NR; r++) {
         if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, per_region); }
         else for (int w = 0; w < nhp; w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
+            if (par && bs_dev_mdev) continue;                                  /* I2: with the top levels on device this pool only serves A, formed in the background later: its faults are hidden there */
 #pragma omp parallel for schedule(static) num_threads(par ? 96 : omp_get_max_threads())
             for (size_t i = 0; i < total0 + total0 / 8; i += 512) hp[i] = 0; }
     }
@@ -282,7 +283,8 @@ static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out)
  * every thread when unpinned) with the schoolbook, P and Q of each span side by side (per limbs each) */
 static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0, uint64_t **stage)
 {
-#pragma omp parallel
+    int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
+#pragma omp parallel num_threads(nt)
     {
         bigint p, q; bi_init(&p); bi_init(&q);
         int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();   /* region-aware: this node's threads do this region's spans */
