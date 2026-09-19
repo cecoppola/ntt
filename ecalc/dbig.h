@@ -55,6 +55,7 @@ void db_pool_free(int dev, uint64_t *p);
 void db_zero_fill(dbig *r, size_t n);                 /* r = n zero limbs (n kept, not normalised) */
 void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop);   /* r += the spills (fixed n limbs; carry out, propagate) */
 void db_share_add_one(dbig *r, size_t n, int *cout);  /* r += 1 (fixed n limbs) */
+void db_share_add_shifted(dbig *r, size_t n, const dbig *a, size_t k, int *cout, int *prop);   /* r += a << k (fixed n limbs; Phase 9 A3) */
 /* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
 dbig db_view(const dbig *a, size_t lo, size_t len);
 #ifdef __cplusplus
