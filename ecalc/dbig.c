@@ -469,6 +469,15 @@ void db_share_add_one(dbig *r, size_t n, int *cout)
     struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = 0; s.val = 1;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, 0);
 }
+/* M4 (A-div, newton_db.c: the sharded division): r = a +/- b over exactly n limbs -- the shares of two numbers in
+ * the same basis (r may be a or b); and r +/- val at limb pos (val < B; every node runs it, val = 0 elsewhere, so
+ * the propagate flag of every share is known); carry / borrow out and propagate reported for the node scan */
+void db_share_addsub(dbig *r, const dbig *a, const dbig *b, size_t n, int sub, int *cout, int *prop) { addsub_core2(r, a, 0, b, 0, n, sub, n, cout, prop); }
+void db_share_add_val(dbig *r, size_t n, size_t pos, uint64_t val, int sub, int *cout, int *prop)
+{
+    struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = pos; s.val = val;
+    addsub_core2(r, r, 0, 0, &s, n, sub, n, cout, prop);
+}
 void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 0); }
 void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 1); }
 void db_add_shifted(dbig *r, const dbig *a, size_t k, const dbig *b) { addsub_core(r, a, k, b, 0, b->n, 0); }   /* r = (a << k) + b */
