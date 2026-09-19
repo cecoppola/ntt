@@ -96,11 +96,12 @@ void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 
 /* ---- reciprocal ------------------------------------------------------------ */
 /* seed: j = 2 limbs of precision by schoolbook on the top 4 limbs of Q */
-void newton_seed_host(bigint *r, const bigint *Q, size_t *j)
+void newton_seed_host(bigint *r, const bigint *Q, size_t *j) { size_t top = Q->n < 4 ? Q->n : 4; newton_seed_top(r, Q->l + (Q->n - top), top, Q->n, j); }
+/* the seed from Q's top limbs only (Phase 8 I3: Q may live on the device; top4 = its top `top` limbs, nq its length) */
+void newton_seed_top(bigint *r, const uint64_t *top4, size_t top, size_t nq, size_t *j)
 {
-    size_t nq = Q->n, top = nq < 4 ? nq : 4;
     bigint qt, num, rem; bi_init(&qt); bi_init(&num); bi_init(&rem);
-    bi_set_limbs(&qt, Q->l + (nq - top), top);
+    bi_set_limbs(&qt, top4, top);
     if (top < nq) bi_add_u64(&qt, 1);                 /* round the divisor up so r <= true */
     /* r = B^(top + 2) / qt  ~  B^(nq + 2) / Q */
     bi_set_base_pow(&num, top + 2);
