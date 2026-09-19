@@ -153,6 +153,17 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         if (comm_rank(cm) != r || comm_size(cm) != nr) { fprintf(stderr, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); exit(1); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
+        {   /* the all-to-all alone: slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
+            size_t sl = rows / nr; uint64_t *pat = (uint64_t *)malloc(rows * 8);
+            for (int sg = 0; sg < nr; sg++) for (size_t i = 0; i < sl; i++) pat[sg * sl + i] = ((uint64_t)r << 40) | ((uint64_t)sg << 32) | i;
+            HIP_CHECK(hipMemcpy(rx, pat, rows * 8, hipMemcpyHostToDevice));
+            comm_alltoall(cm, rx, ry, sl * 8, s); comm_wait(cm);
+            HIP_CHECK(hipMemcpy(pat, ry, rows * 8, hipMemcpyDeviceToHost));
+            size_t bad = 0;
+            for (int src = 0; src < nr; src++) for (size_t i = 0; i < sl; i++) { uint64_t want = ((uint64_t)src << 40) | ((uint64_t)r << 32) | i; if (pat[src * sl + i] != want) { if (!bad) printf("mn: node %d rank %d: slab %d word %zu = (rank %llu, slab %llu, %llu), want (%d, %d, %zu)\n", g_rank, r, src, i, (unsigned long long)(pat[src * sl + i] >> 40), (unsigned long long)((pat[src * sl + i] >> 32) & 255), (unsigned long long)(pat[src * sl + i] & 0xffffffff), src, r, i); bad++; } }
+            if (bad) { printf("mn: node %d rank %d: layered all-to-all pattern: %zu of %zu words wrong\n", g_rank, r, bad, rows); ok = 0; }
+            free(pat);
+        }
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
