@@ -57,7 +57,7 @@ static void pow10_big(bigint *T, unsigned long d)
 
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
-static int g_overlap = 0, g_bg_threads = 48;
+static int g_overlap = 0, g_bg_threads = 48, g_ovl_copy = 0;   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
 struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_fault; bigint *P, *Q; size_t nl; };
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_mod(b->N, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
@@ -75,8 +75,10 @@ static void *a_bg_run(void *a)                        /* O3: P, Q out of the dev
 {
     struct a_bg *b = (struct a_bg *)a; omp_set_num_threads(g_bg_threads);
     double t0 = mem_now();
-    db_to_bi(b->Q, &bs_Qd); sem_post(&b->q_done);      /* the reciprocal's seed and mu tag need the host Q: it goes first */
-    db_to_bi(b->P, &bs_Pd); db_free(&bs_Pd);            /* P's blocks back to the pool for the reciprocal */
+    if (g_ovl_copy) {
+        db_to_bi(b->Q, &bs_Qd); sem_post(&b->q_done);  /* the reciprocal's seed and mu tag need the host Q: it goes first */
+        db_to_bi(b->P, &bs_Pd); db_free(&bs_Pd);        /* P's blocks back to the pool for the reciprocal */
+    }
     double t1 = mem_now();
     for (int i = 0; i < T1_NQ; i++) { b->Pres[i] = vf_limbs_mod(b->P->l, b->P->n, t1_q[i]); b->Qres[i] = vf_limbs_mod(b->Q->l, b->Q->n, t1_q[i]); }
     double t2 = mem_now();
@@ -85,7 +87,7 @@ static void *a_bg_run(void *a)                        /* O3: P, Q out of the dev
     if (b->d % 18) bi_mul_pow10(b->A, b->A, (unsigned)(b->d % 18));
     bi_set_u64(b->T, 0); b->T->n = (b->d + 17) / 18;
     bi_free(b->S);
-    b->t_copy = t1 - t0; b->t_res = t2 - t1; b->t_10dp = mem_now() - t2;
+    if (g_ovl_copy) b->t_copy = t1 - t0; b->t_res = t2 - t1; b->t_10dp = mem_now() - t2;
     return 0;
 }
 
@@ -155,6 +157,7 @@ int main(int argc, char **argv)
     bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
     g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 0;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
+    if (getenv("ECALC_OVERLAP_COPY")) g_ovl_copy = atoi(getenv("ECALC_OVERLAP_COPY"));
     int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
     int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
@@ -218,9 +221,11 @@ int main(int argc, char **argv)
         na_est = 2 * bs_Qd.n + dl - bs_Qd.n + 2; k_mu = na_est - bs_Qd.n + 1;
         P.n = Q.n = 0;
         ab.P = &P; ab.Q = &Q; ab.S = &S; ab.A = &A; ab.T = &T; ab.d = d; sem_init(&ab.q_done, 0, 0);
+        double tcp0 = mem_now();
+        if (!g_ovl_copy) { db_to_bi(&Q, &bs_Qd); db_to_bi(&P, &bs_Pd); db_free(&bs_Pd); ab.t_copy = mem_now() - tcp0; }   /* the copies before the reciprocal: its kernels and the DMA contend (RESULTS.md 68) */
         pthread_create(&ab.th, 0, a_bg_run, &ab);
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
-        sem_wait(&ab.q_done);                         /* the seed reads Q's top limbs and the kept mu is tagged by the host Q */
+        if (g_ovl_copy) sem_wait(&ab.q_done);         /* the seed reads Q's top limbs and the kept mu is tagged by the host Q */
         newton_db_recip(&MU, &Q, k_mu);
     } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
@@ -232,7 +237,7 @@ int main(int argc, char **argv)
         pthread_join(ab.th, 0);
         memcpy(Pres, ab.Pres, sizeof Pres); memcpy(Qres, ab.Qres, sizeof Qres);
         t_10dp = ab.t_10dp;
-        printf("      overlapped with the reciprocal: P, Q out %.2f s, residues %.2f s, A %.2f s\n", ab.t_copy, ab.t_res, ab.t_10dp);
+        printf("      %s the reciprocal: P, Q out %.2f s; overlapped: residues %.2f s, A %.2f s\n", g_ovl_copy ? "inside" : "before", ab.t_copy, ab.t_res, ab.t_10dp);
     } else {
     bi_add(&S, &P, &Q);
     bi_free(&P);
