@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **I3 done** (§70): the decimal division entirely on the device, exact-size quarters; 4 × 10¹⁰ wall **104.8 s**, peak host **74.5 GB**; found: hipMalloc cannot hide behind GPU work; quarter classes wasted 45 %. Baseline now 104.8 s / 74.5 GB (main) | RESULTS.md §70 |
 | 2026-09-18 | **I2 done** (§69): seeds during init, 4 × 10¹⁰ wall 112.1 → **107.7 s**, peak host 140 GB; default. I7 dropped. Next: I3 (decimal division entirely on device) | RESULTS.md §69 |
 | 2026-09-18 | **Multi-node work paused** (user decision) at M2 done, M3 not started; state and resume instructions in §17. Single-node work continues (§16 ideas: I2, I3 next) | PLAN §17 |
 | 2026-09-18 | **Decision (user): the overlapped flow (112.1 s) is the default** — `ECALC_OVERLAP=1`, `main` = tag `phase8-overlap-default`. Multi-node status: structure in place (node-process, four meshes, term-range partition, transform verified over the meshes); the combine, division and output are still centralised on node 0 (M3–M5); aac6 can exercise up to 8 node-processes (2 nodes × 4) | RESULTS.md §68 |
@@ -899,7 +900,7 @@ a switch.
 |---|---|---|---|---|
 | I1 | **Phase-level overlap of disjoint work** (§18): init in parallel per APU; T1's P, Q recurrence during the GPU levels; A = 10ᵈ(P+Q) and the residues during the reciprocal; Q kept on device; digit formatting + T2 + digit residue during the low product | measured **−16.7 s** (128.8 → 112.1, clean conditions) | done | **measured (§68); default = user decision** |
 | I2 | Seeds computed during init's device allocations (background thread from a hook in `rns_init`); host pool for A not pre-touched | measured **−4.4 s** (112.1 → 107.7), peak host 154 → 140 GB | done | **default (§69)** |
-| I3 | Decimal division entirely on device: A = S·B^(d/18) with S = P+Q as a device number (the top of A is a 3-limb shift of S, the remainder window is zeros plus S's low limbs), residues of P, Q, R by a device kernel — no host A, P or R at all | −3…−4 s (P copy and its contention with the reciprocal), host peak −50 GB; the distributed-A form M4 needs | 1 d | **next** |
+| I3 | Decimal division entirely on device (S = P+Q on device, A implicit, window and corrections on device, residues by kernel), exact-size quarters | measured **−2.9 s** (107.7 → 104.8) and **peak host 140 → 74.5 GB** | done | **default (§70)** |
 | I4 | Reciprocal warm start: μ's top from a lower-precision run, or the last doubling's product reused across the two division products (fwd(Q) computed once for X Q and the recip's Q_t r) | −3…−5 s of dm | 2 d | idea |
 | I5 | Karatsuba for products whose half-sums fit a plane (binary's 2 × 2; decimal's do not) | binary only −2.5 s | 1 d | idea, low priority |
 | I6 | Batch tier: operand reuse across the tree add (Q₂ transformed once for P₁Q₂ and Q₁Q₂) | ≈ −3 s (one transform in six per pair); the paired index needs power-of-two lengths, so not on the 3·2ᵏ levels | 2 d, touches the kernel index path | idea, low priority |

@@ -2904,13 +2904,15 @@ the host Horner across quarter and chunk boundaries) and the reference
 digits at 10⁸, 10⁹, 10¹⁰ with the device top levels forced
 (`BS_MDEV_LOGL`), and 4 × 10¹⁰.
 
-| 4 × 10¹⁰ (clean conditions) | I2 (§69) | I3 first | + fast residues | + one launch, fill kernel, plane tails | + temporaries freed |
-|---|---:|---:|---:|---:|---:|
-| residues P, Q (device) | (host, hidden) | 3.5 | 2.1 | 1.3 | |
-| reciprocal (proper) | 14.2 | 18.6 | 16.8 | 17.3 | |
-| division | 21.6 | 25.2 | 24.7 | 23.5 | |
-| **wall** | 107.7 | 116.3 | 114.1 | 113.0 | |
-| peak host | 140.1 GB | **74.5 GB** | 74.5 | 74.5 | |
+| 4 × 10¹⁰ (clean conditions) | I2 (§69) | I3 first | + fast residues | + one launch, fill kernel, plane tails | + temporaries freed | + exact quarters |
+|---|---:|---:|---:|---:|---:|---:|
+| residues P, Q (device) | (host, hidden) | 3.5 | 2.1 | 1.3 | 1.2 | 1.0 |
+| reciprocal (proper) | 14.2 | 18.6 | 16.8 | 17.3 | 16.9 | 14.9 |
+| division | 21.6 | 25.2 | 24.7 | 23.5 | 22.1 | 20.8 |
+| top bs levels | 17.2 | 17.4 | 17.2 | 17.5 | 17.6 | 14.6 |
+| pool fallback (hipMalloc inside the phases) | 90 GB | 116 | 116 | 116 | 90 | 27 |
+| **wall** | 107.7 | 116.3 | 114.1 | 113.0 | 108.1 | **104.8** |
+| peak host | 140.1 GB | **74.5 GB** | 74.5 | 74.5 | 74.5 | 74.5 |
 
 The host peak halves (the staging, X and the digit string remain). The
 time went up first because the device division keeps more large numbers
@@ -2922,3 +2924,13 @@ reciprocal). Fixes in order: residues coalesced (2.0 → 0.07 s at 10⁹),
 all primes in one launch, the window filled by a kernel (hipMemset runs
 at ~10 GB/s here), the plane pools' unused tails (17 GB) donated to the
 block pool as borrowed regions, and every temporary freed at its last use.
+Two more findings: `hipMalloc` cannot be hidden behind GPU work — 96 GB
+mapped from a background thread during the batch levels slowed them
+29.7 → 35.9 s (the page mapping stalls the running kernels), so the
+pregrow stays off (`ECALC_POOL_GROW_GB`); and the quarter size classes
+(2ˡ / 3·2ˡ limbs) rounded 2.22e9-limb numbers up by 45 %, which was most
+of the overflow — quarters are now exact (multiples of 4096 limbs, the
+quarter found by three comparisons instead of a shift and a division by
+3), the pool coalescing any sizes. Final: **104.8 s wall, 74.5 GB peak
+host**, all runs VERIFY OK and digits identical; `t_dbig 0 big` 609
+checks, `t_newton` 658.
