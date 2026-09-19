@@ -371,16 +371,16 @@ static void redistribute(const struct mn_ctx *X, const mdb *op, size_t S, uint64
     }
     HIP_CHECK(hipMemcpyAsync(dseg, hseg, X->g * sizeof *hseg, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
 }
-/* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 in windows of 30 nodes
- * (encoded in a modular sum with weights 4^r), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1) */
+/* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
+ * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1) */
 static int node_carry_in(mn_group *G, int c, int p)
 {
-    const uint64_t q = (1ull << 61) - 1; int g = G->g, me = G->me, cin = 0;
-    for (int base = 0; base < g; base += 30) {
-        uint64_t v = (me >= base && me < base + 30) ? (uint64_t)(c | (p << 1)) : 0;
-        uint64_t sum = G->all[0]->ops->allreduce_modq(G->all[0], v, q, 4);
-        for (int r = base; r < g && r < base + 30 && r < me; r++) { int cr = (int)(sum >> (2 * (r - base))) & 1, pr = (int)(sum >> (2 * (r - base) + 1)) & 1; cin = cr | (pr & cin); }
-    }
+    comm *cm = G->all[0]; int g = G->g, me = G->me, cin = 0;
+    uint8_t v = (uint8_t)(c | (p << 1)), *all = (uint8_t *)malloc(g); all[me] = v;
+    for (int r = 0; r < g; r++) if (r != me) comm_send(cm, r, &v, 1);
+    for (int r = 0; r < g; r++) if (r != me) comm_recv(cm, r, &all[r], 1);
+    for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
+    free(all);
     return cin;
 }
 void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group *G)
