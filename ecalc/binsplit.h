@@ -30,6 +30,13 @@ extern int bs_ckpt_every;        /* every this many levels (4) */
 extern int bs_ckpt_min_level;    /* from this level on (8), or once the level pool exceeds bs_ckpt_min_bytes (1 GiB) */
 extern size_t bs_ckpt_min_bytes;
 extern int bs_restart;           /* 1: resume from the latest complete set in bs_ckpt_dir */
+/* M6 (results/A-ckpt.md): the tree levels' sets, written by mn_tree -- this node's shares of P and Q and their mdb
+ * descriptors desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q; multi-node names carry the node rank */
+size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);   /* bytes, 0 = failed */
+int    bs_ckpt_tree_find(unsigned long N);                 /* this node's highest complete tree set, 0 = none */
+int    bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);
+void   bs_ckpt_tree_remove_below(int level);               /* the sets tree level `level` supersedes (call once every node has it) */
+void   bs_ckpt_tree_clear(int level);                      /* this node's tree sets above `level` */
 
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
