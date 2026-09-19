@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **I2 done** (§69): seeds during init, 4 × 10¹⁰ wall 112.1 → **107.7 s**, peak host 140 GB; default. I7 dropped. Next: I3 (decimal division entirely on device) | RESULTS.md §69 |
 | 2026-09-18 | **Multi-node work paused** (user decision) at M2 done, M3 not started; state and resume instructions in §17. Single-node work continues (§16 ideas: I2, I3 next) | PLAN §17 |
 | 2026-09-18 | **Decision (user): the overlapped flow (112.1 s) is the default** — `ECALC_OVERLAP=1`, `main` = tag `phase8-overlap-default`. Multi-node status: structure in place (node-process, four meshes, term-range partition, transform verified over the meshes); the combine, division and output are still centralised on node 0 (M3–M5); aac6 can exercise up to 8 node-processes (2 nodes × 4) | RESULTS.md §68 |
 | 2026-09-18 | **Phase 8 started**: overlap of disjoint work (§18) measured — 4 × 10¹⁰ wall 128.8 → **112.1 s** (−13 %) under clean conditions, peak host 154 GB, digits identical; three couplings found and fixed (blocking copy stream, device-wide syncs in dbig, un-faulted host buffers); page-cache pollution of measurements identified (baseline 133.7 → 128.8 with the reference file evicted). M1 + M2 built: node-process driver, four TCP meshes, term-range partition, node 0 combining — sizes 1, 2, 4 on one node identical to the reference. `ECALC_OVERLAP` default: user decision | RESULTS.md §68 |
@@ -897,12 +898,12 @@ a switch.
 | # | idea | expected | cost | status |
 |---|---|---|---|---|
 | I1 | **Phase-level overlap of disjoint work** (§18): init in parallel per APU; T1's P, Q recurrence during the GPU levels; A = 10ᵈ(P+Q) and the residues during the reciprocal; Q kept on device; digit formatting + T2 + digit residue during the low product | measured **−16.7 s** (128.8 → 112.1, clean conditions) | done | **measured (§68); default = user decision** |
-| I2 | Seeds pipelined with level 1 per region (the GPU starts region r's level 1 while the CPU seeds region r+1) — coordinated interleaving | −8 s (seeds hidden behind the batch tier) | 1 d, after I1 | idea |
-| I3 | A formed on device (dbig add + limb shift), the remainder window on device: no A copy-in, no host A at all | −2 s, host peak −36 GB (A's pool) | 1 d | idea |
+| I2 | Seeds computed during init's device allocations (background thread from a hook in `rns_init`); host pool for A not pre-touched | measured **−4.4 s** (112.1 → 107.7), peak host 154 → 140 GB | done | **default (§69)** |
+| I3 | Decimal division entirely on device: A = S·B^(d/18) with S = P+Q as a device number (the top of A is a 3-limb shift of S, the remainder window is zeros plus S's low limbs), residues of P, Q, R by a device kernel — no host A, P or R at all | −3…−4 s (P copy and its contention with the reciprocal), host peak −50 GB; the distributed-A form M4 needs | 1 d | **next** |
 | I4 | Reciprocal warm start: μ's top from a lower-precision run, or the last doubling's product reused across the two division products (fwd(Q) computed once for X Q and the recip's Q_t r) | −3…−5 s of dm | 2 d | idea |
 | I5 | Karatsuba for products whose half-sums fit a plane (binary's 2 × 2; decimal's do not) | binary only −2.5 s | 1 d | idea, low priority |
-| I6 | Batch tier: operand reuse across the tree add (Q₂ transformed once for P₁Q₂ and Q₁Q₂) | −4…−6 s of the batch levels (one transform in three saved) | 2 d | idea |
-| I7 | Seeds on the GPU as a batched level of 2¹⁰-point products (WP4's original item) | seeds 10.4 → ~2 s | 2–3 d | idea |
+| I6 | Batch tier: operand reuse across the tree add (Q₂ transformed once for P₁Q₂ and Q₁Q₂) | ≈ −3 s (one transform in six per pair); the paired index needs power-of-two lengths, so not on the 3·2ᵏ levels | 2 d, touches the kernel index path | idea, low priority |
+| I7 | Seeds on the GPU as a batched level of 2¹⁰-point products | — | — | dropped: the seeds are off the critical path after I2 |
 | I8 | Decimal `mul_1` in the seeds: Montgomery-style by 10¹⁸ or two limbs per step | seeds −2…−3 s | 0.5 d | idea |
 | I9 | dm: A μ's top half only through the grid (the low pieces of the 2 × 3 grid are not needed either) | −2…−3 s | 0.5 d | idea |
 | I10 | 3·2³⁰-point planes for the very top products where the grid is 1 × 2 at 52 % fill (levels 23–24) | −3 s of the top levels; +60 GB device | 1 d | idea, memory trade |

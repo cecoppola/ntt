@@ -2852,3 +2852,32 @@ coordinated ones (PLAN §16: I2 seeds with level 1, I3 A on the device).
 process its term range, node 0 combining — **VERIFY OK and digits
 identical to the reference at every size**; the single-process run
 unchanged.
+
+## 69. Phase 8 I2 — the seeds computed during init (2026-09-18, jobs 20686/20687, s24-16)
+
+The seeds need only N and the pinned staging, which init creates in its
+first 4 s; the remaining ≈ 11 s of init are device-pool allocations
+(`hipMalloc` at 0.057 s/GB over ≈ 240 GB of regions and planes — the
+driver's page mapping, a floor no CPU work moves). So the seeds run in a
+background thread started by a hook inside `rns_init` after the staging,
+and `binsplit_e` takes the level-0 table from it (`binsplit_seeds_begin`;
+the restart path and the host-pool path fall back to the inline seeds).
+The host pool for A is no longer pre-touched in the overlapped flow (A is
+formed in the background during the reciprocal, its faults hidden there).
+
+| 4 × 10¹⁰ (clean conditions) | §68 | I2 | I2, no pool touch |
+|---|---:|---:|---:|
+| init | 15.2 | 21.1 | 19.9 |
+| bs (seeds inside) | 56.3 (7.9) | 47.5 (0.3) | 47.5 (0.3) |
+| reciprocal (incl. copies) | 16.8 | 17.1 | 16.6 |
+| division | 21.3 | 21.5 | 21.6 |
+| **wall** | **112.1** | 109.7 | **107.7** |
+| peak host | 154.3 GB | 154.3 | **140.1 GB** |
+
+Seed team size makes no difference (192 threads 107.7, 144 107.6; 96
+109.6 with the seeds at 15 s, longer than init). Init grows 15 → 20 s
+because the allocations slow beside the seed team (memory and page-table
+contention), so the net is −4.4 s of the 7.9 the seeds cost; the rest of
+init is the allocation floor. All runs VERIFY OK, digits identical.
+I7 (seeds on the GPU) is dropped from the list: the seeds are off the
+critical path.
