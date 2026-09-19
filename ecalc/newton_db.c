@@ -211,7 +211,7 @@ static void mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut)
         db_add_shifted(Cd, &t, oa + ob, Cd);                                           /* in place */
     }
     db_free(&t);
-    if (getenv("RNS_VERBOSE")) printf("   mul_high_db %zu x %zu limbs, cut %zu: %d x %d pieces, %zu skipped\n", na, nb, cut, ka, kb, skipped);
+    if (skipped || getenv("RNS_VERBOSE")) printf("   mul_high_db %zu x %zu limbs, cut %zu: %d x %d pieces, %zu skipped\n", na, nb, cut, ka, kb, skipped);
 }
 /* Phase 8 I3 (decimal): X = floor(A / Q) with A = S B^dl entirely on the device (S = P + Q, dl = d/18 limbs):
  * the top of A is S shifted right by (nq - 1) - dl limbs (a view: dl < nq always, since 10^d < N!), the
