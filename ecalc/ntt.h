@@ -36,6 +36,13 @@ extern int ntt_stg;        /* NTT_B16_STG: stages per b16 pass, 3..7 (default 7)
 extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= this (default 14) */
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
 extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3) */
+extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
+
+/* Phase 9 B1: layout of the pointwise operand y relative to x (a batch of transforms of L points each):
+ *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
+ *   NTT_Y_BCAST  y[i mod L]                                        (one y for the whole batch, grpB)
+ *   NTT_Y_PAIR   y[(t >> 1) L + k] for x transform t, point k      (one y per pair of x transforms) */
+enum { NTT_Y_FULL = 0, NTT_Y_BCAST = 1, NTT_Y_PAIR = 2 };
 
 ntt_ctx *ntt_ctx_create(int prime);          /* on the current device */
 void     ntt_ctx_free(ntt_ctx *c);
@@ -48,6 +55,7 @@ void ntt_inv_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t bat
 /* grpB: one transformed y of 2^logn points against every transform in the batch */
 void ntt_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t count, hipStream_t s);
 void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size_t batch, hipStream_t s);
+void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logn, size_t batch, hipStream_t s);
 void ntt_load(ntt_ctx *c, uint64_t *dst, const uint64_t *src, size_t nlimbs, size_t npoints, hipStream_t s);
 
 /* pass structure for a given logn (for tests and timing) */
@@ -56,6 +64,11 @@ void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s);
 void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);
 void ntt_inv3_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s);
+void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
+/* the pointwise product alone with a y layout (r3: transforms of 3 2^logk points) */
+void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s);
+/* ntt3.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
+void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
 void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 

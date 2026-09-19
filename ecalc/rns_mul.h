@@ -28,6 +28,7 @@ typedef struct {
     double t_repack, t_h2d, t_fwd, t_inv, t_d2h, t_crt, t_total;
     double tb_scatter, tb_ntt, tb_crt, tb_merge, tb_total;   /* batch tier, max over devices per tile, summed */
     size_t n_mdev, n_split, n_school, n_batch, points_mdev;
+    size_t n_batch_local, n_batch_pair;                      /* Phase 9 B1: products through the locality-aware tier, of them in paired-B tiles */
 } rns_stats;
 extern rns_stats rns_st;
 extern int rns_school_max;        /* points (na+nb) below which the CPU schoolbook is used (default 1024) */
@@ -68,6 +69,7 @@ typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uin
                  size_t ncn; /* out: normalised length of c when the device-local path ran (0: not computed) */ } rns_prod;
 #define RNS_BATCH_LOGL_MAX 30
 extern size_t rns_batch_tile_bytes;   /* default 15e9 (paper) */
+extern int rns_batch_pair;            /* RNS_BATCH_PAIR: 1 (default) the locality-aware tier transforms a B shared by products 2j, 2j+1 once (Phase 9 B1) */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
 extern int rns_engine;               /* RNS_ENGINE: 1 paper's (4 x 52-bit FP64 Barrett), 2 two 62-bit primes / 45-bit points (Phase 5 item 5) */

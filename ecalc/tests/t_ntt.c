@@ -196,22 +196,35 @@ int main(int argc, char **argv)
             ntt_ctx_free(c);
         }
         ntt_stg = 7;
-        /* register-blocked body (1) and with radix-4 stages (2): bit-identical forward and exact round trip */
-        for (ntt_b16_body = 1; ntt_b16_body <= 2; ntt_b16_body++) {
+        /* register-blocked body (1) and with radix-4 stages (2), each with the LDS and the ds_swizzle B<->C
+         * exchange (Phase 9 B4): bit-identical forward, exact round trip, and the inverse pass output itself
+         * identical to the tile kernel's (the forward output, inverted without the scale fusion, compared) */
+        uint64_t hinv_ref = 0;
+        for (int sw = 0; sw < 2; sw++) for (ntt_b16_body = 0; ntt_b16_body <= 2; ntt_b16_body++) {
+            if (ntt_b16_body == 0 && sw) continue;
+            ntt_b16_xchg = sw;
             ntt_ctx *c = ntt_ctx_create(0);
             HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice));
             ntt_fwd(c, dx, logn, 1, 0);
             HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
             uint64_t h = hash_arr(hy, n);
-            VERIFY(h == href, "register-blocked body: forward differs from the tile kernel");
+            VERIFY(h == href, "body %d xchg %d: forward differs from the tile kernel", ntt_b16_body, sw);
             ntt_inv(c, dx, logn, 1, 0);
             HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
             size_t first, bad = count_diff(hx, hy, n, &first);
-            VERIFY(bad == 0, "register-blocked body: round trip %zu mismatches", bad);
-            printf("   body %d: fwd hash %016llx %s\n", ntt_b16_body, (unsigned long long)h, h == href ? "== tile kernel" : "DIFFERS");
+            VERIFY(bad == 0, "body %d xchg %d: round trip %zu mismatches", ntt_b16_body, sw, bad);
+            /* the inverse's intermediate: inv over the forward output of a batch of 2 (no round-trip identity to hide behind) */
+            HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice));
+            ntt_inv(c, dx, logn - 1, 2, 0);
+            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
+            uint64_t hi = hash_arr(hy, n);
+            if (ntt_b16_body == 0) hinv_ref = hi;
+            VERIFY(hi == hinv_ref, "body %d xchg %d: inverse output differs from the tile kernel", ntt_b16_body, sw);
+            printf("   body %d xchg %d: fwd hash %016llx %s, inv hash %016llx %s\n", ntt_b16_body, sw, (unsigned long long)h, h == href ? "== tile kernel" : "DIFFERS",
+                   (unsigned long long)hi, hi == hinv_ref ? "==" : "DIFFERS");
             ntt_ctx_free(c);
         }
-        ntt_b16_body = 0;
+        ntt_b16_body = 0; ntt_b16_xchg = 0;
         /* Shoup b1 pass: forward output canonical and identical; round trip exact */
         ntt_b1_shoup = 1;
         {
@@ -231,10 +244,49 @@ int main(int argc, char **argv)
         ntt_b1_shoup = 0;
     }
 
+    /* 4b. Phase 9 B1: the pointwise operand's layouts (FULL, BCAST, PAIR), fused into the b1 pass and not,
+     * for 2^k and 3 2^k transforms: a batch of 6 x transforms against 6 / 1 / 3 y transforms must equal
+     * the per-transform product + inverse (bit-identical) */
+    printf("-- 4b. pointwise layouts (full / bcast / pair, fused and unfused, 2^k and 3 2^k)\n");
+    for (int r3 = 0; r3 < 2; r3++) for (int lg = 10; lg <= 15; lg++) for (int fuse = 0; fuse < 2; fuse++) {
+        int logk = lg; size_t Lt = (size_t)(r3 ? 3 : 1) << logk, B = 6, tot = B * Lt;
+        if (2 * tot > nmax) continue;
+        pr = (lg + r3 + fuse) % EC_NP;
+        for (size_t i = 0; i < tot; i++) { hx[i] = rng_next(&rng) % ec_P[pr]; hy[i] = rng_next(&rng) % ec_P[pr]; }
+        int save = ntt_pw_fuse; ntt_pw_fuse = fuse ? 10 : 40;
+        for (int ym = 0; ym < 3; ym++) {
+            /* reference: per transform t, y transform sel(t): product, then the inverse */
+            for (size_t t = 0; t < B; t++) {
+                size_t ty = ym == NTT_Y_FULL ? t : ym == NTT_Y_BCAST ? 0 : t >> 1;
+                HIP_CHECK(hipMemcpy(dx, hx + t * Lt, Lt * 8, hipMemcpyHostToDevice));
+                HIP_CHECK(hipMemcpy(dy, hy + ty * Lt, Lt * 8, hipMemcpyHostToDevice));
+                ntt_pw(ctx[pr], dx, dy, Lt, 0);
+                if (r3) ntt_inv3(ctx[pr], dx, logk, 1, 0); else ntt_inv(ctx[pr], dx, logk, 1, 0);
+                HIP_CHECK(hipMemcpy(hz + t * Lt, dx, Lt * 8, hipMemcpyDeviceToHost));
+            }
+            HIP_CHECK(hipMemcpy(dx, hx, tot * 8, hipMemcpyHostToDevice));
+            HIP_CHECK(hipMemcpy(dy, hy, tot * 8, hipMemcpyHostToDevice));
+            if (r3) ntt_inv3_pw_y(ctx[pr], dx, dy, ym, logk, B, 0); else ntt_inv_pw_y(ctx[pr], dx, dy, ym, logk, B, 0);
+            HIP_CHECK(hipMemcpy(hy + tot, dx, tot * 8, hipMemcpyDeviceToHost));    /* hy's tail is scratch */
+            size_t first, bad = count_diff(hz, hy + tot, tot, &first);
+            VERIFY(bad == 0, "P%d %s2^%d layout %d %s: %zu mismatches, first at %zu", pr, r3 ? "3*" : "", logk, ym, fuse ? "fused" : "unfused", bad, first);
+            /* the old entry points agree with the layout ones */
+            if (ym != NTT_Y_PAIR) {
+                HIP_CHECK(hipMemcpy(dx, hx, tot * 8, hipMemcpyHostToDevice));
+                if (r3) { if (ym) ntt_inv3_pw_bcast(ctx[pr], dx, dy, logk, B, 0); else ntt_inv3_pw(ctx[pr], dx, dy, logk, B, 0); }
+                else    { if (ym) ntt_inv_pw_bcast(ctx[pr], dx, dy, logk, B, 0); else ntt_inv_pw(ctx[pr], dx, dy, logk, B, 0); }
+                HIP_CHECK(hipMemcpy(hy + tot, dx, tot * 8, hipMemcpyDeviceToHost));
+                bad = count_diff(hz, hy + tot, tot, &first);
+                VERIFY(bad == 0, "P%d %s2^%d layout %d %s (old entry point): %zu mismatches", pr, r3 ? "3*" : "", logk, ym, fuse ? "fused" : "unfused", bad);
+            }
+        }
+        ntt_pw_fuse = save;
+    }
+
     /* 5. rates on every device */
-    for (int body = 0; body < 4; body++) {
-    ntt_b16_body = body == 3 ? 1 : body; ntt_b1_shoup = body == 3;
-    printf("-- 5. rates (P0, STG 7, body %d = %s)\n", body, body == 3 ? "register-blocked + Shoup b1" : body == 2 ? "register-blocked + radix-4" : body ? "register-blocked" : "tile kernel");
+    for (int body = 0; body < 5; body++) {
+    ntt_b16_body = body >= 3 ? 1 : body; ntt_b1_shoup = body == 3; ntt_b16_xchg = body == 4;
+    printf("-- 5. rates (P0, STG 7, body %d = %s)\n", body, body == 4 ? "register-blocked + ds_swizzle exchange" : body == 3 ? "register-blocked + Shoup b1" : body == 2 ? "register-blocked + radix-4" : body ? "register-blocked" : "tile kernel");
     {
         double sum_fwd = 0, sum_inv = 0;
         int np = ntt_npass(LOGMAX);
@@ -270,6 +322,6 @@ int main(int argc, char **argv)
         VERIFY(sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
     }
     }
-    ntt_b16_body = 0; ntt_b1_shoup = 0;
+    ntt_b16_body = 0; ntt_b1_shoup = 0; ntt_b16_xchg = 0;
     return verify_done("t_ntt");
 }
