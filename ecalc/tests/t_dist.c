@@ -198,6 +198,7 @@ int main(int argc, char **argv)
                 if (logR + logC <= logmax) VERIFY(one(prime, logR, logC), "dist conv prime %d %dx%d", prime, logR, logC);
     if (logmax >= 26) VERIFY(one(0, 13, 13), "dist conv 2^26");
     if (logmax >= 30) VERIFY(one(1, 15, 15), "dist conv 2^30");
+    if (logmax >= 31) VERIFY(one(2, 16, 15), "dist conv 2^31");
     if (tcp) comm_destroy(tcp);
     return verify_done("t_dist");
 }
