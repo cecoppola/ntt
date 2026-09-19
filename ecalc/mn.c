@@ -151,7 +151,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
-        comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
+        comm *xg = comm_xgmi_create(d), *cm = getenv("MN_LAYERED_RAW") ? xg : comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
         if (comm_rank(cm) != r || comm_size(cm) != nr) { fprintf(stderr, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); exit(1); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
@@ -181,7 +181,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
                 printf("mn: node %d rank %d: row %zu col 0 (point %zu): got %llu, ref %llu; got is ref[%zu] (row %zu col %zu)\n", g_rank, r, r * rr + il, r * rr + il, (unsigned long long)got, (unsigned long long)ref[r * rr + il], where, where < n ? where % R : 0, where < n ? where / R : 0); }
         }
         if (bad) ok = 0;
-        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
+        dist_plan_free(&pl); if (cm != xg) comm_destroy(cm); comm_destroy(xg);
         HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
         free(hx); free(hy); free(ref); free(tmp);
     }
