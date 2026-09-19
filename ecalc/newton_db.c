@@ -475,7 +475,13 @@ static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
     if (ms > 0x7fffffff) { fprintf(stderr, "mdb_to_host_all: share too large\n"); exit(1); }
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
-    mn_allgather(G->all[0], buf, (int)ms, all);
+    {   /* an all-to-all of g copies over mesh 0 (device slabs; the transport's threaded exchange cannot deadlock on large shares) */
+        MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, (size_t)g * ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
+        for (int r = 0; r < g; r++) MN_HIP(hipMemcpy(sb + (size_t)r * ms, buf, ms * 8, hipMemcpyHostToDevice));
+        comm_alltoall(G->all[0], sb, rb, ms * 8, 0); comm_wait(G->all[0]);
+        MN_HIP(hipMemcpy(all, rb, (size_t)g * ms * 8, hipMemcpyDeviceToHost));
+        db_pool_free(0, sb); db_pool_free(0, rb);
+    }
     bi_reserve(out, X->N + 1);
     for (int r = 0; r < g; r++) { mdb_share(X, G->g0 + r, &lo, &hi); if (hi > lo) memcpy(out->l + lo, all + (size_t)r * ms, (hi - lo) * 8); }
     out->n = X->n; free(buf); free(all);
