@@ -219,6 +219,10 @@ static void region_need(unsigned long N, size_t need[NR])
             (void)pb;
             if (nxt_r) nxt_r[i] = r;
         }
+        if (n <= (size_t)bs_balance_n) {                                        /* the balanced levels: the real sizes decide which region gets the extra node, so every region is sized for the largest share */
+            size_t mx = 0; for (int r = 0; r < NR; r++) if (offr[r] > mx) mx = offr[r];
+            for (int r = 0; r < NR; r++) offr[r] = mx;
+        }
         for (int r = 0; r < NR; r++) if (offr[r] + 2 > need[r]) need[r] = offr[r] + 2;
         free(cur_r); cur_r = nxt_r; nxt_r = 0;
     }
@@ -232,13 +236,23 @@ void binsplit_pregrow(unsigned long N)
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
     int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
+    double t_pg = mem_now();
     size_t need[NR]; int exact = !(getenv("BS_REGION_FLAT") && atoi(getenv("BS_REGION_FLAT")));   /* C4: regions from the simulated layout (BS_REGION_FLAT=1: the flat paper-era sizing) */
     if (exact) region_need(N, need); else for (int r = 0; r < NR; r++) need[r] = per_region;
-    if (getenv("ECALC_ARENA_GB")) { size_t half = (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8; for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }   /* a larger arena per device (e.g. the dm phase's block-pool need, so it never falls back to hipMalloc) */
+    /* the arena also serves the dm phase as the block pool (the regions are donated to it): mapping its need now costs
+     * 0.06 s/GB at init, inside the phase twice that and it stalls the kernels (RESULTS 70), so the arena is at least
+     * k x n_Q limbs per APU (n_Q = d/18, the peak of live device numbers in dm is ~6.8 n_Q at 4e10 plus fragmentation;
+     * k = 8, ECALC_DM_POOL_K; per node-process 1/size of it; ECALC_ARENA_GB sets the arena per APU outright) */
+    { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 8.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
+      int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
+      size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2 / sz);
+      if (bs_regions_on_device && half) for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }
     if (bs_verbose) printf("bs: regions %s: %.2f / %.2f / %.2f / %.2f GB (+1/8; flat rule %.2f GB)%s\n", exact ? "from the level layouts" : "flat", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, per_region * 8e-9, bs_regions_on_device ? ", one arena per device for both parities" : "");
     if (bs_regions_on_device && mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
+        double ta = mem_now();
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)
         for (int r = 0; r < NR; r++) arena_get(r, need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096);
+        if (bs_verbose) printf("bs: arenas allocated in %.2f s (layout pass %.2f s)\n", mem_now() - ta, ta - t_pg);
     }
 #pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
     for (int r = 0; r <= NR; r++) {
