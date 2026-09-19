@@ -2954,3 +2954,19 @@ All VERIFY OK, digits identical to the reference. The binary path
 Against the day's starting point (§66/§67: 108.9 s phases, 133.7 s wall,
 160 GB) the wall is −24 %, the host memory −53 %; against the reproduced
 paper design (291 s, 248 GB): 2.9 × and 30 %.
+
+**The ceiling.** 5 × 10¹⁰: 125.8 s, 85.2 GB, identical to the 5 × 10¹⁰
+reference of §45 (which the paper design produced in 442 s at 375 GB).
+6 × 10¹⁰: 159.7 s, 99.7 GB, VERIFY OK (T1 residues, T2 windows; the
+first run at this size). **7 × 10¹⁰: 182.7 s, 114.1 GB, VERIFY OK** —
+init 24.5, bs 76.9 (batch 47.2, top levels 29.2), dm 81.1 (reciprocal
+31.0: the dm phase's block pool overflows the donated regions again at
+this size and grows by `hipMalloc`; division 50.1). Device: 192 GB of
+regions + 137 GB of planes + the block-pool growth. 8 × 10¹⁰ would need
+≈ 580 GB (device ≈ 137 GB + 4.7 GB per 10⁹ digits, host ≈ 69 GB pinned +
+1.3 GB per 10⁹) against the node's 502 GB, so **7 × 10¹⁰ is the
+single-node ceiling** of this pipeline — 1.4 × the paper design's 5 × 10¹⁰
+at a third of its host memory; at 2 048 nodes that is 1.4 × 10¹⁴ digits per
+run before any memory work. Time per digit grows mildly with size (2.5 →
+2.6 ns/digit from 4 to 7 × 10¹⁰: the reciprocal's pool growth and the
+2³¹-point plane cap in the top levels).
