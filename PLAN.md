@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-18 | **Phase 8 started**: overlap of disjoint work (§18) measured — 4 × 10¹⁰ wall 128.8 → **112.1 s** (−13 %) under clean conditions, peak host 154 GB, digits identical; three couplings found and fixed (blocking copy stream, device-wide syncs in dbig, un-faulted host buffers); page-cache pollution of measurements identified (baseline 133.7 → 128.8 with the reference file evicted). M1 + M2 built: node-process driver, four TCP meshes, term-range partition, node 0 combining — sizes 1, 2, 4 on one node identical to the reference. `ECALC_OVERLAP` default: user decision | RESULTS.md §68 |
 | 2026-09-18 | **Decision (user): the decimal final version is the code** — `LIMB_BASE=10` default in `ecalc`, `wp1-decimal-base` merged to `main` (fast-forward), Phase 4 stays at tag `phase4-accepted`; write-up as a paper (`~/xetex/e40b.tex`) before further development | RESULTS.md §67 |
 | 2026-09-18 | **Session close**: low product as the grid with the pieces above the window skipped (decimal dm 37.9 → 37.0); pool bug found by `t_newton` and fixed (extents never merge across hipMalloc regions); full test set green in both bases; final three-run series decimal **108.9 ± 1.1** phases / 133.7 wall / 160 GB, binary 167.1 / 191.5 / 233 GB | RESULTS.md §66 |
 | 2026-09-18 | **Grid split of the device products** (§66): pieces chosen for the fewest plane points instead of halving the longer operand — decimal 4 × 10¹⁰ dm 48.9 → 37.9 s, phases **108.3 ± 1.0**, wall 132.0 ± 3.1, 160 GB; binary 165.4 / 187.9 / 233 GB; digits identical, three runs each. The 3·2³⁰ plane pool is no longer needed. WP6 merged (§65). `NEWTON_DEVICE` and `BS_DEV_MDEV` default on; all six switch combinations verified at 10⁹ | RESULTS.md §65–66 |
@@ -893,7 +894,7 @@ a switch.
 
 | # | idea | expected | cost | status |
 |---|---|---|---|---|
-| I1 | **Phase-level overlap of disjoint work** (§18): init in parallel per APU; T1's P, Q recurrence during the GPU levels; A = 10ᵈ(P+Q) and P's copy-out during the reciprocal; Q kept on device; digit formatting + T2 + digit residue during the low product | wall −15…−20 s (init −8, T1 −3.5, 10dP/copies −3, dc/T2 −5) | 1–2 d | **in progress** |
+| I1 | **Phase-level overlap of disjoint work** (§18): init in parallel per APU; T1's P, Q recurrence during the GPU levels; A = 10ᵈ(P+Q) and the residues during the reciprocal; Q kept on device; digit formatting + T2 + digit residue during the low product | measured **−16.7 s** (128.8 → 112.1, clean conditions) | done | **measured (§68); default = user decision** |
 | I2 | Seeds pipelined with level 1 per region (the GPU starts region r's level 1 while the CPU seeds region r+1) — coordinated interleaving | −8 s (seeds hidden behind the batch tier) | 1 d, after I1 | idea |
 | I3 | A formed on device (dbig add + limb shift), the remainder window on device: no A copy-in, no host A at all | −2 s, host peak −36 GB (A's pool) | 1 d | idea |
 | I4 | Reciprocal warm start: μ's top from a lower-precision run, or the last doubling's product reused across the two division products (fwd(Q) computed once for X Q and the recip's Q_t r) | −3…−5 s of dm | 2 d | idea |
