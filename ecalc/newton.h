@@ -34,11 +34,13 @@ typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
+void newton_seed_top(bigint *r, const uint64_t *top4, size_t top, size_t nq, size_t *j);   /* from Q's top limbs (I3) */
 /* WP5: the same on device-resident numbers (newton_db.c); NEWTON_DEVICE=1 in ecalc selects them */
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k);
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt);
 void newton_db_free_scratch(void);
 extern int newton_db_free_inputs;
+void newton_db_divmod_shifted(bigint *X, const struct dbig_s *S, size_t dl, const struct dbig_s *Qd, const uint64_t *qs, int nres, uint64_t *rres);   /* I3: A = S B^dl, all on device; R's residues out */
 extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on device (owned by the caller) */
 extern int newton_db_mu_host;                        /* 0: no host copy of mu after the reciprocal */
 extern void (*newton_db_x_hook)(bigint *X, void *arg); extern void *newton_db_x_arg;   /* X on the host before the low product */

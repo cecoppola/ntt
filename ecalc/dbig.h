@@ -44,6 +44,7 @@ void db_shl_limbs(dbig *r, const dbig *a, size_t k);
 void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
 uint64_t db_limb(const dbig *a, size_t i);
+uint64_t db_mod_q(const dbig *x, uint64_t q);        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */
 /* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
 dbig db_view(const dbig *a, size_t lo, size_t len);
 #ifdef __cplusplus

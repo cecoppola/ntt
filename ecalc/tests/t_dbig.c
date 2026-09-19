@@ -3,6 +3,7 @@
 #include "harness.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
+#include "../verify.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #include "../rns_mul.h"
 #include <string.h>
@@ -39,6 +40,12 @@ int main(int argc, char **argv)
         VERIFY(db_top(&x) == (a.n ? a.l[a.n - 1] : 0), "top n %zu", n);
     }
     for (size_t k = 0; k < 5000; k += 1237) { bi_set_base_pow(&r, k); db_set_base_pow(&z, k); VERIFY(same(&z, &r, "base pow"), "base_pow %zu", k); }
+    /* residues mod the T1 primes by the device kernel (I3) against the host Horner, across quarter and chunk boundaries */
+    { size_t ns[] = { 1, 5, 4095, 4096, 4097, 100000, (1u << 20) + 3, 5000000 };
+      for (size_t i = 0; i < sizeof ns / sizeof ns[0]; i++) for (int kind = 0; kind < 2; kind++) {
+          rnd_bi(&a, ns[i], kind); db_from_bi(&x, &a);
+          for (int j = 0; j < T1_NQ; j += 3) VERIFY(db_mod_q(&x, t1_q[j]) == vf_limbs_mod(a.l, a.n, t1_q[j]), "mod q n %zu %s q%d", ns[i], gen_name[kind], j);
+      } }
     /* products on device operands against rns_mul (which is GMP-checked in t_mul) */
     if (argc > 2) {
         int big = !strcmp(argv[2], "big");                    /* include the products that split (> 2^31 points) */

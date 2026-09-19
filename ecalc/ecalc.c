@@ -57,39 +57,12 @@ static void pow10_big(bigint *T, unsigned long d)
 
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
-static int g_overlap = 1, g_bg_threads = 48, g_ovl_copy = 0;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
-struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_fault; bigint *P, *Q; size_t nl; };
+static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
+struct pq_bg { unsigned long N; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t; };
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_mod(b->N, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
-    /* the host buffers P and Q will be copied into (O3) are faulted in now, while the GPUs run the levels: a fresh 17 GB
-     * buffer costs seconds of page faults at copy time (RESULTS.md 68) */
-    t0 = mem_now();
-    if (b->P && b->nl) { bi_reserve(b->P, b->nl); bi_reserve(b->Q, b->nl);
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < b->nl; i += 512) { b->P->l[i] = 0; b->Q->l[i] = 0; } }
-    b->t_fault = mem_now() - t0; return 0; }
+    return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
-
-struct a_bg { bigint *P, *Q, *S, *A, *T; unsigned long d; uint64_t Pres[T1_NQ], Qres[T1_NQ]; pthread_t th; sem_t q_done; double t_copy, t_res, t_10dp; };
-static void *a_bg_run(void *a)                        /* O3: P, Q out of the device, their residues, A = 10^d (P + Q) -- during the reciprocal */
-{
-    struct a_bg *b = (struct a_bg *)a; omp_set_num_threads(g_bg_threads);
-    double t0 = mem_now();
-    if (g_ovl_copy) {
-        db_to_bi(b->Q, &bs_Qd); sem_post(&b->q_done);  /* the reciprocal's seed and mu tag need the host Q: it goes first */
-        db_to_bi(b->P, &bs_Pd); db_free(&bs_Pd);        /* P's blocks back to the pool for the reciprocal */
-    }
-    double t1 = mem_now();
-    for (int i = 0; i < T1_NQ; i++) { b->Pres[i] = vf_limbs_mod(b->P->l, b->P->n, t1_q[i]); b->Qres[i] = vf_limbs_mod(b->Q->l, b->Q->n, t1_q[i]); }
-    double t2 = mem_now();
-    bi_add(b->S, b->P, b->Q); bi_free(b->P);
-    bi_shl_limbs(b->A, b->S, b->d / 18);
-    if (b->d % 18) bi_mul_pow10(b->A, b->A, (unsigned)(b->d % 18));
-    bi_set_u64(b->T, 0); b->T->n = (b->d + 17) / 18;
-    bi_free(b->S);
-    if (g_ovl_copy) b->t_copy = t1 - t0; b->t_res = t2 - t1; b->t_10dp = mem_now() - t2;
-    return 0;
-}
 
 struct x_bg { bigint *X; unsigned long d; char *digits; uint64_t Xres[T1_NQ]; int bad2, bad3, verbose; pthread_t th; int started; double t_res, t_fmt, t_t2; };
 static void digits_format(char *digits, const bigint *X, unsigned long d)   /* the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
@@ -158,14 +131,12 @@ int main(int argc, char **argv)
     bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
     g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
-    if (getenv("ECALC_OVERLAP_COPY")) g_ovl_copy = atoi(getenv("ECALC_OVERLAP_COPY"));
     int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
     int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N;
-    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
-               pqb.P = &P; pqb.Q = &Q; pqb.nl = bi_decimal ? (size_t)(N * (log(N) - 1.0) / log(1e18) * 1.02) + 4096 : 0; }   /* limbs of Q ~ log_B N! */
+    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
@@ -205,7 +176,7 @@ int main(int argc, char **argv)
     binsplit_free_pools();
 
     /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
-    uint64_t Pres[T1_NQ], Qres[T1_NQ];
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
     if (!ovl3) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
 
     /* dm part 1: the reciprocal of Q first, while A does not exist yet (memory peak) */
@@ -216,29 +187,27 @@ int main(int argc, char **argv)
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
     newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
     if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
-    struct a_bg ab; memset(&ab, 0, sizeof ab);
-    double t_10dp = 0;
-    if (ovl3) {                                       /* O3: P, Q come off the device and A is formed on the CPU while the reciprocal runs */
-        na_est = 2 * bs_Qd.n + dl - bs_Qd.n + 2; k_mu = na_est - bs_Qd.n + 1;
+    double t_10dp = 0, t_res3 = 0;
+    if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
+        if (d % 18) { fprintf(stderr, "I3 path: d must be a multiple of 18\n"); return 1; }
+        double tr = mem_now();
+        for (int i = 0; i < T1_NQ; i++) { Pres[i] = db_mod_q(&bs_Pd, t1_q[i]); Qres[i] = db_mod_q(&bs_Qd, t1_q[i]); }
+        t_res3 = mem_now() - tr;
+        na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
-        ab.P = &P; ab.Q = &Q; ab.S = &S; ab.A = &A; ab.T = &T; ab.d = d; sem_init(&ab.q_done, 0, 0);
-        double tcp0 = mem_now();
-        if (!g_ovl_copy) { db_to_bi(&Q, &bs_Qd); db_to_bi(&P, &bs_Pd); db_free(&bs_Pd); ab.t_copy = mem_now() - tcp0; }   /* the copies before the reciprocal: its kernels and the DMA contend (RESULTS.md 68) */
-        pthread_create(&ab.th, 0, a_bg_run, &ab);
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
-        if (g_ovl_copy) sem_wait(&ab.q_done);         /* the seed reads Q's top limbs and the kept mu is tagged by the host Q */
         newton_db_recip(&MU, &Q, k_mu);
     } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     double t_recip = mem_now() - t;
-    printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
 
     t = mem_now();
     if (ovl3) {
-        pthread_join(ab.th, 0);
-        memcpy(Pres, ab.Pres, sizeof Pres); memcpy(Qres, ab.Qres, sizeof Qres);
-        t_10dp = ab.t_10dp;
-        printf("      %s the reciprocal: P, Q out %.2f s; overlapped: residues %.2f s, A %.2f s\n", g_ovl_copy ? "inside" : "before", ab.t_copy, ab.t_res, ab.t_10dp);
+        db_add(&bs_Pd, &bs_Pd, &bs_Qd);               /* S = P + Q on the device; A = S B^dl is never formed */
+        t_10dp = mem_now() - t;
+        printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
+        T.n = dl; A.n = bs_Pd.n + dl;
     } else {
     bi_add(&S, &P, &Q);
     bi_free(&P);
@@ -255,6 +224,7 @@ int main(int argc, char **argv)
     }
     printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, T.n, A.n, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
+    if (ovl3) { T.n = A.n = 0; }
     bi_free(&S); bi_free(&T); rns_free_scratch();
 
     t = mem_now();
@@ -267,7 +237,8 @@ int main(int argc, char **argv)
         if (posix_memalign((void **)&digits, 2u << 20, d + 2)) { fprintf(stderr, "digits: %lu bytes\n", d + 2); return 1; }
         xb.digits = digits; newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;
     }
-    if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
+    if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
+    else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0;
     if (ovl3) db_free(&bs_Qd);
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
@@ -280,10 +251,10 @@ int main(int argc, char **argv)
     if (ovl && pqb.started) pthread_join(pqb.th, 0);
     if (ovl && xb.started) pthread_join(xb.th, 0);   /* its X residues serve T1 (if X was corrected afterwards they are redone below and T1 recomputes) */
     int xres_ok = ovl && xb.started && !(newton_st.down_corr + newton_st.up_corr);
-    int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, xres_ok ? xb.Xres : 0, verbose >= 2);
+    int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, xres_ok ? xb.Xres : 0, rres_ok ? Rres : 0, verbose >= 2);
     double t_t1 = mem_now() - t;
     printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", ovl && pqb.started ? " (P, Q recurrence overlapped with bs)" : "");
-    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s, P/Q host buffers faulted %.2f s\n", pqb.t, pqb.t_fault);
+    if (ovl && pqb.started) printf("      overlapped with bs: P, Q mod q recurrence %.2f s\n", pqb.t);
     RESULT("T1", "s", t_t1);
     bi_free(&A); bi_free(&R); bi_free(&Q);
     printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);

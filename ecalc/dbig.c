@@ -196,6 +196,41 @@ void db_to_bi(bigint *r, const dbig *x)
     }
     pthread_mutex_unlock(&g_bounce_mx);
 }
+
+/* ---- residue mod q of a device number (Phase 8 I3: the T1 residues of P, Q, R without host copies) ----
+ * one thread per chunk of MODQ_CH limbs computes v_c = sum x[i] B^(i - lo) mod q (Horner from the top of the
+ * chunk); the host combines the chunks: r = sum v_c B^(lo_c) mod q, Horner over the chunks from the top */
+#define MODQ_CH 4096
+__device__ static uint64_t mulmod_dev(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((unsigned __int128)a * b % q); }
+__global__ void k_modq(const uint64_t *x, size_t n, uint64_t q, uint64_t Bq, uint64_t *out)
+{
+    size_t c = (size_t)blockIdx.x * blockDim.x + threadIdx.x, lo = c * MODQ_CH; if (lo >= n) return;
+    size_t hi = lo + MODQ_CH < n ? lo + MODQ_CH : n;
+    uint64_t v = 0;
+    for (size_t k = hi; k-- > lo;) v = (uint64_t)(((unsigned __int128)v * Bq + x[k]) % q);
+    out[c] = v;
+}
+static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
+static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
+uint64_t db_mod_q(const dbig *x, uint64_t q)
+{
+    if (!x->n) return 0;
+    uint64_t Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q), Bch = powmod_h(Bq, MODQ_CH, q);
+    uint64_t r = 0; size_t maxc = x->qc / MODQ_CH + 2;
+    uint64_t *hv = (uint64_t *)malloc(maxc * 8);
+    for (int d = DB_NQ; d-- > 0;) {                                 /* from the top quarter down: r = r B^len + v_quarter */
+        size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
+        size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MODQ_CH - 1) / MODQ_CH;
+        uint64_t *dv; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&dv, nc * 8));
+        k_modq<<<(unsigned)((nc + 255) / 256), 256>>>(x->q[d] + first, len, q, Bq, dv);
+        HIP_CHECK(hipStreamSynchronize(0));
+        HIP_CHECK(hipMemcpy(hv, dv, nc * 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(dv));
+        uint64_t vq = 0; for (size_t c = nc; c-- > 0;) vq = (uint64_t)(((unsigned __int128)vq * Bch + hv[c]) % q);   /* chunks below the top one are full */
+        r = (uint64_t)(((unsigned __int128)r * powmod_h(Bq, len, q) + vq) % q);
+    }
+    free(hv);
+    return r;
+}
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
 __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
 {
