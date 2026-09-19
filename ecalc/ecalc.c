@@ -64,7 +64,7 @@ static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
 
-struct x_bg { bigint *X; unsigned long d; char *digits; uint64_t Xres[T1_NQ]; int bad2, bad3, verbose; pthread_t th; int started; double t_res, t_fmt, t_t2; };
+struct x_bg { bigint *X; unsigned long d, d_out; char *digits; uint64_t Xres[T1_NQ]; int bad2, bad3, verbose; pthread_t th; int started; double t_res, t_fmt, t_t2; };
 static void digits_format(char *digits, const bigint *X, unsigned long d)   /* the limbs are the digits; X < 10^(d+1) has ceil((d+1)/18) limbs */
 {
     size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);     /* leading zeros to drop */
@@ -85,7 +85,7 @@ static void *x_bg_run(void *a)                        /* O4: X's residues, the d
     double t1 = mem_now();
     digits_format(b->digits, b->X, b->d);
     double t2 = mem_now();
-    b->bad2 = tier2(b->digits, b->d + 1, b->verbose);
+    b->bad2 = tier2(b->digits, b->d_out + 1, b->verbose);
     b->bad3 = tier1_digits_res(b->digits, b->d + 1, b->Xres, b->verbose);
     b->t_res = t1 - t0; b->t_fmt = t2 - t1; b->t_t2 = mem_now() - t2;
     return 0;
@@ -96,7 +96,7 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
 int main(int argc, char **argv)
 {
     if (argc < 2) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
-    unsigned long d = strtoul(argv[1], 0, 10);
+    unsigned long d_out = strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
     const char *outfile = argc > 2 ? argv[2] : 0;
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
@@ -106,7 +106,8 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     if (!getenv("LIMB_BASE")) bi_set_decimal(1);      /* the decimal base is the pipeline's default (RESULTS.md 63, 67); LIMB_BASE=2 reproduces the paper's binary limbs */
     bi_env_base();
-    printf("== ecalc: e to %lu digits%s ==\n", d, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)");
+    if (bi_decimal) d = ((d_out + 17) / 18) * 18;
+    printf("== ecalc: e to %lu digits%s%s ==\n", d_out, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)", d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
     double t00 = mem_now(), t;
     unsigned long N = e_terms(d);
@@ -189,7 +190,6 @@ int main(int argc, char **argv)
     if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
     double t_10dp = 0, t_res3 = 0;
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
-        if (d % 18) { fprintf(stderr, "I3 path: d must be a multiple of 18\n"); return 1; }
         double tr = mem_now();
         for (int i = 0; i < T1_NQ; i++) { Pres[i] = db_mod_q(&bs_Pd, t1_q[i]); Qres[i] = db_mod_q(&bs_Qd, t1_q[i]); }
         t_res3 = mem_now() - tr;
@@ -230,7 +230,7 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
-    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.verbose = verbose >= 2;
+    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.verbose = verbose >= 2;
     char *digits = 0; int digits_reg = 1;
     if (ovl) {                                        /* O4: the digit buffer now (plain pages; the formatting thread touches them), the hook starts the formatting */
         digits_reg = 0;
@@ -268,7 +268,7 @@ int main(int argc, char **argv)
             printf("      X corrected after the formatting started: redoing the digits\n");
             for (int i = 0; i < T1_NQ; i++) xb.Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
             digits_format(digits, &X, d);
-            xb.bad2 = tier2(digits, d + 1, verbose >= 2); xb.bad3 = tier1_digits_res(digits, d + 1, xb.Xres, verbose >= 2);
+            xb.bad2 = tier2(digits, d_out + 1, verbose >= 2); xb.bad3 = tier1_digits_res(digits, d + 1, xb.Xres, verbose >= 2);
         }
         free(X.l); X.l = 0; X.n = X.cap = 0;
         t_dc = mem_now() - t; t_t2 = 0; bad2 = xb.bad2; bad3 = xb.bad3;
@@ -296,13 +296,13 @@ int main(int argc, char **argv)
     printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
 
     t = mem_now();
-    bad2 = tier2(digits, d + 1, verbose >= 2);
+    bad2 = tier2(digits, d_out + 1, verbose >= 2);
     bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
     t_t2 = mem_now() - t;
     printf("T2    %8.2f s   windows %s, digits == X mod q %s\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
     RESULT("T2", "s", t_t2);
     }
-    printf("digits: %.62s...%.20s\n", digits, digits + d + 1 - 20);
+    printf("digits: %.62s...%.20s\n", digits, digits + d_out + 1 - 20);
 
     double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
     printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
@@ -313,7 +313,7 @@ int main(int argc, char **argv)
 
     if (outfile) {
         FILE *f = fopen(outfile, "w");
-        if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d, f); fputc('\n', f); fclose(f); printf("wrote %s\n", outfile); }
+        if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); fclose(f); printf("wrote %s\n", outfile); }
     }
     int fail = bad1 || bad2 || bad3;
     printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
