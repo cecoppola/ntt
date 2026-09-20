@@ -3031,3 +3031,35 @@ per-level TCP meshes (RDMA sub-communicators later); no load balance at
 non-power-of-two sizes; the packed slabs' memory (≈ 4 q per APU from the
 block pool) to be accounted in M9. The division and the output remain
 node 0's (M4, M5).
+
+## 74. Phase 9 — seven agents in parallel: what landed (2026-09-19; results/A-*.md, N-kernel.md)
+
+PLAN §19 executed with seven agents in their own worktrees and aac6
+clones, the main session integrating (merge order by readiness, `main`
+re-verified after the merges). Each agent's design, tests and open
+issues are in its `results/<agent>.md`; the integration facts:
+
+| agent | delivered | gate | merged |
+|---|---|---|---|
+| A-comm (M7 + allgather) | `allgather` in every transport (layered: inter first, 4× less on the fabric); slab pipelining with two exchanges in flight; 15–37 % of the xGMI exchange hidden | t_comm/t_dist all modes at 2–4 node-processes; 10⁸ sizes 2, 4 identical | cf90a2a |
+| A-ckpt (M6) | per-node checkpoints: leaf sets per rank, tree-level sets of the shares, device-number levels included; v1 format still read | restart identical from every kind of set at sizes 1, 2, 4 (10⁸, 10⁹), kills mid-write | 07af461 |
+| A-div (M4 + B3 + C3) | the reciprocal and division over the whole machine on sharded numbers (`mdb_shift/addsub/cmp/mod_qs`, `recip_mn`, `newton_mn_divmod`); single node: the high product's pieces below the cut skipped | sizes 1–4 on one node and 2/4 on two real nodes identical; **single node 91.2 s** (dm 37.6 → 32.8) | ba7f027 |
+| A-out (M5 + C1) | each node formats and writes its part of X streamed in 256 MB chunks; rank-local T1 (term recurrence over the node's range, share residues by kernel) reduced over the nodes; T2 by the owning node; `t_out` 2 860 checks | sizes 1–4 and two real nodes identical; **single node 95.2 s, host 48.7 GB** (no 40 GB string) | aa3bb56 |
+| A-grid (A3 + C5) | the grid over shares (piece views, shifted distributed add with the cross-node carry scan), the low product over shares; an M3 carry-scan bug (empty shares) fixed; C5 measured: 3·2³⁰ planes −2.5 s for +34 GiB/APU, declined | `t_mn_grid` 120 checks at 2/3/4 processes; 2 × 10¹⁰ at size 2 with the grid forced identical; 4 × 10¹⁰ at size 2 needs two real nodes (memory) | 97281fd |
+| N-kernel (B1 + B4) | paired operand in the batch tier for 2ᵏ and 3·2ᵏ lengths (B once per pair, M/2 transforms); the radix-3 inverse fuses the pointwise; the register-blocked body found not to be ecalc's default — now it is (bit-identical); the DPP exchange measured slower, declined | t_ntt 593, t_mul 189/72/102, t_bs; 10⁹ identical both bases; batch tier 30.5 → 25.9 s | 2897396 |
+| A-mem (M9 + C4 + C2) | (in progress at the time of writing) | | |
+
+Two merge conflicts (additive, both sides kept), one scoping fix, and one
+integration defect found by the re-verification: in the distributed
+division's flow the non-zero nodes exited after the gather while the
+per-node output stage expected them (node 0's scatter of X met a closed
+mesh) — one line, every node goes to the output stage.
+
+**The merged single node (`main` @ 2897396, clean conditions, job 20745):
+4 × 10¹⁰ in 90.0 s wall, phases 71.1 (init 18.9, bs 38.1 = batch 25.2 +
+top levels 12.6, dm 32.9 = reciprocal 15.4 + division 17.5), peak host
+48.8 GB, VERIFY OK, digits identical.** Against the day's start (98.5 s /
+70.8 GB): −8.6 %, −31 %; against the paper design (291 s / 248 GB):
+3.2 × at 20 % of the memory. Unit tests on the merged tree: t_ntt 565,
+t_mul 189, t_bs 10, t_dbig 555, t_newton 620, t_verify 334 — all OK;
+the binary path 10⁹ still byte-identical.
