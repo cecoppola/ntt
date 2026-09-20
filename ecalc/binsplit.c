@@ -248,13 +248,13 @@ static void region_need(unsigned long N, size_t need[NR])
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
 struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; };
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
-static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log)
+static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* one tree level of group g (a power of two, the last one clipped to size): A = P, Q of half the group (N_A = nq_leaf x half
      * limbs each, shared over half nodes), the product over the g nodes: rns_mul_dist_mn's scratch per device (mn_core: sb and
      * rbA of g Smax limbs, rbB of g SB, cx and tmp of q = n / (4 gt) limbs on the transform nodes, two spill buffers of 4 g C
      * limbs, the temporary T of the node's window) beside the level's live shares (the inputs and the outputs, a quarter each) */
-    size_t best = 0; int L = 0; while ((1 << L) < size) L++;
+    size_t best = 0; int L = 0; while ((1 << L) < size) L++; if (top_scratch) *top_scratch = 0;
     for (int l = 1; l <= L; l++) {
         int g = (1 << l) < size ? (1 << l) : size, half = 1 << (l - 1), gt = g, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
         size_t NA = nq_leaf * (size_t)half + 8, nc = 2 * NA; int logn = 0; while (((size_t)1 << logn) < nc) logn++;
@@ -266,7 +266,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log)
         size_t Smax = Sc > Sin ? Sc : Sin;
         size_t scratch = 2 * (size_t)g * Smax * 8 + (size_t)g * Sin * 8 + 2 * q * 8 + 2 * (size_t)g * C * 4 * 8 + quarter_bytes(win);
         size_t live = 2 * quarter_bytes(share + share / 8) + 2 * quarter_bytes(share_c + share_c / 8);   /* inputs (P, Q shares) + outputs, with the bound's margin */
-        size_t tot = live + scratch; if (tot > best) best = tot;
+        size_t tot = live + scratch; if (tot > best) best = tot; if (top_scratch) *top_scratch = scratch;   /* the top level's: the sharded division's products carry the same slabs and spills (2 g C x 4 limbs per device grows with g) */
     }
     (void)pool_log;
     return best + best / 16;
@@ -285,7 +285,8 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     size_t piece = ((size_t)1 << pl) + 8; if (piece > nq_s + k_s + 16) piece = nq_s + k_s + 16;
     L->need_dev = 2 * quarter_bytes(nq_s + nq_s / 10 + 8) + 2 * quarter_bytes(k_s + 4) + L->hole + quarter_bytes(piece);
     L->need_dev += L->need_dev / 8 < ((size_t)1 << 30) ? L->need_dev / 8 : ((size_t)1 << 30);   /* slack for the odd small block (C3's 1 GiB at the large sizes) */
-    L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl) : 0;
+    size_t top_scratch = 0; L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl, &top_scratch) : 0;
+    L->need_dev += top_scratch;
 }
 size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
 void binsplit_pregrow(unsigned long N)
