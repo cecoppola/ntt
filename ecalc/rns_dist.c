@@ -217,11 +217,13 @@ static void cache_drop(int pinned_too)                        /* the planes back
         s->key = 0; s->q = 0; s->pinned = 0;
     }
 }
-/* holding pays only from 4 slots (3 for Q's pieces at 4e10 and one for the other operand): below that the in-product policy
- * saves as much; RNS_DIST_CACHE_HOLD=1 forces it, 0 forbids it */
+/* Holding is off unless RNS_DIST_CACHE_HOLD=1: the in-product policy already transforms each of Q's pieces once inside X Q
+ * (its B slot cycles through them), so pinning them from the reciprocal only moves those transforms there -- and the pinned
+ * slots are missing from the A_h mu product in between (with N slots: 4 + 5 + 5 transforms unheld vs 4 + 8 + 4 held at
+ * N = 4 for the reciprocal's top, A_h mu and X Q at 4e10).  Kept as the measured form of A-div's B2. */
 int rns_dist_cache_hold(int on)
 {
-    if (on) { const char *e = getenv("RNS_DIST_CACHE_HOLD"); int f = e ? atoi(e) : -1; if (!cache_slots() || f == 0 || (f < 0 && cache_slots() < 4)) on = 0; }
+    if (on) { const char *e = getenv("RNS_DIST_CACHE_HOLD"); int f = e ? atoi(e) : 0; if (!cache_slots() || !f) on = 0; }
     g_cache.hold = g_cache.pin_next = on; if (!on) cache_drop(1); return on;
 }
 void rns_dist_cache_stats(size_t *hits, size_t *misses) { *hits = g_cache.hits; *misses = g_cache.misses; g_cache.hits = g_cache.misses = 0; }
