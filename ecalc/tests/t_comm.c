@@ -3,7 +3,10 @@
  * (host blocks below and above the no-thread threshold; the "device" op, which is the host one in this build), and
  * (B7) the unequal all-to-all: per-pair counts of 0..8 units (units of 8 B, 1000 B and 3 MiB), slabs back to back
  * on the send side and in reverse rank order on the receive side, the device and the host op.
- * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c -lpthread
+ * Point-to-point (S): small values to all before any receive, a 3 MiB message between pairs.
+ * COMM_TRANSPORT=shmem (S): one PE per process under oshrun (mnrun.sh <n> ./tests/t_comm): the same checks over the SHMEM
+ * transport on the full PE set, then on the strided sets of the even and the odd PEs (n >= 4).
+ * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c ../comm_shmem.c ../comm_util.c -lpthread
  * With COMM_RANK set (one process per rank, e.g. under wp6run.sh across nodes)
  * this process is that rank: it prints its own VERIFY line and exits nonzero on failure. */
 #include <stdio.h>
@@ -35,12 +38,53 @@ static int check_alltoallv(comm *c, int me, int n)
     }
     return bad;
 }
+/* point-to-point (S): small values to every rank before any receive (the carry flags' pattern), then a 3 MiB message
+ * between pairs (even ranks send first, odd ranks receive first) */
+static int check_p2p(comm *c, int me, int n)
+{
+    int bad = 0;
+    for (int round = 0; round < 2; round++) {
+        size_t bytes = round ? 8 : 1; char sb[8], rb[8];
+        for (int r = 0; r < n; r++) if (r != me) { uint64_t w = slab_word(me, r, 200 + round, 0); memcpy(sb, &w, 8); comm_send(c, r, sb, bytes); }
+        for (int r = 0; r < n; r++) if (r != me) { uint64_t w = slab_word(r, me, 200 + round, 0); comm_recv(c, r, rb, bytes); if (memcmp(rb, &w, bytes)) bad++; }
+    }
+    if (n >= 2) {
+        int peer = me ^ 1; if (peer < n) {
+            size_t words = (3 << 20) / 8; uint64_t *sb = malloc(words * 8), *rb = malloc(words * 8);
+            for (size_t k = 0; k < words; k++) sb[k] = slab_word(me, peer, 300, k);
+            if (me & 1) { comm_recv(c, peer, rb, words * 8); comm_send(c, peer, sb, words * 8); }
+            else { comm_send(c, peer, sb, words * 8); comm_recv(c, peer, rb, words * 8); }
+            for (size_t k = 0; k < words; k++) if (rb[k] != slab_word(peer, me, 300, k)) bad++;
+            free(sb); free(rb);
+        }
+    }
+    comm_barrier(c);
+    return bad;
+}
+static int check_all(comm *c, int me, int n);
+static int shmem_mode;
 static int run_rank(int me, int n, const char *hosts, int port)
 {
-    char b[32]; snprintf(b, sizeof b, "%d", me); setenv("COMM_RANK", b, 1);
-    snprintf(b, sizeof b, "%d", n); setenv("COMM_SIZE", b, 1); setenv("COMM_HOSTS", hosts, 1);
-    snprintf(b, sizeof b, "%d", port); setenv("COMM_PORT", b, 1);
-    comm *c = comm_tcp_create();
+    comm *c;
+    if (shmem_mode) c = comm_shmem_create_at(0, 1, n, 0);
+    else {
+        char b[32]; snprintf(b, sizeof b, "%d", me); setenv("COMM_RANK", b, 1);
+        snprintf(b, sizeof b, "%d", n); setenv("COMM_SIZE", b, 1); setenv("COMM_HOSTS", hosts, 1);
+        snprintf(b, sizeof b, "%d", port); setenv("COMM_PORT", b, 1);
+        c = comm_tcp_create();
+    }
+    int bad = check_all(c, me, n);
+    comm_destroy(c);
+    if (shmem_mode && n >= 4) {                        /* the strided PE sets (the teams shim): the even and the odd PEs, both alive at once */
+        int par = me & 1, ns = (n - par + 1) / 2;
+        comm *sc = comm_shmem_create_at(par, 2, ns, 1 + par);
+        int b2 = check_all(sc, me / 2, ns); if (b2) printf("t_comm: rank %d: the strided set of the %s PEs: %d bad\n", me, par ? "odd" : "even", b2);
+        bad += b2; comm_destroy(sc);
+    }
+    return bad;
+}
+static int check_all(comm *c, int me, int n)
+{
     int bad = 0;
     size_t sizes[] = { 1, 8, 1000, 1 << 16, 3 << 20 };          /* bytes per slab, incl. one larger than the socket buffers */
     for (int round = 0; round < 5; round++) {
@@ -71,11 +115,18 @@ static int run_rank(int me, int n, const char *hosts, int port)
     uint64_t q = 3923057487904769ULL, s = c->ops->allreduce_modq(c, (uint64_t)me + 1, q, 10), expect = 0, w = 1;
     for (int r = 0; r < n; r++) { expect = (expect + (uint64_t)((unsigned __int128)(r + 1) * w % q)) % q; w = (uint64_t)((unsigned __int128)w * 10 % q); }
     if (s != expect) bad++;
-    comm_destroy(c);
+    bad += check_p2p(c, me, n);
     return bad;
 }
 int main(int argc, char **argv)
 {
+    if (getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* S: one PE per process under oshrun (mnrun.sh) */
+        shmem_mode = 1; int n = comm_shmem_init(), me = comm_shmem_rank();
+        int bad = run_rank(me, n, 0, 0);
+        printf("t_comm: PE %d of %d over SHMEM: %s (%d bad)\n", me, n, bad ? "VERIFY FAILED" : "VERIFY OK", bad);
+        comm_shmem_finalize();
+        return bad != 0;
+    }
     if (getenv("COMM_RANK")) {
         int me = atoi(getenv("COMM_RANK")), n = atoi(getenv("COMM_SIZE")), port = getenv("COMM_PORT") ? atoi(getenv("COMM_PORT")) : 27000;
         int bad = run_rank(me, n, getenv("COMM_HOSTS"), port);

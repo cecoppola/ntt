@@ -1,4 +1,5 @@
-/* mn.c - the multi-node layer: environment, one TCP mesh per APU thread, the start-up self-test (PLAN.md 17, M1) */
+/* mn.c - the multi-node layer: environment, one mesh per APU thread (TCP, or SHMEM PE sets with COMM_TRANSPORT=shmem --
+ * Phase 11 S), the start-up self-test (PLAN.md 17, M1) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,12 +14,26 @@
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
 static const char *g_hosts; static int g_port = 27000;
+static int g_shmem;                                   /* Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c), else TCP */
 int mn_rank(void) { return g_rank; }
 int mn_size(void) { return g_size; }
 comm *mn_comm(int apu) { return g_size > 1 ? g_cm[apu] : 0; }
+int mn_transport_shmem(void) { return g_shmem; }
 int mn_init(void)
 {
-    const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT");
+    const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT"), *et = getenv("COMM_TRANSPORT");
+    g_shmem = et && !strcmp(et, "shmem");
+    if (g_shmem) {                                       /* rank and size from the SHMEM runtime (oshrun / srun --mpi=pmix); COMM_RANK/SIZE are not needed */
+        if (!comm_shmem_available()) { fprintf(stderr, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); exit(1); }
+        double t0 = mem_now();
+        g_size = comm_shmem_init(); g_rank = comm_shmem_rank();
+        if (g_size <= 1) { g_size = 1; g_rank = 0; comm_shmem_finalize(); return 1; }
+#pragma omp parallel for num_threads(NA) schedule(static)
+        for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); }
+        HIP_CHECK(hipSetDevice(0));
+        printf("mn: node %d of %d, four meshes of %d PEs over SHMEM: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - t0);
+        return g_size;
+    }
     g_size = es ? atoi(es) : 1; g_rank = er ? atoi(er) : 0;
     if (g_size <= 1) { g_size = 1; g_rank = 0; return 1; }
     if (!eh) { fprintf(stderr, "mn: COMM_SIZE %d needs COMM_HOSTS\n", g_size); exit(1); }
@@ -40,6 +55,7 @@ void mn_finalize(void)
 {
     if (g_size > 1 && g_ckpend) { bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; }   /* C6: after the driver's final barrier every node has this set */
     if (g_size > 1) { groups_finalize(); for (int d = 0; d < NA; d++) if (g_cm[d]) { comm_destroy(g_cm[d]); g_cm[d] = 0; } }
+    if (g_size > 1 && g_shmem) comm_shmem_finalize();
 }
 /* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
  * nodes share; the distributed fwd/pw/inv over mesh d's `size` ranks must equal the one-rank engine on this
@@ -100,6 +116,7 @@ static char *hosts_of(int g0, int g)
 static comm *sub_mesh(int g0, int g, int slot, int d)
 {
     if (g0 == 0 && g == g_size) return g_cm[d];
+    if (g_shmem) return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
     char *h = hosts_of(g0, g); comm *c = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * slot + 64 * d + g0); free(h); return c;
 }
 static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
