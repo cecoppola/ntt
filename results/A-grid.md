@@ -109,8 +109,10 @@ for a share that did not add, another scan round if its + 1 carries out).
 | 10⁹ | 2 | `POOL_LOG=29 BS_MDEV_LOGL=25` | identical (tree level 1: P, Q 5.6e7 limbs, one plane) | 12 s |
 | 10⁹ | 4 | `POOL_LOG=29 BS_MDEV_LOGL=25` | identical (levels 1–2) | 13 s |
 | 4 × 10¹⁰ | 2 (one node) | `POOL_LOG=30` | **out of device memory** at the first tree product: `HIP out of memory at dbig.c:73` in both node-processes, right after `dist_mn node 0: 1074769838 x 1147452389 limbs over 2 x 4 ranks (cap 2^31): 1 x 2 pieces` — the grid split itself works (the pieces were chosen), the node cannot hold two processes' leaf trees (112 GB of device pools each after init, the leaf P, Q of 1.1 × 10⁹ limbs each per process, the planes 2 × 8 GiB × 4 APUs per process, the slabs) | — |
-| 2 × 10¹⁰ | 2 (one node) | `POOL_LOG=30` | see below | |
-| 2 × 10¹⁰ | 1 | (default) | see below | |
+| 2 × 10¹⁰ | 2 (one node, job 20733) | `POOL_LOG=30` | VERIFY OK; `cmp` identical to the size-1 run (sha256 5e30894f…8cf05); the top level's products (5.4e8 × 5.7e8 limbs) fit one 2^31 plane over 8 ranks: M3's path, 19–24 s per product over loopback TCP | 125 s (size 1: 50.7 s) |
+| 2 × 10¹⁰ | 2 (one node, job 20741) | `POOL_LOG=30 DIST_LOGN_TEST=29` (the mn cap lowered to 2^30 so the top level is a grid) | VERIFY OK; **identical digits** (same sha256): both top-level products ran as **1 × 2 pieces over the shares** (536799527 + 287155795 limbs at 0, then at 287155795 "accumulated" into the windows [0, 268399763) of node 0's share and [268399763, 823955321) of node 1's), P_B added by `mdb_add_shifted` (3 rounds of 2^26; 1.7 s); node 0's division used the single-node grid at the 2^29 cap (4 × 5 pieces) | 118 s |
+| 2 × 10¹⁰ | 1 | (default) | VERIFY OK (the reference for the two above) | 50.7 s |
+| 2 × 10¹⁰ | 2 | `POOL_LOG=29` | fails in the **leaf** tree (node 1's batch tier: `HIP an illegal memory access at ntt.c:383` at a 2^29-point batch — the single-node pipeline at a pool too small for 10¹⁰-digit leaves; not the mn code) | — |
 
 (The `META pool_log=31` in every log is printed before `rns_init`; the cap line "cap 2^31" at size 2 with
 `POOL_LOG=30` confirms the pool size reached the process.)
@@ -152,8 +154,13 @@ killed at the next, 3.2e9-limb product — host memory, the reference product of
 ## Open issues
 
 - 4 × 10¹⁰ at size 2 needs two real nodes (or a node with the leaf tree of one process only): on one node the
-  two node-processes run out of device memory at the first tree product. The grid at that size is exercised
-  by 2 × 10¹⁰ at size 2 (1 × 2 pieces at the top level) and by the t_mn_grid shapes.
+  two node-processes run out of device memory at the first tree product (the grid split itself was chosen:
+  1 × 2 pieces at the 2^31 cap). The grid over shares at scale is exercised by 2 × 10¹⁰ at size 2 with the cap
+  lowered to 2^30 (1 × 2 pieces + `mdb_add_shifted` at the top level, identical digits) and by the t_mn_grid
+  shapes (2 × 3, 3 × 1, low products, views, subgroups). Two real nodes were not free during this session.
+- The stray `~/agrid-batch1.sh` on the aac6 login node was A-comm's batch script (the shared scratchpad's
+  `batch1.sh` was overwritten between agents during the first ship); it was looping on an invalid job id and
+  was killed by PID. My scripts and logs live under `~/agrid/`.
 - `mdb_add_shifted` pads every slab to the round size and every node takes part in every round (g × 2^26 × 8 B
   per APU and buffer); a point-to-point exchange (comm_send/recv are host-buffer only today) would avoid the
   padding. Used only for X in the grid case (the tree's P_B: one add per level with a grid).
