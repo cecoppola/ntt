@@ -28,6 +28,14 @@
  * earlier chunks under the last exchange; inverse -- the unpack-twiddle and row inverse of chunk k under the
  * exchange of chunk k+1.  Over a communicator with inflight 2 (the layered one) two chunks are on the wire.
  * The synthetic communicator (inflight 0) runs one exchange.  The values are the same in either mode.
+ * Phase 10 C4 -- the two-plane forms dist_fwd2 / dist_inv2 (x -> y): the row layout in x, the column layout in y
+ * (forward), or the reverse (inverse), so that the unpack of chunk k (forward) or the pack of chunk k+1 (inverse)
+ * runs under the exchange of the next chunk instead of after every row pass (forward) / before the first exchange
+ * (inverse).  The result is in y; x is scratch afterwards.  One plane more per rank.
+ * Phase 10 C5 -- DIST_STATS measures the parts with events on the two streams, so the row passes and packs are
+ * timed even when they run under the exchange: t_local1/t_local2/t_pack are the kernels' device times, t_xfer the
+ * exchanges' device time (the push kernel, or the copies of a staged transport), t_a2a the host time blocked in
+ * post + wait (the exposed exchange), t_total the transform's first event to its last.
  */
 #ifndef EC_NTT_DIST_H
 #define EC_NTT_DIST_H
@@ -47,9 +55,12 @@ typedef struct {
     int K, k_resume;        /* M7: chunks of the slab pipeline; the inverse's loop index between _pre and _post */
     hipStream_t ts;         /* the transfer stream (the exchanges), events: pack done (s -> ts), exchange done (ts -> s) */
     hipEvent_t ev, evt;
+    hipEvent_t *te; int nte, te_cap; unsigned char *tk;   /* C5: the timing events of one transform and their kinds */
 } dist_plan;
-/* timing of the parts (DIST_STATS=1; per rank, summed over calls; the caller resets) */
-struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t0_a2a; };
+/* timing of the parts (DIST_STATS=1; summed over ranks and calls; the caller resets).  Device times from events:
+ * t_local1 rows, t_local2 columns, t_pack packs + unpacks, t_xfer the exchanges on the transfer stream, t_total per
+ * transform; t_a2a the host time blocked in post + wait = the exposed exchange. */
+struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t0_a2a, t_xfer, t_total; };
 extern struct dist_stats dist_st;
 void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC);
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf);   /* caller's slab buffers (rows x C each) */
@@ -74,6 +85,11 @@ void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s);
+/* C4: the two-plane forms.  fwd2: x = this rank's rows -> y = the column layout (x scratch afterwards);
+ * inv2: x = the column layout -> y = the row layout, natural, canonical, scaled (x scratch afterwards).
+ * Every rank of a synthetic communicator must be driven through the whole call (they post and wait inside). */
+void dist_fwd2(dist_plan *p, uint64_t *x, uint64_t *y, hipStream_t s);
+void dist_inv2(dist_plan *p, uint64_t *x, uint64_t *y, hipStream_t s);
 #ifdef __cplusplus
 }
 #endif
