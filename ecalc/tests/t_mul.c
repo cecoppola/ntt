@@ -226,6 +226,76 @@ int main(int argc, char **argv)
         }
         mpz_clears(a, b, c, d, NULL);
     }
+    /* 4b. Phase 9 B1: the locality-aware tier as the tree uses it - products in device pools, pairs
+     * (P1 Q2 + P2, Q1 Q2) sharing B, 2^k and 3 2^k lengths, several tiles - vs GMP, with the paired B
+     * transform on and off (the results must agree bit for bit; the normalised lengths too) */
+    printf("-- 4b. batch-local: device-pool products in pairs sharing B (RNS_BATCH_PAIR 1 / 0)\n");
+    {
+        struct { int logL; size_t npairs; int r3; size_t tile; const char *why; } bc[] = {
+            {12, 40, 0, 0, "2^12, 40 pairs"}, {14, 300, 0, 0, "2^14, 300 pairs (fused pointwise)"},
+            {17, 120, 1, 0, "3*2^15, 120 pairs"}, {20, 8, 1, 0, "3*2^18, 8 pairs"},
+            {13, 8, 1, 0, "3*2^11, 8 pairs (local min)"}, {16, 90, 0, 60000000, "2^16, 90 pairs, 60 MB tiles"},
+            {18, 30, 1, 30000000, "3*2^16, 30 pairs, 30 MB tiles (one pair per tile)"}, {15, 33, 1, 0, "3*2^13, 33 pairs (odd count per device)"},
+        };
+        mpz_t a, b, c, d, x; mpz_inits(a, b, c, d, x, NULL);
+        int nd = mem_device_count(); if (nd > 4) nd = 4;
+        for (size_t ci = 0; ci < sizeof bc / sizeof *bc; ci++) {
+            size_t L = (size_t)1 << bc[ci].logL, np = bc[ci].npairs, N = 2 * np;
+            size_t lo = bc[ci].r3 ? L / 2 + 1 : 3 * L / 4 + 1, hi = bc[ci].r3 ? 3 * L / 4 : L;   /* nc range selecting the length */
+            rns_prod *P = (rns_prod *)calloc(1, N * sizeof *P);
+            size_t need[4] = {0, 0, 0, 0}; uint64_t *pool[4]; size_t off[4] = {0, 0, 0, 0};
+            size_t *na1 = (size_t *)malloc(np * 8), *na2 = (size_t *)malloc(np * 8), *nb = (size_t *)malloc(np * 8), *nx = (size_t *)malloc(np * 8);
+            for (size_t j = 0; j < np; j++) {
+                size_t nc = lo + rng_next(&rng) % (hi - lo + 1); if (j == 0) nc = hi;
+                nb[j] = 1 + rng_next(&rng) % (nc - 1); na1[j] = nc - nb[j]; na2[j] = 1 + rng_next(&rng) % (nc - nb[j]);
+                nx[j] = j % 3 == 2 ? 0 : 1 + rng_next(&rng) % (na1[j] + nb[j]);
+                need[j % nd] += na1[j] + na2[j] + nb[j] + nx[j] + (na1[j] + nb[j] + 1) + (na2[j] + nb[j]);
+            }
+            for (int dv = 0; dv < nd; dv++) pool[dv] = (uint64_t *)mem_dev_alloc(dv, need[dv] * 8 + 64);
+            for (size_t j = 0; j < np; j++) {
+                int dv = (int)(j % nd); uint64_t *q = pool[dv]; size_t *o = &off[dv]; int kind = (int)(j % GEN_KINDS);
+                rns_prod *p1 = &P[2 * j], *p2 = &P[2 * j + 1];
+                p1->a = q + *o; p1->na = na1[j]; *o += na1[j];
+                p2->a = q + *o; p2->na = na2[j]; *o += na2[j];
+                p1->b = p2->b = q + *o; p1->nb = p2->nb = nb[j]; *o += nb[j];
+                p1->x = nx[j] ? q + *o : 0; p1->nx = nx[j]; *o += nx[j];
+                p1->c = q + *o; *o += na1[j] + nb[j] + 1;
+                p2->c = q + *o; *o += na2[j] + nb[j];
+                gen_limbs((uint64_t *)p1->a, na1[j], kind, &rng); gen_limbs((uint64_t *)p2->a, na2[j], kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
+                gen_limbs((uint64_t *)p1->b, nb[j], kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
+                if (nx[j]) gen_limbs((uint64_t *)p1->x, nx[j], kind, &rng);
+            }
+            size_t save_tile = rns_batch_tile_bytes; if (bc[ci].tile) rns_batch_tile_bytes = bc[ci].tile;
+            uint64_t hash[2] = {0, 0}; double dt[2] = {0, 0};
+            for (int mode = 1; mode >= 0; mode--) {
+                rns_batch_pair = mode;
+                for (size_t i = 0; i < N; i++) { P[i].ncn = 0; memset(P[i].c, 0, (P[i].na + P[i].nb + (P[i].x ? 1 : 0)) * 8); }
+                memset(&rns_st, 0, sizeof rns_st);
+                double t0 = mem_now(); rns_mul_batch(P, N); dt[mode] = mem_now() - t0;
+                size_t bad = 0, badn = 0; uint64_t h = 0x243F6A8885A308D3ULL;
+                for (size_t i = 0; i < N; i++) {
+                    size_t nc = P[i].na + P[i].nb + (P[i].x ? 1 : 0);
+                    mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb); mpz_mul(c, a, b);
+                    if (P[i].x) { mpz_from_limbs(x, P[i].x, P[i].nx); mpz_add(c, c, x); }
+                    mpz_from_limbs(d, P[i].c, nc);
+                    if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu nx %zu\n", i, P[i].na, P[i].nb, P[i].nx); bad++; }
+                    size_t n = nc; while (n && P[i].c[n - 1] == 0) n--;
+                    if (P[i].ncn != n) badn++;
+                    for (size_t k = 0; k < nc; k++) { h ^= P[i].c[k]; h *= 0x9E3779B97F4A7C15ULL; h ^= h >> 29; }
+                }
+                hash[mode] = h;
+                VERIFY(bad == 0, "batch-local %s pair=%d: %zu of %zu products wrong", bc[ci].why, mode, bad, N);
+                VERIFY(badn == 0, "batch-local %s pair=%d: %zu normalised lengths wrong", bc[ci].why, mode, badn);
+                VERIFY(rns_st.n_batch_local == N && rns_st.n_batch_pair == (mode ? N : 0), "batch-local %s pair=%d: the local tier did not run as expected (local %zu paired %zu of %zu)", bc[ci].why, mode, rns_st.n_batch_local, rns_st.n_batch_pair, N);
+            }
+            VERIFY(hash[0] == hash[1], "batch-local %s: paired and unpaired results differ", bc[ci].why);
+            printf("   %-48s N=%-5zu pair %.3f s  unpaired %.3f s\n", bc[ci].why, N, dt[1], dt[0]);
+            rns_batch_tile_bytes = save_tile; rns_batch_pair = 1;
+            for (int dv = 0; dv < nd; dv++) mem_dev_free(pool[dv]);
+            free(P); free(na1); free(na2); free(nb); free(nx);
+        }
+        mpz_clears(a, b, c, d, x, NULL);
+    }
     printf("VmHWM %.1f GB\n", mem_vmhwm() / 1e9);
     rns_shutdown();
     return verify_done("t_mul");

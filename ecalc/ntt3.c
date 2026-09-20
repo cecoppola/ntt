@@ -80,11 +80,6 @@ __global__ void k_r3_inv(uint64_t *x, size_t m, int logk, size_t batch, const ui
         v[j] = ec_mmu(x0, inv3, md); v[j + m] = ec_mmu(x1, inv3, md); v[j + 2 * m] = ec_mmu(x2, inv3, md);
     }
 }
-__global__ void k_pw_bcast3(uint64_t *x, const uint64_t *y, size_t L, int logk, size_t count, ec_mod md)
-{
-    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; i < count; i += stride) { size_t pi = (i >> logk) / 3; x[i] = ec_mmu(x[i], y[i - pi * L], md); }
-}
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
 
 void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
@@ -103,14 +98,16 @@ void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
     ntt_inv(c, x, logk, 3 * batch, s);
     k_r3_inv<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1i, t->t2i, w3, w3s, inv3, md);
 }
-void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s)
+/* Phase 9 B1: the pointwise product in any y layout, fused into the first inverse pass (the 2^logk engine's
+ * b1 pass over the thirds) from logk + 1 >= PW_FUSE on; the same modmul either way, so bit-identical */
+void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
-    ntt_pw(c, x, y, batch * 3 * ((size_t)1 << logk), s);
-    ntt_inv3(c, x, logk, batch, s);
+    int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
+    const struct r3tw *t = tables(prime, logk);
+    uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]), inv3 = ec_inv(3, ec_P[prime]);
+    if (logk + 1 >= ntt_pw_fuse) ntt_inv3_core_pw(c, x, y, ymode, logk, batch, s);
+    else { ntt_pw_y(c, x, y, ymode, 1, logk, batch, s); ntt_inv(c, x, logk, 3 * batch, s); }
+    k_r3_inv<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1i, t->t2i, w3, w3s, inv3, md);
 }
-void ntt_inv3_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s)
-{
-    size_t L = 3 * ((size_t)1 << logk), count = batch * L;
-    k_pw_bcast3<<<nblk(count), 256, 0, s>>>(x, y, L, logk, count, ec_mod_get(ntt_ctx_prime(c)));
-    ntt_inv3(c, x, logk, batch, s);
-}
+void ntt_inv3_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s) { ntt_inv3_pw_y(c, x, y, NTT_Y_FULL, logk, batch, s); }
+void ntt_inv3_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logk, size_t batch, hipStream_t s) { ntt_inv3_pw_y(c, x, y, NTT_Y_BCAST, logk, batch, s); }
