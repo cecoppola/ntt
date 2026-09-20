@@ -34,7 +34,7 @@ int mn_init(void)
 }
 void mn_barrier(void) { if (g_size > 1) comm_barrier(g_cm[0]); }
 static void groups_finalize(void);
-void bs_ckpt_tree_remove_below(int level);           /* binsplit.h (included below, with the tree checkpoint code) */
+extern "C" void bs_ckpt_tree_remove_below(int level);   /* binsplit.h (included below, with the tree checkpoint code) */
 static int g_ckpend = 0;                              /* C6: the tree level whose set is written but whose predecessors are not yet removed */
 void mn_finalize(void)
 {
