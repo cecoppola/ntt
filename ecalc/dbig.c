@@ -180,6 +180,8 @@ size_t db_pool_largest_free(int d) { size_t m = 0; pthread_mutex_lock(&g_pool_mx
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
 void db_release_pools(void)
 {
+    { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);   /* Phase 11 M: how the reserved tails were used */
+      if (vb) for (int d = 0; d < DB_NQ; d++) if (g_tail[d].bytes) printf("dbig pool: APU%d tail %.2f GB: %zu large blocks from its back, %zu small blocks spilled into it\n", d, g_tail[d].bytes / 1e9, g_tail[d].n_tail, g_tail[d].n_spill); }
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
