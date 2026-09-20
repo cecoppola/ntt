@@ -719,6 +719,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
+| 2026-09-20 | **Phase 10 closed** (RESULTS §75): five agents (G, H, M, C, T) merged to `main` (1f0b114) and re-verified with the new standing regression `ecalc/mnaccept.sh` (17/17 after every merge). Single node 4 × 10¹⁰ **83.0 ± 1.2 s** (five runs, identical) — host peak **11.7 GB** (X never on the host, seeds streamed into the arenas); 7 × 10¹⁰ 159.7 s (157.2 with `ECALC_DM_POOL=1`, left off); **8 × 10¹⁰ on one node VERIFY OK, 210.4 s, node peak 393 GB**; `alltoallv` in every transport; xGMI push −9 %; tree-level checkpoints without the barrier. Rejected on measurement: the second pipeline plane, the transform cache at size 1. Not done: C2/D1 (two idle nodes never available); the `alltoallv` consumers; E1/E2 await the user | RESULTS.md §75, results/{G,H,M,C,T}.md |
 | 2026-09-19 | **Phase 9 closed** (§74): final series 4 × 10¹⁰ **86.4 ± 1.3 s / 48.8 GB** (five runs, identical); 7 × 10¹⁰ in 163.8 s at 76.5 GB; the multi-node pipeline end to end at sizes 2–4 (10¹⁰ over four node-processes) and on real nodes; paper refreshed (14 pp.). Next: M8 on the target; 4 × 10¹⁰ over two real nodes; the open items in results/A-*.md | RESULTS.md §74, ~/xetex/e40b.tex |
 | 2026-09-19 | **Phase 9 executed with seven parallel agents** (§19; RESULTS §74): M4 distributed division, M5 per-node output + streamed digits, M6 per-node checkpoints, M7 allgather + slab pipelining, the grid over shares, M9 accounting + pool sizing + balanced layout, paired transforms in the batch tier — all merged and verified on `main` (38ed61b): single node **86.6 s / 48.8 GB** at 4 × 10¹⁰; the multi-node pipeline end to end at sizes 2–4 (10¹⁰ over four node-processes VERIFY OK) and on 2 real nodes. Rejected on measurement: the DPP exchange, 3·2³⁰ planes. Closing series running | RESULTS.md §74 |
 | 2026-09-19 | **M3 done** (§73): the distributed top levels over node groups with a layered communicator; digits identical at sizes 1–4 on one node and on 2 and 3 real nodes (10⁶–10⁹); merged to `main`. Steps 1–4 of the sequence complete | RESULTS.md §73, results/M3.md |
@@ -1096,7 +1097,7 @@ device; 7 × 10¹⁰ in 163.8 s / 76.5 GB. The node has 502 GB; at 4 × 10¹⁰ 
 | E3 | ecalc/README.md: the multi-node run (`mnrun.sh`, `COMM_*`, `MN_*`, `BS_CKPT_*` per node, `MEM_REPORT_DEVS`), the part files, the size-1 defaults after Phase 9 |
 | E4 | the paper's §7 figure for a multi-node timeline once the target system exists |
 
-## 21. Phase 10 — a 4–5 hour autonomous session on the §20 backlog (proposed 2026-09-19)
+## 21. Phase 10 — a 4–5 hour autonomous session on the §20 backlog (proposed 2026-09-19; executed 2026-09-20, RESULTS §75)
 
 Same method as §19: agents own disjoint files, the integrator merges and
 re-verifies, three nodes shared under the §19 protocol. The session is
