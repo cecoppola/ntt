@@ -59,7 +59,7 @@ static void pow10_big(bigint *T, unsigned long d)
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
 static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
-struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
+struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     t0 = mem_now();
@@ -113,7 +113,7 @@ static int out_stage(struct out_ctx *c)
     double t = mem_now();
     /* T1 (a): P, Q mod q over this node's terms, joined over the nodes */
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
-    if (c->pqb->started) { pthread_join(c->pqb->th, 0); memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
+    if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
     int rlog = db_res_log_on();
     if (rlog) {                                        /* Phase 11 V (D5): the recurrence recomputed here (the main thread) against the background thread's */
@@ -295,6 +295,13 @@ int main(int argc, char **argv)
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
+        if (db_res_log_on() && pqb.started) {           /* Phase 11 V (D5): this node's leaf P_r, Q_r against the recurrence over its terms -- a wrong leaf is named before the tree */
+            pthread_join(pqb.th, 0); pqb.joined = 1;
+            uint64_t lp[T1_NQ], lq[T1_NQ]; db_mod_qs(&Pl, t1_q, T1_NQ, lp); db_mod_qs(&Ql, t1_q, T1_NQ, lq); int bad = 0;
+            printf("RES node %d leaf P/Q vs recurrence [%lu, %lu):", mn_rank(), pqb.a0, pqb.b1);
+            for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
+            printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
+        }
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */

@@ -14,7 +14,7 @@ note "== D5 (V), job $J, $(date -Is), $(git rev-parse --short HEAD), mode $mode,
 N "mkdir -p $TMP"
 for i in $(seq 1 $n); do
   m=$mode; [ "$mode" = alt ] && { [ $((i % 2)) -eq 1 ] && m=shard || m=host; }
-  tag=${m}$i; env=""; [ "$m" = host ] && env="MN_DM=host"
+  tag=${TAG:-}${m}$i; env="$EXTRA"; [ "$m" = host ] && env="$EXTRA MN_DM=host"   # EXTRA: more env (e.g. MEM_DPOOL_FILL=1); TAG: a run-name prefix
   t0=$(date +%s)
   SLURM_JOB_ID=$J timeout 900 ./mnrun.sh $SZ env ECALC_RES_LOG=1 ECALC_VERBOSE=2 POOL_LOG=29 RNS_POOL1_GB=3.2213 RNS_VERBOSE=1 $env ./ecalc $D $TMP/$tag.txt > $OUT/$tag.log 2>&1
   t1=$(date +%s); sleep 2
