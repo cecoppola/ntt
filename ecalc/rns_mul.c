@@ -661,6 +661,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
         int d = omp_get_thread_num(); struct dev *v = &D[d];
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < EC_NP; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
+        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * Mmax * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools) */
         uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
         double lsc = 0, lnt = 0, lcr = 0, lmg = 0;
         struct bdesc *hd = (struct bdesc *)malloc((Mmax < cnt[d] ? Mmax : cnt[d] ? cnt[d] : 1) * sizeof *hd);
@@ -788,6 +789,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         {
             int d = omp_get_thread_num(); struct dev *v = &D[d];
             HIP_CHECK(hipSetDevice(d));
+            rns_dpool(d, 1, L * 8);                    /* A-mem C4 */
             ntt_load(v->ctx, (uint64_t *)v->db.p, Q[0].b, Q[0].nb, L, v->s);
             ntt_fwd(v->ctx, (uint64_t *)v->db.p, logL, 1, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s));
@@ -811,6 +813,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 g_desc_cap[d] = M;
             }
             HIP_CHECK(hipMemcpyAsync(g_desc[d], hd + first, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));
+            rns_dpool(d, 0, (size_t)M * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)M * L) * 8);   /* A-mem C4: pool 1 is 3 q by default (the 2^30 tile at 2^30 pools needs the full pool) */
             uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
             size_t total = M << logL, blocks = (total + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
             hipEvent_t e0, e1, e2, e3; float ms1, ms2, ms3 = 0;
