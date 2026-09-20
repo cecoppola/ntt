@@ -239,11 +239,13 @@ void binsplit_pregrow(unsigned long N)
     double t_pg = mem_now();
     size_t need[NR]; int exact = !(getenv("BS_REGION_FLAT") && atoi(getenv("BS_REGION_FLAT")));   /* C4: regions from the simulated layout (BS_REGION_FLAT=1: the flat paper-era sizing) */
     if (exact) region_need(N, need); else for (int r = 0; r < NR; r++) need[r] = per_region;
-    /* the arena also serves the dm phase as the block pool (the regions are donated to it): mapping its need now costs
-     * 0.06 s/GB at init, inside the phase twice that and it stalls the kernels (RESULTS 70), so the arena is at least
-     * k x n_Q limbs per APU (n_Q = d/18, the peak of live device numbers in dm is ~6.8 n_Q at 4e10 plus fragmentation;
-     * k = 8, ECALC_DM_POOL_K; node 0 only while the dm is not distributed; ECALC_ARENA_GB sets the arena per APU outright) */
-    { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 8.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
+    /* the arena also serves the dm phase as the block pool (the regions are donated to it).  ECALC_DM_POOL_K=k makes it
+     * at least k x n_Q limbs per APU (n_Q = d/18; the peak of live device numbers in dm is ~6.8 n_Q at 4e10, k = 8 leaves
+     * the dm phase without any hipMalloc): measured at 4e10 it moves the mapping from dm to init (init +4.4 s, dm -2 s,
+     * recip -2 s) for the same wall clock within the run-to-run spread (93.6 vs 92.5 s, results/A-mem.md), so the
+     * default is the bs need alone (k = 0: init -2.2 s against main).  Node 0 only while the dm is not distributed;
+     * ECALC_ARENA_GB sets the arena per APU outright. */
+    { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 0.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
       int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
       if (sz > 1 && getenv("COMM_RANK") && atoi(getenv("COMM_RANK")) != 0) k = 0;   /* until the division is distributed (A-div) only node 0 runs dm: the others keep the bs need */
       size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2);   /* node 0 runs the whole dm at any size for now */
