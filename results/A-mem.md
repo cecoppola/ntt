@@ -75,7 +75,7 @@ Correctness against the reference files (`cmp`, `~/ntt/ecalc/ref`, `results/e_1e
 | 10¹⁰ size 1 | `./ecalc 10000000000 out` | identical |
 | 10¹⁰ size 2 | `POOL_LOG=30 ./mnrun.sh 2 ./ecalc 10000000000 out` | identical |
 | 10¹⁰ size 4 | `POOL_LOG=27 ./mnrun.sh 4 ./ecalc 10000000000 out` | identical (75 s) |
-| 10¹⁰ size 4 | `POOL_LOG=29 ./mnrun.sh 4 ...` | **T1 FAILED** twice (see open issues) |
+| 10¹⁰ size 4 | `POOL_LOG=29 ./mnrun.sh 4 ...` (×2), `POOL_LOG=28` | identical (final build; T1 failed in an earlier build, open issue 1) |
 | 2 × 10¹⁰ size 2 | `POOL_LOG=30 ./mnrun.sh 2 ./ecalc 20000000000 out` | VERIFY OK (119 s; no reference file to compare) |
 | 4 × 10¹⁰ size 1 | `RNS_VERBOSE=1 ECALC_VERBOSE=2 ./ecalc 40000000000 out` | identical, 8 runs over the variants below |
 
@@ -159,13 +159,15 @@ already 1/size, so the capacity per node at size 4 returns to the size-1 figure 
 
 ## Open issues
 
-1. **10¹⁰ at size 4 with `POOL_LOG=29`: T1 fails** (two runs, nodes 2's / 0's leaf P differ by a limb from the
-   passing run's), while the same command with `POOL_LOG=27` is identical to the reference, size 2 at 10¹⁰ is
-   identical, and size 4 at 10⁸ is identical. `main` cannot run this configuration on one node at all (OOM or
-   segfault), so pre-existing vs new is undetermined. The difference between 27 and 29 in this build was
-   which pools grew inside the batch tiers (the 2^29 tile fits pool 0 exactly at 29 and pool 1 grows from 3 q
-   to 4 GiB in the striped path); the final build sizes pool 1 to the full pool for `POOL_LOG` ≤ 30 (batch 7
-   re-runs 29 twice and 28 once — see the end of this file for the result).
+1. **Resolved: 10¹⁰ at size 4 with `POOL_LOG=29` failed T1** (two runs; one leaf P differed by a limb) while
+   `POOL_LOG=27` was identical: in that build pool 1 was 3 q also for small pools and the striped batch tier
+   grew it *inside the phase* (3 → 4 GiB for the 2^29 tile); with pool 1 at the full pool for `POOL_LOG` ≤ 30
+   (job 20751: 29 twice, 28 once — all identical to the reference, 68–70 s) the failure is gone. So growing a
+   plane pool while the batch tier is running is unsafe (a stale plane pointer somewhere in that path — not
+   chased, it is N-kernel's code); the on-demand `rns_dpool` calls stay as a guard for the case `main` would
+   overflow (a 2^30 tile at 2^27–2^29 pools, which segfaults on `main`) but are never exercised at the default
+   pool sizes: at `POOL_LOG=31` pool 1 (12 GiB) holds any batch tile (≤ 8 GiB). `main` cannot run 10¹⁰ at
+   size 4 on one node at all (OOM at 29/30 from 4 × 64 GiB of pinned staging, segfault at 27).
 2. The non-zero ranks' region arenas are not released by `rns_shutdown` there (`binsplit_free_pools` never
    runs on them, so the hook is not set): 22 GB per process stays mapped until exit — harmless, one line.
 3. At size > 1 the leaf's regions are only donated to the block pool when the leaf ends on the device tier;
