@@ -167,7 +167,7 @@ int main(int argc, char **argv)
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
         mem_report("tree");
-        if (mn_rank() != 0) { mn_barrier(); mem_report_summary(); mn_finalize(); rns_shutdown(); return 0; }
+        if (mn_rank() != 0) { db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return 0; }   /* A-mem: the device memory goes before the final barrier -- node 0's dm shares the node's 512 GB with the waiting ranks (1e10 at size 4 on one node was OOM-killed) */
         printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
         t_bs += mem_now() - tg;
     } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
