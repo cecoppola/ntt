@@ -230,6 +230,9 @@ int main(int argc, char **argv)
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
       int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
       if (stg && devflow && !host_combine) { size_t need = stg == 2 ? binsplit_seed_stage_bytes(N) + (64u << 20) : 0; need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (stg == 2 ? 2u << 30 : 1u << 30)) need = stg == 2 ? 2u << 30 : 1u << 30; rns_staging_bytes_req = need; }   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
+      /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init -- on below 5e10 digits
+       * at 2^31 pools (+14 GiB per APU: 4e10 fits with margin), off above (7-8e10 unchanged); RNS_PLANES_3Q30=0/1 overrides */
+      rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
@@ -372,7 +375,8 @@ int main(int argc, char **argv)
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
-        if (getenv("ECALC_DM_POOL") && atoi(getenv("ECALC_DM_POOL"))) {   /* C3 (A-div): the block pool sized to the reciprocal's scratch once, before the phase, instead of growing by hipMalloc block by block inside it (RESULTS.md 71: 6-7e10) */
+        if (getenv("ECALC_DM_POOL") ? atoi(getenv("ECALC_DM_POOL")) : d >= 5e10) {   /* C3 (A-div): the block pool sized to the reciprocal's scratch once, before the phase, instead of growing by hipMalloc block by block inside it (RESULTS.md 71: 6-7e10).
+                                                                                       * Phase 11 (agent P, PLAN 23-3): on by default from 5e10 digits (7e10: 159.7 -> 157.2 s, results/M.md), off below (4e10: noise) */
             /* Phase 10 B4 (agent M): what the in-phase growth actually is (DB_POOL_VERBOSE): one block per APU -- t1's quarter
              * (2 n_Q / 4 limbs: 8.9 GB at 4e10, 15.6 at 7e10) -- which the arena cannot hold next to Q, S, r, r2 (its free bytes are
              * there but in two or three holes).  So the chunk grown here must itself hold the largest block, whatever the byte

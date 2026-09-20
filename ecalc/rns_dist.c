@@ -107,7 +107,7 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
  * w_n^(i j) = twr[e / C] twc[e % C] (twr[k] = w_R^k, twc[k] = w_n^k, w_n the 3 2^(logR+logk)-th root).  The planes
  * xa[4] take 4 q = 3 2^30 limbs of pool 0 (grown to 32 GiB per APU); xb and the slabs (3 q + 16) come from the dbig
  * block pool (pool 1's tail is donated to it at 3 q of the 2^31 layout).  Same comm (xGMI), same CRT. */
-static int dist_r3(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_R3"); v = e ? atoi(e) : 0; if (v && !ec_has_radix3()) { fprintf(stderr, "DIST_R3: the prime set has no 3 2^k roots\n"); v = 0; } } return v; }
+static int dist_r3(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_R3"); v = e ? atoi(e) : rns_planes_3q30 > 0; if (v && !ec_has_radix3()) { fprintf(stderr, "DIST_R3: the prime set has no 3 2^k roots\n"); v = 0; } } return v; }   /* Phase 11 B3 (agent P): the default follows the plane pools sized for it at init (rns_mul.c) */
 static size_t dist_cap(void) { return dist_r3() ? (size_t)3 << (dist_logn_max() - 1) : (size_t)1 << dist_logn_max(); }   /* plane points */
 struct plan3 { int built, logR, logk; uint64_t *twr, *twc, *twr_i, *twc_i; };
 static struct plan3 P3[NR][EC_NP];
@@ -322,7 +322,8 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         HIP_CHECK(hipSetDevice(r));
         /* planes: xa[4] in pool 0 (4 q = the standard 2^pool_log limbs at n = 2^31); xb | sbuf | rbuf in pool 1 (3 q);
          * the transpose scratch reuses the slab buffers after the last inverse.  r3: xb and the slabs from the block pool */
-        uint64_t *pl = (uint64_t *)rns_dpool(r, 0, (size_t)EC_NP * q * 8), *p1 = r3 ? db_pool_alloc(r, ((size_t)3 * q + 16) * 8) : (uint64_t *)rns_dpool(r, 1, (size_t)3 * q * 8);
+        int p1_pool = r3 && rns_dpool_cap(r, 1) < ((size_t)3 * q + 16) * 8;   /* Phase 11 B3 (agent P): pool 1 holds 3 q + 16 at the 3 2^k sizes when sized for it at init; the block pool only when it was not (DIST_R3=1 alone) */
+        uint64_t *pl = (uint64_t *)rns_dpool(r, 0, (size_t)EC_NP * q * 8), *p1 = p1_pool ? db_pool_alloc(r, ((size_t)3 * q + 16) * 8) : (uint64_t *)rns_dpool(r, 1, ((size_t)3 * q + (r3 ? 16 : 0)) * 8);
         uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q + (r3 ? 16 : 0), *xt = sl;
         for (int p = 0; p < EC_NP; p++) xa[p] = pl + (size_t)p * q;
         uint64_t *ca = sa >= 0 ? g_cache.s[sa].pl[r] : 0, *cb = sb >= 0 ? g_cache.s[sb].pl[r] : 0;   /* A1: the cache planes of A and B on this rank (EC_NP x q limbs) */
@@ -368,7 +369,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         k_scatter_runs<<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C);
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
-        if (r3) db_pool_free(r, p1);
+        if (p1_pool) db_pool_free(r, p1);
     }
     /* the spills: device results add them as a sparse operand of the carry kernel; host results add them on the host */
     double tsp = mem_now();
@@ -457,28 +458,28 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
 }
 /* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
-static size_t plane_pts(size_t nc)
+static size_t plane_pts(size_t nc, int r3)   /* r3: the single-node tier's 3 2^k planes (the mn tier's are 2^k) */
 {
-    size_t n = (size_t)1 << 20; while (n < nc) { if (dist_r3() && n >= ((size_t)1 << (dist_logn_max() - 2)) && (n / 2 * 3) >= nc) return n / 2 * 3; n <<= 1; }   /* C5: 3 2^(k-1) between 2^k and 2^(k+1) */
+    size_t n = (size_t)1 << 20; while (n < nc) { if (r3 && n >= ((size_t)1 << (dist_logn_max() - 2)) && (n / 2 * 3) >= nc) return n / 2 * 3; n <<= 1; }   /* C5: 3 2^(k-1) between 2^k and 2^(k+1) */
     return n;
 }
 /* piece counts (ka, kb) for a product too long for one plane: every piece product ceil(na/ka) + ceil(nb/kb)
  * must fit 2^31 points; choose the grid with the fewest plane points in total (then the fewest products).
  * Halving the longer operand alone -- the first version -- gave 8 planes of 2^31 for the decimal top product
  * (2.22e9 x 2.22e9 limbs: halves of 1.11e9 still exceed a plane together); 2 x 3 pieces give 6 (RESULTS.md 66) */
-static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int *ka, int *kb)   /* cap, minpts: plane points (the mn tier's differ) */
+static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int r3, int *ka, int *kb)   /* cap, minpts: plane points (the mn tier's differ); r3: 3 2^k planes allowed (Phase 11 P) */
 {
     size_t best = 0; *ka = *kb = 0;
     for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
         size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
         if (pa + pb > cap) continue;
-        size_t pts = plane_pts(pa + pb); if (pts < minpts) pts = minpts;
-        size_t cost = (size_t)i * j * pts;
+        size_t pts = plane_pts(pa + pb, r3); if (pts < minpts) pts = minpts;
+        size_t cost = (size_t)i * j * pts * ((pts & (pts - 1)) ? 21 : 20);   /* Phase 11 B3 (agent P): a 3 2^k plane costs ~5 % more per point (A-grid C5: 1.57x for 1.5x the points) */
         if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
     if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
 }
-static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, dist_cap(), 0, ka, kb); }
+static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); }
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
@@ -497,8 +498,10 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
     g_cache_mn = 0;
-    if (cache_slots() && (nc > dist_cap() || pin)) { N = cache_avail(); for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i; }   /* the free (unpinned) slots */
-    if (nc <= dist_cap()) {
+    int one = nc <= dist_cap();
+    if (one && nc > ((size_t)1 << dist_logn_max())) { int ka_, kb_; split_grid(na, nb, &ka_, &kb_); one = ka_ * kb_ == 1; }   /* Phase 11 B3 (agent P): the 3 2^30 plane only when no grid of smaller planes is cheaper (A-grid C5: level 25's 2.19e9 x 2.7e7 is 5 x 1 pieces of 2^29) */
+    if (cache_slots() && (!one || pin)) { N = cache_avail(); for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i; }   /* the free (unpinned) slots */
+    if (one) {
         struct db_stats s0 = db_st; double t0 = mem_now();
         dist_core(acc_db(A, 0, na), acc_db(B, 0, nb), acc_db(Cd, 0, nc), nc, -1, pin && nf ? fs[0] : -1);   /* one plane: B kept only for a hold */
         if (pin && nf) { g_cache.s[fs[0]].pinned = 1; g_cache.pin_next = 0; }
@@ -871,7 +874,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (nc <= cap) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, pin && nf ? fs[0] : -1); formed = 1; if (pin && nf) { g_cache.s[fs[0]].pinned = 1; g_cache.pin_next = 0; } } else skipped = 1; }
     else {
         int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
-        split_grid_cap(na, nb, cap, (size_t)1 << logmin, &ka, &kb);
+        split_grid_cap(na, nb, cap, (size_t)1 << logmin, 0, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
         int nB = pin ? (kb < nf ? kb : nf) : 0, nA = pin ? nf - nB : (ka < nf - 1 ? ka : nf - 1); if (nA < 0) nA = 0;   /* the slots as in mul_grid */
         if (!pin) nB = nf - nA;
@@ -920,7 +923,7 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
     int lgt = 0; while ((1 << lgt) < G->gt) lgt++;
     size_t cap = (size_t)1 << mn_logn_cap(G->gt); int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
     if (na + nb <= cap) { *ka = *kb = 1; return; }
-    split_grid_cap(na, nb, cap, (size_t)1 << logmin, ka, kb);
+    split_grid_cap(na, nb, cap, (size_t)1 << logmin, 0, ka, kb);
 }
 
 /* ---- the shifted distributed add: C += X << k on C's shares (Phase 9 A3) -------------------------------------
