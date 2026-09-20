@@ -63,6 +63,122 @@ device owning the result and reads operands where they are). At 4 × 10¹⁰ the
 from shares 2/5, 1/5, 1/5, 1/5 (+ the small carried node) to 1/4 each, and no pool grows inside the phase
 (`bs_st.n_grow`, printed after bs).
 
-## Tests
+## Tests (jobs 20708, 20718, 20731, 20739, 20746, 20749, 20750, s24-30 / s24-16; every ecalc run below VERIFY OK unless said)
 
-(filled in below from the batches)
+Correctness against the reference files (`cmp`, `~/ntt/ecalc/ref`, `results/e_1e10.out`, `results/e_4e10.out`):
+
+| run | command (from `ecalc/`, `$J` the allocation) | result |
+|---|---|---|
+| 10⁶, 10⁸, 10⁹ size 1 | `ECALC_VERBOSE=2 ./ecalc <d> out` | identical (every build; 10⁹ re-checked after each change) |
+| 10⁸ sizes 2, 4 | `SLURM_JOB_ID=$J POOL_LOG=29 ./mnrun.sh <p> ./ecalc 100000000 out` | identical |
+| 10⁹ size 2 | `POOL_LOG=30 ./mnrun.sh 2 ./ecalc 1000000000 out` | identical |
+| 10¹⁰ size 1 | `./ecalc 10000000000 out` | identical |
+| 10¹⁰ size 2 | `POOL_LOG=30 ./mnrun.sh 2 ./ecalc 10000000000 out` | identical |
+| 10¹⁰ size 4 | `POOL_LOG=27 ./mnrun.sh 4 ./ecalc 10000000000 out` | identical (75 s) |
+| 10¹⁰ size 4 | `POOL_LOG=29 ./mnrun.sh 4 ...` | **T1 FAILED** twice (see open issues) |
+| 2 × 10¹⁰ size 2 | `POOL_LOG=30 ./mnrun.sh 2 ./ecalc 20000000000 out` | VERIFY OK (119 s; no reference file to compare) |
+| 4 × 10¹⁰ size 1 | `RNS_VERBOSE=1 ECALC_VERBOSE=2 ./ecalc 40000000000 out` | identical, 8 runs over the variants below |
+
+### 4 × 10¹⁰, size 1 — the gate
+
+`main` (a75474d) was rebuilt in a worktree of the same clone and run on the same node in the same
+allocation, reference evicted before every run. Init is decomposed by the new prints (`ECALC_VERBOSE=2`,
+`RNS_VERBOSE=1`): staging + contexts ≈ 3.9 s, the plane pools, peer access 0.2 s, the regions.
+
+| 4 × 10¹⁰ | main (s24-16) | main (s24-16, 2nd) | A-mem, arenas = bs need (final) | A-mem, arenas dm-sized (`ECALC_DM_POOL_K=8`) |
+|---|---:|---:|---:|---:|
+| device mapped at init | 137 + 112 = 249 GB | 249 | 120 + 96 = **216 GB** | 120 + 142 = 263 GB |
+| init | 17.7 | 16.1 (s24-30) | **15.5 / 16.9** | 19.9 / 19.6 |
+| bs (region growth inside) | 43.6 (19.1 GB) | 44.3 (19.1 GB) | 42.6 / 41.5 (**none**) | 41.0 / 41.7 (none) |
+| recip (block pool hipMalloc inside) | 14.9 (26.7 GB) | 15.7 (26.7 GB) | 15.7 / 15.5 (45.3 GB) | 13.6 / 13.5 (**0**) |
+| dm | 34.1 | 35.7 | 34.1 / 33.9 | 32.0 / 32.2 |
+| wall | 95.6 | 96.3 | **92.5 / 93.0** | 93.6 / 94.3 |
+
+So against `main` on the same node: **init −1…−2 s, bs −2 s (the five-node growth is gone), wall −2.6…−3 s**,
+digits identical. The dm-sized arena removes every `hipMalloc` from the run but pays for it at init (0.06
+s/GB, 142 GB in 8.6 s) for the same wall clock within the spread; it stays a knob for A-div (the dm phase's
+block-pool need is its business: at 4 × 10¹⁰ the peak of live device numbers is 121.5 GB, 30.4 GB per APU).
+The single-node 8 GB per-call `hipMalloc` story: bytes mapped are the only lever, and the run maps 216 +
+10 + 45 = 271 GB with the bs-need arenas against 249 + 19 + 27 = 295 for `main`.
+
+The accounting at 4 × 10¹⁰, size 1 (final build, `mem_report_summary`; GB; device = all four APUs, the
+largest APU in the second column):
+
+| phase | device | max APU | planes | regions | pool: donated / borrowed / hipMalloc | pool: live / peak / free | tables | host RSS | staging | X | digits | other | HWM |
+|---|---:|---:|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
+| init | 216.6 | 58.0 | 120.3 | 95.7 | 0 / 0 / 0 | 0 / 0 / 0 | 0.61 | 45.7 | 42.9 | 0 | 0 | 2.8 | 45.7 |
+| bs | 226.3 | 58.0 | 120.3 | 0 | 0 / 95.7 / 9.8 | 35.6 / 83.7 / 70.7 | 0.61 | 47.4 | 42.9 | 0 | 0 | 4.4 | 48.7 |
+| recip | 261.9 | 66.9 | 120.3 | 0 | 0 / 95.7 / 45.3 | 53.3 / 121.5 / 88.4 | 0.61 | 6.6 | 0 | 0 | 0 | 6.5 | 48.7 |
+| dm | 120.9 | 30.2 | 120.3 | 0 | 0 | 0 / 121.5 / 0 | 0.61 | 70.8 | 0 | 17.8 | 40.0 | 13.0 | 70.8 |
+| T1 | 120.9 | 30.2 | 120.3 | 0 | 0 | 0 / 121.5 / 0 | 0.61 | 70.8 | 0 | 17.8 | 40.0 | 13.0 | 70.8 |
+| end | 120.9 | 30.2 | 120.3 | 0 | 0 | 0 / 121.5 / 0 | 0.61 | 53.0 | 0 | 0 | 40.0 | 13.0 | 70.8 |
+
+Regions from the layouts: 12.33 / 10.02 / 10.17 / 10.00 GB per parity (the flat rule gave 12.49 for each
+and still grew region 0 to 19.1 GB). The 9.8 GB of pool `hipMalloc` inside bs is the device top levels'
+numbers beyond the donated regions (P, Q of the last two levels, ≈ 8.9 GB per APU live). The "other" host
+bytes are the ROCm runtime and the program (≈ 13 GB once the device queues exist, the same at 10⁶);
+"tables" is the `hipMemGetInfo` delta around the transform contexts. `MEM_REPORT_DEVS=1` adds per-APU rows
+with the driver's used/total: it agrees with the accounted total to 0.3 GB while allocations exist; after
+`db_release_pools` the driver still reports the freed bytes as used (`hipFree` does not return them at once).
+
+### Sizes 2 and 4 on one node — capacity
+
+Per node-process (POOL_LOG=30 → planes 4 × (8 + 6) GiB = 60 GB; POOL_LOG=29 → 30 GB; the dist tier grows
+them on demand to what the tree's products need — at 2 × 10¹⁰ size 2 node 0's pools reached 137 GB in dm):
+
+| run | phase | device / process (planes, regions, block pool) | host RSS / process |
+|---|---|---|---|
+| 2 × 10¹⁰ size 2, PL 30 | init | 147.7 (60.1, 86.4, 0) | 17.6 (staging 12.9) |
+| | tree (node 1 / node 0) | 156.3 (68.7, 0, 86.4 borrowed) / 191.8 (60.1, 86.4, 44.0 hipMalloc) | 43.0 / 60.9 |
+| | recip (node 0; node 1 released) | 269.1 (137.4, 0, 86.4 + 44.0; live 8.9, peak 44.4) | 56.9 |
+| | dm / end (node 0) | 138.7 (137.4) | 65.8 / 50.2 (X 20.0) — HWM 83.5 |
+| 10¹⁰ size 4, PL 29 | init | 55 (30.1, 22.5, 0); node 0 68 (35.6 regions) | 13.0 (staging 8.6) |
+| | tree | 71–76 (34.4, 22.5, 11–16.5 hipMalloc) | 30–37 |
+| | recip / dm (node 0) | 123 (68.7, 0, 35.6 + 16.4) / 140 (137.4) | 33 / 37 — HWM 46.3 |
+
+The first attempts at these sizes were OOM-killed on node 0 in dm (both 2 × 10¹⁰ / 2 and 10¹⁰ / 4): the
+node's 512 GB are shared by all processes' device and host memory, and the ranks that are done sat at the
+final barrier holding their planes, regions and the tree's `hipMalloc` pools (150–200 GB each). Now a
+non-zero rank releases its device memory (`db_release_pools`, `rns_shutdown`) before the barrier (driver,
+one line), and the dm-sized arena applies to node 0 only. `main` cannot run either configuration on one node
+(64 GiB of pinned staging per process at size > 1: 4 × 69 GB; with `POOL_LOG=27` to shrink it, the batch
+tier's 2^30 tile overflows the pools: segfault) — the seed-sized staging at any size and the on-demand pool
+growth in the batch tiers are what make them run.
+
+**Per-node capacity (one node, 512 GB shared).** Size 1: unchanged in principle from RESULTS §71 (7 × 10¹⁰);
+the run needs planes 120 GB + regions 2.4 GB per 10⁹ digits + dm's pool ≈ 3.9 GB per 10⁹ (mapped inside the
+phase) + host 13 + 1.5 GB per 10⁹ (X, digits); at 7 × 10¹⁰ ≈ 120 + 168 + 273 + 118 — the same 7 × 10¹⁰ ceiling,
+with 17 GB less in planes and ≈ 16 GB less in regions than before. Size 2: 2 × 10¹⁰ runs (peak ≈ 156 + 269
+device + 43 + 66 host ≈ 530 GB counting node 1 before its release; ≈ 400 GB after); the limit is node 0's dm
+(which holds the whole number until A-div distributes it) plus the other process's planes and arena: ≈
+3 × 10¹⁰ per node at size 2. Size 4: 10¹⁰ runs at 305 GB peak (4 × 76 in the tree); 2 × 10¹⁰ would need
+4 × 110 in the tree and ≈ 270 on node 0 in dm — over the node — so ≈ 1.5 × 10¹⁰ at size 4 on one node until
+the division is distributed; with M4 the per-process dm need drops by 1/size and the leaf tree's regions are
+already 1/size, so the capacity per node at size 4 returns to the size-1 figure minus the planes' 4 × 120 GB
+(POOL_LOG 31) or 4 × 60 (30).
+
+## Open issues
+
+1. **10¹⁰ at size 4 with `POOL_LOG=29`: T1 fails** (two runs, nodes 2's / 0's leaf P differ by a limb from the
+   passing run's), while the same command with `POOL_LOG=27` is identical to the reference, size 2 at 10¹⁰ is
+   identical, and size 4 at 10⁸ is identical. `main` cannot run this configuration on one node at all (OOM or
+   segfault), so pre-existing vs new is undetermined. The difference between 27 and 29 in this build was
+   which pools grew inside the batch tiers (the 2^29 tile fits pool 0 exactly at 29 and pool 1 grows from 3 q
+   to 4 GiB in the striped path); the final build sizes pool 1 to the full pool for `POOL_LOG` ≤ 30 (batch 7
+   re-runs 29 twice and 28 once — see the end of this file for the result).
+2. The non-zero ranks' region arenas are not released by `rns_shutdown` there (`binsplit_free_pools` never
+   runs on them, so the hook is not set): 22 GB per process stays mapped until exit — harmless, one line.
+3. At size > 1 the leaf's regions are only donated to the block pool when the leaf ends on the device tier;
+   when it ends on the batch tier the tree's packed slabs and shares come from `hipMalloc` (11–44 GB per
+   process, "pool: hipMalloc" in the tree rows). Donating the regions before `mn_tree` needs the driver's flow
+   (A-div's area now) — noted, not done.
+4. `ECALC_DM_POOL_K` (dm-sized arena) is the knob for A-div if the distributed division wants its pool mapped
+   at init.
+
+## Files touched outside my list (minimal, commented `A-mem`)
+
+`ecalc/ecalc.c`: the pool-1 request and `host_combine` next to the staging sizing (the seed-sized staging now
+applies at any size in the M3 flow); the donation threshold; `mem_report` calls; init stage timing print; the
+non-zero ranks' release before the final barrier. `ecalc/rns_mul.c` batch tiers: four one-line `rns_dpool`
+calls that grow a plane pool on demand before it is used (no-ops when it fits). `ecalc/dbig.h`: one
+declaration. `ecalc/binsplit.h`: `bs_stats.n_grow/grow_bytes`, `binsplit_release_arenas`, `bs_balance_n`.
