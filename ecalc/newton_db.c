@@ -546,6 +546,23 @@ static void x1_regroup(mdb *r, mn_group *to, int was_member)
     free(all);
     mdb rn; memset(&rn, 0, sizeof rn); mdb_shift_g(&rn, r, 0, r->N, to, to); mfree(r); *r = rn;
 }
+/* X1 for the division's two products: when the rule (with the cost of re-sharding A, B and C counted) prefers a
+ * subgroup, the operands go onto it, the product runs there, the result comes back onto G (never on the target's
+ * sizes -- both products are >= 2 n_Q points -- but the rule decides, e.g. small digit counts on many nodes) */
+static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut)
+{
+    int L = x1_level(A->n, B->n, G, 2 * (A->n + B->n));
+    if (!L) { mn_prod_cut(C, A, B, G, lowcut, highcut); return; }
+    mn_group *Gs = mn_group_at(L); int member = x1_member(Gs);
+    if (getenv("NEWTON_VERBOSE") && G->me == 0) printf("divmod(mn): the product %zu x %zu limbs on the group [0, %d)\n", A->n, B->n, Gs->g);
+    mdb As, Bs, Cs; memset(&As, 0, sizeof As); memset(&Bs, 0, sizeof Bs); memset(&Cs, 0, sizeof Cs);
+    mdb_shift_g(&As, A, 0, A->N, G, Gs); mdb_shift_g(&Bs, B, 0, B->N, G, Gs);
+    if (member) mn_prod_cut(&Cs, &As, &Bs, Gs, lowcut, highcut);
+    mfree(&As); mfree(&Bs);
+    x1_regroup(&Cs, G, member);
+    if (C->sh.cap) db_free(&C->sh);
+    *C = Cs;
+}
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 {
@@ -661,7 +678,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* X = ((S >> (nq - 1 - dl)) mu) >> (k + 1) */
     mdb Ah, t, Xn; memset(&Ah, 0, sizeof Ah); memset(&t, 0, sizeof t); memset(&Xn, 0, sizeof Xn);
     { size_t sh = nq - 1 - dl; mdb_shift(&Ah, &S, (long)sh, S.n > sh ? S.n - sh : 1, G); }
-    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut(&t, &Ah, &mu, G, k + 1, (size_t)-1);   /* A5/B3: the pieces below the cut k + 1 skipped */
+    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut_x1(&t, &Ah, &mu, G, k + 1, (size_t)-1);   /* A5/B3: the pieces below the cut k + 1 skipped */
     else mn_prod(&t, &Ah, &mu, G);
     mfree(&Ah); mfree(&mu);
     mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
@@ -669,7 +686,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* the low product X Q mod B^w (A5: the grid with the pieces above w skipped, delivered in basis w), the window
      * A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
     mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
-    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
+    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut_x1(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
     else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
     rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: Q's kept transforms served the low product; the planes go */
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
