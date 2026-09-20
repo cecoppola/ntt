@@ -88,6 +88,7 @@ Job 20726 (one node, ppac-pl1-s24-26), clone `~/ntt-aout` @ b432d9e, script `eca
 | 10⁹ size 1 | `POOL_LOG=29` | identical, 8.4 s, VmHWM 16.2 GB |
 | 10⁹ size 2 / 4 (one node) | `POOL_LOG=29` | cat of the parts identical; T1/T2 ok on every node; 12.1 / 12.5 s |
 | 10⁷ `LIMB_BASE=2` | | identical (the binary whole-string path unchanged) |
+| **10⁸ and 10⁹ on 2 real nodes** (job 20740, s24-26 + s24-30, one node-process each) | `SLURM_JOB_ID=$J ./mnrun.sh 2 env POOL_LOG=27/29 ./ecalc <d> ~/aout/e.txt` | cat of the parts identical; T1/T2 ok on both nodes; 10.7 s / 50.5 s (1 GbE) |
 | **4 × 10¹⁰ size 1**, output on NFS (`~/aout`) | `ECALC_WINDOWS=ref/windows_4e10.txt ./ecalc 40000000000 ~/aout/e_4e10.txt` (page cache evicted first) | identical to `results/e_4e10.out`, VERIFY OK, 8 windows; peak host **48.7 GB** (was 70.8); with the writer joined before T1 (the first version): total 116.5 s, T1 23.1 s of waiting for the writer — the 40 GB went into the NFS client's cache at 1.4 GB/s (29 s in the writer thread) and `close` flushed it for 339 s |
 | **4 × 10¹⁰ size 1**, output on the node's NVMe (`/tmp`) | the same, b432d9e (`total` before the join) | identical, VERIFY OK, **total 95.2 s** (bs 43.3, dm 33.2, T1 0.0, init 18.7), peak host 48.7 GB; the writer thread 77.9 s (0.5 GB/s: the page cache is throttled to the disk's write rate on this node — `dd` to `/tmp` gets 1.3 GB/s), formatting compute 8.2 s, `close` 0.0 s |
 
@@ -111,10 +112,8 @@ digit residue joined over the nodes, `comm_allgather` over the TCP mesh (the day
   hide under the low product; on aac6 the run's wall clock including the write is ≈ 175 s with a
   local disk (vs. an unmeasured but comparable `fwrite` + `close` before). If a 4 × 10¹⁰ run's
   file is not needed, omit `<outfile>` (nothing is written; the checks still run).
-- Two or three **real nodes** were never idle together during the session (all three nodes were
-  held by the other agents' jobs); the multi-node paths were exercised with 2–4 node-processes
-  on one node over the same TCP meshes. To run when free: `SLURM_JOB_ID=$J ./mnrun.sh 2 env
-  POOL_LOG=29 ./ecalc 1000000000 ~/aout/e.txt` on a 2-node allocation, then `cat` the parts.
+- Three real nodes were not idle together during the session (2-node runs done; 3 node-processes
+  on one node cover the non-power-of-two group and the three-way part/T2-head logic).
 - **The A-div hooks** (`out_stage`, two `HOOK A-div` comments): X's share from `Xm.sh` with
   `mdb_share` instead of the scatter; P, Q, R residues per share by `db_mod_qs` + `mn_out_res_combine`
   instead of node 0's broadcast. The stand-in scatter (`mn_out_scatter_standin`) can then go.
