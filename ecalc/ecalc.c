@@ -212,6 +212,7 @@ static int out_stage(struct out_ctx *c)
     if (c->outfile) { node_pfx(c); if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
                       else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
     int fail = bad1 || bad2 || bad3;
+    if (c->outfile && c->rank == 0) mn_out_sidecar_write(c->outfile, c->N, c->d, c->d_out, c->size, Xres, c->Rres, c->Pres, c->Qres, o->tail, o->ntail);   /* Phase 11 V: <outfile>.t1 for ECALC_RECHECK */
     node_pfx(c); printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
     if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d nodes: %s\n", c->size, any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
     return fail;
@@ -247,6 +248,11 @@ int main(int argc, char **argv)
       if (stg && devflow && !host_combine) { size_t need = stg == 2 ? binsplit_seed_stage_bytes(N) + (64u << 20) : 0; need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (stg == 2 ? 2u << 30 : 1u << 30)) need = stg == 2 ? 2u << 30 : 1u << 30; rns_staging_bytes_req = need; }   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+    if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
+        int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
+        int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
+        mn_barrier(); mn_finalize(); return f;
+    }
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
@@ -350,6 +356,11 @@ int main(int argc, char **argv)
     }
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
+    if (ovl3 && bs_ckpt_dir && getenv("ECALC_CKPT_TOP") && atoi(getenv("ECALC_CKPT_TOP"))) {   /* Phase 11 V: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+        double tc = mem_now(); uint64_t desc[10] = { bs_Pd.n, bs_Pd.n, 0, 1, bs_Pd.n, bs_Qd.n, bs_Qd.n, 0, 1, bs_Qd.n };
+        size_t bytes = bs_ckpt_tree_write(0, N, desc, &bs_Pd, &bs_Qd);
+        printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
+    }
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, mn_dm ? mn_pn : P.n, mn_dm ? mn_qn : Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);

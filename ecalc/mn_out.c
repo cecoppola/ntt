@@ -188,7 +188,7 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
 {
     size_t nl, pad, lo, hi, k0, k1; ranges(o, src, &nl, &pad, &lo, &hi, &k0, &k1);
     o->k0 = k0; o->k1 = k1; o->ndig = 0; o->bad2 = o->nwin = 0; o->bytes = 0; o->nchunks = 0; o->t_fmt = o->t_res = o->t_t2 = o->t_write = o->t_fetch = o->t_wait = 0;
-    o->first[0] = o->last[0] = 0;
+    o->first[0] = o->last[0] = 0; o->ntail = 0;
     for (int i = 0; i < T1_NQ; i++) o->dres[i] = 0;
     size_t L = o->chunk_limbs; if (!L) { size_t mb = getenv("MN_OUT_CHUNK_MB") ? (size_t)atoi(getenv("MN_OUT_CHUNK_MB")) : 256; L = (mb << 20) / 18; if (L < 64) L = 64; }
     if (L > hi - lo && hi > lo) L = hi - lo;
@@ -227,6 +227,7 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
         o->t_t2 += mem_now() - t4;
         if (bb == hi) { size_t f = len < 62 ? len : 62; memcpy(o->first, s, f); o->first[f] = 0; }
         if (ck0 <= o->d_out && o->d_out < ck1) { size_t e = o->d_out + 1 - ck0, t = e < 20 ? e : 20; memcpy(o->last, s + e - t, t); o->last[t] = 0; }   /* the 20 digits ending at d_out */
+        if (o->d > o->d_out && ck0 <= o->d_out + 1 && ck1 == o->d + 1 && o->d - o->d_out < sizeof o->tail) { o->ntail = o->d - o->d_out; memcpy(o->tail, s + (o->d_out + 1 - ck0), o->ntail); }   /* V: the computed digits after d_out (inside the last limb) */
         /* the write: digits [ck0, min(ck1, kw_end)); "2." before digit 0, the newline after digit d_out */
         size_t we = ck1 < kw_end ? ck1 : kw_end;
         if (w->fd >= 0 && ck0 < we) {
@@ -259,4 +260,148 @@ void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
     mn_out_allgather_u64(c, v, T1_NQ + 1, all);
     for (int i = 0; i < T1_NQ; i++) { uint64_t D = 0; for (int r = n; r-- > 0;) D = vf_digits_join(D, (size_t)all[(size_t)r * (T1_NQ + 1) + T1_NQ], all[(size_t)r * (T1_NQ + 1) + i], t1_q[i]); Dres[i] = D; }
     free(all);
+}
+
+/* ---- Phase 11 V: the sidecar and the recheck mode (mn_out.h) ---- */
+#include "binsplit.h"
+#include "mdb.h"
+void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d, unsigned long d_out, int size, const uint64_t *Xres, const uint64_t *Rres, const uint64_t *Pres, const uint64_t *Qres, const char *tail, size_t ntail)
+{
+    char name[4096]; snprintf(name, sizeof name, "%s.t1", outfile);
+    FILE *f = fopen(name, "w"); if (!f) { printf("mn_out: cannot write %s: %s\n", name, strerror(errno)); return; }
+    fprintf(f, "ecalc-t1 v1\nN %lu d %lu d_out %lu size %d base %s\nq", N, d, d_out, size, bi_decimal ? "10^18" : "2^64");
+    for (int i = 0; i < T1_NQ; i++) fprintf(f, " %llu", (unsigned long long)t1_q[i]);
+    const char *nm[4] = { "X", "R", "P", "Q" }; const uint64_t *rs[4] = { Xres, Rres, Pres, Qres };
+    for (int k = 0; k < 4; k++) { fprintf(f, "\n%s", nm[k]); for (int i = 0; i < T1_NQ; i++) fprintf(f, " %llu", (unsigned long long)rs[k][i]); }
+    fprintf(f, "\ntail %zu %.*s\n", ntail, (int)ntail, tail);
+    fclose(f);
+}
+/* the digit file of this node in chunks: the residues (Horner), the last 49 chars (the T2 head of the node below), the
+ * count of digit chars (the '.' and the newline are not digits); returns 0 when the file cannot be read */
+static int recheck_digits(const char *name, int first_part, uint64_t *dres, size_t *ndig, char *tail49, size_t *ntail49)
+{
+    FILE *f = fopen(name, "rb"); if (!f) { printf("recheck: cannot open %s: %s\n", name, strerror(errno)); return 0; }
+    size_t CH = (size_t)256 << 20; char *buf = (char *)malloc(CH + 64); size_t n = 0, have = 0, kept = 0; char keep[64];
+    for (int i = 0; i < T1_NQ; i++) dres[i] = 0;
+    for (;;) {
+        size_t r = fread(buf + have, 1, CH - have, f); have += r; if (!have) break;
+        int ch = fgetc(f), last = ch == EOF; if (!last) ungetc(ch, f);
+        /* strip the '.' after the first digit of the first part and a trailing newline of the last chunk */
+        size_t len = have; char *sp = buf;
+        if (first_part && n == 0) { if (len >= 2 && sp[1] == '.') { memmove(sp + 1, sp + 2, len - 2); len--; } first_part = 0; }
+        if (last) while (len && (sp[len - 1] == '\n' || sp[len - 1] == '\r')) len--;
+        for (size_t k = 0; k < len; k++) if (sp[k] < '0' || sp[k] > '9') { printf("recheck: %s: a non-digit at char %zu\n", name, n + k); free(buf); fclose(f); return 0; }
+        uint64_t v[T1_NQ]; vf_digits_mods(sp, len, t1_q, T1_NQ, v);
+        for (int i = 0; i < T1_NQ; i++) dres[i] = vf_digits_join(dres[i], len, v[i], t1_q[i]);
+        n += len;
+        { size_t t = len < 49 ? len : 49; if (t < 49 && kept) { size_t k2 = 49 - t < kept ? 49 - t : kept; memmove(keep, keep + kept - k2, k2); memcpy(keep + k2, sp, t); kept = k2 + t; } else { memcpy(keep, sp + len - t, t); kept = t; } }
+        have = 0;
+        if (last) break;
+    }
+    free(buf); fclose(f);
+    *ndig = n; memcpy(tail49, keep, kept); *ntail49 = kept;
+    return 1;
+}
+/* T2 over this node's file: the windows are checked chunk by chunk with the head carried (the node above's tail first) */
+static int recheck_windows(const char *name, int first_part, size_t k0, const char *head0, size_t nhead0, size_t ndig_all, int verbose, int *nwin)
+{
+    FILE *f = fopen(name, "rb"); if (!f) return 1;
+    size_t CH = (size_t)256 << 20; char *buf = (char *)malloc(CH + 64); size_t have = 0, k = k0; char head[64]; size_t nhead = nhead0; memcpy(head, head0, nhead0); int bad = 0, first = first_part;
+    for (;;) {
+        size_t r = fread(buf + have, 1, CH - have, f); have += r; if (!have) break;
+        int ch = fgetc(f), last = ch == EOF; if (!last) ungetc(ch, f); size_t len = have; char *sp = buf;
+        if (first) { if (len >= 2 && sp[1] == '.') { memmove(sp + 1, sp + 2, len - 2); len--; } first = 0; }
+        if (last) while (len && (sp[len - 1] == '\n' || sp[len - 1] == '\r')) len--;
+        bad += tier2_range(sp, k, k + len, head, nhead, ndig_all, verbose, nwin);
+        { size_t t = len < 49 ? len : 49; if (t < 49 && nhead) { size_t keep = 49 - t < nhead ? 49 - t : nhead; memmove(head, head + nhead - keep, keep); memcpy(head + keep, sp, t); nhead = keep + t; } else { memcpy(head, sp + len - t, t); nhead = t; } }
+        k += len; have = 0;
+        if (last) break;
+    }
+    free(buf); fclose(f);
+    return bad;
+}
+int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const char *outfile, comm *c, int rank, int size, unsigned long a0, unsigned long b1, int verbose)
+{
+    int multi = size > 1, fail = 0; double t0 = mem_now();
+    if (!outfile) { printf("recheck: no digit file\n"); return 1; }
+    /* the sidecar: node 0 reads it, every node gets the values */
+    uint64_t sc[4 * T1_NQ + 8]; memset(sc, 0, sizeof sc); char tail[24] = { 0 }; size_t ntail = 0;
+    if (rank == 0) {
+        char name[4096]; snprintf(name, sizeof name, "%s.t1", outfile); FILE *f = fopen(name, "r");
+        if (!f) { printf("recheck: cannot open %s: %s\n", name, strerror(errno)); sc[4 * T1_NQ] = 1; }
+        else {
+            char line[1024]; unsigned long sN = 0, sd = 0, sdo = 0; int ss = 0, ok = 1;
+            if (!fgets(line, sizeof line, f) || strncmp(line, "ecalc-t1 v1", 11)) ok = 0;
+            if (ok && (!fgets(line, sizeof line, f) || sscanf(line, "N %lu d %lu d_out %lu size %d", &sN, &sd, &sdo, &ss) != 4)) ok = 0;
+            if (ok && (sN != N || sd != d || sdo != d_out)) { printf("recheck: %s is for N %lu, d %lu, d_out %lu (this run: %lu, %lu, %lu)\n", name, sN, sd, sdo, N, d, d_out); ok = 0; }
+            if (ok && fgets(line, sizeof line, f)) { uint64_t q[T1_NQ]; char *p = line + 1; for (int i = 0; i < T1_NQ; i++) q[i] = strtoull(p, &p, 10); for (int i = 0; i < T1_NQ; i++) if (q[i] != t1_q[i]) { printf("recheck: %s used other T1 moduli\n", name); ok = 0; break; } }
+            for (int k = 0; ok && k < 4; k++) { if (!fgets(line, sizeof line, f)) { ok = 0; break; } char *p = line + 1; for (int i = 0; i < T1_NQ; i++) sc[k * T1_NQ + i] = strtoull(p, &p, 10); }
+            if (ok && fgets(line, sizeof line, f)) { unsigned long nt = 0; char tb[64] = { 0 }; if (sscanf(line, "tail %lu %63s", &nt, tb) >= 1 && nt < sizeof tail) { ntail = nt; memcpy(tail, tb, nt); } }
+            if (!ok) sc[4 * T1_NQ] = 1;
+            fclose(f);
+            if (ok) { sc[4 * T1_NQ + 1] = ntail; for (size_t i = 0; i < ntail; i++) sc[4 * T1_NQ + 2 + i / 8] |= (uint64_t)(unsigned char)tail[i] << (8 * (i % 8)); if (ss != size) printf("recheck: the run had %d nodes, this recheck %d (the residues do not depend on it)\n", ss, size); }
+        }
+    }
+    mn_out_bcast_u64(c, sc, 4 * T1_NQ + 8, 0);
+    if (sc[4 * T1_NQ]) { printf("recheck: node %d: no usable sidecar\n", rank); return 1; }
+    ntail = (size_t)sc[4 * T1_NQ + 1]; for (size_t i = 0; i < ntail; i++) tail[i] = (char)(sc[4 * T1_NQ + 2 + i / 8] >> (8 * (i % 8)));
+    const uint64_t *sX = sc, *sR = sc + T1_NQ, *sP = sc + 2 * T1_NQ, *sQ = sc + 3 * T1_NQ;
+    /* 1. the digits: this node's file (part size-1-rank, the top node's part first in the file) */
+    char name[4096]; if (multi) snprintf(name, sizeof name, "%s.part%04d", outfile, size - 1 - rank); else snprintf(name, sizeof name, "%s", outfile);
+    int first_part = rank == size - 1;
+    mn_out o; memset(&o, 0, sizeof o); o.d = d; o.d_out = d_out; o.rank = rank; o.size = size;
+    char t49[64]; size_t nt49 = 0;
+    if (!recheck_digits(name, first_part, o.dres, &o.ndig, t49, &nt49)) return 1;
+    double t1 = mem_now();
+    uint64_t Dres[T1_NQ]; mn_out_digit_res(&o, c, Dres);                                           /* the file's string "2" + fraction, joined top node first */
+    /* the digit counts and the tails over the nodes: the global index of this node's first digit, the T2 head */
+    uint64_t v[8]; memset(v, 0, sizeof v); v[0] = o.ndig; v[1] = nt49; memcpy(v + 2, t49, nt49);
+    uint64_t *all = (uint64_t *)malloc((size_t)size * 8 * 8); mn_out_allgather_u64(c, v, 8, all);
+    size_t ndig_all = 0, k0 = 0; for (int r = 0; r < size; r++) { ndig_all += all[(size_t)r * 8]; if (r > rank) k0 += all[(size_t)r * 8]; }
+    char head[128]; size_t nhead = 0;
+    for (int r = rank + 1; r < size && nhead < 49; r++) { size_t t = all[(size_t)r * 8 + 1]; if (!t) continue; memmove(head + t, head, nhead); memcpy(head, (const char *)(all + (size_t)r * 8 + 2), t); nhead += t; }
+    if (nhead > 49) { memmove(head, head + nhead - 49, 49); nhead = 49; }
+    free(all);
+    if (ndig_all != d_out + 1) { printf("recheck: node %d: the file holds %zu digits, d_out + 1 = %lu expected\n", rank, ndig_all, d_out + 1); fail = 1; }
+    /* X mod q from the file: X = (the written digits) 10^(d - d_out) + the tail */
+    uint64_t Xf[T1_NQ]; { uint64_t tv[T1_NQ]; vf_digits_mods(tail, ntail, t1_q, T1_NQ, tv); for (int i = 0; i < T1_NQ; i++) Xf[i] = vf_digits_join(Dres[i], ntail, tv[i], t1_q[i]); }
+    if (ntail != d - d_out) { printf("recheck: node %d: the sidecar holds %zu tail digits, d - d_out = %lu\n", rank, ntail, d - d_out); fail = 1; }
+    /* 2. the T2 windows over the file */
+    int nwin = 0, bad2 = recheck_windows(name, first_part, k0, head, nhead, ndig_all, verbose >= 2, &nwin);
+    double t2 = mem_now();
+    /* 3. P, Q from the checkpointed top-level shares */
+    uint64_t Pc[T1_NQ], Qc[T1_NQ]; int have_pq = 0;
+    if (bs_ckpt_dir) {
+        int L = 0; while ((1 << L) < size) L++;
+        uint64_t desc[10]; dbig ps, qs;
+        if (bs_ckpt_tree_read(L, N, desc, &ps, &qs)) {
+            mdb P, Q; memset(&P, 0, sizeof P); memset(&Q, 0, sizeof Q);
+            P.sh = ps; P.n = desc[0]; P.N = desc[1]; P.g0 = (int)desc[2]; P.g = (int)desc[3]; Q.sh = qs; Q.n = desc[5]; Q.N = desc[6]; Q.g0 = (int)desc[7]; Q.g = (int)desc[8];
+            uint64_t vp[T1_NQ], vq[T1_NQ]; size_t lo, hi;
+            mdb_share(&P, rank, &lo, &hi); if (hi > P.n) hi = P.n; { dbig sv = P.sh; sv.n = hi > lo ? hi - lo : 0; if (sv.n > P.sh.n) sv.n = P.sh.n; if (sv.n) db_mod_qs(&sv, t1_q, T1_NQ, vp); else memset(vp, 0, sizeof vp); mn_out_res_combine(c, vp, lo, Pc); }
+            mdb_share(&Q, rank, &lo, &hi); if (hi > Q.n) hi = Q.n; { dbig sv = Q.sh; sv.n = hi > lo ? hi - lo : 0; if (sv.n > Q.sh.n) sv.n = Q.sh.n; if (sv.n) db_mod_qs(&sv, t1_q, T1_NQ, vq); else memset(vq, 0, sizeof vq); mn_out_res_combine(c, vq, lo, Qc); }
+            db_free(&ps); db_free(&qs); have_pq = 1;
+            if (multi) printf("mn: node %d: ", rank); printf("recheck: P (%zu limbs), Q (%zu limbs) from the tree level %d set in %s\n", P.n, Q.n, L, bs_ckpt_dir);
+        } else printf("recheck: node %d: no tree level %d set for this run in %s (P, Q taken from the sidecar)\n", rank, L, bs_ckpt_dir);
+    } else printf("recheck: node %d: no BS_CKPT_DIR (P, Q taken from the sidecar)\n", rank);
+    if (!have_pq) { memcpy(Pc, sP, sizeof Pc); memcpy(Qc, sQ, sizeof Qc); }
+    double t3 = mem_now();
+    /* 4. the recurrence over this node's terms, joined */
+    uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
+    for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(a0, b1, t1_q[i], &pr[i], &qr[i]);
+    mn_out_pq_combine(c, pr, qr, Pg, Qg);
+    double t4 = mem_now();
+    /* 5. the checks */
+    bigint none; bi_init(&none);
+    int bad1 = tier1_res_pq(N, d, Pc, Qc, &none, &none, Pg, Qg, Xf, sR, verbose >= 2);
+    int bad3 = tier1_digits_cmp(Xf, sX, verbose >= 2);
+    int badPQ = 0; for (int i = 0; i < T1_NQ; i++) if (Pc[i] != sP[i] || Qc[i] != sQ[i]) badPQ++;
+    if (multi) printf("mn: node %d: ", rank);
+    printf("recheck: %zu digits read from %s in %.1f s; windows %s (%d checked); digits -> X mod q %s the run's X residues; P, Q %s: %s the recurrence (%.1f s), %s the run's; T1 identity with the run's R residues %s\n",
+           o.ndig, name, t1 - t0, bad2 ? "FAILED" : "ok", nwin, bad3 ? "DIFFER from" : "==", have_pq ? "from the checkpoint" : "from the sidecar", bad1 ? "BAD at some prime vs" : "==", t4 - t3, badPQ ? "DIFFER from" : "==", bad1 ? "FAILED" : "ok");
+    if (verbose >= 2) { printf("      recheck: file residues %.1f s, windows %.1f s, checkpoint residues %.1f s\n", t1 - t0, t2 - t1, t3 - t2); }
+    fail = fail || bad1 || bad2 || bad3 || badPQ;
+    if (multi) printf("mn: node %d: ", rank); printf("%s\n", fail ? "RECHECK FAILED" : "RECHECK OK");
+    if (multi) { int any = mn_out_allreduce_or(c, fail); if (rank == 0) printf("mn: all %d nodes: %s\n", size, any ? "RECHECK FAILED" : "RECHECK OK"); fail = any; }
+    return fail;
 }

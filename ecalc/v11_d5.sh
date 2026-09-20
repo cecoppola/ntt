@@ -27,7 +27,7 @@ for i in $(seq 1 $n); do
     note "  RES: $(grep -a 'MISMATCH\|!=' $OUT/$tag.log | head -6 | cut -c1-200 | tr '\n' ';')"
     if [ "$c" != identical ]; then
       note "  sizes: $(N "ls -l $TMP/$tag.all $R | awk '{print \$5}' | tr '\n' ' '")"
-      note "  differing bytes in the first 1e6 / last 1e6 / total: $(N "cmp -l $TMP/$tag.all $R 2>/dev/null | awk '\$1 <= 1000000 {a++} \$1 > 9999000000 {b++} END {print a+0, b+0, NR}'")"
+      note "  differing bytes in the first 1e6 / last 1e6: $(N "cmp -l -n 1000000 $TMP/$tag.all $R 2>/dev/null | wc -l") / $(N "cmp -l -i $((D - 1000000)) $TMP/$tag.all $R 2>/dev/null | wc -l")"
       N "cp $TMP/$tag.all $HOME/v11_d5_$tag.bad"
     fi
   fi
