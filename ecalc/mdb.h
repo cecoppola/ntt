@@ -38,8 +38,26 @@ static inline void mdb_share(const mdb *x, int r, size_t *lo, size_t *hi)
  * group (rank = node - g0) for APU thread d, tr[d] the mesh over the first gt nodes (the transform's), both 0
  * when the group is one node; lay[d] the layered communicator over tr[d] (built by the product, cached) */
 typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; } mn_group;
-/* C = A B + X (X may be 0) over the group; C's share on this node is a new dbig (C->sh freed first if set) */
+/* C = A B + X (X may be 0) over the group; C's share on this node is a new dbig (C->sh freed first if set).
+ * Products beyond one plane per node pool (na + nb > 2^(min(31, pool_log) + log2 gt) points) run as a grid of piece
+ * products over the shares (Phase 9 A3): piece views of the operands, the first piece straight into C, the others
+ * into a temporary window of this node's share and a shifted fixed-length add with the cross-node carry scan;
+ * X then by mdb_add_shifted.  DIST_LOGN_TEST lowers the plane cap (tests). */
 void rns_mul_dist_mn(mdb *C, const mdb *A, const mdb *B, const mdb *X, mn_group *G);
+/* a view of a sharded number: limbs [off, off + len) of m, len the normalised length within the window; every node of
+ * G computes the same view (one allreduce_max over the group), the pack kernel honours the global offset */
+typedef struct { const mdb *m; size_t off, len; } mdbv;
+mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G);
+/* C = A B (+ X) over the group with views; w = the low window: pieces of the grid starting at limb w or above are
+ * skipped and the result is truncated to w limbs ((size_t)-1: the full product) */
+void rns_mul_dist_mn_v(mdb *C, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w);
+/* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped */
+void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
+/* C += X << k in place on C's shares (C's basis N must hold the sum: an overflow aborts); X sharded over any
+ * subgroup of G; a chunked exchange over the four meshes, then one fixed-length add per share and the carry scan */
+void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G);
+/* C->n = 1 + the highest nonzero limb below `below` (min(N, below)) over the group (one allreduce_max) */
+void mdb_norm(mdb *C, mn_group *G, size_t below);
 #ifdef __cplusplus
 }
 #endif

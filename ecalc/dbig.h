@@ -58,6 +58,7 @@ void db_share_add_one(dbig *r, size_t n, int *cout);  /* r += 1 (fixed n limbs) 
 /* M4 (A-div): fixed-length share add/sub of two shares in one basis, and +/- a limb value at a position (carry/borrow out, propagate) */
 void db_share_addsub(dbig *r, const dbig *a, const dbig *b, size_t n, int sub, int *cout, int *prop);
 void db_share_add_val(dbig *r, size_t n, size_t pos, uint64_t val, int sub, int *cout, int *prop);
+void db_share_add_shifted(dbig *r, size_t n, const dbig *a, size_t k, int *cout, int *prop);   /* r += a << k (fixed n limbs; Phase 9 A3) */
 /* a view of limbs [lo, lo+len) of a (no copy; read-only use; not owning) */
 dbig db_view(const dbig *a, size_t lo, size_t len);
 #ifdef __cplusplus
