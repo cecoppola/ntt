@@ -3047,7 +3047,7 @@ issues are in its `results/<agent>.md`; the integration facts:
 | A-out (M5 + C1) | each node formats and writes its part of X streamed in 256 MB chunks; rank-local T1 (term recurrence over the node's range, share residues by kernel) reduced over the nodes; T2 by the owning node; `t_out` 2 860 checks | sizes 1–4 and two real nodes identical; **single node 95.2 s, host 48.7 GB** (no 40 GB string) | aa3bb56 |
 | A-grid (A3 + C5) | the grid over shares (piece views, shifted distributed add with the cross-node carry scan), the low product over shares; an M3 carry-scan bug (empty shares) fixed; C5 measured: 3·2³⁰ planes −2.5 s for +34 GiB/APU, declined | `t_mn_grid` 120 checks at 2/3/4 processes; 2 × 10¹⁰ at size 2 with the grid forced identical; 4 × 10¹⁰ at size 2 needs two real nodes (memory) | 97281fd |
 | N-kernel (B1 + B4) | paired operand in the batch tier for 2ᵏ and 3·2ᵏ lengths (B once per pair, M/2 transforms); the radix-3 inverse fuses the pointwise; the register-blocked body found not to be ecalc's default — now it is (bit-identical); the DPP exchange measured slower, declined | t_ntt 593, t_mul 189/72/102, t_bs; 10⁹ identical both bases; batch tier 30.5 → 25.9 s | 2897396 |
-| A-mem (M9 + C4 + C2) | (in progress at the time of writing) | | |
+| A-mem (M9 + C4 + C2) | `mem_report` per phase and node (device by category, host by item); plane pool 1 at 3q, region pools from one arena per device sized from a simulated layout (216 GB mapped at init vs 249); levels with ≤ 16 nodes laid out round robin (no region growth in bs); seed-sized staging at every size; a batch-tier plane-growth bug caught; capacity per node at sizes 1/2/4 | 8 runs at 4 × 10¹⁰ identical, init 17.7 → 15.5; 10¹⁰ at sizes 2 and 4 now fit one node | 38ed61b |
 
 Two merge conflicts (additive, both sides kept), one scoping fix, and one
 integration defect found by the re-verification: in the distributed
@@ -3055,11 +3055,24 @@ division's flow the non-zero nodes exited after the gather while the
 per-node output stage expected them (node 0's scatter of X met a closed
 mesh) — one line, every node goes to the output stage.
 
-**The merged single node (`main` @ 2897396, clean conditions, job 20745):
-4 × 10¹⁰ in 90.0 s wall, phases 71.1 (init 18.9, bs 38.1 = batch 25.2 +
-top levels 12.6, dm 32.9 = reciprocal 15.4 + division 17.5), peak host
-48.8 GB, VERIFY OK, digits identical.** Against the day's start (98.5 s /
-70.8 GB): −8.6 %, −31 %; against the paper design (291 s / 248 GB):
-3.2 × at 20 % of the memory. Unit tests on the merged tree: t_ntt 565,
+**The merged single node (`main` @ 38ed61b, all seven agents; clean
+conditions, jobs 20757–20758, `results/variance_b10_p9/`): 4 × 10¹⁰ in
+88.3 / 86.7 / 85.9 / 84.8 / 86.2 s — wall 86.4 ± 1.3 s, phases 70.3 ± 0.5
+(init 16.1 ± 0.9; bs 37.3 = batch 23.5 + top levels 13.5; dm 32.9 =
+reciprocal 16.2 + division 16.7; T1/dc/T2 hidden), peak host 48.8 GB;
+five of five VERIFY OK, digits identical.** Against the day's start
+(98.5 s / 70.8 GB): −12 %, −31 %; against §71's 101.0 s: −14 %; against
+the reproduced paper design (291 s / 248 GB): **3.4 × at 20 % of the
+memory**.
+
+**The multi-node pipeline end to end on the merged tree** (one node,
+node-processes sharing it; every node prints its own VERIFY and node 0
+the all-reduced one; part files concatenated and compared): 10⁸ at
+sizes 2, 3, 4 and with the device top levels; 10⁹ at sizes 2 and 4;
+checkpoint + restart at size 2 from a leaf set; **10¹⁰ over four
+node-processes (125 s over loopback TCP, 40.5 GB per process)** — all
+identical / VERIFY OK on every node. Two real nodes were verified by the
+agents (A-div, A-out: 10⁸ and 10⁹ at sizes 2 and 4). 4 × 10¹⁰ over two
+real nodes remains to be run when two are idle together (memory). Unit tests on the merged tree: t_ntt 565,
 t_mul 189, t_bs 10, t_dbig 555, t_newton 620, t_verify 334 — all OK;
 the binary path 10⁹ still byte-identical.
