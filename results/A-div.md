@@ -85,7 +85,53 @@ as `rns_mul_low_db` does on one node). `newton_mn_divmod` calls `mn_prod(&t, &Ah
 
 ## Tests
 
-(see the batches below)
+Build in `~/ntt-adiv` (aac6) from the branch bundle. Every run: `VERIFY OK` and the written digits
+byte-identical (`cmp`) to `~/ntt/ecalc/ref/e_<digits>.txt` / `results/e_4e10.out`. Commands:
+`srun --jobid=$J -N1 --gpus=4 bash -lc "module load rocm; cd ~/ntt-adiv/ecalc; env POOL_LOG=27 ./ecalc 100000000 out"`
+(size 1) and `SLURM_JOB_ID=$J ./mnrun.sh <procs> env POOL_LOG=27 [BS_MDEV_LOGL=21] ./ecalc 100000000 out`
+(scripts `adivtest.sh`, `batch1/2/3.sh` in the home directory on aac6; outputs in
+`~/ntt-adiv/ecalc/results/adiv/`). Walls are of the whole run (TCP fabric: correctness only).
+
+### One node, several node-processes (job 20734, s24-26)
+
+| digits | POOL_LOG | node-processes | extra env | digits | wall | dm over the nodes (reciprocal) |
+|---|---|---|---|---|---|---|
+| 10⁸ | 27 | 1 | | identical (the single-process path) | 6.0 s | — |
+| 10⁸ | 27 | 2 | | identical | 9.8 s | 2.25 s (1.40) |
+| 10⁸ | 27 | 4 | | identical | 9.1 s | 1.54 s (1.10) |
+| 10⁸ | 27 | 2 | `BS_MDEV_LOGL=21` (leaf P, Q on device) | identical | 9.1 s | 3.46 s (2.61) |
+| 10⁸ | 27 | 3 (gt = 2 at the top) | | identical | 10.4 s | 2.46 s (1.52) |
+| 10⁹ | 29 | 1 | | identical | 17.9 s | — |
+| 10⁹ | 29 | 2 | | identical | 32.4 s | 10.38 s (7.20) |
+| 10⁹ | 29 | 4 | `BS_MDEV_LOGL=25` (the device top levels) | identical | 28.6 s | 6.44 s (4.53) |
+
+At 10⁹ over 4 nodes: the single-node chain to 54 254 limbs (0.13 s), 10 sharded steps to
+55 555 558 limbs; 52 shifts 1.6 s, 22 adds 0.07 s, products 3.2 s (reciprocal) + 1.4 s (division);
+0 corrections in every run (as on one node). T1 (P, Q, R residues from the sharded kernel, X on
+node 0) and T2 pass everywhere.
+
+### Two real nodes (job 20735, s24-16 + s24-26)
+
+| digits | node-processes (placement) | extra env | digits | wall | dm |
+|---|---|---|---|---|---|
+| 10⁸ | 2 (one per node) | | identical | 43.0 s | 20.0 s |
+| 10⁸ | 4 (two per node) | `BS_MDEV_LOGL=21` | identical | 39.6 s | 25.9 s |
+| 10⁹ | 2 (one per node) | `BS_MDEV_LOGL=25` | identical | 245 s | 189 s (the 1 GbE fabric: 97 s of products, 29 s of shifts) |
+
+### 4 × 10¹⁰, size 1, the timing gate (job 20734, s24-26, reference evicted from the page cache first)
+
+| run | wall | dm (reciprocal) | digits |
+|---|---:|---:|---|
+| baseline (RESULTS §72) | 98.5 s | 37.6 (15.8) | — |
+| this branch, default (B3 on: 2 × 3 pieces, 1 skipped) | **91.2 s** | 32.8 (15.1) | identical, VERIFY OK, 70.8 GB |
+| `NEWTON_HIGHPROD=0` (B3 off) | 94.3 s | 33.6 (14.8) | identical |
+| `ECALC_DM_POOL=1` (C3) | 93.8 s | 32.2 (15.0) | identical; the pool already covered the 23.1 GB per device: grown by 0 |
+
+Not slower than the baseline (single runs, unshared node; the 3 s between the runs is the usual
+init/bs variance). B3 takes 0.8 s off the division at 4 × 10¹⁰ (one 2³¹-point product of six);
+C3 changes nothing at 4 × 10¹⁰ (the estimate is below the donated regions there) and was not
+measured at 6–7 × 10¹⁰ (no node time for a 3-minute run in the batches); it stays off by default
+until that measurement.
 
 ## Open issues
 
