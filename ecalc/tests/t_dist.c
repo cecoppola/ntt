@@ -13,7 +13,6 @@ static rng_t rg = { 12345 };
 static comm *tcp;            /* set when run as one process per rank (COMM_RANK in the environment) */
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
 static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
-static int plane2;           /* DIST_PLANE2=1 (C4): the two-plane forward/inverse over xGMI and TCP (one plane more per rank) */
 static int one_xgmi(int prime, int logR, int logC);
 /* M7: the all-gathers of a communicator (device and host blocks; in place) against the pattern (rank, k); over the
  * synthetic communicator the four rank objects must all call before any result is read (the caller drives them) */
@@ -154,11 +153,7 @@ static int one(int prime, int logR, int logC)
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(ry[r], tmp, rows * 8, hipMemcpyHostToDevice));
     }
-    if (tcp && plane2) {   /* C4 over TCP: this process holds one rank; A rows rx -> rz, B rows ry -> rx, product rz -> rows rx */
-        int r = r0; uint64_t *rz; HIP_CHECK(hipMalloc(&rz, rows * 8));
-        dist_fwd2(&pl[r], rx[r], rz, 0); dist_fwd2(&pl[r], ry[r], rx[r], 0); dist_pw(&pl[r], rz, rx[r], 0); dist_inv2(&pl[r], rz, rx[r], 0);
-        HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipFree(rz));
-    } else {
+    {
     /* the sim communicator needs every rank to post before any waits: drive phase by phase */
     for (int r = r0; r < r1; r++) dist_fwd_pre(&pl[r], rx[r], 0);
     for (int r = r0; r < r1; r++) dist_fwd_post(&pl[r], rx[r], 0);
@@ -199,24 +194,18 @@ static int one_xgmi(int prime, int logR, int logC)
         HIP_CHECK(hipSetDevice(r));
         comm *cm = comm_xgmi_create(r); ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
-        uint64_t *tmp = (uint64_t *)malloc(rows * 8), *rx, *ry, *rz = 0; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
-        if (plane2) HIP_CHECK(hipMalloc(&rz, rows * 8));
+        uint64_t *tmp = (uint64_t *)malloc(rows * 8), *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hx[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(rx, tmp, rows * 8, hipMemcpyHostToDevice));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) tmp[il * C + j] = hy[(r * rr + il) + R * j];
         HIP_CHECK(hipMemcpy(ry, tmp, rows * 8, hipMemcpyHostToDevice));
         HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
         double t0 = tnow(), t1, t2;
-        if (plane2) {   /* C4: A rows in rx -> columns in rz; B rows in ry -> columns in rx; product in rz -> rows in rx */
-            dist_fwd2(&pl, rx, rz, s); HIP_CHECK(hipStreamSynchronize(s)); t1 = tnow();
-            dist_fwd2(&pl, ry, rx, s); dist_pw(&pl, rz, rx, s); dist_inv2(&pl, rz, rx, s);
-        } else {
-            dist_fwd(&pl, rx, s); HIP_CHECK(hipStreamSynchronize(s)); t1 = tnow();
-            dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s);
-            if (tinv) dist_inv_t(&pl, rx, s); else dist_inv(&pl, rx, s);
-        }
+        dist_fwd(&pl, rx, s); HIP_CHECK(hipStreamSynchronize(s)); t1 = tnow();
+        dist_fwd(&pl, ry, s); dist_pw(&pl, rx, ry, s);
+        if (tinv) dist_inv_t(&pl, rx, s); else dist_inv(&pl, rx, s);
         HIP_CHECK(hipStreamSynchronize(s)); t2 = tnow();
-        if (logn >= 26 && r == 0) printf("  xgmi 2^%d (%d chunks%s): fwd %.4f s, fwd+fwd+pw+inv %.4f s%s\n", logn, pl.K, plane2 ? ", two planes" : "", t1 - t0, t2 - t0, dist_st.on ? "" : " (DIST_STATS=1 for the breakdown)");
+        if (logn >= 26 && r == 0) printf("  xgmi 2^%d (%d chunks): fwd %.4f s, fwd+fwd+pw+inv %.4f s%s\n", logn, pl.K, t1 - t0, t2 - t0, dist_st.on ? "" : " (DIST_STATS=1 for the breakdown)");
         comm_barrier(cm);
         /* the exposed exchange = the compute stream's idle time inside the transforms (total - the kernels' time); the
          * host time blocked in post + wait also covers the packs the exchanges wait for, so it is only an upper bound */
@@ -229,7 +218,7 @@ static int one_xgmi(int prime, int logR, int logC)
         if (!check_alltoallv(cm)) { printf("  xgmi alltoallv failed on rank %d\n", r); bad_ag = 1; }
         HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
-        dist_plan_free(&pl); comm_destroy(cm); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); if (rz) HIP_CHECK(hipFree(rz)); free(tmp);
+        dist_plan_free(&pl); comm_destroy(cm); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); free(tmp);
     }
     size_t bad = 0, first = n;
     for (size_t i = 0; i < n; i++) if (got[i] != ref[i]) { if (first == n) first = i; bad++; }
@@ -243,8 +232,6 @@ int main(int argc, char **argv)
     harness_meta("t_dist");
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
     tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
-    plane2 = getenv("DIST_PLANE2") && atoi(getenv("DIST_PLANE2"));
-    if (plane2) printf("t_dist: two-plane forward/inverse (C4)\n");
     if (tinv) printf("t_dist: transposed inverse\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
     if (getenv("DIST_LAYERED") && atoi(getenv("DIST_LAYERED"))) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */

@@ -239,20 +239,6 @@ void dist_fwd_post(dist_plan *p, uint64_t *x, hipStream_t s)
     st_flush(p);
 }
 void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s) { dist_fwd_pre(p, x, s); dist_fwd_post(p, x, s); }
-/* C4: the two-plane forward -- the unpack of chunk k into y follows its wait, under the exchange of chunk k + D and
- * the row passes of the later chunks (the row layout in x is never overwritten) */
-void dist_fwd2(dist_plan *p, uint64_t *x, uint64_t *y, hipStream_t s)
-{
-    int K = p->K, D = depth(p);
-    for (int k = 0; k < K; k++) {
-        fwd_prod(p, x, k, s);
-        if (k >= D) { chunk_wait(p, s); fwd_cons(p, y, k - D, s); }
-        chunk_post(p, k);
-    }
-    for (int k = K - D; k < K; k++) { chunk_wait(p, s); fwd_cons(p, y, k, s); }
-    TS(ST_COLS, ntt_fwd(p->ctx, y, p->logR, p->cols, s));
-    st_flush(p);
-}
 void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s)
 {
     ntt_pw(p->ctx, x, y, p->cols * ((size_t)1 << p->logR), s);
@@ -303,21 +289,6 @@ void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s) { inv_pre_y(p, x, 0,
 void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s) { inv_loop(p, x, s, p->K); st_flush(p); }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
 void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s) { inv_pre_y(p, x, y, s); dist_inv_post(p, x, s); }   /* A6: = dist_pw + dist_inv */
-/* C4: the two-plane inverse -- chunk k's pack from x is posted as soon as it is made (not after every pack), its
- * unpack-twiddle and row inverse go into y under the exchange of chunk k + D */
-void dist_inv2(dist_plan *p, uint64_t *x, uint64_t *y, hipStream_t s)
-{
-    int K = p->K, D = depth(p);
-    TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s));
-    for (int k = 0; k < K; k++) {
-        inv_prod(p, x, k, s); HIP_CHECK(hipEventRecord(p->ev, s));
-        if (k >= D) { chunk_wait(p, s); inv_cons(p, y, k - D, s); }
-        chunk_post(p, k);
-    }
-    for (int k = K - D; k < K; k++) { chunk_wait(p, s); inv_cons(p, y, k, s); }
-    st_flush(p);
-}
-
 /* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row
  * layout of the C x R problem, so the same algorithm as the forward -- local pass on the contiguous index
  * first -- with inverse roots computes the inverse DFT and lands in the column layout of the C x R
