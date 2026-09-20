@@ -276,6 +276,7 @@ int main(int argc, char **argv)
         if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
             printf("mn: node %d: tree levels %.2f s: P %zu limbs, Q %zu limbs\n", mn_rank(), tt - tg, Pm.n, Qm.n);
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
+            mem_report("tree");                     /* Phase 10 B6 (agent M): the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
             P.n = Q.n = 0; binsplit_free_pools();
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
