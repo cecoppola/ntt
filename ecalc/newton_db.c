@@ -149,7 +149,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }   /* Phase 8: the CPU formats X while the low product runs */
     if (getenv("NEWTON_LOWPROD") && !atoi(getenv("NEWTON_LOWPROD"))) { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
     else rns_mul_low_db(&xq, &Xd, &Qd, w);
-    rns_dist_cache_hold(0);
+    rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: the low product was the last grid product; the planes go */
     double td = mem_now();
     bigint hxq; bi_init(&hxq); db_to_bi(&hxq, &xq);
     if (!newton_db_x_hook) db_to_bi(X, &Xd);
@@ -218,7 +218,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     double tc = mem_now();
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
     rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q): Q's cached transforms hit when held (A1) */
-    rns_dist_cache_hold(0);
+    rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: the low product was the last grid product; the planes go */
     if (newton_db_x_hook) db_free(&Xd);                               /* X is on the host; corrections go to the host copy */
     double td = mem_now();
     /* the window: A mod B^w = (S mod B^(w - dl)) B^dl; R formed in place in it */
@@ -590,7 +590,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
     if (env_on("NEWTON_LOWPROD")) { mn_prod_cut(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
     else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
-    rns_dist_cache_hold(0);                                           /* A1: Q's kept transforms served the low product */
+    rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: Q's kept transforms served the low product; the planes go */
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
     mdb_shift(&Qw, Q, 0, w, G); mfree(Q);
     double td = mem_now();
