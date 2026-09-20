@@ -85,6 +85,25 @@ static dbig pool_view(const uint64_t *p, size_t n)
 }
 static dbig node_p(const struct level *lv, const struct node *nd) { return nd->pd ? *nd->pd : pool_view(lv->pool[nd->r] + nd->po, nd->pn); }
 static dbig node_q(const struct level *lv, const struct node *nd) { return nd->qd ? *nd->qd : pool_view(lv->pool[nd->r] + nd->qo, nd->qn); }
+/* Phase 11 V (D5, instrumentation): ECALC_RES_LOG=1 -- after every level >= ECALC_RES_LOG_LEVEL (17) each node's P, Q
+ * (device regions or device numbers) are reduced modulo the T1 primes and compared with the term recurrence over the
+ * node's span range [a0 + i S 2^l, ...): the level and the node whose product first goes wrong are named */
+#include "verify.h"
+static void bs_res_check(const struct level *lv, int level, unsigned long S, unsigned long N)
+{
+    static int minlev = -1; if (minlev < 0) minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17;
+    if (!db_res_log_on() || level < minlev || !lv->nd) return;
+    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0;
+    for (size_t i = 0; i < lv->n; i++) {
+        unsigned long a = bs_a0 + i * span, b = a + span; if (b > bend) b = bend; if (a >= bend) break;
+        if (!lv->nd[i].pd && mem_dev_of(lv->pool[lv->nd[i].r]) < 0) { printf("RES bs level %d: host pools, not checked\n", level); return; }
+        dbig vp = node_p(lv, &lv->nd[i]), vq = node_q(lv, &lv->nd[i]); uint64_t rp[T1_NQ], rq[T1_NQ]; int nb = 0;
+        db_mod_qs(&vp, t1_q, T1_NQ, rp); db_mod_qs(&vq, t1_q, T1_NQ, rq);
+        for (int j = 0; j < T1_NQ; j++) { uint64_t p, q; vf_pq_range_mod(a, b, t1_q[j], &p, &q); if (p != rp[j] || q != rq[j]) nb++; }
+        if (nb) { bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ); }
+    }
+    printf("RES bs level %d: %zu nodes, %d BAD%s\n", level, lv->n, bad, bad ? "  LEVEL MISMATCH" : "");
+}
 /* Phase 9 C4: the two parities of region r are the halves of one device allocation (the arena), so that when both
  * are handed to the dbig block pool they coalesce into one extent (dm's largest quarters need contiguous space:
  * two 14 GB halves that cannot merge left the pool falling back to hipMalloc, RESULTS 70).  A pool that outgrows
@@ -897,6 +916,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         memset(&rns_st, 0, sizeof rns_st);
         free(cur.nd);
         cur = nxt;
+        if (!finished) bs_res_check(&cur, bs_st.levels, S, N);   /* Phase 11 V (D5): ECALC_RES_LOG */
         if (finished) { free(cur.nd); cur.nd = 0; break; }
         /* WP7: snapshot the level just finished (never the top: the loop ends there); M6: levels held as device numbers too */
         if (bs_ckpt_dir && cur.n > 1 && bs_ckpt_every > 0 && bs_st.levels % bs_ckpt_every == 0 && (bs_st.levels >= bs_ckpt_min_level || off * 8 > bs_ckpt_min_bytes)) {
@@ -919,6 +939,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         donate_pools(which ^ 1);
         dbig vp = node_p(&cur, &cur.nd[0]), vq = node_q(&cur, &cur.nd[0]);
         db_init(&bs_Pd); db_init(&bs_Qd); db_copy(&bs_Pd, &vp); db_copy(&bs_Qd, &vq);
+        if (db_res_log_on()) {                          /* Phase 11 V (D5): the region's P, Q against their copies */
+            uint64_t r1[T1_NQ], r2[T1_NQ], r3[T1_NQ], r4[T1_NQ]; db_mod_qs(&vp, t1_q, T1_NQ, r1); db_mod_qs(&bs_Pd, t1_q, T1_NQ, r2); db_mod_qs(&vq, t1_q, T1_NQ, r3); db_mod_qs(&bs_Qd, t1_q, T1_NQ, r4);
+            int bp = memcmp(r1, r2, sizeof r1) != 0, bq = memcmp(r3, r4, sizeof r3) != 0;
+            printf("RES bs leaf hand-over: P region vs copy %s, Q region vs copy %s%s\n", bp ? "DIFFER" : "agree", bq ? "DIFFER" : "agree", bp || bq ? "  COPY MISMATCH" : "");
+        }
         donate_pools(which);
         P->n = Q->n = 0;
         if (bs_verbose) printf("bs: leaf P %zu, Q %zu limbs copied to device numbers; the regions went to the block pool before the tree\n", bs_Pd.n, bs_Qd.n);

@@ -16,7 +16,8 @@ for i in $(seq 1 $n); do
   m=$mode; [ "$mode" = alt ] && { [ $((i % 2)) -eq 1 ] && m=shard || m=host; }
   tag=${TAG:-}${m}$i; env="$EXTRA"; [ "$m" = host ] && env="$EXTRA MN_DM=host"   # EXTRA: more env (e.g. MEM_DPOOL_FILL=1); TAG: a run-name prefix
   t0=$(date +%s)
-  SLURM_JOB_ID=$J timeout 900 ./mnrun.sh $SZ env ECALC_RES_LOG=1 ECALC_VERBOSE=2 POOL_LOG=29 RNS_POOL1_GB=3.2213 RNS_VERBOSE=1 $env ./ecalc $D $TMP/$tag.txt > $OUT/$tag.log 2>&1
+  N "mkdir -p $TMP/leaf_$tag"
+  SLURM_JOB_ID=$J timeout 900 ./mnrun.sh $SZ env ECALC_RES_LOG=1 ECALC_LEAF_DUMP=$TMP/leaf_$tag ECALC_VERBOSE=2 POOL_LOG=29 RNS_POOL1_GB=3.2213 RNS_VERBOSE=1 $env ./ecalc $D $TMP/$tag.txt > $OUT/$tag.log 2>&1
   t1=$(date +%s); sleep 2
   N "cd $TMP; cat $tag.txt.part* > $tag.all; rm -f $tag.txt.part*"
   c=$(N "cmp $TMP/$tag.all $R 2>&1 | head -1"); [ -z "$c" ] && c=identical
@@ -31,6 +32,8 @@ for i in $(seq 1 $n); do
       N "cp $TMP/$tag.all $HOME/v11_d5_$tag.bad"
     fi
   fi
+  if [ "$c" = identical ] && [ "$ok" = $((SZ + 1)) ]; then N "test -d $TMP/leaf_ref || mv $TMP/leaf_$tag $TMP/leaf_ref; rm -rf $TMP/leaf_$tag"   # the first good run's leaves are the reference
+  else for f in $(N "ls $TMP/leaf_$tag"); do note "  leaf $f vs ref: $(N "cmp -l $TMP/leaf_$tag/$f $TMP/leaf_ref/$f 2>/dev/null | awk 'NR == 1 {a = \$1} {b = \$1} END {printf \"%d differing bytes, first at limb %d, last at limb %d\", NR, a / 8, b / 8}'")"; done; N "rm -rf $TMP/leaf_$tag"; fi
   N "rm -f $TMP/$tag.all"
 done
 note "done $(date -Is)"
