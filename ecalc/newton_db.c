@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "newton.h"
 #include "dbig.h"
 #include "rns_mul.h"
@@ -313,14 +314,16 @@ static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt
 }
 /* Y = X >> s (s < 0: X << -s) in basis N2 over G; if N2 is below the shifted length the result is truncated to N2
  * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
-static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G)
+/* Phase 11 X1: the same with Y sharded over the group Gt (a subgroup of the mesh's group G, or a group containing X's:
+ * the pieces of nodes outside Gt or outside X's group are empty; every node of G takes part in the exchange) */
+static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, const mn_group *Gt)
 {
     double t0 = mem_now(); mn_st.n_shift++;
     ms_init();
     int g = G->g, me = G->me, node = G->g0 + me;
     size_t n2 = s >= 0 ? (X->n > (size_t)s ? X->n - (size_t)s : 0) : X->n + (size_t)(-s);
     int trunc = n2 > N2; if (trunc) n2 = N2;
-    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = g; Yn.n = n2; db_init(&Yn.sh);
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = Gt->g0; Yn.g = Gt->g; Yn.n = n2; db_init(&Yn.sh);
     size_t lo2, hi2; mdb_share(&Yn, node, &lo2, &hi2); size_t cn = hi2 - lo2;
     db_zero_fill(&Yn.sh, cn);
     size_t lo1, hi1; mdb_share(X, node, &lo1, &hi1);
@@ -356,6 +359,7 @@ static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G)
     *Y = Yn;
     mn_st.t_shift += mem_now() - t0;
 }
+static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G) { mdb_shift_g(Y, X, s, N2, G, G); }
 /* the node-level carry scan: my (carry-out, propagate) with everyone's -> my carry-in; the top node's carry-out in *top_out */
 static int node_scan(mn_group *G, int c, int p, int *top_out)
 {
@@ -491,6 +495,57 @@ static void mn_prod(mdb *C, const mdb *A, const mdb *B, mn_group *G) { double t0
  * delivered in basis w (NEWTON_LOWPROD=0: the full product re-sharded into basis w) */
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
+/* Phase 11 X1 (agent X; results/X.md, mn_model.py): the group a product runs on.  A product of a few million limbs over
+ * hundreds of nodes is latency-bound (15 all-to-alls of g - 1 messages per APU, a plane of at least 2^(2 (7 + log2 g))
+ * points), so the reciprocal's early doublings run on the smallest subgroup [0, 2^L) of the full group (mn_group_at(L):
+ * the tree's groups, created by mn_tree on every node) whose modelled cost is least; the operands are re-sharded onto it
+ * by mdb_shift_g.  The cost per candidate group g' (the model of mn_model.py in three constants): the pieces at the group's
+ * plane cap, each T_PIECE x (points per APU / 2^29) of local work times the APU sharing, plus 15 exchanges of
+ * 8 q (g' - 1) / g' bytes at NEWTON_MN_BW GB/s per APU with K (g' - 1) messages of NEWTON_MN_LAT seconds and NEWTON_MN_FIXED
+ * per exchange (defaults: the target fabric, 100 GB/s, 2 us, 0; MN_MODEL_TCP=1 sets aac6's loopback numbers).
+ * NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice (every operation
+ * is exact); size 1 never comes here. */
+static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs, double bw, double lat, double fixed, double share)
+{
+    int lgt = 0; while ((1 << lgt) < gp) lgt++;
+    size_t nc = na + nb, cap = (size_t)1 << (31 + lgt), logmin = 2 * (7 + lgt) < 20 ? 20 : 2 * (7 + lgt);
+    double pieces = 1; size_t pts;
+    if (nc > cap) { double ka = ceil((double)na / (cap / 2)), kb = ceil((double)nb / (cap / 2)); pieces = ka * kb; pts = cap; }
+    else { pts = (size_t)1 << 20; while (pts < nc) pts <<= 1; if (pts < ((size_t)1 << logmin)) pts = (size_t)1 << logmin; }
+    double q = (double)pts / (4.0 * gp), t_loc = 1.11 * q / (double)(1 << 29) * share + 0.005;
+    double t_x = gp > 1 ? 15 * (8 * q * (gp - 1) / gp / (bw * 1e9) + 4 * (gp - 1) * lat + 4 * fixed) : 0;
+    double t_re = gp > 1 && reshard_limbs ? 3 * (8.0 * reshard_limbs / (4.0 * gp) / (bw * 1e9) + (gp - 1) * lat + fixed) : 0;
+    return pieces * (t_loc + t_x) + t_re;
+}
+/* the level whose group [0, 2^L) the product should run on (0: the full group G); every node computes the same answer */
+static int x1_level(size_t na, size_t nb, mn_group *G, size_t reshard_limbs)
+{
+    static int on = -1; static double bw, lat, fixed, share;
+    if (on < 0) {
+        on = getenv("NEWTON_MN_GROUPS") ? atoi(getenv("NEWTON_MN_GROUPS")) : 1;
+        int tcp = getenv("MN_MODEL_TCP") ? atoi(getenv("MN_MODEL_TCP")) : 0;
+        bw = tcp ? 0.8 : 100.0; lat = tcp ? 0 : 2e-6; fixed = tcp ? 1e-3 : 0; share = tcp ? (double)mn_size() : 1.0;
+        if (getenv("NEWTON_MN_BW")) bw = atof(getenv("NEWTON_MN_BW"));
+        if (getenv("NEWTON_MN_LAT")) lat = atof(getenv("NEWTON_MN_LAT"));
+        if (getenv("NEWTON_MN_FIXED")) fixed = atof(getenv("NEWTON_MN_FIXED"));
+        if (getenv("NEWTON_MN_SHARE")) share = atof(getenv("NEWTON_MN_SHARE"));
+    }
+    if (!on || G->g0 != 0 || G->g <= 2) return 0;
+    int best = 0; double bc = x1_cost(na, nb, G->g, reshard_limbs, bw, lat, fixed, share);
+    for (int L = 1; (1 << L) < G->g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs, bw, lat, fixed, share); if (c < bc) { bc = c; best = L; } }
+    return best;
+}
+static mn_group *x1_group(int level, mn_group *G) { return level ? mn_group_at(level) : G; }     /* (mn_group_at: this node's group at the level -- node 0's is [0, 2^L)) */
+static int x1_member(const mn_group *Gs) { return Gs->g0 == 0; }                                 /* this node is in [0, 2^L) */
+/* r (over a subgroup of `to`) re-sharded over `to`: the descriptor from node 0, then one exchange over `to` */
+static void x1_regroup(mdb *r, mn_group *to, int was_member)
+{
+    uint64_t v[4] = { was_member ? r->n : 0, was_member ? r->N : 0, was_member ? (uint64_t)r->g0 : 0, was_member ? (uint64_t)r->g : 0 }, *all = (uint64_t *)malloc((size_t)to->g * 4 * 8);
+    mn_allgather(to->all[0], v, 4, all);
+    if (!was_member) { r->n = all[0]; r->N = all[1]; r->g0 = (int)all[2]; r->g = (int)all[3]; if (r->sh.cap) db_free(&r->sh); memset(&r->sh, 0, sizeof r->sh); }
+    free(all);
+    mdb rn; memset(&rn, 0, sizeof rn); mdb_shift_g(&rn, r, 0, r->N, to, to); mfree(r); *r = rn;
+}
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 {
@@ -509,54 +564,69 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     recip_db2(&r0, &Qtop, 0, kp, nq);                                  /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
     db_free(&Qtop);
     double t1 = mem_now();
-    mdb r; memset(&r, 0, sizeof r); mdb_from_db(&r, &r0, r0.n, G); db_free(&r0);
     size_t j = kp;
+    /* X1: the step's group.  r lives on the group of the current step (Gs, a prefix [0, 2^L) of G or G itself); Q stays
+     * on G, so Q_t is cut out of Q by an exchange over G into Gs (every node takes part), the step itself runs on Gs's
+     * members only (the others wait at the next exchange over G), and r moves to the next step's group when it grows */
+    mn_group *Gs = 0; int member = 0;
+    mdb r; memset(&r, 0, sizeof r);
     mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
     if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes\n", kp, t1 - t0, k, G->g);
     while (j < k) {
         size_t jn = k;
         if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
         else jn = 2 * j < k ? 2 * j : k;
+        size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
+        mn_group *Gn = x1_group(x1_level(take, j + 1, G, 0), G);
+        if (Gn != Gs) {                                                /* the group grows (never shrinks: the products only get longer) */
+            int was = member; member = x1_member(Gn);
+            if (!Gs) { r.n = r.N = r0.n; r.g0 = Gn->g0; r.g = Gn->g; if (member) mdb_from_db(&r, &r0, r0.n, Gn); }   /* every node has r0: the members take their share */
+            else if (member) x1_regroup(&r, Gn, was);
+            Gs = Gn;
+            if (nv && me == 0 && Gs != G) printf("newton(mn): j %zu on the group [0, %d)\n", j, Gs->g);
+        }
+        int hold = 0;
+        if (take == nq && Gs == G) hold = rns_dist_cache_hold(1);       /* Q_t = Q itself (no shift copy); A1: its pieces' transforms may be kept for the division's X Q */
+        else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, Gs);      /* Q_t: the top limbs of Q, onto the step's group (once per step: a repeat reuses it) */
+        if (!member) { j = jn; newton_st.iters++; continue; }
         for (;;) {
             double s0 = mem_now();
-            size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
-            if (take == nq) {                                          /* Q_t = Q itself (no shift copy); A1: its pieces' transforms may be kept for the division's X Q */
-                if (rns_dist_cache_hold(1)) mn_prod(&t, &r, Q, G); else mn_prod(&t, Q, &r, G);
-            } else {
-            mdb_shift(&qt, Q, (long)(nq - take), take, G);            /* Q_t: the top limbs of Q */
-            mn_prod(&t, &qt, &r, G);                                   /* Q_t r */
-            }
-            mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, G);     /* u ~ B^(2j) */
-            int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, G) > 1 || mdb_nonzero_below(&u, 2 * j, G)));
-            mdb_pow(&pw, 2 * j, 2 * j + 2, G);
-            if (neg) mdb_addsub(&d, &u, &pw, 1, G); else mdb_addsub(&d, &pw, &u, 1, G);   /* d = |B^(2j) - u| */
+            if (take == nq && Gs == G) { if (hold) mn_prod(&t, &r, Q, Gs); else mn_prod(&t, Q, &r, Gs); }
+            else mn_prod(&t, &qt, &r, Gs);                             /* Q_t r */
+            mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, Gs);    /* u ~ B^(2j) */
+            int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, Gs) > 1 || mdb_nonzero_below(&u, 2 * j, Gs)));
+            mdb_pow(&pw, 2 * j, 2 * j + 2, Gs);
+            if (neg) mdb_addsub(&d, &u, &pw, 1, Gs); else mdb_addsub(&d, &pw, &u, 1, Gs);   /* d = |B^(2j) - u| */
             mfree(&u); mfree(&pw);
             size_t NB = (r.n + j > t.n ? r.n + j : t.n) + 2;          /* the basis of r' (>= r << j and corr) */
-            if (d.n) { mn_prod(&t, &r, &d, G); mdb_shift(&corr, &t, (long)j, NB, G); }   /* |corr| = r |d| >> j */
-            else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, G); }              /* d = 0: corr = 0 */
+            if (d.n) { mn_prod(&t, &r, &d, Gs); mdb_shift(&corr, &t, (long)j, NB, Gs); }   /* |corr| = r |d| >> j */
+            else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, Gs); }              /* d = 0: corr = 0 */
             mfree(&d);
             int converged = corr.n <= j + 1;
-            mdb_shift(&rs, &r, -(long)j, NB, G);                        /* r << j */
+            mdb_shift(&rs, &r, -(long)j, NB, Gs);                       /* r << j */
             if (neg) {
-                int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, G) <= 0);
+                int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, Gs) <= 0);
                 if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
-                    newton_st.overshoots++; bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, G);
-                    bi_divmod_u64(&dd, &h, 16); bi_sub(&h, &h, &dd); mdb_from_bi(&r, &h, r.N, G); bi_free(&h); bi_free(&dd);
+                    newton_st.overshoots++; bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);
+                    bi_divmod_u64(&dd, &h, 16); bi_sub(&h, &h, &dd); mdb_from_bi(&r, &h, r.N, Gs); bi_free(&h); bi_free(&dd);
                     mfree(&corr); mfree(&rs); continue;
                 }
-                mdb_addsub(&rs, &rs, &corr, 1, G);
-            } else mdb_addsub(&rs, &rs, &corr, 0, G);
+                mdb_addsub(&rs, &rs, &corr, 1, Gs);
+            } else mdb_addsub(&rs, &rs, &corr, 0, Gs);
             mfree(&corr);
             if (converged) { mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
-            else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, G); mfree(&rs); }
-            if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0);
+            else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, Gs); mfree(&rs); }
+            if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s%s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0, Gs != G ? " (subgroup)" : "");
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
-        if (jn < 2 * j) { mdb_shift(&rs, &r, (long)(2 * j - jn), r.n - (2 * j - jn), G); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
+        if (jn < 2 * j) { mdb_shift(&rs, &r, (long)(2 * j - jn), r.n - (2 * j - jn), Gs); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
         j = jn;
         newton_st.iters++;
     }
+    if (!Gs) { Gs = G; member = 1; mdb_from_db(&r, &r0, r0.n, G); }   /* (no sharded step: kp == k) */
+    db_free(&r0);
+    if (Gs != G) { x1_regroup(&r, G, member); Gs = G; member = 1; }    /* mu over the full group */
     if (j > k) { mdb_shift(&rs, &r, (long)(j - k), r.n - (j - k), G); mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
     mfree(&qt); mfree(&t);
     if (mu->sh.cap) db_free(&mu->sh);
