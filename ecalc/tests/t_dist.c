@@ -76,6 +76,7 @@ static void vbuf_make(struct vbuf *v, int me, int n, int round, size_t u)
     v->scnt = (size_t *)malloc(4 * n * sizeof(size_t)); v->sdsp = v->scnt + n; v->rcnt = v->sdsp + n; v->rdsp = v->rcnt + n;
     for (int r = 0; r < n; r++) { v->scnt[r] = vunits(me, r, round) * u; v->rcnt[r] = vunits(r, me, round) * u; }
     v->ts = comm_prefix(v->scnt, v->sdsp, n); v->tr = 0;
+    if (round & 1) { v->ts = 0; for (int r = n - 1; r >= 0; r--) { v->sdsp[r] = v->ts; v->ts += v->scnt[r]; } }   /* odd rounds: the send slabs in reverse order too (not back to back in rank order) */
     for (int r = n - 1; r >= 0; r--) { v->rdsp[r] = v->tr; v->tr += v->rcnt[r]; }
     v->hs = (uint64_t *)malloc(v->ts + 8); v->hr = (uint64_t *)malloc(v->tr + 8); memset(v->hr, 0xEE, v->tr + 8);
     for (int r = 0; r < n; r++) for (size_t k = 0; k < v->scnt[r] / 8; k++) v->hs[v->sdsp[r] / 8 + k] = vw(me, r, round, k);
