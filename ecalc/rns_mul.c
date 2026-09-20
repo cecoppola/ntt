@@ -40,6 +40,7 @@ static struct dev {
 } D[EC_NP];
 int rns_batch_local = -1;        /* RNS_BATCH_LOCAL: 1 (default) products in device pools are done by their own APU */
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
+int rns_batch_pair = -1;         /* RNS_BATCH_PAIR: 1 (default) products 2i, 2i+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2) transform B once (Phase 9 B1) */
 
 __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -149,6 +150,7 @@ static size_t len_of(int r3, int logk) { return (size_t)(r3 ? 3 : 1) << logk; }
 static void x_fwd(ntt_ctx *c, uint64_t *x, int r3, int logk, size_t batch, hipStream_t s) { if (r3) ntt_fwd3(c, x, logk, batch, s); else ntt_fwd(c, x, logk, batch, s); }
 static void x_inv_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int r3, int logk, size_t batch, hipStream_t s) { if (r3) ntt_inv3_pw(c, x, y, logk, batch, s); else ntt_inv_pw(c, x, y, logk, batch, s); }
 static void x_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int r3, int logk, size_t batch, hipStream_t s) { if (r3) ntt_inv3_pw_bcast(c, x, y, logk, batch, s); else ntt_inv_pw_bcast(c, x, y, logk, batch, s); }
+static void x_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s) { if (r3) ntt_inv3_pw_y(c, x, y, ymode, logk, batch, s); else ntt_inv_pw_y(c, x, y, ymode, logk, batch, s); }
 
 /* parallel memcpy by the threads of one NUMA node (called inside the per-device team) */
 static void node_copy(uint64_t *dst, const uint64_t *src, size_t n, int node, int nthreads)
@@ -586,7 +588,7 @@ static void rns2_mul_batch(rns_prod *P, size_t N);
  * No staging, no peer traffic except the boundary pairs whose operands sit in a
  * neighbouring region.  Planes: da holds EC_NP planes of M x L (a, then the
  * products), db the B planes (one plane when every product shares B). */
-__global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, const struct bdesc *P, size_t M, int logk, int r3, ec_mod m0, ec_mod m1, ec_mod m2, ec_mod m3)
+__global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, size_t plane_b, int pair, const struct bdesc *P, size_t M, int logk, int r3, ec_mod m0, ec_mod m1, ec_mod m2, ec_mod m3)
 {
     size_t L = (size_t)(r3 ? 3 : 1) << logk, total = M * L;
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
@@ -595,8 +597,9 @@ __global__ void k_scatter4(uint64_t *da, uint64_t *db, size_t plane, const struc
         const struct bdesc d = P[pi];
         uint64_t a = k < d.na ? d.a[k] : 0;
         da[i] = ec_canon64(a, m0.pu, m0.mu); da[i + plane] = ec_canon64(a, m1.pu, m1.mu); da[i + 2 * plane] = ec_canon64(a, m2.pu, m2.mu); da[i + 3 * plane] = ec_canon64(a, m3.pu, m3.mu);
-        if (db) { uint64_t b = k < d.nb ? d.b[k] : 0;
-            db[i] = ec_canon64(b, m0.pu, m0.mu); db[i + plane] = ec_canon64(b, m1.pu, m1.mu); db[i + 2 * plane] = ec_canon64(b, m2.pu, m2.mu); db[i + 3 * plane] = ec_canon64(b, m3.pu, m3.mu); }
+        if (db && !(pair && (pi & 1))) {                       /* B1: pair mode, B of products 2j, 2j+1 once, at transform j */
+            uint64_t b = k < d.nb ? d.b[k] : 0; size_t ib = pair ? (pi >> 1) * L + k : i;
+            db[ib] = ec_canon64(b, m0.pu, m0.mu); db[ib + plane_b] = ec_canon64(b, m1.pu, m1.mu); db[ib + 2 * plane_b] = ec_canon64(b, m2.pu, m2.mu); db[ib + 3 * plane_b] = ec_canon64(b, m3.pu, m3.mu); }
     }
 }
 __global__ void k_norm(const struct bdesc *P, size_t M, uint32_t *len)
@@ -626,7 +629,20 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
     size_t L = len_of(r3, logk), plane_cap = (size_t)1 << g_pool_log;
     size_t Mmax = plane_cap / (EC_NP * L); if (Mmax < 1) { fprintf(stderr, "rns_mul_batch_local: L %zu does not fit the pools\n", L); exit(1); }
-    size_t tile_limit = rns_batch_tile_bytes / (3 * L * 8) / EC_NP; if (tile_limit >= 1 && Mmax > tile_limit) Mmax = tile_limit;
+    /* Phase 9 B1: products 2j, 2j+1 with the same B (the tree's P1 Q2 + P2 and Q1 Q2) on the same device: B is
+     * scattered and transformed once per pair (M/2 B transforms per tile), the fused inverse reads y transform
+     * t >> 1 for x transform t.  Pairs stay adjacent in every device's list (both go to the region's device, in
+     * order) and tiles start at even positions when Mmax is even. */
+    if (rns_batch_pair < 0) rns_batch_pair = getenv("RNS_BATCH_PAIR") ? atoi(getenv("RNS_BATCH_PAIR")) : 1;
+    int pair = rns_batch_pair && !grpB && N >= 2 && !(N & 1);
+    for (size_t i = 0; i < N && pair; i += 2)
+        if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb || mem_dev_of(P[i].c) != mem_dev_of(P[i + 1].c)) pair = 0;
+    if (pair) {                                    /* tile budget over a (M) + b (M/2) planes; at least one pair when the pools allow it */
+        size_t tile_limit = rns_batch_tile_bytes * 2 / (3 * L * 8) / EC_NP; if (tile_limit < 2) tile_limit = 2;
+        if (Mmax > tile_limit) Mmax = tile_limit;
+        if (Mmax < 2) pair = 0; else Mmax &= ~(size_t)1;
+    }
+    if (!pair) { size_t tile_limit = rns_batch_tile_bytes / (3 * L * 8) / EC_NP; if (tile_limit >= 1 && Mmax > tile_limit) Mmax = tile_limit; }
     static struct gconst G; static int ginit = 0;
     if (!ginit) { G = rns_gconst(); ginit = 1; }
     /* products by owning device */
@@ -649,7 +665,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
         for (size_t first = start[d]; first < start[d + 1]; first += Mmax) {
-            size_t M = start[d + 1] - first < Mmax ? start[d + 1] - first : Mmax, plane = M * L;
+            size_t M = start[d + 1] - first < Mmax ? start[d + 1] - first : Mmax, plane = M * L, Mb = pair ? M / 2 : M, plane_b = Mb * L;
             for (size_t i = 0; i < M; i++) { const rns_prod *q = &P[idx[first + i]]; hd[i].a = q->a; hd[i].b = q->b; hd[i].c = q->c; hd[i].x = q->x; hd[i].na = (uint32_t)q->na; hd[i].nb = (uint32_t)q->nb; hd[i].nx = (uint32_t)(q->x ? q->nx : 0); }
             if (g_desc_cap[d] < M) { if (g_desc[d]) HIP_CHECK(hipFree(g_desc[d])); HIP_CHECK(hipMalloc(&g_desc[d], M * sizeof(struct bdesc))); g_desc_cap[d] = M; }
             HIP_CHECK(hipMemcpyAsync(g_desc[d], hd, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));
@@ -660,12 +676,12 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
             hipEvent_t e0, e1, e2, e3; float ms1, ms2, ms3;
             HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1)); HIP_CHECK(hipEventCreate(&e2)); HIP_CHECK(hipEventCreate(&e3));
             HIP_CHECK(hipEventRecord(e0, v->s));
-            k_scatter4<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, plane, g_desc[d], M, logk, r3, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3));
+            k_scatter4<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, plane, plane_b, pair, g_desc[d], M, logk, r3, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3));
             HIP_CHECK(hipEventRecord(e1, v->s));
             for (int p = 0; p < EC_NP; p++) {
                 x_fwd(v->ctxp[p], da + p * plane, r3, logk, M, v->s);
                 if (grpB) x_inv_pw_bcast(v->ctxp[p], da + p * plane, db + p * L, r3, logk, M, v->s);
-                else { x_fwd(v->ctxp[p], db + p * plane, r3, logk, M, v->s); x_inv_pw(v->ctxp[p], da + p * plane, db + p * plane, r3, logk, M, v->s); }
+                else { x_fwd(v->ctxp[p], db + p * plane_b, r3, logk, Mb, v->s); x_inv_pw_y(v->ctxp[p], da + p * plane, db + p * plane_b, pair ? NTT_Y_PAIR : NTT_Y_FULL, r3, logk, M, v->s); }
             }
             HIP_CHECK(hipEventRecord(e2, v->s));
             k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, v->s>>>(da, da + plane, da + 2 * plane, da + 3 * plane, g_desc[d], 0, S, L, G, v->spill, bi_decimal);
@@ -689,8 +705,8 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
         { if (lsc > tsc) tsc = lsc; if (lnt > tnt) tnt = lnt; if (lcr > tcr) tcr = lcr; if (lmg > tmg) tmg = lmg; }
     }
     free(idx);
-    rns_st.tb_scatter += tsc; rns_st.tb_ntt += tnt; rns_st.tb_crt += tcr; rns_st.tb_merge += tmg;
-    if (getenv("RNS_VERBOSE")) printf("batch-local N=%zu (%zu/%zu/%zu/%zu) L=%s2^%d tile %zu%s: scatter %.3f ntt %.3f crt %.3f merge %.3f\n", N, cnt[0], cnt[1], cnt[2], cnt[3], r3 ? "3*" : "", logk, Mmax, grpB ? " grpB" : "", tsc, tnt, tcr, tmg);
+    rns_st.tb_scatter += tsc; rns_st.tb_ntt += tnt; rns_st.tb_crt += tcr; rns_st.tb_merge += tmg; rns_st.n_batch_local += N; if (pair) rns_st.n_batch_pair += N;
+    if (getenv("RNS_VERBOSE")) printf("batch-local N=%zu (%zu/%zu/%zu/%zu) L=%s2^%d tile %zu%s%s: scatter %.3f ntt %.3f crt %.3f merge %.3f\n", N, cnt[0], cnt[1], cnt[2], cnt[3], r3 ? "3*" : "", logk, Mmax, grpB ? " grpB" : "", pair ? " pair" : "", tsc, tnt, tcr, tmg);
 }
 
 void rns_mul_batch(rns_prod *P, size_t N)

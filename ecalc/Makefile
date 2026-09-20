@@ -108,8 +108,8 @@ tests/t_verify: tests/t_verify.c verify.o binsplit.o bigint.o rns_mul.o ntt.o me
 tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o crt.h mem.h tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o -o $@ -lgmp
 
-tests/t_ntt: tests/t_ntt.c ntt.o bigint.o ntt.h modarith.h tests/harness.h
-	$(HIPC) $< -x none ntt.o bigint.o -o $@ -lgmp
+tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o ntt.h modarith.h tests/harness.h
+	$(HIPC) $< -x none ntt.o ntt3.o bigint.o -o $@ -lgmp
 
 tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o ntt2.h modarith2.h tests/harness.h
 	$(HIPC) $< -x none ntt2.o bigint.o -o $@ -lgmp
