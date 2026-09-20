@@ -12,8 +12,9 @@
  *
  * The push model (as comm_xgmi): an exchange has a sequence number; the receiver publishes, per sender, where the
  * sender's slab lands (roff[sender] = seq | offset in the sender's control block); the sender waits for that word,
- * shmem_putmem_nbi's its slab from the send staging on the communicator's context, shmem_fence, then puts the count
- * and the signal word (sig[sender] = seq) into the receiver's block; the receiver's wait() polls the signals, checks
+ * shmem_putmem_nbi's its slab from the send staging on the communicator's context, orders them (shmem_fence per the
+ * spec, COMM_SHMEM_FENCE=1; by default shmem_quiet, since OSHMEM 4.1's fence lets a later put overtake an nbi put --
+ * results/S.md), then puts the count and the signal word (sig[sender] = seq) into the receiver's block; the receiver's wait() polls the signals, checks
  * the counts, and copies the received slabs from its staging to the caller's buffer (H2D on the caller's stream).  The
  * publication and the puts run in a helper thread so alltoall() returns after staging, as the slab pipeline (M7) needs;
  * the device buffers are staged through the pool (D2H / H2D), which on the target with a device heap and the callers'
@@ -60,17 +61,21 @@ int   comm_shmem_available(void) { return 0; }
 #define ALIGN 256
 
 /* ---- the process state ---- */
+struct blk { size_t off, len; int used; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap;
+    int inited, me, npes, serial, devheap, fence;   /* fence: order data puts before their signal by shmem_fence (COMM_SHMEM_FENCE=1, the spec); default shmem_quiet (OSHMEM 4.1's fence does not order an nbi put before a later put -- results/S.md) */
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
     pthread_mutex_t alloc_lock;
-    struct blk { size_t off, len; int used; struct blk *next; } *blocks;
+    struct blk *blocks;
     int registered;
 } S;
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
+static int g_trace;
+#define TRACE(...) do { if (g_trace) { fprintf(stderr, "comm_shmem: pe %d: ", S.me); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 static void die(const char *m) { fprintf(stderr, "comm_shmem: pe %d: %s\n", S.me, m); exit(1); }
+static void order(shmem_ctx_t ctx) { if (S.fence) shmem_ctx_fence(ctx); else shmem_ctx_quiet(ctx); }   /* under SHM_LOCK: the data puts before the signal */
 
 /* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free) */
 static size_t pool_alloc(size_t len)
@@ -130,6 +135,8 @@ int comm_shmem_init(void)
     pthread_mutex_init(&S.lock, 0); pthread_mutex_init(&S.alloc_lock, 0);
     const char *e = getenv("COMM_SHMEM_SERIAL");
     S.serial = e ? atoi(e) != 0 : 1;                      /* default serial: OSHMEM 4.1's MULTIPLE is nominal (see the header) */
+    g_trace = getenv("COMM_SHMEM_TRACE") != 0;
+    S.fence = getenv("COMM_SHMEM_FENCE") ? atoi(getenv("COMM_SHMEM_FENCE")) : 0;
     if (prov < SHMEM_THREAD_MULTIPLE && !S.serial) { if (S.me == 0) fprintf(stderr, "comm_shmem: the library provides thread level %d, not MULTIPLE: serialising the calls\n", prov); S.serial = 1; }
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
     S.mb_bytes = ((size_t)MAXID * S.npes * 8 + ALIGN - 1) & ~(size_t)(ALIGN - 1);
@@ -183,9 +190,9 @@ typedef struct {
 #define PRIV(c) ((shm_priv *)(c)->priv)
 static long *W(shm_priv *p, size_t base, int w, int r) { return (long *)(S.pool + base + ((size_t)w * p->n + r) * 8); }   /* word w of rank r in the block at base */
 static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (size_t)W_N * p->n * 8 + (size_t)r * p->ring; }
-#define PACK(seq, off) (((long)(seq) << 40) | (long)((off) >> 3))
+#define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset below 2^40 tagged with the sequence */
 #define UNSEQ(x) ((x) >> 40)
-#define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)) << 3)
+#define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
 
 static void put_word(shm_priv *p, int r, int w, int idx, long v)   /* word (w, idx) of rank r's block = v (ordered after the context's earlier puts by the caller's fence) */
 {
@@ -209,8 +216,8 @@ static void push_all(shm_priv *p, const char *src, size_t stride, size_t bytes, 
         size_t n = scnt ? scnt[r] : bytes; const char *s = scnt ? src + sdsp[r] : src + stride * (size_t)r;
         SHM_LOCK(); putmem(p, r, UNOFF(x), s, n); SHM_UNLOCK();
     }
-    SHM_LOCK(); shmem_ctx_fence(p->ctx);
-    for (int r = 0; r < p->n; r++) if (r != p->me) { put_word(p, r, W_CNT, p->me, (long)(scnt ? scnt[r] : bytes)); put_word(p, r, W_SIG, p->me, seq); }
+    SHM_LOCK(); order(p->ctx);
+    for (int r = 0; r < p->n; r++) if (r != p->me) { put_word(p, r, W_CNT, p->me, (long)(scnt ? scnt[r] : bytes)); order(p->ctx); put_word(p, r, W_SIG, p->me, seq); }
     SHM_UNLOCK();
 }
 static void *pusher(void *a)
@@ -331,7 +338,7 @@ static void tiny_exchange(comm *c, uint64_t v, uint64_t *all)
     all[me] = v;
     SHM_LOCK();
     for (int r = 0; r < n; r++) if (r != me) put_word(p, r, W_VAL0 + par, me, (long)v);
-    shmem_ctx_fence(p->ctx);
+    order(p->ctx);
     for (int r = 0; r < n; r++) if (r != me) put_word(p, r, W_VSEQ0 + par, me, seq);
     SHM_UNLOCK();
     for (int r = 0; r < n; r++) if (r != me) { wait_ge(W(p, p->base, W_VSEQ0 + par, r), seq); all[r] = (uint64_t)*(volatile long *)W(p, p->base, W_VAL0 + par, r); }
@@ -365,7 +372,7 @@ static void s_send(comm *c, int to, const void *b, size_t n)
         size_t k = n < space ? n : space, pos = (size_t)sent % ring; if (k > ring - pos) k = ring - pos;
         SHM_LOCK();
         putmem(p, to, (size_t)(RING(p, p->rbase[to], p->me) - S.pool) + pos, s, k);
-        shmem_ctx_fence(p->ctx);
+        order(p->ctx);
         put_word(p, to, W_PROD, p->me, sent + (long)k);
         SHM_UNLOCK();
         p->sent[to] = sent + (long)k; s += k; n -= k;
@@ -388,8 +395,11 @@ static void s_destroy(comm *c)
 {
     shm_priv *p = PRIV(c);
     if (p->pending) s_wait(c);
+    TRACE("destroy comm id %d: barrier", p->id);
     s_barrier(c);                                          /* nobody's block goes while a member may still write to it */
+    TRACE("destroy comm id %d: quiet + ctx destroy", p->id);
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
+    TRACE("destroy comm id %d: done", p->id);
     if (p->sst) pool_free(p->sst); if (p->rst) pool_free(p->rst); pool_free(p->base);
     free(p->pe); free(p->rbase); free(p->rpre); free(p->spre); free(p->sent); free(p->got); free(p); free(c);
 }
@@ -412,13 +422,15 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     p->rbase = (size_t *)calloc(n, sizeof(size_t)); p->rpre = (size_t *)calloc(n, sizeof(size_t)); p->spre = (size_t *)calloc(n, sizeof(size_t));
     p->sent = (long *)calloc(n, sizeof(long)); p->got = (long *)calloc(n, sizeof(long));
     SHM_LOCK();
-    p->own_ctx = shmem_ctx_create(0, &p->ctx) == 0;
+    p->own_ctx = !S.serial && shmem_ctx_create(0, &p->ctx) == 0;   /* one context per communicator (= per APU thread) when the calls run concurrently; under the lock the default context serves (and OSHMEM 4.1 loses puts on a context created after another was destroyed) */
     if (!p->own_ctx) p->ctx = SHMEM_CTX_DEFAULT;
-    if (*mailbox(id, me) != 0) { SHM_UNLOCK(); fprintf(stderr, "comm_shmem: communicator id %d used twice\n", id); exit(1); }
-    for (int r = 0; r < n; r++) shmem_ctx_long_p(p->ctx, mailbox(id, me), (long)p->base + 1, p->pe[r]);   /* my block's offset into every member's row (mine included) */
+    if (*mailbox(id, S.me) != 0) { SHM_UNLOCK(); fprintf(stderr, "comm_shmem: communicator id %d used twice\n", id); exit(1); }
+    for (int r = 0; r < n; r++) shmem_ctx_long_p(p->ctx, mailbox(id, S.me), (long)p->base + 1, p->pe[r]);   /* my block's offset into every member's row (mine included), indexed by PE */
     shmem_ctx_quiet(p->ctx);
     SHM_UNLOCK();
+    TRACE("create comm id %d (%d PEs from %d stride %d): posted, waiting for the members", id, n, pe_start, pe_stride);
     for (int r = 0; r < n; r++) { long *m = mailbox(id, p->pe[r]); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
+    TRACE("create comm id %d: done", id);
     return c;
 }
 #endif
