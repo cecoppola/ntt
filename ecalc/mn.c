@@ -34,7 +34,13 @@ int mn_init(void)
 }
 void mn_barrier(void) { if (g_size > 1) comm_barrier(g_cm[0]); }
 static void groups_finalize(void);
-void mn_finalize(void) { if (g_size > 1) { groups_finalize(); for (int d = 0; d < NA; d++) if (g_cm[d]) { comm_destroy(g_cm[d]); g_cm[d] = 0; } } }
+extern "C" void bs_ckpt_tree_remove_below(int level);   /* binsplit.h (included below, with the tree checkpoint code) */
+static int g_ckpend = 0;                              /* C6: the tree level whose set is written but whose predecessors are not yet removed */
+void mn_finalize(void)
+{
+    if (g_size > 1 && g_ckpend) { bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; }   /* C6: after the driver's final barrier every node has this set */
+    if (g_size > 1) { groups_finalize(); for (int d = 0; d < NA; d++) if (g_cm[d]) { comm_destroy(g_cm[d]); g_cm[d] = 0; } }
+}
 /* self-test: on every APU thread, prime d, a random cyclic convolution of 2^(logR+logC) points from a seed all
  * nodes share; the distributed fwd/pw/inv over mesh d's `size` ranks must equal the one-rank engine on this
  * rank's block-cyclic rows (rank r holds rows [r R/nr, (r+1) R/nr); row i, column j <-> point i + R j) */
@@ -225,19 +231,24 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         bs_st.t_restart += mem_now() - t0;
         printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
+    int every = getenv("BS_CKPT_TREE_EVERY") ? atoi(getenv("BS_CKPT_TREE_EVERY")) : 1; if (every < 1) every = 1;   /* C6: a set every this many tree levels (the top level always) */
     for (int l = lr + 1; l <= L; l++) {
         int k = g_rank >> l, g0 = k << l, g = (1 << l) < g_size - g0 ? (1 << l) : g_size - g0, half = 1 << (l - 1);
         if (g > half) tree_level(P, Q, l, g0, g, half);      /* (no sibling group: carried up unchanged) */
-        if (ck) {                                            /* M6: this node's shares after level l; the previous set goes once every node has this one */
+        if (ck && (l % every == 0 || l == L)) {              /* M6: this node's shares after level l */
+            /* C6: the sets below the previous set (g_ckpend) go here, not right after its write: every node wrote
+             * g_ckpend before entering the next level, so this barrier waits for the nodes' compute, never for the
+             * slowest node's write.  The restart rule (the lowest "highest complete level" over the nodes exists on
+             * every node) holds: a node removes below g_ckpend only after every node has it.  The last set's
+             * predecessors go at mn_finalize, after the driver's final barrier. */
+            if (g_ckpend) { double tb = mem_now(); mn_barrier(); bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; bs_st.t_ckpt += mem_now() - tb; }
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
             size_t bytes = bs_ckpt_tree_write(l, bs_N, d, &P->sh, &Q->sh); double dtc = mem_now() - tc;
-            if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; }
+            if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; g_ckpend = l; }
             printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", g_rank, l, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
-            if (bytes && getenv("BS_CKPT_ABORT_TREE") && atoi(getenv("BS_CKPT_ABORT_TREE")) == l && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == g_rank)) {   /* test hook: die before the barrier (BS_CKPT_ABORT_NODE: this node only) */
+            if (bytes && getenv("BS_CKPT_ABORT_TREE") && atoi(getenv("BS_CKPT_ABORT_TREE")) == l && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == g_rank)) {   /* test hook: die right after the write (BS_CKPT_ABORT_NODE: this node only) */
                 printf("mn: node %d: BS_CKPT_ABORT_TREE: exiting after the tree level %d checkpoint\n", g_rank, l); fflush(stdout); _exit(3);
             }
-            mn_barrier();
-            if (bytes) bs_ckpt_tree_remove_below(l);
         }
     }
 }
