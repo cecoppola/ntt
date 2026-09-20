@@ -95,6 +95,7 @@ static int check_all(comm *c, int me, int n)
         for (int s = 0; s < n; s++) for (size_t k = 0; k < words; k++) if (rb[s * words + k] != slab_word(s, me, round, k)) bad++;
         free(sb); free(rb);
         comm_barrier(c);
+        if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: alltoall round %d (%zu B): %d bad so far\n", me, round, bytes, bad);
     }
     size_t ag_sizes[] = { 1, 8, 4096, 4097, 1 << 16, 3 << 20 };
     for (int round = 0; round < 6; round++) {
@@ -108,14 +109,18 @@ static int check_all(comm *c, int me, int n)
         comm_allgather_host(c, rb + me * words, rb, alloc);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (rb[r * words + k] != slab_word(r, 99, round, k)) bad++;
         free(sb); free(rb);
+        if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: allgather round %d (%zu B): %d bad so far\n", me, round, bytes, bad);
     }
     bad += check_alltoallv(c, me, n);
+    if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: alltoallv: %d bad so far\n", me, bad);
     size_t mx = comm_allreduce_max(c, (size_t)(me * 7 + 3));
     if (mx != (size_t)((n - 1) * 7 + 3)) bad++;
     uint64_t q = 3923057487904769ULL, s = c->ops->allreduce_modq(c, (uint64_t)me + 1, q, 10), expect = 0, w = 1;
     for (int r = 0; r < n; r++) { expect = (expect + (uint64_t)((unsigned __int128)(r + 1) * w % q)) % q; w = (uint64_t)((unsigned __int128)w * 10 % q); }
     if (s != expect) bad++;
+    if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: reductions: %d bad so far\n", me, bad);
     bad += check_p2p(c, me, n);
+    if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: p2p: %d bad so far\n", me, bad);
     return bad;
 }
 int main(int argc, char **argv)
