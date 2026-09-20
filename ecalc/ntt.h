@@ -35,7 +35,7 @@ typedef struct ntt_ctx ntt_ctx;
 extern int ntt_stg;        /* NTT_B16_STG: stages per b16 pass, 3..7 (default 7) */
 extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= this (default 14) */
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
-extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3) */
+extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
 extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
 
 /* Phase 9 B1: layout of the pointwise operand y relative to x (a batch of transforms of L points each):

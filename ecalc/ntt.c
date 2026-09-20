@@ -16,7 +16,7 @@
 
 int ntt_stg = 7;
 int ntt_pw_fuse = 14;
-int ntt_b16_body = 0;
+int ntt_b16_body = 1;      /* Phase 9 N-kernel: the register-blocked body (bit-identical, RESULTS 43) is the default now */
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
 int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->C exchange by ds_swizzle instead of LDS (Phase 9 B4); -1 = from the environment, default 0 */
 
