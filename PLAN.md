@@ -1072,7 +1072,7 @@ device; 7 × 10¹⁰ in 163.8 s / 76.5 GB. The node has 502 GB; at 4 × 10¹⁰ 
 | # | item | expected | cost |
 |---|---|---|---|
 | C1 | M8 the RDMA communicator behind `comm.h` (libfabric or MPI): all-to-all, all-gather, sub-communicators per level (replacing the per-level TCP meshes and their port slots) | the target system's numbers | 2 d + tuning, on the target |
-| C2 | 4 × 10¹⁰ over two real nodes (memory forbids two processes on one node at that size) — the first multi-process run at the paper's size | verification at scale | 0.25 d when two nodes are idle |
+| C2 | 4 × 10¹⁰ over two real nodes — tried 2026-09-20 (job 20760): both processes healthy at 263 GB each, but over aac6's 1 GbE a 2³¹-point distributed product costs ≈ 15–20 min (12 layered all-to-alls of ≈ 8.6 GB across the link at ≈ 110 MB/s plus the operand redistributions), the division has dozens → hours; cancelled after 30 min. The fabric, not the code (10⁹ at size 2 passes on two nodes). A target-system item; on aac6 the largest sensible two-node run is ≈ 5 × 10⁹ | verification at scale | on the target |
 | C3 | load balance at non-power-of-two sizes (nodes beyond the largest power of two only redistribute) | only if the target size is not a power of two | 1 d |
 | C4 | the forward slab pipeline cannot overlap the unpack of chunk k with the row pass of k+1 (both in x); a second plane for the column layout would | more of the exchange hidden | 1 d |
 | C5 | `DIST_STATS` in chunked mode reports only the exposed exchange (the row pass and packs run under it) | reporting | 0.25 d |
