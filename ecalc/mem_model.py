@@ -154,7 +154,7 @@ def mem_per_node(D, g=1, opts=None):
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
-        arena = [max(b, want) for b in bs]                                 # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes
+        arena = [max(b + (L['hole'] if o['tail'] == 'v1' else 0), want) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
         pool_in_phase = 0
         pool_total = sum(arena)
     else:
@@ -190,10 +190,13 @@ def max_digits_per_node(node_bytes, g=1, opts=None, lo=1e9, hi=4e11):
     return lo // 10**8 * 10**8
 
 # ---------------------------------------------------------------- calibration and the report
-MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM, node peak) from results/M.md, H.md, M11.md
+MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at the dm peak, device at the dm peak, host HWM) from results/M.md, H.md, M11.md
     (4e10, 1, dict(planes=120.3, regions=95.7, pool=141.0, dev_dm=261.9, host=11.7, tail=False, src='M.md/H.md (Phase 10)')),
     (7e10, 1, dict(planes=120.3, regions=169.6, pool=231.8, dev_dm=352.7, host=76.4, tail=False, src='M.md (seed-sized staging)')),
     (8e10, 1, dict(planes=120.3, regions=176.8, pool=265.7, dev_dm=386.6, host=90.0, tail=False, src='M.md (seed-sized staging)')),
+    (4e10, 1, dict(planes=120.3, regions=136.0, pool=136.0, dev_dm=256.9, host=11.7, tail='v1', src='M11.md batch 1 (tail v1)')),
+    (8e10, 1, dict(planes=120.3, regions=249.0, pool=249.0, dev_dm=369.9, host=12.8, tail='v1', src='M11.md batch 2 (tail v1)')),
+    (1e11, 1, dict(planes=120.3, regions=333.1, pool=333.1, dev_dm=454.0, host=13.9, tail='v1', src='M11.md batch 2 (tail v1)')),
 ]
 
 def fmt(b): return '%7.1f' % (b / GB)
@@ -204,8 +207,9 @@ def main():
     for D, g, m in MEASURED:
         r = mem_per_node(int(D), g, dict(tail=m['tail']))
         print('%-8.0e %2d | %-22s | %s %s %s %s | %s' % (D, g, 'measured', fmt(m['planes'] * GB), fmt(m['regions'] * GB), fmt(m['pool'] * GB), fmt(m['dev_dm'] * GB), m['src']))
-        print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail off)', fmt(r['planes']), fmt(r['regions_bs']), fmt(r['pool_total']), fmt(r['dev_dm']),
+        print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail %s)' % m['tail'], fmt(r['planes']), fmt(r['regions_bs'] if not m['tail'] else r['arena']), fmt(r['pool_total']), fmt(r['dev_dm']),
               'dev_dm %+.1f %%' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1))))
+        if m['tail']: continue
         r2 = mem_per_node(int(D), g, dict(tail=True))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail on)', fmt(r2['planes']), fmt(r2['regions_bs']), fmt(r2['pool_total']), fmt(r2['dev_dm']), 'node peak %.1f' % (r2['node_peak'] / GB)))
     print()
