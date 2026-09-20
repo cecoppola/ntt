@@ -242,10 +242,11 @@ void binsplit_pregrow(unsigned long N)
     /* the arena also serves the dm phase as the block pool (the regions are donated to it): mapping its need now costs
      * 0.06 s/GB at init, inside the phase twice that and it stalls the kernels (RESULTS 70), so the arena is at least
      * k x n_Q limbs per APU (n_Q = d/18, the peak of live device numbers in dm is ~6.8 n_Q at 4e10 plus fragmentation;
-     * k = 8, ECALC_DM_POOL_K; per node-process 1/size of it; ECALC_ARENA_GB sets the arena per APU outright) */
+     * k = 8, ECALC_DM_POOL_K; node 0 only while the dm is not distributed; ECALC_ARENA_GB sets the arena per APU outright) */
     { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 8.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
       int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
-      size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2 / sz);
+      if (sz > 1 && getenv("COMM_RANK") && atoi(getenv("COMM_RANK")) != 0) k = 0;   /* until the division is distributed (A-div) only node 0 runs dm: the others keep the bs need */
+      size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2);   /* node 0 runs the whole dm at any size for now */
       if (bs_regions_on_device && half) for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }
     if (bs_verbose) printf("bs: regions %s: %.2f / %.2f / %.2f / %.2f GB (+1/8; flat rule %.2f GB)%s\n", exact ? "from the level layouts" : "flat", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, per_region * 8e-9, bs_regions_on_device ? ", one arena per device for both parities" : "");
     if (bs_regions_on_device && mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
