@@ -1039,3 +1039,59 @@ batches and to keep jobs ≤ 1 h.
 
 **Elapsed:** ≈ 3 days (A-div's length) instead of ≈ 8 sequential; the
 integrator's re-verification after each merge ≈ 20 min each.
+
+## 20. The backlog after Phase 9 (2026-09-19) — every remaining item in one list
+
+State: `main` @ 53730f8; 4 × 10¹⁰ in 86.4 ± 1.3 s / 48.8 GB host / ≈ 220 GB
+device; 7 × 10¹⁰ in 163.8 s / 76.5 GB. The node has 502 GB; at 4 × 10¹⁰ about
+230 GB are unused. Items grouped; sizes from the record; the user decides.
+
+**A. Throughput, single node (GPU phases; the cross-resource overlap is spent)**
+| # | item | expected | cost |
+|---|---|---|---|
+| A1 | I4 transform cache: fwd(Q)'s pieces kept across the reciprocal's last doubling and X·Q (48 GiB/APU of planes from the block pool — affordable now; the API change is written in results/A-div.md) | −3…−5 s of dm | 2 d |
+| A2 | pair the level-22 products (4 pairs at 3·2²⁸: needs 51 GB planes — the 3·2³⁰ plane variant, now affordable) | −1.5 s | with B3 |
+| A3 | I16 the reciprocal's block pool at 6–7 × 10¹⁰: `ECALC_DM_POOL=1` sizes it once from the scratch estimate (built, off; measured only at 4 × 10¹⁰ where it changes nothing) — measure at 7 × 10¹⁰ | −10…−15 s at 7 × 10¹⁰ | 0.5 d (node time) |
+| A4 | the batch tier's tile budget in pair mode (15 GB; the pools allow 2²⁹ points per prime plane) | unknown, ≤ 1 s | 0.5 d |
+| A5 | I9 over shares: the `lowcut`/`highcut` parameters of the grid over shares (A-grid's interface), so the distributed division skips the same pieces the single-node one does | multi-node dm −10 % | 0.5 d |
+| A6 | the distributed tier's local transforms use the FULL pointwise and the tile kernel (N-kernel's pair mode and body 1 do not reach it) | −1…−2 s of the top levels/dm | 1 d |
+| A7 | I8 decimal `mul_1` in the seeds (hidden now — only matters if init shrinks below the seeds' 8 s) | 0 today | — |
+
+**B. Memory and resizing (230 GB of device memory idle at 4 × 10¹⁰; host 48.8 GB)**
+| # | item | expected | cost |
+|---|---|---|---|
+| B1 | X never on the host at size 1: A-div's device X into A-out's writer (`src.dev`, the HOOK A-div lines in `out_stage`) — the 17.8 GB host X goes; the residues of P, Q, R per share instead of node 0's | host 48.8 → ≈ 31 GB; the two flows joined | 0.5 d |
+| B2 | the pinned staging 43 GB: the seeds could stage per region in turn (one 10 GB buffer reused) | host −30 GB → ≈ 20 GB at size 1 | 1 d |
+| B3 | 3·2³⁰-point planes for the top levels and level 22, sized at init (A-grid measured −2.5 s and a 15 s first-use cost that init sizing removes) | −2.5…−4 s for +136 GB device | 1 d |
+| B4 | larger digit counts per node: with the host at 77 GB at 7 × 10¹⁰ the limit is device memory (regions ≈ 195 GB + planes 120 + the dm pool at 8 × 10¹⁰); the second parity's regions could be reused by the dm pool earlier and the planes shrunk after bs | 8 × 10¹⁰ on one node | 1 d |
+| B5 | the region arenas of non-zero ranks released at their `rns_shutdown` (22 GB per process stays mapped until exit — harmless) | — | one line |
+| B6 | at size > 1 the leaf's regions donated to the block pool before `mn_tree` also when the leaf ends on the batch tier (the tree's slabs come from `hipMalloc`, 11–44 GB per process) | multi-node −1…−3 s per node | 0.5 d |
+| B7 | `mdb_shift` / `mdb_add_shifted` / the redistribution pad slabs to a round size (g × slab per APU): an all-to-all-v | memory −g × 2²⁶ × 8 B per APU per buffer; fine to hundreds of nodes, needed at 2 048 | 1 d |
+
+**C. Scaling work (multi-node)**
+| # | item | expected | cost |
+|---|---|---|---|
+| C1 | M8 the RDMA communicator behind `comm.h` (libfabric or MPI): all-to-all, all-gather, sub-communicators per level (replacing the per-level TCP meshes and their port slots) | the target system's numbers | 2 d + tuning, on the target |
+| C2 | 4 × 10¹⁰ over two real nodes (memory forbids two processes on one node at that size) — the first multi-process run at the paper's size | verification at scale | 0.25 d when two nodes are idle |
+| C3 | load balance at non-power-of-two sizes (nodes beyond the largest power of two only redistribute) | only if the target size is not a power of two | 1 d |
+| C4 | the forward slab pipeline cannot overlap the unpack of chunk k with the row pass of k+1 (both in x); a second plane for the column layout would | more of the exchange hidden | 1 d |
+| C5 | `DIST_STATS` in chunked mode reports only the exposed exchange (the row pass and packs run under it) | reporting | 0.25 d |
+| C6 | the multi-node checkpoints: tree sets written at every level with no `EVERY`; the barrier on the critical path; not run at 10¹⁰+ | robustness at scale | 0.5 d |
+| C7 | the file write at scale: on aac6 the 40 GB write cannot hide (0.5–1.4 GB/s); on the target's parallel file system each node writes its part — measure there; a run without an output file skips the write | — | on the target |
+
+**D. Tests and verification to add**
+| # | item |
+|---|---|
+| D1 | a 5 × 10¹⁰ or 6 × 10¹⁰ run at size 2 over two real nodes with the part files compared against results/e_5e10.out |
+| D2 | the restart at 10¹⁰ with tree-level sets at size 4 (only 10⁸–10⁹ so far) |
+| D3 | `t_mn_grid` and `t_out` in `accept.sh`; `mnrun.sh` sizes 2/3/4 as a standing regression (the integrator's `verify*.sh` scripts, made permanent) |
+| D4 | the binary path (`LIMB_BASE=2`) at 10¹⁰ after Phase 9 (10⁹ verified) |
+| D5 | a stale-plane-pointer suspicion in the striped batch tier when a plane pool grows mid-phase (A-mem saw wrong P once; the growth is now never exercised at the defaults) — reproduce or rule out |
+
+**E. Adjustments and housekeeping**
+| # | item |
+|---|---|
+| E1 | remove the rejected variants' code paths or keep them as measurement evidence (`NTT_B16_XCHG`, `DIST_R3`, `ECALC_POOL_GROW_GB`, `BS_REGION_SLACK`): decide |
+| E2 | `results/` is git-ignored; the agents' write-ups were force-added — decide whether `results/*.md` becomes tracked by rule |
+| E3 | ecalc/README.md: the multi-node run (`mnrun.sh`, `COMM_*`, `MN_*`, `BS_CKPT_*` per node, `MEM_REPORT_DEVS`), the part files, the size-1 defaults after Phase 9 |
+| E4 | the paper's §7 figure for a multi-node timeline once the target system exists |
