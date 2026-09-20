@@ -500,6 +500,11 @@ static void mdb_from_db(mdb *Y, const dbig *r, size_t N2, mn_group *G)
 }
 static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig t; db_init(&t); db_from_bi(&t, h); mdb_from_db(Y, &t, N2, G); db_free(&t); }
 static void mn_prod(mdb *C, const mdb *A, const mdb *B, mn_group *G) { double t0 = mem_now(); rns_mul_dist_mn(C, A, B, 0, G); mn_st.t_prod += mem_now() - t0; }
+/* Phase 10 A5: the division's two products with the grid's cuts (rns_mul_dist_mn_cut): the A_h mu product without the pieces
+ * below k + 1 (B3 over shares; NEWTON_HIGHPROD=0 keeps them), the low product X Q mod B^w without the pieces above w and
+ * delivered in basis w (NEWTON_LOWPROD=0: the full product re-sharded into basis w) */
+static int env_on(const char *name) { const char *e = getenv(name); return !e || atoi(e); }
+static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
@@ -597,14 +602,16 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* X = ((S >> (nq - 1 - dl)) mu) >> (k + 1) */
     mdb Ah, t, Xn; memset(&Ah, 0, sizeof Ah); memset(&t, 0, sizeof t); memset(&Xn, 0, sizeof Xn);
     { size_t sh = nq - 1 - dl; mdb_shift(&Ah, &S, (long)sh, S.n > sh ? S.n - sh : 1, G); }
-    mn_prod(&t, &Ah, &mu, G); mfree(&Ah); mfree(&mu);
+    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut(&t, &Ah, &mu, G, k + 1, (size_t)-1);   /* A5/B3: the pieces below the cut k + 1 skipped */
+    else mn_prod(&t, &Ah, &mu, G);
+    mfree(&Ah); mfree(&mu);
     mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
     double tc = mem_now();
-    /* the low product X Q mod B^w (the full product here: skipping the pieces above w is the grid split's, A-grid), the
-     * window A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
+    /* the low product X Q mod B^w (A5: the grid with the pieces above w skipped, delivered in basis w), the window
+     * A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
     mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
-    mn_prod(&xq, &Xn, Q, G);
-    mdb_shift(&xql, &xq, 0, w, G); mfree(&xq);
+    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
+    else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
     mdb_shift(&Qw, Q, 0, w, G); mfree(Q);
     double td = mem_now();
