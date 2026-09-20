@@ -252,7 +252,7 @@ void binsplit_pregrow(unsigned long N)
         double ta = mem_now();
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)
         for (int r = 0; r < NR; r++) arena_get(r, need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096);
-        if (bs_verbose) printf("bs: arenas allocated in %.2f s (layout pass %.2f s)\n", mem_now() - ta, ta - t_pg);
+        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg);
     }
 #pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
     for (int r = 0; r <= NR; r++) {
