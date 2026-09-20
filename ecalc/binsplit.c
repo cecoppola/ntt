@@ -286,8 +286,10 @@ void binsplit_pregrow(unsigned long N)
  * header where nothing new is needed, and read v1 sets.  (3) The tree levels (mn_tree):
  * n<rank>_tree_LLL.* holds the node's shares of P and Q (the mdb descriptors in the header, the
  * share's limbs in the four quarter files), written by mn.c through bs_ckpt_tree_*; the set it
- * supersedes (the leaf's, or tree level L-1) is removed only after every node has written level
- * L (mn.c's barrier), so the lowest "highest complete level" over the nodes exists on all of them. */
+ * supersedes (the leaf's, and the tree levels below L) is removed only after every node has written
+ * level L (mn.c's barrier, taken at the next set level or at mn_finalize -- C6), so the lowest
+ * "highest complete level" over the nodes exists on all of them.  BS_CKPT_TREE_EVERY=k writes the
+ * tree sets at levels k, 2k, ... and the top. */
 #define CKPT_MAGIC  "ECBSCKP1"
 #define CKPT_MAGIC2 "ECBSCKP2"
 #define CKPT_CHUNK ((size_t)1 << 30)
@@ -538,11 +540,13 @@ int bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], dbig *P, db
     for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
     return 1;
 }
-/* after every node has tree level `level` (mn.c's barrier): the sets it supersedes go -- tree level - 1, or at the first tree level the leaf's */
+/* after every node has tree level `level` (mn.c's barrier): the sets it supersedes go -- every tree level below it
+ * (BS_CKPT_TREE_EVERY may leave gaps) and the leaf's */
 void bs_ckpt_tree_remove_below(int level)
 {
     if (!bs_ckpt_dir) return;
-    if (level > 1) ckpt_remove_kind("tree", level - 1); else for (int l = 1; l < 128; l++) ckpt_remove(l);
+    for (int l = 1; l < level; l++) ckpt_remove_kind("tree", l);
+    for (int l = 1; l < 128; l++) ckpt_remove(l);
 }
 /* every tree set of this node above `level` (stale after a restart below them; all of them for a fresh run) */
 void bs_ckpt_tree_clear(int level) { if (bs_ckpt_dir) for (int l = level + 1; l < 128; l++) ckpt_remove_kind("tree", l); }
