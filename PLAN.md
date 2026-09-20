@@ -1095,3 +1095,23 @@ device; 7 × 10¹⁰ in 163.8 s / 76.5 GB. The node has 502 GB; at 4 × 10¹⁰ 
 | E2 | `results/` is git-ignored; the agents' write-ups were force-added — decide whether `results/*.md` becomes tracked by rule |
 | E3 | ecalc/README.md: the multi-node run (`mnrun.sh`, `COMM_*`, `MN_*`, `BS_CKPT_*` per node, `MEM_REPORT_DEVS`), the part files, the size-1 defaults after Phase 9 |
 | E4 | the paper's §7 figure for a multi-node timeline once the target system exists |
+
+## 21. Phase 10 — a 4–5 hour autonomous session on the §20 backlog (proposed 2026-09-19)
+
+Same method as §19: agents own disjoint files, the integrator merges and
+re-verifies, three nodes shared under the §19 protocol. The session is
+sized so that every agent finishes inside it; the two-real-node runs are
+the integrator's and depend on node availability.
+
+| agent | owns | items (in order) | gate |
+|---|---|---|---|
+| **G** grid/dm | `rns_dist.c`, `mdb.h`, `newton_db.c`, the dm flow of `ecalc.c` | A5 the high/low cut parameters of the grid over shares and the sharded division using them; A1 the transform cache of Q's pieces across the last doubling and X·Q (single node first, `rns_mul_dist_db_cached`; the planes from the block pool); A6 the distributed tier's local transforms on the paired/register-blocked kernels where they apply | 10⁸/10⁹ at sizes 1–4 identical; single node 4 × 10¹⁰ identical and faster (A1 target −3 s); `t_mn_grid`, `t_dbig big` green |
+| **H** host memory | `mn_out.c`, `verify.c`, the output tail of `ecalc.c`, the seeds' staging in `binsplit.c` and `rns_init` (coordinated with M) | B1 X never on the host at size 1 (A-div's device X into the writer; P, Q, R residues per share); B2 the seeds staged per region through one reused buffer | size 1 4 × 10¹⁰ identical with host peak ≈ 20–31 GB and wall unchanged; sizes 2–4 identical |
+| **M** device memory | `mem.c`, pools in `rns_mul.c`, `binsplit_pregrow`/layout, the block pool's regions in `dbig.c` | B5 (one line); B6 the leaf's regions donated before the tree at size > 1; B4 the dm pool from the second parity's regions and the planes shrunk after bs; A3 measured at 7 × 10¹⁰ with `ECALC_DM_POOL=1`; then the 8 × 10¹⁰ attempt | 4 × 10¹⁰ identical; 7 × 10¹⁰ faster (A3); 8 × 10¹⁰ VERIFY OK or the exact memory that stops it |
+| **C** communication | `comm*.c/.h`, `ntt_dist.c`, `mn.c` (groups/meshes), `tests/t_dist.c` | B7 an `alltoallv` op in every transport (the redistribution's padding — the use in `rns_dist.c` is G's, C provides the op and a t_dist check); C4 the second plane for the forward pipeline's overlap; C5 `DIST_STATS` under pipelining | t_dist all modes at 2–4 node-processes and 2 real nodes; xGMI 2³¹ timing not slower; 10⁸ sizes 2, 4 identical |
+| **T** tests & docs | `accept.sh`, `variance.sh`, the integrator's `verify*.sh` → `mnaccept.sh`, `tests/`, `ecalc/README.md`, `binsplit.c`'s checkpoint code (C6) | D3 the standing regression (unit tests, 10⁹ both bases, sizes 2/3/4 at 10⁸, 10⁹ at 2/4, a restart, one 4 × 10¹⁰) as one script with a pass/fail summary; D2 restart at 10¹⁰ from tree-level sets at size 4; D4 the binary path at 10¹⁰; D5 the stale-plane-pointer suspicion reproduced or ruled out (read-only in N-kernel's tier: report, do not fix unless trivial); C6 tree-level `BS_CKPT_EVERY`, the barrier off the critical path; E3 README | the regression script green on `main`; D2/D4 identical; a written verdict on D5 |
+| **integrator** | merges, `main` re-verified after each, RESULTS §75, PLAN log; C2 and D1 when two nodes are idle (4 × 10¹⁰ and 5 × 10¹⁰ at size 2 over two real nodes, parts compared with the references); E1/E2 proposed to the user | |
+
+Timeline (hours): 0 — day-0 none needed (interfaces exist); launch all five. 0–3 — agents work; T's regression script is merged first as soon as it is green so the integrator's re-verification uses it. 2–4 — merges in readiness order (C → G → H → M → T), re-verification after each; C2/D1 whenever two nodes are idle (the integrator polls `sinfo`). 4–5 — closing measurements (five runs at 4 × 10¹⁰, the ceiling), RESULTS §75, paper §7/§10 numbers, PLAN log.
+
+Expected outcome: single node ≈ 80–83 s / ≈ 25 GB host at 4 × 10¹⁰; 7 × 10¹⁰ ≈ 150 s; 8 × 10¹⁰ known (fits or the exact wall); the multi-node code without its padded exchanges and with the division's cuts; a standing regression; the checkpoints ready for scale; the first multi-process 4 × 10¹⁰ if two nodes come free. Not in this session: M8 (target system), C3 (only for non-power-of-two sizes), E4.
