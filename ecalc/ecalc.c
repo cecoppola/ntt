@@ -330,6 +330,7 @@ int main(int argc, char **argv)
     if (!ovl3 && !mn_dm) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
 
     bigint MU; bi_init(&MU);
+    char *digits = 0;                                 /* the binary path's whole digit string (todec); decimal streams its digits (M5) */
     size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
     if (mn_dm) {                                      /* M4: the dm phase ran over the nodes above; the phase lines for the summary */
         printf("recip %8.2f s   (over %d nodes; %zu iterations)\n", t_recip, mn_size_, newton_st.iters);
@@ -393,7 +394,6 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
-    char *digits = 0;
     if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) with X on the host */
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
