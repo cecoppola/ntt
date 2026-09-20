@@ -1115,3 +1115,29 @@ the integrator's and depend on node availability.
 Timeline (hours): 0 — day-0 none needed (interfaces exist); launch all five. 0–3 — agents work; T's regression script is merged first as soon as it is green so the integrator's re-verification uses it. 2–4 — merges in readiness order (C → G → H → M → T), re-verification after each; C2/D1 whenever two nodes are idle (the integrator polls `sinfo`). 4–5 — closing measurements (five runs at 4 × 10¹⁰, the ceiling), RESULTS §75, paper §7/§10 numbers, PLAN log.
 
 Expected outcome: single node ≈ 80–83 s / ≈ 25 GB host at 4 × 10¹⁰; 7 × 10¹⁰ ≈ 150 s; 8 × 10¹⁰ known (fits or the exact wall); the multi-node code without its padded exchanges and with the division's cuts; a standing regression; the checkpoints ready for scale; the first multi-process 4 × 10¹⁰ if two nodes come free. Not in this session: M8 (target system), C3 (only for non-power-of-two sizes), E4.
+
+## 22. Deferred — the items not in the Phase 10 session (§21), kept for later (2026-09-19)
+
+Everything below is recorded here (the single plan file) so nothing is
+lost; each carries its origin, its sizing where one exists, and what it
+waits for.
+
+| # | item | origin | sizing | waits for |
+|---|---|---|---|---|
+| A2 | pair the level-22 products (4 pairs at 3·2²⁸: planes of 51 GB) | N-kernel open issue | −1.5 s | B3 (the larger planes) |
+| A4 | the batch tier's tile budget in pair mode (15 GB; the pools allow 2²⁹ points per prime plane) | N-kernel | ≤ 1 s, unknown | node time |
+| A7 / I8 | decimal `mul_1` in the seeds (two limbs per step or a Montgomery-style reduction) | §16 | 0 today (the seeds are hidden inside init) | init shrinking below ≈ 8 s |
+| B3 / I10 | 3·2³⁰-point planes for the top levels, sized at init (A-grid: −2.5 s and a 15 s first-use cost) | §16, A-grid C5 | −2.5…−4 s for +136 GB device | a decision on the memory trade |
+| C1 / M8 | the RDMA communicator (libfabric or MPI) behind `comm.h`; sub-communicators per level replacing the per-level TCP meshes and port slots | §17 | the target system's numbers | the target system |
+| C3 | load balance at non-power-of-two sizes (nodes beyond the largest power of two in a group only redistribute) | M3 open issue | only if the target size is not a power of two | a decision on the target size |
+| C7 | the part-file write at scale: on aac6 a 40 GB write cannot hide (0.5–1.4 GB/s); on a parallel file system each node writes its part under the low product — measure there | A-out open issue | — | the target system |
+| E1 | the rejected variants' switches (`NTT_B16_XCHG`, `DIST_R3`, `ECALC_POOL_GROW_GB`, `BS_REGION_SLACK`, `ECALC_OVERLAP_COPY`): delete or keep as measurement evidence | Phase 8–9 | housekeeping | the user's decision |
+| E2 | `results/` is git-ignored and the write-ups were force-added: track `results/*.md` by rule | Phase 9 | housekeeping | the user's decision |
+| E4 | a multi-node timeline in the paper's §7 | paper | — | the target system |
+| I5 | Karatsuba for products whose half-sums fit a plane (binary's 2 × 2 products only; decimal's do not fit) | §16 | binary −2.5 s | interest in the binary path |
+| I11 | init: the transform contexts and tables built once and shared, pool zeroing by kernels | §16 | −1…−2 s of init (partly done by A-mem's sizing) | — |
+| I13 | the two-prime 62-bit engine for the batch tier alone (rejected end to end in §44, never measured for the batch levels) | §16 | unknown, likely none | idle node time |
+| — | `mdb_to_host_all` replicates a small number on every host (Q's top for the seed chain, the never-observed overshoot shrink): a broadcast would do | A-div open issue | tiny | — |
+| — | the sim4 communicator stays unpipelined (`inflight` 0) | A-comm | tests only | — |
+| — | B4's follow-on if 8 × 10¹⁰ does not fit: the regions' second parity reused by the dm pool is in §21; beyond that, planes at 2³⁰ for the dm phase with more pieces | §20 | 8 × 10¹⁰ on one node | the §21 result |
+| — | the 3-node real run at 10⁹ and the 3-node checkpoint restart (only 2 real nodes were free together during Phase 9; 3 node-processes on one node cover the logic) | A-out, A-ckpt | verification | three idle nodes |
