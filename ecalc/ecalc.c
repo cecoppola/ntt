@@ -282,7 +282,7 @@ int main(int argc, char **argv)
             mn_gather_host(&X, &Xm); db_free(&Xm.sh);
             newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, gathered to node 0 in %.2f s%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mem_now() - tx, mn_rank() ? "; done" : "");
-            if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
+            if (mn_rank() != 0) { int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f; }   /* M5: every node writes its part of X and checks its residues */
         } else {
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
