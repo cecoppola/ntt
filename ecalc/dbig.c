@@ -324,14 +324,16 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
                 size_t lo; int gt; };   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
-                                         * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows */
+                                         * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
+                                         * (Phase 11 L: gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
     if (s.single) return i == s.pos ? s.val : 0;
     if (s.gt) {
-        size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q = rem / s.rows, t = rem - q * s.rows;
-        if (t >= 4) return 0;
-        int nr = 4 * s.gt, rho; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
+        size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q, t; int nr = 4 * s.gt, rho;
+        if (s.rows * (size_t)nr == s.R) { q = rem / s.rows; t = rem - q * s.rows; }
+        else { q = ((rem + 1) * (size_t)nr + s.R - 1) / s.R - 1; t = rem - s.R * q / nr; }   /* Phase 11 L (agent L, minimal): unequal parts -- rank rho holds rows [R rho / nr, R (rho+1) / nr); q = the rank whose part starts at or below rem, i.e. rho + 1 of the spill's rank */
+        if (t >= 4) return 0; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
         int d = rho / s.gt, r = rho - d * s.gt;
         return s.sp[d][((size_t)r * s.C + j) * 4 + t];
     }
