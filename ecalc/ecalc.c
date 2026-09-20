@@ -152,18 +152,41 @@ int main(int argc, char **argv)
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
-    if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups; then node 0 gathers the shares (M4 distributes the division) */
+    /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
+     * and the single-node division there).  The residues of P, Q, R come from the sharded kernels; X is gathered to node 0
+     * for the existing output (A-out writes it per node) */
+    int mn_dm = mn_dist && bi_decimal && !(getenv("MN_DM") && !strcmp(getenv("MN_DM"), "host"));
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
+    double t_recip = 0, t_10dp = 0, t_dm = 0; size_t mn_pn = 0, mn_qn = 0, mn_xn = 0;
+    if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups */
         double tg = mem_now(); dbig Pl, Ql; db_init(&Pl); db_init(&Ql);
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
+        if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
+            printf("mn: node %d: tree levels %.2f s: P %zu limbs, Q %zu limbs\n", mn_rank(), tt - tg, Pm.n, Qm.n);
+            t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
+            P.n = Q.n = 0; binsplit_free_pools();
+            memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
+            int L = 0; while ((1 << L) < mn_size_) L++;
+            mn_group *G = mn_group_at(L);
+            double td = mem_now(); mdb Xm; memset(&Xm, 0, sizeof Xm);
+            newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
+            t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
+            double tx = mem_now();
+            mn_gather_host(&X, &Xm); db_free(&Xm.sh);
+            newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
+            printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, gathered to node 0 in %.2f s%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mem_now() - tx, mn_rank() ? "; done" : "");
+            if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
+        } else {
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
         if (mn_rank() != 0) { mn_barrier(); mn_finalize(); rns_shutdown(); return 0; }
         printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
         t_bs += mem_now() - tg;
+        }
     } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
         comm *c = mn_comm(0); double tg = mem_now();
         if (mn_rank() != 0) {
@@ -187,7 +210,7 @@ int main(int argc, char **argv)
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_bs, N, P.n, Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+           t_bs, N, mn_dm ? mn_pn : P.n, mn_dm ? mn_qn : Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
     if (bs_st.n_ckpt || bs_st.restart_level) {
         printf("      bs checkpoints: %d written, %.2f GB, %.2f s (%.2f s each); restart from level %d in %.2f s\n",
@@ -200,18 +223,26 @@ int main(int argc, char **argv)
     binsplit_free_pools();
 
     /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
-    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
-    if (!ovl3) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
+    if (!ovl3 && !mn_dm) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
 
+    bigint MU; bi_init(&MU);
+    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.verbose = verbose >= 2;
+    char *digits = 0; int digits_reg = 1;
+    size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
+    if (mn_dm) {                                      /* M4: the dm phase ran over the nodes above; the phase lines for the summary */
+        printf("recip %8.2f s   (over %d nodes; %zu iterations)\n", t_recip, mn_size_, newton_st.iters);
+        printf("10dP  %8.2f s   (S = P + Q over shares, inside dm)\n", 0.0); RESULT("10dP", "s", 0.0);
+        printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu; over %d nodes)   VmRSS %.1f GB, VmHWM %.1f GB\n",
+               t_dm, X.n, t_recip, newton_st.down_corr, newton_st.up_corr, mn_size_, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+        RESULT("dm", "s", t_dm);
+    } else {
     /* dm part 1: the reciprocal of Q first, while A does not exist yet (memory peak) */
     t = mem_now();
     memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
-    bigint MU; bi_init(&MU);
-    size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
     newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
     if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
-    double t_10dp = 0, t_res3 = 0;
+    double t_res3 = 0;
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
         db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
@@ -220,10 +251,16 @@ int main(int argc, char **argv)
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
+        if (getenv("ECALC_DM_POOL") && atoi(getenv("ECALC_DM_POOL"))) {   /* C3 (A-div): the block pool sized to the reciprocal's scratch once, before the phase, instead of growing by hipMalloc block by block inside it (RESULTS.md 71: 6-7e10) */
+            double tp = mem_now(); size_t nq_ = bs_Qd.n, tcap = (nq_ + k_mu > 2 * k_mu ? nq_ + k_mu : 2 * k_mu) + 8;
+            size_t need = ((2 * (k_mu + 4) + tcap + ((size_t)1 << 31) + 8 + 4 * 4096) / 4) * 8 + ((size_t)1 << 30), grown = 0;   /* per device: r, r2, t1, the grid's piece temporary; Q and S are live already */
+            for (int dv = 0; dv < 4; dv++) { size_t fr = db_pool_free_bytes(dv); if (need > fr) { db_pregrow(dv, need - fr); grown += need - fr; } }
+            printf("      C3: block pool sized to the reciprocal's scratch (%.1f GB per device): grown by %.1f GB in %.2f s\n", need / 1e9, grown / 1e9, mem_now() - tp);
+        }
         newton_db_recip(&MU, &Q, k_mu);
     } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
-    double t_recip = mem_now() - t;
+    t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
 
     t = mem_now();
@@ -254,8 +291,6 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
-    struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.verbose = verbose >= 2;
-    char *digits = 0; int digits_reg = 1;
     if (ovl) {                                        /* O4: the digit buffer now (plain pages; the formatting thread touches them), the hook starts the formatting */
         digits_reg = 0;
         if (posix_memalign((void **)&digits, 2u << 20, d + 2)) { fprintf(stderr, "digits: %lu bytes\n", d + 2); return 1; }
@@ -266,10 +301,11 @@ int main(int argc, char **argv)
     newton_db_x_hook = 0; newton_db_Qd = 0;
     if (ovl3) db_free(&bs_Qd);
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
-    double t_dm = mem_now() - t + t_recip;
+    t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("dm", "s", t_dm);
+    }
 
     t = mem_now();
     if (ovl && pqb.started) pthread_join(pqb.th, 0);
