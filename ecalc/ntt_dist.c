@@ -223,19 +223,25 @@ static void inv_loop(dist_plan *p, uint64_t *x, hipStream_t s, int kend)
     }
     p->k_resume = kend;
 }
-void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s)
+/* Phase 10 A6 (agent G, a minimal addition to this file): y != 0 fuses the pointwise product x <- x y into the column
+ * inverse's first pass (ntt_inv_pw_y, FULL layout: y in the same column layout as x) -- the same modmul as dist_pw on the
+ * same canonical operands, so bit-identical to dist_pw + dist_inv, one plane read and write per prime less */
+static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s)
 {
     int size = comm_size(p->cm), K = p->K, D = depth(p);
     size_t rk = chunk_rows(p);
-    TS(t_local2, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
+    if (y) TS(t_local2, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s));   /* columns: pointwise + length-R inverse, x R^-1, natural */
+    else TS(t_local2, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
     for (int k = 0; k < K; k++) TSK(t_pack, (k_pack_cols<<<nblocks(p->cols * rk * size), 256, 0, s>>>(x, chunk_sb(p, k), rk, (size_t)k * rk, p->rows, p->cols, size)));
     HIP_CHECK(hipEventRecord(p->ev, s));
     for (int k = 0; k < D; k++) chunk_post(p, k);
     p->k_resume = 0;
     inv_loop(p, x, s, K - D);                             /* through the last post (chunk K-1, posted at k = K-1-D) */
 }
+void dist_inv_pre(dist_plan *p, uint64_t *x, hipStream_t s) { inv_pre_y(p, x, 0, s); }
 void dist_inv_post(dist_plan *p, uint64_t *x, hipStream_t s) { inv_loop(p, x, s, p->K); }
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_pre(p, x, s); dist_inv_post(p, x, s); }
+void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s) { inv_pre_y(p, x, y, s); dist_inv_post(p, x, s); }   /* A6: = dist_pw + dist_inv */
 
 /* The transposed inverse: the column layout (cols columns of R points, bit-reversed within) is the row
  * layout of the C x R problem, so the same algorithm as the forward -- local pass on the contiguous index

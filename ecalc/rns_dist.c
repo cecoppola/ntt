@@ -30,6 +30,11 @@
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
 static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
+/* Phase 10 A6: the pointwise product fused into the column inverse's first pass (DIST_PW_FUSE, default 1; bit-identical),
+ * and the four-step split logR = logn / 2 + DIST_LOGR_DELTA (0: as before; +1 puts 7-stage passes -- the register-blocked
+ * body -- on the rows of a 2^31 plane: logR 16, logC 15 ... measured, see results/G.md) */
+static int dist_pw_fused(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_PW_FUSE"); v = e ? atoi(e) != 0 : 1; } return v; }
+static int dist_logr_delta(void) { static int v = -99; if (v == -99) { const char *e = getenv("DIST_LOGR_DELTA"); v = e ? atoi(e) : 0; if (v < -3 || v > 3) v = 0; } return v; }
 
 /* a limb accessor: either one flat array or four quarters (a dbig view) */
 struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int flat; dbig *owner; };
@@ -235,7 +240,9 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
     if (r3) logn--;                                            /* the 2^k length whose pool this replaces: n = 3 2^(logn-1) */
     if (logn > dist_logn_max()) { fprintf(stderr, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); exit(1); }
-    int logR = r3 ? (logn - 1) / 2 : logn / 2, logk = logn - 1 - logR, logC = r3 ? 0 : logn - logR;
+    int logR = r3 ? (logn - 1) / 2 : logn / 2 + dist_logr_delta(), logk, logC;
+    if (!r3) { if (logR < 10) logR = 10; if (logR > logn - 10) logR = logn - 10; }   /* (A6: DIST_LOGR_DELTA; R, C >= 2^10) */
+    logk = logn - 1 - logR; logC = r3 ? 0 : logn - logR;
     size_t n = r3 ? (size_t)3 << (logn - 1) : (size_t)1 << logn, R = (size_t)1 << logR, C = r3 ? (size_t)3 << logk : (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -289,8 +296,8 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             else {
             if (ha < 0) { dist_fwd(&v->plan[p].pl, xa[p], v->s); if (ca) HIP_CHECK(hipMemcpyAsync(ca + (size_t)p * q, xa[p], q * 8, hipMemcpyDeviceToDevice, v->s)); }   /* A miss: fill its slot */
             if (hb < 0) dist_fwd(&v->plan[p].pl, yb, v->s);
-            dist_pw(&v->plan[p].pl, xa[p], yb, v->s);
-            dist_inv(&v->plan[p].pl, xa[p], v->s);
+            if (dist_pw_fused()) dist_inv_pw(&v->plan[p].pl, xa[p], yb, v->s);   /* A6: the pointwise fused into the column inverse */
+            else { dist_pw(&v->plan[p].pl, xa[p], yb, v->s); dist_inv(&v->plan[p].pl, xa[p], v->s); }
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
@@ -636,7 +643,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;   /* rows = R / nr >= 32 (the tiled pack), R, C >= 2^10 */
     if (logn < logmin) logn = logmin;
     if (logn > DIST_LOGN_MAX + lgt) { fprintf(stderr, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d transform nodes\n", nc, DIST_LOGN_MAX + lgt, gt); exit(1); }
-    int logR = logn / 2, logC = logn - logR;
+    int logR = logn / 2 + dist_logr_delta(), logC; { int lo = 7 + lgt < 10 ? 10 : 7 + lgt; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; } logC = logn - logR;   /* (A6: DIST_LOGR_DELTA; rows >= 32, C >= 2^10) */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / nr, q = n / nr;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -690,8 +697,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                 k_gather_mn<<<nblk(q), 256, 0, s>>>(xb, rbB, dsB, g, SB, rows, C, ec_mod_get(p), 1, 1);
                 dist_fwd(&v->plan[p].pl, xa[p], s);
                 dist_fwd(&v->plan[p].pl, xb, s);
-                dist_pw(&v->plan[p].pl, xa[p], xb, s);
-                dist_inv(&v->plan[p].pl, xa[p], s);
+                if (dist_pw_fused()) dist_inv_pw(&v->plan[p].pl, xa[p], xb, s);   /* A6 */
+                else { dist_pw(&v->plan[p].pl, xa[p], xb, s); dist_inv(&v->plan[p].pl, xa[p], s); }
                 HIP_CHECK(hipStreamSynchronize(s));
             }
             double s2 = mem_now(); tf[d] = s2 - s1;
