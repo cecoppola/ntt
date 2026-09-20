@@ -73,6 +73,7 @@ static void complete_oldest(comm *c)
     HIP_CHECK(hipStreamSynchronize(e->s));
     p->head ^= 1; p->npend--;
 }
+static void complete_v(comm *c);
 static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     lay_priv *p = PRIV(c); int g = p->g;
