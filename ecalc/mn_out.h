@@ -40,6 +40,7 @@ typedef struct {
     size_t bytes; int nchunks;               /* written to the part file */
     double t_fmt, t_res, t_t2, t_write, t_fetch, t_wait;   /* per part (write: the helper thread's time in write(); wait: the formatter blocked on it) */
     char first[80], last[24];                /* the first 62 and the last 20 digits of the node's range */
+    char tail[24]; size_t ntail;             /* Phase 11 V: the d - d_out computed digits after d_out (the node holding limb 0) */
     void *priv;                              /* the writer thread while a write is in flight (mn_out_finish joins it) */
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
@@ -58,6 +59,15 @@ int  mn_out_allreduce_or(comm *c, int v);
 /* the stand-in for the distributed division's X (until A-div lands): node 0's host X scattered over mesh 0 into
  * the nodes' device shares, basis N = X->n; every node returns its share (a dbig, cnt = hi - lo limbs) */
 void mn_out_scatter_standin(comm *c, const uint64_t *X, size_t xn, dbig *share, size_t *lo, size_t *cnt, size_t *n_out);
+/* Phase 11 V: the recheck mode (ECALC_RECHECK=1).  The run writes <outfile>.t1 (node 0): N, d, d_out, size, the residues of
+ * X, R, P, Q it checked with, and the d - d_out digits after d_out.  mn_out_recheck recomputes, without the run: the digit
+ * residues from the digit file (the part files at size > 1, each node its own), X mod q from them and the tail, P and Q
+ * mod q from the checkpointed top-level shares (BS_CKPT_DIR: the tree set at size > 1; the level-0 tree set a size-1 run
+ * writes with ECALC_CKPT_TOP=1), the term recurrence over every node's range, the T2 windows over the file; then T1 with
+ * R's residues from the sidecar (the one value that cannot be recomputed without the division) and every recomputed
+ * residue against the run's.  Returns 0 when everything agrees (RECHECK OK). */
+void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d, unsigned long d_out, int size, const uint64_t *Xres, const uint64_t *Rres, const uint64_t *Pres, const uint64_t *Qres, const char *tail, size_t ntail);
+int  mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const char *outfile, comm *c, int rank, int size, unsigned long a0, unsigned long b1, int verbose);
 #ifdef __cplusplus
 }
 #endif
