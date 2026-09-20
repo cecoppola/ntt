@@ -805,10 +805,11 @@ void rns_mul_batch(rns_prod *P, size_t N)
     /* Phase 11 A2 (agent P): the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
-     * planes from the staging); RNS_BATCH_PAIR=0 / RNS_R3=0 restore the old form. */
+     * planes from the staging); RNS_STRIPED_PAIR=0 restores the old form (RNS_BATCH_PAIR=0 / RNS_R3=0 also apply). */
     int logk = logL, r3 = 0, pair = 0;
     if (rns_batch_pair < 0) rns_batch_pair = getenv("RNS_BATCH_PAIR") ? atoi(getenv("RNS_BATCH_PAIR")) : 1;
-    if (rns_gpucrt_min <= 1 && !staged) {
+    static int striped_pair = -1; if (striped_pair < 0) striped_pair = getenv("RNS_STRIPED_PAIR") ? atoi(getenv("RNS_STRIPED_PAIR")) : 1;   /* the switch for A2 as a unit (pair + 3 2^k in this path) */
+    if (striped_pair && rns_gpucrt_min <= 1 && !staged) {
         r3 = pick_len(maxnc, &logk); if (!r3) logk = logL;
         pair = rns_batch_pair && !grpB && N >= 2 && !(N & 1);
         for (size_t i = 0; i < N && pair; i += 2) if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb) pair = 0;
