@@ -293,6 +293,8 @@ int main(int argc, char **argv)
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
+            memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
+            oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
             if (mn_rank() != 0) { int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier */
         } else {
