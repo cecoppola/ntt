@@ -509,8 +509,12 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         for (;;) {
             double s0 = mem_now();
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
+            if (take == nq) {                                          /* Q_t = Q itself (no shift copy); A1: its pieces' transforms may be kept for the division's X Q */
+                if (rns_dist_cache_hold(1)) mn_prod(&t, &r, Q, G); else mn_prod(&t, Q, &r, G);
+            } else {
             mdb_shift(&qt, Q, (long)(nq - take), take, G);            /* Q_t: the top limbs of Q */
             mn_prod(&t, &qt, &r, G);                                   /* Q_t r */
+            }
             mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, G);     /* u ~ B^(2j) */
             int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, G) > 1 || mdb_nonzero_below(&u, 2 * j, G)));
             mdb_pow(&pw, 2 * j, 2 * j + 2, G);
@@ -586,6 +590,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
     if (env_on("NEWTON_LOWPROD")) { mn_prod_cut(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
     else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
+    rns_dist_cache_hold(0);                                           /* A1: Q's kept transforms served the low product */
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
     mdb_shift(&Qw, Q, 0, w, G); mfree(Q);
     double td = mem_now();
