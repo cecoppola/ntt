@@ -45,6 +45,8 @@ size_t mem_dev_pool_bytes(void);
 int   mem_device_count(void);
 void  mem_dev_copy(void *dst, const void *src, size_t bytes);
 void  mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes);   /* hipMemcpy (DMA): CPU streaming stores into device pools run at ~8 GB/s */                    /* total in device pools (not in RSS) */
+void  mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes);   /* Phase 10 H (B2): hipMemcpyAsync on a non-blocking stream of dev (pinned host memory); mem_dev_copy_wait waits for the stream */
+void  mem_dev_copy_wait(int dev);
 /* WP3: pin every OpenMP thread to its home node (thread t -> node t nnodes / nthreads) so that
  * region-aware loops touch node-local memory; mem_unpin() returns a thread to its home */
 void mem_pin_threads(int nnodes);

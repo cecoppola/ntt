@@ -267,11 +267,17 @@ static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 #define MQ_MAXQ 16
 /* residues of x modulo nq primes (each < 2^63) at once: the quarters in parallel, one launch per quarter */
+static pthread_mutex_t g_mq_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 10 H (B1): the output stage's background thread takes X's residues while the division goes on (R's) -- the scratch above is shared */
+static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {
     if (nq > MQ_MAXQ) { fprintf(stderr, "db_mod_qs: %d primes\n", nq); abort(); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
+    pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
+}
+static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
+{
     uint64_t Bq[MQ_MAXQ], Bt[MQ_MAXQ], Bch[MQ_MAXQ], powt[MQ_MAXQ * MQ_T];
     for (int j = 0; j < nq; j++) {
         uint64_t q = qs[j]; Bq[j] = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);

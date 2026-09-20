@@ -44,6 +44,7 @@ void newton_db_divmod_shifted(bigint *X, const struct dbig_s *S, size_t dl, cons
 extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on device (owned by the caller) */
 extern int newton_db_mu_host;                        /* 0: no host copy of mu after the reciprocal */
 extern void (*newton_db_x_hook)(bigint *X, void *arg); extern void *newton_db_x_arg;   /* X on the host before the low product */
+extern struct dbig_s *newton_db_x_dev;               /* Phase 10 H (B1): when set, X stays on the device and is returned here (corrected in place); no host X */
 /* Phase 9 M4 (A-div): the reciprocal and division over sharded numbers (mdb over the top-level group G): X = floor((P + Q) B^dl / Q)
  * stays sharded; P, Q are consumed; the residues of P, Q and R mod qs[nres] come back; t_recip = the reciprocal's seconds */
 struct mdb_s; struct mn_group;

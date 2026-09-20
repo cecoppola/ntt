@@ -132,6 +132,18 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
     HIP_CHECK(hipSetDevice(cur));
 }
+/* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
+ * every copy issued on it -- the seeds' chunks go to the regions while init's hipMemset of the plane pools runs on the
+ * same devices' null streams (a hipMemcpy there queues behind them: 4 GB/s measured) */
+static hipStream_t g_cs[MEM_MAX_DEV]; static int g_cs_init[MEM_MAX_DEV];
+void mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    if (!g_cs_init[dev]) { HIP_CHECK(hipStreamCreateWithFlags(&g_cs[dev], hipStreamNonBlocking)); g_cs_init[dev] = 1; }
+    HIP_CHECK(hipMemcpyAsync(dst, src, bytes, hipMemcpyDefault, g_cs[dev]));
+    HIP_CHECK(hipSetDevice(cur));
+}
+void mem_dev_copy_wait(int dev) { if (g_cs_init[dev]) HIP_CHECK(hipStreamSynchronize(g_cs[dev])); }
 void mem_dev_copy(void *dst, const void *src, size_t bytes)   /* DMA copy between any of: device pools, registered host, pageable host */
 {
     int cur, dd = mem_dev_of(dst), ds = mem_dev_of(src); HIP_CHECK(hipGetDevice(&cur));

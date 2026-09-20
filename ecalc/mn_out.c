@@ -95,15 +95,21 @@ static void fmt_limbs(char *dst, const uint64_t *l, size_t cnt)
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < cnt; i++) fmt18(dst + (cnt - 1 - i) * 18, l[i]);
 }
-/* limbs [a, a+cnt) of a device number (a relative to it; views honoured) into a pinned host buffer */
+/* limbs [a, a+cnt) of a device number (a relative to it; views honoured) into a pinned host buffer.  Phase 10 H (B1): the
+ * writer reads X on the device while the low product runs on the GPUs -- the copies go on a non-blocking stream per APU
+ * (a null-stream hipMemcpy would serialise with every kernel of the product) */
+static hipStream_t g_fs[DB_NQ]; static pthread_once_t g_fs_once = PTHREAD_ONCE_INIT;
+static void fs_init(void) { int dev0; HIP_CHECK(hipGetDevice(&dev0)); for (int d = 0; d < DB_NQ; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreateWithFlags(&g_fs[d], hipStreamNonBlocking)); } HIP_CHECK(hipSetDevice(dev0)); }
 static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
 {
     size_t g = x->off + a, ge = g + cnt; int dev0; HIP_CHECK(hipGetDevice(&dev0));
+    pthread_once(&g_fs_once, fs_init);
     for (int d = 0; d < DB_NQ; d++) {
         size_t q0 = (size_t)d * x->qc, q1 = q0 + x->qc, s = g > q0 ? g : q0, e = ge < q1 ? ge : q1;
         if (s >= e) continue;
         HIP_CHECK(hipSetDevice(d));
-        HIP_CHECK(hipMemcpy(host + (s - g), x->q[d] + (s - q0), (e - s) * 8, hipMemcpyDeviceToHost));
+        HIP_CHECK(hipMemcpyAsync(host + (s - g), x->q[d] + (s - q0), (e - s) * 8, hipMemcpyDeviceToHost, g_fs[d]));
+        HIP_CHECK(hipStreamSynchronize(g_fs[d]));
     }
     HIP_CHECK(hipSetDevice(dev0));
 }
