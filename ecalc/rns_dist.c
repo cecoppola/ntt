@@ -208,12 +208,21 @@ static void dist3_inv(const struct ctx3 *c, uint64_t *x, hipStream_t s)
  * allows on every APU.  RNS_DIST_CACHE = the slot count (default 2, 0: off). */
 #define DIST_CACHE_MAX 8
 struct dist_slot { const void *key; size_t lo, n, q; uint64_t *pl[NR]; int pinned, mn; };   /* mn: a sharded operand (key = its mdb) */
-static struct { int n, navail, tried, hold, pin_next, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc; } g_cache;
-static int cache_slots(void)                                  /* the configured slot count (RNS_DIST_CACHE) */
+static struct { int n, nmn, navail, tried, hold, pin_next, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc; } g_cache;
+/* the configured slot count: RNS_DIST_CACHE for the single-node tier (default 0: at 4e10 the planes' mapping, 7-9 s for
+ * 2 x 16 GiB per APU at 0.055 s/GB, costs more than the ~4 s of transforms it saves -- results/G.md), RNS_DIST_CACHE_MN over
+ * shares (default 2: the planes are 1/gt the size and a hit also skips the operand's all-to-all redistribution) */
+static int cache_slots_of(int mn)
 {
-    if (!g_cache.init) { const char *e = getenv("RNS_DIST_CACHE"); int v = e ? atoi(e) : 2; if (v < 0) v = 0; if (v > DIST_CACHE_MAX) v = DIST_CACHE_MAX; g_cache.n = v; g_cache.init = 1; }
-    return g_cache.n;
+    if (!g_cache.init) {
+        const char *e = getenv("RNS_DIST_CACHE"), *m = getenv("RNS_DIST_CACHE_MN"); int v = e ? atoi(e) : 0, w = m ? atoi(m) : 2;
+        if (v < 0) v = 0; if (v > DIST_CACHE_MAX) v = DIST_CACHE_MAX; if (w < 0) w = 0; if (w > DIST_CACHE_MAX) w = DIST_CACHE_MAX;
+        g_cache.n = v; g_cache.nmn = w; g_cache.init = 1;
+    }
+    return mn ? g_cache.nmn : g_cache.n;
 }
+static int g_cache_mn;                                        /* the tier asking (set by mul_grid / mn_grid before the products) */
+static int cache_slots(void) { return cache_slots_of(g_cache_mn); }
 static size_t cache_slot_bytes(void) { return (size_t)EC_NP * ((size_t)1 << (dist_logn_max() - 2)) * 8; }   /* the largest plane per prime per rank */
 /* the slots' planes, allocated at the first product that wants them: as many of the configured slots as every APU's free
  * memory allows (hipMemGetInfo minus the margin), the four APUs in parallel; the count is decided once */
@@ -487,6 +496,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     int verbose = getenv("RNS_VERBOSE") != 0, pin = g_cache.pin_next, N = 0, fs[DIST_CACHE_MAX], nf = 0;
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
+    g_cache_mn = 0;
     if (cache_slots() && (nc > dist_cap() || pin)) { N = cache_avail(); for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i; }   /* the free (unpinned) slots */
     if (nc <= dist_cap()) {
         struct db_stats s0 = db_st; double t0 = mem_now();
@@ -853,6 +863,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     g_top_ok = trunc;
     int ka = 1, kb = 1, formed = 0, skipped = 0;
     int NS = 0, pin = g_cache.pin_next, fs[DIST_CACHE_MAX], nf = 0;
+    g_cache_mn = 1;
     if (cache_slots() && (nc > cap || pin)) {                 /* the slots: every node must hold the same count -- the group's minimum of what each could allocate */
         int mine = cache_avail(); int agreed = DIST_CACHE_MAX - (int)grp_max(G, (size_t)(DIST_CACHE_MAX - mine)); if (agreed < g_cache.navail) g_cache.navail = agreed;   /* (a collective: the condition is group-wide) */
         NS = g_cache.navail; for (int i = 0; i < NS; i++) if (!g_cache.s[i].pinned) fs[nf++] = i;
