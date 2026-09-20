@@ -52,6 +52,15 @@ struct comm_ops {
     void (*allgather)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
     /* the same for host buffers (M7: the descriptors, carry flags and residues the tree gathers -- k u64 per node) */
     void (*allgather_host)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
+    /* B7 (Phase 10): all-to-all of unequal slabs.  Rank r receives scnt[r] bytes from sendbuf + sdsp[r] of every
+     * rank; they land at recvbuf + rdsp[src] of the receiver, which supplies rcnt[src] (= the sender's scnt[me]:
+     * both sides compute the sizes from the same descriptors; every transport aborts on a mismatch).  Device
+     * memory; the same completion rule as alltoall (may return before completion, comm_wait completes it; the
+     * pipelining depth is the transport's inflight, and a v-exchange is never in flight with an equal-slab one).
+     * Counts and offsets are bytes, any values (a zero count is allowed; 8-byte multiples are fastest). */
+    void (*alltoallv)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp, hipStream_t s);
+    /* the same for host buffers, complete on return */
+    void (*alltoallv_host)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp);
 };
 /* inflight: how many all-to-alls may be posted before a wait (M7's slab pipelining, ntt_dist.c): 1 for the real
  * transports, 2 for the layered one (its xGMI stage of the next exchange runs under the inter-node stage of the
@@ -68,6 +77,11 @@ static inline size_t comm_allreduce_max(comm *c, size_t v) { return c->ops->allr
 static inline void comm_destroy(comm *c) { c->ops->destroy(c); }
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);   /* comm_util.c: the transport's op or the all-to-all fallback */
 void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);   /* host buffers: the transport's op or the device op through temporaries */
+/* B7: the unequal all-to-all (comm_util.c: the transport's op; the host variant through device temporaries where a
+ * transport lacks it).  The typical use: slabs packed back to back in rank order -- comm_prefix() builds the offsets. */
+void comm_alltoallv(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp, hipStream_t s);
+void comm_alltoallv_host(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp);
+static inline size_t comm_prefix(const size_t *cnt, size_t *dsp, int n) { size_t o = 0; for (int r = 0; r < n; r++) { dsp[r] = o; o += cnt[r]; } return o; }   /* offsets of back-to-back slabs; returns the total */
 static inline void comm_send(comm *c, int to, const void *b, size_t n) { c->ops->send(c, to, b, n); }
 static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->recv(c, from, b, n); }
 

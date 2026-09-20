@@ -17,19 +17,44 @@
 #define NR 4
 static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR];
                 hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR];
-                const void *ag_sb[NR]; void *ag_rb[NR]; } G;
+                const void *ag_sb[NR]; void *ag_rb[NR];
+                const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* B7: the v-exchange's tables */
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
-static void g_init(void) { pthread_barrier_init(&G.bar, NULL, NR); }
-/* push: 16-byte vectors, one kernel per peer on its own stream so the three links run concurrently
- * (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11; the copies were serialised on one stream) */
-struct push3 { const ulonglong2 *src[3]; ulonglong2 *dst[3]; };
-/* one kernel drives the three links: block b serves peer b % 3, so the three streams of stores are concurrent */
-__global__ void k_push3(struct push3 a, size_t n)
+static int g_push64, g_push_blocks;   /* COMM_PUSH64=1: 64-bit stores (RESULTS.md 11 measured 909 vs 699 GB/s); COMM_PUSH_BLOCKS: blocks per peer (228) */
+static void g_init(void)
 {
-    int peer = blockIdx.x % 3; size_t nb = gridDim.x / 3, b = blockIdx.x / 3;
-    const ulonglong2 *src = a.src[peer]; ulonglong2 *dst = a.dst[peer];
+    pthread_barrier_init(&G.bar, NULL, NR);
+    g_push64 = getenv("COMM_PUSH64") ? atoi(getenv("COMM_PUSH64")) : 0;
+    g_push_blocks = getenv("COMM_PUSH_BLOCKS") ? atoi(getenv("COMM_PUSH_BLOCKS")) : 228;
+    if (g_push_blocks < 1) g_push_blocks = 1;
+}
+/* push: one kernel drives the three links -- block b serves peer b % 3, so the three streams of stores are
+ * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 16-byte vectors, or 64-bit
+ * words with COMM_PUSH64.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
+struct push3 { const void *src[3]; void *dst[3]; size_t n[3]; };
+template <typename T> __global__ void k_push3(struct push3 a)
+{
+    int peer = blockIdx.x % 3; size_t nb = gridDim.x / 3, b = blockIdx.x / 3, n = a.n[peer];
+    const T *src = (const T *)a.src[peer]; T *dst = (T *)a.dst[peer];
     size_t i = b * blockDim.x + threadIdx.x, stride = nb * blockDim.x;
     for (; i < n; i += stride) dst[i] = src[i];
+}
+/* the element width of a push: 16 when every (src, dst, bytes) is a 16-byte multiple, 8 for 8-byte ones, else 0
+ * (the transfer goes by memcpy) */
+static int push_width(const struct push3 *a, const size_t *bytes)
+{
+    int w = g_push64 ? 8 : 16;
+    for (int k = 0; k < 3; k++) if (bytes[k] && (bytes[k] % w || (uintptr_t)a->src[k] % w || (uintptr_t)a->dst[k] % w)) w = 8;
+    for (int k = 0; k < 3; k++) if (bytes[k] && (bytes[k] % 8 || (uintptr_t)a->src[k] % 8 || (uintptr_t)a->dst[k] % 8)) return 0;
+    return w;
+}
+/* the three peers' blocks (bytes[k] each, k = the peer's slot) pushed on stream s */
+static void push_run(struct push3 a, const size_t *bytes, hipStream_t s)
+{
+    int w = push_width(&a, bytes);
+    if (!w) { for (int k = 0; k < 3; k++) if (bytes[k]) HIP_CHECK(hipMemcpyAsync(a.dst[k], a.src[k], bytes[k], hipMemcpyDeviceToDevice, s)); return; }
+    for (int k = 0; k < 3; k++) a.n[k] = bytes[k] / w;
+    if (w == 16) k_push3<ulonglong2><<<g_push_blocks * 3, 256, 0, s>>>(a); else k_push3<uint64_t><<<g_push_blocks * 3, 256, 0, s>>>(a);
 }
 static int x_rank(comm *c) { return c->rank; }
 static int x_size(comm *c) { (void)c; return NR; }
@@ -44,19 +69,46 @@ static void x_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     int me = c->rank; G.rb[me] = rb; G.bytes = bytes; G.s[me] = s;
     pthread_barrier_wait(&G.bar);                       /* every receive buffer is known */
     HIP_CHECK(hipSetDevice(me)); streams_init(me);
-    size_t nvec = bytes / 16; struct push3 a; int k = 0;
+    struct push3 a; size_t nb[3]; int k = 0;
     for (int r = 0; r < NR; r++) {                       /* my slab r -> rank r's slab me */
         const void *src = (const char *)sb + (size_t)r * bytes; void *dst = (char *)G.rb[r] + (size_t)me * bytes;
         if (r == me) { HIP_CHECK(hipMemcpyAsync(dst, src, bytes, hipMemcpyDeviceToDevice, s)); continue; }
-        a.src[k] = (const ulonglong2 *)src; a.dst[k] = (ulonglong2 *)dst; k++;
+        a.src[k] = src; a.dst[k] = dst; nb[k] = bytes; k++;
     }
-    k_push3<<<228 * 3, 256, 0, s>>>(a, nvec);
+    push_run(a, nb, s);
+}
+/* B7: the unequal exchange -- the receivers' tables are published, checked against my counts, and my blocks pushed
+ * to their offsets (a memcpy where a block is not 8-byte aligned) */
+static void x_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+{
+    int me = c->rank; G.rb[me] = rb; G.s[me] = s; G.scnt[me] = scnt; G.rcnt[me] = rcnt; G.rdsp[me] = rdsp;
+    pthread_barrier_wait(&G.bar);                       /* every receive buffer and table is known */
+    HIP_CHECK(hipSetDevice(me)); streams_init(me);
+    struct push3 a; size_t nb[3]; int k = 0;
+    for (int r = 0; r < NR; r++) {
+        if (scnt[r] != G.rcnt[r][me]) { fprintf(stderr, "comm_xgmi: alltoallv count mismatch: rank %d sends %zu to rank %d, which expects %zu\n", me, scnt[r], r, G.rcnt[r][me]); exit(1); }
+        const void *src = (const char *)sb + sdsp[r]; void *dst = (char *)G.rb[r] + G.rdsp[r][me];
+        if (r == me) { if (scnt[r] && src != dst) HIP_CHECK(hipMemcpyAsync(dst, src, scnt[r], hipMemcpyDeviceToDevice, s)); continue; }
+        a.src[k] = src; a.dst[k] = dst; nb[k] = scnt[r]; k++;
+    }
+    push_run(a, nb, s);
 }
 static void x_wait(comm *c)
 {
     HIP_CHECK(hipSetDevice(c->rank));
     HIP_CHECK(hipStreamSynchronize(G.s[c->rank]));
     pthread_barrier_wait(&G.bar);                       /* everyone's sends have landed */
+}
+static void x_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
+{
+    int me = c->rank; G.hsb[me] = sb; G.scnt[me] = scnt; G.rdsp[me] = sdsp;   /* rdsp slot: the senders' offsets */
+    pthread_barrier_wait(&G.bar);
+    for (int r = 0; r < NR; r++) {
+        size_t n = G.scnt[r][me];
+        if (n != rcnt[r]) { fprintf(stderr, "comm_xgmi: alltoallv_host count mismatch (%d -> %d: %zu vs %zu)\n", r, me, n, rcnt[r]); exit(1); }
+        if (n) memmove((char *)rb + rdsp[r], (const char *)G.hsb[r] + G.rdsp[r][me], n);
+    }
+    pthread_barrier_wait(&G.bar);                       /* nobody's send buffer is reused before every read */
 }
 static void x_barrier(comm *c) { (void)c; pthread_barrier_wait(&G.bar); }
 static uint64_t mulmod128(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((unsigned __int128)a * b % q); }
@@ -84,11 +136,9 @@ static void x_allgather(comm *c, const void *sb, void *rb, size_t bytes)
     hipStream_t s = G.ps[me][me];
     void *self = (char *)rb + (size_t)me * bytes;
     if (self != sb) HIP_CHECK(hipMemcpyAsync(self, sb, bytes, hipMemcpyDeviceToDevice, s));
-    if (bytes >= 16 && bytes % 16 == 0) {
-        struct push3 a; int k = 0;
-        for (int r = 0; r < NR; r++) if (r != me) { a.src[k] = (const ulonglong2 *)sb; a.dst[k] = (ulonglong2 *)((char *)G.ag_rb[r] + (size_t)me * bytes); k++; }
-        k_push3<<<228 * 3, 256, 0, s>>>(a, bytes / 16);
-    } else for (int r = 0; r < NR; r++) if (r != me) HIP_CHECK(hipMemcpyAsync((char *)G.ag_rb[r] + (size_t)me * bytes, sb, bytes, hipMemcpyDeviceToDevice, s));
+    { struct push3 a; size_t nb[3]; int k = 0;
+      for (int r = 0; r < NR; r++) if (r != me) { a.src[k] = sb; a.dst[k] = (char *)G.ag_rb[r] + (size_t)me * bytes; nb[k] = bytes; k++; }
+      push_run(a, nb, s); }
     HIP_CHECK(hipStreamSynchronize(s));
     pthread_barrier_wait(&G.bar);                       /* everyone's block has landed */
 }
@@ -99,7 +149,7 @@ static void x_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
     for (int r = 0; r < NR; r++) { void *dst = (char *)rb + (size_t)r * bytes; if (dst != G.ag_sb[r]) memcpy(dst, G.ag_sb[r], bytes); }
     pthread_barrier_wait(&G.bar);                       /* nobody's send block is reused before every read */
 }
-static const struct comm_ops xgmi_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, x_modq, x_max, x_destroy, 0, 0, x_allgather, x_allgather_host };
+static const struct comm_ops xgmi_ops = { x_rank, x_size, x_alltoall, x_wait, x_barrier, x_modq, x_max, x_destroy, 0, 0, x_allgather, x_allgather_host, x_alltoallv, x_alltoallv_host };
 comm *comm_xgmi_create(int rank)
 {
     pthread_once(&g_once, g_init);

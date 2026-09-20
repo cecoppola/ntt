@@ -65,6 +65,67 @@ static int check_allgather_sim4(void)
     if (bad) printf("  allgather over sim4: %d words wrong\n", bad);
     return bad == 0;
 }
+/* B7: the unequal all-to-all of a communicator -- per-pair counts of 0..8 units (8 B, 1000 B, 1 MiB), the send slabs
+ * back to back, the receive slabs in reverse rank order; device op then host op; the pattern (from, to, round, k) */
+static size_t vunits(int from, int to, int round) { return ((from + to + round) % 5 == 0) ? 0 : (size_t)((from * 7 + to * 13 + round * 5) % 9); }
+static uint64_t vw(int from, int to, int round, size_t k) { return ((uint64_t)from << 48) ^ ((uint64_t)to << 40) ^ ((uint64_t)round << 32) ^ (k * 0x9E3779B97F4A7C15ULL); }
+struct vbuf { size_t *scnt, *sdsp, *rcnt, *rdsp, ts, tr; uint64_t *hs, *hr; };
+static void vbuf_make(struct vbuf *v, int me, int n, int round, size_t u)
+{
+    v->scnt = (size_t *)malloc(4 * n * sizeof(size_t)); v->sdsp = v->scnt + n; v->rcnt = v->sdsp + n; v->rdsp = v->rcnt + n;
+    for (int r = 0; r < n; r++) { v->scnt[r] = vunits(me, r, round) * u; v->rcnt[r] = vunits(r, me, round) * u; }
+    v->ts = comm_prefix(v->scnt, v->sdsp, n); v->tr = 0;
+    for (int r = n - 1; r >= 0; r--) { v->rdsp[r] = v->tr; v->tr += v->rcnt[r]; }
+    v->hs = (uint64_t *)malloc(v->ts + 8); v->hr = (uint64_t *)malloc(v->tr + 8); memset(v->hr, 0xEE, v->tr + 8);
+    for (int r = 0; r < n; r++) for (size_t k = 0; k < v->scnt[r] / 8; k++) v->hs[v->sdsp[r] / 8 + k] = vw(me, r, round, k);
+}
+static int vbuf_check(const struct vbuf *v, int me, int n, int round)
+{
+    int bad = 0;
+    for (int r = 0; r < n; r++) for (size_t k = 0; k < v->rcnt[r] / 8; k++) if (v->hr[v->rdsp[r] / 8 + k] != vw(r, me, round, k)) bad++;
+    return bad;
+}
+static void vbuf_free(struct vbuf *v) { free(v->scnt); free(v->hs); free(v->hr); }
+static int check_alltoallv(comm *c)
+{
+    int n = comm_size(c), me = comm_rank(c), bad = 0; size_t units[] = { 8, 1000 * 8, 1 << 20 };
+    for (int round = 0; round < 6; round++) {
+        struct vbuf v; vbuf_make(&v, me, n, round, units[round % 3]);
+        if (round < 3) {
+            uint64_t *ds, *dr; HIP_CHECK(hipMalloc(&ds, v.ts + 8)); HIP_CHECK(hipMalloc(&dr, v.tr + 8));
+            HIP_CHECK(hipMemcpy(ds, v.hs, v.ts + 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dr, v.hr, v.tr + 8, hipMemcpyHostToDevice));
+            comm_alltoallv(c, ds, v.scnt, v.sdsp, dr, v.rcnt, v.rdsp, 0); comm_wait(c);
+            HIP_CHECK(hipMemcpy(v.hr, dr, v.tr + 8, hipMemcpyDeviceToHost));
+            HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
+        } else comm_alltoallv_host(c, v.hs, v.scnt, v.sdsp, v.hr, v.rcnt, v.rdsp);
+        bad += vbuf_check(&v, me, n, round); vbuf_free(&v);
+    }
+    if (bad) printf("  alltoallv over %d ranks: rank %d: %d words wrong\n", n, me, bad);
+    return bad == 0;
+}
+/* the synthetic communicator: the four ranks post, then wait (device); the host op completes at the fourth call */
+static int check_alltoallv_sim4(void)
+{
+    comm *cm[4]; for (int r = 0; r < 4; r++) cm[r] = comm_sim4_create(r);
+    int bad = 0;
+    for (int round = 0; round < 2; round++) {
+        struct vbuf v[4]; uint64_t *ds[4], *dr[4];
+        for (int r = 0; r < 4; r++) {
+            vbuf_make(&v[r], r, 4, round, round ? 1000 * 8 : 8);
+            HIP_CHECK(hipMalloc(&ds[r], v[r].ts + 8)); HIP_CHECK(hipMalloc(&dr[r], v[r].tr + 8));
+            HIP_CHECK(hipMemcpy(ds[r], v[r].hs, v[r].ts + 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dr[r], v[r].hr, v[r].tr + 8, hipMemcpyHostToDevice));
+        }
+        for (int r = 0; r < 4; r++) comm_alltoallv(cm[r], ds[r], v[r].scnt, v[r].sdsp, dr[r], v[r].rcnt, v[r].rdsp, 0);
+        for (int r = 0; r < 4; r++) comm_wait(cm[r]);
+        for (int r = 0; r < 4; r++) { HIP_CHECK(hipMemcpy(v[r].hr, dr[r], v[r].tr + 8, hipMemcpyDeviceToHost)); bad += vbuf_check(&v[r], r, 4, round); }
+        for (int r = 0; r < 4; r++) memset(v[r].hr, 0xEE, v[r].tr + 8);
+        for (int r = 0; r < 4; r++) comm_alltoallv_host(cm[r], v[r].hs, v[r].scnt, v[r].sdsp, v[r].hr, v[r].rcnt, v[r].rdsp);
+        for (int r = 0; r < 4; r++) { bad += vbuf_check(&v[r], r, 4, round); vbuf_free(&v[r]); HIP_CHECK(hipFree(ds[r])); HIP_CHECK(hipFree(dr[r])); }
+    }
+    for (int r = 0; r < 4; r++) comm_destroy(cm[r]);
+    if (bad) printf("  alltoallv over sim4: %d words wrong\n", bad);
+    return bad == 0;
+}
 static double tnow(void) { return omp_get_wtime(); }
 static int one(int prime, int logR, int logC)
 {
@@ -145,6 +206,7 @@ static int one_xgmi(int prime, int logR, int logC)
         comm_barrier(cm);
         if (dist_st.on && r == 0) printf("  DIST_STATS (four ranks summed / 4): rows %.4f cols %.4f pack %.4f exposed exchange %.4f s\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
         if (!check_allgather(cm, 0)) { printf("  xgmi allgather failed on rank %d\n", r); bad_ag = 1; }
+        if (!check_alltoallv(cm)) { printf("  xgmi alltoallv failed on rank %d\n", r); bad_ag = 1; }
         HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) got[(r * rr + il) + R * j] = tmp[il * C + j];
         dist_plan_free(&pl); comm_destroy(cm); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); free(tmp);
@@ -175,12 +237,14 @@ int main(int argc, char **argv)
                     HIP_CHECK(hipSetDevice(d));
                     comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
                     ok = check_allgather(cm, 0) && ok;
+                    ok = check_alltoallv(cm) && ok;
                     comm_destroy(cm); comm_destroy(xg);
                 }
                 HIP_CHECK(hipSetDevice(0));
             }
-            VERIFY(ok, "layered allgather");
+            VERIFY(ok, "layered allgather + alltoallv");
             VERIFY(check_allgather(mn_comm(0), 0), "mesh allgather");
+            VERIFY(check_alltoallv(mn_comm(0)), "mesh alltoallv");
         }
         mn_barrier(); mn_finalize();
         return verify_done("t_dist");
@@ -190,8 +254,10 @@ int main(int argc, char **argv)
         tcp = comm_tcp_create();
         printf("t_dist: rank %d of %d over TCP\n", rk, comm_size(tcp));
         VERIFY(check_allgather(tcp, 0), "tcp allgather");
+        VERIFY(check_alltoallv(tcp), "tcp alltoallv");
     }
-    if (!xgmi && !tcp) VERIFY(check_allgather_sim4(), "sim4 allgather");
+    if (!xgmi && !tcp) { VERIFY(check_allgather_sim4(), "sim4 allgather"); VERIFY(check_alltoallv_sim4(), "sim4 alltoallv"); }
+    if (!xgmi && !tcp) { comm *lc = comm_local_create(); VERIFY(check_alltoallv(lc), "local alltoallv"); comm_destroy(lc); }
     for (int prime = 0; prime < 4; prime++)
         for (int logR = 10; logR <= 13; logR++)
             for (int logC = 10; logC <= 13; logC++)

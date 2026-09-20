@@ -47,3 +47,25 @@ void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t byt
     comm_allgather(c, sendbuf, recvbuf, bytes);
 #endif
 }
+/* B7: the unequal all-to-all.  Every transport has the device op; the host variant is the transport's, else the
+ * device op through temporaries (a mismatch of a receiver's rcnt with the sender's scnt is caught by the transport). */
+void comm_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
+{
+    if (!c->ops->alltoallv) { fprintf(stderr, "comm: alltoallv not provided by this transport\n"); exit(1); }
+    c->ops->alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, s);
+}
+void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
+{
+    if (c->ops->alltoallv_host) { c->ops->alltoallv_host(c, sb, scnt, sdsp, rb, rcnt, rdsp); return; }
+#ifndef COMM_HOST_ONLY
+    int n = comm_size(c); size_t st = 0, rt = 0;
+    for (int r = 0; r < n; r++) { size_t e = sdsp[r] + scnt[r]; if (e > st) st = e; e = rdsp[r] + rcnt[r]; if (e > rt) rt = e; }
+    void *ds, *dr; HIP_CHECK(hipMalloc(&ds, st ? st : 1)); HIP_CHECK(hipMalloc(&dr, rt ? rt : 1));
+    if (st) HIP_CHECK(hipMemcpy(ds, sb, st, hipMemcpyHostToDevice));
+    comm_alltoallv(c, ds, scnt, sdsp, dr, rcnt, rdsp, 0); comm_wait(c);
+    if (rt) HIP_CHECK(hipMemcpy(rb, dr, rt, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipFree(ds)); HIP_CHECK(hipFree(dr));
+#else
+    comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, 0); comm_wait(c);
+#endif
+}
