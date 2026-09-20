@@ -639,7 +639,7 @@ struct mn_times { double redistribute, ntt, crt, out, carry, total; };
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
  * of this node's window [tlo, thi) of the piece (in piece coordinates), the spills are added there, and C's share
  * += T << (tlo + shift - clo).  Np = the piece's basis (na + nb, + 1 with X). */
-static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int sa, int sb)
+static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB)
 {
     int g = G->g, gt = G->gt, me = G->me, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
     int node = G->g0 + me, tnode = me < gt, verbose = getenv("RNS_VERBOSE") != 0;
@@ -659,7 +659,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     /* A1 over shares: an operand whose transform is cached skips its redistribution, gathers and forward transforms on every
      * node (the keys are the views' mdb, offset and length -- the same decision on every node of the group) */
     int ha = cache_slots() ? cache_lookup(A->m, A->off, A->len, q, 1) : -1, hb = cache_slots() ? cache_lookup(B->m, B->off, B->len, q, 1) : -1;
-    cache_plan(&sa, &sb, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1);
+    cache_plan(&slA, &slB, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1);
     /* slab sizes per operand and for the result (the largest window of any node) */
     size_t SA = slab_limbs(view_max_share(A), R, rows, q), SB = slab_limbs(view_max_share(B), R, rows, q), SX = X ? slab_limbs(max_share(X), R, rows, q) : 0;
     size_t maxwin = 0; for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (hi - lo > maxwin) maxwin = hi - lo; }
@@ -678,8 +678,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         uint64_t *sb = db_pool_alloc(d, g * Smax * 8), *rbA = db_pool_alloc(d, g * Smax * 8), *rbB = db_pool_alloc(d, g * SB * 8);
         uint64_t *cx = (X && tnode) ? db_pool_alloc(d, q * 8) : 0, *tmp = tnode ? db_pool_alloc(d, q * 8) : 0;
         uint64_t *ca = 0, *cb = 0;                              /* A1: the cache planes of A and B on this rank (transform nodes only) */
-        if (tnode && sa >= 0) { struct dist_slot *sl = &g_cache.s[sa]; if (!sl->pl[d]) sl->pl[d] = db_pool_alloc(d, (size_t)EC_NP * q * 8); ca = sl->pl[d]; }
-        if (tnode && sb >= 0) { struct dist_slot *sl = &g_cache.s[sb]; if (!sl->pl[d]) sl->pl[d] = db_pool_alloc(d, (size_t)EC_NP * q * 8); cb = sl->pl[d]; }
+        if (tnode && slA >= 0) { struct dist_slot *sl = &g_cache.s[slA]; if (!sl->pl[d]) sl->pl[d] = db_pool_alloc(d, (size_t)EC_NP * q * 8); ca = sl->pl[d]; }
+        if (tnode && slB >= 0) { struct dist_slot *sl = &g_cache.s[slB]; if (!sl->pl[d]) sl->pl[d] = db_pool_alloc(d, (size_t)EC_NP * q * 8); cb = sl->pl[d]; }
         uint64_t *spill_sb = db_pool_alloc(d, (size_t)g * C * 4 * 8); spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
         struct seg *hseg = (struct seg *)malloc(4 * g * sizeof *hseg), *hsA = hseg, *hsB = hseg + g, *hsX = hseg + 2 * g, *hsO = hseg + 3 * g;
         struct seg *dseg = (struct seg *)db_pool_alloc(d, 4 * g * sizeof *hseg), *dsA = dseg, *dsB = dseg + g, *dsX = dseg + 2 * g, *dsO = dseg + 3 * g;
@@ -772,7 +772,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     rns_dist_st.n++; rns_dist_st.t_total += tt; rns_dist_st.t_load += mr; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc; rns_dist_st.t_merge += mo + tcar;
     tm->redistribute += mr; tm->ntt += mf; tm->crt += mc; tm->out += mo; tm->carry += tcar; tm->total += tt;
     if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks (%zu + %zu%s limbs at %zu, window [%zu, %zu) of share [%zu, %zu)%s): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f total %.3f s%s%s\n",
-                        node, logn, logR, logC, gt, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt, ha >= 0 ? " [A hit]" : sa >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : sb >= 0 ? " [B cached]" : "");
+                        node, logn, logR, logC, gt, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt, ha >= 0 ? " [A hit]" : slA >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : slB >= 0 ? " [B cached]" : "");
 }
 mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G)
 {
@@ -816,7 +816,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     struct mn_times tm; memset(&tm, 0, sizeof tm);
     g_top_ok = trunc;
     int ka = 1, kb = 1, formed = 0, skipped = 0;
-    int N = cache_slots(), pin = g_cache.pin_next, fs[DIST_CACHE_MAX], nf = 0; for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i;
+    int NS = cache_slots(), pin = g_cache.pin_next, fs[DIST_CACHE_MAX], nf = 0; for (int i = 0; i < NS; i++) if (!g_cache.s[i].pinned) fs[nf++] = i;
     if (nc <= cap) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, pin && nf ? fs[0] : -1); formed = 1; if (pin && nf) { g_cache.s[fs[0]].pinned = 1; g_cache.pin_next = 0; } } else skipped = 1; }
     else {
         int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
@@ -841,7 +841,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     }
     g_top_ok = 0;
     cache_drop(0);
-    if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed, %d skipped%s%s (cache %d slots: %zu hits, %zu misses)\n", node, na, nb, G->gt, mn_logn_cap(G->gt), ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "", N, g_cache.hits, g_cache.misses);
+    if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed, %d skipped%s%s (cache %d slots: %zu hits, %zu misses)\n", node, na, nb, G->gt, mn_logn_cap(G->gt), ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "", NS, g_cache.hits, g_cache.misses);
     mdb_norm(&Cn, G, N);
     if (Cm->sh.cap) db_free(&Cm->sh);
     *Cm = Cn;
