@@ -1161,3 +1161,49 @@ user decides. Sizes from RESULTS §74–§75 and results/{G,H,M,C,T}.md.
 | 9 | single-node throughput items left (§22): A4 tile budget in pair mode (≤ 1 s), I11 shared contexts/tables and pool zeroing by kernels (−1…−2 s of init), A7/I8 decimal `mul_1` (0 today), I5 Karatsuba (binary only, −2.5 s), I13 two-prime batch tier (unknown) | each 0.5–1 d; only A4 and I11 have a plausible gain on the decimal default | init at 16.4 s is 12 s of driver mapping — I11 attacks the other 4; A4 is a tuning knob | ≤ 3 s in total. Recommend after 7, if at all. |
 | 10 (C3) | load balance at non-power-of-two node counts | (a) implement (1 d); (b) fix the target size at a power of two | (a) the group's redistribution gets a general block-cyclic map | depends on the target's node count (2 048 = 2¹¹ needs nothing). Recommend (b) unless the count is known to be otherwise. |
 | 11 | what Phase 11 is | (a) single node: 7 + 3 + 9 (≈ −5…−8 s → ≈ 75–78 s); (b) multi-node hardening: 6 + 4 + 8, then M8 when the target exists; (c) both with two agents | (a) 2–3 d; (b) 2–4 d; (c) the §19 protocol | (a) moves the paper's number; (b) moves the 2 048-node readiness. Recommend (c): the tracks touch disjoint files (planes/init vs. mdb/comm/verify). |
+
+## 24. Phase 11 — proposed: a multi-hour session with six agents on the three priorities (2026-09-20)
+
+The user's priorities: (1) clean, efficient scaling to ~2 048 nodes, working
+well at ~576, while staying fast and lean on one node; (2) speed from every
+source — GPU compute, xGMI overlap, CPU overlap, less cross-node traffic,
+interconnect hidden, general wall-clock; (3) minimum memory per digit.
+576 = 9 · 2⁶ is not a power of two, which turns §23's decision 10 into a
+requirement. aac6's compute nodes have OpenMPI, libfabric 1.20 and RCCL
+(1 GbE between nodes), so an MPI transport can be built and verified now.
+
+The proposal takes these positions on §23 (each still the user's call):
+1 (c) after 6 · 2 (a) · 3 (c) · 4 (a, all consumers — required at 2 048) ·
+5 (a — priority 3) · 6 (a) · 7 (a, on below 5 × 10¹⁰) · 8 (b) · 9 (A4, I11) ·
+10 (a — 576) · 11 both tracks.
+
+| agent | priority | owns | items (in order) | gate |
+|---|---|---|---|---|
+| **S** scaling transport | 1 | `comm_mpi.c` (new), `comm.h` (additive), `mn.c` (mesh/communicator creation), `mnrun.sh`, `tests/t_comm.c` | M8-a: an MPI transport behind `comm.h` — all-to-all, all-to-all-v, all-gather, barrier, max / sum-mod-q, point-to-point, `inflight` — with sub-communicators per tree level by `MPI_Comm_split` replacing the per-level TCP meshes and port slots; four APU threads per process on four communicators (`MPI_THREAD_MULTIPLE`) or one communicator with tagged slabs, measured both ways; `mnrun.sh` launching by `mpirun`; the TCP transport kept as the fallback | `t_comm`/`t_dist` in every mode at 2–8 processes on one node and 2–3 real nodes; 10⁸ at sizes 2, 3, 4 and 10⁹ at 2, 4 identical through MPI; the regression green with `COMM_TRANSPORT=mpi` |
+| **L** layout at any size | 1 | `rns_dist.c`, `mdb.h`, `tests/t_mn_grid.c` | C3: a general block-cyclic map so a group of any size (3, 5, 6, 9, 18, 576) balances the distributed transform (nodes beyond the largest power of two no longer idle); B7: the four consumers moved to `alltoallv` (`mdb_shift`, `mdb_add_shifted`, the redistribution, `mdb_to_host_all` → allgather; C.md has the code) — the padded scratch (g × slab per APU) gone | `t_mn_grid` at 2, 3, 5, 6, 9 processes; 10⁸ at sizes 3, 5, 6 and 10⁹ at 3 identical; per-process scratch reported by `mem_report` at size 2 (−17.6 GB per node at 4 × 10¹⁰) |
+| **X** cross-node traffic | 2 | `newton_db.c` (`recip_mn`, `newton_mn_divmod`), a new `mn_model.py`, `ntt_dist.c` stats only | X1: group size chosen per product size in the reciprocal's doublings and the division (the early doublings on 1, 4, 16… nodes rather than the whole group — latency-bound at 2 048) with the cost model deciding; X2: the fabric cost model — a script that takes the measured per-node numbers (this node's transforms, the xGMI exchange, the slab pipeline's hidden fraction) and the target fabric (400 GB/s per node, the layered all-to-all's message sizes) and gives per-node wall, bytes on the fabric, and exposed communication at g = 4, 64, 576, 2 048 for 4 and 8 × 10¹⁰ digits per node — the document that shows where the traffic is; X3: the transform cache's reach extended (Q's pieces held across more of the division's products where the block pool allows) | sizes 2–4 identical with X1 on; the division at size 4 not slower on one node; the model's numbers reproduced at g = 2, 4 on aac6 within 20 % (TCP scaled) |
+| **P** single-node speed | 2 | `rns_mul.c` (pools), `binsplit.c` (level-22 pairing), the init of `ecalc.c`, `ntt.c` tile budget | B3: 3·2³⁰-point planes sized at init for the top levels (the 15 s first-use penalty gone), on by default below 5 × 10¹⁰; A2: the four level-22 products paired (shared operand transformed once); §23-3: `ECALC_DM_POOL` on above 5 × 10¹⁰; I11: contexts and twiddle tables built once and shared, pool clears by kernels; A4: the tile budget in pair mode | 10⁹ identical both bases; five runs at 4 × 10¹⁰ identical, target ≤ 79 s; 7 × 10¹⁰ not slower with the planes off |
+| **V** verification and cleanup | 1, 2 | `verify.c`, `mn_out.c`, the residue kernel in `dbig.c`, `tests/`, then the rejected paths' files | D5 first: the per-share residues logged per prime before the cross-node reduction, the failure reproduced under forced growth at 10¹⁰/4 (T's recipe), the stage identified and fixed; then E1 (c): `DIST_PLANE2`, `BS_SEED_DIRECT=0`, `ECALC_OVERLAP_COPY` and — once D5 is closed — the host-flow stand-ins deleted; E2: `!results/*.md`; a residue-only recheck mode (`ECALC_RECHECK=1`: recompute the Tier-1 residues from the digit file and the checkpointed P, Q without redoing the run) | 20 forced-growth runs at 10¹⁰/4 all VERIFY OK on every node; the regression green after the deletions; the recheck mode identical to the in-run check |
+| **M** memory | 3 | `mem.c`, `dbig.c` (pool layout), `binsplit_pregrow`/the simulated layout, `mn_out.c` sizes only | §23-5: the arena laid out with t₁'s quarter as its contiguous tail (no mapping inside the division: −62…−89 GB); the tree's slabs at size > 1 sized into the arena (−5 GB per process at 10¹⁰/4); a memory model per node as a function of digits/g alongside X2 (device and host, every pool); then the next size on one node: 9 × 10¹⁰ or 10¹¹ attempted with the tail layout | 4 × 10¹⁰ identical with the pool's hipMalloc inside dm at 0; 8 × 10¹⁰ VERIFY OK at a lower peak; 10¹¹ VERIFY OK or the exact byte that stops it |
+| **integrator** | | merges in readiness order, `mnaccept.sh --full` after each, the 5 × 10⁹ two-real-node run when two nodes are idle (§23-8), RESULTS §76, PLAN log, paper v4 numbers | | |
+
+File ownership is disjoint except two additive seams: X's `recip_mn` group
+choice needs `mn_group_at` for subgroups (S's `mn.c`, additive; agreed on
+day 0), and P's `ecalc.c` init lines against V's deletions in the output
+tail (different regions of the file). Node protocol as §19/§21: jobs
+≤ 45 min named per agent, ≤ 3 queued, release after each batch; two idle
+nodes plus the shared one.
+
+Timeline (hours): 0 — launch all six. 0–4 — agents; V's D5 fix and L's
+`t_mn_grid` at non-power-of-two sizes are the first merges (they unblock
+E1 and X1). 3–6 — merges, regression after each, S's MPI regression run
+against `main`. 6–8 — closing: five runs at 4 × 10¹⁰ (target ≤ 79 s),
+8 × 10¹⁰ and the attempt beyond, the model's tables at 576 and 2 048
+(X2/M) in RESULTS §76, paper v4.
+
+Expected outcome: single node ≈ 78–80 s and ≈ 200 GB device at 4 × 10¹⁰;
+one node beyond 8 × 10¹⁰; the multi-node code on MPI with sub-communicators
+per level, balanced at any group size, without padded exchanges, with the
+early doublings on small groups; a per-node model of time, traffic and
+memory at 576 and 2 048 nodes; the verification path's intermittent fault
+closed and a recheck mode; the rejected paths gone.
