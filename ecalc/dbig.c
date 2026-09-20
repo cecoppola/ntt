@@ -54,10 +54,45 @@ static void ext_insert(int d, char *p, size_t bytes, int reg)
     else if (mnext) { e[i].p = p; e[i].bytes += bytes; }
     else { if (n >= 8192) { fprintf(stderr, "dbig: extent table full\n"); abort(); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
 }
-static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front */
+/* Phase 11 M (PLAN 26, decision 5): a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
+ * by binsplit_pregrow to hold the largest block of the dm phase, t1's quarter).  Requests >= thresh are carved from the BACK of
+ * the extent that ends at the tail's end (so the largest block lands there, contiguous); requests below it are best-fit over
+ * the extents with the tail's bytes excluded, so the tail stays whole until the large request comes.  Both preferences are
+ * soft: a large request the tail cannot hold takes the best fit anywhere, a small one that fits nowhere else takes the tail,
+ * and only then does the pool hipMalloc -- never a failure that today's pool would not have had. */
+static struct { char *p, *end; size_t bytes, thresh; size_t n_tail, n_spill; } g_tail[DB_NQ];
+void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh)
+{
+    if (dev < 0 || dev >= DB_NQ) return;
+    pthread_mutex_lock(&g_pool_mx);
+    g_tail[dev].p = (char *)p; g_tail[dev].bytes = bytes; g_tail[dev].end = (char *)p + bytes; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
+    pthread_mutex_unlock(&g_pool_mx);
+}
+size_t db_pool_tail_bytes(int dev) { return dev >= 0 && dev < DB_NQ ? g_tail[dev].bytes : 0; }
+size_t db_pool_tail_stats(int dev, size_t *spills) { if (dev < 0 || dev >= DB_NQ) { if (spills) *spills = 0; return 0; } if (spills) *spills = g_tail[dev].n_spill; return g_tail[dev].n_tail; }
+static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's bytes not in the reserved tail (an extent never straddles the tail's end: it is a region's end) */
+{
+    if (!g_tail[d].bytes) return e->bytes;
+    char *a = e->p, *b = e->p + e->bytes, *ta = g_tail[d].p, *tb = g_tail[d].end;
+    if (b <= ta || a >= tb) return e->bytes;
+    size_t ov = (size_t)((b < tb ? b : tb) - (a > ta ? a : ta));
+    return e->bytes - ov;
+}
+static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front (the reserved tail as above) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, best = -1;
-    for (int i = 0; i < n; i++) if (e[i].bytes >= need && (best < 0 || e[i].bytes < e[best].bytes)) best = i;
+    if (g_tail[d].bytes && need >= g_tail[d].thresh) {       /* a large request: from the back of the extent ending at the tail's end */
+        for (int i = 0; i < n; i++) if (e[i].p + e[i].bytes == g_tail[d].end && e[i].bytes >= need) {
+            char *p = e[i].p + e[i].bytes - need; *reg = e[i].reg; e[i].bytes -= need; g_tail[d].n_tail++;
+            if (!e[i].bytes) { memmove(&e[i], &e[i + 1], (n - i - 1) * sizeof *e); g_ext[d].n--; }
+            return p;
+        }
+    }
+    int excl = g_tail[d].bytes && need < g_tail[d].thresh;   /* a small request: the tail's bytes do not count ... */
+    for (int pass = 0; pass < 2 && best < 0; pass++, excl = 0) {   /* ... unless nothing else fits (pass 2) */
+        for (int i = 0; i < n; i++) { size_t us = excl ? ext_outside_tail(d, &e[i]) : e[i].bytes; if (us >= need && (best < 0 || us < (excl ? ext_outside_tail(d, &e[best]) : e[best].bytes))) best = i; }
+        if (best < 0 && excl) g_tail[d].n_spill++;
+    }
     if (best < 0) return 0;
     char *p = e[best].p; *reg = e[best].reg; e[best].p += need; e[best].bytes -= need;
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
@@ -148,7 +183,7 @@ void db_release_pools(void)
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
-    memset(g_live_bytes, 0, sizeof g_live_bytes);
+    memset(g_live_bytes, 0, sizeof g_live_bytes); memset(g_tail, 0, sizeof g_tail);   /* Phase 11 M: the reserved tails go with their regions */
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
