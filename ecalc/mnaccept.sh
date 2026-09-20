@@ -20,6 +20,7 @@ while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --only) ONLY=$2; shift;; *) e
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
 REF=${ECALC_REF:-$HOME/ntt/ecalc/ref}; [ -s ref/e_1000000000.txt ] && REF=$ECALC_DIR/ref
+for f in "$REF"/e_*; do [ -e "ref/$(basename "$f")" ] || ln -s "$f" ref/; done   # t_bs reads ref/e_<d>.sha256 relative to ecalc/ (the files are git-ignored)
 REF4=${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_4e10.out}
 [ "$(squeue -j "$J" -h -o %T 2>/dev/null)" = "RUNNING" ] || { echo "job $J is not running"; exit 2; }
 NODE=$(squeue -j "$J" -h -o %N)
@@ -71,16 +72,16 @@ fi
 
 # ---- multi-process on one node --------------------------------------------------------------------------------
 mnrun_check() { local tag=$1 p=$2 d=$3 pl=$4 to=$5; shift 5   # tag procs digits pool_log timeout [env...]
-  local log=$OUT/$tag.log f=$TMP/$tag.txt
+  local log=$OUT/$tag.log f=$TMP/$tag.txt name="mn e$(( ${#d} - 1 )) size $p"
   M "$to" "$p" POOL_LOG=$pl "$@" ./ecalc "$d" "$f" > "$log" 2>&1; local rc=$?
   local c; c=$(cmpref "$f" "$REF/e_$d.txt")
   local ok; ok=$(grep -ac 'VERIFY OK' "$log")
-  if [ $rc -eq 0 ] && grep -aq "mn: all $p nodes: VERIFY OK" "$log" && [ "$c" = identical ]; then pass "$tag" "$c; all $p nodes VERIFY OK; $(total_of "$log")"
-  else fail "$tag" "rc $rc; $c; $ok VERIFY OK; $(grep -a 'VERIFY FAILED\|abort\|error\|Killed\|reset\|cannot' "$log" | head -1 | cut -c1-120)"; fi
+  if [ $rc -eq 0 ] && grep -aq "mn: all $p nodes: VERIFY OK" "$log" && [ "$c" = identical ]; then pass "$name" "$c; all $p nodes VERIFY OK; $(total_of "$log")"
+  else fail "$name" "rc $rc; $c; $ok VERIFY OK; $(grep -a 'VERIFY FAILED\|abort\|error\|Killed\|reset\|cannot' "$log" | head -1 | cut -c1-120)"; fi
 }
 if want mn; then
-  for p in 2 3 4; do mnrun_check "mn e8 size $p" $p 100000000 27 600; done
-  for p in 2 4;   do mnrun_check "mn e9 size $p" $p 1000000000 29 900; done
+  for p in 2 3 4; do mnrun_check mn_e8_$p $p 100000000 27 600; done
+  for p in 2 4;   do mnrun_check mn_e9_$p $p 1000000000 29 900; done
 fi
 
 # ---- checkpoint + restart at size 2 -----------------------------------------------------------------------------
