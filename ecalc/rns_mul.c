@@ -52,6 +52,22 @@ void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
 size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the paper's) */
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
+size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
+size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
+                                                                    * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there) */
+{
+    int pl = pool_log ? pool_log : 31;
+    size_t q = (size_t)1 << (pl - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20, full = (size_t)8 << (pl < 30 ? pl : 30);
+    if (b < full) b = full;
+    return (b + al - 1) / al * al;
+}
+static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
+void (*rns_shutdown_hook)(void) = 0;                               /* Phase 9 C4: binsplit releases its region arenas here (they outlive the block pool's use of them) */
+static void rns_acct(int ndev, size_t b[][MEM_DEV_NCAT])
+{
+    for (int d = 0; d < ndev && d < EC_NP; d++) { b[d][MEM_DEV_PLANES] += D[d].da.cap + D[d].db.cap; b[d][MEM_DEV_TABLES] += g_tables[d]; }
+}
+static size_t dev_used(int d) { size_t f = 0, t = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; HIP_CHECK(hipSetDevice(cur)); return t - f; }
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
@@ -69,25 +85,33 @@ int rns_init(int pool_log)
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
+    double ti0 = mem_now();
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         double tt, tr;
         HIP_CHECK(hipSetDevice(d));
+        size_t u0 = dev_used(d);
         D[d].ctx = ntt_ctx_create(d);
         D[d].ctx2 = ntt2_ctx_create(d & 1);
+        size_t u1 = dev_used(d); g_tables[d] = u1 > u0 ? u1 - u0 : 0;
         HIP_CHECK(hipStreamCreate(&D[d].s));
         D[d].hstage = (uint64_t *)mem_hstage_alloc(d, sbytes, &tt, &tr);
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu);
     }
+    double ti1 = mem_now();
     if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
+    size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
+    if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         dpool_get(&D[d].da, d, bytes);           /* pregrow to 2^pool_log (paper) */
-        dpool_get(&D[d].db, d, bytes);
+        dpool_get_exact(&D[d].db, d, b1);
     }
     mem_par_init = 0;
+    mem_acct_register(rns_acct);
+    double ti2 = mem_now();
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d) {
@@ -97,6 +121,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB, staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", bytes / 1073741824.0, b1 / 1073741824.0, sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
@@ -126,6 +151,7 @@ size_t rns_dpool_donate_tail(int dev, int which, size_t used)
 int rns_ndev(void) { return g_nd; }
 void rns_shutdown(void)
 {
+    if (rns_shutdown_hook) rns_shutdown_hook();
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         dpool_free(&D[d].da); dpool_free(&D[d].db);
@@ -657,6 +683,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
         int d = omp_get_thread_num(); struct dev *v = &D[d];
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < EC_NP; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
+        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * Mmax * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools) */
         uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
         double lsc = 0, lnt = 0, lcr = 0, lmg = 0;
         struct bdesc *hd = (struct bdesc *)malloc((Mmax < cnt[d] ? Mmax : cnt[d] ? cnt[d] : 1) * sizeof *hd);
@@ -784,6 +811,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         {
             int d = omp_get_thread_num(); struct dev *v = &D[d];
             HIP_CHECK(hipSetDevice(d));
+            rns_dpool(d, 1, L * 8);                    /* A-mem C4 */
             ntt_load(v->ctx, (uint64_t *)v->db.p, Q[0].b, Q[0].nb, L, v->s);
             ntt_fwd(v->ctx, (uint64_t *)v->db.p, logL, 1, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s));
@@ -807,6 +835,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 g_desc_cap[d] = M;
             }
             HIP_CHECK(hipMemcpyAsync(g_desc[d], hd + first, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));
+            rns_dpool(d, 0, (size_t)M * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)M * L) * 8);   /* A-mem C4: pool 1 is 3 q by default (the 2^30 tile at 2^30 pools needs the full pool) */
             uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
             size_t total = M << logL, blocks = (total + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
             hipEvent_t e0, e1, e2, e3; float ms1, ms2, ms3 = 0;
