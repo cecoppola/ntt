@@ -104,11 +104,17 @@ int mem_dev_of(const void *p)
     }
     return -1;
 }
+void mem_oom(const char *where, int dev, size_t bytes)
+{
+    fprintf(stderr, "%s: hipMalloc of %.2f GB on APU %d failed (out of memory)\n", where, bytes / 1e9, dev);
+    fflush(stderr); mem_report("OOM"); mem_report_summary(); fflush(stdout);
+    exit(1);
+}
 void *mem_dev_alloc(int dev, size_t bytes)
 {
     void *p; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
     double t0 = mem_now();
-    HIP_CHECK(hipMalloc(&p, bytes));
+    if (hipMalloc(&p, bytes) != hipSuccess) mem_oom("mem_dev_alloc", dev, bytes);
     double t1 = mem_now();
     if (!getenv("MEM_NO_DEV_MEMSET")) { HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize()); }   /* map the pages now */
     if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB: malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, t1 - t0, mem_now() - t1);
@@ -217,7 +223,7 @@ void *dpool_get(dpool *d, int dev, size_t bytes)
     size_t cap = pow2_ceil(bytes);
     if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
     HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipMalloc(&d->p, cap));
+    if (hipMalloc(&d->p, cap) != hipSuccess) mem_oom("dpool_get", dev, cap);
     d->cap = cap; d->dev = dev;
     return d->p;
 }
@@ -227,7 +233,7 @@ void *dpool_get_exact(dpool *d, int dev, size_t bytes)
     const size_t al = (size_t)2 << 20; size_t cap = (bytes + al - 1) / al * al;
     if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
     HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipMalloc(&d->p, cap));
+    if (hipMalloc(&d->p, cap) != hipSuccess) mem_oom("dpool_get_exact", dev, cap);
     d->cap = cap; d->dev = dev;
     return d->p;
 }
