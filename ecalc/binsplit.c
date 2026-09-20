@@ -255,11 +255,12 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
      * rbA of g Smax limbs, rbB of g SB, cx and tmp of q = n / (4 gt) limbs on the transform nodes, two spill buffers of 4 g C
      * limbs, the temporary T of the node's window) beside the level's live shares (the inputs and the outputs, a quarter each) */
     size_t best = 0; int L = 0; while ((1 << L) < size) L++; if (top_scratch) *top_scratch = 0;
+    int dlr = getenv("DIST_LOGR_DELTA") ? atoi(getenv("DIST_LOGR_DELTA")) : 0; if (dlr < -3 || dlr > 3) dlr = 0;   /* rns_dist.c dist_logr_delta (A6): the spill buffers are 2 g C x 4 limbs per device -- C = n / R */
     for (int l = 1; l <= L; l++) {
         int g = (1 << l) < size ? (1 << l) : size, half = 1 << (l - 1), gt = g, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
         size_t NA = nq_leaf * (size_t)half + 8, nc = 2 * NA; int logn = 0; while (((size_t)1 << logn) < nc) logn++;
         int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20; if (logn < logmin) logn = logmin;
-        int logR = logn / 2; { int lo = 7 + lgt < 10 ? 10 : 7 + lgt; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; }
+        int logR = logn / 2 + dlr; { int lo = 7 + lgt < 10 ? 10 : 7 + lgt; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; }
         size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = n / R, rows = R / nr, q = n / nr;
         size_t share = (NA + half - 1) / half, share_c = (nc + g - 1) / g, win = share_c + share_c / 8 + 2 * R;   /* the window of C's share (piece coordinates) */
         size_t Sin = ((share - 1) / R + 2) * rows, Sc = ((win - 1) / R + 2) * rows; if (Sin > q) Sin = q; if (Sc > q) Sc = q; Sin = (Sin + 15) / 16 * 16; Sc = (Sc + 15) / 16 * 16;

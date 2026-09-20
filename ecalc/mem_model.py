@@ -98,7 +98,7 @@ def dm_layout(N, g, pool_log=31, decimal=True):
     need += min(need // 8, 1 << 30)
     return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, t1_quarter=quarter_bytes(tcap))
 
-def tree_need_dev(nq_leaf, g, scratch_out=None):
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0):
     """binsplit.c tree_need_dev: the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes);
     scratch_out[0] = the top level's scratch alone (the sharded division's products carry the same)"""
     best = 0; L = 0; top_scratch = 0
@@ -109,15 +109,15 @@ def tree_need_dev(nq_leaf, g, scratch_out=None):
         NA = nq_leaf * half + 8; nc = 2 * NA; logn = 0
         while (1 << logn) < nc: logn += 1
         logn = max(logn, max(20, 2 * (7 + lgt)))
-        logR = logn // 2; logR = max(logR, max(10, 7 + lgt)); logR = min(logR, logn - 10)
+        logR = logn // 2 + logr_delta; logR = max(logR, max(10, 7 + lgt)); logR = min(logR, logn - 10)
         n = 1 << logn; R = 1 << logR; C = n // R; rows = R // nr; q = n // nr
         share = (NA + half - 1) // half; share_c = (nc + gg - 1) // gg; win = share_c + share_c // 8 + 2 * R
         Sin = min(q, ((share - 1) // R + 2) * rows); Sc = min(q, ((win - 1) // R + 2) * rows)
         Sin = (Sin + 15) // 16 * 16; Sc = (Sc + 15) // 16 * 16; Smax = max(Sc, Sin)
         scratch = 2 * gg * Smax * 8 + gg * Sin * 8 + 2 * q * 8 + 2 * gg * C * 4 * 8 + quarter_bytes(win)
         live = 2 * quarter_bytes(share + share // 8) + 2 * quarter_bytes(share_c + share_c // 8)
-        best = max(best, live + scratch); top_scratch = scratch
-    if scratch_out is not None: scratch_out.append(top_scratch)
+        best = max(best, live + scratch); top_scratch = scratch; top_q = q
+    if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
@@ -146,11 +146,11 @@ def mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
     opts: pool_log (31), tail (True: decision 5's layout, item 1), alltoallv (False: L's B7 not in), decimal (True),
           margin (0.0: a fraction added to the device total).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=False, decimal=True, margin=0.0); o.update(opts or {})
+    o = dict(pool_log=31, tail=True, alltoallv=False, decimal=True, margin=0.0, logr_delta=0); o.update(opts or {})   # logr_delta: DIST_LOGR_DELTA (A6), -3..3: the spill buffers are 2 g C x 4 limbs per APU, C = n / R
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
-    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc) if g > 1 else 0
+    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
@@ -165,6 +165,8 @@ def mem_per_node(D, g=1, opts=None):
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'])
     planes = planes_bytes(o['pool_log'])
+    if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # the top level's slice q = n / (4 g) exceeds the pool's: rns_dpool grows pool 0 (4 q) and pool 1 (3 q + 16) on demand
+        planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + bs_total
     dev_dm = planes + pool_total + xchg
     host_init = HOST_RUNTIME + HOST_STAGING + HOST_SEEDBUF + (HOST_COMM_PER_PROC if g > 1 else 0)
