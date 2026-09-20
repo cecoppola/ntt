@@ -52,9 +52,12 @@ size_t rns_staging_bytes_req = 0;                                  /* Phase 8 st
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
 size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
-size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned */
+size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
+                                                                    * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there) */
 {
-    size_t q = (size_t)1 << ((pool_log ? pool_log : 31) - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20;
+    int pl = pool_log ? pool_log : 31;
+    size_t q = (size_t)1 << (pl - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20, full = (size_t)8 << (pl < 30 ? pl : 30);
+    if (b < full) b = full;
     return (b + al - 1) / al * al;
 }
 static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
