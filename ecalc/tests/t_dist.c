@@ -218,8 +218,13 @@ static int one_xgmi(int prime, int logR, int logC)
         HIP_CHECK(hipStreamSynchronize(s)); t2 = tnow();
         if (logn >= 26 && r == 0) printf("  xgmi 2^%d (%d chunks%s): fwd %.4f s, fwd+fwd+pw+inv %.4f s%s\n", logn, pl.K, plane2 ? ", two planes" : "", t1 - t0, t2 - t0, dist_st.on ? "" : " (DIST_STATS=1 for the breakdown)");
         comm_barrier(cm);
-        if (dist_st.on && r == 0) printf("  DIST_STATS (four ranks summed / 4, three transforms): rows %.4f cols %.4f pack %.4f exchange %.4f (exposed %.4f: %.0f %% hidden) transform total %.4f s\n",
-                                         dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4, dist_st.t_xfer > 0 ? 100 * (1 - dist_st.t_a2a / dist_st.t_xfer) : 0, dist_st.t_total / 4);
+        /* the exposed exchange = the compute stream's idle time inside the transforms (total - the kernels' time); the
+         * host time blocked in post + wait also covers the packs the exchanges wait for, so it is only an upper bound */
+        if (dist_st.on && r == 0 && logn >= 26) {
+            double comp = (dist_st.t_local1 + dist_st.t_local2 + dist_st.t_pack) / 4, tot = dist_st.t_total / 4, xf = dist_st.t_xfer / 4, exp_ = tot - comp;
+            printf("  DIST_STATS (four ranks summed / 4, three transforms): rows %.4f cols %.4f pack %.4f exchange %.4f, total %.4f s: exposed exchange %.4f (%.0f %% hidden), host blocked %.4f\n",
+                   dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, xf, tot, exp_, xf > 0 ? 100 * (1 - exp_ / xf) : 0, dist_st.t_a2a / 4);
+        }
         if (!check_allgather(cm, 0)) { printf("  xgmi allgather failed on rank %d\n", r); bad_ag = 1; }
         if (!check_alltoallv(cm)) { printf("  xgmi alltoallv failed on rank %d\n", r); bad_ag = 1; }
         HIP_CHECK(hipMemcpy(tmp, rx, rows * 8, hipMemcpyDeviceToHost));
