@@ -60,6 +60,7 @@ void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);
 /* x in column layout -> row layout, natural order, canonical, scaled by n^-1 */
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s);
+void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);   /* Phase 10 A6 (G): dist_pw + dist_inv with the pointwise fused into the column inverse (bit-identical) */
 /* the halves around the all-to-all (pre posts it, post waits for it): for slab pipelining, and for the
  * synthetic communicator, whose ranks are driven by one thread and must all post before any waits */
 /* the transposed inverse: the same algorithm as the forward run backwards on the column layout (which is

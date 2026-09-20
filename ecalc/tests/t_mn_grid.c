@@ -71,10 +71,40 @@ int main(int argc, char **argv)
         if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s\n", sh[si].name, na, nb, now() - t0);
         rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
         VERIFY(check(&C, &t, "product + x"), "%s %zu x %zu + x %s", sh[si].name, na, nb, gen_name[kind]);
-        for (int wv = 0; wv < 3; wv++) {                      /* low products: pieces above w skipped, the result truncated */
+        for (int wv = 0; wv < 3; wv++) {                      /* low products: pieces above w skipped, the result truncated (A5: in basis w) */
             size_t w = wv == 0 ? na + 2 : wv == 1 ? na / 2 + 1 : r.n - 1;
             rns_mul_low_mn(&C, &A, &B, G, w); ref_low(&rl, &r, w);
-            VERIFY(check(&C, &rl, "low"), "%s low %zu x %zu w %zu %s", sh[si].name, na, nb, w, gen_name[kind]);
+            VERIFY(check(&C, &rl, "low") && C.N <= w, "%s low %zu x %zu w %zu %s (basis %zu)", sh[si].name, na, nb, w, gen_name[kind], C.N);
+        }
+        {   /* Phase 10 A5: the low cut (the A_h mu product over shares): the pieces whose limbs end at or below the cut are skipped;
+             * the reference is the product minus exactly those pieces (the grid from rns_mul_dist_mn_shape), with and without a high cut */
+            int ka, kb; size_t an = a.n, bn = b.n; rns_mul_dist_mn_shape(an, bn, G, &ka, &kb);   /* (the normalised lengths: the grid is formed on them) */
+            size_t pa = (an + ka - 1) / ka, pb = (bn + kb - 1) / kb;
+            size_t cuts[] = { (na + nb) / 2, nb / 2 + 1, na + nb };
+            for (int ci = 0; ci < 3; ci++) for (int hc = 0; hc < 2; hc++) {
+                size_t cut = cuts[ci], w = hc ? r.n - 1 : (size_t)-1;   /* r.n - 1 >= max(na, nb): the operands' views are whole, the grid the same */
+                rns_mul_dist_mn_cut(&C, &A, &B, G, cut, w);
+                bi_copy(&t, &r); int skipped = 0;
+                for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
+                    size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
+                    bigint ha = { a.l + oa, an - oa < pa ? an - oa : pa, 0 }, hb = { b.l + ob, bn - ob < pb ? bn - ob : pb, 0 }; bi_norm(&ha); bi_norm(&hb);
+                    if (!ha.n || !hb.n || oa + ob + ha.n + hb.n > cut) continue;
+                    rns_mul(&rl, &ha, &hb); bi_shl_limbs(&rl, &rl, oa + ob); bi_sub(&t, &t, &rl); skipped++;
+                }
+                if (hc) ref_low(&rl, &t, w); else bi_copy(&rl, &t);
+                VERIFY(check(&C, &rl, "lowcut") && (!hc || C.N <= w), "%s lowcut %zu%s: %d x %d pieces, %d skipped %s", sh[si].name, cut, hc ? " + highcut" : "", ka, kb, skipped, gen_name[kind]);
+            }
+        }
+        {   /* Phase 10 A1 over shares: B's piece transforms held across two products (the reciprocal's Q_t r and the
+             * division's X Q): the product with B pinned, then the low product over the same B pieces (hits), then released */
+            setenv("RNS_DIST_CACHE_HOLD", "1", 1);
+            int held = rns_dist_cache_hold(1);
+            rns_mul_dist_mn(&C, &A, &B, 0, G);
+            VERIFY(check(&C, &r, "held product"), "%s held product %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
+            size_t w = na + nb - 1; rns_mul_low_mn(&C, &A, &B, G, w); ref_low(&rl, &r, w);
+            size_t hits = 0, misses = 0; rns_dist_cache_stats(&hits, &misses);
+            VERIFY(check(&C, &rl, "low after hold"), "%s low product after the hold w %zu %s (held %d: %zu hits, %zu misses)", sh[si].name, w, gen_name[kind], held, hits, misses);
+            rns_dist_cache_hold(0); unsetenv("RNS_DIST_CACHE_HOLD");
         }
         {   /* views: A[na/3, na/3 + na/2) x B[7, ...) */
             size_t oa = na / 3, la = na / 2, ob = 7, lb = nb - 7;
