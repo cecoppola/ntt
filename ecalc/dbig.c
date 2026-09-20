@@ -72,7 +72,7 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
     if (!p) {
         g_pool_bytes += need;
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
-        void *m; HIP_CHECK(hipMalloc(&m, need)); HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
+        void *m; if (hipMalloc(&m, need) != hipSuccess) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (inside a phase)", d, need); } HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
         if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
         p = (char *)m;
@@ -96,7 +96,7 @@ void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
 void db_pregrow(int dev, size_t bytes)
 {
     void *m; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipMalloc(&m, bytes)); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
+    if (hipMalloc(&m, bytes) != hipSuccess) mem_oom("db_pregrow", dev, bytes); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx); g_pool_bytes += bytes; pthread_mutex_unlock(&g_pool_mx);
     db_donate_ext(dev, m, bytes, 1);
