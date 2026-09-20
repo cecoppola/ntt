@@ -71,10 +71,11 @@ static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->s
 /* O4 (Phase 9 A-out, M5 + C1): X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
  * gets X on the host before it */
-struct x_bg { bigint *X; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on) */
-static void x_bg_writer(struct x_bg *b)                /* the chunked writer over the host X (also the redo after a correction) */
+struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd (Phase 10 H, B1): X on the device -- the writer and the residues read it there; no host X */
+static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); if (b->Xd) { s.dev = b->Xd; s.cnt = b->Xd->n; } else { s.host = b->X->l; s.cnt = b->X->n; } return s; }
+static void x_bg_writer(struct x_bg *b)                /* the chunked writer over X (host or device; also the redo after a correction) */
 {
-    mn_out_src src = { b->X->l, 0, 0, b->X->n };
+    mn_out_src src = x_bg_src(b);
     memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose;
     mn_out_run(&b->o, &src);
 }
@@ -82,7 +83,7 @@ static void *x_bg_run(void *a)
 {
     struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
     double t0 = mem_now();
-    for (int i = 0; i < T1_NQ; i++) b->Xres[i] = vf_limbs_mod(b->X->l, b->X->n, t1_q[i]);
+    { mn_out_src src = x_bg_src(b); mn_out_res_share(&src, b->Xres); }   /* the device kernel on the device X (B1), else the host Horner */
     b->t_res = mem_now() - t0; sem_post(&b->res_ready);
     x_bg_writer(b);
     return 0;
@@ -98,8 +99,10 @@ static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b
  * sharded X of the distributed division (the HOOK comments below say what plugs in). */
 struct out_ctx {
     unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
-    bigint *X;                                     /* size 1 / node 0: X on the host after the division (empty elsewhere) */
-    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* node 0's residues of P, Q, R (stand-in: broadcast; A-div: per share + combine) */
+    bigint *X;                                     /* the host flows: X on the host after the division (size 1 without the device dm; node 0 with MN_DM=host / MN_COMBINE=host) */
+    dbig *Xd;                                      /* Phase 10 H (B1), size 1 in the device flow: X on the device (never on the host) */
+    mdb *Xm;                                       /* B1, size > 1 in the distributed division: X sharded over the nodes (A-div's mdb); this node's share is read in place */
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm), else node 0's, broadcast (the host flows) */
     struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
     double t00, t_init, t_bs, t_10dp, t_dm;
 };
@@ -113,21 +116,24 @@ static int out_stage(struct out_ctx *c)
     if (c->pqb->started) { pthread_join(c->pqb->th, 0); memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
-    /* the share of X this node holds */
-    mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->X->n;
-    if (!multi) { src.host = c->X->l; src.lo = 0; src.cnt = c->X->n; }
-    else {
-        /* HOOK A-div: with the distributed division X is an mdb over all nodes: src.dev = &Xm.sh, mdb_share(&Xm, rank, &lo, &hi),
-         * src.lo = lo, src.cnt = hi - lo, xn = Xm.n -- and the stand-in scatter below goes */
+    /* the share of X this node holds: the device X (size 1, B1), this node's share of the sharded X (the distributed division:
+     * A-div's mdb, read in place), or -- the host flows -- the host X, at size > 1 scattered from node 0 (the stand-in) */
+    mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
+    if (!multi) { if (c->Xd) { src.dev = c->Xd; src.cnt = c->Xd->n; } else { src.host = c->X->l; src.cnt = c->X->n; } }
+    else if (c->Xm) {
+        size_t lo, hi; mdb_share(c->Xm, c->rank, &lo, &hi);
+        src.dev = &c->Xm->sh; src.lo = lo; src.cnt = hi - lo; if (src.cnt > c->Xm->sh.n) src.cnt = c->Xm->sh.n;   /* (the share's dbig is never normalised; shorter = zeros above) */
+        node_pfx(c); printf("X share [%zu, %zu) of %zu limbs on the device (the distributed division's)\n", lo, hi, xn);
+    } else {
         double ts = mem_now(); size_t lo, cnt;
         mn_out_scatter_standin(cm, c->X->l, c->X->n, &xsh, &lo, &cnt, &xn);
         src.dev = &xsh; src.lo = lo; src.cnt = cnt;
         if (c->rank == 0) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
         node_pfx(c); printf("X share [%zu, %zu) of %zu limbs on the device (stand-in scatter from node 0: %.2f s)\n", lo, lo + cnt, xn, mem_now() - ts);
     }
-    /* T1 (b): the residues of P, Q, R.  HOOK A-div: from the mdb shares -- db_mod_qs(&Pm.sh) etc. with sh.n = the share length,
-     * then mn_out_res_combine(cm, res, lo, out) for each; the stand-in broadcasts node 0's */
-    if (multi) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
+    /* T1 (b): the residues of P, Q, R: with the distributed division every node has them (newton_mn_divmod: each share's db_mod_qs
+     * scaled by B^lo and summed over the group); the host flows broadcast node 0's */
+    if (multi && !c->Xm) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
     uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && !c->ncorr, joined = 0;
     if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
@@ -170,7 +176,8 @@ static int out_stage(struct out_ctx *c)
     uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2);
     double t_dc = mem_now() - t;
-    if (!multi) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
+    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } }
+    if (c->Xm) db_free(&c->Xm->sh);
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
@@ -249,6 +256,7 @@ int main(int argc, char **argv)
     int ovl = g_overlap && bi_decimal && newton_dev && bs_dev_mdev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
+    dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* B1: X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
@@ -280,13 +288,11 @@ int main(int argc, char **argv)
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
-            double td = mem_now(); mdb Xm; memset(&Xm, 0, sizeof Xm);
+            double td = mem_now();
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
-            double tx = mem_now();
-            mn_gather_host(&X, &Xm); db_free(&Xm.sh);
-            newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
-            printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, gathered to node 0 in %.2f s%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mem_now() - tx, mn_rank() ? "; done" : "");
+            newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
+            printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
             if (mn_rank() != 0) { int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier */
         } else {
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
@@ -344,7 +350,7 @@ int main(int argc, char **argv)
         printf("recip %8.2f s   (over %d nodes; %zu iterations)\n", t_recip, mn_size_, newton_st.iters);
         printf("10dP  %8.2f s   (S = P + Q over shares, inside dm)\n", 0.0); RESULT("10dP", "s", 0.0);
         printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu; over %d nodes)   VmRSS %.1f GB, VmHWM %.1f GB\n",
-               t_dm, X.n, t_recip, newton_st.down_corr, newton_st.up_corr, mn_size_, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+               t_dm, mn_xn, t_recip, newton_st.down_corr, newton_st.up_corr, mn_size_, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
         RESULT("dm", "s", t_dm);
     } else {
     /* dm part 1: the reciprocal of Q first, while A does not exist yet (memory peak) */
@@ -403,15 +409,17 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
-    if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) with X on the host */
+    if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
+    if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* Phase 10 H (B1): X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
-    newton_db_x_hook = 0; newton_db_Qd = 0;
+    newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0;
     if (ovl3) db_free(&bs_Qd);
-    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
+    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
+    if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
-    printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
+           t_dm, ovl3 ? Xdev.n : X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, ovl3 ? "; X on the device" : "", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report_host_item(MEM_HOST_DIGITS, digits ? d + 2 : 0); mem_report("dm");
     RESULT("dm", "s", t_dm);
     }
@@ -465,6 +473,7 @@ int main(int argc, char **argv)
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
     bi_free(&A); bi_free(&R); bi_free(&Q);
     int fail = out_stage(&oc);
+    db_release_pools();                               /* B1: X's block (device / sharded) was in use until here */
     mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
     mn_barrier(); mn_finalize();
     rns_shutdown();
