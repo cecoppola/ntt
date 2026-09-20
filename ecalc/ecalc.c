@@ -221,7 +221,7 @@ int main(int argc, char **argv)
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
       int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
-      if (stg && devflow && !host_combine) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; }
+      if (stg && devflow && !host_combine) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; rns_staging_bytes_req = need; }   /* Phase 10 B4 (agent M): also above the paper's 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
