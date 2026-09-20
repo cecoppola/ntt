@@ -55,13 +55,94 @@ default so the accepted numbers stood. Body 1 and B4 only touch 7-stage passes, 
 logk ≥ 17 (≈ 14.6 s of the batch tier's 19 s of transforms) — the distributed tier's local transforms
 are 2^15–2^16 (tile kernel only).
 
-## Tests
+## Tests (aac6, clone `~/ntt-nkernel`, job 20716 on s24-16, then job 2 below)
 
-(filled in below as the batches complete)
+| test | command | result |
+|---|---|---|
+| `t_ntt` | `./tests/t_ntt 31` | **VERIFY OK (593 checks)**: DFT, round trips 2^10–2^31 × 4 primes, convolution, STG 3–7, body 0/1/2 × xchg 0/1 forward and inverse hashes all `== tile kernel`, the new §4b layouts (FULL/BCAST/PAIR × fused/unfused × 2^k/3·2^k, k = 10..15, against per-transform product + inverse, and the old entry points) |
+| `t_mul 20` (decimal) | `./tests/t_mul 20` | VERIFY OK (189 checks) incl. the new §4b: device-pool pairs sharing B with the added operand, 2^k and 3·2^k, several tiles, odd per-device counts; paired == unpaired bit for bit, normalised lengths checked |
+| `t_mul 0 batch` (binary) | `LIMB_BASE=2 ./tests/t_mul 0 batch` | VERIFY OK (72 checks) |
+| `t_mul 0 big` | `./tests/t_mul 0 big` | VERIFY OK (102 checks) |
+| `t_bs` | `./tests/t_bs`, `LIMB_BASE=2 ./tests/t_bs` | **VERIFY OK (10 checks) in both bases** (job 20729; the first run "failed" 2 of 10 only because the gitignored `ref/e_*.sha256` were not in the clone — linked from `~/ntt` since) |
+| 10⁹ | `env <cfg> ./ecalc 1000000000`, `cmp` vs `ref/e_1000000000.txt` | **identical** with `RNS_BATCH_PAIR=0`, `=1` (16 paired levels), `NTT_B16_BODY=1 NTT_B16_XCHG=1`, and `LIMB_BASE=2`; VERIFY OK each |
 
-## Timing (4 × 10¹⁰, size 1, reference evicted)
+`t_ntt` rates at 2^31 (APU0, one 4-pass transform): tile kernel 1.12 / 1.17 TB/s (fwd / inv), body 1
+1.43 / 1.33, body 2 1.44 / 1.33, **body 1 + ds_swizzle exchange 1.23 / 1.21** — B4 is *slower*
+(−14 % fwd, −9 % inv); batched log L = 17: 1485 → 1563 (body 1) → 1370 GB/s (xchg).
 
-(filled in below)
+## Timing (4 × 10¹⁰, size 1, reference evicted, `RNS_VERBOSE=1 ECALC_VERBOSE=2`; job 20716, s24-16)
+
+| | baseline (§72, s24-26) | this branch, `RNS_BATCH_PAIR=0` | `RNS_BATCH_PAIR=1` |
+|---|---:|---:|---:|
+| init | 15.3 | 17.4 | 18.2 |
+| bs (batch / mdev) | 45.7 (30.5 / 14.9) | 42.3 (29.0 / 13.1) | **38.3 (25.1 / 12.9)** |
+| batch-local sums: scatter / ntt / crt / merge | 1.18 / 19.05 / 2.62 / 1.28 | 1.26 / 18.38 / 2.65 / 1.18 | **1.06 / 15.67 / 2.58 / 0.91** |
+| dm (recip) | 37.5 (15.4) | 33.7 (14.9) | 33.9 (15.0) |
+| **wall** | 98.5 | 93.6 | **90.6** |
+| digits | identical | identical | identical (batch 2) |
+
+`RNS_BATCH_PAIR=0` on this branch still carries the radix-3 fusion of the pointwise product (the
+unpaired ntt sum 19.05 → 18.38 s, −0.7 s); the pairing takes the ntt sum to 15.67 s (−2.7 s more,
+−14.7 %: one transform in six on the paired levels, all of levels 1–21 pair; level 22 stays on the
+striped path) and the scatter to 1.06 s. **Batch tier 29.0 → 25.1 s, wall −3.0 s** against the same-day
+unpaired run (the day's runs are all ≈ 5 s faster than the §72 baseline — a different node, s24-16 vs
+s24-26 — so the comparison is within the batch).
+
+**Batch 2 (job 20729, s24-30, one run each, all VERIFY OK, digits identical to `results/e_4e10.out`
+where the `cmp` ran):**
+
+| `RNS_BATCH_PAIR` / `NTT_B16_BODY` / `NTT_B16_XCHG` | 1 / 0 / 0 | 1 / 1 / 0 | 1 / 1 / 1 | 0 / 0 / 0 |
+|---|---:|---:|---:|---:|
+| init | 19.1 | 17.2 | 18.1 | 18.9 |
+| bs (batch / mdev) | 39.5 (25.8 / 13.4) | **39.6 (25.9 / 13.3)** | 40.6 (26.8 / 13.5) | 43.6 (30.0 / 13.3) |
+| batch-local sums: scatter / ntt / crt / merge | 1.11 / 16.12 / 2.64 / 0.84 | 1.12 / **15.69** / 2.63 / 0.84 | 1.12 / 16.71 / 2.64 / 0.82 | 1.33 / 19.04 / 2.73 / 1.27 |
+| dm (recip) | 36.7 (17.3) | 35.2 (15.4) | 35.7 (15.7) | 35.1 (15.5) |
+| **wall** | 95.5 | **92.1** | 94.6 | 97.8 |
+| digits | identical | identical | identical | (`cmp` cut by the 45-min job limit; identical in batch 1) |
+
+Reading the two batches together (the node-to-node and run-to-run spread is ≈ 2–3 s on the wall, but
+the batch-local sums are stable to ≈ 0.3 s):
+
+* **B1 wins: batch tier 29.0–30.0 → 25.1–25.9 s (−4 s), of which the transforms 18.4–19.0 → 15.7–16.1 s
+  and the scatter −0.2 s;** wall −3…−5 s. Adopted (default `RNS_BATCH_PAIR=1`).
+* **The register-blocked body (`NTT_B16_BODY=1`) is a small consistent win** on the transforms
+  (batch ntt 16.12 → 15.69 s; the 2^31 single transforms +20 % in `t_ntt`) and bit-identical
+  everywhere (4 × 10¹⁰ digits identical with it). Made the default in `ntt.c` (`NTT_B16_BODY=0` restores
+  the paper's tile kernel). The dm phase's ±1.5 s between the runs is the reciprocal's own spread.
+* **B4 loses: the ds_swizzle exchange is slower** — `t_ntt` 2^31: 1.43 → 1.23 TB/s forward, 1.33 →
+  1.21 inverse; batched log L = 17: 1563 → 1370 GB/s; 4 × 10¹⁰ batch ntt 15.69 → 16.71 s. The code stays
+  behind `NTT_B16_XCHG=1` (default 0) as the measured answer to RESULTS §49's "if it is ever worth 5 %":
+  it is not. Why: the LDS round trip it replaces is 8 `ds_write_b64` + barrier + 8 `ds_read_b64` per
+  thread; the swizzle path is 8 `ds_swizzle_b32` (two per 64-bit value, 4 values) plus 16 lane-parity
+  selects and their live ranges — the same number of LDS-pipe instructions, no LDS bandwidth saved that
+  the kernel was short of (RESULTS §48: the LDS ceiling was relieved by body 1 itself), and the extra
+  VALU selects and registers cost occupancy in a kernel that is HBM-bound with the LDS traffic
+  co-issued. §49's 1.6× per exchange is a latency figure for a dependent chain, not a throughput one for
+  this body. Not adopted.
+
+## Where the batch tier stands (4 × 10¹⁰)
+
+Baseline (§72): batch 30.5 s = scatter 1.18 + ntt 19.05 + crt 2.62 + merge 1.28 (+ layout/add-norm).
+Now (pair + body 1): batch 25.9 s = scatter 1.12 + **ntt 15.69** + crt 2.63 + merge 0.84. The
+transforms are 5 per pair instead of 6 and run at ≈ 1.45 TB/s per APU on the long levels; the next
+step inside this tier would be the CRT (2.6 s, unchanged) and the last two levels (M = 1–2 per tile:
+level 22 still goes through the striped path at 2.2 s).
 
 ## Open issues
+
+* B4 is closed negative; the swizzle path is kept only as the measurement's evidence (delete if unwanted).
+* Level 22 (4 pairs at 3·2^28, over the local tier's pool) is not paired (striped path, 2.19 s); a
+  pair there needs planes of 2 × 3·2^28 × 4 primes = 51 GB — the 3·2^30 plane variant A-grid measures.
+* The batch-local tile budget in pair mode (`2 · rns_batch_tile_bytes / (3 L · 8) / 4`, at least 2)
+  is chosen so that the 15 GB budget covers a + b/2 planes; a larger budget (the pools allow 2^29
+  points per prime plane) was not explored — tiles at the low levels are already 10⁵ products.
+* The distributed tier (`ntt_dist.c`) uses `ntt_pw` (FULL) and 2^15–2^16-point local transforms;
+  neither B1 nor body 1 touches it.
+
+## Touched outside my files
+
+`ecalc/Makefile`: one line, `tests/t_ntt` links `ntt3.o` (the layout checks exercise the radix-3
+inverse). `ecalc/rns_mul.h`: `extern int rns_batch_pair` and two `rns_stats` fields
+(`n_batch_local`, `n_batch_pair`) used by `t_mul`'s new section. `ecalc/ntt3.c` (listed as mine if
+needed): `ntt_inv3_pw_y` and the fusion; `k_pw_bcast3` removed (subsumed by `k_pw_y`).
 
