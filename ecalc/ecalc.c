@@ -115,7 +115,15 @@ static int out_stage(struct out_ctx *c)
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
     if (c->pqb->started) { pthread_join(c->pqb->th, 0); memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
+    int rlog = db_res_log_on();
+    if (rlog) {                                        /* Phase 11 V (D5): the recurrence recomputed here (the main thread) against the background thread's */
+        int bad = 0; printf("RES node %d terms [%lu, %lu): pq", c->rank, c->pqb->a0, c->pqb->b1);
+        for (int i = 0; i < T1_NQ; i++) { uint64_t p2, q2; vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &p2, &q2); if (p2 != pr[i] || q2 != qr[i]) bad++;
+                                          printf(" %llu/%llu%s", (unsigned long long)pr[i], (unsigned long long)qr[i], p2 == pr[i] && q2 == qr[i] ? "" : "!=main"); }
+        printf("%s\n", bad ? "  MISMATCH background vs main thread" : "  (main thread agrees)");
+    }
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
+    if (rlog) { printf("RES node %d joined P/Q", c->rank); for (int i = 0; i < T1_NQ; i++) printf(" %llu/%llu", (unsigned long long)Pg[i], (unsigned long long)Qg[i]); printf("\n"); }
     /* the share of X this node holds: the device X (size 1, B1), this node's share of the sharded X (the distributed division:
      * A-div's mdb, read in place), or -- the host flows -- the host X, at size > 1 scattered from node 0 (the stand-in) */
     mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
@@ -140,6 +148,11 @@ static int out_stage(struct out_ctx *c)
     else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
     mn_out_res_combine(cm, xs, src.lo, Xres);
+    if (rlog) { printf("RES node %d X share [%zu, +%zu) res", c->rank, src.lo, src.cnt); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)xs[i]);
+                printf(" | X"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Xres[i]);
+                printf(" | P"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Pres[i]);
+                printf(" | Q"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Qres[i]);
+                printf(" | R"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Rres[i]); printf("\n"); }
     bigint none; bi_init(&none);
     int bad1 = tier1_res_pq(c->N, c->d, c->Pres, c->Qres, &none, &none, Pg, Qg, Xres, c->Rres, c->verbose >= 2);
     double t_t1 = mem_now() - t;
@@ -174,6 +187,8 @@ static int out_stage(struct out_ctx *c)
         mn_out_run(o, &src);
     }
     uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
+    if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
+                printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2);
     double t_dc = mem_now() - t;
     if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } }

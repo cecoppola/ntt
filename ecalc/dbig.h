@@ -51,6 +51,7 @@ uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) 
 uint64_t db_limb(const dbig *a, size_t i);
 uint64_t db_mod_q(const dbig *x, uint64_t q);
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
+int  db_res_log_on(void);                             /* Phase 11 V (D5): ECALC_RES_LOG=1 -- every residue printed and cross-checked (RES lines) */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */
 /* M3 (the multi-node product, rns_dist.c): a node's share of a sharded number */
 uint64_t *db_pool_alloc(int dev, size_t bytes);      /* per-APU scratch from the block pool */
