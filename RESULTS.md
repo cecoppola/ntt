@@ -3084,3 +3084,49 @@ the binary path 10⁹ still byte-identical.
 §16 I16). With the host at 77 GB the next limit at 8 × 10¹⁰ is device
 memory (≈ 195 GB of regions + 120 GB of planes + the dm pool against
 502 GB shared with the host), as before.
+
+## 75. Phase 10 — five agents on the §20 backlog: what landed (2026-09-20; results/G.md, H.md, M.md, C.md, T.md)
+
+PLAN §21 executed as §19 was: five agents in their own worktrees and
+aac6 clones, the integrator merging in readiness order (G → H → T → C →
+M) and re-verifying `main` with T's regression script after the merges.
+Each agent's design, measurements and open issues are in its
+`results/<agent>.md`; the integration facts:
+
+| agent | delivered | gate | merged |
+|---|---|---|---|
+| G grid/dm (A5, A1, A6) | the division's high/low cuts over shares (adopted); the transform cache over shares (adopted at size > 1 — `RNS_DIST_CACHE_MN=2`; at size 1 measured and not adopted); the pointwise product fused into the distributed inverse's column pass (`dist_inv_pw`, bit-identical, −1 s) | 10⁸/10⁹ sizes 1–4 identical; `t_mn_grid`, `t_dbig big` green; 4 × 10¹⁰ 84.8 s identical | 722dc3f |
+| H host memory (B1, B2) | X never on the host: the writer and the residue kernel read the device X (`newton_db_x_dev`), corrections in place; at size > 1 each node reads its share of the sharded X; the seeds streamed by the seed thread straight into the region arenas (`BS_SEED_DIRECT=1`; two pinned 2 GiB buffers only before the arenas exist), the init staging 1 GiB/APU | 10⁹ identical; sizes 2–4 identical incl. `MN_DM=host`; **4 × 10¹⁰ 82.7 s, host peak 11.7 GB** (init 45.7 → 11.5, bs 47.4 → 9.0, dm 70.8 → 7.5 GB) | 9bf8f16 |
+| T tests & docs (D3, D2, D4, D5, C6, E3) | `mnaccept.sh` — the standing regression (unit tests, 10⁹ both bases, 10⁸ at sizes 2/3/4, 10⁹ at 2/4, restart at size 2, `--full` adds 4 × 10¹⁰ with the reference evicted); tree-level checkpoints every k levels with the barrier off the critical path (`BS_CKPT_TREE_EVERY`); README for the Phase 9/10 code | 17/17 on its branch (4 × 10¹⁰ 89.5 s identical); 10¹⁰ at size 4 restarted from tree-level sets identical; `LIMB_BASE=2` at 10¹⁰ identical; D5: 18 forced-growth runs at 10¹⁰/4, bs deterministic — not a stale pool pointer; the one failure has A-mem's per-prime signature → the size > 1 residue path, open | e9ed73b |
+| C communication (B7, C4, C5) | `comm_alltoallv` (+ `_host`, `comm_prefix`) in every transport with count checks (the consumers in `rns_dist.c`/`newton_db.c` are the next step, exact code in C.md); the second pipeline plane `dist_fwd2/inv2` implemented and **rejected** (3–6 % slower at 2³⁰–2³¹: the unpacks contend with the push kernel); instead 64-bit push stores and 76 blocks per peer — **xGMI 2³¹ convolution 0.174 → 0.158 s (−9 %)**, new default (`COMM_PUSH64=0 COMM_PUSH_BLOCKS=228` restores); `DIST_STATS` by events under pipelining (exposed exchange, hidden fraction) | t_comm 2/3/4/8, t_dist every mode at 2–4 node-processes, xGMI 31 runs at 2³¹; 10⁸ sizes 2/4 and 10⁹ identical | 246d1e4 |
+| M device memory (B5, B6, B4/A3, 8 × 10¹⁰) | every rank releases its arenas (B5); the leaf's parities donated to the block pool before the tree at size > 1 (tree hipMalloc 11–44 → 0–5 GB per process); per-fallback pool logging, `mem_oom`, a `division` row; the finding that the dm phase's in-phase growth is exactly one block per APU — t1's quarter (8.9 / 15.6 / 17.8 GB at 4/7/8 × 10¹⁰) that finds no contiguous hole — and C3's chunk sized to hold it; the seed-staging cap lifted | 4 × 10¹⁰ six runs identical (85.3–88.8 s); **7 × 10¹⁰ 159.7 s default, 157.2 s with `ECALC_DM_POOL=1`** (kept off — the user's decision); **8 × 10¹⁰ on one node VERIFY OK in 210.4 s, host 90 GB, node peak 393 of 502 GB**; 10¹⁰ at size 4 identical | 1f0b114 |
+
+Three merge conflicts, each both sides kept: `newton_db.c` (G's cache
+release beside H's device X), `ntt_dist.c` (G's fused inverse on C's
+stats and `inv_prod`), `ecalc.c` (H's streamed-seed staging without M's
+cap; H's pool release after the output stage with M's `division` row).
+
+**Regression on the merged tree** (`mnaccept.sh --full`): after G + H
+(9bf8f16, job 20789) 17/17, 4 × 10¹⁰ identical in 84.7 s; after all five
+(1f0b114, job 20791) 17/17, 4 × 10¹⁰ identical in 85.1 s (1 906 s for the whole script).
+
+**The closing series** (`main` @ 1f0b114, `closing.sh`: the reference
+evicted before every run, digits compared after each; job 20792, s24-26,
+`results/close10/`): **4 × 10¹⁰ in 84.8 / 81.5 / 82.8 / 82.5 / 83.6 s — wall 83.0 ± 1.2 s**,
+phases 66.7 ± 0.3 (init 16.4 ± 1.1; bs 36.3 = batch 23.0 + top levels
+13.1; dm 30.1 = reciprocal 15.2 + division 14.9; T1/dc/T2 hidden),
+**peak host 11.7 GB** (staging 8.6 pinned + 2.9 other; no X, no string),
+device 262 GB mapped at the dm peak (216.6 at init: planes 120.3,
+regions 95.7); five of five VERIFY OK; runs 1–4 digits identical (run
+5's comparison was cut by the allocation's release after its VERIFY OK —
+its wall stands, its digits are unverified against the file).
+
+Against Phase 9 (86.4 ± 1.3 s / 48.8 GB): −4 % wall, −76 % host memory; against the
+reproduced paper design (291 s / 248 GB): **3.5 × at 5 % of the host memory**.
+
+**Not done this session:** C2/D1 (4 × 10¹⁰ / 5 × 10¹⁰ over two real
+nodes — no two idle nodes, and §20 C2's 1 GbE argument stands); the
+`alltoallv` consumers (G's files; C.md has the code); E1 (deleting the
+rejected forms: the host-flow stand-ins, `dist_fwd2/inv2`, the DPP
+exchange) and E2 remain proposals for the user. Open issues per agent
+in the five `results/*.md`.
