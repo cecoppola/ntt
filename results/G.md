@@ -137,6 +137,15 @@ The fused inverse in the products: a 2³¹ piece product's ntt 0.73 → 0.67 s (
 (−1.0 s; wall within the run-to-run spread). `DIST_LOGR_DELTA=-1` (rows 2¹⁷ on body 1, columns 2¹⁴): ntt 0.65 but load 0.54
 (the gather's column runs are shorter) — total 1.33 vs 1.11 s per plane: worse, not adopted (the split stays logn/2).
 
+### The final tree with its defaults (batch 5, job 20783 on s24-16, shared with another user's job)
+
+`t_dbig 24 big` VERIFY OK (609 checks); `t_mn_grid 0.5 28` at 2 and 4 processes 200 checks each; size 1 10⁹ decimal (8.2 s) and
+`LIMB_BASE=2` (13.8 s) identical; 10⁸ at sizes 2, 3, 4, 10⁹ at sizes 2, 4 and size 2 with the grids forced (cache 2 over
+shares: 5 hits) identical, every node VERIFY OK; **4 × 10¹⁰ size 1: 84.8 s, dm 32.6 (recip 16.0 + division 16.5), bs 36.8, init
+15.3, VERIFY OK, digits identical** (RESULTS §74: 86.4 ± 1.3 with dm 32.9). `RNS_DIST_CACHE=2 ./tests/t_dbig 24 big` was killed
+on that shared node at its 2³¹ × 2³⁰ product (the two 16 GiB planes per APU on top of the test's 100 GB of host and device
+operands and the other job): the guard is `hipMemGetInfo`, which on the APU does not see the host's share of the memory.
+
 ## Open issues
 
 * The cache at size 1 pays only if its planes are already mapped: 32 GiB per APU of mapped, idle device memory during the
@@ -145,7 +154,8 @@ The fused inverse in the products: a 2³¹ piece product's ntt 0.73 → 0.67 s (
   is ever adopted, the cache could share that memory when the product is not radix-3.
 * The cache over shares was measured at 10⁹ over node-processes on one node (grids forced); at 4 × 10¹⁰ over two real nodes
   the 8 GiB per APU per slot (2 s to map) against the skipped redistributions of 2^28-limb pieces is the expected win.
-* `t_dbig 0 big` (the 2³¹ × 2³⁰ product with its 25 GB host reference) was killed by the host memory limit in batch 2 (as
-  A-grid saw) and ran out of the job's time in batch 4; batch 5 runs `t_dbig 24 big`.
+* `t_dbig 0 big` with the single-node cache on (2 × 16 GiB per APU) is killed at its 2³¹ × 2³⁰ product on a node shared with
+  another job; the free-memory guard (`hipMemGetInfo` minus `RNS_DIST_CACHE_MARGIN_GB`) does not see host allocations on the
+  APU. Off by default at size 1, so only `RNS_DIST_CACHE=n` runs are exposed.
 * Body 1 never reaches the dist tier's local passes (2¹⁵/2¹⁶ points: no 7-stage pass); a split with a 2¹⁷ side loses more in
   the gather than it gains. A b16 kernel variant for 6-stage passes is N-kernel's territory.
