@@ -16,7 +16,7 @@ run1() { local tag=$1 d=$2; shift 2   # single process
 runm() { local tag=$1 p=$2 d=$3 to=$4; shift 4   # p node-processes on the node, killed after $to s
   local t0=$(date +%s); SLURM_JOB_ID=$J timeout $to ./mnrun.sh $p env ECALC_VERBOSE=2 "$@" ./ecalc $d $TMP/$tag.txt > $OUT/$tag.log 2>&1; echo $(( $(date +%s) - t0 )) > $OUT/$tag.wall; sleep 2; }
 # join the part files (or the single file) into <tag>.all on the node, cmp against a reference file
-join() { N "cd $TMP; cat $1.part* > $1.all 2>/dev/null || cp $1.txt $1.all; rm -f $1.part* $1.txt"; }
+join() { N "cd $TMP; cat $1.txt.part* > $1.all 2>/dev/null || cp $1.txt $1.all; rm -f $1.txt.part* $1.txt"; }
 cmpf() { N "cmp -s $TMP/$1.all $2 && echo identical || echo DIFFERS"; }
 chk() { local tag=$1 ref=$2; join $tag
   note "$tag: $(grep -ac 'VERIFY OK' $OUT/$tag.log) VERIFY OK; vs ref: $(cmpf $tag $ref); $(grep -a '^total' $OUT/$tag.log | head -1 | sed 's/  */ /g' | cut -c1-40); wall $(cat $OUT/$tag.wall) s; $(grep -aE 'restart|tree checkpoint sets' $OUT/$tag.log | head -2 | sed 's/  */ /g' | cut -c1-90 | tr '\n' ';')"; }
