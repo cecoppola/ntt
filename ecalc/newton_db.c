@@ -452,6 +452,11 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
     uint64_t *all = (uint64_t *)malloc((size_t)g * nq * 8);
     mn_allgather(G->all[0], v, nq, all);
     for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int k = 0; k < g; k++) { r += all[(size_t)k * nq + j]; if (r >= qs[j]) r -= qs[j]; } res[j] = r; }
+    if (db_res_log_on()) {                                            /* Phase 11 V (D5): the share's scaled residues, every node's as gathered, and the sum */
+        printf("RES node %d mdb_mod_qs n=%zu N=%zu share [%zu, %zu) sh.n=%zu: mine", node, X->n, X->N, lo, hi, X->sh.n); for (int j = 0; j < nq; j++) printf(" %llu", (unsigned long long)v[j]);
+        for (int k = 0; k < g; k++) { printf(" | node %d", G->g0 + k); for (int j = 0; j < nq; j++) printf(" %llu", (unsigned long long)all[(size_t)k * nq + j]); }
+        printf(" | sum"); for (int j = 0; j < nq; j++) printf(" %llu", (unsigned long long)res[j]); printf("\n");
+    }
     free(all);
 }
 /* the whole number on every node's host (small numbers: Q's top for the seed phase; the rare shrink) */
