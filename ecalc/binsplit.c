@@ -115,19 +115,18 @@ static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r
 /* Phase 9 C2: the region of output node i of a level of n nodes.  Large levels: region NR i / n -- a subtree per
  * region, a pair and its parent share a region (RESULTS 55).  Small levels (n <= bs_balance_n): the node counts
  * are not multiples of NR (the tree's odd carries), so the subtree rule puts two of five nodes in region 0 (40 %
- * of the level) and its pool grew inside the phase (RESULTS 72); the node goes instead to the least-loaded region
- * (fewest limbs laid out so far), ties broken for the region holding its inputs (b, then a), then the lowest
- * index.  Any placement is correct: the batch tier computes a product on the device that owns the result and
- * reads the operands where they are (rns_mul_batch_local). */
+ * of the level) and its pool grew inside the phase (RESULTS 72); the nodes go round robin instead (i mod NR: at
+ * most one node more in a region, the carried odd node -- the small one -- last).  A least-loaded rule with ties
+ * to the inputs' region was tried first: its choice depends on the real sizes, so the sizing pass could not
+ * predict which region gets the extra node and had to size every region for the largest share (4 x a level at
+ * a two-node level).  Any placement is correct: the batch tier computes a product on the device that owns the
+ * result and reads the operands where they are (rns_mul_batch_local). */
 int bs_balance_n = 16;                               /* BS_BALANCE_N: levels with at most this many nodes are balanced; 0 = never */
 static int place_node(size_t i, size_t n, const size_t *offr, int ra, int rb)
 {
+    (void)offr; (void)ra; (void)rb;
     if (n > (size_t)bs_balance_n) return region_of(i, n);
-    size_t lo = offr[0]; for (int r = 1; r < NR; r++) if (offr[r] < lo) lo = offr[r];
-    if (rb >= 0 && offr[rb] == lo) return rb;
-    if (ra >= 0 && offr[ra] == lo) return ra;
-    for (int r = 0; r < NR; r++) if (offr[r] == lo) return r;
-    return 0;
+    return (int)(i % NR);                            /* round robin: at most one node more per region, and the placement depends on the index alone, so the sizing pass (region_need) predicts it exactly */
 }
 
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
@@ -218,10 +217,6 @@ static void region_need(unsigned long N, size_t need[NR])
             if (odd && i == npairs) offr[r] += pa + qa; else offr[r] += pa + qb + 1 + qa + qb;
             (void)pb;
             if (nxt_r) nxt_r[i] = r;
-        }
-        if (n <= (size_t)bs_balance_n) {                                        /* the balanced levels: the real sizes decide which region gets the extra node, so every region is sized for the largest share */
-            size_t mx = 0; for (int r = 0; r < NR; r++) if (offr[r] > mx) mx = offr[r];
-            for (int r = 0; r < NR; r++) offr[r] = mx;
         }
         for (int r = 0; r < NR; r++) if (offr[r] + 2 > need[r]) need[r] = offr[r] + 2;
         free(cur_r); cur_r = nxt_r; nxt_r = 0;
