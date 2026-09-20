@@ -3076,3 +3076,11 @@ agents (A-div, A-out: 10⁸ and 10⁹ at sizes 2 and 4). 4 × 10¹⁰ over two
 real nodes remains to be run when two are idle together (memory). Unit tests on the merged tree: t_ntt 565,
 t_mul 189, t_bs 10, t_dbig 555, t_newton 620, t_verify 334 — all OK;
 the binary path 10⁹ still byte-identical.
+
+**The ceiling on the final code:** 7 × 10¹⁰ digits in **163.8 s** (was
+182.7 in §71), peak host **76.5 GB** (was 114.1), VERIFY OK — init 25.3
+(170 GB of regions mapped), bs 65.8 (batch 39.5, top levels 25.7), dm
+72.6 (reciprocal 35.3: the block pool still overflows at this size, PLAN
+§16 I16). With the host at 77 GB the next limit at 8 × 10¹⁰ is device
+memory (≈ 195 GB of regions + 120 GB of planes + the dm pool against
+502 GB shared with the host), as before.
