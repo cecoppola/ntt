@@ -138,6 +138,8 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
+size_t db_pool_largest_free(int d) { size_t m = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) if (g_ext[d].e[i].bytes > m) m = g_ext[d].e[i].bytes; pthread_mutex_unlock(&g_pool_mx); return m; }
+size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
 void db_release_pools(void)
 {
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
