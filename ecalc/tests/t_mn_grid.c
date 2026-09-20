@@ -95,6 +95,17 @@ int main(int argc, char **argv)
                 VERIFY(check(&C, &rl, "lowcut") && (!hc || C.N <= w), "%s lowcut %zu%s: %d x %d pieces, %d skipped %s", sh[si].name, cut, hc ? " + highcut" : "", ka, kb, skipped, gen_name[kind]);
             }
         }
+        {   /* Phase 10 A1 over shares: B's piece transforms held across two products (the reciprocal's Q_t r and the
+             * division's X Q): the product with B pinned, then the low product over the same B pieces (hits), then released */
+            setenv("RNS_DIST_CACHE_HOLD", "1", 1);
+            int held = rns_dist_cache_hold(1);
+            rns_mul_dist_mn(&C, &A, &B, 0, G);
+            VERIFY(check(&C, &r, "held product"), "%s held product %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
+            size_t w = na + nb - 1; rns_mul_low_mn(&C, &A, &B, G, w); ref_low(&rl, &r, w);
+            size_t hits = 0, misses = 0; rns_dist_cache_stats(&hits, &misses);
+            VERIFY(check(&C, &rl, "low after hold"), "%s low product after the hold w %zu %s (held %d: %zu hits, %zu misses)", sh[si].name, w, gen_name[kind], held, hits, misses);
+            rns_dist_cache_hold(0); unsetenv("RNS_DIST_CACHE_HOLD");
+        }
         {   /* views: A[na/3, na/3 + na/2) x B[7, ...) */
             size_t oa = na / 3, la = na / 2, ob = 7, lb = nb - 7;
             mdbv av = mdb_view(&A, oa, la, G), bv = mdb_view(&B, ob, lb, G);
