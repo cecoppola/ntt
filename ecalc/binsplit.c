@@ -178,13 +178,13 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
     return g_pool[which][r];
 }
 /* C4: the two parities of region r from one allocation of 2 cap limbs on the region's device; Phase 11 M: plus `extra` bytes
- * and the `hole` (the pool's reserved tail, decision 5) at its end */
+ * (the dm phase's need beyond the parities), the last `hole` of them the block pool's reserved tail (decision 5) */
 static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thresh)
 {
     int nd = mem_device_count(); if (g_arena[r].base || g_cap[0][r] >= cap || nd <= 0) return;
     cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
     extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20); hole = (hole + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
-    g_arena[r].dev = r % nd; g_arena[r].half = cap * 8; g_arena[r].bytes = 2 * cap * 8 + extra + hole; g_arena[r].hole = hole; g_arena[r].thresh = thresh; g_arena[r].donated = 0;
+    g_arena[r].dev = r % nd; g_arena[r].half = cap * 8; g_arena[r].bytes = 2 * cap * 8 + extra; if (hole > g_arena[r].bytes) hole = g_arena[r].bytes; g_arena[r].hole = hole; g_arena[r].thresh = thresh; g_arena[r].donated = 0;
     g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
     rns_shutdown_hook = binsplit_release_arenas;         /* Phase 10 B5 (agent M): released at rns_shutdown on every rank, whether or not binsplit_free_pools ran there (A-mem open issue 2) */
     for (int w = 0; w < 2; w++) { g_pool[w][r] = g_arena[r].base + w * cap; g_cap[w][r] = cap; }
@@ -317,8 +317,8 @@ void binsplit_pregrow(unsigned long N)
     if (bs_regions_on_device && mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
         double ta = mem_now();
         /* Phase 11 M (decision 5): the arena also holds the dm phase (and, at size > 1, the tree) -- its need per device beyond
-         * the two parities is mapped here, at init, with t1's quarter as the reserved tail (ECALC_TAIL=0: the Phase 10 layout,
-         * the pool falling back to hipMalloc inside the phase). */
+         * the two parities is mapped here, at init, and its last bytes (t1's quarter, the hole) are the block pool's reserved tail
+         * (ECALC_TAIL=0: the Phase 10 layout, the pool falling back to hipMalloc inside the phase). */
         int tail_on = getenv("ECALC_TAIL") ? atoi(getenv("ECALC_TAIL")) : 1;
         struct dm_layout dml; memset(&dml, 0, sizeof dml); int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
         if (tail_on) dm_layout(N, sz, &dml);
@@ -327,7 +327,9 @@ void binsplit_pregrow(unsigned long N)
             cap[r] = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
             size_t base = 2 * cap[r] * 8, want = dml.need_dev > dml.tree_dev ? dml.need_dev : dml.tree_dev;   /* per device; a region's arena is its share */
             want = (want + per_dev - 1) / per_dev; hole[r] = tail_on ? dml.hole / per_dev : 0;
-            extra[r] = want > base + hole[r] ? want - base - hole[r] : 0;
+            extra[r] = want > base ? want - base : 0;             /* the hole is a policy over the arena's last bytes, not bytes added: at the dm phase the
+                                                                  * level pools are dead and the pool's blocks keep out of the tail, so it is free whenever
+                                                                  * the arena holds the dm need at all (v2; v1 added the hole to the arena: +3.7 GB at 4e10, +32 at 9e10) */
         }
         if (bs_verbose && tail_on) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (tree %.2f), tail %.2f GB (thresh %.2f)\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9);
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)

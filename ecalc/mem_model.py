@@ -154,7 +154,7 @@ def mem_per_node(D, g=1, opts=None):
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
-        arena = [max(b + L['hole'], want) for b in bs]                     # binsplit_pregrow: the bs halves + the hole, or the dm / tree need, per device
+        arena = [max(b, want) for b in bs]                                 # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes
         pool_in_phase = 0
         pool_total = sum(arena)
     else:
