@@ -120,6 +120,9 @@ the batch-local sums are stable to ≈ 0.3 s):
   co-issued. §49's 1.6× per exchange is a latency figure for a dependent chain, not a throughput one for
   this body. Not adopted.
 
+**Batch 3 (job 20744, s24-30): 10⁹ with the branch's defaults (body 1, pair) — decimal 13.5 s and
+binary (`LIMB_BASE=2`) 20.3 s, VERIFY OK, both `cmp`-identical to `ref/e_1000000000.txt`; META `body=1`.**
+
 ## Where the batch tier stands (4 × 10¹⁰)
 
 Baseline (§72): batch 30.5 s = scatter 1.18 + ntt 19.05 + crt 2.62 + merge 1.28 (+ layout/add-norm).
