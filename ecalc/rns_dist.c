@@ -540,78 +540,76 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
 }
 
 /* ---- Phase 8 M3: the product over a node group (mdb.h) -------------------------------------------------
- * Rank rho = gt d + r (APU d of the group's node r < gt) holds the block-cyclic rows [rho rows, (rho+1) rows)
- * of the R x C plane, rows = R / (4 gt); its row sequence is t = j rows + il <-> limb m = R j + rho rows + il
- * (columns j in order, so m increases with t).  A node's contiguous share [lo, hi) meets the sequence in
- * one segment [seq_start(lo), seq_start(hi)).
+ * Phase 11 L (C3-576, B7): the block-cyclic map for a group of ANY size.  Rank rho = g d + r (APU d of the
+ * group's node r, r < g -- every node of the group takes part in the transform) holds the rows
+ * [R rho / nr, R (rho+1) / nr) of the R x C plane, nr = 4 g (floor or ceil of R / nr rows each), and the
+ * columns [C rho / nr, C (rho+1) / nr) of the column layout.  Its row sequence is t = j rows + il <-> limb
+ * m = R j + row0 + il (columns j in order, so m increases with t).  A node's contiguous share [lo, hi) meets
+ * the sequence in one segment [seq_start(lo), seq_start(hi)).  For g a power of two the map is ntt_dist's
+ * (rows = R / nr exactly) and the transform is its pipelined one, bit for bit as before; otherwise (3, 5, 6,
+ * 9, 576 ...) the general four-step below (gen_fwd / gen_inv_pw) whose exchanges are alltoallv's of per-pair
+ * slabs (rows(rho) x cols(sigma) points) in K chunks of the sender's rows.  Every exchange of an operand or
+ * a result is an alltoallv of the exact segments (B7): the received slabs ARE the rank's sequence, back to
+ * back in node order -- no padded scratch, no per-point search.
  * Phase 9 A3: the operands are views (mdbv: a window [off, off + len) of a sharded number, the pack kernel
  * reading the share at the window's offset) and the result of a piece product is delivered to the window of
  * every node's share of C that the piece covers (its limbs [shift, shift + n)): the first piece straight into
  * the zero-filled shares, the others into a temporary of that window, the spills added there, then
  * C's share += T << offset (fixed length, the carry scan over the nodes). */
-__host__ __device__ static inline size_t seq_start(size_t m, size_t R, size_t rows, size_t rho)   /* the first t with m(t) >= m */
+__host__ __device__ static inline size_t part0(size_t R, int nr, int rho) { return R * (size_t)rho / nr; }   /* the first row (column) of rank rho */
+__host__ __device__ static inline size_t partn(size_t R, int nr, int rho) { return part0(R, nr, rho + 1) - part0(R, nr, rho); }
+__host__ __device__ static inline int part_owner(size_t R, int nr, size_t i) { return (int)(((i + 1) * (size_t)nr + R - 1) / R) - 1; }   /* the rank whose part holds index i */
+__host__ __device__ static inline size_t seq_start(size_t m, size_t R, int nr, int rho)   /* the first t of rank rho's sequence with m(t) >= m */
 {
-    size_t j = m / R, i = m - j * R, a = rho * rows;
+    size_t j = m / R, i = m - j * R, a = part0(R, nr, rho), rows = partn(R, nr, rho);
     if (i <= a) return j * rows;
     if (i < a + rows) return j * rows + (i - a);
     return (j + 1) * rows;
 }
-struct seg { size_t t0, t1; };
-/* pack this node's part [lo, hic) of an operand (local index m - lo in src) for the ranks (r, d), r < gt: slab r of sb */
-__global__ void k_pack_mn(uint64_t *sb, struct acc src, size_t lo, size_t hic, size_t R, size_t rows, int gt, int d, size_t S)
+struct seg { size_t t0, t1, off; };                            /* a segment [t0, t1) of a rank's sequence and its limb offset in a slab buffer */
+/* pack this node's part [lo, hic) of an operand (local index m - lo in src) for the ranks (r, d), r < g: the segment
+ * sg[r] of rank rho = g d + r's sequence, at sg[r].off of sb (S bounds any segment: the iteration space) */
+__global__ void k_pack_mn(uint64_t *sb, struct acc src, size_t lo, size_t R, int nr, int g, int d, size_t S, const struct seg *sg)
 {
-    size_t total = (size_t)gt * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    size_t total = (size_t)g * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) {
-        size_t r = t / S, k = t - r * S, rho = (size_t)gt * d + r;
-        size_t t0 = seq_start(lo, R, rows, rho), t1 = seq_start(hic, R, rows, rho);
-        if (k >= t1 - t0) continue;
-        size_t u = t0 + k, j = u / rows, il = u - j * rows, m = R * j + rho * rows + il;
-        sb[t] = acc_get(src, m - lo);
+        size_t r = t / S, k = t - r * S; int rho = g * d + (int)r;
+        if (k >= sg[r].t1 - sg[r].t0) continue;
+        size_t rows = partn(R, nr, rho), u = sg[r].t0 + k, j = u / rows, il = u - j * rows, m = R * j + part0(R, nr, rho) + il;
+        sb[sg[r].off + k] = acc_get(src, m - lo);
     }
 }
-/* the received slabs (segment r of node r at rb + r S, [sg[r].t0, sg[r].t1) of my sequence, contiguous in node order)
- * -> my rows: x[il C + j] (transpose = 1, the transform's row layout) or x[t] (the sequence, the CRT's added operand) */
-__global__ void k_gather_mn(uint64_t *x, const uint64_t *rb, const struct seg *sg, int g, size_t S, size_t rows, size_t C, ec_mod m, int canon, int transpose)
+/* the received segments, back to back = my sequence [0, tend) (zero beyond) -> my rows: x[il C + j] (transpose = 1, the
+ * transform's row layout) or x[t] (the sequence, the CRT's added operand) */
+__global__ void k_gather_mn(uint64_t *x, const uint64_t *rb, size_t tend, size_t rows, size_t C, ec_mod m, int canon, int transpose)
 {
     size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) {
-        int lo = 0, hi = g;                                     /* the last segment with t0 <= t */
-        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (sg[mid].t0 <= t) lo = mid; else hi = mid; }
-        uint64_t v = (sg[lo].t0 <= t && t < sg[lo].t1) ? rb[(size_t)lo * S + (t - sg[lo].t0)] : 0;
+        uint64_t v = t < tend ? rb[t] : 0;
         if (canon) v = ec_canon64(v, m.pu, m.mu);
         size_t j = t / rows, il = t - j * rows;
         x[transpose ? il * C + j : t] = v;
     }
 }
-/* my result sequence (the CRT output, q limbs) -> slabs: slab r' = the segment of node r' */
-__global__ void k_pack_out_mn(uint64_t *sb, const uint64_t *xb, const struct seg *sg, int g, size_t S)
+/* the received slabs of the ranks (r, d), r < g (segments sg[r] of my window [lo, ..) in their sequences, at sg[r].off of rb)
+ * -> the window's limbs */
+__global__ void k_scatter_mn(struct acc dst, size_t lo, const uint64_t *rb, const struct seg *sg, int g, size_t S, size_t R, int nr, int d)
 {
     size_t total = (size_t)g * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t r = t / S, k = t - r * S; if (k < sg[r].t1 - sg[r].t0) sb[t] = xb[sg[r].t0 + k]; }
-}
-/* the received slabs of the ranks (r, d), r < gt (segments of my window [lo, ..)) -> the window's limbs */
-__global__ void k_scatter_mn(struct acc dst, size_t lo, const uint64_t *rb, const struct seg *sg, int gt, size_t S, size_t R, size_t rows, int d)
-{
-    size_t total = (size_t)gt * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) {
         size_t r = t / S, k = t - r * S; if (k >= sg[r].t1 - sg[r].t0) continue;
-        size_t u = sg[r].t0 + k, j = u / rows, il = u - j * rows, rho = (size_t)gt * d + r, m = R * j + rho * rows + il;
-        *acc_ptr(dst, m - lo) = rb[t];
+        int rho = g * d + (int)r; size_t rows = partn(R, nr, rho), u = sg[r].t0 + k, j = u / rows, il = u - j * rows, m = R * j + part0(R, nr, rho) + il;
+        *acc_ptr(dst, m - lo) = rb[sg[r].off + k];
     }
-}
-/* the slab (limbs) that holds any node's segment of an operand sharded with shares of at most `maxshare` limbs */
-static size_t slab_limbs(size_t maxshare, size_t R, size_t rows, size_t q)
-{
-    size_t S = maxshare ? ((maxshare - 1) / R + 2) * rows : rows;
-    if (S > q) S = q;
-    return (S + 15) / 16 * 16;
 }
 static size_t max_share(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
 static int g_node_of(mn_group *G) { return G->g0 + G->me; }
 static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_max(G->all[0], v) : v; }
-
-static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->tr[d], d); return G->lay[d]; }
-struct mn_ctx { mn_group *G; int node, gt, g; size_t R, rows, C, n; };
+static int is_pow2(int g) { return g > 0 && !(g & (g - 1)); }
+static int dist_gen_forced(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GEN"); v = e ? atoi(e) != 0 : 0; } return v; }   /* tests: the general transform at a power-of-two g too */
+/* the layered communicator of the group over mesh d: all g nodes (rank rho = g d + r) */
+static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d); return G->lay[d]; }
+struct mn_ctx { mn_group *G; int node, g, nr; size_t R, C, n; };
 /* node r's part of a view, in view coordinates [lo, hi) (its share of m cut to the window and to the view's length) */
 static void view_share(const mdbv *v, int r, size_t *lo, size_t *hi)
 {
@@ -620,24 +618,40 @@ static void view_share(const mdbv *v, int r, size_t *lo, size_t *hi)
     if (a > v->len) a = v->len; if (b > v->len) b = v->len; if (a > b) a = b;
     *lo = a; *hi = b;
 }
-static size_t view_max_share(const mdbv *v) { size_t s = max_share(v->m); return s < v->len ? s : v->len; }
-/* one operand: pack my part, exchange over mesh d, and the segment table of the receiver (rank (me, d)) */
-static void redistribute(const struct mn_ctx *X, const mdbv *op, size_t S, uint64_t *sb, uint64_t *rb, struct seg *hseg, struct seg *dseg, int d, hipStream_t s)
+/* the segment tables of one operand on APU thread d: send -- my part in the sequence of every rank (r, d); receive -- every
+ * node's part in my sequence (rank (me, d)); offsets back to back (limbs); the totals returned (limbs).  The received
+ * segments are contiguous in node order (the parts tile the view), so they form my sequence [0, seq_start(len)). */
+static void seg_tables(const struct mn_ctx *X, const mdbv *op, int d, struct seg *ss, struct seg *rs, size_t *stot, size_t *rtot, size_t *S)
 {
-    size_t lo, hi; view_share(op, X->node, &lo, &hi);
-    if (hi > lo) {
+    size_t lo, hi, o = 0, mx = 0; view_share(op, X->node, &lo, &hi);
+    for (int r = 0; r < X->g; r++) { int rho = X->g * d + r; ss[r].t0 = seq_start(lo, X->R, X->nr, rho); ss[r].t1 = seq_start(hi, X->R, X->nr, rho); ss[r].off = o; o += ss[r].t1 - ss[r].t0; if (ss[r].t1 - ss[r].t0 > mx) mx = ss[r].t1 - ss[r].t0; }
+    *stot = o; o = 0;
+    int rho = X->g * d + X->G->me;
+    for (int r = 0; r < X->g; r++) { view_share(op, X->G->g0 + r, &lo, &hi); rs[r].t0 = seq_start(lo, X->R, X->nr, rho); rs[r].t1 = seq_start(hi, X->R, X->nr, rho); rs[r].off = o; o += rs[r].t1 - rs[r].t0; }
+    *rtot = o; *S = mx;
+}
+static void seg_bytes(const struct seg *sg, int g, size_t *cnt, size_t *dsp) { for (int r = 0; r < g; r++) { cnt[r] = (sg[r].t1 - sg[r].t0) * 8; dsp[r] = sg[r].off * 8; } }
+/* one operand: pack my part, exchange over mesh d (an alltoallv of the segments), the received sequence in rb */
+struct rdst { struct seg *hs, *ds; size_t *cnt; uint64_t *sb, *rb; size_t tend; };   /* per operand and APU: the tables, the buffers, the received sequence's end */
+static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o, int d, hipStream_t s)
+{
+    int g = X->g; size_t stot, rtot, S;
+    struct seg *ss = o->hs, *rs = o->hs + g;
+    seg_tables(X, op, d, ss, rs, &stot, &rtot, &S);
+    size_t *scnt = o->cnt, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
+    seg_bytes(ss, g, scnt, sdsp); seg_bytes(rs, g, rcnt, rdsp);
+    o->sb = db_pool_alloc(d, (stot + 16) * 8); o->rb = db_pool_alloc(d, (rtot + 16) * 8);
+    o->tend = rtot;
+    if (stot) {
+        size_t lo, hi; view_share(op, X->node, &lo, &hi);
         size_t slo, shi; mdb_share(op->m, X->node, &slo, &shi);
         struct acc a = acc_db(&op->m->sh, op->off + lo - slo, hi - lo);   /* the window's first limb within my share */
-        k_pack_mn<<<nblk((size_t)X->gt * S), 256, 0, s>>>(sb, a, lo, hi, X->R, X->rows, X->gt, d, S);
+        HIP_CHECK(hipMemcpyAsync(o->ds, ss, g * sizeof *ss, hipMemcpyHostToDevice, s));
+        k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
     HIP_CHECK(hipStreamSynchronize(s));
-    comm_alltoall(X->G->all[d], sb, rb, S * 8, s); comm_wait(X->G->all[d]);
-    size_t rho = (size_t)X->gt * d + X->G->me;
-    for (int r = 0; r < X->g; r++) {
-        view_share(op, X->G->g0 + r, &lo, &hi);
-        hseg[r].t0 = seq_start(lo, X->R, X->rows, rho); hseg[r].t1 = seq_start(hi, X->R, X->rows, rho);
-    }
-    HIP_CHECK(hipMemcpyAsync(dseg, hseg, X->g * sizeof *hseg, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
+    comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_wait(X->G->all[d]);
+    db_pool_free(d, o->sb); o->sb = 0;
 }
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
@@ -680,6 +694,153 @@ static void piece_window(const mdb *C, int r, size_t shift, size_t Np, size_t *l
     if (a > Np) a = Np; if (b > Np) b = Np; if (a > b) a = b;
     *lo = a; *hi = b;
 }
+
+/* ---- Phase 11 L: the general four-step over 4 g ranks with unequal parts (g not a power of two) ------------------
+ * Row layout: my rows x C row-major; column layout: my cols columns of R points.  Forward: the row pass, then chunk k
+ * of my rows (rows k / K ..) twiddled and packed into slabs, slab sigma = my chunk rows x sigma's columns column-major
+ * (sb[col0(sigma) rk + jl rk + il]: the slabs back to back in rank order), one alltoallv per chunk over the layered
+ * communicator (the wire time of chunk k under the row pass and pack of chunk k + 1); then the unpacks (slab rho of
+ * chunk k = my cols x rho's chunk rows -> x[jl R + i0(rho, k) + il]) and the column pass.  Inverse: the mirror.  The
+ * tables T[k][rho] = (offset, first global row, rows) of every rank's chunk k in the "my columns" side of the slab
+ * buffers; the counts of both directions from them.  The twiddle tables are the dist_plan's (ntt_dist.c). */
+struct rkt { size_t off, i0, n; };
+struct gplan { int K, nr, logR, logC; size_t R, C, rows, row0, cols, qs, qr; struct rkt *hT, *dT; size_t *regs, *regr, *fsc, *fsd, *frc, *frd; };
+static void gplan_build(struct gplan *p, int g, int rho, int logR, int logC, int d)
+{
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC;
+    p->nr = nr; p->logR = logR; p->logC = logC; p->R = R; p->C = C;
+    p->rows = partn(R, nr, rho); p->row0 = part0(R, nr, rho); p->cols = partn(C, nr, rho);
+    p->qs = p->rows * C; p->qr = p->cols * R;
+    size_t rmin = R / nr; int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 4; if (K < 1) K = 1; if (K > 16) K = 16;
+    while (K > 1 && rmin / K < 32) K--;
+    p->K = K;
+    p->hT = (struct rkt *)malloc((size_t)K * nr * sizeof *p->hT);
+    p->regs = (size_t *)malloc((size_t)(2 * (K + 1) + 4 * K * nr) * sizeof(size_t)); p->regr = p->regs + K + 1;
+    p->fsc = p->regr + K + 1; p->fsd = p->fsc + (size_t)K * nr; p->frc = p->fsd + (size_t)K * nr; p->frd = p->frc + (size_t)K * nr;
+    for (int k = 0; k <= K; k++) {
+        p->regs[k] = C * (p->rows * k / K);
+        size_t sum = 0; for (int r = 0; r < nr; r++) sum += partn(R, nr, r) * k / K;
+        p->regr[k] = p->cols * sum;
+    }
+    for (int k = 0; k < K; k++) {
+        size_t rk = p->rows * (k + 1) / K - p->rows * k / K, o = 0;
+        for (int r = 0; r < nr; r++) {
+            size_t rr = partn(R, nr, r), i0 = rr * k / K, n = rr * (k + 1) / K - i0;
+            struct rkt *t = &p->hT[(size_t)k * nr + r]; t->off = o; t->i0 = part0(R, nr, r) + i0; t->n = n; o += p->cols * n;
+            /* forward: send my chunk rows x r's columns (at col0(r) rk of region k), receive my columns x r's chunk rows */
+            p->fsc[(size_t)k * nr + r] = partn(C, nr, r) * rk * 8; p->fsd[(size_t)k * nr + r] = (p->regs[k] + part0(C, nr, r) * rk) * 8;
+            p->frc[(size_t)k * nr + r] = p->cols * n * 8; p->frd[(size_t)k * nr + r] = (p->regr[k] + t->off) * 8;
+        }
+    }
+    p->dT = (struct rkt *)db_pool_alloc(d, (size_t)K * nr * sizeof *p->hT + 64);
+    HIP_CHECK(hipMemcpy(p->dT, p->hT, (size_t)K * nr * sizeof *p->hT, hipMemcpyHostToDevice));
+}
+static void gplan_free(struct gplan *p, int d) { db_pool_free(d, (uint64_t *)p->dT); free(p->hT); free(p->regs); }
+/* twiddle + pack of my rows chunk [i0l, i0l + rk) (local row index): x[(i0l + il) C + jb] w_n^(i j), i = row0 + i0l + il,
+ * j = brev(jb) -> sb[col0(sigma) rk + jl rk + il], sigma the owner of column jb.  Tiles of 32 x 32 through LDS. */
+__global__ void k_twpack_g(const uint64_t *x, uint64_t *sb, size_t rk, size_t i0g, int logC, int nr, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx; if (il >= rk) continue;
+        size_t i = i0g + il, j = brev3((unsigned)jb, logC), e = i * j;
+        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
+        tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t jb = bj + ty + k, il = bi + tx; if (il >= rk) continue;
+        int sg = part_owner(C, nr, jb); size_t jl = jb - part0(C, nr, sg);
+        sb[part0(C, nr, sg) * rk + jl * rk + il] = tile[tx][ty + k];
+    }
+}
+/* the mirror: slabs of my rows chunk -> x rows, with the inverse twiddle (the column inverse's output folded first) */
+__global__ void k_unpacktw_g(const uint64_t *rb, uint64_t *x, size_t rk, size_t i0g, int logC, int nr, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t jb = bj + ty + k, il = bi + tx; if (il >= rk) continue;
+        int sg = part_owner(C, nr, jb); size_t jl = jb - part0(C, nr, sg);
+        tile[ty + k][tx] = rb[part0(C, nr, sg) * rk + jl * rk + il];
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k, jb = bj + tx; if (il >= rk) continue;
+        size_t i = i0g + il, j = brev3((unsigned)jb, logC), e = i * j;
+        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
+        x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
+    }
+}
+/* slab rho of a chunk (my cols x rho's chunk rows, column-major) <-> my columns of R points; block y = rho */
+__global__ void k_unpack_g(const uint64_t *rb, uint64_t *x, const struct rkt *T, size_t cols, size_t R)
+{
+    const struct rkt t = T[blockIdx.y]; size_t total = cols * t.n, i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < total; i += stride) { size_t jl = i / t.n, il = i - jl * t.n; x[jl * R + t.i0 + il] = rb[t.off + i]; }
+}
+__global__ void k_pack_cols_g(const uint64_t *x, uint64_t *sb, const struct rkt *T, size_t cols, size_t R)
+{
+    const struct rkt t = T[blockIdx.y]; size_t total = cols * t.n, i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < total; i += stride) { size_t jl = i / t.n, il = i - jl * t.n; sb[t.off + i] = x[jl * R + t.i0 + il]; }
+}
+static size_t gp_rk(const struct gplan *p, int k) { return p->rows * (k + 1) / p->K - p->rows * k / p->K; }
+static size_t gp_nmax(const struct gplan *p, int k) { size_t mx = 0; for (int r = 0; r < p->nr; r++) if (p->hT[(size_t)k * p->nr + r].n > mx) mx = p->hT[(size_t)k * p->nr + r].n; return mx; }
+static void gen_fwd(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx, int prime, comm *cl, uint64_t *x, uint64_t *sb, uint64_t *rb, hipStream_t s)
+{
+    ec_mod m = ec_mod_get(prime); int nr = p->nr;
+    ntt_fwd(ctx, x, p->logC, p->rows, s);                                                 /* rows: length-C, bit-reversed columns */
+    for (int k = 0; k < p->K; k++) {
+        size_t i0l = p->rows * k / p->K, rk = gp_rk(p, k);
+        dim3 grid((unsigned)(p->C / 32), (unsigned)((rk + 31) / 32)), blk(32, 8);
+        k_twpack_g<<<grid, blk, 0, s>>>(x + i0l * p->C, sb + p->regs[k], rk, p->row0 + i0l, p->logC, nr, pl->twr, pl->twc, m);
+        comm_alltoallv(cl, sb, p->fsc + (size_t)k * nr, p->fsd + (size_t)k * nr, rb, p->frc + (size_t)k * nr, p->frd + (size_t)k * nr, s);   /* (posting k completes k - 1) */
+    }
+    for (int k = 0; k < p->K; k++) comm_wait(cl);                                          /* one wait per post (the last completes the last chunk) */
+    for (int k = 0; k < p->K; k++) { size_t nm = gp_nmax(p, k); if (nm) k_unpack_g<<<dim3(nblk(p->cols * nm), nr), 256, 0, s>>>(rb + p->regr[k], x, p->dT + (size_t)k * nr, p->cols, p->R); }
+    ntt_fwd(ctx, x, p->logR, p->cols, s);                                                 /* columns: length-R */
+}
+/* the inverse with the pointwise product x <- x y fused into the column inverse (y = 0: none), as dist_inv_pw */
+static void gen_inv_pw(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx, int prime, comm *cl, uint64_t *x, const uint64_t *y, uint64_t *sb, uint64_t *rb, hipStream_t s)
+{
+    ec_mod m = ec_mod_get(prime); int nr = p->nr, K = p->K;
+    if (y) ntt_inv_pw_y(ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s); else ntt_inv(ctx, x, p->logR, p->cols, s);   /* columns: x R^-1, natural */
+    for (int k = 0; k < K; k++) { size_t nm = gp_nmax(p, k); if (nm) k_pack_cols_g<<<dim3(nblk(p->cols * nm), nr), 256, 0, s>>>(x, sb + p->regr[k], p->dT + (size_t)k * nr, p->cols, p->R); }
+    for (int k = 0; k <= K; k++) {
+        if (k < K) comm_alltoallv(cl, sb, p->frc + (size_t)k * nr, p->frd + (size_t)k * nr, rb, p->fsc + (size_t)k * nr, p->fsd + (size_t)k * nr, s);
+        else for (int w = 0; w < K; w++) comm_wait(cl);                                  /* one wait per post */
+        if (k == 0) continue;
+        int kk = k - 1; size_t i0l = p->rows * kk / K, rk = gp_rk(p, kk);                  /* chunk k - 1 has arrived: unpack, twiddle, row inverse under the wire of chunk k */
+        dim3 grid((unsigned)(p->C / 32), (unsigned)((rk + 31) / 32)), blk(32, 8);
+        k_unpacktw_g<<<grid, blk, 0, s>>>(rb + p->regs[kk], x + i0l * p->C, rk, p->row0 + i0l, p->logC, nr, pl->twr_i, pl->twc_i, m);
+        ntt_inv(ctx, x + i0l * p->C, p->logC, rk, s);                                     /* rows: length-C inverse, x C^-1 */
+    }
+}
+/* the plane's shape for nc limbs over g nodes: logn, logR, logC, and the largest per-rank plane (limbs) */
+static void mn_shape(size_t nc, int g, int *logn_, int *logR_, int *logC_, size_t *qmax)
+{
+    int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++;
+    int logn = 0; while (((size_t)1 << logn) < nc) logn++;
+    int logmin = 2 * (5 + lg); if (logmin < 20) logmin = 20;   /* rows >= 32, R, C >= 2^10 */
+    if (logn < logmin) logn = logmin;
+    int logR = logn / 2 + dist_logr_delta(), logC; { int lo = 5 + lg < 10 ? 10 : 5 + lg; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; } logC = logn - logR;
+    size_t R = (size_t)1 << logR, C = (size_t)1 << logC, qs = ((R + nr - 1) / nr) * C, qr = ((C + nr - 1) / nr) * R;
+    *logn_ = logn; *logR_ = logR; *logC_ = logC; *qmax = qs > qr ? qs : qr;
+}
+/* the plane cap of the mn tier: one plane per node pool (EC_NP q limbs in pool 0 of 2^pool_log limbs, 3 q + 16 in pool 1,
+ * q = the largest rank plane), at most 2^31 points per rank plane's power of two: 2^(min(31, pool_log) + floor(log2 g))
+ * for g a power of two, one less where the rounding of R / nr does not fit (never for g <= 2304) */
+static int mn_logn_cap(int g)
+{
+    int lgt = 0; while ((2 << lgt) <= g) lgt++;
+    int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log();
+    int logn = c + lgt;
+    if (!is_pow2(g)) { int ln, lr, lc; size_t qm; mn_shape((size_t)1 << logn, g, &ln, &lr, &lc, &qm); if (qm > ((size_t)1 << (c - 2))) logn--; }
+    return logn;
+}
+int rns_mul_dist_mn_logcap(mn_group *G) { return mn_logn_cap(G->g); }
 struct mn_times { double redistribute, ntt, crt, out, carry, total; };
 /* the core of one plane: C's shares += (A B (+ X)) << shift.  direct: shift 0, the piece is the whole product (X allowed),
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
@@ -687,29 +848,22 @@ struct mn_times { double redistribute, ntt, crt, out, carry, total; };
  * += T << (tlo + shift - clo).  Np = the piece's basis (na + nb, + 1 with X). */
 static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB)
 {
-    int g = G->g, gt = G->gt, me = G->me, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
-    int node = G->g0 + me, tnode = me < gt, verbose = getenv("RNS_VERBOSE") != 0;
+    int g = G->g, me = G->me, nr = 4 * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
+    int gen = !is_pow2(g) || dist_gen_forced();                /* the general transform (unequal parts) or ntt_dist's pipelined one */
     size_t na = A->len, nb = B->len, nc = na + nb, Np = nc + (X ? 1 : 0);
     if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
     if (X && X->n > nc) { fprintf(stderr, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); exit(1); }
-    int logn = 0; while (((size_t)1 << logn) < nc) logn++;
-    int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;   /* rows = R / nr >= 32 (the tiled pack), R, C >= 2^10 */
-    if (logn < logmin) logn = logmin;
-    if (logn > DIST_LOGN_MAX + lgt) { fprintf(stderr, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d transform nodes\n", nc, DIST_LOGN_MAX + lgt, gt); exit(1); }
-    int logR = logn / 2 + dist_logr_delta(), logC; { int lo = 7 + lgt < 10 ? 10 : 7 + lgt; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; } logC = logn - logR;   /* (A6: DIST_LOGR_DELTA; rows >= 32, C >= 2^10) */
-    size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / nr, q = n / nr;
+    int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
+    if (logn > mn_logn_cap(g)) { fprintf(stderr, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d nodes\n", nc, mn_logn_cap(g), g); exit(1); }
+    size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
-    struct mn_ctx X0 = { G, node, gt, g, R, rows, C, n };
+    struct mn_ctx X0 = { G, node, g, nr, R, C, n };
     mdbv Xv = { X, 0, X ? X->n : 0 };
     /* A1 over shares: an operand whose transform is cached skips its redistribution, gathers and forward transforms on every
      * node (the keys are the views' mdb, offset and length -- the same decision on every node of the group) */
     int ha = cache_slots() ? cache_lookup(A->m, A->off, A->len, q, 1) : -1, hb = cache_slots() ? cache_lookup(B->m, B->off, B->len, q, 1) : -1;
     cache_plan(&slA, &slB, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1);
-    /* slab sizes per operand and for the result (the largest window of any node) */
-    size_t SA = slab_limbs(view_max_share(A), R, rows, q), SB = slab_limbs(view_max_share(B), R, rows, q), SX = X ? slab_limbs(max_share(X), R, rows, q) : 0;
-    size_t maxwin = 0; for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (hi - lo > maxwin) maxwin = hi - lo; }
-    size_t SC = slab_limbs(maxwin, R, rows, q), Smax = SA; if (SB > Smax) Smax = SB; if (SX > Smax) Smax = SX; if (SC > Smax) Smax = SC;
     size_t clo, chi; mdb_share(Cn, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; piece_window(Cn, node, shift, Np, &tlo, &thi); size_t tn = thi - tlo;
     if (direct && shift) { fprintf(stderr, "rns_mul_dist_mn: a direct piece at a shift\n"); exit(1); }   /* direct: the window is the share's first tn limbs */
@@ -719,91 +873,99 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
 #pragma omp parallel num_threads(NR)
     {
-        int d = omp_get_thread_num(); struct rank_state *v = &RS[d]; hipStream_t s = v->s;
+        int d = omp_get_thread_num(); struct rank_state *v = &RS[d]; hipStream_t s = v->s; int rho = g * d + me;
         HIP_CHECK(hipSetDevice(d));
-        uint64_t *sb = db_pool_alloc(d, g * Smax * 8), *rbA = db_pool_alloc(d, g * Smax * 8), *rbB = db_pool_alloc(d, g * SB * 8);
-        uint64_t *cx = (X && tnode) ? db_pool_alloc(d, q * 8) : 0, *tmp = tnode ? db_pool_alloc(d, q * 8) : 0;
-        uint64_t *ca = 0, *cb = 0;                              /* A1: the cache planes of A and B on this rank (transform nodes only) */
-        if (tnode && slA >= 0) ca = g_cache.s[slA].pl[d];
-        if (tnode && slB >= 0) cb = g_cache.s[slB].pl[d];
-        uint64_t *spill_sb = db_pool_alloc(d, (size_t)g * C * 4 * 8); spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
-        struct seg *hseg = (struct seg *)malloc(4 * g * sizeof *hseg), *hsA = hseg, *hsB = hseg + g, *hsX = hseg + 2 * g, *hsO = hseg + 3 * g;
-        struct seg *dseg = (struct seg *)db_pool_alloc(d, 4 * g * sizeof *hseg), *dsA = dseg, *dsB = dseg + g, *dsX = dseg + 2 * g, *dsO = dseg + 3 * g;
+        size_t rows = partn(R, nr, rho), qs = rows * C;              /* my rows and sequence length (= q for a power-of-two g) */
+        struct rdst oA, oB, oX; memset(&oA, 0, sizeof oA); memset(&oB, 0, sizeof oB); memset(&oX, 0, sizeof oX);
+        struct seg *hseg = (struct seg *)malloc(8 * g * sizeof *hseg), *hsO = hseg + 6 * g, *hsI = hseg + 7 * g;
+        struct seg *dseg = (struct seg *)db_pool_alloc(d, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
+        size_t *cnt = (size_t *)malloc(16 * g * sizeof *cnt), *ocnt = cnt + 12 * g;
+        oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
+        uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : db_pool_alloc(d, q * 8);
+        uint64_t *ca = slA >= 0 ? g_cache.s[slA].pl[d] : 0, *cb = slB >= 0 ? g_cache.s[slB].pl[d] : 0;   /* A1: the cache planes of A and B on this rank */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
         uint64_t *pl = (uint64_t *)rns_dpool(d, 0, (size_t)EC_NP * q * 8), *p1 = (uint64_t *)rns_dpool(d, 1, (size_t)(3 * q + 16) * 8);
         uint64_t *xa[EC_NP], *xb = p1, *sl = p1 + q + 16, *xt = sl;
         for (int p = 0; p < EC_NP; p++) xa[p] = pl + (size_t)p * q;
-        comm *cl = 0;
-        if (tnode) {
-            cl = lay_get(G, d); comm_layered_scratch(cl, tmp, q * 8);
-            for (int p = 0; p < EC_NP; p++) {
-                if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl) {
-                    if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
-                    dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q);
-                    v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl;
-                }
+        comm *cl = lay_get(G, d);
+        if (comm_rank(cl) != rho || comm_size(cl) != nr) { fprintf(stderr, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); exit(1); }
+        if (tmp) comm_layered_scratch(cl, tmp, q * 8);
+        for (int p = 0; p < EC_NP; p++) {
+            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl) {
+                if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
+                dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q);
+                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl;
             }
         }
+        struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, d);
         double s0 = mem_now();
-        /* A: every node packs and exchanges; the transform ranks gather their rows for the four primes */
+        /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
         if (ha < 0) {
-            redistribute(&X0, A, SA, sb, rbA, hsA, dsA, d, s);
-            if (tnode) for (int p = 0; p < EC_NP; p++) k_gather_mn<<<nblk(q), 256, 0, s>>>(xa[p], rbA, dsA, g, SA, rows, C, ec_mod_get(p), 1, 1);
-        } else if (tnode) for (int p = 0; p < EC_NP; p++) HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
-        if (hb < 0) redistribute(&X0, B, SB, sb, rbB, hsB, dsB, d, s);
-        if (X) { redistribute(&X0, &Xv, SX, sb, rbA, hsX, dsX, d, s); if (tnode) k_gather_mn<<<nblk(q), 256, 0, s>>>(cx, rbA, dsX, g, SX, rows, C, ec_mod_get(0), 0, 0); }
+            redistribute(&X0, A, &oA, d, s);
+            for (int p = 0; p < EC_NP; p++) k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
+        } else for (int p = 0; p < EC_NP; p++) HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
+        if (hb < 0) redistribute(&X0, B, &oB, d, s);
+        if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
         HIP_CHECK(hipStreamSynchronize(s));
+        if (oA.rb) { db_pool_free(d, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(d, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
-        if (tnode) {
-            for (int p = 0; p < EC_NP; p++) {
-                uint64_t *yb = cb ? cb + (size_t)p * q : xb;
-                if (hb < 0) k_gather_mn<<<nblk(q), 256, 0, s>>>(yb, rbB, dsB, g, SB, rows, C, ec_mod_get(p), 1, 1);
+        for (int p = 0; p < EC_NP; p++) {
+            uint64_t *yb = cb ? cb + (size_t)p * q : xb;
+            if (hb < 0) k_gather_mn<<<nblk(qs), 256, 0, s>>>(yb, oB.rb, oB.tend, rows, C, ec_mod_get(p), 1, 1);
+            if (gen) {
+                if (ha < 0) { gen_fwd(&gp, &v->plan[p].pl, v->ctx[p], p, cl, xa[p], sl, sl + q, s); if (ca) HIP_CHECK(hipMemcpyAsync(ca + (size_t)p * q, xa[p], q * 8, hipMemcpyDeviceToDevice, s)); }
+                if (hb < 0) gen_fwd(&gp, &v->plan[p].pl, v->ctx[p], p, cl, yb, sl, sl + q, s);
+                gen_inv_pw(&gp, &v->plan[p].pl, v->ctx[p], p, cl, xa[p], yb, sl, sl + q, s);
+            } else {
                 if (ha < 0) { dist_fwd(&v->plan[p].pl, xa[p], s); if (ca) HIP_CHECK(hipMemcpyAsync(ca + (size_t)p * q, xa[p], q * 8, hipMemcpyDeviceToDevice, s)); }
                 if (hb < 0) dist_fwd(&v->plan[p].pl, yb, s);
                 if (dist_pw_fused()) dist_inv_pw(&v->plan[p].pl, xa[p], yb, s);   /* A6 */
                 else { dist_pw(&v->plan[p].pl, xa[p], yb, s); dist_inv(&v->plan[p].pl, xa[p], s); }
-                HIP_CHECK(hipStreamSynchronize(s));
             }
-            double s2 = mem_now(); tf[d] = s2 - s1;
-            for (int p = 0; p < EC_NP; p++) {
-                dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
-                k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
-                HIP_CHECK(hipMemcpyAsync(xa[p], xt, q * 8, hipMemcpyDeviceToDevice, s));
-            }
-            struct bdesc hd = { 0, 0, cx, xb, (uint32_t)q, 0, (uint32_t)(cx ? q : 0) };
-            struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
-            HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
-            if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
-            k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, rns_gconst(), v->spill, bi_decimal);
-            HIP_CHECK(hipStreamSynchronize(s));
-            tc[d] = mem_now() - s2;
-            /* the result's rows -> the nodes' windows: segments of every node's window in my sequence */
-            size_t rho = (size_t)gt * d + me;
-            for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (lo > n) lo = n; if (hi > n) hi = n;
-                                          hsO[r].t0 = seq_start(lo, R, rows, rho); hsO[r].t1 = seq_start(hi, R, rows, rho); }
-            HIP_CHECK(hipMemcpyAsync(dsO, hsO, g * sizeof *hsO, hipMemcpyHostToDevice, s));
-            k_pack_out_mn<<<nblk((size_t)g * SC), 256, 0, s>>>(sb, xb, dsO, g, SC);
-            for (int r = 0; r < g; r++) HIP_CHECK(hipMemcpyAsync(spill_sb + (size_t)r * C * 4, v->spill, C * 4 * 8, hipMemcpyDeviceToDevice, s));
             HIP_CHECK(hipStreamSynchronize(s));
         }
-        double s3 = mem_now();
-        comm_alltoall(G->all[d], sb, rbA, SC * 8, s); comm_wait(G->all[d]);
-        { size_t lo = tlo < n ? tlo : n, hi = thi < n ? thi : n;
-          for (int r = 0; r < gt; r++) { size_t rho = (size_t)gt * d + r; hsA[r].t0 = seq_start(lo, R, rows, rho); hsA[r].t1 = seq_start(hi, R, rows, rho); }
-          HIP_CHECK(hipMemcpyAsync(dsA, hsA, gt * sizeof *hsA, hipMemcpyHostToDevice, s)); }
-        if (tn) { struct acc c = acc_db(dst, 0, tn); k_scatter_mn<<<nblk((size_t)gt * SC), 256, 0, s>>>(c, tlo, rbA, dsA, gt, SC, R, rows, d); }
-        comm_alltoall(G->all[d], spill_sb, spill_rb[d], C * 4 * 8, s); comm_wait(G->all[d]);
+        if (oB.rb) { db_pool_free(d, oB.rb); oB.rb = 0; }
+        double s2 = mem_now(); tf[d] = s2 - s1;
+        for (int p = 0; p < EC_NP; p++) {
+            dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);
+            k_transpose<<<grid, blk, 0, s>>>(xa[p], xt, rows, C);
+            HIP_CHECK(hipMemcpyAsync(xa[p], xt, qs * 8, hipMemcpyDeviceToDevice, s));
+        }
+        struct bdesc hd = { 0, 0, cx, xb, (uint32_t)qs, 0, (uint32_t)(cx ? qs : 0) };
+        struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
+        HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, s));
+        if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
+        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, rns_gconst(), v->spill, bi_decimal);
         HIP_CHECK(hipStreamSynchronize(s));
-        sp[d] = spill_rb[d];
-        to[d] = mem_now() - s3;
-        db_pool_free(d, sb); db_pool_free(d, rbA); db_pool_free(d, rbB); if (cx) db_pool_free(d, cx); db_pool_free(d, spill_sb);
-        db_pool_free(d, (uint64_t *)dseg); free(hseg);
+        tc[d] = mem_now() - s2;
+        /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
+         * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets */
+        size_t *scnt = ocnt, *sdsp = ocnt + g, *rcnt = ocnt + 2 * g, *rdsp = ocnt + 3 * g, rtot = 0;
+        for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (lo > n) lo = n; if (hi > n) hi = n;
+                                      hsO[r].t0 = seq_start(lo, R, nr, rho); hsO[r].t1 = seq_start(hi, R, nr, rho); hsO[r].off = hsO[r].t0; }
+        { size_t lo = tlo < n ? tlo : n, hi = thi < n ? thi : n, S = 0;
+          for (int r = 0; r < g; r++) { int rr = g * d + r; hsI[r].t0 = seq_start(lo, R, nr, rr); hsI[r].t1 = seq_start(hi, R, nr, rr); hsI[r].off = rtot; rtot += hsI[r].t1 - hsI[r].t0; if (hsI[r].t1 - hsI[r].t0 > S) S = hsI[r].t1 - hsI[r].t0; }
+          seg_bytes(hsO, g, scnt, sdsp); seg_bytes(hsI, g, rcnt, rdsp);
+          uint64_t *rbO = db_pool_alloc(d, (rtot + 16) * 8);
+          double s3 = mem_now();
+          comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_wait(G->all[d]);
+          if (tn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
+                            struct acc c = acc_db(dst, 0, tn); k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, tlo, rbO, dsI, g, S, R, nr, d); }
+          spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
+          comm_allgather(G->all[d], v->spill, spill_rb[d], C * 4 * 8);   /* every rank's spills (4 C limbs), in node order */
+          HIP_CHECK(hipStreamSynchronize(s));
+          sp[d] = spill_rb[d];
+          to[d] = mem_now() - s3;
+          db_pool_free(d, rbO); }
+        if (cx) db_pool_free(d, cx);
+        db_pool_free(d, (uint64_t *)dseg); free(hseg); free(cnt);
+        if (gen) gplan_free(&gp, d);
         if (tmp) { comm_layered_scratch(cl, 0, 0); db_pool_free(d, tmp); }
     }
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
-    if (tn) db_share_add_spills(dst, tn, tlo, sp, R, rows, C, gt, &co, &pr);
+    if (tn) db_share_add_spills(dst, tn, tlo, sp, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
     share_carry_fix(G, dst, tn, co, pr);
     for (int d = 0; d < NR; d++) db_pool_free(d, spill_rb[d]);
     if (!direct) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
@@ -817,8 +979,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     double tcar = mem_now() - t4, tt = mem_now() - t0;
     rns_dist_st.n++; rns_dist_st.t_total += tt; rns_dist_st.t_load += mr; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc; rns_dist_st.t_merge += mo + tcar;
     tm->redistribute += mr; tm->ntt += mf; tm->crt += mc; tm->out += mo; tm->carry += tcar; tm->total += tt;
-    if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks (%zu + %zu%s limbs at %zu, window [%zu, %zu) of share [%zu, %zu)%s): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f total %.3f s%s%s\n",
-                        node, logn, logR, logC, gt, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt, ha >= 0 ? " [A hit]" : slA >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : slB >= 0 ? " [B cached]" : "");
+    if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks%s (rows %zu..%zu; %zu + %zu%s limbs at %zu, window [%zu, %zu) of share [%zu, %zu)%s): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f total %.3f s%s%s\n",
+                        node, logn, logR, logC, g, gen ? " (general map)" : "", R / nr, (R + nr - 1) / nr, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt, ha >= 0 ? " [A hit]" : slA >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : slB >= 0 ? " [B cached]" : "");
 }
 mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G)
 {
@@ -840,18 +1002,17 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
     if (chi > clo) { dbig t = db_view(&C->sh, 0, chi - clo); db_norm(&t); if (t.n) top = clo + t.n; }
     C->n = grp_max(G, top);
 }
-/* the plane cap of the mn tier: one plane per node pool (4 q limbs, q = n / 4 gt, in pool 0 of 2^pool_log limbs), at most 2^31 per node */
-static int mn_logn_cap(int gt) { int lgt = 0; while ((1 << lgt) < gt) lgt++; int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log(); return c + lgt; }
 /* C = A B (+ X) over the group, as one plane or as the grid of piece products.  Phase 10 A5 (the cuts of the division,
  * results/A-div.md): pieces at or above w (the high cut: oa + ob >= w) are skipped and the result is truncated to w limbs --
  * delivered directly in basis w (the piece windows clip to the shares, the carry out of the top node is dropped), so the
  * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
  * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
+static size_t mn_logmin(int g) { int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
 static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t lowcut, size_t w)
 {
-    int g = G->g, node = g_node_of(G), verbose = getenv("RNS_VERBOSE") != 0, lgt = 0; while ((1 << lgt) < G->gt) lgt++;
-    size_t na = A->len, nb = B->len, nc = na + nb, N = nc + (X ? 1 : 0), cap = (size_t)1 << mn_logn_cap(G->gt);
+    int g = G->g, node = g_node_of(G), verbose = getenv("RNS_VERBOSE") != 0;
+    size_t na = A->len, nb = B->len, nc = na + nb, N = nc + (X ? 1 : 0), cap = (size_t)1 << mn_logn_cap(g);
     if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
     if (X && (w < N || lowcut)) { fprintf(stderr, "rns_mul_dist_mn: the added operand with a cut\n"); exit(1); }
     int trunc = w < N; if (trunc) N = w;                       /* the result in basis w: the limbs at or above w are never formed */
@@ -870,8 +1031,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     }
     if (nc <= cap) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, pin && nf ? fs[0] : -1); formed = 1; if (pin && nf) { g_cache.s[fs[0]].pinned = 1; g_cache.pin_next = 0; } } else skipped = 1; }
     else {
-        int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
-        split_grid_cap(na, nb, cap, (size_t)1 << logmin, &ka, &kb);
+        split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
         int nB = pin ? (kb < nf ? kb : nf) : 0, nA = pin ? nf - nB : (ka < nf - 1 ? ka : nf - 1); if (nA < 0) nA = 0;   /* the slots as in mul_grid */
         if (!pin) nB = nf - nA;
@@ -892,7 +1052,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     }
     g_top_ok = 0;
     cache_drop(0);
-    if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed, %d skipped%s%s (cache %d slots: %zu hits, %zu misses)\n", node, na, nb, G->gt, mn_logn_cap(G->gt), ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "", NS, g_cache.hits, g_cache.misses);
+    if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed, %d skipped%s%s (cache %d slots: %zu hits, %zu misses)\n", node, na, nb, g, mn_logn_cap(g), ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "", NS, g_cache.hits, g_cache.misses);
     mdb_norm(&Cn, G, N);
     if (Cm->sh.cap) db_free(&Cm->sh);
     *Cm = Cn;
@@ -917,27 +1077,55 @@ void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w) 
 /* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
 {
-    int lgt = 0; while ((1 << lgt) < G->gt) lgt++;
-    size_t cap = (size_t)1 << mn_logn_cap(G->gt); int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
+    size_t cap = (size_t)1 << mn_logn_cap(G->g);
     if (na + nb <= cap) { *ka = *kb = 1; return; }
-    split_grid_cap(na, nb, cap, (size_t)1 << logmin, ka, kb);
+    split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(G->g), ka, kb);
+}
+/* ---- Phase 11 L: the level -> group-size schedule of the distributed tree (MN_GROUPS) ------------------------------
+ * out[l-1] = the group size of tree level l >= 1 (the nodes [k G_l, min((k+1) G_l, size)), k = rank / G_l); the children of
+ * a level are the groups of the previous level (size 1 at level 1), so a ratio G_l / G_{l-1} > 2 is a k-way step (the
+ * tree combines the k children in k - 1 products over the level's group, each balanced over all its nodes).  Sizes are
+ * increasing; each is a multiple of the previous, or the size itself (the top group is cut by the size: 512 -> 576 is
+ * allowed as the default).  MN_GROUPS=2,4,8,16,32,64,576 (or ..., 64, 192, 576); default: the powers of two up to the
+ * largest <= size, then size.  Returns the level count (0 at size 1); aborts on an invalid list. */
+int mn_groups_parse(int size, int *out, int max)
+{
+    int n = 0; const char *e = getenv("MN_GROUPS");
+    if (size <= 1) return 0;
+    if (e && *e) {
+        const char *s = e;
+        while (*s) {
+            char *end; long v = strtol(s, &end, 10);
+            if (end == s || (*end && *end != ',')) { fprintf(stderr, "MN_GROUPS: cannot parse '%s'\n", e); exit(1); }
+            s = *end ? end + 1 : end;
+            if (v < 2 || (n && v <= out[n - 1])) { fprintf(stderr, "MN_GROUPS: sizes must be > 1 and increasing ('%s')\n", e); exit(1); }
+            if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); }
+            if (v >= size) { out[n++] = size; break; }
+            if (n && v % out[n - 1]) { fprintf(stderr, "MN_GROUPS: %ld is not a multiple of %d ('%s')\n", v, out[n - 1], e); exit(1); }
+            out[n++] = (int)v;
+        }
+    } else for (int v = 2; v <= size && n < max; v *= 2) out[n++] = v;
+    if (!n || out[n - 1] != size) { if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); } out[n++] = size; }
+    return n;
 }
 
-/* ---- the shifted distributed add: C += X << k on C's shares (Phase 9 A3) -------------------------------------
+/* ---- the shifted distributed add: C += X << k on C's shares (Phase 9 A3; B7: exact slabs) --------------------------
  * Node r's share [clo, chi) of C needs X's limbs [clo - k, chi - k) (cut to [0, nX)): the window [tlo, thi) of its share.
- * APU thread d serves the quarter d of every node's window, in rounds of CH limbs (slabs of CH per pair over mesh d,
- * padded; a pair's slab is the cut of the sender's share of X with the receiver's quarter chunk, contiguous), unpacked
- * into a temporary T of this node's window; then C's share += T << (tlo - clo) with the carry scan over the nodes. */
-struct rng { size_t a, b, src; };                              /* a slab: limbs [a, b) of X, from local index src of the sender's share */
+ * APU thread d serves the quarter d of every node's window, in rounds of CH limbs (one alltoallv per round over mesh d;
+ * a pair's slab is the cut of the sender's share of X with the receiver's quarter chunk, contiguous, sent at its exact
+ * length), unpacked into a temporary T of this node's window; then C's share += T << (tlo - clo) with the carry scan
+ * over the nodes.  The rounds bound the receiver's buffer to CH limbs; the sender's to the parts of X that meet the
+ * receivers' chunks of the round (about two chunks). */
+struct rng { size_t a, b, src, off; };                         /* a slab: limbs [a, b) of X, from local index src of the sender's share (or to T index src), at limb off of the slab buffer */
 __global__ void k_pack_rng(uint64_t *sb, struct acc src, const struct rng *tb, int g, size_t S)
 {
     size_t total = (size_t)g * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t r = t / S, i = t - r * S; if (i < tb[r].b - tb[r].a) sb[t] = acc_get(src, tb[r].src + i); }
+    for (; t < total; t += stride) { size_t r = t / S, i = t - r * S; if (i < tb[r].b - tb[r].a) sb[tb[r].off + i] = acc_get(src, tb[r].src + i); }
 }
 __global__ void k_unpack_rng(struct acc dst, const uint64_t *rb, const struct rng *tb, int g, size_t S)   /* tb[s].src: the T index of limb a */
 {
     size_t total = (size_t)g * S, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t s = t / S, i = t - s * S; if (i < tb[s].b - tb[s].a) *acc_ptr(dst, tb[s].src + i) = rb[t]; }
+    for (; t < total; t += stride) { size_t s = t / S, i = t - s * S; if (i < tb[s].b - tb[s].a) *acc_ptr(dst, tb[s].src + i) = rb[tb[s].off + i]; }
 }
 static void add_window(const mdb *C, int r, size_t k, size_t nX, size_t *lo, size_t *hi)   /* node r's window of C, in C's coordinates */
 {
@@ -959,38 +1147,47 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     size_t S = maxq < MDB_ADD_CHUNK ? maxq : MDB_ADD_CHUNK; S = (S + 15) / 16 * 16; int rounds = maxq ? (int)((maxq + S - 1) / S) : 0;
     dbig T; db_init(&T); if (tn) db_zero_fill(&T, tn);
     size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
+    size_t stot_max[NR] = {0}, rtot_max[NR] = {0};
     if (rounds) {
 #pragma omp parallel num_threads(NR)
     {
         int d = omp_get_thread_num(); hipStream_t s = RS[d].s;
         HIP_CHECK(hipSetDevice(d));
-        uint64_t *sb = db_pool_alloc(d, g * S * 8), *rb = db_pool_alloc(d, g * S * 8);
-        struct rng *ht = (struct rng *)malloc(g * sizeof *ht), *dt = (struct rng *)db_pool_alloc(d, g * sizeof *ht);
-        struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0), dst = acc_db(&T, 0, tn);
+        /* the tables of every round first (both sides' cuts from the descriptors), then the buffers at the largest round */
+        struct rng *hs = (struct rng *)malloc((size_t)2 * rounds * g * sizeof *hs), *hr = hs + (size_t)rounds * g;
+        size_t *cnt = (size_t *)malloc((size_t)4 * rounds * g * sizeof *cnt), smax = 0, rmax = 0;
         for (int c = 0; c < rounds; c++) {
-            /* pack: for every receiver r, its quarter d, chunk c (in C's coordinates) -> X's [a, b) cut to my part */
-            for (int r = 0; r < g; r++) {
+            struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g, o = 0;
+            for (int r = 0; r < g; r++) {                      /* pack: for every receiver r, its quarter d, chunk c (in C's coordinates) -> X's [a, b) cut to my part */
                 size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); size_t wn = hi - lo;
                 size_t qlo = lo + wn * d / 4 + (size_t)c * S, qhi = lo + wn * (d + 1) / 4; if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
                 size_t a = qlo - k, b = qhi - k; if (a < xlo) a = xlo; if (b > xhi) b = xhi; if (b < a) b = a;   /* qlo >= k: the window starts at k or above */
-                ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo;
+                ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo; ht[r].off = o; scnt[r] = (b - a) * 8; sdsp[r] = o * 8; o += b - a;
             }
+            if (o > smax) smax = o; o = 0;
+            size_t qlo = tlo + tn * d / 4 + (size_t)c * S, qhi = tlo + tn * (d + 1) / 4; if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
+            for (int r = 0; r < g; r++) {                      /* unpack: sender r's slab holds X's [a, b) = its part cut to my quarter chunk -> T at a + k - tlo */
+                size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
+                size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
+                hu[r].a = a; hu[r].b = b; hu[r].src = a + k - tlo; hu[r].off = o; rcnt[r] = (b - a) * 8; rdsp[r] = o * 8; o += b - a;
+            }
+            if (o > rmax) rmax = o;
+        }
+        stot_max[d] = smax; rtot_max[d] = rmax;
+        uint64_t *sb = db_pool_alloc(d, (smax + 16) * 8), *rb = db_pool_alloc(d, (rmax + 16) * 8);
+        struct rng *dt = (struct rng *)db_pool_alloc(d, g * sizeof *dt + 64);
+        struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0), dst = acc_db(&T, 0, tn);
+        for (int c = 0; c < rounds; c++) {
+            struct rng *ht = hs + (size_t)c * g, *hu = hr + (size_t)c * g; size_t *scnt = cnt + (size_t)4 * c * g, *sdsp = scnt + g, *rcnt = sdsp + g, *rdsp = rcnt + g;
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (xhi > xlo) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
             HIP_CHECK(hipStreamSynchronize(s));
-            comm_alltoall(G->all[d], sb, rb, S * 8, s); comm_wait(G->all[d]);
-            /* unpack: sender s's slab holds X's [a, b) = its part cut to my quarter chunk -> T at a + k - tlo */
-            size_t qlo = tlo + tn * d / 4 + (size_t)c * S, qhi = tlo + tn * (d + 1) / 4; if (qlo + S < qhi) qhi = qlo + S; if (qhi < qlo) qhi = qlo;
-            for (int r = 0; r < g; r++) {
-                size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
-                size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
-                ht[r].a = a; ht[r].b = b; ht[r].src = a + k - tlo;
-            }
-            HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
+            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_wait(G->all[d]);
+            HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (tn) k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S);
             HIP_CHECK(hipStreamSynchronize(s));
         }
-        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(ht);
+        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(hs); free(cnt);
     }
     HIP_CHECK(hipSetDevice(0));
     }
@@ -998,5 +1195,5 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     if (tn) db_share_add_shifted(&C->sh, cn, &T, tlo - clo, &co, &pr);
     share_carry_fix(G, &C->sh, cn, co, pr);
     db_free(&T);
-    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu (my window [%zu, %zu), %d rounds of %zu): %.3f s\n", node, nX, k, C->N, tlo, thi, rounds, S, mem_now() - t0);
+    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu (my window [%zu, %zu), %d rounds of %zu; slabs %zu + %zu limbs per APU 0): %.3f s\n", node, nX, k, C->N, tlo, thi, rounds, S, stot_max[0], rtot_max[0], mem_now() - t0);
 }

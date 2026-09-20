@@ -7,14 +7,16 @@
  * Every node of a larger group can describe the number from (n, N, g0, g) alone, so the redistribution
  * of the multi-node product needs no boundary exchange.
  *
- * The product C = A B (+ X) over a group G (mn_group): the four-step transform over 4 gt ranks (the group's
- * first gt nodes, gt the largest power of two <= g, each node's four APUs), rank rho = gt d + r holding
- * the block-cyclic rows [rho R/nr, (rho+1) R/nr) (ntt_dist.h).  Each operand is redistributed once: node
- * k packs, for every rank (r, d), the limbs of its share that lie on that rank's rows -- one contiguous
- * segment of the rank's (column, row)-ordered row sequence, since a share is a contiguous limb range --
- * and one all-to-all over mesh d (slabs padded to a common size) delivers them; the rank concatenates the
- * segments (they arrive in node order = sequence order) and transposes into the row layout.  The result's
- * rows go back the same way (one all-to-all per product) into the nodes' contiguous shares of C, sharded
+ * The product C = A B (+ X) over a group G (mn_group): the four-step transform over nr = 4 g ranks (every
+ * node of the group, each node's four APUs; Phase 11 L), rank rho = g d + r holding the block-cyclic rows
+ * [R rho / nr, R (rho+1) / nr) -- floor or ceil of R / nr each, ntt_dist's equal map when g is a power of two,
+ * the general map (rns_dist.c gen_fwd / gen_inv_pw, alltoallv exchanges of per-pair slabs) otherwise, so a
+ * group of 3, 5, 6, 9 or 576 nodes balances.  Each operand is redistributed once: node k packs, for every
+ * rank (r, d), the limbs of its share that lie on that rank's rows -- one contiguous segment of the rank's
+ * (column, row)-ordered row sequence, since a share is a contiguous limb range -- and one alltoallv over
+ * mesh d (exact segments, B7) delivers them; they arrive in node order = sequence order, so the received
+ * buffer is the rank's sequence, transposed into the row layout.  The result's rows go back the same way
+ * (one alltoallv per product, straight from the CRT output) into the nodes' contiguous shares of C, sharded
  * evenly over G; the CRT run spills are all-gathered (4 C limbs per rank) and added to the shares by a
  * fixed-length chunked-carry add, the carries across the node boundaries resolved by a scan over the
  * nodes' (carry, propagate) flags and a second pass on the nodes that receive one.  X (the tree add
@@ -35,8 +37,9 @@ static inline void mdb_share(const mdb *x, int r, size_t *lo, size_t *hi)
     *lo = x->N * (size_t)(r - x->g0) / x->g; *hi = x->N * (size_t)(r - x->g0 + 1) / x->g;
 }
 /* a node group for one level of the tree: nodes [g0, g0+g), this node me = rank - g0; all[d] the mesh over the
- * group (rank = node - g0) for APU thread d, tr[d] the mesh over the first gt nodes (the transform's), both 0
- * when the group is one node; lay[d] the layered communicator over tr[d] (built by the product, cached) */
+ * group (rank = node - g0) for APU thread d, 0 when the group is one node; lay[d] the layered communicator over
+ * all[d] (built by the product, cached).  gt (the largest power of two <= g) and tr[d] (the mesh over the first
+ * gt nodes) are no longer used by the product (Phase 11 L: every node transforms); kept for mn.c / t_dist */
 typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; } mn_group;
 /* C = A B + X (X may be 0) over the group; C's share on this node is a new dbig (C->sh freed first if set).
  * Products beyond one plane per node pool (na + nb > 2^(min(31, pool_log) + log2 gt) points) run as a grid of piece
@@ -60,6 +63,11 @@ void rns_mul_dist_mn_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t
 /* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped, in basis w */
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
+int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
+/* Phase 11 L: the level -> group-size schedule of the distributed tree from MN_GROUPS (default: the powers of two up to the
+ * largest <= size, then size): out[l-1] = the group size of level l, increasing, each a multiple of the previous or the size
+ * itself; returns the level count (0 at size 1), aborts on an invalid list.  A pure function of (size, MN_GROUPS); mn.c calls it */
+int  mn_groups_parse(int size, int *out, int max);
 /* C += X << k in place on C's shares (C's basis N must hold the sum: an overflow aborts); X sharded over any
  * subgroup of G; a chunked exchange over the four meshes, then one fixed-length add per share and the carry scan */
 void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G);

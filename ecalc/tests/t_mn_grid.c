@@ -2,9 +2,11 @@
  * host product (rns_mul, GMP-checked in t_mul), in shapes that force one plane, 1 x 2, 2 x 3 and 3 x 1 grids of piece
  * products, with the added operand X, as low products (pieces above a window skipped), with operand views, operands
  * sharded over subgroups (the tree's layout), and the shifted distributed add on its own.  DIST_LOGN_TEST=24 caps the
- * plane at 2^24 points per node, so the shapes are small multiples of 2^(24 + log2 gt).  Run under mnrun.sh with 2, 3
- * or 4 node-processes:  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./tests/t_mn_grid [scale]  (scale: the shapes' unit as a
- * fraction of the cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
+ * plane at 2^24 points per node, so the shapes are small multiples of the cap 2^(24 + floor(log2 g)).  Run under
+ * mnrun.sh with any number of node-processes (Phase 11 L: 2, 3, 5, 6, 9 -- a group of any size balances the transform
+ * over all its nodes; DIST_GEN=1 forces the general map at a power-of-two size too):
+ * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
+ * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
 #include "harness.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
@@ -49,10 +51,11 @@ int main(int argc, char **argv)
     g_size = mn_init(); g_me = mn_rank();
     if (g_size < 2) { printf("t_mn_grid: needs COMM_SIZE >= 2 (mnrun.sh)\n"); return 2; }
     int L = 0; while ((1 << L) < g_size) L++;
-    mn_group *G = mn_group_at(L); int gt = G->gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
+    mn_group *G = mn_group_at(L);
     setenv("DIST_LOGN_TEST", "24", 1);
-    size_t cap = (size_t)1 << (24 + lgt), u = (size_t)(cap * scale);
-    printf("t_mn_grid: node %d of %d, group [%d, %d) gt %d, plane cap 2^%d, unit %zu limbs\n", g_me, g_size, G->g0, G->g0 + G->g, gt, 24 + lgt, u);
+    int logcap = rns_mul_dist_mn_logcap(G);
+    size_t cap = (size_t)1 << logcap, u = (size_t)(cap * scale);
+    printf("t_mn_grid: node %d of %d, group [%d, %d) (%d x 4 ranks%s), plane cap 2^%d, unit %zu limbs\n", g_me, g_size, G->g0, G->g0 + G->g, G->g, (G->g & (G->g - 1)) || getenv("DIST_GEN") ? ", the general map" : "", logcap, u);
     bigint a, b, x, r, t, rl; bi_init(&a); bi_init(&b); bi_init(&x); bi_init(&r); bi_init(&t); bi_init(&rl);
     mdb A, B, X, C; memset(&A, 0, sizeof A); memset(&B, 0, sizeof B); memset(&X, 0, sizeof X); memset(&C, 0, sizeof C);
     /* shapes as fractions of the cap: one plane; 2 pieces; the 4e10 shape (2 x 3); 3 x 1; 2 x 2-ish */

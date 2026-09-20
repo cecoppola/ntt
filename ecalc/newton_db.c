@@ -282,16 +282,16 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 struct sacc { uint64_t *q[4]; size_t qc, off; };                     /* a dbig's limbs by index (any quarter: peer access) */
 __device__ static inline uint64_t *sacc_p(const struct sacc a, size_t i) { size_t g = a.off + i, d = (g >= a.qc) + (g >= 2 * a.qc) + (g >= 3 * a.qc); return a.q[d] + (g - d * a.qc); }
 static struct sacc sacc_of(const dbig *x) { struct sacc a; for (int d = 0; d < 4; d++) a.q[d] = x->q[d]; a.qc = x->qc; a.off = x->off; return a; }
-struct piece { size_t a, len; };                                     /* target indices [a, a + len) of one (source, target) piece's part on this APU */
-__global__ void k_mn_pack(uint64_t *sb, struct sacc src, long off, const struct piece *pc, int g, size_t SL)   /* sb[r' SL + k] = src[a + k + off] */
+struct piece { size_t a, len, off; };                                /* target indices [a, a + len) of one (source, target) piece's part on this APU, at limb off of the slab buffer (Phase 11 L, B7: exact slabs) */
+__global__ void k_mn_pack(uint64_t *sb, struct sacc src, long off, const struct piece *pc, int g, size_t SL)   /* sb[pc[r'].off + k] = src[a + k + off] */
 {
     size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) sb[t] = *sacc_p(src, (size_t)((long)(pc[r].a + k) + off)); }
+    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) sb[pc[r].off + k] = *sacc_p(src, (size_t)((long)(pc[r].a + k) + off)); }
 }
 __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, const struct piece *pc, int g, size_t SL)
 {
     size_t total = (size_t)g * SL, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) *sacc_p(dst, pc[r].a + k - lo2) = rb[t]; }
+    for (; t < total; t += stride) { size_t r = t / SL, k = t - r * SL; if (k < pc[r].len) *sacc_p(dst, pc[r].a + k - lo2) = rb[pc[r].off + k]; }
 }
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
 static hipStream_t g_ms[4]; static int g_ms_init;
@@ -324,29 +324,32 @@ static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G)
     size_t lo2, hi2; mdb_share(&Yn, node, &lo2, &hi2); size_t cn = hi2 - lo2;
     db_zero_fill(&Yn.sh, cn);
     size_t lo1, hi1; mdb_share(X, node, &lo1, &hi1);
-    /* the slab: the longest piece part on any APU (a piece lies inside one source share and one target share) */
+    /* Phase 11 L (agent L, B7): the slabs at their exact lengths (an alltoallv; the buffers hold my pieces' limbs, at most my
+     * share / 4 per APU each, instead of g x the longest piece).  SL (the longest piece part) bounds the kernels' iteration only */
     size_t pm = mshare_max(X) < mshare_max(&Yn) ? mshare_max(X) : mshare_max(&Yn), SL = (pm + 3) / 4 + 1; SL = (SL + 15) / 16 * 16;
     if (X->n && n2) {
 #pragma omp parallel num_threads(4)
     {
         int d = omp_get_thread_num(); hipStream_t st = g_ms[d];
         MN_HIP(hipSetDevice(d));
-        uint64_t *sb = db_pool_alloc(d, (size_t)g * SL * 8), *rb = db_pool_alloc(d, (size_t)g * SL * 8);
-        struct piece *hp = (struct piece *)malloc(g * sizeof *hp), *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp);
-        int any = 0; for (int r = 0; r < g; r++) any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]);
+        struct piece *hp = (struct piece *)malloc(2 * g * sizeof *hp), *hq = hp + g, *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp + 64);
+        size_t *cnt = (size_t *)malloc(4 * (size_t)g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, ts = 0, tr = 0;
+        int any = 0, anyr = 0;
+        for (int r = 0; r < g; r++) { any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]); hp[r].off = ts; scnt[r] = hp[r].len * 8; sdsp[r] = ts * 8; ts += hp[r].len; }
+        for (int r = 0; r < g; r++) { anyr |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hq[r]); hq[r].off = tr; rcnt[r] = hq[r].len * 8; rdsp[r] = tr * 8; tr += hq[r].len; }
+        uint64_t *sb = db_pool_alloc(d, (ts + 16) * 8), *rb = db_pool_alloc(d, (tr + 16) * 8);
         if (any) {
             MN_HIP(hipMemcpyAsync(dp, hp, g * sizeof *hp, hipMemcpyHostToDevice, st));
             k_mn_pack<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SL);
         }
         MN_HIP(hipStreamSynchronize(st));
-        comm_alltoall(G->all[d], sb, rb, SL * 8, st); comm_wait(G->all[d]);
-        any = 0; for (int r = 0; r < g; r++) any |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hp[r]);
-        if (any && cn) {
-            MN_HIP(hipMemcpyAsync(dp, hp, g * sizeof *hp, hipMemcpyHostToDevice, st));
+        comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_wait(G->all[d]);
+        if (anyr && cn) {
+            MN_HIP(hipMemcpyAsync(dp, hq, g * sizeof *hq, hipMemcpyHostToDevice, st));
             k_mn_scatter<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SL);
         }
         MN_HIP(hipStreamSynchronize(st));
-        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dp); free(hp);
+        db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dp); free(hp); free(cnt);
     }
     MN_HIP(hipSetDevice(0));
     }
@@ -461,10 +464,10 @@ static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
     if (ms > 0x7fffffff) { fprintf(stderr, "mdb_to_host_all: share too large\n"); exit(1); }
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
-    {   /* an all-to-all of g copies over mesh 0 (device slabs; the transport's threaded exchange cannot deadlock on large shares) */
-        MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, (size_t)g * ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
-        for (int r = 0; r < g; r++) MN_HIP(hipMemcpy(sb + (size_t)r * ms, buf, ms * 8, hipMemcpyHostToDevice));
-        comm_alltoall(G->all[0], sb, rb, ms * 8, 0); comm_wait(G->all[0]);
+    {   /* an all-gather over mesh 0 (device blocks; Phase 11 L (agent L, B7): one copy of the block instead of g) */
+        MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
+        MN_HIP(hipMemcpy(sb, buf, ms * 8, hipMemcpyHostToDevice));
+        comm_allgather(G->all[0], sb, rb, ms * 8);
         MN_HIP(hipMemcpy(all, rb, (size_t)g * ms * 8, hipMemcpyDeviceToHost));
         db_pool_free(0, sb); db_pool_free(0, rb);
     }
