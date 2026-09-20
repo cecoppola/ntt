@@ -39,6 +39,7 @@ int   mem_is_registered(const void *p, size_t bytes);
 void *mem_dev_alloc(int dev, size_t bytes);
 void  mem_dev_free(void *p);
 void  mem_dev_forget(void *p);
+void  mem_dev_free_raw(int dev, void *p);              /* hipFree of a block no longer in the registry (a forgotten arena) */
 int   mem_dev_of(const void *p);
 size_t mem_dev_pool_bytes(void);
 int   mem_device_count(void);
@@ -52,6 +53,7 @@ int  mem_region_threads(int *rank);                 /* count of threads on this 
 
 typedef struct { void *p; size_t cap; int dev; } dpool;
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */
+void *dpool_get_exact(dpool *d, int dev, size_t bytes);   /* Phase 9 C4: grows to exactly bytes (2 MiB-aligned), no power-of-two rounding */
 void  dpool_free(dpool *d);
 
 typedef struct { void *p; size_t cap; } hpool;
@@ -61,6 +63,22 @@ void  hpool_free(hpool *h);
 size_t mem_vmhwm(void);
 size_t mem_vmrss(void);
 double mem_now(void);
+
+/* Phase 9 M9: memory accounting per node-process.  Modules that own device memory register a provider
+ * that adds its bytes per device into a [ndev][MEM_DEV_NCAT] table (mem.c itself supplies the regions it
+ * allocated); the driver names its host buffers (X, the digit string) and calls mem_report at phase
+ * boundaries; mem_report_summary prints one table of every recorded phase.  Bytes as allocated (mapped),
+ * not as touched. */
+enum { MEM_DEV_PLANES, MEM_DEV_REGIONS, MEM_DEV_POOL_DONATED, MEM_DEV_POOL_BORROWED, MEM_DEV_POOL_HIPMALLOC,
+       MEM_DEV_POOL_LIVE, MEM_DEV_POOL_FREE, MEM_DEV_POOL_PEAK_LIVE, MEM_DEV_TABLES, MEM_DEV_OTHER, MEM_DEV_NCAT };
+enum { MEM_HOST_STAGING, MEM_HOST_REGISTERED, MEM_HOST_X, MEM_HOST_DIGITS, MEM_HOST_NAMED, MEM_HOST_OTHER, MEM_HOST_RSS, MEM_HOST_HWM, MEM_HOST_NCAT };
+#define MEM_MAX_DEV 8
+typedef void (*mem_acct_fn)(int ndev, size_t bytes[][MEM_DEV_NCAT]);
+void mem_acct_register(mem_acct_fn fn);             /* called once per module (idempotent per fn) */
+void mem_report_host_item(int cat, size_t bytes);   /* MEM_HOST_X / MEM_HOST_DIGITS / MEM_HOST_NAMED: the driver's buffers, kept until changed */
+void mem_report(const char *phase);                 /* print this phase's table (and remember it) */
+void mem_report_summary(void);                      /* every recorded phase, one table */
+size_t mem_report_dev_total(void);                  /* device bytes in use at the last mem_report (all devices) */
 
 #ifdef __cplusplus
 }

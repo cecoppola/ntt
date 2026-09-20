@@ -85,11 +85,52 @@ static dbig pool_view(const uint64_t *p, size_t n)
 }
 static dbig node_p(const struct level *lv, const struct node *nd) { return nd->pd ? *nd->pd : pool_view(lv->pool[nd->r] + nd->po, nd->pn); }
 static dbig node_q(const struct level *lv, const struct node *nd) { return nd->qd ? *nd->qd : pool_view(lv->pool[nd->r] + nd->qo, nd->qn); }
+/* Phase 9 C4: the two parities of region r are the halves of one device allocation (the arena), so that when both
+ * are handed to the dbig block pool they coalesce into one extent (dm's largest quarters need contiguous space:
+ * two 14 GB halves that cannot merge left the pool falling back to hipMalloc, RESULTS 70).  A pool that outgrows
+ * its half is re-allocated on its own (the half stays and is donated too); the arena itself outlives the block
+ * pool's use of it (borrowed, never freed by db_release_pools) and goes at rns_shutdown. */
+static struct { uint64_t *base; size_t bytes; int dev; int donated; } g_arena[NR];
+static int in_arena(int r, const uint64_t *p) { return g_arena[r].base && p >= g_arena[r].base && p < g_arena[r].base + g_arena[r].bytes / 8; }
+static void donate_one(int which, int r)             /* pool (which, r) to the block allocator: its arena half joins the other half when that is already there */
+{
+    uint64_t *p = g_pool[which][r]; size_t cap = g_cap[which][r]; if (!p || mem_dev_of(p) < 0) return;
+    int dev = r % mem_device_count();
+    if (in_arena(r, p)) { db_donate_adjacent(dev, p, cap * 8); if (++g_arena[r].donated == 2) mem_dev_forget(g_arena[r].base); }
+    else {
+        db_donate(dev, p, cap * 8); mem_dev_forget(p);
+        if (g_arena[r].base) {                       /* this parity outgrew its arena half: the idle half goes too */
+            size_t hb = g_arena[r].bytes / 2; db_donate_adjacent(dev, (char *)g_arena[r].base + which * hb, hb);
+            if (++g_arena[r].donated == 2) mem_dev_forget(g_arena[r].base);
+        }
+    }
+    g_pool[which][r] = 0; g_cap[which][r] = 0;
+}
 static void donate_pools(int which)                  /* the region pools of one parity to the device block allocator */
 {
-    for (int r = 0; r < NR; r++) if (g_pool[which][r] && mem_dev_of(g_pool[which][r]) >= 0) { db_donate(r % mem_device_count(), g_pool[which][r], g_cap[which][r] * 8); mem_dev_forget(g_pool[which][r]); g_pool[which][r] = 0; g_cap[which][r] = 0; }
+    for (int r = 0; r < NR; r++) donate_one(which, r);
+}
+void binsplit_release_arenas(void)                   /* after the block pool is done with them (rns_shutdown) */
+{
+    for (int r = 0; r < NR; r++) if (g_arena[r].base) { if (g_arena[r].donated < 2) mem_dev_free(g_arena[r].base); else mem_dev_free_raw(g_arena[r].dev, g_arena[r].base); g_arena[r].base = 0; }
 }
 static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r < NR ? r : NR - 1); }
+/* Phase 9 C2: the region of output node i of a level of n nodes.  Large levels: region NR i / n -- a subtree per
+ * region, a pair and its parent share a region (RESULTS 55).  Small levels (n <= bs_balance_n): the node counts
+ * are not multiples of NR (the tree's odd carries), so the subtree rule puts two of five nodes in region 0 (40 %
+ * of the level) and its pool grew inside the phase (RESULTS 72); the nodes go round robin instead (i mod NR: at
+ * most one node more in a region, the carried odd node -- the small one -- last).  A least-loaded rule with ties
+ * to the inputs' region was tried first: its choice depends on the real sizes, so the sizing pass could not
+ * predict which region gets the extra node and had to size every region for the largest share (4 x a level at
+ * a two-node level).  Any placement is correct: the batch tier computes a product on the device that owns the
+ * result and reads the operands where they are (rns_mul_batch_local). */
+int bs_balance_n = 16;                               /* BS_BALANCE_N: levels with at most this many nodes are balanced; 0 = never */
+static int place_node(size_t i, size_t n, const size_t *offr, int ra, int rb)
+{
+    (void)offr; (void)ra; (void)rb;
+    if (n > (size_t)bs_balance_n) return region_of(i, n);
+    return (int)(i % NR);                            /* round robin: at most one node more per region, and the placement depends on the index alone, so the sizing pass (region_need) predicts it exactly */
+}
 
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
@@ -117,14 +158,25 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
     if (g_cap[which][r] < limbs) {
-        if (g_pool[which][r]) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
+        if (g_pool[which][r] && !in_arena(r, g_pool[which][r])) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
         size_t cap = limbs + limbs / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
         int nd = bs_regions_on_device ? mem_device_count() : 0;
         g_pool[which][r] = (uint64_t *)(nd > 0 ? mem_dev_alloc(r % nd, cap * 8) : mem_hreg_alloc(cap * 8));
         g_cap[which][r] = cap;
-        if (bs_verbose) printf("bs: level pool %d region %d -> %.2f GB (%s)\n", which, r, cap * 8e-9, nd > 0 ? "device" : "host");
+        bs_st.n_grow++; bs_st.grow_bytes += cap * 8;
+        if (bs_verbose) printf("bs: level pool %d region %d -> %.2f GB (%s)%s\n", which, r, cap * 8e-9, nd > 0 ? "device" : "host", g_arena[r].base ? " [outgrew its arena half]" : "");
     }
     return g_pool[which][r];
+}
+/* C4: the two parities of region r from one allocation of 2 cap limbs on the region's device */
+static void arena_get(int r, size_t cap)
+{
+    int nd = mem_device_count(); if (g_arena[r].base || g_cap[0][r] >= cap || nd <= 0) return;
+    cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
+    g_arena[r].dev = r % nd; g_arena[r].bytes = 2 * cap * 8; g_arena[r].donated = 0;
+    g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
+    for (int w = 0; w < 2; w++) { g_pool[w][r] = g_arena[r].base + w * cap; g_cap[w][r] = cap; }
+    if (bs_verbose) printf("bs: region %d arena %.2f GB on APU %d (two parities of %.2f GB)\n", r, g_arena[r].bytes * 1e-9, g_arena[r].dev, cap * 8e-9);
 }
 
 static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
@@ -138,16 +190,74 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
     return 2 * per * nspan;
 }
+/* Phase 9 C4: what each region must hold, by laying out every level of the tree in advance with the seed bound
+ * `per` for every span (level l's node i covers spans [i 2^l, (i+1) 2^l) of the nspan, P and Q slots as the level
+ * loop lays them out, regions by the same place_node), over the levels that live in the region pools: with the
+ * device top levels, the batch levels (the tier switch taken at 0.9 x the bound, so a level whose real sizes fall
+ * just below the threshold is still counted); with host regions or the host mdev tier, every level.  The bound
+ * is ~11 % above the real sizes (RESULTS 72: level 1 = 0.895 of total0) and pool_get adds 1/8: the margin.  This
+ * replaces the flat total0 / NR (1 + 1/4), which held 1.4 x the live data and still grew at the five-node level. */
+static void region_need(unsigned long N, size_t need[NR])
+{
+    size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
+    for (int r = 0; r < NR; r++) need[r] = 0;
+    { size_t r0[NR + 1]; for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
+      for (int r = 0; r < NR; r++) need[r] = 2 * per * (r0[r + 1] - r0[r]) + 2; }
+    int *cur_r = 0, *nxt_r = 0;
+    for (int l = 0; ; l++) {
+        size_t n_in = (nspan + ((size_t)1 << l) - 1) >> l; if (n_in <= 1) break;
+        size_t m_full = (size_t)1 << l, max_nl = m_full * per + l;                 /* the bound on any node of level l */
+        int mdev_level = 2 * (size_t)(0.9 * max_nl) + 1 > ((size_t)1 << bs_mdev_logl);   /* the real sizes are 0.90-0.945 of the bound at the levels below the top (measured 10^6..4x10^10); a miss costs one pool growth, not a failure; 0.85 pulled the 3-node level in at 4e10 and doubled the regions */
+        if (mdev_level && bs_regions_on_device) break;                            /* the mdev levels use device numbers or the host pool */
+        size_t npairs = n_in / 2, odd = n_in & 1, n = npairs + odd, offr[NR] = {0};
+        if (n <= (size_t)bs_balance_n) nxt_r = (int *)malloc(n * sizeof *nxt_r);
+        for (size_t i = 0; i < n; i++) {
+            size_t ma = (2 * i) * m_full < nspan ? (nspan - 2 * i * m_full < m_full ? nspan - 2 * i * m_full : m_full) : 0;
+            size_t mb = (2 * i + 1) * m_full < nspan ? (nspan - (2 * i + 1) * m_full < m_full ? nspan - (2 * i + 1) * m_full : m_full) : 0;
+            size_t pa = ma * per + l, qa = ma * per, pb = mb * per + l, qb = mb * per;
+            int ra = cur_r ? cur_r[2 * i] : region_of(2 * i, n_in), rb = odd && i == npairs ? -1 : cur_r ? cur_r[2 * i + 1] : region_of(2 * i + 1, n_in);
+            int r = place_node(i, n, offr, ra, rb);
+            if (odd && i == npairs) offr[r] += pa + qa; else offr[r] += pa + qb + 1 + qa + qb;
+            (void)pb;
+            if (nxt_r) nxt_r[i] = r;
+        }
+        for (int r = 0; r < NR; r++) if (offr[r] + 2 > need[r]) need[r] = offr[r] + 2;
+        free(cur_r); cur_r = nxt_r; nxt_r = 0;
+    }
+    free(cur_r);
+}
 void binsplit_pregrow(unsigned long N)
 {
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * (bs_region_slack ? bs_region_slack : 4)) + (1 << 20);   /* slack: 1/4 (paper-era) or 1/16 (BS_REGION_SLACK=16; the levels stay within a few percent of level 0) */
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
     int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
+    double t_pg = mem_now();
+    size_t need[NR]; int exact = !(getenv("BS_REGION_FLAT") && atoi(getenv("BS_REGION_FLAT")));   /* C4: regions from the simulated layout (BS_REGION_FLAT=1: the flat paper-era sizing) */
+    if (exact) region_need(N, need); else for (int r = 0; r < NR; r++) need[r] = per_region;
+    /* the arena also serves the dm phase as the block pool (the regions are donated to it).  ECALC_DM_POOL_K=k makes it
+     * at least k x n_Q limbs per APU (n_Q = d/18; the peak of live device numbers in dm is ~6.8 n_Q at 4e10, k = 8 leaves
+     * the dm phase without any hipMalloc): measured at 4e10 it moves the mapping from dm to init (init +4.4 s, dm -2 s,
+     * recip -2 s) for the same wall clock within the run-to-run spread (93.6 vs 92.5 s, results/A-mem.md), so the
+     * default is the bs need alone (k = 0: init -2.2 s against main).  Node 0 only while the dm is not distributed;
+     * ECALC_ARENA_GB sets the arena per APU outright. */
+    { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 0.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
+      int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
+      if (sz > 1 && getenv("COMM_RANK") && atoi(getenv("COMM_RANK")) != 0) k = 0;   /* until the division is distributed (A-div) only node 0 runs dm: the others keep the bs need */
+      size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2);   /* node 0 runs the whole dm at any size for now */
+      if (bs_regions_on_device && half) for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }
+    if (bs_verbose) printf("bs: regions %s: %.2f / %.2f / %.2f / %.2f GB (+1/8; flat rule %.2f GB)%s\n", exact ? "from the level layouts" : "flat", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, per_region * 8e-9, bs_regions_on_device ? ", one arena per device for both parities" : "");
+    if (bs_regions_on_device && mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
+        double ta = mem_now();
+#pragma omp parallel for num_threads(NR) schedule(static) if(par)
+        for (int r = 0; r < NR; r++) arena_get(r, need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096);
+        if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg);
+    }
 #pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
     for (int r = 0; r <= NR; r++) {
-        if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, per_region); }
+        if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, need[r]); }
         else for (int w = 0; w < nhp; w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
             if (par && bs_dev_mdev) continue;                                  /* I2: with the top levels on device this pool only serves A, formed in the background later: its faults are hidden there */
 #pragma omp parallel for schedule(static) num_threads(par ? 96 : omp_get_max_threads())
@@ -564,11 +674,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         size_t offr[NR] = {0}, off = 0;
         for (size_t i = 0; i < npairs; i++) {
             struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-            o->r = region_of(i, nxt.n);
+            o->r = place_node(i, nxt.n, offr, a->r, b->r);   /* C2: balanced at the small top levels */
             o->po = offr[o->r]; offr[o->r] += a->pn + b->qn + 1; o->qo = offr[o->r]; offr[o->r] += a->qn + b->qn;
             o->pn = o->qn = 0;
         }
-        if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = region_of(npairs, nxt.n); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
+        if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = place_node(npairs, nxt.n, offr, a->r, -1); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
         which ^= 1;
         int mdev_level = max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);
         int dev_mdev = mdev_level && bs_regions_on_device && bs_dev_mdev;
@@ -724,10 +834,12 @@ void binsplit_free_pools(void)
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) {
         if (g_pool[w][r]) {
             int dev = mem_dev_of(g_pool[w][r]);
-            if (dev >= 0 && bs_donate_pools) { db_donate(dev, g_pool[w][r], g_cap[w][r] * 8); mem_dev_forget(g_pool[w][r]); }
-            else if (dev >= 0) mem_dev_free(g_pool[w][r]); else mem_hreg_free(g_pool[w][r]);
+            if (dev >= 0 && bs_donate_pools) donate_one(w, r);
+            else if (dev >= 0) { if (!in_arena(r, g_pool[w][r])) mem_dev_free(g_pool[w][r]); } else mem_hreg_free(g_pool[w][r]);
         }
         g_pool[w][r] = 0; g_cap[w][r] = 0;
     }
+    if (!bs_donate_pools) binsplit_release_arenas();
+    else rns_shutdown_hook = binsplit_release_arenas;   /* the arenas stay for the block pool; released at rns_shutdown */
     for (int w = 0; w < 2; w++) if (!g_hpool_taken[w]) hpool_free(&g_hpool[w]); else { g_hpool[w].p = 0; g_hpool[w].cap = 0; g_hpool_taken[w] = 0; }
 }

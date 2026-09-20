@@ -220,17 +220,22 @@ int main(int argc, char **argv)
     if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
-      if (stg && devflow && !getenv("COMM_SIZE")) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; } }
-    rns_init(pool_log);
+      int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
+      if (stg && devflow && !host_combine) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; }
+      /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
+      if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+    double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
-    binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
+    double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
+    if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
-    printf("      VmRSS %.1f GB after init (staging 64 GB pinned + device pools %.0f GB incl. bs regions); init %.1f s\n", mem_vmrss() / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     bs_verbose = dec_verbose = verbose >= 2;
     bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the bs regions become the dm phase's blocks (default since RESULTS.md 62b) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
@@ -282,11 +287,12 @@ int main(int argc, char **argv)
             mn_gather_host(&X, &Xm); db_free(&Xm.sh);
             newton_db_free_scratch(); db_release_pools(); rns_free_scratch();
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, gathered to node 0 in %.2f s%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mem_now() - tx, mn_rank() ? "; done" : "");
-            if (mn_rank() != 0) { int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f; }   /* M5: every node writes its part of X and checks its residues */
+            if (mn_rank() != 0) { int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier */
         } else {
         mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
         printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
-        if (mn_rank() != 0) { int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f; }   /* M5: the other nodes go to the output stage (X's share, T1/T2, the part file) */
+        mem_report("tree");
+        if (mn_rank() != 0) { int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: the part file and the residues, then the device memory goes before the final barrier */
         printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
         t_bs += mem_now() - tg;
         }
@@ -296,7 +302,7 @@ int main(int argc, char **argv)
             uint64_t n2[2] = { P.n, Q.n }; comm_send(c, 0, n2, 16); comm_send(c, 0, P.l, P.n * 8); comm_send(c, 0, Q.l, Q.n * 8);
             printf("mn: node %d sent P (%zu limbs), Q (%zu limbs) to node 0 in %.2f s\n", mn_rank(), P.n, Q.n, mem_now() - tg);
             bi_free(&P); bi_free(&Q);
-            int f = out_stage(&oc); mn_barrier(); mn_finalize(); rns_shutdown(); return f;
+            int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f;
         }
         bigint Pr, Qr, tt; bi_init(&Pr); bi_init(&Qr); bi_init(&tt);
         for (int r = 1; r < mn_size_; r++) {
@@ -316,6 +322,8 @@ int main(int argc, char **argv)
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, mn_dm ? mn_pn : P.n, mn_dm ? mn_qn : Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
+    if (bs_st.n_grow) printf("      bs: region pools grew %d times inside the phase (%.1f GB of hipMalloc)\n", bs_st.n_grow, bs_st.grow_bytes / 1e9);
+    mem_report("bs");
     if (bs_st.n_ckpt || bs_st.restart_level) {
         printf("      bs checkpoints: %d written, %.2f GB, %.2f s (%.2f s each); restart from level %d in %.2f s\n",
                bs_st.n_ckpt, bs_st.ckpt_bytes * 1e-9, bs_st.t_ckpt, bs_st.n_ckpt ? bs_st.t_ckpt / bs_st.n_ckpt : 0.0, bs_st.restart_level, bs_st.t_restart);
@@ -349,7 +357,7 @@ int main(int argc, char **argv)
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
         db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
-        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, (size_t)3 * ((size_t)8 << (pool_log - 2))); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q of pool 1 */
+        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that (C4) */
         t_res3 = mem_now() - tr;
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
@@ -365,6 +373,7 @@ int main(int argc, char **argv)
     newton_free_scratch(); rns_free_scratch();
     t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    mem_report("recip");
 
     t = mem_now();
     if (ovl3) {
@@ -403,6 +412,7 @@ int main(int argc, char **argv)
     t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report_host_item(MEM_HOST_DIGITS, digits ? d + 2 : 0); mem_report("dm");
     RESULT("dm", "s", t_dm);
     }
 
@@ -455,6 +465,7 @@ int main(int argc, char **argv)
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
     bi_free(&A); bi_free(&R); bi_free(&Q);
     int fail = out_stage(&oc);
+    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
     mn_barrier(); mn_finalize();
     rns_shutdown();
     return fail;

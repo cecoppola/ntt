@@ -39,6 +39,9 @@ int  rns_init(int pool_log);      /* 31 (default, paper) or 32; allocates stagin
 extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
 extern size_t rns_staging_bytes_req;   /* set before rns_init: pinned staging per APU (0 = 8 << pool_log); the decimal device flow needs only the seed stage */
 size_t rns_staging_bytes(void);
+extern size_t rns_pool1_bytes_req;     /* Phase 9 C4: set before rns_init: plane pool 1 per APU (0 = 8 << pool_log); rns_pool1_default_bytes gives the dist tier's 3 q + 16 limbs */
+size_t rns_pool1_default_bytes(int pool_log);
+extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */
 int  rns_pool_log(void);
 int  rns_ndev(void);
 void rns_shutdown(void);

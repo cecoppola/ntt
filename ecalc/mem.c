@@ -73,13 +73,16 @@ int mem_region_threads(int *rank)                    /* this thread's rank and c
 }
 
 /* registry of registered blocks (dev = -1) and device pools (dev >= 0: hipMalloc, CPU-accessible) */
-static struct { void *p; size_t bytes; int dev; } *reg;
+static struct { void *p; size_t bytes; int dev; int stage; } *reg;   /* stage: a pinned NUMA-local staging block (M9 accounting) */
 static int nreg = 0, reg_cap = 0;
 static void reg_grow(void) { if (nreg >= reg_cap) { reg_cap = reg_cap ? 2 * reg_cap : 256; reg = (typeof(reg))realloc(reg, reg_cap * sizeof *reg); } }
 int mem_par_init = 0;                                 /* Phase 8: init runs per device in parallel; touch teams sized to the node */
 static void reg_add(void *p, size_t bytes) {
 #pragma omp critical(memreg)
-    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; nreg++; } }
+    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; reg[nreg].stage = 0; nreg++; } }
+static void reg_add_stage(void *p, size_t bytes) {
+#pragma omp critical(memreg)
+    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; reg[nreg].stage = 1; nreg++; } }
 static void reg_del(void *p) {
 #pragma omp critical(memreg)
     { for (int i = 0; i < nreg; i++) if (reg[i].p == p) { reg[i] = reg[--nreg]; break; } } }
@@ -111,7 +114,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
     if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB: malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, t1 - t0, mem_now() - t1);
     HIP_CHECK(hipSetDevice(cur));
 #pragma omp critical(memreg)
-    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; nreg++; }
+    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
     return p;
 }
 void mem_dev_forget(void *p) { reg_del(p); }         /* drop from the registry without freeing (ownership passed on) */
@@ -121,6 +124,7 @@ void mem_dev_free(void *p)
     HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur));
     reg_del(p);
 }
+void mem_dev_free_raw(int dev, void *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine */
 {
     int cur; HIP_CHECK(hipGetDevice(&cur));
@@ -179,7 +183,7 @@ void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s)
     }
     double t1 = mem_now();
     HIP_CHECK(hipHostRegister(p, bytes, hipHostRegisterDefault));
-    reg_add(p, bytes);
+    reg_add_stage(p, bytes);
     double t2 = mem_now();
     if (touch_s) *touch_s = t1 - t0;
     if (reg_s) *reg_s = t2 - t1;
@@ -199,6 +203,16 @@ void *dpool_get(dpool *d, int dev, size_t bytes)
 {
     if (d->p && d->cap >= bytes && d->dev == dev) return d->p;
     size_t cap = pow2_ceil(bytes);
+    if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
+    HIP_CHECK(hipSetDevice(dev));
+    HIP_CHECK(hipMalloc(&d->p, cap));
+    d->cap = cap; d->dev = dev;
+    return d->p;
+}
+void *dpool_get_exact(dpool *d, int dev, size_t bytes)
+{
+    if (d->p && d->cap >= bytes && d->dev == dev) return d->p;
+    const size_t al = (size_t)2 << 20; size_t cap = (bytes + al - 1) / al * al;
     if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMalloc(&d->p, cap));
@@ -231,3 +245,81 @@ static size_t proc_status_kb(const char *key)
 }
 size_t mem_vmhwm(void) { return proc_status_kb("VmHWM:") << 10; }
 size_t mem_vmrss(void) { return proc_status_kb("VmRSS:") << 10; }
+
+/* ---- Phase 9 M9: memory accounting (mem.h) ---- */
+static mem_acct_fn g_acct[16]; static int g_nacct;
+static size_t g_host_item[MEM_HOST_NCAT];
+#define MEM_MAX_PHASES 32
+static struct { char name[24]; size_t dev[MEM_DEV_NCAT], devmax[MEM_DEV_NCAT], host[MEM_HOST_NCAT]; size_t dev_total, dev_total_max; int ndev; } g_ph[MEM_MAX_PHASES];
+static int g_nph; static size_t g_last_dev_total;
+void mem_acct_register(mem_acct_fn fn)
+{
+    for (int i = 0; i < g_nacct; i++) if (g_acct[i] == fn) return;
+    if (g_nacct < 16) g_acct[g_nacct++] = fn;
+}
+void mem_report_host_item(int cat, size_t bytes) { if (cat >= 0 && cat < MEM_HOST_NCAT) g_host_item[cat] = bytes; }
+size_t mem_report_dev_total(void) { return g_last_dev_total; }
+/* device bytes in use per category: the sum of what the providers report; "in use" = planes + regions +
+ * pool regions (donated, borrowed, hipMalloc) + tables + other -- live/free/peak are views inside the pool */
+static size_t dev_in_use(const size_t *c) { return c[MEM_DEV_PLANES] + c[MEM_DEV_REGIONS] + c[MEM_DEV_POOL_DONATED] + c[MEM_DEV_POOL_BORROWED] + c[MEM_DEV_POOL_HIPMALLOC] + c[MEM_DEV_TABLES] + c[MEM_DEV_OTHER]; }
+static const char *dev_cat_name[MEM_DEV_NCAT] = { "planes", "regions", "pool:donated", "pool:borrowed", "pool:hipMalloc", "pool:live", "pool:free", "pool:peak-live", "tables", "other" };
+static const char *host_cat_name[MEM_HOST_NCAT] = { "staging", "registered", "X", "digits", "named", "other", "VmRSS", "VmHWM" };
+static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NCAT])
+{
+    memset(dev, 0, (size_t)ndev * MEM_DEV_NCAT * sizeof(size_t)); memset(host, 0, MEM_HOST_NCAT * sizeof(size_t));
+    for (int i = 0; i < g_nacct; i++) g_acct[i](ndev, dev);
+    for (int i = 0; i < nreg; i++) {
+        if (reg[i].dev >= 0 && reg[i].dev < ndev) dev[reg[i].dev][MEM_DEV_REGIONS] += reg[i].bytes;
+        else if (reg[i].dev < 0) host[reg[i].stage ? MEM_HOST_STAGING : MEM_HOST_REGISTERED] += reg[i].bytes;
+    }
+    host[MEM_HOST_X] = g_host_item[MEM_HOST_X]; host[MEM_HOST_DIGITS] = g_host_item[MEM_HOST_DIGITS]; host[MEM_HOST_NAMED] = g_host_item[MEM_HOST_NAMED];
+    host[MEM_HOST_RSS] = mem_vmrss(); host[MEM_HOST_HWM] = mem_vmhwm();
+    size_t known = host[MEM_HOST_STAGING] + host[MEM_HOST_REGISTERED] + host[MEM_HOST_X] + host[MEM_HOST_DIGITS] + host[MEM_HOST_NAMED];
+    host[MEM_HOST_OTHER] = host[MEM_HOST_RSS] > known ? host[MEM_HOST_RSS] - known : 0;
+}
+static const char *rank_prefix(void) { static char b[24]; const char *r = getenv("COMM_RANK"), *s = getenv("COMM_SIZE"); if (r && s && atoi(s) > 1) snprintf(b, sizeof b, "mem[%s] ", r); else snprintf(b, sizeof b, "mem "); return b; }
+void mem_report(const char *phase)
+{
+    int ndev = mem_device_count(); if (ndev > MEM_MAX_DEV) ndev = MEM_MAX_DEV;
+    size_t dev[MEM_MAX_DEV][MEM_DEV_NCAT], host[MEM_HOST_NCAT];
+    gather(dev, ndev, host);
+    size_t sum[MEM_DEV_NCAT] = {0}, mx[MEM_DEV_NCAT] = {0}, tot = 0, totmax = 0, totmin = (size_t)-1;
+    for (int d = 0; d < ndev; d++) { size_t u = dev_in_use(dev[d]); tot += u; if (u > totmax) totmax = u; if (u < totmin) totmin = u;
+        for (int c = 0; c < MEM_DEV_NCAT; c++) { sum[c] += dev[d][c]; if (dev[d][c] > mx[c]) mx[c] = dev[d][c]; } }
+    g_last_dev_total = tot;
+    const char *pf = rank_prefix();
+    printf("%s[%s] device %.1f GB in use (per APU %.1f..%.1f): planes %.1f, regions %.1f, block pool %.1f (donated %.1f, borrowed %.1f, hipMalloc %.1f; live %.1f, peak live %.1f, free %.1f), tables %.2f, other %.1f\n",
+           pf, phase, tot / 1e9, ndev ? totmin / 1e9 : 0.0, totmax / 1e9, sum[MEM_DEV_PLANES] / 1e9, sum[MEM_DEV_REGIONS] / 1e9,
+           (sum[MEM_DEV_POOL_DONATED] + sum[MEM_DEV_POOL_BORROWED] + sum[MEM_DEV_POOL_HIPMALLOC]) / 1e9, sum[MEM_DEV_POOL_DONATED] / 1e9, sum[MEM_DEV_POOL_BORROWED] / 1e9,
+           sum[MEM_DEV_POOL_HIPMALLOC] / 1e9, sum[MEM_DEV_POOL_LIVE] / 1e9, sum[MEM_DEV_POOL_PEAK_LIVE] / 1e9, sum[MEM_DEV_POOL_FREE] / 1e9, sum[MEM_DEV_TABLES] / 1e9, sum[MEM_DEV_OTHER] / 1e9);
+    printf("%s[%s] host %.1f GB RSS (HWM %.1f): staging %.1f pinned, registered %.1f, X %.1f, digits %.1f, named %.1f, other %.1f\n",
+           pf, phase, host[MEM_HOST_RSS] / 1e9, host[MEM_HOST_HWM] / 1e9, host[MEM_HOST_STAGING] / 1e9, host[MEM_HOST_REGISTERED] / 1e9,
+           host[MEM_HOST_X] / 1e9, host[MEM_HOST_DIGITS] / 1e9, host[MEM_HOST_NAMED] / 1e9, host[MEM_HOST_OTHER] / 1e9);
+    if (getenv("MEM_REPORT_DEVS")) for (int d = 0; d < ndev; d++) {
+        printf("%s[%s]   APU%d: in use %.1f GB:", pf, phase, d, dev_in_use(dev[d]) / 1e9);
+        for (int c = 0; c < MEM_DEV_NCAT; c++) if (dev[d][c]) printf(" %s %.2f", dev_cat_name[c], dev[d][c] / 1e9);
+        size_t f = 0, t = 0; int cur; if (hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess) { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
+        if (t) printf("  (driver: %.1f of %.1f GB used)", (t - f) / 1e9, t / 1e9);
+        printf("\n");
+    }
+    if (g_nph < MEM_MAX_PHASES) {
+        snprintf(g_ph[g_nph].name, sizeof g_ph[g_nph].name, "%s", phase);
+        memcpy(g_ph[g_nph].dev, sum, sizeof sum); memcpy(g_ph[g_nph].devmax, mx, sizeof mx); memcpy(g_ph[g_nph].host, host, sizeof host);
+        g_ph[g_nph].dev_total = tot; g_ph[g_nph].dev_total_max = totmax; g_ph[g_nph].ndev = ndev; g_nph++;
+    }
+}
+void mem_report_summary(void)
+{
+    if (!g_nph) return;
+    const char *pf = rank_prefix();
+    printf("%ssummary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)\n", pf);
+    printf("%s%-14s %7s %7s | %7s %7s %7s %7s %7s %7s %7s %6s | %7s %7s %7s %7s %7s %7s %7s\n", pf, "phase", "device", "maxAPU",
+           "planes", "regions", "pl:don", "pl:bor", "pl:hip", "pl:live", "pl:peak", "tables", "host", "staging", "regist", "X", "digits", "other", "HWM");
+    for (int i = 0; i < g_nph; i++) {
+        const size_t *c = g_ph[i].dev, *h = g_ph[i].host;
+        printf("%s%-14s %7.1f %7.1f | %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f %6.2f | %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f\n", pf, g_ph[i].name,
+               g_ph[i].dev_total / 1e9, g_ph[i].dev_total_max / 1e9, c[MEM_DEV_PLANES] / 1e9, c[MEM_DEV_REGIONS] / 1e9, c[MEM_DEV_POOL_DONATED] / 1e9,
+               c[MEM_DEV_POOL_BORROWED] / 1e9, c[MEM_DEV_POOL_HIPMALLOC] / 1e9, c[MEM_DEV_POOL_LIVE] / 1e9, c[MEM_DEV_POOL_PEAK_LIVE] / 1e9, c[MEM_DEV_TABLES] / 1e9,
+               h[MEM_HOST_RSS] / 1e9, h[MEM_HOST_STAGING] / 1e9, h[MEM_HOST_REGISTERED] / 1e9, h[MEM_HOST_X] / 1e9, h[MEM_HOST_DIGITS] / 1e9, h[MEM_HOST_OTHER] / 1e9, h[MEM_HOST_HWM] / 1e9);
+    }
+}
