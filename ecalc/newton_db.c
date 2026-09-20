@@ -10,9 +10,10 @@
 #include "dbig.h"
 #include "rns_mul.h"
 #include "mem.h"
-static int nv = -1, anchor = 1;
+static int nv = -1, anchor = 1, g_hold_q;                    /* g_hold_q (A1): the size-1 flow -- the reciprocal may keep Q's transforms for the division */
 static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); db_free(&g_mu); db_free(&g_t); db_free(&g_xq); }
+static int env_on(const char *name) { const char *e = getenv(name); return !e || atoi(e); }   /* a switch that is on unless set to 0 */
 
 /* the seed is small: the host version, copied in */
 static void seed_db(dbig *r, const bigint *Q, const dbig *Qd, size_t nq_seed, size_t *j)   /* nq_seed (M4): Qd is only the top of a Q of nq_seed limbs; 0 = Qd is Q */
@@ -54,7 +55,11 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
         for (;;) {
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
-            rns_mul_dist_db(&t1, &qt, &r);                          /* Q_t r */
+            /* Phase 10 A1: at the top Q_t is Q itself, the operand of the division's X Q: its pieces' transforms are kept
+             * (rns_dist_cache_hold: only when the cache has the slots for them) -- Q as the B operand, whose pieces the
+             * grid keeps in distinct slots; the product is the same either way */
+            if (g_hold_q && take == nq && rns_dist_cache_hold(1)) rns_mul_dist_db(&t1, &r, &qt);
+            else rns_mul_dist_db(&t1, &qt, &r);                     /* Q_t r */
             dbig u;                                                 /* u ~ B^(2j): t1 >> (take - j) as a view, or << (j - take) (rare) */
             if (j <= take) { u = db_view(&t1, take - j, t1.n > take - j ? t1.n - (take - j) : 0); db_norm(&u); }
             else { db_shl_limbs(&t2, &t1, j - take); u = t2; }
@@ -100,7 +105,7 @@ void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
     if (newton_db_Qd) Qd = *newton_db_Qd; else db_from_bi(&Qd, Q);
-    recip_db(&g_mu_kept, &Qd, Q, k); g_mu_k = k;
+    g_hold_q = newton_db_Qd != 0; recip_db(&g_mu_kept, &Qd, Q, k); g_hold_q = 0; g_mu_k = k;   /* (A1: the hold needs Q alive across both phases: the caller's device Q) */
     if (newton_db_Qd) { g_mu_ql = newton_db_Qd->q[0]; g_mu_qn = newton_db_Qd->n; g_mu_qtop = db_top(newton_db_Qd); }   /* tagged by the device Q */
     else { g_mu_ql = Q->l; g_mu_qn = Q->n; g_mu_qtop = Q->n ? Q->l[Q->n - 1] : 0; }
     if (newton_db_mu_host) db_to_bi(mu, &g_mu_kept);             /* the host copy too (tests, the host path's fallback) */
@@ -144,6 +149,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }   /* Phase 8: the CPU formats X while the low product runs */
     if (getenv("NEWTON_LOWPROD") && !atoi(getenv("NEWTON_LOWPROD"))) { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
     else rns_mul_low_db(&xq, &Xd, &Qd, w);
+    rns_dist_cache_hold(0);
     double td = mem_now();
     bigint hxq; bi_init(&hxq); db_to_bi(&hxq, &xq);
     if (!newton_db_x_hook) db_to_bi(X, &Xd);
@@ -180,39 +186,6 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     newton_st.t_div += mem_now() - t0;
 }
 
-/* B3 (Phase 9, A-div): the product t = A_h mu of which only t >> cut is used, as a grid of piece products (the split of
- * rns_dist.c's mul_grid: the fewest plane points in total) with the pieces that end at or below the cut skipped -- each
- * skipped piece is < B^cut, so X = t >> cut is low by at most their number (+1), absorbed by the up-corrections.  Products
- * that fit one plane (< 2^31 points) are unchanged.  NEWTON_HIGHPROD=0: the full product as before. */
-static size_t high_cap(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : 31; if (v < 20 || v > 31) v = 31; return (size_t)1 << v; }
-static size_t high_pts(size_t nc) { size_t n = (size_t)1 << 20; while (n < nc) n <<= 1; return n; }
-static void mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut)
-{
-    size_t na = A->n, nb = B->n, nc = na + nb, cap = high_cap();
-    if (!na || !nb || nc <= cap || (getenv("NEWTON_HIGHPROD") && !atoi(getenv("NEWTON_HIGHPROD")))) { rns_mul_dist_db(Cd, A, B); return; }
-    int ka = 0, kb = 0; size_t best = 0;
-    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
-        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j; if (pa + pb > cap) continue;
-        size_t cost = (size_t)i * j * high_pts(pa + pb);
-        if (!ka || cost < best || (cost == best && i * j < ka * kb)) { best = cost; ka = i; kb = j; }
-    }
-    if (!ka) { fprintf(stderr, "mul_high_db: %zu x %zu limbs\n", na, nb); abort(); }
-    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, skipped = 0;
-    db_reserve(Cd, nc + 8); Cd->n = 0;
-    dbig t; db_init(&t); int first = 1;
-    for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
-        size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
-        dbig ai = db_view(A, oa, na - oa < pa ? na - oa : pa), bj = db_view(B, ob, nb - ob < pb ? nb - ob : pb);
-        db_norm(&ai); db_norm(&bj);
-        if (!ai.n || !bj.n) continue;
-        if (oa + ob + ai.n + bj.n <= cut) { skipped++; continue; }                  /* the whole piece lies below the cut */
-        if (first) { if (oa + ob) { rns_mul_dist_db(&t, &ai, &bj); db_shl_limbs(Cd, &t, oa + ob); } else rns_mul_dist_db(Cd, &ai, &bj); first = 0; continue; }
-        rns_mul_dist_db(&t, &ai, &bj);
-        db_add_shifted(Cd, &t, oa + ob, Cd);                                           /* in place */
-    }
-    db_free(&t);
-    if (skipped || getenv("RNS_VERBOSE")) printf("   mul_high_db %zu x %zu limbs, cut %zu: %d x %d pieces, %zu skipped\n", na, nb, cut, ka, kb, skipped);
-}
 /* Phase 8 I3 (decimal): X = floor(A / Q) with A = S B^dl entirely on the device (S = P + Q, dl = d/18 limbs):
  * the top of A is S shifted right by (nq - 1) - dl limbs (a view: dl < nq always, since 10^d < N!), the
  * remainder window A mod B^w (w = nq + 2) is S's low w - dl limbs shifted up by dl, and the corrections run
@@ -238,13 +211,14 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
      * last use: the block pool (the donated bs regions and the plane tails) must hold the peak, or hipMalloc costs
      * 0.057 s/GB inside the phase (RESULTS.md 70) */
     { size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
-      mul_high_db(&t, &Ah, &mu, k + 1); }                                /* B3: the pieces below the cut skipped */
+      if (env_on("NEWTON_HIGHPROD")) rns_mul_high_db(&t, &Ah, &mu, k + 1); else rns_mul_dist_db(&t, &Ah, &mu); }   /* B3: the pieces below the cut skipped (rns_dist.c's grid, A5) */
     db_free(&mu);                                                     /* the reciprocal's last use */
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
     double tc = mem_now();
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
-    rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q) */
+    rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q): Q's cached transforms hit when held (A1) */
+    rns_dist_cache_hold(0);
     if (newton_db_x_hook) db_free(&Xd);                               /* X is on the host; corrections go to the host copy */
     double td = mem_now();
     /* the window: A mod B^w = (S mod B^(w - dl)) B^dl; R formed in place in it */
@@ -267,8 +241,9 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     double tf = mem_now();
     db_free(&Rd); db_free(&xq); db_free(&Aw);
     db_init(&g_mu); db_init(&g_t); db_init(&g_xq);
-    if (getenv("RNS_VERBOSE")) printf("divmod(dev) %.2f s: mu %.2f, A mu + shift %.2f, X out + low product %.2f, window + corrections %.2f (%ld), X out + R residues %.2f; pools %.1f GB\n",
-                                      mem_now() - t0, tb - ta, tc - tb, td - tc, te - td, dx, tf - te, db_pool_bytes() / 1e9);
+    size_t ch = 0, cm = 0; rns_dist_cache_stats(&ch, &cm);
+    if (getenv("RNS_VERBOSE")) printf("divmod(dev) %.2f s: mu %.2f, A mu + shift %.2f, X out + low product %.2f, window + corrections %.2f (%ld), X out + R residues %.2f; pools %.1f GB; transform cache %zu hits / %zu misses\n",
+                                      mem_now() - t0, tb - ta, tc - tb, td - tc, te - td, dx, tf - te, db_pool_bytes() / 1e9, ch, cm);
     newton_st.t_div += mem_now() - t0;
 }
 
@@ -503,7 +478,6 @@ static void mn_prod(mdb *C, const mdb *A, const mdb *B, mn_group *G) { double t0
 /* Phase 10 A5: the division's two products with the grid's cuts (rns_mul_dist_mn_cut): the A_h mu product without the pieces
  * below k + 1 (B3 over shares; NEWTON_HIGHPROD=0 keeps them), the low product X Q mod B^w without the pieces above w and
  * delivered in basis w (NEWTON_LOWPROD=0: the full product re-sharded into basis w) */
-static int env_on(const char *name) { const char *e = getenv(name); return !e || atoi(e); }
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
