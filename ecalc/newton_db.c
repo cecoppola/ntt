@@ -602,13 +602,12 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             Gs = Gn;
             if (nv && me == 0 && Gs != G) printf("newton(mn): j %zu on the group [0, %d)\n", j, Gs->g);
         }
-        int hold = 0;
-        if (take == nq && Gs == G) hold = rns_dist_cache_hold(1);       /* Q_t = Q itself (no shift copy); A1: its pieces' transforms may be kept for the division's X Q */
+        if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
         else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, Gs);      /* Q_t: the top limbs of Q, onto the step's group (once per step: a repeat reuses it) */
         if (!member) { j = jn; newton_st.iters++; continue; }
         for (;;) {
             double s0 = mem_now();
-            if (take == nq && Gs == G) { if (hold) mn_prod(&t, &r, Q, Gs); else mn_prod(&t, Q, &r, Gs); }
+            if (take == nq && Gs == G) { if (rns_dist_cache_hold(1)) mn_prod(&t, &r, Q, Gs); else mn_prod(&t, Q, &r, Gs); }   /* A1: Q's pieces' transforms may be kept for the division's X Q */
             else mn_prod(&t, &qt, &r, Gs);                             /* Q_t r */
             mdb_shift(&u, &t, (long)take - (long)j, 2 * j + 2, Gs);    /* u ~ B^(2j) */
             int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (mdb_limb(&u, u.n - 1, Gs) > 1 || mdb_nonzero_below(&u, 2 * j, Gs)));
