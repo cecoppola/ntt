@@ -175,6 +175,7 @@ static void arena_get(int r, size_t cap)
     cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
     g_arena[r].dev = r % nd; g_arena[r].bytes = 2 * cap * 8; g_arena[r].donated = 0;
     g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
+    rns_shutdown_hook = binsplit_release_arenas;         /* Phase 10 B5 (agent M): released at rns_shutdown on every rank, whether or not binsplit_free_pools ran there (A-mem open issue 2) */
     for (int w = 0; w < 2; w++) { g_pool[w][r] = g_arena[r].base + w * cap; g_cap[w][r] = cap; }
     if (bs_verbose) printf("bs: region %d arena %.2f GB on APU %d (two parities of %.2f GB)\n", r, g_arena[r].bytes * 1e-9, g_arena[r].dev, cap * 8e-9);
 }
@@ -914,7 +915,19 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             }
         }
     }
-    if (cur.nd) {
+    if (cur.nd && bs_keep_dev && bs_donate_pools && mn_size() > 1 && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
+        /* Phase 10 B6 (agent M): at size > 1 a leaf that ends on the batch tier leaves P_r, Q_r in a region pool; the
+         * tree (mn_tree) takes them as device numbers and its slabs and shares from the block pool, which held nothing
+         * yet (11-44 GB of hipMalloc per process, A-mem open issue 3).  So: the idle parity goes to the block pool,
+         * P_r and Q_r are copied into blocks from it, and the parity that held the level follows -- the same hand-over
+         * the device tier makes at its first level, one level later.  Size 1 keeps the host copies (unchanged flow). */
+        donate_pools(which ^ 1);
+        dbig vp = node_p(&cur, &cur.nd[0]), vq = node_q(&cur, &cur.nd[0]);
+        db_init(&bs_Pd); db_init(&bs_Qd); db_copy(&bs_Pd, &vp); db_copy(&bs_Qd, &vq);
+        donate_pools(which);
+        P->n = Q->n = 0;
+        if (bs_verbose) printf("bs: leaf P %zu, Q %zu limbs copied to device numbers; the regions went to the block pool before the tree\n", bs_Pd.n, bs_Qd.n);
+    } else if (cur.nd) {
         bi_reserve(P, cur.nd[0].pn); region_copy(P->l, NODE_P(cur, &cur.nd[0]), cur.nd[0].pn, cur.nd[0].r); P->n = cur.nd[0].pn;
         bi_reserve(Q, cur.nd[0].qn); region_copy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn, cur.nd[0].r); Q->n = cur.nd[0].qn;
     }

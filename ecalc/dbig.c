@@ -70,9 +70,12 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
     int reg;
     char *p = ext_take(d, need, &reg);
     if (!p) {
+        static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
+        if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }
+                  printf("dbig pool: APU%d hipMalloc %.2f GB inside the phase (free %.2f GB in %d extents, largest %.2f; live %.2f GB in %d blocks)\n", d, need / 1e9, fr / 1e9, g_ext[d].n, lg / 1e9, g_live_bytes[d] / 1e9, g_nlive); }   /* Phase 10 B4 (agent M): why the pre-sized pool still grows */
         g_pool_bytes += need;
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
-        void *m; HIP_CHECK(hipMalloc(&m, need)); HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
+        void *m; if (hipMalloc(&m, need) != hipSuccess) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (inside a phase)", d, need); } HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
         if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
         p = (char *)m;
@@ -96,7 +99,7 @@ void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
 void db_pregrow(int dev, size_t bytes)
 {
     void *m; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipMalloc(&m, bytes)); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
+    if (hipMalloc(&m, bytes) != hipSuccess) mem_oom("db_pregrow", dev, bytes); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx); g_pool_bytes += bytes; pthread_mutex_unlock(&g_pool_mx);
     db_donate_ext(dev, m, bytes, 1);
@@ -138,6 +141,8 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
+size_t db_pool_largest_free(int d) { size_t m = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) if (g_ext[d].e[i].bytes > m) m = g_ext[d].e[i].bytes; pthread_mutex_unlock(&g_pool_mx); return m; }
+size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
 void db_release_pools(void)
 {
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */

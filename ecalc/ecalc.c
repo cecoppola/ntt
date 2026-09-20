@@ -229,7 +229,7 @@ int main(int argc, char **argv)
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (ECALC_STAGING=2: the pre-B2 seed-sized staging) */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
       int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
-      if (stg && devflow && !host_combine) { size_t need = stg == 2 ? binsplit_seed_stage_bytes(N) + (64u << 20) : 0; need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (stg == 2 ? 2u << 30 : 1u << 30)) need = stg == 2 ? 2u << 30 : 1u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; }
+      if (stg && devflow && !host_combine) { size_t need = stg == 2 ? binsplit_seed_stage_bytes(N) + (64u << 20) : 0; need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (stg == 2 ? 2u << 30 : 1u << 30)) need = stg == 2 ? 2u << 30 : 1u << 30; rns_staging_bytes_req = need; }   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
@@ -285,6 +285,7 @@ int main(int argc, char **argv)
         if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
             printf("mn: node %d: tree levels %.2f s: P %zu limbs, Q %zu limbs\n", mn_rank(), tt - tg, Pm.n, Qm.n);
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
+            mem_report("tree");                     /* Phase 10 B6 (agent M): the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
             P.n = Q.n = 0; binsplit_free_pools();
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
@@ -372,12 +373,24 @@ int main(int argc, char **argv)
         P.n = Q.n = 0;
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
         if (getenv("ECALC_DM_POOL") && atoi(getenv("ECALC_DM_POOL"))) {   /* C3 (A-div): the block pool sized to the reciprocal's scratch once, before the phase, instead of growing by hipMalloc block by block inside it (RESULTS.md 71: 6-7e10) */
+            /* Phase 10 B4 (agent M): what the in-phase growth actually is (DB_POOL_VERBOSE): one block per APU -- t1's quarter
+             * (2 n_Q / 4 limbs: 8.9 GB at 4e10, 15.6 at 7e10) -- which the arena cannot hold next to Q, S, r, r2 (its free bytes are
+             * there but in two or three holes).  So the chunk grown here must itself hold the largest block, whatever the byte
+             * deficit says; the bytes mapped are the same as the in-phase fallback's (0.06 s/GB either way), which is why this stays
+             * off by default: only an arena sized for the dm phase at init (ECALC_DM_POOL_K, binsplit_pregrow) maps fewer bytes
+             * overall, since t1 then lands in the arena's tail instead of a region of its own (results/M.md). */
             double tp = mem_now(); size_t nq_ = bs_Qd.n, tcap = (nq_ + k_mu > 2 * k_mu ? nq_ + k_mu : 2 * k_mu) + 8;
             size_t need = ((2 * (k_mu + 4) + tcap + ((size_t)1 << 31) + 8 + 4 * 4096) / 4) * 8 + ((size_t)1 << 30), grown = 0;   /* per device: r, r2, t1, the grid's piece temporary; Q and S are live already */
-            for (int dv = 0; dv < 4; dv++) { size_t fr = db_pool_free_bytes(dv); if (need > fr) { db_pregrow(dv, need - fr); grown += need - fr; } }
-            printf("      C3: block pool sized to the reciprocal's scratch (%.1f GB per device): grown by %.1f GB in %.2f s\n", need / 1e9, grown / 1e9, mem_now() - tp);
+            size_t big = (tcap / 4 + 4096) * 8, fr0 = 0, lg0 = 0;
+            for (int dv = 0; dv < 4; dv++) { size_t fr = db_pool_free_bytes(dv), lg = db_pool_largest_free(dv), g = need > fr ? need - fr : 0; fr0 += fr; lg0 += lg;
+                if (g && g < big) g = big; if (!g && lg < big) g = big;   /* a chunk that holds the largest block, or nothing when the pool already does */
+                if (g) { db_pregrow(dv, g); grown += g; } }
+            printf("      C3: block pool sized to the reciprocal's scratch (%.1f GB per device, largest block %.1f; free before %.1f GB, largest extent %.1f per device): grown by %.1f GB in %.2f s\n", need / 1e9, big / 1e9, fr0 / 4e9, lg0 / 4e9, grown / 1e9, mem_now() - tp);
         }
+        size_t hm0 = 0; for (int dv = 0; dv < 4; dv++) hm0 += db_pool_hipmalloc_bytes(dv);
         newton_db_recip(&MU, &Q, k_mu);
+        size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
+        if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* Phase 10 B4 (agent M): what C3's sizing missed */
     } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
     newton_free_scratch(); rns_free_scratch();
     t_recip = mem_now() - t;
@@ -418,6 +431,7 @@ int main(int argc, char **argv)
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0;
     if (ovl3) db_free(&bs_Qd);
+    if (ovl3) mem_report("division");                 /* Phase 10 B4 (agent M): the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
     if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
