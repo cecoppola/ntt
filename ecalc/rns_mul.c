@@ -81,6 +81,7 @@ int rns_init(int pool_log)
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
+    double ti0 = mem_now();
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         double tt, tr;
@@ -94,6 +95,7 @@ int rns_init(int pool_log)
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu);
     }
+    double ti1 = mem_now();
     if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
@@ -105,7 +107,7 @@ int rns_init(int pool_log)
     }
     mem_par_init = 0;
     mem_acct_register(rns_acct);
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB, staging %.2f GiB, tables %.3f GB\n", bytes / 1073741824.0, b1 / 1073741824.0, sbytes / 1073741824.0, g_tables[0] / 1e9);
+    double ti2 = mem_now();
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d) {
@@ -115,6 +117,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB, staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", bytes / 1073741824.0, b1 / 1073741824.0, sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }

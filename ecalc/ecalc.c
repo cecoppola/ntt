@@ -125,14 +125,15 @@ int main(int argc, char **argv)
       if (stg && devflow && !host_combine) { size_t need = binsplit_seed_stage_bytes(N) + (64u << 20); need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (2u << 30)) need = 2u << 30; if (need < ((size_t)8 << pool_log)) rns_staging_bytes_req = need; }
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
-    rns_init(pool_log);
+    double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
-    binsplit_pregrow(N);                          /* WP3: region pools at init, like the device pools */
+    double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
     double t_init = mem_now() - t00;
+    if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
