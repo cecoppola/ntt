@@ -478,6 +478,8 @@ void db_share_add_val(dbig *r, size_t n, size_t pos, uint64_t val, int sub, int 
     struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = pos; s.val = val;
     addsub_core2(r, r, 0, 0, &s, n, sub, n, cout, prop);
 }
+/* Phase 9 A3 (the grid over shares, rns_dist.c): r (n limbs, in place) += a << k; fixed length, carry out and propagate reported */
+void db_share_add_shifted(dbig *r, size_t n, const dbig *a, size_t k, int *cout, int *prop) { addsub_core2(r, a, k, r, 0, n, 0, n, cout, prop); }
 void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 0); }
 void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 1); }
 void db_add_shifted(dbig *r, const dbig *a, size_t k, const dbig *b) { addsub_core(r, a, k, b, 0, b->n, 0); }   /* r = (a << k) + b */
