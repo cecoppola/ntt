@@ -3,6 +3,8 @@
  * by a peer copy on my stream; wait() synchronises my stream and then the
  * shared barrier, so every rank's receive buffer is complete.  Ranks are driven
  * by four host threads (one per device), as the batch tier does.
+ * alltoallv (B7): the same pushes with per-peer lengths to the receivers' offsets, the count tables through the shared
+ * table (a mismatch aborts).
  * allgather (M7): every rank pushes its one block into the three peers' receive
  * buffers (the same push kernel; a memcpy for blocks that are not 16-byte
  * multiples) and copies its own; complete after the closing barrier.  The host
@@ -20,17 +22,17 @@ static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t
                 const void *ag_sb[NR]; void *ag_rb[NR];
                 const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* B7: the v-exchange's tables */
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
-static int g_push64, g_push_blocks;   /* COMM_PUSH64=1: 64-bit stores (RESULTS.md 11 measured 909 vs 699 GB/s); COMM_PUSH_BLOCKS: blocks per peer (228) */
+static int g_push64, g_push_blocks;   /* COMM_PUSH64 (default 1: 64-bit stores -- measured in results/C.md: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s); COMM_PUSH_BLOCKS: blocks per peer (default 76: fewer blocks leave the CUs to the row pass that runs under the exchange) */
 static void g_init(void)
 {
     pthread_barrier_init(&G.bar, NULL, NR);
-    g_push64 = getenv("COMM_PUSH64") ? atoi(getenv("COMM_PUSH64")) : 0;
-    g_push_blocks = getenv("COMM_PUSH_BLOCKS") ? atoi(getenv("COMM_PUSH_BLOCKS")) : 228;
+    g_push64 = getenv("COMM_PUSH64") ? atoi(getenv("COMM_PUSH64")) : 1;
+    g_push_blocks = getenv("COMM_PUSH_BLOCKS") ? atoi(getenv("COMM_PUSH_BLOCKS")) : 76;
     if (g_push_blocks < 1) g_push_blocks = 1;
 }
 /* push: one kernel drives the three links -- block b serves peer b % 3, so the three streams of stores are
- * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 16-byte vectors, or 64-bit
- * words with COMM_PUSH64.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
+ * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 64-bit words (default), or 16-byte
+ * vectors with COMM_PUSH64=0.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
 struct push3 { const void *src[3]; void *dst[3]; size_t n[3]; };
 template <typename T> __global__ void k_push3(struct push3 a)
 {
