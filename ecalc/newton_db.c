@@ -96,6 +96,14 @@ static const uint64_t *g_mu_ql; static size_t g_mu_qn; static uint64_t g_mu_qtop
  * mu_host: 0 = no host copy of mu (the division takes the kept device mu) */
 dbig *newton_db_Qd = 0; int newton_db_mu_host = 1;
 void (*newton_db_x_hook)(bigint *X, void *arg) = 0; void *newton_db_x_arg = 0;   /* called with X on the host before the low product */
+dbig *newton_db_x_dev = 0;   /* Phase 10 H (B1): when set, X stays on the device -- moved here before the low product (the x hook, if set, is then called with the
+                              * empty host X and reads the device one from here), the +/-1 corrections applied to it in place at the end; the caller owns it.  No host X */
+static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, B1: the corrections on the device X) */
+{
+    int co = 0, pr = 0; db_share_add_val(x, x->n, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, &co, &pr);
+    if (co) { fprintf(stderr, "newton_db: X %s out of its top limb\n", dx < 0 ? "borrows" : "carries"); abort(); }
+    if (dx < 0) db_norm(x);
+}
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
@@ -243,9 +251,11 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
     double tc = mem_now();
-    if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
-    rns_mul_low_db(&xq, &Xd, Qd, w);                                  /* low_w(X Q) */
-    if (newton_db_x_hook) db_free(&Xd);                               /* X is on the host; corrections go to the host copy */
+    const dbig *Xp = &Xd;
+    if (newton_db_x_dev) { *newton_db_x_dev = Xd; db_init(&Xd); Xp = newton_db_x_dev; if (newton_db_x_hook) newton_db_x_hook(X, newton_db_x_arg); }   /* H B1: X stays on the device; the hook starts the writer on it */
+    else if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
+    rns_mul_low_db(&xq, Xp, Qd, w);                                   /* low_w(X Q) */
+    if (newton_db_x_hook && !newton_db_x_dev) db_free(&Xd);           /* X is on the host; corrections go to the host copy */
     double td = mem_now();
     /* the window: A mod B^w = (S mod B^(w - dl)) B^dl; R formed in place in it */
     db_set_shifted_low(&Aw, S, w - dl, dl, w);
@@ -261,8 +271,9 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     }
     if (dx > 0) newton_st.up_corr += (size_t)dx;
     double te = mem_now();
-    if (!newton_db_x_hook) { db_to_bi(X, &Xd); db_free(&Xd); }
-    if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
+    if (!newton_db_x_hook && !newton_db_x_dev) { db_to_bi(X, &Xd); db_free(&Xd); }
+    if (dx && newton_db_x_dev) db_add_small(newton_db_x_dev, dx);     /* H B1: the correction on the device X (the writer redoes the digits) */
+    else if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
     db_mod_qs(&Rd, qs, nres, rres);
     double tf = mem_now();
     db_free(&Rd); db_free(&xq); db_free(&Aw);
