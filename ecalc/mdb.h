@@ -49,10 +49,17 @@ void rns_mul_dist_mn(mdb *C, const mdb *A, const mdb *B, const mdb *X, mn_group 
 typedef struct { const mdb *m; size_t off, len; } mdbv;
 mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G);
 /* C = A B (+ X) over the group with views; w = the low window: pieces of the grid starting at limb w or above are
- * skipped and the result is truncated to w limbs ((size_t)-1: the full product) */
+ * skipped and the result is truncated to w limbs ((size_t)-1: the full product).  Phase 10 A5: a truncated result is
+ * delivered in basis w (C->N = w), the carry out of the top dropped (mod B^w) */
 void rns_mul_dist_mn_v(mdb *C, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w);
-/* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped */
+/* Phase 10 A5 (results/A-div.md, the division's cuts): C = A B with the grid's pieces skipped by two cuts -- pieces whose
+ * limbs end at or below lowcut (oa + ob + len_a + len_b <= lowcut; 0: none -- the A_h mu product, of which only t >> cut is
+ * used: X is low by at most the number of skipped pieces + 1, absorbed by the up-corrections) and pieces starting at or
+ * above highcut (oa + ob >= highcut; (size_t)-1: none -- the low product X Q mod B^w, delivered in basis highcut) */
+void rns_mul_dist_mn_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut);
+/* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped, in basis w */
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
+void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
 /* C += X << k in place on C's shares (C's basis N must hold the sum: an overflow aborts); X sharded over any
  * subgroup of G; a chunked exchange over the four meshes, then one fixed-length add per share and the carry scan */
 void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G);
