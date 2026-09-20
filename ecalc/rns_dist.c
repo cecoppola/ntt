@@ -495,6 +495,7 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, size_t S, uint6
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
+static int g_top_ok;                                          /* Phase 10 A5: a truncated product (basis w): the carry out of the top node is dropped (mod B^w) */
 static int node_carry_in(mn_group *G, int c, int p)
 {
     comm *cm = G->all[0]; int g = G->g, me = G->me, cin = 0;
@@ -504,7 +505,7 @@ static int node_carry_in(mn_group *G, int c, int p)
     for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
     int top = cin; for (int r = me; r < g; r++) top = (all[r] & 1) | (((all[r] >> 1) & 1) & top);
     free(all);
-    if (top) { fprintf(stderr, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); exit(1); }
+    if (top && !g_top_ok) { fprintf(stderr, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); exit(1); }
     return cin;
 }
 /* the carries across the nodes after a fixed-length add on the shares (n limbs; co, pr its flags -- a node that had nothing
@@ -682,64 +683,76 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
     if (chi > clo) { dbig t = db_view(&C->sh, 0, chi - clo); db_norm(&t); if (t.n) top = clo + t.n; }
     C->n = grp_max(G, top);
 }
-__global__ void k_zero_acc(struct acc a, size_t n) { size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; t < n; t += st) *acc_ptr(a, t) = 0; }
-/* the limbs of C's share at or above `from` (global) set to zero: a truncated result stays a valid operand of the adds */
-static void share_zero_from(mdb *C, mn_group *G, size_t from)
-{
-    size_t clo, chi; mdb_share(C, g_node_of(G), &clo, &chi); if (from < clo) from = clo; if (from >= chi) return;
-    struct acc a = acc_db(&C->sh, from - clo, chi - from);
-    HIP_CHECK(hipSetDevice(0)); k_zero_acc<<<nblk(chi - from), 256>>>(a, chi - from); HIP_CHECK(hipDeviceSynchronize());
-}
 /* the plane cap of the mn tier: one plane per node pool (4 q limbs, q = n / 4 gt, in pool 0 of 2^pool_log limbs), at most 2^31 per node */
 static int mn_logn_cap(int gt) { int lgt = 0; while ((1 << lgt) < gt) lgt++; int c = dist_logn_max(); if (rns_pool_log() < c) c = rns_pool_log(); return c + lgt; }
-/* C = A B (+ X) over the group, as one plane or as the grid of piece products (the pieces at or above w skipped) */
-static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w)
+/* C = A B (+ X) over the group, as one plane or as the grid of piece products.  Phase 10 A5 (the cuts of the division,
+ * results/A-div.md): pieces at or above w (the high cut: oa + ob >= w) are skipped and the result is truncated to w limbs --
+ * delivered directly in basis w (the piece windows clip to the shares, the carry out of the top node is dropped), so the
+ * low product X Q comes out in the corrections' basis without a re-sharding shift; pieces whose limbs end at or below
+ * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
+ * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
+static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t lowcut, size_t w)
 {
     int g = G->g, node = g_node_of(G), verbose = getenv("RNS_VERBOSE") != 0, lgt = 0; while ((1 << lgt) < G->gt) lgt++;
     size_t na = A->len, nb = B->len, nc = na + nb, N = nc + (X ? 1 : 0), cap = (size_t)1 << mn_logn_cap(G->gt);
     if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
+    if (X && (w < N || lowcut)) { fprintf(stderr, "rns_mul_dist_mn: the added operand with a cut\n"); exit(1); }
+    int trunc = w < N; if (trunc) N = w;                       /* the result in basis w: the limbs at or above w are never formed */
     double t0 = mem_now();
     mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = N; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
     size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); size_t cn = chi - clo;
     db_zero_fill(&Cn.sh, cn);
     struct mn_times tm; memset(&tm, 0, sizeof tm);
-    if (nc <= cap) mn_core(&Cn, A, B, X, G, 0, 1, &tm);
+    g_top_ok = trunc;
+    int ka = 1, kb = 1, formed = 0, skipped = 0;
+    if (nc <= cap) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm); formed = 1; } else skipped = 1; }
     else {
-        int ka, kb; int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
+        int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
         split_grid_cap(na, nb, cap, (size_t)1 << logmin, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
-        if (verbose || getenv("ECALC_VERBOSE")) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces of %zu + %zu%s\n", node, na, nb, G->gt, mn_logn_cap(G->gt), ka, kb, pa, pb, w != (size_t)-1 ? " (low product)" : "");
         mdbv *av = (mdbv *)malloc((ka + kb) * sizeof *av), *bv = av + ka;
         for (int i = 0; i < ka; i++) av[i] = mdb_view(A->m, A->off + (size_t)i * pa, na - (size_t)i * pa < pa ? na - (size_t)i * pa : pa, G);
         for (int j = 0; j < kb; j++) bv[j] = mdb_view(B->m, B->off + (size_t)j * pb, nb - (size_t)j * pb < pb ? nb - (size_t)j * pb : pb, G);
         for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
             size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
-            if (!av[i].len || !bv[j].len || oa + ob >= w) continue;                  /* nothing, or nothing of it below w */
-            mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, i == 0 && j == 0, &tm);   /* (0,0): shift 0, straight into the zero-filled C */
+            if (!av[i].len || !bv[j].len) continue;                                   /* nothing */
+            if (oa + ob >= w || oa + ob + av[i].len + bv[j].len <= lowcut) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
+            mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm);   /* the first piece at shift 0 straight into the zero-filled C */
+            formed++;
         }
         free(av);
         if (X) mdb_add_shifted(&Cn, X, 0, G);
     }
-    mdb_norm(&Cn, G, w);
-    if (w < N) share_zero_from(&Cn, G, w);                    /* the limbs above the window are not part of the result */
+    g_top_ok = 0;
+    if (verbose || (getenv("ECALC_VERBOSE") && (ka * kb > 1 || skipped))) printf("dist_mn node %d: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed, %d skipped%s%s\n", node, na, nb, G->gt, mn_logn_cap(G->gt), ka, kb, formed, skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "");
+    mdb_norm(&Cn, G, N);
     if (Cm->sh.cap) db_free(&Cm->sh);
     *Cm = Cn;
     if (verbose) printf("dist_mn node %d: %zu + %zu%s limbs -> %zu (share %zu): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f, total %.3f s\n",
                         node, na, nb, X ? " + x" : "", Cn.n, cn, tm.redistribute, tm.ntt, tm.crt, tm.out, tm.carry, mem_now() - t0);
 }
+static void mdb_empty(mdb *Cm, mn_group *G) { if (Cm->sh.cap) db_free(&Cm->sh); memset(Cm, 0, sizeof *Cm); db_init(&Cm->sh); Cm->g0 = G->g0; Cm->g = G->g; }
 void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group *G)
 {
     mdbv a = { A, 0, A->n }, b = { B, 0, B->n };
-    mn_grid(Cm, &a, &b, X, G, (size_t)-1);
+    mn_grid(Cm, &a, &b, X, G, 0, (size_t)-1);
 }
-void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, w); }
-static void mdb_empty(mdb *Cm, mn_group *G) { if (Cm->sh.cap) db_free(&Cm->sh); memset(Cm, 0, sizeof *Cm); db_init(&Cm->sh); Cm->g0 = G->g0; Cm->g = G->g; }
-void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w)
+void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, 0, w); }
+void rns_mul_dist_mn_cut(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut)
 {
-    if (!w) { mdb_empty(Cm, G); return; }
-    mdbv a = mdb_view(A, 0, w, G), b = mdb_view(B, 0, w, G);
+    if (!highcut) { mdb_empty(Cm, G); return; }
+    mdbv a = mdb_view(A, 0, highcut, G), b = mdb_view(B, 0, highcut, G);   /* only the limbs below the high cut can reach the result */
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
-    mn_grid(Cm, &a, &b, 0, G, w);
+    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut);
+}
+void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w) { rns_mul_dist_mn_cut(Cm, A, B, G, 0, w); }
+/* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
+void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
+{
+    int lgt = 0; while ((1 << lgt) < G->gt) lgt++;
+    size_t cap = (size_t)1 << mn_logn_cap(G->gt); int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20;
+    if (na + nb <= cap) { *ka = *kb = 1; return; }
+    split_grid_cap(na, nb, cap, (size_t)1 << logmin, ka, kb);
 }
 
 /* ---- the shifted distributed add: C += X << k on C's shares (Phase 9 A3) -------------------------------------
