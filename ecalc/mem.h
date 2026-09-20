@@ -79,6 +79,7 @@ void mem_report_host_item(int cat, size_t bytes);   /* MEM_HOST_X / MEM_HOST_DIG
 void mem_report(const char *phase);                 /* print this phase's table (and remember it) */
 void mem_report_summary(void);                      /* every recorded phase, one table */
 size_t mem_report_dev_total(void);                  /* device bytes in use at the last mem_report (all devices) */
+void mem_oom(const char *where, int dev, size_t bytes);   /* Phase 10 B4 (agent M): a failed device allocation: print the request and the accounting, then exit */
 
 #ifdef __cplusplus
 }
