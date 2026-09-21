@@ -5,11 +5,16 @@
  *   (1) hipMemcpy returns to the host before a device-to-device copy has completed (it is queued behind whatever the
  *       copying device's null stream is doing);
  *   (2) a kernel on the SOURCE device's own (blocking) stream can then overwrite the source before the copy read it;
- *   (3) a kernel on a THIRD device can read the destination before the copy wrote it.
- * A blocking stream is ordered after its own device's null stream only, so (2) and (3) are expected to be unordered by
- * the HIP model; the test measures what happens on this ROCm.  With the fix (mem_dev_copy_on waits for the copy) the
- * three counts must be 0 -- run it as `tests/t_copy_order [fix]`: with "fix" the copy is followed by hipStreamSynchronize(0).
- * Prints the timings and the number of corrupted words; VERIFY OK when the fixed variant sees no corruption.
+ *   (3) a kernel on a THIRD device can read the destination before the copy wrote it;
+ *   (4) the same for a copy WITHIN one device (source and destination on the copying device -- the level loop's
+ *       odd-node copy at the levels where the carried node stays in its region): the copy is queued on that device's
+ *       null stream and a kernel on ANOTHER device's stream overwrites the source right after the call returns.
+ * A blocking stream is ordered after its own device's null stream only, so (2)-(4) are unordered by the HIP model
+ * whenever hipMemcpy returns before the copy is done; the test measures what happens on this ROCm (found: the
+ * peer-to-peer copy is host-synchronous, the same-device copy is NOT -- results/R.md).  With the fix (mem_dev_copy_on
+ * waits for the copy) every count must be 0 -- run it as `tests/t_copy_order [fix]`: with "fix" the copy is followed by
+ * hipStreamSynchronize(0).  Prints the timings and the number of corrupted words; VERIFY OK when the fixed variant sees
+ * no corruption.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +50,8 @@ int main(int argc, char **argv)
     HIP_CHECK(hipSetDevice(A)); HIP_CHECK(hipMalloc(&a, n * 8)); hipStream_t sa; HIP_CHECK(hipStreamCreate(&sa));
     HIP_CHECK(hipSetDevice(B)); HIP_CHECK(hipMalloc(&b, n * 8)); HIP_CHECK(hipMalloc(&cnt, 16));
     HIP_CHECK(hipSetDevice(C)); hipStream_t sc; HIP_CHECK(hipStreamCreate(&sc));
-    int bad2 = 0, bad3 = 0; double tret = 0;
+    uint64_t *a2; HIP_CHECK(hipSetDevice(A)); HIP_CHECK(hipMalloc(&a2, n * 8)); hipStream_t s1; HIP_CHECK(hipSetDevice(C)); HIP_CHECK(hipStreamCreate(&s1));
+    int bad2 = 0, bad3 = 0, bad4 = 0; double tret = 0, tret4 = 0;
     for (int rep = 0; rep < 5; rep++) {
         /* (1), (2): a on A holds 1; B's null stream is busy; copy a -> b issued from B; A's stream then overwrites a with 2 */
         HIP_CHECK(hipSetDevice(A)); k_fill<<<1024, 256>>>(a, n, 1); HIP_CHECK(hipDeviceSynchronize());
@@ -70,9 +76,22 @@ int main(int argc, char **argv)
         HIP_CHECK(hipSetDevice(B)); HIP_CHECK(hipDeviceSynchronize());
         printf("rep %d: a kernel on device %d read the destination right after the copy call: %llu of %zu words still the OLD value\n", rep, C, h[1], n);
         if (h[1]) bad3++;
+        /* (4): a (device A) holds 1; A's null stream busy; copy a -> a2 (both on A) issued from A; a kernel on C's stream then overwrites a with 2 */
+        HIP_CHECK(hipSetDevice(A)); k_fill<<<1024, 256>>>(a, n, 1); k_fill<<<1024, 256>>>(a2, n, 0); HIP_CHECK(hipDeviceSynchronize());
+        k_spin<<<1, 1>>>(400000000LL);
+        t0 = now();
+        HIP_CHECK(hipMemcpy(a2, a, n * 8, hipMemcpyDefault));
+        if (fix) HIP_CHECK(hipStreamSynchronize(0));
+        t1 = now(); tret4 += t1 - t0;
+        HIP_CHECK(hipSetDevice(C)); k_fill<<<1024, 256, 0, s1>>>(a, n, 2); HIP_CHECK(hipStreamSynchronize(s1));
+        HIP_CHECK(hipSetDevice(A)); HIP_CHECK(hipDeviceSynchronize());
+        { unsigned long long *ca; HIP_CHECK(hipMalloc(&ca, 8)); HIP_CHECK(hipMemset(ca, 0, 8)); k_count<<<1024, 256>>>(a2, n, 2, ca); HIP_CHECK(hipMemcpy(h, ca, 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(ca)); }
+        printf("rep %d: same-device hipMemcpy of %zu MB returned after %.3f s (A's null stream was busy); words of the LATER value in the destination: %llu of %zu\n", rep, n * 8 >> 20, t1 - t0, h[0], n);
+        if (h[0]) bad4++;
     }
+    printf("same-device copy: hipMemcpy returned after %.3f s on average; source overwritten by another device's kernel before the copy read it in %d of 5\n", tret4 / 5, bad4);
     printf("%s: hipMemcpy returned after %.3f s on average; source overwritten before the copy read it in %d of 5, destination read before the copy wrote it in %d of 5\n", fix ? "fixed (hipStreamSynchronize(0) after the copy)" : "as mem_dev_copy_on was", tret / 5, bad2, bad3);
-    if (fix) { VERIFY(bad2 == 0, "source overwritten under the fix"); VERIFY(bad3 == 0, "destination read early under the fix"); }
+    if (fix) { VERIFY(bad2 == 0, "source overwritten under the fix"); VERIFY(bad3 == 0, "destination read early under the fix"); VERIFY(bad4 == 0, "same-device source overwritten under the fix"); }
     else VERIFY(1, "");
     return verify_done("t_copy_order");
 }
