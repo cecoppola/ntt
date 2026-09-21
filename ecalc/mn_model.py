@@ -339,15 +339,16 @@ def phase(name, D):
     p = math.log(yb / ya) / math.log(b / a)
     return ya * (D / a) ** p
 
-def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31):
-    """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host, and the node peak"""
-    r = mem_model.mem_per_node(int(D), g, dict(form=form, groups=groups, transport=transport, pool_log=pool_log))
+def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident"):
+    """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
+    r = mem_model.mem_per_node(int(D), g, dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging))
     gb = lambda k: r[k] / 1e9
     return dict(device=gb("dev_dm"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
-                dm_need=gb("dm_need"), tree_need=gb("tree_need"), top_scratch=gb("top_scratch"), exchange=gb("exchange"), regions=gb("regions_bs"))
+                dm_need=gb("dm_need"), tree_need=gb("tree_need"), top_scratch=gb("top_scratch"), exchange=gb("exchange"), regions=gb("regions_bs"),
+                shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"))
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31):
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="resident"):
     nq = int(D / LIMB_DIGITS)                          # limbs of Q per node (the leaf's share)
     dl = nq
     nq_tot, dl_tot, np_tot = nq * g, dl * g, nq * g
@@ -366,10 +367,10 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
     tot = Cost()
     for _, _, c in levels: tot.add(c)
     tot.add(rc); tot.add(dc)
-    m = memory(D, g, form, groups, transport, pool_log)
+    m = memory(D, g, form, groups, transport, pool_log, staging)
     res = dict(D=D, g=g, wall=wall, init=ph["init"], batch=ph["batch"], top=ph["top"], levels=t_levels, recip=rc.t, div=dc.t,
                out=out_exposed, out_write=out_write, exposed=tot.t_exposed, nic=tot.nic, glob=tot.glob, msgs=tot.msgs,
-               pieces=tot.pieces, digits=D * g, levels_rows=levels, groups=grp, rc=rc, dc=dc, mem=m, form=form, schedule=mem_model.mn_groups(g, groups))
+               pieces=tot.pieces, digits=D * g, levels_rows=levels, groups=grp, rc=rc, dc=dc, mem=m, form=form, staging=staging, schedule=mem_model.mn_groups(g, groups))
     if verbose: print_run(fab, res, rule)
     return res
 
@@ -392,20 +393,20 @@ def print_run(fab, r, rule):
     print("  exposed communication %.1f s of the wall (%.0f %%); fabric bytes per node %s (per NIC %s over 8), on global links %s; %d messages per APU"
           % (r["exposed"], 100 * r["exposed"] / r["wall"], fmt_b(r["nic"]), fmt_b(r["nic"] / 8), fmt_b(r["glob"]), r["msgs"]))
     m = r["mem"]
-    print("  memory per node (mem_model, form %s): device %.0f GB at the dm peak (planes %.0f, arena %.0f = max(bs regions %.0f, dm need %.0f, tree need %.0f; top scratch %.0f), exchange %.0f), host %.0f GB; node peak %.0f of %.0f GB%s"
-          % (r["form"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["node"], NODE_GB,
+    print("  memory per node (mem_model, tree form %s, SHMEM staging %s): device %.0f GB at the dm peak (planes %.0f, arena %.0f = max(bs regions %.0f, dm need %.0f, tree need %.0f; top scratch %.0f), exchange %.0f), host %.0f GB (the SHMEM pool %.0f: staging %.0f); node peak %.0f of %.0f GB%s"
+          % (r["form"], r["staging"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["shmem_pool"], m["shmem_staging"], m["node"], NODE_GB,
              "" if m["node"] <= NODE_GB else "  ** DOES NOT FIT **"))
 
-def max_digits(g, node_gb, form="grid", groups=None, transport="shmem"):
+def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="resident"):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb"""
-    return mem_model.max_digits_per_node(node_gb * 1e9, g, dict(form=form, groups=groups, transport=transport))
+    return mem_model.max_digits_per_node(node_gb * 1e9, g, dict(form=form, groups=groups, transport=transport, staging=staging))
 
-def headline(fab, g, rule, form="grid", groups=None):
+def headline(fab, g, rule, form="grid", groups=None, staging="resident"):
     """the largest D per node that fits the node (502 GB) and the safe budget (480 GB), their walls"""
     out = []
     for budget in (NODE_GB, NODE_GB_MARGIN):
-        D = max_digits(g, budget, form, groups)
-        r = run(fab, D, g, rule, verbose=False, groups=groups, form=form) if D else None
+        D = max_digits(g, budget, form, groups, staging=staging)
+        r = run(fab, D, g, rule, verbose=False, groups=groups, form=form, staging=staging) if D else None
         out.append((budget, D, r))
     return out
 
@@ -452,18 +453,20 @@ def calibrate(rule, gate=0.10, verbose=True):
 
 def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid"):
     print("the level schedule at 576 (MN_GROUPS), per-node wall of the distributed levels (s) by D per node; every level")
-    print("costed as the tree forms it (a k-way level = 2 (k - 1) products over the level's group):")
-    print("%-8s %-28s | " % ("name", "MN_GROUPS") + " | ".join("%8.1e: levels  exposed   pieces" % D for D in D_list))
+    print("costed as the tree forms it (a k-way level = 2 (k - 1) products over the level's group); 'global' = TB per node over")
+    print("the dragonfly's global links in the levels (MN_TOPO_GROUP = %d), 'msgs' = messages per APU in the levels (k):" % fab.group)
+    print("%-8s %-28s | " % ("name", "MN_GROUPS") + " | ".join("%8.1e: levels expo pcs global  msgs" % D for D in D_list))
     best = None
     for name, spec in SCHEDULES.items():
         cells = []; tot = 0.0
         for D in D_list:
             r = run(fab, D, 576, rule, verbose=False, groups=spec, form=form)
-            cells.append("%16.1f %8.1f %6d" % (r["levels"], sum(c.t_exposed for _, _, c in r["levels_rows"]), sum(c.pieces for _, _, c in r["levels_rows"])))
+            L = r["levels_rows"]
+            cells.append("%15.1f %4.1f %3d %6.1f %5dk" % (r["levels"], sum(c.t_exposed for _, _, c in L), sum(c.pieces for _, _, c in L), sum(c.glob for _, _, c in L) / 1e12, sum(c.msgs for _, _, c in L) / 1000))
             tot += r["levels"]
         print("%-8s %-28s | " % (name, spec or "(default: 2,4,...,512,576)") + " | ".join(cells))
         if best is None or tot < best[0]: best = (tot, name, spec)
-    print("cheapest by the model: %s (MN_GROUPS=%s)" % (best[1], best[2] or "unset"))
+    print("cheapest by the model (the sum over the three sizes): %s (MN_GROUPS=%s); the three are within the model's own error of each other" % (best[1], best[2] or "unset"))
     return best
 
 def main():
@@ -479,6 +482,7 @@ def main():
     ap.add_argument("--rule", default="model", choices=("model", "full"), help="X1's group choice in the reciprocal (model) or every product on the full group (full)")
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
+    ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
@@ -492,15 +496,15 @@ def main():
     print("single node (measured, size 1): 4e10 in 81.5 s, 8e10 in 195.5 s, 1e11 in 262.9 s")
     for D in a.D:
         for g in a.g:
-            run(fab, D, g, a.rule, groups=a.groups, form=a.tree)
+            run(fab, D, g, a.rule, groups=a.groups, form=a.tree, staging=a.staging)
     print("=" * 112)
-    print("HEADLINE (modelled from the measured per-node profile; the memory model with the tail layout and alltoallv shifts; tree form %s):" % a.tree)
-    for budget, D, r in headline(fab, 576, a.rule, a.tree, a.groups):
+    print("HEADLINE (modelled from the measured per-node profile; the memory model with the tail layout and alltoallv shifts; tree form %s, SHMEM staging %s):" % (a.tree, a.staging))
+    for budget, D, r in headline(fab, 576, a.rule, a.tree, a.groups, a.staging):
         if r is None: print("  576 nodes: nothing fits %.0f GB" % budget); continue
         print("  576 nodes, %.0f GB per node: the largest D per node %.2e (node peak %.0f GB) -> %.3e digits in %.1f min per-node wall (%.1f min without the part file's exposed %.0f s)"
               % (budget, D, r["mem"]["node"], r["digits"], r["wall"] / 60, (r["wall"] - r["out"]) / 60, r["out"]))
     for Dn in (4e10, 7.7e10):
-        r = run(fab, Dn, 576, a.rule, verbose=False, groups=a.groups, form=a.tree)
+        r = run(fab, Dn, 576, a.rule, verbose=False, groups=a.groups, form=a.tree, staging=a.staging)
         print("  576 nodes x %.1e = %.3e digits: %.1f min per-node wall (exposed communication %.1f s, %s on the NICs per node, node peak %.0f GB%s)" % (Dn, r["digits"], r["wall"] / 60, r["exposed"], fmt_b(r["nic"]), r["mem"]["node"], "" if r["mem"]["node"] <= NODE_GB else " -- does not fit"))
     for g in a.g:
         if g < 8: continue
