@@ -12,11 +12,15 @@
 #   ckpt   10^8 at size 2: BS_CKPT_ABORT=6 on every node, then BS_RESTART=1 (restart identical to the reference)
 #   full   4 x 10^10 at size 1 (--full only; ~ 2 min of the whole node): the reference evicted from the page
 #          cache first, the wall printed, digits cmp'd against results/e_4e10.out
+#   stress 10 runs of 10^9 at size 4 with a plane pool forced to grow inside bs (--stress only, ~ 10 min; Phase 12 R):
+#          RNS_POOL_GROW=1 POOL_LOG=27 RNS_POOL1_GB=0.8054 RNS_BATCH_LOCAL_MIN=2 MEM_DPOOL_FILL=1 -- pool 1 at 0.75 GiB,
+#          the top level's grpB batch-local tile needs 1 GiB (the growth is logged and required), the grown pool
+#          filled with 0xA5; every run must be identical with all 4 nodes VERIFY OK
 # References: ref/e_<digits>.txt of this clone or, when absent, ECALC_REF (default ~/ntt/ecalc/ref);
 # the 4e10 file ECALC_REF_4E10 (default ~/ntt/ecalc/results/e_4e10.out).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--only unit,e9,mn,ckpt,full]"; exit 2; }
-FULL=0; ONLY=""
-while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,full,stress]"; exit 2; }
+FULL=0; STRESS=0; ONLY=""
+while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
 REF=${ECALC_REF:-$HOME/ntt/ecalc/ref}; [ -s ref/e_1000000000.txt ] && REF=$ECALC_DIR/ref
@@ -112,6 +116,22 @@ if [ $FULL = 1 ] && want full; then
   echo "  4e10: $(grep -a '^bs \|^dm \|^init' "$log" | sed 's/  */ /g' | cut -c1-80 | tr '\n' ';')" | tee -a "$SUM"
   if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "full 4e10 size 1" "$c; wall $(echo "$tot" | cut -c1-16) (${el} s elapsed with the write)"
   else fail "full 4e10 size 1" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error\|Killed' "$log" | head -1 | cut -c1-120)"; fi
+fi
+
+# ---- forced pool growth at 10^9 size 4 (--stress) ---------------------------------------------------------------------
+if [ $STRESS = 1 ] && want stress; then
+  nok=0; nfail=0; first=""
+  for i in $(seq 1 10); do
+    log=$OUT/stress_$i.log; f=$TMP/stress_$i.txt
+    M 900 4 POOL_LOG=27 RNS_POOL_GROW=1 RNS_POOL1_GB=0.8054 RNS_BATCH_LOCAL_MIN=2 MEM_DPOOL_FILL=1 RNS_VERBOSE=1 ./ecalc 1000000000 "$f" > "$log" 2>&1; rc=$?
+    c=$(cmpref "$f" "$REF/e_1000000000.txt")
+    ng=$(grep -ac 'grows inside a phase' "$log")
+    if [ $rc -eq 0 ] && grep -aq "mn: all 4 nodes: VERIFY OK" "$log" && [ "$c" = identical ] && [ "$ng" -ge 1 ]; then nok=$((nok + 1))
+    else nfail=$((nfail + 1)); [ -n "$first" ] || first="run $i: rc $rc; $c; $ng growth lines; $(grep -a 'VERIFY FAILED\|abort\|error\|Killed\|would grow' "$log" | head -1 | cut -c1-100)"; fi
+    echo "  stress run $i: $c, $(grep -ac 'VERIFY OK' "$log") VERIFY OK, $ng pool growths, $(total_of "$log")" | tee -a "$SUM"
+  done
+  if [ $nfail -eq 0 ]; then pass "stress e9 size 4 forced growth" "$nok of 10 identical, all nodes VERIFY OK, the growth logged in every run"
+  else fail "stress e9 size 4 forced growth" "$nok of 10 passed; $first"; fi
 fi
 
 N "rm -rf $TMP"
