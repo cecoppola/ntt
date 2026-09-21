@@ -165,7 +165,28 @@ void rns_ensure_staging(void)
     for (int d = 0; d < g_nd; d++) if (!D[d].hstage) { double tt, tr; HIP_CHECK(hipSetDevice(d)); D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr); }
 }
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
-void *rns_dpool(int dev, int which, size_t bytes) { return dpool_get(which ? &D[dev].db : &D[dev].da, dev, bytes); }
+int rns_pool_grow = -1;                                            /* RNS_POOL_GROW: 1 lets a plane pool grow inside a phase (the stress recipe); 0 (default) aborts */
+static size_t g_n_grow;
+size_t rns_pool_n_grow(void) { return g_n_grow; }
+void *rns_dpool(int dev, int which, size_t bytes)
+{
+    dpool *dp = which ? &D[dev].db : &D[dev].da;
+    if (dp->p && dp->dev == dev && dp->cap < bytes) {                 /* a growth inside a phase (rns_init makes the pools directly) */
+        /* Phase 12 R (D5): the plane pools are sized at init (Phase 9 C4, Phase 11 B3) and no default configuration grows one inside
+         * a phase; a growth here means the sizing and the tiers disagree, so it aborts with the memory accounting (as mem_oom
+         * does) unless RNS_POOL_GROW=1 asks for it (mnaccept.sh --stress).  The growth itself is a hipFree + hipMalloc of the
+         * pool between two tiers -- safe as such (every tier re-reads the pool pointer after this call), just never intended. */
+        if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
+        if (!rns_pool_grow) {
+            fprintf(stderr, "rns_dpool: plane pool %d on APU %d would grow inside a phase, %.2f -> %.2f GB: the pools are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
+            fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1);
+        }
+#pragma omp atomic
+        g_n_grow++;
+        if (getenv("RNS_VERBOSE")) printf("rns_dpool: plane pool %d on APU %d grows inside a phase, %.2f -> %.2f GB (RNS_POOL_GROW=1)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
+    }
+    return dpool_get(dp, dev, bytes);
+}
 /* Phase 8 I3: the part of plane pool `which` above `used` bytes (the dist tier's slabs take 3 q of pool 1's 4 q at 2^31 points)
  * goes to the dbig block pool; the pool keeps its size (the tail is never handed out again by dpool_get, which only grows) */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used)
@@ -750,7 +771,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
         int d = omp_get_thread_num(); struct dev *v = &D[d];
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < EC_NP; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
-        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime */
+        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? (size_t)EC_NP * L : (size_t)EC_NP * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime.  Phase 12 R: grpB holds EC_NP B planes (db + p L below), not one -- the request said L (reached only with RNS_BATCH_LOCAL_MIN <= 2) */
         uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
         double lsc = 0, lnt = 0, lcr = 0, lmg = 0;
         struct bdesc *hd = (struct bdesc *)malloc((Mmax < cnt[d] ? Mmax : cnt[d] ? cnt[d] : 1) * sizeof *hd);
