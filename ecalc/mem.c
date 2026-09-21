@@ -131,11 +131,17 @@ void mem_dev_free(void *p)
     reg_del(p);
 }
 void mem_dev_free_raw(int dev, void *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
-void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine */
+void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine; complete when it returns */
 {
     int cur; HIP_CHECK(hipGetDevice(&cur));
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
+    /* Phase 12 R (D5): a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
+     * stream; tests/t_copy_order measures it), and the other devices' streams are not ordered against that null stream:
+     * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
+     * overwritten by their CRT, while it was still in flight (results/R.md).  Every caller assumes the copy is complete
+     * when this returns, so wait for it here. */
+    HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
 /* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
