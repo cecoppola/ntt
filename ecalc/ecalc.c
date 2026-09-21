@@ -230,8 +230,8 @@ int main(int argc, char **argv)
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
       int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
       if (stg && devflow && !host_combine) { size_t need = stg == 2 ? binsplit_seed_stage_bytes(N) + (64u << 20) : 0; need = (need + (1u << 30) - 1) & ~(size_t)((1u << 30) - 1); if (need < (stg == 2 ? 2u << 30 : 1u << 30)) need = stg == 2 ? 2u << 30 : 1u << 30; rns_staging_bytes_req = need; }   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
-      /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init -- on below 5e10 digits
-       * at 2^31 pools (+14 GiB per APU: 4e10 fits with margin), off above (7-8e10 unchanged); RNS_PLANES_3Q30=0/1 overrides */
+      /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init: RNS_PLANES_3Q30=1 (or auto:
+       * on below 5e10 digits at 2^31 pools, +14 GiB per APU); default off -- the mapping costs more than the products gain (results/P.md) */
       rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
