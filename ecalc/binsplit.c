@@ -28,6 +28,8 @@ int bs_ckpt_min_level = 16;                          /* BS_CKPT_MIN_LEVEL: only 
                                                       * 16 a 24-level run writes two) */
 size_t bs_ckpt_min_bytes = (size_t)64 << 30;         /* ... unless the level's pool is already this large */
 int bs_restart = 0;                                  /* BS_RESTART=1: resume from the latest complete checkpoint in bs_ckpt_dir */
+int bs_ckpt_own_buf = 0;                             /* Phase 12 W: 1 = the checkpoint DMA buffers are malloc'd, never the pinned staging (a writer thread that outlives rns_release_staging) */
+volatile int bs_ckpt_tree_pdone = 0;                 /* Phase 12 W: files of the tree set being written whose P part is on disk (ecalc.c's background top-level write: S = P + Q may overwrite P once this reaches NR) */
 
 unsigned long e_terms(unsigned long d)
 {
@@ -441,7 +443,7 @@ static int ckpt_finish(FILE *f, int ok, const char *tmp, const char *final)
 static uint64_t *ckpt_buf(int r, int *own)
 {
     *own = 0;
-    if (mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());
+    if (!bs_ckpt_own_buf && mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());   /* Phase 12 W: bs_ckpt_own_buf -> malloc */
     *own = 1; return (uint64_t *)malloc(CKPT_CHUNK);
 }
 static FILE *ckpt_open(const char *kind, int level, int r, int write, char *tmp, char *final)
@@ -628,7 +630,9 @@ static int tree_io(int level, dbig *P, dbig *Q, int r, int write)
     char tmp[4096], final[4096];
     FILE *f = ckpt_open("tree", level, r, write, tmp, final); if (!f) return 0;
     int ok, own; uint64_t *buf = ckpt_buf(r, &own);
-    ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write) && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write);
+    ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write);
+    if (write) __atomic_add_fetch(&bs_ckpt_tree_pdone, 1, __ATOMIC_RELEASE);   /* Phase 12 W: this file's P part is written (the fwrite returned: P's limbs are no longer read) */
+    ok = ok && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write);
     if (own) free(buf);
     return ckpt_close(f, ok, write, tmp, final);
 }
@@ -639,7 +643,7 @@ size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], d
     for (int r = 0; r < NR; r++) h.offr[r] = range_lo(P->n, r + 1) - range_lo(P->n, r) + range_lo(Q->n, r + 1) - range_lo(Q->n, r);
     x.size = mn_size(); x.rank = mn_rank(); x.kind = 1; x.a0 = bs_a0; x.b1 = bs_b1; memcpy(x.tree, desc, sizeof x.tree);
     mkdir(bs_ckpt_dir, 0777);
-    int oks[NR];
+    int oks[NR]; bs_ckpt_tree_pdone = 0;
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
     for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 1);
     for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
