@@ -318,7 +318,8 @@ static void staging(shm_priv *p, size_t send, size_t recv)
 static void staging_release(shm_priv *p)
 {
     if (S.keep_staging) return;                           /* COMM_SHMEM_KEEP_STAGING=1: Phase 11's form, kept per communicator */
-    if (p->sst) pool_free(p->sst); if (p->rst) pool_free(p->rst);
+    if (p->sst) pool_free(p->sst);
+    if (p->rst) pool_free(p->rst);
     p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0;
 }
 /* the sender's half of an exchange for the peers from `from`: wait for each receiver's offset (at most spin_us when
