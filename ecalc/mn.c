@@ -139,8 +139,12 @@ static comm *sub_mesh_strided(int start, int stride, int n, int slot, int lane, 
 static comm *topo_tr(mn_group *G, int level, int d)
 {
     int T = g_topo, gt = G->gt, me = G->me, a = me / T, b = me % T, q = gt / T;
+    int tr = getenv("MN_TOPO_TRACE") != 0;
+    if (tr) fprintf(stderr, "mn: node %d thread %d: in-group mesh [%d +%d) ...\n", g_rank, d, G->g0 + a * T, T);
     comm *in = sub_mesh_strided(G->g0 + a * T, 1, T, 2 * level, d, a * T);          /* the in-group mesh: node b of group a */
+    if (tr) fprintf(stderr, "mn: node %d thread %d: in-group mesh done; cross mesh {%d + %d k, k < %d} ...\n", g_rank, d, G->g0 + b, T, q);
     comm *cross = sub_mesh_strided(G->g0 + b, T, q, 2 * level, NA + d, q * b);      /* the cross-group mesh: group a of in-group index b */
+    if (tr) fprintf(stderr, "mn: node %d thread %d: cross mesh done\n", g_rank, d);
     g_topo_mesh[level][d][0] = in; g_topo_mesh[level][d][1] = cross;
     return comm_layered_create_minor(in, cross, d);
 }
