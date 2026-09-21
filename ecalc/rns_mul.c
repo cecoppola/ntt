@@ -56,13 +56,17 @@ size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4
 /* Phase 11 B3 (agent P): plane pool 0 sized at init to 3 2^(pool_log-1) limbs (24 GiB at 2^31) and pool 1 to the dist tier's
  * 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB), so the top levels and the dm phase run their products on 3 2^28 .. 3 2^30-point
  * planes (rns_dist.c's DIST_R3, whose default follows this switch) with nothing mapped inside a phase (A-grid's C5 paid 15 s
- * at first use).  RNS_PLANES_3Q30=0/1 overrides; the driver's default is on below 5e10 digits at 2^31 pools (results/P.md). */
+ * at first use).  RNS_PLANES_3Q30=0/1 overrides.  Measured at 4e10 (results/P.md): the phases lose 3.6 s (top levels -2.8,
+ * reciprocal -0.6, level 21 paired -0.2) but the 60 GB more of plane pools cost 4.7-6.3 s of mapping at init (0.08-0.1 s/GB
+ * while the seeds stream), so the default is OFF at every size (rns_planes_3q30_default keeps the size rule for when the
+ * mapping gets cheaper: it applies only with RNS_PLANES_3Q30=auto, else 0/1). */
 int rns_planes_3q30 = -1;
 int rns_planes_3q30_default(int pool_log, double digits)
 {
     const char *e = getenv("RNS_PLANES_3Q30");
+    if (e && !strcmp(e, "auto")) return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;   /* the size rule: on below 5e10 at 2^31 pools (7-8e10 do not fit) */
     if (e) return atoi(e) != 0;
-    return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;
+    return 0;
 }
 static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv("RNS_PLANES_3Q30"); rns_planes_3q30 = e ? atoi(e) != 0 : 0; } return rns_planes_3q30; }
 size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */

@@ -43,7 +43,7 @@ extern size_t rns_pool1_bytes_req;     /* Phase 9 C4: set before rns_init: plane
 size_t rns_pool1_default_bytes(int pool_log);
 /* Phase 11 B3 (agent P): plane pools sized at init for 3 2^k-point planes (pool 0 = 3 2^(pool_log-1) limbs, pool 1 = 3 q + 16 at
  * q = 3 2^(pool_log-3)); the dist tier's DIST_R3 default follows it.  Set rns_planes_3q30 before rns_init (the driver: on below
- * 5e10 digits at 2^31 pools, RNS_PLANES_3Q30=0/1 overrides); rns_plane_limbs() is pool 0's capacity in limbs */
+ * 5e10 digits at 2^31 pools only with RNS_PLANES_3Q30=auto; =1 forces it; default off, results/P.md); rns_plane_limbs() is pool 0's capacity in limbs */
 extern int rns_planes_3q30;
 int rns_planes_3q30_default(int pool_log, double digits);
 size_t rns_plane_limbs(void);
