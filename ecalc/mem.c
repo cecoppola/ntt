@@ -217,14 +217,26 @@ void mem_hstage_free(void *p)
 
 static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return c; }
 
+/* Phase 11 V (D5, a test knob): MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at
+ * every allocation -- a tier that relied on fresh device memory being zero would fail deterministically instead of once in
+ * twenty runs (the grown pool may be recycled, dirty memory) */
+static void dpool_fill(dpool *d, int grew)
+{
+    static int fill = -1; if (fill < 0) fill = getenv("MEM_DPOOL_FILL") ? atoi(getenv("MEM_DPOOL_FILL")) : 0;
+    if (!fill || (fill == 1 && !grew)) return;
+    HIP_CHECK(hipMemset(d->p, 0xA5, d->cap)); HIP_CHECK(hipDeviceSynchronize());
+    printf("mem: plane pool on APU %d %s: %.2f GB filled with 0xA5 (MEM_DPOOL_FILL)\n", d->dev, grew ? "grown" : "allocated", d->cap / 1e9);
+}
 void *dpool_get(dpool *d, int dev, size_t bytes)
 {
     if (d->p && d->cap >= bytes && d->dev == dev) return d->p;
     size_t cap = pow2_ceil(bytes);
     if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
     HIP_CHECK(hipSetDevice(dev));
+    int grew = d->p != 0;
     if (hipMalloc(&d->p, cap) != hipSuccess) mem_oom("dpool_get", dev, cap);
     d->cap = cap; d->dev = dev;
+    dpool_fill(d, grew);
     return d->p;
 }
 void *dpool_get_exact(dpool *d, int dev, size_t bytes)
@@ -233,8 +245,10 @@ void *dpool_get_exact(dpool *d, int dev, size_t bytes)
     const size_t al = (size_t)2 << 20; size_t cap = (bytes + al - 1) / al * al;
     if (d->p) { HIP_CHECK(hipSetDevice(d->dev)); HIP_CHECK(hipFree(d->p)); }
     HIP_CHECK(hipSetDevice(dev));
+    int grew = d->p != 0;
     if (hipMalloc(&d->p, cap) != hipSuccess) mem_oom("dpool_get_exact", dev, cap);
     d->cap = cap; d->dev = dev;
+    dpool_fill(d, grew);
     return d->p;
 }
 void dpool_free(dpool *d)
