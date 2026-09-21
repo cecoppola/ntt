@@ -161,13 +161,40 @@ only at 10⁸ with the TCP constants.
 The digits cannot depend on the choice (every sharded operation is exact; the products are the same integers over any
 group); size 1 does not enter this code.
 
-### Measurements (batch 2, job PENDING)
+### Measurements (batch 3 = `~/x_b2.sh`, job 20815, s24-26, one node, the node-processes sharing it; every run's part files
+concatenated and `cmp`'d against `ref/e_<digits>.txt` / `results/e_1e10.out`, VERIFY OK on every node)
 
-PENDING
+| run | env | groups taken by the reciprocal | digits | wall |
+|---|---|---|---|---|
+| 10⁹ size 1 | — | (size 1: none of this code) | identical | 13.7 s |
+| 10⁸ size 2 | `POOL_LOG=27` | full (g = 2 has no subgroup) | identical | 8.5 |
+| 10⁸ size 3 | `POOL_LOG=27 MN_MODEL_TCP=1` | full | identical | 9.0 |
+| **10⁸ size 4** | `POOL_LOG=27` (target constants) | **[0, 2) for j ≤ 3.5 × 10⁵, then the four** | identical | 8.4 |
+| 10⁸ size 4 | `MN_MODEL_TCP=1` | full | identical | 8.4 |
+| 10⁸ size 2 | `NEWTON_MN_GROUPS=0` | full (the switch off) | identical | 8.1 |
+| 10⁹ size 2 | `POOL_LOG=29` | full | identical | 27.3 |
+| **10⁹ size 4** | `POOL_LOG=29` (target constants) | **[0, 2) for j ≤ 4.3 × 10⁵ (4 steps), then the four** | identical | 20.6 |
+| 10⁹ size 4 | `MN_MODEL_TCP=1` | full | identical | 20.2 |
+| 10¹⁰ size 4 | `POOL_LOG=29 NEWTON_MN_GROUPS=0` (X1 off) | full | identical | **114.6** (dm 73.6, recip 45.1) |
+| **10¹⁰ size 4** | `POOL_LOG=29` (target constants) | **[0, 2) for j ≤ 5.4 × 10⁵ (4 steps, 0.55 s together), then the four** | identical | **123.0** (dm 78.4, recip 48.2) |
+| **10¹⁰ size 4** | `POOL_LOG=29 MN_MODEL_TCP=1` (aac6's constants: the rule keeps the full group, as the model says it should on a shared node over loopback) | full | identical | **100.6** (dm 60.1, recip 33.4) |
+
+The same 10¹⁰/4 configuration without X1 ran 110.1 s (job 20802) and 105.7 s (job 20809): the node's spread is
+± 5 s, and the four subgroup steps cost 0.55 s in the X1 run against 0.57 s for the same steps on the full group (the
+loopback transport has no latency term to save, and the local passes on two node-processes instead of four are no
+cheaper on a shared node). So on aac6 X1 with the target's constants is neutral on the steps it changes and the wall
+difference is noise; with aac6's own constants (`MN_MODEL_TCP=1`, which the calibration says is the rule for this
+machine) the rule leaves every product on the full group and the wall is 100.6 s. The first version of the batch
+(job 20809) found the bug the size-4 runs exist for: a non-member's `mn_group_at(L)` is its own group [2, 4), so its
+pieces of Q_t went to the wrong nodes and the step repeated without end — the target group is now named as
+[0, 2^L) on every node (`mdb_shift_g(…, tg0, tg)`).
 
 ## X3 — the transform cache's reach
 
-Not done (time); see open issues.
+Not started (the time went to the model's calibration and the X1 gate); the mechanism (results/G.md: `rns_dist_cache_hold`
+pins Q's pieces from the reciprocal's top step to the division's X Q; `RNS_DIST_CACHE_MN` slots as the pool allows) is in
+place and off by default — what X3 would add is a per-product slot budget from the pool's free bytes (M's accounting)
+so that A_h μ's pieces do not evict Q's.
 
 ## Open issues
 
