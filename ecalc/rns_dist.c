@@ -1121,9 +1121,10 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 #define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)   /* my sequence over an operand of len limbs */
     size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;                  /* my part of a piece view */
     size_t sb = (va > vb ? va : vb) / 4 + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
-    size_t win = share_c < nc ? share_c : nc, xq = has_x ? q : 0, tmp = is_pow2(g) ? q : 0;
-    size_t peak1 = RT(pa) + RT(pb) + (has_x ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;        /* the operands in: three sequences + one packed part */
-    size_t peak2 = RT(win) + win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;   /* the result out: rbO, the spills, cx and tmp still held */
+    int xin = has_x && ka * kb == 1;                                                                /* X rides in the CRT only on one plane; a grid adds it afterwards (mdb_add_shifted: O(chunk)) */
+    size_t win = share_c < nc ? share_c : nc, xq = xin ? q : 0, tmp = is_pow2(g) ? q : 0;
+    size_t peak1 = RT(pa) + RT(pb) + (xin ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;          /* the operands in: the sequences + one packed part + cx, tmp */
+    size_t peak2 = win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;              /* the result out: rbO (my window's part), the spills, cx and tmp still held */
     size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
 #undef RT
     return bytes;
