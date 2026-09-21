@@ -24,7 +24,24 @@ list=$(echo "$use" | paste -sd,)
 export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}    # a per-run port base: a straggler of a failed run must not catch the next run's connections (M3 uses base .. base + 6656); below the ephemeral range 32768-60999, where a listener collides with any outgoing connection now and then (S: "bind: Address already in use" once in ~4 runs at 8 processes)
 if [ "$COMM_TRANSPORT" = shmem ]; then
     POOL=${COMM_SHMEM_POOL_MB:-8192}
-    export COMM_SHMEM_POOL_MB=$POOL SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
+    export COMM_SHMEM_POOL_MB=$POOL
+    # Phase 12 S: the implementation the binary was built against: SOS (make SHMEM_HOME=~/sos; libsma) or OSHMEM (oshcc).
+    # COMM_SHMEM_IMPL=sos|oshmem overrides the detection (the command may be a wrapper).
+    impl=${COMM_SHMEM_IMPL:-}
+    if [ -z "$impl" ]; then
+        bin=; for a in "$@"; do case "$a" in env|*=*) ;; *) bin=$a; break;; esac; done      # the command behind `env X=Y ...`
+        if ldd "$bin" 2>/dev/null | grep -q libsma; then impl=sos; else impl=oshmem; fi
+    fi
+    if [ "$impl" = sos ]; then
+        # SOS: PMI-1 (simple PMI) under srun's pmi2 plugin; the sockets provider of libfabric (the tcp provider lacks what SOS asks
+        # for); the pool is the transport's own shmem_malloc (SHMEM_SYMMETRIC_SIZE) or, with COMM_SHMEM_DEVHEAP=1, a HIP buffer
+        # registered as SOS's external heap (results/S12.md).  SOS's internal heap is only its own bookkeeping then.
+        if [ "${COMM_SHMEM_DEVHEAP:-0}" != 0 ]; then export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-64M}; else export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}; fi
+        export FI_PROVIDER=${FI_PROVIDER:-sockets} SHMEM_OFI_PROVIDER=${SHMEM_OFI_PROVIDER:-sockets} SHMEM_DISABLE_ASLR_CHECK=1
+        exec srun --jobid="$SLURM_JOB_ID" --mpi=pmi2 -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
+             bash -lc 'module load rocm; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec "$@"' _ "$@"
+    fi
+    export SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
     export OMPI_MCA_memheap_base_max_segments=${OMPI_MCA_memheap_base_max_segments:-64}
     exec srun --jobid="$SLURM_JOB_ID" --mpi=pmix -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
          bash -lc 'module load rocm; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec setarch x86_64 -L "$@"' _ "$@"
