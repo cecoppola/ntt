@@ -361,9 +361,13 @@ int main(int argc, char **argv)
     }
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
-    if (ovl3 && bs_ckpt_dir && getenv("ECALC_CKPT_TOP") && atoi(getenv("ECALC_CKPT_TOP"))) {   /* Phase 11 V: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
-        double tc = mem_now(); uint64_t desc[10] = { bs_Pd.n, bs_Pd.n, 0, 1, bs_Pd.n, bs_Qd.n, bs_Qd.n, 0, 1, bs_Qd.n };
-        size_t bytes = bs_ckpt_tree_write(0, N, desc, &bs_Pd, &bs_Qd);
+    if (mn_size_ == 1 && bs_ckpt_dir && getenv("ECALC_CKPT_TOP") && atoi(getenv("ECALC_CKPT_TOP")) && (ovl3 || P.n)) {   /* Phase 11 V: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+        double tc = mem_now(); dbig tp, tq; db_init(&tp); db_init(&tq);
+        if (!ovl3) { db_from_bi(&tp, &P); db_from_bi(&tq, &Q); }         /* the host flow (a leaf that ended on the batch tier): through device copies */
+        const dbig *pp = ovl3 ? &bs_Pd : &tp, *qq = ovl3 ? &bs_Qd : &tq;
+        uint64_t desc[10] = { pp->n, pp->n, 0, 1, pp->n, qq->n, qq->n, 0, 1, qq->n };
+        size_t bytes = bs_ckpt_tree_write(0, N, desc, (dbig *)pp, (dbig *)qq);
+        if (!ovl3) { db_free(&tp); db_free(&tq); }
         printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
     }
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
