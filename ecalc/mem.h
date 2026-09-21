@@ -36,6 +36,14 @@ void  mem_hreg_free(void *p);
 int   mem_is_registered(const void *p, size_t bytes);
 /* WP3: device pools the CPU also uses (hipMalloc on dev; CPU read/write at the local rate with
  * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
+/* Phase 12 I: the form of every large device allocation (planes, regions, the block pool's chunks): MEM_ALLOC=hipmalloc |
+ * fine (hipExtMallocWithFlags fine-grained: the same HBM, the same kernel and copy rates, mapped at 0.035 s/GB against
+ * hipMalloc's 0.056-0.072 -- the default) | uncached | managed | host (hipHostMalloc: hipMemcpy between such buffers
+ * runs on the SDMA engine at 21 GB/s) | mmap (anonymous THP + first touch on the node + hipHostRegister).  mem_dev_malloc /
+ * mem_dev_release are the raw pair (no registry, no memset); results/I.md has the table. */
+void *mem_dev_malloc(int dev, size_t bytes);           /* NULL when the allocation fails */
+void  mem_dev_release(int dev, void *p);
+const char *mem_alloc_form_name(void);
 void *mem_dev_alloc(int dev, size_t bytes);
 void  mem_dev_free(void *p);
 void  mem_dev_forget(void *p);
