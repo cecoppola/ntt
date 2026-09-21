@@ -100,26 +100,90 @@ def dm_layout(N, g, pool_log=31, decimal=True):
     need_v2 = need; need = max(need, top)
     return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=need_v2, t1_quarter=quarter_bytes(tcap))
 
-def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0):
-    """binsplit.c tree_need_dev: the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes);
-    scratch_out[0] = the top level's scratch alone (the sharded division's products carry the same)"""
-    best = 0; L = 0; top_scratch = 0
-    while (1 << L) < g: L += 1
-    for l in range(1, L + 1):
-        gg = min(1 << l, g); half = 1 << (l - 1); gt = gg; nr = 4 * gt; lgt = 0
-        while (1 << lgt) < gt: lgt += 1
-        NA = nq_leaf * half + 8; nc = 2 * NA; logn = 0
-        while (1 << logn) < nc: logn += 1
-        logn = max(logn, max(20, 2 * (7 + lgt)))
-        logR = logn // 2 + logr_delta; logR = max(logR, max(10, 7 + lgt)); logR = min(logR, logn - 10)
-        n = 1 << logn; R = 1 << logR; C = n // R; rows = R // nr; q = n // nr
-        share = (NA + half - 1) // half; share_c = (nc + gg - 1) // gg; win = share_c + share_c // 8 + 2 * R
-        Sin = min(q, ((share - 1) // R + 2) * rows); Sc = min(q, ((win - 1) // R + 2) * rows)
-        Sin = (Sin + 15) // 16 * 16; Sc = (Sc + 15) // 16 * 16; Smax = max(Sc, Sin)
-        scratch = 2 * gg * Smax * 8 + gg * Sin * 8 + 2 * q * 8 + 2 * gg * C * 4 * 8 + quarter_bytes(win)
-        live = 2 * quarter_bytes(share + share // 8) + 2 * quarter_bytes(share_c + share_c // 8)
-        best = max(best, live + scratch); top_scratch = scratch; top_q = q
-    if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
+# ---- Phase 12 G (agent G; the tree/spill g-terms only): the tree's products as piece grids over the group's plane cap ----
+def mn_groups(size, groups=None):
+    """rns_dist.c mn_groups_parse: the level -> group-size schedule (MN_GROUPS; default the powers of two, then size)"""
+    if size <= 1: return []
+    out = []
+    if groups:
+        for v in groups:
+            if v >= size: out.append(size); break
+            out.append(v)
+    else:
+        v = 2
+        while v <= size: out.append(v); v *= 2
+    if not out or out[-1] != size: out.append(size)
+    return out
+
+def mn_shape(nc, g, logr_delta=0):
+    """rns_dist.c mn_shape: (logn, logR, logC, q = the largest rank plane) of a product of nc limbs over 4 g ranks"""
+    nr = 4 * g; lg = 0
+    while (1 << lg) < nr: lg += 1
+    logn = 0
+    while (1 << logn) < nc: logn += 1
+    logn = max(logn, max(20, 2 * (5 + lg)))
+    logR = logn // 2 + logr_delta; lo = max(10, 5 + lg); logR = max(logR, lo); logR = min(logR, logn - 10); logC = logn - logR
+    R = 1 << logR; C = 1 << logC; qs = ((R + nr - 1) // nr) * C; qr = ((C + nr - 1) // nr) * R
+    return logn, logR, logC, max(qs, qr)
+
+def mn_logn_cap(g, pool_log=31, logn_max=31):
+    """rns_dist.c mn_logn_cap: one plane per node pool = 2^(min(31, pool_log) + floor(log2 g)) points"""
+    lgt = 0
+    while (2 << lgt) <= g: lgt += 1
+    c = min(logn_max, pool_log); logn = c + lgt
+    if g & (g - 1):
+        qm = mn_shape(1 << logn, g)[3]
+        if qm > (1 << (c - 2)): logn -= 1
+    return logn
+
+def split_grid_cap(na, nb, cap, minpts):
+    """rns_dist.c split_grid_cap (the mn tier: 2^k planes): the grid with the fewest plane points"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa = -(-na // i); pb = -(-nb // j)
+            if pa + pb > cap: continue
+            pts = 1 << 20
+            while pts < pa + pb: pts <<= 1
+            pts = max(pts, minpts); cost = i * j * pts
+            if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0):
+    """rns_dist.c rns_mul_dist_mn_scratch: the block-pool bytes per device at the peak of C = A B (+ X) over g nodes -- the
+    grid's largest piece at the cap; rbA, rbB, rbX (my sequence), sb (my packed part), cx, tmp; then rbO, the exact spills
+    (~ 4 C limbs), T (the window's quarter).  O(share) + O(q), q <= 2^(pool_log - 2): independent of g.  Returns (bytes, pieces)"""
+    if not na or not nb or g < 2: return 0, 0
+    cap = 1 << mn_logn_cap(g, pool_log); ka = kb = 1
+    nr = 4 * g; lg = 0
+    while (1 << lg) < nr: lg += 1
+    if na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << max(20, 2 * (5 + lg)))
+    pa = -(-na // ka); pb = -(-nb // kb); nc = pa + pb
+    logn, logR, logC, q = mn_shape(nc, g, logr_delta)
+    R = 1 << logR; C = 1 << logC; rows = (R + nr - 1) // nr; qs = rows * C
+    def RT(ln): return min(((ln + R - 1) // R + 1) * rows, qs)
+    va = min(share_a, pa); vb = min(share_b, pb); sb = max(va, vb) // 4 + 2 * g * rows
+    xin = has_x and ka * kb == 1                                     # X rides in the CRT only on one plane; a grid adds it afterwards (mdb_add_shifted)
+    win = min(share_c, nc); xq = q if xin else 0; tmp = q if (g & (g - 1)) == 0 else 0
+    peak1 = RT(pa) + RT(pb) + (RT(nc) if xin else 0) + sb + xq + tmp + 16 * g
+    peak2 = win // 4 + 2 * g * rows + 4 * C + 4 * g + xq + tmp
+    return max(peak1, peak2) * 8 + 32 * g * 8 + quarter_bytes(win), ka * kb
+
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, pool_log=31, groups=None):
+    """binsplit.c tree_need_dev (Phase 12 G): the largest tree level's live shares + its products' scratch per device (bytes),
+    the levels on the MN_GROUPS schedule, a level of nch children combined by Horner (mn.c tree_level_k: the largest product
+    P_0 x Q_run); scratch_out = [the top level's scratch, its pieces]"""
+    best = 0; top_scratch = 0; top_pieces = 0
+    gs = mn_groups(g, groups)
+    for l in range(1, len(gs) + 1):
+        Gl = gs[l - 1]; Gp = gs[l - 2] if l > 1 else 1; gg = min(Gl, g); nch = (gg + Gp - 1) // Gp
+        if nch < 2: continue
+        nqc = nq_leaf * Gp + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
+        share_child = nq_leaf + 8; share_run = (nb + gg - 1) // gg; share_new = (nc + gg - 1) // gg
+        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta)
+        live = 2 * quarter_bytes(share_child + share_child // 8) + (2 * quarter_bytes(share_run + share_run // 8) if nch > 2 else 0) + 2 * quarter_bytes(share_new + share_new // 8)
+        best = max(best, live + scratch); top_scratch = scratch; top_pieces = pieces
+    if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_pieces)
     return best + best // 16
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
@@ -148,11 +212,11 @@ def mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
     opts: pool_log (31), tail (True: decision 5's layout, item 1), alltoallv (False: L's B7 not in), decimal (True),
           margin (0.0: a fraction added to the device total).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=False, decimal=True, margin=0.0, logr_delta=0); o.update(opts or {})   # logr_delta: DIST_LOGR_DELTA (A6), -3..3: the spill buffers are 2 g C x 4 limbs per APU, C = n / R
+    o = dict(pool_log=31, tail=True, alltoallv=False, decimal=True, margin=0.0, logr_delta=0, groups=None); o.update(opts or {})   # logr_delta: DIST_LOGR_DELTA (A6), -3..3 (the four-step split; Phase 12 G: the spills are exact, ~ 4 C limbs per APU, no g-term); groups: the MN_GROUPS schedule (None: the binary tree)
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
-    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta']) if g > 1 else 0
+    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['pool_log'], o['groups']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
@@ -166,9 +230,7 @@ def mem_per_node(D, g=1, opts=None):
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'])
-    planes = planes_bytes(o['pool_log'])
-    if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # the top level's slice q = n / (4 g) exceeds the pool's: rns_dpool grows pool 0 (4 q) and pool 1 (3 q + 16) on demand
-        planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
+    planes = planes_bytes(o['pool_log'])                                  # Phase 12 G: the tree's products are piece grids at the group's cap (rns_dist.c mn_grid): the planes never grow above their init size
     dev_init = planes + bs_total
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
@@ -179,7 +241,7 @@ def mem_per_node(D, g=1, opts=None):
     peak = max(dev_init + host_init, dev_dm + host_dm) * (1 + o['margin'])
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree,
-                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg,
+                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, top_scratch=NR * (sc[0] if g > 1 else 0), top_pieces=(sc[1] if g > 1 else 1),
                 dev_init=dev_init, dev_dm=dev_dm, host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 node_peak=peak)
 
