@@ -140,7 +140,7 @@ int main(int argc, char **argv)
     int do_ntt = getenv("T_ALLOC_NTT") ? atoi(getenv("T_ALLOC_NTT")) : 1, do_seed = getenv("T_ALLOC_SEED") ? atoi(getenv("T_ALLOC_SEED")) : 1;
     int sel[F_N] = {0}, nsel = 0;
     for (int i = 2; i < argc; i++) for (int f = 0; f < F_N; f++) if (!strcmp(argv[i], fname[f])) { sel[f] = 1; nsel++; }
-    if (!nsel) for (int f = 0; f < F_N; f++) sel[f] = 1;
+    if (!nsel) for (int f = 0; f < F_N; f++) sel[f] = f != F_ASYNC;   /* async only when asked: its warm re-allocation faulted (illegal access in the fill) on ROCm 6.x -- run it last, alone */
     printf("== t_alloc: %.1f GB per APU on %d APUs in parallel, %d cpus ==\n", bytes / 1e9, nd, omp_get_max_threads());
     harness_meta("t_alloc");
     for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); for (int c = 0; c < nd; c++) if (c != d) { (void)hipDeviceEnablePeerAccess(c, 0); (void)hipGetLastError(); } }
@@ -148,7 +148,8 @@ int main(int argc, char **argv)
     for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); if (do_ntt) ctx[d] = ntt_ctx_create(0); HIP_CHECK(hipStreamCreateWithFlags(&st[d], hipStreamNonBlocking)); }
     /* the reference ntt time on hipMalloc memory, per device, for the "must not drop" check */
     double ntt_ref[4] = {0}, bw_ref[4] = {0};
-    printf("%-9s | %7s %7s %7s | %6s %7s | %7s %7s | %7s %7s %7s | %6s %6s | %s\n", "form", "alloc", "s/GB", "fill", "touch", "regist", "bw GB/s", "ntt s", "d2d loc", "d2d pr", "cpu GB/s", "free", "sum/4", "note");
+    printf("(s/GB* = wall of the slowest thread / the bytes of all APUs: the driver serialises the four)\n");
+    printf("%-9s | %7s %7s %7s | %6s %7s | %7s %7s | %7s %7s %7s | %6s %6s | %s\n", "form", "alloc", "s/GB*", "fill", "touch", "regist", "bw GB/s", "ntt s", "d2d loc", "d2d pr", "cpu GB/s", "free", "sum/4", "note");
     for (int f = 0; f < F_N; f++) {
         if (!sel[f]) continue;
         struct buf b[4]; memset(b, 0, sizeof b);
@@ -167,7 +168,7 @@ int main(int argc, char **argv)
                 double tfr[4];
 #pragma omp parallel num_threads(nd)
                 { int d = omp_get_thread_num(); double x = now(); free_form(&b[d]); tfr[d] = now() - x; }
-                printf("%-9s | %7.2f %7.3f %7.2f | %6s %7s | %7s %7s | %7s %7s | %7s | %6.2f %6.2f | first allocation from the pool (cold), then freed to it\n", "async", tmax(ta, nd), tmax(ta, nd) / (bytes / 1e9), tmax(tf0, nd), "", "", "", "", "", "", "", tmax(tfr, nd), tsum(ta, nd) / nd);
+                printf("%-9s | %7.2f %7.3f %7.2f | %6s %7s | %7s %7s | %7s %7s | %7s | %6.2f %6.2f | first allocation from the pool (cold), then freed to it\n", "async", tmax(ta, nd), tmax(ta, nd) / (nd * bytes / 1e9), tmax(tf0, nd), "", "", "", "", "", "", "", tmax(tfr, nd), tsum(ta, nd) / nd);
                 continue;
             }
         }
@@ -219,9 +220,9 @@ int main(int argc, char **argv)
         char note[160] = ""; double bwmin = 1e30, ntmax = 0;
         for (int d = 0; d < nd; d++) { if (tb[d] < bwmin) bwmin = tb[d]; if (tn[d] > ntmax) ntmax = tn[d]; }
         if (ntt_ref[0] > 0 && f != F_HIPMALLOC) snprintf(note, sizeof note, "ntt %.2fx, bw %.2fx of hipMalloc", ntmax / tmax(ntt_ref, nd), bwmin / (bw_ref[0] > 0 ? bw_ref[0] : 1));
-        printf("%-9s | %7.2f %7.3f %7.2f | %6.2f %7.2f | %7.0f %7.3f | %7.0f %7.0f | %7.1f | %6.2f %6.2f | %s\n", fname[f], tmax(ta, nd), tmax(ta, nd) / (bytes / 1e9), tmax(tf, nd),
+        printf("%-9s | %7.2f %7.3f %7.2f | %6.2f %7.2f | %7.0f %7.3f | %7.0f %7.0f | %7.1f | %6.2f %6.2f | %s\n", fname[f], tmax(ta, nd), tmax(ta, nd) / (nd * bytes / 1e9), tmax(tf, nd),
                is_mmap(f) ? tmax(touch, nd) : 0.0, is_mmap(f) ? tmax(reg, nd) : 0.0, bwmin, ntmax, td[0], tp[0], tc[0], tmax(tfree, nd), tsum(ta, nd) / nd, note);
-        char nm[48]; snprintf(nm, sizeof nm, "alloc_%s_s_per_GB", fname[f]); harness_result(nm, "s/GB", tmax(ta, nd) / (bytes / 1e9));
+        char nm[48]; snprintf(nm, sizeof nm, "alloc_%s_s_per_GB", fname[f]); harness_result(nm, "s/GB", tmax(ta, nd) / (nd * bytes / 1e9));
         if (f == F_ASYNC) for (int d = 0; d < nd; d++) if (b[d].pool) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemPoolDestroy(b[d].pool)); }
     }
     if (do_seed) {
