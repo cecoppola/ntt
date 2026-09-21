@@ -257,6 +257,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     if (p->pending) die("alltoall while one is pending");
     staging(p, bytes * n, bytes * n);
     p->seq++; p->v = 0; p->host = 0; p->bytes = bytes; p->rb = rb; p->st = s; p->pending = 1;
+    TRACE("comm %d: alltoall seq %ld, %zu B per slab", p->id, p->seq, bytes);
     publish(p, bytes, 0);
     COPY(S.pool + p->sst, sb, bytes * n, s);                                                    /* my slabs (all of them: simpler than skipping the self slab) */
     COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
@@ -281,8 +282,10 @@ static void s_wait(comm *c)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (!p->pending) return;
+    TRACE("comm %d: wait seq %ld", p->id, p->seq);
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
+    TRACE("comm %d: wait seq %ld: arrived", p->id, p->seq);
     if (!p->v) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)p->rb + (size_t)r * p->bytes, S.pool + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
     else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], S.pool + p->rst + p->rpre[r], p->rcnt[r], p->st);
     SYNC(p->st);
