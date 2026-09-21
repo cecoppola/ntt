@@ -4,15 +4,23 @@ HIPCC  ?= hipcc
 HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench
 HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
+# Phase 11 S: the SHMEM transport (comm_shmem.c) is compiled in when SHMEM=1 (the default where oshcc exists: aac6's
+# compute nodes, OpenMPI 4.1.6 OSHMEM; on the target, SHMEM_CFLAGS / SHMEM_LIBS from the vendor's compiler wrapper).
+# make SHMEM=0 builds without it (COMM_TRANSPORT=shmem then aborts at start).
+SHMEM ?= $(shell command -v oshcc > /dev/null 2>&1 && echo 1 || echo 0)
+ifeq ($(SHMEM),1)
+SHMEM_CFLAGS ?= -DCOMM_SHMEM $(shell oshcc --showme:compile)
+SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
+endif
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
 
 ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h
-	$(HIPC) $< -x none $(OBJS) -o $@
+	$(HIPC) $< -x none $(OBJS) -o $@ $(SHMEM_LIBS)
 
 ntt.o: ntt.c ntt.h modarith.h
 	$(HIPC) -c -o $@ $<
@@ -33,11 +41,11 @@ newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h
 	$(HIPC) -c -o $@ $<
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 tests/t_out: tests/t_out.c $(OBJS) mn_out.h verify.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 tests/t_mn_grid: tests/t_mn_grid.c $(OBJS) dbig.h mdb.h mn.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 mem.o: mem.c mem.h
 	$(HIPC) -c -o $@ $<
 comm_local.o: comm_local.c comm.h
@@ -48,6 +56,9 @@ comm_sim4.o: comm_sim4.c comm.h
 
 comm_tcp.o: comm_tcp.c comm.h
 	$(HIPC) -c $< -o $@
+
+comm_shmem.o: comm_shmem.c comm.h
+	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
 
 comm_layered.o: comm_layered.c comm.h
 	$(HIPC) -c $< -o $@
@@ -64,8 +75,8 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_comm: tests/t_comm.c comm_tcp.c comm_util.c comm.h
-	$(CC) -O2 -DCOMM_HOST_ONLY -I. $< comm_tcp.c comm_util.c -lpthread -o $@
+tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_util.c comm.h
+	$(CC) -O2 -DCOMM_HOST_ONLY $(SHMEM_CFLAGS) -I. $< comm_tcp.c comm_shmem.c comm_util.c -lpthread $(SHMEM_LIBS) -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
@@ -85,25 +96,25 @@ bigint.o: bigint.c bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 
 tests/t_mul: tests/t_mul.c $(OBJS) rns_mul.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_newton: tests/t_newton.c $(OBJS) newton.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_ntt3: tests/t_ntt3.c $(OBJS) ntt.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_dist: tests/t_dist.c $(OBJS) ntt_dist.h tests/harness.h
-	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)
 
 tests/t_dec: tests/t_dec.c $(OBJS) todec.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_verify: tests/t_verify.c verify.o binsplit.o bigint.o rns_mul.o ntt.o mem.o crt.o newton.o verify.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o crt.h mem.h tests/harness.h
 	$(HIPC) $< -x none crt.o mem.o bigint.o -o $@ -lgmp

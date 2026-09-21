@@ -93,7 +93,20 @@ comm *comm_tcp_create_at(int me, int n, const char *hosts_csv, int port_base);  
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
 comm *comm_layered_create(comm *intra, comm *inter, int d);
-void  comm_layered_scratch(comm *c, void *p, size_t bytes);   /* a device scratch of one slab buffer for the block transposes (else hipMalloc'd) */
+/* Phase 11 S (PLAN.md 25-26): the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
+ * per node-process; a communicator is a strided PE set {pe_start + pe_stride r : r < n} -- the shim for OpenSHMEM 1.5
+ * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
+ * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
+int   comm_shmem_available(void);              /* 1 when built with SHMEM (make SHMEM=1) */
+int   comm_shmem_init(void);                   /* returns the PE count */
+int   comm_shmem_rank(void);
+int   comm_shmem_size(void);
+comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
+void  comm_shmem_finalize(void);
+void  comm_layered_scratch(comm *c, void *p, size_t bytes);
+/* S (PLAN.md 25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
+ * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */
+comm *comm_layered_create_minor(comm *intra, comm *inter, int dev);   /* a device scratch of one slab buffer for the block transposes (else hipMalloc'd) */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
 static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }
