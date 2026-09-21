@@ -21,7 +21,7 @@ per=$((P / nn))
 use=$(echo "$nodes" | head -n "$nn")
 hosts=$(echo "$use" | awk -v per=$per '{ for (i = 0; i < per; i++) printf "%s%s", (NR > 1 || i) ? "," : "", $1 }')
 list=$(echo "$use" | paste -sd,)
-export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 30000))}   # a per-run port base: a straggler of a failed run must not catch the next run's connections (M3 uses base .. base + 6656)
+export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}    # a per-run port base: a straggler of a failed run must not catch the next run's connections (M3 uses base .. base + 6656); below the ephemeral range 32768-60999, where a listener collides with any outgoing connection now and then (S: "bind: Address already in use" once in ~4 runs at 8 processes)
 if [ "$COMM_TRANSPORT" = shmem ]; then
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
