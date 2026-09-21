@@ -124,8 +124,8 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0):
 def planes_bytes(pool_log=31):
     """rns_mul.c: pool 0 = EC_NP (4) x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4), per APU; + the contexts"""
     q = (1 << pool_log) // 4
-    per_apu = 4 * q * 8 + (3 * q + 16) * 8
-    return NR * per_apu + int(0.61 * GB)                # 120.3 + 0.6 GB tables at 2^31 (measured 120.3 / 0.61)
+    per_apu = 4 * q * 8 + ((3 * q + 16) * 8 if pool_log > 30 else 4 * q * 8)   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
+    return NR * per_apu + int((0.61 if pool_log > 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured)
 
 HOST_RUNTIME = 7.0 * GB                                  # ROCm runtime + program ("other" 6.9 GB at 4e10, the same at 1e6)
 HOST_STAGING = 4 * (1 << 30)                             # the checkpoints' chunk buffer, 1 GiB per APU (H's B2)
@@ -168,7 +168,10 @@ def mem_per_node(D, g=1, opts=None):
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # the top level's slice q = n / (4 g) exceeds the pool's: rns_dpool grows pool 0 (4 q) and pool 1 (3 q + 16) on demand
         planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + bs_total
-    dev_dm = planes + pool_total + xchg
+    # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
+    live_dm = NR * L['need_dev'] + xchg
+    if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
+    dev_dm = planes + pool_total
     host_init = HOST_RUNTIME + HOST_STAGING + HOST_SEEDBUF + (HOST_COMM_PER_PROC if g > 1 else 0)
     host_dm = HOST_RUNTIME + HOST_STAGING + HOST_WRITER + (HOST_COMM_PER_PROC if g > 1 else 0)
     peak = max(dev_init + host_init, dev_dm + host_dm) * (1 + o['margin'])
@@ -197,6 +200,8 @@ MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at th
     (4e10, 1, dict(planes=120.3, regions=136.0, pool=136.0, dev_dm=256.9, host=11.7, tail='v1', src='M11.md batch 1 (tail v1)')),
     (8e10, 1, dict(planes=120.3, regions=249.0, pool=249.0, dev_dm=369.9, host=12.8, tail='v1', src='M11.md batch 2 (tail v1)')),
     (1e11, 1, dict(planes=120.3, regions=333.1, pool=333.1, dev_dm=454.0, host=13.9, tail='v1', src='M11.md batch 2 (tail v1)')),
+    (4e10, 1, dict(planes=120.3, regions=132.3, pool=132.3, dev_dm=253.1, host=11.7, tail=True, src='M11.md batch 3 (tail v2)')),
+    (2.5e9, 4, dict(planes=34.4, regions=20.3, pool=20.3, dev_dm=56.8, host=29.3, tail=True, src='M11.md batch 3 (1e10 at size 4, POOL_LOG=29, per process)')),
 ]
 
 def fmt(b): return '%7.1f' % (b / GB)
@@ -205,7 +210,7 @@ def main():
     print('== calibration (GB; model vs measured; "pool" = regions + the pool\'s hipMalloc at the dm peak)')
     print('%-8s %2s | %-22s | %8s %8s %8s %8s | %s' % ('D', 'g', 'item', 'planes', 'regions', 'pool', 'dev_dm', 'source'))
     for D, g, m in MEASURED:
-        r = mem_per_node(int(D), g, dict(tail=m['tail']))
+        r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31))
         print('%-8.0e %2d | %-22s | %s %s %s %s | %s' % (D, g, 'measured', fmt(m['planes'] * GB), fmt(m['regions'] * GB), fmt(m['pool'] * GB), fmt(m['dev_dm'] * GB), m['src']))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail %s)' % m['tail'], fmt(r['planes']), fmt(r['regions_bs'] if not m['tail'] else r['arena']), fmt(r['pool_total']), fmt(r['dev_dm']),
               'dev_dm %+.1f %%' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1))))
