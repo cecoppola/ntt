@@ -265,6 +265,12 @@ void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
 /* ---- Phase 11 V: the sidecar and the recheck mode (mn_out.h) ---- */
 #include "binsplit.h"
 #include "mdb.h"
+#include <sys/stat.h>
+const char *mn_out_ckpt_default(const char *outfile)
+{
+    if (!outfile) return 0;
+    size_t n = strlen(outfile); char *d = (char *)malloc(n + 5); memcpy(d, outfile, n); memcpy(d + n, ".top", 5); return d;
+}
 void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d, unsigned long d_out, int size, const uint64_t *Xres, const uint64_t *Rres, const uint64_t *Pres, const uint64_t *Qres, const char *tail, size_t ntail)
 {
     char name[4096]; snprintf(name, sizeof name, "%s.t1", outfile);
@@ -371,6 +377,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     double t2 = mem_now();
     /* 3. P, Q from the checkpointed top-level shares */
     uint64_t Pc[T1_NQ], Qc[T1_NQ]; int have_pq = 0;
+    if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }   /* Phase 12 W: the run's default <outfile>.top */
     if (bs_ckpt_dir) {
         int L = 0; while ((1 << L) < size) L++;
         uint64_t desc[10]; dbig ps, qs;
@@ -383,7 +390,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
             db_free(&ps); db_free(&qs); have_pq = 1;
             if (multi) printf("mn: node %d: ", rank); printf("recheck: P (%zu limbs), Q (%zu limbs) from the tree level %d set in %s\n", P.n, Q.n, L, bs_ckpt_dir);
         } else printf("recheck: node %d: no tree level %d set for this run in %s (P, Q taken from the sidecar)\n", rank, L, bs_ckpt_dir);
-    } else printf("recheck: node %d: no BS_CKPT_DIR (P, Q taken from the sidecar)\n", rank);
+    } else printf("recheck: node %d: no BS_CKPT_DIR and no %s.top (P, Q taken from the sidecar)\n", rank, outfile);
     if (!have_pq) { memcpy(Pc, sP, sizeof Pc); memcpy(Qc, sQ, sizeof Qc); }
     double t3 = mem_now();
     /* 4. the recurrence over this node's terms, joined */

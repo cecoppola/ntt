@@ -66,6 +66,7 @@ void mn_out_scatter_standin(comm *c, const uint64_t *X, size_t xn, dbig *share, 
  * writes with ECALC_CKPT_TOP=1), the term recurrence over every node's range, the T2 windows over the file; then T1 with
  * R's residues from the sidecar (the one value that cannot be recomputed without the division) and every recomputed
  * residue against the run's.  Returns 0 when everything agrees (RECHECK OK). */
+const char *mn_out_ckpt_default(const char *outfile);   /* Phase 12 W: the top-level set's default directory, <outfile>.top (BS_CKPT_DIR unset); 0 without an outfile */
 void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d, unsigned long d_out, int size, const uint64_t *Xres, const uint64_t *Rres, const uint64_t *Pres, const uint64_t *Qres, const char *tail, size_t ntail);
 int  mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const char *outfile, comm *c, int rank, int size, unsigned long a0, unsigned long b1, int verbose);
 #ifdef __cplusplus
