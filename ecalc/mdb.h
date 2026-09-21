@@ -64,6 +64,9 @@ void rns_mul_dist_mn_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
 int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
+/* Phase 12 G: the block-pool bytes per device at the peak of C = A B (+ X) of na x nb limbs over g nodes (the grid's largest piece
+ * at the group's cap; the plane pools stay at their init size), for shares of share_a, share_b, share_c limbs; *pieces = the grid */
+size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 /* Phase 11 L: the level -> group-size schedule of the distributed tree from MN_GROUPS (default: the powers of two up to the
  * largest <= size, then size): out[l-1] = the group size of level l, increasing, each a multiple of the previous or the size
  * itself; returns the level count (0 at size 1), aborts on an invalid list.  A pure function of (size, MN_GROUPS); mn.c calls it */

@@ -386,7 +386,7 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; };   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; };   /* tab[d] (Phase 12 G, agent G: the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (Phase 11 L: gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
@@ -398,6 +398,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
         else { q = ((rem + 1) * (size_t)nr + s.R - 1) / s.R - 1; t = rem - s.R * q / nr; }   /* Phase 11 L (agent L, minimal): unequal parts -- rank rho holds rows [R rho / nr, R (rho+1) / nr); q = the rank whose part starts at or below rem, i.e. rho + 1 of the spill's rank */
         if (t >= 4) return 0; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
         int d = rho / s.gt, r = rho - d * s.gt;
+        if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }   /* Phase 12 G: the compact form */
         return s.sp[d][((size_t)r * s.C + j) * 4 + t];
     }
     /* i = R j + (r+1) rows + t, t < 4: j = i / R, rem = i - R j; r+1 = rem / rows if rem % rows < 4 */
@@ -567,6 +568,13 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
 void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
 {
     struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
+    addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
+}
+/* Phase 12 G (agent G, minimal): the same with the compact spill buffers of the exact exchange (rns_dist.c mn_core): sp[d] holds, per
+ * source node r in order, the 4-limb blocks of the columns [tab[d][3r], tab[d][3r+1]) at block offset tab[d][3r+2] (device tables) */
+void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
+{
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* M3: r (n limbs, in place) += 1 at limb 0; the carry out reported */

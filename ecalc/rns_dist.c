@@ -698,6 +698,15 @@ static void piece_window(const mdb *C, int r, size_t shift, size_t Np, size_t *l
     *lo = a; *hi = b;
 }
 
+/* Phase 12 G (the exact spill exchange): the columns j whose 4-limb spill block [R j + a, R j + a + 4) meets the window
+ * [lo, hi) of a node's share (piece coordinates): a contiguous range [j0, j1) -- a = the first row of the rank after the
+ * spilling one (the block-cyclic map: rank rho's stripe j spills at R j + part0(rho + 1), the last rank's at R (j + 1)) */
+static void spill_cols(size_t lo, size_t hi, size_t a, size_t R, size_t C, size_t *j0, size_t *j1)
+{
+    size_t x0 = lo > a + 3 ? (lo - a - 3 + R - 1) / R : 0, x1 = hi > a ? (hi - a + R - 1) / R : 0;   /* R j + a + 3 >= lo; R j + a < hi */
+    if (x0 > C) x0 = C; if (x1 > C) x1 = C; if (x1 < x0) x1 = x0;
+    *j0 = x0; *j1 = x1;
+}
 /* ---- Phase 11 L: the general four-step over 4 g ranks with unequal parts (g not a power of two) ------------------
  * Row layout: my rows x C row-major; column layout: my cols columns of R points.  Forward: the row pass, then chunk k
  * of my rows (rows k / K ..) twiddled and packed into slabs, slab sigma = my chunk rows x sigma's columns column-major
@@ -872,7 +881,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (direct && shift) { fprintf(stderr, "rns_mul_dist_mn: a direct piece at a shift\n"); exit(1); }   /* direct: the window is the share's first tn limbs */
     dbig T; db_init(&T); dbig *dst = direct ? &Cn->sh : &T;
     if (!direct && tn) db_zero_fill(&T, tn);
-    const uint64_t *sp[NR]; uint64_t *spill_rb[NR];
+    const uint64_t *sp[NR]; uint64_t *spill_rb[NR]; const size_t *sptab[NR]; size_t *sptab_d[NR];
     double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
 #pragma omp parallel num_threads(NR)
     {
@@ -882,7 +891,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         struct rdst oA, oB, oX; memset(&oA, 0, sizeof oA); memset(&oB, 0, sizeof oB); memset(&oX, 0, sizeof oX);
         struct seg *hseg = (struct seg *)malloc(8 * g * sizeof *hseg), *hsO = hseg + 6 * g, *hsI = hseg + 7 * g;
         struct seg *dseg = (struct seg *)db_pool_alloc(d, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
-        size_t *cnt = (size_t *)malloc(16 * g * sizeof *cnt), *ocnt = cnt + 12 * g;
+        size_t *cnt = (size_t *)malloc(23 * g * sizeof *cnt), *ocnt = cnt + 12 * g, *pcnt = cnt + 16 * g, *htab = cnt + 20 * g;   /* Phase 12 G: pcnt (4 g) and htab (3 g) for the spill exchange */
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : db_pool_alloc(d, q * 8);
         uint64_t *ca = slA >= 0 ? g_cache.s[slA].pl[d] : 0, *cb = slB >= 0 ? g_cache.s[slB].pl[d] : 0;   /* A1: the cache planes of A and B on this rank */
@@ -954,10 +963,19 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_wait(G->all[d]);
           if (tn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
                             struct acc c = acc_db(dst, 0, tn); k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, tlo, rbO, dsI, g, S, R, nr, d); }
-          spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
-          comm_allgather(G->all[d], v->spill, spill_rb[d], C * 4 * 8);   /* every rank's spills (4 C limbs), in node order */
-          HIP_CHECK(hipStreamSynchronize(s));
-          sp[d] = spill_rb[d];
+          /* Phase 12 G: the spills exchanged exactly (was an all-gather of every rank's 4 C limbs: g x 4 C per APU, 77 GB per node at
+           * 576 nodes).  My stripe j spills into limbs [R j + a, +4) of the piece, a = the first row of the next rank: node r gets the
+           * blocks of the columns [j0, j1) that meet its window (spill_cols; adjacent windows share at most one block, added on each
+           * side within its own limbs, the carry between them by the node scan); I receive, per source rank (r, d), the blocks that
+           * meet mine, back to back in node order -- about 4 C limbs in all, whatever g (the sparse add decodes them by the table) */
+          { size_t *scnt2 = pcnt, *sdsp2 = pcnt + g, *rcnt2 = pcnt + 2 * g, *rdsp2 = pcnt + 3 * g, blocks = 0, a_me = part0(R, nr, rho + 1);
+            for (int r = 0; r < g; r++) { size_t lo, hi, j0, j1; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); spill_cols(lo, hi, a_me, R, C, &j0, &j1); scnt2[r] = (j1 - j0) * 4 * 8; sdsp2[r] = j0 * 4 * 8; }
+            for (int r = 0; r < g; r++) { size_t j0, j1; spill_cols(tlo, thi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
+            spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
+            HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
+            comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_wait(G->all[d]);
+            HIP_CHECK(hipStreamSynchronize(s));
+            sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] = mem_now() - s3;
           db_pool_free(d, rbO); }
         if (cx) db_pool_free(d, cx);
@@ -968,9 +986,9 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
-    if (tn) db_share_add_spills(dst, tn, tlo, sp, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
+    if (tn) db_share_add_spills_x(dst, tn, tlo, sp, sptab, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
     share_carry_fix(G, dst, tn, co, pr);
-    for (int d = 0; d < NR; d++) db_pool_free(d, spill_rb[d]);
+    for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
     if (!direct) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
         co = 0; pr = cn == 0;
         if (tn) db_share_add_shifted(&Cn->sh, cn, &T, tlo + shift - clo, &co, &pr);
@@ -1083,6 +1101,32 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
     size_t cap = (size_t)1 << mn_logn_cap(G->g);
     if (na + nb <= cap) { *ka = *kb = 1; return; }
     split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(G->g), 0, ka, kb);   /* mn tier: no radix-3 planes (Phase 11 P) */
+}
+/* Phase 12 G: the block-pool bytes per device at the peak of the product C = A B (+ X) of na x nb limbs over g nodes, on a
+ * node whose shares of A, B and C are share_a, share_b, share_c limbs: the largest piece of the grid at the group's cap
+ * (mn_grid), with mn_core's buffers -- the received sequences rbA, rbB, rbX (<= qs = my rows x C each), the packed part
+ * sb (my share's limbs on APU d's ranks: about a quarter of it), cx and tmp (q each), then the result exchange's rbO (my
+ * window's part), the exact spills (~ 4 C limbs) and the window temporary T (a quarter of the window, at most share_c).
+ * Not counted: the plane pools (their init size: q <= 2^(min(31, pool_log) - 2) limbs per prime, whatever g and n) and the
+ * transform cache's slots (hipMalloc'd as the free memory allows).  binsplit.c's arena layout (tree_need_dev) and
+ * mem_model.py (the same formula in Python) use it; *pieces = ka x kb (1 = one plane, the M3 path). */
+size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces)
+{
+    if (!na || !nb || g < 2) { if (pieces) *pieces = 0; return 0; }
+    size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
+    if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
+    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
+    int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
+#define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)   /* my sequence over an operand of len limbs */
+    size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;                  /* my part of a piece view */
+    size_t sb = (va > vb ? va : vb) / 4 + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
+    size_t win = share_c < nc ? share_c : nc, xq = has_x ? q : 0, tmp = is_pow2(g) ? q : 0;
+    size_t peak1 = RT(pa) + RT(pb) + (has_x ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;        /* the operands in: three sequences + one packed part */
+    size_t peak2 = RT(win) + win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;   /* the result out: rbO, the spills, cx and tmp still held */
+    size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
+#undef RT
+    return bytes;
 }
 /* ---- Phase 11 L: the level -> group-size schedule of the distributed tree (MN_GROUPS) ------------------------------
  * out[l-1] = the group size of tree level l >= 1 (the nodes [k G_l, min((k+1) G_l, size)), k = rank / G_l); the children of

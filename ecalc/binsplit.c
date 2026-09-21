@@ -15,6 +15,7 @@
 #include "dbig.h"
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
+int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
 unsigned long bs_N = 0;                              /* M6: the run's N, for the tree sets written by mn.c */
 
 bs_stats bs_st;
@@ -286,24 +287,22 @@ struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; };
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
-    /* one tree level of group g (a power of two, the last one clipped to size): A = P, Q of half the group (N_A = nq_leaf x half
-     * limbs each, shared over half nodes), the product over the g nodes: rns_mul_dist_mn's scratch per device (mn_core: sb and
-     * rbA of g Smax limbs, rbB of g SB, cx and tmp of q = n / (4 gt) limbs on the transform nodes, two spill buffers of 4 g C
-     * limbs, the temporary T of the node's window) beside the level's live shares (the inputs and the outputs, a quarter each) */
-    size_t best = 0; int L = 0; while ((1 << L) < size) L++; if (top_scratch) *top_scratch = 0;
-    int dlr = getenv("DIST_LOGR_DELTA") ? atoi(getenv("DIST_LOGR_DELTA")) : 0; if (dlr < -3 || dlr > 3) dlr = 0;   /* rns_dist.c dist_logr_delta (A6): the spill buffers are 2 g C x 4 limbs per device -- C = n / R */
+    /* Phase 12 G (agent G, minimal: the body): the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary
+     * tree) and every level's products are piece grids over the group's plane cap (rns_dist.c mn_grid) -- their scratch per
+     * device is rns_mul_dist_mn_scratch's, O(share) whatever the group size (the plane pools stay at their init size, the spills
+     * are exchanged exactly).  A level of nch children of gp nodes (each holding P, Q of nq_leaf x gp limbs over gp nodes) is
+     * combined by Horner from the top child (mn.c tree_level_k): the largest product is P_0 x Q_run with Q_run of (nch - 1) gp
+     * nq_leaf limbs; the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8 */
+    size_t best = 0; if (top_scratch) *top_scratch = 0;
+    int gs[32]; int L = mn_groups_parse(size, gs, 31);
     for (int l = 1; l <= L; l++) {
-        int g = (1 << l) < size ? (1 << l) : size, half = 1 << (l - 1), gt = g, nr = 4 * gt, lgt = 0; while ((1 << lgt) < gt) lgt++;
-        size_t NA = nq_leaf * (size_t)half + 8, nc = 2 * NA; int logn = 0; while (((size_t)1 << logn) < nc) logn++;
-        int logmin = 2 * (7 + lgt); if (logmin < 20) logmin = 20; if (logn < logmin) logn = logmin;
-        int logR = logn / 2 + dlr; { int lo = 7 + lgt < 10 ? 10 : 7 + lgt; if (logR < lo) logR = lo; if (logR > logn - 10) logR = logn - 10; }
-        size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = n / R, rows = R / nr, q = n / nr;
-        size_t share = (NA + half - 1) / half, share_c = (nc + g - 1) / g, win = share_c + share_c / 8 + 2 * R;   /* the window of C's share (piece coordinates) */
-        size_t Sin = ((share - 1) / R + 2) * rows, Sc = ((win - 1) / R + 2) * rows; if (Sin > q) Sin = q; if (Sc > q) Sc = q; Sin = (Sin + 15) / 16 * 16; Sc = (Sc + 15) / 16 * 16;
-        size_t Smax = Sc > Sin ? Sc : Sin;
-        size_t scratch = 2 * (size_t)g * Smax * 8 + (size_t)g * Sin * 8 + 2 * q * 8 + 2 * (size_t)g * C * 4 * 8 + quarter_bytes(win);
-        size_t live = 2 * quarter_bytes(share + share / 8) + 2 * quarter_bytes(share_c + share_c / 8);   /* inputs (P, Q shares) + outputs, with the bound's margin */
-        size_t tot = live + scratch; if (tot > best) best = tot; if (top_scratch) *top_scratch = scratch;   /* the top level's: the sharded division's products carry the same slabs and spills (2 g C x 4 limbs per device grows with g) */
+        int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1, g = Gl < size ? Gl : size, nch = (g + Gp - 1) / Gp; if (nch < 2) continue;
+        size_t nqc = nq_leaf * (size_t)Gp + 8, na = nqc, nb = nqc * (size_t)(nch - 1), nc = na + nb;
+        size_t share_child = nq_leaf + 8, share_run = (nb + g - 1) / g, share_new = (nc + g - 1) / g;
+        int pieces = 0; size_t scratch = rns_mul_dist_mn_scratch(na, nb, 1, g, share_child, share_run, share_new, &pieces);
+        size_t live = 2 * quarter_bytes(share_child + share_child / 8) + (nch > 2 ? 2 * quarter_bytes(share_run + share_run / 8) : 0) + 2 * quarter_bytes(share_new + share_new / 8);
+        size_t tot = live + scratch; if (tot > best) best = tot; if (top_scratch) *top_scratch = scratch;   /* the top level's: the sharded division's products carry the same */
+        if (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) > 1) printf("bs: tree layout: level %d group %d (%d children of %d): %zu x %zu limbs, %d pieces, scratch %.2f GB + live %.2f GB per device\n", l, g, nch, Gp, na, nb, pieces, scratch * 1e-9, live * 1e-9);
     }
     (void)pool_log;
     return best + best / 16;
