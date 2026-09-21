@@ -3130,3 +3130,59 @@ nodes — no two idle nodes, and §20 C2's 1 GbE argument stands); the
 rejected forms: the host-flow stand-ins, `dist_fwd2/inv2`, the DPP
 exchange) and E2 remain proposals for the user. Open issues per agent
 in the five `results/*.md`.
+
+## 76. Phase 11 — six agents on the three priorities, for the 576-node target (2026-09-20/21; results/{S,L,X,P,V,M11}.md)
+
+PLAN §26 executed as §21 was, against the target of PLAN §25 (576 MI300A
+nodes = 9 · 2⁶, Slingshot-2 dragonfly, two 400 Gb/s NICs per APU, SHMEM).
+Merge order by readiness (L → X → S → M → P → V), `mnaccept.sh --full`
+on `main` after the merges. The integration facts:
+
+| agent | delivered | gate | merged |
+|---|---|---|---|
+| L layout at 576 (C3, B7) | the distributed transform balanced over a group of **any size** (rank ρ = g·d + r holds ⌊R/4g⌋ or ⌈R/4g⌉ rows; power-of-two g keeps the pipelined path bit for bit, other g runs a general four-step with per-pair slabs on `alltoallv`); `MN_GROUPS` level→group schedule (`2,4,…,64,576` default, or `…,64,192,576`); the four consumers on `alltoallv`/`allgather` — the padded g × slab scratch is gone | `t_mn_grid` at 2, 3, 5, 6, 9 processes; 10⁸ at sizes 3, 6, 9 and 10⁹ at 3 and 6 identical; 10¹⁰ at size 4 identical; size 1 identical | 3b956a3 |
+| X fabric (X1, X2) | `mn_model.py` — the per-node model of the multi-node run on the target fabric (walls, bytes per NIC and per global link, exposed communication, memory), calibrated on aac6 at g = 2, 4 (10⁹ ±2 %, 10¹⁰ −10 %); the reciprocal's early doublings on the smallest prefix group [0, 2^L) by a cost rule (`NEWTON_MN_GROUPS`) — at 576 nodes the reciprocal 16.0 → 13.3 s modelled, messages per APU 1.5 M → 0.55 M; the dragonfly third layer modelled: does not pay at 576 (cross-group bytes relayed twice) | sizes 2–4 at 10⁸/10⁹ identical with X1 on; 10¹⁰ at size 4 identical and not slower (100.6 s) | ebac93c |
+| S transport (M8-s) | `comm_shmem.c` on OpenSHMEM 1.4 only (symmetric pool HIP-registered, one context per communicator, `putmem_nbi` + `quiet` + signal, `wait_until`; all-to-all/-v, all-gather, barrier, max, sum-mod-q, point-to-point); per-level PE sets (the teams shim) replace the per-level TCP meshes and port slots; `mnrun.sh` by `srun --mpi=pmix`; the dragonfly third layer of the layered all-to-all (`MN_TOPO_GROUP`) on both transports. OSHMEM 4.1.6 traps documented (ASLR crash without `setarch -L`, `fence` not ordering nbi puts, THREAD_MULTIPLE crashes → serial default) | `t_comm` at 2/4/8 PEs, `t_dist` every mode incl. layered at 8 with `MN_TOPO_GROUP=4`; 10⁸ sizes 2/3/4 and 10⁹ sizes 2/4 identical over SHMEM; **`mnaccept.sh` with `COMM_TRANSPORT=shmem`: 16/16** | 826cd58 |
+| M memory (§23-5, model, 10¹¹) | the arena's tail reserved for t₁'s quarter as a pool policy (`ECALC_TAIL`, v4: large requests carved from the back, small ones kept out of it) — **zero `hipMalloc` inside bs, the reciprocal and the division at 4, 8, 10 × 10¹⁰**; the tree's slabs at size > 1 from the arena (5 GB/process → 0); `mem_model.py` (`mem_per_node(D, g)`), exact against the runs | 4 × 10¹⁰ identical, device 253 GB at the dm peak (was 262); **8 × 10¹⁰ node peak 382 GB (was 393)**; **10¹¹ digits on one node: VERIFY OK, 262.9 s, node peak 445 of 502 GB**; sizes 2/4 identical, 10¹⁰ at size 4 identical | 1efe1b8 |
+| P single-node speed (B3, A2, §23-3, I11, A4) | 3·2³⁰-point planes sized at init (`RNS_PLANES_3Q30`): phases −3.6 s but the 60 GB more of pools cost +4.7…6.3 s of driver mapping at init → **default off** (measured, switch kept; fastest phases measured 62.4 s); level-22 products paired in the striped batch path, −0.55 s, adopted; `ECALC_DM_POOL` on at ≥ 5 × 10¹⁰: **7 × 10¹⁰ in 153.5 s** (was 159.7); context tables and twiddles uploaded once (bit-identical); the tile budget knob (no gain) | 10⁹ identical both bases; 10⁸ sizes 2/4 identical; **4 × 10¹⁰ five runs 82.0 / 82.2 / 82.7 / 79.1 / 81.3 — 81.5 ± 1.4 s, phases 66.0 ± 0.4**, identical (target ≤ 79 not met: init's mapping is the spread) | fba199d |
+| V verification (D5, recheck, E1 c, E2) | **the T1 moduli corrected**: `verify.c`'s eight "primes above 2⁶²" were 2⁶² + {135, 179, 183, 247, 315, 319, 349, 397} — only the first is prime; two composites have all factors < 2.5 × 10⁷ so every Q ≡ 0 modulo them, which is what made the failures read "BAD at six, ok at q2/q6" (and every historical failure had wrong digits — §75's "digits right, checker wrong" was mistaken); now the true first eight primes 2⁶² + {135, 169, 177, 187, 189, 193, 253, 277} (§-table), digits unchanged. **A real fault localised, not fixed**: under T's forced-growth recipe (10¹⁰/4, pool 1 forced to grow) node 0 or 1's leaf P_r and Q_r come out wrong from one limb up — 57 runs: 21/26 right without a per-level probe, 31/31 with one → a timing-dependent error at the batch tier's level transition (`spill_merge`'s CPU→GPU hand-over before the next scatter is the first suspect); never at the defaults (no growth). Reproducer `v11_d5.sh`, `ECALC_RES_LOG`, `ECALC_LEAF_DUMP`. `ECALC_RECHECK=1` re-verifies a finished run from the digit file, the `.t1` sidecar and the checkpointed top-level P, Q (RECHECK OK / FAILED on a flipped digit). Deleted: `DIST_PLANE2`, `BS_SEED_DIRECT=0`, `ECALC_OVERLAP_COPY`; the host-flow stand-ins kept as the cross-check. `results/*.md` tracked | 17/17 on the branch (4 × 10¹⁰ identical, 86.2 s); recheck identical to the in-run check at 10⁸/10⁹ sizes 1, 2 | 06e06f1 |
+
+Conflicts: `rns_dist.c` (P's radix-3 argument on L's any-size cap;
+both kept). **Regression on the merged tree:** after L+X+S (826cd58,
+job 20821) 17/17, 4 × 10¹⁰ identical; after +M+P (fba199d, job 20831)
+17/17, 4 × 10¹⁰ identical in 82.1 s; after all six (06e06f1, job 20832) 17/17, 4 × 10¹⁰ identical in 80.7 s.
+
+**Findings that change the plan** (details in the agents' files):
+0. *The verification was weaker than stated until now.* Seven of the
+   eight T1 moduli were composite (V); the check still caught every
+   wrong result that occurred (all failures had wrong digits), but the
+   2⁻⁴⁹⁶ figure did not hold and the per-prime pattern misled §75. With
+   the true primes the claim holds. And a timing-dependent fault in the
+   batch tier's level transition exists under forced pool growth (never
+   at the defaults) — the first correctness item for the next session.
+1. *The fabric is not the bottleneck at 576.* X's model: 13–15 % of the
+   per-node wall exposed at every size; the eight distributed tree levels
+   are 34–40 % of it. The dragonfly third layer does not pay (it doubles
+   the NIC bytes); the small-group doublings do.
+2. *The top-level product's scratch is the memory line at 576, not the
+   exchange.* M's accounting: with the code as it is the top product is
+   one transform whose plane pools grow to n/4g (214–856 GB per node)
+   plus spill buffers, which limits 576 nodes to **1.1–1.25 × 10¹³
+   digits (1.9–2.2 × 10¹⁰ per node)**; with that product piece-gridded
+   over the 2³¹-point planes — the form the single-node reciprocal
+   already uses — the per-node profile is the single node's and the
+   limit is **≈ 4.4–4.6 × 10¹³ (7.7–8 × 10¹⁰ per node)**. This is the
+   first item for the next session.
+3. *The larger planes are a wash on this node:* the mapping rate under
+   the seed stream (0.08–0.12 s/GB) costs more than the transforms gain;
+   the tail layout or moving the seeds out of the mapping window would
+   turn it into a net ≈ −1.5 s.
+
+**576-node estimate (standing rule; modelled from measured per-node
+runs, X's `mn_model.py` and M's `mem_model.py`):** with the code as
+merged, **≈ 1.2 × 10¹³ digits in ≈ 1.5–2 min**; with the top product
+gridded (not yet written), **≈ 4.4 × 10¹³ digits in ≈ 4.6 min per-node
+wall** (7.7 × 10¹⁰ per node at 500 of 502 GB; the safe size 2.2 × 10¹³
+in 2.0 min). Labelled: per-node compute measured (8 × 10¹⁰ in 195 s,
+10¹¹ in 263 s on one node); fabric and cross-node memory modelled;
+the SHMEM per-message cost and the part-file bandwidth assumed.
