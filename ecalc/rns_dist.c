@@ -1134,8 +1134,9 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
  * a level are the groups of the previous level (size 1 at level 1), so a ratio G_l / G_{l-1} > 2 is a k-way step (the
  * tree combines the k children in k - 1 products over the level's group, each balanced over all its nodes).  Sizes are
  * increasing; each is a multiple of the previous, or the size itself (the top group is cut by the size: 512 -> 576 is
- * allowed as the default).  MN_GROUPS=2,4,8,16,32,64,576 (or ..., 64, 192, 576); default: the powers of two up to the
- * largest <= size, then size.  Returns the level count (0 at size 1); aborts on an invalid list. */
+ * allowed).  MN_GROUPS=2,4,8,16,32,64,576 (the 9-way top) or ..., 64, 512, 576; default (Phase 12 G, agent Q's decision): the
+ * powers of two dividing the size, then the odd part's prime factors ascending (576 -> 2, 4, ..., 64, 192, 576: two 3-way
+ * steps; a power of two: the binary tree).  Returns the level count (0 at size 1); aborts on an invalid list. */
 int mn_groups_parse(int size, int *out, int max)
 {
     int n = 0; const char *e = getenv("MN_GROUPS");
@@ -1152,7 +1153,15 @@ int mn_groups_parse(int size, int *out, int max)
             if (n && v % out[n - 1]) { fprintf(stderr, "MN_GROUPS: %ld is not a multiple of %d ('%s')\n", v, out[n - 1], e); exit(1); }
             out[n++] = (int)v;
         }
-    } else for (int v = 2; v <= size && n < max; v *= 2) out[n++] = v;
+    } else {
+        /* Phase 12 G (agent Q's decision, results/Q.md 1: the 3 . 3 top at 576): the powers of two that divide the size, then the
+         * odd part's prime factors in increasing order -- 576 = 2^6 . 3 . 3 -> 2, 4, ..., 64, 192, 576; 9 -> 3, 9; 6 -> 2, 6; a power
+         * of two -> the binary tree as before.  Every group is then exact (no cut top group) and every level is a k-way step by
+         * one prime factor */
+        int v = 1; while (v * 2 <= size && size % (v * 2) == 0 && n < max) { v *= 2; out[n++] = v; }
+        int rest = size / v;
+        for (int f = 3; rest > 1 && n < max; f += 2) while (rest % f == 0 && n < max) { v *= f; out[n++] = v; rest /= f; }
+    }
     if (!n || out[n - 1] != size) { if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); } out[n++] = size; }
     return n;
 }
