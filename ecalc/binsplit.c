@@ -91,22 +91,23 @@ static dbig node_q(const struct level *lv, const struct node *nd) { return nd->q
 #include "verify.h"
 static void bs_dump(const char *dir, int level, size_t i, const char *what, const dbig *x)   /* the limbs of a level's node as a raw file */
 {
-    bigint h; bi_init(&h); bi_reserve(&h, x->n ? x->n : 1); h.n = x->n;
+    bigint h; bi_init(&h); bi_reserve(&h, x->n ? x->n : 1); h.n = x->n; static int cpu = -1; if (cpu < 0) cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0;
     for (int d = 0; d < DB_NQ; d++) { size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc, s0 = x->off > g0 ? x->off : g0, s1 = x->off + x->n < g1 ? x->off + x->n : g1;
-        if (s0 >= s1) continue; mem_dev_copy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); }
+        if (s0 >= s1) continue; if (cpu) memcpy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); else mem_dev_copy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); }
     char nm[4096]; snprintf(nm, sizeof nm, "%s/bs_n%d_l%d_i%zu_%s.bin", dir, mn_rank(), level, i, what); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); }
     bi_free(&h);
 }
 static void bs_res_check(const struct level *lv, const struct level *prev, int level, unsigned long S, unsigned long N)
 {
-    static int minlev = -1; if (minlev < 0) minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17;
+    static int minlev = -1, cpu = -1; if (minlev < 0) { minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17; cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0; }
     if (!db_res_log_on() || level < minlev || !lv->nd) return;
     unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0; const char *dump = getenv("ECALC_LEAF_DUMP");
     for (size_t i = 0; i < lv->n; i++) {
         unsigned long a = bs_a0 + i * span, b = a + span; if (b > bend) b = bend; if (a >= bend) break;
         if (!lv->nd[i].pd && mem_dev_of(lv->pool[lv->nd[i].r]) < 0) { printf("RES bs level %d: host pools, not checked\n", level); return; }
         dbig vp = node_p(lv, &lv->nd[i]), vq = node_q(lv, &lv->nd[i]); uint64_t rp[T1_NQ], rq[T1_NQ]; int nb = 0;
-        db_mod_qs(&vp, t1_q, T1_NQ, rp); db_mod_qs(&vq, t1_q, T1_NQ, rq);
+        if (cpu && !lv->nd[i].pd) { vf_limbs_mods(vp.q[0], vp.n, t1_q, T1_NQ, rp); vf_limbs_mods(vq.q[0], vq.n, t1_q, T1_NQ, rq); }   /* ECALC_RES_LOG_CPU: the CPU reads the region -- no kernel, no stream synchronisation (a check that cannot hide a GPU-side race) */
+        else { db_mod_qs(&vp, t1_q, T1_NQ, rp); db_mod_qs(&vq, t1_q, T1_NQ, rq); }
         for (int j = 0; j < T1_NQ; j++) { uint64_t p, q; vf_pq_range_mod(a, b, t1_q[j], &p, &q); if (p != rp[j] || q != rq[j]) nb++; }
         if (nb) {
             bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ);

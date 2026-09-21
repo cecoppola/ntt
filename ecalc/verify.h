@@ -19,6 +19,7 @@ extern "C" {
 #define T1_NQ 8
 extern const uint64_t t1_q[T1_NQ];
 uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q);               /* Horner, parallel */
+void     vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint64_t *out);   /* the same for nq primes in one pass over the limbs */
 uint64_t vf_digits_mod(const char *s, size_t n, uint64_t q);                  /* decimal string, parallel */
 void     vf_pq_mod(unsigned long N, uint64_t q, uint64_t *p, uint64_t *qq);   /* P(1,N+1), Q(1,N+1) mod q */
 uint64_t vf_pow_mod(uint64_t b, unsigned long e, uint64_t q);
