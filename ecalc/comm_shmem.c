@@ -85,16 +85,17 @@ const char *comm_shmem_impl(void) { return "none"; }
 enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 
 /* ---- the process state ---- */
-struct blk { size_t off, len; int used; struct blk *next; };
+struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap, order, thread_always, registered, extheap, prov;
+    int inited, me, npes, serial, devheap, order, thread_always, registered, extheap, prov, keep_staging;
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
     pthread_mutex_t alloc_lock;
     struct blk *blocks;
-    size_t sym_bytes, sym_peak;            /* comm_sym_alloc accounting */
+    size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
 } S;
+enum { K_CTRL, K_STAGE, K_SYM };
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
 static int g_trace;
@@ -113,13 +114,15 @@ const char *comm_shmem_impl(void)
 }
 
 /* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free) */
-static size_t pool_alloc(size_t len)
+static size_t pool_alloc(size_t len, int kind)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
     pthread_mutex_lock(&S.alloc_lock);
     for (struct blk *b = S.blocks; b; b = b->next) if (!b->used && b->len >= len) {
         if (b->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
-        b->used = 1; pthread_mutex_unlock(&S.alloc_lock); return b->off;
+        b->used = 1; b->kind = kind;
+        S.cur[kind] += len; if (S.cur[kind] > S.peak[kind]) S.peak[kind] = S.cur[kind]; S.cur_all += len; if (S.cur_all > S.peak_all) S.peak_all = S.cur_all;
+        pthread_mutex_unlock(&S.alloc_lock); return b->off;
     }
     pthread_mutex_unlock(&S.alloc_lock);
     fprintf(stderr, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more\n", S.me, S.pool_bytes >> 20, len >> 20); exit(1);
@@ -129,7 +132,7 @@ static void pool_free(size_t off)
     pthread_mutex_lock(&S.alloc_lock);
     struct blk *p = 0;
     for (struct blk *b = S.blocks; b; p = b, b = b->next) if (b->off == off) {
-        b->used = 0;
+        b->used = 0; S.cur[b->kind] -= b->len; S.cur_all -= b->len;
         if (b->next && !b->next->used) { struct blk *n = b->next; b->len += n->len; b->next = n->next; free(n); }
         if (p && !p->used) { p->len += b->len; p->next = b->next; free(b); }
         break;
@@ -220,6 +223,7 @@ int comm_shmem_init(void)
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
+    S.keep_staging = env_int("COMM_SHMEM_KEEP_STAGING", 0);
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);
         if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE?)\n", S.me, S.pool_bytes >> 20); shmem_global_exit(1); }
@@ -249,7 +253,7 @@ void comm_shmem_finalize(void)
 {
     if (!S.inited) return;
     shmem_barrier_all();
-    if (S.sym_peak && g_trace) fprintf(stderr, "comm_shmem: pe %d: symmetric slabs peak %zu MiB\n", S.me, S.sym_peak >> 20);
+    if (S.me == 0 || g_trace) printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
 #endif
@@ -303,10 +307,19 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
 }
 static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence(p->ctx); else shmem_ctx_quiet(p->ctx); }   /* under SHM_LOCK: the words before their sequence (tiny exchange, rings) */
 
+/* the staging of one exchange (send, receive): allocated per exchange, released when it completes (staging_release) --
+ * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels
+ * (Q, Phase 12); pool-resident buffers (comm_sym_alloc) need none */
 static void staging(shm_priv *p, size_t send, size_t recv)
 {
-    if (send > p->sst_cap) { if (p->sst) pool_free(p->sst); p->sst = pool_alloc(send); p->sst_cap = send; }
-    if (recv > p->rst_cap) { if (p->rst) pool_free(p->rst); p->rst = pool_alloc(recv); p->rst_cap = recv; }
+    if (send > p->sst_cap) { if (p->sst) pool_free(p->sst); p->sst = pool_alloc(send, K_STAGE); p->sst_cap = send; }
+    if (recv > p->rst_cap) { if (p->rst) pool_free(p->rst); p->rst = pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
+}
+static void staging_release(shm_priv *p)
+{
+    if (S.keep_staging) return;                           /* COMM_SHMEM_KEEP_STAGING=1: Phase 11's form, kept per communicator */
+    if (p->sst) pool_free(p->sst); if (p->rst) pool_free(p->rst);
+    p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0;
 }
 /* the sender's half of an exchange for the peers from `from`: wait for each receiver's offset (at most spin_us when
  * >= 0: returns the first peer not ready), put, signal.  Returns n when every peer is done. */
@@ -403,6 +416,7 @@ static void s_wait(comm *c)
         else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], S.pool + p->rst + p->rpre[r], p->rcnt[r], p->st);
         SYNC(p->st);
     }
+    staging_release(p);
     p->pending = 0;
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
@@ -419,6 +433,7 @@ static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     push_peers(p, 0, -1);
     arrive(p, 0, rcnt);
     for (int r = 0; r < n; r++) if (r != me && rcnt[r]) memcpy((char *)rb + rdsp[r], S.pool + p->rst + p->rpre[r], rcnt[r]);
+    staging_release(p);
 }
 static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
@@ -431,6 +446,7 @@ static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
     push_peers(p, 0, -1);
     arrive(p, bytes, 0);
     for (int r = 0; r < n; r++) if (r != me) memcpy((char *)rb + (size_t)r * bytes, S.pool + p->rst + (size_t)r * bytes, bytes);
+    staging_release(p);
 }
 static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 {
@@ -446,6 +462,7 @@ static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
     push_peers(p, 0, -1);
     arrive(p, bytes, 0);
     if (!rin) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)rb + (size_t)r * bytes, S.pool + p->rst + (size_t)r * bytes, bytes, 0); SYNC(0); }
+    staging_release(p);
 }
 /* the tiny exchange: every rank's 8-byte value to every rank (val, then fence, then the sequence word; the slot
  * alternates with the parity of the sequence so a fast rank's next value cannot overwrite one not yet read) */
@@ -517,8 +534,7 @@ static void *s_sym_alloc(comm *c, size_t bytes)
     if (!S.devheap && S.registered != 1) return 0;        /* not device-accessible: the caller allocates, the transport stages */
 #endif
     if (getenv("COMM_SHMEM_NOSYM") && atoi(getenv("COMM_SHMEM_NOSYM"))) return 0;
-    size_t off = pool_alloc(bytes);
-    pthread_mutex_lock(&S.alloc_lock); S.sym_bytes += bytes; if (S.sym_bytes > S.sym_peak) S.sym_peak = S.sym_bytes; pthread_mutex_unlock(&S.alloc_lock);
+    size_t off = pool_alloc(bytes, K_SYM);
     TRACE("sym_alloc %zu MiB at %zu", bytes >> 20, off);
     return S.pool + off;
 }
@@ -557,7 +573,7 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     p->n = n; p->me = me; p->id = id; p->pe = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = pe_start + r * pe_stride;
     p->ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10; if (p->ring < 4096) p->ring = 4096;
     p->ctrl_bytes = (size_t)W_N * n * 8 + (size_t)n * p->ring;
-    p->base = pool_alloc(p->ctrl_bytes); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
+    p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
     p->rbase = (size_t *)calloc(n, sizeof(size_t)); p->rpre = (size_t *)calloc(n, sizeof(size_t)); p->spre = (size_t *)calloc(n, sizeof(size_t));
     p->sent = (long *)calloc(n, sizeof(long)); p->got = (long *)calloc(n, sizeof(long));
     SHM_LOCK();
