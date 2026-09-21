@@ -21,6 +21,7 @@ int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convoluti
 void  mn_barrier(void);
 /* M3 (PLAN.md 17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
 mn_group *mn_group_at(int level);                            /* this node's group of 2^level nodes (meshes created collectively on first use) */
+mn_group *mn_group_span(int l, int g0, int g);               /* Phase 12 G: the group [g0, g0+g) of schedule level l (MN_GROUPS) -- mn_group_at's when it is a binary group, its own meshes otherwise */
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
 int   mn_selftest_layered(int logR, int logC, int verbose);  /* the layered comm over 4 x (largest power of two <= size) ranks; 1 = ok */
 void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* the leaves (taken over) -> shares of P, Q over all nodes */
