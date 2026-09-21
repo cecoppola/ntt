@@ -46,6 +46,26 @@ uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
     free(cv);
     return r;
 }
+void vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint64_t *out)
+{
+    for (int j = 0; j < nq; j++) out[j] = 0;
+    if (!n) return;
+    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    uint64_t *cv = (uint64_t *)malloc((size_t)T * nq * 8);
+#pragma omp parallel for num_threads(T) schedule(static)
+    for (int t = 0; t < T; t++) {
+        size_t k0 = n * t / T, k1 = n * (t + 1) / T; u128 v[16]; uint64_t b[16];
+        for (int j = 0; j < nq; j++) { v[j] = 0; b[j] = bi_decimal ? BI_B10 % qs[j] : (uint64_t)(((u128)1 << 64) % qs[j]); }
+        for (size_t k = k1; k-- > k0;) { uint64_t x = a[k]; for (int j = 0; j < nq; j++) v[j] = (v[j] * b[j] + x) % qs[j]; }
+        for (int j = 0; j < nq; j++) cv[(size_t)t * nq + j] = (uint64_t)v[j];
+    }
+    for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j], b = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q), r = 0;
+        for (int t = T; t-- > 0;) { size_t k0 = n * t / T, k1 = n * (t + 1) / T; r = (mulmod(r, vf_pow_mod(b, k1 - k0, q), q) + cv[(size_t)t * nq + j]) % q; }
+        out[j] = r;
+    }
+    free(cv);
+}
 uint64_t vf_digits_mod(const char *s, size_t n, uint64_t q)
 {
     if (!n) return 0;
