@@ -96,6 +96,8 @@ def dm_layout(N, g, pool_log=31, decimal=True):
     piece = min((1 << pool_log) + 8, nq_s + k_s + 16)
     need = 2 * quarter_bytes(nq_s + nq_s // 10 + 8) + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
     need += min(need // 8, 1 << 30)
+    top = 4 * quarter_bytes(nq_s // 2 + nq_s // 20 + 8) + 2 * quarter_bytes(nq_s + nq_s // 10 + 8); top += top // 8 + hole   # v3: the top bs levels beside the tail
+    need = max(need, top)
     return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, t1_quarter=quarter_bytes(tcap))
 
 def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0):
