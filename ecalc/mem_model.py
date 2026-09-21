@@ -236,6 +236,30 @@ def exchange_scratch(nq_total, g, alltoallv):
     if alltoallv: return 2 * (share // 4) * 8 + (64 << 20)
     return g * (share // 4) * 8 + g * (512 << 20)
 
+def shmem_staging(nq_total, g, groups=None, pool_log=31, staging='cached', chunks=4):
+    """the SHMEM transport's staging in its symmetric pool (comm_shmem.c: every exchange is copied through a send
+    staging and a receive staging in the pool, sized to the exchange and KEPT per communicator -- `staging()` grows
+    sst/rst and never frees them; the level communicators live to the end).  Bytes per node-process:
+      'cached'       (the code at 7aded87): per tree level one mesh per APU thread, its largest exchange's send + receive
+                     -- the result exchange of a piece at the level's cap (q limbs x 8 B each way; the transform chunks
+                     are q / K, the redistributions <= q / 2), the top level's the larger of that and mdb_shift's share/4;
+                     summed over the levels (they all stay alive), x 4 threads;
+      'per_exchange' the staging freed after every wait (a small change in comm_shmem.c): the largest single exchange;
+      'resident'     Phase 12 agent S's form: the callers' slabs allocated in the pool (comm_sym_alloc), no staging.
+    The control blocks and mailbox are small (< 100 MB at 576 PEs)."""
+    if g <= 1 or staging == 'resident': return 0
+    nq_leaf = (nq_total + g - 1) // g
+    per_level = []
+    for S, ch in level_children(g, groups):
+        cap = mn_cap_log(S, pool_log); m_last = ch[-1]; acc = S - m_last
+        nc = nq_leaf * (acc + m_last) + 16
+        q = mn_shape(min(nc, 1 << cap), S)[3]
+        per_level.append(2 * q * 8)
+    top = max(per_level[-1], 2 * (nq_leaf // 4) * 8)                  # the top level's mesh also carries the sharded division's shifts
+    per_level[-1] = top
+    if staging == 'per_exchange': return NR * max(per_level)
+    return NR * sum(per_level)
+
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
@@ -243,9 +267,10 @@ def mem_per_node(D, g=1, opts=None):
           decimal (True), margin (0.0: a fraction added to the device total), logr_delta (DIST_LOGR_DELTA),
           form ('flat': today's g-sized spill buffers; 'grid': agent G's O(share) spills -- Phase 12),
           groups (MN_GROUPS: a list or string; None = the code's default schedule),
-          transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool, COMM_SHMEM_POOL_MB, host-registered on aac6 --
-          pool_mb (8192)).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='flat', groups=None, transport='tcp', pool_mb=8192); o.update(opts or {})
+          transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
+          and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
+          in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
+    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='flat', groups=None, transport='tcp', pool_mb=8192, staging='cached'); o.update(opts or {})
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
@@ -271,13 +296,15 @@ def mem_per_node(D, g=1, opts=None):
     live_dm = NR * L['need_dev'] + xchg
     if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
     dev_dm = planes + pool_total
-    comm = (HOST_COMM_PER_PROC + (o['pool_mb'] << 20 if o['transport'] == 'shmem' else 0)) if g > 1 else 0
+    stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
+    pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
+    comm = (HOST_COMM_PER_PROC + pool) if g > 1 else 0
     host_init = HOST_RUNTIME + HOST_STAGING + HOST_SEEDBUF + comm
     host_dm = HOST_RUNTIME + HOST_STAGING + HOST_WRITER + comm
     peak = max(dev_init + host_init, dev_dm + host_dm) * (1 + o['margin'])
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
-                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg,
+                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool,
                 dev_init=dev_init, dev_dm=dev_dm, host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 node_peak=peak)
 
