@@ -21,7 +21,7 @@ static uint64_t mix(uint64_t z) { z += 0x9E3779B97F4A7C15ULL; z = (z ^ (z >> 30)
 static uint64_t slab_word(int from, int to, int round, size_t k) { return mix(((uint64_t)from << 40) ^ ((uint64_t)to << 28) ^ ((uint64_t)round << 20) ^ k); }
 /* B7: the unequal exchange's pattern -- units per pair, zero for some pairs */
 static size_t vunits(int from, int to, int round) { return ((from + to + round) % 5 == 0) ? 0 : (size_t)((from * 7 + to * 13 + round * 5) % 9); }
-static void *xalloc(comm *c, size_t bytes, int sym);
+static void *xalloc(comm *c, size_t bytes, int *sym);
 static void xfree(comm *c, void *p, int sym);
 static int check_alltoallv(comm *c, int me, int n)
 {
@@ -32,12 +32,12 @@ static int check_alltoallv(comm *c, int me, int n)
         for (int r = 0; r < n; r++) { scnt[r] = vunits(me, r, round) * u; rcnt[r] = vunits(r, me, round) * u; }
         size_t ts = comm_prefix(scnt, sdsp, n), tr = 0;
         for (int r = n - 1; r >= 0; r--) { rdsp[r] = tr; tr += rcnt[r]; }          /* reverse rank order on the receive side */
-        char *sb = xalloc(c, ts + 8, sym), *rb = xalloc(c, tr + 8, sym); memset(rb, 0xEE, tr + 8);
+        int ssym = sym, rsym = sym; char *sb = xalloc(c, ts + 8, &ssym), *rb = xalloc(c, tr + 8, &rsym); memset(rb, 0xEE, tr + 8);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < scnt[r]; k++) sb[sdsp[r] + k] = (char)slab_word(me, r, 100 + round, k / 8);
         if (round < 3 || sym) { comm_alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, NULL); comm_wait(c); }
         else comm_alltoallv_host(c, sb, scnt, sdsp, rb, rcnt, rdsp);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < rcnt[r]; k++) if (rb[rdsp[r] + k] != (char)slab_word(r, me, 100 + round, k / 8)) bad++;
-        xfree(c, sb, sym); xfree(c, rb, sym); free(scnt); free(sdsp); free(rcnt); free(rdsp);
+        xfree(c, sb, ssym); xfree(c, rb, rsym); free(scnt); free(sdsp); free(rcnt); free(rdsp);
         comm_barrier(c);
     }
     return bad;
@@ -89,8 +89,8 @@ static int run_rank(int me, int n, const char *hosts, int port)
 }
 /* S12: a buffer of the transport's symmetric pool when it has one (rounds >= the plain ones: the pool-resident, unstaged
  * path of the SHMEM transport), else malloc'd; mode 1: only the send side in the pool, 2: only the receive side */
-static void *xalloc(comm *c, size_t bytes, int sym) { void *p = sym ? comm_sym_alloc(c, bytes) : 0; return p ? p : malloc(bytes); }
-static void xfree(comm *c, void *p, int sym) { if (sym && c->ops->sym_alloc) comm_sym_free(c, p); else free(p); }
+static void *xalloc(comm *c, size_t bytes, int *sym) { void *p = *sym ? comm_sym_alloc(c, bytes) : 0; *sym = p != 0; return p ? p : malloc(bytes); }   /* *sym: wanted in, got out */
+static void xfree(comm *c, void *p, int sym) { if (sym) comm_sym_free(c, p); else free(p); }
 static int check_all(comm *c, int me, int n)
 {
     int bad = 0;
@@ -98,7 +98,7 @@ static int check_all(comm *c, int me, int n)
     for (int round = 0; round < 10; round++) {
         size_t bytes = sizes[round], words = bytes / 8 ? bytes / 8 : 1, alloc = words * 8;
         int ssym = round >= 5 && round != 9, rsym = round >= 5 && round != 8;
-        uint64_t *sb = xalloc(c, alloc * n, ssym), *rb = xalloc(c, alloc * n, rsym);
+        uint64_t *sb = xalloc(c, alloc * n, &ssym), *rb = xalloc(c, alloc * n, &rsym);
         for (int s = 0; s < n; s++) for (size_t k = 0; k < words; k++) sb[s * words + k] = slab_word(me, s, round, k);
         comm_alltoall(c, sb, rb, alloc, NULL); comm_wait(c);
         for (int s = 0; s < n; s++) for (size_t k = 0; k < words; k++) if (rb[s * words + k] != slab_word(s, me, round, k)) bad++;
@@ -114,7 +114,7 @@ static int check_all(comm *c, int me, int n)
     size_t ag_sizes[] = { 1, 8, 4096, 4097, 1 << 16, 3 << 20, 8, 3 << 20 };   /* the last two on symmetric buffers (S12) */
     for (int round = 0; round < 8; round++) {
         size_t bytes = ag_sizes[round], words = (bytes + 7) / 8, alloc = words * 8; int sym = round >= 6;
-        uint64_t *sb = xalloc(c, alloc, sym), *rb = xalloc(c, alloc * n, sym);
+        int ssym = sym, rsym = sym; uint64_t *sb = xalloc(c, alloc, &ssym), *rb = xalloc(c, alloc * n, &rsym);
         for (size_t k = 0; k < words; k++) sb[k] = slab_word(me, 99, round, k);
         if (round & 1) comm_allgather_host(c, sb, rb, alloc); else comm_allgather(c, sb, rb, alloc);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (rb[r * words + k] != slab_word(r, 99, round, k)) bad++;
@@ -122,7 +122,7 @@ static int check_all(comm *c, int me, int n)
         memcpy(rb + me * words, sb, alloc); memset(sb, 0, alloc);
         comm_allgather_host(c, rb + me * words, rb, alloc);
         for (int r = 0; r < n; r++) for (size_t k = 0; k < words; k++) if (rb[r * words + k] != slab_word(r, 99, round, k)) bad++;
-        xfree(c, sb, sym); xfree(c, rb, sym);
+        xfree(c, sb, ssym); xfree(c, rb, rsym);
         if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: allgather round %d (%zu B): %d bad so far\n", me, round, bytes, bad);
     }
     bad += check_alltoallv(c, me, n);
