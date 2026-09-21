@@ -428,16 +428,11 @@ void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi)
     else { *s_lo = 0; *s_hi = B1_LGL - 1; }
 }
 
-static double *dev_table_pow(uint64_t w, size_t cnt, uint64_t p)
-{
-    double *h = (double *)malloc(cnt * sizeof *h), *d;
-    uint64_t a = 1;
-    for (size_t k = 0; k < cnt; k++) { h[k] = (double)a; a = ec_mulmod_ref(a, w, p); }
-    HIP_CHECK(hipMalloc(&d, cnt * sizeof *d));
-    HIP_CHECK(hipMemcpy(d, h, cnt * sizeof *d, hipMemcpyHostToDevice));
-    free(h);
-    return d;
-}
+/* Phase 11 I11 (agent P): a context's tables (and each plan's pass twiddles) are built in one host buffer and go to the
+ * device in one hipMalloc + one hipMemcpy instead of one pair per table (a context was 22 pairs, a plan 4 per pass;
+ * 16 contexts x 20 lengths over a run) -- the values are unchanged */
+static void host_table_pow(double *h, uint64_t w, size_t cnt, uint64_t p) { uint64_t a = 1; for (size_t k = 0; k < cnt; k++) { h[k] = (double)a; a = ec_mulmod_ref(a, w, p); } }
+static void *dev_upload(const void *h, size_t bytes) { void *d; HIP_CHECK(hipMalloc(&d, bytes)); HIP_CHECK(hipMemcpy(d, h, bytes, hipMemcpyHostToDevice)); return d; }
 
 ntt_ctx *ntt_ctx_create(int prime)
 {
@@ -445,34 +440,37 @@ ntt_ctx *ntt_ctx_create(int prime)
     uint64_t p = ec_P[prime];
     c->prime = prime;
     c->m = ec_mod_get(prime);
+    const size_t n1 = (size_t)1 << (B1_LGL - 1);
+    size_t words = 0; for (int stg = 1; stg <= 7; stg++) words += (size_t)2 << stg; words += 2 * n1 + 4 * n1;   /* tabT x 2, tab1 x 2, tab1s/tab1sp x 2 (all 8-byte entries) */
+    uint64_t *h = (uint64_t *)malloc(words * 8); size_t off = 0;
     for (int stg = 1; stg <= 7; stg++) {
-        c->tabT_f[stg] = dev_table_pow(ec_root(prime, stg), (size_t)1 << stg, p);
-        c->tabT_i[stg] = dev_table_pow(ec_root_inv(prime, stg), (size_t)1 << stg, p);
+        host_table_pow((double *)(h + off), ec_root(prime, stg), (size_t)1 << stg, p); off += (size_t)1 << stg;
+        host_table_pow((double *)(h + off), ec_root_inv(prime, stg), (size_t)1 << stg, p); off += (size_t)1 << stg;
     }
-    c->tab1_f = dev_table_pow(ec_root(prime, B1_LGL), 1 << (B1_LGL - 1), p);
-    c->tab1_i = dev_table_pow(ec_root_inv(prime, B1_LGL), 1 << (B1_LGL - 1), p);
+    size_t o1f = off; host_table_pow((double *)(h + off), ec_root(prime, B1_LGL), n1, p); off += n1;
+    size_t o1i = off; host_table_pow((double *)(h + off), ec_root_inv(prime, B1_LGL), n1, p); off += n1;
+    size_t os[2], osp[2];
     for (int inv = 0; inv < 2; inv++) {
-        int cnt = 1 << (B1_LGL - 1);
-        uint64_t *h = (uint64_t *)malloc(cnt * 8), *hp = (uint64_t *)malloc(cnt * 8), a = 1, w = inv ? ec_root_inv(prime, B1_LGL) : ec_root(prime, B1_LGL);
-        for (int k = 0; k < cnt; k++) { h[k] = a; hp[k] = ec_shoup_pre(a, p); a = ec_mulmod_ref(a, w, p); }
-        uint64_t **ts = inv ? &c->tab1s_i : &c->tab1s_f, **tp = inv ? &c->tab1sp_i : &c->tab1sp_f;
-        HIP_CHECK(hipMalloc(ts, cnt * 8)); HIP_CHECK(hipMemcpy(*ts, h, cnt * 8, hipMemcpyHostToDevice));
-        HIP_CHECK(hipMalloc(tp, cnt * 8)); HIP_CHECK(hipMemcpy(*tp, hp, cnt * 8, hipMemcpyHostToDevice));
-        free(h); free(hp);
+        uint64_t a = 1, w = inv ? ec_root_inv(prime, B1_LGL) : ec_root(prime, B1_LGL);
+        os[inv] = off; osp[inv] = off + n1;
+        for (size_t k = 0; k < n1; k++) { h[os[inv] + k] = a; h[osp[inv] + k] = ec_shoup_pre(a, p); a = ec_mulmod_ref(a, w, p); }
+        off += 2 * n1;
     }
+    uint64_t *d = (uint64_t *)dev_upload(h, words * 8); free(h); off = 0;
+    for (int stg = 1; stg <= 7; stg++) { c->tabT_f[stg] = (double *)(d + off); off += (size_t)1 << stg; c->tabT_i[stg] = (double *)(d + off); off += (size_t)1 << stg; }
+    c->tab1_f = (double *)(d + o1f); c->tab1_i = (double *)(d + o1i);
+    c->tab1s_f = d + os[0]; c->tab1sp_f = d + osp[0]; c->tab1s_i = d + os[1]; c->tab1sp_i = d + osp[1];
     for (int l = 0; l <= NTT_LOGN_MAX; l++) c->ninv[l] = (double)ec_inv(ec_powmod(2, l, p), p);
     return c;
 }
 void ntt_ctx_free(ntt_ctx *c)
 {
     if (!c) return;
-    for (int stg = 1; stg <= 7; stg++) { HIP_CHECK(hipFree(c->tabT_f[stg])); HIP_CHECK(hipFree(c->tabT_i[stg])); }
-    HIP_CHECK(hipFree(c->tab1_f)); HIP_CHECK(hipFree(c->tab1_i));
-    HIP_CHECK(hipFree(c->tab1s_f)); HIP_CHECK(hipFree(c->tab1s_i)); HIP_CHECK(hipFree(c->tab1sp_f)); HIP_CHECK(hipFree(c->tab1sp_i));
+    HIP_CHECK(hipFree(c->tabT_f[1]));                       /* the one buffer of all the tables */
     for (int l = 0; l <= NTT_LOGN_MAX; l++) if (c->plan[l].built)
         for (int i = 0; i < NTT_MAXPASS; i++) {
-            if (c->plan[l].f[i].tlo) { HIP_CHECK(hipFree(c->plan[l].f[i].tlo)); HIP_CHECK(hipFree(c->plan[l].f[i].thi)); }
-            if (c->plan[l].i[i].tlo) { HIP_CHECK(hipFree(c->plan[l].i[i].tlo)); HIP_CHECK(hipFree(c->plan[l].i[i].thi)); }
+            if (c->plan[l].f[i].tlo) HIP_CHECK(hipFree(c->plan[l].f[i].tlo));   /* thi lives in the same buffer */
+            if (c->plan[l].i[i].tlo) HIP_CHECK(hipFree(c->plan[l].i[i].tlo));
         }
     free(c);
 }
@@ -486,8 +484,9 @@ static void build_pass_tw(struct pass_tw *t, int prime, int s_lo, int s_hi, int 
     uint64_t p = ec_P[prime];
     uint64_t wK = inv ? ec_root_inv(prime, s_hi + 1) : ec_root(prime, s_hi + 1);
     size_t nhi = s_lo > 12 ? (size_t)1 << (s_lo - 12) : 1;
-    t->tlo = dev_table_pow(wK, 4096, p);
-    t->thi = dev_table_pow(ec_powmod(wK, 4096, p), nhi, p);
+    double *h = (double *)malloc((4096 + nhi) * sizeof *h);
+    host_table_pow(h, wK, 4096, p); host_table_pow(h + 4096, ec_powmod(wK, 4096, p), nhi, p);
+    t->tlo = (double *)dev_upload(h, (4096 + nhi) * sizeof *h); t->thi = t->tlo + 4096; free(h);   /* I11: one upload per pass */
 }
 static struct plan_tw *get_plan_tw(ntt_ctx *c, int logn, const struct plan *pl)
 {
