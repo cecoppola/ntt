@@ -537,7 +537,9 @@ static void s_destroy(comm *c)
     TRACE("destroy comm id %d: quiet + ctx destroy", p->id);
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
     TRACE("destroy comm id %d: done", p->id);
-    if (p->sst) pool_free(p->sst); if (p->rst) pool_free(p->rst); pool_free(p->base);
+    if (p->sst) pool_free(p->sst);
+    if (p->rst) pool_free(p->rst);
+    pool_free(p->base);
     free(p->pe); free(p->rbase); free(p->rpre); free(p->spre); free(p->sent); free(p->got); free(p); free(c);
 }
 static const struct comm_ops shm_ops = { s_rank, s_size, s_alltoall, s_wait, s_barrier, s_modq, s_max, s_destroy, s_send, s_recv, s_allgather, s_allgather_host, s_alltoallv, s_alltoallv_host, s_sym_alloc, s_sym_free };
