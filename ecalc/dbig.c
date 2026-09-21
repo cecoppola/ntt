@@ -88,12 +88,18 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
             return p;
         }
     }
-    int excl = g_tail[d].bytes && need < g_tail[d].thresh;   /* a small request: the tail's bytes do not count ... */
+    int excl = g_tail[d].bytes && need < g_tail[d].thresh, spilled = 0;   /* a small request: the tail's bytes do not count ... */
     for (int pass = 0; pass < 2 && best < 0; pass++, excl = 0) {   /* ... unless nothing else fits (pass 2) */
         for (int i = 0; i < n; i++) { size_t us = excl ? ext_outside_tail(d, &e[i]) : e[i].bytes; if (us >= need && (best < 0 || us < (excl ? ext_outside_tail(d, &e[best]) : e[best].bytes))) best = i; }
-        if (best < 0 && excl) g_tail[d].n_spill++;
+        if (best < 0 && excl) { g_tail[d].n_spill++; spilled = 1; }
     }
     if (best < 0) return 0;
+    if (spilled && e[best].p + e[best].bytes == g_tail[d].end) {   /* a spill into the tail goes to its very end: what it leaves is one hole, contiguous with the free bytes before it (a block in the middle
+                                                                    * split the 33 GB free of an APU into 17 + 16 at 1e11 and t1 fell back; at the end, 22 GB of it stay one extent) */
+        char *p = e[best].p + e[best].bytes - need; *reg = e[best].reg; e[best].bytes -= need;
+        if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
+        return p;
+    }
     char *p = e[best].p; *reg = e[best].reg; e[best].p += need; e[best].bytes -= need;
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
     return p;
