@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
+#include <pthread.h>
+#include <unistd.h>
 #include "rns_mul.h"
 #include "dbig.h"
 #include "ntt.h"
@@ -186,6 +188,30 @@ void rns_shutdown(void)
         ntt_ctx_free(D[d].ctx); ntt2_ctx_free(D[d].ctx2);
     }
     g_nd = 0;
+}
+
+/* Phase 12 R (D5, instrumentation): ECALC_COPY_PROBE=1 -- the level loop's odd-node copy (a device-to-device hipMemcpy on the
+ * destination device's null stream) is timed against the next level's first kernel launch: an event recorded on that null
+ * stream right after the copy, polled by a thread (no wait, no synchronisation: the probe cannot hide a race), and the
+ * time of the next rns_mul_batch's first launch.  The report names the transition when the copy completed after that
+ * launch (the other devices' streams are not ordered against a null stream that is not theirs). */
+double rns_t_launch;                                             /* mem_now() at the latest batch call's first kernel launch */
+static struct { hipEvent_t ev; int dev, on, level; size_t bytes; double t_issue, t_done; pthread_t th; } g_cp;
+static void *cp_poll(void *a) { (void)a; HIP_CHECK(hipSetDevice(g_cp.dev)); while (hipEventQuery(g_cp.ev) == hipErrorNotReady) usleep(50); g_cp.t_done = mem_now(); return 0; }
+void rns_copy_probe_issue(int dev, size_t bytes, int level)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    HIP_CHECK(hipEventCreateWithFlags(&g_cp.ev, hipEventDisableTiming)); HIP_CHECK(hipEventRecord(g_cp.ev, 0));
+    g_cp.dev = dev; g_cp.bytes = bytes; g_cp.level = level; g_cp.t_issue = mem_now(); g_cp.on = 1;
+    pthread_create(&g_cp.th, 0, cp_poll, 0); HIP_CHECK(hipSetDevice(cur));
+}
+void rns_copy_probe_report(int level_next)
+{
+    if (!g_cp.on) return; pthread_join(g_cp.th, 0); g_cp.on = 0;
+    double td = (g_cp.t_done - g_cp.t_issue) * 1e3, tl = (rns_t_launch - g_cp.t_issue) * 1e3;
+    printf("COPY probe: level %d's odd-node copy (%.0f MB into APU %d) completed %.1f ms after issue; level %d's first kernel was launched %.1f ms after issue: %s\n",
+           g_cp.level, g_cp.bytes / 1e6, g_cp.dev, td, level_next, tl, td > tl ? "UNORDERED (the copy landed after the next level's kernels had started)" : "ordered");
+    HIP_CHECK(hipEventDestroy(g_cp.ev));
 }
 
 static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; return l; }
@@ -718,6 +744,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
     { size_t fill[EC_NP]; for (int d = 0; d < g_nd; d++) fill[d] = start[d];
       for (size_t i = 0; i < N; i++) idx[fill[mem_dev_of(P[i].c)]++] = i; }
     double tsc = 0, tnt = 0, tcr = 0, tmg = 0;
+    rns_t_launch = mem_now();                                          /* Phase 12 R: the copy probe's reference */
 #pragma omp parallel num_threads(g_nd)
     {
         int d = omp_get_thread_num(); struct dev *v = &D[d];
@@ -865,6 +892,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
 
     struct bdesc *hd = (struct bdesc *)malloc(N * sizeof *hd);
     for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].x = Q[i].x; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; hd[i].nx = (uint32_t)(Q[i].x ? Q[i].nx : 0); }
+    rns_t_launch = mem_now();                                          /* Phase 12 R: the copy probe's reference (grpB's ntt_load or the first tile's scatter follows) */
 
     if (grpB) {
 #pragma omp parallel num_threads(g_nd)

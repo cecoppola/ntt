@@ -99,6 +99,7 @@ int rns_dist_cache_hold(int on);
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
 void *rns_dpool(int dev, int which, size_t bytes);
+void rns_copy_probe_issue(int dev, size_t bytes, int level); void rns_copy_probe_report(int level_next);   /* Phase 12 R (D5): ECALC_COPY_PROBE, the odd-node copy against the next level's launch */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
 void rns_ensure_staging(void);

@@ -13,7 +13,7 @@ SHMEM_CFLAGS ?= -DCOMM_SHMEM $(shell oshcc --showme:compile)
 SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_copy_order
 OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
@@ -101,6 +101,8 @@ tests/t_mul: tests/t_mul.c $(OBJS) rns_mul.h tests/harness.h
 tests/t_newton: tests/t_newton.c $(OBJS) newton.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
+tests/t_copy_order: tests/t_copy_order.c tests/harness.h
+	$(HIPC) $< -o $@ -lgmp
 tests/t_ntt3: tests/t_ntt3.c $(OBJS) ntt.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
