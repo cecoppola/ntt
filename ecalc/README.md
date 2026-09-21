@@ -91,8 +91,10 @@ divides `<procs>`, several per node otherwise) with `srun`, and sets the communi
 seven of the eight were composite; two of them divided every Q, which blinded T1 to Q and X there). Switches:
 `ECALC_RES_LOG=1` prints every residue the checks use and cross-checks each (the kernel against a host Horner,
 the background recurrence against the main thread, each node's leaf P_r, Q_r against the recurrence over its
-terms, from level `ECALC_RES_LOG_LEVEL` (17) on every node of every leaf level, the leaf hand-over copy, each
-share before the cross-node reduction); `ECALC_LEAF_DUMP=<dir>` writes the leaf P_r, Q_r as raw limbs;
+terms, from level `ECALC_RES_LOG_LEVEL` (17) on every node of every leaf level — by the kernel, or with
+`ECALC_RES_LOG_CPU=1` by the CPU reading the regions, no stream synchronisation — the leaf hand-over copy, each
+share before the cross-node reduction); `ECALC_LEAF_DUMP=<dir>` writes the leaf P_r, Q_r as raw limbs and, with the
+level check, the first wrong node of a level with its four children (`bs_n<rank>_l<level>_i<node>_{P,Q,P1,Q1,P2,Q2}.bin`);
 `MEM_DPOOL_FILL=1|2` fills a grown (every) plane pool with 0xA5 (a test of zero-memory assumptions).
 `ECALC_RECHECK=1 ./ecalc <digits> <outfile>` (through `mnrun.sh <size>` at size > 1, the same `BS_CKPT_DIR`) is
 the standalone recheck of a finished run: the run writes `<outfile>.t1` (node 0: the residues it checked with and
