@@ -53,11 +53,35 @@ size_t rns_staging_bytes_req = 0;                                  /* Phase 8 st
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
 size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
+/* Phase 11 B3 (agent P): plane pool 0 sized at init to 3 2^(pool_log-1) limbs (24 GiB at 2^31) and pool 1 to the dist tier's
+ * 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB), so the top levels and the dm phase run their products on 3 2^28 .. 3 2^30-point
+ * planes (rns_dist.c's DIST_R3, whose default follows this switch) with nothing mapped inside a phase (A-grid's C5 paid 15 s
+ * at first use).  RNS_PLANES_3Q30=0/1 overrides.  Measured at 4e10 (results/P.md): the phases lose 3.6 s (top levels -2.8,
+ * reciprocal -0.6, level 21 paired -0.2) but the 60 GB more of plane pools cost 4.7-6.3 s of mapping at init (0.08-0.1 s/GB
+ * while the seeds stream), so the default is OFF at every size (rns_planes_3q30_default keeps the size rule for when the
+ * mapping gets cheaper: it applies only with RNS_PLANES_3Q30=auto, else 0/1). */
+int rns_planes_3q30 = -1;
+int rns_planes_3q30_default(int pool_log, double digits)
+{
+    const char *e = getenv("RNS_PLANES_3Q30");
+    if (e && !strcmp(e, "auto")) return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;   /* the size rule: on below 5e10 at 2^31 pools (7-8e10 do not fit) */
+    if (e) return atoi(e) != 0;
+    return 0;
+}
+static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv("RNS_PLANES_3Q30"); rns_planes_3q30 = e ? atoi(e) != 0 : 0; } return rns_planes_3q30; }
+size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */
+{
+    int pl = g_pool_log ? g_pool_log : 31;
+    if (g_nd && D[0].da.p) return D[0].da.cap / 8;
+    return planes_3q30() ? (size_t)3 << (pl - 1) : (size_t)1 << pl;
+}
+size_t rns_dpool_cap(int dev, int which) { return which ? D[dev].db.cap : D[dev].da.cap; }
 size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
-                                                                    * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there) */
+                                                                    * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
+                                                                    * B3: q = 3 2^(pool_log-3) with the 3 2^k planes */
 {
     int pl = pool_log ? pool_log : 31;
-    size_t q = (size_t)1 << (pl - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20, full = (size_t)8 << (pl < 30 ? pl : 30);
+    size_t q = planes_3q30() ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20, full = (size_t)8 << (pl < 30 ? pl : 30);
     if (b < full) b = full;
     return (b + al - 1) / al * al;
 }
@@ -80,6 +104,7 @@ int rns_init(int pool_log)
     if (getenv("RNS_CRT_LAYOUT")) rns_crt_layout = atoi(getenv("RNS_CRT_LAYOUT"));
     if (getenv("RNS_REPACK_WIDE")) rns_repack_wide = atoi(getenv("RNS_REPACK_WIDE"));
     if (getenv("RNS_ENGINE")) rns_engine = atoi(getenv("RNS_ENGINE"));
+    if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
     bi_env_base();
     crt_init();
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
@@ -88,16 +113,16 @@ int rns_init(int pool_log)
     double ti0 = mem_now();
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
-        double tt, tr;
+        double tt, tr, x0 = mem_now(), x1, x2, x3;
         HIP_CHECK(hipSetDevice(d));
-        size_t u0 = dev_used(d);
+        size_t u0 = dev_used(d); x1 = mem_now();
         D[d].ctx = ntt_ctx_create(d);
-        D[d].ctx2 = ntt2_ctx_create(d & 1);
-        size_t u1 = dev_used(d); g_tables[d] = u1 > u0 ? u1 - u0 : 0;
+        D[d].ctx2 = rns_engine == 2 ? ntt2_ctx_create(d & 1) : 0;   /* Phase 11 I11 (agent P): engine 2's context only when engine 2 runs */
+        size_t u1 = dev_used(d); g_tables[d] = u1 > u0 ? u1 - u0 : 0; x2 = mem_now();
         HIP_CHECK(hipStreamCreate(&D[d].s));
-        D[d].hstage = (uint64_t *)mem_hstage_alloc(d, sbytes, &tt, &tr);
+        D[d].hstage = (uint64_t *)mem_hstage_alloc(d, sbytes, &tt, &tr); x3 = mem_now();
         D[d].ncpu = mem_ncpus_node(mem_numa_node_of_device(d));
-        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu);
+        if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus; device open %.2f s, contexts %.2f s, stream+staging %.2f s\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu, x1 - x0, x2 - x1, x3 - x2);
     }
     double ti1 = mem_now();
     if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
@@ -106,7 +131,8 @@ int rns_init(int pool_log)
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
-        dpool_get(&D[d].da, d, bytes);           /* pregrow to 2^pool_log (paper) */
+        if (planes_3q30()) dpool_get_exact(&D[d].da, d, ((size_t)3 << (g_pool_log - 1)) * 8);   /* B3: 3 2^(pool_log-1) limbs exactly (24 GiB), not the power of two above it */
+        else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log (paper) */
         dpool_get_exact(&D[d].db, d, b1);
     }
     mem_par_init = 0;
@@ -121,7 +147,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB, staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", bytes / 1073741824.0, b1 / 1073741824.0, sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s, staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
@@ -473,6 +499,20 @@ __global__ void k_scatter(uint64_t *da, uint64_t *db, const struct bdesc *P, siz
     }
 }
 
+/* Phase 11 A2 (agent P): the striped tier's scatter with the batch-local tier's pair layout (B of products 2j, 2j+1 once,
+ * at transform j) and 3 2^logk lengths; one prime per device */
+__global__ void k_scatter1(uint64_t *da, uint64_t *db, size_t L, int pair, const struct bdesc *P, size_t M, int logk, int r3, ec_mod m)
+{
+    size_t total = M * L;
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < total; i += stride) {
+        size_t pi = r3 ? (i >> logk) / 3 : i >> logk, k = i - pi * L;
+        const struct bdesc d = P[pi];
+        da[i] = k < d.na ? ec_canon64(d.a[k], m.pu, m.mu) : 0;
+        if (db && !(pair && (pi & 1))) { size_t ib = pair ? (pi >> 1) * L + k : i; db[ib] = k < d.nb ? ec_canon64(d.b[k], m.pu, m.mu) : 0; }
+    }
+}
+
 /* device Garner: FP64-Barrett for the modular steps */
 __device__ static inline uint64_t dmod128(uint64_t hi, uint64_t lo, const ec_mod m, uint64_t c64)
 {
@@ -653,7 +693,7 @@ static void spill_merge(const rns_prod *q, const uint64_t *sp, int S)
 static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc)
 {
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
-    size_t L = len_of(r3, logk), plane_cap = (size_t)1 << g_pool_log;
+    size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* B3: pool 0's real capacity (3 2^(pool_log-1) with the 3 2^k planes) */
     size_t Mmax = plane_cap / (EC_NP * L); if (Mmax < 1) { fprintf(stderr, "rns_mul_batch_local: L %zu does not fit the pools\n", L); exit(1); }
     /* Phase 9 B1: products 2j, 2j+1 with the same B (the tree's P1 Q2 + P2 and Q1 Q2) on the same device: B is
      * scattered and transformed once per pair (M/2 B transforms per tile), the fused inverse reads y transform
@@ -683,7 +723,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
         int d = omp_get_thread_num(); struct dev *v = &D[d];
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < EC_NP; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
-        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * Mmax * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools) */
+        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime */
         uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
         double lsc = 0, lnt = 0, lcr = 0, lmg = 0;
         struct bdesc *hd = (struct bdesc *)malloc((Mmax < cnt[d] ? Mmax : cnt[d] ? cnt[d] : 1) * sizeof *hd);
@@ -757,7 +797,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
     for (size_t i = 1; i < N && grpB; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
-    if (rns_batch_local && !staged && N >= (size_t)rns_batch_local_min && (((size_t)1 << g_pool_log) / (EC_NP * L)) >= 1) {
+    if (rns_batch_local && !staged && N >= (size_t)rns_batch_local_min && (rns_plane_limbs() / (EC_NP * L)) >= 1) {
         int local = 1;                                  /* few or huge products: the prime-per-device path balances the four APUs */
         for (size_t i = 0; i < N && local; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
@@ -767,8 +807,28 @@ void rns_mul_batch(rns_prod *P, size_t N)
             return;
         }
     }
-    size_t Mmax = rns_batch_tile_bytes / (3 * L * 8);
+    /* Phase 11 A2 (agent P): the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
+     * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
+     * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
+     * planes from the staging); RNS_STRIPED_PAIR=0 restores the old form (RNS_BATCH_PAIR=0 / RNS_R3=0 also apply). */
+    int logk = logL, r3 = 0, pair = 0;
+    if (rns_batch_pair < 0) rns_batch_pair = getenv("RNS_BATCH_PAIR") ? atoi(getenv("RNS_BATCH_PAIR")) : 1;
+    static int striped_pair = -1; if (striped_pair < 0) striped_pair = getenv("RNS_STRIPED_PAIR") ? atoi(getenv("RNS_STRIPED_PAIR")) : 1;   /* the switch for A2 as a unit (pair + 3 2^k in this path) */
+    if (striped_pair && rns_gpucrt_min <= 1 && !staged) {
+        r3 = pick_len(maxnc, &logk); if (!r3) logk = logL;
+        pair = rns_batch_pair && !grpB && N >= 2 && !(N & 1);
+        for (size_t i = 0; i < N && pair; i += 2) if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb) pair = 0;
+    }
+    size_t L3 = len_of(r3, logk);                       /* the plane length (L stays the 2^logL of the host paths) */
+    size_t cap0 = D[0].da.cap / 8, cap1 = D[0].db.cap / 8;   /* the pools as they are: no growth inside the phase for the new forms */
+    if (r3 && (L3 > cap0 || (!grpB && L3 > cap1))) { r3 = 0; logk = logL; L3 = L; }
+    size_t Mmax = pair ? rns_batch_tile_bytes * 2 / (3 * L3 * 8) : rns_batch_tile_bytes / (3 * L3 * 8);
     if (Mmax > ((size_t)1 << g_pool_log) / L / 2) Mmax = ((size_t)1 << g_pool_log) / L / 2;   /* plane stores use the low half of hstage */
+    if (pair) {
+        size_t mp = cap0 / L3, mb = 2 * (cap1 / L3); if (mb < mp) mp = mb;   /* a pair: 2 A planes in pool 0, 1 B plane in pool 1 */
+        if (Mmax < 2) Mmax = 2; if (Mmax > mp) Mmax = mp; Mmax &= ~(size_t)1;
+        if (Mmax < 2) { pair = 0; Mmax = rns_batch_tile_bytes / (3 * L3 * 8); if (Mmax > ((size_t)1 << g_pool_log) / L / 2) Mmax = ((size_t)1 << g_pool_log) / L / 2; }
+    }
     if (Mmax < 1) Mmax = 1;
     static struct gconst G; static int ginit = 0;
     if (!ginit) { G = rns_gconst(); ginit = 1; }
@@ -811,9 +871,9 @@ void rns_mul_batch(rns_prod *P, size_t N)
         {
             int d = omp_get_thread_num(); struct dev *v = &D[d];
             HIP_CHECK(hipSetDevice(d));
-            rns_dpool(d, 1, L * 8);                    /* A-mem C4 */
-            ntt_load(v->ctx, (uint64_t *)v->db.p, Q[0].b, Q[0].nb, L, v->s);
-            ntt_fwd(v->ctx, (uint64_t *)v->db.p, logL, 1, v->s);
+            rns_dpool(d, 1, L3 * 8);                   /* A-mem C4 */
+            ntt_load(v->ctx, (uint64_t *)v->db.p, Q[0].b, Q[0].nb, L3, v->s);
+            x_fwd(v->ctx, (uint64_t *)v->db.p, r3, logk, 1, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
     }
@@ -822,8 +882,9 @@ void rns_mul_batch(rns_prod *P, size_t N)
         double tsc = 0, tnt = 0, tcr = 0;
         int gpucrt = M >= (size_t)rns_gpucrt_min;
         int S = (int)((rns_gpucrt_blocks + M - 1) / M); if (S < 1) S = 1;
-        if ((size_t)S > (L >> 10)) S = (int)(L >> 10) > 0 ? (int)(L >> 10) : 1;      /* >= 1024 coefficients per stripe */
+        if ((size_t)S > (L3 >> 10)) S = (int)(L3 >> 10) > 0 ? (int)(L3 >> 10) : 1;   /* >= 1024 coefficients per stripe */
         if (g_spill_cap < M * S) { if (g_spill) mem_hreg_free(g_spill); g_spill_cap = M * S + 64; g_spill = (uint64_t *)mem_hreg_alloc(g_spill_cap * 4 * 8); }
+        size_t Mb = pair ? M / 2 : M;                     /* B planes in the tile */
 #pragma omp parallel num_threads(g_nd)
         {
             int d = omp_get_thread_num();
@@ -835,17 +896,18 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 g_desc_cap[d] = M;
             }
             HIP_CHECK(hipMemcpyAsync(g_desc[d], hd + first, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));
-            rns_dpool(d, 0, (size_t)M * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)M * L) * 8);   /* A-mem C4: pool 1 is 3 q by default (the 2^30 tile at 2^30 pools needs the full pool) */
+            rns_dpool(d, 0, (size_t)M * L3 * 8); rns_dpool(d, 1, (grpB ? L3 : (size_t)Mb * L3) * 8);   /* A-mem C4: pool 1 is 3 q by default (the 2^30 tile at 2^30 pools needs the full pool) */
             uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
-            size_t total = M << logL, blocks = (total + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
+            size_t total = M * L3, blocks = (total + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
             hipEvent_t e0, e1, e2, e3; float ms1, ms2, ms3 = 0;
             HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1)); HIP_CHECK(hipEventCreate(&e2)); HIP_CHECK(hipEventCreate(&e3));
             HIP_CHECK(hipEventRecord(e0, v->s));
-            k_scatter<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, g_desc[d], M, logL, ec_mod_get(d));
+            if (r3 || pair) k_scatter1<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, L3, pair, g_desc[d], M, logk, r3, ec_mod_get(d));
+            else k_scatter<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, g_desc[d], M, logL, ec_mod_get(d));
             HIP_CHECK(hipEventRecord(e1, v->s));
-            ntt_fwd(v->ctx, da, logL, M, v->s);
-            if (grpB) ntt_inv_pw_bcast(v->ctx, da, db, logL, M, v->s);
-            else { ntt_fwd(v->ctx, db, logL, M, v->s); ntt_inv_pw(v->ctx, da, db, logL, M, v->s); }
+            x_fwd(v->ctx, da, r3, logk, M, v->s);
+            if (grpB) x_inv_pw_bcast(v->ctx, da, db, r3, logk, M, v->s);
+            else { x_fwd(v->ctx, db, r3, logk, Mb, v->s); x_inv_pw_y(v->ctx, da, db, pair ? NTT_Y_PAIR : NTT_Y_FULL, r3, logk, M, v->s); }
             HIP_CHECK(hipEventRecord(e2, v->s));
             HIP_CHECK(hipStreamSynchronize(v->s));
             if (gpucrt) {
@@ -854,7 +916,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 HIP_CHECK(hipEventRecord(e2, v->s));
                 if (g1 > g0)
                     k_crt_batch<<<(unsigned)(g1 - g0), CRT_THREADS, 0, v->s>>>((const uint64_t *)D[0].da.p, (const uint64_t *)D[1].da.p,
-                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, (size_t)1 << logL, G, g_spill, bi_decimal);
+                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, L3, G, g_spill, bi_decimal);
                 HIP_CHECK(hipEventRecord(e3, v->s));
                 HIP_CHECK(hipStreamSynchronize(v->s));
                 HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
@@ -914,7 +976,8 @@ void rns_mul_batch(rns_prod *P, size_t N)
     rns_st.t_total += mem_now() - t0;
     rns_st.n_batch += N;
     rns_st.tb_total += mem_now() - t0;
-    if (getenv("RNS_VERBOSE")) printf("batch N=%zu L=2^%d tile %zu%s%s: %.3f s (scatter %.3f ntt %.3f crt %.3f merge %.3f)\n", N, logL, Mmax, staged ? " staged" : "", grpB ? " grpB" : "", mem_now() - t0, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
+    if (pair) rns_st.n_batch_pair += N;
+    if (getenv("RNS_VERBOSE")) printf("batch N=%zu L=%s2^%d tile %zu%s%s%s: %.3f s (scatter %.3f ntt %.3f crt %.3f merge %.3f)\n", N, r3 ? "3*" : "", logk, Mmax, staged ? " staged" : "", grpB ? " grpB" : "", pair ? " pair" : "", mem_now() - t0, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
 }
 
 static void mdev_gpu_crt(int d, size_t nc, int logn, uint64_t *dst)
