@@ -111,7 +111,7 @@ static int alloc_form(void)
 {
     static int f = -1;
     if (f < 0) {
-        const char *e = getenv("MEM_ALLOC"); f = AF_FINE;
+        const char *e = getenv("MEM_ALLOC"); f = AF_HIPMALLOC;
         if (e) { int k; for (k = 0; k < 6; k++) if (!strcmp(e, af_name[k])) f = k; if (k == 6 && strcmp(e, af_name[f])) fprintf(stderr, "MEM_ALLOC=%s unknown: hipmalloc|fine|uncached|managed|host|mmap (using %s)\n", e, af_name[f]); }
     }
     return f;
