@@ -97,8 +97,8 @@ def dm_layout(N, g, pool_log=31, decimal=True):
     need = 2 * quarter_bytes(nq_s + nq_s // 10 + 8) + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
     need += min(need // 8, 1 << 30)
     top = 4 * quarter_bytes(nq_s // 2 + nq_s // 20 + 8) + 2 * quarter_bytes(nq_s + nq_s // 10 + 8); top += top // 8 + hole   # v3: the top bs levels beside the tail
-    need = max(need, top)
-    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, t1_quarter=quarter_bytes(tcap))
+    need_v2 = need; need = max(need, top)
+    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=need_v2, t1_quarter=quarter_bytes(tcap))
 
 def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0):
     """binsplit.c tree_need_dev: the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes);
@@ -163,7 +163,7 @@ def mem_per_node(D, g=1, opts=None):
         arena = bs
         # Phase 10's behaviour: the pool maps t1's quarter per APU inside the reciprocal, plus the byte deficit
         # (measured 141.0 / 231.8 / 265.7 GB of pool at 4 / 7 / 8e10 = 1.07-1.09 x the dm need; the tree's excess at size > 1)
-        pool_in_phase = max(0, int(1.08 * NR * L['need_dev']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
+        pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'])
     planes = planes_bytes(o['pool_log'])
