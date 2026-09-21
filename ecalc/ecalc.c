@@ -58,8 +58,8 @@ static void pow10_big(bigint *T, unsigned long d)
 
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
-static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */   /* ECALC_OVERLAP_COPY=1: P, Q copied out inside the background thread (the DMA then contends with the reciprocal); 0: before it */
-struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
+static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */
+struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
     t0 = mem_now();
@@ -113,9 +113,17 @@ static int out_stage(struct out_ctx *c)
     double t = mem_now();
     /* T1 (a): P, Q mod q over this node's terms, joined over the nodes */
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
-    if (c->pqb->started) { pthread_join(c->pqb->th, 0); memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
+    if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
+    int rlog = db_res_log_on();
+    if (rlog) {                                        /* Phase 11 V (D5): the recurrence recomputed here (the main thread) against the background thread's */
+        int bad = 0; printf("RES node %d terms [%lu, %lu): pq", c->rank, c->pqb->a0, c->pqb->b1);
+        for (int i = 0; i < T1_NQ; i++) { uint64_t p2, q2; vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &p2, &q2); if (p2 != pr[i] || q2 != qr[i]) bad++;
+                                          printf(" %llu/%llu%s", (unsigned long long)pr[i], (unsigned long long)qr[i], p2 == pr[i] && q2 == qr[i] ? "" : "!=main"); }
+        printf("%s\n", bad ? "  MISMATCH background vs main thread" : "  (main thread agrees)");
+    }
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
+    if (rlog) { printf("RES node %d joined P/Q", c->rank); for (int i = 0; i < T1_NQ; i++) printf(" %llu/%llu", (unsigned long long)Pg[i], (unsigned long long)Qg[i]); printf("\n"); }
     /* the share of X this node holds: the device X (size 1, B1), this node's share of the sharded X (the distributed division:
      * A-div's mdb, read in place), or -- the host flows -- the host X, at size > 1 scattered from node 0 (the stand-in) */
     mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
@@ -140,6 +148,11 @@ static int out_stage(struct out_ctx *c)
     else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
     mn_out_res_combine(cm, xs, src.lo, Xres);
+    if (rlog) { printf("RES node %d X share [%zu, +%zu) res", c->rank, src.lo, src.cnt); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)xs[i]);
+                printf(" | X"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Xres[i]);
+                printf(" | P"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Pres[i]);
+                printf(" | Q"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Qres[i]);
+                printf(" | R"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Rres[i]); printf("\n"); }
     bigint none; bi_init(&none);
     int bad1 = tier1_res_pq(c->N, c->d, c->Pres, c->Qres, &none, &none, Pg, Qg, Xres, c->Rres, c->verbose >= 2);
     double t_t1 = mem_now() - t;
@@ -174,6 +187,8 @@ static int out_stage(struct out_ctx *c)
         mn_out_run(o, &src);
     }
     uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
+    if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
+                printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2);
     double t_dc = mem_now() - t;
     if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } }
@@ -197,6 +212,7 @@ static int out_stage(struct out_ctx *c)
     if (c->outfile) { node_pfx(c); if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
                       else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
     int fail = bad1 || bad2 || bad3;
+    if (c->outfile && c->rank == 0) mn_out_sidecar_write(c->outfile, c->N, c->d, c->d_out, c->size, Xres, c->Rres, c->Pres, c->Qres, o->tail, o->ntail);   /* Phase 11 V: <outfile>.t1 for ECALC_RECHECK */
     node_pfx(c); printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
     if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d nodes: %s\n", c->size, any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
     return fail;
@@ -235,6 +251,11 @@ int main(int argc, char **argv)
       rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+    if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
+        int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
+        int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
+        mn_barrier(); mn_finalize(); return f;
+    }
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
@@ -283,6 +304,18 @@ int main(int argc, char **argv)
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
+        if (db_res_log_on() && pqb.started) {           /* Phase 11 V (D5): this node's leaf P_r, Q_r against the recurrence over its terms -- a wrong leaf is named before the tree */
+            pthread_join(pqb.th, 0); pqb.joined = 1;
+            uint64_t lp[T1_NQ], lq[T1_NQ]; db_mod_qs(&Pl, t1_q, T1_NQ, lp); db_mod_qs(&Ql, t1_q, T1_NQ, lq); int bad = 0;
+            printf("RES node %d leaf P/Q vs recurrence [%lu, %lu):", mn_rank(), pqb.a0, pqb.b1);
+            for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
+            printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
+            if (getenv("ECALC_LEAF_DUMP")) {            /* the leaf P_r, Q_r as raw limbs: <dir>/leaf_n<rank>_{P,Q}.bin (cmp -l against a good run's names the wrong limbs) */
+                bigint h; bi_init(&h); char nm[4096]; const dbig *two[2] = { &Pl, &Ql };
+                for (int k = 0; k < 2; k++) { db_to_bi(&h, two[k]); snprintf(nm, sizeof nm, "%s/leaf_n%d_%c.bin", getenv("ECALC_LEAF_DUMP"), mn_rank(), "PQ"[k]); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); } }
+                bi_free(&h); printf("RES node %d leaf P, Q dumped to %s\n", mn_rank(), getenv("ECALC_LEAF_DUMP"));
+            }
+        }
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
@@ -331,6 +364,15 @@ int main(int argc, char **argv)
     }
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
+    if (mn_size_ == 1 && bs_ckpt_dir && getenv("ECALC_CKPT_TOP") && atoi(getenv("ECALC_CKPT_TOP")) && (ovl3 || P.n)) {   /* Phase 11 V: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+        double tc = mem_now(); dbig tp, tq; db_init(&tp); db_init(&tq);
+        if (!ovl3) { db_from_bi(&tp, &P); db_from_bi(&tq, &Q); }         /* the host flow (a leaf that ended on the batch tier): through device copies */
+        const dbig *pp = ovl3 ? &bs_Pd : &tp, *qq = ovl3 ? &bs_Qd : &tq;
+        uint64_t desc[10] = { pp->n, pp->n, 0, 1, pp->n, qq->n, qq->n, 0, 1, qq->n };
+        size_t bytes = bs_ckpt_tree_write(0, N, desc, (dbig *)pp, (dbig *)qq);
+        if (!ovl3) { db_free(&tp); db_free(&tq); }
+        printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
+    }
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_bs, N, mn_dm ? mn_pn : P.n, mn_dm ? mn_qn : Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);

@@ -87,6 +87,23 @@ divides `<procs>`, several per node otherwise) with `srun`, and sets the communi
 | `POOL_LOG` | the plane pools' 2ᵏ points per APU (31): with several node-processes on one node use 27–29 so their pools and arenas fit the node (10⁸ at 27, 10⁹ at 29, 10¹⁰ at size 4 at 29) |
 | `NEWTON_MN_SPLIT`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_BALANCE_N`, `ECALC_ARENA_GB`, `ECALC_DM_POOL`, `ECALC_DM_POOL_K` | tuning of the distributed division's split, the leaf's device-number levels, the small levels' layout, the region arenas and the dm block pool (results/A-div.md, A-mem.md) |
 
+**Verification (Phase 11 V, results/V.md).** The T1 moduli are the first eight primes above 2⁶² (until Phase 10
+seven of the eight were composite; two of them divided every Q, which blinded T1 to Q and X there). Switches:
+`ECALC_RES_LOG=1` prints every residue the checks use and cross-checks each (the kernel against a host Horner,
+the background recurrence against the main thread, each node's leaf P_r, Q_r against the recurrence over its
+terms, from level `ECALC_RES_LOG_LEVEL` (17) on every node of every leaf level — by the kernel, or with
+`ECALC_RES_LOG_CPU=1` by the CPU reading the regions, no stream synchronisation — the leaf hand-over copy, each
+share before the cross-node reduction); `ECALC_LEAF_DUMP=<dir>` writes the leaf P_r, Q_r as raw limbs and, with the
+level check, the first wrong node of a level with its four children (`bs_n<rank>_l<level>_i<node>_{P,Q,P1,Q1,P2,Q2}.bin`);
+`MEM_DPOOL_FILL=1|2` fills a grown (every) plane pool with 0xA5 (a test of zero-memory assumptions).
+`ECALC_RECHECK=1 ./ecalc <digits> <outfile>` (through `mnrun.sh <size>` at size > 1, the same `BS_CKPT_DIR`) is
+the standalone recheck of a finished run: the run writes `<outfile>.t1` (node 0: the residues it checked with and
+the computed digits after d_out); the recheck recomputes the digit residues from the file (part files), X mod q
+from them, P and Q mod q from the checkpointed top-level shares (the tree set at size > 1; at size 1 the level-0
+tree set written by a run with `ECALC_CKPT_TOP=1`), the term recurrence and the T2 windows, and runs T1 with the
+run's R residues — RECHECK OK / FAILED per node. Deleted in Phase 11 (E1): `DIST_PLANE2` (`dist_fwd2/inv2`),
+`BS_SEED_DIRECT=0`, `ECALC_OVERLAP_COPY`.
+
 **Part files.** With `<outfile>` at size > 1 every node writes `<outfile>.part<k>`, k = size − 1 − rank
 zero-padded to four digits, in file order (part 0000 holds "2." and the leading digits, the last part
 the digits down to the requested count and the newline): `cat <outfile>.part*` (the glob sorts) is

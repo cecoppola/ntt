@@ -317,12 +317,32 @@ static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 /* residues of x modulo nq primes (each < 2^63) at once: the quarters in parallel, one launch per quarter */
 static pthread_mutex_t g_mq_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 10 H (B1): the output stage's background thread takes X's residues while the division goes on (R's) -- the scratch above is shared */
 static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);
+/* Phase 11 V (D5): ECALC_RES_LOG=1 -- every residue the kernel computes is cross-checked against the host Horner over a
+ * copy of the number (vf_limbs_mod) and both are printed, so a wrong residue names its side (RES lines, one per call) */
+#include "verify.h"
+int db_res_log = -1;
+int db_res_log_on(void) { if (db_res_log < 0) db_res_log = getenv("ECALC_RES_LOG") ? atoi(getenv("ECALC_RES_LOG")) : 0; return db_res_log; }
+static void db_mod_qs_check(const dbig *x, const uint64_t *qs, int nq, const uint64_t *res)
+{
+    bigint h; bi_init(&h); bi_reserve(&h, x->n); h.n = x->n; int bad = 0; char line[1024]; int k = 0, dev0; HIP_CHECK(hipGetDevice(&dev0));
+    for (int d = 0; d < DB_NQ; d++) {                          /* (db_to_bi ignores a view's off: copy the limbs [off, off + n) quarter by quarter) */
+        size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc, s0 = x->off > g0 ? x->off : g0, s1 = x->off + x->n < g1 ? x->off + x->n : g1;
+        if (s0 >= s1) continue;
+        HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemcpy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8, hipMemcpyDeviceToHost));
+    }
+    HIP_CHECK(hipSetDevice(dev0));
+    k += snprintf(line + k, sizeof line - k, "RES db_mod_qs n=%zu off=%zu qc=%zu:", x->n, x->off, x->qc);
+    for (int j = 0; j < nq && k < 900; j++) { uint64_t hv = vf_limbs_mod(h.l, h.n, qs[j]); if (hv != res[j]) bad++; k += snprintf(line + k, sizeof line - k, " %llu%s", (unsigned long long)res[j], hv == res[j] ? "" : "!=host"); }
+    printf("%s%s\n", line, bad ? "  MISMATCH kernel vs host" : "  (host Horner agrees)");
+    bi_free(&h);
+}
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {
     if (nq > MQ_MAXQ) { fprintf(stderr, "db_mod_qs: %d primes\n", nq); abort(); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
     pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
+    if (db_res_log_on()) db_mod_qs_check(x, qs, nq, res);
 }
 static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {

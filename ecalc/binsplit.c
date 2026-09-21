@@ -85,6 +85,42 @@ static dbig pool_view(const uint64_t *p, size_t n)
 }
 static dbig node_p(const struct level *lv, const struct node *nd) { return nd->pd ? *nd->pd : pool_view(lv->pool[nd->r] + nd->po, nd->pn); }
 static dbig node_q(const struct level *lv, const struct node *nd) { return nd->qd ? *nd->qd : pool_view(lv->pool[nd->r] + nd->qo, nd->qn); }
+/* Phase 11 V (D5, instrumentation): ECALC_RES_LOG=1 -- after every level >= ECALC_RES_LOG_LEVEL (17) each node's P, Q
+ * (device regions or device numbers) are reduced modulo the T1 primes and compared with the term recurrence over the
+ * node's span range [a0 + i S 2^l, ...): the level and the node whose product first goes wrong are named */
+#include "verify.h"
+static void bs_dump(const char *dir, int level, size_t i, const char *what, const dbig *x)   /* the limbs of a level's node as a raw file */
+{
+    bigint h; bi_init(&h); bi_reserve(&h, x->n ? x->n : 1); h.n = x->n; static int cpu = -1; if (cpu < 0) cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0;
+    for (int d = 0; d < DB_NQ; d++) { size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc, s0 = x->off > g0 ? x->off : g0, s1 = x->off + x->n < g1 ? x->off + x->n : g1;
+        if (s0 >= s1) continue; if (cpu) memcpy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); else mem_dev_copy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); }
+    char nm[4096]; snprintf(nm, sizeof nm, "%s/bs_n%d_l%d_i%zu_%s.bin", dir, mn_rank(), level, i, what); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); }
+    bi_free(&h);
+}
+static void bs_res_check(const struct level *lv, const struct level *prev, int level, unsigned long S, unsigned long N)
+{
+    static int minlev = -1, cpu = -1; if (minlev < 0) { minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17; cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0; }
+    if (!db_res_log_on() || level < minlev || !lv->nd) return;
+    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0; const char *dump = getenv("ECALC_LEAF_DUMP");
+    for (size_t i = 0; i < lv->n; i++) {
+        unsigned long a = bs_a0 + i * span, b = a + span; if (b > bend) b = bend; if (a >= bend) break;
+        if (!lv->nd[i].pd && mem_dev_of(lv->pool[lv->nd[i].r]) < 0) { printf("RES bs level %d: host pools, not checked\n", level); return; }
+        dbig vp = node_p(lv, &lv->nd[i]), vq = node_q(lv, &lv->nd[i]); uint64_t rp[T1_NQ], rq[T1_NQ]; int nb = 0;
+        if (cpu && !lv->nd[i].pd) { vf_limbs_mods(vp.q[0], vp.n, t1_q, T1_NQ, rp); vf_limbs_mods(vq.q[0], vq.n, t1_q, T1_NQ, rq); }   /* ECALC_RES_LOG_CPU: the CPU reads the region -- no kernel, no stream synchronisation (a check that cannot hide a GPU-side race) */
+        else { db_mod_qs(&vp, t1_q, T1_NQ, rp); db_mod_qs(&vq, t1_q, T1_NQ, rq); }
+        for (int j = 0; j < T1_NQ; j++) { uint64_t p, q; vf_pq_range_mod(a, b, t1_q[j], &p, &q); if (p != rp[j] || q != rq[j]) nb++; }
+        if (nb) {
+            bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ);
+            if (dump && bad == 1 && prev && prev->nd && 2 * i + 1 < prev->n) {   /* the first wrong node: its P, Q and its children (the operands of the products) as raw limbs */
+                const struct node *ca = &prev->nd[2 * i], *cb = &prev->nd[2 * i + 1];
+                dbig a1 = node_p(prev, ca), a2 = node_q(prev, ca), b1 = node_p(prev, cb), b2 = node_q(prev, cb);
+                bs_dump(dump, level, i, "P", &vp); bs_dump(dump, level, i, "Q", &vq); bs_dump(dump, level, i, "P1", &a1); bs_dump(dump, level, i, "Q1", &a2); bs_dump(dump, level, i, "P2", &b1); bs_dump(dump, level, i, "Q2", &b2);
+                printf("RES bs level %d node %zu dumped to %s: P (%zu limbs) = P1 (%zu) Q2 (%zu) + P2 (%zu), Q (%zu) = Q1 (%zu) Q2; children in regions %d, %d\n", level, i, dump, vp.n, a1.n, b2.n, b1.n, vq.n, a2.n, ca->r, cb->r);
+            }
+        }
+    }
+    printf("RES bs level %d: %zu nodes, %d BAD%s\n", level, lv->n, bad, bad ? "  LEVEL MISMATCH" : "");
+}
 /* Phase 9 C4: the two parities of region r are the halves of one device allocation (the arena), so that when both
  * are handed to the dbig block pool they coalesce into one extent (dm's largest quarters need contiguous space:
  * two 14 GB halves that cannot merge left the pool falling back to hipMalloc, RESULTS 70).  A pool that outgrows
@@ -673,8 +709,8 @@ static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsign
  * pinned staging of rns_init is no longer used by the seeds (1 GiB per APU remains for the checkpoints' chunks). ---- */
 struct seed_stream {
     uint64_t *buf[2]; size_t bytes, chunk_spans; int buf_dev[2];         /* buf_dev: the device of the copy in flight from the buffer (-1: none) */
-    struct { int r, b; size_t c0, c1; } pend[2]; int npend;              /* direct mode: chunks computed into the buffers while the regions did not exist yet */
-    uint64_t *pool[NR]; pthread_mutex_t mx; pthread_cond_t cv; int pools_ready, direct;
+    struct { int r, b; size_t c0, c1; } pend[2]; int npend;              /* chunks computed into the buffers while the regions did not exist yet */
+    uint64_t *pool[NR]; pthread_mutex_t mx; pthread_cond_t cv; int pools_ready;
     double t_span, t_wait_pool, t_wait_dma, t_alloc, t_issue, t_free; int nchunks, nbuf;   /* t_issue: inside hipMemcpyAsync (blocked while the main thread's hipMalloc holds the runtime); nbuf: chunks that went through a buffer */
 };
 static void seed_stream_pools(struct seed_stream *ss, uint64_t **pool)   /* the region pools exist: the DMAs may start */
@@ -706,7 +742,6 @@ static void seed_spans(struct level *cur, size_t per, unsigned long S, unsigned 
 static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0)
 {
     double t0 = mem_now(); int nd = mem_device_count();
-    ss->direct = getenv("BS_SEED_DIRECT") ? atoi(getenv("BS_SEED_DIRECT")) : 1;   /* 1: the threads store straight into the region (CPU stores into device memory); 0: every chunk through a pinned buffer and a DMA */
     size_t mb = getenv("BS_SEED_CHUNK_MB") ? (size_t)atol(getenv("BS_SEED_CHUNK_MB")) : 2048, bytes = mb << 20, span_bytes = 2 * per * 8, mx = 0;
     for (int r = 0; r < NR; r++) { size_t b = span_bytes * (r0[r + 1] - r0[r]); if (b > mx) mx = b; }
     if (bytes > mx) bytes = mx; if (bytes < span_bytes) bytes = span_bytes;
@@ -719,21 +754,17 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
         size_t lo = r0[r], hi = r0[r + 1];
         for (size_t c0 = lo; c0 < hi; c0 += ss->chunk_spans) {
             size_t c1 = c0 + ss->chunk_spans < hi ? c0 + ss->chunk_spans : hi; int b = ss->nchunks & 1;
-            if (ss->direct && (seed_pools_ready(ss) || ss->npend == 2)) {   /* into the region itself; the regions not there yet: through a buffer (two at most, then wait) */
+            if (seed_pools_ready(ss) || ss->npend == 2) {          /* into the region itself (CPU stores into device memory); the regions not there yet: through a buffer (two at most, then wait) */
                 double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
                 double ts = mem_now();
                 seed_spans(cur, per, S, N, r, lo, c0, c1, ss->pool[r] + 2 * per * (c0 - lo), 0, nt);
                 ss->t_span += mem_now() - ts; ss->nchunks++;
                 continue;
             }
-            double tw = mem_now(); if (ss->buf_dev[b] >= 0) { mem_dev_copy_wait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;   /* the buffer's previous chunk has landed */
-            double ts = mem_now();
+            double ts = mem_now();                                 /* (Phase 11 V, E1: the per-chunk DMA path BS_SEED_DIRECT=0 is gone -- a buffered chunk is copied once the regions exist, below) */
             seed_spans(cur, per, S, N, r, lo, c0, c1, ss->buf[b], 1, nt);
             ss->t_span += mem_now() - ts; ss->nbuf++;
-            if (ss->direct) { ss->pend[ss->npend].r = r; ss->pend[ss->npend].b = b; ss->pend[ss->npend].c0 = c0; ss->pend[ss->npend].c1 = c1; ss->npend++; ss->nchunks++; continue; }   /* copied at the end */
-            tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
-            int dev = r % nd; tw = mem_now(); mem_dev_copy_async(dev, ss->pool[r] + 2 * per * (c0 - lo), ss->buf[b], 2 * per * (c1 - c0) * 8); ss->buf_dev[b] = dev; ss->t_issue += mem_now() - tw;
-            ss->nchunks++;
+            ss->pend[ss->npend].r = r; ss->pend[ss->npend].b = b; ss->pend[ss->npend].c0 = c0; ss->pend[ss->npend].c1 = c1; ss->npend++; ss->nchunks++;
         }
     }
     double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
@@ -827,7 +858,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
         for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { fprintf(stderr, "bs: region %d's pool moved after the seeds were streamed into it\n", r); abort(); }
         if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it; %d chunks of %zu MB, %d through a buffer%s)\n",
-                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, g_pre.ss.direct ? ", the rest stored into the regions" : "");
+                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
     } else if (!own_stage) {
         if (g_pre.active) { pthread_join(g_pre.th, 0); g_pre.active = 0; free(g_pre.nd); g_pre.nd = 0; }
         struct seed_stream ss; memset(&ss, 0, sizeof ss); pthread_mutex_init(&ss.mx, 0); pthread_cond_init(&ss.cv, 0);
@@ -984,6 +1015,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bs_st.levels++;
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
         memset(&rns_st, 0, sizeof rns_st);
+        if (!finished) bs_res_check(&nxt, &cur, bs_st.levels, S, N);   /* Phase 11 V (D5): ECALC_RES_LOG (the children's pools of the other parity are still there) */
         free(cur.nd);
         cur = nxt;
         if (finished) { free(cur.nd); cur.nd = 0; break; }
@@ -1008,6 +1040,11 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         donate_pools(which ^ 1);
         dbig vp = node_p(&cur, &cur.nd[0]), vq = node_q(&cur, &cur.nd[0]);
         db_init(&bs_Pd); db_init(&bs_Qd); db_copy(&bs_Pd, &vp); db_copy(&bs_Qd, &vq);
+        if (db_res_log_on()) {                          /* Phase 11 V (D5): the region's P, Q against their copies */
+            uint64_t r1[T1_NQ], r2[T1_NQ], r3[T1_NQ], r4[T1_NQ]; db_mod_qs(&vp, t1_q, T1_NQ, r1); db_mod_qs(&bs_Pd, t1_q, T1_NQ, r2); db_mod_qs(&vq, t1_q, T1_NQ, r3); db_mod_qs(&bs_Qd, t1_q, T1_NQ, r4);
+            int bp = memcmp(r1, r2, sizeof r1) != 0, bq = memcmp(r3, r4, sizeof r3) != 0;
+            printf("RES bs leaf hand-over: P region vs copy %s, Q region vs copy %s%s\n", bp ? "DIFFER" : "agree", bq ? "DIFFER" : "agree", bp || bq ? "  COPY MISMATCH" : "");
+        }
         donate_pools(which);
         P->n = Q->n = 0;
         if (bs_verbose) printf("bs: leaf P %zu, Q %zu limbs copied to device numbers; the regions went to the block pool before the tree\n", bs_Pd.n, bs_Qd.n);

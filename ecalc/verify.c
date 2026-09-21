@@ -8,9 +8,16 @@
 #include "bigint.h"
 
 typedef unsigned __int128 u128;
-const uint64_t t1_q[T1_NQ] = {4611686018427388039ULL, 4611686018427388083ULL, 4611686018427388087ULL,
-                              4611686018427388151ULL, 4611686018427388219ULL, 4611686018427388223ULL,
-                              4611686018427388253ULL, 4611686018427388301ULL};
+/* the first eight primes above 2^62 (RESULTS.md, "proposed tier-1 primes": 2^62 + 135, 169, 177, 187, 189, 193, 253, 277).
+ * Phase 11 V (D5): the table used until Phase 10 (2^62 + 135, 179, 183, 247, 315, 319, 349, 397) held only one prime; the
+ * others were composite, and two of them (2^62 + 183 = 11 x 1847 x 41641 x 41813 x 130367, 2^62 + 349 = 1187 x 3911 x 40583 x
+ * 24478063) have every factor below 2.5 x 10^7, so Q = N! and every node's Q(a, b) were 0 modulo them: at those two moduli
+ * T1 checked nothing about Q or X (T (P + Q) == X Q + R reduces to T P == R) and P only through the top node's term range
+ * (P = P_A Q_B + P_B with Q_B == 0).  That is the "P BAD, Q BAD at six primes, ok at q2, q6" signature of the D5 failures:
+ * a wrong P or Q from a node below the top one, caught at the six moduli that could see it -- not a checker fault. */
+const uint64_t t1_q[T1_NQ] = {4611686018427388039ULL, 4611686018427388073ULL, 4611686018427388081ULL,
+                              4611686018427388091ULL, 4611686018427388093ULL, 4611686018427388097ULL,
+                              4611686018427388157ULL, 4611686018427388181ULL};
 
 static inline uint64_t mulmod(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((u128)a * b % q); }
 uint64_t vf_pow_mod(uint64_t b, unsigned long e, uint64_t q)
@@ -38,6 +45,26 @@ uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
     for (int t = T; t-- > 0;) r = (mulmod(r, cw[t], q) + cv[t]) % q;
     free(cv);
     return r;
+}
+void vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint64_t *out)
+{
+    for (int j = 0; j < nq; j++) out[j] = 0;
+    if (!n) return;
+    int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
+    uint64_t *cv = (uint64_t *)malloc((size_t)T * nq * 8);
+#pragma omp parallel for num_threads(T) schedule(static)
+    for (int t = 0; t < T; t++) {
+        size_t k0 = n * t / T, k1 = n * (t + 1) / T; u128 v[16]; uint64_t b[16];
+        for (int j = 0; j < nq; j++) { v[j] = 0; b[j] = bi_decimal ? BI_B10 % qs[j] : (uint64_t)(((u128)1 << 64) % qs[j]); }
+        for (size_t k = k1; k-- > k0;) { uint64_t x = a[k]; for (int j = 0; j < nq; j++) v[j] = (v[j] * b[j] + x) % qs[j]; }
+        for (int j = 0; j < nq; j++) cv[(size_t)t * nq + j] = (uint64_t)v[j];
+    }
+    for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j], b = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q), r = 0;
+        for (int t = T; t-- > 0;) { size_t k0 = n * t / T, k1 = n * (t + 1) / T; r = (mulmod(r, vf_pow_mod(b, k1 - k0, q), q) + cv[(size_t)t * nq + j]) % q; }
+        out[j] = r;
+    }
+    free(cv);
 }
 uint64_t vf_digits_mod(const char *s, size_t n, uint64_t q)
 {
