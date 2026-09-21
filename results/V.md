@@ -46,14 +46,22 @@ batch-local level) reproduces the failure at ≈ 1 in 5 here, not 1 in 18:
 | 3 (20803, level checks ≥ 17) | 5 | 5 identical, every level ≥ 17 of every node ok |
 | 5 (20811, no level checks, `RNS_BATCH_LOCAL_MIN=1`, leaf dumps) | 13 | 11 identical; **b5shard11: node 1's leaf wrong** — vs a good run's leaf: P differs from limb 131 584 to the top (138 758 021), Q from limb 4 092 871 to the top; **b5shard12: node 0's leaf wrong** — P from limb 131 072, Q from limb 4 092 358 to the top; the other nodes' leaves byte-identical to the good run's |
 
-So: 21 identical and 5 failed of 26 forced-growth runs, every failure a **wrong leaf P_r and Q_r of node 0 or node 1**
+| 6 (20820, level checks ≥ 11: every node of levels 11–21 reduced by the kernel after the level, i.e. a stream synchronisation and a host copy per level) | 12 | 12 identical, every level of every node ok |
+
+So without per-level checks: 21 identical and 5 failed of 26 forced-growth runs, every failure a **wrong leaf P_r and Q_r of node 0 or node 1**
 (never 2 or 3), wrong from a limb of the order 2¹⁷ (P) / 2²² (Q) to the top, the tree, the division, the residues
 and the digits all consistent with that wrong leaf; the hand-over copy (region → device number) agrees each time.
-The fault is inside the leaf's level loop (`binsplit.c` + `rns_mul.c`'s batch tiers), under the forced growth of
-plane pool 1 — the configuration A-mem's rule excludes (`results/A-mem.md`: pool 1 at the full pool for
+With the per-level checks on (batches 3 and 6): 17 of 17 identical — at the 5/26 rate the chance of 17 clean runs is
+0.81¹⁷ ≈ 3 %, so the check's synchronisation between levels most likely **hides the fault: a timing-dependent (race)
+error, not a deterministic one**. Its shape — the product wrong from one limb position to its top, both P and Q of the
+same node, the position of the order of a stripe boundary of the children's products — is what a single wrong operand
+limb (or a stale read of one) at that position produces. The fault is inside the leaf's level loop (`binsplit.c` +
+`rns_mul.c`'s batch tiers: the CPU `spill_merge` writes into the device regions between the CRT kernel and the next
+level's scatter kernel are the one CPU-to-GPU hand-over there), under the forced growth of plane pool 1 — the configuration A-mem's rule excludes (`results/A-mem.md`: pool 1 at the full pool for
 `POOL_LOG` ≤ 30, so nothing grows inside a phase); none of the ≈ 15 default-configuration runs at 10¹⁰/4 and none
-of the regressions failed. It is not in my files: the level-by-level localisation (batch 6, `ECALC_RES_LOG_LEVEL=11`
-with the first wrong node and its operands dumped) is reported below when it lands.
+of the regressions failed. It is not in my files. Batch 7 (`ECALC_RES_LOG_CPU=1`: the per-level check reads the regions with the CPU only —
+no kernel, no stream synchronisation — and dumps the first wrong node with its four children, to be recomputed
+offline with `v_dumpcheck.py`) is reported below if it catches one.
 
 **Verdict for §23-6.** The checker was not at fault: the digits were wrong in every failing run (T.md says so; PLAN
 §23-6's "the digits were right in every failing case" was mistaken), the checker caught it, and its per-prime
