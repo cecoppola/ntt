@@ -31,6 +31,8 @@
 #include <omp.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 #include <hip/hip_runtime.h>
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
@@ -224,6 +226,30 @@ int main(int argc, char **argv)
                is_mmap(f) ? tmax(touch, nd) : 0.0, is_mmap(f) ? tmax(reg, nd) : 0.0, bwmin, ntmax, td[0], tp[0], tc[0], tmax(tfree, nd), tsum(ta, nd) / nd, note);
         char nm[48]; snprintf(nm, sizeof nm, "alloc_%s_s_per_GB", fname[f]); harness_result(nm, "s/GB", tmax(ta, nd) / (nd * bytes / 1e9));
         if (f == F_ASYNC) for (int d = 0; d < nd; d++) if (b[d].pool) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemPoolDestroy(b[d].pool)); }
+    }
+    if (getenv("T_ALLOC_PROBE") ? atoi(getenv("T_ALLOC_PROBE")) : 1) {
+        /* where the time goes: the allocating thread's CPU time (user / system) against the wall -- kernel page work in the
+         * caller, or waiting on a lock; 4 threads vs 1 thread vs 4 processes (a per-process lock would let processes run in parallel) */
+        printf("\n-- probe: hipMalloc %.1f GB per APU: the allocating threads' CPU time, and 1 thread / 4 threads / 4 processes --\n", bytes / 1e9);
+        struct buf b[4]; memset(b, 0, sizeof b); double ta[4], ut[4], st[4];
+        double t0 = now();
+#pragma omp parallel num_threads(nd)
+        { int d = omp_get_thread_num(); struct rusage r0, r1; getrusage(RUSAGE_THREAD, &r0); double x = now(); alloc_form(&b[d], F_HIPMALLOC, d, bytes); ta[d] = now() - x; getrusage(RUSAGE_THREAD, &r1);
+          ut[d] = (r1.ru_utime.tv_sec - r0.ru_utime.tv_sec) + 1e-6 * (r1.ru_utime.tv_usec - r0.ru_utime.tv_usec); st[d] = (r1.ru_stime.tv_sec - r0.ru_stime.tv_sec) + 1e-6 * (r1.ru_stime.tv_usec - r0.ru_stime.tv_usec); }
+        double w4 = now() - t0;
+        for (int d = 0; d < nd; d++) printf("  thread %d: wall %.2f s, user %.2f s, system %.2f s\n", d, ta[d], ut[d], st[d]);
+        for (int d = 0; d < nd; d++) free_form(&b[d]);
+        t0 = now(); for (int d = 0; d < nd; d++) alloc_form(&b[d], F_HIPMALLOC, d, bytes); double w1 = now() - t0;
+        for (int d = 0; d < nd; d++) free_form(&b[d]);
+        /* 4 processes: each child allocates its device's share and reports its wall through the exit status (tenths of a second) */
+        t0 = now(); pid_t pid[4];
+        for (int d = 0; d < nd; d++) { pid[d] = fork(); if (pid[d] == 0) { void *p = 0; double x = now(); if (hipSetDevice(d) != hipSuccess || hipMalloc(&p, bytes) != hipSuccess) _exit(255); int t = (int)((now() - x) * 10 + 0.5); if (t > 250) t = 250; _exit(t); } }
+        double wp = 0; int child[4];
+        for (int d = 0; d < nd; d++) { int stt = 0; waitpid(pid[d], &stt, 0); child[d] = WIFEXITED(stt) ? WEXITSTATUS(stt) : -1; }
+        wp = now() - t0;
+        printf("  4 threads: %.2f s wall (%.3f s/GB aggregate); 1 thread, 4 calls: %.2f s (%.3f); 4 processes: %.2f s wall including fork + exit, children %.1f / %.1f / %.1f / %.1f s\n",
+               w4, w4 / (nd * bytes / 1e9), w1, w1 / (nd * bytes / 1e9), wp, child[0] / 10.0, child[1] / 10.0, child[2] / 10.0, child[3] / 10.0);
+        harness_result("alloc_4threads", "s", w4); harness_result("alloc_1thread", "s", w1); harness_result("alloc_4procs", "s", wp);
     }
     if (do_seed) {
         /* the contention: hipMalloc of the same bytes with a seed-like team running (compute + device stores) */
