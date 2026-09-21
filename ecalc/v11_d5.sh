@@ -33,7 +33,9 @@ for i in $(seq 1 $n); do
     fi
   fi
   if [ "$c" = identical ] && [ "$ok" = $((SZ + 1)) ]; then N "test -d $TMP/leaf_ref || mv $TMP/leaf_$tag $TMP/leaf_ref; rm -rf $TMP/leaf_$tag"   # the first good run's leaves are the reference
-  else for f in $(N "ls $TMP/leaf_$tag"); do note "  leaf $f vs ref: $(N "cmp -l $TMP/leaf_$tag/$f $TMP/leaf_ref/$f 2>/dev/null | awk 'NR == 1 {a = \$1} {b = \$1} END {printf \"%d differing bytes, first at limb %d, last at limb %d\", NR, a / 8, b / 8}'")"; done; N "rm -rf $TMP/leaf_$tag"; fi
+  else for f in $(N "ls $TMP/leaf_$tag | grep ^leaf_"); do note "  leaf $f vs ref: $(N "cmp -l $TMP/leaf_$tag/$f $TMP/leaf_ref/$f 2>/dev/null | awk 'NR == 1 {a = \$1} {b = \$1} END {printf \"%d differing bytes, first at limb %d, last at limb %d\", NR, a / 8, b / 8}'")"; done
+       note "  level dumps: $(grep -a 'RES bs level .* dumped\|LEVEL MISMATCH\|COPY MISMATCH' $OUT/$tag.log | head -4 | cut -c1-200 | tr '\n' ';')"
+       N "mkdir -p $HOME/v11_dumps; rm -f $TMP/leaf_$tag/leaf_*; mv $TMP/leaf_$tag $HOME/v11_dumps/${J}_$tag 2>/dev/null; rm -rf $TMP/leaf_$tag"; fi
   N "rm -f $TMP/$tag.all"
 done
 note "done $(date -Is)"
