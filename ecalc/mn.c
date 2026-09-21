@@ -22,9 +22,9 @@ int mn_transport_shmem(void) { return g_shmem; }
 int mn_init(void)
 {
     const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT"), *et = getenv("COMM_TRANSPORT");
-    g_shmem = et && !strcmp(et, "shmem");
+    g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported, as TCP does) */
     g_topo = getenv("MN_TOPO_GROUP") ? atoi(getenv("MN_TOPO_GROUP")) : 0;
-    if (g_shmem) {                                       /* rank and size from the SHMEM runtime (oshrun / srun --mpi=pmix); COMM_RANK/SIZE are not needed */
+    if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
         if (!comm_shmem_available()) { fprintf(stderr, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); exit(1); }
         double t0 = mem_now();
         g_size = comm_shmem_init(); g_rank = comm_shmem_rank();
