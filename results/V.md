@@ -59,15 +59,28 @@ limb (or a stale read of one) at that position produces. The fault is inside the
 `rns_mul.c`'s batch tiers: the CPU `spill_merge` writes into the device regions between the CRT kernel and the next
 level's scatter kernel are the one CPU-to-GPU hand-over there), under the forced growth of plane pool 1 — the configuration A-mem's rule excludes (`results/A-mem.md`: pool 1 at the full pool for
 `POOL_LOG` ≤ 30, so nothing grows inside a phase); none of the ≈ 15 default-configuration runs at 10¹⁰/4 and none
-of the regressions failed. It is not in my files. Batch 7 (`ECALC_RES_LOG_CPU=1`: the per-level check reads the regions with the CPU only —
-no kernel, no stream synchronisation — and dumps the first wrong node with its four children, to be recomputed
-offline with `v_dumpcheck.py`) is reported below if it catches one.
+of the regressions failed. Batch 7 (job 20830, `ECALC_RES_LOG_LEVEL=11 ECALC_RES_LOG_CPU=1`: the per-level check reads the regions with the CPU
+only — no kernel, no stream synchronisation — and would dump the first wrong node with its four children):
+**14 of 14 identical**. So 31 of 31 runs with a per-level check (any kind: a kernel reduction or a CPU read of the
+regions between levels, ≈ 2 s per level) against 21 of 26 without — a 0.15 % chance if the check were neutral.
+The fault is a **timing-dependent error in the leaf's level loop under the in-phase growth of plane pool 1**, hidden
+by anything that separates one level's end from the next level's start. It is not in my files (binsplit.c's level
+loop and rns_mul.c's batch tiers: P / N-kernel); the reproducer is `v11_d5.sh <job> 14 shard` (≈ 1 failure in 5, the
+wrong node named by the leaf check, the wrong limb range by the leaf dump against a good run's), and the first
+thing to look at is the one CPU-to-GPU hand-over inside the tier, the CPU `spill_merge` writes into the device
+regions at the stripe boundaries followed by the next level's scatter kernel: "wrong from one stripe-boundary-like
+limb to the top" is what a stale or late operand limb there produces. I did not change that code.
 
-**Verdict for §23-6.** The checker was not at fault: the digits were wrong in every failing run (T.md says so; PLAN
-§23-6's "the digits were right in every failing case" was mistaken), the checker caught it, and its per-prime
-signature was the composite-moduli artefact now removed. What remains open is the bs fault under in-phase pool
-growth (N-kernel/P's tier), reproducible at ≈ 20 % with `v11_d5.sh`, and confined to the configuration the defaults
-avoid.
+**Verdict for §23-6, plainly.** (1) The checker was not at fault and is now stronger: the digits were wrong in every
+failing run (T.md records it; PLAN §23-6's "the digits were right in every failing case" was mistaken), the checker
+caught them, and the per-prime signature that suggested a checker fault was the composite-moduli artefact — seven
+composite moduli, two of which divide every Q — now replaced by the eight true primes (commit 66ee599). (2) There
+**is** a second, real fault: a timing-dependent corruption of a leaf-level product on node 0 or 1 of 10¹⁰/4 under the
+forced in-phase growth of plane pool 1 (5 of 26 unperturbed runs; 0 of 31 with a per-level probe), in the batch tier's
+level loop — **open**, not in my files, reproducer and localisation tools delivered; it does not occur at the
+defaults (A-mem's rule: no growth inside a phase; ≈ 15 default runs at 10¹⁰/4 and every regression clean). The gate
+"20 forced-growth runs all VERIFY OK" is therefore met only with the probe on (31 of 31) and not met without it
+(21 of 26) — I report both rather than the one that passes.
 
 ## `ECALC_RECHECK=1` — the standalone recheck (mn_out.c)
 
@@ -87,6 +100,16 @@ sidecar (then only the file and the recurrence are independent).
 
 Tests: `v11_recheck.sh` — 10⁸ at sizes 1, 2 and 10⁹ at sizes 1, 2: the run with checkpoints, the recheck, and the
 recheck of a file with one digit flipped (must fail). Results below.
+
+## Formats that changed
+
+- The T1 moduli (`t1_q`): every residue printed by T1/RES lines and stored in the `.t1` sidecar changes; the digits and
+  every file format the checkpoints use do not (the moduli never enter them). A sidecar records its moduli and the
+  recheck refuses one written with others.
+- New: `<outfile>.t1` (node 0 writes it after the checks; text, ≈ 400 bytes). New, optional: the size-1 top-level set
+  `tree_000.{hdr,r0..r3}` in `BS_CKPT_DIR` with `ECALC_CKPT_TOP=1` (level 0 is never seen by the restart logic, which
+  scans levels ≥ 1). The multi-node tree sets are unchanged.
+- `mn_out` gained `tail[24], ntail` (the computed digits after d_out); `struct pq_bg` a `joined` flag.
 
 ## E1 (c) — deleted
 
@@ -113,7 +136,23 @@ with one digit flipped):
 
 | case | run | recheck | corrupted file |
 |---|---|---|---|
-| 10⁸ size 1 | VERIFY OK, identical | RECHECK OK: 100 000 001 digits read in 0.1 s, 2 windows, digits → X == the run's, P, Q == the recurrence, T1 ok (P, Q from the sidecar: the level-0 set was not written by this build — fixed in a568823, the host-flow leaf; re-run below) | RECHECK FAILED (`digits == X BAD`) |
+| 10⁸ size 1 | VERIFY OK, identical | RECHECK OK: 100 000 001 digits read in 0.1 s, 2 windows, digits → X == the run's, P, Q == the recurrence, T1 ok (P, Q from the sidecar: the level-0 set is written only by the device flow's leaf in that build; a568823 adds the host-flow leaf — below 4 × 10¹⁰ the size-1 leaf ends on the batch tier — not re-run) | RECHECK FAILED (`digits == X BAD`) |
 | 10⁸ size 2 | 3 VERIFY OK, identical | 3 RECHECK OK: P, Q **from the checkpoint** == the recurrence == the run's; T1 ok | 3 RECHECK FAILED |
 | 10⁹ size 1 | VERIFY OK, identical | RECHECK OK (1.3 s for the file; P, Q from the sidecar, as above) | RECHECK FAILED |
 | 10⁹ size 2 | 3 VERIFY OK, identical | 3 RECHECK OK, P, Q from the checkpoint | 3 RECHECK FAILED |
+
+**Forced-growth runs, the exact count** (10¹⁰ at size 4 on one node, `POOL_LOG=29 RNS_POOL1_GB=3.2213`, this branch):
+57 runs — 26 without a per-level probe: 21 identical + VERIFY OK on every node, 5 VERIFY FAILED with a wrong leaf
+(batches 1, 2, 5: shard5, b2shard3, b2shard4, b5shard11, b5shard12; the `MN_DM=host` runs of batch 1, 2 of 2, were
+identical); 31 with a per-level probe (batches 3, 6, 7): 31 identical, VERIFY OK on every node. Logs under
+`~/ntt-v/ecalc/results/v11/<job>/` on aac6, summaries in `summary_d5.txt`.
+
+## Open issues
+
+- The leaf-level race under in-phase pool growth (above): open, owner P / N-kernel; `v11_d5.sh` reproduces it. Until
+  it is closed the host-flow stand-ins stay (the `MN_DM=host` cross-check) and A-mem's no-growth rule is the guard.
+- The recheck at size 1 needs `ECALC_CKPT_TOP=1` at run time (2 × the top-level P, Q written: 35 GB at 4 × 10¹⁰);
+  without it P, Q come from the sidecar and only the digits, X and the recurrence are recomputed independently.
+- The recheck reads the part files where they were written (node-local `/tmp` at size > 1 means the same nodes).
+- `ECALC_RES_LOG=1` copies every reduced number to the host for the cross-check — a debug mode (seconds at 10¹⁰,
+  ≈ 30 s of bs per run with the level probe).
