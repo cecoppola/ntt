@@ -286,6 +286,11 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     size_t piece = ((size_t)1 << pl) + 8; if (piece > nq_s + k_s + 16) piece = nq_s + k_s + 16;
     L->need_dev = 2 * quarter_bytes(nq_s + nq_s / 10 + 8) + 2 * quarter_bytes(k_s + 4) + L->hole + quarter_bytes(piece);
     L->need_dev += L->need_dev / 8 < ((size_t)1 << 30) ? L->need_dev / 8 : ((size_t)1 << 30);   /* slack for the odd small block (C3's 1 GiB at the large sizes) */
+    /* v3: the device top levels of bs must fit beside the tail, or their P, Q (alive into dm) spill into it and t1 finds it broken
+     * (1e11 with v2: two APUs fell back by 22.2 GB with the tail's 30 GB free in two extents): the last level's inputs (2 P, 2 Q of
+     * half n_Q) and outputs (P, Q of n_Q, with the bound's margin) + 1/8 for the fit, plus the hole */
+    { size_t top = 4 * quarter_bytes(nq_s / 2 + nq_s / 20 + 8) + 2 * quarter_bytes(nq_s + nq_s / 10 + 8); top += top / 8 + L->hole;
+      if (top > L->need_dev) L->need_dev = top; }
     size_t top_scratch = 0; L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl, &top_scratch) : 0;
     L->need_dev += top_scratch;
 }
