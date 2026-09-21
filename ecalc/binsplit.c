@@ -89,18 +89,34 @@ static dbig node_q(const struct level *lv, const struct node *nd) { return nd->q
  * (device regions or device numbers) are reduced modulo the T1 primes and compared with the term recurrence over the
  * node's span range [a0 + i S 2^l, ...): the level and the node whose product first goes wrong are named */
 #include "verify.h"
-static void bs_res_check(const struct level *lv, int level, unsigned long S, unsigned long N)
+static void bs_dump(const char *dir, int level, size_t i, const char *what, const dbig *x)   /* the limbs of a level's node as a raw file */
+{
+    bigint h; bi_init(&h); bi_reserve(&h, x->n ? x->n : 1); h.n = x->n;
+    for (int d = 0; d < DB_NQ; d++) { size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc, s0 = x->off > g0 ? x->off : g0, s1 = x->off + x->n < g1 ? x->off + x->n : g1;
+        if (s0 >= s1) continue; mem_dev_copy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); }
+    char nm[4096]; snprintf(nm, sizeof nm, "%s/bs_n%d_l%d_i%zu_%s.bin", dir, mn_rank(), level, i, what); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); }
+    bi_free(&h);
+}
+static void bs_res_check(const struct level *lv, const struct level *prev, int level, unsigned long S, unsigned long N)
 {
     static int minlev = -1; if (minlev < 0) minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17;
     if (!db_res_log_on() || level < minlev || !lv->nd) return;
-    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0;
+    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0; const char *dump = getenv("ECALC_LEAF_DUMP");
     for (size_t i = 0; i < lv->n; i++) {
         unsigned long a = bs_a0 + i * span, b = a + span; if (b > bend) b = bend; if (a >= bend) break;
         if (!lv->nd[i].pd && mem_dev_of(lv->pool[lv->nd[i].r]) < 0) { printf("RES bs level %d: host pools, not checked\n", level); return; }
         dbig vp = node_p(lv, &lv->nd[i]), vq = node_q(lv, &lv->nd[i]); uint64_t rp[T1_NQ], rq[T1_NQ]; int nb = 0;
         db_mod_qs(&vp, t1_q, T1_NQ, rp); db_mod_qs(&vq, t1_q, T1_NQ, rq);
         for (int j = 0; j < T1_NQ; j++) { uint64_t p, q; vf_pq_range_mod(a, b, t1_q[j], &p, &q); if (p != rp[j] || q != rq[j]) nb++; }
-        if (nb) { bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ); }
+        if (nb) {
+            bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ);
+            if (dump && bad == 1 && prev && prev->nd && 2 * i + 1 < prev->n) {   /* the first wrong node: its P, Q and its children (the operands of the products) as raw limbs */
+                const struct node *ca = &prev->nd[2 * i], *cb = &prev->nd[2 * i + 1];
+                dbig a1 = node_p(prev, ca), a2 = node_q(prev, ca), b1 = node_p(prev, cb), b2 = node_q(prev, cb);
+                bs_dump(dump, level, i, "P", &vp); bs_dump(dump, level, i, "Q", &vq); bs_dump(dump, level, i, "P1", &a1); bs_dump(dump, level, i, "Q1", &a2); bs_dump(dump, level, i, "P2", &b1); bs_dump(dump, level, i, "Q2", &b2);
+                printf("RES bs level %d node %zu dumped to %s: P (%zu limbs) = P1 (%zu) Q2 (%zu) + P2 (%zu), Q (%zu) = Q1 (%zu) Q2; children in regions %d, %d\n", level, i, dump, vp.n, a1.n, b2.n, b1.n, vq.n, a2.n, ca->r, cb->r);
+            }
+        }
     }
     printf("RES bs level %d: %zu nodes, %d BAD%s\n", level, lv->n, bad, bad ? "  LEVEL MISMATCH" : "");
 }
@@ -914,9 +930,9 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bs_st.levels++;
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
         memset(&rns_st, 0, sizeof rns_st);
+        if (!finished) bs_res_check(&nxt, &cur, bs_st.levels, S, N);   /* Phase 11 V (D5): ECALC_RES_LOG (the children's pools of the other parity are still there) */
         free(cur.nd);
         cur = nxt;
-        if (!finished) bs_res_check(&cur, bs_st.levels, S, N);   /* Phase 11 V (D5): ECALC_RES_LOG */
         if (finished) { free(cur.nd); cur.nd = 0; break; }
         /* WP7: snapshot the level just finished (never the top: the loop ends there); M6: levels held as device numbers too */
         if (bs_ckpt_dir && cur.n > 1 && bs_ckpt_every > 0 && bs_st.levels % bs_ckpt_every == 0 && (bs_st.levels >= bs_ckpt_min_level || off * 8 > bs_ckpt_min_bytes)) {
