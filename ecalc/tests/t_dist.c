@@ -273,8 +273,9 @@ int main(int argc, char **argv)
     }
     if (!xgmi && getenv("COMM_RANK")) {                 /* one process per rank over TCP (WP6); rank r uses APU r mod 4 */
         int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
-        tcp = comm_tcp_create();
-        printf("t_dist: rank %d of %d over TCP\n", rk, comm_size(tcp));
+        int shm = getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem");   /* Phase 11 S: the same mode over the SHMEM transport (mnrun.sh) */
+        tcp = shm ? comm_shmem_create_at(0, 1, comm_shmem_init(), 0) : comm_tcp_create();
+        printf("t_dist: rank %d of %d over %s\n", rk, comm_size(tcp), shm ? "SHMEM" : "TCP");
         VERIFY(check_allgather(tcp, 0), "tcp allgather");
         VERIFY(check_alltoallv(tcp), "tcp alltoallv");
     }
@@ -287,6 +288,6 @@ int main(int argc, char **argv)
     if (logmax >= 26) VERIFY(one(0, 13, 13), "dist conv 2^26");
     if (logmax >= 30) VERIFY(one(1, 15, 15), "dist conv 2^30");
     if (logmax >= 31) VERIFY(one(2, 16, 15), "dist conv 2^31");
-    if (tcp) comm_destroy(tcp);
+    if (tcp) { int shm = getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"); comm_destroy(tcp); if (shm) comm_shmem_finalize(); }
     return verify_done("t_dist");
 }

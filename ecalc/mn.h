@@ -16,6 +16,7 @@ int   mn_init(void);              /* reads the environment, opens the meshes; re
 int   mn_rank(void);
 int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
+int   mn_transport_shmem(void);   /* Phase 11 S: 1 when the meshes are SHMEM PE sets (COMM_TRANSPORT=shmem) */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
 /* M3 (PLAN.md 17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
