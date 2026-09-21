@@ -94,4 +94,18 @@ only path) and the `ECALC_OVERLAP_COPY` remnant (a comment; its code was already
 
 ## Gate runs
 
-(filled in below as they complete)
+**Regression** (job 20818, `./mnaccept.sh 20818 --full` on the branch @ 45ef12e — the new moduli, the recheck code, the
+deletions): **17 passed, 0 failed in 1904 s**: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify (334), t_out,
+t_mn_grid at 2 procs; 10⁹ size 1 base 10 (14.3 s) and base 2 (25.1 s) identical; 10⁸ sizes 2/3/4 and 10⁹ sizes 2/4
+identical, all nodes VERIFY OK; ckpt restart identical; **4 × 10¹⁰ size 1: identical to `results/e_4e10.out`, VERIFY OK,
+total 86.21 s** (171 s with the write). So the moduli change left the digits bit-identical at 10⁹ and 4 × 10¹⁰.
+
+**Recheck mode** (job 20818, `v11_recheck.sh`; each: the run with `BS_CKPT_DIR`, the recheck, the recheck of the file
+with one digit flipped):
+
+| case | run | recheck | corrupted file |
+|---|---|---|---|
+| 10⁸ size 1 | VERIFY OK, identical | RECHECK OK: 100 000 001 digits read in 0.1 s, 2 windows, digits → X == the run's, P, Q == the recurrence, T1 ok (P, Q from the sidecar: the level-0 set was not written by this build — fixed in a568823, the host-flow leaf; re-run below) | RECHECK FAILED (`digits == X BAD`) |
+| 10⁸ size 2 | 3 VERIFY OK, identical | 3 RECHECK OK: P, Q **from the checkpoint** == the recurrence == the run's; T1 ok | 3 RECHECK FAILED |
+| 10⁹ size 1 | VERIFY OK, identical | RECHECK OK (1.3 s for the file; P, Q from the sidecar, as above) | RECHECK FAILED |
+| 10⁹ size 2 | 3 VERIFY OK, identical | 3 RECHECK OK, P, Q from the checkpoint | 3 RECHECK FAILED |
