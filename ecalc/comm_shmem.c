@@ -368,10 +368,10 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     p->seq++; p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst;
     TRACE("comm %d: alltoall seq %ld, %zu B per slab%s%s", p->id, p->seq, bytes, sin ? ", send in pool" : "", rin ? ", recv in pool" : "");
-    publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
     if (!sin) COPY(S.pool + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
-    SYNC(s);
+    SYNC(s);                                              /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
     start_push(c);
 }
 static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
@@ -384,10 +384,10 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     p->seq++; p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst; p->sdsp = sin ? sdsp : p->spre;
-    publish(p, rin ? off_of(rb) : p->rst, 0, rin ? rdsp : p->rpre);
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(S.pool + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     SYNC(s);
+    publish(p, rin ? off_of(rb) : p->rst, 0, rin ? rdsp : p->rpre);
     start_push(c);
 }
 static void s_wait(comm *c)
