@@ -316,14 +316,14 @@ static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt
  * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
 /* Phase 11 X1: the same with Y sharded over the group Gt (a subgroup of the mesh's group G, or a group containing X's:
  * the pieces of nodes outside Gt or outside X's group are empty; every node of G takes part in the exchange) */
-static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, const mn_group *Gt)
+static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, int tg0, int tg)
 {
     double t0 = mem_now(); mn_st.n_shift++;
     ms_init();
     int g = G->g, me = G->me, node = G->g0 + me;
     size_t n2 = s >= 0 ? (X->n > (size_t)s ? X->n - (size_t)s : 0) : X->n + (size_t)(-s);
     int trunc = n2 > N2; if (trunc) n2 = N2;
-    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = Gt->g0; Yn.g = Gt->g; Yn.n = n2; db_init(&Yn.sh);
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = tg0; Yn.g = tg; Yn.n = n2; db_init(&Yn.sh);
     size_t lo2, hi2; mdb_share(&Yn, node, &lo2, &hi2); size_t cn = hi2 - lo2;
     db_zero_fill(&Yn.sh, cn);
     size_t lo1, hi1; mdb_share(X, node, &lo1, &hi1);
@@ -359,7 +359,7 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, co
     *Y = Yn;
     mn_st.t_shift += mem_now() - t0;
 }
-static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G) { mdb_shift_g(Y, X, s, N2, G, G); }
+static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G) { mdb_shift_g(Y, X, s, N2, G, G->g0, G->g); }
 /* the node-level carry scan: my (carry-out, propagate) with everyone's -> my carry-in; the top node's carry-out in *top_out */
 static int node_scan(mn_group *G, int c, int p, int *top_out)
 {
@@ -544,7 +544,7 @@ static void x1_regroup(mdb *r, mn_group *to, int was_member)
     mn_allgather(to->all[0], v, 4, all);
     if (!was_member) { r->n = all[0]; r->N = all[1]; r->g0 = (int)all[2]; r->g = (int)all[3]; if (r->sh.cap) db_free(&r->sh); memset(&r->sh, 0, sizeof r->sh); }
     free(all);
-    mdb rn; memset(&rn, 0, sizeof rn); mdb_shift_g(&rn, r, 0, r->N, to, to); mfree(r); *r = rn;
+    mdb rn; memset(&rn, 0, sizeof rn); mdb_shift_g(&rn, r, 0, r->N, to, to->g0, to->g); mfree(r); *r = rn;
 }
 /* X1 for the division's two products: when the rule (with the cost of re-sharding A, B and C counted) prefers a
  * subgroup, the operands go onto it, the product runs there, the result comes back onto G (never on the target's
@@ -556,7 +556,7 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
     mn_group *Gs = mn_group_at(L); int member = x1_member(Gs);
     if (getenv("NEWTON_VERBOSE") && G->me == 0) printf("divmod(mn): the product %zu x %zu limbs on the group [0, %d)\n", A->n, B->n, Gs->g);
     mdb As, Bs, Cs; memset(&As, 0, sizeof As); memset(&Bs, 0, sizeof Bs); memset(&Cs, 0, sizeof Cs);
-    mdb_shift_g(&As, A, 0, A->N, G, Gs); mdb_shift_g(&Bs, B, 0, B->N, G, Gs);
+    mdb_shift_g(&As, A, 0, A->N, G, 0, 1 << L); mdb_shift_g(&Bs, B, 0, B->N, G, 0, 1 << L);   /* the target [0, 2^L) on every node (a non-member's Gs is its own group) */
     if (member) mn_prod_cut(&Cs, &As, &Bs, Gs, lowcut, highcut);
     mfree(&As); mfree(&Bs);
     x1_regroup(&Cs, G, member);
@@ -594,7 +594,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
         if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
         else jn = 2 * j < k ? 2 * j : k;
         size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
-        mn_group *Gn = x1_group(x1_level(take, j + 1, G, 0), G);
+        int Ln = x1_level(take, j + 1, G, 0); mn_group *Gn = x1_group(Ln, G);
         if (Gn != Gs) {                                                /* the group grows (never shrinks: the products only get longer) */
             int was = member; member = x1_member(Gn);
             if (!Gs) { r.n = r.N = r0.n; r.g0 = Gn->g0; r.g = Gn->g; if (member) mdb_from_db(&r, &r0, r0.n, Gn); }   /* every node has r0: the members take their share */
@@ -603,7 +603,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             if (nv && me == 0 && Gs != G) printf("newton(mn): j %zu on the group [0, %d)\n", j, Gs->g);
         }
         if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
-        else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, Gs);      /* Q_t: the top limbs of Q, onto the step's group (once per step: a repeat reuses it) */
+        else mdb_shift_g(&qt, Q, (long)(nq - take), take, G, 0, Ln ? 1 << Ln : G->g);   /* Q_t: the top limbs of Q, onto the step's group [0, 2^L) (once per step: a repeat reuses it) */
         if (!member) { j = jn; newton_st.iters++; continue; }
         for (;;) {
             double s0 = mem_now();
