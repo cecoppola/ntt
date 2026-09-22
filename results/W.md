@@ -91,10 +91,12 @@ disk (40 GB + 35.6 GB read; the file was in the page cache in these runs, the se
 ## 4. The host-flow stand-ins (`MN_DM=host`, `MN_COMBINE=host`) — **kept**
 
 Checked at the end of the session (`ls /home/machinus/apucode/ntt/.claude/worktrees/*/results/R.md`): one `R.md`
-(agent-a50c987e…, 575 bytes, 19:33) — the header names a one-line fix in `mem_dev_copy_on` (`mem.c`) and the stress
-step, and says "(filled in below as the batches complete)"; no cause statement, no 40/40 count, and R's job was still
-running (20904) when I closed. The rule was "delete only if R.md says the cause is fixed and 40/40 passed": it does not
-yet, so the stand-ins stay — `ecalc.c`'s `MN_COMBINE=host` combine and `MN_DM=host` gather + host division, `mn_out.c`'s
+(agent-a50c987e…, last written 00:30). It names the transition (a stale operand: the odd-node copy at a level boundary
+issued by `mem_dev_copy_on` without a wait on the caller's stream, read by the next level's Q₁₇ operand before it had
+landed — the failing leaves are wrong from limb 2¹⁷ + a few pages, as V measured), has the one-line fix in `mem.c` and the
+no-growth invariant (`RNS_POOL_GROW`), and reports the unfixed witness runs (1 wrong leaf in 13, twice); its **"Gate
+runs" section still reads "(filled in below)"** — no 40/40 count at the time I closed. The rule was "delete only if R.md
+says the cause is fixed and 40/40 passed": the second half is not there yet, so the stand-ins stay — `ecalc.c`'s `MN_COMBINE=host` combine and `MN_DM=host` gather + host division, `mn_out.c`'s
 `mn_out_scatter_standin` (the host X scattered into shares), `mn.c`'s `mn_gather_host` (M3's end: the shares assembled on
 node 0's host) and the host-`X` path of `newton_db_divmod` that only `MN_DM=host` reaches at size > 1 — untouched, listed in the README's switch table as
 *stand-in … kept while DECISIONS2 #1 is open*. Deleting them is a 20-minute edit for the integrator once R's numbers are
