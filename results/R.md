@@ -85,10 +85,13 @@ checkpoint restart, 4 × 10¹⁰) and the 40 forced-growth-recipe runs below all
 
 ## `mnaccept.sh --stress`
 
-10 runs of 10⁹ at size 4 with `RNS_POOL_GROW=1 POOL_LOG=27 RNS_POOL1_GB=0.8054 RNS_BATCH_LOCAL_MIN=2 MEM_DPOOL_FILL=1`:
-pool 1 at 0.75 GiB; the top leaf level (N = 2, one shared B) goes through the batch-local grpB tile at L = 2²⁵, which needs
-`EC_NP × L × 8` = 1 GiB — the one place the tiers ask for more than the pools hold at 10⁹ — so pool 1 grows inside bs (the
-growth line is required in every run's log, else the step fails), and the grown pool is filled with 0xA5 first. Every run
+10 runs of 10⁹ at size 4 with `RNS_POOL_GROW=1 POOL_LOG=27 RNS_POOL1_GB=0.4 RNS_BATCH_LOCAL_MIN=2 MEM_DPOOL_FILL=1`:
+pool 1 at 381 MiB. At 10⁹ over four processes every batch-local tile is capped by pool 0 (1 GiB at `POOL_LOG=27`) to
+`EC_NP × Mmax × L × 8` = 1 GiB of A planes and therefore asks for 512 MiB of B planes (`EC_NP × L × 8` in grpB at the top
+leaf level, L = 2²⁴; `EC_NP × Mmax/2 × L × 8` in pair mode below it) — measured from a run: the first batch level already
+asks for it. So pool 1 grows inside bs at the first level (the growth line is required in every run's log, else the step
+fails) and the grown pool is filled with 0xA5 first. (The first attempt, `RNS_POOL1_GB=0.8054` = 0.75 GiB, was above that
+512 MiB and grew nothing: job 20937, 10 of 10 identical but 0 growths — the step correctly failed.) Every run
 must be identical to the reference with all 4 nodes VERIFY OK. Opt-in like `--full`; ≈ 10 min.
 
 So **2 failures in 26 unfixed runs** (V had 5 in 26 on the same recipe; the pooled rate is 7 in 52 ≈ 13 %), and with the
