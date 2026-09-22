@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     size_t bytes = ((size_t)(gb * 1e9) + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
     int do_ntt = getenv("T_ALLOC_NTT") ? atoi(getenv("T_ALLOC_NTT")) : 1, do_seed = getenv("T_ALLOC_SEED") ? atoi(getenv("T_ALLOC_SEED")) : 1;
     int sel[F_N] = {0}, nsel = 0;
-    for (int i = 2; i < argc; i++) for (int f = 0; f < F_N; f++) if (!strcmp(argv[i], fname[f])) { sel[f] = 1; nsel++; }
+    for (int i = 2; i < argc; i++) { if (!strcmp(argv[i], "none")) nsel = -1; for (int f = 0; f < F_N; f++) if (!strcmp(argv[i], fname[f])) { sel[f] = 1; nsel++; } }   /* "none": only the probe (a fresh process's first allocation) */
     if (!nsel) for (int f = 0; f < F_N; f++) sel[f] = f != F_ASYNC;   /* async only when asked: its warm re-allocation faulted (illegal access in the fill) on ROCm 6.x -- run it last, alone */
     printf("== t_alloc: %.1f GB per APU on %d APUs in parallel, %d cpus ==\n", bytes / 1e9, nd, omp_get_max_threads());
     harness_meta("t_alloc");
@@ -241,15 +241,12 @@ int main(int argc, char **argv)
         for (int d = 0; d < nd; d++) free_form(&b[d]);
         t0 = now(); for (int d = 0; d < nd; d++) alloc_form(&b[d], F_HIPMALLOC, d, bytes); double w1 = now() - t0;
         for (int d = 0; d < nd; d++) free_form(&b[d]);
-        /* 4 processes: each child allocates its device's share and reports its wall through the exit status (tenths of a second) */
-        t0 = now(); pid_t pid[4];
-        for (int d = 0; d < nd; d++) { pid[d] = fork(); if (pid[d] == 0) { void *p = 0; double x = now(); if (hipSetDevice(d) != hipSuccess || hipMalloc(&p, bytes) != hipSuccess) _exit(255); int t = (int)((now() - x) * 10 + 0.5); if (t > 250) t = 250; _exit(t); } }
-        double wp = 0; int child[4];
-        for (int d = 0; d < nd; d++) { int stt = 0; waitpid(pid[d], &stt, 0); child[d] = WIFEXITED(stt) ? WEXITSTATUS(stt) : -1; }
-        wp = now() - t0;
-        printf("  4 threads: %.2f s wall (%.3f s/GB aggregate); 1 thread, 4 calls: %.2f s (%.3f); 4 processes: %.2f s wall including fork + exit, children %.1f / %.1f / %.1f / %.1f s\n",
-               w4, w4 / (nd * bytes / 1e9), w1, w1 / (nd * bytes / 1e9), wp, child[0] / 10.0, child[1] / 10.0, child[2] / 10.0, child[3] / 10.0);
-        harness_result("alloc_4threads", "s", w4); harness_result("alloc_1thread", "s", w1); harness_result("alloc_4procs", "s", wp);
+        printf("  4 threads: %.2f s wall (%.3f s/GB aggregate); 1 thread, 4 calls: %.2f s (%.3f)   (a fork of a HIP process cannot allocate: 4 processes are not measurable here)\n",
+               w4, w4 / (nd * bytes / 1e9), w1, w1 / (nd * bytes / 1e9));
+        double t2 = now(); struct rusage r0, r1; getrusage(RUSAGE_THREAD, &r0); alloc_form(&b[0], F_HIPMALLOC, 0, bytes); getrusage(RUSAGE_THREAD, &r1); double w2 = now() - t2;
+        printf("  one thread, one device, %.1f GB: wall %.2f s, user %.2f s, system %.2f s (%.3f s/GB)\n", bytes / 1e9, w2, (r1.ru_utime.tv_sec - r0.ru_utime.tv_sec) + 1e-6 * (r1.ru_utime.tv_usec - r0.ru_utime.tv_usec), (r1.ru_stime.tv_sec - r0.ru_stime.tv_sec) + 1e-6 * (r1.ru_stime.tv_usec - r0.ru_stime.tv_usec), w2 / (bytes / 1e9));
+        free_form(&b[0]);
+        harness_result("alloc_4threads", "s", w4); harness_result("alloc_1thread", "s", w1);
     }
     if (do_seed) {
         /* the contention: hipMalloc of the same bytes with a seed-like team running (compute + device stores) */
