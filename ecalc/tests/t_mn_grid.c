@@ -143,7 +143,7 @@ int main(int argc, char **argv)
             VERIFY(check(&C, &r, "subgroup product"), "group [%d, %d) product %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
             rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);
             VERIFY(check(&C, &t, "subgroup product + x"), "group [%d, %d) product + x %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
-            rns_mul_dist_mn(&C, &A, &B, 0, G1); bi_copy(&t, &r);
+            rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);   /* (the product + X: basis na + nb + 1 -- room for the adds below; the plain product's basis overflows with the all-ones operands) */
             size_t ks[] = { 0, na / 2 };
             for (int ki = 0; ki < 2; ki++) {
                 mdb_add_shifted(&C, &X, ks[ki], G1); bi_shl_limbs(&rl, &x, ks[ki]); bi_add(&t, &t, &rl); mdb_norm(&C, G1, (size_t)-1);
