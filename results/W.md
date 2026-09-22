@@ -46,7 +46,10 @@ staging; `bs_ckpt_tree_pdone`: the count of a tree set's files whose P part is w
 The set: 35.56 GB in 31.57 s in the background (1.13 GB/s to the node's `/tmp`); the driver waited **0.00 s for P** before
 S = P + Q (P's 17.8 GB were on disk before the 14 s reciprocal ended) and **2.15 s for Q** after the division. So on the
 wall to VERIFY the cost is +0.9 s (the run-to-run spread is ± 1.4 s; by phases dm is +3.4 s: the 2.15 s wait plus ≈ 1.2 s
-of a slower reciprocal and division under the concurrent DMA + writes). What is not hidden is the disk: the digit file's
+of a slower reciprocal and division under the concurrent DMA + writes). Two more runs: job 20891 (same node) waited
+3.23 s for Q, 85.25 s total with a slow init (17.8 s); job 20912 on node s24-16, whose disk took the set at 1.59 GB/s,
+waited 0.00 s for both — 82.42 s. So the wait is the disk's rate against the division's 15–17 s: hidden entirely at
+≥ 1.5 GB/s, 2–3 s exposed at 1.1 GB/s. What is not hidden is the disk: the digit file's
 40 GB write, which overlaps the division and runs on past VERIFY, finishes ≈ 18 s later because the same disk absorbed
 35.6 GB more (171 s elapsed with the write, against ≈ 155 s). Verdict: the top-level set costs ≈ 1 s of the run's wall
 and ≈ 30 s of disk time on a 1.1 GB/s local disk — default on above 10¹⁰ as DECISIONS2 §8 recommends; `ECALC_CKPT_TOP=0`
@@ -80,7 +83,10 @@ recheck found `e4e10.txt.top` itself:
 recurrence 2.2 s) against the run's 81.9 s — the recheck of a run is as long as the run, and it is all disk: 76 GB
 read from `/tmp`. In that build the file was read twice (the residues, then the windows); commit 36afd71 folds the
 windows into the residue pass and takes the counts and tails from `stat` and the file's end, so the recheck reads the
-file once — the number with it is in the gate runs below.
+file once: 72.9 s for the file, 82 s end to end (job 20891). What remained was the serial non-digit scan and the
+serial read; fd82fb8 runs the scan over the OpenMP team and reads the next 256 MB chunk in a thread while the current
+one is reduced: **36.3 s for the file, 46 s end to end** (job 20912) — 0.56 of the run's wall, and the floor is now the
+disk (40 GB + 35.6 GB read; the file was in the page cache in these runs, the set mostly not).
 
 ## 4. The host-flow stand-ins (`MN_DM=host`, `MN_COMBINE=host`) — **kept**
 
@@ -123,7 +129,11 @@ negation rule (not ignored), `git ls-files results` lists the 21 write-ups.
   both corrupted copies RECHECK FAILED), full 2: **4 × 10¹⁰ 85.25 s** (init 17.8 — a slow init this time — bs 34.8,
   recip 14.1, dm 32.5; the set 35.56 GB in 32.61 s, waited 0.00 s for P, 3.23 s for Q; 160 s with the write; identical)
   and **its recheck 82 s** (the file 72.9 s in one pass, the set 35.6 GB, RECHECK OK, P, Q from the checkpoint).
-- **Job TBD3** (fd82fb8, the reader thread + parallel scan: `--only recheck`, `--full --only full`): TBD3
+- **Job 20912** (fd82fb8, node s24-16, the reader thread + parallel scan: `--only recheck` then `--full --only full`):
+  recheck 2/2 (44 s; 10⁹ file read 0.7 s), full 2/2 — **4 × 10¹⁰ 82.42 s** identical (init 17.3, bs 35.5, recip 14.3,
+  dm 29.6; the set 35.56 GB in 22.43 s at 1.59 GB/s on this node's disk, **waited 0.00 s for P and 0.00 s for Q** — the
+  write fully hidden; 162 s with the digit write) and **its recheck 46 s** (the 40 GB file **36.3 s**, RECHECK OK, P, Q
+  from the checkpoint == the recurrence == the run's, T1 ok).
 
 Commands: `sbatch -p PPAC_MI300A_SPX -N1 --gpus=4 -t 0:45:00 -J W --wrap "sleep 2700"`, then from `~/ntt-w/ecalc`
 `./mnaccept.sh <job> [--full] [--only recheck,full]`; the logs on aac6 under `~/ntt-w/ecalc/results/mnaccept/<job>/`
@@ -139,8 +149,9 @@ Size 1 digits untouched: 10⁹ identical in both bases and 4 × 10¹⁰ identica
   output stage instead of before (memory allows it at 4 × 10¹⁰, not checked at 10¹¹); or point `BS_CKPT_DIR` at a faster
   disk. The digit file's own write, which runs on after VERIFY, is the larger disk consumer (40 GB) and now shares the disk
   with 35.6 GB more: 160–171 s to the last byte against ≈ 155 s without the set.
-- The recheck of a 4 × 10¹⁰ run is as long as the run (82–98 s): 76 GB read from the local disk. With the reader
-  thread the compute overlaps the read; the floor is the disk (≈ 36 s for 40 GB at 1.1 GB/s if uncached, plus the set).
+- The recheck of a 4 × 10¹⁰ run: 46 s (0.56 of the run) with the file in the page cache; from a cold disk the floor is
+  the disk (40 GB + 35.6 GB at 1.1–1.6 GB/s ≈ 50–70 s). The set's read (`bs_ckpt_tree_read`, four threads through 1 GiB
+  chunks) is the other half; not measured separately.
 - At size > 1 the default top tree set is written synchronously by `mn_tree` (each node's share: 35 GB / size per node
   at 4 × 10¹⁰), as the Phase 10 tree checkpoints always were; a background write there would be the same pattern as the
   size-1 one (the tree's P, Q shares are read-only until the division re-shards them) — not done, not measured beyond
