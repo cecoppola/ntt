@@ -29,7 +29,13 @@
 #define NR 4
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
-static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
+static int g_cap_test;                                        /* Phase 12 G: rns_dist_cap_test -- the tree's own forced cap (MN_TREE_LOGN_TEST), 0 = DIST_LOGN_TEST / the default */
+static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = g_cap_test ? g_cap_test : e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
+void rns_dist_cache_release(void);
+/* Phase 12 G (tests): force the plane cap 2^logn (0: back to the default) for the products that follow -- mn_tree brackets its
+ * levels with it (MN_TREE_LOGN_TEST) so the tree's grid runs at 10^10 on one node while the division keeps its own cap.  The
+ * transform cache's slots are sized by the cap, so they are released at every change */
+void rns_dist_cap_test(int logn) { rns_dist_cache_release(); g_cap_test = logn; }
 /* Phase 10 A6: the pointwise product fused into the column inverse's first pass (DIST_PW_FUSE, default 1; bit-identical),
  * and the four-step split logR = logn / 2 + DIST_LOGR_DELTA (0: as before; +1 puts 7-stage passes -- the register-blocked
  * body -- on the rows of a 2^31 plane: logR 16, logC 15 ... measured, see results/G.md) */
@@ -698,6 +704,15 @@ static void piece_window(const mdb *C, int r, size_t shift, size_t Np, size_t *l
     *lo = a; *hi = b;
 }
 
+/* Phase 12 G (the exact spill exchange): the columns j whose 4-limb spill block [R j + a, R j + a + 4) meets the window
+ * [lo, hi) of a node's share (piece coordinates): a contiguous range [j0, j1) -- a = the first row of the rank after the
+ * spilling one (the block-cyclic map: rank rho's stripe j spills at R j + part0(rho + 1), the last rank's at R (j + 1)) */
+static void spill_cols(size_t lo, size_t hi, size_t a, size_t R, size_t C, size_t *j0, size_t *j1)
+{
+    size_t x0 = lo > a + 3 ? (lo - a - 3 + R - 1) / R : 0, x1 = hi > a ? (hi - a + R - 1) / R : 0;   /* R j + a + 3 >= lo; R j + a < hi */
+    if (x0 > C) x0 = C; if (x1 > C) x1 = C; if (x1 < x0) x1 = x0;
+    *j0 = x0; *j1 = x1;
+}
 /* ---- Phase 11 L: the general four-step over 4 g ranks with unequal parts (g not a power of two) ------------------
  * Row layout: my rows x C row-major; column layout: my cols columns of R points.  Forward: the row pass, then chunk k
  * of my rows (rows k / K ..) twiddled and packed into slabs, slab sigma = my chunk rows x sigma's columns column-major
@@ -872,7 +887,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (direct && shift) { fprintf(stderr, "rns_mul_dist_mn: a direct piece at a shift\n"); exit(1); }   /* direct: the window is the share's first tn limbs */
     dbig T; db_init(&T); dbig *dst = direct ? &Cn->sh : &T;
     if (!direct && tn) db_zero_fill(&T, tn);
-    const uint64_t *sp[NR]; uint64_t *spill_rb[NR];
+    const uint64_t *sp[NR]; uint64_t *spill_rb[NR]; const size_t *sptab[NR]; size_t *sptab_d[NR];
     double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
 #pragma omp parallel num_threads(NR)
     {
@@ -882,7 +897,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         struct rdst oA, oB, oX; memset(&oA, 0, sizeof oA); memset(&oB, 0, sizeof oB); memset(&oX, 0, sizeof oX);
         struct seg *hseg = (struct seg *)malloc(8 * g * sizeof *hseg), *hsO = hseg + 6 * g, *hsI = hseg + 7 * g;
         struct seg *dseg = (struct seg *)db_pool_alloc(d, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
-        size_t *cnt = (size_t *)malloc(16 * g * sizeof *cnt), *ocnt = cnt + 12 * g;
+        size_t *cnt = (size_t *)malloc(23 * g * sizeof *cnt), *ocnt = cnt + 12 * g, *pcnt = cnt + 16 * g, *htab = cnt + 20 * g;   /* Phase 12 G: pcnt (4 g) and htab (3 g) for the spill exchange */
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
         uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : db_pool_alloc(d, q * 8);
         uint64_t *ca = slA >= 0 ? g_cache.s[slA].pl[d] : 0, *cb = slB >= 0 ? g_cache.s[slB].pl[d] : 0;   /* A1: the cache planes of A and B on this rank */
@@ -954,10 +969,19 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_wait(G->all[d]);
           if (tn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
                             struct acc c = acc_db(dst, 0, tn); k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, tlo, rbO, dsI, g, S, R, nr, d); }
-          spill_rb[d] = db_pool_alloc(d, (size_t)g * C * 4 * 8);
-          comm_allgather(G->all[d], v->spill, spill_rb[d], C * 4 * 8);   /* every rank's spills (4 C limbs), in node order */
-          HIP_CHECK(hipStreamSynchronize(s));
-          sp[d] = spill_rb[d];
+          /* Phase 12 G: the spills exchanged exactly (was an all-gather of every rank's 4 C limbs: g x 4 C per APU, 77 GB per node at
+           * 576 nodes).  My stripe j spills into limbs [R j + a, +4) of the piece, a = the first row of the next rank: node r gets the
+           * blocks of the columns [j0, j1) that meet its window (spill_cols; adjacent windows share at most one block, added on each
+           * side within its own limbs, the carry between them by the node scan); I receive, per source rank (r, d), the blocks that
+           * meet mine, back to back in node order -- about 4 C limbs in all, whatever g (the sparse add decodes them by the table) */
+          { size_t *scnt2 = pcnt, *sdsp2 = pcnt + g, *rcnt2 = pcnt + 2 * g, *rdsp2 = pcnt + 3 * g, blocks = 0, a_me = part0(R, nr, rho + 1);
+            for (int r = 0; r < g; r++) { size_t lo, hi, j0, j1; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); spill_cols(lo, hi, a_me, R, C, &j0, &j1); scnt2[r] = (j1 - j0) * 4 * 8; sdsp2[r] = j0 * 4 * 8; }
+            for (int r = 0; r < g; r++) { size_t j0, j1; spill_cols(tlo, thi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
+            spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
+            HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
+            comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_wait(G->all[d]);
+            HIP_CHECK(hipStreamSynchronize(s));
+            sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] = mem_now() - s3;
           db_pool_free(d, rbO); }
         if (cx) db_pool_free(d, cx);
@@ -968,9 +992,9 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
-    if (tn) db_share_add_spills(dst, tn, tlo, sp, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
+    if (tn) db_share_add_spills_x(dst, tn, tlo, sp, sptab, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
     share_carry_fix(G, dst, tn, co, pr);
-    for (int d = 0; d < NR; d++) db_pool_free(d, spill_rb[d]);
+    for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
     if (!direct) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
         co = 0; pr = cn == 0;
         if (tn) db_share_add_shifted(&Cn->sh, cn, &T, tlo + shift - clo, &co, &pr);
@@ -1084,13 +1108,41 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
     if (na + nb <= cap) { *ka = *kb = 1; return; }
     split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(G->g), 0, ka, kb);   /* mn tier: no radix-3 planes (Phase 11 P) */
 }
+/* Phase 12 G: the block-pool bytes per device at the peak of the product C = A B (+ X) of na x nb limbs over g nodes, on a
+ * node whose shares of A, B and C are share_a, share_b, share_c limbs: the largest piece of the grid at the group's cap
+ * (mn_grid), with mn_core's buffers -- the received sequences rbA, rbB, rbX (<= qs = my rows x C each), the packed part
+ * sb (my share's limbs on APU d's ranks: about a quarter of it), cx and tmp (q each), then the result exchange's rbO (my
+ * window's part), the exact spills (~ 4 C limbs) and the window temporary T (a quarter of the window, at most share_c).
+ * Not counted: the plane pools (their init size: q <= 2^(min(31, pool_log) - 2) limbs per prime, whatever g and n) and the
+ * transform cache's slots (hipMalloc'd as the free memory allows).  binsplit.c's arena layout (tree_need_dev) and
+ * mem_model.py (the same formula in Python) use it; *pieces = ka x kb (1 = one plane, the M3 path). */
+size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces)
+{
+    if (!na || !nb || g < 2) { if (pieces) *pieces = 0; return 0; }
+    size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
+    if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
+    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
+    int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
+#define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)   /* my sequence over an operand of len limbs */
+    size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;                  /* my part of a piece view */
+    size_t sb = (va > vb ? va : vb) / 4 + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
+    int xin = has_x && ka * kb == 1;                                                                /* X rides in the CRT only on one plane; a grid adds it afterwards (mdb_add_shifted: O(chunk)) */
+    size_t win = share_c < nc ? share_c : nc, xq = xin ? q : 0, tmp = is_pow2(g) ? q : 0;
+    size_t peak1 = RT(pa) + RT(pb) + (xin ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;          /* the operands in: the sequences + one packed part + cx, tmp */
+    size_t peak2 = win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;              /* the result out: rbO (my window's part), the spills, cx and tmp still held */
+    size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
+#undef RT
+    return bytes;
+}
 /* ---- Phase 11 L: the level -> group-size schedule of the distributed tree (MN_GROUPS) ------------------------------
  * out[l-1] = the group size of tree level l >= 1 (the nodes [k G_l, min((k+1) G_l, size)), k = rank / G_l); the children of
  * a level are the groups of the previous level (size 1 at level 1), so a ratio G_l / G_{l-1} > 2 is a k-way step (the
  * tree combines the k children in k - 1 products over the level's group, each balanced over all its nodes).  Sizes are
  * increasing; each is a multiple of the previous, or the size itself (the top group is cut by the size: 512 -> 576 is
- * allowed as the default).  MN_GROUPS=2,4,8,16,32,64,576 (or ..., 64, 192, 576); default: the powers of two up to the
- * largest <= size, then size.  Returns the level count (0 at size 1); aborts on an invalid list. */
+ * allowed).  MN_GROUPS=2,4,8,16,32,64,576 (the 9-way top) or ..., 64, 512, 576; default (Phase 12 G, agent Q's decision): the
+ * powers of two dividing the size, then the odd part's prime factors ascending (576 -> 2, 4, ..., 64, 192, 576: two 3-way
+ * steps; a power of two: the binary tree).  Returns the level count (0 at size 1); aborts on an invalid list. */
 int mn_groups_parse(int size, int *out, int max)
 {
     int n = 0; const char *e = getenv("MN_GROUPS");
@@ -1107,7 +1159,15 @@ int mn_groups_parse(int size, int *out, int max)
             if (n && v % out[n - 1]) { fprintf(stderr, "MN_GROUPS: %ld is not a multiple of %d ('%s')\n", v, out[n - 1], e); exit(1); }
             out[n++] = (int)v;
         }
-    } else for (int v = 2; v <= size && n < max; v *= 2) out[n++] = v;
+    } else {
+        /* Phase 12 G (agent Q's decision, results/Q.md 1: the 3 . 3 top at 576): the powers of two that divide the size, then the
+         * odd part's prime factors in increasing order -- 576 = 2^6 . 3 . 3 -> 2, 4, ..., 64, 192, 576; 9 -> 3, 9; 6 -> 2, 6; a power
+         * of two -> the binary tree as before.  Every group is then exact (no cut top group) and every level is a k-way step by
+         * one prime factor */
+        int v = 1; while (v * 2 <= size && size % (v * 2) == 0 && n < max) { v *= 2; out[n++] = v; }
+        int rest = size / v;
+        for (int f = 3; rest > 1 && n < max; f += 2) while (rest % f == 0 && n < max) { v *= f; out[n++] = v; rest /= f; }
+    }
     if (!n || out[n - 1] != size) { if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); } out[n++] = size; }
     return n;
 }
@@ -1146,7 +1206,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     if (nX && k + nX > C->N) { fprintf(stderr, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); exit(1); }
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo;
-    size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, r, k, nX, &lo, &hi); size_t qq = (hi - lo + 3) / 4; if (qq > maxq) maxq = qq; }
+    size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);   /* (Phase 12 G: was add_window(C, r, ...) -- the local member index as a global node: on a group with g0 > 0 the windows came out empty, 0 rounds, X never added; the tree's P = P_A Q_B + P_B on a gridded level over [2, 4) was wrong) */ size_t qq = (hi - lo + 3) / 4; if (qq > maxq) maxq = qq; }
     size_t S = maxq < MDB_ADD_CHUNK ? maxq : MDB_ADD_CHUNK; S = (S + 15) / 16 * 16; int rounds = maxq ? (int)((maxq + S - 1) / S) : 0;
     dbig T; db_init(&T); if (tn) db_zero_fill(&T, tn);
     size_t xlo, xhi; x_part(X, node, &xlo, &xhi);

@@ -173,6 +173,39 @@ mn_group *mn_group_at(int level)
     g_groups[level] = G;
     return G;
 }
+/* Phase 12 G (agent G; the tree's schedule, PLAN 27 row G): the group [g0, g0+g) of schedule level l (mn_groups_parse: MN_GROUPS).
+ * A group that is one of the binary levels' -- G_l a power of two, or the whole machine -- IS mn_group_at's (the same meshes,
+ * the same slots: the default schedule runs exactly as before); any other size (3, 6, 192 ...) gets its own meshes on the
+ * slot 2 MN_MAXL + l (every node of the group takes part in the transform: no tr, no topo layer -- L's general map) */
+static mn_group *g_sched[MN_MAXL];
+mn_group *mn_group_span(int l, int g0, int g)
+{
+    if (l < 1 || l >= MN_MAXL) { fprintf(stderr, "mn_group_span: level %d\n", l); exit(1); }
+    int lv = 0; while ((1 << lv) < g) lv++;
+    if (((1 << lv) == g && (g0 & (g - 1)) == 0) || (g0 == 0 && g == g_size)) {
+        if (g0 == 0 && g == g_size) { lv = 0; while ((1 << lv) < g_size) lv++; }
+        mn_group *B = mn_group_at(lv);
+        if (B->g0 != g0 || B->g != g) { fprintf(stderr, "mn_group_span: level %d [%d, %d) is not the binary group [%d, %d)\n", l, g0, g0 + g, B->g0, B->g0 + B->g); exit(1); }
+        return B;
+    }
+    if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { fprintf(stderr, "mn_group_span: level %d group changed\n", l); exit(1); } return g_sched[l]; }
+    mn_group *G = (mn_group *)calloc(1, sizeof *G);
+    G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = g_rank - g0;
+    double t0 = mem_now();
+#pragma omp parallel for num_threads(NA) schedule(static)
+    for (int d = 0; d < NA; d++) {
+        HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
+        /* SHMEM: a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d); TCP: the port lanes NA + d of the level's odd slot 2 l - 1 (the
+         * binary group of the level listens on lanes 0..3 of it, the topo meshes on the even slots), so the ports stay below the
+         * ephemeral range on aac6 (slot 2 MN_MAXL + l put them above 32768: "cannot connect", batch 2 at size 9) */
+        if (g_shmem) G->all[d] = comm_shmem_create_at(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
+        else { char *h = hosts_of(g0, g); G->all[d] = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * (2 * l - 1) + 64 * (NA + d) + g0); free(h); }
+    }
+    HIP_CHECK(hipSetDevice(0));
+    printf("mn: node %d: schedule level %d group [%d, %d) (%d nodes, the general map): meshes connected in %.2f s\n", g_rank, l, g0, g0 + g, g, mem_now() - t0);
+    g_sched[l] = G;
+    return G;
+}
 /* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
 void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
 /* the layered communicator's self-test (the mn_selftest pattern over 4 gt ranks, gt = the largest power of two <= size,
@@ -249,6 +282,34 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include "binsplit.h"
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
+static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
+/* Phase 12 G (a V-style probe, ECALC_RES_LOG=1): after a level, the sharded P, Q of the group [g0, g0+g) against the recurrence
+ * over the group's terms [1 + N g0 / size, 1 + N (g0+g) / size) mod the T1 primes -- every node computes its share's residues,
+ * an all-gather over the group, the sum of share_r B^lo_r mod q on every node.  Names the level whose product is wrong. */
+#include "verify.h"
+static uint64_t mulmod_u64(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((unsigned __int128)a * b % q); }
+static uint64_t powmod_u64(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u64(r, b, q); b = mulmod_u64(b, b, q); e >>= 1; } return r; }
+static void tree_check(const mdb *P, const mdb *Q, int l, int g0, int g, mn_group *G)
+{
+    uint64_t v[2 + 2 * T1_NQ], *all = (uint64_t *)malloc((size_t)g * sizeof v);
+    size_t lo, hi; mdb_share(P, g_rank, &lo, &hi); v[0] = lo; mdb_share(Q, g_rank, &lo, &hi); v[1] = lo;
+    if (P->sh.n) db_mod_qs(&P->sh, t1_q, T1_NQ, v + 2); else memset(v + 2, 0, 8 * T1_NQ);
+    if (Q->sh.n) db_mod_qs(&Q->sh, t1_q, T1_NQ, v + 2 + T1_NQ); else memset(v + 2 + T1_NQ, 0, 8 * T1_NQ);
+    mn_allgather(G->all[0], v, 2 + 2 * T1_NQ, all);
+    uint64_t B = bi_decimal ? 1000000000000000000ull : 0;   /* the limb base (2^64 = 0 mod q handled as (2^64 - 1) + 1) */
+    unsigned __int128 nn = bs_N; unsigned long a0 = 1 + (unsigned long)(nn * g0 / g_size), b1 = 1 + (unsigned long)(nn * (g0 + g) / g_size);
+    int bad = 0; char line[512]; int o = snprintf(line, sizeof line, "RES node %d tree level %d [%d, %d) P/Q vs recurrence [%lu, %lu):", g_rank, l, g0, g0 + g, a0, b1);
+    for (int i = 0; i < T1_NQ; i++) {
+        uint64_t q = t1_q[i], pr, qr, ps = 0, qs = 0; vf_pq_range_mod(a0, b1, q, &pr, &qr);
+        uint64_t Bq = B ? B % q : (uint64_t)(((unsigned __int128)1 << 64) % q);
+        for (int r = 0; r < g; r++) { const uint64_t *w = all + (size_t)r * (2 + 2 * T1_NQ);
+            ps = (ps + mulmod_u64(w[2 + i], powmod_u64(Bq, w[0], q), q)) % q; qs = (qs + mulmod_u64(w[2 + T1_NQ + i], powmod_u64(Bq, w[1], q), q)) % q; }
+        int ok = ps == pr && qs == qr; if (!ok) bad++;
+        o += snprintf(line + o, sizeof line - o, " q%d %s", i, ok ? "ok" : (ps == pr ? "Q BAD" : qs == qr ? "P BAD" : "P,Q BAD"));
+    }
+    printf("%s%s\n", line, bad ? "  TREE LEVEL MISMATCH" : "  (agrees)");
+    free(all);
+}
 static int g_cktree = -1;
 int mn_ckpt_tree_level(unsigned long N)
 {
@@ -268,7 +329,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = g_rank; P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = g_rank; Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
-    int L = 0; while ((1 << L) < g_size) L++;
+    int gs[MN_MAXL]; int L = mn_groups_parse(g_size, gs, MN_MAXL - 1);   /* Phase 12 G: the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
         double t0 = mem_now(); uint64_t d[10]; dbig ps, qs;
@@ -279,9 +340,15 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
     int every = getenv("BS_CKPT_TREE_EVERY") ? atoi(getenv("BS_CKPT_TREE_EVERY")) : 1; if (every < 1) every = 1;   /* C6: a set every this many tree levels (the top level always) */
+    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* Phase 12 G (tests): the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
+    if (captest) rns_dist_cap_test(captest);
     for (int l = lr + 1; l <= L; l++) {
-        int k = g_rank >> l, g0 = k << l, g = (1 << l) < g_size - g0 ? (1 << l) : g_size - g0, half = 1 << (l - 1);
-        if (g > half) tree_level(P, Q, l, g0, g, half);      /* (no sibling group: carried up unchanged) */
+        int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
+        int k = g_rank / Gl, g0 = k * Gl, g = Gl < g_size - g0 ? Gl : g_size - g0, nch = (g + Gp - 1) / Gp;
+        if (nch == 2) tree_level(P, Q, l, g0, g, Gp);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
+        else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
+        /* (one child: no sibling group, carried up unchanged) */
+        if (nch > 1 && db_res_log_on()) tree_check(P, Q, l, g0, g, mn_group_span(l, g0, g));
         if (ck && (l % every == 0 || l == L)) {              /* M6: this node's shares after level l */
             /* C6: the sets below the previous set (g_ckpend) go here, not right after its write: every node wrote
              * g_ckpend before entering the next level, so this barrier waits for the nodes' compute, never for the
@@ -298,12 +365,13 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
             }
         }
     }
+    if (captest) rns_dist_cap_test(0);
 }
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
 {
     double t0 = mem_now();
-    mn_group *G = mn_group_at(l);
+    mn_group *G = mn_group_span(l, g0, g);                   /* (Phase 12 G: = mn_group_at(l) for the binary schedule) */
     uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
     mn_allgather(G->all[0], v, 8, all);
     int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
@@ -318,6 +386,44 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
     printf("mn: node %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
+}
+/* Phase 12 G: a k-way level (MN_GROUPS: the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
+ * nodes each (the last one cut), child i = the members [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The
+ * combine is Horner's from the top child down (agent X's model prices it so: a 3-way level = 4 products):
+ *   (P, Q) = (P_{k-1}, Q_{k-1});  for i = k-2 .. 0:  P = P_i Q + P,  Q = Q_i Q
+ * -- k - 1 combines of two products each, every product balanced over all g nodes by the block-cyclic map (the operands
+ * sharded over the children's subgroups or over the group), the running P, Q sharded over the group; a child's shares are
+ * freed right after its combine, so a node holds at most its child's P, Q, the running pair and the new pair: O(share).
+ * For nch = 2 this is tree_level's pair of products with the same operands in the same order. */
+static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
+{
+    double t0 = mem_now();
+    mn_group *G = mn_group_span(l, g0, g);
+    uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
+    mn_allgather(G->all[0], v, 8, all);
+    int ci = G->me / gp;                                     /* my child */
+    mdb Pr, Qr; memset(&Pr, 0, sizeof Pr); memset(&Qr, 0, sizeof Qr); int own = 0;   /* the running pair: child nch-1's (own = 0: the shares are P->sh, Q->sh on its members) */
+    { const uint64_t *dd = all + (size_t)(nch - 1) * gp * 8;
+      Pr.n = dd[0]; Pr.N = dd[1]; Pr.g0 = (int)dd[2]; Pr.g = (int)dd[3]; Qr.n = dd[4]; Qr.N = dd[5]; Qr.g0 = (int)dd[6]; Qr.g = (int)dd[7];
+      if (ci == nch - 1) { Pr.sh = P->sh; Qr.sh = Q->sh; } }
+    for (int i = nch - 2; i >= 0; i--) {
+        const uint64_t *da = all + (size_t)i * gp * 8;
+        mdb PA, QA; memset(&PA, 0, sizeof PA); memset(&QA, 0, sizeof QA);
+        PA.n = da[0]; PA.N = da[1]; PA.g0 = (int)da[2]; PA.g = (int)da[3]; QA.n = da[4]; QA.N = da[5]; QA.g0 = (int)da[6]; QA.g = (int)da[7];
+        if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
+        mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
+        rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
+        rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
+        if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
+        if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }
+        Pr = Pn; Qr = Qn; own = 1;
+        if (getenv("ECALC_VERBOSE")) printf("mn: node %d level %d [%d, %d): combine %d of %d: P %zu limbs, Q %zu limbs (%.2f s)\n", g_rank, l, g0, g0 + g, nch - 1 - i, nch - 1, Pr.n, Qr.n, mem_now() - t0);
+    }
+    free(all);
+    if (P->sh.cap) db_free(&P->sh); if (Q->sh.cap) db_free(&Q->sh);
+    *P = Pr; *Q = Qr;
+    size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
+    printf("mn: node %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
 }
 /* M3's end: node 0 assembles the whole number on the host from the shares (over mesh 0); the others send theirs */
 void mn_gather_host(bigint *out, const mdb *X)
@@ -342,5 +448,10 @@ static void groups_finalize(void)
             if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]);
         }
         free(G); g_groups[l] = 0;
+    }
+    for (int l = 0; l < MN_MAXL; l++) if (g_sched[l]) {   /* Phase 12 G: the schedule's own groups */
+        mn_group *G = g_sched[l];
+        for (int d = 0; d < NA; d++) { if (G->lay[d]) comm_destroy(G->lay[d]); if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]); }
+        free(G); g_sched[l] = 0;
     }
 }
