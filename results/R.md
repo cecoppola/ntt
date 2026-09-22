@@ -78,10 +78,14 @@ a 4 GiB tile on a 3 GiB pool, writing 1 GiB past it); the request is now `EC_NP 
 ## The invariant: no pool grows inside a phase
 
 `rns_dpool` (the plane pools, rns_mul.c) and `pool_get` (the region pools, binsplit.c) abort with the memory accounting
-(`mem_report("GROW")`, `mem_report_summary()`, as `mem_oom` does) when an existing pool would have to grow, unless
-`RNS_POOL_GROW=1`. With it the growth is counted (`rns_pool_n_grow`, `bs_st.n_grow`) and logged under `RNS_VERBOSE`.
-The defaults never trip it: the regression (`mnaccept.sh --full`: 10⁹ both bases, 10⁸ sizes 2/3/4, 10⁹ sizes 2/4, the
-checkpoint restart, 4 × 10¹⁰) and the 40 forced-growth-recipe runs below all ran with the invariant armed.
+(`mem_report("GROW")`, `mem_report_summary()`, as `mem_oom` does) when an existing pool would have to grow while a phase
+is running, unless `RNS_POOL_GROW=1`. With it the growth is counted (`rns_pool_n_grow`, `bs_st.n_grow`) and logged under
+`RNS_VERBOSE`. "While a phase is running" is the flag `mem_pool_guard` (mem.c): `binsplit_e` clears it around the level-0
+layout — a second `binsplit_e` in one process legitimately lays its regions out again, which is what `t_bs` does — and
+sets it for the level loop, where it stays for the reciprocal and the division that follow. (The first version guarded
+`pool_get` unconditionally and `t_bs` tripped it on its second run: job 20944, the one failing step of that regression.)
+The defaults never trip it: the whole regression (10⁹ both bases, 10⁸ sizes 2/3/4, 10⁹ sizes 2/4, the checkpoint restart,
+4 × 10¹⁰) and every forced-growth-recipe run at 10¹⁰/4 ran with the invariant armed and none of them grew anything.
 
 ## `mnaccept.sh --stress`
 
@@ -111,4 +115,29 @@ At the unfixed rate (7 in 52) the chance of 42 clean runs is 0.865⁴² ≈ 2.4 
   RNS_POOL1_GB=3.2213`, `ECALC_RES_LOG_LEVEL=99` so no per-level probe runs) identical to
   `~/ntt/ecalc/results/e_1e10.out`, every node VERIFY OK, in three batches on the fixed build at `f80e517`
   (jobs 20913, 20917, 20922). Against 24 of 26 on the unfixed build in the same configuration (jobs 20889, 20904).
-- (the `--stress` batches and the regression follow)
+- **`--stress` 10/10 in three separate batches** (jobs 20940, 20942, 20943, each its own allocation, `mnaccept.sh <job>
+  --only stress --stress`): 30 of 30 runs identical to `ref/e_1000000000.txt`, all 4 nodes VERIFY OK, **16 pool growths
+  logged per run** (pool 1 on each APU, at four levels). A fourth pass inside the regression below: 10/10.
+- **The regression** `./mnaccept.sh 20948 --full --stress` on the final build (`fa73163`): **18 passed, 0 failed in
+  2096 s** — t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify (334), t_out, t_mn_grid at 2 procs; 10⁹ size 1
+  base 10 (13.7 s) and base 2 (24.0 s) identical; 10⁸ sizes 2/3/4 and 10⁹ sizes 2/4 identical with every node VERIFY OK;
+  the checkpoint restart identical; **4 × 10¹⁰ size 1 identical to `results/e_4e10.out`, total 79.64 s** (161 s with the
+  write); the stress step 10/10. (17 steps + the new stress step; the earlier run, job 20944, was 16/17 — the `t_bs`
+  invariant bug above, fixed in `fa73163`.)
+- So size 1 is bit-identical at 10⁹ in both bases and at 4 × 10¹⁰, and the wall clock is unchanged (79.6 s against
+  Phase 10's 83.0 / Phase 11's 81.5 ± 1.4 s at 4 × 10¹⁰).
+
+## Files, switches, open issues
+
+New switches: `RNS_POOL_GROW=1` (allow in-phase growth: the stress recipe), `MEM_COPY_NOWAIT=1` (the unfixed copy, for
+witness runs only), `ECALC_COPY_PROBE=1` (the odd-node copy against the next level's launch, plus the copy-vs-source
+check), `ECALC_B_SNAPSHOT=1` (each APU's read of the shared operand B against memory). New test `tests/t_copy_order`
+(in `make all`; needs 3 APUs, ≈ 10 s). New step `mnaccept.sh --stress`.
+
+Open issues:
+- The other exposure of the same copy (level 18 → 19, the CRT of the next level writing over the copy's source) was
+  never observed failing; the fix closes it too, but it has no separate witness.
+- `mem_dev_copy_on` now waits on the null stream of the copying device. If a caller ever wants the copy asynchronous it
+  must use `mem_dev_copy_async` (Phase 10 H) and `mem_dev_copy_wait`, which were always the asynchronous pair.
+- `ECALC_COPY_PROBE` reports only the last odd-node copy before a batch level (one per level); levels whose odd node is
+  copied across devices are reported as "ordered" because that copy is host-synchronous on this ROCm.
