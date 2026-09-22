@@ -58,17 +58,21 @@ size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4
  * planes (rns_dist.c's DIST_R3, whose default follows this switch) with nothing mapped inside a phase (A-grid's C5 paid 15 s
  * at first use).  RNS_PLANES_3Q30=0/1 overrides.  Measured at 4e10 (results/P.md): the phases lose 3.6 s (top levels -2.8,
  * reciprocal -0.6, level 21 paired -0.2) but the 60 GB more of plane pools cost 4.7-6.3 s of mapping at init (0.08-0.1 s/GB
- * while the seeds stream), so the default is OFF at every size (rns_planes_3q30_default keeps the size rule for when the
- * mapping gets cheaper: it applies only with RNS_PLANES_3Q30=auto, else 0/1). */
+ * while the seeds stream), so P left the default OFF.  Phase 12 I: with M11's tail layout the phases gain 5 s (the dm phase
+ * 2.5 of them) for the same 5 s of init, and the size rule (on below 5e10 at 2^31 pools) is the default -- see
+ * rns_planes_3q30_default. */
 int rns_planes_3q30 = -1;
 int rns_planes_3q30_default(int pool_log, double digits)
 {
     const char *e = getenv("RNS_PLANES_3Q30");
-    if (e && !strcmp(e, "auto")) return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;   /* the size rule: on below 5e10 at 2^31 pools (7-8e10 do not fit) */
-    if (e) return atoi(e) != 0;
-    return 0;
+    if (e && strcmp(e, "auto")) return atoi(e) != 0;
+    /* Phase 12 I: the size rule is the default (RNS_PLANES_3Q30=auto, or unset): on below 5e10 at 2^31 pools (7-8e10 do not fit).
+     * Re-measured on the same node in one batch with M11's tail layout (results/I.md): phases 59.2 s against 64.2 / 64.8 (bs
+     * 32.7 vs 35.2-35.8, dm 26.4 vs 28.9), init 22.5 against 17.3-18.1 (the 60 GB more map at the same 0.075 s/GB), wall
+     * 81.7 against 82.1-82.3: the planes now pay for themselves by a hair, and the phases are 5 s faster. */
+    return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;
 }
-static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv("RNS_PLANES_3Q30"); rns_planes_3q30 = e ? atoi(e) != 0 : 0; } return rns_planes_3q30; }
+static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv("RNS_PLANES_3Q30"); rns_planes_3q30 = e && strcmp(e, "auto") ? atoi(e) != 0 : 0; } return rns_planes_3q30; }   /* (unset by the driver: off -- the tests' rns_init) */
 size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */
 {
     int pl = g_pool_log ? g_pool_log : 31;
@@ -147,7 +151,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s, staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", mem_alloc_form_name(), sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
