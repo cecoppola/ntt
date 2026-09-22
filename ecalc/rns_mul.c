@@ -27,6 +27,7 @@ static int g_mdev_S;
 int rns_crt_layout = 0;          /* 0: one plane per node (paper, default); 1: quartered node-local planes (no gain, RESULTS.md 38) */
 
 static int g_nd = 0, g_pool_log = 31;
+static uint64_t *g_snap[EC_NP]; static size_t g_snap_cap, g_snap_n; static const uint64_t *g_snap_b; static int g_snap_on = -1;
 int rns_engine = 1;               /* RNS_ENGINE: 1 paper (4 x 52-bit FP64), 2 two 62-bit primes / 45-bit points */
 static struct dev {
     ntt_ctx *ctx;
@@ -252,7 +253,6 @@ void rns_copy_probe_report(int level_next)
  * the level the four snapshots are compared on the host with B as it is in memory then: a device that read stale limbs is
  * named with the first and last differing limb.  The buffers are allocated at rns_init (1 GiB per APU) so nothing is
  * mapped inside the phase. */
-static uint64_t *g_snap[EC_NP]; static size_t g_snap_cap, g_snap_n; static const uint64_t *g_snap_b; static int g_snap_on = -1;
 static void rns_snap_check(const char *when)
 {
     uint64_t *h = (uint64_t *)malloc(g_snap_n * 8), *hb = (uint64_t *)malloc(g_snap_n * 8);
