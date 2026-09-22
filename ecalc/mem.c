@@ -187,11 +187,18 @@ void mem_dev_free(void *p)
     reg_del(p);
 }
 void mem_dev_free_raw(int dev, void *p) { mem_dev_release(dev, p); }
-void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine */
+void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine; complete when it returns (Phase 12 R) */
 {
     int cur; HIP_CHECK(hipGetDevice(&cur));
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
+    /* Phase 12 R (D5): a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
+     * stream; tests/t_copy_order measures it), and the other devices' streams are not ordered against that null stream:
+     * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
+     * overwritten by their CRT, while it was still in flight (results/R.md).  Every caller assumes the copy is complete
+     * when this returns, so wait for it here. */
+    static int nowait = -1; if (nowait < 0) nowait = getenv("MEM_COPY_NOWAIT") ? atoi(getenv("MEM_COPY_NOWAIT")) : 0;   /* MEM_COPY_NOWAIT=1: the old behaviour, for the witness runs only */
+    if (!nowait) HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
 /* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
@@ -271,6 +278,7 @@ void mem_hstage_free(void *p)
     free(p);
 }
 
+int mem_pool_guard = 0;                               /* Phase 12 R (D5): see mem.h */
 static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return c; }
 
 /* Phase 11 V (D5, a test knob): MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at

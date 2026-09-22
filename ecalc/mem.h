@@ -62,6 +62,10 @@ void mem_pin_threads(int nnodes);
 int  mem_thread_home(void);                          /* -1 before mem_pin_threads */
 int  mem_region_threads(int *rank);                 /* count of threads on this node, and this thread's rank among them */
 
+/* Phase 12 R (D5): 1 while a phase is running (set by binsplit_e over its level loop and left set for the reciprocal and the
+ * division that follow it; cleared around the level-0 sizing, where a fresh run legitimately lays its pools out again).
+ * A pool that would grow while it is set aborts with the accounting unless RNS_POOL_GROW=1 (results/R.md). */
+extern int mem_pool_guard;
 typedef struct { void *p; size_t cap; int dev; } dpool;
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */
 void *dpool_get_exact(dpool *d, int dev, size_t bytes);   /* Phase 9 C4: grows to exactly bytes (2 MiB-aligned), no power-of-two rounding */

@@ -22,6 +22,7 @@ bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
 int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU schoolbook tier below this many limbs; 0 = never (WP4: the device batch tier is faster at any size, and the pools are device memory) */
 int bs_verbose = 0;
+static int bs_copy_probe = 0;                        /* Phase 12 R (D5): ECALC_COPY_PROBE=1 times the odd-node copy against the next level (rns_copy_probe_*) */
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
 int bs_ckpt_every = 4;                               /* BS_CKPT_EVERY: a checkpoint every this many levels */
 int bs_ckpt_min_level = 16;                          /* BS_CKPT_MIN_LEVEL: only the top levels, where the time is (a snapshot costs
@@ -206,6 +207,10 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
     if (g_cap[which][r] < limbs) {
+        if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
+            if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
+            if (!rns_pool_grow) { fprintf(stderr, "bs: region pool %d of parity %d would grow inside bs, %.2f -> %.2f GB: the regions are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", r, which, g_cap[which][r] * 8e-9, limbs * 8e-9); fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1); }
+        }
         if (g_pool[which][r] && !in_arena(r, g_pool[which][r])) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
         size_t cap = limbs + limbs / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
         int nd = bs_regions_on_device ? mem_device_count() : 0;
@@ -336,6 +341,7 @@ void binsplit_pregrow(unsigned long N)
 {
     static unsigned long done_N; if (done_N == N) return; done_N = N;   /* Phase 10 H (B2): once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    bs_copy_probe = getenv("ECALC_COPY_PROBE") ? atoi(getenv("ECALC_COPY_PROBE")) : 0;
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * (bs_region_slack ? bs_region_slack : 4)) + (1 << 20);   /* slack: 1/4 (paper-era) or 1/16 (BS_REGION_SLACK=16; the levels stay within a few percent of level 0) */
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
@@ -828,16 +834,17 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     int which = 0, ckpt_level = 0, resumed = 0;      /* ckpt_level: the level whose set is on disk */
     if (bs_restart && bs_ckpt_dir && mn_size() > 1 && mn_ckpt_tree_level(N) > 0) {   /* M6: every node has a tree-level set: the leaf tree is skipped, mn_tree resumes above it */
-        binsplit_pregrow(N);
+        mem_pool_guard = 0; binsplit_pregrow(N);   /* Phase 12 R */
         P->n = Q->n = 0; bs_Pd.n = bs_Qd.n = 0; bs_st.t_total = mem_now() - t0;
         printf("bs: restart at tree level %d: the leaf tree is skipped\n", mn_ckpt_tree_level(N));
+        mem_pool_guard = 1;                          /* Phase 12 R: the tree, the reciprocal and the division follow */
         return;
     }
     if (bs_restart && bs_ckpt_dir) {                 /* WP7: resume from the latest complete checkpoint, skipping the seeds and the levels below it */
         int l = ckpt_find(N);
         bs_ckpt_tree_clear(0);                       /* (tree sets, if any, are not agreed on by all nodes: stale) */
         if (l) {
-            binsplit_pregrow(N);
+            mem_pool_guard = 0; binsplit_pregrow(N);   /* Phase 12 R: the restart lays the regions out again */
             t = mem_now(); size_t off = 0;
             if (!ckpt_read(&cur, &which, l, &off, N)) { fprintf(stderr, "bs: restart from %s level %d failed\n", bs_ckpt_dir, l); abort(); }
             bs_st.levels = l; bs_st.restart_level = l; ckpt_level = l; resumed = 1;
@@ -854,6 +861,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
      * pool_get still grows if a level needs more); binsplit_pregrow does this at init, outside the timed phase */
     size_t total0 = 2 * per * nspan;
+    mem_pool_guard = 0;                              /* Phase 12 R: the level-0 layout may size the regions (a second run in one process re-lays them) */
     binsplit_pregrow(N);
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
     if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
@@ -887,6 +895,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (bs_after_seeds_hook) bs_after_seeds_hook(bs_hook_arg);   /* Phase 8 overlap: the CPU is free from here until the top level */
     }                                                /* !resumed */
 
+    mem_pool_guard = 1;                              /* Phase 12 R: from here nothing may grow (the reciprocal and the division keep it set) */
     while (cur.n > 1) {
         t = mem_now();
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;
@@ -942,6 +951,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             tl1 = mem_now();
             rns_mul_batch(pr, 2 * npairs);
             tl2 = mem_now();
+            if (bs_copy_probe) rns_copy_probe_report(bs_st.levels + 1);   /* Phase 12 R (D5): the previous level's odd-node copy against this level's launch */
             normed = 1;
             for (size_t i = 0; i < npairs; i++) {
                 if (!pr[2 * i].ncn || !pr[2 * i + 1].ncn) { normed = 0; break; }
@@ -1017,7 +1027,9 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             o->qn = limb_norm(NODE_Q(nxt, o), a->qn + b->qn);
         }
         if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
-                   region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r); }
+                   region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r);
+                   if (bs_copy_probe && mem_dev_of(NODE_P(nxt, o)) >= 0) { rns_copy_probe_pair(0, NODE_P(nxt, o), NODE_P(cur, a), a->pn); rns_copy_probe_pair(1, NODE_Q(nxt, o), NODE_Q(cur, a), a->qn);
+                                                                             rns_copy_probe_issue(mem_dev_of(NODE_P(nxt, o)), (a->pn + a->qn) * 8, bs_st.levels + 1); } }   /* Phase 12 R (D5): ECALC_COPY_PROBE */
         double dt = mem_now() - t, tl3 = mem_now();
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
         if (!strcmp(tier, "school")) bs_st.t_school += dt; else if (!strcmp(tier, "batch")) bs_st.t_batch += dt; else bs_st.t_mdev += dt;
