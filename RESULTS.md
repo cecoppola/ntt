@@ -3223,8 +3223,8 @@ while every digit stayed identical.
 
 **The closing series** (`main` @ 3524146, job 20964 on s24-26, reference
 evicted before every run, digits compared after each): **4 × 10¹⁰ in
-80.20 / 82.16 / 80.58 / 81.36 s — wall 81.1 ± 0.9 s, phases 58.8 ± 0.2**
-(init 22.3 ± 0.7; bs 32.7 = batch 21.9 + top levels 10.6; dm 26.0 =
+80.20 / 82.16 / 80.58 / 81.36 / 78.95 s — wall 80.7 ± 1.2 s, phases
+58.8 ± 0.2** (init 21.9 ± 1.1; bs 32.7 = batch 21.9 + top levels 10.6; dm 26.0 =
 reciprocal 13.2 + division 12.8; T1/dc/T2 hidden), **peak host 12.1 GB**,
 device 277 GB at init and 322 GB at the reciprocal's peak (the larger
 planes), every run VERIFY OK and digits identical. Against Phase 11's
