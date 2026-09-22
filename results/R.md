@@ -61,7 +61,7 @@ copy and a thread polls it — no wait, no synchronisation — against the time 
 | batch (job) | build | runs | result |
 |---|---|---|---|
 | 1 (20889) | unfixed, copy probe | 13 | 12 identical; **p1shard6: node 0's leaf wrong**, P from limb 134 400, Q from 4 095 686 (offset 3 961 286). Probe: every same-region copy of levels 14, 16, 18 completed 0.2–48 ms after issue, the next level's first kernel launched 0.1–0.9 ms after issue — UNORDERED in 47 of 52 such lines over the 13 runs; the cross-device copies of levels 19, 20 complete before the call returns |
-| 2 (20904) | fixed build with `MEM_COPY_NOWAIT=1` (the old copy), probe + `ECALC_B_SNAPSHOT=1` | 13 | (filled in below) — w2shard5: node 1's leaf wrong, P from 131 072, Q from 4 092 359 (offset 3 961 287); its level-16 copies completed 0.2 / 1.4 / 3.0 ms after issue with level 17 launched at 0.1–0.2 ms; the snapshot of the top level's shared operand B on every APU equals memory (the wrong data was already in the copied node: the corruption is in the copy chain, not in the top level's read) |
+| 2 (20904) | fixed build with `MEM_COPY_NOWAIT=1` (the old copy), probe + `ECALC_B_SNAPSHOT=1` | 13 | 12 identical; **w2shard5: node 1's leaf wrong, P from 131 072, Q from 4 092 359 (offset 3 961 287); its level-16 copies completed 0.2 / 1.4 / 3.0 ms after issue with level 17 launched at 0.1–0.2 ms; the snapshot of the top level's shared operand B on every APU equals memory (the wrong data was already in the copied node: the corruption is in the copy chain, not in the top level's read) |
 
 ## The fix
 
@@ -91,6 +91,21 @@ pool 1 at 0.75 GiB; the top leaf level (N = 2, one shared B) goes through the ba
 growth line is required in every run's log, else the step fails), and the grown pool is filled with 0xA5 first. Every run
 must be identical to the reference with all 4 nodes VERIFY OK. Opt-in like `--full`; ≈ 10 min.
 
+So **2 failures in 26 unfixed runs** (V had 5 in 26 on the same recipe; the pooled rate is 7 in 52 ≈ 13 %), and with the
+fix **42 in 42** identical:
+
+| batch (job) | build | runs | result |
+|---|---|---|---|
+| f3 (20913) | fixed (`f80e517`), no probe of any kind | 14 | 14 identical, all 5 VERIFY OK lines per run |
+| f4 (20917) | fixed, same | 14 | 14 identical |
+| f5 (20922) | fixed, same | 14 | 14 identical |
+
+At the unfixed rate (7 in 52) the chance of 42 clean runs is 0.865⁴² ≈ 2.4 × 10⁻³.
+
 ## Gate runs
 
-(filled in below)
+- **42 of 42** forced-growth runs at 10¹⁰ over 4 processes (`v11_d5.sh <job> 14 shard`, `POOL_LOG=29
+  RNS_POOL1_GB=3.2213`, `ECALC_RES_LOG_LEVEL=99` so no per-level probe runs) identical to
+  `~/ntt/ecalc/results/e_1e10.out`, every node VERIFY OK, in three batches on the fixed build at `f80e517`
+  (jobs 20913, 20917, 20922). Against 24 of 26 on the unfixed build in the same configuration (jobs 20889, 20904).
+- (the `--stress` batches and the regression follow)
