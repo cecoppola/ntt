@@ -313,6 +313,8 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
     int every = getenv("BS_CKPT_TREE_EVERY") ? atoi(getenv("BS_CKPT_TREE_EVERY")) : 1; if (every < 1) every = 1;   /* C6: a set every this many tree levels (the top level always) */
+    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* Phase 12 G (tests): the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
+    if (captest) rns_dist_cap_test(captest);
     for (int l = lr + 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
         int k = g_rank / Gl, g0 = k * Gl, g = Gl < g_size - g0 ? Gl : g_size - g0, nch = (g + Gp - 1) / Gp;
@@ -335,6 +337,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
             }
         }
     }
+    if (captest) rns_dist_cap_test(0);
 }
 /* one tree level: the product over the group [g0, g0+g) whose halves A = [g0, g0+half), B = the rest hold the operands */
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)

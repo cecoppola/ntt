@@ -72,6 +72,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
  * tree; L's "powers of two then size" is MN_GROUPS=2,4,...): out[l-1] = the group size of level l, increasing, each a multiple of the previous or the size
  * itself; returns the level count (0 at size 1), aborts on an invalid list.  A pure function of (size, MN_GROUPS); mn.c calls it */
 int  mn_groups_parse(int size, int *out, int max);
+void rns_dist_cap_test(int logn);                             /* Phase 12 G (tests): force the mn tier's plane cap 2^(logn + floor(log2 g)) from here on (0: the default); mn_tree's MN_TREE_LOGN_TEST */
 /* C += X << k in place on C's shares (C's basis N must hold the sum: an overflow aborts); X sharded over any
  * subgroup of G; a chunked exchange over the four meshes, then one fixed-length add per share and the carry scan */
 void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G);

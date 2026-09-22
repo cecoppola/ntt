@@ -29,7 +29,13 @@
 #define NR 4
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
-static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
+static int g_cap_test;                                        /* Phase 12 G: rns_dist_cap_test -- the tree's own forced cap (MN_TREE_LOGN_TEST), 0 = DIST_LOGN_TEST / the default */
+static int dist_logn_max(void) { const char *e = getenv("DIST_LOGN_TEST"); int v = g_cap_test ? g_cap_test : e ? atoi(e) : DIST_LOGN_MAX; return v < 20 || v > DIST_LOGN_MAX ? DIST_LOGN_MAX : v; }
+void rns_dist_cache_release(void);
+/* Phase 12 G (tests): force the plane cap 2^logn (0: back to the default) for the products that follow -- mn_tree brackets its
+ * levels with it (MN_TREE_LOGN_TEST) so the tree's grid runs at 10^10 on one node while the division keeps its own cap.  The
+ * transform cache's slots are sized by the cap, so they are released at every change */
+void rns_dist_cap_test(int logn) { rns_dist_cache_release(); g_cap_test = logn; }
 /* Phase 10 A6: the pointwise product fused into the column inverse's first pass (DIST_PW_FUSE, default 1; bit-identical),
  * and the four-step split logR = logn / 2 + DIST_LOGR_DELTA (0: as before; +1 puts 7-stage passes -- the register-blocked
  * body -- on the rows of a 2^31 plane: logR 16, logC 15 ... measured, see results/G.md) */
