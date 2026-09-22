@@ -1206,7 +1206,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     if (nX && k + nX > C->N) { fprintf(stderr, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); exit(1); }
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo;
-    size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, r, k, nX, &lo, &hi); size_t qq = (hi - lo + 3) / 4; if (qq > maxq) maxq = qq; }
+    size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);   /* (Phase 12 G: was add_window(C, r, ...) -- the local member index as a global node: on a group with g0 > 0 the windows came out empty, 0 rounds, X never added; the tree's P = P_A Q_B + P_B on a gridded level over [2, 4) was wrong) */ size_t qq = (hi - lo + 3) / 4; if (qq > maxq) maxq = qq; }
     size_t S = maxq < MDB_ADD_CHUNK ? maxq : MDB_ADD_CHUNK; S = (S + 15) / 16 * 16; int rounds = maxq ? (int)((maxq + S - 1) / S) : 0;
     dbig T; db_init(&T); if (tn) db_zero_fill(&T, tn);
     size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
