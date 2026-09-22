@@ -106,7 +106,15 @@ def mn_groups(g, spec=None):
     """rns_dist.c mn_groups_parse: the group size per tree level from MN_GROUPS (a list, or the string), default the
     powers of two up to g then g itself (576: 2, 4, ..., 512, 576 -- the last level joins a 512-group and a 64-group)"""
     if g <= 1: return []
-    if spec is None or spec == '': out = []; v = 2
+    if spec is None or spec == '':                                       # Phase 12 G: the default = the powers of two dividing g, then the odd part's prime factors ascending (576 -> 2 .. 64, 192, 576)
+        out = []; v = 1
+        while v * 2 <= g and g % (v * 2) == 0: v *= 2; out.append(v)
+        rest = g // v; f = 3
+        while rest > 1:
+            while rest % f == 0: v *= f; out.append(v); rest //= f
+            f += 2
+        if not out or out[-1] != g: out.append(g)
+        return out
     else:
         out = []
         vals = [int(x) for x in spec.split(',')] if isinstance(spec, str) else list(spec)
@@ -179,39 +187,63 @@ def tree_need_dev_flat(nq_leaf, g, scratch_out=None, logr_delta=0):
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
-def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='flat', pool_log=31, groups=None):
+def split_grid_cap(na, nb, cap, minpts):
+    """rns_dist.c split_grid_cap (the mn tier: 2^k planes): the grid (ka, kb) with the fewest plane points, then the fewest pieces"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa = -(-na // i); pb = -(-nb // j)
+            if pa + pb > cap: continue
+            pts = 1 << 20
+            while pts < pa + pb: pts <<= 1
+            pts = max(pts, minpts); cost = i * j * pts
+            if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0):
+    """rns_dist.c rns_mul_dist_mn_scratch (Phase 12 agent G -- the code's own formula, which binsplit.c's arena layout calls):
+    the block-pool bytes per device at the peak of C = A B (+ X) over g nodes, for shares of share_a, share_b, share_c
+    limbs.  The grid's largest piece at the group's cap (mn_logn_cap; the plane pools stay at their init size); mn_core's
+    buffers: the received sequences rbA, rbB (and rbX on one plane: a grid adds X afterwards by mdb_add_shifted) of at most
+    qs = my rows x C limbs, the packed part sb (my share's limbs on APU d's ranks: about a quarter of my part of the piece),
+    cx (X, one plane only) and tmp (q; the equal-part path only); then the result exchange's rbO (my window's part), the
+    exact spills (~ 4 C limbs per APU + 4 per source rank, whatever g) and the window temporary T (a quarter of the
+    window, at most share_c).  Returns (bytes, pieces = ka x kb)."""
+    if not na or not nb or g < 2: return 0, 0
+    cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
+    nr = 4 * g; lg = 0
+    while (1 << lg) < nr: lg += 1
+    if na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << max(20, 2 * (5 + lg)))
+    pa = -(-na // ka); pb = -(-nb // kb); nc = pa + pb
+    logn, logR, logC, q = mn_shape(nc, g, logr_delta)
+    R = 1 << logR; C = 1 << logC; rows = -(-R // nr); qs = rows * C
+    def RT(ln): return min((-(-ln // R) + 1) * rows, qs)
+    va = min(share_a, pa); vb = min(share_b, pb); sb = max(va, vb) // 4 + 2 * g * rows
+    xin = has_x and ka * kb == 1
+    win = min(share_c, nc); xq = q if xin else 0; tmp = q if (g & (g - 1)) == 0 else 0
+    peak1 = RT(pa) + RT(pb) + (RT(nc) if xin else 0) + sb + xq + tmp + 16 * g
+    peak2 = win // 4 + 2 * g * rows + 4 * C + 4 * g + xq + tmp
+    return max(peak1, peak2) * 8 + 32 * g * 8 + quarter_bytes(win), ka * kb
+
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None):
     """the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes); scratch_out[0] = the top
     level's scratch alone (the sharded division's products carry the same), [1] = its per-rank plane q.
-    form 'flat': the code's own arena formula (tree_need_dev_flat above).
-    form 'grid' (Phase 12 agent G's top product, modelled here by agent Q): the levels follow mn_groups (L's schedule:
-    a k-way level = a fold of k - 1 products, the largest (S - m_k) x m_k leaf shares); a product above the mn tier's
-    cap (rns_dist.c mn_logn_cap: 2^(31 + floor(log2 g))) is a grid of pieces AT the cap (mn_grid), so the per-rank
-    plane never exceeds the pool's 2^29 limbs and neither the planes nor cx/tmp grow with the operands; the slabs are
-    B7's exact sequences (about the share / 4 per APU: O(share), constant in g); the spills are G's exact spills
-    through alltoallv, O(C) per APU (2 x C x 4 limbs assumed: own + received) instead of g x C x 4.  A group that is
-    not a power of two runs the general map (L): its v-exchange scratch is the layered communicator's own, about
-    3 x the chunk's slab volume per APU (3 q / K, K = DIST_CHUNKS = 4; L's open issue)."""
+    form 'flat': the arena formula of the code before Phase 12 (tree_need_dev_flat above; kept for the before/after tables).
+    form 'grid' (Phase 12 agent G: binsplit.c tree_need_dev as merged): the levels follow mn_groups (MN_GROUPS); a level
+    of nch children of P nodes is combined by Horner from the top child (mn.c tree_level_k: (P, Q) <- (P_i Q + P, Q_i Q)
+    for i = nch - 2 .. 0), its largest product P_0 x Q_run = P leaf shares x (nch - 1) P; the product's scratch is
+    mn_scratch (the code's rns_mul_dist_mn_scratch: the pieces at the cap, the exact spills -- O(share) + O(q), no g-term);
+    the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8."""
     if form == 'flat': return tree_need_dev_flat(nq_leaf, g, scratch_out, logr_delta)
     best = 0; top_scratch = 0; top_q = 0
     for S, ch in level_children(g, groups):
-        gg = S; nr = 4 * gg; cap = mn_cap_log(gg, pool_log)                # the level's own cap: 2^(31 + floor(log2 S))
-        m_last = ch[-1]; acc = S - m_last
-        NA = nq_leaf * max(acc, m_last) + 8; NB = nq_leaf * min(acc, m_last) + 8; nc = NA + NB
-        logn, logR, logC, q = mn_shape(min(nc, 1 << cap), gg, logr_delta)   # the piece: the whole product below the cap, else the cap's planes
-        R = 1 << logR; C = 1 << logC; rows = -(-R // nr)
-        share = -(-nc // gg)                                             # each node's share of the product (= the leaf's n_Q at every level)
-        pshare = min(share, (1 << cap) // gg)                            # ... of which one piece's part: at most the cap's plane over the group
-        win = pshare + pshare // 8 + 2 * R
-        Sin = min(q, ((pshare // 2 - 1) // R + 2) * rows); Sc = min(q, ((win - 1) // R + 2) * rows)   # the operand pieces are at most half the cap
-        Sin = (Sin + 15) // 16 * 16; Sc = (Sc + 15) // 16 * 16; Smax = max(Sc, Sin)
-        gen = (gg & (gg - 1)) != 0
-        slabs = 2 * gg * Smax * 8 + gg * Sin * 8                       # sb, rbA, rbB: g x S rows each = the piece's operand quarter per APU (B7's exact sequences), <= 3 q / 2
-        cxtmp = (2 if not gen else 1) * q * 8                           # cx (with X) and tmp (the equal path only; the general path has no tmp)
-        spills = 2 * C * 4 * 8
-        vscr = (3 * q // 4) * 8 if gen else 0
-        scratch = slabs + cxtmp + spills + vscr + quarter_bytes(win)
-        live = 4 * quarter_bytes(share + share // 8)                    # the inputs' P, Q shares and the outputs', with the bound's margin
-        best = max(best, live + scratch); top_scratch = scratch; top_q = q
+        gg = S; nch = len(ch); P = ch[0]
+        if nch < 2: continue
+        nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
+        share_child = nq_leaf + 8; share_run = -(-nb // gg); share_new = -(-nc // gg)
+        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta)
+        live = 2 * quarter_bytes(share_child + share_child // 8) + (2 * quarter_bytes(share_run + share_run // 8) if nch > 2 else 0) + 2 * quarter_bytes(share_new + share_new // 8)
+        best = max(best, live + scratch); top_scratch = scratch; top_q = mn_shape(min(nc, 1 << mn_cap_log(gg, pool_log)), gg, logr_delta)[3]
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
@@ -270,7 +302,7 @@ def mem_per_node(D, g=1, opts=None):
           transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='flat', groups=None, transport='tcp', pool_mb=8192, staging='cached'); o.update(opts or {})
+    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached'); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
