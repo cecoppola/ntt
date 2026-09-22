@@ -3186,3 +3186,62 @@ wall** (7.7 × 10¹⁰ per node at 500 of 502 GB; the safe size 2.2 × 10¹³
 in 2.0 min). Labelled: per-node compute measured (8 × 10¹⁰ in 195 s,
 10¹¹ in 263 s on one node); fabric and cross-node memory modelled;
 the SHMEM per-message cost and the part-file bandwidth assumed.
+
+## 77. Phase 12 — the complete solutions to the open design choices (2026-09-21/22; results/{R,G12,I,S12,Q,W}.md)
+
+PLAN §27 executed with six agents against the target of §25 (576 nodes,
+Slingshot-2 dragonfly, 8 NICs per node, SHMEM). Each row was given the
+*complete* solution rather than the cheapest, and every claim below is a
+measurement on aac6. Merge order Q → S → W → G → I → R, the regression
+after the merges; `main` @ 3524146.
+
+| agent | delivered | gate | merged |
+|---|---|---|---|
+| **R** the race | **The cause named, and it is a platform property**: on this ROCm (7.2.4, MI300A) a *same-device* device-to-device `hipMemcpy` returns **before the copy has run** (a peer copy is host-synchronous). The level loop's odd-node copy issued one such copy on the destination's null stream and nothing waited; the next level's scatter kernels on the other three APUs read the shared operand 0.1–0.2 ms later, while the copy was still landing (0.2–3 ms). Hence the signature (P wrong from limb ≈ 2¹⁷, Q wrong from that limb + 3 961 286 — the trailing-zero counts of the two operands: one stale operand, not two errors) and why any per-level probe hid it. Fix: `mem_dev_copy_on` waits for its copy. Evidence: `tests/t_copy_order` (same-device copy returns in 0.000 s and is corrupted 5/5; with the wait 0/5) and `ECALC_COPY_PROBE` (47 of 52 same-region copies completed after the next level's first kernel). Also: in-phase pool growth now aborts with the accounting unless `RNS_POOL_GROW=1`, and `mnaccept.sh --stress` runs ten forced-growth runs | **56/56** forced-growth runs at 10¹⁰/4 with no probe (24/26 unfixed); `--stress` 30/30 in three batches; regression 18/18, 4 × 10¹⁰ identical | 6b4ddba |
+| **G** the top product at scale | The tree's top levels as **piece grids over fixed planes for any g**, walking the `MN_GROUPS` schedule with k-way Horner combines (576 → 2,…,64,192,576); the spill all-gather (g × 4C limbs per APU) replaced by an exact `alltoallv` (≈ 4C + 4g limbs, constant in g); `binsplit.c`'s arena request — which sized the top level as one uncapped transform (≈ 700 GB per node at 576 × 4 × 10¹⁰, so the run died at init) — re-derived from the gridded scratch. Found and fixed `mdb_add_shifted` sizing its rounds by the windows of nodes 0…g−1 instead of g₀…g₀+g−1 (on a group not starting at node 0, X was never added; only caller is the gridded product, so no earlier result is affected) | `t_mn_grid` 200–224 checks at 2/3/4/6/9 processes; 10⁸ at sizes 3, 6, 9 and 10⁹ at 2, 3, 4 gridded, identical; **10¹⁰ at size 4: 123.3 s gridded vs 124.3 s not, identical, tree hipMalloc 0**; modelled node peak at 576 × 4 × 10¹⁰ **1170 → 354 GB**, per-node ceiling 1.9 × 10¹⁰ → **7.1 × 10¹⁰** | 7ece3db |
+| **I** the init floor | Every allocation form measured on the APU (`tests/t_alloc`, 50 GB × 4): **nothing beats `hipMalloc` in a fresh process** — 0.057–0.072 s/GB for the device forms, managed 0.114, host-backed 0.091, 4 KiB mmap 0.68; the cost is the kernel clearing pages on the allocating thread (~14 GB/s per core) serialised by one lock, and every host-backed form drops `hipMemcpy` to 21 GB/s (SDMA) from 1.4–1.6 TB/s, disqualifying it. Only re-allocation of memory the same process freed is cheaper (0.035 s/GB). The seed overlap is also already right (81.5 s against 88.5 / 88.3 for seeds-first / seeds-after). What did pay: on M11's tail layout the 3·2³⁰ planes gain 5–6 s of phases for +4 s of init, so `RNS_PLANES_3Q30`'s size rule is now the default. `ECALC_DM_POOL` deleted (a no-op with the tail) | 10⁹ identical both bases; six 4 × 10¹⁰ identical; two 8 × 10¹⁰ VERIFY OK, node peak ≈ 382 GB, zero in-phase `hipMalloc`; `t_ntt` rates unchanged | fe902da |
+| **S** the transport's target forms | **Sandia OpenSHMEM built in user space on aac6** (SOS + libfabric 1.20.1, `srun --mpi=pmi2`, sockets provider) so the forms the target needs are tested for real, not just compiled: one context per communicator with `COMM_SHMEM_SERIAL=0` (concurrent waits), `shmem_ctx_putmem_signal_nbi` ordering, a HIP device buffer as the symmetric heap (a small SOS patch adds the external-heap hook), and `comm_sym_alloc` — the callers' slabs resident in the symmetric pool, so puts go sender-slab → receiver-slab with no staging and no helper thread. Q's finding acted on: the staging is released per exchange (it was held per communicator: ≈ 345 GB per node at 576). One real bug found by the target form: a pool-resident receive buffer published before the caller's stream had finished with it | `t_comm` at 2/4/8 PEs and `t_dist` in every mode on SOS in the target forms and on OSHMEM; 10⁸ at sizes 2, 3, 4 and 10⁹ at 2, 4 identical over SOS on both host and device heaps; **the regression over SOS 16/16**; the third layer measured +16–20 % on one node (no global links to save) and stays off | bc26f6a |
+| **Q** the target plan | `mn_model.py` with L's real schedule (each k-way level costed as the tree folds it) — **decision: `MN_GROUPS=2,4,8,16,32,64,192,576` (3·3), −5 % against the 9-way and fewest global-link bytes**; `mem_model.py` for both tree forms; **`estimate.py`**: `estimate(g, D)` printing digits, minutes, GB per node, TB per NIC and on global links, and whether it fits, every column labelled measured / modelled / assumed; **`docs/TARGET.md`**, the run recipe for the target (build, every variable with its target value, the `srun` line, the sizes in order, checkpoints, the recheck, what to measure first to calibrate, eleven traps) with every named switch grep-verified to exist | the model within **6.1 %** of all 16 recorded aac6 points | 49d2623 |
+| **W** verification | `ECALC_CKPT_TOP` writing the top-level P, Q in the background (P under the reciprocal, Q under the division) so a finished run can be re-verified without recomputing; the recheck as a regression step (and a corrupted copy must fail); the recheck itself made a single pass over the digit file with a reader thread (98 → 46 s at 4 × 10¹⁰); `ecalc/README.md` brought to one grep-verified switch list | regression 20/20 with the recheck steps; a 4 × 10¹⁰ run rechecked from its files in 46 s | 6dd6349 |
+
+**An integration defect caught by the closing measurement.** W's default
+(the top set written for runs above 10¹⁰) is hidden only where the disk
+writes at ≳ 1 GB/s, as measured on its node; on aac6's slower path the
+35.56 GB set runs at **0.31 GB/s — 113 s that the division waits for**:
+the 4 × 10¹⁰ wall went 81 → 164 s (regression job 20964, `dm` 26 → 113 s)
+with the digits identical. The default is therefore **off** (3524146);
+the feature is one switch away, and making the division release Q before
+the write finishes is the open item.
+
+**Regression on the merged tree**: after Q+S+W+G+I (fe902da, job 20952)
+**20/20**; after all six with the stress step (6b4ddba, job 20964)
+**21/21** — including ten forced-growth runs, the checkpoint restart, and
+the 4 × 10¹⁰ recheck. A node failure (s24-30 rebooted mid-run, NODE_FAIL)
+destroyed one earlier attempt; its numbers are discarded, as are the four
+runs taken on that node after the reboot, whose `dm` phase ran 3–4 × slow
+while every digit stayed identical.
+
+**The closing series** (`main` @ 3524146, job 20964 on s24-26, reference
+evicted before every run, digits compared after each): **4 × 10¹⁰ in
+80.20 / 82.16 / 80.58 / 81.36 s — wall 81.1 ± 0.9 s, phases 58.8 ± 0.2**
+(init 22.3 ± 0.7; bs 32.7 = batch 21.9 + top levels 10.6; dm 26.0 =
+reciprocal 13.2 + division 12.8; T1/dc/T2 hidden), **peak host 12.1 GB**,
+device 277 GB at init and 322 GB at the reciprocal's peak (the larger
+planes), every run VERIFY OK and digits identical. Against Phase 11's
+close (81.5 ± 1.4 s, phases 66.0): the phases are 7.2 s shorter — the
+larger planes on the reserved-tail arena, the paired level 22 and the
+fused inverse — while initialisation grew 6.8 s mapping them, so the
+wall is level and the GPU work, which is what the multi-node run
+multiplies, is 11 % less.
+
+**576-node estimate (standing rule).** From `estimate.py` on the merged
+code, with G's gridded profile and S's pool-resident slabs: **the
+ceiling is ≈ 6.7 × 10¹⁰ digits per node — 3.9 × 10¹³ digits over 576
+nodes in ≈ 4.0 minutes** of per-node wall (safe size 6.1 × 10¹⁰ per node
+= 3.5 × 10¹³ in 3.8 min); G's own accounting of the gridded tree puts the
+per-node ceiling at 7.1 × 10¹⁰ (4.1 × 10¹³ over the system), the
+difference being the exchange scratch Q counts and G does not. Before
+this session the same code fitted 9.5 × 10⁹ per node (5.5 × 10¹² total).
+Labelled: per-node compute measured (4 × 10¹⁰ in 81 s, 8 × 10¹⁰ in 190 s,
+10¹¹ in 263 s on one node); the fabric, the cross-node memory and the
+SHMEM message cost modelled; the part-file bandwidth assumed.
