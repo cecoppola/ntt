@@ -97,7 +97,15 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
     p->twc_i = dev_pow_table(prime, ec_root_inv(prime, logn), (size_t)1 << logC);
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
     p->own_slabs = slabs; p->sbuf = p->rbuf = 0;
-    if (slabs) { HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
+    /* Phase 12 S: the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the SHMEM
+     * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd.  DIST_SYM_SLABS=0 forces
+     * the latter (the staged path) for comparison. */
+    if (slabs) {
+        int sym = getenv("DIST_SYM_SLABS") ? atoi(getenv("DIST_SYM_SLABS")) : 1;
+        if (sym) { p->sbuf = (uint64_t *)comm_sym_alloc(cm, bytes); p->rbuf = p->sbuf ? (uint64_t *)comm_sym_alloc(cm, bytes) : 0; }
+        if (p->sbuf && p->rbuf) p->own_slabs = 2;
+        else { if (p->sbuf) comm_sym_free(cm, p->sbuf); HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
+    }
     /* M7: K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 4); 1 over the synthetic communicator */
     int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 4;
     if (K < 1 || cm->inflight == 0) K = 1;
@@ -116,7 +124,8 @@ void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, in
 void dist_plan_free(dist_plan *p)
 {
     HIP_CHECK(hipFree(p->twr)); HIP_CHECK(hipFree(p->twc)); HIP_CHECK(hipFree(p->twr_i)); HIP_CHECK(hipFree(p->twc_i));
-    if (p->own_slabs) { HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf)); }
+    if (p->own_slabs == 2) { comm_sym_free(p->cm, p->sbuf); comm_sym_free(p->cm, p->rbuf); }
+    else if (p->own_slabs) { HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf)); }
     HIP_CHECK(hipStreamDestroy(p->ts)); HIP_CHECK(hipEventDestroy(p->ev)); HIP_CHECK(hipEventDestroy(p->evt));
     for (int i = 0; i < p->te_cap; i++) HIP_CHECK(hipEventDestroy(p->te[i]));
     free(p->te); free(p->tk);

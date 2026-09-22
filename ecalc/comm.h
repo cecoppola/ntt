@@ -61,6 +61,12 @@ struct comm_ops {
     void (*alltoallv)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp, hipStream_t s);
     /* the same for host buffers, complete on return */
     void (*alltoallv_host)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp);
+    /* Phase 12 S: symmetric memory for the callers' slabs.  A transport that puts straight from and into buffers of its own
+     * pool (SHMEM: the symmetric pool, device-accessible) hands out such buffers here; an exchange whose send / receive
+     * buffer lies in the pool is not staged.  0 (the field or the result): the caller allocates the buffer itself
+     * (hipMalloc) and the transport stages it.  The layered communicator forwards to its inter transport. */
+    void *(*sym_alloc)(comm *c, size_t bytes);
+    void (*sym_free)(comm *c, void *p);
 };
 /* inflight: how many all-to-alls may be posted before a wait (M7's slab pipelining, ntt_dist.c): 1 for the real
  * transports, 2 for the layered one (its xGMI stage of the next exchange runs under the inter-node stage of the
@@ -84,6 +90,8 @@ void comm_alltoallv_host(comm *c, const void *sendbuf, const size_t *scnt, const
 static inline size_t comm_prefix(const size_t *cnt, size_t *dsp, int n) { size_t o = 0; for (int r = 0; r < n; r++) { dsp[r] = o; o += cnt[r]; } return o; }   /* offsets of back-to-back slabs; returns the total */
 static inline void comm_send(comm *c, int to, const void *b, size_t n) { c->ops->send(c, to, b, n); }
 static inline void comm_recv(comm *c, int from, void *b, size_t n) { c->ops->recv(c, from, b, n); }
+static inline void *comm_sym_alloc(comm *c, size_t bytes) { return c->ops->sym_alloc ? c->ops->sym_alloc(c, bytes) : 0; }   /* S12: a device-accessible buffer of the transport's symmetric pool, or 0 */
+static inline void comm_sym_free(comm *c, void *p) { if (p && c->ops->sym_free) c->ops->sym_free(c, p); }
 
 comm *comm_local_create(void);                 /* size 1 */
 comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
@@ -98,6 +106,7 @@ comm *comm_layered_create(comm *intra, comm *inter, int d);
  * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
  * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
 int   comm_shmem_available(void);              /* 1 when built with SHMEM (make SHMEM=1) */
+const char *comm_shmem_impl(void);             /* S12: the library the binary was built against ("sos", "oshmem", "shmem"); "none" without SHMEM */
 int   comm_shmem_init(void);                   /* returns the PE count */
 int   comm_shmem_rank(void);
 int   comm_shmem_size(void);
