@@ -1016,7 +1016,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         }
         if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
                    region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r);
-                   if (bs_copy_probe && mem_dev_of(NODE_P(nxt, o)) >= 0) rns_copy_probe_issue(mem_dev_of(NODE_P(nxt, o)), (a->pn + a->qn) * 8, bs_st.levels + 1); }   /* Phase 12 R (D5): ECALC_COPY_PROBE */
+                   if (bs_copy_probe && mem_dev_of(NODE_P(nxt, o)) >= 0) { rns_copy_probe_pair(0, NODE_P(nxt, o), NODE_P(cur, a), a->pn); rns_copy_probe_pair(1, NODE_Q(nxt, o), NODE_Q(cur, a), a->qn);
+                                                                             rns_copy_probe_issue(mem_dev_of(NODE_P(nxt, o)), (a->pn + a->qn) * 8, bs_st.levels + 1); } }   /* Phase 12 R (D5): ECALC_COPY_PROBE */
         double dt = mem_now() - t, tl3 = mem_now();
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
         if (!strcmp(tier, "school")) bs_st.t_school += dt; else if (!strcmp(tier, "batch")) bs_st.t_batch += dt; else bs_st.t_mdev += dt;
