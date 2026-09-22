@@ -5,7 +5,7 @@ the pools' creation in `ecalc/rns_mul.c` (the plane switch's default and the ver
 (the C3 block deleted), `binsplit_seeds_begin` in `ecalc/binsplit.c` (the seed order), NEW `ecalc/tests/t_alloc.c` (+ its
 Makefile rule). Nothing else touched. Every ecalc run below: `ECALC_VERBOSE=2 RNS_VERBOSE=1`, 4 × 10¹⁰ with the reference
 evicted before each run and the digits `cmp`'d against `~/ntt/ecalc/results/e_4e10.out` after it; jobs 20873 (s24-30), 20894 and
-20903 (s24-16), BATCH7JOB.
+20903 (s24-16), 20929, 20934, 20936 (s24-26).
 
 ## Summary
 
@@ -14,11 +14,12 @@ evicted before each run and the digits `cmp`'d against `~/ntt/ecalc/results/e_4e
 | 1. every allocation form (`t_alloc`) | no form maps cheaper than `hipMalloc` in a fresh process: 0.057–0.072 s/GB, the kernel's page work on the calling thread (system time = wall) under one lock; the host forms cost more and route `hipMemcpy` through the SDMA engine (21 GB/s) | `MEM_ALLOC=hipmalloc\|fine\|uncached\|managed\|host\|mmap` in mem.c, default `hipmalloc` |
 | 2. the allocator behind the pools, regions, the block pool | one pair (`mem_dev_malloc` / `mem_dev_release`) under every `hipMalloc` of mem.c (`mem_dev_alloc`, `dpool_get`, `dpool_get_exact`); M's tail layout and the accounting untouched | yes (bit-identical in every form tried) |
 | 3. the seeds vs the mapping window (`ECALC_SEED_ORDER=overlap\|first\|after`) | overlap 81.5 s, seeds first 88.5, seeds after 88.3: the overlap wins by 7 s because the seeds slow the mapping by only ≈ 1 s while their 14 s of CPU work is hidden | overlap stays the default |
-| 4. the 3·2³⁰ planes on the floor | same node, same batch: phases 59.2 s against 64.2 / 64.8, init 22.5 against 17.3 / 18.1, **wall 81.7 against 82.1 / 82.3** | **the size rule is the default** (on below 5 × 10¹⁰ at 2³¹ pools) |
+| 4. the 3·2³⁰ planes on the floor | same node, same batch: phases 58.5–59.3 against 63.1–64.8, init +4 s, **wall 80.8 ± 1.3 against 82.0 ± 0.3** | **the size rule is the default** (on below 5 × 10¹⁰ at 2³¹ pools) |
 | 5. `ECALC_DM_POOL` / the C3 block | deleted (`ECALC_TAIL=0` remains the fallback; the in-phase-growth report line stays) | yes |
 
-**The floor.** Init at 4 × 10¹⁰ is 252 GB of device memory mapped by the driver (arenas 132.3 GB in 6.3–7.5 s, plane pools
-120 GB in 8–9 s) at 0.05–0.075 s/GB, ≈ 15–16 s, with the seed thread's 14.4 s alongside; nothing measured maps cheaper.
+**The floor.** Init at 4 × 10¹⁰ is the bytes the run needs, mapped by the driver at 0.05–0.075 s/GB, with the seed thread's
+14 s of CPU work hidden inside it: 252 GB (arenas 132.3 GB in 5.5–7.9 s, plane pools 120 GB in 8–9 s) = 16–19 s with the
+planes off, 312 GB = 20–23.5 s with them on. Nothing measured maps cheaper.
 What the cost is: **CPU time in the kernel on the allocating thread** — a fresh process's first `hipMalloc` of 28 GB on one
 APU takes 2.01 s of wall of which 2.01 s is system time (`t_alloc`'s probe, `getrusage(RUSAGE_THREAD)`), 0.072 s/GB = 14 GB/s,
 the rate of one core allocating and clearing pages (on the MI300A the "VRAM" of a hipMalloc is system memory of the APU's
