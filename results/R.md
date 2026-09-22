@@ -106,15 +106,17 @@ fix **42 in 42** identical:
 | f3 (20913) | fixed (`f80e517`), no probe of any kind | 14 | 14 identical, all 5 VERIFY OK lines per run |
 | f4 (20917) | fixed, same | 14 | 14 identical |
 | f5 (20922) | fixed, same | 14 | 14 identical |
+| f6 (20956) | fixed at the final commit `fa73163` (the invariant's gating), same | 14 | 14 identical; **0 growth lines** in any run — the D5 recipe grows no pool, and the armed invariant never tripped |
 
-At the unfixed rate (7 in 52) the chance of 42 clean runs is 0.865⁴² ≈ 2.4 × 10⁻³.
+At the unfixed rate (7 in 52) the chance of 56 clean runs is 0.865⁵⁶ ≈ 3 × 10⁻⁴.
 
 ## Gate runs
 
-- **42 of 42** forced-growth runs at 10¹⁰ over 4 processes (`v11_d5.sh <job> 14 shard`, `POOL_LOG=29
+- **56 of 56** forced-growth-recipe runs at 10¹⁰ over 4 processes (`v11_d5.sh <job> 14 shard`, `POOL_LOG=29
   RNS_POOL1_GB=3.2213`, `ECALC_RES_LOG_LEVEL=99` so no per-level probe runs) identical to
-  `~/ntt/ecalc/results/e_1e10.out`, every node VERIFY OK, in three batches on the fixed build at `f80e517`
-  (jobs 20913, 20917, 20922). Against 24 of 26 on the unfixed build in the same configuration (jobs 20889, 20904).
+  `~/ntt/ecalc/results/e_1e10.out`, every node VERIFY OK, in four batches on the fixed build (jobs 20913, 20917, 20922 at
+  `f80e517`; 20956 at the final `fa73163`) — the gate asked for 40 in three batches. Against 24 of 26 on the unfixed
+  build in the same configuration (jobs 20889, 20904).
 - **`--stress` 10/10 in three separate batches** (jobs 20940, 20942, 20943, each its own allocation, `mnaccept.sh <job>
   --only stress --stress`): 30 of 30 runs identical to `ref/e_1000000000.txt`, all 4 nodes VERIFY OK, **16 pool growths
   logged per run** (pool 1 on each APU, at four levels). A fourth pass inside the regression below: 10/10.
