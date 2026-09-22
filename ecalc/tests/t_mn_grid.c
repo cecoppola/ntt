@@ -128,6 +128,29 @@ int main(int argc, char **argv)
             }
         }
     }
+    /* Phase 12 G: the same over a group that does not start at node 0 -- every node's level-1 group [2k, 2k+2) (the tree's lower
+     * levels: A on its first node, B and X on its second), the grid forced: the product, + X, and mdb_add_shifted.  (The tree at
+     * 10^9 / 4 with its levels gridded gave a wrong P = P_A Q_B + P_B on the group [2, 4) while Q and the group [0, 2) were right.) */
+    if (g_size >= 4) {
+        mn_group *G1 = mn_group_at(1); int g0 = G1->g0, g1 = G1->g;
+        int logcap1 = rns_mul_dist_mn_logcap(G1); size_t u1 = (size_t)(((size_t)1 << logcap1) * scale);
+        printf("t_mn_grid: node %d: level-1 group [%d, %d), cap 2^%d, unit %zu limbs\n", g_me, g0, g0 + g1, logcap1, u1);
+        for (int kind = 0; kind < 2 && g1 == 2; kind++) for (int si = 0; si < 3; si++) {
+            size_t na = (size_t)(u1 * (si == 0 ? 0.6 : si == 1 ? 1.03 : 0.3)), nb = (size_t)(u1 * (si == 0 ? 0.5 : si == 1 ? 1.03 : 0.25));
+            rnd_bi(&a, na, kind); rnd_bi(&b, nb, kind); rnd_bi(&x, nb - 3, kind);
+            make_mdb(&A, &a, na + 5, g0, 1); make_mdb(&B, &b, nb + 2, g0 + 1, 1); make_mdb(&X, &x, nb, g0 + 1, 1);
+            rns_mul_dist_mn(&C, &A, &B, 0, G1); rns_mul(&r, &a, &b);
+            VERIFY(check(&C, &r, "subgroup product"), "group [%d, %d) product %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
+            rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);
+            VERIFY(check(&C, &t, "subgroup product + x"), "group [%d, %d) product + x %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
+            rns_mul_dist_mn(&C, &A, &B, 0, G1); bi_copy(&t, &r);
+            size_t ks[] = { 0, na / 2 };
+            for (int ki = 0; ki < 2; ki++) {
+                mdb_add_shifted(&C, &X, ks[ki], G1); bi_shl_limbs(&rl, &x, ks[ki]); bi_add(&t, &t, &rl); mdb_norm(&C, G1, (size_t)-1);
+                VERIFY(check(&C, &t, "subgroup add_shifted"), "group [%d, %d) add_shifted k %zu %s", g0, g0 + g1, ks[ki], gen_name[kind]);
+            }
+        }
+    }
     db_free(&A.sh); db_free(&B.sh); db_free(&X.sh); db_free(&C.sh);
     bi_free(&a); bi_free(&b); bi_free(&x); bi_free(&r); bi_free(&t); bi_free(&rl);
     mn_barrier(); mn_finalize();
