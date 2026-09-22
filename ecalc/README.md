@@ -152,10 +152,11 @@ size 1), `variance.sh N` the N-run 4 × 10¹⁰ series with amd-smi sampling.
 
 ## Switches
 
-Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")' *.c *.h`), one line each, the default in
-parentheses; `on/off` switches take 1/0. Those marked *debug* or *test* change no result. The digits never depend on any
-of them except `LIMB_BASE` (the same digits by another pipeline) — everything else is bit-identical by construction and
-checked so by the regression.
+Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|env_int("[A-Z0-9_]*"' *.c *.h`), one line
+each, the default in parentheses; `on/off` switches take 1/0. Those marked *debug* or *test* change no result. The digits
+never depend on any of them except `LIMB_BASE` (the same digits by another pipeline) — everything else is bit-identical by
+construction and checked so by the regression. Switches marked *Phase 12* were added by the other agents of that session
+(their `results/<agent>.md` has the measurements); the integrator's merge is the final word on those lines.
 
 **The run (`ECALC_`)**
 
@@ -167,7 +168,10 @@ checked so by the regression.
 | `ECALC_STAGING` | the pinned staging per APU in the decimal device flow: 1 = the checkpoints' 1 GiB chunk, 2 = sized to the seeds (pre-B2), 0 = the paper's 8·2^POOL_LOG bytes (1) |
 | `ECALC_TAIL` | the arena's tail for the dm phase mapped at init (Phase 11 M); 0 = the Phase 10 layout, the block pool growing by hipMalloc inside the phase (1) |
 | `ECALC_ARENA_GB` | the region arena per device, in GB, instead of the layout's own sizing (auto) |
-| `ECALC_DM_POOL` | C3: the block pool grown to the reciprocal's scratch once before the phase; a no-op with the tail (on from 5 × 10¹⁰ digits, off below) |
+| `ECALC_DM_POOL` | *deleted in Phase 12 (agent I)*: C3's block-pool pre-growth was a no-op with `ECALC_TAIL`; on branch `w12` it still reads as before (on from 5 × 10¹⁰) |
+| `ECALC_SEED_ORDER` | *Phase 12 (I)*: `overlap` (the seeds alongside the plane pools' mapping) / `first` (regions, seeds, then the planes) / `after` (the seeds synchronous in bs) (overlap) |
+| `ECALC_COPY_PROBE` | *Phase 12 (R), debug*: times the odd-node copy at a level transition against the next level (0) |
+| `ECALC_B_SNAPSHOT` | *Phase 12 (R), debug*: in the striped grpB tier every device snapshots the shared operand B right before reading it; the snapshots are compared after the level (0) |
 | `ECALC_DM_POOL_K` | the arena sized for the dm phase at init as k × the digit limbs per device, `binsplit_pregrow` (0 = off) |
 | `ECALC_POOL_GROW_GB` | GB of plane pool grown per device in the background thread during bs; off: hipMalloc there stalls the GPU levels (0) |
 | `ECALC_STOP_AFTER_BS` | exit after bs with its line (unset) |
@@ -190,6 +194,8 @@ checked so by the regression.
 | `MEM_REPORT_DEVS` | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table (unset) |
 | `MEM_NO_DEV_MEMSET` | *test*: skip the hipMemset that maps a device pool's pages at allocation (unset) |
 | `MEM_DPOOL_FILL` | *test*: fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0) |
+| `MEM_ALLOC` | *Phase 12 (I)*: the form of every large device allocation — `hipmalloc` / `fine` / `uncached` / `managed` / `host` / `mmap` (hipmalloc) |
+| `MEM_COPY_NOWAIT` | *Phase 12 (R), test*: the pre-fix `mem_dev_copy_on` (no wait on the caller's stream) for the witness runs (0) |
 
 **The transform and the product tiers (`NTT_`, `PW_FUSE`, `RNS_`)**
 
@@ -209,6 +215,7 @@ checked so by the regression.
 | `RNS_STRIPED_PAIR` | the paired, 3·2ᵏ form of the striped batch path as a unit (A2) (1) |
 | `RNS_BATCH_TILE_GB` | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) |
 | `RNS_POOL1_GB` | plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs) |
+| `RNS_POOL_GROW` | *Phase 12 (R)*: a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) |
 | `RNS_PLANES_3Q30` | 3·2³⁰-point planes for the top levels and the dm phase, sized at init: 1 / 0 / `auto` (on below 5 × 10¹⁰ at 2³¹ pools); the mapping costs more than the products gain (0) |
 | `RNS_DIST_CACHE` | transform-cache slots of the single-node dist tier (0: the planes' mapping costs more than the transforms saved) |
 | `RNS_DIST_CACHE_MN` | transform-cache slots over shares at size > 1 (2) |
@@ -264,13 +271,19 @@ checked so by the regression.
 | `COMM_TRANSPORT` | `tcp` or `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) (tcp) |
 | `COMM_SHMEM_POOL_MB` | the SHMEM transport's symmetric pool (8192) |
 | `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (1) |
-| `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory (0) |
-| `COMM_SHMEM_FENCE` | data puts ordered before their signal by `shmem_fence` (the spec); 0 = `shmem_quiet` (OSHMEM 4.1's fence does not order an nbi put) (0) |
+| `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory: 1 on an implementation whose `shmem_malloc` is device memory or SOS with the external-heap patch, 2 managed (0; *Phase 12 (S)*) |
+| `COMM_SHMEM_FENCE` | Phase 11's form of `COMM_SHMEM_ORDER=fence` (0) |
+| `COMM_SHMEM_ORDER` | *Phase 12 (S)*: how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (OSHMEM 4.1) (putsig on 1.5 headers, else quiet) |
+| `COMM_SHMEM_KEEP_STAGING` | *Phase 12 (S)*: keep the staging copies across exchanges instead of releasing them per exchange (0) |
+| `COMM_SHMEM_THREAD` | *Phase 12 (S)*: always post the puts from the helper thread (0) |
+| `COMM_SHMEM_SPIN_US` | *Phase 12 (S)*: how long the sender spins for a peer's receive offset before handing the put to the helper thread (2000) |
+| `COMM_SHMEM_NOSYM` | *Phase 12 (S), test*: `comm_sym_alloc` returns nothing — every buffer is staged (0) |
+| `DIST_SYM_SLABS` | *Phase 12 (S)*: `ntt_dist`'s slab buffers allocated from the symmetric pool (put straight from and into them); 0 = hipMalloc'd and staged (1) |
 | `COMM_SHMEM_RING_KB` | the point-to-point ring per (dest, source) (256) |
 | `COMM_SHMEM_TRACE` | *debug*: trace the SHMEM transport (unset) |
 | `COMM_PUSH64` | the xGMI push by 64-bit stores; 0 = 16-byte vectors (1) |
 | `COMM_PUSH_BLOCKS` | blocks per peer of the xGMI push (76) |
-| `MN_GROUPS` | the tree's level → group-size schedule, e.g. `2,4,8,16,32,64,576` (the powers of two up to the size, then the size) |
+| `MN_GROUPS` | the tree's level → group-size schedule, e.g. `2,4,8,16,32,64,576` (on `w12`: the powers of two up to the size, then the size; *Phase 12 (G, Q's decision)*: the powers of two dividing the size, then the odd part's prime factors ascending — 576 → …, 64, 192, 576) |
 | `MN_TOPO_GROUP` | nodes per dragonfly group: the exchanges of a transform group layered intra/inter group (0 = the plain mesh) |
 | `MN_OUT_CHUNK_MB` | the streamed writer's digit chunk per node (256) |
 | `MN_COMBINE=host` | *stand-in*: M2's combine — the leaf results sent to node 0 and multiplied on its host mdev tier — instead of the distributed tree |
@@ -289,4 +302,7 @@ checked so by the regression.
 | `DIST_LOGN_TEST` | *test*: a lower plane cap so the grid split runs at small sizes (31) |
 | `DIST_GEN` | *test*: the general (any-g) transform at a power-of-two group size too (0) |
 
-The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes) and `T_COMM_TRACE` (`t_comm`).
+The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes), `T_COMM_TRACE` (`t_comm`) and
+*Phase 12 (I)* `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` (`t_alloc`). The SHMEM transport also reads the launcher's
+`SLURM_NTASKS` / `PMI_SIZE` (a PE-count hint) and the Makefile `SHMEM_HOME` (Phase 12 S: the SOS build). `mnaccept.sh`
+reads `ECALC_REF` and `ECALC_REF_4E10` (the reference files).

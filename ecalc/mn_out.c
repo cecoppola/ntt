@@ -298,30 +298,52 @@ static int recheck_stat(const char *name, int first_part, int last_part, size_t 
     return 1;
 }
 /* one pass over this node's digit file in chunks: the residues (Horner), the T2 windows (the head carried: the node above's
- * tail first), the count of digit chars (the '.' and the newline are not digits); returns 0 when the file cannot be read */
+ * tail first), the count of digit chars (the '.' and the newline are not digits); returns 0 when the file cannot be read.
+ * A reader thread fills the other of two 256 MB buffers while a chunk is processed (the file is the recheck's time: 40 GB
+ * at 4e10), and the non-digit scan runs over the OpenMP team. */
+struct recheck_rd { FILE *f; char *buf[2]; size_t have[2]; int last[2]; sem_t full[2], empty[2]; size_t CH; volatile int stop; };
+static void *recheck_rd_run(void *a)
+{
+    struct recheck_rd *r = (struct recheck_rd *)a;
+    for (int k = 0;; k ^= 1) {
+        sem_wait(&r->empty[k]); if (r->stop) return 0;
+        size_t n = fread(r->buf[k], 1, r->CH, r->f); int ch = fgetc(r->f), last = ch == EOF; if (!last) ungetc(ch, r->f);
+        r->have[k] = n; r->last[k] = last; sem_post(&r->full[k]);
+        if (last || !n) return 0;
+    }
+}
 static int recheck_pass(const char *name, int first_part, uint64_t *dres, size_t *ndig, size_t k0, const char *head0, size_t nhead0, size_t ndig_all, int verbose, int *nwin, int *bad2)
 {
-    FILE *f = fopen(name, "rb"); if (!f) { printf("recheck: cannot open %s: %s\n", name, strerror(errno)); return 0; }
-    size_t CH = (size_t)256 << 20; char *buf = (char *)malloc(CH + 64); size_t n = 0, have = 0, k = k0; char head[64]; size_t nhead = nhead0; memcpy(head, head0, nhead0); int first = first_part;
+    struct recheck_rd r; memset(&r, 0, sizeof r);
+    r.f = fopen(name, "rb"); if (!r.f) { printf("recheck: cannot open %s: %s\n", name, strerror(errno)); return 0; }
+    r.CH = (size_t)256 << 20; for (int k = 0; k < 2; k++) { r.buf[k] = (char *)malloc(r.CH + 64); sem_init(&r.full[k], 0, 0); sem_init(&r.empty[k], 0, 1); }
+    pthread_t th; pthread_create(&th, 0, recheck_rd_run, &r);
+    size_t n = 0, k = k0; char head[64]; size_t nhead = nhead0; memcpy(head, head0, nhead0); int first = first_part, ok = 1;
     for (int i = 0; i < T1_NQ; i++) dres[i] = 0;
     *bad2 = 0;
-    for (;;) {
-        size_t r = fread(buf + have, 1, CH - have, f); have += r; if (!have) break;
-        int ch = fgetc(f), last = ch == EOF; if (!last) ungetc(ch, f);
-        size_t len = have; char *sp = buf;
+    for (int b = 0;; b ^= 1) {
+        sem_wait(&r.full[b]); size_t len = r.have[b]; int last = r.last[b]; char *sp = r.buf[b];
+        if (!len) break;
         if (first) { if (len >= 2 && sp[1] == '.') { memmove(sp + 1, sp + 2, len - 2); len--; } first = 0; }   /* the '.' after the first digit of the first part */
         if (last) while (len && (sp[len - 1] == '\n' || sp[len - 1] == '\r')) len--;                          /* a trailing newline of the last chunk */
-        for (size_t q = 0; q < len; q++) if (sp[q] < '0' || sp[q] > '9') { printf("recheck: %s: a non-digit at char %zu\n", name, n + q); free(buf); fclose(f); return 0; }
+        size_t badpos = (size_t)-1;
+#pragma omp parallel for reduction(min:badpos) schedule(static)
+        for (size_t q = 0; q < len; q++) if ((unsigned)(sp[q] - '0') > 9u && q < badpos) badpos = q;
+        if (badpos != (size_t)-1) { printf("recheck: %s: a non-digit at char %zu\n", name, n + badpos); ok = 0; break; }
         uint64_t v[T1_NQ]; vf_digits_mods(sp, len, t1_q, T1_NQ, v);
         for (int i = 0; i < T1_NQ; i++) dres[i] = vf_digits_join(dres[i], len, v[i], t1_q[i]);
         *bad2 += tier2_range(sp, k, k + len, head, nhead, ndig_all, verbose, nwin);
         { size_t t = len < 49 ? len : 49; if (t < 49 && nhead) { size_t keep = 49 - t < nhead ? 49 - t : nhead; memmove(head, head + nhead - keep, keep); memcpy(head + keep, sp, t); nhead = keep + t; } else { memcpy(head, sp + len - t, t); nhead = t; } }
-        n += len; k += len; have = 0;
+        n += len; k += len;
+        sem_post(&r.empty[b]);
         if (last) break;
     }
-    free(buf); fclose(f);
+    if (!ok) { r.stop = 1; sem_post(&r.empty[0]); sem_post(&r.empty[1]); }   /* the reader may be waiting for a buffer */
+    pthread_join(th, 0);
+    for (int b = 0; b < 2; b++) { free(r.buf[b]); sem_destroy(&r.full[b]); sem_destroy(&r.empty[b]); }
+    fclose(r.f);
     *ndig = n;
-    return 1;
+    return ok;
 }
 int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const char *outfile, comm *c, int rank, int size, unsigned long a0, unsigned long b1, int verbose)
 {
