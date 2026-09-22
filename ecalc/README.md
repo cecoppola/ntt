@@ -168,7 +168,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_STAGING` | the pinned staging per APU in the decimal device flow: 1 = the checkpoints' 1 GiB chunk, 2 = sized to the seeds (pre-B2), 0 = the paper's 8·2^POOL_LOG bytes (1) |
 | `ECALC_TAIL` | the arena's tail for the dm phase mapped at init (Phase 11 M); 0 = the Phase 10 layout, the block pool growing by hipMalloc inside the phase (1) |
 | `ECALC_ARENA_GB` | the region arena per device, in GB, instead of the layout's own sizing (auto) |
-| `ECALC_DM_POOL` | *deleted in Phase 12 (agent I)*: C3's block-pool pre-growth was a no-op with `ECALC_TAIL`; on branch `w12` it still reads as before (on from 5 × 10¹⁰) |
+| `ECALC_DM_POOL` | *deleted in Phase 12 (agent I)*: C3's block-pool pre-growth is a no-op with `ECALC_TAIL` (M11's reserved tail leaves nothing to pre-grow) |
 | `ECALC_SEED_ORDER` | *Phase 12 (I)*: `overlap` (the seeds alongside the plane pools' mapping) / `first` (regions, seeds, then the planes) / `after` (the seeds synchronous in bs) (overlap) |
 | `ECALC_COPY_PROBE` | *Phase 12 (R), debug*: times the odd-node copy at a level transition against the next level (0) |
 | `ECALC_B_SNAPSHOT` | *Phase 12 (R), debug*: in the striped grpB tier every device snapshots the shared operand B right before reading it; the snapshots are compared after the level (0) |

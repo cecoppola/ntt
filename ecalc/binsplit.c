@@ -780,7 +780,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
 /* Phase 8 I2: the seeds computed in a background thread during init's device allocations (PLAN.md 16); binsplit_e
  * joins and takes the level-0 table from here.  B2: streamed to the regions as they are computed (above) */
-static struct { int active; pthread_t th; unsigned long N, nspan; size_t per, r0[NR + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
+static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NR + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
 static void *pre_seeds_run(void *a)
 {
     (void)a; double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
@@ -802,6 +802,11 @@ void binsplit_seeds_begin(unsigned long N)
     if (!bs_regions_on_device || (bs_restart && bs_ckpt_dir)) return;      /* the device-region path only; a restart skips the seeds */
     seed_limbs(N, &g_pre.per, &g_pre.nspan); g_pre.N = N;
     for (int r = 0; r <= NR; r++) { g_pre.r0[r] = 0; while (g_pre.r0[r] < g_pre.nspan && region_of(g_pre.r0[r], g_pre.nspan) < r) g_pre.r0[r]++; }
+    /* Phase 12 I: ECALC_SEED_ORDER = overlap (the seeds alongside the plane pools' mapping, the default) | first (the regions,
+     * then the seeds joined here, then the plane pools: nothing maps while the seeds run) | after (only the regions here; the
+     * seeds run synchronously in binsplit_e, with everything mapped).  Measured in results/I.md: the overlap wins. */
+    const char *ord = getenv("ECALC_SEED_ORDER"); int order = ord && !strcmp(ord, "first") ? 1 : ord && !strcmp(ord, "after") ? 2 : 0;
+    if (order == 2) { double tp = mem_now(); binsplit_pregrow(N); if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init; the seeds after init: ECALC_SEED_ORDER=after)\n", mem_now() - tp); return; }
     g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
     memset(&g_pre.ss, 0, sizeof g_pre.ss); pthread_mutex_init(&g_pre.ss.mx, 0); pthread_cond_init(&g_pre.ss.cv, 0);
     pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
@@ -810,6 +815,7 @@ void binsplit_seeds_begin(unsigned long N)
     uint64_t *pool[NR]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
     seed_stream_pools(&g_pre.ss, pool);
     if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init, before the plane pools: the seeds stream into them)\n", mem_now() - tp);
+    if (order == 1) { double tj = mem_now(); pthread_join(g_pre.th, 0); g_pre.joined = 1; printf("      init: seeds joined before the plane pools (ECALC_SEED_ORDER=first): %.2f s of waiting, the seeds took %.2f s\n", mem_now() - tj, g_pre.t); }
 }
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
@@ -857,19 +863,19 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
      * RESULTS.md 56), then one copy per region */
     int own_stage = mem_dev_of(cur.pool[0]) < 0;
     if (g_pre.active && !own_stage && g_pre.N == N) {                      /* I2: computed (and streamed) during init; take the table */
-        pthread_join(g_pre.th, 0); g_pre.active = 0;
+        if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0;
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
         for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { fprintf(stderr, "bs: region %d's pool moved after the seeds were streamed into it\n", r); abort(); }
         if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it; %d chunks of %zu MB, %d through a buffer%s)\n",
                                g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
     } else if (!own_stage) {
-        if (g_pre.active) { pthread_join(g_pre.th, 0); g_pre.active = 0; free(g_pre.nd); g_pre.nd = 0; }
+        if (g_pre.active) { if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0; free(g_pre.nd); g_pre.nd = 0; }
         struct seed_stream ss; memset(&ss, 0, sizeof ss); pthread_mutex_init(&ss.mx, 0); pthread_cond_init(&ss.cv, 0);
         seed_stream_pools(&ss, cur.pool);
         seeds_stream(&ss, &cur, per, S, N, r0);
         if (bs_verbose) printf("bs: seeds streamed to the regions: buffers %.2f + %.2f s, spans %.2f, waited %.2f for the DMA, %.2f issuing it; %d chunks of %zu MB, %d through a buffer\n", ss.t_alloc, ss.t_free, ss.t_span, ss.t_wait_dma, ss.t_issue, ss.nchunks, ss.bytes >> 20, ss.nbuf);
     } else {
-        if (g_pre.active) { pthread_join(g_pre.th, 0); g_pre.active = 0; free(g_pre.nd); g_pre.nd = 0; }
+        if (g_pre.active) { if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0; free(g_pre.nd); g_pre.nd = 0; }
         uint64_t *stage[NR];
         for (int r = 0; r < NR; r++) stage[r] = (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8);
         seeds_compute(&cur, per, S, N, r0, stage);
