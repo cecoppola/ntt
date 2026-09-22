@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
+#include <pthread.h>
+#include <unistd.h>
 #include "rns_mul.h"
 #include "dbig.h"
 #include "ntt.h"
@@ -25,6 +27,7 @@ static int g_mdev_S;
 int rns_crt_layout = 0;          /* 0: one plane per node (paper, default); 1: quartered node-local planes (no gain, RESULTS.md 38) */
 
 static int g_nd = 0, g_pool_log = 31;
+static uint64_t *g_snap[EC_NP]; static size_t g_snap_cap, g_snap_n; static const uint64_t *g_snap_b; static int g_snap_on = -1;
 int rns_engine = 1;               /* RNS_ENGINE: 1 paper (4 x 52-bit FP64), 2 two 62-bit primes / 45-bit points */
 static struct dev {
     ntt_ctx *ctx;
@@ -140,6 +143,8 @@ int rns_init(int pool_log)
         dpool_get_exact(&D[d].db, d, b1);
     }
     mem_par_init = 0;
+    if (g_snap_on < 0) g_snap_on = getenv("ECALC_B_SNAPSHOT") ? atoi(getenv("ECALC_B_SNAPSHOT")) : 0;
+    if (g_snap_on) { g_snap_cap = (size_t)1 << 30; for (int d = 0; d < g_nd; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&g_snap[d], g_snap_cap)); } }   /* Phase 12 R witness buffers */
     mem_acct_register(rns_acct);
     double ti2 = mem_now();
     for (int d = 0; d < g_nd; d++) {
@@ -167,7 +172,28 @@ void rns_ensure_staging(void)
     for (int d = 0; d < g_nd; d++) if (!D[d].hstage) { double tt, tr; HIP_CHECK(hipSetDevice(d)); D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr); }
 }
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
-void *rns_dpool(int dev, int which, size_t bytes) { return dpool_get(which ? &D[dev].db : &D[dev].da, dev, bytes); }
+int rns_pool_grow = -1;                                            /* RNS_POOL_GROW: 1 lets a plane pool grow inside a phase (the stress recipe); 0 (default) aborts */
+static size_t g_n_grow;
+size_t rns_pool_n_grow(void) { return g_n_grow; }
+void *rns_dpool(int dev, int which, size_t bytes)
+{
+    dpool *dp = which ? &D[dev].db : &D[dev].da;
+    if (mem_pool_guard && dp->p && dp->dev == dev && dp->cap < bytes) {   /* a growth inside a phase (rns_init makes the pools directly) */
+        /* Phase 12 R (D5): the plane pools are sized at init (Phase 9 C4, Phase 11 B3) and no default configuration grows one inside
+         * a phase; a growth here means the sizing and the tiers disagree, so it aborts with the memory accounting (as mem_oom
+         * does) unless RNS_POOL_GROW=1 asks for it (mnaccept.sh --stress).  The growth itself is a hipFree + hipMalloc of the
+         * pool between two tiers -- safe as such (every tier re-reads the pool pointer after this call), just never intended. */
+        if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
+        if (!rns_pool_grow) {
+            fprintf(stderr, "rns_dpool: plane pool %d on APU %d would grow inside a phase, %.2f -> %.2f GB: the pools are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
+            fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1);
+        }
+#pragma omp atomic
+        g_n_grow++;
+        if (getenv("RNS_VERBOSE")) printf("rns_dpool: plane pool %d on APU %d grows inside a phase, %.2f -> %.2f GB (RNS_POOL_GROW=1)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
+    }
+    return dpool_get(dp, dev, bytes);
+}
 /* Phase 8 I3: the part of plane pool `which` above `used` bytes (the dist tier's slabs take 3 q of pool 1's 4 q at 2^31 points)
  * goes to the dbig block pool; the pool keeps its size (the tail is never handed out again by dpool_get, which only grows) */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used)
@@ -192,6 +218,58 @@ void rns_shutdown(void)
     g_nd = 0;
 }
 
+/* Phase 12 R (D5, instrumentation): ECALC_COPY_PROBE=1 -- the level loop's odd-node copy (a device-to-device hipMemcpy on the
+ * destination device's null stream) is timed against the next level's first kernel launch: an event recorded on that null
+ * stream right after the copy, polled by a thread (no wait, no synchronisation: the probe cannot hide a race), and the
+ * time of the next rns_mul_batch's first launch.  The report names the transition when the copy completed after that
+ * launch (the other devices' streams are not ordered against a null stream that is not theirs). */
+double rns_t_launch;                                             /* mem_now() at the latest batch call's first kernel launch */
+static struct { hipEvent_t ev; int dev, on, level; size_t bytes; double t_issue, t_done; pthread_t th; } g_cp;
+static void *cp_poll(void *a) { (void)a; HIP_CHECK(hipSetDevice(g_cp.dev)); while (hipEventQuery(g_cp.ev) == hipErrorNotReady) usleep(50); g_cp.t_done = mem_now(); return 0; }
+static const uint64_t *g_cp_src[2], *g_cp_dst[2]; static size_t g_cp_n[2];
+void rns_copy_probe_pair(int i, const uint64_t *dst, const uint64_t *src, size_t limbs) { g_cp_dst[i] = dst; g_cp_src[i] = src; g_cp_n[i] = limbs; }   /* the two copies (P, Q) of the odd node, checked at the report */
+void rns_copy_probe_issue(int dev, size_t bytes, int level)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    HIP_CHECK(hipEventCreateWithFlags(&g_cp.ev, hipEventDisableTiming)); HIP_CHECK(hipEventRecord(g_cp.ev, 0));
+    g_cp.dev = dev; g_cp.bytes = bytes; g_cp.level = level; g_cp.t_issue = mem_now(); g_cp.on = 1;
+    pthread_create(&g_cp.th, 0, cp_poll, 0); HIP_CHECK(hipSetDevice(cur));
+}
+void rns_copy_probe_report(int level_next)
+{
+    if (!g_cp.on) return; pthread_join(g_cp.th, 0); g_cp.on = 0;
+    double td = (g_cp.t_done - g_cp.t_issue) * 1e3, tl = (rns_t_launch - g_cp.t_issue) * 1e3;
+    printf("COPY probe: level %d's odd-node copy (%.0f MB into APU %d) completed %.1f ms after issue; level %d's first kernel was launched %.1f ms after issue: %s\n",
+           g_cp.level, g_cp.bytes / 1e6, g_cp.dev, td, level_next, tl, td > tl ? "UNORDERED (the copy landed after the next level's kernels had started)" : "ordered");
+    HIP_CHECK(hipEventDestroy(g_cp.ev));
+    for (int i = 0; i < 2; i++) if (g_cp_n[i]) {                       /* the copied node against its source, both still in place after the next level */
+        uint64_t *a = (uint64_t *)malloc(g_cp_n[i] * 8), *b = (uint64_t *)malloc(g_cp_n[i] * 8);
+        mem_dev_copy(a, g_cp_dst[i], g_cp_n[i] * 8); mem_dev_copy(b, g_cp_src[i], g_cp_n[i] * 8);
+        size_t nd = 0, first = 0; for (size_t k = 0; k < g_cp_n[i]; k++) if (a[k] != b[k]) { if (!nd) first = k; nd++; }
+        printf("COPY check after level %d: the odd node's %s (%zu limbs, %p <- %p) vs its source: %zu limbs differ%s\n", level_next, i ? "Q" : "P", g_cp_n[i], (const void *)g_cp_dst[i], (const void *)g_cp_src[i], nd, nd ? "  COPY WRONG" : "");
+        if (nd) printf("COPY check: first differing limb %zu: dst %016llx src %016llx\n", first, (unsigned long long)a[first], (unsigned long long)b[first]);
+        free(a); free(b); g_cp_n[i] = 0;
+    }
+}
+
+/* Phase 12 R (D5, instrumentation): ECALC_B_SNAPSHOT=1 -- in the striped grpB tier every device copies the shared operand B
+ * into a private buffer on its own stream right before its ntt_load reads it (the same read, microseconds earlier); after
+ * the level the four snapshots are compared on the host with B as it is in memory then: a device that read stale limbs is
+ * named with the first and last differing limb.  The buffers are allocated at rns_init (1 GiB per APU) so nothing is
+ * mapped inside the phase. */
+static void rns_snap_check(const char *when)
+{
+    uint64_t *h = (uint64_t *)malloc(g_snap_n * 8), *hb = (uint64_t *)malloc(g_snap_n * 8);
+    mem_dev_copy(hb, g_snap_b, g_snap_n * 8);
+    for (int d = 0; d < g_nd; d++) {
+        HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemcpy(h, g_snap[d], g_snap_n * 8, hipMemcpyDeviceToHost));
+        size_t nd = 0, first = 0, last = 0;
+        for (size_t i = 0; i < g_snap_n; i++) if (h[i] != hb[i]) { if (!nd) first = i; last = i; nd++; }
+        printf("SNAP %s: APU %d's read of B (%zu limbs at %p) vs B in memory now: %zu limbs differ%s", when, d, g_snap_n, (const void *)g_snap_b, nd, nd ? "" : "\n");
+        if (nd) printf(", first at limb %zu (read %016llx, memory %016llx), last at limb %zu  STALE READ\n", first, (unsigned long long)h[first], (unsigned long long)hb[first], last);
+    }
+    free(h); free(hb); g_snap_n = 0;
+}
 static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; return l; }
 /* WP8: transform length for nc points: 2^logn, or 3 * 2^(logn-2) when nc fits it (0.75x the points) */
 int rns_r3 = -1;                                     /* RNS_R3: 1 (default when the prime set allows) */
@@ -722,12 +800,13 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
     { size_t fill[EC_NP]; for (int d = 0; d < g_nd; d++) fill[d] = start[d];
       for (size_t i = 0; i < N; i++) idx[fill[mem_dev_of(P[i].c)]++] = i; }
     double tsc = 0, tnt = 0, tcr = 0, tmg = 0;
+    rns_t_launch = mem_now();                                          /* Phase 12 R: the copy probe's reference */
 #pragma omp parallel num_threads(g_nd)
     {
         int d = omp_get_thread_num(); struct dev *v = &D[d];
         HIP_CHECK(hipSetDevice(d));
         for (int p = 0; p < EC_NP; p++) if (!v->ctxp[p]) v->ctxp[p] = p == d ? v->ctx : ntt_ctx_create(p);
-        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? L : (size_t)EC_NP * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime */
+        rns_dpool(d, 0, (size_t)EC_NP * Mmax * L * 8); rns_dpool(d, 1, (grpB ? (size_t)EC_NP * L : (size_t)EC_NP * (pair ? Mmax / 2 : Mmax) * L) * 8);   /* A-mem C4: pool 1 is 3 q by default; grown here if a tile needs more (rare: L = 2^28, 2^29 at 2^31 pools). P: in pair mode pool 1 holds M/2 B planes per prime.  Phase 12 R: grpB holds EC_NP B planes (db + p L below), not one -- the request said L (reached only with RNS_BATCH_LOCAL_MIN <= 2) */
         uint64_t *da = (uint64_t *)v->da.p, *db = (uint64_t *)v->db.p;
         double lsc = 0, lnt = 0, lcr = 0, lmg = 0;
         struct bdesc *hd = (struct bdesc *)malloc((Mmax < cnt[d] ? Mmax : cnt[d] ? cnt[d] : 1) * sizeof *hd);
@@ -869,6 +948,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
 
     struct bdesc *hd = (struct bdesc *)malloc(N * sizeof *hd);
     for (size_t i = 0; i < N; i++) { hd[i].a = Q[i].a; hd[i].b = Q[i].b; hd[i].c = Q[i].c; hd[i].x = Q[i].x; hd[i].na = (uint32_t)Q[i].na; hd[i].nb = (uint32_t)Q[i].nb; hd[i].nx = (uint32_t)(Q[i].x ? Q[i].nx : 0); }
+    rns_t_launch = mem_now();                                          /* Phase 12 R: the copy probe's reference (grpB's ntt_load or the first tile's scatter follows) */
 
     if (grpB) {
 #pragma omp parallel num_threads(g_nd)
@@ -876,6 +956,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
             int d = omp_get_thread_num(); struct dev *v = &D[d];
             HIP_CHECK(hipSetDevice(d));
             rns_dpool(d, 1, L3 * 8);                   /* A-mem C4 */
+            if (g_snap_on && Q[0].nb * 8 <= g_snap_cap) { k_store<<<228 * 8, 256, 0, v->s>>>(g_snap[d], Q[0].b, Q[0].nb); g_snap_n = Q[0].nb; g_snap_b = Q[0].b; }   /* Phase 12 R witness: what this device reads of B, on its stream just before ntt_load reads it */
             ntt_load(v->ctx, (uint64_t *)v->db.p, Q[0].b, Q[0].nb, L3, v->s);
             x_fwd(v->ctx, (uint64_t *)v->db.p, r3, logk, 1, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s));
@@ -976,6 +1057,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         for (size_t i = 0; i < N; i++) memcpy(P[i].c, stagedP[i].c, (P[i].na + P[i].nb) * 8);
         free(stagedP);
     }
+    if (g_snap_on && grpB && g_snap_n) rns_snap_check("after the level");   /* Phase 12 R witness: each device's read of B against B as it is now */
     free(hd);
     rns_st.t_total += mem_now() - t0;
     rns_st.n_batch += N;
