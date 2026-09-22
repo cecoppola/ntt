@@ -7,10 +7,20 @@ CFLAGS   = -O2 -Wall -fopenmp -I.
 # Phase 11 S: the SHMEM transport (comm_shmem.c) is compiled in when SHMEM=1 (the default where oshcc exists: aac6's
 # compute nodes, OpenMPI 4.1.6 OSHMEM; on the target, SHMEM_CFLAGS / SHMEM_LIBS from the vendor's compiler wrapper).
 # make SHMEM=0 builds without it (COMM_TRANSPORT=shmem then aborts at start).
+# Phase 12 S: SHMEM_HOME=<prefix> builds against Sandia OpenSHMEM (SOS, ~/sos on aac6: OpenSHMEM 1.5, thread-multiple
+# contexts, put-with-signal, the external heap patch of results/S12.md) instead of oshcc; the binary is then launched
+# by mnrun.sh with srun --mpi=pmi2 (it detects libsma in the binary).  make SHMEM_HOME=~/sos; make clean between the two.
+SHMEM_HOME ?=
+ifneq ($(SHMEM_HOME),)
+SHMEM = 1
+SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_SOS -I$(SHMEM_HOME)/include
+SHMEM_LIBS   ?= -L$(SHMEM_HOME)/lib -lsma -Wl,-rpath,$(SHMEM_HOME)/lib
+else
 SHMEM ?= $(shell command -v oshcc > /dev/null 2>&1 && echo 1 || echo 0)
 ifeq ($(SHMEM),1)
-SHMEM_CFLAGS ?= -DCOMM_SHMEM $(shell oshcc --showme:compile)
+SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_OSHMEM $(shell oshcc --showme:compile)
 SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
+endif
 endif
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid

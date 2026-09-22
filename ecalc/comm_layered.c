@@ -33,7 +33,7 @@
 #define NA 4
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; };   /* one pending exchange */
 struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; };   /* the pending v-exchange */
-typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp;   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
+typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; } lay_priv;
 #define PRIV(c) ((lay_priv *)(c)->priv)
@@ -45,14 +45,19 @@ static void need_tmp(comm *c, size_t bytes)
     lay_priv *p = PRIV(c);
     if (p->tmp_cap >= bytes) return;
     if (!p->own_tmp && p->tmp) { fprintf(stderr, "comm_layered: the caller's scratch (%zu B) is smaller than the exchange (%zu B)\n", p->tmp_cap, bytes); exit(1); }
-    if (p->tmp) HIP_CHECK(hipFree(p->tmp));
-    HIP_CHECK(hipSetDevice(p->dev)); HIP_CHECK(hipMalloc((void **)&p->tmp, bytes)); p->tmp_cap = bytes; p->own_tmp = 1;
+    if (p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
+    HIP_CHECK(hipSetDevice(p->dev));
+    /* Phase 12 S (a minimal change): the scratch from the inter transport's symmetric pool where it has one (the SHMEM
+     * transport then receives the inter stage straight into it, no staging), else hipMalloc'd as before */
+    p->tmp = (char *)comm_sym_alloc(p->inter, bytes); p->tmp_sym = p->tmp != 0;
+    if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
+    p->tmp_cap = bytes; p->own_tmp = 1;
 }
 /* [a][b] blocks of `bytes` -> [b][a]: na x nb blocks */
 static void block_transpose(void *dst, const void *src, size_t bytes, int na, int nb, hipStream_t s)
 {
     for (int a = 0; a < na; a++) for (int b = 0; b < nb; b++)
-        HIP_CHECK(hipMemcpyAsync((char *)dst + ((size_t)b * na + a) * bytes, (const char *)src + ((size_t)a * nb + b) * bytes, bytes, hipMemcpyDeviceToDevice, s));
+        HIP_CHECK(hipMemcpyAsync((char *)dst + ((size_t)b * na + a) * bytes, (const char *)src + ((size_t)a * nb + b) * bytes, bytes, hipMemcpyDefault, s));   /* (S12: Default -- the scratch may be registered host memory) */
 }
 /* the inter-node stage of the oldest pending exchange (its intra stage and transpose are done) */
 static void inter_post(comm *c, struct lay_ex *e)
@@ -139,7 +144,7 @@ static void vtab_free(struct vtab *t) { free(t->T); free(t->cnt2); }
 static void vcopy(void *dst, const void *src, size_t n, hipStream_t s, int host)
 {
     if (!n) return;
-    if (host) memmove(dst, src, n); else HIP_CHECK(hipMemcpyAsync(dst, src, n, hipMemcpyDeviceToDevice, s));
+    if (host) memmove(dst, src, n); else HIP_CHECK(hipMemcpyAsync(dst, src, n, hipMemcpyDefault, s));
 }
 /* the intra stage and the transpose: my slabs -> x1 [d][r'] blocks (the intra exchange) -> x2 [r'][d]; then the inter
  * stage's post.  x1/x2/x3 are the caller's areas (device or host); the intra and inter ops are the transport's of the kind. */
@@ -254,11 +259,15 @@ static void y_destroy(comm *c)
 {
     lay_priv *p = PRIV(c);
     if ((p->own_tmp && p->tmp) || p->vtmp) HIP_CHECK(hipSetDevice(p->dev));
-    if (p->own_tmp && p->tmp) HIP_CHECK(hipFree(p->tmp));
+    if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
     free(p); free(c);
 }
-static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host };
+/* S12: the callers' symmetric buffers come from the inter transport's pool (the inter stage sends the caller's receive
+ * buffer and receives into the scratch; a pool-resident buffer is not staged there) */
+static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
+static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
+static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { fprintf(stderr, "comm_layered: the intra communicator must have %d ranks\n", NA); exit(1); }
@@ -282,6 +291,6 @@ void comm_layered_scratch(comm *c, void *p, size_t bytes)
 {
     lay_priv *v = PRIV(c);
     if (v->npend) { fprintf(stderr, "comm_layered: scratch replaced with an exchange pending\n"); exit(1); }
-    if (v->own_tmp && v->tmp) { HIP_CHECK(hipSetDevice(v->dev)); HIP_CHECK(hipFree(v->tmp)); }
-    v->tmp = (char *)p; v->tmp_cap = bytes; v->own_tmp = 0;
+    if (v->own_tmp && v->tmp) { HIP_CHECK(hipSetDevice(v->dev)); if (v->tmp_sym) comm_sym_free(v->inter, v->tmp); else HIP_CHECK(hipFree(v->tmp)); }
+    v->tmp = (char *)p; v->tmp_cap = bytes; v->own_tmp = 0; v->tmp_sym = 0;
 }
