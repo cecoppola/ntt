@@ -85,7 +85,8 @@ divides `<procs>`, several per node otherwise) with `srun`, and sets the communi
 | `DIST_CHUNKS` | slabs in flight in the pipelined distributed transform (4); `DIST_STATS=1` prints the exposed exchange per part |
 | `MEM_REPORT_DEVS=1` | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table every node prints (`mem[rank]` at size > 1) |
 | `POOL_LOG` | the plane pools' 2ᵏ points per APU (31): with several node-processes on one node use 27–29 so their pools and arenas fit the node (10⁸ at 27, 10⁹ at 29, 10¹⁰ at size 4 at 29) |
-| `NEWTON_MN_SPLIT`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_BALANCE_N`, `ECALC_ARENA_GB`, `ECALC_DM_POOL`, `ECALC_DM_POOL_K` | tuning of the distributed division's split, the leaf's device-number levels, the small levels' layout, the region arenas and the dm block pool (results/A-div.md, A-mem.md) |
+| `NEWTON_MN_SPLIT`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_BALANCE_N`, `ECALC_ARENA_GB`, `ECALC_DM_POOL_K` | tuning of the distributed division's split, the leaf's device-number levels, the small levels' layout, the region arenas and the dm block pool (results/A-div.md, A-mem.md; `ECALC_DM_POOL` is gone since Phase 12: the tail layout, `ECALC_TAIL=0` the fallback) |
+| `MEM_ALLOC`, `ECALC_SEED_ORDER`, `RNS_PLANES_3Q30` | Phase 12 I: the device allocation form (`hipmalloc` default; `fine`, `uncached`, `managed`, `host`, `mmap` -- none maps cheaper), the seeds against init's mapping window (`overlap` default, `first`, `after`), the 3·2^k planes (the size rule -- on below 5e10 at 2^31 pools -- is the default; `0`/`1` override) (results/I.md) |
 
 **Verification (Phase 11 V, results/V.md).** The T1 moduli are the first eight primes above 2⁶² (until Phase 10
 seven of the eight were composite; two of them divided every Q, which blinded T1 to Q and X there). Switches:
