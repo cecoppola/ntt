@@ -324,7 +324,11 @@ int main(int argc, char **argv)
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
      * written in the background by ckpt_top_bg (below); size > 1: mn_tree's top tree set (the only set when the directory is
      * the default: no leaf sets were written, BS_CKPT_TREE_EVERY=64 leaves the lower tree levels out) */
-    int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP")) : (outfile && bi_decimal && d_out > 10000000000ul);
+    /* Phase 12 integration: the default is OFF.  Agent W measured the 35.6 GB top set as hidden (0-1 s of wall) on disks
+     * writing at 1.13-1.59 GB/s, but on aac6's slower path it runs at 0.31 GB/s: 113 s of background write that the
+     * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
+     * ECALC_RECHECK possible for a finished run, so it stays one switch away: ECALC_CKPT_TOP=1. */
+    int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP")) : 0;
     struct ckpt_top_bg ctb; memset(&ctb, 0, sizeof ctb);
     /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
      * and the single-node division there).  The residues of P, Q, R come from the sharded kernels; X is gathered to node 0

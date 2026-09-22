@@ -175,7 +175,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_DM_POOL_K` | the arena sized for the dm phase at init as k × the digit limbs per device, `binsplit_pregrow` (0 = off) |
 | `ECALC_POOL_GROW_GB` | GB of plane pool grown per device in the background thread during bs; off: hipMalloc there stalls the GPU levels (0) |
 | `ECALC_STOP_AFTER_BS` | exit after bs with its line (unset) |
-| `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (on above 10¹⁰ digits with an outfile; 0 = off; 1 = on at any size) |
+| `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default**; `=1` writes it at any size). Hidden under the reciprocal and the division only where the disk writes at ≳ 1 GB/s: at 0.31 GB/s (aac6's slower path) the 35.6 GB set costs 113 s that the division waits for |
 | `ECALC_RECHECK` | 1: the standalone recheck of a finished run's files instead of a run (0) |
 | `ECALC_WINDOWS` | a file of extra T2 windows (`<offset> <digits>` per line) added to the built-in table (unset) |
 | `ECALC_RES_LOG` | *debug*: every residue the checks use printed and cross-checked — the kernel against a host Horner, the recurrence against the main thread, each node's leaf against the recurrence (0) |
