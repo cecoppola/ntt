@@ -23,7 +23,7 @@ SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc
 OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
 REF   = ref/gen_e
 
@@ -131,6 +131,9 @@ tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o crt.h mem.h tests/harness.h
 
 tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o ntt.h modarith.h tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o -o $@ -lgmp
+
+tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o ntt.h mem.h tests/harness.h
+	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o -o $@ -lgmp -lpthread
 
 tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o ntt2.h modarith2.h tests/harness.h
 	$(HIPC) $< -x none ntt2.o bigint.o -o $@ -lgmp
