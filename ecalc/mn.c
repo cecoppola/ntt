@@ -193,7 +193,14 @@ mn_group *mn_group_span(int l, int g0, int g)
     G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = g_rank - g0;
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
-    for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); G->all[d] = sub_mesh(g0, g, 2 * MN_MAXL + l, d); G->tr[d] = 0; }
+    for (int d = 0; d < NA; d++) {
+        HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
+        /* SHMEM: a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d); TCP: the port lanes NA + d of the level's odd slot 2 l - 1 (the
+         * binary group of the level listens on lanes 0..3 of it, the topo meshes on the even slots), so the ports stay below the
+         * ephemeral range on aac6 (slot 2 MN_MAXL + l put them above 32768: "cannot connect", batch 2 at size 9) */
+        if (g_shmem) G->all[d] = comm_shmem_create_at(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
+        else { char *h = hosts_of(g0, g); G->all[d] = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * (2 * l - 1) + 64 * (NA + d) + g0); free(h); }
+    }
     HIP_CHECK(hipSetDevice(0));
     printf("mn: node %d: schedule level %d group [%d, %d) (%d nodes, the general map): meshes connected in %.2f s\n", g_rank, l, g0, g0 + g, g, mem_now() - t0);
     g_sched[l] = G;
