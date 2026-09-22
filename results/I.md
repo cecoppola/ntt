@@ -144,14 +144,14 @@ untouched.
 
 | test | command (from `ecalc/`) | result |
 |---|---|---|
-| 10⁹ decimal, binary | `./ecalc 1000000000 /tmp/x` ; `LIMB_BASE=2` | identical to `ref/e_1000000000.txt`, 14.3 / 24.7 s (`MEM_ALLOC=fine` too: identical) |
+| 10⁹ decimal, binary | `./ecalc 1000000000 /tmp/x` ; `LIMB_BASE=2` | identical to `ref/e_1000000000.txt` in every build: 14.3 / 24.7 s with the planes off, 18.2 / 23.8 on the final defaults, and identical with `MEM_ALLOC=fine` |
 | 4 × 10¹⁰, `MEM_ALLOC=fine` × 2 | job 20873 | identical, VERIFY OK, 84.9 / 85.1 s (init 18.5 / 19.2) |
 | 4 × 10¹⁰, `MEM_ALLOC=hipmalloc`, planes off × 5 | jobs 20873, 20894, 20903 | identical, VERIFY OK: 82.3 / 81.5 / 82.0 / 82.3 / 82.1 s (init 16.0 / 17.7 / 18.2 / 18.1 / 17.3) — **82.0 ± 0.3 s, init 17.5 ± 0.9** |
 | 4 × 10¹⁰, the seed orders, `BS_SEED_THREADS` 96 / 176 | job 20894 | identical (§3) |
-| 4 × 10¹⁰, planes on (the final default) × 4 | jobs 20903, 20929 | identical, VERIFY OK: 81.7 / 80.4 / 78.8 / 82.2 s (§6b) |
-| 8 × 10¹⁰ | `./ecalc 80000000000 /tmp/x` (planes off by the size rule) | **VERIFY OK, 192.0 s** (init 20.9: arenas 248.2 GB in 9.7 s, pools 18.5; bs 86.3, dm 84.7), **device 369.1 GB throughout, zero hipMalloc, host 13.0: node peak ≈ 382 GB** (M11: 190.9–195.5) |
+| 4 × 10¹⁰, planes on (the final default) × 6 | jobs 20903, 20929, 20934 | identical, VERIFY OK: 81.7 / 80.4 / 78.8 / 82.2 / 81.7 / 79.8 s (§6b) |
+| 8 × 10¹⁰ × 2 | `./ecalc 80000000000 /tmp/x` (planes off by the size rule) | **VERIFY OK, 192.0 and 189.3 s** (init 20.9 / 23.1: arenas 248.2 GB in 9.7–10.8 s, plane pools 18.5–21.2; bs 86.3 / 83.6, dm 84.7 / 82.5), **device 369.1 GB throughout, zero hipMalloc on every APU, host 13.0: node peak ≈ 382 GB** (M11: 190.9–195.5 s, the same 369.1 / 382) |
 | `t_ntt 24` | `./tests/t_ntt 24` | VERIFY OK (565 checks); 2²⁴ fwd 0.6–0.7 ms (1.22–1.29 TB/s), batched log L 14 / 17: 1026–1219 / 1068–1105 GB/s (P's log: 1006–1058 / 914–1022) |
-| 10⁸ sizes 2, 4 | `SLURM_JOB_ID=$J ./mnrun.sh <p> env POOL_LOG=27 ./ecalc 100000000 ~/i12/mn/x` | every node VERIFY OK (job 20903; the digit `cmp` of the parts: BATCH7) |
+| 10⁸ sizes 2, 4 | `SLURM_JOB_ID=$J ./mnrun.sh <p> env POOL_LOG=27 ./ecalc 100000000 ~/i12/mn/x` | every node VERIFY OK, the concatenated parts identical to `ref/e_100000000.txt` (jobs 20903, 20936) |
 | `t_alloc` | `./tests/t_alloc 50`, `28 none`, `28 <form>` | §1 |
 
 ### 6b. The final defaults (planes by the size rule, `MEM_ALLOC=hipmalloc`, seeds overlapped; jobs 20903 s24-16, 20929 s24-26)
@@ -161,10 +161,12 @@ untouched.
 | 1 | s24-16 | 22.5 | 32.7 (22.1 / 10.5) | 12.5 | 26.4 | 59.2 | 81.73 | identical, VERIFY OK |
 | 2 | s24-26 | 21.9 | 32.5 (21.9 / 10.5) | 12.3 | 26.0 | 58.5 | 80.44 | identical, VERIFY OK |
 | 3 | s24-26 | 20.1 | 32.6 (22.0 / 10.4) | 12.2 | 26.0 | 58.7 | 78.81 | identical, VERIFY OK |
-| 4 | s24-26 | 23.5 | 32.6 (21.9 / 10.5) | 12.3 | 26.1 | 58.7 | 82.19 | VERIFY OK (the job's time limit cut the `cmp`; the three above and the two planes-on runs of §4 are identical) |
+| 4 | s24-26 | 23.5 | 32.6 (21.9 / 10.5) | 12.3 | 26.1 | 58.7 | 82.19 | VERIFY OK (the job's time limit cut the `cmp`) |
+| 5 | s24-26 | 23.1 | 32.6 (22.0 / 10.5) | 12.2 | 26.0 | 58.6 | 81.71 | identical, VERIFY OK |
+| 6 | s24-26 | 20.5 | 33.0 (22.3 / 10.5) | 12.4 | 26.3 | 59.3 | 79.77 | identical, VERIFY OK |
 | planes off on the same node (`RNS_PLANES_3Q30=0`) | s24-26 | 18.9 | 34.9 | 13.2 | 28.1 | 63.1 | 81.99 | identical, VERIFY OK |
 
-**Wall 80.8 ± 1.4 s, phases 58.8 ± 0.3, init 22.0 ± 1.4** against the Phase 11 close (81.5 ± 1.4, phases 66.0 ± 0.4, init
+**Wall 80.8 ± 1.3 s, phases 58.8 ± 0.3, init 22.1 ± 1.3** (six runs) against the Phase 11 close (81.5 ± 1.4, phases 66.0 ± 0.4, init
 15.5 ± 1.1) and against this branch with the planes off (82.0 ± 0.3, phases 63.8–64.8, init 17.3–18.9): **the phases are
 5–7 s faster and the wall 1 s**, all of the phase gain being M11's layout (−2 s: no in-phase mapping) plus the 3·2^k planes
 (−5 s), and all of the init cost being the 60 GB they map.
