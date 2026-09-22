@@ -204,7 +204,7 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
     if (g_cap[which][r] < limbs) {
-        if (g_pool[which][r]) {                          /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
+        if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
             if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
             if (!rns_pool_grow) { fprintf(stderr, "bs: region pool %d of parity %d would grow inside bs, %.2f -> %.2f GB: the regions are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", r, which, g_cap[which][r] * 8e-9, limbs * 8e-9); fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1); }
         }
@@ -825,16 +825,17 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     int which = 0, ckpt_level = 0, resumed = 0;      /* ckpt_level: the level whose set is on disk */
     if (bs_restart && bs_ckpt_dir && mn_size() > 1 && mn_ckpt_tree_level(N) > 0) {   /* M6: every node has a tree-level set: the leaf tree is skipped, mn_tree resumes above it */
-        binsplit_pregrow(N);
+        mem_pool_guard = 0; binsplit_pregrow(N);   /* Phase 12 R */
         P->n = Q->n = 0; bs_Pd.n = bs_Qd.n = 0; bs_st.t_total = mem_now() - t0;
         printf("bs: restart at tree level %d: the leaf tree is skipped\n", mn_ckpt_tree_level(N));
+        mem_pool_guard = 1;                          /* Phase 12 R: the tree, the reciprocal and the division follow */
         return;
     }
     if (bs_restart && bs_ckpt_dir) {                 /* WP7: resume from the latest complete checkpoint, skipping the seeds and the levels below it */
         int l = ckpt_find(N);
         bs_ckpt_tree_clear(0);                       /* (tree sets, if any, are not agreed on by all nodes: stale) */
         if (l) {
-            binsplit_pregrow(N);
+            mem_pool_guard = 0; binsplit_pregrow(N);   /* Phase 12 R: the restart lays the regions out again */
             t = mem_now(); size_t off = 0;
             if (!ckpt_read(&cur, &which, l, &off, N)) { fprintf(stderr, "bs: restart from %s level %d failed\n", bs_ckpt_dir, l); abort(); }
             bs_st.levels = l; bs_st.restart_level = l; ckpt_level = l; resumed = 1;
@@ -851,6 +852,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     /* region pools sized once from level 0 (the levels' totals stay within a few percent of it;
      * pool_get still grows if a level needs more); binsplit_pregrow does this at init, outside the timed phase */
     size_t total0 = 2 * per * nspan;
+    mem_pool_guard = 0;                              /* Phase 12 R: the level-0 layout may size the regions (a second run in one process re-lays them) */
     binsplit_pregrow(N);
     for (int r = 0; r < NR; r++) cur.pool[r] = pool_get(0, r, 2 * per * (r0[r + 1] - r0[r]) + 2);
     if (bs_st.peak_pool_limbs < total0) bs_st.peak_pool_limbs = total0;
@@ -884,6 +886,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (bs_after_seeds_hook) bs_after_seeds_hook(bs_hook_arg);   /* Phase 8 overlap: the CPU is free from here until the top level */
     }                                                /* !resumed */
 
+    mem_pool_guard = 1;                              /* Phase 12 R: from here nothing may grow (the reciprocal and the division keep it set) */
     while (cur.n > 1) {
         t = mem_now();
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;

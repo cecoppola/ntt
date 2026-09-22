@@ -222,6 +222,7 @@ void mem_hstage_free(void *p)
     free(p);
 }
 
+int mem_pool_guard = 0;                               /* Phase 12 R (D5): see mem.h */
 static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return c; }
 
 /* Phase 11 V (D5, a test knob): MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at

@@ -174,7 +174,7 @@ size_t rns_pool_n_grow(void) { return g_n_grow; }
 void *rns_dpool(int dev, int which, size_t bytes)
 {
     dpool *dp = which ? &D[dev].db : &D[dev].da;
-    if (dp->p && dp->dev == dev && dp->cap < bytes) {                 /* a growth inside a phase (rns_init makes the pools directly) */
+    if (mem_pool_guard && dp->p && dp->dev == dev && dp->cap < bytes) {   /* a growth inside a phase (rns_init makes the pools directly) */
         /* Phase 12 R (D5): the plane pools are sized at init (Phase 9 C4, Phase 11 B3) and no default configuration grows one inside
          * a phase; a growth here means the sizing and the tiers disagree, so it aborts with the memory accounting (as mem_oom
          * does) unless RNS_POOL_GROW=1 asks for it (mnaccept.sh --stress).  The growth itself is a hipFree + hipMalloc of the
