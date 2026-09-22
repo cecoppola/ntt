@@ -217,6 +217,33 @@ static int out_stage(struct out_ctx *c)
     if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d nodes: %s\n", c->size, any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
     return fail;
 }
+/* Phase 12 W: the top-level P, Q of a size-1 run as a tree set (level 0) for ECALC_RECHECK (mn_out.h), written by a background
+ * thread in the device flow.  The four region files carry P's quarter then Q's (binsplit.c tree_io), so P is on disk when
+ * bs_ckpt_tree_pdone reaches 4 -- under the reciprocal -- and Q follows under the division: the driver waits for the P parts
+ * before S = P + Q overwrites P in place, and joins before Q's block is released.  bs_ckpt_own_buf: the thread's DMA buffers are
+ * its own (the pinned staging is released for the dm phase while it runs).  2 x 17.8 GB at 4e10: results/W.md for what shows. */
+struct ckpt_top_bg { dbig *P, *Q; unsigned long N; size_t bytes; double t0, t1, t_waitp, t_join; pthread_t th; int started; volatile int done; };
+static void *ckpt_top_run(void *a)
+{
+    struct ckpt_top_bg *b = (struct ckpt_top_bg *)a; b->t0 = mem_now();
+    uint64_t desc[10] = { b->P->n, b->P->n, 0, 1, b->P->n, b->Q->n, b->Q->n, 0, 1, b->Q->n };
+    b->bytes = bs_ckpt_tree_write(0, b->N, desc, b->P, b->Q); b->t1 = mem_now();
+    __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE); return 0;
+}
+static void ckpt_top_wait_p(struct ckpt_top_bg *b)     /* every file's P part written (or the writer finished, e.g. failed) */
+{
+    double t = mem_now(); if (!b->started) return;
+    while (!__atomic_load_n(&b->done, __ATOMIC_ACQUIRE) && __atomic_load_n(&bs_ckpt_tree_pdone, __ATOMIC_ACQUIRE) < 4) usleep(2000);
+    b->t_waitp = mem_now() - t;
+}
+static void ckpt_top_join(struct ckpt_top_bg *b, const char *dir)
+{
+    double t = mem_now(); if (!b->started) return;
+    pthread_join(b->th, 0); b->started = 0; b->t_join = mem_now() - t;
+    printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s in the background (%.2f GB/s); waited %.2f s for P before S = P + Q, %.2f s for Q after the division%s\n",
+           dir, b->bytes * 1e-9, b->t1 - b->t0, b->bytes * 1e-9 / (b->t1 > b->t0 ? b->t1 - b->t0 : 1), b->t_waitp, b->t_join, b->bytes ? "" : "  FAILED");
+    RESULT("ckpt_top", "s", b->t1 - b->t0); RESULT("ckpt_top_wait", "s", b->t_waitp + b->t_join);
+}
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
 int main(int argc, char **argv)
 {
@@ -293,6 +320,12 @@ int main(int argc, char **argv)
 
 
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
+    /* Phase 11 V / Phase 12 W: the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
+     * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
+     * written in the background by ckpt_top_bg (below); size > 1: mn_tree's top tree set (the only set when the directory is
+     * the default: no leaf sets were written, BS_CKPT_TREE_EVERY=64 leaves the lower tree levels out) */
+    int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP")) : (outfile && bi_decimal && d_out > 10000000000ul);
+    struct ckpt_top_bg ctb; memset(&ctb, 0, sizeof ctb);
     /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
      * and the single-node division there).  The residues of P, Q, R come from the sharded kernels; X is gathered to node 0
      * for the existing output (A-out writes it per node) */
@@ -316,6 +349,7 @@ int main(int argc, char **argv)
                 bi_free(&h); printf("RES node %d leaf P, Q dumped to %s\n", mn_rank(), getenv("ECALC_LEAF_DUMP"));
             }
         }
+        if (ckpt_top && !bs_ckpt_dir && outfile && bi_decimal) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
@@ -364,14 +398,17 @@ int main(int argc, char **argv)
     }
     if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
-    if (mn_size_ == 1 && bs_ckpt_dir && getenv("ECALC_CKPT_TOP") && atoi(getenv("ECALC_CKPT_TOP")) && (ovl3 || P.n)) {   /* Phase 11 V: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
-        double tc = mem_now(); dbig tp, tq; db_init(&tp); db_init(&tq);
-        if (!ovl3) { db_from_bi(&tp, &P); db_from_bi(&tq, &Q); }         /* the host flow (a leaf that ended on the batch tier): through device copies */
-        const dbig *pp = ovl3 ? &bs_Pd : &tp, *qq = ovl3 ? &bs_Qd : &tq;
-        uint64_t desc[10] = { pp->n, pp->n, 0, 1, pp->n, qq->n, qq->n, 0, 1, qq->n };
-        size_t bytes = bs_ckpt_tree_write(0, N, desc, (dbig *)pp, (dbig *)qq);
-        if (!ovl3) { db_free(&tp); db_free(&tq); }
-        printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
+    if (mn_size_ == 1 && ckpt_top && bi_decimal && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+        if (!bs_ckpt_dir) bs_ckpt_dir = mn_out_ckpt_default(outfile);
+        if (!bs_ckpt_dir) printf("      checkpoint: ECALC_CKPT_TOP needs BS_CKPT_DIR or an outfile -- the top-level set is not written\n");
+        else if (ovl3) { ctb.P = &bs_Pd; ctb.Q = &bs_Qd; ctb.N = N; bs_ckpt_own_buf = 1; pthread_create(&ctb.th, 0, ckpt_top_run, &ctb); ctb.started = 1; }   /* the device flow: in the background (P under the reciprocal, Q under the division) */
+        else {                                            /* the host flow (a leaf that ended on the batch tier): through device copies, synchronous (small runs) */
+            double tc = mem_now(); dbig tp, tq; db_init(&tp); db_init(&tq); db_from_bi(&tp, &P); db_from_bi(&tq, &Q);
+            uint64_t desc[10] = { tp.n, tp.n, 0, 1, tp.n, tq.n, tq.n, 0, 1, tq.n };
+            size_t bytes = bs_ckpt_tree_write(0, N, desc, &tp, &tq);
+            db_free(&tp); db_free(&tq);
+            printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
+        }
     }
     if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
@@ -445,6 +482,7 @@ int main(int argc, char **argv)
 
     t = mem_now();
     if (ovl3) {
+        ckpt_top_wait_p(&ctb);                        /* Phase 12 W: P's parts of the top-level set on disk before P is overwritten */
         db_add(&bs_Pd, &bs_Pd, &bs_Qd);               /* S = P + Q on the device; A = S B^dl is never formed */
         t_10dp = mem_now() - t;
         printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
@@ -476,6 +514,7 @@ int main(int argc, char **argv)
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0;
+    if (ovl3) ckpt_top_join(&ctb, bs_ckpt_dir);       /* Phase 12 W: Q's parts of the top-level set before Q's block goes */
     if (ovl3) db_free(&bs_Qd);
     if (ovl3) mem_report("division");                 /* Phase 10 B4 (agent M): the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
     bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
