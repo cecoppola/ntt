@@ -104,6 +104,26 @@ static int check_alltoallv(comm *c)
     if (bad) printf("  alltoallv over %d ranks: rank %d: %d words wrong\n", n, me, bad);
     return bad == 0;
 }
+/* Phase 13b X: three v-exchanges posted back to back (distinct buffers), then three waits -- the pipelined v-exchange
+ * (COMM_ALLTOALLV_DEPTH=2: each post runs its intra stage under the previous one's inter stage and completes it) */
+static int check_alltoallv_pipe(comm *c)
+{
+    int n = comm_size(c), me = comm_rank(c), bad = 0; size_t units[] = { 1000 * 8, 1 << 20, 8 };
+    struct vbuf v[3]; uint64_t *ds[3], *dr[3];
+    for (int k = 0; k < 3; k++) {
+        vbuf_make(&v[k], me, n, 10 + k, units[k]);
+        HIP_CHECK(hipMalloc(&ds[k], v[k].ts + 8)); HIP_CHECK(hipMalloc(&dr[k], v[k].tr + 8));
+        HIP_CHECK(hipMemcpy(ds[k], v[k].hs, v[k].ts + 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dr[k], v[k].hr, v[k].tr + 8, hipMemcpyHostToDevice));
+    }
+    for (int k = 0; k < 3; k++) comm_alltoallv(c, ds[k], v[k].scnt, v[k].sdsp, dr[k], v[k].rcnt, v[k].rdsp, 0);
+    for (int k = 0; k < 3; k++) comm_wait(c);
+    for (int k = 0; k < 3; k++) {
+        HIP_CHECK(hipMemcpy(v[k].hr, dr[k], v[k].tr + 8, hipMemcpyDeviceToHost));
+        bad += vbuf_check(&v[k], me, n, 10 + k); vbuf_free(&v[k]); HIP_CHECK(hipFree(ds[k])); HIP_CHECK(hipFree(dr[k]));
+    }
+    if (bad) printf("  pipelined alltoallv over %d ranks: rank %d: %d words wrong\n", n, me, bad);
+    return bad == 0;
+}
 /* the synthetic communicator: the four ranks post, then wait (device); the host op completes at the fourth call */
 static int check_alltoallv_sim4(void)
 {
@@ -314,6 +334,13 @@ int main(int argc, char **argv)
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
     if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
+    if (getenv("DIST_PBENCH")) {                        /* Phase 13b X: the pack/unpack kernels of ntt_dist.c, one APU: DIST_PBENCH=24,26,28 [DIST_PSIZE=4 DIST_PREPS=5] */
+        extern int dist_pack_bench(int logn, int size, int reps);
+        int sz = getenv("DIST_PSIZE") ? atoi(getenv("DIST_PSIZE")) : 4, reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
+        char *dup = strdup(getenv("DIST_PBENCH")); HIP_CHECK(hipSetDevice(0));
+        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(dist_pack_bench(atoi(t), sz, reps) == 0, "pack-bench 2^%s: the tiled packs bit-identical", t);
+        free(dup); return verify_done("t_dist");
+    }
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
     tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
     if (tinv) printf("t_dist: transposed inverse\n");
@@ -337,6 +364,7 @@ int main(int argc, char **argv)
                     comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
                     ok = check_allgather(cm, 0) && ok;
                     ok = check_alltoallv(cm) && ok;
+                    ok = check_alltoallv_pipe(cm) && ok;
                     comm_destroy(cm); comm_destroy(xg);
                 }
                 HIP_CHECK(hipSetDevice(0));
