@@ -188,6 +188,60 @@ __global__ void k_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t ro
         sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
     }
 }
+/* ---- Phase 13b X: DIST_TWREC=1 (default 0) -- the twiddled pack/unpack with the twiddle by a row recurrence.  The plain forms
+ * gather twr and twc for every point (w_n^(i j) = twr[i j >> logC] twc[i j mod C]; j = brev(jb) scatters the gathers over the
+ * tables: 64 cache lines per 32-point tile row) and run at 1.2-1.5 TB/s against a 3 TB/s copy (measured).  Here a thread's four
+ * rows i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in LDS):
+ * two gathers per four points instead of eight.  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
+ * exactly: bit-identical (checked by dist_pack_bench). */
+__device__ static inline double tw_base(size_t e, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    return ec_mm((double)twr[e >> logC], (double)twc[e & (((size_t)1 << logC) - 1)], m.p, m.pinv);
+}
+__global__ void k_twpack_r(const uint64_t *x, uint64_t *sb, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    __shared__ double stp[32];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    size_t jb = bj + tx, j = brev((unsigned)jb, logC);
+    if (ty == 0) stp[tx] = tw_base(8 * j, logC, twr, twc, m);
+    double w = tw_base((row0 + bi + ty) * j, logC, twr, twc, m);
+    __syncthreads();
+    double st = stp[tx];
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k;
+        tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
+        if (k < 24) w = ec_mm(w, st, m.p, m.pinv);
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t jw = bj + ty + k, il = bi + tx, sl = jw / cols, jl = jw % cols;
+        sb[sl * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
+    }
+}
+__global__ void k_unpacktw_r(const uint64_t *rb, uint64_t *x, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    __shared__ double stp[32];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t jr = bj + ty + k, il = bi + tx, sl = jr / cols, jl = jr % cols;
+        tile[ty + k][tx] = rb[sl * (cols * rows) + jl * rows + il];
+    }
+    size_t jb = bj + tx, j = brev((unsigned)jb, logC);
+    if (ty == 0) stp[tx] = tw_base(8 * j, logC, twr, twc, m);
+    double w = tw_base((row0 + bi + ty) * j, logC, twr, twc, m);
+    __syncthreads();
+    double st = stp[tx];
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k;
+        x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
+        if (k < 24) w = ec_mm(w, st, m.p, m.pinv);
+    }
+}
+static int twrec_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC"); v = e ? atoi(e) : 0; } return v; }
 /* tiled unpack: slab r (my cols x rank r's rows, column-major per column) -> my columns of R points: reads
  * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
 /* ---- the chunk pipeline (M7) ---- */
@@ -224,7 +278,8 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     ec_mod m = ec_mod_get(p->prime);
     TSK(ST_ROWS, ntt_fwd(p->ctx, x + i0 * C, p->logC, rk, s));                    /* rows: length-C, bit-reversed columns */
     dim3 grid((unsigned)(C / 32), (unsigned)(rk / 32)), blk(32, 8);
-    TSK(ST_PACK, (k_twpack<<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
+    if (twrec_on()) TSK(ST_PACK, (k_twpack_r<<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
+    else TSK(ST_PACK, (k_twpack<<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
     HIP_CHECK(hipEventRecord(p->ev, s));
 }
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -262,7 +317,8 @@ static void inv_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     size_t C = (size_t)1 << p->logC, rk = chunk_rows(p), i0 = (size_t)k * rk;
     ec_mod m = ec_mod_get(p->prime);
     dim3 grid((unsigned)(C / 32), (unsigned)(rk / 32)), blk(32, 8);
-    TSK(ST_PACK, (k_unpacktw<<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
+    if (twrec_on()) TSK(ST_PACK, (k_unpacktw_r<<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
+    else TSK(ST_PACK, (k_unpacktw<<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
     TSK(ST_ROWS, ntt_inv(p->ctx, x + i0 * C, p->logC, rk, s));                     /* rows: length-C inverse, x C^-1 */
 }
 static void inv_prod(dist_plan *p, const uint64_t *x, int k, hipStream_t s)
@@ -386,7 +442,7 @@ static int dbl_cmp(const void *a, const void *b) { double x = *(const double *)a
 int dist_pack_bench(int logn, int size, int reps)
 {
     int logR = logn / 2, logC = logn - logR; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / size, cols = C / size, n = rows * C;
-    uint64_t *x, *sb, *sb2; HIP_CHECK(hipMalloc(&x, n * 8)); HIP_CHECK(hipMalloc(&sb, n * 8)); HIP_CHECK(hipMalloc(&sb2, n * 8));
+    uint64_t *x, *sb, *sb2, *ref1, *ref6; HIP_CHECK(hipMalloc(&x, n * 8)); HIP_CHECK(hipMalloc(&sb, n * 8)); HIP_CHECK(hipMalloc(&sb2, n * 8)); HIP_CHECK(hipMalloc(&ref1, n * 8)); HIP_CHECK(hipMalloc(&ref6, n * 8));
     { uint64_t *h = (uint64_t *)malloc(n * 8); uint64_t z = 88172645463325252ull, p0 = ec_P[0]; for (size_t i = 0; i < n; i++) { z ^= z << 13; z ^= z >> 7; z ^= z << 17; h[i] = z % p0; }
       HIP_CHECK(hipMemcpy(x, h, n * 8, hipMemcpyHostToDevice)); free(h); }
     ec_mod m = ec_mod_get(0);
@@ -395,10 +451,11 @@ int dist_pack_bench(int logn, int size, int reps)
     double *t = (double *)malloc(reps * sizeof(double)); int bad = 0;
     dim3 blk(32, 8), gr((unsigned)(C / 32), (unsigned)(rows / 32)), grt((unsigned)(R / 32), (unsigned)(cols / 32));
     printf("pack-bench 2^%d points split over %d ranks: this rank %zu rows x %zu (%.1f MB), cols %zu, R %zu\n", logn, size, rows, C, n * 8e-6, cols, R);
-    for (int kind = 0; kind < 11; kind++) {
+    for (int kind = 0; kind < 13; kind++) {
         const char *nm[] = { "device copy (hipMemcpyAsync D2D)", "k_twpack (fwd pack, tiled, twiddled: production)", "k_pack (plain, unused)", "k_pack_tiled (13b)",
                              "k_unpack (fwd unpack, production)", "k_pack_cols (inv pack, production)", "k_unpacktw (inv unpack, tiled, twiddled: production)",
-                             "k_unpack_rows (plain)", "k_pack_t (dist_inv_t, plain)", "k_pack_t_tiled (13b, DIST_TPACK=1)", "k_unpack_t (dist_inv_t)" };
+                             "k_unpack_rows (plain)", "k_pack_t (dist_inv_t, plain)", "k_pack_t_tiled (13b, DIST_TPACK=1)", "k_unpack_t (dist_inv_t)",
+                             "k_twpack_r (13b, DIST_TWREC=1)", "k_unpacktw_r (13b, DIST_TWREC=1)" };
         for (int r = 0; r <= reps; r++) {
             HIP_CHECK(hipEventRecord(e0, 0));
             switch (kind) {
@@ -413,18 +470,21 @@ int dist_pack_bench(int logn, int size, int reps)
             case 8: k_pack_t<<<nblocks(n), 256>>>(x, sb, rows, cols, size); break;
             case 9: k_pack_t_tiled<<<grt, blk>>>(x, sb2, rows, cols, size); break;
             case 10: k_unpack_t<<<nblocks(n), 256>>>(x, sb, rows, cols, size); break;
+            case 11: k_twpack_r<<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
+            case 12: k_unpacktw_r<<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
             }
+            if (!r && (kind == 1 || kind == 6)) HIP_CHECK(hipMemcpyAsync(kind == 1 ? ref1 : ref6, sb, n * 8, hipMemcpyDeviceToDevice, 0));   /* the references of 11, 12 */
             HIP_CHECK(hipEventRecord(e1, 0)); HIP_CHECK(hipEventSynchronize(e1));
             float ms; HIP_CHECK(hipEventElapsedTime(&ms, e0, e1)); if (r) t[r - 1] = ms * 1e-3;   /* (the first run warms up) */
         }
         qsort(t, reps, sizeof(double), dbl_cmp);
         double md = t[reps / 2];
         const char *chk = "";
-        if (kind == 3 || kind == 9) { int b = cmp_dev(sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
+        if (kind == 3 || kind == 9 || kind >= 11) { int b = cmp_dev(kind == 11 ? ref1 : kind == 12 ? ref6 : sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
         printf("pack-bench 2^%d  %-58s %9.3f ms  %7.1f GB/s%s\n", logn, nm[kind], md * 1e3, 16.0 * n / md * 1e-9, chk);
     }
     fflush(stdout);
-    HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(sb)); HIP_CHECK(hipFree(sb2)); HIP_CHECK(hipFree(tw[0])); HIP_CHECK(hipFree(tw[1]));
+    HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(sb)); HIP_CHECK(hipFree(sb2)); HIP_CHECK(hipFree(ref1)); HIP_CHECK(hipFree(ref6)); HIP_CHECK(hipFree(tw[0])); HIP_CHECK(hipFree(tw[1]));
     HIP_CHECK(hipEventDestroy(e0)); HIP_CHECK(hipEventDestroy(e1)); free(t);
     return bad;
 }
