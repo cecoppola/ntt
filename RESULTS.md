@@ -3374,7 +3374,7 @@ cost T_ROUND is **assumed** at 0.03 s (range 0.01–0.1 s): the M-run's chunk sw
 
 | row | design | max digits 502 / 480 GB | wall at 4 × 10¹³ (50 / 100 / 200 GB/s) | wall at its max | one node 4 × 10¹⁰ |
 |---|---|---|---|---|---|
-| step 0 alone | C, 3·2³⁰/2³¹ rule, no chunking, depth 1 | 4.20 / 3.94 × 10¹³ | 3.70 min at 100 | 3.81 min | 63.5 s |
+| baseline (row 8) | C, 2³¹, no chunking, depth 1: step 0 plus K's kernels, none of the new switches | 4.19 / 3.94 × 10¹³ | 4.37 / 3.70 / 3.37 min | 3.81 min | 64.5 s, 248 GB |
 | **fastest** | auto, 2³¹, no chunking, depth 2 | 4.16 / 3.89 × 10¹³ | 4.26 / **3.59** / 3.26 min | 3.66 min | 62.9 s, 248 GB |
 | **recommended** | auto, 2³¹, both chunkings, depth 2 | **5.52 / 5.19 × 10¹³** | 4.50 / **3.83** / 3.50 min | **6.30 min** | 62.9 s, 248 GB |
 | **largest** | B4, 2³⁰, both chunkings, depth 1 | **6.40 / 6.04 × 10¹³** | 6.69 / 5.41 / 4.84 min | 12.2 min | 76.9 s, 197 GB |
