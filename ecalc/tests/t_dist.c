@@ -334,6 +334,12 @@ int main(int argc, char **argv)
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
     if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
+    if (getenv("DIST_TBENCH")) {                        /* Phase 13b X: the layered exchange's block transpose, copies vs one kernel, one APU */
+        extern int comm_layered_tbench(int g, size_t bytes, int reps);
+        int gs[] = { 2, 3, 4, 16, 64, 192, 576 }; size_t bs[] = { 4096, 65536, 1 << 20 }; HIP_CHECK(hipSetDevice(0));
+        for (int i = 0; i < 7; i++) for (int j = 0; j < 3; j++) VERIFY(comm_layered_tbench(gs[i], bs[j], 7) == 0, "tbench g %d, %zu B: identical", gs[i], bs[j]);
+        return verify_done("t_dist");
+    }
     if (getenv("DIST_PBENCH")) {                        /* Phase 13b X: the pack/unpack kernels of ntt_dist.c, one APU: DIST_PBENCH=24,26,28 [DIST_PSIZE=4 DIST_PREPS=5] */
         extern int dist_pack_bench(int logn, int size, int reps);
         int sz = getenv("DIST_PSIZE") ? atoi(getenv("DIST_PSIZE")) : 4, reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
