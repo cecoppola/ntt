@@ -22,10 +22,12 @@ modelled. The integrator's M-run replaces the per-node inputs with measured ones
 |---|---|---|---|---|
 | step 0 alone (C, the cap rule = 2³¹ at 576, no chunking, depth 1) | 7.29 × 10¹⁰ | 4.20 / 3.94 × 10¹³ | 3.74 min | 3.85 min |
 | fastest: step 0 + `ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.2 × 10¹⁰ | 4.16 / 3.90 × 10¹³ | 3.63 min | 3.70 min |
-| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.6 × 10¹⁰ | 5.52 / 5.19 × 10¹³ | 3.87 min | 6.22 min |
-| largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.43 min | 12.1 min |
+| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.6 × 10¹⁰ | 5.52 / 5.19 × 10¹³ | 3.87 min | 6.37 min |
+| largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.43 min | 12.2 min |
 
-`./estimate.py --max --g 576` gives step 0 alone; `--strategy --cap --chunk --depth` give any row.
+`./estimate.py --max --g 576` gives step 0 alone; `--strategy --cap --chunk --depth` give any row. The table also prints the ceiling at
+524 GB, the edge measured on one aac6 node (agent P: device + host HWM 523.8 GB ran, 529.6 GB was OOM-killed). **Size the target by
+the 502 / 480 GB columns until the target's own edge is measured** (§6 item 9).
 
 Labels:
 - **Modelled**: the per-node compute, from measured one-node runs of the current code (four primes: 4 × 10¹⁰ 81.5 s,
@@ -251,6 +253,14 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
 8. **The global-link taper** (assumed 1.0). Compare the 64-node run (step 2/3) with the 576-node run at the same D per
    node (step 4 with D = 10¹⁰: `estimate.py --g 64 --D 1e10` against `--g 576 --D 1e10`). The levels above 64 are the
    only difference; if their exposed time exceeds the model's, `--taper` moves it.
+9. **The node's memory edge** (502 GB assumed; 524 GB measured on aac6, P13b). Run one node at a size whose modelled peak is
+   515–525 GB (`estimate.py --g 1 --D ...`) and watch for the allocation failure or the OOM kill. Feed: the budget in
+   `design_table.py` (`EDGE_GB`) and in `estimate.py --max`.
+
+To rebuild the M-run log from a campaign's tagged per-run logs (tags `s1_<strategy>_<cap>_r<n>`, `koff_*`, `series_*`,
+`p4_d<depth>_<off|shift|both>_r<n>`, `p3_d<depth>_r<n>`; verdicts in `progress.txt` beside the log directory):
+`./design_table.py --regen <logdir> [<progress.txt>] > mrun.log`, then `./design_table.py --calibrate --mrun mrun.log` and
+`./design_table.py --mrun mrun.log`.
 
 A one-node run on the target is worth taking before step 5: 4 × 10¹⁰, the recommended row's environment,
 `MEM_REPORT_DEVS=1`. Write it as an M-run line:
