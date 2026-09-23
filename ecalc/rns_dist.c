@@ -260,9 +260,11 @@ static void cache_drop(int pinned_too)                        /* the slots empti
 {
     for (int i = 0; i < DIST_CACHE_MAX; i++) { struct dist_slot *s = &g_cache.s[i]; if (s->pinned && !pinned_too) continue; s->key = 0; s->q = 0; s->pinned = 0; }
 }
+static void b_extra_release(void);
 void rns_dist_cache_release(void)                             /* the planes freed (the end of the dm phase); the next product may allocate again */
 {
     cache_drop(1);
+    b_extra_release();                                        /* Phase 13b B: the B forms' extra planes (RNS_STRATEGY=B|B4) */
     if (!g_cache.tried) return;
     int cur; HIP_CHECK(hipGetDevice(&cur));
     for (int i = 0; i < DIST_CACHE_MAX; i++) for (int r = 0; r < NR; r++) if (g_cache.s[i].pl[r]) { HIP_CHECK(hipSetDevice(r)); HIP_CHECK(hipFree(g_cache.s[i].pl[r])); g_cache.s[i].pl[r] = 0; }
@@ -302,6 +304,326 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
         s->key = k ? kb : ka; s->lo = k ? lb : la; s->n = k ? nb : na; s->q = q; s->mn = mn;
     }
 }
+/* ---- Phase 13b B (PLAN 29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
+ * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
+ * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:
+ *   C     the four-step over the four APUs (dist_core below; the default, today's behaviour)
+ *   B     prime-per-APU: APU p transforms prime p of the whole product (planes X_p, Y_p of n points, 2^k or 3 2^k),
+ *         loading both operands from wherever their quarters live (xGMI pulls), the pointwise fused into the inverse,
+ *         then every APU forms a quarter of the result by the CRT over the prime planes (peer reads).  No all-to-all.
+ *         2 n points per APU on ec_np APUs (at P = 3 APU 3 only takes part in the CRT).
+ *   B4    B spread over all four APUs at P = 3 (ec_np = 3; at P = 4 it is B): the product mod x^n - 1 splits into its
+ *         residues mod x^(n/2) - 1 and x^(n/2) + 1 -- in the forward DIF's bit-reversed output (of each third for
+ *         3 2^k: ntt3.c's radix-3 stage first) the lower and the upper half.  APU p < 3 transforms X (the longer operand)
+ *         whole and Y's lower residue (n/2 points: y[j] + y[j + h] after the radix-3 stage); APU 3 forms and transforms
+ *         the three primes' upper residues ((y[j] - y[j + h]) w_m^j, Y read once); APU p multiplies its upper half by
+ *         APU 3's plane (a peer read), inverts, and the CRT as in B.  1.5 n points per APU (C's 12 n bytes at P = 3),
+ *         transforms 2.5 n on APUs 0-2 and 1.5 n on APU 3 (B: 3 n).
+ *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B -- results/B13b.md) wherever its planes fit the plane
+ *         pools as sized at init, else C.
+ * B and B4 run every product in their form: the planes that do not fit the pools come from one grow-only buffer per APU
+ * (hipMalloc, kept until rns_dist_cache_release at the end of the dm phase) -- the "B at more memory" row of the
+ * design table.  auto never allocates.  Products whose operands are host arrays, whose result is not an owning dbig, or
+ * that use the transform cache (RNS_DIST_CACHE, off at size 1 by default) stay C.  Every form is exact: the digits are
+ * the same as C's (the product is the product; only the transform length and the stripes differ).
+ * The CRT: stripes of `rows` coefficients (a power of two dividing the result's quarter length), APU d the stripes
+ * [G d/4, G (d+1)/4) written straight into the result's quarters; the stripe spills (4 limbs at (g + 1) rows) go
+ * through db_add_spills in the four-step's sparse layout (R = 4 rows: stripe g = 4 j + r <-> rank r, column j). */
+enum { STRAT_C = 0, STRAT_B = 1, STRAT_B4 = 2, STRAT_AUTO = 3 };
+static int g_strat = -1, g_strat_form = -1;
+static const char *strat_name(int s) { return s == STRAT_B ? "B" : s == STRAT_B4 ? "B4" : s == STRAT_AUTO ? "auto" : "C"; }
+static struct { size_t n[3]; double t[3], t_alloc; size_t extra_bytes; } g_bst;      /* products and seconds by form (C, B, B4) */
+static void strat_report(void)
+{
+    printf("rns_dist: RNS_STRATEGY=%s%s%s: C %zu products %.2f s, B %zu products %.2f s, B4 %zu products %.2f s; extra plane memory %.2f GiB/APU (allocations %.2f s)\n",
+           strat_name(g_strat), g_strat == STRAT_AUTO ? " form " : "", g_strat == STRAT_AUTO ? strat_name(g_strat_form) : "",
+           g_bst.n[0], g_bst.t[0], g_bst.n[1], g_bst.t[1], g_bst.n[2], g_bst.t[2], g_bst.extra_bytes / 1073741824.0, g_bst.t_alloc);
+}
+/* tests: set the strategy by name ("C", "B", "B4", "auto"; 0 = RNS_STRATEGY again); returns the previous one */
+extern "C" int rns_dist_strategy_set(const char *name);
+static int strat_get(void);
+int rns_dist_strategy_set(const char *name)
+{
+    int prev = strat_get();
+    if (!name) { g_strat = -1; strat_get(); return prev; }
+    g_strat = !strcmp(name, "B") ? STRAT_B : !strcmp(name, "B4") ? STRAT_B4 : !strcmp(name, "auto") ? STRAT_AUTO : STRAT_C;
+    return prev;
+}
+static int strat_get(void)
+{
+    if (g_strat >= 0) return g_strat;
+    const char *e = getenv("RNS_STRATEGY"), *f = getenv("RNS_STRATEGY_FORM");
+    g_strat = STRAT_C;
+    if (e && *e) {
+        if (!strcmp(e, "C") || !strcmp(e, "c")) g_strat = STRAT_C;
+        else if (!strcmp(e, "B") || !strcmp(e, "b")) g_strat = STRAT_B;
+        else if (!strcmp(e, "B4") || !strcmp(e, "b4")) g_strat = STRAT_B4;
+        else if (!strcmp(e, "auto")) g_strat = STRAT_AUTO;
+        else { fprintf(stderr, "RNS_STRATEGY=%s: C, B, B4 or auto\n", e); exit(1); }
+    }
+    g_strat_form = f && (!strcmp(f, "B4") || !strcmp(f, "b4")) ? STRAT_B4 : STRAT_B;   /* auto's form: B (results/B13b.md: B4 is 3-7 % slower and fits the same pools) */
+    if (g_strat != STRAT_C) atexit(strat_report);
+    return g_strat;
+}
+/* the transform length for a product of nc limbs in the B form: the smaller of 2^k and 3 2^(k-1) (radix-3 when the prime set
+ * has it), at least 2^20; *T = 3 for 3 2^logk (m = 2^logk points per third), 1 for 2^logk */
+static size_t b_len(size_t nc, int *T, int *logk)
+{
+    int k = 20; while (((size_t)1 << k) < nc) k++;
+    if (ec_has_radix3() && k > 20 && ((size_t)3 << (k - 2)) >= nc) { *T = 3; *logk = k - 2; return (size_t)3 << (k - 2); }
+    *T = 1; *logk = k; return (size_t)1 << k;
+}
+/* two-level tables of w (entries j < cnt): t2 = w^(j & 0xffff), t1 = w^(j >> 16 << 16); w^j = t2[j & 0xffff] t1[j >> 16] */
+struct btw { const uint64_t *t1, *t2; };
+#define BTW_SLOTS 8
+static struct { int built; uint64_t w; size_t cnt; struct btw t; } g_btw[NR][EC_NP][BTW_SLOTS];   /* [dev][prime][slot] */
+static int g_btw_next[NR][EC_NP];                                                             /* round-robin eviction: a product's two tables never evict each other */
+static struct btw b_tables(int dev, int prime, uint64_t w, size_t cnt)
+{
+    for (int s = 0; s < BTW_SLOTS; s++) if (g_btw[dev][prime][s].built && g_btw[dev][prime][s].w == w && g_btw[dev][prime][s].cnt >= cnt) return g_btw[dev][prime][s].t;
+    int s = g_btw_next[dev][prime]; g_btw_next[dev][prime] = (s + 1) % BTW_SLOTS;
+    if (g_btw[dev][prime][s].built) { HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t1)); HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t2)); g_btw[dev][prime][s].built = 0; }
+    uint64_t P = ec_P[prime], a = 1; size_t n2 = cnt < 65536 ? cnt : 65536, n1 = (cnt + 65535) / 65536;
+    uint64_t *h2 = (uint64_t *)malloc(n2 * 8), *h1 = (uint64_t *)malloc(n1 * 8), *d1, *d2;
+    for (size_t i = 0; i < n2; i++) { h2[i] = a; a = ec_mulmod_ref(a, w, P); }
+    uint64_t w16 = ec_powmod(w, 65536, P); a = 1;
+    for (size_t i = 0; i < n1; i++) { h1[i] = a; a = ec_mulmod_ref(a, w16, P); }
+    HIP_CHECK(hipMalloc(&d1, n1 * 8)); HIP_CHECK(hipMalloc(&d2, n2 * 8));
+    HIP_CHECK(hipMemcpy(d1, h1, n1 * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(d2, h2, n2 * 8, hipMemcpyHostToDevice));
+    free(h1); free(h2);
+    g_btw[dev][prime][s].built = 1; g_btw[dev][prime][s].w = w; g_btw[dev][prime][s].cnt = cnt; g_btw[dev][prime][s].t.t1 = d1; g_btw[dev][prime][s].t.t2 = d2;
+    return g_btw[dev][prime][s].t;
+}
+__device__ static inline uint64_t btw_at(const struct btw t, size_t j, ec_mod m) { return ec_mmu(t.t2[j & 0xffff], t.t1[j >> 16], m); }
+/* the operand's n points, canonical, zero beyond its length */
+__global__ void k_bload(uint64_t *dst, struct acc src, size_t n, ec_mod m)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += stride) dst[i] = i < src.n ? ec_canon64(acc_get(src, i), m.pu, m.mu) : 0;
+}
+/* B4's residues of Y, h = m/2 points per third (T thirds of m = 2^logk points; T = 1: m = n):
+ *   z_r[j'] = the radix-3 stage's third r at j' < m (T = 1: y[j'])   (ntt3.c: (a0 + w3^r a1 + w3^2r a2) w_n^(r j'))
+ *   lo[r h + j] = z_r[j] + z_r[j + h],  hi[r h + j] = (z_r[j] - z_r[j + h]) w_m^j     (j < h), canonical,
+ * for nk primes at once (the operand read once); lo or hi null: not formed */
+struct bsplit { uint64_t *lo[3], *hi[3]; ec_mod m[3]; struct btw wn[3], wm[3]; uint64_t w3[3], w3s[3]; int nk; };
+__device__ static inline uint64_t add3u(uint64_t a, uint64_t b, uint64_t c, uint64_t p) { uint64_t s = ec_fold(a + b, p); return ec_fold(s + c, p); }
+template <int T>
+__global__ void k_bsplit(struct bsplit a, struct acc y, int logk, size_t h)
+{
+    const size_t m = (size_t)1 << logk;
+    size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; j < h; j += stride) {
+        uint64_t raw[T][2];
+        for (int s = 0; s < T; s++) for (int e = 0; e < 2; e++) { size_t i = j + e * h + s * m; raw[s][e] = i < y.n ? acc_get(y, i) : 0; }
+        for (int k = 0; k < a.nk; k++) {
+            const ec_mod md = a.m[k]; const uint64_t p = md.pu;
+            uint64_t c[T][2];
+            for (int s = 0; s < T; s++) for (int e = 0; e < 2; e++) c[s][e] = ec_canon64(raw[s][e], p, md.mu);
+            uint64_t v = a.hi[k] ? btw_at(a.wm[k], j, md) : 0;
+            for (int r = 0; r < T; r++) {
+                uint64_t z[2];
+                for (int e = 0; e < 2; e++) {
+                    if (T == 1) { z[e] = c[0][e]; continue; }
+                    uint64_t a0 = c[0][e], a1 = c[T > 1 ? 1 : 0][e], a2 = c[T > 2 ? 2 : 0][e];
+                    if (r == 0) { z[e] = add3u(a0, a1, a2, p); continue; }
+                    uint64_t wa = r == 1 ? a.w3[k] : a.w3s[k], wb = r == 1 ? a.w3s[k] : a.w3[k];
+                    uint64_t t = add3u(a0, ec_mmu(a1, wa, md), ec_mmu(a2, wb, md), p);
+                    uint64_t w = btw_at(a.wn[k], j + e * h, md); if (r == 2) w = ec_mmu(w, w, md);
+                    z[e] = ec_mmu(t, w, md);
+                }
+                if (a.lo[k]) a.lo[k][r * h + j] = ec_fold(z[0] + z[1], p);
+                if (a.hi[k]) a.hi[k][r * h + j] = ec_mmu(z[0] + p - z[1], v, md);
+            }
+        }
+    }
+}
+/* B4's pointwise product: x[r m + t] *= t < h ? lo[r h + t] : hi[r h + t - h] (hi: APU 3's plane, a peer read) */
+__global__ void k_b4_pw(uint64_t *x, const uint64_t *lo, const uint64_t *hi, int logk, size_t n, ec_mod md)
+{
+    const size_t m = (size_t)1 << logk, h = m / 2;
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += stride) { size_t r = i >> logk, t = i & (m - 1); uint64_t y = t < h ? lo[r * h + t] : hi[r * h + t - h]; x[i] = ec_mmu(x[i], y, md); }
+}
+/* the planes of one B-form product on APU d: first fit into pool 0, pool 1, then (forced forms only) the extra buffer */
+static uint64_t *g_bx[NR]; static size_t g_bx_cap[NR];
+static void b_acct(int ndev, size_t b[][MEM_DEV_NCAT]) { for (int d = 0; d < ndev && d < NR; d++) b[d][MEM_DEV_PLANES] += g_bx_cap[d] * 8; }   /* M9: the extra planes count as planes */
+static void b_extra_release(void)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur));
+    for (int d = 0; d < NR; d++) if (g_bx[d]) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(g_bx[d])); g_bx[d] = 0; g_bx_cap[d] = 0; }
+    HIP_CHECK(hipSetDevice(cur));
+}
+/* place k planes of sz[i] limbs; returns the extra limbs needed beyond the pools (0: all in the pools); with out != 0 and
+ * the extra buffer grown to it, the pointers */
+static size_t b_place(int d, int k, const size_t *sz, uint64_t **out)
+{
+    size_t cap[2] = { rns_dpool_cap(d, 0) / 8, rns_dpool_cap(d, 1) / 8 }, used[2] = { 0, 0 }, ex = 0;
+    for (int i = 0; i < k; i++) {
+        int w = -1; for (int r = 0; r < 2; r++) if (cap[r] - used[r] >= sz[i] && cap[r] >= used[r]) { w = r; break; }
+        if (w >= 0) { if (out) out[i] = (uint64_t *)rns_dpool(d, w, cap[w] * 8) + used[w]; used[w] += sz[i]; }
+        else { if (out) out[i] = g_bx[d] + ex; ex += sz[i]; }
+    }
+    return ex;
+}
+/* the planes' sizes of a product of length n on APU d (form f); returns the count */
+static int b_planes(int f, int d, size_t n, size_t *sz)
+{
+    if (f == STRAT_B) { if (d >= ec_np) return 0; sz[0] = n; sz[1] = n; return 2; }
+    if (d < 3) { sz[0] = n; sz[1] = n / 2; return 2; }
+    sz[0] = sz[1] = sz[2] = n / 2; return 3;
+}
+/* the form this product runs in (C, B or B4) */
+static int b_choose(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
+{
+    int s = strat_get();
+    if (s == STRAT_C || cache_slots() || A.flat || B.flat || Cw.flat || !Cw.owner || Cw.lo || sa >= 0 || sb >= 0) return STRAT_C;
+    if (Cw.owner->qc % 4096) return STRAT_C;
+    int f = s == STRAT_AUTO ? g_strat_form : s;
+    if (f == STRAT_B4 && ec_np != 3) f = STRAT_B;
+    if (ec_np > NR) return STRAT_C;
+    if (s == STRAT_AUTO) {
+        int T, lk; size_t n = b_len(nc, &T, &lk), sz[3];
+        for (int d = 0; d < NR; d++) if (b_place(d, b_planes(f, d, n, sz), sz, 0)) return STRAT_C;
+    }
+    return f;
+}
+static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)   /* 0: the extra planes could not be allocated (the product runs C) */
+{
+    double t0 = mem_now();
+    if (A.n < B.n) { struct acc t = A; A = B; B = t; }          /* X = the longer operand (whole on APU p), Y = the shorter */
+    int T, logk; size_t n = b_len(nc, &T, &logk), m = (size_t)1 << logk, h = m / 2;
+    const int np = ec_np; dbig *Cd = Cw.owner;
+    /* the extra plane memory (forced forms), grown before the products' parallel region, the four APUs in parallel */
+    {
+        size_t ex[NR]; int grow = 0, bad = 0, cur; HIP_CHECK(hipGetDevice(&cur));
+        for (int d = 0; d < NR; d++) { size_t sz[3]; ex[d] = b_place(d, b_planes(f, d, n, sz), sz, 0); if (ex[d] > g_bx_cap[d]) grow = 1; }
+        if (grow) {
+            double ta = mem_now();
+#pragma omp parallel for num_threads(NR) reduction(+:bad)
+            for (int d = 0; d < NR; d++) {
+                if (ex[d] <= g_bx_cap[d]) continue;
+                HIP_CHECK(hipSetDevice(d)); if (g_bx[d]) HIP_CHECK(hipFree(g_bx[d])); g_bx[d] = 0; g_bx_cap[d] = 0;
+                if (hipMalloc(&g_bx[d], ex[d] * 8) != hipSuccess) { (void)hipGetLastError(); g_bx[d] = 0; bad++; }
+                else g_bx_cap[d] = ex[d];
+            }
+            HIP_CHECK(hipSetDevice(cur));
+            mem_acct_register(b_acct); g_bst.t_alloc += mem_now() - ta;
+            size_t tot = 0; for (int e = 0; e < NR; e++) if (g_bx_cap[e] > tot) tot = g_bx_cap[e]; g_bst.extra_bytes = tot * 8;
+            if (getenv("RNS_VERBOSE") || bad) printf("rns_dist %s: extra planes %.2f GiB per APU%s in %.2f s (the pools hold %.2f + %.2f GiB)\n", strat_name(f), tot * 8 / 1073741824.0, bad ? " NOT AVAILABLE: this product runs C" : "", mem_now() - ta, rns_dpool_cap(0, 0) / 1073741824.0, rns_dpool_cap(0, 1) / 1073741824.0);
+            if (bad) return 0;
+        }
+    }
+    uint64_t *pl[NR][3];
+    for (int d = 0; d < NR; d++) { size_t sz[3]; b_place(d, b_planes(f, d, n, sz), sz, pl[d]); }
+    /* the CRT stripes: rows | qc; G stripes over [0, nc); APU d stripes [G d/4, G (d+1)/4) */
+    size_t rows = 16384; while (Cd->qc % rows) rows /= 2;
+    size_t G = (nc + rows - 1) / rows, Ccol = (G + 3) / 4, R = 4 * rows;
+    static uint64_t *spall, *sp4[4]; static size_t spcap;
+    if (spcap < Ccol) {
+        if (spall) { HIP_CHECK(hipHostFree(spall)); for (int r = 0; r < 4; r++) HIP_CHECK(hipHostFree(sp4[r])); }
+        spcap = Ccol + 1024; HIP_CHECK(hipHostMalloc((void **)&spall, spcap * 16 * 8, 0));
+        for (int r = 0; r < 4; r++) HIP_CHECK(hipHostMalloc((void **)&sp4[r], spcap * 4 * 8, 0));
+    }
+    memset(spall, 0, G * 4 * 8);
+    struct gconst gc = rns_gconst();
+    double tl[NR], tf[NR], tc[NR];
+#pragma omp parallel num_threads(NR)
+    {
+        int d = omp_get_thread_num(); struct rank_state *v = &RS[d];
+        HIP_CHECK(hipSetDevice(d));
+        double x0 = mem_now(), x1 = x0, x2 = x0;
+        uint64_t *X = pl[d][0], *Y = pl[d][1];
+        if (f == STRAT_B) {
+            if (d < np) {
+                ec_mod md = ec_mod_get(d);
+                k_bload<<<nblk(n), 256, 0, v->s>>>(X, A, n, md); k_bload<<<nblk(n), 256, 0, v->s>>>(Y, B, n, md);
+                HIP_CHECK(hipStreamSynchronize(v->s)); x1 = mem_now();
+                if (T == 3) { ntt_fwd3(v->ctx[d], X, logk, 1, v->s); ntt_fwd3(v->ctx[d], Y, logk, 1, v->s); ntt_inv3_pw(v->ctx[d], X, Y, logk, 1, v->s); }
+                else { ntt_fwd(v->ctx[d], X, logk, 1, v->s); ntt_fwd(v->ctx[d], Y, logk, 1, v->s); ntt_inv_pw(v->ctx[d], X, Y, logk, 1, v->s); }
+                HIP_CHECK(hipStreamSynchronize(v->s));
+            }
+            x2 = mem_now();
+        } else {
+            struct bsplit sp; memset(&sp, 0, sizeof sp);
+            int ks[3], nk = 0; if (d < 3) ks[nk++] = d; else for (int k = 0; k < 3; k++) ks[nk++] = k;
+            sp.nk = nk;
+            for (int i = 0; i < nk; i++) {
+                int p = ks[i]; sp.m[i] = ec_mod_get(p);
+                if (d < 3) sp.lo[i] = Y; else sp.hi[i] = pl[d][i];
+                if (d == 3) sp.wm[i] = b_tables(d, p, ec_root(p, logk), h);
+                if (T == 3) { uint64_t wn = ec_root3(p, logk); sp.wn[i] = b_tables(d, p, wn, m); sp.w3[i] = ec_powmod(wn, m, ec_P[p]); sp.w3s[i] = ec_mulmod_ref(sp.w3[i], sp.w3[i], ec_P[p]); }
+            }
+            if (d < 3) k_bload<<<nblk(n), 256, 0, v->s>>>(X, A, n, sp.m[0]);
+            if (T == 3) k_bsplit<3><<<nblk(h), 256, 0, v->s>>>(sp, B, logk, h); else k_bsplit<1><<<nblk(h), 256, 0, v->s>>>(sp, B, logk, h);
+            HIP_CHECK(hipStreamSynchronize(v->s)); x1 = mem_now();
+            if (d < 3) {
+                if (T == 3) ntt_fwd3(v->ctx[d], X, logk, 1, v->s); else ntt_fwd(v->ctx[d], X, logk, 1, v->s);
+                ntt_fwd(v->ctx[d], Y, logk - 1, T, v->s);
+            } else for (int k = 0; k < 3; k++) ntt_fwd(v->ctx[k], pl[d][k], logk - 1, T, v->s);
+            HIP_CHECK(hipStreamSynchronize(v->s));
+#pragma omp barrier
+            if (d < 3) {
+                k_b4_pw<<<nblk(n), 256, 0, v->s>>>(X, Y, pl[3][d], logk, n, sp.m[0]);
+                if (T == 3) ntt_inv3(v->ctx[d], X, logk, 1, v->s); else ntt_inv(v->ctx[d], X, logk, 1, v->s);
+                HIP_CHECK(hipStreamSynchronize(v->s));
+            }
+            x2 = mem_now();
+        }
+#pragma omp barrier
+        /* the CRT of stripes [g0, g1) into the result's quarters */
+        const uint64_t *P0 = pl[0][0], *P1 = pl[1][0], *P2 = pl[2][0], *P3 = np > 3 ? pl[3][0] : pl[0][0];
+        size_t g0 = G * d / 4, g1 = G * (d + 1) / 4, a = g0 * rows, b = g1 * rows < nc ? g1 * rows : nc;
+        struct bdesc hd[16]; size_t c0s[16], S_[16]; int ns = 0;
+        for (size_t c0 = a; c0 < b;) {
+            size_t j = c0 / Cd->qc, qe = (j + 1) * Cd->qc, e = qe < b ? qe : b;
+            if (e - c0 > ((size_t)1 << 31)) e = c0 + ((size_t)1 << 31);
+            size_t len = e - c0, full = len / rows * rows;
+            if (full) { memset(&hd[ns], 0, sizeof hd[ns]); hd[ns].c = Cd->q[j] + (c0 - j * Cd->qc); hd[ns].na = (uint32_t)full; c0s[ns] = c0; S_[ns] = full / rows; ns++; }
+            if (len > full) { memset(&hd[ns], 0, sizeof hd[ns]); hd[ns].c = Cd->q[j] + (c0 + full - j * Cd->qc); hd[ns].na = (uint32_t)(len - full); c0s[ns] = c0 + full; S_[ns] = 1; ns++; }
+            c0 = e;
+            if (ns > 14) { fprintf(stderr, "b_core: too many CRT segments\n"); exit(1); }
+        }
+        double x3 = mem_now();
+        if (ns) {
+            struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
+            HIP_CHECK(hipMemcpyAsync(dd, hd, ns * sizeof hd[0], hipMemcpyHostToDevice, v->s));
+            for (int i = 0; i < ns; i++) {
+                size_t c0 = c0s[i];
+                k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4, bi_decimal);
+            }
+            HIP_CHECK(hipStreamSynchronize(v->s));
+        }
+        tl[d] = x1 - x0; tf[d] = x2 - x1; tc[d] = mem_now() - x3;
+    }
+    /* the spills: stripe g = 4 j + r -> sp4[r][j] (the four-step's sparse layout), then one chunked-carry add */
+    double tsp = mem_now();
+    for (size_t g = 0; g < 4 * Ccol; g++) { uint64_t *o = sp4[g & 3] + (g >> 2) * 4; if (g < G) memcpy(o, spall + g * 4, 32); else memset(o, 0, 32); }
+    Cd->n = nc;
+    const uint64_t *spp[4] = { sp4[0], sp4[1], sp4[2], sp4[3] };
+    db_add_spills(Cd, Cd, spp, R, rows, Ccol, nc);
+    if (Cd->n > nc) { fprintf(stderr, "b_core: carry out of the product\n"); exit(1); }
+    double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
+    rns_dist_st.t_merge += mem_now() - tsp; rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
+    rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
+    g_bst.n[f] += 1; g_bst.t[f] += mem_now() - t0;
+    if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
+    return 1;
+}
+/* RNS_STRATEGY_CHECK=1 (test): every B-form product formed again by C into a temporary and compared (abort on a difference) */
+static int b_check_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_CHECK"); v = e ? atoi(e) : 0; } return v; }
+static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb);
+static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
+{
+    dbig T; db_init(&T); db_reserve(&T, nc + 8);
+    int s = g_strat; g_strat = STRAT_C; dist_core(A, B, acc_db(&T, 0, nc), nc, -1, -1); g_strat = s;
+    T.n = nc;
+    bigint x, y; bi_init(&x); bi_init(&y); db_to_bi(&x, Cw.owner); db_to_bi(&y, &T); bi_norm(&x); bi_norm(&y);
+    size_t k = 0, m = x.n < y.n ? x.n : y.n; while (k < m && x.l[k] == y.l[k]) k++;
+    int T3; int lk; size_t n = b_len(nc, &T3, &lk);
+    if (x.n != y.n || k < m) { fprintf(stderr, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); exit(7); }
+    static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
+    bi_free(&x); bi_free(&y); db_free(&T);
+}
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written.  sa, sb: the cache slots for A and B
  * (-1: not cached; a hit anywhere in the cache is taken regardless) */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
@@ -318,6 +640,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     size_t n = r3 ? (size_t)3 << (logn - 1) : (size_t)1 << logn, R = (size_t)1 << logR, C = r3 ? (size_t)3 << logk : (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
+    { int f = b_choose(A, B, Cw, nc, sa, sb); if (f != STRAT_C && b_core(f, A, B, Cw, nc)) { if (b_check_on()) b_check(f, A, B, Cw, nc); return; } }   /* Phase 13b B: RNS_STRATEGY */
     /* A1: the cache slots -- hits anywhere, misses filled in the designated slots (never the slot the other operand hits in) */
     int ha = r3 ? -1 : cache_find(&A, q), hb = r3 ? -1 : cache_find(&B, q);
     if (r3 || A.flat) sa = -1; if (r3 || B.flat) sb = -1;
@@ -400,7 +723,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         if (Cd->n > nc) { fprintf(stderr, "dist: carry out of the product\n"); exit(1); }
     }
     rns_dist_st.t_merge += mem_now() - tsp;
-    rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
+    rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0; g_bst.n[0]++; g_bst.t[0] += mem_now() - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
     if (getenv("RNS_VERBOSE")) printf("dist %s2^%d = 2^%d x %s2^%d (%zu limbs): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s%s%s\n", r3 ? "3*" : "", r3 ? logn - 1 : logn, logR, r3 ? "3*" : "", r3 ? logk : logC, nc, ml, mf, mc, mem_now() - tsp, mem_now() - t0, ha >= 0 ? " [A hit]" : sa >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : sb >= 0 ? " [B cached]" : "");
@@ -486,7 +809,36 @@ static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int 
     }
     if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
 }
-static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); }
+/* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (RNS_STRATEGY_GRID, default 1 under auto):
+ * a piece that fits the B form's planes costs its B-length points x 0.70 (the library's B against C per product, measured
+ * 0.66-0.74 at 2^26..2^31, results/B13b.md), one that does not its C points x 1; 3 2^k lengths x 1.05 as above.  The digits do
+ * not depend on the grid.  Off (or any other strategy): C's grid as before. */
+static int b_fits(size_t nc)
+{
+    int f = g_strat_form; if (f == STRAT_B4 && ec_np != 3) f = STRAT_B; if (ec_np > NR) return 0;
+    int T, lk; size_t n = b_len(nc, &T, &lk), sz[3];
+    for (int d = 0; d < NR; d++) if (b_place(d, b_planes(f, d, n, sz), sz, 0)) return 0;
+    return 1;
+}
+static int b_grid_on(void)
+{
+    static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_GRID"); v = e ? atoi(e) != 0 : 1; }
+    return v && strat_get() == STRAT_AUTO && !cache_slots();
+}
+static void split_grid(size_t na, size_t nb, int *ka, int *kb)
+{
+    if (!b_grid_on()) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); return; }
+    size_t cap = dist_cap(); double best = 0; *ka = *kb = 0;
+    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
+        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
+        if (pa + pb > cap) continue;
+        double cost;
+        if (b_fits(pa + pb)) { int T, lk; size_t n = b_len(pa + pb, &T, &lk); cost = (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70; }
+        else { size_t pts = plane_pts(pa + pb, dist_r3()); cost = (double)i * j * pts * ((pts & (pts - 1)) ? 1.05 : 1.0); }
+        if (!*ka || cost < best * 0.999 || (cost <= best * 1.001 && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
+    }
+    if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
+}
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
@@ -506,7 +858,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     db_reserve(Cd, nc + 8);
     g_cache_mn = 0;
     int one = nc <= dist_cap();
-    if (one && nc > ((size_t)1 << dist_logn_max())) { int ka_, kb_; split_grid(na, nb, &ka_, &kb_); one = ka_ * kb_ == 1; }   /* Phase 11 B3 (agent P): the 3 2^30 plane only when no grid of smaller planes is cheaper (A-grid C5: level 25's 2.19e9 x 2.7e7 is 5 x 1 pieces of 2^29) */
+    if (one && (nc > ((size_t)1 << dist_logn_max()) || (b_grid_on() && !b_fits(nc)))) { int ka_, kb_; split_grid(na, nb, &ka_, &kb_); one = ka_ * kb_ == 1; }   /* (Phase 13b B: under auto also a single plane that does not fit the B form) */   /* Phase 11 B3 (agent P): the 3 2^30 plane only when no grid of smaller planes is cheaper (A-grid C5: level 25's 2.19e9 x 2.7e7 is 5 x 1 pieces of 2^29) */
     if (cache_slots() && (!one || pin)) { N = cache_avail(); for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i; }   /* the free (unpinned) slots */
     if (one) {
         struct db_stats s0 = db_st; double t0 = mem_now();
