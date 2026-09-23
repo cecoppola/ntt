@@ -124,7 +124,7 @@ int rns_init(int pool_log)
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
     bi_env_base();
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
-    if (ec_np == 3) ec_np_check(0, bi_decimal, "rns_init");   /* P3: refuse three primes with binary limbs at start (the tests set the base before rns_init) */
+    if (ec_np == 3) { ec_np_check(0, bi_decimal, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }   /* P3: refuse three primes with binary limbs at start (the tests set the base before rns_init) */
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
