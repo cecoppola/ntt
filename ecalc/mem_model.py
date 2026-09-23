@@ -287,10 +287,36 @@ def code_cap(digits, pool_log=31):
 def plane_bytes_apu(strategy, n, np=EC_NP):
     """the plane bytes per APU a product of n points needs (results/S13.md, t_strategy measured at P = 4 and 3):
     C four-step (np + 3) n/4 x 8 (14 n at P = 4, 12 n at P = 3); B prime-per-APU 2 n x 8 = 16 n on each busy APU; B4 (B's
-    3 P planes spread over the four APUs, not built: PLAN 31) 1.5 n x 8 = 12 n"""
+    3 P planes spread over the four APUs) 1.5 n x 8 = 12 n"""
     if strategy == 'B': return 16 * n
     if strategy == 'B4': return 12 * n
     return (np + 3) * n * 2
+
+def pool_limbs(pool_log=31, p3q30=False, np=EC_NP):
+    """(pool 0, pool 1) per APU in limbs: rns_plane_pool_bytes (agent P's one formula), 2 MiB-aligned"""
+    q = (3 << (pool_log - 3)) if p3q30 else (1 << pool_log) // 4
+    al = (2 << 20) // 8
+    a = np * q; b = max(3 * q + 16, 1 << min(pool_log, 30))
+    return (a + al - 1) // al * al, (b + al - 1) // al * al
+
+def b_planes(form, d, n, np=EC_NP):
+    """rns_dist.c b_planes (agent B): the planes' sizes (limbs) of a product of length n on APU d in form B or B4"""
+    if form == 'B': return [n, n] if d < np else []
+    return [n, n // 2] if d < 3 else [n // 2, n // 2, n // 2]
+
+def b_extra_limbs(form, n, pool_log=31, p3q30=False, np=EC_NP):
+    """rns_dist.c b_place: the planes that fit neither pool (first fit, whole planes) come from one grow-only hipMalloc buffer
+    per APU; returns [extra limbs per APU] (0 everywhere = the form fits the pools: what `auto` requires)"""
+    if form == 'B4' and np != 3: form = 'B'
+    c0, c1 = pool_limbs(pool_log, p3q30, np); out = []
+    for d in range(NR):
+        cap = [c0, c1]; used = [0, 0]; ex = 0
+        for sz in b_planes(form, d, n, np):
+            for r in (0, 1):
+                if cap[r] - used[r] >= sz: used[r] += sz; break
+            else: ex += sz
+        out.append(ex)
+    return out
 
 def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None):
     """rns_mul.c: pool 0 = EC_NP x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
@@ -312,10 +338,11 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
     p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
     p1 = (p1 + al - 1) // al * al
     per = p0 + p1
-    if strategy in ('B', 'B4'): per = max(per, plane_bytes_apu(strategy, 4 * q, np))   # the plane of the cap = 4 q points; rns_dist.c
-                                                                      # takes what the pools lack from one grow-only hipMalloc buffer per
-                                                                      # APU, kept to the end of the dm phase (so at the dm peak)
-    return NR * per + int((0.61 if pool_log >= 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured; 2^30 assumed = 2^31)
+    extra = 0
+    if strategy in ('B', 'B4'):                                       # rns_dist.c (agent B): what the pools lack for the largest product
+        extra = 8 * sum(b_extra_limbs(strategy, 4 * q, pool_log, on, np))   # (the plane of the cap, 4 q points) comes from one grow-only
+                                                                      # hipMalloc buffer per APU, kept to the end of the dm phase (at the dm peak)
+    return NR * per + extra + int((0.61 if pool_log >= 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured; 2^30 assumed = 2^31)
 
 HOST_RUNTIME = 7.0 * GB                                  # ROCm runtime + program ("other" 6.9 GB at 4e10, the same at 1e6)
 HOST_STAGING = 4 * (1 << 30)                             # the checkpoints' chunk buffer, 1 GiB per APU (H's B2)

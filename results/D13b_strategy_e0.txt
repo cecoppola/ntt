@@ -1,0 +1,59 @@
+# agent B's t_strategy output (Phase 13b, ~/b13b/b1.out on aac6: job 21047, ppac-pl1-s24-26, p13b-B @ d5615ad5, decimal limbs, P = 3, NTT_MODMUL=1 (step 0)); strat=4 is B4, strat=L<form> the library's RNS_STRATEGY forms; read by mn_model.e0_table after results/S13_e0.txt (later lines win; the library's forms win over the test's)
+[08:20:32] job 21047
+[08:20:42] running on ppac-pl1-s24-26 commit d5615ad5
+STRAT logn=22 P=3 strat=LC wall_med=0.0132 min=0.0120 max=0.0135 reps=3 | load 0.0003 ntt 0.0115 crt 0.0002 merge 0.0005 | extra_dev_GiB/APU=0.00 (pools 0.02 + 0.03)
+STRAT logn=22 P=3 strat=LB wall_med=0.0029 min=0.0029 max=0.0030 reps=3 | load 0.0003 ntt 0.0006 crt 0.0004 merge 0.0004 | extra_dev_GiB/APU=0.00 (pools 0.02 + 0.03)
+STRAT logn=22 P=3 strat=LB4 wall_med=0.0033 min=0.0033 max=0.0033 reps=3 | load 0.0003 ntt 0.0013 crt 0.0004 merge 0.0004 | extra_dev_GiB/APU=0.00 (pools 0.02 + 0.03)
+STRAT logn=22 P=3 strat=Lauto wall_med=0.0033 min=0.0033 max=0.0033 reps=3 | load 0.0003 ntt 0.0013 crt 0.0004 merge 0.0004 | extra_dev_GiB/APU=0.00 (pools 0.02 + 0.03)
+STRAT logn=22 P=3 strat=A skipped: not requested
+STRAT logn=22 P=3 strat=B skipped: not requested
+STRAT logn=22 P=3 strat=C wall_med=0.0053 min=0.0053 max=0.0056 reps=3 | load 0.0004 ntt 0.0045 crt 0.0002 merge 0.0002 | plane_GiB/APU=0.05 [0.05 0.05 0.05 0.05] dev_delta_GiB/APU=0.21 | a2a=9 a2a_GiB/APU=0.05 peer_GiB/APU=0.02 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=LC wall_med=0.0230 min=0.0228 max=0.0230 reps=3 | load 0.0042 ntt 0.0148 crt 0.0024 merge 0.0012 | extra_dev_GiB/APU=0.00 (pools 0.38 + 0.50)
+STRAT logn=26 P=3 strat=LB wall_med=0.0171 min=0.0171 max=0.0171 reps=3 | load 0.0031 ntt 0.0088 crt 0.0036 merge 0.0013 | extra_dev_GiB/APU=0.00 (pools 0.38 + 0.50)
+STRAT logn=26 P=3 strat=LB4 wall_med=0.0205 min=0.0201 max=0.0214 reps=3 | load 0.0034 ntt 0.0123 crt 0.0032 merge 0.0014 | extra_dev_GiB/APU=0.00 (pools 0.38 + 0.50)
+STRAT logn=26 P=3 strat=Lauto wall_med=0.0203 min=0.0203 max=0.0207 reps=3 | load 0.0034 ntt 0.0123 crt 0.0032 merge 0.0013 | extra_dev_GiB/APU=0.00 (pools 0.38 + 0.50)
+STRAT logn=26 P=3 strat=A skipped: not requested
+STRAT logn=26 P=3 strat=B skipped: not requested
+STRAT logn=26 P=3 strat=C wall_med=0.0221 min=0.0220 max=0.0223 reps=3 | load 0.0041 ntt 0.0144 crt 0.0023 merge 0.0011 | plane_GiB/APU=0.75 [0.75 0.75 0.75 0.75] dev_delta_GiB/APU=1.15 | a2a=9 a2a_GiB/APU=0.84 peer_GiB/APU=0.38 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=A wall_med=0.0317 min=0.0315 max=0.0320 reps=5 | load 0.0000 ntt 0.0271 crt 0.0045 merge 0.0002 | plane_GiB/APU=2.00 [2.00 0.00 0.00 0.00] dev_delta_GiB/APU=2.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=B wall_med=0.0201 min=0.0199 max=0.0205 reps=5 | load 0.0072 ntt 0.0093 crt 0.0034 merge 0.0003 | plane_GiB/APU=1.00 [1.00 1.00 1.00 0.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=C wall_med=0.0223 min=0.0222 max=0.0227 reps=5 | load 0.0041 ntt 0.0146 crt 0.0023 merge 0.0011 | plane_GiB/APU=0.75 [0.75 0.75 0.75 0.75] dev_delta_GiB/APU=1.15 | a2a=9 a2a_GiB/APU=0.84 peer_GiB/APU=0.38 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=4 wall_med=0.0207 min=0.0203 max=0.0209 reps=5 | load 0.0050 ntt 0.0128 crt 0.0028 merge 0.0001 | plane_GiB/APU=0.75 [0.75 0.75 0.75 0.75] dev_delta_GiB/APU=0.75 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=1.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=27 P=3 strat=A wall_med=0.0631 min=0.0629 max=0.0643 reps=5 | load 0.0000 ntt 0.0543 crt 0.0087 merge 0.0003 | plane_GiB/APU=4.00 [4.00 0.00 0.00 0.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=27 P=3 strat=B wall_med=0.0384 min=0.0374 max=0.0385 reps=5 | load 0.0142 ntt 0.0180 crt 0.0058 merge 0.0003 | plane_GiB/APU=2.00 [2.00 2.00 2.00 0.00] dev_delta_GiB/APU=2.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=1.50 | fits_budget(28.0 GiB)=yes
+STRAT logn=27 P=3 strat=C wall_med=0.0427 min=0.0425 max=0.0432 reps=5 | load 0.0088 ntt 0.0270 crt 0.0046 merge 0.0020 | plane_GiB/APU=1.50 [1.50 1.50 1.50 1.50] dev_delta_GiB/APU=2.15 | a2a=9 a2a_GiB/APU=1.69 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+STRAT logn=27 P=3 strat=4 wall_med=0.0412 min=0.0409 max=0.0419 reps=5 | load 0.0098 ntt 0.0256 crt 0.0058 merge 0.0001 | plane_GiB/APU=1.50 [1.50 1.50 1.50 1.50] dev_delta_GiB/APU=1.50 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=2.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=A wall_med=0.1263 min=0.1257 max=0.1271 reps=5 | load 0.0000 ntt 0.1093 crt 0.0169 merge 0.0003 | plane_GiB/APU=8.00 [8.00 0.00 0.00 0.00] dev_delta_GiB/APU=8.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=B wall_med=0.0745 min=0.0739 max=0.0751 reps=5 | load 0.0284 ntt 0.0353 crt 0.0108 merge 0.0004 | plane_GiB/APU=4.00 [4.00 4.00 4.00 0.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=C wall_med=0.0868 min=0.0865 max=0.0876 reps=5 | load 0.0176 ntt 0.0557 crt 0.0091 merge 0.0037 | plane_GiB/APU=3.00 [3.00 3.00 3.00 3.00] dev_delta_GiB/APU=4.15 | a2a=9 a2a_GiB/APU=3.38 peer_GiB/APU=1.50 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=4 wall_med=0.0800 min=0.0792 max=0.0809 reps=5 | load 0.0198 ntt 0.0496 crt 0.0105 merge 0.0002 | plane_GiB/APU=3.00 [3.00 3.00 3.00 3.00] dev_delta_GiB/APU=3.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=4.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=29 P=3 strat=A wall_med=0.2578 min=0.2567 max=0.2587 reps=5 | load 0.0000 ntt 0.2238 crt 0.0333 merge 0.0007 | plane_GiB/APU=16.00 [16.00 0.00 0.00 0.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=29 P=3 strat=B wall_med=0.1481 min=0.1478 max=0.1485 reps=5 | load 0.0567 ntt 0.0714 crt 0.0203 merge 0.0006 | plane_GiB/APU=8.00 [8.00 8.00 8.00 0.00] dev_delta_GiB/APU=8.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=6.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=29 P=3 strat=C wall_med=0.1750 min=0.1745 max=0.1757 reps=5 | load 0.0386 ntt 0.1096 crt 0.0178 merge 0.0073 | plane_GiB/APU=6.00 [6.00 6.00 6.00 6.00] dev_delta_GiB/APU=8.15 | a2a=9 a2a_GiB/APU=6.75 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=29 P=3 strat=4 wall_med=0.1589 min=0.1579 max=0.1601 reps=5 | load 0.0391 ntt 0.0990 crt 0.0203 merge 0.0005 | plane_GiB/APU=6.00 [6.00 6.00 6.00 6.00] dev_delta_GiB/APU=6.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=8.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=3 strat=A wall_med=0.5085 min=0.5083 max=0.5104 reps=5 | load 0.0000 ntt 0.4439 crt 0.0648 merge 0.0004 | plane_GiB/APU=32.00 [32.00 0.00 0.00 0.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=30 P=3 strat=B wall_med=0.2912 min=0.2907 max=0.2917 reps=5 | load 0.1132 ntt 0.1419 crt 0.0387 merge 0.0003 | plane_GiB/APU=16.00 [16.00 16.00 16.00 0.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=3 strat=C wall_med=0.3524 min=0.3514 max=0.3536 reps=5 | load 0.0762 ntt 0.2216 crt 0.0365 merge 0.0153 | plane_GiB/APU=12.00 [12.00 12.00 12.00 12.00] dev_delta_GiB/APU=16.15 | a2a=9 a2a_GiB/APU=13.50 peer_GiB/APU=6.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=3 strat=4 wall_med=0.3099 min=0.3087 max=0.3149 reps=5 | load 0.0790 ntt 0.1928 crt 0.0389 merge 0.0003 | plane_GiB/APU=12.00 [12.00 12.00 12.00 12.00] dev_delta_GiB/APU=12.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=16.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=3 strat=A wall_med=1.1028 min=1.1016 max=1.1053 reps=5 | load 0.0000 ntt 0.9744 crt 0.1280 merge 0.0007 | plane_GiB/APU=64.00 [64.00 0.00 0.00 0.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=3 strat=B wall_med=0.6083 min=0.6070 max=0.6088 reps=5 | load 0.2267 ntt 0.3124 crt 0.0758 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 0.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=3 strat=C wall_med=0.8183 min=0.8143 max=0.8194 reps=5 | load 0.2573 ntt 0.4560 crt 0.0722 merge 0.0302 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=28.16 | a2a=9 a2a_GiB/APU=27.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=3 strat=4 wall_med=0.6382 min=0.6290 max=0.6445 reps=5 | load 0.1566 ntt 0.4049 crt 0.0759 merge 0.0005 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=24.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=32.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=32 P=3 strat=A skipped: does not fit APU 0 (planes (P+1) n + operands + result)
+STRAT logn=32 P=3 strat=B wall_med=1.2708 min=1.2655 max=1.2737 reps=5 | load 0.4510 ntt 0.6793 crt 0.1504 merge 0.0005 | plane_GiB/APU=64.00 [64.00 64.00 64.00 0.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=32 P=3 strat=C wall_med=4.3564 min=4.3252 max=4.4080 reps=5 | load 1.0432 ntt 1.8379 crt 0.3019 merge 0.1486 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=32.16 | a2a=36 a2a_GiB/APU=108.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=32 P=3 strat=4 wall_med=1.3100 min=1.2963 max=1.3330 reps=5 | load 0.3160 ntt 0.8482 crt 0.1502 merge 0.0006 | plane_GiB/APU=48.00 [48.00 48.00 48.00 48.00] dev_delta_GiB/APU=48.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=64.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=29 P=3 strat=LC wall_med=0.1759 min=0.1753 max=0.1768 reps=5 | load 0.0386 ntt 0.1102 crt 0.0180 merge 0.0072 | extra_dev_GiB/APU=0.00 (pools 3.00 + 4.00)
+STRAT logn=29 P=3 strat=LB wall_med=0.1275 min=0.1272 max=0.1299 reps=5 | load 0.0252 ntt 0.0704 crt 0.0212 merge 0.0085 | extra_dev_GiB/APU=0.00 (pools 3.00 + 4.00)
+STRAT logn=29 P=3 strat=LB4 wall_med=0.1554 min=0.1544 max=0.1568 reps=5 | load 0.0274 ntt 0.0967 crt 0.0213 merge 0.0079 | extra_dev_GiB/APU=0.00 (pools 3.00 + 4.00)
+STRAT logn=29 P=3 strat=Lauto wall_med=0.1551 min=0.1542 max=0.1589 reps=5 | load 0.0274 ntt 0.0965 crt 0.0212 merge 0.0084 | extra_dev_GiB/APU=0.00 (pools 3.00 + 4.00)
+STRAT logn=29 P=3 strat=A skipped: not requested
+STRAT logn=29 P=3 strat=B skipped: not requested
+STRAT logn=29 P=3 strat=C wall_med=0.1755 min=0.1753 max=0.1763 reps=5 | load 0.0387 ntt 0.1104 crt 0.0177 merge 0.0073 | plane_GiB/APU=6.00 [6.00 6.00 6.00 6.00] dev_delta_GiB/APU=8.15 | a2a=9 a2a_GiB/APU=6.75 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=3 strat=LC wall_med=0.8190 min=0.8158 max=0.8220 reps=5 | load 0.2592 ntt 0.4571 crt 0.0723 merge 0.0302 | extra_dev_GiB/APU=0.00 (pools 12.00 + 12.00)
+STRAT logn=31 P=3 strat=LB wall_med=0.5389 min=0.5370 max=0.5404 reps=5 | load 0.1046 ntt 0.3110 crt 0.0797 merge 0.0327 | extra_dev_GiB/APU=0.00 (pools 12.00 + 12.00)
+STRAT logn=31 P=3 strat=LB4 wall_med=0.6368 min=0.6299 max=0.6390 reps=5 | load 0.1110 ntt 0.4015 crt 0.0798 merge 0.0326 | extra_dev_GiB/APU=0.00 (pools 12.00 + 12.00)
+STRAT logn=31 P=3 strat=Lauto wall_med=0.8205 min=0.8185 max=0.8209 reps=5 | load 0.2593 ntt 0.4577 crt 0.0722 merge 0.0302 | extra_dev_GiB/APU=0.00 (pools 12.00 + 12.00)
+STRAT logn=31 P=3 strat=A skipped: not requested
+STRAT logn=31 P=3 strat=B skipped: not requested
+STRAT logn=31 P=3 strat=C wall_med=0.8170 min=0.8159 max=0.8184 reps=5 | load 0.2574 ntt 0.4547 crt 0.0719 merge 0.0305 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=28.16 | a2a=9 a2a_GiB/APU=27.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
