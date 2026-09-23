@@ -391,9 +391,8 @@ static int bench(int LOGMAX, const char *what)
         /* Phase 13b K: whole transforms (fwd, inv, fused inverse) under the switches, against the default (MM 1, b1r 0,
          * plan 0); single transforms 2^20 .. 2^LOGMAX and batches of 2^14, 2^17, 2^20, 2^24 */
         printf("-- K13b whole transforms: logL tot config fwd ms inv ms inv_pw ms (x vs default)\n");
-        static const struct kcfg wc[] = {{1, 0, "default"}, {1, 0, "B1R3", 0, 3}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R4+P101", 0, 4, 101},
-                                         {1, 0, "B1R4+P110", 0, 4, 110}, {1, 0, "B1R4+P111", 0, 4, 111}, {1, 0, "B1R4+P120", 0, 4, 120},
-                                         {1, 0, "B1R4+P121", 0, 4, 121}, {1, 0, "B1R3+P111", 0, 3, 111}, {1, 0, "B1R4+P1", 0, 4, 1}};
+        static const struct kcfg wc[] = {{1, 0, "default"}, {1, 0, "B1R3", 0, 3}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R3+P1", 0, 3, 1},
+                                         {1, 0, "B1R4+P1", 0, 4, 1}, {1, 0, "B1R3+P121", 0, 3, 121}, {0, 0, "MM0"}, {0, 0, "MM0+B1R3+P1", 0, 3, 1}};
         const int nw = sizeof wc / sizeof wc[0];
         static const int Ls[] = {14, 17, 20, 24, 0};
         for (int li = 0; li < 5; li++) for (int lt = 20; lt <= LOGMAX; lt++) {
@@ -705,7 +704,7 @@ int main(int argc, char **argv)
                                          {2, 0, "MM2+B1R4", 0, 4, 111}, {0, 0, "P101", 0, 0, 101}, {1, 0, "MM1+B1R4+P110", 0, 4, 110},
                                          {1, 0, "MM1+B1R4+P111", 0, 4, 111}, {0, 0, "B1R3+P111", 0, 3, 111}, {1, 0, "MM1+B1R4+P120", 0, 4, 120},
                                          {1, 0, "MM1+B1R3+P121", 0, 3, 121}, {1, 0, "MM1+B1R4+P121", 0, 4, 121}, {1, 20, "MM1+MALL20+B1R4+P111", 0, 4, 111},
-                                         {1, 0, "MM1+B1R4+P1", 0, 4, 1}};
+                                         {1, 0, "MM1+B1R4+P1", 0, 4, 1}, {1, 0, "MM1+B1R3+P1", 0, 3, 1}, {0, 0, "B1R3+P1", 0, 3, 1}};
         int save_body = ntt_b16_body; ntt_b16_body = 1; ntt_b16_xchg = 0;
         for (size_t ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) {
             for (logn = 10; logn <= LOGMAX; logn++) {

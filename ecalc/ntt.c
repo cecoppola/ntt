@@ -633,8 +633,16 @@ struct plan { int npass, lb, key, s_lo[NTT_MAXPASS], s_hi[NTT_MAXPASS]; };
  * Barrett modmul (NTT_MODMUL 0/1); otherwise the default plan is used.  Every plan computes the same canonical outputs. */
 static int plan_auto(int logn)
 {
-    (void)logn;
-    return 0;
+    /* measured (results/K13b.md, t_ntt bench whole/pass, NTT_B1R 3/4): a b1 of 2^11 or 2^12 points saves a whole pass
+     * where the default plan ends in a b16 pass of 1 or 2 stages ((logn - 10) mod 7 = 1, 2: 1.25-1.40x at 2^25, 2^26);
+     * at 2^31 the bottom-up plan with a 2^12 b1 moves the passes off s_lo 24 and 17 (s_lo 26, 19, 12: 1.06x fwd, 1.12x
+     * inv); at 2^24 (s_lo 17) no plan beats the default */
+    switch (logn) {
+    case 11: case 18: case 25: case 32: return 110;
+    case 12: case 19: case 26: case 33: return 120;
+    case 31: return 121;
+    default: return 0;
+    }
 }
 static int plan_code(int logn)
 {
