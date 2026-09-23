@@ -19,7 +19,9 @@
  * dm phase) for B and C, a flat copy on APU 0 for A.  Every strategy's result is compared with the first one computed
  * (all n limbs); TSTRAT_GMP=1 also checks it against GMP (binary limbs).
  *
- * usage: t_strategy logn [reps=5] [strategies=ABC]
+ *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
+ *
+ * usage: t_strategy logn [reps=5] [strategies=ABC, any of ABCb]
  * env:   LIMB_BASE (2 default, 10 = decimal limbs), TSTRAT_GMP=1, TSTRAT_BUDGET_GB (the per-APU plane budget reported
  *        against; default = the production plane pools at POOL_LOG 31: 2^31 limbs + rns_pool1_default_bytes(31)),
  *        DIST_STATS=1 (C's transform parts)
@@ -74,6 +76,29 @@ static void load_db(ntt_ctx *c, uint64_t *dst, const dbig *x, size_t n, hipStrea
     for (int j = 0; j < ND && done < x->n; j++) {
         size_t m = x->n - done < x->qc ? x->n - done : x->qc;
         ntt_load(c, dst + done, x->q[j], m, m, s); done += m;
+    }
+    if (done < n) HIP_CHECK(hipMemsetAsync(dst + done, 0, (n - done) * 8, s));
+}
+/* variant b: the same load with 128-bit accesses, 4 limbs per thread per step (ntt_load's k_load reads one 64-bit limb per
+ * thread -- 51 GB/s per APU from peer quarters at 2^31 in E0) */
+__global__ void k_load4(uint64_t *dst, const uint64_t *src, size_t n4, ec_mod m)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    const ulonglong2 *s2 = (const ulonglong2 *)src; ulonglong2 *d2 = (ulonglong2 *)dst;
+    for (; i < n4; i += stride) {
+        ulonglong2 a = s2[2 * i], b = s2[2 * i + 1];
+        a.x = ec_canon64(a.x, m.pu, m.mu); a.y = ec_canon64(a.y, m.pu, m.mu); b.x = ec_canon64(b.x, m.pu, m.mu); b.y = ec_canon64(b.y, m.pu, m.mu);
+        d2[2 * i] = a; d2[2 * i + 1] = b;
+    }
+}
+static void load_db4(int prime, uint64_t *dst, const dbig *x, size_t n, hipStream_t s)
+{
+    size_t done = 0; ec_mod m = ec_mod_get(prime);
+    for (int j = 0; j < ND && done < x->n; j++) {
+        size_t cnt = x->n - done < x->qc ? x->n - done : x->qc, c4 = cnt / 4;
+        if (c4) k_load4<<<228 * 16, 256, 0, s>>>(dst + done, x->q[j], c4, m);
+        if (cnt > c4 * 4) { fprintf(stderr, "load_db4: a quarter of %zu limbs (not a multiple of 4)\n", cnt); exit(1); }   /* never: quarters are multiples of 4096 and na = n/2 */
+        done += cnt;
     }
     if (done < n) HIP_CHECK(hipMemsetAsync(dst + done, 0, (n - done) * 8, s));
 }
@@ -136,7 +161,7 @@ int main(int argc, char **argv)
     dbig Ad, Bd; db_init(&Ad); db_init(&Bd);
     { bigint t; t.l = ha; t.n = t.cap = na; db_from_bi(&Ad, &t); t.l = hb; t.n = t.cap = nb; db_from_bi(&Bd, &t); }
     uint64_t *ref = 0; char refname = 0; int bad = 0;
-    struct res R[3]; memset(R, 0, sizeof R); R[0].name = 'A'; R[1].name = 'B'; R[2].name = 'C';
+    struct res R[4]; memset(R, 0, sizeof R); R[0].name = 'A'; R[1].name = 'B'; R[2].name = 'C'; R[3].name = 'b';
     double t0;
 
     /* ---- A: the whole product on APU 0 ---- */
@@ -184,9 +209,10 @@ int main(int argc, char **argv)
         }
     } else R[0].why = "not requested";
 
-    /* ---- B: prime d on APU d, the CRT of quarter d on APU d ---- */
-    if (strchr(which, 'B')) {
-        struct res *r = &R[1];
+    /* ---- B: prime d on APU d, the CRT of quarter d on APU d (b: the same with the 128-bit operand load) ---- */
+    for (int var = 0; var < 2; var++) {
+    struct res *r = &R[var ? 3 : 1];
+    if (strchr(which, var ? 'b' : 'B')) {
         size_t need = 2 * n * 8 + n / 4 * 8 + ((size_t)2 << 30); int fit = 1;
         for (int d = 0; d < ND; d++) if (dev_free(d) < need) fit = 0;
         if (EC_NP > ND) { fit = 0; r->why = "more primes than APUs"; }
@@ -215,7 +241,8 @@ int main(int argc, char **argv)
                 {
                     int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d)); double x0 = now(), x1 = x0, x2 = x0;
                     if (d < EC_NP) {
-                        load_db(ctx[d], X[d], &Ad, n, st[d]); load_db(ctx[d], Y[d], &Bd, n, st[d]);
+                        if (var) { load_db4(d, X[d], &Ad, n, st[d]); load_db4(d, Y[d], &Bd, n, st[d]); }
+                        else { load_db(ctx[d], X[d], &Ad, n, st[d]); load_db(ctx[d], Y[d], &Bd, n, st[d]); }
                         HIP_CHECK(hipStreamSynchronize(st[d])); x1 = now();
                         ntt_fwd(ctx[d], X[d], logn, 1, st[d]); ntt_fwd(ctx[d], Y[d], logn, 1, st[d]); ntt_inv_pw(ctx[d], X[d], Y[d], logn, 1, st[d]);
                         HIP_CHECK(hipStreamSynchronize(st[d])); x2 = now();
@@ -237,12 +264,13 @@ int main(int argc, char **argv)
              * quarter of the EC_NP planes, the EC_NP - 1 (of EC_NP) other APUs' remote */
             r->peer_b = (double)n * 8 * 3 / 4 + (double)(n / 4) * 8 * (EC_NP - 1);
             Cb.n = n;
-            if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = 'B'; }
-            else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "B differs from %c at limb %lld", refname, k); }
+            if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = r->name; }
+            else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "%c differs from %c at limb %lld", r->name, refname, k); }
             for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); if (X[d]) { HIP_CHECK(hipFree(X[d])); HIP_CHECK(hipFree(Y[d])); } HIP_CHECK(hipFree(dd[d])); if (ctx[d]) ntt_ctx_free(ctx[d]); HIP_CHECK(hipStreamDestroy(st[d])); }
             HIP_CHECK(hipHostFree(sp)); db_free(&Cb);
         }
-    } else R[1].why = "not requested";
+    } else r->why = "not requested";
+    }
 
     /* ---- C: the library's distributed product (rns_mul_dist_db), plane pools at the production layout ---- */
     if (strchr(which, 'C')) {
@@ -262,7 +290,9 @@ int main(int argc, char **argv)
             if (it) { r->t[it - 1] = e - a; r->tl += rns_dist_st.t_load / reps; r->tn += rns_dist_st.t_ntt / reps; r->tc += rns_dist_st.t_crt / reps; r->tm += rns_dist_st.t_merge / reps; }
         }
         r->ran = 1;
-        for (int d = 0; d < ND; d++) { r->plane_b[d] = rns_dpool_cap(d, 0) + rns_dpool_cap(d, 1); r->used_b[d] = dev_used(d) - u0[d]; }
+        size_t qpl = (n < ((size_t)1 << 31) ? n : ((size_t)1 << 31)) / 4;
+        for (int d = 0; d < ND; d++) { r->plane_b[d] = (size_t)(EC_NP + 3) * qpl * 8; r->used_b[d] = dev_used(d) - u0[d]; }   /* dist_core's planes: EC_NP q in pool 0, 3 q of pool 1 */
+        printf("C: plane pools as allocated %.2f + %.2f GiB per APU (dist_core uses %.2f GiB of them)\n", rns_dpool_cap(0, 0) / GiB, rns_dpool_cap(0, 1) / GiB, r->plane_b[0] / GiB);
         /* all-to-alls: 3 per prime per plane product (fwd A, fwd B, inverse), each rank sending 3/4 of its n/4 points;
          * above the 2^31 cap the grid's pieces (ka x kb products of 2^31 planes) */
         size_t cap = (size_t)1 << 31; int pieces = 1; size_t npl = n;
@@ -284,7 +314,7 @@ int main(int argc, char **argv)
         printf("GMP check %.1f s\n", now() - t0); mpz_clears(x, y, z, w, NULL);
     }
     (void)bad;
-    for (int i = 0; i < 3; i++) report(&R[i], logn, reps, budget);
+    for (int i = 0; i < 4; i++) if (i < 3 || R[i].ran) report(&R[i], logn, reps, budget);
     db_free(&Ad); db_free(&Bd); free(ha); free(hb); free(ref);
     return verify_done("t_strategy");
 }
