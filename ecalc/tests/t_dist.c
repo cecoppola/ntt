@@ -226,16 +226,106 @@ static int one_xgmi(int prime, int logR, int logC)
     free(hx); free(hy); free(ref); free(got);
     return bad == 0 && !bad_ag;
 }
+/* ---- Phase 13a X (PLAN.md 29 E9 part 1, H4): the measurement drivers ---- */
+extern "C" void comm_layered_stats_report(const char *tag);
+extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
+/* H4 (DIST_H4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at DIST_H4_MB per pair (default 256) */
+static void h4_bench(void)
+{
+    static const char *name[] = { "all-to-all (the push, b%3)", "all-to-all, contiguous thirds", "fan-out: APU 0 -> 3 peers", "one link 0->1, 3x blocks",
+                                  "one link 0->1, blocks", "one link both ways 0<->1", "all-to-all, 3 kernels / 3 streams", "all-to-all, hipMemcpyAsync / 3 streams",
+                                  "all-to-all in 3 rounds (one link at a time)" };
+    size_t mb = getenv("DIST_H4_MB") ? atol(getenv("DIST_H4_MB")) : 256, bytes = mb << 20; int reps = getenv("DIST_H4_REPS") ? atoi(getenv("DIST_H4_REPS")) : 10;
+    int blist[] = { 19, 38, 76, 152, 304 };
+    printf("H4: %zu MiB per (sender, peer), %d repetitions; per APU: wall GB/s = bytes sent / wall; per link = the stamped active time\n", mb, reps);
+    double res[4][6];
+#pragma omp parallel num_threads(4)
+    {
+        int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d)); comm *xg = comm_xgmi_create(d);
+        for (int mode = 0; mode < 9; mode++)
+            for (int bi = 0; bi < 5; bi++) {
+                int blocks = blist[bi];
+                if (mode != 0 && mode != 3 && mode != 4 && blocks != 76) continue;   /* the block sweep on the all-to-all and the one-link forms */
+                comm_xgmi_h4(d, mode, bytes, blocks, reps, res[d]);
+#pragma omp barrier
+#pragma omp master
+                {
+                    printf("H4 mode %d %-44s blocks/peer %3d:", mode, name[mode], blocks);
+                    for (int r = 0; r < 4; r++) if (res[r][1] > 0) {
+                        printf("  APU%d %.1f GB/s", r, res[r][1] / res[r][0] * 1e-9);
+                        int any = 0; for (int q = 0; q < 4; q++) if (res[r][2 + q] > 0) { printf("%s%d:%.1f", any ? "," : " [", q, res[r][2 + q]); any = 1; }
+                        if (any) printf("]");
+                    }
+                    double agg = 0; for (int r = 0; r < 4; r++) if (res[r][1] > 0) agg += res[r][1] / res[r][0];
+                    printf("  | node %.1f GB/s\n", agg * 1e-9); fflush(stdout);
+                }
+#pragma omp barrier
+            }
+        comm_destroy(xg);
+    }
+}
+/* E9 part 1 (DIST_LBENCH=26,28,30 under DIST_LAYERED): timed layered transforms of one plane over the transform nodes -- per size,
+ * DIST_LREPS (3) products' worth of transforms (fwd x, fwd y, inverse with the pointwise fused) after one warm-up, then the layered
+ * communicator's stage report (COMM_LAYER_STATS=1|2) and the DIST_STATS parts */
+static void layered_bench(int logn, int reps)
+{
+    int sz = mn_size(), L = 0; while ((1 << L) < sz) L++;
+    mn_group *G = mn_group_at(L); int gt = G->gt;
+    if (mn_rank() >= gt) return;
+    int logR = logn / 2, logC = logn - logR; size_t n = (size_t)1 << logn, rows = n / (4 * (size_t)gt);
+    double tp[4] = { 0, 0, 0, 0 };
+    memset(&dist_st, 0, sizeof dist_st); dist_st.on = getenv("DIST_STATS") && atoi(getenv("DIST_STATS"));
+#pragma omp parallel num_threads(4)
+    {
+        int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d));
+        comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d); ntt_ctx *ctx = ntt_ctx_create(0); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
+        dist_plan pl; dist_plan_create(&pl, cm, ctx, 0, logR, logC);
+        uint64_t *x, *y; HIP_CHECK(hipMalloc(&x, rows * 8)); HIP_CHECK(hipMalloc(&y, rows * 8)); HIP_CHECK(hipMemset(x, 1, rows * 8)); HIP_CHECK(hipMemset(y, 2, rows * 8));
+        for (int it = -1; it < reps; it++) {
+            if (it == 0) {
+                HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
+#pragma omp barrier
+#pragma omp master
+                { comm_layered_stats_report(0); memset(&dist_st, 0, sizeof dist_st); dist_st.on = getenv("DIST_STATS") && atoi(getenv("DIST_STATS")); }
+#pragma omp barrier
+                tp[d] = tnow();
+            }
+            dist_fwd(&pl, x, s); dist_fwd(&pl, y, s); dist_inv_pw(&pl, x, y, s);
+            HIP_CHECK(hipMemset(x, 1, rows * 8));             /* (the values do not matter; keep them bounded) */
+        }
+        HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
+        tp[d] = tnow() - tp[d];
+#pragma omp barrier
+#pragma omp master
+        {
+            char tag[64]; snprintf(tag, sizeof tag, "2^%d x %d ranks", logn, 4 * gt);
+            printf("lbench 2^%d over %d x 4 ranks (%d chunks): %.4f s per plane product (3 transforms), %d reps\n", logn, gt, pl.K, tp[0] / reps, reps);
+            if (dist_st.on) printf("lbench 2^%d DIST_STATS (sum / 4 per plane product): rows %.4f cols %.4f pack %.4f exchange(device) %.4f total %.4f host-blocked %.4f\n", logn,
+                                   dist_st.t_local1 / 4 / reps, dist_st.t_local2 / 4 / reps, dist_st.t_pack / 4 / reps, dist_st.t_xfer / 4 / reps, dist_st.t_total / 4 / reps, dist_st.t_a2a / 4 / reps);
+            comm_layered_stats_report(tag);
+        }
+#pragma omp barrier
+        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s)); HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(y));
+    }
+    HIP_CHECK(hipSetDevice(0));
+}
 int main(int argc, char **argv)
 {
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
+    if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
     tinv = getenv("DIST_TINV") && atoi(getenv("DIST_TINV"));
     if (tinv) printf("t_dist: transposed inverse\n");
     if (xgmi) printf("t_dist: four real APUs over xGMI\n");
     if (getenv("DIST_LAYERED") && atoi(getenv("DIST_LAYERED"))) {   /* M3: the layered communicator, one node-process per COMM_RANK driving four APUs (mnrun.sh) */
         int sz = mn_init(); printf("t_dist: layered communicator, node %d of %d\n", mn_rank(), sz);
+        if (getenv("DIST_LBENCH")) {                    /* E9 part 1: the timed layered transforms only */
+            int reps = getenv("DIST_LREPS") ? atoi(getenv("DIST_LREPS")) : 3;
+            char *dup = strdup(getenv("DIST_LBENCH"));
+            for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) { layered_bench(atoi(t), reps); mn_barrier(); }
+            free(dup); mn_barrier(); mn_finalize(); return 0;
+        }
         for (int logR = 10; logR <= 12; logR++) for (int logC = 10; logC <= 12; logC++) if (logR + logC <= logmax) VERIFY(mn_selftest_layered(logR, logC, 0), "layered conv %dx%d", logR, logC);
         if (logmax >= 26) VERIFY(mn_selftest_layered(13, 13, 0), "layered conv 2^26");
         {   /* M7: the layered communicator's all-gathers (4 gt ranks, rank gt d + node) and the mesh's */
