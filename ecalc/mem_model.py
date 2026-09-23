@@ -200,7 +200,7 @@ def split_grid_cap(na, nb, cap, minpts):
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
 
-def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0):
+def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0):
     """rns_dist.c rns_mul_dist_mn_scratch (Phase 12 agent G -- the code's own formula, which binsplit.c's arena layout calls):
     the block-pool bytes per device at the peak of C = A B (+ X) over g nodes, for shares of share_a, share_b, share_c
     limbs.  The grid's largest piece at the group's cap (mn_logn_cap; the plane pools stay at their init size); mn_core's
@@ -221,11 +221,17 @@ def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_de
     va = min(share_a, pa); vb = min(share_b, pb); sb = max(va, vb) // 4 + 2 * g * rows
     xin = has_x and ka * kb == 1
     win = min(share_c, nc); xq = q if xin else 0; tmp = q if (g & (g - 1)) == 0 else 0
+    Wt = t_chunk_limbs(t_chunk_mb)
+    if Wt and win > Wt: win = Wt                                          # Phase 13a M: MN_T_CHUNK_MB -- rbO and T hold one chunk
     peak1 = RT(pa) + RT(pb) + (RT(nc) if xin else 0) + sb + xq + tmp + 16 * g
     peak2 = win // 4 + 2 * g * rows + 4 * C + 4 * g + xq + tmp
     return max(peak1, peak2) * 8 + 32 * g * 8 + quarter_bytes(win), ka * kb
 
-def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None):
+def t_chunk_limbs(mb):
+    """rns_dist.c mn_t_chunk_limbs: MN_T_CHUNK_MB per APU -> limbs per node per round (0: off)"""
+    return int(mb * 1048576.0 / 8) * 4 if mb and mb > 0 else 0
+
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None, t_chunk_mb=0):
     """the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes); scratch_out[0] = the top
     level's scratch alone (the sharded division's products carry the same), [1] = its per-rank plane q.
     form 'flat': the arena formula of the code before Phase 12 (tree_need_dev_flat above; kept for the before/after tables).
@@ -241,18 +247,32 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
         if nch < 2: continue
         nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
         share_child = nq_leaf + 8; share_run = -(-nb // gg); share_new = -(-nc // gg)
-        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta)
+        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta, t_chunk_mb)
         live = 2 * quarter_bytes(share_child + share_child // 8) + (2 * quarter_bytes(share_run + share_run // 8) if nch > 2 else 0) + 2 * quarter_bytes(share_new + share_new // 8)
         best = max(best, live + scratch); top_scratch = scratch; top_q = mn_shape(min(nc, 1 << mn_cap_log(gg, pool_log)), gg, logr_delta)[3]
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
-def planes_bytes(pool_log=31):
-    """rns_mul.c: pool 0 = EC_NP (4) x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4), per APU; + the contexts"""
-    q = (1 << pool_log) // 4
-    per_apu = 4 * q * 8 + ((3 * q + 16) * 8 if pool_log > 30 else 4 * q * 8)   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
-    return NR * per_apu + int((0.61 if pool_log > 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured)
+def planes_3q30(pool_log=31, digits=0):
+    """rns_mul.c rns_planes_3q30_default (Phase 12 I: the default): the 3 2^k planes on at 2^31 pools below 5e10 digits -- the
+    run's digits, i.e. D x g at size g (ecalc.c passes the run's d), so never at 576 nodes"""
+    return pool_log >= 31 and digits < 5e10
+
+def planes_bytes(pool_log=31, digits=0, p3q30=None):
+    """rns_mul.c: pool 0 = EC_NP (4) x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
+    contexts.  Phase 13a M (TASKS 1.1): with the 3 2^k planes (the default below 5e10 digits at 2^31 pools, Phase 12 I) pool 0 is
+    3 2^(pool_log-1) limbs (24 GiB) and pool 1 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB): 180.4 GB per node instead of 120.3 --
+    the model had the old pools (measured 4e10: planes 180.4, RESULTS 77)"""
+    al = 2 << 20
+    on = planes_3q30(pool_log, digits) if p3q30 is None else p3q30
+    if on:
+        q = 3 << (pool_log - 3); p0 = (3 << (pool_log - 1)) * 8
+    else:
+        q = (1 << pool_log) // 4; p0 = 4 * q * 8
+    p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
+    p1 = (p1 + al - 1) // al * al
+    return NR * (p0 + p1) + int((0.61 if pool_log > 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured)
 
 HOST_RUNTIME = 7.0 * GB                                  # ROCm runtime + program ("other" 6.9 GB at 4e10, the same at 1e6)
 HOST_STAGING = 4 * (1 << 30)                             # the checkpoints' chunk buffer, 1 GiB per APU (H's B2)
@@ -260,12 +280,18 @@ HOST_SEEDBUF = 2 * (2 << 30)                             # the two 2 GiB seed bu
 HOST_WRITER = int(0.65 * GB)                             # the writer's two 256 MB chunks + a 128 MB limb buffer
 HOST_COMM_PER_PROC = 6.0 * GB                            # measured at 10^9 sizes 2/4: VmHWM 19.3 / 18.9 GB per process (TCP buffers, the comm's pinned slabs)
 
-def exchange_scratch(nq_total, g, alltoallv):
+def exchange_scratch(nq_total, g, alltoallv, shift_chunk_mb=0):
     """the sharded division's exchange scratch per APU (rns_dist.c mdb_shift / mdb_add_shifted; PLAN 23-4):
-    before B7 the padded g x share / 4 limbs per APU (mdb_shift) + g x 512 MB (mdb_add_shifted); after: the counts' own sizes"""
+    before B7 the padded g x share / 4 limbs per APU (mdb_shift) + g x 512 MB (mdb_add_shifted); after: the counts' own sizes.
+    Phase 13a M (TASKS 1.2): MDB_SHIFT_CHUNK_MB=m -- mdb_shift in K rounds (newton_db.c), sb and rb about m MB each per APU"""
     if g == 1: return 0
     share = (nq_total + g - 1) // g
-    if alltoallv: return 2 * (share // 4) * 8 + (64 << 20)
+    if alltoallv:
+        part = share // 4
+        if shift_chunk_mb and shift_chunk_mb > 0:
+            ch = int(shift_chunk_mb * 1048576.0 / 8)
+            if part > ch: K = -(-part // ch); part = -(-part // K) + 1
+        return 2 * part * 8 + (64 << 20)
     return g * (share // 4) * 8 + g * (512 << 20)
 
 def shmem_staging(nq_total, g, groups=None, pool_log=31, staging='cached', chunks=4):
@@ -302,11 +328,11 @@ def mem_per_node(D, g=1, opts=None):
           transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached'); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
+    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
-    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups']) if g > 1 else 0
+    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
@@ -319,8 +345,8 @@ def mem_per_node(D, g=1, opts=None):
         # (measured 141.0 / 231.8 / 265.7 GB of pool at 4 / 7 / 8e10 = 1.07-1.09 x the dm need; the tree's excess at size > 1)
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
-    xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'])
-    planes = planes_bytes(o['pool_log'])
+    xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'], o['shift_chunk_mb'])
+    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'])
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + bs_total
@@ -369,7 +395,7 @@ def main():
     print('== calibration (GB; model vs measured; "pool" = regions + the pool\'s hipMalloc at the dm peak)')
     print('%-8s %2s | %-22s | %8s %8s %8s %8s | %s' % ('D', 'g', 'item', 'planes', 'regions', 'pool', 'dev_dm', 'source'))
     for D, g, m in MEASURED:
-        r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31))
+        r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31, planes_3q30=m.get('p3', False)))
         print('%-8.0e %2d | %-22s | %s %s %s %s | %s' % (D, g, 'measured', fmt(m['planes'] * GB), fmt(m['regions'] * GB), fmt(m['pool'] * GB), fmt(m['dev_dm'] * GB), m['src']))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail %s)' % m['tail'], fmt(r['planes']), fmt(r['regions_bs'] if not m['tail'] else r['arena']), fmt(r['pool_total']), fmt(r['dev_dm']),
               'dev_dm %+.1f %%' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1))))
@@ -402,5 +428,55 @@ def main():
         Dm = max_digits_per_node(502 * GB, 576, dict(form=form, groups=groups, transport='shmem'))
         print('  form %-4s MN_GROUPS %-28s: D per node %.1e -> %.2e digits over 576 nodes' % (form, groups or '(default)', Dm, 576 * Dm))
 
+# ---------------------------------------------------------------- Phase 13a M (TASKS 1.1): the C request against this port, and the one ceiling
+def c_layout_check(path, pool_log=31, t_chunk_mb=0):
+    """compare the `layout:` lines of `BS_LAYOUT_ONLY=D:g,... ./ecalc 1e6 x` (binsplit.c binsplit_layout_only: the arena request
+    of binsplit_pregrow, not allocated) with this file's port, term by term; returns the largest relative difference of the arena"""
+    import re
+    worst = 0.0
+    for line in open(path, errors='replace'):
+        if not line.startswith('layout:'): continue
+        v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
+        D, g, N = v['D'], int(v['g']), int(v['N'])
+        L = dm_layout(N, g, pool_log); sc = []
+        tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb) if g > 1 else 0
+        need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
+        bs = arena_bs_bytes(N, (N + g - 1) // g); ar = sum(max(b, want) for b in bs)
+        rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
+                ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
+                ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
+        print('D %.3g g %d (N %d):' % (D, g, N))
+        for name, c, py in rows:
+            rel = (py - c) / c if c else 0.0
+            print('   %-18s C %16.0f  model %16.0f  %+.4f %%' % (name, c, py, 100 * rel))
+            if name == 'arena / node': worst = max(worst, abs(rel))
+    print('largest arena difference: %.4f %%' % (100 * worst))
+    return worst
+
+CONFIGS = [  # the one ceiling per configuration (TASKS 1.1): name, g, opts
+    ('size 1 (one node, the defaults)', 1, dict()),
+    ('576, SHMEM resident, 8 GiB pool (the target as coded)', 576, dict(transport='shmem', staging='resident')),
+    ('576, TCP (no SHMEM pool; aac6-style)', 576, dict(transport='tcp')),
+    ('576, SHMEM + MDB_SHIFT_CHUNK_MB=1024', 576, dict(transport='shmem', staging='resident', shift_chunk_mb=1024)),
+    ('576, SHMEM + MN_T_CHUNK_MB=1024', 576, dict(transport='shmem', staging='resident', t_chunk_mb=1024)),
+    ('576, SHMEM + both at 1024 MB', 576, dict(transport='shmem', staging='resident', shift_chunk_mb=1024, t_chunk_mb=1024)),
+]
+
+def ceilings():
+    print('== the ceiling per configuration (502 GB node; 480 GB = the safe budget), with the node peak split at the ceiling')
+    for name, g, o in CONFIGS:
+        out = []
+        for node in (502 * GB, 480 * GB):
+            Dm = max_digits_per_node(node, g, o); r = mem_per_node(Dm, g, o); out.append((Dm, r))
+        (D1, r), (D2, _) = out
+        print('  %-52s %.2e / %.2e per node (%.2e digits in all): peak %.1f = planes %.1f + pool %.1f [arena %.1f = max(bs %.1f, dm %.1f, tree %.1f); top scratch %.1f] (exchange %.1f) + host %.1f (SHMEM pool %.1f)' % (
+            name, D1, D2, D1 * g, r['node_peak'] / GB, r['planes'] / GB, r['pool_total'] / GB, r['arena'] / GB, r['regions_bs'] / GB, r['dm_need'] / GB, r['tree_need'] / GB,
+            r['top_scratch'] / GB, r['exchange'] / GB, r['host_hwm'] / GB, r['shmem_pool'] / GB))
+
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 2 and sys.argv[1] == '--check-c':
+        c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 0)
+    elif len(sys.argv) > 1 and sys.argv[1] == '--ceiling':
+        ceilings()
+    else:
+        main()
