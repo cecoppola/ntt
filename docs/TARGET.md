@@ -1,4 +1,4 @@
-# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21)
+# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21; Phase 13b agent D, 2026-09-23: §1, §3, §6)
 
 The target: 576 MI300A nodes (4 APUs each, 2 304 APUs), HPE Slingshot-2 dragonfly (diameter 3, groups all-to-all
 inside and globally), two 400 Gb/s NICs per APU (100 GB/s per APU, 400 GB/s per node), SHMEM (Cray OpenSHMEMX
@@ -8,7 +8,39 @@ grep). The numbers come from `ecalc/estimate.py` (the model of `mn_model.py` + `
 labelled **measured** (a recorded aac6 run), **modelled** (arithmetic on measured inputs) or **assumed** (a target
 parameter no aac6 measurement can give).
 
-## 1. What to expect (the standing estimate, tree form `grid` = the Phase 12 top product)
+## 1. What to expect (the standing estimate; Phase 13b: the design table)
+
+**Phase 13b (agent D).** The estimate is now of the code after step 0 (three primes `ECALC_NP=3`, `NTT_MODMUL=1`) and of
+every design that still differs: `ecalc/design_table.py` prints the 96 combinations of product strategy
+(`RNS_STRATEGY`), plane cap (`ECALC_PLANE_CAP`), exchange-scratch chunking (`MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB`) and
+uneven-exchange depth (`COMM_ALLTOALLV_DEPTH`) to `results/DESIGN_TABLE.md`. Each row gives the one-node 4 × 10¹⁰ wall and
+peak, the 576-node maximum digits at 502 and 480 GB, the wall at that maximum and at a common 4 × 10¹³, and that wall at
+50 and 200 GB/s per APU. Every cell is labelled measured / modelled / assumed. The table's rows as of this writing are all
+modelled. The integrator's M-run replaces the per-node inputs with measured ones (`--mrun`).
+
+| design (576 nodes, 100 GB/s per APU assumed) | per node (502 GB) | digits (502 / 480 GB) | wall at 4 × 10¹³ | wall at the 502-GB maximum |
+|---|---|---|---|---|
+| step 0 alone (C, the cap rule = 2³¹ at 576, no chunking, depth 1) | 7.29 × 10¹⁰ | 4.20 / 3.94 × 10¹³ | 3.74 min | 3.85 min |
+| fastest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.1 × 10¹⁰ | 4.11 / 3.85 × 10¹³ | 3.58 min | 3.63 min |
+| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.5 × 10¹⁰ | 5.47 / 5.13 × 10¹³ | 3.82 min | 6.08 min |
+| largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.27 min | 11.7 min |
+
+`./estimate.py --max --g 576` gives step 0 alone; `--strategy --cap --chunk --depth` give any row.
+
+Labels:
+- **Modelled**: the per-node compute, from measured one-node runs of the current code (four primes: 4 × 10¹⁰ 81.5 s,
+  8 × 10¹⁰ 190.7 s, 10¹¹ 262.9 s; three primes: 4 × 10¹⁰ 68.3 s) and S13's measured per-product times.
+- **Modelled**: the memory, from the code's own sizing formulas (within 0.05 % of every measured device total).
+- **Assumed**: the fabric (100 GB/s per APU, 2 µs per message), the part file (2 GB/s per node), and the cost of one
+  extra exchange round on the target (`T_ROUND`, 0.03 s, fitted on aac6 loopback).
+
+The ranking of the rows does not change between 50 and 200 GB/s per APU (Spearman ≥ 0.999). The chunk rounds' cost does
+move the chunked rows: the recommended row takes 3.65 min at 0.01 s per round and 4.41 min at 0.1 s. The exposed
+communication is about 25 % of the 576-node wall. That follows from X13's measured overlap: the equal-slab path hides
+3/4 of its xGMI time, and the general map at depth 1 hides almost nothing.
+
+The Phase 12 figures below are kept for reference (four primes, before step 0; `estimate.py --legacy` reproduces them;
+Phase 13a superseded the 6.7 × 10¹⁰ ceiling with 6.95 × 10¹⁰, M13, and step 0 raises it to 7.29 × 10¹⁰).
 
 | per node | digits total | per-node wall | node peak | fits |
 |---|---|---|---|---|
@@ -81,6 +113,18 @@ Layout and the distributed product (`rns_dist.c`, `ntt_dist.c`, `newton_db.c`):
 | `NEWTON_MN_BW`, `NEWTON_MN_LAT`, `NEWTON_MN_FIXED` | 100, 2e-6, 0 (defaults = the target); set to the measured values after §6 | the constants of X1's rule (GB/s per APU, s per message, s per exchange); `MN_MODEL_TCP=1` is aac6's loopback set — never on the target |
 | `NEWTON_MN_SPLIT` | 65536 (default) | the precision below which the reciprocal chain is replicated on every node |
 | `DIST_GEN=1`, `DIST_LOGN_TEST` | tests only | force the general map at a power of two / lower the plane cap so grids form at small sizes |
+
+The design table's axes (Phase 13b). Each switch lives on its agent's branch until merged; check it with the grep of §9
+after the merge:
+
+| variable | target | why |
+|---|---|---|
+| `ECALC_NP` | 3 (the default for decimal limbs since step 0) | three primes: −17 % wall, −25.8 GB of planes per node (RESULTS §78); binary limbs need 4 |
+| `NTT_MODMUL` | 1 (the default since step 0) | the reduced-correction Barrett: +5–12 % per transform, bit-identical |
+| `RNS_STRATEGY` | the recommended row of `results/DESIGN_TABLE.md` (B4 as of this writing) | the single-node product's form: C four-step, B prime-per-APU, B4 over all four APUs, or auto. At 576 it acts on the leaf's top levels (agent B, p13b-B) |
+| `ECALC_PLANE_CAP` | the recommended row (2^31 as of this writing) | the plane cap 2^30 / 3*2^29 / 2^31 / 3*2^30; it sets `POOL_LOG`, `RNS_PLANES_3Q30` and `DIST_LOGN_TEST`. `fit` takes the largest cap that fits (agent P, p13b-P) |
+| `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row | the sharded division's shift and the window temporary, in rounds: +1.3 × 10¹³ digits at 576, at one round's cost each (§6 item 4) |
+| `COMM_ALLTOALLV_DEPTH` | 2 in the recommended row | the uneven exchange (the 192- and 576-node levels, the machine-wide products) pipelined two deep (agent X, p13b-X) |
 
 Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.c`):
 
@@ -165,33 +209,65 @@ the parallel file system (`/out`), the checkpoints to node-local disk.
 
 ## 6. What to measure first, and how to feed it into the model
 
-The model's assumptions, in the order they matter (results/Q.md §4 has the sensitivities):
+Phase 13b: the items below come in the order in which the design table's assumed inputs matter. Each item names the run
+that measures it, the line to read, and the option that feeds it. **After items 1 and 2, regenerate the table** and run
+the recommended row's environment from `results/DESIGN_TABLE.md`, not a fixed one:
 
-1. **The injection bandwidth per APU** (assumed 100 GB/s): step 2 at 2 and 4 nodes with `DIST_STATS=1` prints,
-   per part of the distributed transform, the exchange time and the exposed part; a 2³¹-point piece over 2 nodes
-   sends 8 × 2²⁸ B = 2.1 GB per APU per transform exchange — the `exchange` seconds give the GB/s per APU, the
-   `exposed` seconds the hidden fraction. Feed: `estimate.py --bw <GB/s>`; `NEWTON_MN_BW=<GB/s>` in the environment
-   (X1's rule); if the hidden fraction over the fabric is not ≈ 100 % of the xGMI stage, `HIDDEN_XGMI` in
-   `mn_model.py` (the equal path) and `GEN_HIDE` (the general map: 3 and 9 nodes in step 1) are the constants.
-2. **The per-message cost** (assumed 2 µs): `t_comm` prints the all-to-all times at 1 B … 3 MiB over 2–8 PEs; the
+```
+cd ecalc && ./design_table.py --bws <bw/2>,<bw>,<2 bw> --lat <s> --write-bw <GB/s> [--hide-pow2 <f> --gen-hide2 <f>]
+```
+
+It takes two minutes on a login node. If a one-node run was taken on the target, run `--calibrate` first.
+
+1. **The injection bandwidth per APU** (assumed 100 GB/s; the table's (f) columns bracket it at 50 and 200). Step 2 at
+   2 and 4 nodes with `DIST_STATS=1` prints, per part of the distributed transform, the exchange time and the exposed
+   part. A 2³¹-point piece over 2 nodes sends 8 × 2²⁸ B = 2.1 GB per APU per transform exchange, so the `exchange` seconds
+   give the GB/s per APU. Feed: `design_table.py --bws`, `estimate.py --bw`, and `NEWTON_MN_BW=<GB/s>` in the
+   environment (X1's rule).
+2. **The overlap of the two fabrics.** On aac6 this was measured over loopback only: the equal-slab path hides 0.75 of
+   its xGMI time and the general map 0.011 at depth 1; depth 2 is modelled at 0.75. Measure it with
+   `COMM_LAYER_STATS=1 COMM_XGMI_STATS=1` on the step-2 runs at 2 nodes (the equal path) and at 3 nodes (the general map),
+   at both depths (`COMM_ALLTOALLV_DEPTH=1|2`), and read the "xGMI link time hidden under the fabric" line. Feed:
+   `design_table.py --hide-pow2 <f> --gen-hide2 <f>` (or `HIDE_POW2`, `GEN_HIDE_DEPTH` in `mn_model.py`). This decides
+   the depth axis.
+3. **The per-message cost** (assumed 2 µs). `t_comm` prints the all-to-all times at 1 B … 3 MiB over 2–8 PEs; the
    1 B row over 8 PEs divided by 7 is the per-message cost of a put + signal from a host thread. Feed:
-   `estimate.py --lat <s>`; `NEWTON_MN_LAT=<s>`. At 20 µs the 576-node wall rises 12 % and the third layer
-   (`MN_TOPO_GROUP`) is worth one measurement at step 4 (both ways, `MN_TOPO_GROUP=0` and `=64`).
-3. **The part-file bandwidth** (assumed 2 GB/s per node): step 3 prints `dc` (the writer's time) per node and the
-   run's `total`; the part file is D bytes of digits per node (10 GB at 10¹⁰) — the `dc` seconds give GB/s, and
-   `total − phases` says whether it hid under the low product. Feed: `estimate.py --write-bw`.
-4. **The checkpoint bandwidth** (assumed 1 GB/s per node to local disk): the `mn: node r: checkpoint tree level l`
-   lines print GB and GB/s; `BS_CKPT_TREE_EVERY` and `BS_CKPT_MIN_LEVEL` are the knobs if it does not hide.
-5. **The mapping rate of device memory** (measured 0.06–0.10 s/GB on aac6, 12–20 s of init at 4 × 10¹⁰): init's
-   `pools … s` line; the target's ROCm may differ. Feed: `PHASES[*]['init']` in `mn_model.py`.
-6. **The global-link taper** (assumed 1.0): the 64-node run (step 2/3) against the 576-node run at the same D per
-   node (step 4 with D = 10¹⁰: `estimate.py --g 64 --D 1e10` vs `--g 576 --D 1e10`): the levels above 64 are the
+   `design_table.py --lat <s>`, `estimate.py --lat <s>`, `NEWTON_MN_LAT=<s>`. At 20 µs the 576-node wall rises 12 %, and
+   the third layer (`MN_TOPO_GROUP`) is then worth one measurement at step 4, both ways (`MN_TOPO_GROUP=0` and `=64`).
+4. **The cost of one chunk round** (`T_ROUND`: fitted on aac6 loopback at 0.03 s ± 100 %; it moves the chunked rows by
+   up to 0.8 min at 576). Run step 3 (64 nodes, 10¹⁰ per node) three times: no chunking, `MDB_SHIFT_CHUNK_MB=1024`, and
+   both switches at 1024. The difference in `dm`, over the extra rounds the model counts, is the cost. Feed: the three
+   runs as an M-run-format log (`design_table.py --mrun` refits `T_ROUND` from any runs of one size that differ only in
+   chunking), or `T_ROUND` in `mn_model.py`.
+5. **The part-file bandwidth** (assumed 2 GB/s per node). Step 3 prints `dc` (the writer's time) per node and the
+   run's `total`. The part file is D bytes of digits per node (10 GB at 10¹⁰), so the `dc` seconds give GB/s, and
+   `total − phases` says whether it hid under the low product. Feed: `--write-bw`.
+6. **The mapping rate of device memory** (measured 0.057–0.072 s/GB on aac6; `MAP_RATE` 0.065 in `mn_model.py`). It
+   prices the planes of every row. Read init's `pools … s` line. Feed: `MAP_RATE`.
+7. **The checkpoint bandwidth** (assumed 1 GB/s per node to local disk). The `mn: node r: checkpoint tree level l`
+   lines print GB and GB/s. `BS_CKPT_TREE_EVERY` and `BS_CKPT_MIN_LEVEL` are the knobs if it does not hide.
+8. **The global-link taper** (assumed 1.0). Compare the 64-node run (step 2/3) with the 576-node run at the same D per
+   node (step 4 with D = 10¹⁰: `estimate.py --g 64 --D 1e10` against `--g 576 --D 1e10`). The levels above 64 are the
    only difference; if their exposed time exceeds the model's, `--taper` moves it.
 
-After the first 576-node run: the per-node `mem[rank]` tables against `estimate.py --verbose` (planes, arena, top
-scratch, exchange, host); the levels' times against the per-level lines (`mn: node 0 level l [g0, g1): … in s`);
-the reciprocal's `dist_mn` lines (pieces per product) against the model's piece counts. The model's constants are
-all at the top of `mn_model.py` and `mem_model.py` with the RESULTS section each comes from.
+A one-node run on the target is worth taking before step 5: 4 × 10¹⁰, the recommended row's environment,
+`MEM_REPORT_DEVS=1`. Write it as an M-run line:
+
+```
+digits=40000000000 size=1 <env> | <the total line> | device <the mem init device total> GB
+```
+
+Then `design_table.py --calibrate --mrun` compares it with the model, and `design_table.py --mrun` scales the row's
+per-node compute to it.
+
+After the first 576-node run, compare:
+- the per-node `mem[rank]` tables with `estimate.py --verbose` (planes, arena, top scratch, exchange, host);
+- the levels' times with the per-level lines (`mn: node 0 level l [g0, g1): … in s`);
+- the reciprocal's `dist_mn` lines (pieces per product) with the model's piece counts.
+
+The model's constants are all at the top of `mn_model.py` (the Phase 13b block: `T_PIECE_31_NP`, `HIDE_POW2`,
+`GEN_HIDE_DEPTH`, `F_MM1`, `MAP_RATE`, `T_ROUND`) and of `mem_model.py`, each with the RESULTS section or result file
+it comes from.
 
 ## 7. Checkpoints and restart in practice
 
