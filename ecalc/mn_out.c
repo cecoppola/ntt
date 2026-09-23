@@ -400,7 +400,8 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     uint64_t Pc[T1_NQ], Qc[T1_NQ]; int have_pq = 0;
     if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }   /* Phase 12 W: the run's default <outfile>.top */
     if (bs_ckpt_dir) {
-        int L = 0; while ((1 << L) < size) L++;
+        int L = size > 1 ? bs_ckpt_tree_find(N) : 0;   /* Phase 13 N (1.7, minimal): the top set's level is the schedule's (MN_GROUPS, a size 3 or 6 ...), not log2 size -- the highest complete set */
+        if (!L) while ((1 << L) < size) L++;
         uint64_t desc[10]; dbig ps, qs;
         if (bs_ckpt_tree_read(L, N, desc, &ps, &qs)) {
             mdb P, Q; memset(&P, 0, sizeof P); memset(&Q, 0, sizeof Q);

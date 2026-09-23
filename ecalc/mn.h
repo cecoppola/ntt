@@ -28,6 +28,11 @@ void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* 
 int   mn_ckpt_tree_level(unsigned long N);                    /* M6: the tree level every node can restart from (0: none; N = 0 after the first call) */
 void  mn_gather_host(bigint *out, const mdb *X);             /* node 0 assembles the number on the host; the others send their share */
 void  mn_finalize(void);
+/* Phase 13 N (TASKS 1.4, 4.1): the top tree set in the background -- mode 0 = synchronous (as before), 1 = background and complete,
+ * 2 = background and budgeted (dropped when the measured disk rate would stall the critical path more than mn_ckpt_slack s);
+ * mn_ckpt_top_finish (every node, after the output stage, before the device memory goes): Q released, the writer joined */
+extern int mn_ckpt_bg_mode; extern double mn_ckpt_slack;
+void  mn_ckpt_top_finish(void);
 #ifdef __cplusplus
 }
 #endif
