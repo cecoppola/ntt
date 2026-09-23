@@ -337,9 +337,39 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     L->need_dev += top_scratch;
 }
 size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
+/* Phase 13a M (TASKS 1.1): BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits
+ * per node over g node-processes (rank 0's term range, this process's POOL_LOG and switches), without allocating it, and
+ * exit.  One `layout:` line per point (bytes, per device unless named): mem_model.py --check-c compares its own port of these
+ * formulas with the lines, term by term.  Needs no other process: COMM_SIZE is not read, g comes from the list. */
+static void binsplit_layout_only(const char *spec)
+{
+    unsigned long a0 = bs_a0, b1 = bs_b1;
+    if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    for (const char *s = spec; s && *s; ) {
+        char *e; double D = strtod(s, &e); int g = 1; if (*e == ':') g = (int)strtol(e + 1, &e, 10); if (g < 1) g = 1;
+        s = *e ? e + 1 : e;
+        unsigned long d = (unsigned long)(D * g + 0.5); d = (d + 17) / 18 * 18; unsigned long N = e_terms(d);
+        if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }
+        size_t need[NR]; region_need(N, need);
+        struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
+        size_t top = 0; if (g > 1) { size_t nq_s = (L.nq + g - 1) / g; tree_need_dev(nq_s, g, rns_pool_log() > 0 ? rns_pool_log() : 31, &top); }
+        size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0;
+        for (int r = 0; r < NR; r++) {
+            size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+            cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;   /* arena_get's rounding */
+            size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
+            arena += base + extra; bs2 += base;
+        }
+        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes)\n",
+               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena);
+    }
+    fflush(stdout);
+    bs_a0 = a0; bs_b1 = b1;
+}
 void binsplit_pregrow(unsigned long N)
 {
     static unsigned long done_N; if (done_N == N) return; done_N = N;   /* Phase 10 H (B2): once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
+    if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* Phase 13a M: the arena request without the arena */
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     bs_copy_probe = getenv("ECALC_COPY_PROBE") ? atoi(getenv("ECALC_COPY_PROBE")) : 0;
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
