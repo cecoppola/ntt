@@ -319,7 +319,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  *         the three primes' upper residues ((y[j] - y[j + h]) w_m^j, Y read once); APU p multiplies its upper half by
  *         APU 3's plane (a peer read), inverts, and the CRT as in B.  1.5 n points per APU (C's 12 n bytes at P = 3),
  *         transforms 2.5 n on APUs 0-2 and 1.5 n on APU 3 (B: 3 n).
- *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B4 at P = 3 -- results/B13b.md) wherever its planes fit the plane
+ *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B -- results/B13b.md) wherever its planes fit the plane
  *         pools as sized at init, else C.
  * B and B4 run every product in their form: the planes that do not fit the pools come from one grow-only buffer per APU
  * (hipMalloc, kept until rns_dist_cache_release at the end of the dm phase) -- the "B at more memory" row of the
@@ -332,12 +332,12 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
 enum { STRAT_C = 0, STRAT_B = 1, STRAT_B4 = 2, STRAT_AUTO = 3 };
 static int g_strat = -1, g_strat_form = -1;
 static const char *strat_name(int s) { return s == STRAT_B ? "B" : s == STRAT_B4 ? "B4" : s == STRAT_AUTO ? "auto" : "C"; }
-static struct { size_t n[3]; double t[3]; size_t extra_bytes; } g_bst;      /* products and seconds by form (C, B, B4) */
+static struct { size_t n[3]; double t[3], t_alloc; size_t extra_bytes; } g_bst;      /* products and seconds by form (C, B, B4) */
 static void strat_report(void)
 {
-    printf("rns_dist: RNS_STRATEGY=%s%s%s: C %zu products %.2f s, B %zu products %.2f s, B4 %zu products %.2f s; extra plane memory %.2f GiB/APU\n",
+    printf("rns_dist: RNS_STRATEGY=%s%s%s: C %zu products %.2f s, B %zu products %.2f s, B4 %zu products %.2f s; extra plane memory %.2f GiB/APU (allocations %.2f s)\n",
            strat_name(g_strat), g_strat == STRAT_AUTO ? " form " : "", g_strat == STRAT_AUTO ? strat_name(g_strat_form) : "",
-           g_bst.n[0], g_bst.t[0], g_bst.n[1], g_bst.t[1], g_bst.n[2], g_bst.t[2], g_bst.extra_bytes / 1073741824.0);
+           g_bst.n[0], g_bst.t[0], g_bst.n[1], g_bst.t[1], g_bst.n[2], g_bst.t[2], g_bst.extra_bytes / 1073741824.0, g_bst.t_alloc);
 }
 /* tests: set the strategy by name ("C", "B", "B4", "auto"; 0 = RNS_STRATEGY again); returns the previous one */
 extern "C" int rns_dist_strategy_set(const char *name);
@@ -361,7 +361,7 @@ static int strat_get(void)
         else if (!strcmp(e, "auto")) g_strat = STRAT_AUTO;
         else { fprintf(stderr, "RNS_STRATEGY=%s: C, B, B4 or auto\n", e); exit(1); }
     }
-    g_strat_form = f && (!strcmp(f, "B") || !strcmp(f, "b")) ? STRAT_B : STRAT_B4;
+    g_strat_form = f && (!strcmp(f, "B4") || !strcmp(f, "b4")) ? STRAT_B4 : STRAT_B;   /* auto's form: B (results/B13b.md: B4 is 3-7 % slower and fits the same pools) */
     if (g_strat != STRAT_C) atexit(strat_report);
     return g_strat;
 }
@@ -444,6 +444,7 @@ __global__ void k_b4_pw(uint64_t *x, const uint64_t *lo, const uint64_t *hi, int
 }
 /* the planes of one B-form product on APU d: first fit into pool 0, pool 1, then (forced forms only) the extra buffer */
 static uint64_t *g_bx[NR]; static size_t g_bx_cap[NR];
+static void b_acct(int ndev, size_t b[][MEM_DEV_NCAT]) { for (int d = 0; d < ndev && d < NR; d++) b[d][MEM_DEV_PLANES] += g_bx_cap[d] * 8; }   /* M9: the extra planes count as planes */
 static void b_extra_release(void)
 {
     int cur; HIP_CHECK(hipGetDevice(&cur));
@@ -490,19 +491,24 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)  
     if (A.n < B.n) { struct acc t = A; A = B; B = t; }          /* X = the longer operand (whole on APU p), Y = the shorter */
     int T, logk; size_t n = b_len(nc, &T, &logk), m = (size_t)1 << logk, h = m / 2;
     const int np = ec_np; dbig *Cd = Cw.owner;
-    /* the extra plane memory (forced forms), grown before the parallel region */
-    for (int d = 0; d < NR; d++) {
-        size_t sz[3]; size_t ex = b_place(d, b_planes(f, d, n, sz), sz, 0);
-        if (ex > g_bx_cap[d]) {
-            HIP_CHECK(hipSetDevice(d)); if (g_bx[d]) HIP_CHECK(hipFree(g_bx[d])); g_bx[d] = 0; g_bx_cap[d] = 0;
-            if (hipMalloc(&g_bx[d], ex * 8) != hipSuccess) {
-                (void)hipGetLastError(); g_bx[d] = 0;
-                fprintf(stderr, "rns_dist %s: %.2f GiB of extra planes on APU %d not available: this product runs C\n", strat_name(f), ex * 8 / 1073741824.0, d);
-                return 0;
+    /* the extra plane memory (forced forms), grown before the products' parallel region, the four APUs in parallel */
+    {
+        size_t ex[NR]; int grow = 0, bad = 0, cur; HIP_CHECK(hipGetDevice(&cur));
+        for (int d = 0; d < NR; d++) { size_t sz[3]; ex[d] = b_place(d, b_planes(f, d, n, sz), sz, 0); if (ex[d] > g_bx_cap[d]) grow = 1; }
+        if (grow) {
+            double ta = mem_now();
+#pragma omp parallel for num_threads(NR) reduction(+:bad)
+            for (int d = 0; d < NR; d++) {
+                if (ex[d] <= g_bx_cap[d]) continue;
+                HIP_CHECK(hipSetDevice(d)); if (g_bx[d]) HIP_CHECK(hipFree(g_bx[d])); g_bx[d] = 0; g_bx_cap[d] = 0;
+                if (hipMalloc(&g_bx[d], ex[d] * 8) != hipSuccess) { (void)hipGetLastError(); g_bx[d] = 0; bad++; }
+                else g_bx_cap[d] = ex[d];
             }
-            g_bx_cap[d] = ex;
+            HIP_CHECK(hipSetDevice(cur));
+            mem_acct_register(b_acct); g_bst.t_alloc += mem_now() - ta;
             size_t tot = 0; for (int e = 0; e < NR; e++) if (g_bx_cap[e] > tot) tot = g_bx_cap[e]; g_bst.extra_bytes = tot * 8;
-            if (getenv("RNS_VERBOSE")) printf("rns_dist %s: extra planes %.2f GiB on APU %d (the pools hold %.2f + %.2f GiB)\n", strat_name(f), ex * 8 / 1073741824.0, d, rns_dpool_cap(d, 0) / 1073741824.0, rns_dpool_cap(d, 1) / 1073741824.0);
+            if (getenv("RNS_VERBOSE") || bad) printf("rns_dist %s: extra planes %.2f GiB per APU%s in %.2f s (the pools hold %.2f + %.2f GiB)\n", strat_name(f), tot * 8 / 1073741824.0, bad ? " NOT AVAILABLE: this product runs C" : "", mem_now() - ta, rns_dpool_cap(0, 0) / 1073741824.0, rns_dpool_cap(0, 1) / 1073741824.0);
+            if (bad) return 0;
         }
     }
     uint64_t *pl[NR][3];
