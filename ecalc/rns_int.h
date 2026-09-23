@@ -6,7 +6,7 @@
 #include <hip/hip_runtime.h>
 #include "modarith.h"
 struct bdesc { const uint64_t *a, *b, *x; uint64_t *c; uint32_t na, nb, nx; };
-struct gconst { ec_mod m[4]; uint64_t c64[4]; uint64_t c1, c2, c3, M1[2], M2[3]; };
+struct gconst { ec_mod m[4]; uint64_t c64[4]; uint64_t c1, c2, c3, M1[2], M2[3]; int np; };   /* np: the prime count (P3: 3 -> planes p0..p2, p3 unread) */
 #define CRT_THREADS 256
 struct gconst rns_gconst(void);
 /* the striped CRT (rns_mul.c): stripe g = pi S + s of product P[pi] over coefficients [nc s/S, nc (s+1)/S);
