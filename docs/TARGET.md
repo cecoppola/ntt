@@ -21,8 +21,8 @@ modelled. The integrator's M-run replaces the per-node inputs with measured ones
 | design (576 nodes, 100 GB/s per APU assumed) | per node (502 GB) | digits (502 / 480 GB) | wall at 4 × 10¹³ | wall at the 502-GB maximum |
 |---|---|---|---|---|
 | step 0 alone (C, the cap rule = 2³¹ at 576, no chunking, depth 1) | 7.29 × 10¹⁰ | 4.20 / 3.94 × 10¹³ | 3.74 min | 3.85 min |
-| fastest: step 0 + `ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.1 × 10¹⁰ | 4.11 / 3.85 × 10¹³ | 3.63 min | 3.68 min |
-| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.5 × 10¹⁰ | 5.47 / 5.13 × 10¹³ | 3.87 min | 6.19 min |
+| fastest: step 0 + `ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.2 × 10¹⁰ | 4.16 / 3.90 × 10¹³ | 3.63 min | 3.70 min |
+| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.6 × 10¹⁰ | 5.52 / 5.19 × 10¹³ | 3.87 min | 6.22 min |
 | largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.43 min | 12.1 min |
 
 `./estimate.py --max --g 576` gives step 0 alone; `--strategy --cap --chunk --depth` give any row.
@@ -39,7 +39,7 @@ move the chunked rows: the recommended row takes 3.70 min at 0.01 s per round an
 strategy barely moves the 576-node wall (it acts only on each node's own top levels, and B / B4 pay for their extra
 planes in mapping time), so C stays the recommendation there; B / B4 pay at size 1. The exposed
 communication is about 25 % of the 576-node wall. That follows from X13's measured overlap: the equal-slab path hides
-3/4 of its xGMI time, and the general map at depth 1 hides almost nothing.
+3/4 of its xGMI time, and the general map hides 1.4 % at depth 1 and 74 % at depth 2 (X13b, two real nodes).
 
 The Phase 12 figures below are kept for reference (four primes, before step 0; `estimate.py --legacy` reproduces them;
 Phase 13a superseded the 6.7 × 10¹⁰ ceiling with 6.95 × 10¹⁰, M13, and step 0 raises it to 7.29 × 10¹⁰).
