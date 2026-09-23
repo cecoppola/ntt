@@ -422,6 +422,7 @@ def round_cost(fab, g):
 
 # ---- the per-product law: S13's E0 medians (t_strategy), P = 4 and 3 ---------------------------------------------------
 E0_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'results', 'S13_e0.txt')
+E0_B13B = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'results', 'D13b_strategy_e0.txt')   # agent B's t_strategy (13b): B4, the library forms
 _E0 = None
 def e0_table(extra=None):
     """{(P, strategy, logn): (wall, load, ntt, crt, merge)} from results/S13_e0.txt (+ `extra`, e.g. agent B's t_strategy log with B4
@@ -431,7 +432,7 @@ def e0_table(extra=None):
     import re
     t = {}; lib = set()
     NAMES = {'4': 'B4', 'LC': 'C', 'LB': 'B', 'LB4': 'B4'}         # agent B's t_strategy: strat=4 is B4, strat=L<form> the library's forms
-    for fn in [E0_FILE] + ([extra] if extra else []):
+    for fn in [E0_FILE, E0_B13B] + ([extra] if extra else []):
         if not fn or not os.path.exists(fn): continue
         for line in open(fn, errors='replace'):
             m = re.match(r'STRAT logn=(\d+) P=(\d) strat=(\w+) wall_med=([\d.]+).*\| load ([\d.]+) ntt ([\d.]+) crt ([\d.]+) merge ([\d.]+)', line)
@@ -513,10 +514,10 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
 @functools.lru_cache(maxsize=None)
 def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
     """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
-    'auto' (rns_dist.c): the B form -- RNS_STRATEGY_FORM, default B4 at P = 3, B at P = 4 -- for a piece whose planes fit the
-    pools as sized at init (the C pools of the cap: (np + 3) cap 2 bytes per APU), else C; auto never allocates"""
+    'auto' (rns_dist.c b_choose): the B form -- RNS_STRATEGY_FORM, default B4 at P = 3, B at P = 4 -- for a piece whose planes
+    fit the pools as sized at init (whole planes, first fit: b_place), else C; auto never allocates.  At the cap itself the
+    planes do not fit (each pool holds 3/4 of the cap's plane), so auto is C for the capped pieces and the form below them"""
     pl, r3 = mem_model.cap_pool(cap); logmax = pl
-    budget = mem_model.plane_bytes_apu('C', cap, np)
     out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
     for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
         nc = na + nb; one = nc <= cap
@@ -533,9 +534,9 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
                 if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
                 p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
                 st = strategy
-                if strategy == 'auto':
+                if strategy == 'auto':                                  # rns_dist.c b_choose: the form if its planes fit the pools
                     form = 'B4' if np == 3 else 'B'
-                    st = form if mem_model.plane_bytes_apu(form, p, np) <= budget else 'C'
+                    st = form if not any(mem_model.b_extra_limbs(form, p, pl, r3, np)) else 'C'
                 tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
