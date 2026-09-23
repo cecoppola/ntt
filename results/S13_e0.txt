@@ -141,3 +141,142 @@ STRAT logn=31 P=4 strat=A wall_med=1.5707 min=1.5695 max=1.5755 reps=5 | load 0.
 STRAT logn=31 P=4 strat=B wall_med=0.7139 min=0.7067 max=0.7199 reps=5 | load 0.2575 ntt 0.3388 crt 0.1311 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 32.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
 STRAT logn=31 P=4 strat=C wall_med=1.0900 min=1.0876 max=1.0914 reps=5 | load 0.3437 ntt 0.6210 crt 0.0943 merge 0.0294 | plane_GiB/APU=28.00 [28.00 28.00 28.00 28.00] dev_delta_GiB/APU=32.16 | a2a=12 a2a_GiB/APU=36.00 peer_GiB/APU=15.00 | fits_budget(28.0 GiB)=yes
 t_strategy: VERIFY OK (2 checks)
+# job 21014, node ppac-pl1-s24-26, 2026-09-23, p13-S @ 8333b8a: B/b/C binary P=4 (s13_b5), then P=3 and P=4 decimal on P3 @ 3fbf492 (ECALC_NP, LIMB_BASE=10)
+=== logn 26 01:18:10
+t_strategy: n = 2^26 points, na = nb = 33554432 limbs, binary limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(26) 0.28 s: pools 0.50 + 0.50 GiB per APU
+C: plane pools as allocated 0.50 + 0.50 GiB per APU (dist_core uses 0.88 GiB of them)
+GMP check 15.7 s
+STRAT logn=26 P=4 strat=A skipped: not requested
+STRAT logn=26 P=4 strat=B wall_med=0.0237 min=0.0236 max=0.0241 reps=5 | load 0.0082 ntt 0.0104 crt 0.0052 merge 0.0003 | plane_GiB/APU=1.00 [1.00 1.00 1.00 1.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=4 strat=C wall_med=0.0289 min=0.0288 max=0.0293 reps=5 | load 0.0054 ntt 0.0198 crt 0.0023 merge 0.0012 | plane_GiB/APU=0.88 [0.88 0.88 0.88 0.88] dev_delta_GiB/APU=1.28 | a2a=12 a2a_GiB/APU=1.12 peer_GiB/APU=0.47 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=4 strat=b wall_med=0.0233 min=0.0232 max=0.0237 reps=5 | load 0.0080 ntt 0.0100 crt 0.0053 merge 0.0001 | plane_GiB/APU=1.00 [1.00 1.00 1.00 1.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== logn 28 01:18:34
+t_strategy: n = 2^28 points, na = nb = 134217728 limbs, binary limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(28) 0.93 s: pools 2.00 + 2.00 GiB per APU
+C: plane pools as allocated 2.00 + 2.00 GiB per APU (dist_core uses 3.50 GiB of them)
+STRAT logn=28 P=4 strat=A skipped: not requested
+STRAT logn=28 P=4 strat=B wall_med=0.0873 min=0.0854 max=0.0880 reps=5 | load 0.0311 ntt 0.0378 crt 0.0176 merge 0.0004 | plane_GiB/APU=4.00 [4.00 4.00 4.00 4.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=4 strat=C wall_med=0.1146 min=0.1143 max=0.1150 reps=5 | load 0.0234 ntt 0.0773 crt 0.0095 merge 0.0037 | plane_GiB/APU=3.50 [3.50 3.50 3.50 3.50] dev_delta_GiB/APU=4.65 | a2a=12 a2a_GiB/APU=4.50 peer_GiB/APU=1.88 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=4 strat=b wall_med=0.0878 min=0.0876 max=0.0893 reps=5 | load 0.0330 ntt 0.0379 crt 0.0175 merge 0.0002 | plane_GiB/APU=4.00 [4.00 4.00 4.00 4.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (2 checks)
+=== logn 30 01:18:43
+t_strategy: n = 2^30 points, na = nb = 536870912 limbs, binary limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(30) 3.47 s: pools 8.00 + 8.00 GiB per APU
+C: plane pools as allocated 8.00 + 8.00 GiB per APU (dist_core uses 14.00 GiB of them)
+STRAT logn=30 P=4 strat=A skipped: not requested
+STRAT logn=30 P=4 strat=B wall_med=0.3443 min=0.3408 max=0.3468 reps=5 | load 0.1289 ntt 0.1543 crt 0.0652 merge 0.0003 | plane_GiB/APU=16.00 [16.00 16.00 16.00 16.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=4 strat=C wall_med=0.4552 min=0.4527 max=0.4561 reps=5 | load 0.1016 ntt 0.2985 crt 0.0382 merge 0.0145 | plane_GiB/APU=14.00 [14.00 14.00 14.00 14.00] dev_delta_GiB/APU=18.16 | a2a=12 a2a_GiB/APU=18.00 peer_GiB/APU=7.50 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=4 strat=b wall_med=0.3434 min=0.3407 max=0.3448 reps=5 | load 0.1285 ntt 0.1505 crt 0.0646 merge 0.0003 | plane_GiB/APU=16.00 [16.00 16.00 16.00 16.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (2 checks)
+=== logn 31 01:19:10
+t_strategy: n = 2^31 points, na = nb = 1073741824 limbs, binary limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(31) 6.07 s: pools 16.00 + 12.00 GiB per APU
+C: plane pools as allocated 16.00 + 12.00 GiB per APU (dist_core uses 28.00 GiB of them)
+STRAT logn=31 P=4 strat=A skipped: not requested
+STRAT logn=31 P=4 strat=B wall_med=0.7163 min=0.7102 max=0.7190 reps=5 | load 0.2591 ntt 0.3310 crt 0.1288 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 32.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=4 strat=C wall_med=1.0626 min=1.0611 max=1.0643 reps=5 | load 0.3442 ntt 0.6155 crt 0.0758 merge 0.0302 | plane_GiB/APU=28.00 [28.00 28.00 28.00 28.00] dev_delta_GiB/APU=32.16 | a2a=12 a2a_GiB/APU=36.00 peer_GiB/APU=15.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=4 strat=b wall_med=0.7117 min=0.7084 max=0.7150 reps=5 | load 0.2537 ntt 0.3304 crt 0.1288 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 32.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (2 checks)
+=== logn 32 01:20:01
+t_strategy: n = 2^32 points, na = nb = 2147483648 limbs, binary limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(31) 6.17 s: pools 16.00 + 12.00 GiB per APU
+C: plane pools as allocated 16.00 + 12.00 GiB per APU (dist_core uses 28.00 GiB of them)
+STRAT logn=32 P=4 strat=A skipped: not requested
+STRAT logn=32 P=4 strat=B wall_med=1.4851 min=1.4710 max=1.4995 reps=5 | load 0.5132 ntt 0.7323 crt 0.2559 merge 0.0005 | plane_GiB/APU=64.00 [64.00 64.00 64.00 64.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=32 P=4 strat=C wall_med=5.3662 min=5.3272 max=5.3723 reps=5 | load 1.3932 ntt 2.4739 crt 0.3169 merge 0.1490 | plane_GiB/APU=28.00 [28.00 28.00 28.00 28.00] dev_delta_GiB/APU=36.16 | a2a=48 a2a_GiB/APU=144.00 peer_GiB/APU=60.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=32 P=4 strat=b wall_med=1.4879 min=1.4718 max=1.5016 reps=5 | load 0.5127 ntt 0.7184 crt 0.2567 merge 0.0006 | plane_GiB/APU=64.00 [64.00 64.00 64.00 64.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (2 checks)
+=== NP 3 logn 26 01:22:03
+t_strategy: n = 2^26 points, na = nb = 33554432 limbs, decimal limbs, P = 3 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(26) 0.24 s: pools 0.38 + 0.50 GiB per APU
+C: plane pools as allocated 0.38 + 0.50 GiB per APU (dist_core uses 0.75 GiB of them)
+STRAT logn=26 P=3 strat=A wall_med=0.0343 min=0.0334 max=0.0345 reps=5 | load 0.0000 ntt 0.0292 crt 0.0045 merge 0.0004 | plane_GiB/APU=2.00 [2.00 0.00 0.00 0.00] dev_delta_GiB/APU=2.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=B wall_med=0.0208 min=0.0206 max=0.0209 reps=5 | load 0.0071 ntt 0.0100 crt 0.0033 merge 0.0004 | plane_GiB/APU=1.00 [1.00 1.00 1.00 0.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=C wall_med=0.0220 min=0.0219 max=0.0223 reps=5 | load 0.0041 ntt 0.0143 crt 0.0023 merge 0.0011 | plane_GiB/APU=0.75 [0.75 0.75 0.75 0.75] dev_delta_GiB/APU=1.15 | a2a=9 a2a_GiB/APU=0.84 peer_GiB/APU=0.38 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=3 strat=b wall_med=0.0211 min=0.0208 max=0.0211 reps=5 | load 0.0075 ntt 0.0102 crt 0.0033 merge 0.0002 | plane_GiB/APU=1.00 [1.00 1.00 1.00 0.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 3 logn 28 01:22:08
+t_strategy: n = 2^28 points, na = nb = 134217728 limbs, decimal limbs, P = 3 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(28) 0.88 s: pools 1.50 + 2.00 GiB per APU
+C: plane pools as allocated 1.50 + 2.00 GiB per APU (dist_core uses 3.00 GiB of them)
+STRAT logn=28 P=3 strat=A wall_med=0.1344 min=0.1342 max=0.1355 reps=5 | load 0.0000 ntt 0.1174 crt 0.0169 merge 0.0002 | plane_GiB/APU=8.00 [8.00 0.00 0.00 0.00] dev_delta_GiB/APU=8.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=B wall_med=0.0777 min=0.0771 max=0.0779 reps=5 | load 0.0285 ntt 0.0381 crt 0.0108 merge 0.0004 | plane_GiB/APU=4.00 [4.00 4.00 4.00 0.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=C wall_med=0.0878 min=0.0874 max=0.0879 reps=5 | load 0.0177 ntt 0.0566 crt 0.0090 merge 0.0038 | plane_GiB/APU=3.00 [3.00 3.00 3.00 3.00] dev_delta_GiB/APU=4.15 | a2a=9 a2a_GiB/APU=3.38 peer_GiB/APU=1.50 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=3 strat=b wall_med=0.0780 min=0.0775 max=0.0782 reps=5 | load 0.0289 ntt 0.0383 crt 0.0109 merge 0.0002 | plane_GiB/APU=4.00 [4.00 4.00 4.00 0.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 3 logn 30 01:22:17
+t_strategy: n = 2^30 points, na = nb = 536870912 limbs, decimal limbs, P = 3 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(30) 3.37 s: pools 6.00 + 8.00 GiB per APU
+C: plane pools as allocated 6.00 + 8.00 GiB per APU (dist_core uses 12.00 GiB of them)
+STRAT logn=30 P=3 strat=A wall_med=0.5361 min=0.5350 max=0.5374 reps=5 | load 0.0000 ntt 0.4713 crt 0.0643 merge 0.0006 | plane_GiB/APU=32.00 [32.00 0.00 0.00 0.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=30 P=3 strat=B wall_med=0.3017 min=0.2993 max=0.3034 reps=5 | load 0.1125 ntt 0.1507 crt 0.0386 merge 0.0005 | plane_GiB/APU=16.00 [16.00 16.00 16.00 0.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=3 strat=C wall_med=0.3549 min=0.3525 max=0.3558 reps=5 | load 0.0764 ntt 0.2254 crt 0.0360 merge 0.0143 | plane_GiB/APU=12.00 [12.00 12.00 12.00 12.00] dev_delta_GiB/APU=16.15 | a2a=9 a2a_GiB/APU=13.50 peer_GiB/APU=6.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=3 strat=b wall_med=0.3031 min=0.3021 max=0.3039 reps=5 | load 0.1144 ntt 0.1512 crt 0.0386 merge 0.0004 | plane_GiB/APU=16.00 [16.00 16.00 16.00 0.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 3 logn 31 01:22:48
+t_strategy: n = 2^31 points, na = nb = 1073741824 limbs, decimal limbs, P = 3 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(31) 5.40 s: pools 12.00 + 12.00 GiB per APU
+C: plane pools as allocated 12.00 + 12.00 GiB per APU (dist_core uses 24.00 GiB of them)
+STRAT logn=31 P=3 strat=A wall_med=1.1649 min=1.1626 max=1.1712 reps=5 | load 0.0000 ntt 1.0370 crt 0.1282 merge 0.0006 | plane_GiB/APU=64.00 [64.00 0.00 0.00 0.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=3 strat=B wall_med=0.6293 min=0.6217 max=0.6306 reps=5 | load 0.2237 ntt 0.3298 crt 0.0756 merge 0.0006 | plane_GiB/APU=32.00 [32.00 32.00 32.00 0.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=3 strat=C wall_med=0.8265 min=0.8245 max=0.8272 reps=5 | load 0.2584 ntt 0.4695 crt 0.0710 merge 0.0295 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=28.16 | a2a=9 a2a_GiB/APU=27.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=3 strat=b wall_med=0.6329 min=0.6309 max=0.6348 reps=5 | load 0.2290 ntt 0.3317 crt 0.0757 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 0.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (3 checks)
+=== NP 3 logn 32 01:23:45
+t_strategy: n = 2^32 points, na = nb = 2147483648 limbs, decimal limbs, P = 3 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+A: needs 194.0 GiB on APU 0, 119.8 free
+C: rns_init(31) 5.40 s: pools 12.00 + 12.00 GiB per APU
+C: plane pools as allocated 12.00 + 12.00 GiB per APU (dist_core uses 24.00 GiB of them)
+STRAT logn=32 P=3 strat=A skipped: does not fit APU 0 (planes (P+1) n + operands + result)
+STRAT logn=32 P=3 strat=B wall_med=1.3287 min=1.3223 max=1.3299 reps=5 | load 0.4490 ntt 0.7310 crt 0.1501 merge 0.0006 | plane_GiB/APU=64.00 [64.00 64.00 64.00 0.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=32 P=3 strat=C wall_med=4.3623 min=4.3284 max=4.3680 reps=5 | load 1.0401 ntt 1.8728 crt 0.3005 merge 0.1510 | plane_GiB/APU=24.00 [24.00 24.00 24.00 24.00] dev_delta_GiB/APU=32.16 | a2a=36 a2a_GiB/APU=108.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=32 P=3 strat=b wall_med=1.3337 min=1.3316 max=1.3390 reps=5 | load 0.4564 ntt 0.7311 crt 0.1506 merge 0.0006 | plane_GiB/APU=64.00 [64.00 64.00 64.00 0.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (2 checks)
+=== NP 4 logn 26 01:25:36
+t_strategy: n = 2^26 points, na = nb = 33554432 limbs, decimal limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(26) 0.25 s: pools 0.50 + 0.50 GiB per APU
+C: plane pools as allocated 0.50 + 0.50 GiB per APU (dist_core uses 0.88 GiB of them)
+STRAT logn=26 P=4 strat=A wall_med=0.0453 min=0.0452 max=0.0463 reps=5 | load 0.0000 ntt 0.0388 crt 0.0064 merge 0.0002 | plane_GiB/APU=2.50 [2.50 0.00 0.00 0.00] dev_delta_GiB/APU=2.50 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=4 strat=B wall_med=0.0237 min=0.0233 max=0.0244 reps=5 | load 0.0082 ntt 0.0102 crt 0.0054 merge 0.0002 | plane_GiB/APU=1.00 [1.00 1.00 1.00 1.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=4 strat=C wall_med=0.0288 min=0.0287 max=0.0291 reps=5 | load 0.0055 ntt 0.0190 crt 0.0029 merge 0.0011 | plane_GiB/APU=0.88 [0.88 0.88 0.88 0.88] dev_delta_GiB/APU=1.28 | a2a=12 a2a_GiB/APU=1.12 peer_GiB/APU=0.47 | fits_budget(28.0 GiB)=yes
+STRAT logn=26 P=4 strat=b wall_med=0.0234 min=0.0232 max=0.0236 reps=5 | load 0.0079 ntt 0.0100 crt 0.0054 merge 0.0001 | plane_GiB/APU=1.00 [1.00 1.00 1.00 1.00] dev_delta_GiB/APU=1.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.75 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 4 logn 28 01:25:41
+t_strategy: n = 2^28 points, na = nb = 134217728 limbs, decimal limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(28) 0.93 s: pools 2.00 + 2.00 GiB per APU
+C: plane pools as allocated 2.00 + 2.00 GiB per APU (dist_core uses 3.50 GiB of them)
+STRAT logn=28 P=4 strat=A wall_med=0.1818 min=0.1810 max=0.1829 reps=5 | load 0.0000 ntt 0.1562 crt 0.0255 merge 0.0003 | plane_GiB/APU=10.00 [10.00 0.00 0.00 0.00] dev_delta_GiB/APU=10.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=4 strat=B wall_med=0.0881 min=0.0872 max=0.0884 reps=5 | load 0.0322 ntt 0.0381 crt 0.0179 merge 0.0003 | plane_GiB/APU=4.00 [4.00 4.00 4.00 4.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=4 strat=C wall_med=0.1141 min=0.1140 max=0.1151 reps=5 | load 0.0237 ntt 0.0745 crt 0.0117 merge 0.0037 | plane_GiB/APU=3.50 [3.50 3.50 3.50 3.50] dev_delta_GiB/APU=4.65 | a2a=12 a2a_GiB/APU=4.50 peer_GiB/APU=1.88 | fits_budget(28.0 GiB)=yes
+STRAT logn=28 P=4 strat=b wall_med=0.0877 min=0.0860 max=0.0881 reps=5 | load 0.0315 ntt 0.0378 crt 0.0180 merge 0.0002 | plane_GiB/APU=4.00 [4.00 4.00 4.00 4.00] dev_delta_GiB/APU=4.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=3.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 4 logn 30 01:25:52
+t_strategy: n = 2^30 points, na = nb = 536870912 limbs, decimal limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(30) 3.63 s: pools 8.00 + 8.00 GiB per APU
+C: plane pools as allocated 8.00 + 8.00 GiB per APU (dist_core uses 14.00 GiB of them)
+STRAT logn=30 P=4 strat=A wall_med=0.7260 min=0.7250 max=0.7270 reps=5 | load 0.0000 ntt 0.6267 crt 0.0987 merge 0.0005 | plane_GiB/APU=40.00 [40.00 0.00 0.00 0.00] dev_delta_GiB/APU=40.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=30 P=4 strat=B wall_med=0.3446 min=0.3420 max=0.3474 reps=5 | load 0.1293 ntt 0.1508 crt 0.0664 merge 0.0004 | plane_GiB/APU=16.00 [16.00 16.00 16.00 16.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=4 strat=C wall_med=0.4628 min=0.4608 max=0.4631 reps=5 | load 0.1015 ntt 0.2974 crt 0.0469 merge 0.0143 | plane_GiB/APU=14.00 [14.00 14.00 14.00 14.00] dev_delta_GiB/APU=18.16 | a2a=12 a2a_GiB/APU=18.00 peer_GiB/APU=7.50 | fits_budget(28.0 GiB)=yes
+STRAT logn=30 P=4 strat=b wall_med=0.3442 min=0.3406 max=0.3445 reps=5 | load 0.1269 ntt 0.1508 crt 0.0665 merge 0.0003 | plane_GiB/APU=16.00 [16.00 16.00 16.00 16.00] dev_delta_GiB/APU=16.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=12.00 | fits_budget(28.0 GiB)=yes
+t_strategy: VERIFY OK (3 checks)
+=== NP 4 logn 31 01:26:29
+t_strategy: n = 2^31 points, na = nb = 1073741824 limbs, decimal limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+C: rns_init(31) 6.93 s: pools 16.00 + 12.00 GiB per APU
+C: plane pools as allocated 16.00 + 12.00 GiB per APU (dist_core uses 28.00 GiB of them)
+STRAT logn=31 P=4 strat=A wall_med=1.5807 min=1.5772 max=1.5854 reps=5 | load 0.0000 ntt 1.3839 crt 0.1970 merge 0.0006 | plane_GiB/APU=80.00 [80.00 0.00 0.00 0.00] dev_delta_GiB/APU=80.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=0.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=4 strat=B wall_med=0.7140 min=0.7041 max=0.7197 reps=5 | load 0.2545 ntt 0.3349 crt 0.1317 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 32.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=31 P=4 strat=C wall_med=1.0780 min=1.0749 max=1.0812 reps=5 | load 0.3428 ntt 0.6161 crt 0.0930 merge 0.0293 | plane_GiB/APU=28.00 [28.00 28.00 28.00 28.00] dev_delta_GiB/APU=32.16 | a2a=12 a2a_GiB/APU=36.00 peer_GiB/APU=15.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=31 P=4 strat=b wall_med=0.7180 min=0.7123 max=0.7195 reps=5 | load 0.2567 ntt 0.3306 crt 0.1315 merge 0.0005 | plane_GiB/APU=32.00 [32.00 32.00 32.00 32.00] dev_delta_GiB/APU=32.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=24.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (3 checks)
+=== NP 4 logn 32 01:27:39
+t_strategy: n = 2^32 points, na = nb = 2147483648 limbs, decimal limbs, P = 4 primes, 5 reps after a warm-up, budget 28.0 GiB/APU
+A: needs 226.0 GiB on APU 0, 119.8 free
+C: rns_init(31) 6.34 s: pools 16.00 + 12.00 GiB per APU
+C: plane pools as allocated 16.00 + 12.00 GiB per APU (dist_core uses 28.00 GiB of them)
+STRAT logn=32 P=4 strat=A skipped: does not fit APU 0 (planes (P+1) n + operands + result)
+STRAT logn=32 P=4 strat=B wall_med=1.4873 min=1.4742 max=1.4958 reps=5 | load 0.5103 ntt 0.7482 crt 0.2614 merge 0.0005 | plane_GiB/APU=64.00 [64.00 64.00 64.00 64.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+STRAT logn=32 P=4 strat=C wall_med=5.3871 min=5.3788 max=5.4067 reps=5 | load 1.3876 ntt 2.4701 crt 0.3871 merge 0.1486 | plane_GiB/APU=28.00 [28.00 28.00 28.00 28.00] dev_delta_GiB/APU=36.16 | a2a=48 a2a_GiB/APU=144.00 peer_GiB/APU=60.00 | fits_budget(28.0 GiB)=yes
+STRAT logn=32 P=4 strat=b wall_med=1.4820 min=1.4705 max=1.4891 reps=5 | load 0.5045 ntt 0.7188 crt 0.2620 merge 0.0006 | plane_GiB/APU=64.00 [64.00 64.00 64.00 64.00] dev_delta_GiB/APU=64.00 | a2a=0 a2a_GiB/APU=0.00 peer_GiB/APU=48.00 | fits_budget(28.0 GiB)=NO
+t_strategy: VERIFY OK (2 checks)
