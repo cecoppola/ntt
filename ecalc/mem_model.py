@@ -15,7 +15,7 @@ unless the calibration table says "measured"; the tables' sources are named in r
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, PLAN 27) --
 and L's level schedule (mn_groups, MN_GROUPS); see results/Q.md.
 """
-import math, sys
+import math, sys, functools
 
 LN10 = math.log(10.0)
 NR = 4                                   # regions = APUs per node
@@ -153,6 +153,7 @@ def mn_cap_log(g, pool_log=31):
         if qm > (1 << (c - 2)): logn -= 1
     return logn
 
+@functools.lru_cache(maxsize=None)
 def mn_shape(nc, g, logr_delta=0):
     """rns_dist.c mn_shape: logn, logR, logC and the largest per-rank plane (limbs) for nc limbs over g nodes"""
     nr = 4 * g; lg = 0
