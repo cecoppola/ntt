@@ -725,7 +725,7 @@ size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], d
  * So the critical path waits at most `slack` per release plus one DMA of `chunk` bytes. */
 struct bs_ckpt_bg {
     int level; unsigned long N; uint64_t desc[10]; dbig P, Q;   /* by value: the owner may move its descriptors (newton_mn_divmod's S = *P) */
-    int budget; double slack, t0, t_data, t1, t_wait[2], proj[2]; size_t bytes, tot_p, tot;
+    int budget; double slack, t0, t_data, t1, t_cancel, t_wait[2], proj[2]; size_t bytes, tot_p, tot;
     int abandoned, released[2]; pthread_t th; volatile int done; struct ckpt_io io;
 };
 static void *bg_run(void *a)
@@ -765,7 +765,7 @@ int bs_ckpt_bg_release(struct bs_ckpt_bg *b, int part)
                 b->proj[part] = proj;
                 __atomic_store_n(&b->io.cancel, 1, __ATOMIC_SEQ_CST);
                 while (__atomic_load_n(&b->io.dma_active, __ATOMIC_SEQ_CST)) usleep(200);   /* no device read of P or Q from here on */
-                b->abandoned = 1; ok = 0; break;
+                b->abandoned = 1; b->t_cancel = mem_now(); ok = 0; break;
             }
         }
         usleep(2000);
@@ -778,7 +778,7 @@ size_t bs_ckpt_bg_join(struct bs_ckpt_bg *b, const char *who, const char *dir, d
     if (!b) return 0;
     double tj = mem_now();
     pthread_join(b->th, 0);
-    double t_join = mem_now() - tj, el = (b->abandoned ? tj : b->t_data) - b->t0;
+    double t_join = mem_now() - tj, el = (b->abandoned ? b->t_cancel : b->t_data) - b->t0;   /* the rate over the time the writer had (to the drop, or to its last byte) */
     size_t all = __atomic_load_n(&b->io.bytes_all, __ATOMIC_RELAXED); double rate = el > 0 ? all / el : 0;
     size_t bytes = b->abandoned ? 0 : b->bytes;
     if (b->abandoned)
@@ -789,7 +789,7 @@ size_t bs_ckpt_bg_join(struct bs_ckpt_bg *b, const char *who, const char *dir, d
         printf("%scheckpoint: the top-level P, Q -> %s (tree level %d): %.2f GB in %.2f s in the background (data %.2f s at %.2f GB/s, then fsync and header %.2f s); "
                "waited %.2f s for P before S = P + Q, %.2f s for Q after the output stage, %.2f s at the join%s\n",
                who, dir, b->level, bytes * 1e-9, b->t1 - b->t0, el, rate * 1e-9, b->t1 - b->t_data, b->t_wait[0], b->t_wait[1], t_join, bytes ? "" : "  FAILED");
-    if (t_write) *t_write = (b->abandoned ? tj : b->t1) - b->t0;
+    if (t_write) *t_write = (b->abandoned ? b->t_cancel : b->t1) - b->t0;
     if (t_wait) *t_wait = b->t_wait[0] + b->t_wait[1] + t_join;
     free(b);
     return bytes;
