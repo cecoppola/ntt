@@ -1553,3 +1553,101 @@ conflict with it, they win.
 Operational: the aac6 clone is at `d3ab69db`; `63c8727` (docs only) is bundled over at
 launch. Agents commit and push work in progress to their branch after every batch, with a
 `RESUME` note, so an interrupted agent restarts without losing work.
+
+## 31. Phase 13b — the conclusive design table for the 576-node target (proposed 2026-09-23)
+
+**Deliverable.** One table, `results/DESIGN_TABLE.md` and RESULTS §79. There is one row per
+combination of the design options that still differ. The columns:
+(a) 4 × 10¹⁰ wall on one node, **measured**, five runs;
+(b) node peak memory at 4 × 10¹⁰, **measured**;
+(c) the 576-node maximum digits at 502 GB and at 480 GB, **modelled**;
+(d) the 576-node wall at that maximum, **modelled**;
+(e) the 576-node wall at one common size, 4 × 10¹³, so rows compare like for like;
+(f) (d) again at 50 and 200 GB/s per APU of fabric, so the ranking can be checked against
+the one assumption aac6 cannot measure.
+
+**What "conclusive" can mean here.** No 576-node run is possible. The table is conclusive in
+this sense: every per-node input to the model is measured on aac6, in the configuration of
+that row. That covers the per-strategy product times, plane and arena sizes, chunking costs,
+kernel rates, and the size-1 wall at 4 × 10¹⁰ and 10¹¹. The model reproduces every measured
+aac6 run to within a stated error, which is checked in the session. The only assumed inputs
+are the target's fabric bandwidth, per-message cost and disk rate, and column (f) shows
+whether the ranking survives them. The first job on the target is to measure those three
+numbers (`docs/TARGET.md`) and rerun `design_table.py`.
+
+### Step 0 — the changes that improve every option (hour 0, the user's approval at launch)
+
+1. **Three primes by default** for decimal limbs (`ECALC_NP=3`): −17 % wall, −25.8 GB, 21/21.
+2. **`NTT_MODMUL=1` by default**: transform +5–12 %, bit-identical, no memory cost.
+3. **Sizing follows the prime count**: `mem_model.py`, `mn_model.py`, `estimate.py` and
+   the C arena sizing take `EC_NP`, so the 25.8 GB becomes digits.
+
+Every row of the table carries 1–3. The regression runs after the flip. The four-prime
+defaults stay one switch away, for binary limbs and for comparison.
+
+### The differentiating axes (every combination is a row)
+
+| axis | values | what it trades | measured by |
+|---|---|---|---|
+| **S — product strategy** for products above the batch tier | C (four-step, 12n B/APU at P = 3); B (prime-per-APU, 16n); **B4** (B spread over all four APUs, 12n, not built); **auto** (B where it fits the plane budget, else C) | speed vs plane memory | E4 in the library; t_strategy for the per-product law |
+| **K — plane cap** | 2³⁰, 3·2²⁹, 2³¹, 3·2³⁰ | fewer grid pieces vs larger planes | 4 × 10¹⁰ and 10¹¹ at size 1 |
+| **C — exchange-scratch chunking** | off; `MDB_SHIFT_CHUNK_MB`; both | ceiling vs exchange rounds | 10¹⁰ over 4 processes on one node, three chunk sizes |
+| **A — uneven-exchange depth** (general-map levels 3, 192, 576) | 1 (today); 2 (not built) | exchange overlap vs one more exchange in flight | several processes on one node, then real 2 and 3 nodes if any come back |
+
+That is 4 × 4 × 3 × 2 = 96 rows. Most are dominated; the table prints all of them, marks the
+Pareto front on (576 wall, 576 max digits), and names the fastest, the largest, and the
+recommended balance.
+
+### Agents (five) and the integrator
+
+The node pool is one node (s24-26; s24-30 down, s24-16 held by another user). The agents'
+own node use is therefore capped at **20-minute jobs**. The measurement campaign (M-run) is
+one scripted sequence run by the integrator, not by the agents.
+
+| agent | items | owns | gate |
+|---|---|---|---|
+| **B** strategy B in the library (§29 E4, and B4) | a device-resident prime-per-APU product in `rns_dist.c` (`RNS_STRATEGY=C|B|B4|auto`), used by the top tree levels, the reciprocal and the division. B4 spreads three primes' planes over four APUs. `auto` picks B when 16n (B4: 12n) fits the plane budget, else C. First hour: B4 in `t_strategy` at 2²⁶–2³², to settle B against B4 before building | `rns_dist.c` product dispatch, `tests/t_strategy.c` | each strategy byte-identical at 10⁹ and 4 × 10¹⁰; t_strategy table with B4 |
+| **D** models and the table generator | `EC_NP`, strategy, plane cap, chunking and exchange depth as model inputs; new `ecalc/design_table.py` writes the 96-row table, the Pareto front and the sensitivity columns; calibration check against every measured run in RESULTS §77–§79 (error printed per run) | `mem_model.py`, `mn_model.py`, `estimate.py`, new `design_table.py`, `docs/TARGET.md` | the model within 3 % of every measured wall and 1 % of every measured peak it is given; the table regenerates from one command |
+| **P** sizing and memory (Step 0.3, the plane-cap axis) | the C arena and pool sizing follow `EC_NP`; the plane cap as a switch over all four values; 10¹¹ at size 1 at the leanest and the fastest settings, to test the model's ceiling at the edge | `binsplit.c` sizing, the pool setup in `rns_dist.c`/`mem.c` | the ceiling at three primes, measured to the edge on one node (the largest D that runs) against the model |
+| **X** uneven exchange two-deep, and the transpose | `alltoallv` pipelined two deep like the equal-slab path (§29 E9 part 2); one transpose kernel instead of g × 4 copies; K's tiled pack (360–770 GB/s today) | `comm_layered.c`, `ntt_dist.c` pack/transpose | byte-identical at sizes 2–4; both-busy fraction on the general map from 1.1 % to its ceiling |
+| **K** kernels (general improvement) | the b1 pass (the slowest everywhere, 1.22 TB/s) register-blocked; the stride penalty (s_lo 17/24 at 0.73–0.82 ×) by padding or rotation | `ntt.c`, `tests/t_ntt.c` | bit-identical at every length; a measured gain or a written negative |
+
+Seams: B owns the product dispatch and the strategy code in `rns_dist.c`; P owns the pool
+setup lines; X owns `ntt_dist.c`'s pack and transpose; K owns `ntt.c`. D touches no C.
+
+### Hour by hour
+
+- **0–0.5**: the integrator does Step 0.1–0.2 (flip, regression `--only unit,e9`) and bundles
+  the flipped main; agents read and start.
+- **0–2**: code. B's first 20-minute job is B4 in t_strategy, which decides B vs B4 by hour 1.
+  D builds the generator against the existing measurements. The agents' test jobs go in
+  20-minute slots, in the order B, X, P, K.
+- **2–3.5**: gates. P's 10¹¹ edge runs (two, ~5 min each). X's multi-process runs. B's
+  byte-identity at 4 × 10¹⁰ for each strategy.
+- **3–4.5**: **M-run**, the measurement campaign on the merged tree, one scripted sequence
+  (about 80 node-minutes):
+  - size 1, 4 × 10¹⁰: strategy {C, B or B4, auto} × plane cap {2³⁰, 3·2²⁹, 2³¹, 3·2³⁰},
+    three runs each (12 configurations, about 50 min);
+  - 10¹⁰ over 4 processes: chunking {off, one, both} × exchange depth {1, 2}
+    (6 configurations, two runs each, about 15 min);
+  - the five-run series for the recommended row;
+  - every run compared against the reference.
+- **4.5–5**: D feeds the M-run log into `design_table.py`; the calibration errors are
+  printed; the full regression (two halves) runs; the table goes into RESULTS §79 with the
+  standing 576-node estimate for the recommended design.
+
+### What this session does not contain
+
+The code reduction of §28, which is still scheduled after everything else. And no 576-node
+measurement: the table's fabric column is assumed until the target's first run.
+
+### Risks and their handling
+
+- **One node**: the M-run is the priority. If agents overrun, their measurement moves into
+  the M-run script instead of their own jobs.
+- **API session limits**: agents script every batch to run unattended, commit after every
+  batch and keep a RESUME section. The integrator resumes them when the limit resets.
+- **Nightly CI array**: it starts at about 00:00 EDT and holds the nodes for hours. The
+  session should start early enough to finish the M-run before midnight.
+- **B not ready in time**: that row falls back to t_strategy's per-product times composed
+  through the model, labelled "modelled from measured products". The table is still complete.
