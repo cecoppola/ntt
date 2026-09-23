@@ -14,6 +14,7 @@ static comm *tcp;            /* set when run as one process per rank (COMM_RANK 
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
 static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
+extern "C" int comm_layered_tbench(int g, size_t bytes, int reps);   /* comm_layered.c (13b X) */
 /* M7: the all-gathers of a communicator (device and host blocks; in place) against the pattern (rank, k); over the
  * synthetic communicator the four rank objects must all call before any result is read (the caller drives them) */
 static uint64_t agw(int r, int round, size_t k) { return ((uint64_t)r << 40) ^ ((uint64_t)round << 32) ^ k; }
@@ -335,7 +336,7 @@ int main(int argc, char **argv)
     harness_meta("t_dist");
     if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
     if (getenv("DIST_TBENCH")) {                        /* Phase 13b X: the layered exchange's block transpose, copies vs one kernel, one APU */
-        extern int comm_layered_tbench(int g, size_t bytes, int reps);
+
         int gs[] = { 2, 3, 4, 16, 64, 192, 576 }; size_t bs[] = { 4096, 65536, 1 << 20 }; HIP_CHECK(hipSetDevice(0));
         for (int i = 0; i < 7; i++) for (int j = 0; j < 3; j++) VERIFY(comm_layered_tbench(gs[i], bs[j], 7) == 0, "tbench g %d, %zu B: identical", gs[i], bs[j]);
         return verify_done("t_dist");
