@@ -278,8 +278,10 @@ def write_md(res, args):
     for r, tag in ((F, 'fastest (F)'), (L, 'largest (L)'), (R, 'recommended balance (R)')): L_.append(desc(r, tag))
     L_.append('- Pareto front (%d rows): %s' % (len(front), '; '.join('%s/%s/%s/d%d' % (r.d.strategy, MM.cap_name(r.d.cap), r.d.chunk, r.d.depth) for r in sorted(front, key=lambda r: r.walls[BE()]))))
     L_.append('\nThe recommended balance maximises (its safe digits at 480 GB / the largest row\'s digits at 502) + (the fastest wall / its wall) over the front. '
-              '`auto` equals `B4` in every column at three primes: rns_dist.c\'s auto takes the B form (`RNS_STRATEGY_FORM`, default B4 at P = 3) wherever its planes fit '
-              'the pools as sized at init, and B4\'s 12 n bytes per APU are exactly the C pools; the two differ only where a product is not an owning dbig or uses the transform cache (then C).\n')
+              '`auto` never allocates: rns_dist.c\'s b_choose takes the B form (`RNS_STRATEGY_FORM`, default B4 at P = 3) only where its whole planes fit '
+              'the pools as sized at init (b_place), so a piece at the cap runs C (each pool holds 3/4 of the cap\'s plane) and the smaller pieces run B4; '
+              'at the 2^30 cap pool 1 is the full 2^30 plane, so there auto is B4 throughout. `B` and `B4` forced take what the pools lack from a grow-only '
+              'hipMalloc buffer (B at 2^31: 32 GiB on each of three APUs).\n')
     # the ranking against the fabric assumption
     fits = [r for r in rows if r.fits]
     def spearman(a, b):
@@ -345,7 +347,7 @@ def calibrate(args):
     print(hdr % ('D', 'np', 'cap', 'use', 'wall', 'model', 'err', 'device', 'model', 'err', 'node', 'model', 'err', 'source'))
     fails = []; series = {}
     for r in M.RUNS:
-        d = M.Design(np=r['np'], strategy='C', cap=r['cap'], modmul=0)
+        d = M.Design(np=r['np'], strategy='C', cap=r['cap'], modmul=r.get('mm', 0))
         p = M.node_phases(r['D'], d); mw = sum(v for k, v in p.items() if k != 'label')
         m = MM.mem_per_node(int(r['D']), 1, dict(np=r['np'], cap=r['cap']))
         mdev = m['dev_init'] / GB; mnode = m['node_peak'] / GB
