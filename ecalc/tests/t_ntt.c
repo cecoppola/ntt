@@ -14,7 +14,7 @@
  *  5. rate: ms per pass at 2^LOGMAX on all APUs (paper 1.08 TB/s effective =
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
- * Usage: t_ntt [LOGMAX (31)]
+ * Usage: t_ntt [LOGMAX (31)] [4c: section 4c only]
  */
 #include "harness.h"
 #include "../ntt.h"
@@ -464,6 +464,10 @@ int main(int argc, char **argv)
     uint64_t *dx, *dy;
     HIP_CHECK(hipMalloc(&dx, nmax * 8)); HIP_CHECK(hipMalloc(&dy, nmax * 8));
 
+    /* Phase 13b K: `t_ntt LOGMAX 4c` runs only section 4c (the switch identities, every length to 2^LOGMAX); the host
+     * references of sections 1-3 take most of a full run's time */
+    const int only4c = argc > 2 && !strcmp(argv[2], "4c");
+    if (!only4c) {
     /* 1. O(n^2) DFT */
     printf("-- 1. fwd vs O(n^2) DFT\n");
     for (pr = 0; pr < EC_NP; pr++) {
@@ -691,6 +695,8 @@ int main(int argc, char **argv)
         ntt_pw_fuse = save;
     }
 
+    }   /* !only4c */
+
     /* 4c. Phase 13a K: the switches (NTT_MODMUL 1, 2 = H3; NTT_MALL = H2, alone and combined) give outputs
      * bit-identical to the default for fwd, inv, the fused pointwise inverse in all three layouts and the
      * radix-3 pair, at every length 2^10 .. 2^LOGMAX and at batches (incl. a non-power-of-two one) */
@@ -720,6 +726,7 @@ int main(int argc, char **argv)
         HIP_CHECK(hipFree(dr));
     }
 
+    if (only4c) return verify_done("t_ntt 4c");
     /* 5. rates on every device */
     for (int body = 0; body < 5; body++) {
     ntt_b16_body = body >= 3 ? 1 : body; ntt_b1_shoup = body == 3; ntt_b16_xchg = body == 4;
