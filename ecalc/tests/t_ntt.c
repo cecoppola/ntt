@@ -66,8 +66,8 @@ __global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
 static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<<<228 * 8, 256>>>(x, n, p, seed); HIP_CHECK(hipDeviceSynchronize()); }
 
 /* one configuration of the switches */
-struct kcfg { int mm, mall; const char *name; };
-static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_mall = k->mall; }
+struct kcfg { int mm, mall; const char *name; int var; };
+static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_mall = k->mall; ntt_b16_var = k->var; }
 
 /* the H3 / H2 identity check: every operation under configuration k against the default (MM 0, MALL off), on the
  * device.  ops: fwd, inv (input canonical random: no round-trip identity to hide behind), fused inverse with the
@@ -224,6 +224,45 @@ static int bench(int LOGMAX, const char *what)
                 TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
                 if (!mm) { f0 = tf; i0 = ti; }
                 printf("   MM L%2d tot 2^%2d mm %d: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx)\n", logL, lt, mm, tf, f0 / tf, ti, i0 / ti);
+            }
+            kcfg_set(&ref);
+        }
+    }
+    if (strstr(what, "h6")) {
+        /* H6: the register-blocked body's variants (NTT_B16_VAR: 1 = 4 blocks/CU, 2 = block order, 3 = both),
+         * with the default modmul and with NTT_MODMUL 1; whole transforms, then per pass at 2^31 and 2^24 */
+        printf("-- H6 k_b16r variants: logL tot var mm fwd ms inv ms (vs var 0 mm 0)\n");
+        static const int cf[][2] = {{31, 31}, {30, 30}, {27, 27}, {24, 24}, {24, 28}, {20, 28}, {17, 28}, {14, 28}};
+        for (int ci = 0; ci < 8; ci++) {
+            int logL = cf[ci][0], lt = cf[ci][1];
+            if (lt > LOGMAX) continue;
+            size_t tot = (size_t)1 << lt, B = tot >> logL;
+            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
+            float f0 = 0, i0 = 0;
+            for (int mm = 0; mm < 2; mm++) for (int var = 0; var < 4; var++) {
+                struct kcfg kc = {mm, 0, "", var};
+                kcfg_set(&kc);
+                float tf, ti;
+                TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
+                TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
+                if (!mm && !var) { f0 = tf; i0 = ti; }
+                printf("   H6 L%2d tot 2^%2d var %d mm %d: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx)\n", logL, lt, var, mm, tf, f0 / tf, ti, i0 / ti);
+            }
+            kcfg_set(&ref);
+        }
+        static const int pl_[] = {31, 24};
+        for (int k = 0; k < 2; k++) {
+            int logL = pl_[k]; if (logL > LOGMAX) continue;
+            for (int var = 0; var < 4; var++) {
+                struct kcfg kc = {0, 0, "", var}; kcfg_set(&kc);
+                for (int ps = 0; ps < ntt_npass(logL) - 1; ps++) {
+                    int lo, hi; ntt_pass_bounds(logL, ps, &lo, &hi);
+                    float mf, mi;
+                    TIME_MS(mf, 1, ntt_pass(c, dx, logL, 1, 0, ps, 0));
+                    TIME_MS(mi, 1, ntt_pass(c, dx, logL, 1, 1, ps, 0));
+                    printf("   H6 pass L%2d var %d pass %d [%2d..%2d] fwd %8.3f ms (%5.0f GB/s) inv %8.3f ms (%5.0f GB/s)\n", logL, var, ps, lo, hi,
+                           mf, 16.0 * ((size_t)1 << logL) / (mf * 1e-3) / 1e9, mi, 16.0 * ((size_t)1 << logL) / (mi * 1e-3) / 1e9);
+                }
             }
             kcfg_set(&ref);
         }
@@ -526,7 +565,8 @@ int main(int argc, char **argv)
     printf("-- 4c. NTT_MODMUL / NTT_MALL variants bit-identical to the default\n");
     {
         uint64_t *dr; HIP_CHECK(hipMalloc(&dr, nmax * 8));
-        static const struct kcfg ks[] = {{1, 0, "MM1"}, {2, 0, "MM2"}, {0, 16, "MALL16"}, {1, 20, "MM1+MALL20"}, {2, 24, "MM2+MALL24"}, {0, 22, "MALL22"}};
+        static const struct kcfg ks[] = {{1, 0, "MM1"}, {2, 0, "MM2"}, {0, 16, "MALL16"}, {1, 20, "MM1+MALL20"}, {2, 24, "MM2+MALL24"}, {0, 22, "MALL22"},
+                                         {0, 0, "VAR1", 1}, {0, 0, "VAR2", 2}, {1, 0, "MM1+VAR3", 3}};
         int save_body = ntt_b16_body; ntt_b16_body = 1; ntt_b16_xchg = 0;
         for (size_t ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) {
             for (logn = 10; logn <= LOGMAX; logn++) {
@@ -538,7 +578,7 @@ int main(int argc, char **argv)
                 ident_check(&ks[ki], (b + (int)ki) % EC_NP, bl[b][0], bl[b][1], ctx[(b + (int)ki) % EC_NP], dx, dr, dy, 1);
             printf("   %-11s ok to 2^%d\n", ks[ki].name, LOGMAX);
         }
-        ntt_b16_body = save_body; ntt_modmul = 0; ntt_mall = 0;
+        ntt_b16_body = save_body; ntt_modmul = 0; ntt_mall = 0; ntt_b16_var = 0;
         HIP_CHECK(hipFree(dr));
     }
 

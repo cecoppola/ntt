@@ -20,6 +20,7 @@ int ntt_b16_body = 1;      /* Phase 9 N-kernel: the register-blocked body (bit-i
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
 int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->C exchange by ds_swizzle instead of LDS (Phase 9 B4); -1 = from the environment, default 0 */
 int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett (default), 1 reduced-correction Barrett, 2 Shoup; -1 = from the environment */
+int ntt_b16_var = -1;      /* NTT_B16_VAR (Phase 13a K, H6): k_b16r variant bits (1 unpadded LDS + global twiddle table, 2 block order); 0 default */
 int ntt_mall = -1;         /* NTT_MALL (Phase 13a K, H2): log2 of a MALL-resident chunk (points); 0 = off (default); -1 = from the environment */
 
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
@@ -195,19 +196,26 @@ __device__ static inline uint64_t xchg16(uint64_t v)
  * and Shoup constants) then x T (T formed and squared by ec_mm as before, its Shoup constant by shoup_q once
  * per stage), lazy in [0, 2p); no per-butterfly twiddle product.  For MM != 0 the inverse's difference is
  * u + 2p - vw.  Every variant is exact, so the canonical outputs are bit-identical to MM 0's. */
-template <int INV, int R4, int SW, int MM>
+/* Phase 13a K (H6), VAR (bit mask, 0 = the default): bit 0 (OCC) the LDS tile unpadded (sh[128][16]) and the
+ * 128-entry twiddle table read from global memory instead of LDS: 16 KB of LDS per block, so 4 blocks per CU
+ * instead of 3 (the default's 18.4 KB caps occupancy at 3 waves/SIMD; VGPRs would allow 8+).  bit 1 (ORD) the
+ * blocks ordered tile-row-group fastest (blk_hi = b mod nhi) instead of slab fastest, for the wide-stride passes
+ * (s_lo 17 and 24 measured at 0.8x).  Same arithmetic: bit-identical. */
+template <int INV, int R4, int SW, int MM, int VAR = 0>
 __global__ __launch_bounds__(THREADS)
 void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
             const double *tabT, double scale, const uint64_t *tabS, const uint64_t *tabSq)
 {
-    constexpr int STG = 7, tile = 128;
-    __shared__ uint64_t sh[128 * BP + 1];
-    __shared__ double tab[tile];
+    constexpr int STG = 7, tile = 128, BPX = (VAR & 1) ? 16 : BP;
+    __shared__ uint64_t sh[128 * BPX + ((VAR & 1) ? 0 : 1)];
+    __shared__ double tab[(VAR & 1) ? 1 : tile];
     __shared__ uint64_t tabs[MM == 2 ? tile : 1], tabsq[MM == 2 ? tile : 1];
+#define TABV(k_) ((VAR & 1) ? tabT[k_] : tab[k_])
     const int tt = threadIdx.x >> 4, bb = threadIdx.x & 15;
     const size_t n = (size_t)1 << logn, hmin = (size_t)1 << s_lo, slabs = hmin / 16;
     const size_t bpt = n / 2048, b = blockIdx.x % bpt, t = blockIdx.x / bpt;
-    const size_t blk_hi = b / slabs, slab0 = b % slabs;
+    const size_t nhi = n / ((size_t)tile * hmin);
+    const size_t blk_hi = (VAR & 2) ? b % nhi : b / slabs, slab0 = (VAR & 2) ? b / nhi : b % slabs;
     const size_t base = t * n + blk_hi * (size_t)tile * hmin + slab0 * 16;
     const double p = m.p, pinv = m.pinv;
     const double pinvl = MM == 1 ? fma(-p, pinv, 1.0) * pinv : 0.0;
@@ -218,7 +226,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
     int i;
 #define MMC(a_, b_) (MM == 1 ? mm_canon((a_), (b_), p, pinv, pinvl) : ec_mm((a_), (b_), p, pinv))
 
-    for (int k = threadIdx.x; k < tile; k += THREADS) { tab[k] = tabT[k]; if (MM == 2) { tabs[k] = tabS[k]; tabsq[k] = tabSq[k]; } }
+    for (int k = threadIdx.x; k < tile; k += THREADS) { if (!(VAR & 1)) tab[k] = tabT[k]; if (MM == 2) { tabs[k] = tabS[k]; tabsq[k] = tabSq[k]; } }
     {
         size_t c = slab0 * 16 + bb;
         T[INV ? STG - 1 : 0] = MMC(tlo[c & 4095], thi[c >> 12]);
@@ -245,7 +253,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
                (u_) = s_; (v_) = (uint64_t)ec_mm((double)d_, (w_), p, pinv); } } while (0)
     /* MM != 0: data times the twiddle of table index ix_ and stage slot ti_, lazy [0, 2p) */
 #define MULW(val_, ix_, ti_) (MM == 2 ? ec_shoup_lazy(Tu[ti_], Tq[ti_], ec_shoup_lazy(tabs[ix_], tabsq[ix_], (val_), pu), pu)   \
-                                      : mm_lazy((double)(val_), mm_canon(tab[ix_], T[ti_], p, pinv, pinvl), p, pinv, pinvl))
+                                      : mm_lazy((double)(val_), mm_canon(TABV(ix_), T[ti_], p, pinv, pinvl), p, pinv, pinvl))
 #define BFLYM(u_, v_, ix_, ti_) do {                                                  \
         if (INV) { uint64_t vw = MULW((v_), (ix_), (ti_));                             \
                    uint64_t s_ = (u_) + vw, d_ = (u_) + p2 - vw;                      \
@@ -261,7 +269,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         for (int i_ = 0; i_ < 8; i_++) if (!(i_ & (1 << (rb)))) {                     \
             int r_ = ROWF(i_) & (H_ - 1);                                             \
             if (MM == 0) {                                                            \
-                double w_ = ec_mm(tab[r_ << lgstep_], T[INV ? (lgH) : 0], p, pinv);   \
+                double w_ = ec_mm(TABV(r_ << lgstep_), T[INV ? (lgH) : 0], p, pinv);   \
                 BFLY(v[i_], v[i_ + (1 << (rb))], w_);                                 \
             } else BFLYM(v[i_], v[i_ + (1 << (rb))], r_ << lgstep_, INV ? (lgH) : 0); \
         }                                                                             \
@@ -280,11 +288,11 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define STAGE4(lgH, rb, ROWF)                                                         \
     do {                                                                              \
         const int H_ = 1 << (lgH), lgstep_ = STG - 1 - (lgH);                         \
-        const double w4_ = tab[tile / 4];                                             \
+        const double w4_ = TABV(tile / 4);                                             \
         _Pragma("unroll")                                                             \
         for (int i_ = 0; i_ < 8; i_++) if (!(i_ & (3 << ((rb) - 1)))) {               \
             int r_ = ROWF(i_) & (H_ - 1);                                             \
-            double w_ = ec_mm(tab[r_ << lgstep_], T[INV ? (lgH) : 0], p, pinv);       \
+            double w_ = ec_mm(TABV(r_ << lgstep_), T[INV ? (lgH) : 0], p, pinv);       \
             double w2_ = ec_mm(w_, w_, p, pinv), wi_ = ec_mm(w_, w4_, p, pinv);       \
             const int ib = i_ + (1 << ((rb) - 1)), ic = i_ + (1 << (rb)), id = ic + (1 << ((rb) - 1)); \
             if (INV) { BFLY(v[i_], v[ib], w2_); BFLY(v[ic], v[id], w2_);              \
@@ -298,8 +306,8 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define STORE_G(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) { uint64_t o = v[i];                        \
                           if (scale != 0.0) o = (uint64_t)ec_mm((double)o, scale, p, pinv);                 \
                           x[base + (size_t)ROWF(i) * hmin + bb] = o; }
-#define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BP + bb] = v[i]
-#define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BP + bb]
+#define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BPX + bb] = v[i]
+#define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BPX + bb]
 
     const int odd = tt & 1;
     if (!INV) {
@@ -349,6 +357,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #undef MULW
 #undef BFLYM
 #undef MMC
+#undef TABV
 }
 
 /* b1 pass with Shoup's integer modmul for the twiddle products (Phase 5 item
@@ -604,6 +613,19 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
         if (ntt_b16_xchg < 0) ntt_b16_xchg = getenv("NTT_B16_XCHG") ? atoi(getenv("NTT_B16_XCHG")) : 0;
         int mm = ntt_b16_body == 1 ? ntt_modmul_get() : 0;      /* H3: the modmul variants are built for body 1 (LDS exchange) */
+        if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
+        if (ntt_b16_body == 1 && ntt_b16_var > 0 && mm < 2 && !ntt_b16_xchg) {                  /* H6 variants */
+            int v = ntt_b16_var & 3, sel = (inv ? 8 : 0) | (mm ? 4 : 0) | v;
+#define LAUNCH_V(INV, MM, V) k_b16r<INV, 0, 0, MM, V><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
+            switch (sel) {
+            case 1: LAUNCH_V(0, 0, 1); break; case 2: LAUNCH_V(0, 0, 2); break; case 3: LAUNCH_V(0, 0, 3); break;
+            case 5: LAUNCH_V(0, 1, 1); break; case 6: LAUNCH_V(0, 1, 2); break; case 7: LAUNCH_V(0, 1, 3); break;
+            case 9: LAUNCH_V(1, 0, 1); break; case 10: LAUNCH_V(1, 0, 2); break; case 11: LAUNCH_V(1, 0, 3); break;
+            case 13: LAUNCH_V(1, 1, 1); break; case 14: LAUNCH_V(1, 1, 2); break; default: LAUNCH_V(1, 1, 3); break;
+            }
+#undef LAUNCH_V
+            return;
+        }
         if (mm == 1 || mm == 2) {
             const uint64_t *ts = inv ? c->tab7s_i : c->tab7s_f, *tq = inv ? c->tab7sq_i : c->tab7sq_f;
 #define LAUNCH_M(INV, MM) k_b16r<INV, 0, 0, MM><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, ts, tq)
