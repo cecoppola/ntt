@@ -1408,6 +1408,48 @@ pipeline actually uses, revisited under whatever H2 finds.
 **H7 Non-temporal stores in pack/unpack.** Those kernels are pure streaming and pollute
 the cache the transform wants; a cache-bypassing store may help both.
 
+**E9 xGMI and the fabric at the same time.** The layered all-to-all runs its intra-node
+(xGMI) stage and its inter-node (fabric) stage as two phases. They use *disjoint*
+hardware, so in principle the exchange costs $\max(T_\mathrm{intra}, T_\mathrm{inter})$
+rather than their sum. Per APU the target offers 273 GB/s of xGMI (three links) against
+100 GB/s of NIC injection (two 400 Gb/s ports), so with the layered form's traffic
+($\approx S$ over xGMI, $S(g-1)/g$ over the fabric):
+
+| $g$ | $T_\mathrm{intra}/T_\mathrm{inter}$ | sequential | overlapped | ceiling on the saving |
+|---|---|---|---|---|
+| 4 | 0.49 | 1.49 | 1.00 | 33 % |
+| 64 | 0.37 | 1.37 | 1.00 | 27 % |
+| 576 | 0.37 | 1.37 | 1.00 | **27 %** of exchange time |
+
+Part of this exists already: `comm_layered` carries `inflight = 2`, so one exchange's
+intra stage runs while the previous one's inter stage is on the wire. Two limits are
+suspected and must be measured rather than assumed: the overlap is at *whole-exchange*
+granularity, not per slab, so it needs two exchanges pending to engage at all; and the
+inter transport takes one exchange at a time, which serialises the very stage the overlap
+depends on. The experiment has three parts:
+
+1. **Measure the present overlap.** `DIST_STATS` extended to report xGMI-busy,
+   fabric-busy and both-busy time separately, at 2, 3 and 4 real nodes. This says how
+   much of the 27 % is already collected.
+2. **Deepen the pipeline**: overlap at slab granularity rather than exchange granularity,
+   and allow more than one inter exchange in flight. Gate: `t_dist` identical at every
+   size, the both-busy fraction, and the exchange time.
+3. **xGMI as a relief valve for NIC imbalance.** With the general (non-power-of-two) map
+   at 576 and with the `alltoallv` redistribution, per-peer slab sizes differ, so some
+   NICs finish early. An APU whose NICs are idle could forward a peer APU's inter-node
+   traffic over xGMI — multi-rail striping through the node's aggregate 400 GB/s rather
+   than each APU's own 100. This cannot raise the total bytes leaving the node, so its
+   ceiling is only the *imbalance*; measure the imbalance first (part 1) and implement
+   only if it is material.
+
+**What is testable here and what is not.** aac6's 1 GbE makes the ratio nothing like the
+target's, so the *absolute* numbers must wait. What can be established now: the
+both-busy fraction at 2--3 real nodes, whether the one-at-a-time inter stage is a real
+limit, and that a deeper pipeline is bit-identical. The model is then re-run with the
+target's constants. Confidence that the mechanism helps: high. Confidence in the 27 %:
+medium — it is an upper bound assuming perfect overlap and no contention between the
+push kernel and the NIC DMA for HBM bandwidth, which is itself worth measuring (H4, H7).
+
 **H8 Multi-NIC endpoint structure** (target only): two contexts per APU thread, one per
 NIC, with the slab exchange striped. Cannot be measured here, but the structure is built
 and switched now so the target's first session is a measurement, not a port.
@@ -1418,6 +1460,8 @@ and switched now so the target's first session is a measurement, not a port.
 2. **E0** — the decisive micro-benchmark; it decides E4 and E5 before either is written.
 3. **H2, H3, H4, H7** — kernel-level measurements that may change the constants every
    later experiment is judged against. Cheap, and they belong before the pipeline work.
+   **E9 part 1** (measuring the present xGMI/fabric overlap) belongs here too: it needs
+   only two real nodes and it decides whether E9 parts 2 and 3 are worth writing.
 4. **E3** — the largest expected single win; also the one that changes the memory budget
    every other experiment operates within.
 5. **E4, E5** — the K4 exploitation, informed by E0 and E3.
