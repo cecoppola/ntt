@@ -284,6 +284,9 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `COMM_PUSH64` | the xGMI push by 64-bit stores; 0 = 16-byte vectors (1) |
 | `COMM_PUSH_BLOCKS` | blocks per peer of the xGMI push (76) |
 | `MN_GROUPS` | the tree's level → group-size schedule, e.g. `2,4,8,16,32,64,576` (on `w12`: the powers of two up to the size, then the size; *Phase 12 (G, Q's decision)*: the powers of two dividing the size, then the odd part's prime factors ascending — 576 → …, 64, 192, 576) |
+| `MDB_SHIFT_CHUNK_MB` | *Phase 13a (M), TASKS 1.2*: the sharded division's `mdb_shift` exchanged in rounds of about this many MB per APU per slab (sb, rb) instead of the whole share / 4 (71 GB per node at 576 × 8 × 10¹⁰); bit-identical; 0 = one round (0) |
+| `MN_T_CHUNK_MB` | *Phase 13a (M), TASKS 1.3*: a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node at 576 × 8 × 10¹⁰); the arena request (`rns_mul_dist_mn_scratch`) follows; bit-identical; 0 = one round (0) |
+| `BS_LAYOUT_ONLY` | *Phase 13a (M), tool*: `D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares it with the model term by term (unset) |
 | `MN_TOPO_GROUP` | nodes per dragonfly group: the exchanges of a transform group layered intra/inter group (0 = the plain mesh) |
 | `MN_OUT_CHUNK_MB` | the streamed writer's digit chunk per node (256) |
 | `MN_COMBINE=host` | *stand-in*: M2's combine — the leaf results sent to node 0 and multiplied on its host mdev tier — instead of the distributed tree |
