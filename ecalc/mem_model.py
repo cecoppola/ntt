@@ -262,26 +262,72 @@ def planes_3q30(pool_log=31, digits=0):
     run's digits, i.e. D x g at size g (ecalc.c passes the run's d), so never at 576 nodes"""
     return pool_log >= 31 and digits < 5e10
 
-def planes_bytes(pool_log=31, digits=0, p3q30=None):
-    """rns_mul.c: pool 0 = EC_NP (4) x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
+EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
+
+# ---------------------------------------------------------------- Phase 13b agent D: the plane cap and the product strategy
+CAPS = {'2^30': 1 << 30, '3*2^29': 3 << 29, '2^31': 1 << 31, '3*2^30': 3 << 30}   # the four plane caps of PLAN 31 (points)
+
+def cap_name(cap):
+    for k, v in CAPS.items():
+        if v == cap: return k
+    return '%d' % cap
+
+def cap_pool(cap):
+    """a plane cap (points) -> (POOL_LOG, 3 2^k planes on): 2^30 = POOL_LOG 30; 3 2^29 = POOL_LOG 30 + RNS_PLANES_3Q30=1;
+    2^31 = POOL_LOG 31 (RNS_PLANES_3Q30=0); 3 2^30 = POOL_LOG 31 + RNS_PLANES_3Q30=1 (the code's default below 5e10 digits)"""
+    r3 = cap & (cap - 1) != 0
+    lg = (cap // 3 if r3 else cap).bit_length() - 1 + (1 if r3 else 0)
+    return lg, r3
+
+def code_cap(digits, pool_log=31):
+    """the plane cap the code picks by itself: RNS_PLANES_3Q30's size rule (3 2^30 below 5e10 digits of the run at POOL_LOG 31)"""
+    return (3 << (pool_log - 1)) if planes_3q30(pool_log, digits) else (1 << pool_log)
+
+def plane_bytes_apu(strategy, n, np=EC_NP):
+    """the plane bytes per APU a product of n points needs (results/S13.md, t_strategy measured at P = 4 and 3):
+    C four-step (np + 3) n/4 x 8 (14 n at P = 4, 12 n at P = 3); B prime-per-APU 2 n x 8 = 16 n on each busy APU; B4 (B's
+    3 P planes spread over the four APUs, not built: PLAN 31) 1.5 n x 8 = 12 n"""
+    if strategy == 'B': return 16 * n
+    if strategy == 'B4': return 12 * n
+    return (np + 3) * n * 2
+
+def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None):
+    """rns_mul.c: pool 0 = EC_NP x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
     contexts.  Phase 13a M (TASKS 1.1): with the 3 2^k planes (the default below 5e10 digits at 2^31 pools, Phase 12 I) pool 0 is
     3 2^(pool_log-1) limbs (24 GiB) and pool 1 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB): 180.4 GB per node instead of 120.3 --
-    the model had the old pools (measured 4e10: planes 180.4, RESULTS 77)"""
+    the model had the old pools (measured 4e10: planes 180.4, RESULTS 77).
+    Phase 13b D: pool 0 is np x q (P3: 3/4 of it at three primes), pool 1 stays 3 q + 16 (one prime at a time; measured 4e10 at
+    ECALC_NP=3: planes 154.6 GB); cap = the plane cap in points (overrides pool_log / p3q30, see cap_pool); strategy 'B' needs
+    16 n bytes per APU at the cap (the pools grow to it: assumed, agent B's layout decides), 'B4' 12 n, 'C' / 'auto' the pools"""
     al = 2 << 20
+    np = EC_NP if np is None else np
+    if cap is not None: pool_log, p3q30 = cap_pool(cap)
     on = planes_3q30(pool_log, digits) if p3q30 is None else p3q30
     if on:
-        q = 3 << (pool_log - 3); p0 = (3 << (pool_log - 1)) * 8
+        q = 3 << (pool_log - 3)
     else:
-        q = (1 << pool_log) // 4; p0 = 4 * q * 8
+        q = (1 << pool_log) // 4
+    p0 = np * q * 8
     p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
     p1 = (p1 + al - 1) // al * al
-    return NR * (p0 + p1) + int((0.61 if pool_log > 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured)
+    per = p0 + p1
+    if strategy in ('B', 'B4'): per = max(per, plane_bytes_apu(strategy, 4 * q, np))   # the plane of the cap = 4 q points
+    return NR * per + int((0.61 if pool_log >= 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured; 2^30 assumed = 2^31)
 
 HOST_RUNTIME = 7.0 * GB                                  # ROCm runtime + program ("other" 6.9 GB at 4e10, the same at 1e6)
 HOST_STAGING = 4 * (1 << 30)                             # the checkpoints' chunk buffer, 1 GiB per APU (H's B2)
 HOST_SEEDBUF = 2 * (2 << 30)                             # the two 2 GiB seed buffers, alive during init only
 HOST_WRITER = int(0.65 * GB)                             # the writer's two 256 MB chunks + a 128 MB limb buffer
 HOST_COMM_PER_PROC = 6.0 * GB                            # measured at 10^9 sizes 2/4: VmHWM 19.3 / 18.9 GB per process (TCP buffers, the comm's pinned slabs)
+
+K_CHUNKS_MEM = 4                                         # DIST_CHUNKS: the slab pipeline's chunks per transform exchange
+
+def host_size1(D):
+    """the host HWM of a size-1 run (bytes), fitted on the measured runs (mem summary / VmHWM of the `total` line):
+    4e10 12.1 (six runs, NP 3 and 4), 8e10 12.8-13.0, 1e11 13.9-14.0 GB -- 12.1 + 0.031 GB per 10^9 digits above 4e10; below
+    4e10 the init value 12.1 (the dm phase's host flows at <= 1e10 -- X and R on the host, 26-40 GB at 1e10 -- are NOT modelled:
+    the calibration lists 1e10 as the exception; no ceiling is decided there)"""
+    return int((12.1 + 0.031 * max(0.0, D / 1e9 - 40.0)) * GB)
 
 def exchange_scratch(nq_total, g, alltoallv, shift_chunk_mb=0):
     """the sharded division's exchange scratch per APU (rns_dist.c mdb_shift / mdb_add_shifted; PLAN 23-4):
@@ -331,7 +377,12 @@ def mem_per_node(D, g=1, opts=None):
           transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
+    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None,
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
+    # Phase 13b D: np (ECALC_NP: pool 0 scales np/4), strategy (C | B | B4 | auto: B's 16 n planes), cap (the plane cap in points:
+    # sets pool_log and the 3 2^k planes, cap_pool), depth (2 = the uneven exchange two deep: one more v-slot pair per APU on the
+    # general-map levels), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
+    if o['cap'] is not None: o['pool_log'], o['planes_3q30'] = cap_pool(o['cap'])
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'])
@@ -349,9 +400,11 @@ def mem_per_node(D, g=1, opts=None):
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'], o['shift_chunk_mb'])
-    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'])
+    if g > 1 and o['depth'] >= 2 and (g & (g - 1)):                      # Phase 13b D (X's two-deep alltoallv, modelled): a second
+        xchg += NR * 2 * (o['depth'] - 1) * (sc[1] // K_CHUNKS_MEM) * 8   # send + receive slab of one chunk of the top plane per APU
+    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], o['np'], o['strategy'])
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
-        planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
+        planes = NR * (o['np'] * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + (sum(arena) if o["tail"] else bs_total)          # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak)
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
@@ -362,6 +415,9 @@ def mem_per_node(D, g=1, opts=None):
     comm = (HOST_COMM_PER_PROC + pool) if g > 1 else 0
     host_init = HOST_RUNTIME + HOST_STAGING + HOST_SEEDBUF + comm
     host_dm = HOST_RUNTIME + HOST_STAGING + HOST_WRITER + comm
+    if g == 1 and o['host_fit']:                                          # Phase 13b D: size 1, the measured host (mem summary):
+        host_init = host_size1(D_total)                                   # the HWM is at init (staging 8.6 pinned + 3.6 other), and grows
+        host_dm = min(host_dm, host_init)                                 # slowly with D (seeds); the dm phase stays below it at >= 2e10
     peak = max(dev_init + host_init, dev_dm + host_dm) * (1 + o['margin'])
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
@@ -396,6 +452,9 @@ MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at th
     (8e10, 1, dict(planes=120.3, regions=248.2, pool=248.2, dev_dm=369.1, host=12.8, tail=True, src='M11 v3/v4 (tail): device 369.1, host 12.8')),
     (1e11, 1, dict(planes=120.3, regions=310.3, pool=310.3, dev_dm=431.2, host=14.0, tail=True, src='M11 v4 (tail): device 431.2, host 14.0 (node 445)')),
     (2.5e9, 4, dict(planes=34.4, regions=19.9, pool=19.9, dev_dm=56.6, host=29.3, tail=True, src='M13 b1 (job 21008) 1e10 at size 4, POOL_LOG=29, per process: 56.6 = 34.4 + 19.9 + 2.3; hipMalloc 0')),
+    # Phase 13b D: three primes (P3, closing series of RESULTS 78): pool 0 at 3 q, pool 1 unchanged
+    (4e10, 1, dict(planes=154.6, regions=132.3, pool=132.3, dev_dm=287.5, host=12.1, tail=True, p3=True, np=3, src='P3 / RESULTS 78 (jobs 21009, 21039): ECALC_NP=3, 287.5 = 154.6 + 132.3 + 0.61, host HWM 12.1')),
+    (1e9, 1, dict(planes=154.6, regions=5.4, pool=5.4, dev_dm=160.6, host=8.7, tail=True, p3=True, np=3, src='P3 b2 (job 21005): ECALC_NP=3 at 1e9, device 160.6 = 154.6 + 5.4 + 0.61 to bs; host 8.7 then (15.7 in dm: host flows below 2e10, not modelled)')),
 
 ]
 
@@ -405,12 +464,12 @@ def main():
     print('== calibration (GB; model vs measured; "pool" = regions + the pool\'s hipMalloc at the dm peak)')
     print('%-8s %2s | %-22s | %8s %8s %8s %8s | %s' % ('D', 'g', 'item', 'planes', 'regions', 'pool', 'dev_dm', 'source'))
     for D, g, m in MEASURED:
-        r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31, planes_3q30=m.get('p3', False)))
+        r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31, planes_3q30=m.get('p3', False), np=m.get('np', 4), host_fit=m['tail'] is not False))
         print('%-8.0e %2d | %-22s | %s %s %s %s | %s' % (D, g, 'measured', fmt(m['planes'] * GB), fmt(m['regions'] * GB), fmt(m['pool'] * GB), fmt(m['dev_dm'] * GB), m['src']))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail %s)' % m['tail'], fmt(r['planes']), fmt(r['regions_bs'] if not m['tail'] else r['arena']), fmt(r['pool_total']), fmt(r['dev_dm']),
               'dev_dm %+.1f %%, node peak %+.1f %% (measured %.1f = device + host HWM)' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1), 100.0 * (r['node_peak'] / GB / (m['dev_dm'] + m['host']) - 1), m['dev_dm'] + m['host'])))
         if m['tail']: continue
-        r2 = mem_per_node(int(D), g, dict(tail=True))
+        r2 = mem_per_node(int(D), g, dict(tail=True, np=4))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail on)', fmt(r2['planes']), fmt(r2['regions_bs']), fmt(r2['pool_total']), fmt(r2['dev_dm']), 'node peak %.1f' % (r2['node_peak'] / GB)))
     print()
     print('== the per-node profile (GB) at size 1, tail layout on (item 1): device at init / at the dm peak, host HWM, node peak')
