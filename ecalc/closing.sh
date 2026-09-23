@@ -2,7 +2,7 @@
 # Phase 10 closing series: N runs of 4e10 on the final main, the reference evicted before each run,
 # digits cmp'd against results/e_4e10.out after each (then evicted again).  srun --jobid=<id> -N1 --gpus=4 bash closing.sh [N]
 module load rocm; cd "$(dirname "$0")" || exit 1
-N=${1:-5}; OUT=results/close10; mkdir -p $OUT; REF=results/e_4e10.out
+N=${1:-5}; OUT=results/close10; mkdir -p $OUT; REF=${ECALC_REF_4E10:-results/e_4e10.out}; [ -f "$REF" ] || REF=~/ntt/ecalc/results/e_4e10.out; [ -f "$REF" ] || { echo "closing.sh: no 4e10 reference ($REF)"; exit 1; }
 evict() { python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)" "$1" 2>/dev/null; }
 for i in $(seq 1 $N); do
   evict $REF; evict /tmp/e_close.out; rm -f /tmp/e_close.out

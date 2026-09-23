@@ -155,7 +155,7 @@ if [ $FULL = 1 ] && want full; then
   echo "  4e10: $(grep -a '^bs \|^dm \|^init\|checkpoint: the top-level' "$log" | sed 's/  */ /g' | cut -c1-100 | tr '\n' ';')" | tee -a "$SUM"
   if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "full 4e10 size 1" "$c; wall $(echo "$tot" | cut -c1-16) (${el} s elapsed with the write)"
   else fail "full 4e10 size 1" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error\|Killed' "$log" | head -1 | cut -c1-120)"; fi
-  if [ $rc2 -eq 0 ] && grep -aq '^RECHECK OK' "$lg" && grep -aq 'from the checkpoint' "$lg"; then pass "full 4e10 recheck" "RECHECK OK, P, Q from the checkpoint; ${el2} s; $(grep -a 'recheck: .*digits read' "$lg" | head -1 | sed 's/.*digits read from [^ ]* in \([0-9.]* s\).*/file read in \1/')"
+  if [ $rc2 -eq 0 ] && grep -aq '^RECHECK OK' "$lg" && grep -aqE 'from the (checkpoint|sidecar)' "$lg"; then pass "full 4e10 recheck" "RECHECK OK, P, Q from the $(grep -aoE 'from the (checkpoint|sidecar)' "$lg" | head -1 | cut -d' ' -f3) (the top set is off by default since 3524146); ${el2} s; $(grep -a 'recheck: .*digits read' "$lg" | head -1 | sed 's/.*digits read from [^ ]* in \([0-9.]* s\).*/file read in \1/')"
   else fail "full 4e10 recheck" "rc $rc2; $(grep -a 'RECHECK\|DIFFER\|BAD\|cannot\|error' "$lg" | head -1 | cut -c1-120)"; fi
 fi
 
