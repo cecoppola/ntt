@@ -20,8 +20,19 @@
  * (all n limbs); TSTRAT_GMP=1 also checks it against GMP (binary limbs).
  *
  *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
+ *   V  (Phase 13b B) the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
+ *      transforms, unbalanced, short, operands as views at an offset) through rns_mul_dist_db under C, B, B4 and auto,
+ *      each compared limb for limb with C's; then the n-point product (na = nb = n/2) timed under each form
+ *      ("STRAT ... strat=L<form>").  After C (its rns_init).
+ *   4  B4 (Phase 13b, agent B): B spread over all four APUs at P = 3.  The product mod x^n - 1 splits into the residues
+ *      mod x^(n/2) - 1 (the lower half of the forward DIF's bit-reversed output) and mod x^(n/2) + 1 (the upper half):
+ *      the n-point DIF's first stage, then two independent n/2-point DIFs.  APU p < 3 (prime p) transforms A whole (n
+ *      points) and B's lower-half residue Ylo = y[j] + y[j + n/2] (n/2 points); APU 3 forms the three primes' upper-half
+ *      residues Yhi_p = (y[j] - y[j + n/2]) w_n^j (reading B once) and transforms them (3 x n/2 points).  Then APU p:
+ *      X_p[0, n/2) *= Ylo_p, X_p[n/2, n) *= Yhi_p (a peer read of APU 3), the n-point inverse, and the CRT as in B.
+ *      Planes: 1.5 n points on every APU (12 n bytes, C's at P = 3); transforms 2.5 n on APUs 0-2 (B: 3 n), 1.5 n on 3.
  *
- * usage: t_strategy logn [reps=5] [strategies=ABC, any of ABCb]
+ * usage: t_strategy logn [reps=5] [strategies=ABC, any of ABCb4]
  * env:   LIMB_BASE (2 default, 10 = decimal limbs), TSTRAT_GMP=1, TSTRAT_BUDGET_GB (the per-APU plane budget reported
  *        against; default = the production plane pools at POOL_LOG 31: 2^31 limbs + rns_pool1_default_bytes(31)),
  *        DIST_STATS=1 (C's transform parts)
@@ -45,7 +56,7 @@
 #define GiB 1073741824.0
 /* the prime count: agent P3's runtime ec_np (ECALC_NP=3|4, branch p13-P3) when the library has it, else EC_NP -- weak
  * references, so this test builds on main (no ec_np: NP = EC_NP = 4) and on P3's branch alike */
-extern "C" { int ec_np_init(void) __attribute__((weak)); }
+extern "C" { int ec_np_init(void) __attribute__((weak)); int rns_dist_strategy_set(const char *name) __attribute__((weak)); }
 static int NP = EC_NP;
 
 static size_t dev_used(int d) { size_t f = 0, t = 0; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemGetInfo(&f, &t)); return t - f; }
@@ -105,6 +116,42 @@ static void load_db4(int prime, uint64_t *dst, const dbig *x, size_t n, hipStrea
         done += cnt;
     }
     if (done < n) HIP_CHECK(hipMemsetAsync(dst + done, 0, (n - done) * 8, s));
+}
+/* B4's residues of an operand (quartered dbig, ny limbs; limbs past ny are 0), h = n/2 points each:
+ *   lo:  dst[j] = y[j] + y[j + h]                     (mod x^h - 1, one prime)
+ *   hi:  dst_k[j] = (y[j] - y[j + h]) w_n^j            (mod x^h + 1 twisted to cyclic; nk primes at once, B read once)
+ * w_n^j = t2_k[j & 0xffff] t1_k[j >> 16] (two-level tables of the prime's 2^logn-th root); outputs canonical */
+struct yq { const uint64_t *q[ND]; size_t qc, ny; };
+__device__ static inline uint64_t yq_get(const struct yq y, size_t i) { if (i >= y.ny) return 0; size_t d = i / y.qc; return y.q[d][i - d * y.qc]; }
+__global__ void k_b4_lo(uint64_t *dst, struct yq y, size_t h, ec_mod m)
+{
+    size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; j < h; j += stride) dst[j] = ec_fold(ec_canon64(yq_get(y, j), m.pu, m.mu) + ec_canon64(yq_get(y, j + h), m.pu, m.mu), m.pu);
+}
+struct b4hi { uint64_t *dst[3]; const uint64_t *t1[3], *t2[3]; ec_mod m[3]; int nk; };
+__global__ void k_b4_hi(struct b4hi a, struct yq y, size_t h)
+{
+    size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; j < h; j += stride) {
+        uint64_t u = yq_get(y, j), v = yq_get(y, j + h);
+        for (int k = 0; k < a.nk; k++) {
+            ec_mod m = a.m[k]; uint64_t w = ec_mmu(a.t2[k][j & 0xffff], a.t1[k][j >> 16], m);
+            a.dst[k][j] = ec_mmu(ec_canon64(u, m.pu, m.mu) + m.pu - ec_canon64(v, m.pu, m.mu), w, m);
+        }
+    }
+}
+/* the two-level table pair of w = the 2^logn-th root of prime p, entries j < h: t2 = w^(j & 0xffff), t1 = w^(j >> 16 << 16) */
+static void b4_tables(int prime, int logn, size_t h, uint64_t **t1, uint64_t **t2)
+{
+    uint64_t P = ec_P[prime], w = ec_root(prime, logn), a = 1;
+    size_t n2 = h < 65536 ? h : 65536, n1 = (h + 65535) / 65536;
+    uint64_t *h2 = (uint64_t *)malloc(n2 * 8), *h1 = (uint64_t *)malloc(n1 * 8);
+    for (size_t i = 0; i < n2; i++) { h2[i] = a; a = ec_mulmod_ref(a, w, P); }
+    uint64_t w16 = ec_powmod(w, 65536, P); a = 1;
+    for (size_t i = 0; i < n1; i++) { h1[i] = a; a = ec_mulmod_ref(a, w16, P); }
+    HIP_CHECK(hipMalloc(t1, n1 * 8)); HIP_CHECK(hipMalloc(t2, n2 * 8));
+    HIP_CHECK(hipMemcpy(*t1, h1, n1 * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(*t2, h2, n2 * 8, hipMemcpyHostToDevice));
+    free(h1); free(h2);
 }
 /* compare n limbs of a device result with the host reference (chunks through a host buffer); returns the first difference or -1 */
 static long long cmp_dev(const struct qv *v, size_t n, const uint64_t *ref)
@@ -166,7 +213,7 @@ int main(int argc, char **argv)
     dbig Ad, Bd; db_init(&Ad); db_init(&Bd);
     { bigint t; t.l = ha; t.n = t.cap = na; db_from_bi(&Ad, &t); t.l = hb; t.n = t.cap = nb; db_from_bi(&Bd, &t); }
     uint64_t *ref = 0; char refname = 0; int bad = 0;
-    struct res R[4]; memset(R, 0, sizeof R); R[0].name = 'A'; R[1].name = 'B'; R[2].name = 'C'; R[3].name = 'b';
+    struct res R[5]; memset(R, 0, sizeof R); R[0].name = 'A'; R[1].name = 'B'; R[2].name = 'C'; R[3].name = 'b'; R[4].name = '4';
     double t0;
 
     /* ---- A: the whole product on APU 0 ---- */
@@ -277,6 +324,74 @@ int main(int argc, char **argv)
     } else r->why = "not requested";
     }
 
+    /* ---- B4: B over all four APUs at P = 3 (prime p on APU p: A whole + B's lower residue; APU 3: B's three upper residues) ---- */
+    if (strchr(which, '4')) {
+        struct res *r = &R[4];
+        size_t h = n / 2, need = 3 * h * 8 + n / 4 * 8 + ((size_t)2 << 30); int fit = 1;
+        for (int d = 0; d < ND; d++) if (dev_free(d) < need) fit = 0;
+        if (NP != 3) { fit = 0; r->why = "B4 is the P = 3 form (P = 4: B uses all four APUs)"; }
+        if (!fit) { if (!r->why) r->why = "does not fit (1.5 n points per APU)"; }
+        else {
+            ntt_ctx *ctx[ND][3] = { { 0 } }; hipStream_t st[ND]; uint64_t *X[ND] = { 0 }, *Ylo[ND] = { 0 }, *Yhi[3], *t1[3], *t2[3]; struct bdesc *dd[ND]; size_t u0[ND], u1[ND];
+            dbig Cb; db_init(&Cb); db_reserve(&Cb, n);
+            if (Cb.qc * ND != n) { fprintf(stderr, "B4: result quarters %zu != n/4\n", Cb.qc); return 1; }
+            int M = ND; size_t Lseg = n / M;
+            uint64_t *sp; HIP_CHECK(hipHostMalloc((void **)&sp, (size_t)M * S * 4 * 8, 0));
+            for (int d = 0; d < ND; d++) {
+                HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreate(&st[d]));
+                if (d < 3) ctx[d][0] = ntt_ctx_create(d); else for (int k = 0; k < 3; k++) ctx[d][k] = ntt_ctx_create(k);
+                if (d == 3) for (int k = 0; k < 3; k++) b4_tables(k, logn, h, &t1[k], &t2[k]);
+                u0[d] = dev_used(d); HIP_CHECK(hipSetDevice(d));
+                if (d < 3) { HIP_CHECK(hipMalloc(&X[d], n * 8)); HIP_CHECK(hipMalloc(&Ylo[d], h * 8)); }
+                else for (int k = 0; k < 3; k++) HIP_CHECK(hipMalloc(&Yhi[k], h * 8));
+                u1[d] = dev_used(d); HIP_CHECK(hipSetDevice(d));
+                struct bdesc hb[ND]; memset(hb, 0, sizeof hb); for (int i = 0; i < M; i++) { hb[i].c = Cb.q[i]; hb[i].na = (uint32_t)Lseg; }
+                HIP_CHECK(hipMalloc(&dd[d], sizeof hb)); HIP_CHECK(hipMemcpy(dd[d], hb, sizeof hb, hipMemcpyHostToDevice));
+            }
+            struct yq yB; for (int j = 0; j < ND; j++) yB.q[j] = Bd.q[j]; yB.qc = Bd.qc; yB.ny = Bd.n;
+            struct b4hi hi; memset(&hi, 0, sizeof hi); hi.nk = 3; for (int k = 0; k < 3; k++) { hi.dst[k] = Yhi[k]; hi.t1[k] = t1[k]; hi.t2[k] = t2[k]; hi.m[k] = ec_mod_get(k); }
+            struct qv ov = { { Cb.q[0], Cb.q[1], Cb.q[2], Cb.q[3] }, Cb.qc };
+            double tl[ND], tn[ND], tc[ND];
+            for (int it = 0; it <= reps; it++) {
+                for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+                double a = now();
+#pragma omp parallel num_threads(ND)
+                {
+                    int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d)); double x0 = now(), x1, x2;
+                    if (d < 3) { load_db(ctx[d][0], X[d], &Ad, n, st[d]); k_b4_lo<<<228 * 16, 256, 0, st[d]>>>(Ylo[d], yB, h, ec_mod_get(d)); }
+                    else k_b4_hi<<<228 * 16, 256, 0, st[d]>>>(hi, yB, h);
+                    HIP_CHECK(hipStreamSynchronize(st[d])); x1 = now();
+                    if (d < 3) { ntt_fwd(ctx[d][0], X[d], logn, 1, st[d]); ntt_fwd(ctx[d][0], Ylo[d], logn - 1, 1, st[d]); ntt_pw(ctx[d][0], X[d], Ylo[d], h, st[d]); }
+                    else for (int k = 0; k < 3; k++) ntt_fwd(ctx[d][k], Yhi[k], logn - 1, 1, st[d]);
+                    HIP_CHECK(hipStreamSynchronize(st[d]));
+#pragma omp barrier
+                    if (d < 3) { ntt_pw(ctx[d][0], X[d] + h, Yhi[d], h, st[d]); ntt_inv(ctx[d][0], X[d], logn, 1, st[d]); HIP_CHECK(hipStreamSynchronize(st[d])); }
+                    x2 = now();
+#pragma omp barrier
+                    double x3 = now();
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, bi_decimal);
+                    HIP_CHECK(hipStreamSynchronize(st[d]));
+                    tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
+                }
+                double c = now();
+                merge_spills(&ov, n, sp, M, Lseg, S); double e = now();
+                if (it) { double ml = 0, mn = 0, mc = 0; for (int d = 0; d < ND; d++) { if (tl[d] > ml) ml = tl[d]; if (tn[d] > mn) mn = tn[d]; if (tc[d] > mc) mc = tc[d]; }
+                          r->t[it - 1] = e - a; r->tl += ml / reps; r->tn += mn / reps; r->tc += mc / reps; r->tm += (e - c) / reps; }
+            }
+            r->ran = 1; r->a2a = 0;
+            for (int d = 0; d < ND; d++) { r->plane_b[d] = 3 * h * 8; r->used_b[d] = u1[d] - u0[d]; }
+            /* xGMI per APU (access pattern): APU p reads A (n/2 limbs, 3/4 remote) and B (3/4 remote), then Yhi_p (h points) from APU 3;
+             * the CRT reads its quarter of the three planes (APU 3: all remote) */
+            r->peer_b = (double)n * 8 * 3 / 4 + (double)h * 8 + (double)(n / 4) * 8 * 3;
+            Cb.n = n;
+            if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = r->name; }
+            else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "4 differs from %c at limb %lld", refname, k); }
+            for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); if (X[d]) { HIP_CHECK(hipFree(X[d])); HIP_CHECK(hipFree(Ylo[d])); } HIP_CHECK(hipFree(dd[d])); for (int k = 0; k < 3; k++) if (ctx[d][k]) ntt_ctx_free(ctx[d][k]); HIP_CHECK(hipStreamDestroy(st[d])); }
+            HIP_CHECK(hipSetDevice(3)); for (int k = 0; k < 3; k++) { HIP_CHECK(hipFree(Yhi[k])); HIP_CHECK(hipFree(t1[k])); HIP_CHECK(hipFree(t2[k])); }
+            HIP_CHECK(hipHostFree(sp)); db_free(&Cb);
+        }
+    } else R[4].why = "not requested";
+
     /* ---- C: the library's distributed product (rns_mul_dist_db), plane pools at the production layout ---- */
     if (strchr(which, 'C')) {
         struct res *r = &R[2];
@@ -311,6 +426,56 @@ int main(int argc, char **argv)
         db_free(&Cc);
     } else R[2].why = "not requested";
 
+
+    /* ---- V: the library's B forms against C (rns_mul_dist_db under RNS_STRATEGY = C, B, B4, auto) ---- */
+    if (strchr(which, 'V') && rns_dist_strategy_set) {
+        int pl = logn < 31 ? logn : 31;
+        if (!rns_ndev()) { rns_staging_bytes_req = (size_t)2 << 20; rns_pool1_bytes_req = rns_pool1_default_bytes(pl); rns_init(pl); }
+        const char *forms[4] = { "C", "B", "B4", "auto" };
+        /* shapes (limbs of A, B, offsets of the views): n/2 x n/2; 3 2^k-sized; unbalanced; short (below 2^20); odd lengths at offsets */
+        size_t sh[6][4] = { { na, nb, 0, 0 }, { (size_t)(0.37 * n), (size_t)(0.35 * n), 0, 0 }, { (size_t)(0.45 * n), n / 64 + 3, 0, 0 },
+                            { 5000, 7001, 0, 0 }, { na - 12345, nb / 3 + 17, 999, 4097 }, { (size_t)(0.3 * n) + 1, (size_t)(0.2 * n) + 5, 3, 1 } };
+        for (int k = 0; k < 6; k++) {
+            size_t la = sh[k][0], lb = sh[k][1], oa = sh[k][2], ob = sh[k][3];
+            if (oa + la > na) la = na - oa; if (ob + lb > nb) lb = nb - ob;
+            dbig va = db_view(&Ad, oa, la), vb = db_view(&Bd, ob, lb); db_norm(&va); db_norm(&vb);
+            dbig Cr; db_init(&Cr); uint64_t *h0 = 0; size_t n0 = 0;
+            for (int f = 0; f < 4; f++) {
+                rns_dist_strategy_set(forms[f]);
+                db_free(&Cr); db_init(&Cr);
+                double t = now(); rns_mul_dist_db(&Cr, &va, &vb); for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); } t = now() - t;
+                bigint hb_; bi_init(&hb_); db_to_bi(&hb_, &Cr);
+                if (!f) { n0 = hb_.n; h0 = (uint64_t *)malloc((n0 + 1) * 8); memcpy(h0, hb_.l, n0 * 8); }
+                else VERIFY(hb_.n == n0 && !memcmp(hb_.l, h0, n0 * 8), "V: shape %d (%zu x %zu at %zu, %zu): %s differs from C (%zu vs %zu limbs)", k, la, lb, oa, ob, forms[f], hb_.n, n0);
+                printf("V shape %d: %zu x %zu limbs (views at %zu, %zu) under %-4s: %zu limbs, %.4f s\n", k, va.n, vb.n, oa, ob, forms[f], hb_.n, t);
+                bi_free(&hb_);
+            }
+            free(h0); db_free(&Cr);
+        }
+        /* the n-point product timed under each form (the planes that do not fit the pools: the forms' extra buffer) */
+        for (int f = 0; f < 4; f++) {
+            struct res rr; memset(&rr, 0, sizeof rr); rr.name = 'L';
+            rns_dist_strategy_set(forms[f]); dbig Cl; db_init(&Cl);
+            size_t u0[ND]; for (int d = 0; d < ND; d++) u0[d] = dev_used(d);
+            for (int it = 0; it <= reps; it++) {
+                memset(&rns_dist_st, 0, sizeof rns_dist_st);
+                for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+                double a = now(); rns_mul_dist_db(&Cl, &Ad, &Bd);
+                for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+                if (it) { rr.t[it - 1] = now() - a; rr.tl += rns_dist_st.t_load / reps; rr.tn += rns_dist_st.t_ntt / reps; rr.tc += rns_dist_st.t_crt / reps; rr.tm += rns_dist_st.t_merge / reps; }
+            }
+            for (int d = 0; d < ND; d++) { rr.used_b[d] = dev_used(d) - u0[d]; }
+            struct qv ov = { { Cl.q[0], Cl.q[1], Cl.q[2], Cl.q[3] }, Cl.qc };
+            if (ref) { long long kx = cmp_dev(&ov, n, ref); VERIFY(kx < 0, "L%s differs from %c at limb %lld", forms[f], refname, kx); }
+            double mn = rr.t[0], mx = rr.t[0]; for (int i = 1; i < reps; i++) { if (rr.t[i] < mn) mn = rr.t[i]; if (rr.t[i] > mx) mx = rr.t[i]; }
+            size_t um = 0; for (int d = 0; d < ND; d++) if (rr.used_b[d] > um) um = rr.used_b[d];
+            printf("STRAT logn=%d P=%d strat=L%s wall_med=%.4f min=%.4f max=%.4f reps=%d | load %.4f ntt %.4f crt %.4f merge %.4f | extra_dev_GiB/APU=%.2f (pools %.2f + %.2f)\n",
+                   logn, NP, forms[f], median(rr.t, reps), mn, mx, reps, rr.tl, rr.tn, rr.tc, rr.tm, um / GiB, rns_dpool_cap(0, 0) / GiB, rns_dpool_cap(0, 1) / GiB);
+            db_free(&Cl);
+        }
+        rns_dist_cache_release();
+        rns_dist_strategy_set(0);
+    }
     if (ref && getenv("TSTRAT_GMP") && atoi(getenv("TSTRAT_GMP")) && !bi_decimal) {
         mpz_t x, y, z, w; mpz_inits(x, y, z, w, NULL);
         mpz_import(x, na, -1, 8, 0, 0, ha); mpz_import(y, nb, -1, 8, 0, 0, hb); t0 = now(); mpz_mul(z, x, y);
@@ -319,7 +484,7 @@ int main(int argc, char **argv)
         printf("GMP check %.1f s\n", now() - t0); mpz_clears(x, y, z, w, NULL);
     }
     (void)bad;
-    for (int i = 0; i < 4; i++) if (i < 3 || R[i].ran) report(&R[i], logn, reps, budget);
+    for (int i = 0; i < 5; i++) if (i < 3 || R[i].ran) report(&R[i], logn, reps, budget);
     db_free(&Ad); db_free(&Bd); free(ha); free(hb); free(ref);
     return verify_done("t_strategy");
 }

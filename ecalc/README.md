@@ -220,6 +220,10 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `RNS_PLANES_3Q30` | 3·2³⁰-point planes for the top levels and the dm phase, sized at init: 1 / 0 / `auto` (on below 5 × 10¹⁰ at 2³¹ pools); the mapping costs more than the products gain (0) |
 | `RNS_DIST_CACHE` | transform-cache slots of the single-node dist tier (0: the planes' mapping costs more than the transforms saved) |
 | `RNS_DIST_CACHE_MN` | transform-cache slots over shares at size > 1 (2) |
+| `RNS_STRATEGY` | *Phase 13b (B)*: the single-node product's strategy (`dist_core`: top levels, reciprocal, division): `C` four-step; `B` prime-per-APU (planes that do not fit the pools from an extra per-APU buffer); `B4` B spread over four APUs at P = 3 (1.5 n points per APU); `auto` the B form where it fits the pools, else C (`C`) |
+| `RNS_STRATEGY_FORM` | *Phase 13b (B)*: the form `auto` uses, `B` or `B4` (`B`) |
+| `RNS_STRATEGY_GRID` | *Phase 13b (B)*: under `auto` the grid prefers pieces that fit the B form (1) |
+| `RNS_STRATEGY_CHECK` | *Phase 13b (B), test*: every B-form product formed again by C and compared, abort on a difference (0) |
 | `RNS_DIST_CACHE_HOLD` | keep a cached operand pinned across products (0) |
 | `RNS_DIST_CACHE_MARGIN_GB` | free device memory kept when sizing the cache (24) |
 | `RNS_VERBOSE` | *debug*: 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) |
