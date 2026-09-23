@@ -809,7 +809,36 @@ static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int 
     }
     if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
 }
-static void split_grid(size_t na, size_t nb, int *ka, int *kb) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); }
+/* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (RNS_STRATEGY_GRID, default 1 under auto):
+ * a piece that fits the B form's planes costs its B-length points x 0.70 (the library's B against C per product, measured
+ * 0.66-0.74 at 2^26..2^31, results/B13b.md), one that does not its C points x 1; 3 2^k lengths x 1.05 as above.  The digits do
+ * not depend on the grid.  Off (or any other strategy): C's grid as before. */
+static int b_fits(size_t nc)
+{
+    int f = g_strat_form; if (f == STRAT_B4 && ec_np != 3) f = STRAT_B; if (ec_np > NR) return 0;
+    int T, lk; size_t n = b_len(nc, &T, &lk), sz[3];
+    for (int d = 0; d < NR; d++) if (b_place(d, b_planes(f, d, n, sz), sz, 0)) return 0;
+    return 1;
+}
+static int b_grid_on(void)
+{
+    static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_GRID"); v = e ? atoi(e) != 0 : 1; }
+    return v && strat_get() == STRAT_AUTO && !cache_slots();
+}
+static void split_grid(size_t na, size_t nb, int *ka, int *kb)
+{
+    if (!b_grid_on()) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); return; }
+    size_t cap = dist_cap(); double best = 0; *ka = *kb = 0;
+    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
+        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
+        if (pa + pb > cap) continue;
+        double cost;
+        if (b_fits(pa + pb)) { int T, lk; size_t n = b_len(pa + pb, &T, &lk); cost = (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70; }
+        else { size_t pts = plane_pts(pa + pb, dist_r3()); cost = (double)i * j * pts * ((pts & (pts - 1)) ? 1.05 : 1.0); }
+        if (!*ka || cost < best * 0.999 || (cost <= best * 1.001 && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
+    }
+    if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
+}
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
  * shifted in-place add */
@@ -829,7 +858,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     db_reserve(Cd, nc + 8);
     g_cache_mn = 0;
     int one = nc <= dist_cap();
-    if (one && nc > ((size_t)1 << dist_logn_max())) { int ka_, kb_; split_grid(na, nb, &ka_, &kb_); one = ka_ * kb_ == 1; }   /* Phase 11 B3 (agent P): the 3 2^30 plane only when no grid of smaller planes is cheaper (A-grid C5: level 25's 2.19e9 x 2.7e7 is 5 x 1 pieces of 2^29) */
+    if (one && (nc > ((size_t)1 << dist_logn_max()) || (b_grid_on() && !b_fits(nc)))) { int ka_, kb_; split_grid(na, nb, &ka_, &kb_); one = ka_ * kb_ == 1; }   /* (Phase 13b B: under auto also a single plane that does not fit the B form) */   /* Phase 11 B3 (agent P): the 3 2^30 plane only when no grid of smaller planes is cheaper (A-grid C5: level 25's 2.19e9 x 2.7e7 is 5 x 1 pieces of 2^29) */
     if (cache_slots() && (!one || pin)) { N = cache_avail(); for (int i = 0; i < N; i++) if (!g_cache.s[i].pinned) fs[nf++] = i; }   /* the free (unpinned) slots */
     if (one) {
         struct db_stats s0 = db_st; double t0 = mem_now();
