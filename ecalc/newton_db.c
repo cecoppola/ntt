@@ -297,7 +297,8 @@ __global__ void k_mn_scatter(struct sacc dst, size_t lo2, const uint64_t *rb, co
 static unsigned mn_nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
 static hipStream_t g_ms[4]; static int g_ms_init;
 static void ms_init(void) { if (g_ms_init) return; for (int d = 0; d < 4; d++) { MN_HIP(hipSetDevice(d)); MN_HIP(hipStreamCreateWithFlags(&g_ms[d], hipStreamNonBlocking)); } MN_HIP(hipSetDevice(0)); g_ms_init = 1; }
-static struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; } mn_st;
+static struct { size_t n_shift, n_addsub, n_small; double t_shift, t_addsub, t_small, t_prod; size_t shift_max; } mn_st;   /* shift_max: Phase 13a M, the largest sb + rb of one mdb_shift (bytes per node-process, measured) */
+extern size_t rns_dist_tscratch_max;                                 /* rns_dist.c (Phase 13a M): the largest T + rbO of a product or shifted add */
 static void mfree(mdb *x) { if (x->sh.cap) db_free(&x->sh); memset(x, 0, sizeof *x); }
 static size_t mshare_max(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
 /* the piece (source node r, target node rt): target indices [a, b); APU d's quarter of it */
@@ -338,6 +339,7 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
     static long shift_chunk = -1; if (shift_chunk < 0) { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); shift_chunk = e ? (long)(atof(e) * 1048576.0 / 8) : 0; if (shift_chunk < 0) shift_chunk = 0; }
     int K = shift_chunk > 0 && SL > (size_t)shift_chunk ? (int)((SL + shift_chunk - 1) / shift_chunk) : 1;
     size_t SLk = K > 1 ? ((SL + K - 1) / K + 1 + 15) / 16 * 16 : SL;
+    size_t shift_bytes = 0;
     if (X->n && n2) {
 #pragma omp parallel num_threads(4)
     {
@@ -355,6 +357,8 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
             if (a > tsm) tsm = a; if (b > trm) trm = b;
         }
         uint64_t *sb = db_pool_alloc(d, (tsm + 16) * 8), *rb = db_pool_alloc(d, (trm + 16) * 8);
+#pragma omp atomic
+        shift_bytes += (tsm + trm + 32) * 8;
         for (int c = 0; c < K; c++) {
             ts = tr = 0;
             for (int r = 0; r < g; r++) { size_t l0 = hp[r].len * c / K, l1 = hp[r].len * (c + 1) / K; hpk[r].a = hp[r].a + l0; hpk[r].len = l1 - l0; hpk[r].off = ts; scnt[r] = hpk[r].len * 8; sdsp[r] = ts * 8; ts += hpk[r].len; }
@@ -379,6 +383,7 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
     if (trunc) { size_t top = 0; if (cn) { dbig t = Yn.sh; db_norm(&t); top = t.n ? lo2 + t.n : 0; } Yn.n = comm_allreduce_max(G->all[0], top); }
     if (Y->sh.cap) db_free(&Y->sh);
     *Y = Yn;
+    if (shift_bytes > mn_st.shift_max) mn_st.shift_max = shift_bytes;
     mn_st.t_shift += mem_now() - t0;
 }
 static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G) { mdb_shift_g(Y, X, s, N2, G, G->g0, G->g); }
@@ -739,4 +744,6 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     newton_st.t_div += mem_now() - ta;
     if (me == 0) printf("divmod(mn) %.2f s: reciprocal %.2f (products %.2f), S = P + Q %.2f, A mu + shift %.2f, X Q + window %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, ta - t0, p_rec, tb - ta, tc - tb, td - tc, te - td, dx, mem_now() - te, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
+    if (me == 0) printf("scratch(mn): mdb_shift slabs %.3f GB per node-process at most (MDB_SHIFT_CHUNK_MB=%s), window temporaries T + rbO %.3f GB (MN_T_CHUNK_MB=%s)\n",
+                        mn_st.shift_max * 1e-9, getenv("MDB_SHIFT_CHUNK_MB") ? getenv("MDB_SHIFT_CHUNK_MB") : "0", rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "0");   /* Phase 13a M */
 }
