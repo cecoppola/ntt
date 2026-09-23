@@ -1490,7 +1490,7 @@ Chosen so that (i) every measurement that later decisions depend on is made firs
 
 Three nodes are idle at the time of writing; six agents share them under the §19
 protocol (jobs ≤ 45 min, one per agent, none queued when all three are busy, release
-after each batch). Agents **N** and **V** need little node time and yield to the rest.
+after each batch). Agent **N** needs little node time and yields to the rest.
 
 | agent | items | owns | gate at five hours |
 |---|---|---|---|
@@ -1521,3 +1521,35 @@ of §28's code reduction, which comes after every other work item.
 known, which unlocks the K4 exploitation; the kernel constants re-measured against the
 MALL for the first time; a verdict on whether xGMI and the fabric already overlap; one
 agreed memory ceiling instead of two; and three hardening items closed.
+
+**Review before launch (2026-09-22)** — six corrections to the plan above; where they
+conflict with it, they win.
+
+1. **The closing regression did not fit.** `mnaccept.sh --full` exceeds one 45-minute job
+   (Phase 11 ran it as two halves), so "`--full` after each merge" was six-plus node-hours
+   in the last hour. Instead: each agent passes `--only unit,e9` plus the steps its change
+   touches on its own branch before declaring ready; merges start at **hour 3.5**, with
+   `--only unit,e9` between merges; then **one** full regression on the merged tree as two
+   halves on two nodes in parallel, while the third node runs the five-run
+   $4\times10^{10}$ series.
+2. **P3's seams were incomplete.** `EC_NP` reaches the distributed tier's prime loop
+   (`dist_core` in `rns_dist.c`, the per-prime passes in `ntt_dist.c`), which M and X own.
+   P3 owns **the prime-count loop bounds and plane sizing wherever they occur**; M and X do
+   not edit those lines, and P3 does not edit anything else in their files.
+3. **S depended on P3 for $P=3$.** S measures $P=4$ from the start; it measures $P=3$ only
+   after P3's `EC_NP` commit exists (rebuilding on P3's branch, hour 2–3). If that is not
+   in time, the $P=3$ column is **modelled** from the per-prime cost and labelled so.
+4. **X needs the whole pool.** Its three-node measurement takes all three idle nodes. It
+   gets one announced 45-minute slot at about hour 2.5; the others submit nothing during it.
+   Two-node runs go in the normal rotation.
+5. **Node budget** (3 nodes × 5 h = 15 node-hours): S 1.5, K 1.5, P3 2.5, X 3.0 (the
+   three-node slot is 2.25 of it), M 1.5, N 1.0, close 2.5 → 13.5. If a node is lost, K's H6
+   and P3's $4\times10^{10}$ run are dropped first.
+6. **Defaults stay unchanged**, so the closing series measures the current defaults. Every
+   new option (three primes, modmul variants, non-temporal stores, scratch bounds) appears
+   in RESULTS §78's Pareto table as a measured alternative; adopting any of them is the
+   user's decision.
+
+Operational: the aac6 clone is at `d3ab69db`; `63c8727` (docs only) is bundled over at
+launch. Agents commit and push work in progress to their branch after every batch, with a
+`RESUME` note, so an interrupted agent restarts without losing work.
