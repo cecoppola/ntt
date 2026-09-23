@@ -41,6 +41,18 @@ int    bs_ckpt_tree_find(unsigned long N);                 /* this node's highes
 int    bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);
 void   bs_ckpt_tree_remove_below(int level);               /* the sets tree level `level` supersedes (call once every node has it) */
 void   bs_ckpt_tree_clear(int level);                      /* this node's tree sets above `level` */
+/* Phase 13 N (TASKS 1.7): the restart scan -- this node's highest complete tree set (0 = none) without aborting; *err 1 = a set of
+ * another run, 2 = a tree set written under another schedule (node count / MN_GROUPS level map, recorded in the v3 header); msg says which */
+int    bs_ckpt_restart_scan(unsigned long N, int *err, char *msg, size_t msz);
+/* Phase 13 N (TASKS 4.1, 1.4): a tree set written by a background thread (the top set at any size).  release(part 0 = P, 1 = Q)
+ * returns once the writer no longer reads that part -- 1 written, 0 abandoned (budget != 0: the measured disk rate projects the
+ * part past `slack` seconds; the set is then dropped, no partial files); done() does not wait; join() waits for the end (fsync,
+ * header), prints the line (prefix `who`) and returns the bytes (0 = abandoned or failed) */
+typedef struct bs_ckpt_bg bs_ckpt_bg;
+bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t desc[10], const struct dbig_s *P, const struct dbig_s *Q, int budget, double slack);
+int    bs_ckpt_bg_release(bs_ckpt_bg *b, int part);
+int    bs_ckpt_bg_done(bs_ckpt_bg *b, int part);
+size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *t_write, double *t_wait);   /* t_write: the writer's seconds; t_wait: the owner's (both releases and the join) */
 
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */

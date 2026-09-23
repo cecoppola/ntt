@@ -421,9 +421,35 @@ void binsplit_pregrow(unsigned long N)
  * tree sets at levels k, 2k, ... and the top. */
 #define CKPT_MAGIC  "ECBSCKP1"
 #define CKPT_MAGIC2 "ECBSCKP2"
+#define CKPT_MAGIC3 "ECBSCKP3"
 #define CKPT_CHUNK ((size_t)1 << 30)
 struct ckpt_hdr { char magic[8]; uint64_t N; int32_t decimal, seed_terms, level, which, mdev_host, nregions; uint64_t n, off, offr[NR], node_bytes; };
 struct ckpt_ext { int32_t size, rank, dev_nodes, kind; uint64_t a0, b1; uint64_t tree[10]; };   /* v2 (follows the v1 header): kind 0 = a leaf level, 1 = a tree level (tree[] = P.n P.N P.g0 P.g P.sh.n, the same for Q) */
+/* Phase 13 N (TASKS 1.7): v3 = v2 + the schedule that wrote the set -- the tree sets are indexed by the schedule's level
+ * number (MN_GROUPS / the node count: level l joins groups of gs[l-1] nodes), so a tree set is a restart point only under
+ * the same schedule.  Written for every tree set (kind 1); the leaf sets stay v1/v2 (they do not depend on the schedule). */
+#define CKPT_MAXLEV 32
+struct ckpt_sched { int32_t size, nlev; int32_t gs[CKPT_MAXLEV]; };
+static void ckpt_sched_now(struct ckpt_sched *s)
+{
+    memset(s, 0, sizeof *s); s->size = mn_size();
+    if (s->size > 1) s->nlev = mn_groups_parse(s->size, s->gs, CKPT_MAXLEV - 1);
+}
+static void ckpt_sched_str(const struct ckpt_sched *s, char *buf, size_t sz)
+{
+    int o = snprintf(buf, sz, "%d node-process%s, MN_GROUPS levels ", s->size, s->size == 1 ? "" : "es");
+    if (!s->nlev) o += snprintf(buf + o, sz - o, "(none)");
+    for (int i = 0; i < s->nlev && i < CKPT_MAXLEV && o < (int)sz; i++) o += snprintf(buf + o, sz - o, "%s%d", i ? "," : "", s->gs[i]);
+}
+static int ckpt_sched_eq(const struct ckpt_sched *a, const struct ckpt_sched *b)
+{
+    if (a->size != b->size || a->nlev != b->nlev) return 0;
+    for (int i = 0; i < a->nlev && i < CKPT_MAXLEV; i++) if (a->gs[i] != b->gs[i]) return 0;
+    return 1;
+}
+/* the restart scan (bs_ckpt_restart_scan) reads headers without aborting on a foreign set: the verdict goes to mn.c,
+ * which decides over all nodes (one node's abort would leave the others waiting in a collective) */
+static int g_ck_noabort = 0, g_ck_err = 0; static char g_ck_msg[1024];
 static int g_ck_node = -2;                            /* -1: single node (WP7 names); else this node-process's rank */
 static void ckpt_env(void) { if (g_ck_node == -2) g_ck_node = mn_size() > 1 ? mn_rank() : -1; }
 static void ckpt_path(char *buf, size_t sz, const char *kind, int level, const char *suffix, int r, int tmp)
@@ -444,10 +470,16 @@ static int ckpt_finish(FILE *f, int ok, const char *tmp, const char *final)
     if (!ok) { fprintf(stderr, "bs: checkpoint write failed for %s: %s\n", final, strerror(errno)); unlink(tmp); }
     return ok;
 }
+/* Phase 13 N (TASKS 4.1, 1.4): the context of a background tree-set write (bs_ckpt_bg_*) -- its own DMA buffers of `chunk`
+ * bytes (the pinned staging is released while it runs; a smaller chunk bounds the time to stop), a cancel flag the
+ * writer checks before every device read, the device reads in flight (the owner may overwrite or free P / Q once cancel
+ * is set and none is), and the bytes handed to the kernel so far (the measured rate).  0 = the synchronous write. */
+struct ckpt_io { size_t chunk; volatile int cancel, dma_active, pdone, qdone; volatile size_t bytes_p, bytes_all; };
 /* the 1 GiB host buffer for the DMA of thread r: region r's pinned staging (idle between levels), else malloc */
-static uint64_t *ckpt_buf(int r, int *own)
+static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 {
     *own = 0;
+    if (io) { *own = 1; return (uint64_t *)malloc(io->chunk); }   /* Phase 13 N: a background writer's own chunk */
     if (!bs_ckpt_own_buf && mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());   /* Phase 12 W: bs_ckpt_own_buf -> malloc */
     *own = 1; return (uint64_t *)malloc(CKPT_CHUNK);
 }
@@ -471,7 +503,7 @@ static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int wr
     char tmp[4096], final[4096];
     FILE *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
     int dev = mem_dev_of(pool), ok = 1, own = 0;
-    uint64_t *buf = dev >= 0 ? ckpt_buf(r, &own) : 0;
+    uint64_t *buf = dev >= 0 ? ckpt_buf(r, &own, 0) : 0;
     for (size_t lo = 0; lo < limbs && ok; lo += CKPT_CHUNK / 8) {
         size_t cnt = limbs - lo < CKPT_CHUNK / 8 ? limbs - lo : CKPT_CHUNK / 8;
         if (dev < 0) ok = write ? fwrite_all(f, pool + lo, cnt * 8) : fread_all(f, pool + lo, cnt * 8);
@@ -483,15 +515,24 @@ static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int wr
 }
 /* M6: the limbs [lo, hi) of a device number <-> the file, in runs inside one device quarter (limb g lives in
  * quarter (g >= qc) + (g >= 2 qc) + (g >= 3 qc), dbig.c), each run DMA'd on its quarter's device through buf */
-static int ckpt_dbig_io(FILE *f, dbig *x, size_t lo, size_t hi, uint64_t *buf, int write)
+static int ckpt_dbig_io(FILE *f, dbig *x, size_t lo, size_t hi, uint64_t *buf, int write, struct ckpt_io *io, int part)
 {
     if (x->off) { fprintf(stderr, "bs: checkpoint of a dbig view\n"); abort(); }
-    int ok = 1;
+    int ok = 1; size_t cap = (io ? io->chunk : CKPT_CHUNK) / 8;
     for (size_t i = lo; i < hi && ok;) {
         size_t d = (i >= x->qc) + (i >= 2 * x->qc) + (i >= 3 * x->qc), so = i - d * x->qc, run = x->qc - so;
         if (i + run > hi) run = hi - i;
-        if (run > CKPT_CHUNK / 8) run = CKPT_CHUNK / 8;
-        if (write) { mem_dev_copy_on((int)d, buf, x->q[d] + so, run * 8); ok = fwrite_all(f, buf, run * 8); }
+        if (run > cap) run = cap;
+        if (write && io) {                             /* Phase 13 N: announce the device read, then look at cancel (the owner sets cancel, then waits for no read in flight) */
+            __atomic_add_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST);
+            if (__atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST); return 0; }
+            mem_dev_copy_on((int)d, buf, x->q[d] + so, run * 8);
+            __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST);
+            ok = fwrite_all(f, buf, run * 8);
+            __atomic_add_fetch(part ? &io->bytes_all : &io->bytes_p, run * 8, __ATOMIC_RELAXED);
+            if (!part) __atomic_add_fetch(&io->bytes_all, run * 8, __ATOMIC_RELAXED);
+        }
+        else if (write) { mem_dev_copy_on((int)d, buf, x->q[d] + so, run * 8); ok = fwrite_all(f, buf, run * 8); }
         else { ok = fread_all(f, buf, run * 8); if (ok) mem_dev_copy_on((int)d, x->q[d] + so, buf, run * 8); }
         i += run;
     }
@@ -503,11 +544,11 @@ static int ckpt_devnodes_io(int level, struct level *lv, int r, int write)
 {
     char tmp[4096], final[4096];
     FILE *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
-    int ok = 1, own; uint64_t *buf = ckpt_buf(r, &own);
+    int ok = 1, own; uint64_t *buf = ckpt_buf(r, &own, 0);
     for (size_t i = 0; i < lv->n && ok; i++) {
         struct node *nd = &lv->nd[i];
-        ok = ckpt_dbig_io(f, nd->pd, range_lo(nd->pn, r), range_lo(nd->pn, r + 1), buf, write)
-          && ckpt_dbig_io(f, nd->qd, range_lo(nd->qn, r), range_lo(nd->qn, r + 1), buf, write);
+        ok = ckpt_dbig_io(f, nd->pd, range_lo(nd->pn, r), range_lo(nd->pn, r + 1), buf, write, 0, 0)
+          && ckpt_dbig_io(f, nd->qd, range_lo(nd->qn, r), range_lo(nd->qn, r + 1), buf, write, 0, 0);
     }
     if (own) free(buf);
     return ckpt_close(f, ok, write, tmp, final);
@@ -543,30 +584,38 @@ static int ckpt_write_hdr(const char *kind, struct ckpt_hdr *h, const struct ckp
     char tmp[4096], final[4096];
     ckpt_env();
     if (g_ck_node >= 0 || x->dev_nodes || x->kind) memcpy(h->magic, CKPT_MAGIC2, 8); else memcpy(h->magic, CKPT_MAGIC, 8);   /* v1 whenever v1 says it all: main's restart reads it */
+    struct ckpt_sched sc; ckpt_sched_now(&sc);
+    if (x->kind == 1) memcpy(h->magic, CKPT_MAGIC3, 8);   /* Phase 13 N: a tree set records its schedule */
     ckpt_path(tmp, sizeof tmp, kind, h->level, "hdr", -1, 1); ckpt_path(final, sizeof final, kind, h->level, "hdr", -1, 0);
     FILE *f = fopen(tmp, "wb");
-    int ok = f && fwrite_all(f, h, sizeof *h) && (h->magic[7] == '1' || fwrite_all(f, x, sizeof *x)) && (!h->node_bytes || fwrite_all(f, nodes, h->node_bytes));
+    int ok = f && fwrite_all(f, h, sizeof *h) && (h->magic[7] == '1' || fwrite_all(f, x, sizeof *x)) && (h->magic[7] != '3' || fwrite_all(f, &sc, sizeof sc))
+           && (!h->node_bytes || fwrite_all(f, nodes, h->node_bytes));
     if (!ckpt_finish(f, ok, tmp, final)) return 0;
     ckpt_sync_dir();
     return 1;
 }
 /* the header of <kind>_LLL: 1 if it belongs to this run (another run's set aborts) and, with check_files, its
  * region files have the sizes the header names (a complete set) */
-static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct ckpt_ext *x, unsigned long N, int check_files)
+static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct ckpt_ext *x, unsigned long N, int check_files, struct ckpt_sched *sc)
 {
     char p[4096]; ckpt_env();
     ckpt_path(p, sizeof p, kind, level, "hdr", -1, 0);
     FILE *f = fopen(p, "rb"); if (!f) return 0;
     memset(x, 0, sizeof *x);
-    int ok = fread_all(f, h, sizeof *h) && (!memcmp(h->magic, CKPT_MAGIC, 8) || (!memcmp(h->magic, CKPT_MAGIC2, 8) && fread_all(f, x, sizeof *x)));
+    struct ckpt_sched s3; memset(&s3, 0, sizeof s3); s3.nlev = -1;   /* nlev -1: not recorded (a v1/v2 set) */
+    int ok = fread_all(f, h, sizeof *h) && (!memcmp(h->magic, CKPT_MAGIC, 8) || (!memcmp(h->magic, CKPT_MAGIC2, 8) && fread_all(f, x, sizeof *x))
+                                            || (!memcmp(h->magic, CKPT_MAGIC3, 8) && fread_all(f, x, sizeof *x) && fread_all(f, &s3, sizeof s3)));
     fclose(f);
     if (!ok) return 0;
-    int v2 = h->magic[7] == '2', me = g_ck_node < 0 ? 0 : g_ck_node;
+    if (sc) *sc = s3;
+    int v2 = h->magic[7] >= '2', me = g_ck_node < 0 ? 0 : g_ck_node;
     if (h->N != N || h->decimal != bi_decimal || h->seed_terms != bs_seed_terms || h->nregions != NR
         || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
         || (!v2 && mn_size() > 1)) {
-        fprintf(stderr, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes): refusing to restart\n",
-                p, (unsigned long long)h->N, h->decimal ? "10^18" : "2^64", h->seed_terms, v2 ? x->size : 1);
+        snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
+                 p, (unsigned long long)h->N, h->decimal ? "10^18" : "2^64", h->seed_terms, v2 ? x->size : 1, v2 ? x->rank : 0, N, mn_size(), me);
+        if (g_ck_noabort) { g_ck_err = 1; return 0; }  /* Phase 13 N: the restart scan reports it; mn.c fails every node together */
+        fprintf(stderr, "%s\n", g_ck_msg);
         abort();
     }
     if (!check_files) return 1;
@@ -595,7 +644,7 @@ static size_t ckpt_write(struct level *cur, int which, int level, int mdev_host,
 static int ckpt_find_kind(const char *kind, unsigned long N)
 {
     int best = 0; struct ckpt_hdr h; struct ckpt_ext x;
-    for (int l = 1; l < 128; l++) if (ckpt_read_hdr(kind, l, &h, &x, N, 1) && l > best) best = l;
+    for (int l = 1; l < 128; l++) if (ckpt_read_hdr(kind, l, &h, &x, N, 1, 0) && l > best) best = l;
     return best;
 }
 static int ckpt_find(unsigned long N) { return ckpt_find_kind("level", N); }
@@ -603,10 +652,10 @@ static int ckpt_find(unsigned long N) { return ckpt_find_kind("level", N); }
 static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out, unsigned long N)
 {
     char p[4096]; struct ckpt_hdr h; struct ckpt_ext x;
-    if (!ckpt_read_hdr("level", level, &h, &x, N, 0)) return 0;
+    if (!ckpt_read_hdr("level", level, &h, &x, N, 0, 0)) return 0;
     ckpt_path(p, sizeof p, "level", level, "hdr", -1, 0);
     FILE *f = fopen(p, "rb"); if (!f) return 0;
-    int ok = fseek(f, (long)(sizeof h + (h.magic[7] == '2' ? sizeof x : 0)), SEEK_SET) == 0;
+    int ok = fseek(f, (long)(sizeof h + (h.magic[7] >= '2' ? sizeof x : 0)), SEEK_SET) == 0;   /* (a leaf set is v1 or v2) */
     cur->n = h.n; cur->nd = (struct node *)malloc(h.node_bytes);
     ok = ok && fread_all(f, cur->nd, h.node_bytes); fclose(f);
     if (!ok) { fprintf(stderr, "bs: checkpoint: bad header %s\n", p); return 0; }
@@ -630,18 +679,21 @@ static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out, 
     return ckpt_regions(level, cur, offr, 0, 0);
 }
 /* ---- M6: the tree levels' sets (mn.c) -- the node's shares of P and Q; file r = quarter r (by limb range) of P's share, then of Q's ---- */
-static int tree_io(int level, dbig *P, dbig *Q, int r, int write)
+static int tree_io(int level, dbig *P, dbig *Q, int r, int write, struct ckpt_io *io)
 {
     char tmp[4096], final[4096];
     FILE *f = ckpt_open("tree", level, r, write, tmp, final); if (!f) return 0;
-    int ok, own; uint64_t *buf = ckpt_buf(r, &own);
-    ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write);
+    int ok, own; uint64_t *buf = ckpt_buf(r, &own, write ? io : 0);
+    ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write, write ? io : 0, 0);
     if (write) __atomic_add_fetch(&bs_ckpt_tree_pdone, 1, __ATOMIC_RELEASE);   /* Phase 12 W: this file's P part is written (the fwrite returned: P's limbs are no longer read) */
-    ok = ok && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write);
+    if (write && io) __atomic_add_fetch(&io->pdone, 1, __ATOMIC_RELEASE);
+    ok = ok && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write, write ? io : 0, 1);
+    if (write && io) __atomic_add_fetch(&io->qdone, 1, __ATOMIC_RELEASE);        /* (after a cancel or a failure too: the file no longer reads P or Q) */
     if (own) free(buf);
+    if (write && io && __atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { fclose(f); unlink(tmp); return 0; }   /* abandoned: quietly, no fsync */
     return ckpt_close(f, ok, write, tmp, final);
 }
-size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q)
+static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q, struct ckpt_io *io, double *t_data)
 {
     struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
     h.N = N; h.decimal = bi_decimal; h.seed_terms = bs_seed_terms; h.level = level; h.nregions = NR;
@@ -650,24 +702,134 @@ size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], d
     mkdir(bs_ckpt_dir, 0777);
     int oks[NR]; bs_ckpt_tree_pdone = 0;
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
-    for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 1);
+    for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 1, io);
+    if (t_data) *t_data = mem_now();
     for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
     if (!ckpt_write_hdr("tree", &h, &x, 0)) return 0;
-    size_t bytes = sizeof h + sizeof x; for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
+    size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
+}
+size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { return tree_write(level, N, desc, P, Q, 0, 0); }
+
+/* ---- Phase 13 N (TASKS 4.1, 1.4): a tree set written by a background thread ----
+ * The top set (size 1: tree_000 from ecalc.c; size > 1: mn_tree's top level) is written while the reciprocal and the
+ * division run.  Each of the four files holds P's quarter, then Q's, so P is released first (the owner overwrites it
+ * with S = P + Q after the reciprocal) and Q later (the owner holds Q past the output stage when the writer still
+ * needs it).  bs_ckpt_bg_release(part) returns once the writer no longer reads that part: all files past it (1), or,
+ * budgeted (ECALC_CKPT_TOP=2), as soon as the measured rate -- the bytes handed to the kernel over the writer's
+ * elapsed time -- projects the rest of the part beyond `slack` seconds: the set is abandoned (the writer stops before
+ * its next device read, its temporaries are removed, no header: the directory keeps no partial set) and it returns 0.
+ * So the critical path waits at most `slack` per release plus one DMA of `chunk` bytes. */
+struct bs_ckpt_bg {
+    int level; unsigned long N; uint64_t desc[10]; dbig P, Q;   /* by value: the owner may move its descriptors (newton_mn_divmod's S = *P) */
+    int budget; double slack, t0, t_data, t1, t_wait[2], proj[2]; size_t bytes, tot_p, tot;
+    int abandoned, released[2]; pthread_t th; volatile int done; struct ckpt_io io;
+};
+static void *bg_run(void *a)
+{
+    struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)a;
+    b->bytes = tree_write(b->level, b->N, b->desc, &b->P, &b->Q, &b->io, &b->t_data);
+    b->t1 = mem_now(); __atomic_store_n(&b->done, 1, __ATOMIC_RELEASE); return 0;
+}
+struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t desc[10], const dbig *P, const dbig *Q, int budget, double slack)
+{
+    struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)calloc(1, sizeof *b);
+    b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
+    const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
+    b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
+    b->t0 = mem_now();
+    if (pthread_create(&b->th, 0, bg_run, b)) { fprintf(stderr, "bs: checkpoint: cannot start the background writer\n"); free(b); return 0; }
+    return b;
+}
+static int bg_part_done(struct bs_ckpt_bg *b, int part)
+{
+    return __atomic_load_n(&b->done, __ATOMIC_ACQUIRE) || __atomic_load_n(part ? &b->io.qdone : &b->io.pdone, __ATOMIC_ACQUIRE) >= NR;
+}
+int bs_ckpt_bg_done(struct bs_ckpt_bg *b, int part) { return !b || b->abandoned || bg_part_done(b, part); }
+int bs_ckpt_bg_release(struct bs_ckpt_bg *b, int part)
+{
+    if (!b) return 1;
+    double ts = mem_now(); int ok = 1;
+    if (b->abandoned) ok = 0;
+    else while (!bg_part_done(b, part)) {
+        if (b->budget) {
+            double now = mem_now(), waited = now - ts, el = now - b->t0;
+            size_t all = __atomic_load_n(&b->io.bytes_all, __ATOMIC_RELAXED), dp = __atomic_load_n(&b->io.bytes_p, __ATOMIC_RELAXED);
+            size_t rem = part ? (b->tot > all ? b->tot - all : 0) : (b->tot_p > dp ? b->tot_p - dp : 0);
+            double proj = all && el > 0 ? rem / (all / el) : 1e30;
+            if (waited >= b->slack || (all && proj > b->slack - waited)) {
+                b->proj[part] = proj;
+                __atomic_store_n(&b->io.cancel, 1, __ATOMIC_SEQ_CST);
+                while (__atomic_load_n(&b->io.dma_active, __ATOMIC_SEQ_CST)) usleep(200);   /* no device read of P or Q from here on */
+                b->abandoned = 1; ok = 0; break;
+            }
+        }
+        usleep(2000);
+    }
+    b->t_wait[part] += mem_now() - ts; b->released[part] = 1;
+    return ok;
+}
+size_t bs_ckpt_bg_join(struct bs_ckpt_bg *b, const char *who, const char *dir, double *t_write, double *t_wait)
+{
+    if (!b) return 0;
+    double tj = mem_now();
+    pthread_join(b->th, 0);
+    double t_join = mem_now() - tj, el = (b->abandoned ? tj : b->t_data) - b->t0;
+    size_t all = __atomic_load_n(&b->io.bytes_all, __ATOMIC_RELAXED); double rate = el > 0 ? all / el : 0;
+    size_t bytes = b->abandoned ? 0 : b->bytes;
+    if (b->abandoned)
+        printf("%scheckpoint: the top-level set (tree level %d) -> %s ABANDONED (ECALC_CKPT_TOP=2): %.2f of %.2f GB handed over in %.2f s (%.2f GB/s measured); "
+               "the %s part projected %.1f s more against a slack of %.1f s -- waited %.2f s for P, %.2f s for Q; no partial set is left\n",
+               who, b->level, dir, all * 1e-9, b->tot * 1e-9, el, rate * 1e-9, b->proj[1] > 0 ? "Q" : "P", b->proj[1] > 0 ? b->proj[1] : b->proj[0], b->slack, b->t_wait[0], b->t_wait[1]);
+    else
+        printf("%scheckpoint: the top-level P, Q -> %s (tree level %d): %.2f GB in %.2f s in the background (data %.2f s at %.2f GB/s, then fsync and header %.2f s); "
+               "waited %.2f s for P before S = P + Q, %.2f s for Q after the output stage, %.2f s at the join%s\n",
+               who, dir, b->level, bytes * 1e-9, b->t1 - b->t0, el, rate * 1e-9, b->t1 - b->t_data, b->t_wait[0], b->t_wait[1], t_join, bytes ? "" : "  FAILED");
+    if (t_write) *t_write = (b->abandoned ? tj : b->t1) - b->t0;
+    if (t_wait) *t_wait = b->t_wait[0] + b->t_wait[1] + t_join;
+    free(b);
+    return bytes;
+}
+/* Phase 13 N (TASKS 1.7): the restart scan -- this node's highest complete tree set of this run (0 = none) without aborting;
+ * *err: 0 fine, 1 a set (tree or leaf) of another run (N, base, seeds, node count, rank or term range), 2 a tree set written
+ * under another schedule (node count, MN_GROUPS level map); msg names the set and both sides.  A v2 tree set (no schedule
+ * recorded, from before Phase 13) is accepted with a warning in msg (*err 0). */
+int bs_ckpt_restart_scan(unsigned long N, int *err, char *msg, size_t msz)
+{
+    *err = 0; if (msg && msz) msg[0] = 0;
+    if (!bs_ckpt_dir) return 0;
+    struct ckpt_hdr h; struct ckpt_ext x; struct ckpt_sched sc, now; ckpt_sched_now(&now);
+    int best = 0; g_ck_noabort = 1; g_ck_err = 0;
+    for (int l = 1; l < 128 && !*err; l++) {
+        if (ckpt_read_hdr("tree", l, &h, &x, N, 1, &sc)) {
+            if (sc.nlev >= 0 && !ckpt_sched_eq(&sc, &now)) {
+                char a[256], c[256], p[4096]; ckpt_sched_str(&sc, a, sizeof a); ckpt_sched_str(&now, c, sizeof c); ckpt_path(p, sizeof p, "tree", l, "hdr", -1, 0);
+                snprintf(msg, msz, "bs: checkpoint %s (tree level %d) was written under the schedule [%s]; this run's schedule is [%s] -- tree sets are "
+                         "indexed by the schedule's level, so a restart must use the schedule that wrote them (the same MN_GROUPS and node count), or start afresh without BS_RESTART",
+                         p, l, a, c);
+                *err = 2; break;
+            }
+            if (sc.nlev < 0 && msg && !msg[0]) snprintf(msg, msz, "bs: warning: tree set level %d in %s records no schedule (written before Phase 13): assumed to match", l, bs_ckpt_dir);
+            if (l > best) best = l;
+        } else if (g_ck_err) { *err = 1; break; }
+        if (ckpt_read_hdr("level", l, &h, &x, N, 0, 0) == 0 && g_ck_err) { *err = 1; break; }   /* a leaf set of another run (its size, rank or terms) */
+    }
+    if (*err == 1 && msg) snprintf(msg, msz, "%s", g_ck_msg);
+    g_ck_noabort = 0; g_ck_err = 0;
+    return *err ? 0 : best;
 }
 int bs_ckpt_tree_find(unsigned long N) { return bs_ckpt_dir ? ckpt_find_kind("tree", N) : 0; }
 int bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], dbig *P, dbig *Q)
 {
     struct ckpt_hdr h; struct ckpt_ext x;
-    if (!ckpt_read_hdr("tree", level, &h, &x, N, 1)) return 0;
+    if (!ckpt_read_hdr("tree", level, &h, &x, N, 1, 0)) return 0;
     memcpy(desc, x.tree, sizeof x.tree);
     db_init(P); db_init(Q);
     if (desc[4]) { db_reserve(P, desc[4]); P->n = desc[4]; }
     if (desc[9]) { db_reserve(Q, desc[9]); Q->n = desc[9]; }
     int oks[NR];
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
-    for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 0);
+    for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 0, 0);
     for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
     return 1;
 }
