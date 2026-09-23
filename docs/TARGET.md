@@ -21,9 +21,9 @@ modelled. The integrator's M-run replaces the per-node inputs with measured ones
 | design (576 nodes, 100 GB/s per APU assumed) | per node (502 GB) | digits (502 / 480 GB) | wall at 4 × 10¹³ | wall at the 502-GB maximum |
 |---|---|---|---|---|
 | step 0 alone (C, the cap rule = 2³¹ at 576, no chunking, depth 1) | 7.29 × 10¹⁰ | 4.20 / 3.94 × 10¹³ | 3.74 min | 3.85 min |
-| fastest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.1 × 10¹⁰ | 4.11 / 3.85 × 10¹³ | 3.58 min | 3.63 min |
-| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.5 × 10¹⁰ | 5.47 / 5.13 × 10¹³ | 3.82 min | 6.08 min |
-| largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.27 min | 11.7 min |
+| fastest: step 0 + `ECALC_PLANE_CAP=2^31 COMM_ALLTOALLV_DEPTH=2` | 7.1 × 10¹⁰ | 4.11 / 3.85 × 10¹³ | 3.63 min | 3.68 min |
+| recommended: the fastest + `MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024` | 9.5 × 10¹⁰ | 5.47 / 5.13 × 10¹³ | 3.87 min | 6.19 min |
+| largest: `RNS_STRATEGY=B4 ECALC_PLANE_CAP=2^30`, both chunkings, depth 1 | 1.1 × 10¹¹ | 6.40 / 6.04 × 10¹³ | 5.43 min | 12.1 min |
 
 `./estimate.py --max --g 576` gives step 0 alone; `--strategy --cap --chunk --depth` give any row.
 
@@ -35,7 +35,9 @@ Labels:
   extra exchange round on the target (`T_ROUND`, 0.03 s, fitted on aac6 loopback).
 
 The ranking of the rows does not change between 50 and 200 GB/s per APU (Spearman ≥ 0.999). The chunk rounds' cost does
-move the chunked rows: the recommended row takes 3.65 min at 0.01 s per round and 4.41 min at 0.1 s. The exposed
+move the chunked rows: the recommended row takes 3.70 min at 0.01 s per round and 4.47 min at 0.1 s. The product
+strategy barely moves the 576-node wall (it acts only on each node's own top levels, and B / B4 pay for their extra
+planes in mapping time), so C stays the recommendation there; B / B4 pay at size 1. The exposed
 communication is about 25 % of the 576-node wall. That follows from X13's measured overlap: the equal-slab path hides
 3/4 of its xGMI time, and the general map at depth 1 hides almost nothing.
 
@@ -121,7 +123,7 @@ after the merge:
 |---|---|---|
 | `ECALC_NP` | 3 (the default for decimal limbs since step 0) | three primes: −17 % wall, −25.8 GB of planes per node (RESULTS §78); binary limbs need 4 |
 | `NTT_MODMUL` | 1 (the default since step 0) | the reduced-correction Barrett: +5–12 % per transform, bit-identical |
-| `RNS_STRATEGY` | the recommended row of `results/DESIGN_TABLE.md` (B4 as of this writing) | the single-node product's form: C four-step, B prime-per-APU, B4 over all four APUs, or auto. At 576 it acts on the leaf's top levels (agent B, p13b-B) |
+| `RNS_STRATEGY` | the recommended row of `results/DESIGN_TABLE.md` (C as of this writing) | the single-node product's form: C four-step, B prime-per-APU, B4 over all four APUs, or auto. At 576 it acts on the leaf's top levels (agent B, p13b-B) |
 | `ECALC_PLANE_CAP` | the recommended row (2^31 as of this writing) | the plane cap 2^30 / 3*2^29 / 2^31 / 3*2^30; it sets `POOL_LOG`, `RNS_PLANES_3Q30` and `DIST_LOGN_TEST`. `fit` takes the largest cap that fits (agent P, p13b-P) |
 | `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row | the sharded division's shift and the window temporary, in rounds: +1.3 × 10¹³ digits at 576, at one round's cost each (§6 item 4) |
 | `COMM_ALLTOALLV_DEPTH` | 2 in the recommended row | the uneven exchange (the 192- and 576-node levels, the machine-wide products) pipelined two deep (agent X, p13b-X) |
