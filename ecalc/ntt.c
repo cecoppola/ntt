@@ -29,7 +29,7 @@ int ntt_plan = -1;         /* NTT_PLAN (Phase 13b K): pass boundaries, 0 default
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
 int ntt_mall_get(void) { if (ntt_mall < 0) ntt_mall = env_int("NTT_MALL", 0); return ntt_mall; }
-int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 0); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 4; return ntt_b1r; }
+int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 0); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 3; return ntt_b1r; }   /* any other nonzero value: 3 (the faster) */
 int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 0); return ntt_plan; }
 
 /* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
