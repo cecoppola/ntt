@@ -84,6 +84,9 @@ def arena_bs_bytes(N, nterms, decimal=True):
     return out
 
 def quarter_bytes(limbs): return ((limbs + 3) // 4 + 4095) // 4096 * 4096 * 8
+def arena_of(base, want):
+    """binsplit.c arena_get: the two parities (base) + the extra up to the dm / tree need, rounded up to 2 MiB"""
+    ex = max(0, want - base); return base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
 
 def dm_layout(N, g, pool_log=31, decimal=True):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes)"""
@@ -336,7 +339,7 @@ def mem_per_node(D, g=1, opts=None):
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
-        arena = [max(b + (L['hole'] if o['tail'] == 'v1' else 0), want) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
+        arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
         pool_in_phase = 0
         pool_total = sum(arena)
     else:
@@ -349,7 +352,7 @@ def mem_per_node(D, g=1, opts=None):
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'])
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (4 * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
-    dev_init = planes + bs_total
+    dev_init = planes + (sum(arena) if o["tail"] else bs_total)          # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak)
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
     if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
@@ -387,6 +390,13 @@ MEASURED = [  # (D, g, phase peaks GB: planes, regions at init, pool total at th
     (1e11, 1, dict(planes=120.3, regions=333.1, pool=333.1, dev_dm=454.0, host=13.9, tail='v1', src='M11.md batch 2 (tail v1)')),
     (4e10, 1, dict(planes=120.3, regions=132.3, pool=132.3, dev_dm=253.1, host=11.7, tail=True, src='M11.md batch 3 (tail v2)')),
     (2.5e9, 4, dict(planes=34.4, regions=20.3, pool=20.3, dev_dm=56.8, host=29.3, tail=True, src='M11.md batch 3 (1e10 at size 4, POOL_LOG=29, per process)')),
+    # Phase 13a M (TASKS 1.1): the code as merged (3 2^k planes below 5e10 digits, tail v4, zero hipMalloc); 'planes' = the planes line, dev_dm = the device total
+    (1e10, 1, dict(planes=180.4, regions=53.4, pool=53.4, dev_dm=234.4, host=16.6, tail=True, p3=True, src='M13 b1 (job 21008): device 234.4 = 180.4 + 53.4 + 0.61, host HWM 16.6')),
+    (4e10, 1, dict(planes=180.4, regions=132.3, pool=132.3, dev_dm=313.3, host=12.1, tail=True, p3=True, src='M13 b1 (job 21008) = RESULTS 77: 313.3 = 180.4 + 132.3 + 0.61, host HWM 12.1')),
+    (8e10, 1, dict(planes=120.3, regions=248.2, pool=248.2, dev_dm=369.1, host=12.8, tail=True, src='M11 v3/v4 (tail): device 369.1, host 12.8')),
+    (1e11, 1, dict(planes=120.3, regions=310.3, pool=310.3, dev_dm=431.2, host=14.0, tail=True, src='M11 v4 (tail): device 431.2, host 14.0 (node 445)')),
+    (2.5e9, 4, dict(planes=34.4, regions=19.9, pool=19.9, dev_dm=56.6, host=29.3, tail=True, src='M13 b1 (job 21008) 1e10 at size 4, POOL_LOG=29, per process: 56.6 = 34.4 + 19.9 + 2.3; hipMalloc 0')),
+
 ]
 
 def fmt(b): return '%7.1f' % (b / GB)
@@ -398,7 +408,7 @@ def main():
         r = mem_per_node(int(D), g, dict(tail=m['tail'], pool_log=29 if g > 1 else 31, planes_3q30=m.get('p3', False)))
         print('%-8.0e %2d | %-22s | %s %s %s %s | %s' % (D, g, 'measured', fmt(m['planes'] * GB), fmt(m['regions'] * GB), fmt(m['pool'] * GB), fmt(m['dev_dm'] * GB), m['src']))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail %s)' % m['tail'], fmt(r['planes']), fmt(r['regions_bs'] if not m['tail'] else r['arena']), fmt(r['pool_total']), fmt(r['dev_dm']),
-              'dev_dm %+.1f %%' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1))))
+              'dev_dm %+.1f %%, node peak %+.1f %% (measured %.1f = device + host HWM)' % (100.0 * (r['dev_dm'] / GB / m['dev_dm'] - 1), 100.0 * (r['node_peak'] / GB / (m['dev_dm'] + m['host']) - 1), m['dev_dm'] + m['host'])))
         if m['tail']: continue
         r2 = mem_per_node(int(D), g, dict(tail=True))
         print('%-8s %2s | %-22s | %s %s %s %s | %s' % ('', '', 'model (tail on)', fmt(r2['planes']), fmt(r2['regions_bs']), fmt(r2['pool_total']), fmt(r2['dev_dm']), 'node peak %.1f' % (r2['node_peak'] / GB)))
@@ -441,7 +451,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=0):
         L = dm_layout(N, g, pool_log); sc = []
         tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb) if g > 1 else 0
         need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
-        bs = arena_bs_bytes(N, (N + g - 1) // g); ar = sum(max(b, want) for b in bs)
+        bs = arena_bs_bytes(N, (N + g - 1) // g); ar = sum(arena_of(b, want) for b in bs)
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
