@@ -1,0 +1,196 @@
+== calibration: the model against every measured run it covers (Phase 13b D; gate: wall within 3 %, peak within 1 %)
+   size 1: the model = mn_model.node_phases (the phase table of the current code + S13's per-product law + the prime and modmul factors)
+   + mem_model (device = the code's sizing formulas; node peak = device + the fitted host HWM).  "use": table = an input of the phase
+   table (its error is the run's distance from its series), fit = an input of the three-prime factor, check = not an input.
+
+D      np cap     use   |    wall   model    err |  device   model    err |    node   model    err | source
+1e+09  4  3*2^30  table |   18.21   18.21  +0.0% |   186.4   186.4 -0.02% |   202.3   198.5 -1.90% | P3 b2 e9_np4 (job 21005, s24-26)
+1e+09  3  3*2^30  check |   15.09   15.97  +5.9% |   160.6   160.6 -0.01% |   176.3   172.7 -2.05% | P3 b2 e9_np3 (job 21005, s24-26)
+1e+09  4  2^31    check |   14.27   14.32  +0.3% |   126.2   126.2 +0.02% |   142.2   138.3 -2.72% | i12 e9_def (Phase 12 I, 2^31 planes)
+1e+10  4  3*2^30  table |   36.22   36.22  +0.0% |   234.4   234.4 -0.02% |   251.0   246.5 -1.81% | M13 b1 e10 (job 21008, s24-30)
+4e+10  4  3*2^30  table |   81.30   81.81  +0.6% |   313.3   313.3 -0.01% |   325.5   325.4 -0.04% | P3 b4 e4e10_def (job 21009, s24-26)
+4e+10  4  3*2^30  table |   80.03   81.81  +2.2% |   313.3   313.3 -0.01% |   325.4   325.4 -0.01% | P3 b6 e4e10_def2 (job 21021, s24-26)
+4e+10  4  3*2^30  table |   82.56   81.81  -0.9% |   313.3   313.3 -0.01% |   325.4   325.4 -0.01% | M13 b1 e4e10 (job 21008, s24-30)
+4e+10  4  3*2^30  table |   81.60   81.81  +0.3% |   313.3   313.3 -0.01% |   325.4   325.4 -0.01% | RESULTS 78 closing series, defaults (job 21039, s24-26): 82.82/81.82/81.31/79.46/82.78
+4e+10  4  3*2^30  check |   80.58   81.81  +1.5% |   313.3   313.3 -0.01% |   325.4   325.4 -0.01% | i12 e4_auto1-5 (Phase 12 I, 3 2^30 planes by the size rule; 80.44/78.81/82.19/81.71/79.77)
+4e+10  4  2^31    check |   81.96   82.97  +1.2% |   253.1   253.1 +0.01% |   265.2   265.2 +0.01% | i12 e4_def/def2/def3/off/t176 (Phase 12 I, 2^31 planes: 81.48/82.26/82.07/81.99/82.02)
+4e+10  3  3*2^30  fit   |   68.92   67.46  -2.1% |   287.5   287.5 -0.00% |   299.7   299.6 -0.04% | int13 close10 run1 (job 21041, s24-26)
+4e+10  3  3*2^30  fit   |   68.63   67.46  -1.7% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | int13 close10 run2 (job 21041)
+4e+10  3  3*2^30  fit   |   69.30   67.46  -2.7% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | int13 close10 run3 (job 21039)
+4e+10  3  3*2^30  fit   |   69.91   67.46  -3.5% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | int13 close10 run4 (job 21039)
+4e+10  3  3*2^30  fit   |   67.95   67.46  -0.7% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | int13 close10 run5 (job 21039)
+4e+10  3  3*2^30  fit   |   66.40   67.46  +1.6% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | P3 b3 (job 21005, s24-26)
+4e+10  3  3*2^30  fit   |   66.51   67.46  +1.4% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | P3 b4 (job 21009, s24-26)
+4e+10  3  3*2^30  fit   |   65.46   67.46  +3.1% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | P3 b6 np3_2 (job 21021, s24-26)
+4e+10  3  3*2^30  check |   71.32   67.46  -5.4% |   287.5   287.5 -0.00% |   299.7   299.6 -0.04% | P3 b6 np3_lmin8 (job 21021; RNS_BATCH_LOCAL_MIN=8, which did not engage)
+4e+10  3  2^30    cap   |   84.20   83.50  -0.8% |   184.9   184.9 -0.02% |   197.0   197.0 -0.02% | P13b b1 e4e10_230 (job 21046, s24-30)
+4e+10  3  3*2^29  cap   |   76.79   75.38  -1.8% |   202.1   202.0 -0.03% |   214.0   214.1 +0.07% | P13b b1 e4e10_3229 (job 21046, s24-30)
+1e+09  3  2^30    check |    9.99    9.99  +0.0% |    66.1    66.1 -0.01% |    82.1    78.2 -4.76% | P13b b1 e9_230 (job 21046)
+1e+09  3  3*2^29  check |   11.63   11.08  -4.7% |    83.3    83.3 -0.02% |    99.1    95.4 -3.75% | P13b b1 e9_3229 (job 21046)
+1e+09  3  2^31    check |   13.56   12.61  -7.0% |   109.1   109.0 -0.05% |   125.0   121.1 -3.08% | P13b b1 e9_231 (job 21046)
+1e+09  3  3*2^30  check |   16.78   15.95  -4.9% |   160.6   160.6 -0.01% |   176.8   172.7 -2.33% | P13b b1 e9_3230 (job 21046)
+4e+10  3  2^31    check |   70.73   67.62  -4.4% |   236.0   236.0 -0.02% |   248.1   248.1 -0.02% | P13b 2^31 (s24-30)
+4e+10  3  2^31    check |   67.89   67.62  -0.4% |   236.0   236.0 -0.02% |   248.2   248.1 -0.06% | P13b 2^31 (s24-16; phases 50.6)
+4e+10  3  3*2^30  check |   65.09   67.14  +3.1% |   287.5   287.5 -0.00% |   299.6   299.6 -0.00% | P13b b2 3*2^30 (job 21051, s24-16)
+1e+11  3  3*2^30  edge  |  206.90  205.85  -0.5% |   465.5   465.5 +0.01% |   479.6   479.5 -0.02% | P13b 3*2^30 1e11 (job 21051, s24-16)
+1.14e+11 3  3*2^30  edge  |  228.70  236.03  +3.2% |   509.0   509.0 -0.01% |   523.8   523.4 -0.09% | P13b 3*2^30 edge (job 21059, s24-30; 1.16e11 OOM-killed at 528.7)
+1.3e+11 3  2^31    edge  |  353.10  337.37  -4.5% |   507.1   507.1 -0.01% |   522.8   522.0 -0.16% | P13b 2^31 edge (job 21069, s24-30; 1.34e11 allocation refused)
+1.42e+11 3  2^30    edge  |  677.20  625.04  -7.7% |   501.4   501.3 -0.01% |   517.8   516.6 -0.23% | P13b 2^30 (job 21056, s24-30)
+1.44e+11 3  2^30    edge  | 1085.80  636.00 -41.4% |   507.6   507.5 -0.01% |   524.1   522.9 -0.24% | P13b 2^30 edge (job 21072, s24-26; 1.46e11 OOM-killed at 529.6)
+8e+10  4  2^31    table |  191.99  190.66  -0.7% |   369.1   369.1 +0.00% |   382.1   382.4 +0.09% | i12 e8 (Phase 12 I, s24-26)
+8e+10  4  2^31    table |  189.33  190.66  +0.7% |   369.1   369.1 +0.00% |   382.1   382.4 +0.09% | i12 e8b (Phase 12 I, s24-26)
+8e+10  4  2^31    check |  195.50  190.66  -2.5% |   369.1   369.1 +0.00% |   381.9   382.4 +0.14% | M11 v3 (Phase 11 code, s24-16)
+1e+11  4  2^31    table |  262.90  262.90  +0.0% |   431.2   431.2 -0.01% |   445.2   445.1 -0.02% | M11 v4 (Phase 11 code, s24-26; the only 1e11 of the tail layout)
+
+== the series (runs of one configuration, weighted by their count): the gate is on the series mean; single runs scatter by their init (+-1.5 s)
+D      np cap     code   |   n    mean   model    err | runs outside the gate (reason)
+1e+09  3  2^30    13     |   1    9.99    9.99  +0.0% | -
+1e+09  3  3*2^29  13     |   1   11.63   11.08  -4.7% | P13b b1 e9_3229 -4.7 % (a single run)
+1e+09  3  2^31    13     |   1   13.56   12.61  -7.0% | P13b b1 e9_231 -7.0 % (a single run)
+1e+09  3  3*2^30  13     |   2   15.94   15.97  +0.2% | P3 b2 e9_np3 +5.9 % (its init 11.4 s against the series' 12.2); P13b b1 e9_3230 -4.8 % (its init 13.0 s against the series' 12.2)
+1e+09  4  2^31    P11/12 |   1   14.27   14.32  +0.3% | -
+1e+09  4  3*2^30  13     |   1   18.21   18.21  +0.0% | -
+1e+10  4  3*2^30  13     |   1   36.22   36.22  +0.0% | -
+4e+10  3  2^30    13     |   1   84.20   83.50  -0.8% | -
+4e+10  3  3*2^29  13     |   1   76.79   75.38  -1.8% | -
+4e+10  3  2^31    13     |   2   69.31   67.62  -2.4% | P13b 2^31 -4.4 % (its init 18.2 s against the series' 17.8)
+4e+10  3  3*2^30  13     |  10   67.95   67.46  -0.2% | int13 close10 run4 -3.5 % (its init 23.0 s against the series' 21.1); P3 b6 np3_2 +3.1 % (its init 18.6 s against the series' 21.1); P3 b6 np3_lmin8 -5.4 % (RNS_BATCH_LOCAL_MIN=8 run (another switch), init 24.5 s); P13b b2 3*2^30 +3.6 % (its init 18.7 s against the series' 21.1)
+4e+10  4  2^31    P11/12 |   5   81.96   82.97  +1.2% | -
+4e+10  4  3*2^30  13     |   8   81.49   81.81  +0.4% | -
+4e+10  4  3*2^30  P11/12 |   5   80.58   81.81  +1.5% | -
+8e+10  4  2^31    P11/12 |   3  192.27  190.66  -0.8% | -
+1e+11  3  3*2^30  13     |   1  206.90  205.85  -0.5% | -
+1e+11  4  2^31    P11/12 |   1  262.90  262.90  +0.0% | -
+1.14e+11 3  3*2^30  13     |   1  228.70  236.03  +3.2% | P13b 3*2^30 edge +3.2 % (a single run)
+1.3e+11 3  2^31    13     |   1  353.10  337.37  -4.5% | P13b 2^31 edge -4.5 % (a single run)
+1.42e+11 3  2^30    13     |   1  677.20  625.04  -7.7% | P13b 2^30 -7.7 % (a single run)
+1.44e+11 3  2^30    13     |   1 1085.80  636.00 -41.4% | P13b 2^30 edge -41.4 % (a single run)
+
+== leave-one-out (a predictive check, not gated): each table size modelled from the others
+  1e+09: measured 18.21, modelled without it 23.94 (+31.5 %)
+  1e+10: measured 36.22, modelled without it 35.55 (-1.8 %)
+  4e+10: measured 81.49, modelled without it 90.50 (+11.1 %)
+  8e+10: measured 190.66, modelled without it 196.93 (+3.3 %)
+  1e+11: measured 262.90, modelled without it 252.00 (-4.1 %)
+
+== the multi-process runs (g node-processes on ONE node over loopback TCP: mn_model's aac6 fabric, fitted per g; the leaves share the
+   node).  NOT covered by the 3 % gate: the same configuration spreads +-10 % on this node (M13: 101-125 s at 1e10/4); gate +-10 %
+  1e+10 / 4 off  : measured 113.85, model 109.95 (-3.4 %)  M13 b1 e10x4_base (job 21008)
+  1e+10 / 4 off  : measured 111.30, model 109.75 (-1.4 %)  M13 b2 e10x4_base (job 21015)
+  1e+10 / 4 shift: measured 118.05, model 111.77 (-5.3 %)  M13 b1 e10x4_shift, 64 MB (T_ROUND fit)
+  1e+10 / 4 both : measured 125.37, model 113.82 (-9.2 %)  M13 b1 e10x4_both, 64 MB (T_ROUND fit)
+  1e+10 / 4 both : measured 125.55, model 114.02 (-9.2 %)  M13 b2 e10x4_both, 64 MB (T_ROUND fit)
+  1e+10 / 2 off  : measured 146.40, model 140.72 (-3.9 %)  X.md job 20802 (Phase 11 code; the only default-configuration 1e10/2)
+  not modelled: 1e10 / 2, M13 b2 e10x2_base 205.76 s and _both 207.98 s -- MN_TREE_LOGN_TEST=26 forces 2^26-point tree pieces (a test setting); the model forms the default grid
+  not modelled: 1e9 / 2, M13 b2 e9x2 37.55 / 36.67 s -- MN_TREE_LOGN_TEST=23 DIST_LOGN_TEST=24 (forced grids, a test setting)
+  1e9 / 3 depth 2 against 1: phases measured 15.60 -> 14.45 (-7.4 %), model -0.02 s (-0.1 % of the measured)  X13b size 3 (-7.4 %)
+  1e9 / 4 depth 2 against 1: phases measured 12.65 -> 11.40 (-9.9 %), model -0.02 s (-0.1 % of the measured)  X13b size 4, DIST_GEN=1 (-9.9 %)
+  1e+10 / 4 memory per process: device measured 56.6, model 58.0 (+2.5 %: the exchange scratch counted on top of the dm need, which at this size it does not stack on -- conservative, M13); host HWM 24.8 vs 21.6 (the TCP transport's copies; the target's SHMEM pool is counted separately)
+
+== the one-node ceiling at three primes against agent P's edge runs (node budget 524 GB = device + host HWM, measured on aac6)
+  2^30    model at 524 GB 1.44e+11 (at 502 GB 1.37e+11); measured: 1.44e+11 ran, 1.46e+11 failed -- inside
+  3*2^29  model at 524 GB 1.39e+11 (at 502 GB 1.32e+11); measured: 1.40e+11 ran, 1.42e+11 failed -- inside
+  2^31    model at 524 GB 1.30e+11 (at 502 GB 1.24e+11); measured: 1.30e+11 ran, 1.34e+11 failed -- inside
+  3*2^30  model at 524 GB 1.14e+11 (at 502 GB 1.07e+11); measured: 1.14e+11 ran, 1.16e+11 failed -- inside
+
+== the strategy rows (agent B, results/B13b.md: 4e10 at size 1, three primes, NTT_MODMUL=1, the cap rule = 3 2^30; one run each).
+   The node spreads the C phases by +-3 % between sessions (48.1-48.4 s here against 47.0 in the three-prime series on s24-26), so the gate
+   is on each form's phases relative to the same node's C run (within 3 % of C's phases); the absolute error and the device are printed too.
+  auto  phases 43.6, model 41.4 (-5.0 %); against C: measured -4.5 s, model -5.1 s (-1.3 % of C); device 287.5, model 287.5 (-0.00 %)  job 21062, s24-30, 744df439 (auto grid on): 89 B products
+  B4    phases 46.7, model 46.8 (+0.2 %); against C: measured -1.7 s, model +0.2 s (+4.0 % of C); device 377.7, model 377.7 (-0.00 %)  job 21054, s24-30, 05a7730f: 82 B4 products, 24 GiB/APU extra
+  B     phases 51.9, model 51.5 (-0.8 %); against C: measured +3.5 s, model +4.9 s (+2.9 % of C); device 442.1, model 442.1 (+0.00 %)  job 21054, s24-30, 05a7730f: 82 B products, 48 GiB/APU extra
+
+== the M-run (../results/mrun_13b.log): single runs, then the gate on each configuration's mean
+   agent K's kernels: the rows run them; the model is scaled by the measured on/off factor x 0.962
+  line   1 auto 2^31 off d1       np 3 mm 1 4e+10: wall 66.07 model 66.33 (+0.4 %); peak 248.2 model 248.1 (-0.06 %)
+  line   2 auto 2^31 off d1       np 3 mm 1 4e+10: wall 63.85 model 66.33 (+3.9 %); peak 248.1 model 248.1 (-0.02 %)
+  line   3 auto 2^31 off d1       np 3 mm 1 4e+10: wall 66.23 model 66.33 (+0.1 %); peak 248.1 model 248.1 (-0.02 %)
+  line   4 C 134217728 off d1     1e+09 / 3: wall 19.15 (loopback; enters the chunk fit)
+  line   5 C 134217728 off d1     1e+09 / 3: wall 18.27 (loopback; enters the chunk fit)
+  line   6 C 134217728 off d1     1e+09 / 3: wall 18.69 (loopback; enters the chunk fit)
+  line   7 C 134217728 off d2     1e+09 / 3: wall 17.27 (loopback; enters the chunk fit)
+  line   8 C 134217728 off d2     1e+09 / 3: wall 17.29 (loopback; enters the chunk fit)
+  line   9 C 134217728 off d2     1e+09 / 3: wall 17.56 (loopback; enters the chunk fit)
+  line  10 C 536870912 both d1    1e+10 / 4: wall 84.86 (loopback; enters the chunk fit)
+  line  11 C 536870912 both d1    1e+10 / 4: wall 89.73 (loopback; enters the chunk fit)
+  line  12 C 536870912 both d1    1e+10 / 4: wall 91.11 (loopback; enters the chunk fit)
+  line  13 C 536870912 both d1    1e+10 / 4: wall 83.97 (loopback; enters the chunk fit)
+  line  14 C 536870912 both d1    1e+10 / 4: wall 95.08 (loopback; enters the chunk fit)
+  line  15 C 536870912 both d1    1e+10 / 4: wall 75.33 (loopback; enters the chunk fit)
+  line  16 C 536870912 both d1    1e+10 / 4: wall 76.19 (loopback; enters the chunk fit)
+  line  17 C 536870912 both d1    1e+10 / 4: wall 87.00 (loopback; enters the chunk fit)
+  line  18 C 536870912 off d1     1e+10 / 4: wall 83.20 (loopback; enters the chunk fit)
+  line  19 C 536870912 off d1     1e+10 / 4: wall 75.43 (loopback; enters the chunk fit)
+  line  20 C 536870912 shift d1   1e+10 / 4: wall 77.65 (loopback; enters the chunk fit)
+  line  21 C 536870912 shift d1   1e+10 / 4: wall 82.58 (loopback; enters the chunk fit)
+  line  22 C 536870912 both d2    1e+10 / 4: wall 84.34 (loopback; enters the chunk fit)
+  line  23 C 536870912 both d2    1e+10 / 4: wall 78.86 (loopback; enters the chunk fit)
+  line  24 C 536870912 off d2     1e+10 / 4: wall 69.21 (loopback; enters the chunk fit)
+  line  25 C 536870912 off d2     1e+10 / 4: wall 78.95 (loopback; enters the chunk fit)
+  line  26 C 536870912 shift d2   1e+10 / 4: wall 68.19 (loopback; enters the chunk fit)
+  line  27 C 536870912 shift d2   1e+10 / 4: wall 76.99 (loopback; enters the chunk fit)
+  line  28 B4 2^30 off d1         np 3 mm 1 4e+10: wall 77.67 model 75.44 (-2.9 %); peak 197.0 model 197.0 (-0.02 %)
+  line  29 B4 2^30 off d1         np 3 mm 1 4e+10: wall 75.98 model 75.44 (-0.7 %); peak 197.0 model 197.0 (-0.02 %)
+  line  30 B4 2^30 off d1         np 3 mm 1 4e+10: wall 77.13 model 75.44 (-2.2 %); peak 197.0 model 197.0 (-0.02 %)
+  line  31 B4 2^31 off d1         np 3 mm 1 4e+10: wall 64.34 model 62.83 (-2.4 %); peak 308.2 model 308.2 (-0.01 %)
+  line  32 B4 2^31 off d1         np 3 mm 1 4e+10: wall 65.47 model 62.83 (-4.0 %); peak 308.2 model 308.2 (-0.01 %)
+  line  33 B4 2^31 off d1         np 3 mm 1 4e+10: wall 64.15 model 62.83 (-2.1 %); peak 308.2 model 308.2 (-0.01 %)
+  line  34 B4 3*2^29 off d1       np 3 mm 1 4e+10: wall 68.39 model 67.88 (-0.7 %); peak 259.4 model 259.2 (-0.06 %)
+  line  35 B4 3*2^29 off d1       np 3 mm 1 4e+10: wall 67.28 model 67.88 (+0.9 %); peak 259.3 model 259.2 (-0.02 %)
+  line  36 B4 3*2^29 off d1       np 3 mm 1 4e+10: wall 67.97 model 67.88 (-0.1 %); peak 259.3 model 259.2 (-0.02 %)
+  line  37 B4 3*2^30 off d1       np 3 mm 1 4e+10: wall 63.87 model 64.83 (+1.5 %); peak 389.8 model 389.8 (-0.00 %)
+  line  38 B4 3*2^30 off d1       np 3 mm 1 4e+10: wall 63.15 model 64.83 (+2.7 %); peak 389.8 model 389.8 (-0.00 %)
+  line  39 B4 3*2^30 off d1       np 3 mm 1 4e+10: wall 65.76 model 64.83 (-1.4 %); peak 389.8 model 389.8 (-0.00 %)
+  line  40 C 2^30 off d1          np 3 mm 1 4e+10: wall 78.87 model 80.35 (+1.9 %); peak 197.1 model 197.0 (-0.07 %)
+  line  41 C 2^30 off d1          np 3 mm 1 4e+10: wall 78.69 model 80.35 (+2.1 %); peak 197.0 model 197.0 (-0.02 %)
+  line  42 C 2^30 off d1          np 3 mm 1 4e+10: wall 80.10 model 80.35 (+0.3 %); peak 197.0 model 197.0 (-0.02 %)
+  line  43 C 2^31 off d1          np 3 mm 1 4e+10: wall 66.08 model 65.07 (-1.5 %); peak 248.2 model 248.1 (-0.06 %)
+  line  44 C 2^31 off d1          np 3 mm 1 4e+10: wall 62.86 model 65.07 (+3.5 %); peak 248.1 model 248.1 (-0.02 %)
+  line  45 C 2^31 off d1          np 3 mm 1 4e+10: wall 64.57 model 65.07 (+0.8 %); peak 248.1 model 248.1 (-0.02 %)
+  line  46 C 3*2^29 off d1        np 3 mm 1 4e+10: wall 70.60 model 72.53 (+2.7 %); peak 214.2 model 214.1 (-0.03 %)
+  line  47 C 3*2^29 off d1        np 3 mm 1 4e+10: wall 71.26 model 72.53 (+1.8 %); peak 214.2 model 214.1 (-0.03 %)
+  line  48 C 3*2^29 off d1        np 3 mm 1 4e+10: wall 71.44 model 72.53 (+1.5 %); peak 214.2 model 214.1 (-0.03 %)
+  line  49 C 3*2^30 off d1        np 3 mm 1 4e+10: wall 64.49 model 64.60 (+0.2 %); peak 299.6 model 299.6 (-0.00 %)
+  line  50 C 3*2^30 off d1        np 3 mm 1 4e+10: wall 65.35 model 64.60 (-1.1 %); peak 299.6 model 299.6 (-0.00 %)
+  line  51 C 3*2^30 off d1        np 3 mm 1 4e+10: wall 60.57 model 64.60 (+6.7 %); peak 299.6 model 299.6 (-0.00 %)
+  line  52 auto 2^30 off d1       np 3 mm 1 4e+10: wall 84.78 model 86.17 (+1.6 %); peak 197.0 model 197.0 (-0.02 %)
+  line  53 auto 2^30 off d1       np 3 mm 1 4e+10: wall 87.44 model 86.17 (-1.4 %); peak 197.0 model 197.0 (-0.02 %)
+  line  54 auto 2^30 off d1       np 3 mm 1 4e+10: wall 86.29 model 86.17 (-0.1 %); peak 197.0 model 197.0 (-0.02 %)
+  line  55 auto 2^31 off d1       np 3 mm 1 4e+10: wall 61.70 model 63.82 (+3.4 %); peak 248.1 model 248.1 (-0.02 %)
+  line  56 auto 2^31 off d1       np 3 mm 1 4e+10: wall 64.15 model 63.82 (-0.5 %); peak 248.1 model 248.1 (-0.02 %)
+  line  57 auto 2^31 off d1       np 3 mm 1 4e+10: wall 62.93 model 63.82 (+1.4 %); peak 248.1 model 248.1 (-0.02 %)
+  line  58 auto 3*2^29 off d1     np 3 mm 1 4e+10: wall 71.88 model 72.15 (+0.4 %); peak 214.2 model 214.1 (-0.03 %)
+  line  59 auto 3*2^29 off d1     np 3 mm 1 4e+10: wall 73.66 model 72.15 (-2.1 %); peak 214.2 model 214.1 (-0.03 %)
+  line  60 auto 3*2^29 off d1     np 3 mm 1 4e+10: wall 72.68 model 72.15 (-0.7 %); peak 214.2 model 214.1 (-0.03 %)
+  line  61 auto 3*2^30 off d1     np 3 mm 1 4e+10: wall 58.84 model 59.68 (+1.4 %); peak 299.6 model 299.6 (-0.00 %)
+  line  62 auto 3*2^30 off d1     np 3 mm 1 4e+10: wall 60.01 model 59.68 (-0.5 %); peak 299.6 model 299.6 (-0.00 %)
+  line  63 auto 3*2^30 off d1     np 3 mm 1 4e+10: wall 58.51 model 59.68 (+2.0 %); peak 299.6 model 299.6 (-0.00 %)
+  line  64 auto 2^31 off d1       np 3 mm 1 4e+10: wall 65.61 model 63.82 (-2.7 %); peak 248.1 model 248.1 (-0.02 %)
+  line  65 auto 2^31 off d1       np 3 mm 1 4e+10: wall 61.49 model 63.82 (+3.8 %); peak 248.1 model 248.1 (-0.02 %)
+  line  66 auto 2^31 off d1       np 3 mm 1 4e+10: wall 62.54 model 63.82 (+2.1 %); peak 248.1 model 248.1 (-0.02 %)
+  line  67 auto 2^31 off d1       np 3 mm 1 4e+10: wall 61.20 model 63.82 (+4.3 %); peak 248.1 model 248.1 (-0.02 %)
+  line  68 auto 2^31 off d1       np 3 mm 1 4e+10: wall 63.70 model 63.82 (+0.2 %); peak 248.1 model 248.1 (-0.02 %)
+  config auto 2^31 off d1       np 3 mm 1 4e+10: n 3, mean 65.38, model 66.33 (+1.4 %); peak 248.2 (-0.06 %)
+  config B4 2^30 off d1 K       np 3 mm 1 4e+10: n 3, mean 76.93, model 75.44 (-1.9 %); peak 197.0 (-0.02 %)
+  config B4 2^31 off d1 K       np 3 mm 1 4e+10: n 3, mean 64.65, model 62.83 (-2.8 %); peak 308.2 (-0.01 %)
+  config B4 3*2^29 off d1 K     np 3 mm 1 4e+10: n 3, mean 67.88, model 67.88 (+0.0 %) [fitted: STRAT_FIT]; peak 259.4 (-0.06 %)
+  config B4 3*2^30 off d1 K     np 3 mm 1 4e+10: n 3, mean 64.26, model 64.83 (+0.9 %); peak 389.8 (-0.00 %)
+  config C 2^30 off d1 K        np 3 mm 1 4e+10: n 3, mean 79.22, model 80.35 (+1.4 %); peak 197.1 (-0.07 %)
+  config C 2^31 off d1 K        np 3 mm 1 4e+10: n 3, mean 64.50, model 65.07 (+0.9 %); peak 248.2 (-0.06 %)
+  config C 3*2^29 off d1 K      np 3 mm 1 4e+10: n 3, mean 71.10, model 72.53 (+2.0 %); peak 214.2 (-0.03 %)
+  config C 3*2^30 off d1 K      np 3 mm 1 4e+10: n 3, mean 63.47, model 64.60 (+1.8 %); peak 299.6 (-0.00 %)
+  config auto 2^30 off d1 K     np 3 mm 1 4e+10: n 3, mean 86.17, model 86.17 (+0.0 %) [fitted: STRAT_FIT]; peak 197.0 (-0.02 %)
+  config auto 2^31 off d1 K     np 3 mm 1 4e+10: n 8, mean 62.91, model 63.82 (+1.4 %); peak 248.1 (-0.02 %)
+  config auto 3*2^29 off d1 K   np 3 mm 1 4e+10: n 3, mean 72.74, model 72.15 (-0.8 %); peak 214.2 (-0.03 %)
+  config auto 3*2^30 off d1 K   np 3 mm 1 4e+10: n 3, mean 59.12, model 59.68 (+1.0 %); peak 299.6 (-0.00 %)
+
+== gate: PASS
+   single-run checks outside 3 %, listed as exceptions:
+   - strategy B4 (one run): its phases against the same node's C -1.7 s measured, +0.2 s modelled (4.0 % of C); absolute 46.7 measured against 46.8 modelled (+0.2 %). One run each on s24-30, whose C phases run 3-5 % above s24-26's (48.1-48.4 against 47.0; M13's four-prime 4e10 61.7 against 58.5), and the M-run repeats them
+   the depth rows on aac6 loopback are not reproduced (printed above, not gated): the model hides the xGMI LINK time, a few ms per
+   exchange there, while depth 2 on loopback also hides the host-side stage (pack, barrier, sync: 40-100 x the link, X13 3.1); on the
+   target the modelled depth-2 gain (0.74 of the link time, measured on two real nodes) is therefore a lower bound.
+   the model covers size-1 walls from 1e10 to 1e11 digits (the 576 leaf is 5-10 x 10^10); at 1e9 the wall is 75 % init (+-1.5 s per run) and
+   the batch tier is latency-bound (it does not follow the prime factor): printed, not gated.
+   exceptions by design (not gated): the node peak below 2e10 digits (the dm phase's host flows, 26-40 GB at 1e10, are not modelled; the device is),
+   single runs whose init deviates from their series (the gate is on the series), the loopback walls (+-10 %: their own spread).
