@@ -25,8 +25,28 @@
 #define EC_HD
 #endif
 
-#define EC_NP 4
+#define EC_NP 4                             /* the size of the prime set: array bounds, and one prime per device in the mdev / striped tiers */
 #define EC_LOGN_MAX 33                      /* 2^33 | p-1 for all four primes */
+
+/* Phase 13a P3 (PLAN 29 E1/E3): the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
+ * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
+ * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
+ * (tests/t_primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
+ * 216, 207} is the subset with the largest product (dropping 147, t_primes prints all four).  Four stay required for
+ * binary 2^64 limbs (nterms 2^128 < p0 p1 p2 only below 2^27 terms): ec_np_check refuses that loudly. */
+#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern int ec_np;                           /* 3 or 4 (crt.c); read by ec_np_init */
+int ec_np_init(void);                       /* ECALC_NP once (called by crt_init and rns_init); returns ec_np */
+extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1)^2): the largest term count three primes reconstruct */
+/* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
+ * upper bound of it) could exceed p0 p1 p2 */
+void ec_np_check(size_t nterms, int decimal, const char *where);
+#ifdef __cplusplus
+}
+#endif
 
 #ifndef EC_PRIMES
 #define EC_PRIMES 1                         /* 1: the WP8 set (3 * 2^44 | p-1: 3*2^k lengths); 0: the Phase 3-7 set */
@@ -81,6 +101,19 @@ EC_HD static inline void ec_words_to_dec4(const uint64_t c[4], uint64_t d[4])
         for (int i = 3; i >= 0; i--) { uint64_t q; ec_div1e18(rem, w[i], &q, &rem); w[i] = q; }
         d[k] = rem;
     }
+}
+
+/* P3: a 3-word value < 2^156 (three primes' CRT) into 3 base-10^18 digits (value < p0 p1 p2 < 10^54 = B^3): three
+ * divisions instead of dec4's sixteen.  c[2] < 2^28 < B, so (c[2], c[1]) divides directly; its quotient q1 < 2^33 < B,
+ * and c / B = q1 2^64 + q0 < 2^97 has quotient < 2^37 = the top digit. */
+EC_HD static inline void ec_words_to_dec3(const uint64_t c[3], uint64_t d[3])
+{
+    uint64_t q1, q0, r;
+    ec_div1e18(c[2], c[1], &q1, &r);
+    ec_div1e18(r, c[0], &q0, &r);
+    d[0] = r;
+    ec_div1e18(q1, q0, &d[2], &r);
+    d[1] = r;
 }
 
 /* per-prime constants, passed by value to kernels */
