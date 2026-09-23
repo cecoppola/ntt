@@ -12,6 +12,10 @@ Every number is labelled: measured (a recorded aac6 run), modelled (this arithme
 target parameter no aac6 measurement can give: the fabric's bandwidth and per-message cost, the part-file bandwidth,
 the general map's exchange overlap).  docs/TARGET.md says what to measure first on the target and how to feed it in
 (--bw, --lat, --write-bw; the constants at the top of mn_model.py).
+
+Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT_MODMUL=1) and of a design -- --np, --strategy
+(C | B | B4 | auto), --cap (2^30 | 3*2^29 | 2^31 | 3*2^30; default the code's rule), --chunk (off | shift | both), --depth (1 | 2),
+--modmul; --legacy gives the Phase 12 model (four primes, the Phase 10/11 phase table).  design_table.py prints every design.
 """
 import argparse, math, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,19 +24,20 @@ import mem_model
 
 LABELS = {
     "digits": "modelled (D x g; D is the request per node, the run computes to the next multiple of 18)",
-    "wall": "modelled: init/batch/top levels measured at size 1 (interpolated: 4e10 81.5 s, 7e10 153.5, 8e10 195.5, 1e11 262.9); the distributed levels, reciprocal and division built from the measured 2^31 piece (1.11 s) and the fabric",
+    "wall": "modelled: init/batch/top levels from the measured size-1 runs of the current code (mn_model.RUNS: 1e10 36.2 s, 4e10 81.5 (four primes) / 68.3 (three), 8e10 190.7, 1e11 262.9) with S13's per-product law for the strategy and cap; the distributed levels, reciprocal and division built from the measured 2^31 piece (S13: 0.827 s at three primes) and the fabric",
     "exposed": "modelled: the fabric time not hidden under the local passes -- assumes 100 GB/s per APU, 2 us per message (--bw, --lat), the general map's overlap (GEN_HIDE)",
     "fabric": "modelled: bytes through the node's eight NICs and over the dragonfly's global links (MN_TOPO_GROUP = 64, two-layer all-to-all)",
-    "device": "modelled: mem_model (the code's own sizing formulas; measured to the byte at size 1: 4e10 253 GB, 8e10 369, 1e11 431; at 10^10/4 20.3 GB arena)",
+    "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
     "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB and the staging the transport needs -- --staging resident 0 / per_exchange one exchange / cached every live communicator's)",
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
     "output": "assumed: the part file at --write-bw GB/s per node (2 GB/s), exposed beyond half the division",
 }
 
-def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="shmem", staging="resident", verbose=False):
-    """the estimate for g nodes at D digits per node: a dict of the numbers (seconds, GB, bytes) and their labels"""
+def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="shmem", staging="resident", verbose=False, design=M.DEFAULT):
+    """the estimate for g nodes at D digits per node: a dict of the numbers (seconds, GB, bytes) and their labels.
+    design: an mn_model.Design (default: the code after Phase 13b step 0); None = the legacy (Phase 12) model"""
     fab = fabric or M.TARGET
-    r = M.run(fab, D, g, rule, verbose=verbose, groups=groups, form=tree, transport=transport, staging=staging)
+    r = M.run(fab, D, g, rule, verbose=verbose, groups=groups, form=tree, transport=transport, staging=staging, design=design)
     m = r["mem"]
     out = dict(g=g, D=D, digits=r["digits"], wall_s=r["wall"], minutes=r["wall"] / 60,
                init=r["init"], batch=r["batch"], top=r["top"], levels=r["levels"], recip=r["recip"], div=r["div"], out=r["out"],
@@ -44,12 +49,12 @@ def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transpor
 
 def fmt_b(b): return M.fmt_b(b)
 
-def table(gs, Ds, tree, groups, fab, rule, staging="resident"):
+def table(gs, Ds, tree, groups, fab, rule, staging="resident", design=M.DEFAULT):
     print("%-4s %-8s %-10s | %7s %6s %6s %5s | %6s %6s %6s %6s | %8s %8s %8s | %s" % ("g", "D/node", "digits", "wall s", "min", "expo s", "%", "dev GB", "hst GB", "pool", "node", "NIC/node", "per NIC", "global", "fits 502 / 480 GB"))
     rows = []
     for g in gs:
         for D in Ds:
-            e = estimate(g, D, tree, groups, fab, rule, staging=staging)
+            e = estimate(g, D, tree, groups, fab, rule, staging=staging, design=design)
             rows.append(e)
             print("%-4d %-8.1e %-10.3e | %7.1f %6.1f %6.1f %5.0f | %6.0f %6.0f %6.0f %6.0f | %8s %8s %8s | %s / %s" % (
                 g, D, e["digits"], e["wall_s"], e["minutes"], e["exposed_s"], e["exposed_pct"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], e["node_gb"],
@@ -73,25 +78,35 @@ def main():
     ap.add_argument("--write-bw", type=float, default=2.0, help="GB/s per node for the part file (assumed)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
+    ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP (Phase 13b step 0: 3)")
+    ap.add_argument("--strategy", default="C", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
+    ap.add_argument("--cap", default=None, choices=list(mem_model.CAPS), help="the plane cap (default: the code's rule)")
+    ap.add_argument("--chunk", default="off", choices=M.CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB), at --chunk-mb")
+    ap.add_argument("--chunk-mb", type=float, default=M.CHUNK_MB)
+    ap.add_argument("--depth", type=int, default=1, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
+    ap.add_argument("--modmul", type=int, default=1, choices=(0, 1), help="NTT_MODMUL (step 0: 1)")
+    ap.add_argument("--legacy", action="store_true", help="the Phase 12 model: four primes, the Phase 10/11 phase table")
     a = ap.parse_args()
     if a.as_is: a.tree, a.staging = "flat", "cached"
+    design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb)
     fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
-    print("ecalc estimate -- tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.1f GB/s per node"
-          % (a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
+    print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.1f GB/s per node"
+          % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d, NTT_MODMUL=%d" % (design.name(), design.np, design.modmul),
+             a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
     if a.max:
         print("%-4s | %14s %10s %8s | %14s %10s %8s" % ("g", "max D @502 GB", "digits", "min", "max D @480 GB", "digits", "min"))
         for g in a.g:
             cells = []
             for budget in (M.NODE_GB, M.NODE_GB_MARGIN):
-                D = M.max_digits(g, budget, a.tree, a.groups, staging=a.staging)
-                e = estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging) if D else None
+                D = M.max_digits(g, budget, a.tree, a.groups, staging=a.staging, design=design)
+                e = estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging, design=design) if D else None
                 cells.append("%14.2e %10.3e %8.1f" % (D, e["digits"], e["minutes"]) if e else "%14s %10s %8s" % ("-", "-", "-"))
             print("%-4d | %s | %s" % (g, cells[0], cells[1]))
         return
     if a.verbose:
         for g in a.g:
-            for D in a.D: estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging, verbose=True)
-    table(a.g, a.D, a.tree, a.groups, fab, a.rule, a.staging)
+            for D in a.D: estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging, verbose=True, design=design)
+    table(a.g, a.D, a.tree, a.groups, fab, a.rule, a.staging, design)
     print()
     print("labels:")
     for k, v in LABELS.items(): print("  %-8s %s" % (k, v))
