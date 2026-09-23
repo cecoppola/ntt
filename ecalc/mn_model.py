@@ -15,7 +15,7 @@ sharded division are built product by product (the same grids, chains and cuts t
 
 Everything printed as "modelled" is this script's arithmetic; "measured" cites the RESULTS section.
 """
-import argparse, math, sys, os
+import argparse, math, sys, os, functools
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mem_model
 
@@ -130,12 +130,14 @@ def aac6_fabric(transport, g):
 # ------------------------------------------------------------------------------------------------------------
 def is_pow2(g): return g > 0 and (g & (g - 1)) == 0
 
+@functools.lru_cache(maxsize=None)
 def plane_pts(nc, g):
     """the piece's plane for nc limbs over g nodes (mn_shape: rows >= 32 per rank, R, C >= 2^10)"""
     n = 1 << 20
     while n < nc: n <<= 1
     return max(n, 1 << mem_model.mn_shape(nc, g)[0])
 
+@functools.lru_cache(maxsize=None)
 def split_grid(na, nb, cap, g):
     """(ka, kb, pieces_pts): the fewest plane points in total, then the fewest pieces (split_grid_cap)"""
     best = None
@@ -164,14 +166,20 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     q = pts / (4 * g)                                   # points per APU
     scale = q / (1 << 29)
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
-    t_loc = (T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT) * scale + 0.005
+    dz = DZ
+    if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
+    else: t31 = T_PIECE_31_NP[dz.np] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
+    t_loc = t31 * scale + 0.005
     t_loc *= fab.gpu_share
     # the transforms' exchanges: EC_NP x (fwd + 1) layered all-to-alls of 8 q bytes per APU; the xGMI stage of one
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
     # fabric's excess over the hidden xGMI stage is exposed
     t_x = T_XGMI_31 * scale
-    hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if is_pow2(g) else GEN_HIDE)
-    n_tr = EC_NP * (fwd + 1)
+    if dz is None or dz.legacy or not fab.target:
+        hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if is_pow2(g) else GEN_HIDE)
+    else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
+        hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
+    n_tr = (EC_NP if dz is None or dz.legacy else dz.np) * (fwd + 1)
     t_f, nic, glob, msgs = fab.a2a(8 * q, g, K_CHUNKS)
     exposed_tr = max(0.0, t_f - hide * t_x)
     c.nic += n_tr * nic; c.glob += n_tr * glob; c.msgs += n_tr * msgs; c.xfers += n_tr
@@ -186,6 +194,10 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     else: t_s, nic_s, glob_s, msgs_s = fab.a2a(2 * C * 4 * 8, g, 1)
     c.nic += nic_s; c.glob += glob_s; c.msgs += msgs_s; c.xfers += 1
     t_small = 3 * fab.coll(g)
+    if dz is not None and dz.t_mb:                                    # Phase 13b D: MN_T_CHUNK_MB -- the result window in rounds of W
+        W = mem_model.t_chunk_limbs(dz.t_mb)                          # limbs per node: each extra round one alltoallv + the adds
+        extra = max(0, -(-(nc // g) // W) - 1) if W else 0
+        t_small += extra * round_cost(fab, g)
     c.t = t_loc + n_tr * exposed_tr + t_r + t_s + t_small
     c.t_exposed = n_tr * exposed_tr + t_r + t_s + t_small
     return c
@@ -194,7 +206,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """C = A B (+ X) over a group of g nodes: the grid of pieces at the group's cap (mn_logn_cap: 2^(31 + floor(log2 g))),
     the cuts, the transform cache over shares"""
     if g <= 1: raise ValueError("product over one node")
-    cap = 1 << mem_model.mn_cap_log(g)
+    cap = 1 << mem_model.mn_cap_log(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())
     nc = na + nb
     c = Cost()
     if nc <= cap:
@@ -219,6 +231,8 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
+        if DZ is not None and DZ.t_mb:                                # Phase 13b D: mdb_add_shifted_rounds (MN_T_CHUNK_MB)
+            W = mem_model.t_chunk_limbs(DZ.t_mb); t1 += max(0, -(-(nc // g) // W) - 1) * round_cost(fab, g)
         c.t += t1 + fab.coll(g); c.t_exposed += t1 + fab.coll(g); c.nic += nic1; c.glob += glob1; c.msgs += msgs1; c.xfers += 1
     return c
 
@@ -227,6 +241,9 @@ def shift_cost(fab, n, g):
     when the basis changes), then the truncation's max-reduction"""
     c = Cost()
     t1, nic1, glob1, msgs1 = fab.a2a(0.5 * 8 * n / (4 * g), g, 1)
+    if DZ is not None and DZ.shift_mb:                                # Phase 13b D: MDB_SHIFT_CHUNK_MB -- K rounds of about m MB per APU
+        part = -(-n // g) // 4; ch = int(DZ.shift_mb * 1048576.0 / 8)
+        t1 += (max(0, -(-part // ch) - 1) if ch else 0) * round_cost(fab, g)
     c.t = t1 + fab.coll(g) + 0.002 * fab.gpu_share; c.t_exposed = t1 + fab.coll(g); c.nic = nic1; c.glob = glob1; c.msgs = msgs1; c.xfers = 1
     return c
 
@@ -339,36 +356,338 @@ def phase(name, D):
     p = math.log(yb / ya) / math.log(b / a)
     return ya * (D / a) ** p
 
-def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident"):
+# ------------------------------------------------------------------------------------------------------------
+# Phase 13b agent D: the design -- prime count, product strategy, plane cap, chunking, exchange depth, modmul
+# ------------------------------------------------------------------------------------------------------------
+# The legacy path (design None: the constants above, four primes, the Phase 10/11 phase table) is what --calib and the
+# Phase 12 tables were computed with; everything the design table prints goes through Design (the code after step 0).
+T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (results/S13.md, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
+HIDE_POW2 = 0.75                       # MEASURED (results/X13.md 3.2): the equal-slab path hides 74-76 % of its xGMI link time
+GEN_HIDE_DEPTH = {1: 0.011, 2: 0.75}   # general map: MEASURED 1.1 % one deep (X13); two deep MODELLED = the equal path's 3/4
+F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
+MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
+T_ROUND = 0.025                        # FITTED on aac6 loopback (M13: 1e10/4, MDB_SHIFT_CHUNK_MB + MN_T_CHUNK_MB at 64 MB, +12.9 s):
+                                       # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
+CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
+STRATEGIES = ('C', 'B', 'B4', 'auto')
+CHUNKS = ('off', 'shift', 'both')
+
+class Design:
+    """one row of the design space.  np: ECALC_NP; strategy: RNS_STRATEGY (C | B | B4 | auto); cap: the plane cap in points
+    (None = the code's own rule: 3 2^30 below 5e10 digits of the run, else 2^31); chunk: 'off' | 'shift'
+    (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
+    modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
+    def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False):
+        self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
+        self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
+        self.t_mb = chunk_mb if chunk == 'both' else 0
+    def f_mm(self): return F_MM1 if self.modmul == 1 else 1.0
+    def cap_at(self, digits): return self.cap if self.cap is not None else mem_model.code_cap(digits)
+    def pool_log(self, digits=1e12): return mem_model.cap_pool(self.cap_at(digits))[0]
+    def mem_opts(self, digits):
+        return dict(np=self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
+    def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy)
+    def name(self):
+        return '%s %s %s d%d' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth)
+    def env(self):
+        """the environment that selects this row (the switch names of PLAN 31; agent B / P / X own the exact spelling -- see
+        results/D13b.md 'M-RUN SWITCHES'); the cap as POOL_LOG + RNS_PLANES_3Q30"""
+        e = dict(ECALC_NP=self.np, NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)
+        if self.cap is not None:
+            pl, r3 = mem_model.cap_pool(self.cap); e.update(POOL_LOG=pl, RNS_PLANES_3Q30=1 if r3 else 0)
+        if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = self.shift_mb
+        if self.t_mb: e['MN_T_CHUNK_MB'] = self.t_mb
+        e['ALLTOALLV_DEPTH'] = self.depth
+        return e
+
+DEFAULT = Design()                     # the code after step 0: three primes, C, the code's cap rule, no chunking, depth 1, NTT_MODMUL=1
+DZ = None                              # the design of the run in progress (run() sets it; the cost functions read it)
+
+def round_cost(fab, g):
+    """one extra exchange round (a chunked mdb_shift / window / mdb_add_shifted): a small all-to-all's latency over g
+    nodes + a collective + the round's fixed cost"""
+    return fab.a2a(1.0, g, 1)[0] + fab.coll(g) + T_ROUND * (fab.gpu_share if not fab.target else 1)
+
+# ---- the per-product law: S13's E0 medians (t_strategy), P = 4 and 3 ---------------------------------------------------
+E0_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'results', 'S13_e0.txt')
+_E0 = None
+def e0_table(extra=None):
+    """{(P, strategy, logn): (wall, load, ntt, crt, merge)} from results/S13_e0.txt (+ `extra`, e.g. agent B's t_strategy log with B4
+    lines); the last line of a size wins (as t_cap).  Strategies: A, B, C, b (B with 128-bit loads), B4 when a log has it"""
+    global _E0
+    if _E0 is not None and extra is None: return _E0
+    import re
+    t = {}
+    for fn in [E0_FILE] + ([extra] if extra else []):
+        if not fn or not os.path.exists(fn): continue
+        for line in open(fn, errors='replace'):
+            m = re.match(r'STRAT logn=(\d+) P=(\d) strat=(\w+) wall_med=([\d.]+).*\| load ([\d.]+) ntt ([\d.]+) crt ([\d.]+) merge ([\d.]+)', line)
+            if m: t[(int(m.group(2)), m.group(3), int(m.group(1)))] = tuple(float(m.group(i)) for i in range(4, 9))
+    _E0 = t
+    return t
+
+def t_prod(strategy, pts, np):
+    """one product on a plane of pts points (2^k or 3 2^k) under a strategy at np primes, seconds.  Returns (t, label):
+    'measured' = an E0 median at this 2^k and P; 'modelled' otherwise -- 3 2^k planes 1.5 x 1.05 x the 2^(k+1) time (t_cap's
+    rule), a P = 3 size E0 lacks from the P = 4 time x the neighbours' measured P3/P4 ratio, B4 (not built) = B with its
+    transforms spread over four APUs (the ntt part x 3/4 at P = 3), B's load and CRT unchanged"""
+    E = e0_table()
+    logn = 0
+    while (1 << logn) < pts: logn += 1
+    r3 = (1 << logn) != pts
+    lb = logn - 1 if r3 else logn
+    f = 1.5 * 1.05 if r3 else 1.0
+    lab = 'modelled' if r3 else 'measured'
+    s = 'B' if strategy == 'B4' else strategy
+    def get(P, lg):
+        return E.get((P, strategy if (P, strategy, lg) in E else s, lg))
+    v = get(np, lb)
+    if v is None:
+        v4 = get(4, lb)
+        if v4 is None:                                                  # beyond the table: scale the nearest size linearly in points
+            ks = sorted(k for (P, st, k) in E if P == 4 and st == s)
+            k0 = min(ks, key=lambda k: abs(k - lb)); v0 = get(4, k0); sc = 2.0 ** (lb - k0)
+            v4 = tuple(x * sc for x in v0)
+        if np == 4: v = v4
+        else:
+            rs = [get(np, k)[0] / get(4, k)[0] for k in (lb - 1, lb + 1, lb - 2, lb + 2) if get(np, k) and get(4, k)]
+            ratio = sum(rs[:2]) / len(rs[:2]) if rs else 0.77
+            v = tuple(x * ratio for x in v4)
+        lab = 'modelled'
+    t = v[0]
+    if strategy == 'B4':
+        if (np, 'B4', lb) not in E and np == 3: t = v[0] - 0.25 * v[2]; lab = 'modelled'   # at P = 4, B already uses the four APUs: B4 = B
+    return t * f, lab
+
+# ---- the pipeline's big products (a port of tests/t_cap.c: the grid split_grid_cap forms under a cap, the cuts) -------
+def _plane_pts_cap(nc, r3, logmax):
+    n = 1 << 20
+    while n < nc:
+        if r3 and n >= (1 << (logmax - 2)) and n // 2 * 3 >= nc: return n // 2 * 3
+        n <<= 1
+    return n
+
+@functools.lru_cache(maxsize=None)
+def _split_cap(na, nb, cap, r3, logmax):
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            if pa + pb > cap: continue
+            pts = _plane_pts_cap(pa + pb, r3, logmax)
+            cost = i * j * pts * (21 if pts & (pts - 1) else 20)
+            if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+def big_shapes(D, scope=('top', 'recip', 'div')):
+    """t_cap's shapes at D digits (nq = D / 18 limbs): (phase, name, na, nb, lowcut, w, count)"""
+    nq = int(D / 18); k = nq + 1; big = 1 << 62; out = []
+    if 'top' in scope:
+        out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
+    if 'recip' in scope:
+        for j in ((k + 1) // 2, (k + 3) // 4, (k + 7) // 8):
+            take = min(2 * j + 2, nq)
+            out += [('recip', 'Q_t r', take, j + 1, 0, big, 1), ('recip', 'r d', j + 1, j + 2, 0, big, 1)]
+    if 'div' in scope:
+        out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]
+    return out
+
+@functools.lru_cache(maxsize=None)
+def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
+    """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
+    'auto' takes B for a piece whose 16 n bytes fit the C pools of the cap ((np + 3) cap 2 bytes per APU), else C"""
+    pl, r3 = mem_model.cap_pool(cap); logmax = pl
+    budget = mem_model.plane_bytes_apu('C', cap, np)
+    out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
+        nc = na + nb; one = nc <= cap
+        if one and r3 and nc > (1 << logmax):
+            ka, kb = _split_cap(na, nb, cap, True, logmax); one = ka * kb == 1
+        if one: ka = kb = 1
+        else: ka, kb = _split_cap(na, nb, cap, r3, logmax)
+        pa, pb = -(-na // ka), -(-nb // kb); t = 0.0
+        for jb in range(kb):
+            for ia in range(ka):
+                oa, ob = ia * pa, jb * pb
+                if oa >= na or ob >= nb: continue
+                la, lb = min(pa, na - oa), min(pb, nb - ob)
+                if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+                p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
+                st = strategy
+                if strategy == 'auto': st = 'B' if mem_model.plane_bytes_apu('B', p, np) <= budget else 'C'
+                tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
+        out[ph] += t * count
+    out['label'] = 'modelled' if 'modelled' in labels else 'measured'
+    return out
+
+# ---- the measured size-1 runs of the current code (the phase table's inputs and the calibration's points) -----------------
+# per run: D, np, modmul, cap (points; the code's rule where the run left it), total, init, bs, top (= the bs line's mdev part),
+# recip, dm (= recip + div), device GB at init, host HWM GB, use ('table': the phase table; 'fit': the three-prime factors;
+# 'check': not an input), node, source.  Seconds.  The logs are on aac6 (paths in the source strings).
+R31 = 1 << 31; R3_30 = 3 << 30
+RUNS = [
+    # 1e9
+    dict(D=1e9, np=4, cap=R3_30, total=18.21, init=13.9, bs=0.88, top=0.0, recip=2.57, dm=2.88, dev=186.4, hwm=15.9, use='table', src='P3 b2 e9_np4 (job 21005, s24-26)'),
+    dict(D=1e9, np=3, cap=R3_30, total=15.09, init=11.4, bs=0.88, top=0.0, recip=2.17, dm=2.44, dev=160.6, hwm=15.7, use='check', src='P3 b2 e9_np3 (job 21005, s24-26)'),
+    dict(D=1e9, np=4, cap=R31, total=14.27, init=10.3, bs=0.90, top=0.0, recip=2.43, dm=2.74, dev=126.2, hwm=16.0, use='check', src='i12 e9_def (Phase 12 I, 2^31 planes)'),
+    # 1e10
+    dict(D=1e10, np=4, cap=R3_30, total=36.22, init=18.5, bs=7.88, top=0.0, recip=4.87, dm=7.61, dev=234.4, hwm=16.6, use='table', src='M13 b1 e10 (job 21008, s24-30)'),
+    # 4e10, four primes, the code's cap (3 2^30)
+    dict(D=4e10, np=4, cap=R3_30, total=81.30, init=22.5, bs=32.63, top=10.5, recip=12.33, dm=26.11, dev=313.3, hwm=12.2, use='table', src='P3 b4 e4e10_def (job 21009, s24-26)'),
+    dict(D=4e10, np=4, cap=R3_30, total=80.03, init=21.8, bs=32.39, top=10.3, recip=12.11, dm=25.83, dev=313.3, hwm=12.1, use='table', src='P3 b6 e4e10_def2 (job 21021, s24-26)'),
+    dict(D=4e10, np=4, cap=R3_30, total=82.56, init=20.8, bs=34.24, top=10.9, recip=12.96, dm=27.43, dev=313.3, hwm=12.1, use='table', src='M13 b1 e4e10 (job 21008, s24-30)'),
+    dict(D=4e10, np=4, cap=R3_30, total=81.60, init=22.6, bs=32.9, top=None, recip=None, dm=26.1, dev=313.3, hwm=12.1, n=5, use='table', src='RESULTS 78 closing series, defaults (job 21039, s24-26): 82.82/81.82/81.31/79.46/82.78'),
+    dict(D=4e10, np=4, cap=R3_30, total=80.58, init=21.8, bs=32.65, top=10.5, recip=12.28, dm=26.06, dev=313.3, hwm=12.1, n=5, use='check', src='i12 e4_auto1-5 (Phase 12 I, 3 2^30 planes by the size rule; 80.44/78.81/82.19/81.71/79.77)'),
+    # 4e10, four primes, cap 2^31 (RNS_PLANES_3Q30 off): the cap axis, measured once (Phase 12 code)
+    dict(D=4e10, np=4, cap=R31, total=81.96, init=18.04, bs=35.25, top=12.6, recip=13.36, dm=28.61, dev=253.1, hwm=12.1, n=5, use='check', src='i12 e4_def/def2/def3/off/t176 (Phase 12 I, 2^31 planes: 81.48/82.26/82.07/81.99/82.02)'),
+    # 4e10, three primes (the step-0 default's prime count, NTT_MODMUL=0)
+    dict(D=4e10, np=3, cap=R3_30, total=68.92, init=21.9, bs=25.90, top=8.3, recip=9.90, dm=21.02, dev=287.5, hwm=12.2, use='fit', src='int13 close10 run1 (job 21041, s24-26)'),
+    dict(D=4e10, np=3, cap=R3_30, total=68.63, init=21.3, bs=26.23, top=8.2, recip=9.94, dm=21.01, dev=287.5, hwm=12.1, use='fit', src='int13 close10 run2 (job 21041)'),
+    dict(D=4e10, np=3, cap=R3_30, total=69.30, init=22.3, bs=25.83, top=8.3, recip=10.01, dm=21.13, dev=287.5, hwm=12.1, use='fit', src='int13 close10 run3 (job 21039)'),
+    dict(D=4e10, np=3, cap=R3_30, total=69.91, init=23.0, bs=25.68, top=8.2, recip=10.08, dm=21.17, dev=287.5, hwm=12.1, use='fit', src='int13 close10 run4 (job 21039)'),
+    dict(D=4e10, np=3, cap=R3_30, total=67.95, init=21.0, bs=25.75, top=8.2, recip=9.98, dm=21.13, dev=287.5, hwm=12.1, use='fit', src='int13 close10 run5 (job 21039)'),
+    dict(D=4e10, np=3, cap=R3_30, total=66.40, init=19.9, bs=25.57, top=8.3, recip=9.81, dm=20.88, dev=287.5, hwm=12.1, use='fit', src='P3 b3 (job 21005, s24-26)'),
+    dict(D=4e10, np=3, cap=R3_30, total=66.51, init=19.6, bs=25.91, top=8.3, recip=9.83, dm=20.95, dev=287.5, hwm=12.1, use='fit', src='P3 b4 (job 21009, s24-26)'),
+    dict(D=4e10, np=3, cap=R3_30, total=65.46, init=18.6, bs=25.81, top=8.3, recip=9.99, dm=21.01, dev=287.5, hwm=12.1, use='fit', src='P3 b6 np3_2 (job 21021, s24-26)'),
+    dict(D=4e10, np=3, cap=R3_30, total=71.32, init=24.5, bs=25.55, top=8.3, recip=10.10, dm=21.22, dev=287.5, hwm=12.2, use='check', src='P3 b6 np3_lmin8 (job 21021; RNS_BATCH_LOCAL_MIN=8, which did not engage)'),
+    # 8e10, 1e11: four primes, 2^31 planes (the size rule)
+    dict(D=8e10, np=4, cap=R31, total=191.99, init=20.9, bs=86.34, top=36.1, recip=38.61, dm=84.67, dev=369.1, hwm=13.0, use='table', src='i12 e8 (Phase 12 I, s24-26)'),
+    dict(D=8e10, np=4, cap=R31, total=189.33, init=23.1, bs=83.57, top=35.6, recip=37.56, dm=82.53, dev=369.1, hwm=13.0, use='table', src='i12 e8b (Phase 12 I, s24-26)'),
+    dict(D=8e10, np=4, cap=R31, total=195.5, init=None, bs=None, top=None, recip=None, dm=None, dev=369.1, hwm=12.8, use='check', src='M11 v3 (Phase 11 code, s24-16)'),
+    dict(D=1e11, np=4, cap=R31, total=262.9, init=25.9, bs=117.0, top=51.4, recip=52.9, dm=119.8, dev=431.2, hwm=14.0, use='table', src='M11 v4 (Phase 11 code, s24-26; the only 1e11 of the tail layout)'),
+]
+
+def _mean(xs):
+    xs = [x for x in xs if x is not None]; return sum(xs) / len(xs) if xs else None
+
+def _run_phases(r):
+    """a run's phases: batch (bs less its mdev levels), top, recip, div, other (the rest of the total)"""
+    if r.get('recip') is None: return None
+    top = r['top'] or 0.0; batch = r['bs'] - top; div = r['dm'] - r['recip']
+    return dict(init=r['init'], batch=batch, top=top, recip=r['recip'], div=div, other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']))
+
+def _dev_init_ref(D, np, cap):
+    return mem_model.mem_per_node(int(D), 1, dict(np=np, cap=cap))['dev_init'] / 1e9
+
+@functools.lru_cache(maxsize=None)
+def phase_table(exclude=None):
+    """{D: dict(init, batch, top_rest, recip_rest, div_rest, other)} at four primes, NTT_MODMUL=0, strategy C, with the big products
+    (t_cap's shapes at the run's cap) taken out of top / recip / div -- the 'rest' is cap-free; init normalised to the device of
+    the four-prime, 2^31 configuration by MAP_RATE.  exclude: a D left out (the leave-one-out check)"""
+    out = {}
+    for D in sorted(set(r['D'] for r in RUNS if r['use'] == 'table')):
+        if exclude is not None and D == exclude: continue
+        rs = [r for r in RUNS if r['use'] == 'table' and r['D'] == D]
+        ps = [p for p in (_run_phases(r) for r in rs) if p]
+        cap = rs[0]['cap']
+        bp = big_products(D, 'C', cap, 4)
+        e = dict(batch=_mean(p['batch'] for p in ps), top=_mean(p['top'] for p in ps), recip=_mean(p['recip'] for p in ps),
+                 div=_mean(p['div'] for p in ps), other=_mean(p['other'] for p in ps))
+        # the walls: the mean total of every table run (weighted by n) sets init + other so the table reproduces the mean wall
+        wsum = sum(r['total'] * r.get('n', 1) for r in rs); n = sum(r.get('n', 1) for r in rs)
+        isum = sum(r['init'] * r.get('n', 1) for r in rs if r['init'] is not None); ni = sum(r.get('n', 1) for r in rs if r['init'] is not None)
+        e['wall'] = wsum / n; e['init'] = isum / ni
+        e['other'] = max(0.0, e['wall'] - e['init'] - e['batch'] - e['top'] - e['recip'] - e['div'])
+        for ph in ('top', 'recip', 'div'):
+            e[ph + '_rest'] = max(0.0, e[ph] - bp[ph])
+        e['init_ref'] = e['init'] - MAP_RATE * (_dev_init_ref(D, 4, cap) - _dev_init_ref(D, 4, R31))
+        e['cap'] = cap
+        out[D] = e
+    return out
+
+def _interp(tab, key, D):
+    xs = sorted(tab)
+    if len(xs) == 1: return tab[xs[0]][key] * D / xs[0]
+    if D <= xs[0]: a, b = xs[0], xs[1]
+    elif D >= xs[-1]: a, b = xs[-2], xs[-1]
+    else:
+        a = max(x for x in xs if x <= D); b = min(x for x in xs if x >= D)
+        if a == b: return tab[a][key]
+    ya, yb = tab[a][key], tab[b][key]
+    if ya <= 0 or yb <= 0: return max(0.0, ya + (yb - ya) * (D - a) / (b - a))
+    return ya * (D / a) ** (math.log(yb / ya) / math.log(b / a))
+
+@functools.lru_cache(maxsize=None)
+def np_factors(np):
+    """the three-prime factor of each phase's rest (and of the batch tier), from the 4e10 series at NP = 3 against the table's
+    4e10 at NP = 4 (both at the code's 3 2^30 cap; MEASURED inputs, the factor is the model's)"""
+    if np == 4: return dict(batch=1.0, top=1.0, recip=1.0, div=1.0, other=1.0)
+    tab = phase_table(); e4 = tab[4e10]
+    ps = [p for p in (_run_phases(r) for r in RUNS if r['use'] == 'fit' and r['np'] == np and r['D'] == 4e10) if p]
+    bp = big_products(4e10, 'C', R3_30, np)
+    f = dict(batch=_mean(p['batch'] for p in ps) / e4['batch'])
+    rest3 = sum(_mean(p[ph] for p in ps) - bp[ph] for ph in ('top', 'recip', 'div'))
+    rest4 = sum(e4[ph + '_rest'] for ph in ('top', 'recip', 'div'))
+    for ph in ('top', 'recip', 'div'): f[ph] = rest3 / rest4          # one factor for the rest of the three (the division's rest alone
+    f['other'] = 1.0                                                  # is 0.4 s at 4e10: its own ratio would be noise)
+    return f
+
+def node_phases(D, dz, g=1, exclude=None):
+    """the per-node phases of one node at D digits per node under design dz: init, batch, top, recip, div, other (seconds) and
+    the label of each.  At g = 1 the whole pipeline; at g > 1 init, batch and top (the leaf) -- the distributed levels, the
+    reciprocal and the division come from the fabric model.  top / recip / div = rest x the prime factor + the big products
+    under (strategy, cap) (S13's per-product law); x F_MM1 with NTT_MODMUL=1; init by the mapped device (MAP_RATE)"""
+    tab = phase_table(exclude); f = np_factors(dz.np); fm = dz.f_mm()
+    digits = D * g; cap = dz.cap_at(digits)
+    bp = big_products(D, dz.strategy, cap, dz.np)
+    out = dict(batch=_interp(tab, 'batch', D) * f['batch'] * fm, other=_interp(tab, 'other', D))
+    for ph in ('top', 'recip', 'div'):
+        out[ph] = (_interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
+    dev = mem_model.mem_per_node(int(D), g, dz.mem_opts(digits))['dev_init'] / 1e9
+    out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31))
+    out['label'] = 'modelled (%s products)' % bp['label']
+    return out
+
+def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
-    r = mem_model.mem_per_node(int(D), g, dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging))
+    o = dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)
+    if design is not None and not design.legacy: o.update(design.mem_opts(D * g))
+    elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
+    r = mem_model.mem_per_node(int(D), g, o)
     gb = lambda k: r[k] / 1e9
     return dict(device=gb("dev_dm"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
                 dm_need=gb("dm_need"), tree_need=gb("tree_need"), top_scratch=gb("top_scratch"), exchange=gb("exchange"), regions=gb("regions_bs"),
                 shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"))
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="resident"):
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="resident", design=None):
+    """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
+    --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
+    global DZ
+    saved = DZ; DZ = design
+    try:
+        return _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design)
+    finally:
+        DZ = saved
+
+def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design):
     nq = int(D / LIMB_DIGITS)                          # limbs of Q per node (the leaf's share)
     dl = nq
     nq_tot, dl_tot, np_tot = nq * g, dl * g, nq * g
-    ph = dict(init=init_override if init_override is not None else phase("init", D),
-              batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale)
+    if design is None or design.legacy:
+        ph = dict(init=init_override if init_override is not None else phase("init", D),
+                  batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale, other=0.0)
+    else:
+        npf = node_phases(D, design, g)
+        ph = dict(init=init_override if init_override is not None else npf["init"], batch=npf["batch"] * leaf_scale, top=npf["top"] * leaf_scale,
+                  other=npf["other"])
     levels = tree_cost(fab, nq, g, groups, form) if g > 1 else []
     if g > 1:
         rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
-    else:
+    elif design is None or design.legacy:
         rc = Cost(); rc.t = phase("recip", D); dc = Cost(); dc.t = phase("div", D); grp = []
+    else:
+        rc = Cost(); rc.t = npf["recip"]; dc = Cost(); dc.t = npf["div"]; grp = []
     t_levels = sum(c.t for _, _, c in levels)
     out_write = D / 1e9 / fab.write_bw                 # the node's part file at the write bandwidth
     t_lowprod = dc.t * 0.5
     out_exposed = (max(0.0, out_write - t_lowprod) if g > 1 else 0.0) if dc_exposed is None else dc_exposed   # at size 1 the file is hidden under the division (measured: the wall = init + phases)
-    wall = ph["init"] + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + out_exposed
+    wall = ph["init"] + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + out_exposed + ph["other"]
     tot = Cost()
     for _, _, c in levels: tot.add(c)
     tot.add(rc); tot.add(dc)
-    m = memory(D, g, form, groups, transport, pool_log, staging)
-    res = dict(D=D, g=g, wall=wall, init=ph["init"], batch=ph["batch"], top=ph["top"], levels=t_levels, recip=rc.t, div=dc.t,
+    m = memory(D, g, form, groups, transport, pool_log, staging, design)
+    res = dict(D=D, g=g, wall=wall, other=ph["other"], init=ph["init"], batch=ph["batch"], top=ph["top"], levels=t_levels, recip=rc.t, div=dc.t,
                out=out_exposed, out_write=out_write, exposed=tot.t_exposed, nic=tot.nic, glob=tot.glob, msgs=tot.msgs,
                pieces=tot.pieces, digits=D * g, levels_rows=levels, groups=grp, rc=rc, dc=dc, mem=m, form=form, staging=staging, schedule=mem_model.mn_groups(g, groups))
     if verbose: print_run(fab, res, rule)
@@ -397,9 +716,14 @@ def print_run(fab, r, rule):
           % (r["form"], r["staging"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["shmem_pool"], m["shmem_staging"], m["node"], NODE_GB,
              "" if m["node"] <= NODE_GB else "  ** DOES NOT FIT **"))
 
-def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="resident"):
-    """the largest D per node (to 1e8) whose modelled node peak fits node_gb"""
-    return mem_model.max_digits_per_node(node_gb * 1e9, g, dict(form=form, groups=groups, transport=transport, staging=staging))
+def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="resident", design=None):
+    """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
+    o = dict(form=form, groups=groups, transport=transport, staging=staging)
+    if design is None: o.update(np=4, host_fit=False)
+    elif not design.legacy:
+        o.update(design.mem_opts(1e12 * g))                     # the cap rule at the run's digits: 2^31 above 5e10 (every 576-node size)
+        if design.cap is None and g == 1: o.pop('cap')          # size 1: the code's rule follows D (3 2^30 below 5e10)
+    return mem_model.max_digits_per_node(node_gb * 1e9, g, o)
 
 def headline(fab, g, rule, form="grid", groups=None, staging="resident"):
     """the largest D per node that fits the node (502 GB) and the safe budget (480 GB), their walls"""
