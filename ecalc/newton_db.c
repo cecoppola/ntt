@@ -330,28 +330,47 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
     /* Phase 11 L (agent L, B7): the slabs at their exact lengths (an alltoallv; the buffers hold my pieces' limbs, at most my
      * share / 4 per APU each, instead of g x the longest piece).  SL (the longest piece part) bounds the kernels' iteration only */
     size_t pm = mshare_max(X) < mshare_max(&Yn) ? mshare_max(X) : mshare_max(&Yn), SL = (pm + 3) / 4 + 1; SL = (SL + 15) / 16 * 16;
+    /* Phase 13a M (TASKS 1.2): MDB_SHIFT_CHUNK_MB=m > 0 exchanges the pieces in K rounds, round c carrying the sub-range
+     * [a + len c / K, a + len (c + 1) / K) of every piece part, so sb and rb hold about SL / K limbs per APU (m MB each)
+     * instead of my share / 4 (71 GB per node at 576 x 8e10).  K = ceil(SL / chunk) from the group's share bound, the same
+     * on every node (one alltoallv per round on every mesh).  The limbs moved are the same: the result is bit-identical.
+     * 0 (the default): one round, as before. */
+    static long shift_chunk = -1; if (shift_chunk < 0) { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); shift_chunk = e ? (long)(atof(e) * 1048576.0 / 8) : 0; if (shift_chunk < 0) shift_chunk = 0; }
+    int K = shift_chunk > 0 && SL > (size_t)shift_chunk ? (int)((SL + shift_chunk - 1) / shift_chunk) : 1;
+    size_t SLk = K > 1 ? ((SL + K - 1) / K + 1 + 15) / 16 * 16 : SL;
     if (X->n && n2) {
 #pragma omp parallel num_threads(4)
     {
         int d = omp_get_thread_num(); hipStream_t st = g_ms[d];
         MN_HIP(hipSetDevice(d));
-        struct piece *hp = (struct piece *)malloc(2 * g * sizeof *hp), *hq = hp + g, *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp + 64);
-        size_t *cnt = (size_t *)malloc(4 * (size_t)g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, ts = 0, tr = 0;
+        struct piece *hp = (struct piece *)malloc(4 * g * sizeof *hp), *hq = hp + g, *hpk = hp + 2 * g, *hqk = hp + 3 * g, *dp = (struct piece *)db_pool_alloc(d, g * sizeof *hp + 64);
+        size_t *cnt = (size_t *)malloc(4 * (size_t)g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, ts = 0, tr = 0, tsm = 0, trm = 0;
         int any = 0, anyr = 0;
-        for (int r = 0; r < g; r++) { any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]); hp[r].off = ts; scnt[r] = hp[r].len * 8; sdsp[r] = ts * 8; ts += hp[r].len; }
-        for (int r = 0; r < g; r++) { anyr |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hq[r]); hq[r].off = tr; rcnt[r] = hq[r].len * 8; rdsp[r] = tr * 8; tr += hq[r].len; }
-        uint64_t *sb = db_pool_alloc(d, (ts + 16) * 8), *rb = db_pool_alloc(d, (tr + 16) * 8);
-        if (any) {
-            MN_HIP(hipMemcpyAsync(dp, hp, g * sizeof *hp, hipMemcpyHostToDevice, st));
-            k_mn_pack<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SL);
+        for (int r = 0; r < g; r++) { any |= piece_of(X, s, &Yn, n2, node, G->g0 + r, d, &hp[r]); }
+        for (int r = 0; r < g; r++) { anyr |= piece_of(X, s, &Yn, n2, G->g0 + r, node, d, &hq[r]); }
+        for (int c = 0; c < K; c++) {                     /* the largest round's totals size the slabs */
+            size_t a = 0, b = 0;
+            for (int r = 0; r < g; r++) a += hp[r].len * (c + 1) / K - hp[r].len * c / K;
+            for (int r = 0; r < g; r++) b += hq[r].len * (c + 1) / K - hq[r].len * c / K;
+            if (a > tsm) tsm = a; if (b > trm) trm = b;
         }
-        MN_HIP(hipStreamSynchronize(st));
-        comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_wait(G->all[d]);
-        if (anyr && cn) {
-            MN_HIP(hipMemcpyAsync(dp, hq, g * sizeof *hq, hipMemcpyHostToDevice, st));
-            k_mn_scatter<<<mn_nblk((size_t)g * SL), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SL);
+        uint64_t *sb = db_pool_alloc(d, (tsm + 16) * 8), *rb = db_pool_alloc(d, (trm + 16) * 8);
+        for (int c = 0; c < K; c++) {
+            ts = tr = 0;
+            for (int r = 0; r < g; r++) { size_t l0 = hp[r].len * c / K, l1 = hp[r].len * (c + 1) / K; hpk[r].a = hp[r].a + l0; hpk[r].len = l1 - l0; hpk[r].off = ts; scnt[r] = hpk[r].len * 8; sdsp[r] = ts * 8; ts += hpk[r].len; }
+            for (int r = 0; r < g; r++) { size_t l0 = hq[r].len * c / K, l1 = hq[r].len * (c + 1) / K; hqk[r].a = hq[r].a + l0; hqk[r].len = l1 - l0; hqk[r].off = tr; rcnt[r] = hqk[r].len * 8; rdsp[r] = tr * 8; tr += hqk[r].len; }
+            if (any) {
+                MN_HIP(hipMemcpyAsync(dp, hpk, g * sizeof *hp, hipMemcpyHostToDevice, st));
+                k_mn_pack<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SLk);
+            }
+            MN_HIP(hipStreamSynchronize(st));
+            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_wait(G->all[d]);
+            if (anyr && cn) {
+                MN_HIP(hipMemcpyAsync(dp, hqk, g * sizeof *hq, hipMemcpyHostToDevice, st));
+                k_mn_scatter<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SLk);
+            }
+            MN_HIP(hipStreamSynchronize(st));
         }
-        MN_HIP(hipStreamSynchronize(st));
         db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dp); free(hp); free(cnt);
     }
     MN_HIP(hipSetDevice(0));

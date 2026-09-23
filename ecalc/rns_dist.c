@@ -860,6 +860,43 @@ static int mn_logn_cap(int g)
 }
 int rns_mul_dist_mn_logcap(mn_group *G) { return mn_logn_cap(G->g); }
 struct mn_times { double redistribute, ntt, crt, out, carry, total; };
+/* ---- Phase 13a M (TASKS 1.3): the accumulating piece's window in rounds (MN_T_CHUNK_MB) ------------------------------ */
+static size_t mn_t_chunk_limbs(void) { static long v = -1; if (v < 0) { const char *e = getenv("MN_T_CHUNK_MB"); v = e ? (long)(atof(e) * 1048576.0 / 8) * 4 : 0; if (v < 0) v = 0; } return (size_t)v; }   /* limbs per node per round (4 APUs) */
+/* node r's chunk c of its window (piece coordinates): [lo + c W, min(lo + (c + 1) W, hi)); the whole window when not chunked */
+static void mn_win_chunk(const mdb *C, int r, size_t shift, size_t Np, int c, size_t W, int chunked, size_t *lo, size_t *hi)
+{
+    size_t a, b; piece_window(C, r, shift, Np, &a, &b);
+    if (chunked) { size_t x = a + (size_t)c * W; if (x > b) x = b; size_t y = x + W < b ? x + W : b; a = x; b = y; }
+    *lo = a; *hi = b;
+}
+/* the running state of the rounds on this node: cy the piece's carry out of the last chunk (into the next chunk's limb 0), kc
+ * C's carries out of its share (at most 1 in all: C < B^cn and the window's normalised part < B^tn before its carry-out), pr
+ * the propagate flag of C's last add, cot the carry out of the window's top when the window ends at the share's top (a unit
+ * at the next node's share bottom: the second scan) */
+struct mn_rounds { int cy, kc, pr, cot; };
+/* one round on this node (one thread; the db calls use the four APUs): T (this round's chunk [wlo, wlo + wn) of the window)
+ * += its spills and the previous chunk's carry (together at most one carry out: the chunk's digits are < 2B each), then
+ * C's share += T << (wlo + shift - clo); T re-zeroed for the next round.  The value added to C over the rounds is the
+ * window's part of the piece, exactly as the one-T form adds it: the result is bit-identical. */
+static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, size_t wn, int last, size_t shift, size_t clo, size_t cn,
+                         const uint64_t *const sp[NR], const size_t *const sptab[NR], size_t R, int nr, size_t C, int g, uint64_t **spill_rb, size_t **sptab_d, size_t tcap)
+{
+    if (wn) {
+        int co = 0, pr = 1, c2 = 0, p2 = 0;
+        db_share_add_spills_x(T, wn, wlo, sp, sptab, R, R / nr, C, g, &co, &pr);
+        if (rd->cy) { int co1 = 0, pr1 = 0; db_share_add_val(T, wn, 0, 1, 0, &co1, &pr1); co += co1; }
+        if (co > 1) { fprintf(stderr, "rns_mul_dist_mn: two carries out of a chunk (the bound is 1)\n"); exit(1); }
+        db_share_add_shifted(&Cn->sh, cn, T, wlo + shift - clo, &c2, &p2); rd->kc += c2; rd->pr = p2;
+        rd->cy = co;
+        if (last) {
+            size_t top = wlo + wn + shift - clo;
+            if (top >= cn) rd->cot = rd->cy;
+            else if (rd->cy) { db_share_add_val(&Cn->sh, cn, top, 1, 0, &c2, &p2); rd->kc += c2; rd->pr = p2; }
+            rd->cy = 0;
+        } else db_zero_fill(T, tcap);
+    }
+    for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
+}
 /* the core of one plane: C's shares += (A B (+ X)) << shift.  direct: shift 0, the piece is the whole product (X allowed),
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
  * of this node's window [tlo, thi) of the piece (in piece coordinates), the spills are added there, and C's share
@@ -885,8 +922,16 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     size_t clo, chi; mdb_share(Cn, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; piece_window(Cn, node, shift, Np, &tlo, &thi); size_t tn = thi - tlo;
     if (direct && shift) { fprintf(stderr, "rns_mul_dist_mn: a direct piece at a shift\n"); exit(1); }   /* direct: the window is the share's first tn limbs */
+    /* Phase 13a M (TASKS 1.3): MN_T_CHUNK_MB=m > 0 -- an accumulating piece's window goes through T in rounds of W = 4 m MB of
+     * limbs per node (m MB per APU): round c exchanges the rows and spills of every node's chunk c of its window, and this node
+     * adds its chunk into C's share at once (mn_round_add), so T and rbO are O(W) instead of O(my share of C) (35 GB per node
+     * at 576 x 8e10).  K = the largest window's chunk count, the same on every node.  0 (default) or K = 1: one round. */
+    size_t Wt = mn_t_chunk_limbs(); int Kt = 1;
+    if (Wt) { size_t mx = 0; for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (hi - lo > mx) mx = hi - lo; } Kt = mx > Wt ? (int)((mx + Wt - 1) / Wt) : 1; }
+    int chunked = Kt > 1; if (chunked) direct = 0;              /* a direct piece (into the zero-filled C) goes through the rounds too: the same value added to zeros */
+    struct mn_rounds rd; memset(&rd, 0, sizeof rd); rd.pr = cn == 0;
     dbig T; db_init(&T); dbig *dst = direct ? &Cn->sh : &T;
-    if (!direct && tn) db_zero_fill(&T, tn);
+    if (!direct && tn) db_zero_fill(&T, chunked ? (tn < Wt ? tn : Wt) : tn);
     const uint64_t *sp[NR]; uint64_t *spill_rb[NR]; const size_t *sptab[NR]; size_t *sptab_d[NR];
     double tr[NR] = {0}, tf[NR] = {0}, tc[NR] = {0}, to[NR] = {0};
 #pragma omp parallel num_threads(NR)
@@ -957,33 +1002,44 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         HIP_CHECK(hipStreamSynchronize(s));
         tc[d] = mem_now() - s2;
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
-         * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets */
+         * the CRT output (back to back in node order); the received segments of my window from the ranks (r, d) at prefix offsets.
+         * Phase 13a M: in Kt rounds when chunked (each round = every node's chunk rc of its window, then this node's chunk added
+         * into C by mn_round_add on one thread); Kt = 1 and the whole windows otherwise, as before */
+        for (int rc = 0; rc < Kt; rc++) {
+        size_t wlo, whi; mn_win_chunk(Cn, node, shift, Np, rc, Wt, chunked, &wlo, &whi); size_t wn = whi - wlo;
         size_t *scnt = ocnt, *sdsp = ocnt + g, *rcnt = ocnt + 2 * g, *rdsp = ocnt + 3 * g, rtot = 0;
-        for (int r = 0; r < g; r++) { size_t lo, hi; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); if (lo > n) lo = n; if (hi > n) hi = n;
+        for (int r = 0; r < g; r++) { size_t lo, hi; mn_win_chunk(Cn, G->g0 + r, shift, Np, rc, Wt, chunked, &lo, &hi); if (lo > n) lo = n; if (hi > n) hi = n;
                                       hsO[r].t0 = seq_start(lo, R, nr, rho); hsO[r].t1 = seq_start(hi, R, nr, rho); hsO[r].off = hsO[r].t0; }
-        { size_t lo = tlo < n ? tlo : n, hi = thi < n ? thi : n, S = 0;
+        { size_t lo = wlo < n ? wlo : n, hi = whi < n ? whi : n, S = 0;
           for (int r = 0; r < g; r++) { int rr = g * d + r; hsI[r].t0 = seq_start(lo, R, nr, rr); hsI[r].t1 = seq_start(hi, R, nr, rr); hsI[r].off = rtot; rtot += hsI[r].t1 - hsI[r].t0; if (hsI[r].t1 - hsI[r].t0 > S) S = hsI[r].t1 - hsI[r].t0; }
           seg_bytes(hsO, g, scnt, sdsp); seg_bytes(hsI, g, rcnt, rdsp);
           uint64_t *rbO = db_pool_alloc(d, (rtot + 16) * 8);
           double s3 = mem_now();
           comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_wait(G->all[d]);
-          if (tn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
-                            struct acc c = acc_db(dst, 0, tn); k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, tlo, rbO, dsI, g, S, R, nr, d); }
+          if (wn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
+                            struct acc c = acc_db(dst, 0, wn); k_scatter_mn<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, nr, d); }
           /* Phase 12 G: the spills exchanged exactly (was an all-gather of every rank's 4 C limbs: g x 4 C per APU, 77 GB per node at
            * 576 nodes).  My stripe j spills into limbs [R j + a, +4) of the piece, a = the first row of the next rank: node r gets the
            * blocks of the columns [j0, j1) that meet its window (spill_cols; adjacent windows share at most one block, added on each
            * side within its own limbs, the carry between them by the node scan); I receive, per source rank (r, d), the blocks that
            * meet mine, back to back in node order -- about 4 C limbs in all, whatever g (the sparse add decodes them by the table) */
           { size_t *scnt2 = pcnt, *sdsp2 = pcnt + g, *rcnt2 = pcnt + 2 * g, *rdsp2 = pcnt + 3 * g, blocks = 0, a_me = part0(R, nr, rho + 1);
-            for (int r = 0; r < g; r++) { size_t lo, hi, j0, j1; piece_window(Cn, G->g0 + r, shift, Np, &lo, &hi); spill_cols(lo, hi, a_me, R, C, &j0, &j1); scnt2[r] = (j1 - j0) * 4 * 8; sdsp2[r] = j0 * 4 * 8; }
-            for (int r = 0; r < g; r++) { size_t j0, j1; spill_cols(tlo, thi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
+            for (int r = 0; r < g; r++) { size_t lo, hi, j0, j1; mn_win_chunk(Cn, G->g0 + r, shift, Np, rc, Wt, chunked, &lo, &hi); spill_cols(lo, hi, a_me, R, C, &j0, &j1); scnt2[r] = (j1 - j0) * 4 * 8; sdsp2[r] = j0 * 4 * 8; }
+            for (int r = 0; r < g; r++) { size_t j0, j1; spill_cols(wlo, whi, part0(R, nr, g * d + r + 1), R, C, &j0, &j1); htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
             spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
             HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
             comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_wait(G->all[d]);
             HIP_CHECK(hipStreamSynchronize(s));
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
-          to[d] = mem_now() - s3;
+          to[d] += mem_now() - s3;
           db_pool_free(d, rbO); }
+        if (chunked) {
+#pragma omp barrier
+#pragma omp single
+          mn_round_add(&rd, Cn, &T, wlo, wn, whi == thi, shift, clo, cn, sp, sptab, R, nr, C, g, spill_rb, sptab_d, tn < Wt ? tn : Wt);
+          HIP_CHECK(hipSetDevice(d));                         /* (the single's db calls moved this thread's device) */
+        }
+        }
         if (cx) db_pool_free(d, cx);
         db_pool_free(d, (uint64_t *)dseg); free(hseg); free(cnt);
         if (gen) gplan_free(&gp, d);
@@ -992,10 +1048,17 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
+    if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
+        if (rd.kc > 1) { fprintf(stderr, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); exit(1); }
+        share_carry_fix(G, &Cn->sh, cn, rd.kc, rd.pr);        /* C's own carries, with the propagate flag of its last add */
+        share_carry_fix(G, &Cn->sh, cn, rd.cot, 0);           /* the piece's carries out of the windows that end at their share's top */
+        db_free(&T);
+    } else {
     if (tn) db_share_add_spills_x(dst, tn, tlo, sp, sptab, R, R / nr, C, g, &co, &pr);   /* (rows = R / nr: dbig.c decodes the unequal parts when it does not divide) */
     share_carry_fix(G, dst, tn, co, pr);
     for (int d = 0; d < NR; d++) { db_pool_free(d, spill_rb[d]); db_pool_free(d, sptab_d[d]); }
-    if (!direct) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
+    }
+    if (!direct && !chunked) {                                            /* C's share += T << (its window's offset); the carries across the nodes */
         co = 0; pr = cn == 0;
         if (tn) db_share_add_shifted(&Cn->sh, cn, &T, tlo + shift - clo, &co, &pr);
         share_carry_fix(G, &Cn->sh, cn, co, pr);
@@ -1129,6 +1192,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
     size_t sb = (va > vb ? va : vb) / 4 + 2 * (size_t)g * rows;                                 /* the packed part on APU d's ranks */
     int xin = has_x && ka * kb == 1;                                                                /* X rides in the CRT only on one plane; a grid adds it afterwards (mdb_add_shifted: O(chunk)) */
     size_t win = share_c < nc ? share_c : nc, xq = xin ? q : 0, tmp = is_pow2(g) ? q : 0;
+    { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) win = Wt; }                             /* Phase 13a M: MN_T_CHUNK_MB -- rbO and T (and mdb_add_shifted's T) hold one chunk */
     size_t peak1 = RT(pa) + RT(pb) + (xin ? RT(nc) : 0) + sb + xq + tmp + 16 * (size_t)g;          /* the operands in: the sequences + one packed part + cx, tmp */
     size_t peak2 = win / 4 + 2 * (size_t)g * rows + 4 * C + 4 * (size_t)g + xq + tmp;              /* the result out: rbO (my window's part), the spills, cx and tmp still held */
     size_t bytes = (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;   /* + the tables, + T's quarter (the accumulating pieces) */
@@ -1198,12 +1262,69 @@ static void add_window(const mdb *C, int r, size_t k, size_t nX, size_t *lo, siz
 }
 static void x_part(const mdb *X, int r, size_t *lo, size_t *hi) { mdb_share(X, r, lo, hi); if (*lo > X->n) *lo = X->n; if (*hi > X->n) *hi = X->n; }
 #define MDB_ADD_CHUNK ((size_t)1 << 26)
+/* Phase 13a M (TASKS 1.3, MN_T_CHUNK_MB): the same add with T bounded -- round c covers every node's chunk c = [lo + c W, +W)
+ * of its window (C's coordinates), APU d serving the quarter d of each chunk, so T holds one chunk (W limbs per node, a
+ * quarter per APU: the dbig's own quarters) and is added into C's share after each round.  X's limbs are normalised, so the
+ * chunks' adds carry out of the share at most once in all (C + X's window << off < 2 B^cn): one scan at the end, as before. */
+static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, size_t W, int K)
+{
+    int g = G->g, node = g_node_of(G); size_t nX = X->n;
+    size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
+    size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo, tcap = tn < W ? tn : W;
+    size_t xlo, xhi; x_part(X, node, &xlo, &xhi);
+    dbig T; db_init(&T); if (tn) db_zero_fill(&T, tcap);
+    int kc = 0, pr = cn == 0;
+    struct acc src = acc_db(&X->sh, 0, xhi > xlo ? xhi - xlo : 0);
+    for (int c = 0; c < K; c++) {
+        size_t wlo = tlo + (size_t)c * W; if (wlo > thi) wlo = thi; size_t whi = wlo + W < thi ? wlo + W : thi, wn = whi - wlo;
+#pragma omp parallel num_threads(NR)
+        {
+            int d = omp_get_thread_num(); hipStream_t s = RS[d].s;
+            HIP_CHECK(hipSetDevice(d));
+            struct rng *ht = (struct rng *)malloc((size_t)2 * g * sizeof *ht), *hu = ht + g;
+            size_t *cnt = (size_t *)malloc((size_t)4 * g * sizeof *cnt), *scnt = cnt, *sdsp = cnt + g, *rcnt = cnt + 2 * g, *rdsp = cnt + 3 * g, o = 0, so = 0, S = 16;
+            for (int r = 0; r < g; r++) {                  /* pack: receiver r's chunk c, its quarter d -> X's [a, b) cut to my part */
+                size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);
+                size_t x = lo + (size_t)c * W; if (x > hi) x = hi; size_t y = x + W < hi ? x + W : hi, ln = y - x;
+                size_t qlo = x + ln * d / 4, qhi = x + ln * (d + 1) / 4;
+                size_t a = qlo - k, b = qhi - k; if (a < xlo) a = xlo; if (b > xhi) b = xhi; if (b < a) b = a;
+                ht[r].a = a; ht[r].b = b; ht[r].src = a - xlo; ht[r].off = o; scnt[r] = (b - a) * 8; sdsp[r] = o * 8; o += b - a; if (b - a > S) S = b - a;
+            }
+            so = o; o = 0;
+            size_t qlo = wlo + wn * d / 4, qhi = wlo + wn * (d + 1) / 4;
+            for (int r = 0; r < g; r++) {                  /* unpack: sender r's slab = X's [a, b) in my quarter chunk -> T at a + k - wlo */
+                size_t plo, phi; x_part(X, G->g0 + r, &plo, &phi);
+                size_t a = qlo - k, b = qhi - k; if (a < plo) a = plo; if (b > phi) b = phi; if (b < a) b = a;
+                hu[r].a = a; hu[r].b = b; hu[r].src = a + k - wlo; hu[r].off = o; rcnt[r] = (b - a) * 8; rdsp[r] = o * 8; o += b - a; if (b - a > S) S = b - a;
+            }
+            uint64_t *sb = db_pool_alloc(d, (so + 16) * 8), *rb = db_pool_alloc(d, (o + 16) * 8);
+            struct rng *dt = (struct rng *)db_pool_alloc(d, g * sizeof *dt + 64);
+            HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
+            if (so) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
+            HIP_CHECK(hipStreamSynchronize(s));
+            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_wait(G->all[d]);
+            HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
+            if (o) { struct acc dst = acc_db(&T, 0, wn); k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S); }
+            HIP_CHECK(hipStreamSynchronize(s));
+            db_pool_free(d, sb); db_pool_free(d, rb); db_pool_free(d, (uint64_t *)dt); free(ht); free(cnt);
+        }
+        HIP_CHECK(hipSetDevice(0));
+        if (wn) { int co = 0, p = 0; db_share_add_shifted(&C->sh, cn, &T, wlo - clo, &co, &p); kc += co; pr = p; if (whi < thi) db_zero_fill(&T, tcap); }
+    }
+    if (kc > 1) { fprintf(stderr, "mdb_add_shifted: %d carries out of a share (the bound is 1)\n", kc); exit(1); }
+    share_carry_fix(G, &C->sh, cn, kc, pr);
+    db_free(&T);
+}
 void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
 {
     int g = G->g, node = g_node_of(G); size_t nX = X->n;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; }
     if (nX && k + nX > C->N) { fprintf(stderr, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); exit(1); }
+    { size_t W = mn_t_chunk_limbs(), mx = 0; if (W) { for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
+      if (mx > W) { int K = (int)((mx + W - 1) / W); mdb_add_shifted_rounds(C, X, k, G, W, K);
+                    if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu, %d rounds of %zu limbs (T bounded): %.3f s\n", node, nX, k, C->N, K, W, mem_now() - t0);
+                    return; } } }
     size_t clo, chi; mdb_share(C, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; add_window(C, node, k, nX, &tlo, &thi); size_t tn = thi - tlo;
     size_t maxq = 0; for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi);   /* (Phase 12 G: was add_window(C, r, ...) -- the local member index as a global node: on a group with g0 > 0 the windows came out empty, 0 rounds, X never added; the tree's P = P_A Q_B + P_B on a gridded level over [2, 4) was wrong) */ size_t qq = (hi - lo + 3) / 4; if (qq > maxq) maxq = qq; }
