@@ -42,7 +42,8 @@
  * calls the inter wait right after the post and stamps its return (the TCP upload / SHMEM staging then runs at once
  * instead of at the lazy wait: a slightly earlier completion, the values identical).  Folded at destroy / report into
  * per-size buckets; printed at exit (and by comm_layered_stats_report). */
-struct lst_rec { double a0, x0, x1, r1, f0, f1, c1; size_t xb, fb; int v; };
+struct lst_rec { double a0, x0, x1, r1, f0, f1, c1, l0, l1; size_t xb, fb; int v; };   /* [l0, l1]: the push kernel's link-active interval (COMM_XGMI_STATS=1) */
+extern "C" int comm_xgmi_last_push(int rank, double *t0, double *t1);   /* comm_xgmi.c */
 struct lst { struct lst_rec *r; int n, cap; };
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
@@ -62,6 +63,7 @@ static int lst_new(lay_priv *p, double a0, int v)
     return L->n++;
 }
 #define LREC(p, i) (&(p)->st.r[(i)])
+static void lst_link(lay_priv *p, struct lst_rec *r) { if (!p->minor) comm_xgmi_last_push(p->d, &r->l0, &r->l1); }
 /* mode 2: the watcher completes the inter exchange as soon as it lands and stamps the time */
 struct lst_w { comm *inter; int dev; double *f1; };
 static void *lst_watch(void *a)
@@ -86,8 +88,9 @@ static double lst_inter_wait(lay_priv *p, pthread_t th, int *on, const double *w
 }
 /* the folded totals, per bucket of the fabric bytes one APU sends per exchange (log2) */
 #define LB 48
-struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1; };
+struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1, xl, bothl; };
 static struct lst_tot g_tot[LB], g_all;
+static double *g_pool; static char *g_pk; static int g_np, g_npc;   /* the node view's intervals (kind 0 xGMI, 1 fabric, 2 span) */
 static pthread_mutex_t g_mx = PTHREAD_MUTEX_INITIALIZER;
 static lay_priv *g_reg[1024]; static int g_nreg; static int g_node = -1, g_gsz = 0;
 static int lst_bucket(size_t b) { int k = 0; while (k < LB - 1 && ((size_t)2 << k) <= b) k++; return k; }
@@ -116,7 +119,7 @@ static void lst_fold(lay_priv *p)
     double span_hi = 0, prev_f1 = 0;
     for (int k = 0; k < n; k++) {
         struct lst_rec *r = &L->r[k]; struct lst_tot *t = &g_tot[lst_bucket(r->fb)];
-        double both = lst_isect(X + 2 * k, 1, F, nf);
+        double both = lst_isect(X + 2 * k, 1, F, nf), lk[2] = { r->l0, r->l1 }, bl = r->l1 > 0 ? lst_isect(lk, 1, F, nf) : 0;
         double s0 = r->x0 > span_hi ? r->x0 : span_hi, sp = r->c1 > s0 ? r->c1 - s0 : 0;
         if (r->c1 > span_hi) span_hi = r->c1;
         double held = r->f0 > r->r1 ? r->f0 - r->r1 : 0, rdy = r->r1 > prev_f1 ? r->r1 : prev_f1, idle = r->f0 > rdy ? r->f0 - rdy : 0;
@@ -124,12 +127,47 @@ static void lst_fold(lay_priv *p)
         for (int a = 0; a < 2; a++) {
             struct lst_tot *u = a ? &g_all : t;
             u->n += 1; u->nv += r->v; u->span += sp; u->x += r->x1 - r->x0; u->f += r->f1 > 0 ? r->f1 - r->f0 : 0; u->both += both;
-            u->held += held; u->idle += idle; u->xb += r->xb; u->fb += r->fb;
+            u->held += held; u->idle += idle; u->xb += r->xb; u->fb += r->fb; u->xl += r->l1 > 0 ? r->l1 - r->l0 : 0; u->bothl += bl;
             if (!u->wall0 || r->a0 < u->wall0) u->wall0 = r->a0;
             if (r->c1 > u->wall1) u->wall1 = r->c1;
         }
     }
+    /* the node view: every interval into the pool (the four APU threads' fabric stages share the node's NICs) */
+    for (int k = 0; k < n; k++) {
+        struct lst_rec *r = &L->r[k];
+        if (g_np + 4 > g_npc) { g_npc = g_npc ? 2 * g_npc : 4096; g_pool = (double *)realloc(g_pool, 2 * (size_t)g_npc * sizeof(double)); g_pk = (char *)realloc(g_pk, g_npc); }
+        g_pool[2 * g_np] = r->x0; g_pool[2 * g_np + 1] = r->x1; g_pk[g_np++] = 0;
+        if (r->f1 > 0) { g_pool[2 * g_np] = r->f0; g_pool[2 * g_np + 1] = r->f1; g_pk[g_np++] = 1; }
+        g_pool[2 * g_np] = r->x0; g_pool[2 * g_np + 1] = r->c1; g_pk[g_np++] = 2;
+        if (r->l1 > 0) { g_pool[2 * g_np] = r->l0; g_pool[2 * g_np + 1] = r->l1; g_pk[g_np++] = 3; }
+    }
     free(X); L->n = 0;
+}
+/* the node view of the pool: the union of each kind (xGMI, fabric, span) over the APU threads, and xGMI n fabric */
+static int lst_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+static int lst_union(int kind, double *out)             /* merged, ordered intervals of one kind; returns the count */
+{
+    int m = 0;
+    for (int i = 0; i < g_np; i++) if (g_pk[i] == kind) { out[2 * m] = g_pool[2 * i]; out[2 * m + 1] = g_pool[2 * i + 1]; m++; }
+    qsort(out, m, 2 * sizeof(double), lst_cmp);
+    int w = 0;
+    for (int i = 0; i < m; i++) {
+        if (w && out[2 * i] <= out[2 * w - 1]) { if (out[2 * i + 1] > out[2 * w - 1]) out[2 * w - 1] = out[2 * i + 1]; }
+        else { out[2 * w] = out[2 * i]; out[2 * w + 1] = out[2 * i + 1]; w++; }
+    }
+    return w;
+}
+static double lst_len(const double *a, int n) { double s = 0; for (int i = 0; i < n; i++) s += a[2 * i + 1] - a[2 * i]; return s; }
+static void lst_node_print(const char *tag)
+{
+    if (!g_np) return;
+    double *X = (double *)malloc(8 * (size_t)g_np * sizeof(double)), *F = X + 2 * g_np, *S = F + 2 * g_np, *K = S + 2 * g_np;
+    int nx = lst_union(0, X), nf = lst_union(1, F), ns = lst_union(2, S), nk = lst_union(3, K);
+    double x = lst_len(X, nx), f = lst_len(F, nf), s = lst_len(S, ns), b = lst_isect(X, nx, F, nf), xk = lst_len(K, nk), bk = lst_isect(K, nk, F, nf);
+    printf("layer-stats %s node %d NODE VIEW (union over the APU threads): span %.4f s | xGMI %.4f fabric %.4f BOTH %.4f | xGMI-only %.4f fabric-only %.4f neither %.4f | both/xGMI %.1f %%, both/span %.1f %%, fabric busy/span %.1f %%\n",
+           tag, g_node, s, x, f, b, x - b, f - b, s - x - f + b, x > 0 ? 100 * b / x : 0, s > 0 ? 100 * b / s : 0, s > 0 ? 100 * f / s : 0);
+    if (nk) printf("layer-stats %s node %d NODE VIEW, the xGMI links (the push kernels, stamped): busy %.4f s, BOTH with the fabric %.4f s = %.1f %% of the link time\n", tag, g_node, xk, bk, xk > 0 ? 100 * bk / xk : 0);
+    free(X); g_np = 0;
 }
 static void lst_print(const char *tag)
 {
@@ -144,6 +182,8 @@ static void lst_print(const char *tag)
            tag, g_node, a->span > 0 ? 100 * a->both / a->span : 0, a->x > 0 ? 100 * a->both / a->x : 0, mn > 0 ? 100 * a->both / mn : 0,
            a->x + a->f > 0 ? 100 * a->both / (a->x + a->f) : 0, a->x + a->f > 0 ? 100 * mn / (a->x + a->f) : 0, a->held / q, a->idle / q,
            a->xb / q * 1e-9, a->x > 0 ? a->xb / a->x * 1e-9 : 0, a->fb / q * 1e-9, a->f > 0 ? a->fb / a->f * 1e-9 : 0);
+    if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
+                          tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
         struct lst_tot *t = &g_tot[k]; if (!t->n) continue;
         double m2 = t->x < t->f ? t->x : t->f;
@@ -153,7 +193,7 @@ static void lst_print(const char *tag)
     }
     fflush(stdout);
 }
-static void lst_atexit(void) { pthread_mutex_lock(&g_mx); for (int i = 0; i < g_nreg; i++) lst_fold(g_reg[i]); lst_print("(at exit)"); pthread_mutex_unlock(&g_mx); }
+static void lst_atexit(void) { pthread_mutex_lock(&g_mx); for (int i = 0; i < g_nreg; i++) lst_fold(g_reg[i]); lst_print("(at exit)"); lst_node_print("(at exit)"); pthread_mutex_unlock(&g_mx); }
 /* print the totals so far (every layered communicator quiescent) and reset them (tag 0: reset only); a no-op without
  * COMM_LAYER_STATS */
 extern "C" void comm_layered_stats_report(const char *tag)
@@ -161,7 +201,8 @@ extern "C" void comm_layered_stats_report(const char *tag)
     if (!lst_mode) return;
     pthread_mutex_lock(&g_mx);
     for (int i = 0; i < g_nreg; i++) lst_fold(g_reg[i]);
-    if (tag) lst_print(tag);                             /* tag 0: reset only */
+    if (tag) { lst_print(tag); lst_node_print(tag); }    /* tag 0: reset only */
+    g_np = 0;
     memset(g_tot, 0, sizeof g_tot); memset(&g_all, 0, sizeof g_all);
     pthread_mutex_unlock(&g_mx);
 }
@@ -255,7 +296,7 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     /* 1: intra-node, blocks of g slabs; the xGMI wait synchronises the stream and the four threads */
     comm_alltoall(p->intra, sb, e->tmp, bytes * g, s);
     comm_wait(p->intra);
-    if (lst_mode) LREC(p, e->rec)->x1 = lst_now();
+    if (lst_mode) { LREC(p, e->rec)->x1 = lst_now(); lst_link(p, LREC(p, e->rec)); }
     /* 2: [d][r'] -> [r'][d] into rb, then the inter-node exchange of blocks of na slabs, received into the slot */
     block_transpose(rb, e->tmp, bytes, na, g, s);
     HIP_CHECK(hipStreamSynchronize(s));
@@ -314,7 +355,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     if (st) { st->x0 = lst_now(); for (int dd = 0; dd < na; dd++) if (dd != d) st->xb += t->sI[dd]; }   /* (the stats: the xGMI stage) */
     if (host) comm_alltoallv_host(p->intra, src, t->sI, sdI, x1, t->rI, rdI);
     else { HIP_CHECK(hipStreamSynchronize(s)); comm_alltoallv(p->intra, src, t->sI, sdI, x1, t->rI, rdI, s); comm_wait(p->intra); }
-    if (st) st->x1 = lst_now();
+    if (st) { st->x1 = lst_now(); if (!host) lst_link(p, st); }
     free(sdI);
     /* x1: block dd = slabs (dd -> (d, r')) for r' = 0..g-1 back to back; x2: node r' = its na slabs dd = 0..na-1 */
     size_t o2 = 0;

@@ -78,7 +78,7 @@ static void push_run(struct push3 a, const size_t *bytes, hipStream_t s, int me 
 /* ---- H4: per-link bytes and active time (COMM_XGMI_STATS=1) ---- */
 static int g_xstats = -1;
 static struct { unsigned long long *d_ts[NR], *h_ts[NR]; int nts[NR], pend[NR], map[NR], peer[NR][3]; size_t pb[NR][3]; double khz;
-                double bytes[NR][NR], active[NR][NR], kbytes[NR], kspan[NR], n[NR]; } H;
+                double bytes[NR][NR], active[NR][NR], kbytes[NR], kspan[NR], n[NR], last_dur[NR], last_sync[NR]; int last_ok[NR]; } H;
 static pthread_mutex_t h_mx = PTHREAD_MUTEX_INITIALIZER;
 static void h4_print(void)
 {
@@ -109,7 +109,7 @@ static void h4_collect(int me)
     for (int k = 0; k < 3; k++) if (H.pb[me][k]) { H.bytes[me][H.peer[me][k]] += H.pb[me][k]; kb += H.pb[me][k]; }
     for (int r = 0; r < NR; r++) if (hi[r]) H.active[me][r] += (hi[r] - lo[r]) * f;
     if (!kb) klo = khi = 0;
-    H.kbytes[me] += kb; H.kspan[me] += (khi - klo) * f; H.n[me] += 1; H.pend[me] = 0;
+    H.kbytes[me] += kb; H.kspan[me] += (khi - klo) * f; H.n[me] += 1; H.pend[me] = 0; H.last_dur[me] = (khi - klo) * f; H.last_ok[me] = 1;
 }
 static void h4_launch(int me, struct push3 a, const size_t *bytes, int w, int blocks, int map, hipStream_t s, const int *peer)
 {
@@ -166,7 +166,7 @@ static void x_wait(comm *c)
 {
     HIP_CHECK(hipSetDevice(c->rank));
     HIP_CHECK(hipStreamSynchronize(G.s[c->rank]));
-    if (g_xstats > 0) h4_collect(c->rank);
+    if (g_xstats > 0) { H.last_sync[c->rank] = lst_now_x(); H.last_ok[c->rank] = 0; h4_collect(c->rank); }
     pthread_barrier_wait(&G.bar);                       /* everyone's sends have landed */
 }
 static void x_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
@@ -318,4 +318,12 @@ extern "C" void comm_xgmi_h4_links(int me, double *bytes, double *active, double
     for (int r = 0; r < NR; r++) { bytes[r] = H.bytes[me][r]; active[r] = H.active[me][r]; }
     *kspan = H.kspan[me];
     if (reset) { for (int r = 0; r < NR; r++) H.bytes[me][r] = H.active[me][r] = 0; H.kspan[me] = H.kbytes[me] = H.n[me] = 0; }
+}
+/* E9 part 1 (comm_layered's stats): the link-active interval of rank's last stamped exchange in host time -- the push kernel's
+ * stamped duration ending at the host's return from the stream sync (a few microseconds late); 0 when not stamped */
+extern "C" int comm_xgmi_last_push(int rank, double *t0, double *t1)
+{
+    if (g_xstats <= 0 || rank < 0 || rank >= NR || !H.last_ok[rank]) return 0;
+    *t1 = H.last_sync[rank]; *t0 = *t1 - H.last_dur[rank]; H.last_ok[rank] = 0;
+    return 1;
 }
