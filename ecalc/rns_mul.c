@@ -81,10 +81,27 @@ static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv
  * its 3 q + 16.  The mdev tier's plane is then capped by pool 0 (mdev_pts). */
 static size_t pool0_np3_bytes(void)
 {
-    int pl = g_pool_log ? g_pool_log : 31;
-    size_t q = planes_3q30() ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2);
-    return (size_t)3 * q * 8;
+    size_t p0; rns_plane_pool_bytes(g_pool_log ? g_pool_log : 31, planes_3q30(), 3, &p0, 0); return p0;
 }
+/* Phase 13b P (PLAN 31 step 0.3): the plane pools' bytes per APU as rns_init makes them, from (pool_log, the 3 2^k planes,
+ * the prime count) alone -- the one formula for rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and
+ * mem_model.py's port).  q = the dist tier's rank plane per prime: 2^(pool_log-2), or 3 2^(pool_log-3) with the 3 2^k planes
+ * (the plane cap n = 4 q: 2^pool_log or 3 2^(pool_log-1)).  Pool 0 = np q limbs (the np planes xa[]; four primes without the
+ * 3 2^k planes: the power of two 2^pool_log = 4 q, the same bytes), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
+ * 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30), 2 MiB-aligned.
+ * Returns p0 + p1. */
+size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1)
+{
+    int pl = pool_log ? pool_log : 31;
+    size_t q = b3 ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2), al = (size_t)2 << 20;
+    size_t a = (size_t)np * q * 8, b = (3 * q + 16) * 8, full = (size_t)8 << (pl < 30 ? pl : 30);
+    if (b < full) b = full;
+    a = (a + al - 1) / al * al; b = (b + al - 1) / al * al;
+    if (p0) *p0 = a; if (p1) *p1 = b;
+    return a + b;
+}
+/* Phase 13b P: BS_LAYOUT_ONLY runs before rns_init (no device): binsplit's sizing reads rns_pool_log() */
+void rns_preinit_pool_log(int pool_log) { if (!g_nd) g_pool_log = pool_log ? pool_log : 31; }
 size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */
 {
     int pl = g_pool_log ? g_pool_log : 31;
@@ -97,10 +114,7 @@ size_t rns_pool1_default_bytes(int pool_log)                       /* what the d
                                                                     * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
                                                                     * B3: q = 3 2^(pool_log-3) with the 3 2^k planes */
 {
-    int pl = pool_log ? pool_log : 31;
-    size_t q = planes_3q30() ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2), b = (3 * q + 16) * 8, al = (size_t)2 << 20, full = (size_t)8 << (pl < 30 ? pl : 30);
-    if (b < full) b = full;
-    return (b + al - 1) / al * al;
+    size_t b; rns_plane_pool_bytes(pool_log, planes_3q30(), 4, 0, &b); return b;   /* Phase 13b P: the one formula (pool 1 does not depend on the prime count) */
 }
 static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
 void (*rns_shutdown_hook)(void) = 0;                               /* Phase 9 C4: binsplit releases its region arenas here (they outlive the block pool's use of them) */

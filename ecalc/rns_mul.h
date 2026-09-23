@@ -47,6 +47,8 @@ size_t rns_pool1_default_bytes(int pool_log);
 extern int rns_planes_3q30;
 int rns_planes_3q30_default(int pool_log, double digits);
 size_t rns_plane_limbs(void);
+size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1);   /* Phase 13b P: pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
+void rns_preinit_pool_log(int pool_log);                                                /* Phase 13b P: rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
 size_t rns_dpool_cap(int dev, int which);   /* the pool's current bytes (0 before rns_init) */
 extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */
 int  rns_pool_log(void);
