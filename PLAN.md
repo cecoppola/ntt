@@ -1480,3 +1480,44 @@ maintained across the whole campaign so that the final choice is made on one pag
 **Expected outcome**: the empirically best design point, with the evidence for why it
 beats the alternatives, and a number for what the K4 structure is worth when exploited
 fully rather than incidentally.
+
+## 30. Phase 13a — a five-hour session on the highest-priority items (proposed 2026-09-22)
+
+The first slice of the §29 campaign plus the cheap correctness items of TASKS §1.
+Chosen so that (i) every measurement that later decisions depend on is made first,
+(ii) the largest single win is started immediately because it is also the longest, and
+(iii) nothing in the session waits on anything else in it.
+
+Three nodes are idle at the time of writing; six agents share them under the §19
+protocol (jobs ≤ 45 min, one per agent, none queued when all three are busy, release
+after each batch). Agents **N** and **V** need little node time and yield to the rest.
+
+| agent | items | owns | gate at five hours |
+|---|---|---|---|
+| **P3** three primes | §29 E1 then E3 — the largest single win (−25 % transform work, planes 180.4 → 135.3 GB) | `modarith.h`, `crt.c/.h`, the prime loops and CRT of `rns_mul.c`, `tests/t_crt.c`, new `tests/t_primes.c` | `t_primes` green to $2^{33}$ with the margin printed; `EC_NP` parameterised; $10^9$ digits byte-identical at $P=3$; a $4\times10^{10}$ run with wall and peak memory if time |
+| **S** the strategy boundary | §29 E0 and E2 — **the decisive micro-benchmark**: one product under product-per-APU, prime-per-APU and four-step at $2^{26}$–$2^{31}$, $P$ = 3 and 4 | new `tests/t_strategy.c`, new `tests/t_cap.c`; everything else read-only | a table of wall, peak plane bytes per APU and exchange count for all three strategies at every size — **the number that decides E4 and E5** |
+| **K** kernel constants | §29 H2 (the MALL cliff), H3 (modmul on the *full* transform), H7 (non-temporal pack/unpack), H6 if time | `ntt.c/.h`, `tests/t_ntt.c` | the MALL cliff located; FP64 Barrett against Shoup and a reduced-correction variant on the full transform; non-temporal stores measured; each behind a switch, defaults unchanged |
+| **X** the two fabrics | §29 E9 part 1 and H4 — xGMI-busy / fabric-busy / **both-busy** reported separately; whether the push saturates all three links | `ntt_dist.c`, `comm_layered.c`, `comm_xgmi.c`, `tests/t_dist.c`, `tests/t_comm.c` | the both-busy fraction at 2 and 3 real nodes; a verdict on whether the one-at-a-time inter stage binds — which decides whether E9 parts 2–3 are worth writing |
+| **M** memory truth | TASKS 1.1 (**the two models disagree by $4\times10^9$ digits/node**), 1.2 (`mdb_shift` scratch, 71 GB/node), 1.3 (the window temporary `T`, 35 GB/node) | `mem_model.py`, `tree_need_dev`/`binsplit_pregrow` in `binsplit.c`, the `T` and shift scratch in `rns_dist.c`/`newton_db.c` | one ceiling number, agreed between the C sizing and the model, with the disagreement explained; the two O(share) terms bounded or a written reason why not |
+| **N** hardening | TASKS 1.7 (`MN_GROUPS` restart trap), 4.1 (the checkpoint's wait on the division), 1.4 (the synchronous top set at size > 1) | the checkpoint code of `binsplit.c`, the output tail of `ecalc.c`, `mn.c`'s tree-set write | a restart with a mismatched schedule fails loudly; Q released after the output stage and the write sized from the measured disk rate; the size > 1 top set written in the background |
+
+**Seams** (agreed at launch): P3 and K both touch the transform — P3 owns `rns_mul.c`'s
+prime loops and the CRT, K owns `ntt.c`; M and N both touch `binsplit.c` — M owns the
+sizing functions, N the checkpoint functions. S is confined to `tests/`.
+
+**Hour by hour.** 0 launch, S and K take nodes first (their measurements are short and
+everything else is judged against them). 0–2 code; S reports the A/B/C boundary and K the
+kernel constants by hour 2. 2–4 P3's gate runs, X's two- and three-node measurements, M's
+and N's batches. 4–5 merges in readiness order with `mnaccept.sh --full` after each, a
+five-run $4\times10^{10}$ series on the merged tree, RESULTS §78 with **the Pareto table
+of (wall, node memory, modelled 576-node ceiling)** for every configuration measured, and
+the standing 576-node estimate.
+
+**What this session does not contain**, deliberately: E4 and E5 (they wait on S's
+boundary), E6–E8 (independent, and the session is full), the target-only items, and all
+of §28's code reduction, which comes after every other work item.
+
+**Expected outcome**: the three-prime question settled or nearly so; the A/B/C boundary
+known, which unlocks the K4 exploitation; the kernel constants re-measured against the
+MALL for the first time; a verdict on whether xGMI and the fabric already overlap; one
+agreed memory ceiling instead of two; and three hardening items closed.
