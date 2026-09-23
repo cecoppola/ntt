@@ -37,6 +37,18 @@ extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= t
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
 extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
 extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
+/* Phase 13a K (switches, defaults unchanged; -1 = read the environment variable at first use):
+ *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (default), 1 reduced-correction Barrett
+ *               (two-term reciprocal, one correction for data products, two for twiddles), 2 Shoup integer
+ *               products (b16 register-blocked body and b1 pass).  All exact: outputs bit-identical.
+ *   ntt_mall    NTT_MALL    H2: log2 of a chunk (points) that the passes of narrower span run on to completion
+ *               before the next chunk (MALL residency); 0 = off (default).  Bit-identical. */
+extern int ntt_modmul, ntt_mall;
+extern int ntt_b16_var;     /* NTT_B16_VAR  H6: register-blocked body variants, 1 = unpadded LDS + global twiddle table (4 blocks/CU), 2 = block order, 3 = both; 0 default */
+int ntt_modmul_get(void);
+int ntt_mall_get(void);
+/* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
+void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass, hipStream_t s);
 
 /* Phase 9 B1: layout of the pointwise operand y relative to x (a batch of transforms of L points each):
  *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
