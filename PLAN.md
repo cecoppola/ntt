@@ -1272,3 +1272,28 @@ independent of g — the 576-node limit the single-node ceiling × 576
 planes decided on that; the SHMEM transport in its target form verified
 on a thread-multiple implementation; a runbook and a model that give the
 digits, minutes and GB for any (g, D).
+
+## 28. Code reduction — scheduled after all other work items (2026-09-22)
+
+Recommendations and per-item reasoning: `CODE_REDUCTION.md`. The user has approved
+groups (a), (b) and (e); group (c) (merging) and group (d) (retention) are not
+scheduled here. **This work comes after every other item in §23, §26 and the
+DECISIONS3 list**: it touches live code and its only justification is clarity, so it
+must not compete with correctness or performance work for node time.
+
+| step | content | core lines | risk |
+|---|---|---|---|
+| 28.1 | **(a) Archive the instruments** → `archive/instruments/`: `ECALC_RES_LOG`(+`_LEVEL`,`_CPU`), `ECALC_LEAF_DUMP`, `ECALC_COPY_PROBE`, `ECALC_B_SNAPSHOT`, `MEM_DPOOL_FILL`, `MEM_COPY_NOWAIT`, `DBIG_SERIAL`, `DBIG_WARM`, `MEM_NO_DEV_MEMSET`, the five trace switches. `tests/t_alloc.c` and `tests/t_copy_order.c` stay in `tests/` | −320 | none |
+| 28.2 | **(b1) Remove engine 2**: `ntt2.c` (509), `ntt2.h` (66), `modarith2.h` (65), `crt2.c` (57), the 5 dispatch sites in `rns_mul.c`. Archived under `archive/engine2/`; measurement stays in RESULTS §44 | −757 | low (switch-only path) |
+| 28.3 | **(b2) Remove the rest**: `newton.c` (231, → `archive/newton_host/`, `t_newton` re-pointed at `newton_db`), the host-flow stand-ins (~40), the rejected layout/placement switches (~200), `MEM_ALLOC`'s five losing forms (~70), the DPP body (~55), the legacy flow guards (~50). Keep `ECALC_OVERLAP=0` if scheduling work is foreseen | −646 | low |
+| 28.4 | **(e0) Flip the library default to decimal** (`bi_decimal = 1`) and run the full regression plus the five base-2 tests in decimal, changing nothing else. This is the measurement that decides whether the binary pipeline still has anything to say. If a test fails or an oracle disagrees, stop and report — that is the cross-check earning its keep | 0 | none (measurement) |
+| 28.5 | **(e) Archive the binary pipeline** once 28.4 is clean: `todec.c` + `todec.h` (344), the bit operations `limb_shr_bits` / `limb_shl_bits` and the bit paths of `bi_shl`/`bi_shr` (~57), ~45 `bi_decimal` branch sites across eleven files; `tests/t_dec.c` (86) removed; **`t_dbig`, `t_mul`, `t_crt`, `t_newton`, `t_mn_grid` rewritten to run in decimal**, each re-validated against GMP individually. Archive `todec.c` and one base-2 test (`t_mul`) so the comparison can be reconstructed. The regression loses its two-base step; §9 of the paper loses the independent-pipeline claim and must be amended | −446 core, −86 test | **medium**: five test programs rewritten, and a verification layer retired deliberately |
+| 28.6 | `ecalc/README.md` switch list regenerated (it is grep-verified, so a stale entry fails loudly); `archive/MANIFEST.md` written; both papers' LOC figures and the paper's §9 updated | — | none |
+
+**Totals**: core 13 016 → **≈ 10 850 (−2 166, 17 %)**; switches 116 → ≈ 55; tests
+3 052 → ≈ 2 966 with five programs rewritten. Performance unchanged by construction —
+every removed path is either unreachable at the defaults or measured worse.
+
+**Gate for every step**: `mnaccept.sh <job> --full --stress` green before and after, and
+a five-run $4\times10^{10}$ series after 28.3 and after 28.5 to confirm the wall clock is
+untouched.
