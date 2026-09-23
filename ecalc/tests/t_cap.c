@@ -15,7 +15,7 @@
  *    rns_dist.c:476 -- keep in step), the pieces formed, the plane points, the total transform points (3 transforms
  *    per prime per piece, the single-node tier's cache off, its default), the all-to-alls under C (3 P per piece)
  *    and which strategies fit every piece in the budget.
- * 3. With E0's measured STRAT lines (t_strategy output, argument 1), the modelled time of each shape under each
+ * 3. With E0's measured STRAT lines (P = 4, and P = 3 where the log has them) (t_strategy output, argument 1), the modelled time of each shape under each
  *    strategy: pieces x the measured median of one product of that plane size (3 2^k planes: 1.5 x 1.05 x the 2^k
  *    time -- modelled; P = 3 from P = 4's measured parts: A and C transform/load parts x 3/4, B unchanged; the grid's
  *    shifted adds are not counted).  Labelled measured / modelled in the output.
@@ -30,15 +30,17 @@
 static int NP = 4;
 /* ---- E0's measured medians: t[strategy][logn], parts load/ntt/crt/merge ---- */
 static double T[3][40], TL[3][40], TN[3][40], TC[3][40], TM[3][40]; static int have[3][40];
+static double T3[3][40]; static int have3[3][40];   /* measured P = 3 medians (t_strategy on P3's library, ECALC_NP=3) */
 static void read_e0(const char *fn)
 {
     FILE *f = fopen(fn, "r"); char line[1024];
     if (!f) { fprintf(stderr, "t_cap: cannot read %s\n", fn); exit(1); }
     while (fgets(line, sizeof line, f)) {
         int logn, P; char s; double w, l, n, c, m;
-        if (sscanf(line, "STRAT logn=%d P=%d strat=%c wall_med=%lf", &logn, &P, &s, &w) != 4 || P != 4 || logn < 0 || logn >= 40) continue;
+        if (sscanf(line, "STRAT logn=%d P=%d strat=%c wall_med=%lf", &logn, &P, &s, &w) != 4 || (P != 4 && P != 3) || logn < 0 || logn >= 40) continue;
         const char *q = strstr(line, "| load "); if (!q || sscanf(q, "| load %lf ntt %lf crt %lf merge %lf", &l, &n, &c, &m) != 4) continue;
         int k = s - 'A'; if (k < 0 || k > 2) continue;
+        if (P == 3) { T3[k][logn] = w; have3[k][logn] = 1; continue; }
         T[k][logn] = w; TL[k][logn] = l; TN[k][logn] = n; TC[k][logn] = c; TM[k][logn] = m; have[k][logn] = 1;   /* the last line of a size wins */
     }
     fclose(f);
@@ -52,7 +54,8 @@ static double t_one(int k, double pts, int *modelled)
     if (lb < 0 || lb >= 40 || !have[k][lb]) return -1;
     double t = T[k][lb], f = r3 ? 1.5 * 1.05 : 1.0;
     *modelled = r3;
-    if (NP == 3) {                                                  /* from the measured parts */
+    if (NP == 3 && have3[k][lb]) { *modelled = r3; return T3[k][lb] * f; }   /* measured at P = 3 */
+    if (NP == 3) {                                                  /* from the measured P = 4 parts */
         if (k == 0 || k == 2) t = TL[k][lb] * 0.75 + TN[k][lb] * 0.75 + TC[k][lb] + TM[k][lb] + (T[k][lb] - TL[k][lb] - TN[k][lb] - TC[k][lb] - TM[k][lb]);
         *modelled = 1;
     }
