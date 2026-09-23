@@ -21,10 +21,10 @@ assumed (a target parameter).
 The M-run log: one line per run, fields separated by '|':
     <KEY=VALUE ...> | <ecalc's `total ...` line> | <peak memory>
   e.g.
-    digits=40000000000 size=1 ECALC_NP=3 RNS_STRATEGY=B POOL_LOG=31 RNS_PLANES_3Q30=0 | total    66.51 s   (bs 25.9 + 10dP 0.1 + dm 20.9 + T1 0.0 + dc 0.0 + T2 0.0 = 46.9; init 19.6; other 0.0); VmHWM 12.1 GB | device 287.5 GB identical
+    digits=40000000000 size=1 RNS_STRATEGY=B ECALC_PLANE_CAP=2^31 | total    66.51 s   (bs 25.9 + 10dP 0.1 + dm 20.9 + T1 0.0 + dc 0.0 + T2 0.0 = 46.9; init 19.6; other 0.0); VmHWM 12.1 GB | device 287.5 GB identical
   KEY=VALUE: digits= (or D=), size= (node-processes; default 1), and the run's environment.  The axes are read from it:
-  RNS_STRATEGY (C), the cap from PLANE_CAP / RNS_PLANE_CAP (2^30, 3*2^29, ... or points) else POOL_LOG + RNS_PLANES_3Q30
-  (the code's rule when unset), chunking from MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB, the depth from any key containing DEPTH,
+  RNS_STRATEGY (C), the cap from ECALC_PLANE_CAP (2^30, 3*2^29, 2^31, 3*2^30, or 30, 3x29, ...) else POOL_LOG + RNS_PLANES_3Q30
+  (the code's rule when unset), chunking from MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB, the depth from COMM_ALLTOALLV_DEPTH (any key with DEPTH),
   ECALC_NP (3), NTT_MODMUL (1).  From the total line: total, init, bs, dm; `recip X` if present; VmHWM.  The peak: `device X GB`
   (mem_report's device total; else `peak X GB` = device + host).  A line with DIFFERS or FAILED is reported and not used.
 """
@@ -36,11 +36,14 @@ import mem_model as MM
 GB = 1e9
 NODES = 576
 COMMON = 4e13                                   # the common size of column (e)
-BWS = (50.0, 100.0, 200.0)                      # GB/s per APU: (f) and (e)
+BWS = [50.0, 100.0, 200.0]                      # GB/s per APU: (f) low, (e), (f) high (--bws)
+def BE(): return BWS[1]
+def BL(): return BWS[0]
+def BH(): return BWS[2]
 CAPS = [1 << 30, 3 << 29, 1 << 31, 3 << 30]
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'results', 'DESIGN_TABLE.md')
-BUILT = {'C': 'built', 'B': 'agent B (13b)', 'B4': 'agent B (13b), if built', 'auto': 'agent B (13b)'}
+BUILT = {'C': 'on main', 'B': 'agent B (p13b-B)', 'B4': 'agent B (p13b-B)', 'auto': 'agent B (p13b-B)'}
 
 def fabric(bw):
     t = M.TARGET
@@ -75,8 +78,8 @@ def parse_mrun(path):
         r['ok'] = not re.search(r'DIFFERS|FAILED|differs', s)
         np_ = int(env.get('ECALC_NP', 3)); mm = int(env.get('NTT_MODMUL', 1)); st = env.get('RNS_STRATEGY', 'C')
         cap = None
-        for k in ('PLANE_CAP', 'RNS_PLANE_CAP', 'cap'):
-            if k in env: cap = parse_cap(env[k])
+        for k in ('ECALC_PLANE_CAP', 'PLANE_CAP', 'RNS_PLANE_CAP', 'cap'):
+            if k in env and env[k].lower() != 'fit': cap = parse_cap(env[k])   # 'fit' (agent P: the largest cap that fits): the code's choice, printed in the log
         if cap is None and ('POOL_LOG' in env or 'RNS_PLANES_3Q30' in env):
             pl = int(env.get('POOL_LOG', 31)); r3 = env.get('RNS_PLANES_3Q30')
             if r3 is None or r3 == 'auto': cap = MM.code_cap(r['D'] * r['g'], pl)
@@ -122,11 +125,11 @@ def evaluate(design, meas=None, peak_delta=0.0, leaf_scale=1.0, lab_meas=''):
         r.maxd[budget] = max_d(design, budget - max(0.0, peak_delta))
     r.walls = {}
     D = r.maxd[502.0]
-    r.wall_max = M.run(fabric(100.0), D, NODES, verbose=False, design=design, leaf_scale=leaf_scale)['wall'] if D else None
+    r.wall_max = M.run(fabric(BE()), D, NODES, verbose=False, design=design, leaf_scale=leaf_scale)['wall'] if D else None
     for bw in BWS:
         rr = M.run(fabric(bw), COMMON / NODES, NODES, verbose=False, design=design, leaf_scale=leaf_scale)
         r.walls[bw] = rr['wall']
-        if bw == 100.0: r.run4e13 = rr
+        if bw == BE(): r.run4e13 = rr
     r.fits = r.maxd[502.0] * NODES >= COMMON * 0.9999
     r.fits480 = r.maxd[480.0] * NODES >= COMMON * 0.9999
     r.lab576 = 'modelled' + (' on measured per-node input' if lab_meas else '')
@@ -191,7 +194,7 @@ def pareto(rows):
     cand = [r for r in rows if r.fits]
     front = []
     for r in cand:
-        dom = any((o.walls[100.0] <= r.walls[100.0] and o.maxd[502.0] >= r.maxd[502.0]) and (o.walls[100.0] < r.walls[100.0] - 1e-9 or o.maxd[502.0] > r.maxd[502.0]) for o in cand)
+        dom = any((o.walls[BE()] <= r.walls[BE()] and o.maxd[502.0] >= r.maxd[502.0]) and (o.walls[BE()] < r.walls[BE()] - 1e-9 or o.maxd[502.0] > r.maxd[502.0]) for o in cand)
         if not dom: front.append(r)
     return front
 
@@ -224,12 +227,12 @@ def build(args):
         if args.verbose: print('%3d/%d %-22s %.0f s' % (i + 1, len(designs), d.name(), time.time() - t0), file=sys.stderr)
     front = pareto(rows)
     fits = [r for r in rows if r.fits]
-    fastest = min(fits, key=lambda r: r.walls[100.0]) if fits else None
-    largest = max(rows, key=lambda r: (r.maxd[502.0], -r.walls[100.0]))
-    best_w = fastest.walls[100.0] if fastest else 1.0
+    fastest = min(fits, key=lambda r: r.walls[BE()]) if fits else None
+    largest = max(rows, key=lambda r: (r.maxd[502.0], -r.walls[BE()]))
+    best_w = fastest.walls[BE()] if fastest else 1.0
     best_d = largest.maxd[502.0]
     # the recommended balance: on the front, the best of (safe digits / the largest) + (the fastest wall / its wall), built options first
-    def score(r): return r.maxd[480.0] / best_d + best_w / r.walls[100.0]
+    def score(r): return r.maxd[480.0] / best_d + best_w / r.walls[BE()]
     rec = max(front, key=score) if front else None
     ranks = {bw: rank(fits, lambda r, bw=bw: r.walls[bw]) for bw in BWS}
     return dict(rows=rows, front=front, fastest=fastest, largest=largest, rec=rec, ranks=ranks, runs=runs, notes=notes, by_sk=by_sk, secs=time.time() - t0)
@@ -248,32 +251,34 @@ def write_md(res, args):
               'and the chunk rounds\' fixed cost on the target (T_ROUND %.3f s, fitted on aac6 loopback). Column (f) varies the fabric bandwidth.\n' % M.T_ROUND)
     L_.append('Columns: S = `RNS_STRATEGY`; K = plane cap; chunk = `MDB_SHIFT_CHUNK_MB` (shift) / + `MN_T_CHUNK_MB` (both), at %d MB; depth = the uneven exchange two deep; '
               '(a) 4 × 10¹⁰ wall at size 1 [s]; (b) node peak at 4 × 10¹⁰ [GB]; (c) the 576-node maximum digits [×10¹³] at 502 / 480 GB per node; '
-              '(d) the 576-node wall at the 502-GB maximum [min]; (e) the 576-node wall at 4 × 10¹³ digits [min] at 100 GB/s per APU; (f) the same at 50 / 200 GB/s; '
-              'rank = (e)\'s rank at 50 / 100 / 200 GB/s among the rows that hold 4 × 10¹³. Marks: **P** Pareto front on ((e), (c) at 502), **F** fastest, **L** largest, **R** recommended. '
-              '(e) in parentheses: the row cannot hold 4 × 10¹³ at 502 GB.\n' % M.CHUNK_MB)
-    L_.append('| # | S | K | chunk | depth | (a) s | (b) GB | (c) 502 | (c) 480 | (d) min | (e) min | (f) 50 | (f) 200 | rank 50/100/200 | mark | labels |')
+              '(d) the 576-node wall at the 502-GB maximum [min]; (e) the 576-node wall at 4 × 10¹³ digits [min] at %g GB/s per APU; (f) the same at %g / %g GB/s; '
+              'rank = (e)\'s rank at %g / %g / %g GB/s among the rows that hold 4 × 10¹³. Marks: **P** Pareto front on ((e), (c) at 502), **F** fastest, **L** largest, **R** recommended. '
+              '(e) in parentheses: the row cannot hold 4 × 10¹³ at 502 GB. Labels column: mod = modelled, meas = measured, (meas. node) = the 576 model scaled to the measured one-node run.\n' % (M.CHUNK_MB, BE(), BL(), BH(), BL(), BE(), BH()))
+    L_.append('| # | S | K | chunk | depth | (a) s | (b) GB | (c) 502 | (c) 480 | (d) min | (e) min | (f) %g | (f) %g | rank %g/%g/%g | mark | labels (a) / (b) / 576 |' % (BL(), BH(), BL(), BE(), BH()))
     L_.append('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
-    order = sorted(rows, key=lambda r: (not r.fits, r.walls[100.0]))
+    order = sorted(rows, key=lambda r: (not r.fits, r.walls[BE()]))
     for i, r in enumerate(order, 1):
         d = r.d; mk = ''.join(c for c, cond in (('P', id(r) in fset), ('F', r is F), ('L', r is L), ('R', r is R)) if cond)
         e = lambda x: ('%.2f' % (x / 60)) if r.fits else '(%.2f)' % (x / 60)
         rk = '/'.join(str(ranks[bw].get(id(r), '-')) for bw in BWS)
-        labs = '(a) %s, (b) %s; 576: %s' % (r.a_lab, r.b_lab, r.lab576)
+        labs = '%s / %s / %s' % (r.a_lab.replace('modelled', 'mod').replace('measured', 'meas'), r.b_lab.replace('modelled', 'mod').replace('measured', 'meas'), r.lab576.replace('modelled', 'mod').replace(' on measured per-node input', ' (meas. node)'))
         L_.append('| %d | %s | %s | %s | %d | %.1f | %.1f | %s | %s | %s | %s | %s | %s | %s | %s | %s |' % (
             i, d.strategy, MM.cap_name(d.cap), d.chunk, d.depth, r.a, r.b, fmt_d(r.maxd[502.0] * NODES), fmt_d(r.maxd[480.0] * NODES),
-            '%.2f' % (r.wall_max / 60) if r.wall_max else '-', e(r.walls[100.0]), e(r.walls[50.0]), e(r.walls[200.0]), rk, mk, labs))
+            '%.2f' % (r.wall_max / 60) if r.wall_max else '-', e(r.walls[BE()]), e(r.walls[BL()]), e(r.walls[BH()]), rk, mk, labs))
     L_.append('')
     def desc(r, tag):
         if r is None: return '- %s: none' % tag
         return ('- **%s: S %s, K %s, chunking %s, depth %d** — %.2f × 10¹³ digits at 502 GB (%.2f at 480), %.2f min at its maximum; 4 × 10¹³ in %.2f min '
-                '(%.2f at 50 GB/s, %.2f at 200); one node at 4 × 10¹⁰: %.1f s, %.0f GB. Built: %s%s. Environment: `%s`' % (
+                '(%.2f at the low, %.2f at the high bandwidth); one node at 4 × 10¹⁰: %.1f s, %.0f GB. Built: %s%s. Environment: `%s`' % (
                 tag, r.d.strategy, MM.cap_name(r.d.cap), r.d.chunk, r.d.depth, r.maxd[502.0] * NODES / 1e13, r.maxd[480.0] * NODES / 1e13,
-                (r.wall_max or 0) / 60, r.walls[100.0] / 60, r.walls[50.0] / 60, r.walls[200.0] / 60, r.a, r.b, BUILT[r.d.strategy],
-                '' if r.d.depth == 1 else ', depth 2 = agent X (13b)', ' '.join('%s=%s' % kv for kv in r.d.env().items())))
+                (r.wall_max or 0) / 60, r.walls[BE()] / 60, r.walls[BL()] / 60, r.walls[BH()] / 60, r.a, r.b, BUILT[r.d.strategy],
+                '' if r.d.depth == 1 else ', depth 2 = agent X (p13b-X)', ' '.join('%s=%s' % kv for kv in r.d.env().items())))
     L_.append('## The marked rows\n')
     for r, tag in ((F, 'fastest (F)'), (L, 'largest (L)'), (R, 'recommended balance (R)')): L_.append(desc(r, tag))
-    L_.append('- Pareto front (%d rows): %s' % (len(front), '; '.join('%s/%s/%s/d%d' % (r.d.strategy, MM.cap_name(r.d.cap), r.d.chunk, r.d.depth) for r in sorted(front, key=lambda r: r.walls[100.0]))))
-    L_.append('\nThe recommended balance maximises (its safe digits at 480 GB / the largest row\'s digits at 502) + (the fastest wall / its wall) over the front.\n')
+    L_.append('- Pareto front (%d rows): %s' % (len(front), '; '.join('%s/%s/%s/d%d' % (r.d.strategy, MM.cap_name(r.d.cap), r.d.chunk, r.d.depth) for r in sorted(front, key=lambda r: r.walls[BE()]))))
+    L_.append('\nThe recommended balance maximises (its safe digits at 480 GB / the largest row\'s digits at 502) + (the fastest wall / its wall) over the front. '
+              '`auto` equals `B4` in every column at three primes: rns_dist.c\'s auto takes the B form (`RNS_STRATEGY_FORM`, default B4 at P = 3) wherever its planes fit '
+              'the pools as sized at init, and B4\'s 12 n bytes per APU are exactly the C pools; the two differ only where a product is not an owning dbig or uses the transform cache (then C).\n')
     # the ranking against the fabric assumption
     fits = [r for r in rows if r.fits]
     def spearman(a, b):
@@ -282,9 +287,9 @@ def write_md(res, args):
         return 1 - 6 * sum((ranks[a][id(r)] - ranks[b][id(r)]) ** 2 for r in fits) / (n * (n * n - 1))
     L_.append('## Does the ranking survive the fabric assumption?\n')
     top = lambda bw: min(fits, key=lambda r: r.walls[bw]) if fits else None
-    L_.append('Spearman rank correlation of (e) over the %d rows that hold 4 × 10¹³: 50 vs 100 GB/s %.3f, 200 vs 100 GB/s %.3f. '
-              'The fastest row at 50 / 100 / 200 GB/s: %s.\n' % (len(fits), spearman(50.0, 100.0), spearman(200.0, 100.0),
-              ' / '.join('%s %s %s d%d' % (t.d.strategy, MM.cap_name(t.d.cap), t.d.chunk, t.d.depth) for t in (top(50.0), top(100.0), top(200.0)) if t)))
+    L_.append('Spearman rank correlation of (e) over the %d rows that hold 4 × 10¹³: %g vs %g GB/s %.3f, %g vs %g GB/s %.3f. '
+              'The fastest row at %g / %g / %g GB/s: %s.\n' % (len(fits), BL(), BE(), spearman(BL(), BE()), BH(), BE(), spearman(BH(), BE()), BL(), BE(), BH(), 
+              ' / '.join('%s %s %s d%d' % (t.d.strategy, MM.cap_name(t.d.cap), t.d.chunk, t.d.depth) for t in (top(BL()), top(BE()), top(BH())) if t)))
     if R is not None:
         rr = R.run4e13
         L_.append('## The recommended row at 4 × 10¹³ (576 nodes, 100 GB/s), by phase\n')
@@ -295,7 +300,7 @@ def write_md(res, args):
         sens = []
         saved = M.T_ROUND
         for tr in (0.01, 0.1):
-            M.T_ROUND = tr; sens.append((tr, M.run(fabric(100.0), COMMON / NODES, NODES, verbose=False, design=R.d, leaf_scale=R.leaf_scale)['wall']))
+            M.T_ROUND = tr; sens.append((tr, M.run(fabric(BE()), COMMON / NODES, NODES, verbose=False, design=R.d, leaf_scale=R.leaf_scale)['wall']))
         M.T_ROUND = saved
         L_.append('Sensitivity of the recommended row to the chunk rounds\' fixed cost (assumed on the target): T_ROUND %s.\n' % ', '.join('%.2f s -> %.2f min' % (tr, w / 60) for tr, w in sens))
     if res['by_sk'] or res['notes']:
@@ -308,7 +313,7 @@ def write_md(res, args):
         L_.append('')
     L_.append('## How to regenerate\n')
     L_.append('`cd ecalc && ./design_table.py [--mrun <log>]` (about %.0f s); `./design_table.py --calibrate [--mrun <log>]` prints the model against every measured run. '
-              'On the target: measure the fabric first (docs/TARGET.md §6) and pass `--bw`, `--lat`, `--write-bw`.\n' % res['secs'])
+              'On the target: measure the fabric first (docs/TARGET.md §6) and pass `--bws <low,measured,high>`, `--lat`, `--write-bw` (and `--hide-pow2`, `--gen-hide2` from the `COMM_LAYER_STATS` both-busy fractions).\n' % res['secs'])
     open(args.out, 'w').write('\n'.join(L_) + '\n')
     return '\n'.join(L_)
 
@@ -393,21 +398,30 @@ def calibrate(args):
               ' it does not stack on -- conservative, M13); host HWM %.1f vs %.1f (the TCP transport\'s copies; the target\'s SHMEM pool is counted separately)' % (
               D, g, dev, m['dev_dm'] / GB, 100 * (m['dev_dm'] / GB / dev - 1), host, m['host_hwm'] / GB))
     if args.mrun:
-        print('\n== the M-run (%s)' % args.mrun)
+        print('\n== the M-run (%s): single runs, then the gate on each configuration\'s mean' % args.mrun)
+        grp = {}
         for r in parse_mrun(args.mrun):
-            d = r['design']
+            d = r['design']; tag = '' if r['ok'] else '  [DIGITS DIFFER / FAILED: not used]'
             if r['g'] == 1:
                 p = M.node_phases(r['D'], d); mw = sum(v for k, v in p.items() if k != 'label')
                 m = MM.mem_per_node(int(r['D']), 1, d.mem_opts(r['D']))
                 pk = (r['dev'] + r['hwm']) if r['dev'] is not None and r['hwm'] is not None else r['peak']
-                e = mw / r['total'] - 1
                 ep = (m['node_peak'] / GB / pk - 1) if pk else None
-                print('  line %3d %-26s %.0e: wall %.2f model %.2f (%+.1f %%); peak %s model %.1f %s%s' % (r['line'], d.name(), r['D'], r['total'], mw, 100 * e,
-                      ('%.1f' % pk) if pk else '-', m['node_peak'] / GB, ('(%+.2f %%)' % (100 * ep)) if ep is not None else '', '' if r['ok'] else '  [DIGITS DIFFER: not used]'))
-                if r['ok'] and abs(e) > gate_w: fails.append('M-run line %d: wall %+.1f %%' % (r['line'], 100 * e))
-                if r['ok'] and ep is not None and abs(ep) > gate_p: fails.append('M-run line %d: peak %+.2f %%' % (r['line'], 100 * ep))
+                print('  line %3d %-22s np %d mm %d %.0e: wall %.2f model %.2f (%+.1f %%); peak %s model %.1f %s%s' % (r['line'], d.name(), d.np, d.modmul, r['D'], r['total'], mw,
+                      100 * (mw / r['total'] - 1), ('%.1f' % pk) if pk else '-', m['node_peak'] / GB, ('(%+.2f %%)' % (100 * ep)) if ep is not None else '', tag))
+                if r['ok']:
+                    e = grp.setdefault((d.key(), r['D']), dict(name=d.name(), np=d.np, mm=d.modmul, D=r['D'], mw=mw, walls=[], peaks=[], mp=m['node_peak'] / GB))
+                    e['walls'].append(r['total'])
+                    if pk: e['peaks'].append(pk)
             else:
-                print('  line %3d %-26s %.0e / %d: wall %.2f (loopback; enters the chunk / depth fit)' % (r['line'], d.name(), r['D'], r['g'], r['total']))
+                print('  line %3d %-22s %.0e / %d: wall %.2f (loopback; enters the chunk fit)%s' % (r['line'], d.name(), r['D'], r['g'], r['total'], tag))
+        for e in grp.values():
+            mean = sum(e['walls']) / len(e['walls']); ew = e['mw'] / mean - 1
+            pk = max(e['peaks']) if e['peaks'] else None; ep = (e['mp'] / pk - 1) if pk else None
+            print('  config %-22s np %d mm %d %.0e: n %d, mean %.2f, model %.2f (%+.1f %%); peak %s (%s)' % (e['name'], e['np'], e['mm'], e['D'], len(e['walls']), mean, e['mw'], 100 * ew,
+                  ('%.1f' % pk) if pk else '-', ('%+.2f %%' % (100 * ep)) if ep is not None else '-'))
+            if abs(ew) > gate_w: fails.append('M-run %s at %.0e: wall %+.1f %%' % (e['name'], e['D'], 100 * ew))
+            if ep is not None and abs(ep) > gate_p: fails.append('M-run %s at %.0e: peak %+.2f %%' % (e['name'], e['D'], 100 * ep))
     print('\n== gate: %s' % ('PASS' if not fails else 'FAIL on %d item(s):' % len(fails)))
     for f in fails: print('   ' + f)
     print('   the model covers size-1 walls from 1e10 to 1e11 digits (the 576 leaf is 5-10 x 10^10); at 1e9 the wall is 75 % init (+-1.5 s per run) and')
@@ -422,13 +436,18 @@ def main():
     ap.add_argument('--calibrate', action='store_true', help='model against every measured run, with the error; exit 1 if the gate fails')
     ap.add_argument('--out', default=OUT, help='the markdown file (default results/DESIGN_TABLE.md)')
     ap.add_argument('--quick', action='store_true', help='12 rows only')
+    ap.add_argument('--bws', default='50,100,200', help='GB/s per APU: (f) low, (e), (f) high (assumed 100 = PLAN 25; on the target the measured value in the middle)')
     ap.add_argument('--lat', type=float, default=2e-6, help='seconds per message (assumed)')
     ap.add_argument('--write-bw', type=float, default=2.0, help='GB/s per node for the part file (assumed)')
     ap.add_argument('--e0', help='an extra t_strategy log (e.g. with B4 lines) for the per-product law')
+    ap.add_argument('--hide-pow2', type=float, default=M.HIDE_POW2, help='the equal-slab path\'s hidden fraction of its xGMI time (X13: 0.75)')
+    ap.add_argument('--gen-hide2', type=float, default=M.GEN_HIDE_DEPTH[2], help='the general map\'s hidden fraction at depth 2 (modelled 0.75; agent X\'s both-busy measurement replaces it)')
     ap.add_argument('--verbose', action='store_true')
     a = ap.parse_args()
-    M.TARGET = M.Fabric(M.TARGET.name, 100.0, a.lat, group=M.TARGET.group, layers=M.TARGET.layers, taper=M.TARGET.taper, write_bw=a.write_bw)
+    BWS[:] = [float(x) for x in a.bws.split(',')]
+    M.TARGET = M.Fabric(M.TARGET.name, BE(), a.lat, group=M.TARGET.group, layers=M.TARGET.layers, taper=M.TARGET.taper, write_bw=a.write_bw)
     if a.e0: M._E0 = None; M.e0_table(a.e0)
+    M.HIDE_POW2 = a.hide_pow2; M.GEN_HIDE_DEPTH[2] = a.gen_hide2
     if a.calibrate:
         sys.exit(0 if calibrate(a) else 1)
     res = build(a)

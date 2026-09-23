@@ -202,7 +202,20 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     c.t_exposed = n_tr * exposed_tr + t_r + t_s + t_small
     return c
 
+_PC = {}
 def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=True, form="grid"):
+    """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
+    parameters, the arguments and what of the design the product depends on"""
+    dz = DZ
+    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1)
+    k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
+         na, nb, g, lowcut, highcut, with_x, cache, form, dk)
+    c = _PC.get(k)
+    if c is None:
+        c = _product_cost(fab, na, nb, g, lowcut, highcut, with_x, cache, form); _PC[k] = c
+    out = Cost(); out.add(c); return out
+
+def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=True, form="grid"):
     """C = A B (+ X) over a group of g nodes: the grid of pieces at the group's cap (mn_logn_cap: 2^(31 + floor(log2 g))),
     the cuts, the transform cache over shares"""
     if g <= 1: raise ValueError("product over one node")
@@ -390,14 +403,13 @@ class Design:
     def name(self):
         return '%s %s %s d%d' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth)
     def env(self):
-        """the environment that selects this row (the switch names of PLAN 31; agent B / P / X own the exact spelling -- see
-        results/D13b.md 'M-RUN SWITCHES'); the cap as POOL_LOG + RNS_PLANES_3Q30"""
+        """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
+        RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
         e = dict(ECALC_NP=self.np, NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)
-        if self.cap is not None:
-            pl, r3 = mem_model.cap_pool(self.cap); e.update(POOL_LOG=pl, RNS_PLANES_3Q30=1 if r3 else 0)
-        if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = self.shift_mb
-        if self.t_mb: e['MN_T_CHUNK_MB'] = self.t_mb
-        e['ALLTOALLV_DEPTH'] = self.depth
+        if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
+        if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
+        if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
+        e['COMM_ALLTOALLV_DEPTH'] = self.depth
         return e
 
 DEFAULT = Design()                     # the code after step 0: three primes, C, the code's cap rule, no chunking, depth 1, NTT_MODMUL=1
@@ -417,20 +429,26 @@ def e0_table(extra=None):
     global _E0
     if _E0 is not None and extra is None: return _E0
     import re
-    t = {}
+    t = {}; lib = set()
+    NAMES = {'4': 'B4', 'LC': 'C', 'LB': 'B', 'LB4': 'B4'}         # agent B's t_strategy: strat=4 is B4, strat=L<form> the library's forms
     for fn in [E0_FILE] + ([extra] if extra else []):
         if not fn or not os.path.exists(fn): continue
         for line in open(fn, errors='replace'):
             m = re.match(r'STRAT logn=(\d+) P=(\d) strat=(\w+) wall_med=([\d.]+).*\| load ([\d.]+) ntt ([\d.]+) crt ([\d.]+) merge ([\d.]+)', line)
-            if m: t[(int(m.group(2)), m.group(3), int(m.group(1)))] = tuple(float(m.group(i)) for i in range(4, 9))
+            if not m: continue
+            st = m.group(3); key = (int(m.group(2)), NAMES.get(st, st), int(m.group(1)))
+            if key in lib and not st.startswith('L'): continue       # the library's own form (strat=L...) wins over the test's
+            if st.startswith('L'): lib.add(key)
+            t[key] = tuple(float(m.group(i)) for i in range(4, 9))
     _E0 = t
     return t
 
 def t_prod(strategy, pts, np):
     """one product on a plane of pts points (2^k or 3 2^k) under a strategy at np primes, seconds.  Returns (t, label):
     'measured' = an E0 median at this 2^k and P; 'modelled' otherwise -- 3 2^k planes 1.5 x 1.05 x the 2^(k+1) time (t_cap's
-    rule), a P = 3 size E0 lacks from the P = 4 time x the neighbours' measured P3/P4 ratio, B4 (not built) = B with its
-    transforms spread over four APUs (the ntt part x 3/4 at P = 3), B's load and CRT unchanged"""
+    rule), a P = 3 size E0 lacks from the P = 4 time x the neighbours' measured P3/P4 ratio, B4 (until agent B's
+    t_strategy log is given with --e0) = B with the critical APU's transforms 2.5 n instead of 3 n (rns_dist.c's B4: APUs 0-2
+    transform X whole and Y's lower residue, APU 3 the upper residues), B's load and CRT unchanged"""
     E = e0_table()
     logn = 0
     while (1 << logn) < pts: logn += 1
@@ -456,7 +474,7 @@ def t_prod(strategy, pts, np):
         lab = 'modelled'
     t = v[0]
     if strategy == 'B4':
-        if (np, 'B4', lb) not in E and np == 3: t = v[0] - 0.25 * v[2]; lab = 'modelled'   # at P = 4, B already uses the four APUs: B4 = B
+        if (np, 'B4', lb) not in E and np == 3: t = v[0] - v[2] / 6.0; lab = 'modelled'   # at P = 4, B already uses the four APUs: B4 = B
     return t * f, lab
 
 # ---- the pipeline's big products (a port of tests/t_cap.c: the grid split_grid_cap forms under a cap, the cuts) -------
@@ -495,7 +513,8 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
 @functools.lru_cache(maxsize=None)
 def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
     """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
-    'auto' takes B for a piece whose 16 n bytes fit the C pools of the cap ((np + 3) cap 2 bytes per APU), else C"""
+    'auto' (rns_dist.c): the B form -- RNS_STRATEGY_FORM, default B4 at P = 3, B at P = 4 -- for a piece whose planes fit the
+    pools as sized at init (the C pools of the cap: (np + 3) cap 2 bytes per APU), else C; auto never allocates"""
     pl, r3 = mem_model.cap_pool(cap); logmax = pl
     budget = mem_model.plane_bytes_apu('C', cap, np)
     out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
@@ -514,7 +533,9 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
                 if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
                 p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
                 st = strategy
-                if strategy == 'auto': st = 'B' if mem_model.plane_bytes_apu('B', p, np) <= budget else 'C'
+                if strategy == 'auto':
+                    form = 'B4' if np == 3 else 'B'
+                    st = form if mem_model.plane_bytes_apu(form, p, np) <= budget else 'C'
                 tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'

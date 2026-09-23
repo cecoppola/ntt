@@ -312,7 +312,9 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
     p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
     p1 = (p1 + al - 1) // al * al
     per = p0 + p1
-    if strategy in ('B', 'B4'): per = max(per, plane_bytes_apu(strategy, 4 * q, np))   # the plane of the cap = 4 q points
+    if strategy in ('B', 'B4'): per = max(per, plane_bytes_apu(strategy, 4 * q, np))   # the plane of the cap = 4 q points; rns_dist.c
+                                                                      # takes what the pools lack from one grow-only hipMalloc buffer per
+                                                                      # APU, kept to the end of the dm phase (so at the dm peak)
     return NR * per + int((0.61 if pool_log >= 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured; 2^30 assumed = 2^31)
 
 HOST_RUNTIME = 7.0 * GB                                  # ROCm runtime + program ("other" 6.9 GB at 4e10, the same at 1e6)
