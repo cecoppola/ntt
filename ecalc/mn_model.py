@@ -382,6 +382,10 @@ MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.
 T_ROUND = 0.030                        # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
                                        # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
 CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
+# the POOL_LOG-30 caps (2^30, 3 2^29): agent P's runs (job 21046) take 1.3-1.4 x the per-product law's big products (cap_factor,
+# fitted on those runs; at POOL_LOG 31 the law alone matches the measured 2^31 against 3 2^30 to <= 0.3 s per phase, I's runs)
+BATCH_CAP = {1 << 30: 18.9 / 17.45, 3 << 29: 18.9 / 17.45, 1 << 31: 22.65 / 22.3, 3 << 30: 1.0}   # MEASURED at 4e10: the batch tier
+                                       # against the 3 2^30 cap (P13b: 18.9 s at POOL_LOG 30 against 17.45; I: 2^31 at four primes 22.65 vs 22.3)
 STRATEGIES = ('C', 'B', 'B4', 'auto')
 CHUNKS = ('off', 'shift', 'both')
 
@@ -540,7 +544,28 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
                 tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
+    k = cap_factor(cap, np) if pl <= 30 else 1.0
+    for ph in ('top', 'recip', 'div'): out[ph] *= k
     return out
+
+_CAPF = {}
+def cap_factor(cap, np):
+    """the POOL_LOG-30 caps: measured (top + recip + div at 4e10, agent P's runs) less the model's rest, over the per-product law's
+    big products at that cap -- the factor by which the pipeline's products at 2^30 pools exceed t_strategy's isolated ones (the
+    mechanism is not identified: the mdev tier's pieces at 3 2^28 with three primes, pool 1 at the batch tile, DIST_LOGN_TEST=30).
+    FITTED on one run per cap; 1 where no run exists"""
+    if cap in _CAPF: return _CAPF[cap]
+    _CAPF[cap] = 1.0
+    rs = [r for r in RUNS if r['use'] == 'cap' and r['cap'] == cap and r['D'] == 4e10]
+    if not rs: return 1.0
+    meas = _mean(r['dm'] + r['top'] for r in rs)                     # top + recip + div
+    d = Design(np=rs[0]['np'], cap=cap, modmul=rs[0].get('mm', 0))
+    p = node_phases(4e10, d)                                          # with factor 1 (set above while computing)
+    bp = big_products(4e10, 'C', cap, rs[0]['np'])
+    bps = sum(bp[ph] for ph in ('top', 'recip', 'div')); tot = sum(p[ph] for ph in ('top', 'recip', 'div'))
+    k = 1.0 + (meas - tot) / (bps * d.f_mm()) if bps > 0 else 1.0
+    _CAPF[cap] = k; big_products.cache_clear()
+    return k
 
 # ---- the measured size-1 runs of the current code (the phase table's inputs and the calibration's points) -----------------
 # per run: D, np, modmul, cap (points; the code's rule where the run left it), total, init, bs, top (= the bs line's mdev part),
@@ -573,6 +598,13 @@ RUNS = [
     dict(D=4e10, np=3, cap=R3_30, total=65.46, init=18.6, bs=25.81, top=8.3, recip=9.99, dm=21.01, dev=287.5, hwm=12.1, use='fit', src='P3 b6 np3_2 (job 21021, s24-26)'),
     dict(D=4e10, np=3, cap=R3_30, total=71.32, init=24.5, bs=25.55, top=8.3, recip=10.10, dm=21.22, dev=287.5, hwm=12.2, use='check', src='P3 b6 np3_lmin8 (job 21021; RNS_BATCH_LOCAL_MIN=8, which did not engage)'),
     # 8e10, 1e11: four primes, 2^31 planes (the size rule)
+    # 4e10, three primes, NTT_MODMUL=1 (step 0): agent P's plane-cap switch (ECALC_PLANE_CAP), the POOL_LOG-30 caps (cap_factor's inputs)
+    dict(D=4e10, np=3, mm=1, cap=1 << 30, total=84.20, init=13.7, bs=33.95, top=14.2, recip=16.40, dm=36.48, dev=184.9, hwm=12.1, use='cap', src='P13b b1 e4e10_230 (job 21046, s24-30)'),
+    dict(D=4e10, np=3, mm=1, cap=3 << 29, total=76.79, init=15.2, bs=31.08, top=11.0, recip=13.86, dm=30.44, dev=202.1, hwm=11.9, use='cap', src='P13b b1 e4e10_3229 (job 21046, s24-30)'),
+    dict(D=1e9, np=3, mm=1, cap=1 << 30, total=9.99, init=6.3, bs=0.96, top=0.0, recip=2.16, dm=2.45, dev=66.1, hwm=16.0, use='check', src='P13b b1 e9_230 (job 21046)'),
+    dict(D=1e9, np=3, mm=1, cap=3 << 29, total=11.63, init=8.0, bs=0.89, top=0.0, recip=2.06, dm=2.35, dev=83.3, hwm=15.8, use='check', src='P13b b1 e9_3229 (job 21046)'),
+    dict(D=1e9, np=3, mm=1, cap=1 << 31, total=13.56, init=10.0, bs=0.89, top=0.0, recip=2.03, dm=2.30, dev=109.1, hwm=15.9, use='check', src='P13b b1 e9_231 (job 21046)'),
+    dict(D=1e9, np=3, mm=1, cap=3 << 30, total=16.78, init=13.0, bs=0.85, top=0.0, recip=2.10, dm=2.50, dev=160.6, hwm=16.2, use='check', src='P13b b1 e9_3230 (job 21046)'),
     dict(D=8e10, np=4, cap=R31, total=191.99, init=20.9, bs=86.34, top=36.1, recip=38.61, dm=84.67, dev=369.1, hwm=13.0, use='table', src='i12 e8 (Phase 12 I, s24-26)'),
     dict(D=8e10, np=4, cap=R31, total=189.33, init=23.1, bs=83.57, top=35.6, recip=37.56, dm=82.53, dev=369.1, hwm=13.0, use='table', src='i12 e8b (Phase 12 I, s24-26)'),
     dict(D=8e10, np=4, cap=R31, total=195.5, init=None, bs=None, top=None, recip=None, dm=None, dev=369.1, hwm=12.8, use='check', src='M11 v3 (Phase 11 code, s24-16)'),
@@ -614,6 +646,7 @@ def phase_table(exclude=None):
             e[ph + '_rest'] = e[ph] - bp[ph]                          # batch tier): the table point is then reproduced exactly, and a
                                                                       # design differs from it by its big products' difference
         e['init_ref'] = e['init'] - MAP_RATE * (_dev_init_ref(D, 4, cap) - _dev_init_ref(D, 4, R31))
+        e['batch_ref'] = e['batch'] / BATCH_CAP.get(cap, 1.0)           # the batch tier normalised to the 3 2^30 cap
         e['cap'] = cap
         out[D] = e
     return out
@@ -627,7 +660,7 @@ def _interp(tab, key, D):
         a = max(x for x in xs if x <= D); b = min(x for x in xs if x >= D)
         if a == b: return tab[a][key]
     ya, yb = tab[a][key], tab[b][key]
-    if ya <= 0 or yb <= 0: return max(0.0, ya + (yb - ya) * (D - a) / (b - a))
+    if ya <= 0 or yb <= 0: return ya + (yb - ya) * (D - a) / (b - a)
     return ya * (D / a) ** (math.log(yb / ya) / math.log(b / a))
 
 @functools.lru_cache(maxsize=None)
@@ -638,7 +671,7 @@ def np_factors(np):
     tab = phase_table(); e4 = tab[4e10]
     ps = [p for p in (_run_phases(r) for r in RUNS if r['use'] == 'fit' and r['np'] == np and r['D'] == 4e10) if p]
     bp = big_products(4e10, 'C', R3_30, np)
-    f = dict(batch=_mean(p['batch'] for p in ps) / e4['batch'])
+    f = dict(batch=_mean(p['batch'] for p in ps) / e4['batch_ref'])
     rest3 = sum(_mean(p[ph] for p in ps) - bp[ph] for ph in ('top', 'recip', 'div'))
     rest4 = sum(e4[ph + '_rest'] for ph in ('top', 'recip', 'div'))
     for ph in ('top', 'recip', 'div'): f[ph] = rest3 / rest4          # one factor for the rest of the three (the division's rest alone
@@ -653,7 +686,7 @@ def node_phases(D, dz, g=1, exclude=None):
     tab = phase_table(exclude); f = np_factors(dz.np); fm = dz.f_mm()
     digits = D * g; cap = dz.cap_at(digits)
     bp = big_products(D, dz.strategy, cap, dz.np)
-    out = dict(batch=_interp(tab, 'batch', D) * f['batch'] * fm, other=_interp(tab, 'other', D))
+    out = dict(batch=_interp(tab, 'batch_ref', D) * BATCH_CAP.get(cap, 1.0) * f['batch'] * fm, other=_interp(tab, 'other', D))
     for ph in ('top', 'recip', 'div'):
         out[ph] = max(0.0, _interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
     dev = mem_model.mem_per_node(int(D), g, dz.mem_opts(digits))['dev_init'] / 1e9
