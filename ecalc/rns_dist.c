@@ -375,12 +375,14 @@ static size_t b_len(size_t nc, int *T, int *logk)
 }
 /* two-level tables of w (entries j < cnt): t2 = w^(j & 0xffff), t1 = w^(j >> 16 << 16); w^j = t2[j & 0xffff] t1[j >> 16] */
 struct btw { const uint64_t *t1, *t2; };
-static struct { int built; uint64_t w; size_t cnt; struct btw t; } g_btw[NR][EC_NP][4];   /* [dev][prime][slot] */
+#define BTW_SLOTS 8
+static struct { int built; uint64_t w; size_t cnt; struct btw t; } g_btw[NR][EC_NP][BTW_SLOTS];   /* [dev][prime][slot] */
+static int g_btw_next[NR][EC_NP];                                                             /* round-robin eviction: a product's two tables never evict each other */
 static struct btw b_tables(int dev, int prime, uint64_t w, size_t cnt)
 {
-    for (int s = 0; s < 4; s++) if (g_btw[dev][prime][s].built && g_btw[dev][prime][s].w == w && g_btw[dev][prime][s].cnt >= cnt) return g_btw[dev][prime][s].t;
-    int s = 0; for (; s < 4; s++) if (!g_btw[dev][prime][s].built) break;
-    if (s == 4) { s = 3; HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t1)); HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t2)); }
+    for (int s = 0; s < BTW_SLOTS; s++) if (g_btw[dev][prime][s].built && g_btw[dev][prime][s].w == w && g_btw[dev][prime][s].cnt >= cnt) return g_btw[dev][prime][s].t;
+    int s = g_btw_next[dev][prime]; g_btw_next[dev][prime] = (s + 1) % BTW_SLOTS;
+    if (g_btw[dev][prime][s].built) { HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t1)); HIP_CHECK(hipFree((void *)g_btw[dev][prime][s].t.t2)); g_btw[dev][prime][s].built = 0; }
     uint64_t P = ec_P[prime], a = 1; size_t n2 = cnt < 65536 ? cnt : 65536, n1 = (cnt + 65535) / 65536;
     uint64_t *h2 = (uint64_t *)malloc(n2 * 8), *h1 = (uint64_t *)malloc(n1 * 8), *d1, *d2;
     for (size_t i = 0; i < n2; i++) { h2[i] = a; a = ec_mulmod_ref(a, w, P); }
@@ -607,6 +609,21 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)  
     if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     return 1;
 }
+/* RNS_STRATEGY_CHECK=1 (test): every B-form product formed again by C into a temporary and compared (abort on a difference) */
+static int b_check_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_CHECK"); v = e ? atoi(e) : 0; } return v; }
+static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb);
+static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
+{
+    dbig T; db_init(&T); db_reserve(&T, nc + 8);
+    int s = g_strat; g_strat = STRAT_C; dist_core(A, B, acc_db(&T, 0, nc), nc, -1, -1); g_strat = s;
+    T.n = nc;
+    bigint x, y; bi_init(&x); bi_init(&y); db_to_bi(&x, Cw.owner); db_to_bi(&y, &T); bi_norm(&x); bi_norm(&y);
+    size_t k = 0, m = x.n < y.n ? x.n : y.n; while (k < m && x.l[k] == y.l[k]) k++;
+    int T3; int lk; size_t n = b_len(nc, &T3, &lk);
+    if (x.n != y.n || k < m) { fprintf(stderr, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); exit(7); }
+    static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
+    bi_free(&x); bi_free(&y); db_free(&T);
+}
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written.  sa, sb: the cache slots for A and B
  * (-1: not cached; a hit anywhere in the cache is taken regardless) */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
@@ -623,7 +640,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     size_t n = r3 ? (size_t)3 << (logn - 1) : (size_t)1 << logn, R = (size_t)1 << logR, C = r3 ? (size_t)3 << logk : (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
-    { int f = b_choose(A, B, Cw, nc, sa, sb); if (f != STRAT_C && b_core(f, A, B, Cw, nc)) return; }   /* Phase 13b B: RNS_STRATEGY */
+    { int f = b_choose(A, B, Cw, nc, sa, sb); if (f != STRAT_C && b_core(f, A, B, Cw, nc)) { if (b_check_on()) b_check(f, A, B, Cw, nc); return; } }   /* Phase 13b B: RNS_STRATEGY */
     /* A1: the cache slots -- hits anywhere, misses filled in the designated slots (never the slot the other operand hits in) */
     int ha = r3 ? -1 : cache_find(&A, q), hb = r3 ? -1 : cache_find(&B, q);
     if (r3 || A.flat) sa = -1; if (r3 || B.flat) sb = -1;
