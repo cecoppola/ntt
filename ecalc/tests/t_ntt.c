@@ -66,8 +66,8 @@ __global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
 static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<<<228 * 8, 256>>>(x, n, p, seed); HIP_CHECK(hipDeviceSynchronize()); }
 
 /* one configuration of the switches */
-struct kcfg { int mm, mall; const char *name; int var; };
-static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_mall = k->mall; ntt_b16_var = k->var; }
+struct kcfg { int mm, mall; const char *name; int var, b1r, plan; };      /* Phase 13b K: + NTT_B1R, NTT_PLAN */
+static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_mall = k->mall; ntt_b16_var = k->var; ntt_b1r = k->b1r; ntt_plan = k->plan; }
 
 /* the H3 / H2 identity check: every operation under configuration k against the default (MM 0, MALL off), on the
  * device.  ops: fwd, inv (input canonical random: no round-trip identity to hide behind), fused inverse with the
@@ -144,6 +144,21 @@ __global__ void kb_read(const uint64_t *a, size_t n, uint64_t *sink)     /* a co
     uint64_t acc = 0;
     for (; i < n; i += st) acc ^= a[i];
     if (acc == 0x5A5A5A5A5A5A5A5AULL) *sink = acc;
+}
+/* Phase 13b K: the stride microbench (see bench "stride") */
+template <int ROT>
+__global__ __launch_bounds__(256) void kb_strd(uint64_t *x, size_t S, size_t slabs, size_t rot)
+{
+    const int tt = threadIdx.x >> 4, bb = threadIdx.x & 15;
+    const size_t b = blockIdx.x, blk_hi = b / slabs, slab = b % slabs, base = blk_hi * 128 * S;
+    uint64_t v[8];
+#pragma unroll
+    for (int i = 0; i < 8; i++) { size_t j = tt + 16 * i; v[i] = x[base + j * S + ((slab + (ROT ? j * rot : 0)) % slabs) * 16 + bb]; }
+#pragma unroll
+    for (int i = 0; i < 8; i++) v[i] += 1;
+    __syncthreads();                     /* as in k_b16r; the stored rows are other rows than the loaded ones (values do not matter) */
+#pragma unroll
+    for (int i = 0; i < 8; i++) { size_t j = 8 * tt + i; x[base + j * S + ((slab + (ROT ? j * rot : 0)) % slabs) * 16 + bb] = v[i]; }
 }
 static unsigned nblk(size_t n) { size_t b = (n + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
 
@@ -308,6 +323,124 @@ static int bench(int LOGMAX, const char *what)
         }
         HIP_CHECK(hipFree(sink));
     }
+
+    if (strstr(what, "stride")) {
+        /* Phase 13b K: the stride penalty, memory only.  kb_strd moves 128 rows x 16 columns per block like k_b16r
+         * (load rows tt + 16 i, store rows 8 tt + i, x + 1 in between), row stride S = 2^s + pad points; rot > 0 shifts
+         * row j's slab by j rot slabs (mod the row) - a rotated layout.  If the power-of-two strides 17 / 24 are slow and
+         * the padded / rotated ones are not, the penalty is address aliasing */
+        printf("-- K13b stride: N s pad rot  ms  GB/s (16 B x points touched)\n");
+        static const int Ns[] = {31, 28};
+        static const int cfg[][2] = {{0, 0}, {16, 0}, {128, 0}, {512, 0}, {0, 1}, {0, 33}};
+        for (int ni = 0; ni < 2; ni++) {
+            int lN = Ns[ni]; if (lN > LOGMAX) continue;
+            size_t N = (size_t)1 << lN;
+            for (int sl = 10; sl + 7 <= lN; sl++) for (int ci = 0; ci < 6; ci++) {
+                if (ni && ci) continue;
+                size_t pad = cfg[ci][0], rot = cfg[ci][1], S = ((size_t)1 << sl) + pad, slabs = ((size_t)1 << sl) / 16, nhi = N / (128 * S);
+                if (!nhi) { if (sl + 7 == lN && pad) { printf("   STRIDE N 2^%d s %2d pad %4zu: no room\n", lN, sl, pad); } continue; }
+                size_t touched = nhi * 128 * ((size_t)1 << sl);
+                unsigned nb = (unsigned)(nhi * slabs);
+                float ms;
+                if (rot) TIME_MS(ms, 1, (kb_strd<1><<<nb, 256>>>(dx, S, slabs, rot)));
+                else TIME_MS(ms, 1, (kb_strd<0><<<nb, 256>>>(dx, S, slabs, 0)));
+                printf("   STRIDE N 2^%d s %2d pad %4zu rot %2zu: %8.3f ms %6.0f GB/s\n", lN, sl, pad, rot, ms, 16.0 * touched / (ms * 1e-3) / 1e9);
+            }
+        }
+    }
+    if (strstr(what, "slo")) {
+        /* Phase 13b K: one b16 pass at every row stride 2^s_lo (k_b16r for 7 stages, the tile kernel for 5 and 6), in
+         * one transform of 2^L points: the pass-rate table the plan choice needs */
+        printf("-- K13b per-s_lo pass rates: L stg s_lo fwd ms GB/s | inv ms GB/s\n");
+        static const int Ls[] = {31, 28, 24};
+        for (int li = 0; li < 3; li++) {
+            int L = Ls[li]; if (L > LOGMAX) continue;
+            for (int stg = 7; stg >= 5; stg--) for (int sl = 10; sl + stg <= L; sl++) {
+                if (stg < 7 && sl + stg != L) continue;         /* partial passes: only at the top */
+                float mf, mi;
+                TIME_MS(mf, 1, ntt_pass_at(c, dx, L, 1, sl, stg, 0, 0));
+                TIME_MS(mi, 1, ntt_pass_at(c, dx, L, 1, sl, stg, 1, 0));
+                printf("   SLO L%2d stg %d s_lo %2d: fwd %8.3f ms %6.0f GB/s | inv %8.3f ms %6.0f GB/s\n", L, stg, sl,
+                       mf, 16.0 * ((size_t)1 << L) / (mf * 1e-3) / 1e9, mi, 16.0 * ((size_t)1 << L) / (mi * 1e-3) / 1e9);
+            }
+        }
+    }
+    if (strstr(what, "b1")) {
+        /* Phase 13b K: the b1 pass alone: the paper's kernel against the register-blocked one (NTT_B1R 3, 4) and the
+         * b1 lengths 2^11, 2^12, at MM 1 (the default) and MM 0 */
+        printf("-- K13b b1 pass: tot mm b1r lb fwd ms GB/s | inv ms GB/s (x vs b1r 0)\n");
+        for (int lt = 20; lt <= LOGMAX; lt += (lt < 24 ? 4 : lt < 28 ? 2 : 1)) for (int mm = 1; mm >= 0; mm--) {
+            size_t tot = (size_t)1 << lt;
+            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
+            float f0 = 0, i0 = 0;
+            for (int r = 0; r <= 4; r++) for (int lb = 10; lb <= 12; lb++) {
+                if (r == 1 || r == 2 || (!r && lb > 10)) continue;
+                struct kcfg kc = {mm, 0, "", 0, r, lb == 10 ? 0 : lb * 10}; kcfg_set(&kc);
+                int np = ntt_npass(20);
+                float mf, mi;
+                TIME_MS(mf, reps, ntt_pass(c, dx, 20, tot >> 20, 0, np - 1, 0));
+                TIME_MS(mi, reps, ntt_pass(c, dx, 20, tot >> 20, 1, np - 1, 0));
+                if (!r) { f0 = mf; i0 = mi; }
+                printf("   B1 tot 2^%2d mm %d b1r %d lb %d: fwd %8.3f ms %6.0f GB/s (%.3fx) | inv %8.3f ms %6.0f GB/s (%.3fx)\n", lt, mm, r, lb,
+                       mf, 16.0 * tot / (mf * 1e-3) / 1e9, f0 / mf, mi, 16.0 * tot / (mi * 1e-3) / 1e9, i0 / mi);
+            }
+            kcfg_set(&ref);
+        }
+    }
+    if (strstr(what, "whole")) {
+        /* Phase 13b K: whole transforms (fwd, inv, fused inverse) under the switches, against the default (MM 1, b1r 0,
+         * plan 0); single transforms 2^20 .. 2^LOGMAX and batches of 2^14, 2^17, 2^20, 2^24 */
+        printf("-- K13b whole transforms: logL tot config fwd ms inv ms inv_pw ms (x vs default)\n");
+        static const struct kcfg wc[] = {{1, 0, "default"}, {1, 0, "B1R3", 0, 3}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R4+P101", 0, 4, 101},
+                                         {1, 0, "B1R4+P110", 0, 4, 110}, {1, 0, "B1R4+P111", 0, 4, 111}, {1, 0, "B1R4+P120", 0, 4, 120},
+                                         {1, 0, "B1R4+P121", 0, 4, 121}, {1, 0, "B1R3+P111", 0, 3, 111}, {1, 0, "B1R4+P1", 0, 4, 1}};
+        const int nw = sizeof wc / sizeof wc[0];
+        static const int Ls[] = {14, 17, 20, 24, 0};
+        for (int li = 0; li < 5; li++) for (int lt = 20; lt <= LOGMAX; lt++) {
+            int logL = Ls[li] ? Ls[li] : lt;
+            if (Ls[li] && (lt < 26 || (lt != 28 && lt != LOGMAX)) ) continue;
+            if (logL > lt) continue;
+            size_t tot = (size_t)1 << lt, B = tot >> logL;
+            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
+            float f0 = 0, i0 = 0, p0 = 0;
+            for (int k = 0; k < nw; k++) {
+                kcfg_set(&wc[k]);
+                float tf, ti, tp;
+                TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
+                TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
+                TIME_MS(tp, reps, ntt_inv_pw(c, dx, dy, logL, B, 0));
+                if (!k) { f0 = tf; i0 = ti; p0 = tp; }
+                char pl[64] = ""; int np = ntt_npass(logL);
+                for (int ps = 0; ps < np; ps++) { int lo, hi; ntt_pass_bounds(logL, ps, &lo, &hi); snprintf(pl + strlen(pl), sizeof pl - strlen(pl), "%s%d", ps ? "," : "", lo); }
+                printf("   W L%2d tot 2^%2d %-10s [s_lo %s]: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx) inv_pw %8.3f ms (%.3fx)\n", logL, lt, wc[k].name, pl,
+                       tf, f0 / tf, ti, i0 / ti, tp, p0 / tp);
+            }
+            kcfg_set(&ref);
+        }
+    }
+    if (strstr(what, "pass")) {
+        /* Phase 13b K: every pass of the forward and the inverse under the plans, at 2^31, 2^30, 2^28, 2^24 single */
+        printf("-- K13b per pass under the plans: L config pass [s_lo..s_hi] fwd ms GB/s | inv ms GB/s\n");
+        static const struct kcfg pc[] = {{1, 0, "default"}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R4+P111", 0, 4, 111}, {1, 0, "B1R4+P121", 0, 4, 121}, {1, 0, "B1R4+P101", 0, 4, 101}};
+        static const int Ls[] = {31, 30, 28, 24};
+        for (int li = 0; li < 4; li++) for (int k = 0; k < 5; k++) {
+            int L = Ls[li]; if (L > LOGMAX) continue;
+            kcfg_set(&pc[k]);
+            size_t tot = (size_t)1 << L;
+            float sf = 0, si = 0;
+            for (int ps = 0; ps < ntt_npass(L); ps++) {
+                int lo, hi; ntt_pass_bounds(L, ps, &lo, &hi);
+                float mf, mi;
+                TIME_MS(mf, 1, ntt_pass(c, dx, L, 1, 0, ps, 0));
+                TIME_MS(mi, 1, ntt_pass(c, dx, L, 1, 1, ps, 0));
+                sf += mf; si += mi;
+                printf("   P L%2d %-10s pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s | inv %8.3f ms %6.0f GB/s\n", L, pc[k].name, ps, lo, hi,
+                       mf, 16.0 * tot / (mf * 1e-3) / 1e9, mi, 16.0 * tot / (mi * 1e-3) / 1e9);
+            }
+            printf("   P L%2d %-10s sum: fwd %8.3f ms inv %8.3f ms\n", L, pc[k].name, sf, si);
+            kcfg_set(&ref);
+        }
+    }
     ntt_ctx_free(c);
     HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
     return verify_done("t_ntt bench");
@@ -315,7 +448,7 @@ static int bench(int LOGMAX, const char *what)
 
 int main(int argc, char **argv)
 {
-    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,mall,h3,h7");
+    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,mall,h3,h7");   /* Phase 13b K: stride, slo, b1, whole, pass */
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 31;
     int nd = 0, pr, logn;
     HIP_CHECK(hipGetDeviceCount(&nd));
@@ -566,7 +699,13 @@ int main(int argc, char **argv)
     {
         uint64_t *dr; HIP_CHECK(hipMalloc(&dr, nmax * 8));
         static const struct kcfg ks[] = {{1, 0, "MM1"}, {2, 0, "MM2"}, {0, 16, "MALL16"}, {1, 20, "MM1+MALL20"}, {2, 24, "MM2+MALL24"}, {0, 22, "MALL22"},
-                                         {0, 0, "VAR1", 1}, {0, 0, "VAR2", 2}, {1, 0, "MM1+VAR3", 3}};
+                                         {0, 0, "VAR1", 1}, {0, 0, "VAR2", 2}, {1, 0, "MM1+VAR3", 3},
+                                         /* Phase 13b K: the register-blocked b1 (NTT_B1R) and the pass plans (NTT_PLAN) */
+                                         {0, 0, "B1R3", 0, 3}, {1, 0, "MM1+B1R3", 0, 3}, {0, 0, "B1R4", 0, 4}, {1, 0, "MM1+B1R4", 0, 4},
+                                         {2, 0, "MM2+B1R4", 0, 4, 111}, {0, 0, "P101", 0, 0, 101}, {1, 0, "MM1+B1R4+P110", 0, 4, 110},
+                                         {1, 0, "MM1+B1R4+P111", 0, 4, 111}, {0, 0, "B1R3+P111", 0, 3, 111}, {1, 0, "MM1+B1R4+P120", 0, 4, 120},
+                                         {1, 0, "MM1+B1R3+P121", 0, 3, 121}, {1, 0, "MM1+B1R4+P121", 0, 4, 121}, {1, 20, "MM1+MALL20+B1R4+P111", 0, 4, 111},
+                                         {1, 0, "MM1+B1R4+P1", 0, 4, 1}};
         int save_body = ntt_b16_body; ntt_b16_body = 1; ntt_b16_xchg = 0;
         for (size_t ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) {
             for (logn = 10; logn <= LOGMAX; logn++) {
@@ -576,9 +715,9 @@ int main(int argc, char **argv)
             static const int bl[][2] = {{11, 1000}, {14, 64}, {17, 16}, {20, 6}, {12, 3}};
             for (int b = 0; b < 5; b++) if (((size_t)3 * bl[b][1] << bl[b][0]) <= nmax)
                 ident_check(&ks[ki], (b + (int)ki) % EC_NP, bl[b][0], bl[b][1], ctx[(b + (int)ki) % EC_NP], dx, dr, dy, 1);
-            printf("   %-11s ok to 2^%d\n", ks[ki].name, LOGMAX);
+            printf("   %-21s ok to 2^%d\n", ks[ki].name, LOGMAX);
         }
-        ntt_b16_body = save_body; ntt_modmul = 0; ntt_mall = 0; ntt_b16_var = 0;
+        ntt_b16_body = save_body; ntt_modmul = 0; ntt_mall = 0; ntt_b16_var = 0; ntt_b1r = 0; ntt_plan = 0;
         HIP_CHECK(hipFree(dr));
     }
 

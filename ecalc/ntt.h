@@ -47,6 +47,19 @@ extern int ntt_modmul, ntt_mall;
 extern int ntt_b16_var;     /* NTT_B16_VAR  H6: register-blocked body variants, 1 = unpadded LDS + global twiddle table (4 blocks/CU), 2 = block order, 3 = both; 0 default */
 int ntt_modmul_get(void);
 int ntt_mall_get(void);
+/* Phase 13b K (switches, off by default; -1 = read the environment variable at first use):
+ *   ntt_b1r   NTT_B1R   0 the paper's b1 pass (default); 3 or 4: the register-blocked b1 pass, 2^3 or 2^4 points per
+ *             thread, one LDS exchange per group of 3 or 4 stages instead of one per stage.  Barrett modmuls (NTT_MODMUL
+ *             0/1); MODMUL 2 keeps the Shoup kernel.  Bit-identical.
+ *   ntt_plan  NTT_PLAN  pass boundaries: 0 default (b1 on 2^10 points, b16 passes top-down, the partial one at the
+ *             bottom); 10 lb + d with lb = 10, 11, 12 the b1 length (lb > 10 needs NTT_B1R) and d = 1 for the b16
+ *             passes bottom-up (the partial one at the top), d = 0 top-down; 1 = the per-logn choice of plan_auto.
+ *             Moves the passes' row strides 2^s_lo off the slow s_lo 17 / 24.  Bit-identical. */
+extern int ntt_b1r, ntt_plan;
+int ntt_b1r_get(void);
+int ntt_plan_get(void);
+/* bench: one b16 pass of stg stages at row stride 2^s_lo (its own twiddles) over batch x 2^logn points */
+void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s);
 /* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
 void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass, hipStream_t s);
 
