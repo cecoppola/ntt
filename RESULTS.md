@@ -3261,7 +3261,9 @@ Regression on the merged tree, s24-26: `--only unit,e9,mn,ckpt` **16/16** (job 2
 `recheck` **2/2** (21038), `full` 4 × 10¹⁰ **identical, 80.90 s** and `stress` **10/10**
 (21040). The `full` step's recheck printed RECHECK OK but was scored FAIL. Its criterion
 still required P, Q from the top-level set, which Phase 12 turned off by default (3524146).
-The criterion now accepts the sidecar (863a98f) and the step was rerun: see below.
+The criterion now accepts the sidecar (863a98f); rerun on job 21041: `full` identical at
+81.15 s and its recheck **PASS** (P, Q from the sidecar, file read in 46.3 s). The whole
+regression is therefore **21/21** on the merged tree.
 
 **Closing series** (merged tree, job 21039, s24-26, reference evicted before every run):
 
@@ -3271,8 +3273,12 @@ The criterion now accepts the sidecar (863a98f) and the step was rerun: see belo
 | `ECALC_NP=3` | 66.40 / 65.33 / 69.30 / 69.91 / 67.95 | **67.8 ± 1.9 s** | 47.0 ± 0.1 | 25.8 | 21.2 | 20.8 | 287.5 GB (P3) |
 
 The defaults match Phase 12's close (80.7 ± 1.2, phases 58.8) within noise. Three primes cut
-the phases by 20 % and the wall by 17 %. Digits of this series: see the note at the end of
-the section.
+the phases by 20 % and the wall by 17 %. The series' own comparison looked for the reference
+in the new clone, where it did not exist, and printed DIFFERS on every run (VERIFY OK on
+all). `closing.sh` now finds the reference or stops. Two further `ECALC_NP=3` runs on the
+merged tree (job 21041), compared against `results/e_4e10.out`, were **identical** (68.92 /
+68.63 s). The default configuration's digits are covered by the `full` step, identical at
+80.90 and 81.15 s.
 
 ### The options, measured (the Pareto table)
 
