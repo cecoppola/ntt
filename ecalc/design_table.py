@@ -16,6 +16,7 @@ assumed (a target parameter).
     ./design_table.py                          the table (all modelled unless --mrun), written to ../results/DESIGN_TABLE.md
     ./design_table.py --mrun mrun.log          measured per-node inputs from the integrator's campaign replace modelled ones
     ./design_table.py --calibrate [--mrun ..]  model against every measured run (RESULTS 75-78, results/*.md, the M-run): wall, peak, error
+    ./design_table.py --make-line LOG KEY=V..  the M-run line of one ecalc log (the integrator's helper)
     ./design_table.py --quick                  a 12-row subset (depth 1, chunking off/both, C/B/auto at 2^31 / 3 2^30) for a fast look
 
 The M-run log: one line per run, fields separated by '|':
@@ -430,6 +431,21 @@ def calibrate(args):
     print('   single runs whose init deviates from their series (the gate is on the series), the loopback walls (+-10 %: their own spread).')
     return not fails
 
+def make_line(log, kv):
+    """one M-run line from an ecalc log: the given KEY=VALUEs, the `total` line, the device total at init (mem summary) and the
+    comparison's verdict"""
+    s = open(log, errors='replace').read()
+    tot = re.search(r'^total .*$', s, re.M); dev = re.search(r'^mem init\s+([\d.]+)', s, re.M)
+    if not tot: raise SystemExit('%s: no total line' % log)
+    env = dict(x.split('=', 1) for x in kv if '=' in x)
+    if 'digits' not in env:
+        m = re.search(r'== ecalc: e to (\d+) digits', s)
+        if m: env['digits'] = m.group(1)
+    if 'ECALC_NP' not in env: env['ECALC_NP'] = '3' if 'three primes' in s else '4'   # rns_init prints it at three primes (give ECALC_NP= for an older log)
+    if 'NTT_MODMUL' not in env: env['NTT_MODMUL'] = '1'                                           # the default since step 0 (not in the log)
+    verdict = env.pop('cmp', None) or ('DIFFERS' if re.search(r'DIFFERS|differ|VERIFY FAILED', s) else ('identical' if re.search(r'^identical', s, re.M) else ''))
+    return '%s | %s | device %s GB %s' % (' '.join('%s=%s' % kv for kv in env.items()), tot.group(0), dev.group(1) if dev else '?', verdict)
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--mrun', help='the M-run log (see the format above)')
@@ -442,12 +458,16 @@ def main():
     ap.add_argument('--e0', help='an extra t_strategy log (e.g. with B4 lines) for the per-product law')
     ap.add_argument('--hide-pow2', type=float, default=M.HIDE_POW2, help='the equal-slab path\'s hidden fraction of its xGMI time (X13: 0.75)')
     ap.add_argument('--gen-hide2', type=float, default=M.GEN_HIDE_DEPTH[2], help='the general map\'s hidden fraction at depth 2 (modelled 0.75; agent X\'s both-busy measurement replaces it)')
+    ap.add_argument('--make-line', nargs='+', metavar=('LOG', 'KEY=VALUE'), help='print the M-run line of one ecalc log (node 0\'s): LOG [digits=.. size=.. ENV=..]; '
+                    'the env keys the log does not show must be given; "identical" / "DIFFERS" is taken from the log or from a key cmp=identical')
     ap.add_argument('--verbose', action='store_true')
     a = ap.parse_args()
     BWS[:] = [float(x) for x in a.bws.split(',')]
     M.TARGET = M.Fabric(M.TARGET.name, BE(), a.lat, group=M.TARGET.group, layers=M.TARGET.layers, taper=M.TARGET.taper, write_bw=a.write_bw)
     if a.e0: M._E0 = None; M.e0_table(a.e0)
     M.HIDE_POW2 = a.hide_pow2; M.GEN_HIDE_DEPTH[2] = a.gen_hide2
+    if a.make_line:
+        print(make_line(a.make_line[0], a.make_line[1:])); return
     if a.calibrate:
         sys.exit(0 if calibrate(a) else 1)
     res = build(a)
