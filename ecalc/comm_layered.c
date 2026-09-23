@@ -48,10 +48,11 @@ struct lst { struct lst_rec *r; int n, cap; };
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
-struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int rec; pthread_t w; int w_on; double wf1; };   /* the pending v-exchange */
+struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int rec; pthread_t w; int w_on; double wf1; int slot; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
 typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
-                 char *vtmp; size_t vcap; struct lay_v v; struct lst st; } lay_priv;
+                 char *vtmp; size_t vcap; struct lay_v v; struct lst st;
+                 int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
 /* ---- the stats (E9 part 1) ---- */
@@ -244,11 +245,54 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
     p->tmp_cap = bytes; p->own_tmp = 1;
 }
+/* ---- Phase 13b X: COMM_LAYER_TKERNEL=1 (default 0) -- the block transposes and the v-exchange's reorder copies as one kernel
+ * each instead of na x nb hipMemcpyAsync calls (2304 per transpose at g = 576).  Equal slabs: grid.y = the destination block
+ * (b, a), grid.x strides over its 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned
+ * host memory read by the kernel (grid.y = entry); every use is followed by a stream synchronise before the table is refilled.
+ * Falls back to the copies when a pointer is not device-accessible (plain host memory) or a size is not a multiple of 8/16 B. */
+struct cpy { size_t dst, src, len; };
+__global__ void k_btrans(uint4 *dst, const uint4 *src, size_t w, int na, int nb)
+{
+    unsigned q = blockIdx.y; int b = q / na, a = q % na;  /* destination block (b, a) <- source block (a, b) */
+    uint4 *d = dst + (size_t)q * w; const uint4 *sp = src + ((size_t)a * nb + b) * w;
+    for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < w; i += (size_t)gridDim.x * blockDim.x) d[i] = sp[i];
+}
+__global__ void k_bcopy(char *dst, const char *src, const struct cpy *t)
+{
+    struct cpy e = t[blockIdx.y]; uint64_t *d = (uint64_t *)(dst + e.dst); const uint64_t *sp = (const uint64_t *)(src + e.src); size_t w = e.len >> 3;
+    for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < w; i += (size_t)gridDim.x * blockDim.x) d[i] = sp[i];
+}
+static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 0; } return v; }
+static int dev_ok(const void *ptr)                       /* device memory, pinned or registered host memory, managed: a kernel may touch it */
+{
+    hipPointerAttribute_t a;
+    if (hipPointerGetAttributes(&a, ptr) != hipSuccess) { (void)hipGetLastError(); return 0; }
+    if (a.type == hipMemoryTypeDevice || a.type == hipMemoryTypeManaged || a.type == hipMemoryTypeUnified) return 1;
+    return a.type == hipMemoryTypeHost && a.devicePointer == ptr;   /* pinned / registered host memory mapped at the same address */
+}
+static unsigned gx_of(size_t w) { size_t b = (w + 255) / 256; return (unsigned)(b > 64 ? 64 : b ? b : 1); }
 /* [a][b] blocks of `bytes` -> [b][a]: na x nb blocks */
 static void block_transpose(void *dst, const void *src, size_t bytes, int na, int nb, hipStream_t s)
 {
+    if (tker_mode() && bytes && !(bytes & 15) && (size_t)na * nb <= 65535 && dev_ok(dst) && dev_ok(src)) {
+        k_btrans<<<dim3(gx_of(bytes >> 4), (unsigned)(na * nb)), 256, 0, s>>>((uint4 *)dst, (const uint4 *)src, bytes >> 4, na, nb);
+        HIP_CHECK(hipGetLastError()); return;
+    }
     for (int a = 0; a < na; a++) for (int b = 0; b < nb; b++)
         HIP_CHECK(hipMemcpyAsync((char *)dst + ((size_t)b * na + a) * bytes, (const char *)src + ((size_t)a * nb + b) * bytes, bytes, hipMemcpyDefault, s));   /* (S12: Default -- the scratch may be registered host memory) */
+}
+/* the batched form: n copies dst + e.dst <- src + e.src (e.len bytes); one kernel when allowed, else the copies */
+static struct cpy *ctab_get(lay_priv *p, int n)
+{
+    if (n > p->ctcap) { if (p->ctab) HIP_CHECK(hipHostFree(p->ctab)); HIP_CHECK(hipHostMalloc((void **)&p->ctab, (size_t)n * sizeof(struct cpy), 0)); p->ctcap = n; }
+    return p->ctab;
+}
+static void bcopy_run(lay_priv *p, char *dst, const char *src, int n, hipStream_t s)
+{
+    struct cpy *t = p->ctab; size_t mx = 0; int ok = tker_mode() && n > 0 && n <= 65535 && dev_ok(dst) && dev_ok(src);
+    for (int i = 0; i < n && ok; i++) { if ((t[i].dst | t[i].src | t[i].len) & 7) ok = 0; if (t[i].len > mx) mx = t[i].len; }
+    if (ok) { k_bcopy<<<dim3(gx_of(mx >> 3), (unsigned)n), 256, 0, s>>>(dst, src, t); HIP_CHECK(hipGetLastError()); return; }
+    for (int i = 0; i < n; i++) if (t[i].len) HIP_CHECK(hipMemcpyAsync(dst + t[i].dst, src + t[i].src, t[i].len, hipMemcpyDefault, s));
 }
 /* the inter-node stage of the oldest pending exchange (its intra stage and transpose are done) */
 static void inter_post(comm *c, struct lay_ex *e)
@@ -354,8 +398,11 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
 {
     lay_priv *p = PRIV(c); int g = p->g, na = p->na, n = na * g, d = p->d;
     const char *src = (const char *)sb; size_t soff0 = sdsp[0];
+    int tk = !host && tker_mode();                       /* (13b X: the reorder copies as one kernel each) */
     if (!t->contig) {                                    /* the slabs into [d'][r'] order (= rank order in the major form), back to back, in x0 */
-        size_t o = 0; for (int dd = 0; dd < na; dd++) for (int r = 0; r < g; r++) { int rho = rho_of(p, dd, r); vcopy(x0 + o, (const char *)sb + sdsp[rho], scnt[rho], s, host); o += scnt[rho]; }
+        struct cpy *ct = tk ? ctab_get(p, n) : 0; int m = 0;
+        size_t o = 0; for (int dd = 0; dd < na; dd++) for (int r = 0; r < g; r++) { int rho = rho_of(p, dd, r); if (tk) { ct[m].dst = o; ct[m].src = sdsp[rho]; ct[m++].len = scnt[rho]; } else vcopy(x0 + o, (const char *)sb + sdsp[rho], scnt[rho], s, host); o += scnt[rho]; }
+        if (tk) bcopy_run(p, x0, (const char *)sb, m, s);
         src = x0; soff0 = 0;
     }
     size_t *sdI = (size_t *)malloc(2 * (size_t)na * sizeof(size_t)), *rdI = sdI + na; for (int dd = 0; dd < na; dd++) { sdI[dd] = soff0 + t->sIoff[dd]; rdI[dd] = t->rIoff[dd]; }
@@ -365,22 +412,33 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     if (st) { st->x1 = lst_now(); if (!host) lst_link(p, st); }
     free(sdI);
     /* x1: block dd = slabs (dd -> (d, r')) for r' = 0..g-1 back to back; x2: node r' = its na slabs dd = 0..na-1 */
-    size_t o2 = 0;
+    size_t o2 = 0; struct cpy *ct = tk ? ctab_get(p, n) : 0; int m = 0;
+    size_t *offd = (size_t *)malloc((size_t)na * sizeof(size_t)); for (int dd = 0; dd < na; dd++) offd[dd] = t->rIoff[dd];   /* (running offsets: O(n), was O(n g)) */
     for (int r = 0; r < g; r++) for (int dd = 0; dd < na; dd++) {
-        size_t off = t->rIoff[dd]; for (int rr = 0; rr < r; rr++) off += t->T[(size_t)dd * n + rho_of(p, d, rr)];
-        size_t len = t->T[(size_t)dd * n + rho_of(p, d, r)];
-        vcopy(x2 + o2, x1 + off, len, s, host); o2 += len;
+        size_t off = offd[dd], len = t->T[(size_t)dd * n + rho_of(p, d, r)]; offd[dd] += len;
+        if (tk) { ct[m].dst = o2; ct[m].src = off; ct[m++].len = len; } else vcopy(x2 + o2, x1 + off, len, s, host);
+        o2 += len;
     }
+    free(offd);
+    if (tk) bcopy_run(p, x2, x1, m, s);
     if (!host) HIP_CHECK(hipStreamSynchronize(s));
-    if (st) { st->r1 = st->f0 = lst_now(); int me = comm_rank(p->inter); for (int r = 0; r < g; r++) if (r != me) st->fb += t->cnt2[r]; }   /* (the fabric stage) */
+    if (st) { st->r1 = lst_now(); int me = comm_rank(p->inter); for (int r = 0; r < g; r++) if (r != me) st->fb += t->cnt2[r]; }   /* (the fabric stage) */
+}
+/* the inter stage's post (after v_stages; at depth 2 after the previous v-exchange's completion) */
+static void v_post(comm *c, struct vtab *t, char *x2, char *x3, hipStream_t s, int host, struct lst_rec *st)
+{
+    lay_priv *p = PRIV(c); int g = p->g;
+    if (st) st->f0 = lst_now();
     if (host) comm_alltoallv_host(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g);
     else comm_alltoallv(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g, s);
 }
 /* x3 [r][d] -> the receive buffer at the caller's offsets */
 static void v_scatter(comm *c, const struct vtab *t, const char *x3, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int host)
 {
-    lay_priv *p = PRIV(c); int g = p->g;
-    for (int r = 0; r < g; r++) { size_t off = t->dsp2[g + r]; for (int dd = 0; dd < p->na; dd++) { int rho = rho_of(p, dd, r); vcopy((char *)rb + rdsp[rho], x3 + off, rcnt[rho], s, host); off += rcnt[rho]; } }
+    lay_priv *p = PRIV(c); int g = p->g, tk = !host && tker_mode(), m = 0;
+    struct cpy *ct = tk ? ctab_get(p, p->na * g) : 0;
+    for (int r = 0; r < g; r++) { size_t off = t->dsp2[g + r]; for (int dd = 0; dd < p->na; dd++) { int rho = rho_of(p, dd, r); if (tk) { ct[m].dst = rdsp[rho]; ct[m].src = off; ct[m++].len = rcnt[rho]; } else vcopy((char *)rb + rdsp[rho], x3 + off, rcnt[rho], s, host); off += rcnt[rho]; } }
+    if (tk) bcopy_run(p, (char *)rb, x3, m, s);
 }
 static void complete_v(comm *c)
 {
@@ -394,11 +452,45 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
+/* ---- Phase 13b X (PLAN.md 31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (default 1) -- the v-exchange pipelined two deep
+ * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
+ * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
+ * and k's inter stage is posted (the inter transport takes one at a time).  The x0/x1 area (the intra stage's) is shared;
+ * the x2/x3 areas (the inter stage's send and receive, busy while the exchange is pending) alternate between two slots, each
+ * the communicator's own and grown only while not pending: one more exchange's A + B bytes than depth 1. */
+static void need_vslot(comm *c, int k, size_t bytes)
+{
+    lay_priv *p = PRIV(c);
+    if (p->vxcap[k] >= bytes) return;
+    HIP_CHECK(hipSetDevice(p->dev));
+    if (p->vx[k]) HIP_CHECK(hipFree(p->vx[k]));
+    HIP_CHECK(hipMalloc((void **)&p->vx[k], bytes)); p->vxcap[k] = bytes;
+}
+static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, double a0)
+{
+    lay_priv *p = PRIV(c);
+    struct vtab t; vtab_build(c, scnt, sdsp, rcnt, &t, 0);
+    size_t x0n = t.contig ? 0 : t.S;
+    int k = p->v.pend ? p->v.slot ^ 1 : 0;              /* the slot the pending exchange does not hold */
+    need_vtmp(c, x0n + t.A + 4);                          /* (not used by the pending exchange) */
+    need_vslot(c, k, t.A + t.B + 4);
+    char *x0 = p->vtmp, *x1 = x0 + x0n, *x2 = p->vx[k], *x3 = x2 + t.A;
+    HIP_CHECK(hipSetDevice(p->dev));
+    int rec = lst_mode ? lst_new(p, a0, 1) : 0;
+    v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);   /* under the pending exchange's inter stage */
+    complete_v(c);                                        /* the previous one: its inter wait and scatter */
+    v_post(c, &t, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);
+    p->v.rec = rec;
+    if (lst_mode == 2) lst_watch_start(p, &p->v.w, &p->v.w_on, &p->v.wf1);
+    p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.slot = k; p->v.pend = 1; p->nlog++;
+    free(t.T);
+}
 static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     lay_priv *p = PRIV(c);
     double a0 = lst_mode ? lst_now() : 0;
     while (p->npend) complete_oldest(c);                 /* one kind at a time */
+    if (p->vdepth >= 2) { y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0); return; }
     complete_v(c);
     struct vtab t; vtab_build(c, scnt, sdsp, rcnt, &t, 0);
     size_t x0n = t.contig ? 0 : t.S;
@@ -407,6 +499,7 @@ static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     HIP_CHECK(hipSetDevice(p->dev));
     if (lst_mode) p->v.rec = lst_new(p, a0, 1);
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
+    v_post(c, &t, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
     if (lst_mode == 2) lst_watch_start(p, &p->v.w, &p->v.w_on, &p->v.wf1);
     p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.pend = 1; p->nlog++;
     free(t.T);
@@ -417,6 +510,7 @@ static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     size_t x0n = t.contig ? 0 : t.S;
     char *x0 = (char *)malloc(x0n + 2 * t.A + t.B + 4), *x1 = x0 + x0n, *x2 = x1 + t.A, *x3 = x2 + t.A;
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, 0, 1, 0);
+    v_post(c, &t, x2, x3, 0, 1, 0);
     v_scatter(c, &t, x3, rb, rcnt, rdsp, 0, 1);
     free(x0); vtab_free(&t);
 }
@@ -472,6 +566,8 @@ static void y_destroy(comm *c)
     if ((p->own_tmp && p->tmp) || p->vtmp) HIP_CHECK(hipSetDevice(p->dev));
     if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
+    for (int k = 0; k < 2; k++) if (p->vx[k]) { HIP_CHECK(hipSetDevice(p->dev)); HIP_CHECK(hipFree(p->vx[k])); }
+    if (p->ctab) HIP_CHECK(hipHostFree(p->ctab));
     free(p); free(c);
 }
 /* S12: the callers' symmetric buffers come from the inter transport's pool (the inter stage sends the caller's receive
@@ -479,13 +575,14 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
+static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 1; p->tker = tker_mode(); }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { fprintf(stderr, "comm_layered: the intra communicator must have %d ranks\n", NA); exit(1); }
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
     p->intra = intra; p->inter = inter; p->d = d; p->dev = d; p->na = NA; p->g = comm_size(inter);
     c->ops = &lay_ops; c->priv = p; c->size = NA * p->g; c->rank = p->g * d + comm_rank(inter); c->inflight = 2;
-    lst_register(p, comm_rank(inter), p->g);
+    lst_register(p, comm_rank(inter), p->g); lay_opts(p);
     return c;
 }
 /* S: the intra-minor form on device dev: rank = size(intra) x rank(inter) + rank(intra) (the dragonfly's third layer: intra
@@ -495,7 +592,7 @@ comm *comm_layered_create_minor(comm *intra, comm *inter, int dev)
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
     p->intra = intra; p->inter = inter; p->d = comm_rank(intra); p->dev = dev; p->na = comm_size(intra); p->g = comm_size(inter); p->minor = 1;
     c->ops = &lay_ops; c->priv = p; c->size = p->na * p->g; c->rank = p->na * comm_rank(inter) + p->d; c->inflight = 2;
-    lst_register(p, comm_rank(inter), p->g);
+    lst_register(p, comm_rank(inter), p->g); lay_opts(p);
     return c;
 }
 /* a device scratch of at least one slab buffer (size x bytes of the largest exchange; two slab buffers of the
