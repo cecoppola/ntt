@@ -20,6 +20,10 @@
  * (all n limbs); TSTRAT_GMP=1 also checks it against GMP (binary limbs).
  *
  *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
+ *   V  (Phase 13b B) the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
+ *      transforms, unbalanced, short, operands as views at an offset) through rns_mul_dist_db under C, B, B4 and auto,
+ *      each compared limb for limb with C's; then the n-point product (na = nb = n/2) timed under each form
+ *      ("STRAT ... strat=L<form>").  After C (its rns_init).
  *   4  B4 (Phase 13b, agent B): B spread over all four APUs at P = 3.  The product mod x^n - 1 splits into the residues
  *      mod x^(n/2) - 1 (the lower half of the forward DIF's bit-reversed output) and mod x^(n/2) + 1 (the upper half):
  *      the n-point DIF's first stage, then two independent n/2-point DIFs.  APU p < 3 (prime p) transforms A whole (n
@@ -52,7 +56,7 @@
 #define GiB 1073741824.0
 /* the prime count: agent P3's runtime ec_np (ECALC_NP=3|4, branch p13-P3) when the library has it, else EC_NP -- weak
  * references, so this test builds on main (no ec_np: NP = EC_NP = 4) and on P3's branch alike */
-extern "C" { int ec_np_init(void) __attribute__((weak)); }
+extern "C" { int ec_np_init(void) __attribute__((weak)); int rns_dist_strategy_set(const char *name) __attribute__((weak)); }
 static int NP = EC_NP;
 
 static size_t dev_used(int d) { size_t f = 0, t = 0; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemGetInfo(&f, &t)); return t - f; }
@@ -422,6 +426,56 @@ int main(int argc, char **argv)
         db_free(&Cc);
     } else R[2].why = "not requested";
 
+
+    /* ---- V: the library's B forms against C (rns_mul_dist_db under RNS_STRATEGY = C, B, B4, auto) ---- */
+    if (strchr(which, 'V') && rns_dist_strategy_set) {
+        int pl = logn < 31 ? logn : 31;
+        if (!rns_ndev()) { rns_staging_bytes_req = (size_t)2 << 20; rns_pool1_bytes_req = rns_pool1_default_bytes(pl); rns_init(pl); }
+        const char *forms[4] = { "C", "B", "B4", "auto" };
+        /* shapes (limbs of A, B, offsets of the views): n/2 x n/2; 3 2^k-sized; unbalanced; short (below 2^20); odd lengths at offsets */
+        size_t sh[6][4] = { { na, nb, 0, 0 }, { (size_t)(0.37 * n), (size_t)(0.35 * n), 0, 0 }, { (size_t)(0.45 * n), n / 64 + 3, 0, 0 },
+                            { 5000, 7001, 0, 0 }, { na - 12345, nb / 3 + 17, 999, 4097 }, { (size_t)(0.3 * n) + 1, (size_t)(0.2 * n) + 5, 3, 1 } };
+        for (int k = 0; k < 6; k++) {
+            size_t la = sh[k][0], lb = sh[k][1], oa = sh[k][2], ob = sh[k][3];
+            if (oa + la > na) la = na - oa; if (ob + lb > nb) lb = nb - ob;
+            dbig va = db_view(&Ad, oa, la), vb = db_view(&Bd, ob, lb); db_norm(&va); db_norm(&vb);
+            dbig Cr; db_init(&Cr); uint64_t *h0 = 0; size_t n0 = 0;
+            for (int f = 0; f < 4; f++) {
+                rns_dist_strategy_set(forms[f]);
+                db_free(&Cr); db_init(&Cr);
+                double t = now(); rns_mul_dist_db(&Cr, &va, &vb); for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); } t = now() - t;
+                bigint hb_; bi_init(&hb_); db_to_bi(&hb_, &Cr);
+                if (!f) { n0 = hb_.n; h0 = (uint64_t *)malloc((n0 + 1) * 8); memcpy(h0, hb_.l, n0 * 8); }
+                else VERIFY(hb_.n == n0 && !memcmp(hb_.l, h0, n0 * 8), "V: shape %d (%zu x %zu at %zu, %zu): %s differs from C (%zu vs %zu limbs)", k, la, lb, oa, ob, forms[f], hb_.n, n0);
+                printf("V shape %d: %zu x %zu limbs (views at %zu, %zu) under %-4s: %zu limbs, %.4f s\n", k, va.n, vb.n, oa, ob, forms[f], hb_.n, t);
+                bi_free(&hb_);
+            }
+            free(h0); db_free(&Cr);
+        }
+        /* the n-point product timed under each form (the planes that do not fit the pools: the forms' extra buffer) */
+        for (int f = 0; f < 4; f++) {
+            struct res rr; memset(&rr, 0, sizeof rr); rr.name = 'L';
+            rns_dist_strategy_set(forms[f]); dbig Cl; db_init(&Cl);
+            size_t u0[ND]; for (int d = 0; d < ND; d++) u0[d] = dev_used(d);
+            for (int it = 0; it <= reps; it++) {
+                memset(&rns_dist_st, 0, sizeof rns_dist_st);
+                for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+                double a = now(); rns_mul_dist_db(&Cl, &Ad, &Bd);
+                for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
+                if (it) { rr.t[it - 1] = now() - a; rr.tl += rns_dist_st.t_load / reps; rr.tn += rns_dist_st.t_ntt / reps; rr.tc += rns_dist_st.t_crt / reps; rr.tm += rns_dist_st.t_merge / reps; }
+            }
+            for (int d = 0; d < ND; d++) { rr.used_b[d] = dev_used(d) - u0[d]; }
+            struct qv ov = { { Cl.q[0], Cl.q[1], Cl.q[2], Cl.q[3] }, Cl.qc };
+            if (ref) { long long kx = cmp_dev(&ov, n, ref); VERIFY(kx < 0, "L%s differs from %c at limb %lld", forms[f], refname, kx); }
+            double mn = rr.t[0], mx = rr.t[0]; for (int i = 1; i < reps; i++) { if (rr.t[i] < mn) mn = rr.t[i]; if (rr.t[i] > mx) mx = rr.t[i]; }
+            size_t um = 0; for (int d = 0; d < ND; d++) if (rr.used_b[d] > um) um = rr.used_b[d];
+            printf("STRAT logn=%d P=%d strat=L%s wall_med=%.4f min=%.4f max=%.4f reps=%d | load %.4f ntt %.4f crt %.4f merge %.4f | extra_dev_GiB/APU=%.2f (pools %.2f + %.2f)\n",
+                   logn, NP, forms[f], median(rr.t, reps), mn, mx, reps, rr.tl, rr.tn, rr.tc, rr.tm, um / GiB, rns_dpool_cap(0, 0) / GiB, rns_dpool_cap(0, 1) / GiB);
+            db_free(&Cl);
+        }
+        rns_dist_cache_release();
+        rns_dist_strategy_set(0);
+    }
     if (ref && getenv("TSTRAT_GMP") && atoi(getenv("TSTRAT_GMP")) && !bi_decimal) {
         mpz_t x, y, z, w; mpz_inits(x, y, z, w, NULL);
         mpz_import(x, na, -1, 8, 0, 0, ha); mpz_import(y, nb, -1, 8, 0, 0, hb); t0 = now(); mpz_mul(z, x, y);
