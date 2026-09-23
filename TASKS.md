@@ -119,6 +119,17 @@ What it is worth, if the margin is real in practice:
 Independent support: y-cruncher's NTT uses "anywhere from 3 to 9 primes" depending on
 size, so three is a normal design point, not an edge case.
 
+*Why the 25 % is real and not cancelled by the node's structure.* The four-prime choice
+also maps one prime to each APU, which is what `rns_mul_mdev` does — and there the fourth
+prime is free, because the four run in parallel. But that tier is not on the critical
+path. In the two tiers that are, the primes run **sequentially**: the batch tier gives
+each APU its own *products* (subtree ownership, for the 40x locality cliff) and runs all
+four primes on them one after another; the distributed tier puts all four APUs on **one
+prime at a time**, because a single prime's plane already needs all four memories. So in
+58.6 s of the 58.8 s of GPU phases the fourth prime costs a full 25 % of wall clock.
+Prime-per-APU buys *latency*, not throughput, and the batch tier always has many
+independent products — which is why locality won there, correctly.
+
 What it costs: `EC_NP = 4` is baked into the prime tables, the CRT (a 4-word
 reconstruction window becomes 3), and — the one real obstacle — the `mdev` tier's
 one-prime-per-device mapping, which assumes primes and APUs are equinumerous. Three
@@ -190,11 +201,79 @@ substantial rewrite of the transform and interacts awkwardly with the four-step
 factorization and the distributed exchange. Recorded for completeness; 6.2 captures most
 of the benefit for a fraction of the work.
 
+### 6.9 Prime-per-APU for the reciprocal's fitting doublings — the unexploited K4 case
+The node's K4 topology pays where a product is **latency-bound and fits one APU's plane**:
+each APU takes one prime and does full-length transforms locally, with **no exchange at
+all**. Derived from the measured constants (a $2^{31}$ convolution = 1.11 s, one all-to-all
+= 0.158 s), for one product of $n = 2^{31}$ points over four primes:
+
+| strategy | wall | exchanges | plane per APU |
+|---|---|---|---|
+| prime-per-APU | **2.54 s** | 0 | 51.6 GB |
+| four-step | 4.44 s | 12 | 12.9 GB |
+
+Prime-per-APU is **1.75x faster for 4x the plane memory** — so it fits only below about
+$2^{30}$ points on today's 45 GB per-APU budget. The reciprocal's doublings are a
+*dependent chain* (no batch to fill the machine with), and the ones below that size
+currently go through the four-step and pay 12 exchanges each. **Effort 2 d; expect ≈ 1 s
+at $4\times10^{10}$ and ≈ 4 s at $10^{11}$** (those doublings carry ~16 % of the
+reciprocal's work). Composes with 6.1: in this regime the prime count does not change the
+wall at all (each APU does its own prime's three transforms in parallel), so three primes
+costs nothing here and saves 25 % everywhere else.
+
+**The three-regime rule this implies** — the optimal placement of one product on four APUs:
+
+| regime | condition | strategy | status |
+|---|---|---|---|
+| A | many independent products, each fits a plane | product-per-APU, all primes local | the batch tier |
+| B | single product in a dependent chain, fits the per-APU budget | **prime-per-APU** | **the gap (6.9)** |
+| C | single product too large for one plane | four-step | top levels, reciprocal, division |
+
+Note for the record: the K4 structure gives **faster runtime, not less memory**. Memory
+efficiency comes from splitting one plane across four APUs — which is exactly what forces
+the exchange. Prime-per-APU is the memory-hungry, communication-free extreme.
+
 ### Suggested priority among these
 **6.1** (largest, and it improves time *and* memory *and* the machine ceiling),
 then **6.4** (largest single-node wall item after the seeds work already in §2),
 then **6.3**, then **6.5** before any target campaign, then **6.2**; treat 6.6–6.8 as
 experiments.
+
+---
+
+## 7. The design-space campaign — PLAN §29 (Phase 13)
+
+The items in §6 interact: the prime count, the distribution strategy, the plane cap and
+the transform-length set cannot be chosen independently, and several hardware features
+have never been measured on the paths that matter. PLAN §29 is the campaign that settles
+them by measurement, with the decision rule fixed in advance — **digits per node-second
+subject to fitting the node**, Pareto table of (wall, node memory), ties broken by the
+modelled 576-node ceiling.
+
+| # | experiment | decides |
+|---|---|---|
+| E0 | `t_strategy`: one product under all three distributions at $2^{26}$–$2^{31}$, $P$ = 3 and 4 | where regime B begins; whether the grid cap should drop (decides E4, E5 before either is written) |
+| E1 | `t_primes`: 3-prime CRT and convolution against GMP to $2^{33}$, worst-case limbs | that the margin is real |
+| E2 | `t_cap`: transform points per cap for the shapes actually formed (no node time) | what E0's answer would cost |
+| E3 | three primes end to end | −25 % transform work, planes 180.4 → 135.3 GB |
+| E4 | prime-per-APU for the reciprocal's fitting doublings (6.9) | ≈ 1 s at 4e10, ≈ 4 s at 1e11 |
+| E5 | **the exchange-free grid**: cap set so every piece fits prime-per-APU | whether the all-to-all can leave the node entirely |
+| E6 | $5\cdot2^k$, $7\cdot2^k$ lengths | −3…−5 % of transform time |
+| E7 | middle and short products in the reciprocal | −25…−35 % of the reciprocal |
+| E8 | seeds as a kernel | init 22 → 13–15 s |
+| **E9** | **xGMI and the fabric at once** — measure the present overlap, then deepen the pipeline, then xGMI as a relief valve for NIC imbalance | ceiling **27 % of exchange time** at 576; part 1 needs only two real nodes |
+| H1 | CPX vs SPX partitioning | needs an administrator |
+| H2 | the MALL (256 MB): find the cliff, size tiles under it | kernels run 1.0–1.4 of 3.0 TB/s |
+| H3 | modmul engine on the *full* transform (FP64 Barrett vs Shoup vs reduced-correction) | only ever compared on the first pass |
+| H4 | xGMI concurrency: does the push saturate all three links | |
+| H5 | SDMA offload of the $X$ fetches and checkpoint writes | frees CUs during the division |
+| H6 | occupancy and launch configuration, revisited under H2 | |
+| H7 | non-temporal stores in pack/unpack | they pollute the cache the transform wants |
+| H8 | two endpoints per APU for the doubled NICs | built now, measured on the target |
+
+Order: E1, E2 (no node time) → E0 → H2, H3, H4, H7, **E9 part 1** (kernel- and
+link-level constants, before any pipeline work) → E3 → E4, E5 → E6, E7, E8 → H1, H5, H6
+→ H8 on the target. Full statement, gates and discipline in PLAN §29.
 
 ---
 
@@ -208,5 +287,7 @@ experiments.
    moves time, memory and the machine ceiling together.
 6. **6.4, 6.3** — the seeds on the GPU, then the middle product in the reciprocal.
 7. **6.5** before any target campaign; **6.2** when convenient.
+   All of §6 is settled by the **PLAN §29 campaign** (§7 above), which should run as one
+   multi-agent session: E1/E2/E0 and the H-series parallelise across disjoint files.
 8. **4.3, 4.4** — document hygiene, one allocation.
 9. **PLAN §28** — the code reduction, last.
