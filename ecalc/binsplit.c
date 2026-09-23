@@ -530,7 +530,7 @@ static int ckpt_dbig_io(FILE *f, dbig *x, size_t lo, size_t hi, uint64_t *buf, i
             __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST);
             double tw = io->mbs > 0 ? mem_now() : 0;
             ok = fwrite_all(f, buf, run * 8);
-            if (io->mbs > 0) { double want = run * 8 / (io->mbs * 1e6 / NR), dt = mem_now() - tw; if (want > dt) usleep((useconds_t)((want - dt) * 1e6)); }   /* test: this thread's share of the emulated rate */
+            if (io->mbs > 0) { double want = run * 8 / (io->mbs * 1e6 / NR); while (mem_now() - tw < want && !__atomic_load_n(&io->cancel, __ATOMIC_RELAXED)) usleep(5000); }   /* test: this thread's share of the emulated rate */
             __atomic_add_fetch(part ? &io->bytes_all : &io->bytes_p, run * 8, __ATOMIC_RELAXED);
             if (!part) __atomic_add_fetch(&io->bytes_all, run * 8, __ATOMIC_RELAXED);
         }
@@ -702,11 +702,12 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
     for (int r = 0; r < NR; r++) h.offr[r] = range_lo(P->n, r + 1) - range_lo(P->n, r) + range_lo(Q->n, r + 1) - range_lo(Q->n, r);
     x.size = mn_size(); x.rank = mn_rank(); x.kind = 1; x.a0 = bs_a0; x.b1 = bs_b1; memcpy(x.tree, desc, sizeof x.tree);
     mkdir(bs_ckpt_dir, 0777);
+    char hp[4096]; ckpt_path(hp, sizeof hp, "tree", level, "hdr", -1, 0); unlink(hp);   /* Phase 13 N: a set of this level from before (a rerun of the outfile) is void from here: never its header over new files */
     int oks[NR]; bs_ckpt_tree_pdone = 0;
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
     for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 1, io);
     if (t_data) *t_data = mem_now();
-    for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
+    for (int r = 0; r < NR; r++) if (!oks[r]) { ckpt_remove_kind("tree", level); return 0; }   /* (a failed or dropped set leaves no files) */
     if (!ckpt_write_hdr("tree", &h, &x, 0)) return 0;
     size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
