@@ -194,7 +194,7 @@ static void lst_print(const char *tag)
         printf("layer-stats %s node %d: block transposes %.4f s per APU (%.3f ms per exchange); the NIC balance over the APU threads: fabric bytes %.4f .. %.4f GB (max/min %.4f), fabric time %.4f .. %.4f s (max/min %.3f)\n",
                tag, g_node, a->tr / q, a->n > 0 ? 1e3 * a->tr / a->n : 0, bmin * 1e-9, bmax * 1e-9, bmin > 0 ? bmax / bmin : 0, tmin, tmax, tmin > 0 ? tmax / tmin : 0); }
     printf("layer-stats %s node %d: v-exchange depth %s, transposes %s; scratch of one APU thread's communicator (max): v-exchange %.1f MB, equal-slab %.1f MB\n", tag, g_node,
-           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "1", tker_mode() ? "one kernel" : "copies", g_vmem * 1e-6, g_emem * 1e-6);
+           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "2", tker_mode() ? "one kernel" : "copies", g_vmem * 1e-6, g_emem * 1e-6);
     if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
                           tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
@@ -456,7 +456,7 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
-/* ---- Phase 13b X (PLAN.md 31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (default 1) -- the v-exchange pipelined two deep
+/* ---- Phase 13b X (PLAN.md 31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (the default since Phase 13c; 1 = the one-deep path) -- the v-exchange pipelined two deep
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
  * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
@@ -582,7 +582,7 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 1; p->tker = tker_mode(); }
+static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode(); }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { fprintf(stderr, "comm_layered: the intra communicator must have %d ranks\n", NA); exit(1); }

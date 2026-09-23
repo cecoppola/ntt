@@ -353,7 +353,7 @@ static int strat_get(void)
 {
     if (g_strat >= 0) return g_strat;
     const char *e = getenv("RNS_STRATEGY"), *f = getenv("RNS_STRATEGY_FORM");
-    g_strat = STRAT_C;
+    g_strat = STRAT_AUTO;                                                /* default since Phase 13c: auto (RESULTS 79-80); RNS_STRATEGY=C for the four-step only */
     if (e && *e) {
         if (!strcmp(e, "C") || !strcmp(e, "c")) g_strat = STRAT_C;
         else if (!strcmp(e, "B") || !strcmp(e, "b")) g_strat = STRAT_B;

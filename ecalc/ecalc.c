@@ -229,12 +229,14 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
  * RNS_PLANES_3Q30 (the 3 2^k planes, whose default size rule is on below 5e10 digits at POOL_LOG 31) and DIST_LOGN_TEST (the
  * single-node dist tier's 2^k cap = pool_log; without it a 2^31 product would grow a 2^30 pool inside a phase and abort).
  * ECALC_PLANE_CAP=fit takes the largest cap whose node total (binsplit_node_bytes: the plane pools at the prime count + the
- * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: nothing changes (POOL_LOG and
- * the size rule as before).  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served
+ * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: 2^31 (the Phase 13c default),
+ * unless POOL_LOG, RNS_PLANES_3Q30 or DIST_LOGN_TEST is given; =off: the size rule as before.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served
  * here, before rns_init, so the layout report needs no device. */
 static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 {
     const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
+    if (!e) { if (!getenv("POOL_LOG") && !getenv("RNS_PLANES_3Q30") && !getenv("DIST_LOGN_TEST")) e = "2^31"; }   /* default since Phase 13c (RESULTS 79-80): 2^31, unless a knob it sets is given */
+    else if (!strcmp(e, "off")) e = NULL;                                  /* ECALC_PLANE_CAP=off: the pre-13c size rule (3 2^30 below 5e10 digits, else 2^31) */
     if (e && *e) {
         static const char *nm[4][3] = { { "2^30", "30", "1073741824" }, { "3*2^29", "3x29", "1610612736" }, { "2^31", "31", "2147483648" }, { "3*2^30", "3x30", "3221225472" } };
         for (int i = 0; i < 4 && c < 0; i++) for (int j = 0; j < 3; j++) if (!strcmp(e, nm[i][j])) { c = i; break; }
@@ -283,7 +285,7 @@ int main(int argc, char **argv)
     int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
-    pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (off by default; exits for BS_LAYOUT_ONLY) */
+    pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (ECALC_STAGING=2: the pre-B2 seed-sized staging) */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
