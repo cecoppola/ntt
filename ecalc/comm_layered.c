@@ -92,8 +92,8 @@ static double lst_inter_wait(lay_priv *p, pthread_t th, int *on, const double *w
 #define LB 48
 struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1, xl, bothl, tr; };   /* tr: the block transposes (r1 - x1, c1 - f1) */
 static struct lst_tot g_tot[LB], g_all;
-static double g_dfb[NA], g_df[NA];
-static size_t g_vmem, g_emem;                             /* 13b X: the largest v-exchange scratch (x0..x3 areas, both slots) and equal-slab scratch of one APU thread's communicator */                       /* per APU thread (device): fabric bytes and fabric time -- the NIC balance */
+static double g_dfb[NA], g_df[NA];                       /* per APU thread (device): fabric bytes and fabric time -- the NIC balance */
+static size_t g_vmem, g_emem;                             /* 13b X: the largest v-exchange scratch (x0..x3 areas, both slots) and equal-slab scratch of one APU thread's communicator */
 static double *g_pool; static char *g_pk; static int g_np, g_npc;   /* the node view's intervals (kind 0 xGMI, 1 fabric, 2 span) */
 static pthread_mutex_t g_mx = PTHREAD_MUTEX_INITIALIZER;
 static lay_priv *g_reg[1024]; static int g_nreg; static int g_node = -1, g_gsz = 0;
@@ -607,4 +607,31 @@ void comm_layered_scratch(comm *c, void *p, size_t bytes)
     if (v->npend) { fprintf(stderr, "comm_layered: scratch replaced with an exchange pending\n"); exit(1); }
     if (v->own_tmp && v->tmp) { HIP_CHECK(hipSetDevice(v->dev)); if (v->tmp_sym) comm_sym_free(v->inter, v->tmp); else HIP_CHECK(hipFree(v->tmp)); }
     v->tmp = (char *)p; v->tmp_cap = bytes; v->own_tmp = 0; v->tmp_sym = 0;
+}
+/* Phase 13b X: the block transpose alone, one APU: 4 x g blocks of `bytes`, the copies against the kernel (median of reps,
+ * host wall incl. the launches and the stream sync, as in the exchange); returns 1 when the two outputs differ */
+extern "C" int comm_layered_tbench(int g, size_t bytes, int reps)
+{
+    size_t tot = bytes * (size_t)NA * g; char *a, *b, *c2; hipStream_t s;
+    HIP_CHECK(hipMalloc((void **)&a, tot)); HIP_CHECK(hipMalloc((void **)&b, tot)); HIP_CHECK(hipMalloc((void **)&c2, tot)); HIP_CHECK(hipStreamCreate(&s));
+    { unsigned char *h = (unsigned char *)malloc(tot); for (size_t i = 0; i < tot; i++) h[i] = (unsigned char)(i * 2654435761u >> 13); HIP_CHECK(hipMemcpy(a, h, tot, hipMemcpyHostToDevice)); free(h); }
+    double tm[2] = { 0, 0 }; int bad = 0;
+    double *t = (double *)malloc(reps * sizeof(double));
+    for (int form = 0; form < 2; form++) {
+        for (int r = 0; r <= reps; r++) {
+            double t0 = lst_now();
+            if (form) k_btrans<<<dim3(gx_of(bytes >> 4), (unsigned)(NA * g)), 256, 0, s>>>((uint4 *)c2, (const uint4 *)a, bytes >> 4, NA, g);   /* [x][y] (4 x g) -> [y][x] */
+            else for (int x = 0; x < NA; x++) for (int y = 0; y < g; y++) HIP_CHECK(hipMemcpyAsync(b + ((size_t)y * NA + x) * bytes, a + ((size_t)x * g + y) * bytes, bytes, hipMemcpyDefault, s));
+            HIP_CHECK(hipStreamSynchronize(s));
+            if (r) t[r - 1] = lst_now() - t0;
+        }
+        qsort(t, reps, sizeof(double), lst_cmp); tm[form] = t[reps / 2];
+    }
+    free(t);
+    { char *h = (char *)malloc(2 * tot); HIP_CHECK(hipMemcpy(h, b, tot, hipMemcpyDeviceToHost)); HIP_CHECK(hipMemcpy(h + tot, c2, tot, hipMemcpyDeviceToHost)); bad = memcmp(h, h + tot, tot) != 0; free(h); }
+    printf("tbench g %4d: 4 g = %5d blocks of %8zu B (%9.3f MB): copies %9.3f ms (%.2f us per block, %6.1f GB/s)  kernel %8.3f ms (%6.1f GB/s)  %6.1fx  %s\n", g, NA * g, bytes, tot * 1e-6,
+           tm[0] * 1e3, tm[0] * 1e6 / (NA * g), 2.0 * tot / tm[0] * 1e-9, tm[1] * 1e3, 2.0 * tot / tm[1] * 1e-9, tm[0] / tm[1], bad ? "DIFFERS" : "identical");
+    fflush(stdout);
+    HIP_CHECK(hipFree(a)); HIP_CHECK(hipFree(b)); HIP_CHECK(hipFree(c2)); HIP_CHECK(hipStreamDestroy(s));
+    return bad;
 }
