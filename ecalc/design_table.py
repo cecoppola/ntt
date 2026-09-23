@@ -46,6 +46,7 @@ def BH(): return BWS[2]
 CAPS = [1 << 30, 3 << 29, 1 << 31, 3 << 30]
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'results', 'DESIGN_TABLE.md')
+FIT_TROUND = False                              # --fit-tround: refit T_ROUND from the M-run's chunked rows (off: the aac6 sweep shows no trend, M-run 13b)
 BUILT = {'C': 'on main', 'B': 'agent B (p13b-B)', 'B4': 'agent B (p13b-B)', 'auto': 'agent B (p13b-B)'}
 
 def fabric(bw):
@@ -101,6 +102,12 @@ def parse_mrun(path):
         runs.append(r)
     return runs
 
+def run_peak(r):
+    """a size-1 run's node peak: the largest device total over the mem summary's phases (B / B4 map their extra planes after init)
+    + the host HWM; a line without the maximum takes the device at init"""
+    if r['dev'] is None or r['hwm'] is None: return r['peak']
+    return max(r['dev'], r['devmax'] or 0.0) + r['hwm']
+
 # ------------------------------------------------------------------------------------------------------------ one row
 class Row:
     pass
@@ -108,7 +115,7 @@ class Row:
 MEMO = {}
 def max_d(design, budget):
     """the largest D per node at 576 that fits `budget` GB (memoised on what the memory depends on)"""
-    k = ('B' if design.strategy == 'B' else 'C', design.cap, design.chunk, design.depth, design.np, budget)
+    k = (design.strategy if design.strategy in ('B', 'B4') else 'C', design.cap, design.chunk, design.depth, design.np, budget)   # B and B4 carry extra planes; C and auto share the pools
     if k not in MEMO: MEMO[k] = M.max_digits(NODES, budget, design=design)
     return MEMO[k]
 
@@ -164,7 +171,7 @@ def mrun_inputs(runs, log):
             if r['k'] != kon: koff.setdefault(k, []).append(r['total']); continue
             e = by_sk.setdefault(k, dict(walls=[], peaks=[], devs=[]))
             e['walls'].append(r['total'])
-            if r['dev'] is not None and r['hwm'] is not None: e['peaks'].append(r['dev'] + r['hwm']); e['devs'].append(r['dev'])
+            if r['dev'] is not None and r['hwm'] is not None: e['peaks'].append(run_peak(r)); e['devs'].append(r['devmax'] or r['dev'])
             elif r['peak'] is not None: e['peaks'].append(r['peak'])
     for k, e in by_sk.items():
         e['n'] = len(e['walls']); e['wall'] = sum(e['walls']) / e['n']
@@ -194,13 +201,26 @@ def mrun_inputs(runs, log):
                                  design=M.Design(np=4, legacy=True, chunk=ch, chunk_mb=x['design'].chunk_mb))['wall']
                 e0 = w(0.0, x['axes'][2]) - w(0.0, 'off'); rounds = (w(0.01, x['axes'][2]) - w(0.0, 'off') - e0) / 0.01; M.T_ROUND = saved
                 num += rounds * (x['total'] - b - e0); den += rounds * rounds
-                notes.append('M-run chunking %s at %.0e / %d, depth %d: %+.1f s against off (%s)' % (x['axes'][2], D, g, dp, x['total'] - b,
+                notes.append('M-run chunking %s at %g MB, %.0e / %d, depth %d: %+.1f s against off (%s)' % (x['axes'][2], x['design'].chunk_mb, D, g, dp, x['total'] - b,
                              '%d extra rounds in the model' % rounds if rounds >= 0.5 else 'no extra round at this size: the chunk is larger than the share, T_ROUND is not refitted from it'))
-        if not (g & (g - 1)) and any(x['axes'][3] == 2 for x in rs):
-            notes.append('M-run depth 2 at size %d: a power of two -- the equal-slab path, the depth switch is not exercised (use 3 node-processes or DIST_GEN=1)' % g)
-    if den > 0:
+    # the depth pairs: the same D, g and chunking at depth 1 and 2 (the general map: g not a power of two, or DIST_GEN=1)
+    dp_groups = {}
+    for r in runs:
+        if r['ok'] and r['g'] > 1 and r['total'] is not None:
+            dp_groups.setdefault((r['D'], r['g'], r['axes'][2], r['design'].chunk_mb, r['env'].get('DIST_GEN', '0')), {}).setdefault(r['design'].depth, []).append(r['total'])
+    for (D, g, ch, mb, gen), byd in sorted(dp_groups.items()):
+        if 1 in byd and 2 in byd:
+            m1, m2 = sum(byd[1]) / len(byd[1]), sum(byd[2]) / len(byd[2])
+            general = (g & (g - 1)) or gen == '1'
+            notes.append('M-run depth at %.0e / %d%s, chunking %s: depth 1 %.2f s (n %d), depth 2 %.2f s (n %d): %+.1f %% (measured; %s)' % (
+                D, g, ' DIST_GEN=1' if gen == '1' else '', ch, m1, len(byd[1]), m2, len(byd[2]), 100 * (m2 / m1 - 1),
+                'the general map' if general else 'a power of two: the switch is not exercised'))
+    if den > 0 and FIT_TROUND:
         M.T_ROUND = max(0.0, num / den)
         notes.append('T_ROUND refitted on the M-run: %.3f s per extra round (was 0.030, M13)' % M.T_ROUND)
+    elif den > 0:
+        notes.append('T_ROUND stays ASSUMED at %.3f s (range 0.01-0.1 s, the table prints both ends for the recommended row): the chunk sweep on aac6 '
+                     'loopback shows no trend above its +-10 %% noise (a refit would give %.3f s; --fit-tround takes it)' % (M.T_ROUND, max(0.0, num / den)))
     return by_sk, notes
 
 # ------------------------------------------------------------------------------------------------------------ the table
@@ -263,7 +283,8 @@ def write_md(res, args):
     L_.append('Labels: **measured** = an aac6 run of that configuration (the M-run); **modelled** = `mn_model.py` / `mem_model.py` arithmetic on measured inputs '
               '(the per-product times of S13, the phase table of the current code, X13\'s overlap, M13\'s chunk rounds, the memory formulas of the code); '
               '**assumed** = the target\'s fabric (100 GB/s per APU, 2 µs per message, 64-node dragonfly groups), the part file (2 GB/s per node) '
-              'and the chunk rounds\' fixed cost on the target (T_ROUND %.3f s, fitted on aac6 loopback). Column (f) varies the fabric bandwidth.\n' % M.T_ROUND)
+              'and the chunk rounds\' fixed cost (T_ROUND %.3f s, ASSUMED: range 0.01-0.1 s; the aac6 chunk sweep at 16-1024 MB shows no trend above its +-10 %% loopback noise, '
+              'so the chunked rows\' wall cost is unmeasured -- the recommended row\'s sensitivity is printed below). Column (f) varies the fabric bandwidth.\n' % M.T_ROUND)
     L_.append('Columns: S = `RNS_STRATEGY`; K = plane cap; chunk = `MDB_SHIFT_CHUNK_MB` (shift) / + `MN_T_CHUNK_MB` (both), at %d MB; depth = the uneven exchange two deep; '
               '(a) 4 × 10¹⁰ wall at size 1 [s]; (b) node peak at 4 × 10¹⁰ [GB]; (c) the 576-node maximum digits [×10¹³] at 502 / 480 GB per node (the target\'s columns: use them until the target\'s own edge is measured) '
               'and at 524 GB, the edge measured on one aac6 node (P13b: device + host HWM 523.8 GB ran, 529.6 was OOM-killed; not the target\'s figure); '
@@ -324,7 +345,7 @@ def write_md(res, args):
     if res['by_sk'] or res['notes']:
         L_.append('## The M-run inputs\n')
         for (st, cap), e in sorted(((k, v) for k, v in res['by_sk'].items() if isinstance(k, tuple)), key=lambda kv: (kv[0][0], kv[0][1])):
-            d = M.Design(strategy=st, cap=cap); wm, pm, _, _ = size1_4e10(d)
+            d = M.Design(strategy=st, cap=cap); wm, pm, _, _ = size1_4e10(d); wm *= res['by_sk'].get('_fk', 1.0)   # the M-run's rows run agent K's kernels
             L_.append('- %s at %s: measured %.1f ± %.1f s (n = %d) against modelled %.1f s (%+.1f %%); peak %s against modelled %.1f GB' % (
                 st, MM.cap_name(cap), e['wall'], e['sd'], e['n'], wm, 100 * (e['wall'] / wm - 1), ('%.1f GB' % e['peak']) if e['peak'] else '-', pm))
         for n in res['notes']: L_.append('- ' + n)
@@ -474,7 +495,7 @@ def calibrate(args):
                 p = M.node_phases(r['D'], d); mw = sum(v for k, v in p.items() if k != 'label')
                 if r['k']: mw *= fk
                 m = MM.mem_per_node(int(r['D']), 1, d.mem_opts(r['D']))
-                pk = (r['dev'] + r['hwm']) if r['dev'] is not None and r['hwm'] is not None else r['peak']
+                pk = run_peak(r)
                 ep = (m['node_peak'] / GB / pk - 1) if pk else None
                 print('  line %3d %-22s np %d mm %d %.0e: wall %.2f model %.2f (%+.1f %%); peak %s model %.1f %s%s' % (r['line'], d.name(), d.np, d.modmul, r['D'], r['total'], mw,
                       100 * (mw / r['total'] - 1), ('%.1f' % pk) if pk else '-', m['node_peak'] / GB, ('(%+.2f %%)' % (100 * ep)) if ep is not None else '', tag))
@@ -488,8 +509,9 @@ def calibrate(args):
         for e in grp.values():
             mean = sum(e['walls']) / len(e['walls']); ew = e['mw'] / mean - 1
             pk = max(e['peaks']) if e['peaks'] else None; ep = (e['mp'] / pk - 1) if pk else None
-            print('  config %-22s np %d mm %d %.0e: n %d, mean %.2f, model %.2f (%+.1f %%); peak %s (%s)' % (e['name'], e['np'], e['mm'], e['D'], len(e['walls']), mean, e['mw'], 100 * ew,
-                  ('%.1f' % pk) if pk else '-', ('%+.2f %%' % (100 * ep)) if ep is not None else '-'))
+            fitted = any(e['name'].startswith('%s %s ' % (st, MM.cap_name(c))) for st, c in M.STRAT_FIT)
+            print('  config %-22s np %d mm %d %.0e: n %d, mean %.2f, model %.2f (%+.1f %%)%s; peak %s (%s)' % (e['name'], e['np'], e['mm'], e['D'], len(e['walls']), mean, e['mw'], 100 * ew,
+                  ' [fitted: STRAT_FIT]' if fitted else '', ('%.1f' % pk) if pk else '-', ('%+.2f %%' % (100 * ep)) if ep is not None else '-'))
             if abs(ew) > gate_w and e['gated']: fails.append('M-run %s at %.0e: wall %+.1f %%' % (e['name'], e['D'], 100 * ew))
             elif abs(ew) > gate_w: flags.append('M-run %s at %.0e: wall %+.1f %% (K on, no K-off rows yet: not gated)' % (e['name'], e['D'], 100 * ew))
             if ep is not None and abs(ep) > gate_p: fails.append('M-run %s at %.0e: peak %+.2f %%' % (e['name'], e['D'], 100 * ep))
@@ -560,8 +582,8 @@ def make_line(log, kv):
     mem = 'device %s GB' % f(mm['dev_init'])
     if mm['nproc'] > 1:
         mem += ' (per process, %d processes on one node; max in use %s, peak live %s)' % (mm['nproc'], f(mm['dev_max']), f(mm['peak_live']))
-    elif mm['dev_max'] is not None and mm['dev_max'] != mm['dev_init']:
-        mem += ' (max in use %s)' % f(mm['dev_max'])
+    elif mm['dev_max'] is not None:
+        mem += ' (max in use %s)' % f(mm['dev_max'])            # the node peak's device (B / B4: the extra planes come after init)
     return '%s | %s | %s %s' % (' '.join('%s=%s' % kv for kv in env.items()), tot.group(0), mem, verdict)
 
 KON = ['NTT_B1R=3', 'NTT_PLAN=1']
@@ -572,6 +594,8 @@ def regen(logdir, progress=None):
          series_auto_2_31_r<n>          the five-run series (K on)
          p4_d<depth>_<off|shift|both>_r<n>   10^10 over 4 processes, DIST_GEN=1, POOL_LOG=29, COMM_ALLTOALLV_DEPTH, chunks at 1024 MB, K on
          p3_d<depth>_r<n>               10^10 over 3 processes, POOL_LOG=29, K on
+         p4_d<depth>_both<MB>_r<n>      the chunk sweep: both switches at <MB>
+         p3e9_d<depth>_r<n>             10^9 over 3 processes, POOL_LOG=27, K on
        the verdicts from progress.txt (`HH:MM <tag> <verdict> total ...`), passed as cmp=<verdict>"""
     import glob
     ver = {}
@@ -588,12 +612,15 @@ def regen(logdir, progress=None):
         if m: kv = ['digits=40000000000', 'size=1', 'RNS_STRATEGY=' + m.group(1), 'ECALC_PLANE_CAP=' + capname[m.group(2)]] + KON
         m2 = re.match(r'koff_(\w+?)_(2_31)_r\d+$', tag)
         if m2: kv = ['digits=40000000000', 'size=1', 'RNS_STRATEGY=' + m2.group(1), 'ECALC_PLANE_CAP=' + capname[m2.group(2)]]
-        m3 = re.match(r'p4_d(\d)_(off|shift|both)_r\d+$', tag)
+        m3 = re.match(r'p4_d(\d)_(off|shift|both)(\d*)_r\d+$', tag)
         if m3:
-            ch = {'off': [], 'shift': ['MDB_SHIFT_CHUNK_MB=1024'], 'both': ['MDB_SHIFT_CHUNK_MB=1024', 'MN_T_CHUNK_MB=1024']}[m3.group(2)]
+            mb = m3.group(3) or '1024'
+            ch = {'off': [], 'shift': ['MDB_SHIFT_CHUNK_MB=' + mb], 'both': ['MDB_SHIFT_CHUNK_MB=' + mb, 'MN_T_CHUNK_MB=' + mb]}[m3.group(2)]
             kv = ['digits=10000000000', 'size=4', 'DIST_GEN=1', 'POOL_LOG=29', 'COMM_ALLTOALLV_DEPTH=' + m3.group(1)] + ch + KON
         m4 = re.match(r'p3_d(\d)_r\d+$', tag)
         if m4: kv = ['digits=10000000000', 'size=3', 'POOL_LOG=29', 'COMM_ALLTOALLV_DEPTH=' + m4.group(1)] + KON
+        m5 = re.match(r'p3e9_d(\d)_r\d+$', tag)
+        if m5: kv = ['digits=1000000000', 'size=3', 'POOL_LOG=27', 'COMM_ALLTOALLV_DEPTH=' + m5.group(1)] + KON
         if kv is None: print('# %s: tag not recognised, skipped' % tag, file=sys.stderr); continue
         if tag in ver: kv.append('cmp=' + ver[tag])
         try: out.append('%s tag=%s' % (make_line(fn, kv), tag))
@@ -616,12 +643,14 @@ def main():
                     'the env keys the log does not show must be given; "identical" / "DIFFERS" is taken from the log or from a key cmp=identical')
     ap.add_argument('--regen', nargs='+', metavar=('LOGDIR', 'PROGRESS'), help='rebuild the M-run log from the campaign\'s per-run logs by their tags '
                     '(s1_*, koff_*, series_*, p4_*, p3_*) with the verdicts of progress.txt (default: LOGDIR/../progress.txt); prints it')
+    ap.add_argument('--fit-tround', action='store_true', help='refit T_ROUND from the M-run\'s chunked rows (default: assumed, see the notes)')
     ap.add_argument('--verbose', action='store_true')
     a = ap.parse_args()
     BWS[:] = [float(x) for x in a.bws.split(',')]
     M.TARGET = M.Fabric(M.TARGET.name, BE(), a.lat, group=M.TARGET.group, layers=M.TARGET.layers, taper=M.TARGET.taper, write_bw=a.write_bw)
     if a.e0: M._E0 = None; M.e0_table(a.e0)
     M.HIDE_POW2 = a.hide_pow2; M.GEN_HIDE_DEPTH[2] = a.gen_hide2
+    global FIT_TROUND; FIT_TROUND = a.fit_tround
     if a.make_line:
         print(make_line(a.make_line[0], a.make_line[1:])); return
     if a.regen:
