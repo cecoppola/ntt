@@ -1297,3 +1297,142 @@ every removed path is either unreachable at the defaults or measured worse.
 **Gate for every step**: `mnaccept.sh <job> --full --stress` green before and after, and
 a five-run $4\times10^{10}$ series after 28.3 and after 28.5 to confirm the wall clock is
 untouched.
+
+## 29. Phase 13 — the design-space campaign: measure every option, adopt the best (proposed 2026-09-22)
+
+The open design questions (TASKS §6, and the K4 analysis that followed) are no longer
+answerable by reasoning: the three distribution strategies, the prime count, the plane
+cap and the transform-length set interact, and several of the hardware features have
+never been measured on the paths that matter. This section is the campaign that settles
+them by measurement.
+
+### 29.0 The decision rule, fixed before any measurement
+
+The target is 576 nodes and its capacity is set by **per-node memory**, so runtime alone
+is the wrong objective. The figure of merit is
+
+> **digits per node-second, subject to fitting the node**, with the Pareto frontier of
+> (wall clock at 4 × 10¹⁰, peak node memory) reported for every configuration.
+
+A configuration wins if it is Pareto-dominant. Where two are incomparable (faster but
+larger), the tie is broken by **the machine-scale digit ceiling** from `estimate.py` at
+576 nodes — that is the number the project exists to maximise. Every adoption is the
+user's on the measured data, as always.
+
+### 29.1 The parameter space
+
+| axis | values to measure |
+|---|---|
+| primes $P$ | 3, 4 |
+| distribution of one product | product-per-APU (A), prime-per-APU (B), four-step (C) |
+| plane cap | $2^{29}$, $2^{30}$, $3\cdot2^{30}$, $2^{31}$ |
+| transform lengths | $\{2^k, 3\cdot2^k\}$, $+\,5\cdot2^k$, $+\,7\cdot2^k$ |
+| reciprocal products | full (today), middle + short product |
+| seeds | CPU (today), GPU kernel |
+
+### 29.2 Micro-benchmarks first — the decisive, cheap experiments
+
+**E0 `tests/t_strategy` — the A/B/C boundary.** One product of $n$ points over four APUs,
+timed under all three strategies at $n \in \{2^{26} \dots 2^{31}\}$, for $P = 3$ and 4,
+reporting wall, peak plane bytes per APU, and exchange count. Prime-per-APU is built here
+as a harness first (it need not be production code to be measured). **This single
+benchmark settles where regime B begins and ends, and whether the grid's cap should be
+lowered to make every piece exchange-free.** Minutes of node time; run before any
+pipeline change.
+
+**E1 `tests/t_primes` — the three-prime bound in practice.** CRT reconstruction and a
+full convolution at $P = 3$ against GMP at every length from $2^{20}$ to $2^{33}$,
+including the worst case (all limbs $B-1$), with the margin $\prod p_i / (nB^2)$ printed.
+Confirms the arithmetic before any pipeline work: the margin is 27x at $2^{31}$ and 7x at
+$2^{33}$, and a test must show that it is not being eaten by something unmodelled.
+
+**E2 `tests/t_cap` — plane cap against grid cost.** For the product shapes the pipeline
+actually forms (the top two tree levels, the reciprocal's last three doublings, the
+division's two products at $4\times10^{10}$ and $10^{11}$), the total transform points and
+the exchange count under each cap. Pure arithmetic over `split_grid_cap`, no node time;
+tells us what E0's answer would cost in extra points before we measure it.
+
+### 29.3 Pipeline experiments
+
+**E3 — three primes end to end.** `EC_NP` parameterised, a 3-prime CRT, the `mdev` tier's
+prime-per-device assignment generalised. Gate: $10^9$ digits byte-identical in both bases,
+regression 21/21, then a five-run $4\times10^{10}$ series and a $10^{11}$ run with peak
+memory. Expected: −25 % of transform work in regimes A and C, planes 180.4 → 135.3 GB.
+
+**E4 — regime B in the reciprocal.** A device-resident prime-per-APU path for the
+doublings whose product fits the per-APU budget, chosen by the boundary E0 measures.
+Gate: reciprocal time and exchange count at $4\times10^{10}$ and $10^{11}$; digits identical.
+
+**E5 — the exchange-free grid.** Cap lowered so every grid piece fits prime-per-APU,
+making the distributed tier exchange-free at the cost of more pieces and more padding.
+Gate: the top levels, reciprocal and division timed under both caps, with the total
+transform points reported so the trade is visible. **This is the experiment that decides
+whether the K4 structure can remove the all-to-all from a node entirely.**
+
+**E6 — transform lengths $5\cdot2^k$ and $7\cdot2^k$.** Radix-5 and radix-7 stages on the
+model of `ntt3.c`. Gate: `t_ntt` exact at the new lengths, then the batch tier's time.
+
+**E7 — middle and short products in the reciprocal.** Gate: `t_newton` exact, reciprocal
+time at $4\times10^{10}$ and $10^{11}$.
+
+**E8 — the seeds as a kernel.** Gate: seed spans identical to the CPU version, init time,
+and the wall.
+
+### 29.4 Hardware experiments — exploit what the machine offers
+
+**H1 CPX vs SPX.** The batch tier's products are independent and subtree-owned; CPX
+exposes each XCD as its own partition. The mode is set at boot, so this is a request to
+the cluster's administrators plus one measurement if a CPX node can be had. Measure: the
+batch tier, the distributed tier, and `t_ntt`.
+
+**H2 The MALL (256 MB last-level cache).** Sweep a transform kernel's working set from
+below to well above 256 MB and find the cliff; then check whether a pass's tile column can
+be kept resident. The kernels reach 1.0–1.4 TB/s against a 3.0 TB/s copy ceiling and were
+tuned against LDS and HBM, never against the MALL.
+
+**H3 The modmul engine on the paths that matter.** FP64 Barrett (today) against Shoup
+integer butterflies (y-cruncher's choice) and against a reduced-correction FP64 variant,
+measured on the *full* transform rather than the first pass, which is the only place it
+was ever compared.
+
+**H4 xGMI concurrency.** Whether the push saturates all three links simultaneously or
+serialises: aggregate against per-link bandwidth, and whether a different peer ordering or
+more concurrent streams helps.
+
+**H5 SDMA engines.** Whether the $X$ fetches and the checkpoint writes can be moved off
+the compute units onto the copy engines, freeing CUs during the division.
+
+**H6 Occupancy and launch configuration** for the transform kernels at the sizes the
+pipeline actually uses, revisited under whatever H2 finds.
+
+**H7 Non-temporal stores in pack/unpack.** Those kernels are pure streaming and pollute
+the cache the transform wants; a cache-bypassing store may help both.
+
+**H8 Multi-NIC endpoint structure** (target only): two contexts per APU thread, one per
+NIC, with the slab exchange striped. Cannot be measured here, but the structure is built
+and switched now so the target's first session is a measurement, not a port.
+
+### 29.5 Order, and why
+
+1. **E1, E2** — no node time, and they bound what the rest can achieve.
+2. **E0** — the decisive micro-benchmark; it decides E4 and E5 before either is written.
+3. **H2, H3, H4, H7** — kernel-level measurements that may change the constants every
+   later experiment is judged against. Cheap, and they belong before the pipeline work.
+4. **E3** — the largest expected single win; also the one that changes the memory budget
+   every other experiment operates within.
+5. **E4, E5** — the K4 exploitation, informed by E0 and E3.
+6. **E6, E7, E8** — independent gains, any order.
+7. **H1, H5, H6** — opportunistic; H1 needs an administrator.
+8. **H8** — built now, measured on the target.
+
+### 29.6 Discipline
+
+Every measurement: five runs, reference evicted, one node per series, standard deviation
+quoted, digits compared. Every configuration behind a switch, defaults unchanged until
+the user adopts. A Pareto table of (wall, node memory, modelled 576-node ceiling) is
+maintained across the whole campaign so that the final choice is made on one page, and
+`RESULTS.md` §78 records every point including the losers.
+
+**Expected outcome**: the empirically best design point, with the evidence for why it
+beats the alternatives, and a number for what the K4 structure is worth when exploited
+fully rather than incidentally.
