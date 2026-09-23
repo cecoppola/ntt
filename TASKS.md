@@ -88,6 +88,114 @@ six product tiers (all reachable, each bound by a different resource), five comm
 implementations (each earns its place), `ntt3.c` (adopted), single-node vs sharded
 reciprocal, `batch_local` vs striped-pair. Reasoning in `CODE_REDUCTION.md` §(d).
 
+
+---
+
+## 6. New opportunities found by review and research (2026-09-22)
+
+A code review, a literature search and a hardware search produced the following. Each
+carries an estimate and a confidence; the first is the largest single opportunity
+remaining in the project.
+
+### 6.1 Three primes instead of four — **the big one**
+
+The four-prime engine is inherited from the *binary* base. The requirement is
+$n B^2 < \prod p_i$. With $B = 2^{64}$ and $n = 2^{31}$ the coefficients reach $2^{159}$
+and three 52-bit primes ($2^{155.4}$) are genuinely too small — hence four. With the
+decimal base now in production, $B = 10^{18} < 2^{60}$ and the coefficients reach only
+$2^{150.6}$: **three primes fit with a 27x margin**, and the margin holds across the whole
+operating range (54x at $2^{30}$, 18x at the $3\cdot2^{30}$ planes we use today, 14x at
+$2^{32}$, 7x at the engine's $2^{33}$ maximum).
+
+What it is worth, if the margin is real in practice:
+
+| | today (4 primes) | with 3 | change |
+|---|---|---|---|
+| transforms per product | 4 forward + 4 inverse | 3 + 3 | **−25 %** |
+| plane memory at $4\times10^{10}$ | 180.4 GB | 135.3 GB | **−45 GB** |
+| CRT input, per-prime exchange traffic | 4 planes | 3 planes | −25 % |
+| per-node digit ceiling at 576 nodes | $6.7\times10^{10}$ | $\approx 7.7\times10^{10}$ | machine $3.9 \to 4.4\times10^{13}$ |
+
+Independent support: y-cruncher's NTT uses "anywhere from 3 to 9 primes" depending on
+size, so three is a normal design point, not an edge case.
+
+What it costs: `EC_NP = 4` is baked into the prime tables, the CRT (a 4-word
+reconstruction window becomes 3), and — the one real obstacle — the `mdev` tier's
+one-prime-per-device mapping, which assumes primes and APUs are equinumerous. Three
+primes over four APUs needs a different assignment there (or that tier keeps four).
+**Effort 2–3 d; expect −6…−10 s of the 58.8 s of GPU phases and −45 GB.** Gate: a
+hard assertion at init that $nB^2 < \prod p_i$ for the chosen $n$, `t_crt` and `t_mul`
+extended to three primes, then $10^9$ digits byte-identical.
+
+### 6.2 More transform lengths: $5\cdot2^k$ and $7\cdot2^k$
+We support $2^k$ and $3\cdot2^k$, which leaves an average padding waste of about 15 %.
+y-cruncher supports $2^k$, $3\cdot2^k$, $5\cdot2^k$ and $7\cdot2^k$; adding the last two
+brings the average waste to about 6 %. The primes already admit the radix-3 factor; a
+radix-5 and radix-7 stage would be needed, on the model of `ntt3.c`.
+**Effort 2 d; expect −3…−5 % of transform time.** Confidence: medium-high.
+
+### 6.3 Middle and short products in the reciprocal
+The Newton iteration computes `rns_mul(t1, qt, r)` — a full $2j \times j$ product — and
+then uses only the middle $j+1$ limbs; the correction computes a full $j \times j$
+product and keeps the top half. The classical remedy is the **middle product** (a cyclic
+convolution of length $2j$ instead of an acyclic one of length $3j$) and a **short/high
+product** for the correction; both are standard in Newton-based division.
+**Effort 2–3 d; expect −25…−35 % of the reciprocal** — that is −3…−5 s at
+$4\times10^{10}$ and −13…−18 s at $10^{11}$, where the reciprocal is 52.5 s of 263 s.
+Confidence: medium — the saving is clear for schoolbook and Karatsuba, and for
+transform-based products it comes from the shorter cyclic convolution, which must be
+measured rather than assumed.
+
+### 6.4 Compute the seed spans on the GPU
+During initialization the GPUs are idle (they are being mapped) while the seed thread
+spends 21 s of the 22 s doing schoolbook arithmetic on the CPU. Two measurements make
+this attractive: the CPU stores into device memory at 2.6 GB/s against 30 GB/s into host
+memory (so the CPU is a poor writer of the arenas), and the spans are embarrassingly
+parallel — 17 M independent spans of 256 terms. Moving the span computation into a kernel
+removes both the arithmetic and the slow stores, at the cost of ordering it against the
+pool mapping (pool 0 first, seeds into it, regions after).
+**Effort 2 d; expect init 22 → 13–15 s, i.e. −7…−9 s of the wall.** Confidence: medium —
+the ordering against `hipMalloc` is the risk, and I's measurements show that HIP calls
+from a second thread queue behind the main thread's allocations.
+
+### 6.5 Two endpoints per APU — the doubled NICs
+The target gives each APU **two** 400 Gb/s NICs; the SHMEM transport creates **one
+context per APU thread**, which binds to one NIC. The standard practice on Slingshot is
+one endpoint per physical NIC with GPU-to-NIC affinity, and striping across them.
+Without this the node injects at about 200 GB/s of its 400.
+**Effort 1–2 d; expect up to 2x the per-node injection bandwidth**, which matters for the
+13–16 % of the distributed tier that is exposed and for the operand redistributions.
+Confidence: high on the mechanism, unverifiable until the target.
+
+### 6.6 Investigate CPX mode for the batch tier
+MI300A runs SPX (all six XCDs as one partition) by default; CPX exposes each XCD
+separately. The batch tier's products are independent and subtree-owned, so CPX might
+improve cache locality and scheduling; the distributed tier, which wants one large
+partition per APU, would not. Since the mode is set at boot on this machine it is a
+question for the target's administrators, not a code change.
+**Effort: one measurement if a CPX-mode node can be obtained.** Confidence: low —
+speculative, but cheap to test and it costs nothing to ask.
+
+### 6.7 MALL (Infinity Cache) awareness in the transform tiles
+MI300A has a 256 MB memory-attached last-level cache. The transform's tile sizes were
+tuned against LDS and HBM, not against the MALL. Sizing a pass's working set to stay
+resident in 256 MB (per APU: the plane is far larger, but a *tile column* need not be)
+could lift the 1.0–1.4 TB/s the kernels achieve against a 3.0 TB/s copy ceiling.
+**Effort 1–2 d of experiment; expect 0–10 %.** Confidence: low-medium.
+
+### 6.8 Truncated Fourier transform (recorded, not recommended yet)
+The TFT computes exactly the $n$ coefficients needed instead of rounding to the next
+admissible length, removing the padding waste entirely. It subsumes 6.2 but is a
+substantial rewrite of the transform and interacts awkwardly with the four-step
+factorization and the distributed exchange. Recorded for completeness; 6.2 captures most
+of the benefit for a fraction of the work.
+
+### Suggested priority among these
+**6.1** (largest, and it improves time *and* memory *and* the machine ceiling),
+then **6.4** (largest single-node wall item after the seeds work already in §2),
+then **6.3**, then **6.5** before any target campaign, then **6.2**; treat 6.6–6.8 as
+experiments.
+
 ---
 
 ## Suggested order
@@ -96,5 +204,9 @@ reciprocal, `batch_local` vs striped-pair. Reasoning in `CODE_REDUCTION.md` §(d
 2. **2.1 + 2.2** — the largest single-node item left (≈ −4 s), and they unblock each other.
 3. **1.2, 1.3, 1.4, 2.4** — the remaining g-dependent memory terms, before any large run.
 4. **3.1–3.4** on the target, in that order; **1.5** opportunistically before then.
-5. **4.3, 4.4** — document hygiene, one allocation.
-6. **PLAN §28** — the code reduction, last.
+5. **6.1** — three primes: the largest remaining opportunity in the project, and it
+   moves time, memory and the machine ceiling together.
+6. **6.4, 6.3** — the seeds on the GPU, then the middle product in the reciprocal.
+7. **6.5** before any target campaign; **6.2** when convenient.
+8. **4.3, 4.4** — document hygiene, one allocation.
+9. **PLAN §28** — the code reduction, last.
