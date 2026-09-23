@@ -57,6 +57,11 @@ size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);
+/* Phase 13b P (PLAN 31 step 0.3, the K axis): the node's bytes at plane cap `cap` (0 2^30, 1 3 2^29, 2 2^31, 3 3 2^30) and np primes
+ * for N terms over g node-processes (the caller sets rank 0's range): plane pools + tables, the arena, the host init constants;
+ * before rns_init only (it switches rns_pool_log per cap) */
+size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
+extern const char *const bs_cap_name[4];
 void binsplit_seeds_begin(unsigned long N);
 size_t binsplit_seed_stage_bytes(unsigned long N);       /* the pinned staging the seeds need per APU */
 extern int bs_region_slack;              /* Phase 8 I2: the seeds in a background thread during init (needs the pinned staging) */                  /* WP3: allocate the region pools at init (outside the timed phase) */
