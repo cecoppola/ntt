@@ -181,7 +181,7 @@ srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=bl
 The argument is the **total** digit count, not the per-node share (the pre-13c text had 61000000000, the per-node
 share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.4 × 10¹³ is the Phase 13c target (§5 step 6).
 The defaults since Phase 13c are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
-`COMM_ALLTOALLV_DEPTH=2` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
+`COMM_ALLTOALLV_DEPTH=2`, with K's kernels `NTT_B1R=3 NTT_PLAN=1` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
 
 `COMM_RANK`/`COMM_SIZE` are what `mn_init` reads for the rank and the size (under SHMEM the PE number is checked
 against them); `--mpi=pmix` where the SHMEM library is launched by PMIx (OSHMEM; Cray SHMEM uses the ALPS/PMI of
@@ -209,7 +209,7 @@ tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which 
 | 3 | 64 | 6.4 × 10¹¹ | 10¹⁰ | ≈ 1.3 min (modelled); `cmp` against a single-node 10¹⁰ run | the tree at 6 levels, the checkpoints' cost (`BS_CKPT_DIR` on), the recheck |
 | 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 1 min; VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
 | 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 1.8 min** modelled (just below the 2.24 × 10¹³ grid step) | the first large run, 150 GB of margin. The recheck after it |
-| 6 **the target** | 576 | **4.4 × 10¹³** | **7.64 × 10¹⁰** | **≈ 4.0 min** modelled (3.9 min with `NTT_B1R=3 NTT_PLAN=1`), 457–463 GB (inside the 480 GB budget) | the headline run (Phase 13c): just below the grid step at 4.435 × 10¹³ (214 → 248 pieces, +30 s; RESULTS §80) |
+| 6 **the target** | 576 | **4.4 × 10¹³** | **7.64 × 10¹⁰** | **≈ 3.9 min** modelled (design table, K's kernels measured in; `estimate.py`, which has no kernel term, says 4.0), 457–463 GB (inside the 480 GB budget) | the headline run (Phase 13c): just below the grid step at 4.435 × 10¹³ (214 → 248 pieces, +30 s; RESULTS §80) |
 | 7 the 480 GB ceiling | 576 | 4.66 × 10¹³ | 8.09 × 10¹⁰ | 4.5 min modelled, 480 GB | **not recommended**: past the grid step, 13 % more time for 6 % more digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
 
 Between 6 and 7, `estimate.py --g 576 --D <D>` gives the peak per D in 10⁹ steps; take the largest whose modelled
