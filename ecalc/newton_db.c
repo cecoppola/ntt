@@ -684,6 +684,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 }
 /* X = floor((P + Q) B^dl / Q) over G (P, Q consumed); pres/qres/rres: residues mod qs[nres] of P, Q and R = A - X Q;
  * t_recip: the reciprocal's seconds.  Mirrors newton_db_divmod_shifted with S = P + Q. */
+void (*newton_mn_pq_hook)(int stage, mdb *x) = 0;   /* Phase 13 N (mn.c): 0 = before S = P + Q overwrites P, 1 = before Q is freed */
 void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
 {
     double t0 = mem_now(); int me = G->me;
@@ -699,6 +700,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* S = P + Q in P's basis (P.N = na + nb + 1 > P.n, so the sum fits) */
     mdb Qp, S; memset(&Qp, 0, sizeof Qp); memset(&S, 0, sizeof S);
     mdb_shift(&Qp, Q, 0, P->N, G);
+    if (newton_mn_pq_hook) newton_mn_pq_hook(0, P);   /* Phase 13 N (1.4): P is overwritten next -- the background top set's writer lets go of it */
     mdb_addsub(P, P, &Qp, 0, G); mfree(&Qp); S = *P; memset(P, 0, sizeof *P);
     size_t na = S.n + dl, k = na - nq + 1, w = nq + 2;
     if (!nq || na < nq) { fprintf(stderr, "newton_mn_divmod: A < Q not supported\n"); exit(1); }
@@ -721,7 +723,9 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
     rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: Q's kept transforms served the low product; the planes go */
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
-    mdb_shift(&Qw, Q, 0, w, G); mfree(Q);
+    mdb_shift(&Qw, Q, 0, w, G);
+    if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);   /* Phase 13 N (4.1): the hook may take Q's share (Q->sh zeroed) and free it after the output stage */
+    mfree(Q);
     double td = mem_now();
     size_t nc = 0; long dx = 0;
     if (mdb_cmp(&Aw, &xql, G) >= 0) {                                 /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */

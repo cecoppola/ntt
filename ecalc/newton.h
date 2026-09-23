@@ -48,6 +48,7 @@ extern struct dbig_s *newton_db_x_dev;               /* Phase 10 H (B1): when se
 /* Phase 9 M4 (A-div): the reciprocal and division over sharded numbers (mdb over the top-level group G): X = floor((P + Q) B^dl / Q)
  * stays sharded; P, Q are consumed; the residues of P, Q and R mod qs[nres] come back; t_recip = the reciprocal's seconds */
 struct mdb_s; struct mn_group;
+extern void (*newton_mn_pq_hook)(int stage, struct mdb_s *x);   /* Phase 13 N: called before S = P + Q overwrites P (0) and before Q is freed (1; may take Q->sh) */
 void newton_mn_divmod(struct mdb_s *X, struct mdb_s *P, struct mdb_s *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);

@@ -175,7 +175,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_DM_POOL_K` | the arena sized for the dm phase at init as k × the digit limbs per device, `binsplit_pregrow` (0 = off) |
 | `ECALC_POOL_GROW_GB` | GB of plane pool grown per device in the background thread during bs; off: hipMalloc there stalls the GPU levels (0) |
 | `ECALC_STOP_AFTER_BS` | exit after bs with its line (unset) |
-| `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default**; `=1` writes it at any size). Hidden under the reciprocal and the division only where the disk writes at ≳ 1 GB/s: at 0.31 GB/s (aac6's slower path) the 35.6 GB set costs 113 s that the division waits for |
+| `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default**; `=1` writes it at any size). Hidden under the reciprocal and the division only where the disk writes at ≳ 1 GB/s: at 0.31 GB/s (aac6's slower path) the 35.6 GB set costs 113 s that the division waits for; Phase 13 N: the writer is background at every size, P is released before S = P + Q, Q only after the output stage when still needed; `=2` = budgeted: a set the measured disk rate cannot finish within `ECALC_CKPT_TOP_SLACK` of a release is dropped, never waited for (results/N13.md) |
+| `ECALC_CKPT_TOP_SLACK` | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) |
 | `ECALC_RECHECK` | 1: the standalone recheck of a finished run's files instead of a run (0) |
 | `ECALC_WINDOWS` | a file of extra T2 windows (`<offset> <digits>` per line) added to the built-in table (unset) |
 | `ECALC_RES_LOG` | *debug*: every residue the checks use printed and cross-checked — the kernel against a host Horner, the recurrence against the main thread, each node's leaf against the recurrence (0) |
@@ -245,7 +246,9 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `BS_CKPT_MIN_LEVEL` | leaf sets from this level on, or once a level's pool exceeds 64 GiB (16) |
 | `BS_CKPT_TREE` | tree sets at size > 1 with `BS_CKPT_DIR`; 0 = none (1) |
 | `BS_CKPT_TREE_EVERY` | a tree set every this many tree levels, the top always (1; 64 when `ECALC_CKPT_TOP` supplies the directory) |
-| `BS_RESTART` | resume from the latest complete set in `BS_CKPT_DIR` (0) |
+| `BS_RESTART` | resume from the latest complete set in `BS_CKPT_DIR` (0). Phase 13 N: tree sets record the schedule (node count, `MN_GROUPS`); a restart under another schedule, or from sets of another run, is refused on every node together (exit 5 / 4) |
+| `BS_CKPT_TREE_BG` | size > 1: the top tree set written in the background while the division runs (1); 0 = synchronous, as before Phase 13 |
+| `BS_CKPT_BG_CHUNK_MB`, `BS_CKPT_BG_MBS` | the background writer's DMA chunk (256; bounds the time to stop); *test*: emulate a disk of this many MB/s (unset) |
 | `BS_CKPT_ABORT`, `BS_CKPT_ABORT_TREE`, `BS_CKPT_ABORT_NODE` | *test*: exit(3) right after the leaf set of that level / the tree set of that level, on every node or the one named (unset) |
 
 **The division (`NEWTON_`)**
