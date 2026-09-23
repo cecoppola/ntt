@@ -519,6 +519,8 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
         out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]
     return out
 
+EDGE_INIT = 10.0                       # FITTED (agent P's five edge runs, 465-509 GB of device at init: init 34.4-47.1 s against 28-31 by the mapping
+                                       # rate, +10 s mean, +-7 s): init near the node's edge is slower than the mapping rate says; ramped in from 440 to 465 GB
 EXTRA_MAP = {'B': 11.47 / 154.6, 'B4': 4.50 / 90.2}   # s/GB: the B forms' extra planes mapped inside bs (agent B, jobs 21054)
 AUTO_FORM = 'B'                        # rns_dist.c: RNS_STRATEGY_FORM, default B (agent B: B4 is 3-7 % slower than B and fits the same planes)
 AUTO_GRID = True                       # RNS_STRATEGY_GRID=1 (the default under auto): the grid weighs B pieces x 0.70, C x 1, 3 2^k x 1.05
@@ -629,6 +631,15 @@ RUNS = [
     dict(D=1e9, np=3, mm=1, cap=3 << 29, total=11.63, init=8.0, bs=0.89, top=0.0, recip=2.06, dm=2.35, dev=83.3, hwm=15.8, use='check', src='P13b b1 e9_3229 (job 21046)'),
     dict(D=1e9, np=3, mm=1, cap=1 << 31, total=13.56, init=10.0, bs=0.89, top=0.0, recip=2.03, dm=2.30, dev=109.1, hwm=15.9, use='check', src='P13b b1 e9_231 (job 21046)'),
     dict(D=1e9, np=3, mm=1, cap=3 << 30, total=16.78, init=13.0, bs=0.85, top=0.0, recip=2.10, dm=2.50, dev=160.6, hwm=16.2, use='check', src='P13b b1 e9_3230 (job 21046)'),
+    dict(D=4e10, np=3, mm=1, cap=R31, total=70.73, init=18.2, bs=28.1, top=None, recip=None, dm=24.3, dev=236.0, hwm=12.1, use='check', src='P13b 2^31 (s24-30)'),
+    dict(D=4e10, np=3, mm=1, cap=R31, total=67.89, init=17.3, bs=None, top=None, recip=None, dm=None, dev=236.0, hwm=12.2, use='check', src='P13b 2^31 (s24-16; phases 50.6)'),
+    dict(D=4e10, np=3, mm=1, cap=R3_30, total=65.09, init=18.7, bs=25.1, top=None, recip=None, dm=21.2, dev=287.5, hwm=12.1, use='check', src='P13b b2 3*2^30 (job 21051, s24-16)'),
+    # agent P's one-node ceilings at three primes (results/P13b.md; NTT_MODMUL=1): beyond the phase table (extrapolated walls), the device exact
+    dict(D=1e11, np=3, mm=1, cap=R3_30, total=206.9, init=45.5, bs=76.3, top=None, recip=None, dm=85.0, dev=465.5, hwm=14.1, use='edge', src='P13b 3*2^30 1e11 (job 21051, s24-16)'),
+    dict(D=1.14e11, np=3, mm=1, cap=R3_30, total=228.7, init=34.5, bs=104.2, top=None, recip=None, dm=89.9, dev=509.0, hwm=14.8, use='edge', src='P13b 3*2^30 edge (job 21059, s24-30; 1.16e11 OOM-killed at 528.7)'),
+    dict(D=1.30e11, np=3, mm=1, cap=R31, total=353.1, init=38.6, bs=148.6, top=None, recip=None, dm=165.8, dev=507.1, hwm=15.7, use='edge', src='P13b 2^31 edge (job 21069, s24-30; 1.34e11 allocation refused)'),
+    dict(D=1.42e11, np=3, mm=1, cap=1 << 30, total=677.2, init=34.4, bs=242.4, top=None, recip=None, dm=400.2, dev=501.4, hwm=16.4, use='edge', src='P13b 2^30 (job 21056, s24-30)'),
+    dict(D=1.44e11, np=3, mm=1, cap=1 << 30, total=1085.8, init=47.1, bs=376.3, top=None, recip=None, dm=662.2, dev=507.6, hwm=16.5, use='edge', src='P13b 2^30 edge (job 21072, s24-26; 1.46e11 OOM-killed at 529.6)'),
     dict(D=8e10, np=4, cap=R31, total=191.99, init=20.9, bs=86.34, top=36.1, recip=38.61, dm=84.67, dev=369.1, hwm=13.0, use='table', src='i12 e8 (Phase 12 I, s24-26)'),
     dict(D=8e10, np=4, cap=R31, total=189.33, init=23.1, bs=83.57, top=35.6, recip=37.56, dm=82.53, dev=369.1, hwm=13.0, use='table', src='i12 e8b (Phase 12 I, s24-26)'),
     dict(D=8e10, np=4, cap=R31, total=195.5, init=None, bs=None, top=None, recip=None, dm=None, dev=369.1, hwm=12.8, use='check', src='M11 v3 (Phase 11 code, s24-16)'),
@@ -716,7 +727,7 @@ def node_phases(D, dz, g=1, exclude=None):
     o = dz.mem_opts(digits); oc = dict(o, strategy='C')
     dev = mem_model.mem_per_node(int(D), g, oc)['dev_init'] / 1e9          # the pools and the arena, mapped at init
     extra = mem_model.mem_per_node(int(D), g, o)['dev_init'] / 1e9 - dev   # B / B4 forced: the grow-only buffer, mapped inside bs
-    out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31))
+    out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31)) + EDGE_INIT * min(1.0, max(0.0, (dev - 440.0) / 25.0))
     out['top'] += EXTRA_MAP.get(dz.strategy, MAP_RATE) * extra        # MEASURED per form (agent B, 4e10: 11.47 s for 154.6 GB, 4.50 s for 90.2 GB)
     out['label'] = 'modelled (%s products)' % bp['label']
     return out
