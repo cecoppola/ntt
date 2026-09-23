@@ -366,7 +366,7 @@ HIDE_POW2 = 0.75                       # MEASURED (results/X13.md 3.2): the equa
 GEN_HIDE_DEPTH = {1: 0.011, 2: 0.75}   # general map: MEASURED 1.1 % one deep (X13); two deep MODELLED = the equal path's 3/4
 F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
 MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
-T_ROUND = 0.025                        # FITTED on aac6 loopback (M13: 1e10/4, MDB_SHIFT_CHUNK_MB + MN_T_CHUNK_MB at 64 MB, +12.9 s):
+T_ROUND = 0.030                        # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
                                        # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
 CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
 STRATEGIES = ('C', 'B', 'B4', 'auto')
@@ -406,7 +406,7 @@ DZ = None                              # the design of the run in progress (run(
 def round_cost(fab, g):
     """one extra exchange round (a chunked mdb_shift / window / mdb_add_shifted): a small all-to-all's latency over g
     nodes + a collective + the round's fixed cost"""
-    return fab.a2a(1.0, g, 1)[0] + fab.coll(g) + T_ROUND * (fab.gpu_share if not fab.target else 1)
+    return fab.a2a(1.0, g, 1)[0] + fab.coll(g) + T_ROUND
 
 # ---- the per-product law: S13's E0 medians (t_strategy), P = 4 and 3 ---------------------------------------------------
 E0_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'results', 'S13_e0.txt')
@@ -588,8 +588,9 @@ def phase_table(exclude=None):
         isum = sum(r['init'] * r.get('n', 1) for r in rs if r['init'] is not None); ni = sum(r.get('n', 1) for r in rs if r['init'] is not None)
         e['wall'] = wsum / n; e['init'] = isum / ni
         e['other'] = max(0.0, e['wall'] - e['init'] - e['batch'] - e['top'] - e['recip'] - e['div'])
-        for ph in ('top', 'recip', 'div'):
-            e[ph + '_rest'] = max(0.0, e[ph] - bp[ph])
+        for ph in ('top', 'recip', 'div'):                            # may be negative (at 1e10 the tree's top levels run inside the
+            e[ph + '_rest'] = e[ph] - bp[ph]                          # batch tier): the table point is then reproduced exactly, and a
+                                                                      # design differs from it by its big products' difference
         e['init_ref'] = e['init'] - MAP_RATE * (_dev_init_ref(D, 4, cap) - _dev_init_ref(D, 4, R31))
         e['cap'] = cap
         out[D] = e
@@ -632,7 +633,7 @@ def node_phases(D, dz, g=1, exclude=None):
     bp = big_products(D, dz.strategy, cap, dz.np)
     out = dict(batch=_interp(tab, 'batch', D) * f['batch'] * fm, other=_interp(tab, 'other', D))
     for ph in ('top', 'recip', 'div'):
-        out[ph] = (_interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
+        out[ph] = max(0.0, _interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
     dev = mem_model.mem_per_node(int(D), g, dz.mem_opts(digits))['dev_init'] / 1e9
     out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31))
     out['label'] = 'modelled (%s products)' % bp['label']
