@@ -306,6 +306,7 @@ int main(int argc, char **argv)
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
+    if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { mem_report("init"); printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* Phase 13b P: the ceiling probe (the allocation edge in seconds) */
     double t_init = mem_now() - t00;
     if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
