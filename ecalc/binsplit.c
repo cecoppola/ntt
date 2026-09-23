@@ -13,6 +13,7 @@
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
+int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (Phase 13b P: the layout report) */
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
@@ -341,10 +342,46 @@ size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; d
  * per node over g node-processes (rank 0's term range, this process's POOL_LOG and switches), without allocating it, and
  * exit.  One `layout:` line per point (bytes, per device unless named): mem_model.py --check-c compares its own port of these
  * formulas with the lines, term by term.  Needs no other process: COMM_SIZE is not read, g comes from the list. */
+/* Phase 13b P: the arena binsplit_pregrow requests per node (bytes) for N terms of a run over g node-processes (rank 0's range
+ * set by the caller), at the current rns_pool_log(); *bs2 = its bs-region part */
+static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
+{
+    size_t need[NR]; region_need(N, need);
+    struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
+    size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0;
+    for (int r = 0; r < NR; r++) {
+        size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+        cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
+        size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
+        arena += base + extra; bs2 += base;
+    }
+    if (bs2_) *bs2_ = bs2;
+    return arena;
+}
+/* Phase 13b P (PLAN 31 step 0.3, the K axis): the plane caps, their settings and the node's device and host bytes at a cap.
+ * cap c: 0 = 2^30 (POOL_LOG 30), 1 = 3 2^29 (POOL_LOG 30 + the 3 2^k planes), 2 = 2^31 (POOL_LOG 31), 3 = 3 2^30 (POOL_LOG 31 +
+ * the 3 2^k planes).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
+ * (0.61 GB measured at 2^31, taken for every cap); host = the init peak's constants (runtime 7.0 GB, the checkpoint staging
+ * 4 GiB, the seed buffers 4 GiB: mem_model.py HOST_*), + 6 GB per process of the comm at size > 1.  Only before rns_init (the
+ * pool_log is switched per cap); after it, the caller's own cap only. */
+const char *const bs_cap_name[4] = { "2^30", "3*2^29", "2^31", "3*2^30" };
+#define BS_TABLES_BYTES ((size_t)610000000)
+#define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
+size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes_, size_t *arena_, size_t *host_)
+{
+    int pl0 = rns_pool_log(), pl = cap >= 2 ? 31 : 30, b3 = cap & 1;
+    rns_preinit_pool_log(pl);
+    size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, b3, np, 0, 0) + BS_TABLES_BYTES;
+    rns_preinit_pool_log(pl0);
+    size_t host = BS_HOST_INIT_BYTES + (g > 1 ? (size_t)6000000000 : 0);
+    if (planes_) *planes_ = planes; if (arena_) *arena_ = arena; if (host_) *host_ = host;
+    return planes + arena + host;
+}
 static void binsplit_layout_only(const char *spec)
 {
     unsigned long a0 = bs_a0, b1 = bs_b1;
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
+    int np = ec_np_init();
     for (const char *s = spec; s && *s; ) {
         char *e; double D = strtod(s, &e); int g = 1; if (*e == ':') g = (int)strtol(e + 1, &e, 10); if (g < 1) g = 1;
         s = *e ? e + 1 : e;
@@ -362,6 +399,17 @@ static void binsplit_layout_only(const char *spec)
         }
         printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes)\n",
                D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena);
+        /* Phase 13b P: the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
+         * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
+        { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);
+          if (getenv("ECALC_PLANE_CAP_IDX")) cur = atoi(getenv("ECALC_PLANE_CAP_IDX"));
+          printf("planes: D %.4g g %d np %d |", D, g, np);
+          for (int c = 0; c < 4; c++) {
+              if (rns_ndev() && c != cur) continue;                      /* after rns_init: the run's own cap only */
+              size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, c, np, &pb, &ab, &hb);
+              printf(" cap %s%s: planes %.2f arena %.2f device %.2f node %.2f |", bs_cap_name[c], c == cur ? "*" : "", pb * 1e-9, ab * 1e-9, (pb + ab) * 1e-9, tot * 1e-9);
+          }
+          printf(" (GB; device = plane pools + arena + 0.61 tables, node = + host init %.1f)\n", (BS_HOST_INIT_BYTES + (g > 1 ? 6e9 : 0)) * 1e-9); }
     }
     fflush(stdout);
     bs_a0 = a0; bs_b1 = b1;
