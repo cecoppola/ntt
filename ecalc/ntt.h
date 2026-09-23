@@ -44,6 +44,7 @@ extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last
  *   ntt_mall    NTT_MALL    H2: log2 of a chunk (points) that the passes of narrower span run on to completion
  *               before the next chunk (MALL residency); 0 = off (default).  Bit-identical. */
 extern int ntt_modmul, ntt_mall;
+extern int ntt_b16_var;     /* NTT_B16_VAR  H6: register-blocked body variants, 1 = unpadded LDS + global twiddle table (4 blocks/CU), 2 = block order, 3 = both; 0 default */
 int ntt_modmul_get(void);
 int ntt_mall_get(void);
 /* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
