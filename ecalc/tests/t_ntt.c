@@ -38,8 +38,245 @@ static size_t count_diff(const uint64_t *a, const uint64_t *b, size_t n, size_t 
     return bad;
 }
 
+/* ---- Phase 13a K: device-side compare and the benchmarks for H2 (MALL), H3 (modmul), H7 (non-temporal stores) */
+__global__ void k_cmp(const uint64_t *a, const uint64_t *b, size_t n, unsigned long long *bad)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
+    unsigned long long nb = 0;
+    for (; i < n; i += st) nb += a[i] != b[i];
+    if (nb) atomicAdd(bad, nb);
+}
+static size_t dev_diff(const uint64_t *a, const uint64_t *b, size_t n)
+{
+    unsigned long long *d, h = 0;
+    HIP_CHECK(hipMalloc(&d, 8)); HIP_CHECK(hipMemset(d, 0, 8));
+    k_cmp<<<228 * 8, 256>>>(a, b, n, d);
+    HIP_CHECK(hipMemcpy(&h, d, 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(d));
+    return (size_t)h;
+}
+__global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += st) {
+        uint64_t s = (i + 1) * 0x9E3779B97F4A7C15ULL ^ seed;
+        s ^= s >> 31; s *= 0xBF58476D1CE4E5B9ULL; s ^= s >> 29; s *= 0x94D049BB133111EBULL; s ^= s >> 32;
+        x[i] = s % p;
+    }
+}
+static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<<<228 * 8, 256>>>(x, n, p, seed); HIP_CHECK(hipDeviceSynchronize()); }
+
+/* one configuration of the switches */
+struct kcfg { int mm, mall; const char *name; };
+static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_mall = k->mall; }
+
+/* the H3 / H2 identity check: every operation under configuration k against the default (MM 0, MALL off), on the
+ * device.  ops: fwd, inv (input canonical random: no round-trip identity to hide behind), fused inverse with the
+ * pointwise product in the three layouts, and the radix-3 pair. */
+static void ident_check(const struct kcfg *k, int pr, int logn, size_t batch, ntt_ctx *c, uint64_t *dx, uint64_t *dr, uint64_t *dy, int with_y)
+{
+    struct kcfg ref = {0, 0, "ref"};
+    size_t n = batch << logn;
+    uint64_t p = ec_P[pr];
+    for (int op = 0; op < (with_y ? 6 : 2); op++) {
+        if (op == 5 && !ec_has_radix3()) continue;
+        size_t nn = op == 5 ? 3 * n : n;
+        for (int pass = 0; pass < 2; pass++) {
+            kcfg_set(pass ? k : &ref);
+            uint64_t *out = pass ? dx : dr;
+            dev_fill(out, nn, p, 0x1234 + logn * 77 + op);
+            if (op >= 2) dev_fill(dy, nn, p, 0x5678 + logn);
+            switch (op) {
+            case 0: ntt_fwd(c, out, logn, batch, 0); break;
+            case 1: ntt_inv(c, out, logn, batch, 0); break;
+            case 2: case 3: case 4: { int save = ntt_pw_fuse; ntt_pw_fuse = 10; ntt_inv_pw_y(c, out, dy, op - 2, logn, batch, 0); ntt_pw_fuse = save; break; }
+            case 5: ntt_fwd3(c, out, logn, batch, 0); ntt_inv3_pw_y(c, out, dy, NTT_Y_FULL, logn, batch, 0); break;
+            }
+            HIP_CHECK(hipDeviceSynchronize());
+        }
+        size_t bad = dev_diff(dx, dr, nn);
+        static const char *opn[] = {"fwd", "inv", "inv_pw full", "inv_pw bcast", "inv_pw pair", "fwd3+inv3_pw"};
+        VERIFY(bad == 0, "%s P%d 2^%d x %zu %s: %zu mismatches vs default", k->name, pr, logn, batch, opn[op], bad);
+    }
+    kcfg_set(&ref);
+}
+
+/* timing: median of 5 trials of `reps` calls, ms per call */
+#define TIME_MS(out, reps, stmt) do {                                                                  \
+        hipEvent_t e0_, e1_; HIP_CHECK(hipEventCreate(&e0_)); HIP_CHECK(hipEventCreate(&e1_));          \
+        { stmt; } HIP_CHECK(hipDeviceSynchronize());                                                   \
+        float tr_[5];                                                                                  \
+        for (int t_ = 0; t_ < 5; t_++) {                                                               \
+            HIP_CHECK(hipEventRecord(e0_, 0));                                                         \
+            for (int r_ = 0; r_ < (reps); r_++) { stmt; }                                              \
+            HIP_CHECK(hipEventRecord(e1_, 0)); HIP_CHECK(hipEventSynchronize(e1_));                    \
+            HIP_CHECK(hipEventElapsedTime(&tr_[t_], e0_, e1_)); tr_[t_] /= (reps);                     \
+        }                                                                                              \
+        for (int a_ = 0; a_ < 5; a_++) for (int b_ = a_ + 1; b_ < 5; b_++) if (tr_[b_] < tr_[a_]) { float z_ = tr_[a_]; tr_[a_] = tr_[b_]; tr_[b_] = z_; } \
+        out = tr_[2];                                                                                  \
+        HIP_CHECK(hipEventDestroy(e0_)); HIP_CHECK(hipEventDestroy(e1_));                              \
+    } while (0)
+
+/* H7: the slab pack / unpack of ntt_dist.c (k_pack, k_unpack: the same index maps), with plain and with
+ * non-temporal stores */
+template <int NT>
+__global__ void kb_pack(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols, int size)
+{
+    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t i = t / C, j = t % C, s = j / cols, jl = j % cols;
+        if (NT) __builtin_nontemporal_store(x[t], &sb[s * (cols * rows) + jl * rows + i]);
+        else sb[s * (cols * rows) + jl * rows + i] = x[t];
+    }
+}
+template <int NT>
+__global__ void kb_unpack(const uint64_t *rb, uint64_t *x, size_t rows_k, size_t i0, size_t rows, size_t cols, int size)
+{
+    size_t R = rows * size, total = cols * rows_k * size, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t jl = t / (rows_k * size), i = t % (rows_k * size), r = i / rows_k, il = i % rows_k;
+        if (NT) __builtin_nontemporal_store(rb[r * (cols * rows_k) + jl * rows_k + il], &x[jl * R + r * rows + i0 + il]);
+        else x[jl * R + r * rows + i0 + il] = rb[r * (cols * rows_k) + jl * rows_k + il];
+    }
+}
+__global__ void kb_read(const uint64_t *a, size_t n, uint64_t *sink)     /* a consumer that streams a buffer (the push's read) */
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
+    uint64_t acc = 0;
+    for (; i < n; i += st) acc ^= a[i];
+    if (acc == 0x5A5A5A5A5A5A5A5AULL) *sink = acc;
+}
+static unsigned nblk(size_t n) { size_t b = (n + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
+
+static int bench(int LOGMAX, const char *what)
+{
+    HIP_CHECK(hipSetDevice(0));
+    size_t nmax = (size_t)1 << LOGMAX;
+    uint64_t *dx, *dy;
+    HIP_CHECK(hipMalloc(&dx, nmax * 8)); HIP_CHECK(hipMalloc(&dy, nmax * 8));
+    ntt_ctx *c = ntt_ctx_create(0);
+    dev_fill(dx, nmax, ec_P[0], 1); dev_fill(dy, nmax, ec_P[0], 2);
+    struct kcfg ref = {0, 0, "ref"};
+    printf("== t_ntt bench %s: LOGMAX %d, APU0, P0, NTT_B16_STG %d, body %d; median of 5 ==\n", what, LOGMAX, ntt_stg, ntt_b16_body);
+
+    if (strstr(what, "h2")) {
+        /* H2 part 1: per-pass rate against the working set.  logL = transform length, tot = points in the batch.
+         * ns/pt = ms per pass per point; GB/s = 16 B x tot (read + write) per pass */
+        printf("-- H2 per-pass sweep: logL tot pass [s_lo..s_hi] ms ns/pt GB/s (fwd | inv)\n");
+        static const int Ls[] = {14, 17, 20, 24, 0};
+        for (int li = 0; li < 5; li++) for (int lt = 18; lt <= LOGMAX; lt++) {
+            int logL = Ls[li] ? Ls[li] : lt;
+            if (logL > lt) continue;
+            size_t tot = (size_t)1 << lt, B = tot >> logL;
+            int np = ntt_npass(logL), reps = lt >= 26 ? 1 : 1 << (26 - lt);
+            double sf = 0, si = 0;
+            for (int ps = 0; ps < np; ps++) {
+                int lo, hi; ntt_pass_bounds(logL, ps, &lo, &hi);
+                float mf, mi;
+                TIME_MS(mf, reps, ntt_pass(c, dx, logL, B, 0, ps, 0));
+                TIME_MS(mi, reps, ntt_pass(c, dx, logL, B, 1, ps, 0));
+                sf += mf; si += mi;
+                printf("   H2 L%2d tot 2^%2d (%7.1f MB) pass %d [%2d..%2d] %8.3f ms %6.3f ns/pt %6.0f GB/s | %8.3f ms %6.0f GB/s\n", logL, lt, tot * 8 / 1048576.0, ps, lo, hi,
+                       mf, mf * 1e6 / tot, 16.0 * tot / (mf * 1e-3) / 1e9, mi, 16.0 * tot / (mi * 1e-3) / 1e9);
+            }
+            float tf, ti;
+            TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
+            TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
+            printf("   H2 L%2d tot 2^%2d whole: fwd %8.3f ms (sum of passes %8.3f) inv %8.3f ms (%8.3f); %d passes, fwd %.3f ns/pt/pass\n", logL, lt, tf, sf, ti, si, np, tf * 1e6 / tot / np);
+        }
+    }
+    if (strstr(what, "mall")) {
+        /* H2 part 2: the MALL-chunked schedule (NTT_MALL = lc) against the default */
+        printf("-- H2 NTT_MALL chunking: logL tot lc fwd ms inv ms (vs lc 0)\n");
+        static const int Ls[] = {14, 17, 20, 0};
+        static const int lcs[] = {0, 20, 21, 22, 23, 24, 25, 26};
+        for (int li = 0; li < 4; li++) for (int lt = 24; lt <= LOGMAX; lt += 2) {
+            int logL = Ls[li] ? Ls[li] : lt;
+            size_t tot = (size_t)1 << lt, B = tot >> logL;
+            float f0 = 0, i0 = 0;
+            for (int k = 0; k < 8; k++) {
+                if (lcs[k] >= lt) continue;
+                struct kcfg kc = {0, lcs[k], ""};
+                kcfg_set(&kc);
+                float tf, ti;
+                TIME_MS(tf, 1, ntt_fwd(c, dx, logL, B, 0));
+                TIME_MS(ti, 1, ntt_inv(c, dx, logL, B, 0));
+                if (!lcs[k]) { f0 = tf; i0 = ti; }
+                printf("   MALL L%2d tot 2^%2d lc %2d: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx)\n", logL, lt, lcs[k], tf, f0 / tf, ti, i0 / ti);
+            }
+            kcfg_set(&ref);
+        }
+    }
+    if (strstr(what, "h3")) {
+        /* H3: the modmul variants on the whole transform */
+        printf("-- H3 modmul: logL tot MM fwd ms inv ms (vs MM 0)\n");
+        static const int Ls[] = {14, 17, 20, 0};
+        for (int li = 0; li < 4; li++) for (int lt = 20; lt <= LOGMAX; lt++) {
+            int logL = Ls[li] ? Ls[li] : lt;
+            if (Ls[li] && lt != 28 && lt != LOGMAX) continue;
+            size_t tot = (size_t)1 << lt, B = tot >> logL;
+            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
+            float f0 = 0, i0 = 0;
+            for (int mm = 0; mm < 3; mm++) {
+                struct kcfg kc = {mm, 0, ""};
+                kcfg_set(&kc);
+                float tf, ti;
+                TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
+                TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
+                if (!mm) { f0 = tf; i0 = ti; }
+                printf("   MM L%2d tot 2^%2d mm %d: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx)\n", logL, lt, mm, tf, f0 / tf, ti, i0 / ti);
+            }
+            kcfg_set(&ref);
+        }
+    }
+    if (strstr(what, "h7")) {
+        /* H7: pack / unpack with plain and non-temporal stores: the kernel alone, then its effect on what follows
+         * (a) the consumer of its output (a streaming read of the slabs, standing in for the push), (b) a transform
+         * on a MALL-sized plane that was warm before the pack (the pollution effect) */
+        printf("-- H7 non-temporal stores in pack / unpack (size 4 ranks; rows x C points)\n");
+        uint64_t *sink; HIP_CHECK(hipMalloc(&sink, 8));
+        for (int lt = 22; lt <= LOGMAX - 1 && lt <= 30; lt += 2) {
+            size_t tot = (size_t)1 << lt, C = (size_t)1 << (lt / 2), rows = tot / C, cols = C / 4;
+            uint64_t *A = dy + tot;                      /* a 2^22-point (32 MB) plane that should stay MALL-resident */
+            if (tot + ((size_t)1 << 22) > nmax) break;
+            for (int nt = 0; nt < 2; nt++) {
+                float tp, tu, tr, ta, tpa, tua;
+                if (nt) {
+                    TIME_MS(tp, 3, (kb_pack<1><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4)));
+                    TIME_MS(tu, 3, (kb_unpack<1><<<nblk(tot), 256>>>(dy, dx, rows, 0, rows, cols, 4)));
+                    TIME_MS(tr, 1, (kb_pack<1><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4), kb_read<<<228 * 8, 256>>>(dy, tot, sink)));
+                    TIME_MS(tpa, 1, (ntt_fwd(c, A, 22, 1, 0), kb_pack<1><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4), ntt_fwd(c, A, 22, 1, 0)));
+                    TIME_MS(tua, 1, (ntt_fwd(c, A, 22, 1, 0), kb_unpack<1><<<nblk(tot), 256>>>(dy, dx, rows, 0, rows, cols, 4), ntt_fwd(c, A, 22, 1, 0)));
+                } else {
+                    TIME_MS(tp, 3, (kb_pack<0><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4)));
+                    TIME_MS(tu, 3, (kb_unpack<0><<<nblk(tot), 256>>>(dy, dx, rows, 0, rows, cols, 4)));
+                    TIME_MS(tr, 1, (kb_pack<0><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4), kb_read<<<228 * 8, 256>>>(dy, tot, sink)));
+                    TIME_MS(tpa, 1, (ntt_fwd(c, A, 22, 1, 0), kb_pack<0><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4), ntt_fwd(c, A, 22, 1, 0)));
+                    TIME_MS(tua, 1, (ntt_fwd(c, A, 22, 1, 0), kb_unpack<0><<<nblk(tot), 256>>>(dy, dx, rows, 0, rows, cols, 4), ntt_fwd(c, A, 22, 1, 0)));
+                }
+                TIME_MS(ta, 3, ntt_fwd(c, A, 22, 1, 0));
+                printf("   H7 tot 2^%2d (%6.0f MB) %s: pack %8.3f ms (%5.0f GB/s)  unpack %8.3f ms  pack+read %8.3f ms  "
+                       "fwd(32MB)+pack+fwd %8.3f  fwd+unpack+fwd %8.3f  (fwd alone %.3f)\n", lt, tot * 8 / 1048576.0, nt ? "NT   " : "plain",
+                       tp, 16.0 * tot / (tp * 1e-3) / 1e9, tu, tr, tpa, tua, ta);
+            }
+        }
+        /* correctness of the NT variants: same output */
+        {
+            size_t tot = (size_t)1 << 24, C = 4096, rows = tot / C, cols = C / 4;
+            kb_pack<0><<<nblk(tot), 256>>>(dx, dy, rows, C, cols, 4);
+            kb_pack<1><<<nblk(tot), 256>>>(dx, dy + tot, rows, C, cols, 4);
+            HIP_CHECK(hipDeviceSynchronize());
+            VERIFY(dev_diff(dy, dy + tot, tot) == 0, "H7: NT pack output differs");
+        }
+        HIP_CHECK(hipFree(sink));
+    }
+    ntt_ctx_free(c);
+    HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
+    return verify_done("t_ntt bench");
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,mall,h3,h7");
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 31;
     int nd = 0, pr, logn;
     HIP_CHECK(hipGetDeviceCount(&nd));
@@ -281,6 +518,28 @@ int main(int argc, char **argv)
             }
         }
         ntt_pw_fuse = save;
+    }
+
+    /* 4c. Phase 13a K: the switches (NTT_MODMUL 1, 2 = H3; NTT_MALL = H2, alone and combined) give outputs
+     * bit-identical to the default for fwd, inv, the fused pointwise inverse in all three layouts and the
+     * radix-3 pair, at every length 2^10 .. 2^LOGMAX and at batches (incl. a non-power-of-two one) */
+    printf("-- 4c. NTT_MODMUL / NTT_MALL variants bit-identical to the default\n");
+    {
+        uint64_t *dr; HIP_CHECK(hipMalloc(&dr, nmax * 8));
+        static const struct kcfg ks[] = {{1, 0, "MM1"}, {2, 0, "MM2"}, {0, 16, "MALL16"}, {1, 20, "MM1+MALL20"}, {2, 24, "MM2+MALL24"}, {0, 22, "MALL22"}};
+        int save_body = ntt_b16_body; ntt_b16_body = 1; ntt_b16_xchg = 0;
+        for (size_t ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) {
+            for (logn = 10; logn <= LOGMAX; logn++) {
+                pr = (logn + (int)ki) % EC_NP;
+                ident_check(&ks[ki], pr, logn, 1, ctx[pr], dx, dr, dy, logn + 2 <= LOGMAX && logn <= 27);
+            }
+            static const int bl[][2] = {{11, 1000}, {14, 64}, {17, 16}, {20, 6}, {12, 3}};
+            for (int b = 0; b < 5; b++) if (((size_t)3 * bl[b][1] << bl[b][0]) <= nmax)
+                ident_check(&ks[ki], (b + (int)ki) % EC_NP, bl[b][0], bl[b][1], ctx[(b + (int)ki) % EC_NP], dx, dr, dy, 1);
+            printf("   %-11s ok to 2^%d\n", ks[ki].name, LOGMAX);
+        }
+        ntt_b16_body = save_body; ntt_modmul = 0; ntt_mall = 0;
+        HIP_CHECK(hipFree(dr));
     }
 
     /* 5. rates on every device */
