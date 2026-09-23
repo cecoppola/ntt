@@ -21,7 +21,7 @@ REF4=${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_4e10.out}
 NODE=$(squeue -j "$J" -h -o %N)
 OUT=results/n13/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
 TMP=/tmp/n13_$J
-echo "== n13_ckpt_test: job $J on $NODE, $(date -Is), $(git log --oneline -1 2>/dev/null) ==" | tee "$SUM"
+echo "== n13_ckpt_test ${ONLY:-all}: job $J on $NODE, $(date -Is), $(git log --oneline -1 2>/dev/null) ==" | tee -a "$SUM"
 NPASS=0; NFAIL=0
 pass() { NPASS=$((NPASS + 1)); echo "PASS $1: $2" | tee -a "$SUM"; }
 fail() { NFAIL=$((NFAIL + 1)); echo "FAIL $1: $2" | tee -a "$SUM"; }
