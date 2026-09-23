@@ -319,12 +319,17 @@ def write_md(res, args):
     return '\n'.join(L_)
 
 # ------------------------------------------------------------------------------------------------------------ calibration
-LOOPBACK = [   # the multi-process runs of the current code on one node (TCP loopback): (D total, g, wall, init, switches, source)
-    (1e10, 4, 113.85, 6.7, 'off', 'M13 b1 e10x4_base (job 21008)'),
-    (1e10, 4, 111.30, 6.5, 'off', 'M13 b2 e10x4_base (job 21015)'),
-    (1e10, 4, 118.05, 6.2, 'shift', 'M13 b1 e10x4_shift, 64 MB (T_ROUND fit)'),
-    (1e10, 4, 125.37, 6.5, 'both', 'M13 b1 e10x4_both, 64 MB (T_ROUND fit)'),
-    (1e10, 4, 125.55, 6.7, 'both', 'M13 b2 e10x4_both, 64 MB (T_ROUND fit)'),
+LOOPBACK = [   # the multi-process runs on one node (TCP loopback): (D total, g, wall, init, switches, POOL_LOG, dc exposed, source)
+    (1e10, 4, 113.85, 6.7, 'off', 29, 2.4, 'M13 b1 e10x4_base (job 21008)'),
+    (1e10, 4, 111.30, 6.5, 'off', 29, 2.4, 'M13 b2 e10x4_base (job 21015)'),
+    (1e10, 4, 118.05, 6.2, 'shift', 29, 2.4, 'M13 b1 e10x4_shift, 64 MB (T_ROUND fit)'),
+    (1e10, 4, 125.37, 6.5, 'both', 29, 2.4, 'M13 b1 e10x4_both, 64 MB (T_ROUND fit)'),
+    (1e10, 4, 125.55, 6.7, 'both', 29, 2.4, 'M13 b2 e10x4_both, 64 MB (T_ROUND fit)'),
+    (1e10, 2, 146.4, 9.3, 'off', 30, 5.0, 'X.md job 20802 (Phase 11 code; the only default-configuration 1e10/2)'),
+]
+LOOPBACK_EXCLUDED = [   # measured, not modelled: why
+    ('1e10 / 2, M13 b2 e10x2_base 205.76 s and _both 207.98 s', 'MN_TREE_LOGN_TEST=26 forces 2^26-point tree pieces (a test setting); the model forms the default grid'),
+    ('1e9 / 2, M13 b2 e9x2 37.55 / 36.67 s', 'MN_TREE_LOGN_TEST=23 DIST_LOGN_TEST=24 (forced grids, a test setting)'),
 ]
 LOOPBACK_MEM = [  # (D total, g, measured device per process, host HWM per process, source)
     (1e10, 4, 56.6, 24.8, 'M13 b1 (job 21008), POOL_LOG 29'),
@@ -385,14 +390,15 @@ def calibrate(args):
     M.phase_table.cache_clear(); M.np_factors.cache_clear()
     print('\n== the multi-process runs (g node-processes on ONE node over loopback TCP: mn_model\'s aac6 fabric, fitted per g; the leaves share the')
     print('   node).  NOT covered by the 3 % gate: the same configuration spreads +-10 % on this node (M13: 101-125 s at 1e10/4); gate +-10 %')
-    for D, g, wall, init, ch, src in LOOPBACK:
+    for D, g, wall, init, ch, pl, dcx, src in LOOPBACK:
         fab = M.aac6_fabric('tcp', g)
         leaf = 0.5 * (M.phase('batch', D) + M.phase('top', D))
-        rr = M.run(fab, D / g, g, verbose=False, leaf_scale=0.0, init_override=init, dc_exposed=2.4, form='flat', transport='tcp', pool_log=29,
+        rr = M.run(fab, D / g, g, verbose=False, leaf_scale=0.0, init_override=init, dc_exposed=dcx, form='flat', transport='tcp', pool_log=pl,
                    design=None if ch == 'off' else M.Design(np=4, legacy=True, chunk=ch, chunk_mb=64))
         mw = rr['wall'] + leaf; e = mw / wall - 1
         if abs(e) > 0.10: fails.append('loopback %s: %+.1f %%' % (src, 100 * e))
         print('  %.0e / %d %-5s: measured %.2f, model %.2f (%+.1f %%)  %s' % (D, g, ch, wall, mw, 100 * e, src))
+    for what, why in LOOPBACK_EXCLUDED: print('  not modelled: %s -- %s' % (what, why))
     for D, g, dev, host, src in LOOPBACK_MEM:
         m = MM.mem_per_node(int(D / g), g, dict(np=4, pool_log=29, planes_3q30=False, host_fit=False))
         print('  %.0e / %d memory per process: device measured %.1f, model %.1f (%+.1f %%: the exchange scratch counted on top of the dm need, which at this size'
