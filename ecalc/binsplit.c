@@ -474,7 +474,7 @@ static int ckpt_finish(FILE *f, int ok, const char *tmp, const char *final)
  * bytes (the pinned staging is released while it runs; a smaller chunk bounds the time to stop), a cancel flag the
  * writer checks before every device read, the device reads in flight (the owner may overwrite or free P / Q once cancel
  * is set and none is), and the bytes handed to the kernel so far (the measured rate).  0 = the synchronous write. */
-struct ckpt_io { size_t chunk; volatile int cancel, dma_active, pdone, qdone; volatile size_t bytes_p, bytes_all; };
+struct ckpt_io { size_t chunk; double mbs; volatile int cancel, dma_active, pdone, qdone; volatile size_t bytes_p, bytes_all; };   /* mbs: test (BS_CKPT_BG_MBS), a slower disk emulated */
 /* the 1 GiB host buffer for the DMA of thread r: region r's pinned staging (idle between levels), else malloc */
 static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 {
@@ -528,7 +528,9 @@ static int ckpt_dbig_io(FILE *f, dbig *x, size_t lo, size_t hi, uint64_t *buf, i
             if (__atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST); return 0; }
             mem_dev_copy_on((int)d, buf, x->q[d] + so, run * 8);
             __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST);
+            double tw = io->mbs > 0 ? mem_now() : 0;
             ok = fwrite_all(f, buf, run * 8);
+            if (io->mbs > 0) { double want = run * 8 / (io->mbs * 1e6 / NR), dt = mem_now() - tw; if (want > dt) usleep((useconds_t)((want - dt) * 1e6)); }   /* test: this thread's share of the emulated rate */
             __atomic_add_fetch(part ? &io->bytes_all : &io->bytes_p, run * 8, __ATOMIC_RELAXED);
             if (!part) __atomic_add_fetch(&io->bytes_all, run * 8, __ATOMIC_RELAXED);
         }
@@ -736,6 +738,7 @@ struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t d
     struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)calloc(1, sizeof *b);
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
     const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
+    e = getenv("BS_CKPT_BG_MBS"); b->io.mbs = e ? atof(e) : 0;   /* test: emulate a disk of this many MB/s (the four files together) */
     b->tot_p = P->n * 8; b->tot = (P->n + Q->n) * 8;
     b->t0 = mem_now();
     if (pthread_create(&b->th, 0, bg_run, b)) { fprintf(stderr, "bs: checkpoint: cannot start the background writer\n"); free(b); return 0; }
