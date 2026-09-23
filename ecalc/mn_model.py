@@ -571,8 +571,28 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
     k = cap_factor(cap, np) if pl <= 30 else 1.0
+    if (strategy, cap) in STRAT_FIT and np == 3: k *= strat_factor(strategy, cap)
     for ph in ('top', 'recip', 'div'): out[ph] *= k
     return out
+
+# the M-run (Phase 13b, ~/mrun on aac6, results/mrun_13b.log): 4e10 at size 1, three primes, NTT_MODMUL=1, agent K's kernels on, s24-26
+K_FACTOR = 62.91 / 65.38               # MEASURED: auto at 2^31 with NTT_B1R=3 NTT_PLAN=1 (n 8) against without (n 3)
+STRAT_FIT = {                          # FITTED: the (strategy, cap) rows the per-product law misses by > 3 % -- measured mean wall (K on), n
+    ('auto', 1 << 30): (86.17, 3),     #   auto's grid prefers B-fitting 2^29 pieces at the 2^30 cap: dm 40.3 s against C's 34.3 (the law says faster)
+    ('B4', 3 << 29): (67.88, 3),       #   B4 at 3 2^29: 67.9 s against 70.9 modelled
+}
+_SF = {}
+def strat_factor(strategy, cap):
+    """the factor on the big products that makes the model's 4e10 wall at (strategy, cap) equal the M-run's (K removed by K_FACTOR)"""
+    if (strategy, cap) in _SF: return _SF[(strategy, cap)]
+    _SF[(strategy, cap)] = 1.0
+    d = Design(strategy=strategy, cap=cap)
+    p = node_phases(4e10, d); tot = sum(v for k, v in p.items() if k != 'label')
+    bp = big_products(4e10, strategy, cap, 3); bps = sum(bp[ph] for ph in ('top', 'recip', 'div'))
+    target = STRAT_FIT[(strategy, cap)][0] / K_FACTOR
+    k = 1.0 + (target - tot) / (bps * d.f_mm()) if bps > 0 else 1.0
+    _SF[(strategy, cap)] = k; big_products.cache_clear()
+    return k
 
 _CAPF = {}
 def cap_factor(cap, np):
