@@ -88,8 +88,9 @@ static double lst_inter_wait(lay_priv *p, pthread_t th, int *on, const double *w
 }
 /* the folded totals, per bucket of the fabric bytes one APU sends per exchange (log2) */
 #define LB 48
-struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1, xl, bothl; };
+struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1, xl, bothl, tr; };   /* tr: the block transposes (r1 - x1, c1 - f1) */
 static struct lst_tot g_tot[LB], g_all;
+static double g_dfb[NA], g_df[NA];                       /* per APU thread (device): fabric bytes and fabric time -- the NIC balance */
 static double *g_pool; static char *g_pk; static int g_np, g_npc;   /* the node view's intervals (kind 0 xGMI, 1 fabric, 2 span) */
 static pthread_mutex_t g_mx = PTHREAD_MUTEX_INITIALIZER;
 static lay_priv *g_reg[1024]; static int g_nreg; static int g_node = -1, g_gsz = 0;
@@ -124,10 +125,12 @@ static void lst_fold(lay_priv *p)
         if (r->c1 > span_hi) span_hi = r->c1;
         double held = r->f0 > r->r1 ? r->f0 - r->r1 : 0, rdy = r->r1 > prev_f1 ? r->r1 : prev_f1, idle = r->f0 > rdy ? r->f0 - rdy : 0;
         if (r->f1 > 0) prev_f1 = r->f1;
+        if (p->dev >= 0 && p->dev < NA) { g_dfb[p->dev] += r->fb; g_df[p->dev] += r->f1 > 0 ? r->f1 - r->f0 : 0; }
         for (int a = 0; a < 2; a++) {
             struct lst_tot *u = a ? &g_all : t;
             u->n += 1; u->nv += r->v; u->span += sp; u->x += r->x1 - r->x0; u->f += r->f1 > 0 ? r->f1 - r->f0 : 0; u->both += both;
             u->held += held; u->idle += idle; u->xb += r->xb; u->fb += r->fb; u->xl += r->l1 > 0 ? r->l1 - r->l0 : 0; u->bothl += bl;
+            u->tr += (r->r1 > r->x1 ? r->r1 - r->x1 : 0) + (r->c1 > r->f1 && r->f1 > 0 ? r->c1 - r->f1 : 0);
             if (!u->wall0 || r->a0 < u->wall0) u->wall0 = r->a0;
             if (r->c1 > u->wall1) u->wall1 = r->c1;
         }
@@ -182,6 +185,10 @@ static void lst_print(const char *tag)
            tag, g_node, a->span > 0 ? 100 * a->both / a->span : 0, a->x > 0 ? 100 * a->both / a->x : 0, mn > 0 ? 100 * a->both / mn : 0,
            a->x + a->f > 0 ? 100 * a->both / (a->x + a->f) : 0, a->x + a->f > 0 ? 100 * mn / (a->x + a->f) : 0, a->held / q, a->idle / q,
            a->xb / q * 1e-9, a->x > 0 ? a->xb / a->x * 1e-9 : 0, a->fb / q * 1e-9, a->f > 0 ? a->fb / a->f * 1e-9 : 0);
+    {   double bmin = 1e300, bmax = 0, tmin = 1e300, tmax = 0;
+        for (int d = 0; d < NA; d++) { if (g_dfb[d] < bmin) bmin = g_dfb[d]; if (g_dfb[d] > bmax) bmax = g_dfb[d]; if (g_df[d] < tmin) tmin = g_df[d]; if (g_df[d] > tmax) tmax = g_df[d]; }
+        printf("layer-stats %s node %d: block transposes %.4f s per APU (%.3f ms per exchange); the NIC balance over the APU threads: fabric bytes %.4f .. %.4f GB (max/min %.4f), fabric time %.4f .. %.4f s (max/min %.3f)\n",
+               tag, g_node, a->tr / q, a->n > 0 ? 1e3 * a->tr / a->n : 0, bmin * 1e-9, bmax * 1e-9, bmin > 0 ? bmax / bmin : 0, tmin, tmax, tmin > 0 ? tmax / tmin : 0); }
     if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
                           tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
@@ -203,7 +210,7 @@ extern "C" void comm_layered_stats_report(const char *tag)
     for (int i = 0; i < g_nreg; i++) lst_fold(g_reg[i]);
     if (tag) { lst_print(tag); lst_node_print(tag); }    /* tag 0: reset only */
     g_np = 0;
-    memset(g_tot, 0, sizeof g_tot); memset(&g_all, 0, sizeof g_all);
+    memset(g_tot, 0, sizeof g_tot); memset(&g_all, 0, sizeof g_all); memset(g_dfb, 0, sizeof g_dfb); memset(g_df, 0, sizeof g_df);
     pthread_mutex_unlock(&g_mx);
 }
 static void lst_register(lay_priv *p, int node, int g)
