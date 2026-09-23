@@ -1,0 +1,640 @@
+t_cap: P = 4 primes, per-APU plane budget 28.0 GiB
+
+1. plane bytes per APU (GiB) by plane size -- the forms t_strategy measured at P = 4 (exact); at P = 3 by the same formulas
+   plane     A (1 APU) B (P APUs) C (4 APUs)
+   2^26           2.5        1.0        0.9 
+   2^27           5.0        2.0        1.8 
+   2^28          10.0        4.0        3.5 
+   3*2^26         7.5        3.0        2.6 
+   2^29          20.0        8.0        7.0 
+   3*2^27        15.0        6.0        5.2 
+   2^30          40.0*      16.0       14.0 
+   3*2^28        30.0*      12.0       10.5 
+   2^31          80.0*      32.0*      28.0 
+   3*2^29        60.0*      24.0       21.0 
+   2^32         160.0*      64.0*      56.0*
+   3*2^30       120.0*      48.0*      42.0*
+   2^33         320.0*     128.0*     112.0*
+   3*2^31       240.0*      96.0*      84.0*
+   (* = over the 28.0 GiB budget)
+   the largest plane each strategy fits in the budget:  A 2^29  B 3*2^29  C 2^31
+   budget each strategy needs for a plane of 2^31 / 3*2^30 / 2^32 points: A 80/120/160, B 32/48/64, C 28/42/56 GiB
+
+2/3. D = 4e+10 digits (nq = 2222222222 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 28.0 GiB, modelled time per strategy (s)
+   tree top (x2)           1111111111 x  1111111111 (x2)
+      cap 2^29     4 x 5  20 x          2.58e+11 pts  480 a2a  fits ABC  A  14.89   B   6.99   C   9.53    (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          1.55e+11 pts  144 a2a  fits -BC  A   8.71   B   4.14   C   5.55    (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x          1.16e+11 pts   72 a2a  fits -BC  A   6.86m  B   3.26m  C   4.37m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          1.03e+11 pts   48 a2a  fits --C  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          7.73e+10 pts   24 a2a  fits ---  A   4.98m  B   2.25m  C   3.40m   (plane 3.22e+09)
+   tree top-1 (x4)          555555555 x   555555555 (x4)
+      cap 2^29     2 x 3   6 x          1.55e+11 pts  288 a2a  fits ABC  A   8.94   B   4.19   C   5.72    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.03e+11 pts   96 a2a  fits -BC  A   5.81   B   2.76   C   3.70    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.03e+11 pts   48 a2a  fits --C  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+   recip j=k/2 Q_t r       2222222222 x  1111111113 (x1)
+      cap 2^29     9 x 4  36 x          2.32e+11 pts  432 a2a  fits ABC  A  13.40   B   6.29   C   8.58    (plane 5.37e+08)
+      cap 2^30     5 x 2  10 x          1.29e+11 pts  120 a2a  fits -BC  A   7.26   B   3.45   C   4.63    (plane 1.07e+09)
+      cap 3*2^29   5 x 1   5 x          9.66e+10 pts   60 a2a  fits -BC  A   5.72m  B   2.71m  C   3.64m   (plane 1.61e+09)
+      cap 2^31     3 x 1   3 x          7.73e+10 pts   36 a2a  fits --C  A   4.74   B   2.14   C   3.23    (plane 2.15e+09)
+      cap 3*2^30   3 x 1   3 x          7.73e+10 pts   36 a2a  fits --C  A   4.74   B   2.14   C   3.23    (plane 2.15e+09)
+   recip j=k/2 r d         1111111113 x  1111111114 (x1)
+      cap 2^29     4 x 5  20 x          1.29e+11 pts  240 a2a  fits ABC  A   7.45   B   3.49   C   4.77    (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          7.73e+10 pts   72 a2a  fits -BC  A   4.36   B   2.07   C   2.78    (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x           5.8e+10 pts   36 a2a  fits -BC  A   3.43m  B   1.63m  C   2.19m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          5.15e+10 pts   24 a2a  fits --C  A   3.16   B   1.43   C   2.16    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          3.87e+10 pts   12 a2a  fits ---  A   2.49m  B   1.12m  C   1.70m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       1111111114 x   555555557 (x1)
+      cap 2^29     5 x 2  10 x          6.44e+10 pts  120 a2a  fits ABC  A   3.72   B   1.75   C   2.38    (plane 5.37e+08)
+      cap 2^30     3 x 1   3 x          3.87e+10 pts   36 a2a  fits -BC  A   2.18   B   1.03   C   1.39    (plane 1.07e+09)
+      cap 3*2^29   3 x 1   3 x          3.87e+10 pts   36 a2a  fits -BC  A   2.18   B   1.03   C   1.39    (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+   recip j=k/4 r d          555555557 x   555555558 (x1)
+      cap 2^29     2 x 3   6 x          3.87e+10 pts   72 a2a  fits ABC  A   2.23   B   1.05   C   1.43    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          2.58e+10 pts   24 a2a  fits -BC  A   1.45   B   0.69   C   0.93    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+   recip j=k/8 Q_t r        555555558 x   277777779 (x1)
+      cap 2^29     3 x 1   3 x          1.93e+10 pts   36 a2a  fits ABC  A   1.12   B   0.52   C   0.71    (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+   recip j=k/8 r d          277777779 x   277777780 (x1)
+      cap 2^29     1 x 2   2 x          1.29e+10 pts   24 a2a  fits ABC  A   0.74   B   0.35   C   0.48    (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          9.66e+09 pts   12 a2a  fits -BC  A   0.59m  B   0.28m  C   0.38m   (plane 8.05e+08)
+      cap 2^31     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          9.66e+09 pts   12 a2a  fits -BC  A   0.59m  B   0.28m  C   0.38m   (plane 8.05e+08)
+   div A_h mu (low cut)    4444444445 x  2222222224 (x1)
+      cap 2^29    16 x 9  116 x          7.47e+11 pts 1392 a2a  fits ABC  A  43.19   B  20.27   C  27.64    (plane 5.37e+08)
+      cap 2^30     9 x 4  30 x          3.87e+11 pts  360 a2a  fits -BC  A  21.78   B  10.34   C  13.88    (plane 1.07e+09)
+      cap 3*2^29   6 x 3  16 x          3.09e+11 pts  192 a2a  fits -BC  A  18.30m  B   8.68m  C  11.66m   (plane 1.61e+09)
+      cap 2^31     5 x 2   9 x          2.32e+11 pts  108 a2a  fits --C  A  14.23   B   6.43   C   9.70    (plane 2.15e+09)
+      cap 3*2^30   5 x 1   5 x          1.93e+11 pts   60 a2a  fits ---  A  12.45m  B   5.62m  C   8.49m   (plane 3.22e+09)
+   div X Q (mod B^w)       2222222223 x  2222222222 (x1)
+      cap 2^29     8 x 9  44 x          2.83e+11 pts  528 a2a  fits ABC  A  16.38   B   7.69   C  10.49    (plane 5.37e+08)
+      cap 2^30     4 x 5  14 x           1.8e+11 pts  168 a2a  fits -BC  A  10.16   B   4.82   C   6.48    (plane 1.07e+09)
+      cap 3*2^29   3 x 3   8 x          1.55e+11 pts   96 a2a  fits -BC  A   9.15m  B   4.34m  C   5.83m   (plane 1.61e+09)
+      cap 2^31     2 x 3   5 x          1.29e+11 pts   60 a2a  fits --C  A   7.90   B   3.57   C   5.39    (plane 2.15e+09)
+      cap 3*2^30   1 x 3   3 x          1.16e+11 pts   36 a2a  fits ---  A   7.47m  B   3.37m  C   5.09m   (plane 3.22e+09)
+   totals over these shapes (D = 4e+10):
+      cap 2^29     1.939e+12 transform points,  3612 all-to-alls under C, every piece fits: A B C  A 112.06 s  B 52.58 s  C 71.73 s
+      cap 2^30     1.121e+12 transform points,  1044 all-to-alls under C, every piece fits: B C  A 63.16 s  B 29.98 s  C 40.26 s
+      cap 3*2^29   8.923e+11 transform points,   576 all-to-alls under C, every piece fits: B C  A 52.66 s  B 24.99 s  C 33.57 s
+      cap 2^31     7.731e+11 transform points,   372 all-to-alls under C, every piece fits: C  A 47.29 s  B 21.40 s  C 32.19 s
+      cap 3*2^30   6.475e+11 transform points,   264 all-to-alls under C, every piece fits:  A 40.74 s  B 18.56 s  C 27.47 s
+
+2/3. D = 1e+11 digits (nq = 5555555555 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 28.0 GiB, modelled time per strategy (s)
+   tree top (x2)           2777777777 x  2777777777 (x2)
+      cap 2^29    10 x 11 110 x          1.42e+12 pts 2640 a2a  fits ABC  A  81.91   B  38.43   C  52.43    (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x          7.73e+11 pts  720 a2a  fits -BC  A  43.56   B  20.68   C  27.77    (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x           5.8e+11 pts  360 a2a  fits -BC  A  34.30m  B  16.28m  C  21.87m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          4.12e+11 pts  192 a2a  fits --C  A  25.29   B  11.42   C  17.25    (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          3.09e+11 pts   96 a2a  fits ---  A  19.92m  B   9.00m  C  13.58m   (plane 3.22e+09)
+   tree top-1 (x4)         1388888888 x  1388888888 (x4)
+      cap 2^29     5 x 6  30 x          7.73e+11 pts 1440 a2a  fits ABC  A  44.68   B  20.96   C  28.60    (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          4.12e+11 pts  384 a2a  fits -BC  A  23.23   B  11.03   C  14.81    (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          3.09e+11 pts  192 a2a  fits -BC  A  18.30m  B   8.68m  C  11.66m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          2.06e+11 pts   96 a2a  fits --C  A  12.65   B   5.71   C   8.62    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.55e+11 pts   48 a2a  fits ---  A   9.96m  B   4.50m  C   6.79m   (plane 3.22e+09)
+   recip j=k/2 Q_t r       5555555555 x  2777777779 (x1)
+      cap 2^29    20 x 11 220 x          1.42e+12 pts 2640 a2a  fits ABC  A  81.91   B  38.43   C  52.43    (plane 5.37e+08)
+      cap 2^30    11 x 5  55 x          7.09e+11 pts  660 a2a  fits -BC  A  39.93   B  18.95   C  25.45    (plane 1.07e+09)
+      cap 3*2^29   9 x 3  27 x          5.22e+11 pts  324 a2a  fits -BC  A  30.87m  B  14.65m  C  19.68m   (plane 1.61e+09)
+      cap 2^31     5 x 3  15 x          3.87e+11 pts  180 a2a  fits --C  A  23.71   B  10.71   C  16.17    (plane 2.15e+09)
+      cap 3*2^30   4 x 2   8 x          3.09e+11 pts   96 a2a  fits ---  A  19.92m  B   9.00m  C  13.58m   (plane 3.22e+09)
+   recip j=k/2 r d         2777777779 x  2777777780 (x1)
+      cap 2^29    10 x 11 110 x          7.09e+11 pts 1320 a2a  fits ABC  A  40.95   B  19.22   C  26.21    (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x          3.87e+11 pts  360 a2a  fits -BC  A  21.78   B  10.34   C  13.88    (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x           2.9e+11 pts  180 a2a  fits -BC  A  17.15m  B   8.14m  C  10.93m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          2.06e+11 pts   96 a2a  fits --C  A  12.65   B   5.71   C   8.62    (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          1.55e+11 pts   48 a2a  fits ---  A   9.96m  B   4.50m  C   6.79m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       2777777780 x  1388888890 (x1)
+      cap 2^29    11 x 5  55 x          3.54e+11 pts  660 a2a  fits ABC  A  20.48   B   9.61   C  13.11    (plane 5.37e+08)
+      cap 2^30     5 x 3  15 x          1.93e+11 pts  180 a2a  fits -BC  A  10.89   B   5.17   C   6.94    (plane 1.07e+09)
+      cap 3*2^29   4 x 2   8 x          1.55e+11 pts   96 a2a  fits -BC  A   9.15m  B   4.34m  C   5.83m   (plane 1.61e+09)
+      cap 2^31     2 x 2   4 x          1.03e+11 pts   48 a2a  fits --C  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   2 x 1   2 x          7.73e+10 pts   24 a2a  fits ---  A   4.98m  B   2.25m  C   3.40m   (plane 3.22e+09)
+   recip j=k/4 r d         1388888890 x  1388888891 (x1)
+      cap 2^29     5 x 6  30 x          1.93e+11 pts  360 a2a  fits ABC  A  11.17   B   5.24   C   7.15    (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          1.03e+11 pts   96 a2a  fits -BC  A   5.81   B   2.76   C   3.70    (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          5.15e+10 pts   24 a2a  fits --C  A   3.16   B   1.43   C   2.16    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          3.87e+10 pts   12 a2a  fits ---  A   2.49m  B   1.12m  C   1.70m   (plane 3.22e+09)
+   recip j=k/8 Q_t r       1388888892 x   694444446 (x1)
+      cap 2^29     5 x 3  15 x          9.66e+10 pts  180 a2a  fits ABC  A   5.58   B   2.62   C   3.57    (plane 5.37e+08)
+      cap 2^30     2 x 2   4 x          5.15e+10 pts   48 a2a  fits -BC  A   2.90   B   1.38   C   1.85    (plane 1.07e+09)
+      cap 3*2^29   2 x 1   2 x          3.87e+10 pts   24 a2a  fits -BC  A   2.29m  B   1.09m  C   1.46m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+   recip j=k/8 r d          694444446 x   694444447 (x1)
+      cap 2^29     2 x 4   8 x          5.15e+10 pts   96 a2a  fits ABC  A   2.98   B   1.40   C   1.91    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          2.58e+10 pts   24 a2a  fits -BC  A   1.45   B   0.69   C   0.93    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits --C  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+   div A_h mu (low cut)   11111111111 x  5555555557 (x1)
+      cap 2^29    32 x 30 743 x          4.79e+12 pts 8916 a2a  fits ABC  A 276.62   B 129.80   C 177.06    (plane 5.37e+08)
+      cap 2^30    20 x 11 175 x          2.25e+12 pts 2100 a2a  fits -BC  A 127.05   B  60.30   C  80.99    (plane 1.07e+09)
+      cap 3*2^29  14 x 7  83 x           1.6e+12 pts  996 a2a  fits -BC  A  94.91m  B  45.05m  C  60.50m   (plane 1.61e+09)
+      cap 2^31    11 x 5  45 x          1.16e+12 pts  540 a2a  fits --C  A  71.13   B  32.13   C  48.51    (plane 2.15e+09)
+      cap 3*2^30   9 x 3  24 x          9.28e+11 pts  288 a2a  fits ---  A  59.75m  B  26.99m  C  40.75m   (plane 3.22e+09)
+   div X Q (mod B^w)       5555555556 x  5555555555 (x1)
+      cap 2^29    19 x 23 239 x          1.54e+12 pts 2868 a2a  fits ABC  A  88.98   B  41.75   C  56.95    (plane 5.37e+08)
+      cap 2^30    10 x 11 65 x          8.38e+11 pts  780 a2a  fits -BC  A  47.19   B  22.40   C  30.08    (plane 1.07e+09)
+      cap 3*2^29   7 x 7  28 x          5.41e+11 pts  336 a2a  fits -BC  A  32.02m  B  15.20m  C  20.41m   (plane 1.61e+09)
+      cap 2^31     5 x 6  20 x          5.15e+11 pts  240 a2a  fits --C  A  31.61   B  14.28   C  21.56    (plane 2.15e+09)
+      cap 3*2^30   3 x 5  11 x          4.25e+11 pts  132 a2a  fits ---  A  27.39m  B  12.37m  C  18.68m   (plane 3.22e+09)
+   totals over these shapes (D = 1e+11):
+      cap 2^29     1.134e+13 transform points, 21120 all-to-alls under C, every piece fits: A B C  A 655.25 s  B 307.47 s  C 419.41 s
+      cap 2^30     5.747e+12 transform points,  5352 all-to-alls under C, every piece fits: B C  A 323.80 s  B 153.69 s  C 206.41 s
+      cap 3*2^29   4.136e+12 transform points,  2568 all-to-alls under C, every piece fits: B C  A 244.70 s  B 116.15 s  C 155.99 s
+      cap 2^31     3.092e+12 transform points,  1440 all-to-alls under C, every piece fits: C  A 189.68 s  B 85.68 s  C 129.36 s
+      cap 3*2^30   2.442e+12 transform points,   768 all-to-alls under C, every piece fits:  A 157.08 s  B 70.98 s  C 107.07 s
+
+labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modelled (3 2^k planes, or P = 3);
+        the grid's shifted adds, the cache (off by default in the single-node tier) and the tree's pairing are not counted
+t_cap: P = 4 primes, per-APU plane budget 32.0 GiB
+
+1. plane bytes per APU (GiB) by plane size -- the forms t_strategy measured at P = 4 (exact); at P = 3 by the same formulas
+   plane     A (1 APU) B (P APUs) C (4 APUs)
+   2^26           2.5        1.0        0.9 
+   2^27           5.0        2.0        1.8 
+   2^28          10.0        4.0        3.5 
+   3*2^26         7.5        3.0        2.6 
+   2^29          20.0        8.0        7.0 
+   3*2^27        15.0        6.0        5.2 
+   2^30          40.0*      16.0       14.0 
+   3*2^28        30.0       12.0       10.5 
+   2^31          80.0*      32.0       28.0 
+   3*2^29        60.0*      24.0       21.0 
+   2^32         160.0*      64.0*      56.0*
+   3*2^30       120.0*      48.0*      42.0*
+   2^33         320.0*     128.0*     112.0*
+   3*2^31       240.0*      96.0*      84.0*
+   (* = over the 32.0 GiB budget)
+   the largest plane each strategy fits in the budget:  A 3*2^28  B 2^31  C 2^31
+   budget each strategy needs for a plane of 2^31 / 3*2^30 / 2^32 points: A 80/120/160, B 32/48/64, C 28/42/56 GiB
+
+2/3. D = 4e+10 digits (nq = 2222222222 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 32.0 GiB, modelled time per strategy (s)
+   tree top (x2)           1111111111 x  1111111111 (x2)
+      cap 2^29     4 x 5  20 x          2.58e+11 pts  480 a2a  fits ABC  A  14.89   B   6.99   C   9.53    (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          1.55e+11 pts  144 a2a  fits -BC  A   8.71   B   4.14   C   5.55    (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x          1.16e+11 pts   72 a2a  fits -BC  A   6.86m  B   3.26m  C   4.37m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          1.03e+11 pts   48 a2a  fits -BC  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          7.73e+10 pts   24 a2a  fits ---  A   4.98m  B   2.25m  C   3.40m   (plane 3.22e+09)
+   tree top-1 (x4)          555555555 x   555555555 (x4)
+      cap 2^29     2 x 3   6 x          1.55e+11 pts  288 a2a  fits ABC  A   8.94   B   4.19   C   5.72    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.03e+11 pts   96 a2a  fits -BC  A   5.81   B   2.76   C   3.70    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.03e+11 pts   48 a2a  fits -BC  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+   recip j=k/2 Q_t r       2222222222 x  1111111113 (x1)
+      cap 2^29     9 x 4  36 x          2.32e+11 pts  432 a2a  fits ABC  A  13.40   B   6.29   C   8.58    (plane 5.37e+08)
+      cap 2^30     5 x 2  10 x          1.29e+11 pts  120 a2a  fits -BC  A   7.26   B   3.45   C   4.63    (plane 1.07e+09)
+      cap 3*2^29   5 x 1   5 x          9.66e+10 pts   60 a2a  fits -BC  A   5.72m  B   2.71m  C   3.64m   (plane 1.61e+09)
+      cap 2^31     3 x 1   3 x          7.73e+10 pts   36 a2a  fits -BC  A   4.74   B   2.14   C   3.23    (plane 2.15e+09)
+      cap 3*2^30   3 x 1   3 x          7.73e+10 pts   36 a2a  fits -BC  A   4.74   B   2.14   C   3.23    (plane 2.15e+09)
+   recip j=k/2 r d         1111111113 x  1111111114 (x1)
+      cap 2^29     4 x 5  20 x          1.29e+11 pts  240 a2a  fits ABC  A   7.45   B   3.49   C   4.77    (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          7.73e+10 pts   72 a2a  fits -BC  A   4.36   B   2.07   C   2.78    (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x           5.8e+10 pts   36 a2a  fits -BC  A   3.43m  B   1.63m  C   2.19m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          5.15e+10 pts   24 a2a  fits -BC  A   3.16   B   1.43   C   2.16    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          3.87e+10 pts   12 a2a  fits ---  A   2.49m  B   1.12m  C   1.70m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       1111111114 x   555555557 (x1)
+      cap 2^29     5 x 2  10 x          6.44e+10 pts  120 a2a  fits ABC  A   3.72   B   1.75   C   2.38    (plane 5.37e+08)
+      cap 2^30     3 x 1   3 x          3.87e+10 pts   36 a2a  fits -BC  A   2.18   B   1.03   C   1.39    (plane 1.07e+09)
+      cap 3*2^29   3 x 1   3 x          3.87e+10 pts   36 a2a  fits -BC  A   2.18   B   1.03   C   1.39    (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+   recip j=k/4 r d          555555557 x   555555558 (x1)
+      cap 2^29     2 x 3   6 x          3.87e+10 pts   72 a2a  fits ABC  A   2.23   B   1.05   C   1.43    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          2.58e+10 pts   24 a2a  fits -BC  A   1.45   B   0.69   C   0.93    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+   recip j=k/8 Q_t r        555555558 x   277777779 (x1)
+      cap 2^29     3 x 1   3 x          1.93e+10 pts   36 a2a  fits ABC  A   1.12   B   0.52   C   0.71    (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+   recip j=k/8 r d          277777779 x   277777780 (x1)
+      cap 2^29     1 x 2   2 x          1.29e+10 pts   24 a2a  fits ABC  A   0.74   B   0.35   C   0.48    (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          9.66e+09 pts   12 a2a  fits ABC  A   0.59m  B   0.28m  C   0.38m   (plane 8.05e+08)
+      cap 2^31     1 x 1   1 x          1.29e+10 pts   12 a2a  fits -BC  A   0.73   B   0.34   C   0.46    (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          9.66e+09 pts   12 a2a  fits ABC  A   0.59m  B   0.28m  C   0.38m   (plane 8.05e+08)
+   div A_h mu (low cut)    4444444445 x  2222222224 (x1)
+      cap 2^29    16 x 9  116 x          7.47e+11 pts 1392 a2a  fits ABC  A  43.19   B  20.27   C  27.64    (plane 5.37e+08)
+      cap 2^30     9 x 4  30 x          3.87e+11 pts  360 a2a  fits -BC  A  21.78   B  10.34   C  13.88    (plane 1.07e+09)
+      cap 3*2^29   6 x 3  16 x          3.09e+11 pts  192 a2a  fits -BC  A  18.30m  B   8.68m  C  11.66m   (plane 1.61e+09)
+      cap 2^31     5 x 2   9 x          2.32e+11 pts  108 a2a  fits -BC  A  14.23   B   6.43   C   9.70    (plane 2.15e+09)
+      cap 3*2^30   5 x 1   5 x          1.93e+11 pts   60 a2a  fits ---  A  12.45m  B   5.62m  C   8.49m   (plane 3.22e+09)
+   div X Q (mod B^w)       2222222223 x  2222222222 (x1)
+      cap 2^29     8 x 9  44 x          2.83e+11 pts  528 a2a  fits ABC  A  16.38   B   7.69   C  10.49    (plane 5.37e+08)
+      cap 2^30     4 x 5  14 x           1.8e+11 pts  168 a2a  fits -BC  A  10.16   B   4.82   C   6.48    (plane 1.07e+09)
+      cap 3*2^29   3 x 3   8 x          1.55e+11 pts   96 a2a  fits -BC  A   9.15m  B   4.34m  C   5.83m   (plane 1.61e+09)
+      cap 2^31     2 x 3   5 x          1.29e+11 pts   60 a2a  fits -BC  A   7.90   B   3.57   C   5.39    (plane 2.15e+09)
+      cap 3*2^30   1 x 3   3 x          1.16e+11 pts   36 a2a  fits ---  A   7.47m  B   3.37m  C   5.09m   (plane 3.22e+09)
+   totals over these shapes (D = 4e+10):
+      cap 2^29     1.939e+12 transform points,  3612 all-to-alls under C, every piece fits: A B C  A 112.06 s  B 52.58 s  C 71.73 s
+      cap 2^30     1.121e+12 transform points,  1044 all-to-alls under C, every piece fits: B C  A 63.16 s  B 29.98 s  C 40.26 s
+      cap 3*2^29   8.923e+11 transform points,   576 all-to-alls under C, every piece fits: B C  A 52.66 s  B 24.99 s  C 33.57 s
+      cap 2^31     7.731e+11 transform points,   372 all-to-alls under C, every piece fits: B C  A 47.29 s  B 21.40 s  C 32.19 s
+      cap 3*2^30   6.475e+11 transform points,   264 all-to-alls under C, every piece fits:  A 40.74 s  B 18.56 s  C 27.47 s
+
+2/3. D = 1e+11 digits (nq = 5555555555 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 32.0 GiB, modelled time per strategy (s)
+   tree top (x2)           2777777777 x  2777777777 (x2)
+      cap 2^29    10 x 11 110 x          1.42e+12 pts 2640 a2a  fits ABC  A  81.91   B  38.43   C  52.43    (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x          7.73e+11 pts  720 a2a  fits -BC  A  43.56   B  20.68   C  27.77    (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x           5.8e+11 pts  360 a2a  fits -BC  A  34.30m  B  16.28m  C  21.87m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          4.12e+11 pts  192 a2a  fits -BC  A  25.29   B  11.42   C  17.25    (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          3.09e+11 pts   96 a2a  fits ---  A  19.92m  B   9.00m  C  13.58m   (plane 3.22e+09)
+   tree top-1 (x4)         1388888888 x  1388888888 (x4)
+      cap 2^29     5 x 6  30 x          7.73e+11 pts 1440 a2a  fits ABC  A  44.68   B  20.96   C  28.60    (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          4.12e+11 pts  384 a2a  fits -BC  A  23.23   B  11.03   C  14.81    (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          3.09e+11 pts  192 a2a  fits -BC  A  18.30m  B   8.68m  C  11.66m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          2.06e+11 pts   96 a2a  fits -BC  A  12.65   B   5.71   C   8.62    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.55e+11 pts   48 a2a  fits ---  A   9.96m  B   4.50m  C   6.79m   (plane 3.22e+09)
+   recip j=k/2 Q_t r       5555555555 x  2777777779 (x1)
+      cap 2^29    20 x 11 220 x          1.42e+12 pts 2640 a2a  fits ABC  A  81.91   B  38.43   C  52.43    (plane 5.37e+08)
+      cap 2^30    11 x 5  55 x          7.09e+11 pts  660 a2a  fits -BC  A  39.93   B  18.95   C  25.45    (plane 1.07e+09)
+      cap 3*2^29   9 x 3  27 x          5.22e+11 pts  324 a2a  fits -BC  A  30.87m  B  14.65m  C  19.68m   (plane 1.61e+09)
+      cap 2^31     5 x 3  15 x          3.87e+11 pts  180 a2a  fits -BC  A  23.71   B  10.71   C  16.17    (plane 2.15e+09)
+      cap 3*2^30   4 x 2   8 x          3.09e+11 pts   96 a2a  fits ---  A  19.92m  B   9.00m  C  13.58m   (plane 3.22e+09)
+   recip j=k/2 r d         2777777779 x  2777777780 (x1)
+      cap 2^29    10 x 11 110 x          7.09e+11 pts 1320 a2a  fits ABC  A  40.95   B  19.22   C  26.21    (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x          3.87e+11 pts  360 a2a  fits -BC  A  21.78   B  10.34   C  13.88    (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x           2.9e+11 pts  180 a2a  fits -BC  A  17.15m  B   8.14m  C  10.93m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          2.06e+11 pts   96 a2a  fits -BC  A  12.65   B   5.71   C   8.62    (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          1.55e+11 pts   48 a2a  fits ---  A   9.96m  B   4.50m  C   6.79m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       2777777780 x  1388888890 (x1)
+      cap 2^29    11 x 5  55 x          3.54e+11 pts  660 a2a  fits ABC  A  20.48   B   9.61   C  13.11    (plane 5.37e+08)
+      cap 2^30     5 x 3  15 x          1.93e+11 pts  180 a2a  fits -BC  A  10.89   B   5.17   C   6.94    (plane 1.07e+09)
+      cap 3*2^29   4 x 2   8 x          1.55e+11 pts   96 a2a  fits -BC  A   9.15m  B   4.34m  C   5.83m   (plane 1.61e+09)
+      cap 2^31     2 x 2   4 x          1.03e+11 pts   48 a2a  fits -BC  A   6.32   B   2.86   C   4.31    (plane 2.15e+09)
+      cap 3*2^30   2 x 1   2 x          7.73e+10 pts   24 a2a  fits ---  A   4.98m  B   2.25m  C   3.40m   (plane 3.22e+09)
+   recip j=k/4 r d         1388888890 x  1388888891 (x1)
+      cap 2^29     5 x 6  30 x          1.93e+11 pts  360 a2a  fits ABC  A  11.17   B   5.24   C   7.15    (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          1.03e+11 pts   96 a2a  fits -BC  A   5.81   B   2.76   C   3.70    (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          7.73e+10 pts   48 a2a  fits -BC  A   4.57m  B   2.17m  C   2.92m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          5.15e+10 pts   24 a2a  fits -BC  A   3.16   B   1.43   C   2.16    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          3.87e+10 pts   12 a2a  fits ---  A   2.49m  B   1.12m  C   1.70m   (plane 3.22e+09)
+   recip j=k/8 Q_t r       1388888892 x   694444446 (x1)
+      cap 2^29     5 x 3  15 x          9.66e+10 pts  180 a2a  fits ABC  A   5.58   B   2.62   C   3.57    (plane 5.37e+08)
+      cap 2^30     2 x 2   4 x          5.15e+10 pts   48 a2a  fits -BC  A   2.90   B   1.38   C   1.85    (plane 1.07e+09)
+      cap 3*2^29   2 x 1   2 x          3.87e+10 pts   24 a2a  fits -BC  A   2.29m  B   1.09m  C   1.46m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+   recip j=k/8 r d          694444446 x   694444447 (x1)
+      cap 2^29     2 x 4   8 x          5.15e+10 pts   96 a2a  fits ABC  A   2.98   B   1.40   C   1.91    (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          2.58e+10 pts   24 a2a  fits -BC  A   1.45   B   0.69   C   0.93    (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          2.58e+10 pts   12 a2a  fits -BC  A   1.58   B   0.71   C   1.08    (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts   12 a2a  fits -BC  A   1.14m  B   0.54m  C   0.73m   (plane 1.61e+09)
+   div A_h mu (low cut)   11111111111 x  5555555557 (x1)
+      cap 2^29    32 x 30 743 x          4.79e+12 pts 8916 a2a  fits ABC  A 276.62   B 129.80   C 177.06    (plane 5.37e+08)
+      cap 2^30    20 x 11 175 x          2.25e+12 pts 2100 a2a  fits -BC  A 127.05   B  60.30   C  80.99    (plane 1.07e+09)
+      cap 3*2^29  14 x 7  83 x           1.6e+12 pts  996 a2a  fits -BC  A  94.91m  B  45.05m  C  60.50m   (plane 1.61e+09)
+      cap 2^31    11 x 5  45 x          1.16e+12 pts  540 a2a  fits -BC  A  71.13   B  32.13   C  48.51    (plane 2.15e+09)
+      cap 3*2^30   9 x 3  24 x          9.28e+11 pts  288 a2a  fits ---  A  59.75m  B  26.99m  C  40.75m   (plane 3.22e+09)
+   div X Q (mod B^w)       5555555556 x  5555555555 (x1)
+      cap 2^29    19 x 23 239 x          1.54e+12 pts 2868 a2a  fits ABC  A  88.98   B  41.75   C  56.95    (plane 5.37e+08)
+      cap 2^30    10 x 11 65 x          8.38e+11 pts  780 a2a  fits -BC  A  47.19   B  22.40   C  30.08    (plane 1.07e+09)
+      cap 3*2^29   7 x 7  28 x          5.41e+11 pts  336 a2a  fits -BC  A  32.02m  B  15.20m  C  20.41m   (plane 1.61e+09)
+      cap 2^31     5 x 6  20 x          5.15e+11 pts  240 a2a  fits -BC  A  31.61   B  14.28   C  21.56    (plane 2.15e+09)
+      cap 3*2^30   3 x 5  11 x          4.25e+11 pts  132 a2a  fits ---  A  27.39m  B  12.37m  C  18.68m   (plane 3.22e+09)
+   totals over these shapes (D = 1e+11):
+      cap 2^29     1.134e+13 transform points, 21120 all-to-alls under C, every piece fits: A B C  A 655.25 s  B 307.47 s  C 419.41 s
+      cap 2^30     5.747e+12 transform points,  5352 all-to-alls under C, every piece fits: B C  A 323.80 s  B 153.69 s  C 206.41 s
+      cap 3*2^29   4.136e+12 transform points,  2568 all-to-alls under C, every piece fits: B C  A 244.70 s  B 116.15 s  C 155.99 s
+      cap 2^31     3.092e+12 transform points,  1440 all-to-alls under C, every piece fits: B C  A 189.68 s  B 85.68 s  C 129.36 s
+      cap 3*2^30   2.442e+12 transform points,   768 all-to-alls under C, every piece fits:  A 157.08 s  B 70.98 s  C 107.07 s
+
+labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modelled (3 2^k planes, or P = 3);
+        the grid's shifted adds, the cache (off by default in the single-node tier) and the tree's pairing are not counted
+t_cap: P = 3 primes, per-APU plane budget 24.0 GiB
+
+1. plane bytes per APU (GiB) by plane size -- the forms t_strategy measured at P = 4 (exact); at P = 3 by the same formulas
+   plane     A (1 APU) B (P APUs) C (4 APUs)
+   2^26           2.0        1.0        0.8 
+   2^27           4.0        2.0        1.5 
+   2^28           8.0        4.0        3.0 
+   3*2^26         6.0        3.0        2.2 
+   2^29          16.0        8.0        6.0 
+   3*2^27        12.0        6.0        4.5 
+   2^30          32.0*      16.0       12.0 
+   3*2^28        24.0       12.0        9.0 
+   2^31          64.0*      32.0*      24.0 
+   3*2^29        48.0*      24.0       18.0 
+   2^32         128.0*      64.0*      48.0*
+   3*2^30        96.0*      48.0*      36.0*
+   2^33         256.0*     128.0*      96.0*
+   3*2^31       192.0*      96.0*      72.0*
+   (* = over the 24.0 GiB budget)
+   the largest plane each strategy fits in the budget:  A 3*2^28  B 3*2^29  C 2^31
+   budget each strategy needs for a plane of 2^31 / 3*2^30 / 2^32 points: A 64/96/128, B 32/48/64, C 24/36/48 GiB
+
+2/3. D = 4e+10 digits (nq = 2222222222 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 24.0 GiB, modelled time per strategy (s)
+   tree top (x2)           1111111111 x  1111111111 (x2)
+      cap 2^29     4 x 5  20 x          1.93e+11 pts  360 a2a  fits ABC  A  11.67m  B   6.99m  C   7.48m   (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          1.16e+11 pts  108 a2a  fits -BC  A   6.43m  B   3.62m  C   4.26m   (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x           8.7e+10 pts   54 a2a  fits -BC  A   5.07m  B   2.85m  C   3.35m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          7.73e+10 pts   36 a2a  fits --C  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           5.8e+10 pts   18 a2a  fits ---  A   3.67m  B   1.98m  C   2.60m   (plane 3.22e+09)
+   tree top-1 (x4)          555555555 x   555555555 (x4)
+      cap 2^29     2 x 3   6 x          1.16e+11 pts  216 a2a  fits ABC  A   7.00m  B   4.19m  C   4.49m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          7.73e+10 pts   72 a2a  fits -BC  A   4.29m  B   2.41m  C   2.84m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          7.73e+10 pts   36 a2a  fits --C  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+   recip j=k/2 Q_t r       2222222222 x  1111111113 (x1)
+      cap 2^29     9 x 4  36 x          1.74e+11 pts  324 a2a  fits ABC  A  10.51m  B   6.29m  C   6.73m   (plane 5.37e+08)
+      cap 2^30     5 x 2  10 x          9.66e+10 pts   90 a2a  fits -BC  A   5.36m  B   3.02m  C   3.55m   (plane 1.07e+09)
+      cap 3*2^29   5 x 1   5 x          7.25e+10 pts   45 a2a  fits -BC  A   4.22m  B   2.38m  C   2.79m   (plane 1.61e+09)
+      cap 2^31     3 x 1   3 x           5.8e+10 pts   27 a2a  fits --C  A   3.49m  B   1.89m  C   2.48m   (plane 2.15e+09)
+      cap 3*2^30   3 x 1   3 x           5.8e+10 pts   27 a2a  fits --C  A   3.49m  B   1.89m  C   2.48m   (plane 2.15e+09)
+   recip j=k/2 r d         1111111113 x  1111111114 (x1)
+      cap 2^29     4 x 5  20 x          9.66e+10 pts  180 a2a  fits ABC  A   5.84m  B   3.49m  C   3.74m   (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x           5.8e+10 pts   54 a2a  fits -BC  A   3.22m  B   1.81m  C   2.13m   (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x          4.35e+10 pts   27 a2a  fits -BC  A   2.53m  B   1.43m  C   1.68m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          3.87e+10 pts   18 a2a  fits --C  A   2.33m  B   1.26m  C   1.65m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           2.9e+10 pts    9 a2a  fits ---  A   1.83m  B   0.99m  C   1.30m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       1111111114 x   555555557 (x1)
+      cap 2^29     5 x 2  10 x          4.83e+10 pts   90 a2a  fits ABC  A   2.92m  B   1.75m  C   1.87m   (plane 5.37e+08)
+      cap 2^30     3 x 1   3 x           2.9e+10 pts   27 a2a  fits -BC  A   1.61m  B   0.91m  C   1.06m   (plane 1.07e+09)
+      cap 3*2^29   3 x 1   3 x           2.9e+10 pts   27 a2a  fits -BC  A   1.61m  B   0.91m  C   1.06m   (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+   recip j=k/4 r d          555555557 x   555555558 (x1)
+      cap 2^29     2 x 3   6 x           2.9e+10 pts   54 a2a  fits ABC  A   1.75m  B   1.05m  C   1.12m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.93e+10 pts   18 a2a  fits -BC  A   1.07m  B   0.60m  C   0.71m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+   recip j=k/8 Q_t r        555555558 x   277777779 (x1)
+      cap 2^29     3 x 1   3 x          1.45e+10 pts   27 a2a  fits ABC  A   0.88m  B   0.52m  C   0.56m   (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+   recip j=k/8 r d          277777779 x   277777780 (x1)
+      cap 2^29     1 x 2   2 x          9.66e+09 pts   18 a2a  fits ABC  A   0.58m  B   0.35m  C   0.37m   (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          7.25e+09 pts    9 a2a  fits ABC  A   0.46m  B   0.28m  C   0.29m   (plane 8.05e+08)
+      cap 2^31     1 x 1   1 x          9.66e+09 pts    9 a2a  fits -BC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          7.25e+09 pts    9 a2a  fits ABC  A   0.46m  B   0.28m  C   0.29m   (plane 8.05e+08)
+   div A_h mu (low cut)    4444444445 x  2222222224 (x1)
+      cap 2^29    16 x 9  116 x           5.6e+11 pts 1044 a2a  fits ABC  A  33.85m  B  20.27m  C  21.69m   (plane 5.37e+08)
+      cap 2^30     9 x 4  30 x           2.9e+11 pts  270 a2a  fits -BC  A  16.08m  B   9.05m  C  10.65m   (plane 1.07e+09)
+      cap 3*2^29   6 x 3  16 x          2.32e+11 pts  144 a2a  fits -BC  A  13.51m  B   7.60m  C   8.94m   (plane 1.61e+09)
+      cap 2^31     5 x 2   9 x          1.74e+11 pts   81 a2a  fits --C  A  10.48m  B   5.66m  C   7.44m   (plane 2.15e+09)
+      cap 3*2^30   5 x 1   5 x          1.45e+11 pts   45 a2a  fits ---  A   9.17m  B   4.96m  C   6.51m   (plane 3.22e+09)
+   div X Q (mod B^w)       2222222223 x  2222222222 (x1)
+      cap 2^29     8 x 9  44 x          2.13e+11 pts  396 a2a  fits ABC  A  12.84m  B   7.69m  C   8.23m   (plane 5.37e+08)
+      cap 2^30     4 x 5  14 x          1.35e+11 pts  126 a2a  fits -BC  A   7.51m  B   4.22m  C   4.97m   (plane 1.07e+09)
+      cap 3*2^29   3 x 3   8 x          1.16e+11 pts   72 a2a  fits -BC  A   6.75m  B   3.80m  C   4.47m   (plane 1.61e+09)
+      cap 2^31     2 x 3   5 x          9.66e+10 pts   45 a2a  fits --C  A   5.82m  B   3.15m  C   4.13m   (plane 2.15e+09)
+      cap 3*2^30   1 x 3   3 x           8.7e+10 pts   27 a2a  fits ---  A   5.50m  B   2.97m  C   3.91m   (plane 3.22e+09)
+   totals over these shapes (D = 4e+10):
+      cap 2^29     1.454e+12 transform points,  2709 all-to-alls under C, every piece fits: A B C  A 87.85 s  B 52.58 s  C 56.29 s
+      cap 2^30     8.407e+11 transform points,   783 all-to-alls under C, every piece fits: B C  A 46.64 s  B 26.25 s  C 30.88 s
+      cap 3*2^29   6.692e+11 transform points,   432 all-to-alls under C, every piece fits: B C  A 38.91 s  B 21.91 s  C 25.75 s
+      cap 2^31     5.798e+11 transform points,   279 all-to-alls under C, every piece fits: C  A 34.85 s  B 18.85 s  C 24.68 s
+      cap 3*2^30   4.856e+11 transform points,   198 all-to-alls under C, every piece fits:  A 30.06 s  B 16.37 s  C 21.07 s
+
+2/3. D = 1e+11 digits (nq = 5555555555 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 24.0 GiB, modelled time per strategy (s)
+   tree top (x2)           2777777777 x  2777777777 (x2)
+      cap 2^29    10 x 11 110 x          1.06e+12 pts 1980 a2a  fits ABC  A  64.21m  B  38.43m  C  41.15m   (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x           5.8e+11 pts  540 a2a  fits -BC  A  32.17m  B  18.10m  C  21.29m   (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x          4.35e+11 pts  270 a2a  fits -BC  A  25.33m  B  14.26m  C  16.77m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          3.09e+11 pts  144 a2a  fits --C  A  18.64m  B  10.07m  C  13.22m   (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          2.32e+11 pts   72 a2a  fits ---  A  14.68m  B   7.93m  C  10.41m   (plane 3.22e+09)
+   tree top-1 (x4)         1388888888 x  1388888888 (x4)
+      cap 2^29     5 x 6  30 x           5.8e+11 pts 1080 a2a  fits ABC  A  35.02m  B  20.96m  C  22.44m   (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          3.09e+11 pts  288 a2a  fits -BC  A  17.16m  B   9.65m  C  11.36m   (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          2.32e+11 pts  144 a2a  fits -BC  A  13.51m  B   7.60m  C   8.94m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          1.55e+11 pts   72 a2a  fits --C  A   9.32m  B   5.03m  C   6.61m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.16e+11 pts   36 a2a  fits ---  A   7.34m  B   3.96m  C   5.21m   (plane 3.22e+09)
+   recip j=k/2 Q_t r       5555555555 x  2777777779 (x1)
+      cap 2^29    20 x 11 220 x          1.06e+12 pts 1980 a2a  fits ABC  A  64.21m  B  38.43m  C  41.15m   (plane 5.37e+08)
+      cap 2^30    11 x 5  55 x          5.32e+11 pts  495 a2a  fits -BC  A  29.49m  B  16.59m  C  19.52m   (plane 1.07e+09)
+      cap 3*2^29   9 x 3  27 x          3.91e+11 pts  243 a2a  fits -BC  A  22.80m  B  12.83m  C  15.09m   (plane 1.61e+09)
+      cap 2^31     5 x 3  15 x           2.9e+11 pts  135 a2a  fits --C  A  17.47m  B   9.44m  C  12.40m   (plane 2.15e+09)
+      cap 3*2^30   4 x 2   8 x          2.32e+11 pts   72 a2a  fits ---  A  14.68m  B   7.93m  C  10.41m   (plane 3.22e+09)
+   recip j=k/2 r d         2777777779 x  2777777780 (x1)
+      cap 2^29    10 x 11 110 x          5.32e+11 pts  990 a2a  fits ABC  A  32.10m  B  19.22m  C  20.57m   (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x           2.9e+11 pts  270 a2a  fits -BC  A  16.08m  B   9.05m  C  10.65m   (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x          2.17e+11 pts  135 a2a  fits -BC  A  12.67m  B   7.13m  C   8.38m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          1.55e+11 pts   72 a2a  fits --C  A   9.32m  B   5.03m  C   6.61m   (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          1.16e+11 pts   36 a2a  fits ---  A   7.34m  B   3.96m  C   5.21m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       2777777780 x  1388888890 (x1)
+      cap 2^29    11 x 5  55 x          2.66e+11 pts  495 a2a  fits ABC  A  16.05m  B   9.61m  C  10.29m   (plane 5.37e+08)
+      cap 2^30     5 x 3  15 x          1.45e+11 pts  135 a2a  fits -BC  A   8.04m  B   4.53m  C   5.32m   (plane 1.07e+09)
+      cap 3*2^29   4 x 2   8 x          1.16e+11 pts   72 a2a  fits -BC  A   6.75m  B   3.80m  C   4.47m   (plane 1.61e+09)
+      cap 2^31     2 x 2   4 x          7.73e+10 pts   36 a2a  fits --C  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   2 x 1   2 x           5.8e+10 pts   18 a2a  fits ---  A   3.67m  B   1.98m  C   2.60m   (plane 3.22e+09)
+   recip j=k/4 r d         1388888890 x  1388888891 (x1)
+      cap 2^29     5 x 6  30 x          1.45e+11 pts  270 a2a  fits ABC  A   8.76m  B   5.24m  C   5.61m   (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          7.73e+10 pts   72 a2a  fits -BC  A   4.29m  B   2.41m  C   2.84m   (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          3.87e+10 pts   18 a2a  fits --C  A   2.33m  B   1.26m  C   1.65m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           2.9e+10 pts    9 a2a  fits ---  A   1.83m  B   0.99m  C   1.30m   (plane 3.22e+09)
+   recip j=k/8 Q_t r       1388888892 x   694444446 (x1)
+      cap 2^29     5 x 3  15 x          7.25e+10 pts  135 a2a  fits ABC  A   4.38m  B   2.62m  C   2.81m   (plane 5.37e+08)
+      cap 2^30     2 x 2   4 x          3.87e+10 pts   36 a2a  fits -BC  A   2.14m  B   1.21m  C   1.42m   (plane 1.07e+09)
+      cap 3*2^29   2 x 1   2 x           2.9e+10 pts   18 a2a  fits -BC  A   1.69m  B   0.95m  C   1.12m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+   recip j=k/8 r d          694444446 x   694444447 (x1)
+      cap 2^29     2 x 4   8 x          3.87e+10 pts   72 a2a  fits ABC  A   2.33m  B   1.40m  C   1.50m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.93e+10 pts   18 a2a  fits -BC  A   1.07m  B   0.60m  C   0.71m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits --C  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+   div A_h mu (low cut)   11111111111 x  5555555557 (x1)
+      cap 2^29    32 x 30 743 x          3.59e+12 pts 6687 a2a  fits ABC  A 216.84m  B 129.80m  C 138.96m   (plane 5.37e+08)
+      cap 2^30    20 x 11 175 x          1.69e+12 pts 1575 a2a  fits -BC  A  93.82m  B  52.80m  C  62.11m   (plane 1.07e+09)
+      cap 3*2^29  14 x 7  83 x           1.2e+12 pts  747 a2a  fits -BC  A  70.08m  B  39.44m  C  46.39m   (plane 1.61e+09)
+      cap 2^31    11 x 5  45 x           8.7e+11 pts  405 a2a  fits --C  A  52.42m  B  28.32m  C  37.19m   (plane 2.15e+09)
+      cap 3*2^30   9 x 3  24 x          6.96e+11 pts  216 a2a  fits ---  A  44.03m  B  23.79m  C  31.24m   (plane 3.22e+09)
+   div X Q (mod B^w)       5555555556 x  5555555555 (x1)
+      cap 2^29    19 x 23 239 x          1.15e+12 pts 2151 a2a  fits ABC  A  69.75m  B  41.75m  C  44.70m   (plane 5.37e+08)
+      cap 2^30    10 x 11 65 x          6.28e+11 pts  585 a2a  fits -BC  A  34.85m  B  19.61m  C  23.07m   (plane 1.07e+09)
+      cap 3*2^29   7 x 7  28 x          4.06e+11 pts  252 a2a  fits -BC  A  23.64m  B  13.30m  C  15.65m   (plane 1.61e+09)
+      cap 2^31     5 x 6  20 x          3.87e+11 pts  180 a2a  fits --C  A  23.30m  B  12.59m  C  16.53m   (plane 2.15e+09)
+      cap 3*2^30   3 x 5  11 x          3.19e+11 pts   99 a2a  fits ---  A  20.18m  B  10.90m  C  14.32m   (plane 3.22e+09)
+   totals over these shapes (D = 1e+11):
+      cap 2^29     8.504e+12 transform points, 15840 all-to-alls under C, every piece fits: A B C  A 513.66 s  B 307.47 s  C 329.16 s
+      cap 2^30      4.31e+12 transform points,  4014 all-to-alls under C, every piece fits: B C  A 239.10 s  B 134.56 s  C 158.29 s
+      cap 3*2^29   3.102e+12 transform points,  1926 all-to-alls under C, every piece fits: B C  A 180.69 s  B 101.69 s  C 119.62 s
+      cap 2^31     2.319e+12 transform points,  1080 all-to-alls under C, every piece fits: C  A 139.79 s  B 75.52 s  C 99.18 s
+      cap 3*2^30   1.831e+12 transform points,   576 all-to-alls under C, every piece fits:  A 115.76 s  B 62.56 s  C 82.09 s
+
+labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modelled (3 2^k planes, or P = 3);
+        the grid's shifted adds, the cache (off by default in the single-node tier) and the tree's pairing are not counted
+t_cap: P = 3 primes, per-APU plane budget 32.0 GiB
+
+1. plane bytes per APU (GiB) by plane size -- the forms t_strategy measured at P = 4 (exact); at P = 3 by the same formulas
+   plane     A (1 APU) B (P APUs) C (4 APUs)
+   2^26           2.0        1.0        0.8 
+   2^27           4.0        2.0        1.5 
+   2^28           8.0        4.0        3.0 
+   3*2^26         6.0        3.0        2.2 
+   2^29          16.0        8.0        6.0 
+   3*2^27        12.0        6.0        4.5 
+   2^30          32.0       16.0       12.0 
+   3*2^28        24.0       12.0        9.0 
+   2^31          64.0*      32.0       24.0 
+   3*2^29        48.0*      24.0       18.0 
+   2^32         128.0*      64.0*      48.0*
+   3*2^30        96.0*      48.0*      36.0*
+   2^33         256.0*     128.0*      96.0*
+   3*2^31       192.0*      96.0*      72.0*
+   (* = over the 32.0 GiB budget)
+   the largest plane each strategy fits in the budget:  A 2^30  B 2^31  C 2^31
+   budget each strategy needs for a plane of 2^31 / 3*2^30 / 2^32 points: A 64/96/128, B 32/48/64, C 24/36/48 GiB
+
+2/3. D = 4e+10 digits (nq = 2222222222 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 32.0 GiB, modelled time per strategy (s)
+   tree top (x2)           1111111111 x  1111111111 (x2)
+      cap 2^29     4 x 5  20 x          1.93e+11 pts  360 a2a  fits ABC  A  11.67m  B   6.99m  C   7.48m   (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x          1.16e+11 pts  108 a2a  fits ABC  A   6.43m  B   3.62m  C   4.26m   (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x           8.7e+10 pts   54 a2a  fits -BC  A   5.07m  B   2.85m  C   3.35m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          7.73e+10 pts   36 a2a  fits -BC  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           5.8e+10 pts   18 a2a  fits ---  A   3.67m  B   1.98m  C   2.60m   (plane 3.22e+09)
+   tree top-1 (x4)          555555555 x   555555555 (x4)
+      cap 2^29     2 x 3   6 x          1.16e+11 pts  216 a2a  fits ABC  A   7.00m  B   4.19m  C   4.49m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          7.73e+10 pts   72 a2a  fits ABC  A   4.29m  B   2.41m  C   2.84m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          7.73e+10 pts   36 a2a  fits -BC  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+   recip j=k/2 Q_t r       2222222222 x  1111111113 (x1)
+      cap 2^29     9 x 4  36 x          1.74e+11 pts  324 a2a  fits ABC  A  10.51m  B   6.29m  C   6.73m   (plane 5.37e+08)
+      cap 2^30     5 x 2  10 x          9.66e+10 pts   90 a2a  fits ABC  A   5.36m  B   3.02m  C   3.55m   (plane 1.07e+09)
+      cap 3*2^29   5 x 1   5 x          7.25e+10 pts   45 a2a  fits -BC  A   4.22m  B   2.38m  C   2.79m   (plane 1.61e+09)
+      cap 2^31     3 x 1   3 x           5.8e+10 pts   27 a2a  fits -BC  A   3.49m  B   1.89m  C   2.48m   (plane 2.15e+09)
+      cap 3*2^30   3 x 1   3 x           5.8e+10 pts   27 a2a  fits -BC  A   3.49m  B   1.89m  C   2.48m   (plane 2.15e+09)
+   recip j=k/2 r d         1111111113 x  1111111114 (x1)
+      cap 2^29     4 x 5  20 x          9.66e+10 pts  180 a2a  fits ABC  A   5.84m  B   3.49m  C   3.74m   (plane 5.37e+08)
+      cap 2^30     2 x 3   6 x           5.8e+10 pts   54 a2a  fits ABC  A   3.22m  B   1.81m  C   2.13m   (plane 1.07e+09)
+      cap 3*2^29   1 x 3   3 x          4.35e+10 pts   27 a2a  fits -BC  A   2.53m  B   1.43m  C   1.68m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          3.87e+10 pts   18 a2a  fits -BC  A   2.33m  B   1.26m  C   1.65m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           2.9e+10 pts    9 a2a  fits ---  A   1.83m  B   0.99m  C   1.30m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       1111111114 x   555555557 (x1)
+      cap 2^29     5 x 2  10 x          4.83e+10 pts   90 a2a  fits ABC  A   2.92m  B   1.75m  C   1.87m   (plane 5.37e+08)
+      cap 2^30     3 x 1   3 x           2.9e+10 pts   27 a2a  fits ABC  A   1.61m  B   0.91m  C   1.06m   (plane 1.07e+09)
+      cap 3*2^29   3 x 1   3 x           2.9e+10 pts   27 a2a  fits ABC  A   1.61m  B   0.91m  C   1.06m   (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+   recip j=k/4 r d          555555557 x   555555558 (x1)
+      cap 2^29     2 x 3   6 x           2.9e+10 pts   54 a2a  fits ABC  A   1.75m  B   1.05m  C   1.12m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.93e+10 pts   18 a2a  fits ABC  A   1.07m  B   0.60m  C   0.71m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+   recip j=k/8 Q_t r        555555558 x   277777779 (x1)
+      cap 2^29     3 x 1   3 x          1.45e+10 pts   27 a2a  fits ABC  A   0.88m  B   0.52m  C   0.56m   (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 2^31     1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+   recip j=k/8 r d          277777779 x   277777780 (x1)
+      cap 2^29     1 x 2   2 x          9.66e+09 pts   18 a2a  fits ABC  A   0.58m  B   0.35m  C   0.37m   (plane 5.37e+08)
+      cap 2^30     1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          7.25e+09 pts    9 a2a  fits ABC  A   0.46m  B   0.28m  C   0.29m   (plane 8.05e+08)
+      cap 2^31     1 x 1   1 x          9.66e+09 pts    9 a2a  fits ABC  A   0.54m  B   0.30m  C   0.35m   (plane 1.07e+09)
+      cap 3*2^30   1 x 1   1 x          7.25e+09 pts    9 a2a  fits ABC  A   0.46m  B   0.28m  C   0.29m   (plane 8.05e+08)
+   div A_h mu (low cut)    4444444445 x  2222222224 (x1)
+      cap 2^29    16 x 9  116 x           5.6e+11 pts 1044 a2a  fits ABC  A  33.85m  B  20.27m  C  21.69m   (plane 5.37e+08)
+      cap 2^30     9 x 4  30 x           2.9e+11 pts  270 a2a  fits ABC  A  16.08m  B   9.05m  C  10.65m   (plane 1.07e+09)
+      cap 3*2^29   6 x 3  16 x          2.32e+11 pts  144 a2a  fits -BC  A  13.51m  B   7.60m  C   8.94m   (plane 1.61e+09)
+      cap 2^31     5 x 2   9 x          1.74e+11 pts   81 a2a  fits -BC  A  10.48m  B   5.66m  C   7.44m   (plane 2.15e+09)
+      cap 3*2^30   5 x 1   5 x          1.45e+11 pts   45 a2a  fits ---  A   9.17m  B   4.96m  C   6.51m   (plane 3.22e+09)
+   div X Q (mod B^w)       2222222223 x  2222222222 (x1)
+      cap 2^29     8 x 9  44 x          2.13e+11 pts  396 a2a  fits ABC  A  12.84m  B   7.69m  C   8.23m   (plane 5.37e+08)
+      cap 2^30     4 x 5  14 x          1.35e+11 pts  126 a2a  fits ABC  A   7.51m  B   4.22m  C   4.97m   (plane 1.07e+09)
+      cap 3*2^29   3 x 3   8 x          1.16e+11 pts   72 a2a  fits -BC  A   6.75m  B   3.80m  C   4.47m   (plane 1.61e+09)
+      cap 2^31     2 x 3   5 x          9.66e+10 pts   45 a2a  fits -BC  A   5.82m  B   3.15m  C   4.13m   (plane 2.15e+09)
+      cap 3*2^30   1 x 3   3 x           8.7e+10 pts   27 a2a  fits ---  A   5.50m  B   2.97m  C   3.91m   (plane 3.22e+09)
+   totals over these shapes (D = 4e+10):
+      cap 2^29     1.454e+12 transform points,  2709 all-to-alls under C, every piece fits: A B C  A 87.85 s  B 52.58 s  C 56.29 s
+      cap 2^30     8.407e+11 transform points,   783 all-to-alls under C, every piece fits: A B C  A 46.64 s  B 26.25 s  C 30.88 s
+      cap 3*2^29   6.692e+11 transform points,   432 all-to-alls under C, every piece fits: B C  A 38.91 s  B 21.91 s  C 25.75 s
+      cap 2^31     5.798e+11 transform points,   279 all-to-alls under C, every piece fits: B C  A 34.85 s  B 18.85 s  C 24.68 s
+      cap 3*2^30   4.856e+11 transform points,   198 all-to-alls under C, every piece fits:  A 30.06 s  B 16.37 s  C 21.07 s
+
+2/3. D = 1e+11 digits (nq = 5555555555 limbs = D/18): per shape and cap -- grid ka x kb, pieces formed x plane, transform points (3 P per piece), all-to-alls under C, strategies fitting every piece in 32.0 GiB, modelled time per strategy (s)
+   tree top (x2)           2777777777 x  2777777777 (x2)
+      cap 2^29    10 x 11 110 x          1.06e+12 pts 1980 a2a  fits ABC  A  64.21m  B  38.43m  C  41.15m   (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x           5.8e+11 pts  540 a2a  fits ABC  A  32.17m  B  18.10m  C  21.29m   (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x          4.35e+11 pts  270 a2a  fits -BC  A  25.33m  B  14.26m  C  16.77m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          3.09e+11 pts  144 a2a  fits -BC  A  18.64m  B  10.07m  C  13.22m   (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          2.32e+11 pts   72 a2a  fits ---  A  14.68m  B   7.93m  C  10.41m   (plane 3.22e+09)
+   tree top-1 (x4)         1388888888 x  1388888888 (x4)
+      cap 2^29     5 x 6  30 x           5.8e+11 pts 1080 a2a  fits ABC  A  35.02m  B  20.96m  C  22.44m   (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          3.09e+11 pts  288 a2a  fits ABC  A  17.16m  B   9.65m  C  11.36m   (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x          2.32e+11 pts  144 a2a  fits -BC  A  13.51m  B   7.60m  C   8.94m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          1.55e+11 pts   72 a2a  fits -BC  A   9.32m  B   5.03m  C   6.61m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.16e+11 pts   36 a2a  fits ---  A   7.34m  B   3.96m  C   5.21m   (plane 3.22e+09)
+   recip j=k/2 Q_t r       5555555555 x  2777777779 (x1)
+      cap 2^29    20 x 11 220 x          1.06e+12 pts 1980 a2a  fits ABC  A  64.21m  B  38.43m  C  41.15m   (plane 5.37e+08)
+      cap 2^30    11 x 5  55 x          5.32e+11 pts  495 a2a  fits ABC  A  29.49m  B  16.59m  C  19.52m   (plane 1.07e+09)
+      cap 3*2^29   9 x 3  27 x          3.91e+11 pts  243 a2a  fits -BC  A  22.80m  B  12.83m  C  15.09m   (plane 1.61e+09)
+      cap 2^31     5 x 3  15 x           2.9e+11 pts  135 a2a  fits -BC  A  17.47m  B   9.44m  C  12.40m   (plane 2.15e+09)
+      cap 3*2^30   4 x 2   8 x          2.32e+11 pts   72 a2a  fits ---  A  14.68m  B   7.93m  C  10.41m   (plane 3.22e+09)
+   recip j=k/2 r d         2777777779 x  2777777780 (x1)
+      cap 2^29    10 x 11 110 x          5.32e+11 pts  990 a2a  fits ABC  A  32.10m  B  19.22m  C  20.57m   (plane 5.37e+08)
+      cap 2^30     5 x 6  30 x           2.9e+11 pts  270 a2a  fits ABC  A  16.08m  B   9.05m  C  10.65m   (plane 1.07e+09)
+      cap 3*2^29   3 x 5  15 x          2.17e+11 pts  135 a2a  fits -BC  A  12.67m  B   7.13m  C   8.38m   (plane 1.61e+09)
+      cap 2^31     2 x 4   8 x          1.55e+11 pts   72 a2a  fits -BC  A   9.32m  B   5.03m  C   6.61m   (plane 2.15e+09)
+      cap 3*2^30   2 x 2   4 x          1.16e+11 pts   36 a2a  fits ---  A   7.34m  B   3.96m  C   5.21m   (plane 3.22e+09)
+   recip j=k/4 Q_t r       2777777780 x  1388888890 (x1)
+      cap 2^29    11 x 5  55 x          2.66e+11 pts  495 a2a  fits ABC  A  16.05m  B   9.61m  C  10.29m   (plane 5.37e+08)
+      cap 2^30     5 x 3  15 x          1.45e+11 pts  135 a2a  fits ABC  A   8.04m  B   4.53m  C   5.32m   (plane 1.07e+09)
+      cap 3*2^29   4 x 2   8 x          1.16e+11 pts   72 a2a  fits -BC  A   6.75m  B   3.80m  C   4.47m   (plane 1.61e+09)
+      cap 2^31     2 x 2   4 x          7.73e+10 pts   36 a2a  fits -BC  A   4.66m  B   2.52m  C   3.31m   (plane 2.15e+09)
+      cap 3*2^30   2 x 1   2 x           5.8e+10 pts   18 a2a  fits ---  A   3.67m  B   1.98m  C   2.60m   (plane 3.22e+09)
+   recip j=k/4 r d         1388888890 x  1388888891 (x1)
+      cap 2^29     5 x 6  30 x          1.45e+11 pts  270 a2a  fits ABC  A   8.76m  B   5.24m  C   5.61m   (plane 5.37e+08)
+      cap 2^30     2 x 4   8 x          7.73e+10 pts   72 a2a  fits ABC  A   4.29m  B   2.41m  C   2.84m   (plane 1.07e+09)
+      cap 3*2^29   2 x 2   4 x           5.8e+10 pts   36 a2a  fits -BC  A   3.38m  B   1.90m  C   2.24m   (plane 1.61e+09)
+      cap 2^31     1 x 2   2 x          3.87e+10 pts   18 a2a  fits -BC  A   2.33m  B   1.26m  C   1.65m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x           2.9e+10 pts    9 a2a  fits ---  A   1.83m  B   0.99m  C   1.30m   (plane 3.22e+09)
+   recip j=k/8 Q_t r       1388888892 x   694444446 (x1)
+      cap 2^29     5 x 3  15 x          7.25e+10 pts  135 a2a  fits ABC  A   4.38m  B   2.62m  C   2.81m   (plane 5.37e+08)
+      cap 2^30     2 x 2   4 x          3.87e+10 pts   36 a2a  fits ABC  A   2.14m  B   1.21m  C   1.42m   (plane 1.07e+09)
+      cap 3*2^29   2 x 1   2 x           2.9e+10 pts   18 a2a  fits -BC  A   1.69m  B   0.95m  C   1.12m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+   recip j=k/8 r d          694444446 x   694444447 (x1)
+      cap 2^29     2 x 4   8 x          3.87e+10 pts   72 a2a  fits ABC  A   2.33m  B   1.40m  C   1.50m   (plane 5.37e+08)
+      cap 2^30     1 x 2   2 x          1.93e+10 pts   18 a2a  fits ABC  A   1.07m  B   0.60m  C   0.71m   (plane 1.07e+09)
+      cap 3*2^29   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+      cap 2^31     1 x 1   1 x          1.93e+10 pts    9 a2a  fits -BC  A   1.16m  B   0.63m  C   0.83m   (plane 2.15e+09)
+      cap 3*2^30   1 x 1   1 x          1.45e+10 pts    9 a2a  fits -BC  A   0.84m  B   0.48m  C   0.56m   (plane 1.61e+09)
+   div A_h mu (low cut)   11111111111 x  5555555557 (x1)
+      cap 2^29    32 x 30 743 x          3.59e+12 pts 6687 a2a  fits ABC  A 216.84m  B 129.80m  C 138.96m   (plane 5.37e+08)
+      cap 2^30    20 x 11 175 x          1.69e+12 pts 1575 a2a  fits ABC  A  93.82m  B  52.80m  C  62.11m   (plane 1.07e+09)
+      cap 3*2^29  14 x 7  83 x           1.2e+12 pts  747 a2a  fits -BC  A  70.08m  B  39.44m  C  46.39m   (plane 1.61e+09)
+      cap 2^31    11 x 5  45 x           8.7e+11 pts  405 a2a  fits -BC  A  52.42m  B  28.32m  C  37.19m   (plane 2.15e+09)
+      cap 3*2^30   9 x 3  24 x          6.96e+11 pts  216 a2a  fits ---  A  44.03m  B  23.79m  C  31.24m   (plane 3.22e+09)
+   div X Q (mod B^w)       5555555556 x  5555555555 (x1)
+      cap 2^29    19 x 23 239 x          1.15e+12 pts 2151 a2a  fits ABC  A  69.75m  B  41.75m  C  44.70m   (plane 5.37e+08)
+      cap 2^30    10 x 11 65 x          6.28e+11 pts  585 a2a  fits ABC  A  34.85m  B  19.61m  C  23.07m   (plane 1.07e+09)
+      cap 3*2^29   7 x 7  28 x          4.06e+11 pts  252 a2a  fits -BC  A  23.64m  B  13.30m  C  15.65m   (plane 1.61e+09)
+      cap 2^31     5 x 6  20 x          3.87e+11 pts  180 a2a  fits -BC  A  23.30m  B  12.59m  C  16.53m   (plane 2.15e+09)
+      cap 3*2^30   3 x 5  11 x          3.19e+11 pts   99 a2a  fits ---  A  20.18m  B  10.90m  C  14.32m   (plane 3.22e+09)
+   totals over these shapes (D = 1e+11):
+      cap 2^29     8.504e+12 transform points, 15840 all-to-alls under C, every piece fits: A B C  A 513.66 s  B 307.47 s  C 329.16 s
+      cap 2^30      4.31e+12 transform points,  4014 all-to-alls under C, every piece fits: A B C  A 239.10 s  B 134.56 s  C 158.29 s
+      cap 3*2^29   3.102e+12 transform points,  1926 all-to-alls under C, every piece fits: B C  A 180.69 s  B 101.69 s  C 119.62 s
+      cap 2^31     2.319e+12 transform points,  1080 all-to-alls under C, every piece fits: B C  A 139.79 s  B 75.52 s  C 99.18 s
+      cap 3*2^30   1.831e+12 transform points,   576 all-to-alls under C, every piece fits:  A 115.76 s  B 62.56 s  C 82.09 s
+
+labels: bytes and grids exact (the code's formulas); times: E0 medians at P = 4 on 2^k planes = measured, 'm' = modelled (3 2^k planes, or P = 3);
+        the grid's shifted adds, the cache (off by default in the single-node tier) and the tree's pairing are not counted
