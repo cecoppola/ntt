@@ -53,9 +53,9 @@ static void part1(void)
         for (int k = 20; k <= 33; k++) {
             if (k < 26 && k != 20) continue;
             mpz_mul_2exp(t, D, k); mpz_set(u, P);
-            printf(" %6.1f", mpz_get_d(u) / mpz_get_d(t));
+            printf(" %6.3g", mpz_get_d(u) / mpz_get_d(t));
         }
-        for (int k = 31; k <= 33; k++) { mpz_mul_2exp(t, D, k); mpz_mul_ui(t, t, 3); printf(" %7.2f", mpz_get_d(P) / mpz_get_d(t)); }
+        for (int k = 31; k <= 33; k++) { mpz_mul_2exp(t, D, k); mpz_mul_ui(t, t, 3); printf(" %7.3g", mpz_get_d(P) / mpz_get_d(t)); }
         printf("\n");
         if (drop >= 0) {
             mpz_mul_2exp(t, D, 33); double m33 = mpz_get_d(P) / mpz_get_d(t);
