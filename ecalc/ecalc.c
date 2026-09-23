@@ -224,6 +224,41 @@ static int out_stage(struct out_ctx *c)
  * the end of the division: 113 s of wait at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
  * (ECALC_CKPT_TOP_SLACK seconds, default 1): a set the disk cannot finish in time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
+/* Phase 13b P (PLAN 31, the K axis): the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
+ * 31, 3x30) sets the three knobs that make a cap: POOL_LOG (30 or 31: the plane pools' base, the batch and mdev tiers' 2^pool_log),
+ * RNS_PLANES_3Q30 (the 3 2^k planes, whose default size rule is on below 5e10 digits at POOL_LOG 31) and DIST_LOGN_TEST (the
+ * single-node dist tier's 2^k cap = pool_log; without it a 2^31 product would grow a 2^30 pool inside a phase and abort).
+ * ECALC_PLANE_CAP=fit takes the largest cap whose node total (binsplit_node_bytes: the plane pools at the prime count + the
+ * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: nothing changes (POOL_LOG and
+ * the size rule as before).  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served
+ * here, before rns_init, so the layout report needs no device. */
+static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
+{
+    const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
+    if (e && *e) {
+        static const char *nm[4][3] = { { "2^30", "30", "1073741824" }, { "3*2^29", "3x29", "1610612736" }, { "2^31", "31", "2147483648" }, { "3*2^30", "3x30", "3221225472" } };
+        for (int i = 0; i < 4 && c < 0; i++) for (int j = 0; j < 3; j++) if (!strcmp(e, nm[i][j])) { c = i; break; }
+        if (c < 0 && !strcmp(e, "fit")) {
+            int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
+            double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
+            for (c = 3; c > 0; c--) if ((double)binsplit_node_bytes(N, sz, c, ec_np_init(), 0, 0, 0) <= budget) break;
+            if (verbose) printf("ECALC_PLANE_CAP=fit: plane cap %s (node %.1f GB of %.0f at %d primes)\n", bs_cap_name[c], binsplit_node_bytes(N, sz, c, ec_np_init(), 0, 0, 0) * 1e-9, budget * 1e-9, ec_np_init());
+        }
+        if (c < 0) { fprintf(stderr, "ECALC_PLANE_CAP=%s: one of 2^30, 3*2^29, 2^31, 3*2^30 (or 30, 3x29, 31, 3x30), or fit\n", e); exit(2); }
+        char pl[8], b3[4]; snprintf(pl, sizeof pl, "%d", c >= 2 ? 31 : 30); snprintf(b3, sizeof b3, "%d", c & 1);
+        const char *knob[3] = { "POOL_LOG", "RNS_PLANES_3Q30", "DIST_LOGN_TEST" }, *val[3] = { pl, b3, pl };
+        for (int k = 0; k < 3; k++) {
+            const char *o = getenv(knob[k]);
+            if (o && *o && strcmp(o, "auto") && atoi(o) != atoi(val[k])) { fprintf(stderr, "ECALC_PLANE_CAP=%s sets %s=%s; the environment has %s=%s\n", e, knob[k], val[k], knob[k], o); exit(2); }
+            setenv(knob[k], val[k], 1);
+        }
+        { char ci[4]; snprintf(ci, sizeof ci, "%d", c); setenv("ECALC_PLANE_CAP_IDX", ci, 1); }
+        pool_log = c >= 2 ? 31 : 30;
+        if (verbose) printf("ECALC_PLANE_CAP: %s points (POOL_LOG=%s RNS_PLANES_3Q30=%s DIST_LOGN_TEST=%s)\n", bs_cap_name[c], pl, b3, pl);
+    }
+    if (getenv("BS_LAYOUT_ONLY")) { rns_preinit_pool_log(pool_log); binsplit_pregrow(N); }   /* prints the layout lines and exits */
+    return pool_log;
+}
 int main(int argc, char **argv)
 {
     if (argc < 2) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
@@ -248,6 +283,7 @@ int main(int argc, char **argv)
     int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
+    pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (off by default; exits for BS_LAYOUT_ONLY) */
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (ECALC_STAGING=2: the pre-B2 seed-sized staging) */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1) && (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
@@ -270,6 +306,7 @@ int main(int argc, char **argv)
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
+    if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { mem_report("init"); printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* Phase 13b P: the ceiling probe (the allocation edge in seconds) */
     double t_init = mem_now() - t00;
     if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
