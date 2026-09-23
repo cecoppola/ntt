@@ -459,9 +459,11 @@ static void complete_v(comm *c)
 /* ---- Phase 13b X (PLAN.md 31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (default 1) -- the v-exchange pipelined two deep
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
- * and k's inter stage is posted (the inter transport takes one at a time).  The x0/x1 area (the intra stage's) is shared;
- * the x2/x3 areas (the inter stage's send and receive, busy while the exchange is pending) alternate between two slots, each
- * the communicator's own and grown only while not pending: one more exchange's A + B bytes than depth 1. */
+ * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
+ * they are not back to back) is shared; each exchange's x2 (the inter send, A) and x3 (the inter receive, B) are a slot of
+ * A + max(A, B) bytes, two slots alternating, each the communicator's own and grown only while not pending.  The intra receive
+ * x1 (A) lives in the slot's x3 area: it is dead once reordered into x2, before the inter stage receives into x3.  Scratch:
+ * x0 + 2 (A + max(A, B)) against depth 1's x0 + 2 A + B -- with A ~ B one exchange's A more (4 S against 3 S). */
 static void need_vslot(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c);
@@ -476,9 +478,10 @@ static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size
     struct vtab t; vtab_build(c, scnt, sdsp, rcnt, &t, 0);
     size_t x0n = t.contig ? 0 : t.S;
     int k = p->v.pend ? p->v.slot ^ 1 : 0;              /* the slot the pending exchange does not hold */
-    need_vtmp(c, x0n + t.A + 4);                          /* (not used by the pending exchange) */
-    need_vslot(c, k, t.A + t.B + 4);
-    char *x0 = p->vtmp, *x1 = x0 + x0n, *x2 = p->vx[k], *x3 = x2 + t.A;
+    size_t mab = t.A > t.B ? t.A : t.B;
+    if (x0n) need_vtmp(c, x0n + 4);                       /* (not used by the pending exchange) */
+    need_vslot(c, k, t.A + mab + 4);
+    char *x0 = p->vtmp, *x2 = p->vx[k], *x3 = x2 + t.A, *x1 = x3;   /* x1 in the x3 area (see above) */
     HIP_CHECK(hipSetDevice(p->dev));
     int rec = lst_mode ? lst_new(p, a0, 1) : 0;
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);   /* under the pending exchange's inter stage */
