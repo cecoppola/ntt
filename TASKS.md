@@ -1,9 +1,41 @@
 # Outstanding tasks and opportunities
 
 Consolidated from PLAN §23, §26–§28, DECISIONS3.md, CODE_REDUCTION.md and the open-issue
-sections of `results/{R,G12,I,S12,Q,W,M11}.md`. State: `main` @ a73fb1d; one node computes
+sections of `results/{R,G12,I,S12,Q,W,M11}.md`. State (Phase 12, superseded by the status section below): `main` @ a73fb1d; one node computes
 4 × 10¹⁰ digits in 80.7 ± 1.2 s and 10¹¹ digits in 263 s; the regression is 21/21; the
 576-node estimate is ≈ 3.9 × 10¹³ digits in ≈ 4.0 min (modelled).
+
+## Status after Phase 13 (2026-09-23) — read this first
+
+`main` carries the chosen design as the default (Phase 13c, RESULTS §79–§80): three primes, `NTT_MODMUL=1`,
+`RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`, `COMM_ALLTOALLV_DEPTH=2`, `NTT_B1R=3 NTT_PLAN=1`.
+**The production target is 4.4 × 10¹³ digits on 576 nodes**, ≈ 3.9 min modelled. The sections below are the record as
+of Phase 12; this table supersedes their status.
+
+**Done**:
+- in Phase 13a (RESULTS §78): 1.1, 1.2, 1.3 (M13), 1.4, 1.7, 4.1 (N13), 6.1 / E1, E3 (P3), E0, E2 (S13),
+  H2, H3, H6, H7 (K13), H4, E9 part 1 (X13);
+- in Phase 13b (§79): E4 and 6.9 as `RNS_STRATEGY` (B13b); E5, answered: marginal, not built; E9 part 2 as
+  `COMM_ALLTOALLV_DEPTH` (X13b); the plane cap and the one-node ceiling (P13b); the design table (D13b).
+
+**Moved to `docs/TARGET_TASKS.md`**, to be done last, on the target, by another agent: 3.1–3.7, 6.5 / H8, and the
+target-only parts of 1.5 and 4.5 (tasks T1–T9 there).
+
+**Open on aac6, in the suggested order**:
+
+| # | item | why now |
+|---|---|---|
+| 1 | **One-node check of the grid steps** the model predicts (RESULTS §80), including the possible one at 1.42–1.44 × 10¹¹ (2³⁰) | the 4.4 × 10¹³ target was chosen by a modelled step position; two or three 20-min jobs |
+| 2 | **1.5**: two real nodes over SHMEM | X13b's two-node runs used TCP; SHMEM has never crossed a real fabric |
+| 3 | **Papers**: `digits_as_limbs.tex`, `digit_cost.tex` (in `~/xetex`) predate Phase 13 | three primes, the new defaults, the design table, the target |
+| 4 | **Initialization** (≈ 20 s of a 60 s single-node run): 2.1 (overlap the seeds with plane mapping), 2.2 (decimal `mul_1`), E8 / 6.4 (the seeds on the GPU) | the largest single-node lever, and it pays at every size |
+| 5 | **E7 / 6.3** middle and short products in the reciprocal; **E6 / 6.2** 5·2ᵏ and 7·2ᵏ lengths (also soften the grid steps); **2.3** the reciprocal at 10¹¹ | algorithmic time |
+| 6 | Kernels: the 5-stage top pass at 2³¹ (≈ 4 ms per transform, K13b), the stride penalty's cause, the general-map twiddle packs in `rns_dist.c` (X13b) | a few % each |
+| 7 | **H1** CPX (needs an administrator), **H5** SDMA; 2.4, 2.6 | smaller |
+| 8 | 1.6 (`DIST_LOGN_TEST` below the division's need, pre-existing), 4.2, 4.3, 4.4 | hygiene |
+| 9 | **PLAN §28 code reduction**, last (≈ 2,166 core lines). Once the Phase 13c defaults are settled, the superseded switches of Phase 13 (forced B, B4, `ECALC_PLANE_CAP=off`, depth 1, `NTT_MODMUL=0/2`, `NTT_MALL`, `NTT_B16_VAR`, the non-temporal pack, `DIST_TWREC`, `DIST_TPACK`, `NTT_B1R=0`, `NTT_PLAN=0`) are candidates too — the user's decision | |
+
+---
 
 Nothing here is a known defect. The one open correctness item from earlier phases — the
 leaf-transition race — was closed in Phase 12 with a named cause.
