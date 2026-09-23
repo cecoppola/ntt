@@ -79,16 +79,16 @@ def main():
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP (Phase 13b step 0: 3)")
-    ap.add_argument("--strategy", default="C", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
-    ap.add_argument("--cap", default=None, choices=list(mem_model.CAPS), help="the plane cap (default: the code's rule)")
-    ap.add_argument("--chunk", default="off", choices=M.CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB), at --chunk-mb")
+    ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
+    ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c; rule = the pre-13c size rule)")
+    ap.add_argument("--chunk", default="shift", choices=M.CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB), at --chunk-mb")
     ap.add_argument("--chunk-mb", type=float, default=M.CHUNK_MB)
-    ap.add_argument("--depth", type=int, default=1, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
+    ap.add_argument("--depth", type=int, default=2, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
     ap.add_argument("--modmul", type=int, default=1, choices=(0, 1), help="NTT_MODMUL (step 0: 1)")
     ap.add_argument("--legacy", action="store_true", help="the Phase 12 model: four primes, the Phase 10/11 phase table")
     a = ap.parse_args()
     if a.as_is: a.tree, a.staging = "flat", "cached"
-    design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb)
+    design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb)
     fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.1f GB/s per node"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d, NTT_MODMUL=%d" % (design.name(), design.np, design.modmul),
