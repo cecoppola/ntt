@@ -3345,3 +3345,63 @@ message cost modelled; part-file bandwidth assumed.
 `ECALC_NP=3` as the decimal default; `NTT_MODMUL=1` as the transform default; the two
 chunking switches on for the 576 layout; `ECALC_CKPT_TOP=2` if the top set is ever enabled.
 Each is measured above and none is adopted.
+
+## 79. Phase 13b — the conclusive design table for the 576-node target (2026-09-23; results/{B13b,D13b,P13b,X13b,K13b}.md, results/DESIGN_TABLE.md)
+
+**Step 0** (the user's approval at launch): three primes for decimal limbs and `NTT_MODMUL=1`
+are the defaults (c988218; regression 16/16 on them). Five agents, then an integrator
+measurement campaign (M-run: 68 completed runs on s24-26 and s24-30, 0 DIFFERS; full
+comparisons against the references on the first run of each block, VERIFY on every run).
+The merged tree passes the whole regression, **21/21** (jobs 21089 and 21088): the full
+4 × 10¹⁰ run is identical at 69.2 s, and the recheck and 10 stress runs pass.
+
+### What was built (all behind switches, off by default)
+
+| switch | what | measured |
+|---|---|---|
+| `RNS_STRATEGY=C\|B\|B4\|auto` (B) | prime-per-APU in the library; auto = B where it fits the pools | auto −9.4 % of the 4 × 10¹⁰ phases at the same peak (B13b); M-run: auto 59.1 s at 3·2³⁰, the best one-node row |
+| `ECALC_PLANE_CAP=2^30\|3*2^29\|2^31\|3*2^30\|fit` (P) | one switch for the plane cap; pool sizing follows the prime count | one-node ceilings at three primes: **1.44 × 10¹¹** (2³⁰), 1.30 × 10¹¹ (2³¹), 1.14 × 10¹¹ (3·2³⁰); the node fits while device + host ≤ ≈ 524 GB |
+| `COMM_ALLTOALLV_DEPTH=2`, `COMM_LAYER_TKERNEL=1` (X) | the uneven exchange two deep; one transpose kernel | general map hidden 1.4 % → 74.3 % on **two real nodes**; size 3 at 10⁹: −7 % wall (M-run, n = 3 each); +33 % exchange scratch |
+| `NTT_B1R=3 NTT_PLAN=1` (K) | register-blocked b1 pass; pass boundaries off the slow strides | transform 4–14 % (1.21–1.32 × at 2²⁵–2²⁶); M-run: auto 2³¹ 62.9 s (n = 8) against 65.4 s off (n = 3) = −3.8 % |
+| `design_table.py` (D) | the 96-row table, the calibration and the M-run import | the gate passes: C/auto within 2 % wall / 0.1 % peak at all four caps |
+
+### The table (576 nodes; `results/DESIGN_TABLE.md` has all 96 rows)
+
+Per-node inputs are measured, and the 576-node columns are modelled from them. Fabric
+bandwidth and per-message cost are assumed (100 GB/s per APU, PLAN §25). The chunk-round
+cost T_ROUND is **assumed** at 0.03 s (range 0.01–0.1 s): the M-run's chunk sweep
+(256/64/16 MB) showed no trend above the ±10 % noise of four processes on one node.
+
+| row | design | max digits 502 / 480 GB | wall at 4 × 10¹³ (50 / 100 / 200 GB/s) | wall at its max | one node 4 × 10¹⁰ |
+|---|---|---|---|---|---|
+| step 0 alone | C, 3·2³⁰/2³¹ rule, no chunking, depth 1 | 4.20 / 3.94 × 10¹³ | 3.70 min at 100 | 3.81 min | 63.5 s |
+| **fastest** | auto, 2³¹, no chunking, depth 2 | 4.16 / 3.89 × 10¹³ | 4.26 / **3.59** / 3.26 min | 3.66 min | 62.9 s, 248 GB |
+| **recommended** | auto, 2³¹, both chunkings, depth 2 | **5.52 / 5.19 × 10¹³** | 4.50 / **3.83** / 3.50 min | **6.30 min** | 62.9 s, 248 GB |
+| **largest** | B4, 2³⁰, both chunkings, depth 1 | **6.40 / 6.04 × 10¹³** | 6.69 / 5.41 / 4.84 min | 12.2 min | 76.9 s, 197 GB |
+
+The Pareto front has nine rows: from the fastest, through auto/2³¹ with one or both chunking
+switches, then C/3·2²⁹/both at 6.08 × 10¹³, to the largest. The ranking is identical at 50,
+100 and 200 GB/s. At 576 nodes the product strategy moves the wall by ≤ 0.01 min, because it
+reaches only each node's own top levels. The plane cap sets the trade: 2³¹ is fastest, 2³⁰
+largest. Chunking buys +1.4 × 10¹³ digits for +0.24 min at the assumed T_ROUND (the
+recommended row takes 3.66–4.43 min over its range). The recommended row's environment:
+`RNS_STRATEGY=auto ECALC_PLANE_CAP=2^31 MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024
+COMM_ALLTOALLV_DEPTH=2 NTT_B1R=3 NTT_PLAN=1`.
+
+**What remains assumed, and is the target's first measurement** (`docs/TARGET.md` §6): the
+fabric bandwidth and per-message cost; T_ROUND; the part-file rate; the target node's memory
+edge (aac6: ≈ 524 GB). Depth 2's gain at 576 is a lower bound: the model hides only xGMI link
+time, while X measured the host-side stage hidden too.
+
+**M-run incidents**: the first 45-min block ran out of time during B4 at 3·2²⁹ (re-run, passed).
+Three processes at 10¹⁰ on one node ran out of memory (their transform caches overfill a
+shared node; replaced by 10⁹). A helper parsed multi-process memory and verdicts wrongly
+(regenerated from the logs). Two process-kill slips by the integrator cost one run. No
+digit was ever wrong.
+
+### 576-node estimate (standing rule)
+
+**Recommended design: 5.5 × 10¹³ digits in ≈ 6.3 minutes** at 502 GB per node (5.2 × 10¹³ at
+the 480 GB safe budget). **Fastest design: 4.2 × 10¹³ digits in ≈ 3.7 minutes.** Both are
+modelled from measured per-node inputs, with the fabric assumed. Against Phase 13a's
+4.0 × 10¹³ in 4.3 min, the fastest design is quicker at a slightly larger size.
