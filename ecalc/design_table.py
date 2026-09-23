@@ -16,7 +16,8 @@ assumed (a target parameter).
     ./design_table.py                          the table (all modelled unless --mrun), written to ../results/DESIGN_TABLE.md
     ./design_table.py --mrun mrun.log          measured per-node inputs from the integrator's campaign replace modelled ones
     ./design_table.py --calibrate [--mrun ..]  model against every measured run (RESULTS 75-78, results/*.md, the M-run): wall, peak, error
-    ./design_table.py --make-line LOG KEY=V..  the M-run line of one ecalc log (the integrator's helper)
+    ./design_table.py --make-line LOG KEY=V..  the M-run line of one ecalc log (the integrator's helper; cmp=<verdict> wins)
+    ./design_table.py --regen LOGDIR [PROGRESS] > mrun.log   the M-run log rebuilt from the campaign's tagged logs
     ./design_table.py --quick                  a 12-row subset (depth 1, chunking off/both, C/B/auto at 2^31 / 3 2^30) for a fast look
 
 The M-run log: one line per run, fields separated by '|':
@@ -35,6 +36,7 @@ import mn_model as M
 import mem_model as MM
 
 GB = 1e9
+EDGE_GB = 524.0                                  # MEASURED on aac6 (P13b): a node runs while device + host HWM <= ~524 GB (529.6 was OOM-killed)
 NODES = 576
 COMMON = 4e13                                   # the common size of column (e)
 BWS = [50.0, 100.0, 200.0]                      # GB/s per APU: (f) low, (e), (f) high (--bws)
@@ -76,7 +78,9 @@ def parse_mrun(path):
         r['total'] = f(r'total\s+([\d.]+) s'); r['init'] = f(r'init ([\d.]+)'); r['bs'] = f(r'\(bs ([\d.]+)')
         r['dm'] = f(r'dm ([\d.]+)'); r['recip'] = f(r'recip ([\d.]+)'); r['hwm'] = f(r'VmHWM ([\d.]+) GB')
         r['dev'] = f(r'device ([\d.]+) GB'); r['peak'] = f(r'peak ([\d.]+) GB')
-        r['ok'] = not re.search(r'DIFFERS|FAILED|differs', s)
+        r['verdict'], r['ok'] = line_verdict(s.split(' tag=')[0])
+        r['k'] = 'NTT_B1R' in env or 'NTT_PLAN' in env                  # agent K's kernels on (the M-run's default rows)
+        r['devmax'] = f(r'max in use ([\d.]+)'); r['peaklive'] = f(r'peak live ([\d.]+)')
         np_ = int(env.get('ECALC_NP', 3)); mm = int(env.get('NTT_MODMUL', 1)); st = env.get('RNS_STRATEGY', 'C')
         cap = None
         for k in ('ECALC_PLANE_CAP', 'PLANE_CAP', 'RNS_PLANE_CAP', 'cap'):
@@ -118,11 +122,12 @@ def evaluate(design, meas=None, peak_delta=0.0, leaf_scale=1.0, lab_meas=''):
     r = Row(); r.d = design
     r.a, r.b, r.b_dev, lab = size1_4e10(design)
     r.a_lab = r.b_lab = 'modelled'
+    if not meas and leaf_scale != 1.0: r.a *= leaf_scale; r.a_lab = 'modelled x K'
     if meas:
         if meas.get('wall') is not None: r.a = meas['wall']; r.a_lab = 'measured (n=%d)' % meas['n']
         if meas.get('peak') is not None: r.b = meas['peak']; r.b_lab = 'measured'
     r.maxd = {}
-    for budget in (502.0, 480.0):
+    for budget in (502.0, 480.0, EDGE_GB):
         r.maxd[budget] = max_d(design, budget - max(0.0, peak_delta))
     r.walls = {}
     D = r.maxd[502.0]
@@ -150,11 +155,13 @@ def rows_all(quick=False):
 def mrun_inputs(runs, log):
     """from the M-run: per (strategy, cap) at size 1, 4e10: the measured wall (mean) and peak; per chunk / depth at g > 1: the fitted
     T_ROUND and the two-deep hide (if the size is not a power of two).  Returns (by_sk, notes)."""
-    by_sk = {}; notes = []
+    by_sk = {}; notes = []; koff = {}
+    kon = any(r['k'] for r in runs if r['g'] == 1)                  # the M-run's rows run agent K's kernels (NTT_B1R, NTT_PLAN): the table is K on
     for r in runs:
         if not r['ok']: notes.append('M-run line %d: digits differ or failed -- not used' % r['line']); continue
         if r['g'] == 1 and abs(r['D'] - 4e10) < 1e6 and r['total'] is not None and r['design'].np == 3 and r['design'].modmul == 1:
             k = (r['design'].strategy, r['design'].cap_at(4e10))
+            if r['k'] != kon: koff.setdefault(k, []).append(r['total']); continue
             e = by_sk.setdefault(k, dict(walls=[], peaks=[], devs=[]))
             e['walls'].append(r['total'])
             if r['dev'] is not None and r['hwm'] is not None: e['peaks'].append(r['dev'] + r['hwm']); e['devs'].append(r['dev'])
@@ -163,6 +170,12 @@ def mrun_inputs(runs, log):
         e['n'] = len(e['walls']); e['wall'] = sum(e['walls']) / e['n']
         e['sd'] = (sum((x - e['wall']) ** 2 for x in e['walls']) / max(1, e['n'] - 1)) ** 0.5
         e['peak'] = max(e['peaks']) if e['peaks'] else None
+    by_sk['_fk'] = 1.0
+    for k, ws in koff.items():                                        # agent K's kernels: measured on / off at the same (strategy, cap)
+        if k in by_sk:
+            fk = by_sk[k]['wall'] / (sum(ws) / len(ws)); by_sk['_fk'] = fk
+            notes.append('agent K\'s kernels (NTT_B1R=3 NTT_PLAN=1) at %s %s: %.2f s on (n %d) against %.2f s off (n %d): x %.3f, applied to the rows '
+                         'the M-run did not measure (measured)' % (k[0], MM.cap_name(k[1]), by_sk[k]['wall'], by_sk[k]['n'], sum(ws) / len(ws), len(ws), fk))
     # chunking at g > 1: refit T_ROUND on (off, shift, both) at the same D and g
     groups = {}
     for r in runs:
@@ -181,7 +194,8 @@ def mrun_inputs(runs, log):
                                  design=M.Design(np=4, legacy=True, chunk=ch, chunk_mb=x['design'].chunk_mb))['wall']
                 e0 = w(0.0, x['axes'][2]) - w(0.0, 'off'); rounds = (w(0.01, x['axes'][2]) - w(0.0, 'off') - e0) / 0.01; M.T_ROUND = saved
                 num += rounds * (x['total'] - b - e0); den += rounds * rounds
-                notes.append('M-run chunking %s at %.0e / %d: %+.1f s against off (%d extra rounds in the model)' % (x['axes'][2], D, g, x['total'] - b, rounds))
+                notes.append('M-run chunking %s at %.0e / %d, depth %d: %+.1f s against off (%s)' % (x['axes'][2], D, g, dp, x['total'] - b,
+                             '%d extra rounds in the model' % rounds if rounds >= 0.5 else 'no extra round at this size: the chunk is larger than the share, T_ROUND is not refitted from it'))
         if not (g & (g - 1)) and any(x['axes'][3] == 2 for x in rs):
             notes.append('M-run depth 2 at size %d: a power of two -- the equal-slab path, the depth switch is not exercised (use 3 node-processes or DIST_GEN=1)' % g)
     if den > 0:
@@ -217,7 +231,7 @@ def build(args):
     designs = rows_all(args.quick)
     for i, d in enumerate(designs):
         meas = by_sk.get((d.strategy, d.cap))
-        leaf_scale = 1.0; peak_delta = 0.0
+        leaf_scale = by_sk.get('_fk', 1.0); peak_delta = 0.0
         if meas:
             wall_m, peak_m, _, _ = size1_4e10(d)
             leaf_scale = meas['wall'] / wall_m                       # the per-node compute: measured / modelled at 4e10, applied to the leaf
@@ -251,20 +265,21 @@ def write_md(res, args):
               '**assumed** = the target\'s fabric (100 GB/s per APU, 2 µs per message, 64-node dragonfly groups), the part file (2 GB/s per node) '
               'and the chunk rounds\' fixed cost on the target (T_ROUND %.3f s, fitted on aac6 loopback). Column (f) varies the fabric bandwidth.\n' % M.T_ROUND)
     L_.append('Columns: S = `RNS_STRATEGY`; K = plane cap; chunk = `MDB_SHIFT_CHUNK_MB` (shift) / + `MN_T_CHUNK_MB` (both), at %d MB; depth = the uneven exchange two deep; '
-              '(a) 4 × 10¹⁰ wall at size 1 [s]; (b) node peak at 4 × 10¹⁰ [GB]; (c) the 576-node maximum digits [×10¹³] at 502 / 480 GB per node; '
+              '(a) 4 × 10¹⁰ wall at size 1 [s]; (b) node peak at 4 × 10¹⁰ [GB]; (c) the 576-node maximum digits [×10¹³] at 502 / 480 GB per node (the target\'s columns: use them until the target\'s own edge is measured) '
+              'and at 524 GB, the edge measured on one aac6 node (P13b: device + host HWM 523.8 GB ran, 529.6 was OOM-killed; not the target\'s figure); '
               '(d) the 576-node wall at the 502-GB maximum [min]; (e) the 576-node wall at 4 × 10¹³ digits [min] at %g GB/s per APU; (f) the same at %g / %g GB/s; '
               'rank = (e)\'s rank at %g / %g / %g GB/s among the rows that hold 4 × 10¹³. Marks: **P** Pareto front on ((e), (c) at 502), **F** fastest, **L** largest, **R** recommended. '
               '(e) in parentheses: the row cannot hold 4 × 10¹³ at 502 GB. Labels column: mod = modelled, meas = measured, (meas. node) = the 576 model scaled to the measured one-node run.\n' % (M.CHUNK_MB, BE(), BL(), BH(), BL(), BE(), BH()))
-    L_.append('| # | S | K | chunk | depth | (a) s | (b) GB | (c) 502 | (c) 480 | (d) min | (e) min | (f) %g | (f) %g | rank %g/%g/%g | mark | labels (a) / (b) / 576 |' % (BL(), BH(), BL(), BE(), BH()))
-    L_.append('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
+    L_.append('| # | S | K | chunk | depth | (a) s | (b) GB | (c) 502 | (c) 480 | (c) 524 edge | (d) min | (e) min | (f) %g | (f) %g | rank %g/%g/%g | mark | labels (a) / (b) / 576 |' % (BL(), BH(), BL(), BE(), BH()))
+    L_.append('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
     order = sorted(rows, key=lambda r: (not r.fits, r.walls[BE()]))
     for i, r in enumerate(order, 1):
         d = r.d; mk = ''.join(c for c, cond in (('P', id(r) in fset), ('F', r is F), ('L', r is L), ('R', r is R)) if cond)
         e = lambda x: ('%.2f' % (x / 60)) if r.fits else '(%.2f)' % (x / 60)
         rk = '/'.join(str(ranks[bw].get(id(r), '-')) for bw in BWS)
         labs = '%s / %s / %s' % (r.a_lab.replace('modelled', 'mod').replace('measured', 'meas'), r.b_lab.replace('modelled', 'mod').replace('measured', 'meas'), r.lab576.replace('modelled', 'mod').replace(' on measured per-node input', ' (meas. node)'))
-        L_.append('| %d | %s | %s | %s | %d | %.1f | %.1f | %s | %s | %s | %s | %s | %s | %s | %s | %s |' % (
-            i, d.strategy, MM.cap_name(d.cap), d.chunk, d.depth, r.a, r.b, fmt_d(r.maxd[502.0] * NODES), fmt_d(r.maxd[480.0] * NODES),
+        L_.append('| %d | %s | %s | %s | %d | %.1f | %.1f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |' % (
+            i, d.strategy, MM.cap_name(d.cap), d.chunk, d.depth, r.a, r.b, fmt_d(r.maxd[502.0] * NODES), fmt_d(r.maxd[480.0] * NODES), fmt_d(r.maxd[EDGE_GB] * NODES),
             '%.2f' % (r.wall_max / 60) if r.wall_max else '-', e(r.walls[BE()]), e(r.walls[BL()]), e(r.walls[BH()]), rk, mk, labs))
     L_.append('')
     def desc(r, tag):
@@ -308,7 +323,7 @@ def write_md(res, args):
         L_.append('Sensitivity of the recommended row to the chunk rounds\' fixed cost (assumed on the target): T_ROUND %s.\n' % ', '.join('%.2f s -> %.2f min' % (tr, w / 60) for tr, w in sens))
     if res['by_sk'] or res['notes']:
         L_.append('## The M-run inputs\n')
-        for (st, cap), e in sorted(res['by_sk'].items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        for (st, cap), e in sorted(((k, v) for k, v in res['by_sk'].items() if isinstance(k, tuple)), key=lambda kv: (kv[0][0], kv[0][1])):
             d = M.Design(strategy=st, cap=cap); wm, pm, _, _ = size1_4e10(d)
             L_.append('- %s at %s: measured %.1f ± %.1f s (n = %d) against modelled %.1f s (%+.1f %%); peak %s against modelled %.1f GB' % (
                 st, MM.cap_name(cap), e['wall'], e['sd'], e['n'], wm, 100 * (e['wall'] / wm - 1), ('%.1f GB' % e['peak']) if e['peak'] else '-', pm))
@@ -333,6 +348,8 @@ LOOPBACK_EXCLUDED = [   # measured, not modelled: why
     ('1e10 / 2, M13 b2 e10x2_base 205.76 s and _both 207.98 s', 'MN_TREE_LOGN_TEST=26 forces 2^26-point tree pieces (a test setting); the model forms the default grid'),
     ('1e9 / 2, M13 b2 e9x2 37.55 / 36.67 s', 'MN_TREE_LOGN_TEST=23 DIST_LOGN_TEST=24 (forced grids, a test setting)'),
 ]
+EDGE_CEIL = [   # (cap, the largest D that ran, the smallest that failed) -- agent P, results/P13b.md (three primes, one node)
+    (1 << 30, 1.44e11, 1.46e11), (3 << 29, 1.40e11, 1.42e11), (1 << 31, 1.30e11, 1.34e11), (3 << 30, 1.14e11, 1.16e11)]
 STRATEGY_RUNS = [   # (RNS_STRATEGY, phases s, device peak GB, the same node's C phases, source) -- results/B13b.md, 4e10 size 1
     ('auto', 43.6, 287.5, 48.1, 'job 21062, s24-30, 744df439 (auto grid on): 89 B products'),
     ('B4', 46.7, 377.7, 48.4, 'job 21054, s24-30, 05a7730f: 82 B4 products, 24 GiB/APU extra'),
@@ -365,7 +382,7 @@ def calibrate(args):
         node = r['dev'] + r['hwm']; en = mnode / node - 1
         key = (r['D'], r['np'], r['cap'], 'P11/12' if ('i12' in r['src'] or 'M11' in r['src']) else '13')
         series.setdefault(key, []).append((r, mw, r.get('n', 1)))
-        print(hdr % ('%.0e' % r['D'], r['np'], MM.cap_name(r['cap']), r['use'], '%.2f' % r['total'], '%.2f' % mw, '%+.1f%%' % (100 * ew),
+        print(hdr % ('%.3g' % r['D'], r['np'], MM.cap_name(r['cap']), r['use'], '%.2f' % r['total'], '%.2f' % mw, '%+.1f%%' % (100 * ew),
                      '%.1f' % r['dev'], '%.1f' % mdev, '%+.2f%%' % (100 * ed), '%.1f' % node, '%.1f' % mnode, '%+.2f%%' % (100 * en), r['src']))
         if r['D'] < 1e10: continue                                    # below the model's range for the wall (see the note at the end)
         if abs(ed) > gate_p: fails.append('device %s: %+.2f %%' % (r['src'], 100 * ed))
@@ -385,9 +402,9 @@ def calibrate(args):
         if exc and len(lst) > len(exc):                          # the series without the other switch's run
             rest = [x for x in lst if x not in exc]; n2 = sum(k for _, _, k in rest); mean2 = sum(r['total'] * k for r, _, k in rest) / n2
             e = mw / mean2 - 1
-        ok = abs(e) <= gate_w or key[0] < 1e10
+        ok = abs(e) <= gate_w or key[0] < 1e10 or key[0] > 1.0001e11   # the walls beyond 1e11 are extrapolated: printed, not gated
         if not ok: fails.append('series %s: %+.1f %%' % (str(key), 100 * e))
-        print('%-6s %-2s %-7s %-6s | %3d %7.2f %7.2f %+5.1f%% | %s' % ('%.0e' % key[0], key[1], MM.cap_name(key[2]), key[3], n, mean, mw, 100 * e, '; '.join(outs) or '-'))
+        print('%-6s %-2s %-7s %-6s | %3d %7.2f %7.2f %+5.1f%% | %s' % ('%.3g' % key[0], key[1], MM.cap_name(key[2]), key[3], n, mean, mw, 100 * e, '; '.join(outs) or '-'))
     print('\n== leave-one-out (a predictive check, not gated): each table size modelled from the others')
     for D in sorted(M.phase_table()):
         rs = [r for r in M.RUNS if r['D'] == D and r['use'] == 'table']
@@ -423,6 +440,12 @@ def calibrate(args):
         print('  %.0e / %d memory per process: device measured %.1f, model %.1f (%+.1f %%: the exchange scratch counted on top of the dm need, which at this size'
               ' it does not stack on -- conservative, M13); host HWM %.1f vs %.1f (the TCP transport\'s copies; the target\'s SHMEM pool is counted separately)' % (
               D, g, dev, m['dev_dm'] / GB, 100 * (m['dev_dm'] / GB / dev - 1), host, m['host_hwm'] / GB))
+    print('\n== the one-node ceiling at three primes against agent P\'s edge runs (node budget %.0f GB = device + host HWM, measured on aac6)' % EDGE_GB)
+    for cap, ran, failed in EDGE_CEIL:
+        Dm = MM.max_digits_per_node(EDGE_GB * GB, 1, dict(np=3, cap=cap)); D5 = MM.max_digits_per_node(502 * GB, 1, dict(np=3, cap=cap))
+        ok = ran - 0.021e11 <= Dm <= failed
+        if not ok: fails.append('ceiling %s: model %.2e outside [%.2e runs, %.2e fails]' % (MM.cap_name(cap), Dm, ran, failed))
+        print('  %-7s model at %.0f GB %.2e (at 502 GB %.2e); measured: %.2e ran, %.2e failed -- %s' % (MM.cap_name(cap), EDGE_GB, Dm, D5, ran, failed, 'inside' if ok else 'OUTSIDE'))
     print('\n== the strategy rows (agent B, results/B13b.md: 4e10 at size 1, three primes, NTT_MODMUL=1, the cap rule = 3 2^30; one run each).')
     print('   The node spreads the C phases by +-3 % between sessions (48.1-48.4 s here against 47.0 in the three-prime series on s24-26), so the gate')
     print('   is on each form\'s phases relative to the same node\'s C run (within 3 % of C\'s phases); the absolute error and the device are printed too.')
@@ -441,18 +464,23 @@ def calibrate(args):
         if abs(md / dev - 1) > gate_p: fails.append('strategy %s: device %+.2f %%' % (st, 100 * (md / dev - 1)))
     if args.mrun:
         print('\n== the M-run (%s): single runs, then the gate on each configuration\'s mean' % args.mrun)
-        grp = {}
-        for r in parse_mrun(args.mrun):
+        grp = {}; mr = parse_mrun(args.mrun); fk = mrun_inputs(mr, args.mrun)[0].get('_fk', 1.0)
+        kon = any(r['k'] for r in mr if r['g'] == 1)
+        print('   agent K\'s kernels: %s' % ('the rows run them; the model is scaled by the measured on/off factor x %.3f' % fk if fk != 1.0 else
+              ('the rows run them and no K-off rows are in the log yet: the K-on rows are printed, not gated' if kon else 'off')))
+        for r in mr:
             d = r['design']; tag = '' if r['ok'] else '  [DIGITS DIFFER / FAILED: not used]'
             if r['g'] == 1:
                 p = M.node_phases(r['D'], d); mw = sum(v for k, v in p.items() if k != 'label')
+                if r['k']: mw *= fk
                 m = MM.mem_per_node(int(r['D']), 1, d.mem_opts(r['D']))
                 pk = (r['dev'] + r['hwm']) if r['dev'] is not None and r['hwm'] is not None else r['peak']
                 ep = (m['node_peak'] / GB / pk - 1) if pk else None
                 print('  line %3d %-22s np %d mm %d %.0e: wall %.2f model %.2f (%+.1f %%); peak %s model %.1f %s%s' % (r['line'], d.name(), d.np, d.modmul, r['D'], r['total'], mw,
                       100 * (mw / r['total'] - 1), ('%.1f' % pk) if pk else '-', m['node_peak'] / GB, ('(%+.2f %%)' % (100 * ep)) if ep is not None else '', tag))
                 if r['ok']:
-                    e = grp.setdefault((d.key(), r['D']), dict(name=d.name(), np=d.np, mm=d.modmul, D=r['D'], mw=mw, walls=[], peaks=[], mp=m['node_peak'] / GB))
+                    e = grp.setdefault((d.key(), r['D'], r['k']), dict(name=d.name() + (' K' if r['k'] else ''), np=d.np, mm=d.modmul, D=r['D'], mw=mw, walls=[], peaks=[], mp=m['node_peak'] / GB,
+                                                                       gated=not (r['k'] and fk == 1.0)))
                     e['walls'].append(r['total'])
                     if pk: e['peaks'].append(pk)
             else:
@@ -462,7 +490,8 @@ def calibrate(args):
             pk = max(e['peaks']) if e['peaks'] else None; ep = (e['mp'] / pk - 1) if pk else None
             print('  config %-22s np %d mm %d %.0e: n %d, mean %.2f, model %.2f (%+.1f %%); peak %s (%s)' % (e['name'], e['np'], e['mm'], e['D'], len(e['walls']), mean, e['mw'], 100 * ew,
                   ('%.1f' % pk) if pk else '-', ('%+.2f %%' % (100 * ep)) if ep is not None else '-'))
-            if abs(ew) > gate_w: fails.append('M-run %s at %.0e: wall %+.1f %%' % (e['name'], e['D'], 100 * ew))
+            if abs(ew) > gate_w and e['gated']: fails.append('M-run %s at %.0e: wall %+.1f %%' % (e['name'], e['D'], 100 * ew))
+            elif abs(ew) > gate_w: flags.append('M-run %s at %.0e: wall %+.1f %% (K on, no K-off rows yet: not gated)' % (e['name'], e['D'], 100 * ew))
             if ep is not None and abs(ep) > gate_p: fails.append('M-run %s at %.0e: peak %+.2f %%' % (e['name'], e['D'], 100 * ep))
     print('\n== gate: %s' % ('PASS' if not fails else 'FAIL on %d item(s):' % len(fails)))
     for f in fails: print('   ' + f)
@@ -477,11 +506,42 @@ def calibrate(args):
     print('   single runs whose init deviates from their series (the gate is on the series), the loopback walls (+-10 %: their own spread).')
     return not fails
 
+VERDICTS = ('identical', 'VERIFY', 'DIFFERS')
+
+def line_verdict(s):
+    """the run's verdict from an M-run line: its LAST word when that is identical / VERIFY / DIFFERS / *VERIFY-FAILED* (the
+    integrator appends its own after make-line's); ok = identical or VERIFY (the run's VERIFY OK, digits not compared)"""
+    w = s.split()[-1] if s.split() else ''
+    if 'FAILED' in w: return w, False
+    if w in VERDICTS: return w, w != 'DIFFERS'
+    return '', not re.search(r'\bDIFFERS\b|VERIFY FAILED|VERIFY-FAILED', s)
+
+def log_mem(s):
+    """device at init and the maxima of a log: size 1 -> the `mem summary` rows (`mem init  287.5 ...`); several processes ->
+    the per-rank lines `mem[r] [phase] device X GB in use ... peak live Y` (per process: the processes share one node).
+    Returns dict(dev_init, dev_max, peak_live, nproc) in GB (None where absent)."""
+    out = dict(dev_init=None, dev_max=None, peak_live=None, nproc=1)
+    m = re.search(r'^mem init\s+([\d.]+)', s, re.M)
+    if m:
+        out['dev_init'] = float(m.group(1))
+        rows = re.findall(r'^mem (\w+)\s+([\d.]+)\s+[\d.]+ \|', s, re.M)
+        if rows: out['dev_max'] = max(float(x) for _, x in rows)
+        return out
+    per = re.findall(r'^mem\[(\d+)\] \[(\w+)\] device ([\d.]+) GB in use.*?peak live ([\d.]+)', s, re.M)
+    if per:
+        out['nproc'] = len(set(r for r, _, _, _ in per))
+        ini = [float(x) for r, ph, x, _ in per if ph == 'init']
+        out['dev_init'] = max(ini) if ini else None
+        out['dev_max'] = max(float(x) for _, _, x, _ in per)
+        out['peak_live'] = max(float(p) for _, _, _, p in per)
+    return out
+
 def make_line(log, kv):
-    """one M-run line from an ecalc log: the given KEY=VALUEs, the `total` line, the device total at init (mem summary) and the
-    comparison's verdict"""
+    """one M-run line from an ecalc log: the given KEY=VALUEs, the `total` line (node 0's at several processes), the device at init
+    (size 1: the mem summary; several processes: per process, the max over the ranks) with the maxima over the phases, and the
+    verdict: an explicit cmp=<verdict> first, else DIFFERS / VERIFY FAILED if the log says so exactly, else identical / VERIFY"""
     s = open(log, errors='replace').read()
-    tot = re.search(r'^total .*$', s, re.M); dev = re.search(r'^mem init\s+([\d.]+)', s, re.M)
+    tot = re.search(r'^total .*$', s, re.M)
     if not tot: raise SystemExit('%s: no total line' % log)
     env = dict(x.split('=', 1) for x in kv if '=' in x)
     if 'digits' not in env:
@@ -489,8 +549,56 @@ def make_line(log, kv):
         if m: env['digits'] = m.group(1)
     if 'ECALC_NP' not in env: env['ECALC_NP'] = '3' if 'three primes' in s else '4'   # rns_init prints it at three primes (give ECALC_NP= for an older log)
     if 'NTT_MODMUL' not in env: env['NTT_MODMUL'] = '1'                                           # the default since step 0 (not in the log)
-    verdict = env.pop('cmp', None) or ('DIFFERS' if re.search(r'DIFFERS|differ|VERIFY FAILED', s) else ('identical' if re.search(r'^identical', s, re.M) else ''))
-    return '%s | %s | device %s GB %s' % (' '.join('%s=%s' % kv for kv in env.items()), tot.group(0), dev.group(1) if dev else '?', verdict)
+    verdict = env.pop('cmp', None)
+    if not verdict:
+        if re.search(r'\bDIFFERS\b|VERIFY FAILED', s): verdict = 'DIFFERS'
+        elif re.search(r'^identical\s*$', s, re.M): verdict = 'identical'
+        elif 'VERIFY OK' in s: verdict = 'VERIFY'
+        else: verdict = ''
+    mm = log_mem(s)
+    f = lambda x: '%.1f' % x if x is not None else '?'
+    mem = 'device %s GB' % f(mm['dev_init'])
+    if mm['nproc'] > 1:
+        mem += ' (per process, %d processes on one node; max in use %s, peak live %s)' % (mm['nproc'], f(mm['dev_max']), f(mm['peak_live']))
+    elif mm['dev_max'] is not None and mm['dev_max'] != mm['dev_init']:
+        mem += ' (max in use %s)' % f(mm['dev_max'])
+    return '%s | %s | %s %s' % (' '.join('%s=%s' % kv for kv in env.items()), tot.group(0), mem, verdict)
+
+KON = ['NTT_B1R=3', 'NTT_PLAN=1']
+def regen(logdir, progress=None):
+    """rebuild the M-run log from the per-run logs of the campaign (~/mrun/logs) by their tags:
+         s1_<strategy>_<cap>_r<n>       size 1, 4e10, RNS_STRATEGY, ECALC_PLANE_CAP (2_30, 3_2_29, 2_31, 3_2_30), K on
+         koff_auto_2_31_r<n>            the same without K (NTT_B1R, NTT_PLAN unset)
+         series_auto_2_31_r<n>          the five-run series (K on)
+         p4_d<depth>_<off|shift|both>_r<n>   10^10 over 4 processes, DIST_GEN=1, POOL_LOG=29, COMM_ALLTOALLV_DEPTH, chunks at 1024 MB, K on
+         p3_d<depth>_r<n>               10^10 over 3 processes, POOL_LOG=29, K on
+       the verdicts from progress.txt (`HH:MM <tag> <verdict> total ...`), passed as cmp=<verdict>"""
+    import glob
+    ver = {}
+    pf = progress or os.path.join(os.path.dirname(os.path.abspath(logdir.rstrip('/'))), 'progress.txt')
+    if os.path.exists(pf):
+        for ln in open(pf, errors='replace'):
+            w = ln.split()
+            if len(w) >= 3 and re.match(r'\d\d:\d\d$', w[0]): ver[w[1]] = w[2]
+    capname = {'2_30': '2^30', '3_2_29': '3*2^29', '2_31': '2^31', '3_2_30': '3*2^30'}
+    out = []
+    for fn in sorted(glob.glob(os.path.join(logdir, '*.log'))):
+        tag = os.path.basename(fn)[:-4]; kv = None
+        m = re.match(r's1_(\w+?)_(2_30|3_2_29|2_31|3_2_30)_r\d+$', tag) or re.match(r'(?:series)_(auto)_(2_31)_r\d+$', tag)
+        if m: kv = ['digits=40000000000', 'size=1', 'RNS_STRATEGY=' + m.group(1), 'ECALC_PLANE_CAP=' + capname[m.group(2)]] + KON
+        m2 = re.match(r'koff_(\w+?)_(2_31)_r\d+$', tag)
+        if m2: kv = ['digits=40000000000', 'size=1', 'RNS_STRATEGY=' + m2.group(1), 'ECALC_PLANE_CAP=' + capname[m2.group(2)]]
+        m3 = re.match(r'p4_d(\d)_(off|shift|both)_r\d+$', tag)
+        if m3:
+            ch = {'off': [], 'shift': ['MDB_SHIFT_CHUNK_MB=1024'], 'both': ['MDB_SHIFT_CHUNK_MB=1024', 'MN_T_CHUNK_MB=1024']}[m3.group(2)]
+            kv = ['digits=10000000000', 'size=4', 'DIST_GEN=1', 'POOL_LOG=29', 'COMM_ALLTOALLV_DEPTH=' + m3.group(1)] + ch + KON
+        m4 = re.match(r'p3_d(\d)_r\d+$', tag)
+        if m4: kv = ['digits=10000000000', 'size=3', 'POOL_LOG=29', 'COMM_ALLTOALLV_DEPTH=' + m4.group(1)] + KON
+        if kv is None: print('# %s: tag not recognised, skipped' % tag, file=sys.stderr); continue
+        if tag in ver: kv.append('cmp=' + ver[tag])
+        try: out.append('%s tag=%s' % (make_line(fn, kv), tag))
+        except SystemExit as e: print('# %s' % e, file=sys.stderr)
+    return out
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -506,6 +614,8 @@ def main():
     ap.add_argument('--gen-hide2', type=float, default=M.GEN_HIDE_DEPTH[2], help='the general map\'s hidden fraction at depth 2 (modelled 0.75; agent X\'s both-busy measurement replaces it)')
     ap.add_argument('--make-line', nargs='+', metavar=('LOG', 'KEY=VALUE'), help='print the M-run line of one ecalc log (node 0\'s): LOG [digits=.. size=.. ENV=..]; '
                     'the env keys the log does not show must be given; "identical" / "DIFFERS" is taken from the log or from a key cmp=identical')
+    ap.add_argument('--regen', nargs='+', metavar=('LOGDIR', 'PROGRESS'), help='rebuild the M-run log from the campaign\'s per-run logs by their tags '
+                    '(s1_*, koff_*, series_*, p4_*, p3_*) with the verdicts of progress.txt (default: LOGDIR/../progress.txt); prints it')
     ap.add_argument('--verbose', action='store_true')
     a = ap.parse_args()
     BWS[:] = [float(x) for x in a.bws.split(',')]
@@ -514,6 +624,8 @@ def main():
     M.HIDE_POW2 = a.hide_pow2; M.GEN_HIDE_DEPTH[2] = a.gen_hide2
     if a.make_line:
         print(make_line(a.make_line[0], a.make_line[1:])); return
+    if a.regen:
+        print('\n'.join(regen(a.regen[0], a.regen[1] if len(a.regen) > 1 else None))); return
     if a.calibrate:
         sys.exit(0 if calibrate(a) else 1)
     res = build(a)
