@@ -43,6 +43,10 @@
 #define ND 4
 #define MAXREP 32
 #define GiB 1073741824.0
+/* the prime count: agent P3's runtime ec_np (ECALC_NP=3|4, branch p13-P3) when the library has it, else EC_NP -- weak
+ * references, so this test builds on main (no ec_np: NP = EC_NP = 4) and on P3's branch alike */
+extern "C" { int ec_np_init(void) __attribute__((weak)); }
+static int NP = EC_NP;
 
 static size_t dev_used(int d) { size_t f = 0, t = 0; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemGetInfo(&f, &t)); return t - f; }
 static size_t dev_free(int d) { size_t f = 0, t = 0; HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemGetInfo(&f, &t)); return f; }
@@ -125,11 +129,11 @@ static void fetch_dev(const struct qv *v, size_t n, uint64_t *dst)
 struct res { char name; int ran, fits; double t[MAXREP], tl, tn, tc, tm; size_t plane_b[ND], used_b[ND]; int a2a; double a2a_b, peer_b; const char *why; };
 static void report(const struct res *r, int logn, int reps, size_t budget)
 {
-    if (!r->ran) { printf("STRAT logn=%d P=%d strat=%c skipped: %s\n", logn, EC_NP, r->name, r->why ? r->why : "not requested"); return; }
+    if (!r->ran) { printf("STRAT logn=%d P=%d strat=%c skipped: %s\n", logn, NP, r->name, r->why ? r->why : "not requested"); return; }
     size_t pmax = 0, umax = 0; for (int d = 0; d < ND; d++) { if (r->plane_b[d] > pmax) pmax = r->plane_b[d]; if (r->used_b[d] > umax) umax = r->used_b[d]; }
     double mn = r->t[0], mx = r->t[0]; for (int i = 1; i < reps; i++) { if (r->t[i] < mn) mn = r->t[i]; if (r->t[i] > mx) mx = r->t[i]; }
     printf("STRAT logn=%d P=%d strat=%c wall_med=%.4f min=%.4f max=%.4f reps=%d | load %.4f ntt %.4f crt %.4f merge %.4f | plane_GiB/APU=%.2f [%.2f %.2f %.2f %.2f] dev_delta_GiB/APU=%.2f | a2a=%d a2a_GiB/APU=%.2f peer_GiB/APU=%.2f | fits_budget(%.1f GiB)=%s\n",
-           logn, EC_NP, r->name, median((double *)r->t, reps), mn, mx, reps, r->tl, r->tn, r->tc, r->tm,
+           logn, NP, r->name, median((double *)r->t, reps), mn, mx, reps, r->tl, r->tn, r->tc, r->tm,
            pmax / GiB, r->plane_b[0] / GiB, r->plane_b[1] / GiB, r->plane_b[2] / GiB, r->plane_b[3] / GiB, umax / GiB,
            r->a2a, r->a2a_b / GiB, r->peer_b / GiB, budget / GiB, pmax <= budget ? "yes" : "NO");
 }
@@ -141,6 +145,7 @@ int main(int argc, char **argv)
     if (reps < 1) reps = 1; if (reps > MAXREP) reps = MAXREP;
     if (logn < 20 || logn > 33) { fprintf(stderr, "logn 20..33\n"); return 2; }
     bi_env_base();
+    if (ec_np_init) NP = ec_np_init();
     int nd = 0; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd < ND) { fprintf(stderr, "need %d APUs\n", ND); return 1; }
     for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); for (int c = 0; c < ND; c++) if (c != d) { hipError_t e = hipDeviceEnablePeerAccess(c, 0); if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "peer %d->%d\n", d, c); return 1; } (void)hipGetLastError(); } }
     omp_set_max_active_levels(2);
@@ -149,7 +154,7 @@ int main(int argc, char **argv)
     const struct gconst G = rns_gconst();
     const int S = 912;                                           /* CRT stripes per segment (rns_gpucrt_blocks) */
     printf("t_strategy: n = 2^%d points, na = nb = %zu limbs, %s limbs, P = %d primes, %d reps after a warm-up, budget %.1f GiB/APU\n",
-           logn, na, bi_decimal ? "decimal" : "binary", EC_NP, reps, budget / GiB);
+           logn, na, bi_decimal ? "decimal" : "binary", NP, reps, budget / GiB);
 
     /* the operands: random limbs on the host, then dbigs (quartered) */
     uint64_t *ha = (uint64_t *)malloc(na * 8), *hb = (uint64_t *)malloc(nb * 8);
@@ -167,7 +172,7 @@ int main(int argc, char **argv)
     /* ---- A: the whole product on APU 0 ---- */
     if (strchr(which, 'A')) {
         struct res *r = &R[0];
-        size_t need = (size_t)(EC_NP + 1) * n * 8 + (na + nb) * 8 + n * 8 + ((size_t)2 << 30);   /* planes + operands + result + 2 GiB slack */
+        size_t need = (size_t)(NP + 1) * n * 8 + (na + nb) * 8 + n * 8 + ((size_t)2 << 30);   /* planes + operands + result + 2 GiB slack */
         if (dev_free(0) < need) { r->why = "does not fit APU 0 (planes (P+1) n + operands + result)"; printf("A: needs %.1f GiB on APU 0, %.1f free\n", need / GiB, dev_free(0) / GiB); }
         else {
             HIP_CHECK(hipSetDevice(0));
@@ -175,7 +180,7 @@ int main(int argc, char **argv)
             ntt_ctx *ctx[EC_NP]; for (int p = 0; p < EC_NP; p++) ctx[p] = ntt_ctx_create(p);
             size_t u0 = dev_used(0);
             uint64_t *X, *Y, *a0, *b0, *out; HIP_CHECK(hipSetDevice(0));
-            HIP_CHECK(hipMalloc(&X, (size_t)EC_NP * n * 8)); HIP_CHECK(hipMalloc(&Y, n * 8));
+            HIP_CHECK(hipMalloc(&X, (size_t)NP * n * 8)); HIP_CHECK(hipMalloc(&Y, n * 8));
             size_t u1 = dev_used(0); HIP_CHECK(hipSetDevice(0));
             HIP_CHECK(hipMalloc(&a0, na * 8)); HIP_CHECK(hipMalloc(&b0, nb * 8)); HIP_CHECK(hipMalloc(&out, n * 8));
             HIP_CHECK(hipMemcpy(a0, ha, na * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(b0, hb, nb * 8, hipMemcpyHostToDevice));
@@ -187,24 +192,24 @@ int main(int argc, char **argv)
             for (int it = 0; it <= reps; it++) {
                 HIP_CHECK(hipSetDevice(0)); HIP_CHECK(hipDeviceSynchronize());
                 double a = now();
-                for (int p = 0; p < EC_NP; p++) {
+                for (int p = 0; p < NP; p++) {
                     uint64_t *xp = X + (size_t)p * n;
                     ntt_load(ctx[p], xp, a0, na, n, s); ntt_fwd(ctx[p], xp, logn, 1, s);
                     ntt_load(ctx[p], Y, b0, nb, n, s); ntt_fwd(ctx[p], Y, logn, 1, s);
                     ntt_inv_pw(ctx[p], xp, Y, logn, 1, s);
                 }
                 HIP_CHECK(hipStreamSynchronize(s)); double b = now();
-                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, X + 3 * n, dd, 0, S, Lseg, G, sp, bi_decimal);
+                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, NP > 3 ? X + 3 * n : X, dd, 0, S, Lseg, G, sp, bi_decimal);
                 HIP_CHECK(hipStreamSynchronize(s)); double c = now();
                 merge_spills(&ov, n, sp, M, Lseg, S); double e = now();
                 if (it) { r->t[it - 1] = e - a; r->tn += (b - a) / reps; r->tc += (c - b) / reps; r->tm += (e - c) / reps; }
             }
-            r->ran = 1; r->plane_b[0] = (size_t)(EC_NP + 1) * n * 8; r->used_b[0] = u1 - u0; r->a2a = 0; r->a2a_b = 0; r->peer_b = 0;
+            r->ran = 1; r->plane_b[0] = (size_t)(NP + 1) * n * 8; r->used_b[0] = u1 - u0; r->a2a = 0; r->a2a_b = 0; r->peer_b = 0;
             if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = 'A'; }
             else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "A differs from %c at limb %lld", refname, k); }
             HIP_CHECK(hipSetDevice(0));
             HIP_CHECK(hipFree(X)); HIP_CHECK(hipFree(Y)); HIP_CHECK(hipFree(a0)); HIP_CHECK(hipFree(b0)); HIP_CHECK(hipFree(out)); HIP_CHECK(hipFree(dd)); HIP_CHECK(hipHostFree(sp));
-            for (int p = 0; p < EC_NP; p++) ntt_ctx_free(ctx[p]);
+            for (int p = 0; p < NP; p++) ntt_ctx_free(ctx[p]);
             HIP_CHECK(hipStreamDestroy(s));
         }
     } else R[0].why = "not requested";
@@ -215,7 +220,7 @@ int main(int argc, char **argv)
     if (strchr(which, var ? 'b' : 'B')) {
         size_t need = 2 * n * 8 + n / 4 * 8 + ((size_t)2 << 30); int fit = 1;
         for (int d = 0; d < ND; d++) if (dev_free(d) < need) fit = 0;
-        if (EC_NP > ND) { fit = 0; r->why = "more primes than APUs"; }
+        if (NP > ND) { fit = 0; r->why = "more primes than APUs"; }
         if (!fit) { if (!r->why) r->why = "does not fit (2 n-point planes per APU)"; printf("B: needs %.1f GiB per APU\n", need / GiB); }
         else {
             ntt_ctx *ctx[ND]; hipStream_t st[ND]; uint64_t *X[ND], *Y[ND]; struct bdesc *dd[ND]; size_t u0[ND], u1[ND];
@@ -225,9 +230,9 @@ int main(int argc, char **argv)
             uint64_t *sp; HIP_CHECK(hipHostMalloc((void **)&sp, (size_t)M * S * 4 * 8, 0));
             for (int d = 0; d < ND; d++) {
                 HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipStreamCreate(&st[d]));
-                ctx[d] = d < EC_NP ? ntt_ctx_create(d) : 0;
+                ctx[d] = d < NP ? ntt_ctx_create(d) : 0;
                 u0[d] = dev_used(d); HIP_CHECK(hipSetDevice(d));
-                if (d < EC_NP) { HIP_CHECK(hipMalloc(&X[d], n * 8)); HIP_CHECK(hipMalloc(&Y[d], n * 8)); } else X[d] = Y[d] = 0;
+                if (d < NP) { HIP_CHECK(hipMalloc(&X[d], n * 8)); HIP_CHECK(hipMalloc(&Y[d], n * 8)); } else X[d] = Y[d] = 0;
                 u1[d] = dev_used(d); HIP_CHECK(hipSetDevice(d));
                 struct bdesc h[ND]; memset(h, 0, sizeof h); for (int i = 0; i < M; i++) { h[i].c = Cb.q[i]; h[i].na = (uint32_t)Lseg; }
                 HIP_CHECK(hipMalloc(&dd[d], sizeof h)); HIP_CHECK(hipMemcpy(dd[d], h, sizeof h, hipMemcpyHostToDevice));
@@ -240,7 +245,7 @@ int main(int argc, char **argv)
 #pragma omp parallel num_threads(ND)
                 {
                     int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d)); double x0 = now(), x1 = x0, x2 = x0;
-                    if (d < EC_NP) {
+                    if (d < NP) {
                         if (var) { load_db4(d, X[d], &Ad, n, st[d]); load_db4(d, Y[d], &Bd, n, st[d]); }
                         else { load_db(ctx[d], X[d], &Ad, n, st[d]); load_db(ctx[d], Y[d], &Bd, n, st[d]); }
                         HIP_CHECK(hipStreamSynchronize(st[d])); x1 = now();
@@ -249,7 +254,7 @@ int main(int argc, char **argv)
                     }
 #pragma omp barrier
                     double x3 = now();
-                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3], dd[d], (size_t)d * S, S, Lseg, G, sp, bi_decimal);
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3] ? X[3] : X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, bi_decimal);
                     HIP_CHECK(hipStreamSynchronize(st[d]));
                     tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
                 }
@@ -259,10 +264,10 @@ int main(int argc, char **argv)
                           r->t[it - 1] = e - a; r->tl += ml / reps; r->tn += mn / reps; r->tc += mc / reps; r->tm += (e - c) / reps; }
             }
             r->ran = 1; r->a2a = 0;
-            for (int d = 0; d < ND; d++) { r->plane_b[d] = d < EC_NP ? 2 * n * 8 : 0; r->used_b[d] = u1[d] - u0[d]; }
+            for (int d = 0; d < ND; d++) { r->plane_b[d] = d < NP ? 2 * n * 8 : 0; r->used_b[d] = u1[d] - u0[d]; }
             /* xGMI traffic per APU (from the access pattern): the operands' n limbs read whole, 3/4 remote; the CRT reads its
-             * quarter of the EC_NP planes, the EC_NP - 1 (of EC_NP) other APUs' remote */
-            r->peer_b = (double)n * 8 * 3 / 4 + (double)(n / 4) * 8 * (EC_NP - 1);
+             * quarter of the NP planes, the NP - 1 (of NP) other APUs' remote */
+            r->peer_b = (double)n * 8 * 3 / 4 + (double)(n / 4) * 8 * (NP < ND ? NP : NP - 1);   /* (P = 3: APU 3 reads all three planes remotely) */
             Cb.n = n;
             if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = r->name; }
             else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "%c differs from %c at limb %lld", r->name, refname, k); }
@@ -291,15 +296,15 @@ int main(int argc, char **argv)
         }
         r->ran = 1;
         size_t qpl = (n < ((size_t)1 << 31) ? n : ((size_t)1 << 31)) / 4;
-        for (int d = 0; d < ND; d++) { r->plane_b[d] = (size_t)(EC_NP + 3) * qpl * 8; r->used_b[d] = dev_used(d) - u0[d]; }   /* dist_core's planes: EC_NP q in pool 0, 3 q of pool 1 */
+        for (int d = 0; d < ND; d++) { r->plane_b[d] = (size_t)(NP + 3) * qpl * 8; r->used_b[d] = dev_used(d) - u0[d]; }   /* dist_core's planes: NP q in pool 0, 3 q of pool 1 */
         printf("C: plane pools as allocated %.2f + %.2f GiB per APU (dist_core uses %.2f GiB of them)\n", rns_dpool_cap(0, 0) / GiB, rns_dpool_cap(0, 1) / GiB, r->plane_b[0] / GiB);
         /* all-to-alls: 3 per prime per plane product (fwd A, fwd B, inverse), each rank sending 3/4 of its n/4 points;
          * above the 2^31 cap the grid's pieces (ka x kb products of 2^31 planes) */
         size_t cap = (size_t)1 << 31; int pieces = 1; size_t npl = n;
         if (n > cap) { /* the grid for na = nb = n/2 at the 2^31 cap: 2 x 2 pieces of 2^30 + 2^30 limbs (split_grid_cap's choice) */ pieces = 4; npl = cap; }
-        r->a2a = 3 * EC_NP * pieces; r->a2a_b = (double)r->a2a * (npl / 4) * 8 * 3 / 4;
+        r->a2a = 3 * NP * pieces; r->a2a_b = (double)r->a2a * (npl / 4) * 8 * 3 / 4;
         /* the gathers of the operands' rows (half of each plane nonzero, re-read per prime, 3/4 remote) and the run scatter of the result */
-        r->peer_b = pieces * ((double)EC_NP * (npl / 4) * 8 * 3 / 4 + (double)(npl / 4) * 8 * 3 / 4);
+        r->peer_b = pieces * ((double)NP * (npl / 4) * 8 * 3 / 4 + (double)(npl / 4) * 8 * 3 / 4);
         struct qv ov = { { Cc.q[0], Cc.q[1], Cc.q[2], Cc.q[3] }, Cc.qc };
         if (!ref) { ref = (uint64_t *)malloc(n * 8); fetch_dev(&ov, n, ref); refname = 'C'; }
         else { long long k = cmp_dev(&ov, n, ref); VERIFY(k < 0, "C differs from %c at limb %lld", refname, k); }
