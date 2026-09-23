@@ -280,6 +280,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
  * node's highest complete tree set (a node writes level l, then all nodes meet at a barrier, then the superseded
  * set goes: so the lowest level present is present everywhere); computed once, the sets above it discarded */
 #include "binsplit.h"
+#include "newton.h"                                   /* Phase 13 N: newton_mn_pq_hook */
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
 static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
@@ -316,13 +317,63 @@ int mn_ckpt_tree_level(unsigned long N)
     if (g_cktree >= 0) return g_cktree;
     if (N) bs_N = N;
     if (g_size <= 1 || !bs_restart || !bs_ckpt_dir) { g_cktree = 0; return 0; }
-    uint64_t my = (uint64_t)bs_ckpt_tree_find(bs_N), *all = (uint64_t *)malloc((size_t)g_size * 8), mn = my;
-    mn_allgather(g_cm[0], &my, 1, all);
-    for (int r = 0; r < g_size; r++) if (all[r] < mn) mn = all[r];
-    free(all); g_cktree = (int)mn;
+    /* Phase 13 N (TASKS 1.7): every node scans its sets without aborting (a foreign set, or a tree set written under another
+     * schedule -- the sets are indexed by the schedule's level), then all nodes see every verdict and fail together, loudly */
+    int err = 0; char msg[2048];
+    uint64_t v[2] = { (uint64_t)bs_ckpt_restart_scan(bs_N, &err, msg, sizeof msg), 0 }, *all = (uint64_t *)malloc((size_t)g_size * 16), mn = v[0];
+    v[1] = (uint64_t)err;
+    if (msg[0]) fprintf(stderr, "mn: node %d: %s\n", g_rank, msg);
+    mn_allgather(g_cm[0], v, 2, all);
+    int nbad = 0, first = -1, kind = 0;
+    for (int r = 0; r < g_size; r++) { if (all[2 * r] < mn) mn = all[2 * r]; if (all[2 * r + 1]) { nbad++; if (first < 0) { first = r; kind = (int)all[2 * r + 1]; } } }
+    free(all);
+    if (nbad) {
+        if (g_rank == 0) fprintf(stderr, "mn: BS_RESTART refused: %d of %d nodes hold checkpoint sets in %s %s (node %d first; its message above).  %s\n",
+                                 nbad, g_size, bs_ckpt_dir, kind == 2 ? "written under another schedule" : "of another run", first,
+                                 kind == 2 ? "Restart with the MN_GROUPS and node count of the run that wrote them, or start afresh (no BS_RESTART, or another BS_CKPT_DIR)."
+                                           : "Point BS_CKPT_DIR at this run's sets, or start afresh (no BS_RESTART).");
+        fflush(stderr); fflush(stdout);
+        exit(kind == 2 ? 5 : 4);
+    }
+    g_cktree = (int)mn;
     bs_ckpt_tree_clear(g_cktree);
-    printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)my, g_cktree);
+    printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)v[0], g_cktree);
     return g_cktree;
+}
+/* Phase 13 N (TASKS 1.4, 4.1): the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 1 = complete, the division
+ * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
+ * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
+ * newton_mn_divmod lets go of P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish
+ * (after the output stage).  mn_ckpt_top_finish joins the writer and, once every node has the set, lets mn_finalize remove the
+ * sets it supersedes (the C6 rule; a node that dropped or failed its set keeps every node's lower sets). */
+int mn_ckpt_bg_mode = 0; double mn_ckpt_slack = 1.0;
+static bs_ckpt_bg *g_topbg = 0; static int g_topbg_on = 0, g_toplevel = 0; static dbig g_heldQ;
+static void mn_pq_hook(int stage, mdb *x)
+{
+    if (!g_topbg) return;
+    if (stage == 0) { bs_ckpt_bg_release(g_topbg, 0); return; }
+    if (bs_ckpt_bg_done(g_topbg, 1)) return;               /* Q written (or the set dropped): freed as before */
+    g_heldQ = x->sh; memset(&x->sh, 0, sizeof x->sh);         /* held until after the output stage (mfree(Q) frees nothing now) */
+}
+void mn_ckpt_top_finish(void)
+{
+    if (!g_topbg_on) return;
+    g_topbg_on = 0; newton_mn_pq_hook = 0;
+    double tw = 0, tq = 0; size_t bytes = 0;
+    if (g_topbg) {
+        bs_ckpt_bg_release(g_topbg, 1);
+        db_free(&g_heldQ);
+        char who[64]; snprintf(who, sizeof who, "mn: node %d: ", g_rank);
+        bytes = bs_ckpt_bg_join(g_topbg, who, bs_ckpt_dir, &tw, &tq); g_topbg = 0;
+    }
+    if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; }
+    uint64_t v = bytes ? 1 : 0, *all = (uint64_t *)malloc((size_t)g_size * 8); int every = 1;
+    mn_allgather(g_cm[0], &v, 1, all);
+    for (int r = 0; r < g_size; r++) every = every && all[r];
+    free(all);
+    if (every) g_ckpend = g_toplevel;                         /* the lower sets go at mn_finalize, after the final barrier */
+    else if (bytes) printf("mn: node %d: the top tree set (level %d) is not on every node: the lower sets are kept\n", g_rank, g_toplevel);
+    if (g_rank == 0) printf("RESULT ecalc ckpt_top s %.6g\nRESULT ecalc ckpt_top_wait s %.6g\n", tw, tq);
 }
 void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
 {
@@ -340,6 +391,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
     int every = getenv("BS_CKPT_TREE_EVERY") ? atoi(getenv("BS_CKPT_TREE_EVERY")) : 1; if (every < 1) every = 1;   /* C6: a set every this many tree levels (the top level always) */
+    if (ck && lr == 0 && !bs_restart) bs_ckpt_tree_clear(0);   /* Phase 13 N (1.7): a fresh run: this node's tree sets of an earlier run go (levels another schedule wrote would outlive this run's) */
     int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* Phase 12 G (tests): the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
     if (captest) rns_dist_cap_test(captest);
     for (int l = lr + 1; l <= L; l++) {
@@ -357,6 +409,18 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
              * predecessors go at mn_finalize, after the driver's final barrier. */
             if (g_ckpend) { double tb = mem_now(); mn_barrier(); bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; bs_st.t_ckpt += mem_now() - tb; }
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
+            if (l == L && mn_ckpt_bg_mode) {                 /* Phase 13 N (1.4): the top set in the background */
+                g_topbg = bs_ckpt_bg_start(l, bs_N, d, &P->sh, &Q->sh, mn_ckpt_bg_mode == 2, mn_ckpt_slack); g_topbg_on = 1; g_toplevel = l;
+                newton_mn_pq_hook = mn_pq_hook;
+                printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in the background%s (started in %.2f s)\n", g_rank, l, bs_ckpt_dir, (P->sh.n + Q->sh.n) * 8e-9,
+                       mn_ckpt_bg_mode == 2 ? ", budgeted" : "", mem_now() - tc);
+                if (getenv("BS_CKPT_ABORT_TREE") && atoi(getenv("BS_CKPT_ABORT_TREE")) == l && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == g_rank)) {
+                    char who[64]; snprintf(who, sizeof who, "mn: node %d: ", g_rank);
+                    bs_ckpt_bg_release(g_topbg, 1); size_t by = bs_ckpt_bg_join(g_topbg, who, bs_ckpt_dir, 0, 0); g_topbg = 0;
+                    printf("mn: node %d: BS_CKPT_ABORT_TREE: exiting after the tree level %d checkpoint%s\n", g_rank, l, by ? "" : " (the set FAILED)"); fflush(stdout); _exit(3);
+                }
+                continue;
+            }
             size_t bytes = bs_ckpt_tree_write(l, bs_N, d, &P->sh, &Q->sh); double dtc = mem_now() - tc;
             if (bytes) { bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; g_ckpend = l; }
             printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", g_rank, l, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
