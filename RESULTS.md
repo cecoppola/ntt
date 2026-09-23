@@ -3245,3 +3245,97 @@ this session the same code fitted 9.5 × 10⁹ per node (5.5 × 10¹² total).
 Labelled: per-node compute measured (4 × 10¹⁰ in 81 s, 8 × 10¹⁰ in 190 s,
 10¹¹ in 263 s on one node); the fabric, the cross-node memory and the
 SHMEM message cost modelled; the part-file bandwidth assumed.
+
+## 78. Phase 13a — the first slice of the design-space campaign (2026-09-22/23; results/{P3,S13,K13,X13,M13,N13}.md)
+
+Six agents under PLAN §30 (with its review corrections). The session ran long: an admin CI
+array (`cdash-nightly`, 12 whole-node tasks at higher priority) held the PPAC nodes from
+00:06 to about 03:30 EDT, s24-30 rebooted at 00:54 CDT and stayed down, s24-16 went to
+another user, and an API session limit stopped all six agents from 01:10 to 03:50 EDT. The
+agents' scripted batches ran unattended through the gap and nothing was lost. The target of
+a real 2- and 3-node measurement (X) was not reached; everything else was.
+
+**Merged tree** `int13` (M, S, K, P3, X, N; one conflict, the Makefile's TESTS list).
+Defaults unchanged: every new path is behind a switch that is off.
+Regression on the merged tree, s24-26: `--only unit,e9,mn,ckpt` **16/16** (job 21037),
+`recheck` **2/2** (21038), `full` 4 × 10¹⁰ **identical, 80.90 s** and `stress` **10/10**
+(21040). The `full` step's recheck printed RECHECK OK but was scored FAIL. Its criterion
+still required P, Q from the top-level set, which Phase 12 turned off by default (3524146).
+The criterion now accepts the sidecar (863a98f) and the step was rerun: see below.
+
+**Closing series** (merged tree, job 21039, s24-26, reference evicted before every run):
+
+| configuration | wall, 5 runs | mean | phases | bs | dm | init | device |
+|---|---|---|---|---|---|---|---|
+| defaults | 82.82 / 81.82 / 81.31 / 79.46 / 82.78 | **81.6 ± 1.4 s** | 59.1 ± 0.3 | 32.9 | 26.1 | 22.6 | 313.3 GB |
+| `ECALC_NP=3` | 66.40 / 65.33 / 69.30 / 69.91 / 67.95 | **67.8 ± 1.9 s** | 47.0 ± 0.1 | 25.8 | 21.2 | 20.8 | 287.5 GB (P3) |
+
+The defaults match Phase 12's close (80.7 ± 1.2, phases 58.8) within noise. Three primes cut
+the phases by 20 % and the wall by 17 %. Digits of this series: see the note at the end of
+the section.
+
+### The options, measured (the Pareto table)
+
+All wall times are 4 × 10¹⁰ at size 1 on one node unless stated. The 576-node ceiling is
+modelled (`estimate.py --max` on the merged models, 502 GB per node).
+
+| option (switch) | 4 × 10¹⁰ wall | node device memory | 576-node ceiling | label |
+|---|---|---|---|---|
+| **defaults** | 81.6 ± 1.4 s | 313.3 GB | 6.95 × 10¹⁰/node = **4.00 × 10¹³ in 4.3 min** | wall, memory measured; ceiling modelled |
+| three primes `ECALC_NP=3` (P3) | **67.8 ± 1.9 s (−17 %)** | 287.5 GB (−25.8) | not modelled: `mn_model`/`mem_model` still assume four primes | measured |
+| reduced-correction Barrett `NTT_MODMUL=1` (K) | phases 58.0 vs 58.4 s (one pair) | unchanged | unchanged | measured; transform +5–12 % |
+| `MDB_SHIFT_CHUNK_MB=1024` (M) | no effect at size 1; +1 % at 10¹⁰/2, +13 % at 10¹⁰/4 | −4.9 GB/process of shift buffers at 10¹⁰/2 | 8.30 × 10¹⁰/node = **4.78 × 10¹³** | cost measured; ceiling modelled |
+| + `MN_T_CHUNK_MB=1024` (M) | as above | −3.9 GB/process at 10¹⁰/2 | 9.24 × 10¹⁰/node = **5.32 × 10¹³** | cost measured; ceiling modelled |
+| `ECALC_CKPT_TOP=2` (N) | 79.6 s with a 0.22 GB/s disk (set dropped); `=1` 128.2 s | Q held +17.8 GB during output when on | — | measured (disk emulated) |
+| `NTT_MALL`, `NTT_B16_VAR`, non-temporal pack (K) | no gain (±2 %, pack up to 2.4 × slower) | — | — | measured; rejected |
+
+### What the measurements decided
+
+- **Three primes (E1/E3)**: exact to 2³³ points with margin 6.8 (27.2 at 2³¹); primes
+  c = 240, 216, 207; CRT with 3 divisions per coefficient instead of 16. Planes fall
+  180.4 → 154.6 GB, not 135.3: pool 1 holds one prime at a time and does not scale.
+  The freed 25.8 GB is not yet turned into a higher ceiling (the sizing and models still
+  assume four).
+- **Strategy boundary (E0/E2)**: prime-per-APU (B) is the fastest dependent product at
+  every size 2²⁰–2³²: 1.24–1.52 × four-step (C) to 2³¹, 3.7 × at 2³², where C must grid.
+  At P = 3 its lead at 2³¹ narrows to 1.31 ×. **The boundary is memory**: B needs 16 n
+  bytes per APU (32 GiB at 2³¹) against today's 28 GiB. Modelled at 4 × 10¹⁰, the big
+  products take 32.2 s today, 25.0 s with B on 3·2ᵏ planes and 21.4 s with 4 GiB/APU more
+  plane budget. E4 (B in the reciprocal) is justified; E5 (exchange-free grid) is marginal.
+- **Kernel constants (H2/H3/H6/H7)**: no MALL cliff; the kernels are issue-bound at
+  1.2–1.6 TB/s. The reduced-correction Barrett variant is bit-identical and 5–12 % faster
+  per transform. Stride penalty found: s_lo 17 and 24 passes run at 0.73–0.82 ×, worth
+  ~12 % of a 2³¹ transform, likely HBM aliasing. The b1 pass is the slowest everywhere.
+- **The two fabrics (E9/H4)**: the xGMI push fills all three links at once (244 GB/s per
+  APU, 93–97 %). Power-of-two node groups already hide 74–76 % of xGMI time under the
+  fabric; non-power-of-two groups (3, 192, 576) hide 1.1 %, because the `alltoallv` path
+  serializes. The overlap ceiling at 576 is 23.5 % of exchange time (not 27 %). Worth
+  writing: a two-deep pipeline for `alltoallv`. Not worth writing: finer overlap, or the
+  xGMI relief valve (per-APU traffic is balanced to 1.0000). Measured with several
+  processes sharing one node only; the real 2- and 3-node runs are scripted (`~/x13/b5.sh`,
+  `b3.sh`).
+- **Memory truth (TASKS 1.1–1.3)**: one ceiling. The C request and `mem_model.py` agree to
+  the byte at 35 points (new `BS_LAYOUT_ONLY`). Measured device totals are within 0.05 %
+  at 10¹⁰, 4 × 10¹⁰, 8 × 10¹⁰ and 10¹¹. The earlier 6.7 vs 7.1 split was two versions of the
+  model, not C against the model: Q's pre-G estimate of the top-product scratch, and 8.6 GB
+  of SHMEM pool counted by only one version. The 6.7 in §77 and `docs/TARGET.md` is
+  superseded by 6.95.
+- **Hardening (TASKS 1.7, 4.1, 1.4)**: a restart under a different schedule or node count
+  is refused on every node with exit 5 / 4. Before, three of four nodes segfaulted with
+  wrong digits. Q is off the critical path. The top set at size > 1 is written in the
+  background.
+
+### 576-node estimate (standing rule)
+
+**4.0 × 10¹³ digits in ≈ 4.3 minutes** of per-node wall on the defaults (6.95 × 10¹⁰ per
+node, 502 GB; at the 480 GB safe budget 3.7 × 10¹³ in 3.9 min). With M's two chunking
+switches on, the memory ceiling rises to 5.3 × 10¹³; its wall is not modelled. Three primes
+would shorten the per-node compute by the measured 20 % of the phases, but that is not
+modelled at 576. Labels: per-node compute measured; fabric, cross-node memory and SHMEM
+message cost modelled; part-file bandwidth assumed.
+
+### For the user to decide
+
+`ECALC_NP=3` as the decimal default; `NTT_MODMUL=1` as the transform default; the two
+chunking switches on for the 576 layout; `ECALC_CKPT_TOP=2` if the top set is ever enabled.
+Each is measured above and none is adopted.
