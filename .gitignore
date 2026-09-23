@@ -29,3 +29,7 @@ ecalc/results/
 results/*
 !results/*.md
 .claude/
+
+# python bytecode
+__pycache__/
+*.pyc
