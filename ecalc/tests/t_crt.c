@@ -11,6 +11,9 @@
  *     96, 192; best of 3.  Paper: CPU CRT must keep up with the multiply
  *     (RESULTS.md 27, 34: 0.29 s / 2^30 tight window, clang).
  *
+ * Phase 13a P3: ECALC_NP=3 runs parts 1 and 2 with three primes (the value mod p0 p1 p2) in decimal limbs (three primes
+ * are decimal-only: the binary base is switched to decimal with a note); part 3 is binary-only and is skipped then.
+ *
  * Usage: t_crt [log2 n for part 3 (30)]
  */
 #include "harness.h"
@@ -23,9 +26,10 @@ static mpz_t M, E[4];        /* E[i] = (M/p_i) * ((M/p_i)^-1 mod p_i) */
 static void crt_gmp_init(void)
 {
     mpz_t t, u; mpz_inits(M, t, u, NULL);
+    crt_init();                                          /* (reads ECALC_NP) */
     mpz_set_ui(M, 1);
-    for (int i = 0; i < 4; i++) mpz_mul_ui(M, M, ec_P[i]);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < ec_np; i++) mpz_mul_ui(M, M, ec_P[i]);
+    for (int i = 0; i < ec_np; i++) {
         mpz_init(E[i]);
         mpz_divexact_ui(t, M, ec_P[i]);
         mpz_set_ui(u, ec_P[i]);
@@ -41,7 +45,7 @@ static void crt_gmp(mpz_t v, uint64_t *const res[4], size_t n)
     mpz_set_ui(v, 0);
     for (size_t k = n; k-- > 0;) {
         mpz_set_ui(c, 0);
-        for (int i = 0; i < 4; i++) { mpz_mul_ui(t, E[i], res[i][k]); mpz_add(c, c, t); }
+        for (int i = 0; i < ec_np; i++) { mpz_mul_ui(t, E[i], res[i][k]); mpz_add(c, c, t); }
         mpz_mod(c, c, M);
         if (bi_decimal) mpz_mul_ui(v, v, BI_B10); else mpz_mul_2exp(v, v, 64);
         mpz_add(v, v, c);
@@ -83,6 +87,8 @@ int main(int argc, char **argv)
     printf("== t_crt ==\n");
     harness_meta("t_crt");
     crt_gmp_init();
+    if (ec_np == 3 && !bi_decimal) { printf("   ECALC_NP=3: three primes are decimal-only -- running parts 1 and 2 in base 10^18\n"); bi_set_decimal(1); }
+    printf("   %d primes, %s limbs\n", ec_np, bi_decimal ? "decimal" : "binary");
     /* 1 + 2 */
     {
         size_t n = 1 << 16; uint64_t *res[4];
