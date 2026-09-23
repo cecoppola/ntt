@@ -430,8 +430,10 @@ def mem_per_node(D, g=1, opts=None):
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'], o['shift_chunk_mb'])
-    if g > 1 and o['depth'] >= 2 and (g & (g - 1)):                      # Phase 13b D (X's two-deep alltoallv, modelled): a second
-        xchg += NR * 2 * (o['depth'] - 1) * (sc[1] // K_CHUNKS_MEM) * 8   # send + receive slab of one chunk of the top plane per APU
+    if g > 1 and o['depth'] >= 2 and (g & (g - 1)):                      # Phase 13b X13b: COMM_ALLTOALLV_DEPTH=2 takes the exchange scratch
+        xchg += NR * (o['depth'] - 1) * (sc[1] // K_CHUNKS_MEM) * 8       # from 3 S to 4 S per APU thread (measured +33 %: 12.6 -> 16.8 MB at
+                                                                          # size 2, 8.5 -> 11.2 at 3), S = one chunk of the plane (q / K):
+                                                                          # one more quarter-plane per APU on the general-map levels
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], o['np'], o['strategy'])
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (o['np'] * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)

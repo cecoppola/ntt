@@ -176,7 +176,9 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     # fabric's excess over the hidden xGMI stage is exposed
     t_x = T_XGMI_31 * scale
     if dz is None or dz.legacy or not fab.target:
-        hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if is_pow2(g) else GEN_HIDE)
+        gen = GEN_HIDE if dz is None or dz.gen_hide is None else dz.gen_hide   # Phase 13b D: the depth check on aac6 sets it
+        pow2 = is_pow2(g) and not (dz is not None and dz.force_gen)             # DIST_GEN=1
+        hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if pow2 else gen)
     else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
         hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
     n_tr = (EC_NP if dz is None or dz.legacy else dz.np) * (fwd + 1)
@@ -207,7 +209,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1)
+    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -376,7 +378,8 @@ def phase(name, D):
 # Phase 12 tables were computed with; everything the design table prints goes through Design (the code after step 0).
 T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (results/S13.md, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
 HIDE_POW2 = 0.75                       # MEASURED (results/X13.md 3.2): the equal-slab path hides 74-76 % of its xGMI link time
-GEN_HIDE_DEPTH = {1: 0.011, 2: 0.75}   # general map: MEASURED 1.1 % one deep (X13); two deep MODELLED = the equal path's 3/4
+GEN_HIDE_DEPTH = {1: 0.011, 2: 0.74}   # general map: MEASURED 1.1 % one deep (X13; 1.4 % on two real nodes, X13b); two deep MEASURED 74.3 %
+                                       # on two real nodes (X13b, job 21068; 72.6-75.1 % on one node)
 F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
 MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
 T_ROUND = 0.030                        # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
@@ -396,6 +399,7 @@ class Design:
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
+        self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
     def f_mm(self): return F_MM1 if self.modmul == 1 else 1.0
@@ -515,19 +519,40 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
         out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]
     return out
 
+EXTRA_MAP = {'B': 11.47 / 154.6, 'B4': 4.50 / 90.2}   # s/GB: the B forms' extra planes mapped inside bs (agent B, jobs 21054)
+AUTO_FORM = 'B'                        # rns_dist.c: RNS_STRATEGY_FORM, default B (agent B: B4 is 3-7 % slower than B and fits the same planes)
+AUTO_GRID = True                       # RNS_STRATEGY_GRID=1 (the default under auto): the grid weighs B pieces x 0.70, C x 1, 3 2^k x 1.05
+
+@functools.lru_cache(maxsize=None)
+def _split_auto(na, nb, cap, r3, logmax, np):
+    """rns_dist.c split_grid under auto (agent B, 744df439): the grid of the least weighted points, a piece that fits the B form
+    in the pools weighing 0.70 per point, a C piece 1, a 3 2^k length x 1.05; then the fewest pieces"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            if pa + pb > cap: continue
+            pts = _plane_pts_cap(pa + pb, r3, logmax)
+            w = (0.70 if not any(mem_model.b_extra_limbs(AUTO_FORM, pts, logmax, r3, np)) else 1.0) * (1.05 if pts & (pts - 1) else 1.0)
+            cost = i * j * pts * w
+            if best is None or cost < best[0] - 1e-6 or (abs(cost - best[0]) <= 1e-6 and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
 @functools.lru_cache(maxsize=None)
 def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
     """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
-    'auto' (rns_dist.c b_choose): the B form -- RNS_STRATEGY_FORM, default B4 at P = 3, B at P = 4 -- for a piece whose planes
-    fit the pools as sized at init (whole planes, first fit: b_place), else C; auto never allocates.  At the cap itself the
-    planes do not fit (each pool holds 3/4 of the cap's plane), so auto is C for the capped pieces and the form below them"""
+    'auto' (rns_dist.c b_choose): the B form (RNS_STRATEGY_FORM, default B) for a piece whose planes fit the pools as sized at
+    init (whole planes, first fit: b_place), else C; auto never allocates.  Its grid (RNS_STRATEGY_GRID=1) prefers pieces that
+    fit B (_split_auto): at the 3 2^30 cap the pieces become 2^31 (which fits the 18 + 18 GiB pools) and every product runs B"""
     pl, r3 = mem_model.cap_pool(cap); logmax = pl
     out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
     for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
         nc = na + nb; one = nc <= cap
         if one and r3 and nc > (1 << logmax):
             ka, kb = _split_cap(na, nb, cap, True, logmax); one = ka * kb == 1
-        if one: ka = kb = 1
+        if strategy == 'auto' and AUTO_GRID and not (one and not any(mem_model.b_extra_limbs(AUTO_FORM, _plane_pts_cap(nc, r3, logmax), pl, r3, np))):
+            ka, kb = _split_auto(na, nb, cap, r3, logmax, np); one = ka * kb == 1
+        elif one: ka = kb = 1
         else: ka, kb = _split_cap(na, nb, cap, r3, logmax)
         pa, pb = -(-na // ka), -(-nb // kb); t = 0.0
         for jb in range(kb):
@@ -539,8 +564,7 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
                 p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
                 st = strategy
                 if strategy == 'auto':                                  # rns_dist.c b_choose: the form if its planes fit the pools
-                    form = 'B4' if np == 3 else 'B'
-                    st = form if not any(mem_model.b_extra_limbs(form, p, pl, r3, np)) else 'C'
+                    st = AUTO_FORM if not any(mem_model.b_extra_limbs(AUTO_FORM, p, pl, r3, np)) else 'C'
                 tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
@@ -689,8 +713,11 @@ def node_phases(D, dz, g=1, exclude=None):
     out = dict(batch=_interp(tab, 'batch_ref', D) * BATCH_CAP.get(cap, 1.0) * f['batch'] * fm, other=_interp(tab, 'other', D))
     for ph in ('top', 'recip', 'div'):
         out[ph] = max(0.0, _interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
-    dev = mem_model.mem_per_node(int(D), g, dz.mem_opts(digits))['dev_init'] / 1e9
+    o = dz.mem_opts(digits); oc = dict(o, strategy='C')
+    dev = mem_model.mem_per_node(int(D), g, oc)['dev_init'] / 1e9          # the pools and the arena, mapped at init
+    extra = mem_model.mem_per_node(int(D), g, o)['dev_init'] / 1e9 - dev   # B / B4 forced: the grow-only buffer, mapped inside bs
     out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31))
+    out['top'] += EXTRA_MAP.get(dz.strategy, MAP_RATE) * extra        # MEASURED per form (agent B, 4e10: 11.47 s for 154.6 GB, 4.50 s for 90.2 GB)
     out['label'] = 'modelled (%s products)' % bp['label']
     return out
 
