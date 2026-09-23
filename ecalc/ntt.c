@@ -19,12 +19,12 @@ int ntt_pw_fuse = 14;
 int ntt_b16_body = 1;      /* Phase 9 N-kernel: the register-blocked body (bit-identical, RESULTS 43) is the default now */
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
 int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->C exchange by ds_swizzle instead of LDS (Phase 9 B4); -1 = from the environment, default 0 */
-int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett (default), 1 reduced-correction Barrett, 2 Shoup; -1 = from the environment */
+int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett, 1 reduced-correction Barrett (default since Phase 13b: +5-12 %, bit-identical), 2 Shoup; -1 = from the environment */
 int ntt_b16_var = -1;      /* NTT_B16_VAR (Phase 13a K, H6): k_b16r variant bits (1 unpadded LDS + global twiddle table, 2 block order); 0 default */
 int ntt_mall = -1;         /* NTT_MALL (Phase 13a K, H2): log2 of a MALL-resident chunk (points); 0 = off (default); -1 = from the environment */
 
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
-int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 0); return ntt_modmul; }
+int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
 int ntt_mall_get(void) { if (ntt_mall < 0) ntt_mall = env_int("NTT_MALL", 0); return ntt_mall; }
 
 /* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product

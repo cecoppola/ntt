@@ -237,6 +237,7 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     if (!getenv("LIMB_BASE")) bi_set_decimal(1);      /* the decimal base is the pipeline's default (RESULTS.md 63, 67); LIMB_BASE=2 reproduces the paper's binary limbs */
     bi_env_base();
+    if (!getenv("ECALC_NP")) setenv("ECALC_NP", bi_decimal ? "3" : "4", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); binary limbs need four */
     if (bi_decimal) d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits%s%s ==\n", d_out, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)", d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
