@@ -337,7 +337,7 @@ int mn_ckpt_tree_level(unsigned long N)
     }
     g_cktree = (int)mn;
     bs_ckpt_tree_clear(g_cktree);
-    printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)my, g_cktree);
+    printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)v[0], g_cktree);
     return g_cktree;
 }
 /* Phase 13 N (TASKS 1.4, 4.1): the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 1 = complete, the division
