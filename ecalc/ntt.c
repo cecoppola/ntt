@@ -29,8 +29,8 @@ int ntt_plan = -1;         /* NTT_PLAN (Phase 13b K): pass boundaries, 0 default
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
 int ntt_mall_get(void) { if (ntt_mall < 0) ntt_mall = env_int("NTT_MALL", 0); return ntt_mall; }
-int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 0); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 3; return ntt_b1r; }   /* any other nonzero value: 3 (the faster) */
-int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 0); return ntt_plan; }
+int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 3); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 3; return ntt_b1r; }   /* default 3 since Phase 13c (K13b: the b1 pass 1.20-1.33x); 0 = the original b1 pass; any other nonzero value: 3 */
+int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 1); return ntt_plan; }   /* default 1 since Phase 13c (K13b: pass boundaries off the slow strides); 0 = the original plan */
 
 /* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
  * hi + lo against the two-term reciprocal pinv + pinvl (pinvl = (1 - p pinv) / p, computed per thread):
