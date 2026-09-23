@@ -45,6 +45,7 @@
 struct lst_rec { double a0, x0, x1, r1, f0, f1, c1, l0, l1; size_t xb, fb; int v; };   /* [l0, l1]: the push kernel's link-active interval (COMM_XGMI_STATS=1) */
 extern "C" int comm_xgmi_last_push(int rank, double *t0, double *t1);   /* comm_xgmi.c */
 struct lst { struct lst_rec *r; int n, cap; };
+static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 0; } return v; }
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
@@ -91,7 +92,8 @@ static double lst_inter_wait(lay_priv *p, pthread_t th, int *on, const double *w
 #define LB 48
 struct lst_tot { double n, nv, span, x, f, both, held, idle, xb, fb, wall0, wall1, xl, bothl, tr; };   /* tr: the block transposes (r1 - x1, c1 - f1) */
 static struct lst_tot g_tot[LB], g_all;
-static double g_dfb[NA], g_df[NA];                       /* per APU thread (device): fabric bytes and fabric time -- the NIC balance */
+static double g_dfb[NA], g_df[NA];
+static size_t g_vmem, g_emem;                             /* 13b X: the largest v-exchange scratch (x0..x3 areas, both slots) and equal-slab scratch of one APU thread's communicator */                       /* per APU thread (device): fabric bytes and fabric time -- the NIC balance */
 static double *g_pool; static char *g_pk; static int g_np, g_npc;   /* the node view's intervals (kind 0 xGMI, 1 fabric, 2 span) */
 static pthread_mutex_t g_mx = PTHREAD_MUTEX_INITIALIZER;
 static lay_priv *g_reg[1024]; static int g_nreg; static int g_node = -1, g_gsz = 0;
@@ -114,6 +116,7 @@ static double lst_isect(const double *a, int na, const double *b, int nb)
 static void lst_fold(lay_priv *p)
 {
     struct lst *L = &p->st; int n = L->n;
+    { size_t vm = p->vcap + p->vxcap[0] + p->vxcap[1], em = p->own_tmp ? p->tmp_cap : 0; if (vm > g_vmem) g_vmem = vm; if (em > g_emem) g_emem = em; }
     if (!n) return;
     double *X = (double *)malloc(4 * (size_t)n * sizeof(double)), *F = X + 2 * n; int nf = 0;
     for (int k = 0; k < n; k++) { X[2 * k] = L->r[k].x0; X[2 * k + 1] = L->r[k].x1; }
@@ -190,6 +193,8 @@ static void lst_print(const char *tag)
         for (int d = 0; d < NA; d++) { if (g_dfb[d] < bmin) bmin = g_dfb[d]; if (g_dfb[d] > bmax) bmax = g_dfb[d]; if (g_df[d] < tmin) tmin = g_df[d]; if (g_df[d] > tmax) tmax = g_df[d]; }
         printf("layer-stats %s node %d: block transposes %.4f s per APU (%.3f ms per exchange); the NIC balance over the APU threads: fabric bytes %.4f .. %.4f GB (max/min %.4f), fabric time %.4f .. %.4f s (max/min %.3f)\n",
                tag, g_node, a->tr / q, a->n > 0 ? 1e3 * a->tr / a->n : 0, bmin * 1e-9, bmax * 1e-9, bmin > 0 ? bmax / bmin : 0, tmin, tmax, tmin > 0 ? tmax / tmin : 0); }
+    printf("layer-stats %s node %d: v-exchange depth %s, transposes %s; scratch of one APU thread's communicator (max): v-exchange %.1f MB, equal-slab %.1f MB\n", tag, g_node,
+           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "1", tker_mode() ? "one kernel" : "copies", g_vmem * 1e-6, g_emem * 1e-6);
     if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
                           tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
@@ -262,7 +267,6 @@ __global__ void k_bcopy(char *dst, const char *src, const struct cpy *t)
     struct cpy e = t[blockIdx.y]; uint64_t *d = (uint64_t *)(dst + e.dst); const uint64_t *sp = (const uint64_t *)(src + e.src); size_t w = e.len >> 3;
     for (size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < w; i += (size_t)gridDim.x * blockDim.x) d[i] = sp[i];
 }
-static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 0; } return v; }
 static int dev_ok(const void *ptr)                       /* device memory, pinned or registered host memory, managed: a kernel may touch it */
 {
     hipPointerAttribute_t a;
