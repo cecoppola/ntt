@@ -1697,3 +1697,81 @@ The §19/§21 protocol, with Phase 13b's additions:
 - Kill processes only by PID or an anchored match.
 - Label every number measured, modelled or assumed.
 - **No default changes**: everything is measurement, tooling and model; adoption is the user's.
+
+## 33. The work plan after Phase 13 (written 2026-09-23; to resume later)
+
+The complete, sequenced task list after Phase 13: phases A (blockers for the target run), B (per-node speed),
+C (model, verification, documents), D (code reduction), the user's decisions, and five suggested sessions.
+The same text heads `TASKS.md`; target-machine work is `docs/TARGET_TASKS.md` (T0–T9).
+Nothing here has started.
+
+State: `main` @ 73b6c85. The chosen design is the default (three primes, `NTT_MODMUL=1`, `RNS_STRATEGY=auto`,
+`ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`, `COMM_ALLTOALLV_DEPTH=2`, `NTT_B1R=3`, `NTT_PLAN=1`). One node: 4 × 10¹⁰
+digits in 63.5 ± 1.5 s; the target's top-node share, 7.64 × 10¹⁰, in 133.3 s at 354 GB. **Target: 4.25 × 10¹³ digits on
+576 nodes, ≈ 3.9 min, 452 GB per node (modelled)**, below both grid steps (RESULTS §78–§82). Regression 21/21.
+
+This section supersedes the status tables below, which stay as the record. Every item names where its evidence is.
+The order puts first what the target run cannot succeed without, then per-node speed (≈ 80 % of the modelled 576-node
+wall is per-node compute), then verification and documents, then code reduction. Target-machine work is in
+`docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
+Phase A.
+
+### 33.Phase A — blockers for the target run (do first)
+
+| # | item | why first | evidence | size |
+|---|---|---|---|---|
+| A1 | **The rare hang after init: find and fix the cause.** Soak runs at the target's share size (7.64 × 10¹⁰) and at small sizes (fast repeats, e.g. 10⁹ × 200) with stacks captured by `ecalc/g13d_hang.sh` (gdb launch mode; `ptrace_scope` blocks attaching); then fix; then a soak with zero hangs | 1 hang in 31 one-node runs. A 576-node job runs 576 processes: at 1/31 each it almost never finishes; even at 1/3000 it fails 17 % of the time. A watchdog does not rescue a 576-node run | G13d §0 (197 threads in futex, 2 in `kfd_wait_on_events`, just after init — the seed thread's join) | 1–2 sessions |
+| A2 | **The SHMEM pool: model it, size it, fix the staging** — measure the pool's high-water at 2 real nodes and 4 processes at 10⁸–10¹⁰, fit its growth, put it in `mem_model`/`estimate.py`, re-check the 4.25 × 10¹³ node total; include 2.4 (`rns_dist`'s slabs still staged: the one-line `comm_sym_alloc` change) | 8479 MiB in use at 10¹⁰ on 2 nodes, above the 8192 default; the model's column is flat. Decides whether 452 GB holds (T0 on the target) | S13d open 3; TARGET_TASKS T0 | ½ session |
+| A3 | **Clean failure from worker threads**: the in-phase pool guard calls `exit(1)` from four worker threads at once and the process segfaults; route it through one error path with a clear message and exit code | at 576 nodes a clean, attributable failure matters | G13d (c) | small |
+| A4 | **`t_mn_grid` on real nodes** (SOS, 2 and 3 nodes, small size) and **`mnrun.sh`'s SHMEM detection** under wrappers (`stdbuf`, `timeout`, `numactl`) | the any-size map is the target's path; only loopback-verified | S13d open 2, 5 | small |
+| A5 | **The dist tier's operand load: 10 × slower per call on s24-16 than on s24-30** (0.89 against 0.094 s) — find whether it is the node or the memory state | if it is memory state, it is a large speedup available everywhere, and a hazard at scale (it made a 1.42 × 10¹¹ run 2 × slower) | G13d (b), P13b | ½ session |
+
+### 33.Phase B — per-node speed and memory (in payoff order at the target's share, 133 s = init 25 + tree 53 + dm 56)
+
+| # | item | expected | evidence |
+|---|---|---|---|
+| B1 | **Initialization** (20–27 s, the most variable phase): 2.1 overlap the seeds with the plane mapping; 2.2 the decimal `mul_1`; E8 / 6.4 the seeds as a GPU kernel | init 22 → 13–15 s: −7…−10 % of the per-node wall | TASKS 2.1, 2.2, 6.4 |
+| B2 | **The reciprocal**: E7 / 6.3 middle and short products; 2.3 piece loading at large sizes (with A5) | −25…−35 % of the reciprocal (22 s at the share) | TASKS 6.3, 2.3 |
+| B3 | **`auto`'s grid ignores the per-piece cost** (≈ 0.08 s per piece per 2³¹ limbs, D213d): add it to the choice; with it, the 1.245 × 10¹¹ fragmentation OOM (largest free block 27.50 GB for 27.67 GB) and the small-piece grids above 10¹¹ | one node above 10¹¹: dm 162–171 s against C's 90 s; also moves steps | D213d, G13d (a) |
+| B4 | **Transform lengths 5·2ᵏ and 7·2ᵏ** (E6 / 6.2) | −3…−5 % of transform time; finer lengths soften the grid steps | TASKS 6.2 |
+| B5 | **Kernels**: the 2³¹ plan's 5-stage top pass (≈ 4 ms per transform); the stride penalty's cause (s_lo 17 / 24, ≈ 12 % of a 2³¹ transform); `ntt3.c` on the reduced-correction modmul; the general-map twiddle packs in `rns_dist.c` (`k_twpack_g`, `k_unpacktw_g`); `DIST_TWREC` measured multi-node | a few % each | K13b, K13, X13b |
+| B6 | **Tier balance at three primes**: APU 3 idles in the mdev and striped batch tiers (≤ 0.3 s at 4 × 10¹⁰); B4's transfer as a push overlapped with the transform; B at size > 1 (a cross-node broadcast) | small; B at size > 1 is a design question | P3, B13b |
+| B7 | **Hardware**: H1 CPX mode for the batch tier (needs an administrator); H5 SDMA for the X fetches and the checkpoint writes | unknown | TASKS 6.6, PLAN §29 |
+
+Recorded and not recommended: 2.5 (seeds in host memory: `hipMemcpy` drops to 21 GB/s), 2.6 (pairwise combine: ~0
+for the default schedule), 6.8 (truncated FFT). Closed by measurement: 6.7 / H2 (no MALL cliff), H6, H7.
+
+### 33.Phase C — the model, verification, documents
+
+| # | item | evidence |
+|---|---|---|
+| C1 | **The model**: the size-1 tree-top re-grids it predicts mostly do not appear (only S4); one size-4 step 1.7–3.8 % late; `cap_factor` at the small caps unexplained; the host term at size > 1 (3 GB above the model over TCP); the size-1 leaf products (`plan leaf`) not validated; the r·d operand's size estimate | G13d (a), (c); D13b; M13 open 1; L13d |
+| C2 | **Checkpoints at size > 1 at scale** (the background top set tested only at 10⁸–10⁹; old v2 tree sets restart with a warning); 4.2 the recheck's cold-disk floor | N13, TASKS 4.2 |
+| C3 | **The papers** (`~/xetex/digits_as_limbs.tex`, `digit_cost.tex`): three primes, the design table, the target 4.25 × 10¹³, the term-share steps, `MN_PLAN_ONLY`, SHMEM on real nodes; 4.3 (four inferred cells of the complexity ladder: three short runs at tagged commits) | RESULTS §78–§82 |
+| C4 | **Documents in step**: TARGET.md §6 item 2 (depth 2 now measured: 74 % at 2 real nodes, 73–78 % at 3), TASKS §3 rows closed by Phase 13 (3.4 superseded, 3.5 measured), the README switch table against the source | — |
+
+### 33.Phase D — code reduction (PLAN §28, last)
+
+| # | item |
+|---|---|
+| D1 | archive the ≈ 320 lines of instruments; remove the ≈ 1,400 lines of obsolete code (engine 2, host Newton, stand-ins, rejected layouts); **archive the binary pipeline** (the user's request) and rewrite what depends on it — ≈ 2,166 core lines |
+| D2 | the Phase 13 switches the defaults superseded, **the user's decision per switch**: forced `B`, `B4`, `ECALC_PLANE_CAP=off`, `COMM_ALLTOALLV_DEPTH=1`, `NTT_MODMUL=0/2`, `NTT_MALL`, `NTT_B16_VAR`, the non-temporal pack, `DIST_TWREC`, `DIST_TPACK`, `NTT_B1R=0/4`, `NTT_PLAN=0` |
+| D3 | the regression and a five-run series after each step (the reduction must not move a digit or a second) |
+
+### 33.Decisions for the user
+
+1. The GMP baseline at 4 × 10¹⁰ (TASKS 4.4): state that it does not fit (recommended) or spend ≈ 6 h proving it.
+2. D2: which superseded switches to delete.
+3. H1: whether to ask the administrator for a CPX-mode node.
+
+### 33.Suggested sessions
+
+1. **A1 + A2 + A3 + A4** (the hang soak and fix, the pool, the clean exit, `t_mn_grid`): one multi-agent session; A1
+   and A2 need nodes, A3 and A4 are small.
+2. **A5 + B1 + B2** (the load speed, initialization, the reciprocal): the largest per-node gains.
+3. **B3 + B4 + B5** (auto's cost, new lengths, kernels), then **C1** (refit the model to the faster code) and
+   `design_table.py` regenerated, so the target estimate is restated.
+4. **C2–C4** (checkpoints at scale, papers, documents).
+5. **D1–D3** (code reduction), then a final regression and series.
+
+The target agent's T0–T9 can start any time; its T4 (the 4.25 × 10¹³ run) waits for session 1.
