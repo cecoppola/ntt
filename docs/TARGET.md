@@ -175,11 +175,11 @@ export SHMEM_SYMMETRIC_HEAP_SIZE=8704M XT_SYMMETRIC_HEAP_SIZE=8704M    # the poo
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
-     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 44000000000000 /out/e.txt'
+     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 42500000000000 /out/e.txt'
 ```
 
 The argument is the **total** digit count, not the per-node share (the pre-13c text had 61000000000, the per-node
-share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.4 × 10¹³ is the Phase 13c target (§5 step 6).
+share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.25 × 10¹³ is the target since Phase 13d (§5 step 6; RESULTS §82): the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
 The defaults since Phase 13c are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
 `COMM_ALLTOALLV_DEPTH=2`, with K's kernels `NTT_B1R=3 NTT_PLAN=1` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
 
@@ -209,7 +209,7 @@ tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which 
 | 3 | 64 | 6.4 × 10¹¹ | 10¹⁰ | ≈ 1.3 min (modelled); `cmp` against a single-node 10¹⁰ run | the tree at 6 levels, the checkpoints' cost (`BS_CKPT_DIR` on), the recheck |
 | 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 1 min; VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
 | 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 1.8 min** modelled (just below the 2.24 × 10¹³ grid step) | the first large run, 150 GB of margin. The recheck after it |
-| 6 **the target** | 576 | **4.4 × 10¹³** | **7.64 × 10¹⁰** | **≈ 3.9 min** modelled (design table, K's kernels measured in; `estimate.py`, which has no kernel term, says 4.0), 457–463 GB (inside the 480 GB budget) | the headline run (Phase 13c). **Phase 13d (RESULTS §81): 4.4 × 10¹³ is past two grid steps** — 4.29 → 4.30 × 10¹³ (the top groups: the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and 4.39 → 4.40 × 10¹³ (reciprocal + division): 275 s modelled; 4.25 × 10¹³ takes 234 s. The size is the user's decision; check it with `MN_PLAN_ONLY=<D>:576` (TARGET_TASKS T3) |
+| 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | **≈ 3.9 min** modelled (234 s, the Phase 13d model recalibrated to the C code; fabric assumed), 452 GB per node (inside the 480 GB budget; the SHMEM pool still to be sized, TARGET_TASKS T0) | the headline run (Phase 13d, RESULTS §82): 185 pieces on the critical path, 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (275 s at 4.4 × 10¹³). Check before the run: `MN_PLAN_ONLY=4.25e13:576 MN_PLAN_QUIET=1 ./ecalc` (185 pieces) |
 | 7 the 480 GB ceiling | 576 | 4.66 × 10¹³ | 8.09 × 10¹⁰ | 4.5 min modelled, 480 GB | **not recommended**: past the grid step, 13 % more time for 6 % more digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
 
 Between 6 and 7, `estimate.py --g 576 --D <D>` gives the peak per D in 10⁹ steps; take the largest whose modelled

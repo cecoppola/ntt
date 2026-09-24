@@ -3546,3 +3546,23 @@ At the current target, **4.4 × 10¹³ digits: ≈ 4.6 min** (275 s), 463 GB per
 both steps: ≈ 3.9 min** (234 s), 452 GB per node. Modelled with the recalibrated model on measured per-node inputs;
 the fabric (100 GB/s per APU, 2 µs per message) and the chunk-round cost are assumed. The SHMEM pool's size at the
 target is not yet in the node total (T0). The choice between the two sizes is the user's.
+
+## 82. The target changed to 4.25 × 10¹³ digits (2026-09-23, the user's decision)
+
+From §81, the user moved the 576-node target from 4.4 × 10¹³ to **4.25 × 10¹³ digits**: the flat stretch below the grid
+steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³. The code, the defaults and the design are unchanged. The launch line in
+`docs/TARGET.md` §4 now passes `42500000000000` (the total), §5 step 6 and `docs/TARGET_TASKS.md` state the new size, and
+`estimate.py --target` labels it.
+
+| | 4.25 × 10¹³ (the target) | 4.4 × 10¹³ (Phase 13c's) |
+|---|---|---|
+| pieces on the critical path (the C code's plan, `MN_PLAN_ONLY`) | 185 (88 + 69 + 28) | 229 (124 + 71 + 34) |
+| wall, 576 nodes (modelled, `estimate.py --target`) | **233.9 s = 3.90 min** | 275.2 s = 4.59 min |
+| node memory (modelled) | 452 GB (device 425 + host 30) | 463 GB |
+| per-node share | 7.38 × 10¹⁰ average; top node 7.64 × 10¹⁰ | 7.64 × 10¹⁰ average |
+
+The top node's share, 7.64 × 10¹⁰ digits, is the size run on one aac6 node in §80: 137.9 s, 354 GB, VERIFY OK.
+
+**576-node estimate (standing rule): 4.25 × 10¹³ digits in ≈ 3.9 minutes, 452 GB per node.** Modelled on measured
+per-node inputs, with the fabric assumed (100 GB/s per APU, 2 µs per message). The SHMEM pool at the target is still to
+be sized (`docs/TARGET_TASKS.md` T0).

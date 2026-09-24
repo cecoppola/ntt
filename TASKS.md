@@ -9,7 +9,7 @@ sections of `results/{R,G12,I,S12,Q,W,M11}.md`. State (Phase 12, superseded by t
 
 `main` carries the chosen design as the default (Phase 13c, RESULTS §79–§80): three primes, `NTT_MODMUL=1`,
 `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`, `COMM_ALLTOALLV_DEPTH=2`, `NTT_B1R=3 NTT_PLAN=1`.
-**The production target is 4.4 × 10¹³ digits on 576 nodes**, ≈ 3.9 min modelled. The sections below are the record as
+**The production target is 4.25 × 10¹³ digits on 576 nodes** (since Phase 13d, RESULTS §82), ≈ 3.9 min modelled. The sections below are the record as
 of Phase 12; this table supersedes their status.
 
 **Done**:
