@@ -3405,3 +3405,59 @@ digit was ever wrong.
 the 480 GB safe budget). **Fastest design: 4.2 × 10¹³ digits in ≈ 3.7 minutes.** Both are
 modelled from measured per-node inputs, with the fabric assumed. Against Phase 13a's
 4.0 × 10¹³ in 4.3 min, the fastest design is quicker at a slightly larger size.
+
+## 80. Phase 13c — the chosen design as the default; the target 4.4 × 10¹³ digits (2026-09-23)
+
+**The user's choices** (from the design table, §79): the 480 GB-per-node regime. Design **auto, 2³¹, shift
+chunking, depth 2**, with K's kernels. The **target is 4.4 × 10¹³ digits on 576 nodes**, chosen just below a grid
+step (below). Defaults since commits 8f545fb and 54b541e:
+
+| switch | default | earlier default / other values |
+|---|---|---|
+| `RNS_STRATEGY` | `auto` | `C` (was the default), `B`, `B4` |
+| `ECALC_PLANE_CAP` | `2^31`, unless `POOL_LOG`, `RNS_PLANES_3Q30` or `DIST_LOGN_TEST` is given | `off` = the pre-13c size rule (3·2³⁰ below 5 × 10¹⁰ digits); the other caps; `fit` |
+| `MDB_SHIFT_CHUNK_MB` | `1024` | `0` (one round, was the default) |
+| `COMM_ALLTOALLV_DEPTH` | `2` | `1` (was the default) |
+| `NTT_B1R`, `NTT_PLAN` | `3`, `1` | `0`, `0` (were the defaults) |
+
+`MN_T_CHUNK_MB` stays off (the "shift" row). `estimate.py` defaults to the same design. Other fixes:
+- `docs/TARGET.md` §4: the launch line passed 61000000000, the per-node share of the old safe size, but `ecalc`
+  takes the total. It now passes 44000000000000.
+- `docs/TARGET.md` §5: 4.4 × 10¹³ is the headline run.
+- `docs/TARGET_TASKS.md`, new: the target-only tasks T1–T9, for the agent that works on the target.
+- `TASKS.md`: a status section.
+
+**The grid steps** (modelled, 576 nodes, 2³¹ cap). A tree level's products are cut into more pieces as they
+outgrow the plane cap, and the wall jumps where the piece count does:
+
+| total digits | pieces | wall step |
+|---|---|---|
+| 2.24 → 2.25 × 10¹³ | 93 → 109 | +12 % |
+| 2.97 → 3.00 × 10¹³ | 124 → 148 | +13 % |
+| 3.31 → 3.34 × 10¹³ | 153 → 167 | +7 % |
+| 3.95 → 3.97 × 10¹³ | 185 → 201, in the reciprocal and division | +5 % |
+| **4.435 → 4.464 × 10¹³** | **214 → 248** | **+12.6 % for +0.65 % digits** |
+| 5.33 → 5.36 × 10¹³ | 283 → 315 | +8 % |
+
+The design's 480 GB ceiling, 4.66 × 10¹³ in 272 s, is past a step. 4.4 × 10¹³ is 0.8 % below it: ≈ 234 s,
+457 GB per node. The step positions follow the code's own splitting rule. They are not yet checked by a run
+(TASKS status item 1).
+
+**Checks on the new defaults** (commit 54b541e, aac6):
+- **Regression 21/21.** Job 21097: unit, e9, mn, ckpt 16/16; 10⁹ identical in 12.8 s. Job 21098: recheck, full,
+  stress 5/5; the full 4 × 10¹⁰ run identical at 64.2 s.
+- **Five-run series, 4 × 10¹⁰** (job C13c, s24-26, the reference evicted before each run and compared after it):
+  65.80 / 64.02 / 62.13 / 62.55 / 63.03 s, so **63.5 ± 1.5 s**. Phases 46.3 ± 0.2 (bs 23.7, dm 22.5); init
+  17.2 ± 1.4. All five identical. Against Phase 13a's close (81.6 ± 1.4 s, phases 59.1) the wall is −22 % and the
+  phases −22 %.
+- **One node's share of the target, 7.64 × 10¹⁰ digits on one node** (s24-30): **137.9 s**, VERIFY OK.
+  Device 340.7 GB + host 13.0 = 353.7 GB. The model gave 129.9 s and 355.6 GB: **time +6.2 %, memory −0.5 %**.
+  The model is calibrated at 4 × 10¹⁰ and extrapolates to this size, so its per-node compute is low by about that
+  much here.
+
+### 576-node estimate (standing rule)
+
+**4.4 × 10¹³ digits in ≈ 4.1 min** on the defaults, **≈ 460 GB per node**, inside the 480 GB budget. This is the
+design table's 234 s (3.9 min) with its per-node compute, about 188 s of the 234, raised by the 6.2 % the share run
+measured: ≈ 246 s. All modelled on measured per-node inputs. The fabric's bandwidth (100 GB/s per APU),
+per-message cost and chunk-round cost are assumed until the target measures them (`docs/TARGET_TASKS.md` T1).
