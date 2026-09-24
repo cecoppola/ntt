@@ -184,6 +184,15 @@ static int place_node(size_t i, size_t n, const size_t *offr, int ra, int rb)
     return (int)(i % NR);                            /* round robin: at most one node more per region, and the placement depends on the index alone, so the sizing pass (region_need) predicts it exactly */
 }
 
+/* Phase 14 R1 (E8): the normalised length of a node's limbs in a device pool the host cannot read (a VMM range): the top limbs come
+ * over by DMA, 64 at a time from the end (a product's length is within a limb or two of na + nb: one DMA almost always) */
+static size_t node_norm(const uint64_t *p, size_t n)
+{
+    if (!db_pool_vmm_on() || mem_dev_of(p) < 0) return limb_norm(p, n);
+    uint64_t t[64];
+    while (n) { size_t m = n < 64 ? n : 64; mem_dev_copy(t, p + (n - m), m * 8); size_t k = limb_norm(t, m); if (k) return n - m + k; n -= m; }
+    return 0;
+}
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
@@ -1368,14 +1377,14 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 for (size_t i = (size_t)rk; i < npairs; i += (size_t)cnt) {
                     struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
                     if (home >= 0 && o->r % NR != home % NR) continue;
-                    o->pn = limb_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
-                    o->qn = limb_norm(NODE_Q(nxt, o), a->qn + b->qn);
+                    o->pn = node_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
+                    o->qn = node_norm(NODE_Q(nxt, o), a->qn + b->qn);
                 }
             }
         } else for (size_t i = 0; i < npairs; i++) {
             struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-            o->pn = limb_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
-            o->qn = limb_norm(NODE_Q(nxt, o), a->qn + b->qn);
+            o->pn = node_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
+            o->qn = node_norm(NODE_Q(nxt, o), a->qn + b->qn);
         }
         if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
                    region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r);
