@@ -3461,3 +3461,88 @@ The design's 480 GB ceiling, 4.66 × 10¹³ in 272 s, is past a step. 4.4 × 10�
 design table's 234 s (3.9 min) with its per-node compute, about 188 s of the 234, raised by the 6.2 % the share run
 measured: ≈ 246 s. All modelled on measured per-node inputs. The fabric's bandwidth (100 GB/s per APU),
 per-message cost and chunk-round cost are assumed until the target measures them (`docs/TARGET_TASKS.md` T1).
+
+## 81. Phase 13d — the target's grid step, the model recalibrated, SHMEM on real nodes (2026-09-23; results/{L13d,D213d,G13d,S13d}.md)
+
+Four agents under PLAN §32. **Regression 21/21 on the merged code** (commit 2270813: L's extractions and D2's
+model; jobs 21115, 21116). The first attempt ran on `main` by mistake: the bundle assumed a commit aac6 did not
+have. The script now stops if the clone is not at the expected commit.
+
+### The target sits past two steps (L, D2)
+
+**L, `MN_PLAN_ONLY=<total digits>:<g>`**: the C code's own decision functions (`mn_grid_shape`, `db_grid_shape`,
+`grid_piece_skipped`, the Newton chain; extracted unchanged) print every large product's grid and pieces for any
+size and node count. No GPU, 0.04 s. Validated against 9 real runs at 1–4 processes, including three with a lowered
+cap so grids and cuts form. Every comparison agreed; unit and e9 steps 10/10.
+
+**The step moved**: the code gives each node the same number of *terms*, so a node's digits grow with its term
+index. At 576 nodes the top node holds **1.036 ×** the average digits (node 0: 0.77 ×). Every level waits for its
+largest group, and the model had costed node 0's group at the average. The C code's plan at 576 nodes (critical
+path pieces; `results/L13d_plan576.txt`):
+
+| total digits | pieces | modelled wall (D2, recalibrated, 100 GB/s per APU assumed) |
+|---|---|---|
+| 4.25 × 10¹³ | 185 | **234 s (3.9 min)**, 452 GB per node |
+| 4.29 × 10¹³ | 185 | 235 s |
+| 4.30 × 10¹³ | 197 | 247 s |
+| 4.34 × 10¹³ | 219 | 267 s |
+| **4.40 × 10¹³** | 229 | **275 s (4.6 min)**, 463 GB per node |
+| 4.40–4.74 × 10¹³ | 228–229 (flat) | — |
+| 4.75 × 10¹³ | 236 | — |
+
+**D2** fixed the model's structure to the C code: the term shares, the order of the k-way levels, the division's
+A_h (dl + 1 limbs, not 2 dl + 1), the exact lengths, the size-1 leaf levels and auto's grid rules. Its piece counts
+now equal L's at 401/401 sizes at 576 and 801/801 at size 1. The **6.2 % miss of §80** was the pipeline running its
+big products slower than the isolated benchmark: a one-plane product 1.15 × (B form) / 1.22 × (C form), and
+≈ 0.08 s per extra grid piece per 2³¹ limbs of the product. That per-piece cost is what makes the steps. The model
+is within 3 % on 11 of 12 fitted one-node walls (5 × 10¹⁰–1.16 × 10¹¹); above that it is not gated.
+
+### The steps on real hardware (G, s24-16, every run verified)
+
+| predicted one-node step | below → above | Δ wall for Δ digits |
+|---|---|---|
+| 5.155 × 10¹⁰ | 79.2 → 83.4 s | +5 % for +1.4 % |
+| 5.795 × 10¹⁰ | 94.5 → 98.8 s | +5 % for +1.2 % |
+| 6.625 × 10¹⁰ | 109.8 → 121.0 s | **+10 % for +1 %** |
+| 7.735 × 10¹⁰ | 136.4 (7.72) → 150.5 s (7.77) | **+10 % for +0.6 %** |
+| 8.585 × 10¹⁰ | 172.6 → 178.9 s | +4 % for +0.6 % |
+| 9.275 × 10¹⁰ | 189.8 → 191.7 s | +1 % (not seen) |
+| 1.0305 × 10¹¹ | 225.1 → 237.3 s | +5 % for +0.7 % |
+| 1.1595 × 10¹¹ | 307.9 → 313.9 s | +2 % for +0.6 % |
+
+- **The mechanism at the target's own code path**: 4 processes, reduced cap, 1.26 → 1.31 × 10¹⁰ digits,
+  110.9 → 132.7 s (+20 % for +4 %).
+- **The 2³⁰ cap, 1.42 against 1.44 × 10¹¹, same node**: 1.047 × the wall, a moderate step, not P13b's 1.6 ×.
+  P13b's 677 s run had every operation 2–3 × faster than its 1.44 × 10¹¹ run on another node: a node or
+  memory-state effect. Strategy C at 1.42 × 10¹¹ / 2³⁰ took 1350 s here against auto's 1081 s.
+
+**Two incidents on the defaults** (open, TASKS):
+- **One hang after init at 7.70 × 10¹⁰**: 197 threads in `futex_wait_queue`, 2 in `kfd_wait_on_events`; no
+  stack (ptrace_scope 1). Not reproduced in 4 more runs: 1 in about 30 runs this session.
+- **Out of memory inside a phase at 1.245 × 10¹¹ on one node**: the pool could not grow by 27.7 GB with 41 GB free
+  in pieces. At 1.252 × 10¹¹ the run passed. Above 10¹¹ on one node, auto forms grids of many small pieces because
+  it ignores the per-piece cost (D2): dm 162–171 s at 1.16 × 10¹¹, where C took 90 s at 1.14 × 10¹¹ in P13b.
+  Neither affects the 576-node target, whose large products are C-form, with a per-node share of 7.4 × 10¹⁰.
+
+### SHMEM across real nodes (S; TASKS 1.5)
+
+- **Sandia OpenSHMEM** (`~/sos`, libfabric sockets) works first time across nodes, in the target form (concurrent
+  contexts, put-with-signal, device pool).
+- **2 nodes**: `t_comm` in all 8 transport modes and `t_dist` layered VERIFY OK; ecalc 10⁸, 10⁹ and **10¹⁰ identical**
+  over SOS and TCP, within 1.4 % of each other (10¹⁰: 2071 s against 2042 s; aac6's only inter-node link is 1 GbE).
+- **3 nodes**: identical at both depths; SOS 36–47 % slower than TCP there (a guess, not measured: the provider's
+  single progress thread for two peers).
+- **Depth 2 at 3 real nodes**: 73–78 % of the xGMI time hidden under the fabric on the general-map node, against
+  0 % at depth 1. This completes X13b's measurement.
+- **OpenMPI 4.1 OSHMEM hangs across nodes**: a blocking put over UCX's tcp transport needs the target to progress,
+  and its polled wait does not. It must not be used across nodes.
+- **The default SHMEM pool is too small**: 8479 MiB in use at 10¹⁰ on 2 nodes, above the 8192 default;
+  `COMM_SHMEM_POOL_MB=16384` was needed. The model's pool column is flat, so the pool model is open, and at the
+  target it is `docs/TARGET_TASKS.md` T0.
+
+### 576-node estimate (standing rule)
+
+At the current target, **4.4 × 10¹³ digits: ≈ 4.6 min** (275 s), 463 GB per node. At **4.25 × 10¹³, just below
+both steps: ≈ 3.9 min** (234 s), 452 GB per node. Modelled with the recalibrated model on measured per-node inputs;
+the fabric (100 GB/s per APU, 2 µs per message) and the chunk-round cost are assumed. The SHMEM pool's size at the
+target is not yet in the node total (T0). The choice between the two sizes is the user's.
