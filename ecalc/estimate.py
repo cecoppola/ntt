@@ -24,7 +24,8 @@ import mem_model
 
 LABELS = {
     "digits": "modelled (D x g; D is the request per node, the run computes to the next multiple of 18)",
-    "wall": "modelled: init/batch/top levels from the measured size-1 runs of the current code (mn_model.RUNS: 1e10 36.2 s, 4e10 81.5 (four primes) / 68.3 (three), 8e10 190.7, 1e11 262.9) with S13's per-product law for the strategy and cap; the distributed levels, reciprocal and division built from the measured 2^31 piece (S13: 0.827 s at three primes) and the fabric",
+    "wall": "modelled: the per-node compute recalibrated on the Phase 13c defaults (Phase 13d D2, mn_model.CAL13: G13d's ten one-node runs 6.6e10-1.16e11 + the 4e10 series + the 7.64e10 share run, `mn_model.py --calib13`; the pipeline's per-product law fitted on G's logs); the top node's leaf (the code's equal-term layout: 1.036 x the average digits at 576) and each tree level's largest group; the distributed levels, reciprocal and division built from S13's 2^31 piece x the pipeline factor (1.22, assumed to carry) and the fabric",
+    "steps": "modelled = the C code's own plan (agent L's MN_PLAN_ONLY; mn_model.plan equals it at all 401 sizes 2.0-6.0e13): at the 2^31 cap the tree levels' largest groups step 88 -> 124 pieces over 4.30-4.39e13",
     "exposed": "modelled: the fabric time not hidden under the local passes -- assumes 100 GB/s per APU, 2 us per message (--bw, --lat), the general map's overlap (GEN_HIDE)",
     "fabric": "modelled: bytes through the node's eight NICs and over the dragonfly's global links (MN_TOPO_GROUP = 64, two-layer all-to-all)",
     "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
@@ -77,6 +78,7 @@ def main():
     ap.add_argument("--taper", type=float, default=1.0)
     ap.add_argument("--write-bw", type=float, default=2.0, help="GB/s per node for the part file (assumed)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
+    ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.4e13 (the Phase 13c target), the proposed 4.25e13, and the step")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP (Phase 13b step 0: 3)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
@@ -93,6 +95,15 @@ def main():
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.1f GB/s per node"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d, NTT_MODMUL=%d" % (design.name(), design.np, design.modmul),
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
+    if a.target:
+        print("the standing estimate, 576 nodes (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message):" % (a.bw, a.lat * 1e6))
+        for T, what in ((4.25e13, "proposed target, 1.2 % below the step"), (4.29e13, "the last size below the step"), (4.30e13, "the step's first size"), (4.4e13, "the Phase 13c target")):
+            e = estimate(576, T / 576, a.tree, a.groups, fab, a.rule, staging=a.staging, design=design)
+            p = M.plan(576, T, design)
+            print("  %.3e digits (%s): %.1f s = %.2f min; pieces tree_max %d + recip %d + div %d = %d; node %.0f GB (device %.0f + host %.0f)%s" % (
+                T, what, e["wall_s"], e["minutes"], p["tree_max"], p["recip"], p["div"], p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"],
+                "" if e["fits_margin"] else "  (over 480 GB)"))
+        return
     if a.max:
         print("%-4s | %14s %10s %8s | %14s %10s %8s" % ("g", "max D @502 GB", "digits", "min", "max D @480 GB", "digits", "min"))
         for g in a.g:
