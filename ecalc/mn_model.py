@@ -604,10 +604,10 @@ def leaf_shapes(D, a0=1, b1=None):
         n = npairs + (n & 1); l += 1
     return tuple(out)
 
-def big_shapes(D, scope=('top', 'recip', 'div')):
+def big_shapes(D, scope=('top', 'recip', 'div'), v13=True):
     """t_cap's shapes at D digits (nq = D / 18 limbs): (phase, name, na, nb, lowcut, w, count)"""
     nq = int(D / 18); k = nq + 1; big = 1 << 62; out = []
-    ex = exact_sizes(D) if EXACT13 else None                           # Phase 13d D2: the code's lengths (the cuts' skips turn on a few limbs)
+    ex = exact_sizes(D) if (EXACT13 and v13) else None                 # Phase 13d D2: the code's lengths (the cuts' skips turn on a few limbs); v13 off = 13b
     if ex: nq = ex['nq']; k = ex['pn'] + 1 + ex['dl'] - nq + 1          # the reciprocal's k_mu (newton_db.c)
     if 'top' in scope:
         if ex and LEAF13: out += leaf_shapes(D)                         # Phase 13d D2: the leaf's device (mdev) levels as binsplit.c forms them
@@ -620,7 +620,8 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
         if ex:                                                         # Phase 13d D2: A_h = S >> (nq - 1 - dl), k = S + dl - nq + 1, X = dl + 1
             dl, sn = ex['dl'], ex['sn']; kd = sn + dl - nq + 1
             out += [('div', 'A_h mu', sn - (nq - 1 - dl), kd + 1, kd + 1, big, 1), ('div', 'X Q', dl + 1, nq, 0, nq + 2, 1)]
-        else: out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # A_h has dl + 1 limbs (was 2 nq + 1)
+        elif v13: out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # A_h has dl + 1 limbs (was 2 nq + 1)
+        else: out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]    # the Phase 13b shapes (A_h 2 nq + 1)
     return out
 
 EDGE_INIT = 10.0                       # FITTED (agent P's five edge runs, 465-509 GB of device at init: init 34.4-47.1 s against 28-31 by the mapping
@@ -642,6 +643,20 @@ def _b_fits(nc, pl, r3, np):
     return not any(mem_model.b_extra_limbs(AUTO_FORM, _b_len(nc)[0], pl, r3, np))
 
 @functools.lru_cache(maxsize=None)
+def _split_auto_13b(na, nb, cap, r3, logmax, np):
+    """the Phase 13b port of split_grid under auto (the B pieces at the C plane length, an absolute tie): the 13b layer (pipe off)"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            if pa + pb > cap: continue
+            pts = _plane_pts_cap(pa + pb, r3, logmax)
+            w = (0.70 if not any(mem_model.b_extra_limbs(AUTO_FORM, pts, logmax, r3, np)) else 1.0) * (1.05 if pts & (pts - 1) else 1.0)
+            cost = i * j * pts * w
+            if best is None or cost < best[0] - 1e-6 or (abs(cost - best[0]) <= 1e-6 and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+@functools.lru_cache(maxsize=None)
 def _split_auto(na, nb, cap, r3, logmax, np):
     """rns_dist.c split_grid under auto (RNS_STRATEGY_GRID=1): a piece that fits the B form weighs its B length (b_len: 2^k or
     3 2^(k-2)) x 1.05 if 3 2^k x 0.70, one that does not its C plane x 1.05 if 3 2^k; the least cost (within 0.1 %), then the
@@ -659,10 +674,29 @@ def _split_auto(na, nb, cap, r3, logmax, np):
     return best[1], best[2]
 
 @functools.lru_cache(maxsize=None)
-def product_pieces(na, nb, lowcut, w, strategy, cap, np):
-    """rns_dist.c mul_grid's pieces of one single-node product: ((ka, kb), [(form, points), ...] of the formed pieces)"""
+def product_pieces(na, nb, lowcut, w, strategy, cap, np, v13=True):
+    """rns_dist.c mul_grid's pieces of one single-node product: ((ka, kb), [(form, points), ...] of the formed pieces).
+    v13 = False: the Phase 13b port (the model node_phases had before 13d: design_table --calibrate's gate)"""
     pl, r3 = mem_model.cap_pool(cap); logmax = pl
     nc = na + nb; one = nc <= cap; auto = strategy == 'auto' and AUTO_GRID
+    if not v13:
+        if one and r3 and nc > (1 << logmax):
+            ka, kb = _split_cap(na, nb, cap, True, logmax); one = ka * kb == 1
+        if auto and not (one and not any(mem_model.b_extra_limbs(AUTO_FORM, _plane_pts_cap(nc, r3, logmax), pl, r3, np))):
+            ka, kb = _split_auto_13b(na, nb, cap, r3, logmax, np); one = ka * kb == 1
+        elif one: ka = kb = 1
+        else: ka, kb = _split_cap(na, nb, cap, r3, logmax)
+        pa, pb = -(-na // ka), -(-nb // kb); out = []
+        for jb in range(kb):
+            for ia in range(ka):
+                oa, ob = ia * pa, jb * pb
+                if oa >= na or ob >= nb: continue
+                la, lb = min(pa, na - oa), min(pb, nb - ob)
+                if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+                p = _plane_pts_cap(nc if one else la + lb, r3, logmax); st = strategy
+                if strategy == 'auto': st = AUTO_FORM if not any(mem_model.b_extra_limbs(AUTO_FORM, p, pl, r3, np)) else 'C'
+                out.append((st, p))
+        return (ka, kb), tuple(out)
     if one and (nc > (1 << logmax) or (auto and not _b_fits(nc, pl, r3, np))):   # rns_dist.c mul_grid (Phase 13d D2: as the code)
         ka, kb = _split_auto(na, nb, cap, r3, logmax, np) if auto else _split_cap(na, nb, cap, r3, logmax); one = ka * kb == 1
     elif one: ka = kb = 1
@@ -690,9 +724,9 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div'), pipe=False
     fit B (_split_auto): at the 3 2^30 cap the pieces become 2^31 (which fits the 18 + 18 GiB pools) and every product runs B"""
     pl, r3 = mem_model.cap_pool(cap)
     out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
-    for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
-        t = 0.0
-        (ka, kb), pcs = product_pieces(na, nb, lowcut, w, strategy, cap, np)
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope, v13=pipe):   # Phase 13d D2: the 13d structure with the pipeline law (run() under
+        t = 0.0                                                         # CAL13), the Phase 13b one without (node_phases' default: the 13b gate)
+        (ka, kb), pcs = product_pieces(na, nb, lowcut, w, strategy, cap, np, v13=pipe)
         for st, p in pcs:
             tp, lab = t_prod(st, p, np); labels.add(lab)
             if CAL13 and pipe:                                          # Phase 13d D2: the pipeline's per-product law (fit_pipe, G's logs)
@@ -883,7 +917,7 @@ def np_factors(np):
 _BIG = {}
 def node_big(D, dz, g=1):
     """the design's big products (with the pipeline law) inside node_phases' top and recip + div: (top, dm) seconds"""
-    if (D, dz.key(), g) not in _BIG: node_phases(D, dz, g)
+    if (D, dz.key(), g) not in _BIG: node_phases(D, dz, g, pipe=True)
     return _BIG[(D, dz.key(), g)]
 
 DM_REST = 4.08                         # Phase 13d D2: dm's rest (the reciprocal's small steps, the shifts, adds, window, corrections) as
@@ -896,14 +930,14 @@ def cal13_apply(D, dz, g, bs, dm):
     dm1 = (bd + DM_REST * D / 4e10) if DM_REST is not None else (cal13(D, 'dm') * (dm - bd) + bd)
     return cal13(D, 'bs') * (bs - bt) + bt, dm1
 
-def node_phases(D, dz, g=1, exclude=None):
+def node_phases(D, dz, g=1, exclude=None, pipe=False):
     """the per-node phases of one node at D digits per node under design dz: init, batch, top, recip, div, other (seconds) and
     the label of each.  At g = 1 the whole pipeline; at g > 1 init, batch and top (the leaf) -- the distributed levels, the
     reciprocal and the division come from the fabric model.  top / recip / div = rest x the prime factor + the big products
     under (strategy, cap) (S13's per-product law); x F_MM1 with NTT_MODMUL=1; init by the mapped device (MAP_RATE)"""
     tab = phase_table(exclude); f = np_factors(dz.np); fm = dz.f_mm()
     digits = D * g; cap = dz.cap_at(digits)
-    bp = big_products(D, dz.strategy, cap, dz.np, pipe=True)            # Phase 13d D2: PIPE_F on the design's pieces only
+    bp = big_products(D, dz.strategy, cap, dz.np, pipe=pipe)            # Phase 13d D2: pipe = the pipeline law on the design pieces (run() under CAL13); off = the Phase 13b model
     out = dict(batch=_interp(tab, 'batch_ref', D) * BATCH_CAP.get(cap, 1.0) * f['batch'] * fm, other=_interp(tab, 'other', D))
     for ph in ('top', 'recip', 'div'):
         out[ph] = max(0.0, _interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
@@ -913,7 +947,7 @@ def node_phases(D, dz, g=1, exclude=None):
     out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31)) + EDGE_INIT * min(1.0, max(0.0, (dev - 440.0) / 25.0))
     out['top'] += EXTRA_MAP.get(dz.strategy, MAP_RATE) * extra        # MEASURED per form (agent B, 4e10: 11.47 s for 154.6 GB, 4.50 s for 90.2 GB)
     out['label'] = 'modelled (%s products)' % bp['label']
-    _BIG[(D, dz.key(), g)] = (bp['top'] * fm, (bp['recip'] + bp['div']) * fm)   # Phase 13d D2: the big products inside top / recip + div (CAL13's law acts on the rest)
+    if pipe: _BIG[(D, dz.key(), g)] = (bp['top'] * fm, (bp['recip'] + bp['div']) * fm)   # Phase 13d D2: the big products inside top / recip + div (CAL13's law acts on the rest)
     return out
 
 # ---- Phase 13d D2: the per-node compute recalibrated on the Phase 13c defaults ------------------------------------------------
@@ -984,7 +1018,7 @@ def _cal13_points():
     return pts
 
 CAL13_MODE = 'law'                     # 'law': the ratio a (D / 4e10)^b per group (CAL13_LAW, fitted by fit13 with PIPE_F); 'interp': between the runs
-CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.805, 0.067), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
+CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.754, -0.068), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
 CAL13_RANGE = (4e10, 1.3e11)           # the law is held flat outside the measured range
 
 def cal13(D, key):
@@ -1062,7 +1096,7 @@ def fit13(runs=None, verbose=True, exclude=None):
     runs = [r for r in (runs or CAL13_RUNS) if r['use'] == 'fit']
     cal13_reset(); d = DEFAULT13(); pts = []
     for i, r in enumerate(runs):
-        p = node_phases(r['D'], d); kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
+        p = node_phases(r["D"], d, pipe=True); kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
         bt, bd = node_big(r['D'], d)
         pts.append(dict(i=i, D=r['D'], n=r.get('n', 1), init=r['init'], bs=r['bs'] * kb, dm=r['dm'] * kd,
                         other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']), m=dict(init=p['init'], bs=p['batch'] + p['top'] - bt, dm=p['recip'] + p['div'] - bd),
@@ -1131,7 +1165,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
                   batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale, other=0.0)
     else:
         ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
-        npf = node_phases(D * ftop, design, g)
+        npf = node_phases(D * ftop, design, g, pipe=CAL13)
         fi = cal13(D * ftop, 'init')                   # Phase 13d D2: the 13c recalibration (1 without CAL13): the law on bs's rest
         bs0 = npf["batch"] + npf["top"]; bs1 = cal13_apply(D * ftop, design, g, bs0, 0.0)[0] if CAL13 else bs0; fb = bs1 / bs0 if bs0 > 0 else 1.0
         ph = dict(init=init_override if init_override is not None else npf["init"] * fi, batch=npf["batch"] * leaf_scale * fb, top=npf["top"] * leaf_scale * fb,
