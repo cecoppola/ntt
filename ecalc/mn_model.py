@@ -316,17 +316,26 @@ def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
     if cur != g: c.add(shift_cost(fab, k + 1, g))                      # mu onto the full group
     return c, groups
 
-def division_cost(fab, nq, dl, npn, g, rule, form):
+def exact_sizes(T):
+    """Phase 13d D2: the run's lengths as the code has them (agent L's mn_plan.c pq_of): dl = ceil(d / 18) for d = T rounded up to
+    a multiple of 18; Q(1, N+1) = N! has log10 N! digits, P = Q (e - 1), S = P + Q = Q e; limbs = floor(log10 / 18) + 1"""
+    d = mem_model.digits_of_run(int(T)); N = _terms(T); lq = _lf(N)
+    lim = lambda lg: int(math.floor(lg / LIMB_DIGITS)) + 1
+    return dict(dl=(d + 17) // 18, nq=lim(lq), pn=lim(lq + math.log10(math.e - 1)), sn=lim(lq + math.log10(math.e)))
+
+def division_cost(fab, nq, dl, npn, g, rule, form, sn=None):
     """S = P + Q, A_h = S >> (nq - 1 - dl), t = A_h mu (low cut k + 1), X = t >> (k + 1), X Q mod B^w (high cut w),
-    the window, the corrections, the residues; the reciprocal first"""
-    na = npn + dl; k = na - nq + 1; w = nq + 2
-    rc, groups = recip_cost(fab, nq, k, g, rule, form)
+    the window, the corrections, the residues; the reciprocal first.  Phase 13d D2 (newton_db.c newton_mn_divmod, L's plan):
+    the reciprocal to k_mu = P + 1 + dl - nq + 1 (S's largest possible length), the division's k = S + dl - nq + 1"""
+    if sn is None: sn = npn
+    na = sn + dl; k = na - nq + 1; w = nq + 2; kmu = npn + 1 + dl - nq + 1
+    rc, groups = recip_cost(fab, nq, kmu, g, rule, form)
     c = Cost()
     c.add(shift_cost(fab, nq, g)); c.add(small_cost(fab, g, 3))        # Q into P's basis, S = P + Q, residues of P, Q
     c.add(shift_cost(fab, na, g))                                      # A_h
-    nah = dl + 1                                                       # Phase 13d D2: A_h = S >> (nq - 1 - dl), S = P + Q of nq limbs:
-                                                                       # dl + 1 limbs (newton_db.c 713; the 1.42e11 log: 7888888890 x 7888888891);
-                                                                       # the model had 2 dl + 1 (the shift applied to S B^dl), twice the product
+    nah = sn - (nq - 1 - dl)                                           # Phase 13d D2: A_h = S >> (nq - 1 - dl): dl + 1 limbs (newton_db.c 713;
+                                                                       # the 1.42e11 log: 7888888890 x 7888888891); the model had 2 dl + 1
+                                                                       # (the shift applied to S B^dl), twice the product
     c.add(product_cost(fab, nah, k + 1, g, lowcut=k + 1, form=form))   # A_h mu
     c.add(shift_cost(fab, nah + k + 1, g))                             # X
     c.add(product_cost(fab, dl + 1, nq, g, highcut=w, form=form))      # X Q mod B^w
@@ -349,6 +358,7 @@ SCHEDULES = {                       # the three schedules for 576 (MN_GROUPS val
 # the wall for the slowest leaf -- the top node's.  SHARES = 'terms' costs the top group and the top node's leaf (the code);
 # 'even' = every node D digits (the model before 13d, which put the 576-node tree step 3.6 % too late).
 SHARES = 'terms'
+EXACT13 = True                         # Phase 13d D2: big_shapes (size 1) on the code's exact lengths (exact_sizes)
 _L10 = math.log(10.0)
 def _lf(n): return math.lgamma(n + 1.0) / _L10                          # log10 n!
 
@@ -559,6 +569,8 @@ def _split_cap(na, nb, cap, r3, logmax):
 def big_shapes(D, scope=('top', 'recip', 'div')):
     """t_cap's shapes at D digits (nq = D / 18 limbs): (phase, name, na, nb, lowcut, w, count)"""
     nq = int(D / 18); k = nq + 1; big = 1 << 62; out = []
+    ex = exact_sizes(D) if EXACT13 else None                           # Phase 13d D2: the code's lengths (the cuts' skips turn on a few limbs)
+    if ex: nq = ex['nq']; k = ex['pn'] + 1 + ex['dl'] - nq + 1          # the reciprocal's k_mu (newton_db.c)
     if 'top' in scope:
         out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
     if 'recip' in scope:
@@ -566,7 +578,10 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
             take = min(2 * j + 2, nq)
             out += [('recip', 'Q_t r', take, j + 1, 0, big, 1), ('recip', 'r d', j + 1, j + 2, 0, big, 1)]
     if 'div' in scope:
-        out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # Phase 13d D2: A_h has dl + 1 limbs (was 2 nq + 1)
+        if ex:                                                         # Phase 13d D2: A_h = S >> (nq - 1 - dl), k = S + dl - nq + 1, X = dl + 1
+            dl, sn = ex['dl'], ex['sn']; kd = sn + dl - nq + 1
+            out += [('div', 'A_h mu', sn - (nq - 1 - dl), kd + 1, kd + 1, big, 1), ('div', 'X Q', dl + 1, nq, 0, nq + 2, 1)]
+        else: out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # A_h has dl + 1 limbs (was 2 nq + 1)
     return out
 
 EDGE_INIT = 10.0                       # FITTED (agent P's five edge runs, 465-509 GB of device at init: init 34.4-47.1 s against 28-31 by the mapping
@@ -891,7 +906,9 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
                   other=npf["other"])
     levels = tree_cost(fab, nq, g, groups, form, T=None if design is None or design.legacy else D * g) if g > 1 else []
     if g > 1:
-        rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
+        if design is None or design.legacy: rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
+        else:                                          # Phase 13d D2: the code's exact lengths (the cuts' skips are decided at a few limbs)
+            ex = exact_sizes(D * g); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, rule, form, sn=ex['sn'])
     elif design is None or design.legacy:
         rc = Cost(); rc.t = phase("recip", D); dc = Cost(); dc.t = phase("div", D); grp = []
     else:
@@ -1003,7 +1020,7 @@ def plan(g, T, design=None, groups=None, fab=None):
     try:
         D = T / g; nq = int(D / LIMB_DIGITS)
         t0 = tree_cost(fab, nq, g, groups, "grid", T=T, which='bottom'); tm = tree_cost(fab, nq, g, groups, "grid", T=T, which='top')
-        rc, dc, grp = division_cost(fab, nq * g, nq * g, nq * g, g, "model", "grid")
+        ex = exact_sizes(T); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, "model", "grid", sn=ex['sn'])
         return dict(tree=sum(c.pieces for _, _, c in t0), tree_max=sum(c.pieces for _, _, c in tm), recip=rc.pieces, div=dc.pieces,
                     levels0=[c.pieces for _, _, c in t0], levels_max=[c.pieces for _, _, c in tm], groups=sorted(set(gp for _, gp in grp)))
     finally:
