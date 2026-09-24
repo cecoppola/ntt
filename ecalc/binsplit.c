@@ -1260,6 +1260,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                 if (cur.pool[0] && mem_dev_of(cur.pool[0]) >= 0) donate_pools(which ^ 1);   /* the children's pools are consumed */
                 if (nxt.n == 1 && dm_tail_dead > 0) for (int r = 0; r < NR; r++) if (g_arena[r].base && g_arena[r].hole)   /* Phase 14 L1 (E5): the top level's dead inputs are free now: the block pool's tail moves to the largest free extent's back (t1's block) */
                     db_pool_retarget_tail(g_arena[r].dev, g_arena[r].hole, g_arena[r].thresh);
+                if (nxt.n == 1 && dm_tight > 0) db_pool_pack_large(2);   /* Phase 14 L1 (DM_TIGHT): from here the dm phase's large blocks take the tail first (t1), then the highest end (r2 below Q) */
                 if (nxt.n == 1) {
                     if (bs_keep_dev) { bs_Pd = *nxt.nd[0].pd; bs_Qd = *nxt.nd[0].qd; P->n = Q->n = 0; }   /* the caller copies them out (overlapped with the reciprocal) */
                     else { db_to_bi(P, nxt.nd[0].pd); db_to_bi(Q, nxt.nd[0].qd); db_free(nxt.nd[0].pd); db_free(nxt.nd[0].qd); }

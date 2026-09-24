@@ -77,11 +77,17 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
     dm_switches(); int tight = dm_tight > 0;
     if (!tight) { db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap); }
     seed_db(&r, Q, Qd, nq_seed, &j);
+    /* Phase 14 L1 (E2, second form, after job 21132): the three blocks reserved ONCE at the last doubling's sizes, now, while the pool holds
+     * only P and Q -- r at jl + 4 (r has j + 2 limbs, measured), r2 at 2 jl + 4, t1 at Q_t r's size at jl (the hole of dm_layout) -- and
+     * never swapped: r' is copied from r2 into r's block at every doubling but the last (about n_Q limbs of device copies in all), so the
+     * blocks never move and the free space beside them stays one extent.  The per-doubling free-and-reserve form left r in the middle of
+     * the free space and r2 without a contiguous fit at the last doubling (jobs 21131, 21132: a 4.44 GB hipMalloc with 8-11 GB free) */
+    size_t jl = j; if (tight) { while (newton_chain_next(jl, k) < k) jl = newton_chain_next(jl, k);
+        size_t tk = 2 * jl + 2 < nq ? 2 * jl + 2 : nq; db_reserve(&t1, tk + (jl + 2) + 8); db_reserve(&r2, 2 * jl + 4); db_reserve(&r, jl + 4); }
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
-            if (tight) { size_t need = take + r.n + 8; if (t1.cap < need) { db_free(&t1); db_reserve(&t1, need); } }   /* E2: t1 for this doubling's Q_t r (its old content is dead) */
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
             /* Phase 10 A1: at the top Q_t is Q itself, the operand of the division's X Q: its pieces' transforms are kept
              * (rns_dist_cache_hold: only when the cache has the slots for them) -- Q as the B operand, whose pieces the
@@ -92,7 +98,6 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (j <= take) { u = db_view(&t1, take - j, t1.n > take - j ? t1.n - (take - j) : 0); db_norm(&u); }
             else { db_shl_limbs(&t2, &t1, j - take); u = t2; }
             int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (db_top(&u) > 1 || maxidx_below(&u, 2 * j)));
-            if (tight && r2.cap < 2 * j + 4) { db_free(&r2); db_reserve(&r2, 2 * j + 4); }   /* E2: r2 reserved when d is first written, at d's and r''s size */
             if (neg) db_sub_pow(&r2, &u, 2 * j); else db_pow_sub(&r2, 2 * j, &u);   /* d = |B^(2j) - u| -> r2 */
             size_t dn = r2.n;
             rns_mul_dist_db(&t1, &r, &r2);                          /* r |d| -> t1 (u is consumed) */
@@ -103,17 +108,17 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
                 if (over) { newton_st.overshoots++; shrink_db(&r); continue; }
                 db_sub_shifted(&r2, &r, j, &corr);
             } else db_add_shifted(&r2, &r, j, &corr);
-            if (converged) { dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }   /* r <- r' by swap (E2: the old iterate's block goes) */
+            if (converged) { if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }   /* r <- r' by swap; E2: by a copy into r's block, except at the last doubling (r' becomes mu) */
             else db_shr_limbs(&r, &r2, j);
             if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB%s (d %zu limbs, t1 %zu of cap %zu, r2 cap %zu)\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9, tight ? "  tight" : "", dn, t1.n, t1.cap, r2.cap);
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
-        if (jn < 2 * j) { db_shr_limbs(&r2, &r, 2 * j - jn); dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }
+        if (jn < 2 * j) { db_shr_limbs(&r2, &r, 2 * j - jn); if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }
         j = jn;
         newton_st.iters++;
     }
-    if (j > k) { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }
+    if (j > k) { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; }
     { dbig sw = *mu; *mu = r; r = sw; }                          /* mu takes r's block */
     g_r = r; g_r2 = r2; g_t1 = t1; g_t2 = t2;
     newton_st.t_recip += mem_now() - t0;
