@@ -114,11 +114,14 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
-        if (jn < 2 * j) { db_shr_limbs(&r2, &r, 2 * j - jn); if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }
+        if (jn < 2 * j) {                                           /* the anchored target is below 2j: r >>= 2j - jn */
+            if (tight && jn == k) { db_shr_limbs(&t1, &r, 2 * j - jn); db_copy(&r, &t1); }   /* E2: the last doubling -- r2 is the small block now; through the dead t1 (job 21151: the shift into r2 regrew it by 1.0 n_Q with everything live) */
+            else { db_shr_limbs(&r2, &r, 2 * j - jn); if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }
+        }
         j = jn;
         newton_st.iters++;
     }
-    if (j > k) { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; }
+    if (j > k) { if (tight) { db_shr_limbs(&t1, &r, j - k); db_copy(&r, &t1); } else { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; } }
     { dbig sw = *mu; *mu = r; r = sw; }                          /* mu takes r's block */
     g_r = r; g_r2 = r2; g_t1 = t1; g_t2 = t2;
     newton_st.t_recip += mem_now() - t0;
