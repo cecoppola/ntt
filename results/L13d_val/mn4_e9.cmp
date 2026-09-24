@@ -1,0 +1,28 @@
+  # plan product                       | run: A x B, grid, formed/skipped             | plan: A x B, grid, formed/skipped            | verdict
+  0 tree   level 1 [0, 2) combine 1 of | 12800142 x 13888890 g2 c30 1x1 1/0           | 12800142 x 13888890 g2 c30 1x1 1/0           | agrees; sizes +0 +0
+  1 tree   level 1 [0, 2) combine 1 of | 12800142 x 13888890 g2 c30 1x1 1/0           | 12800142 x 13888890 g2 c30 1x1 1/0           | agrees; sizes +0 +0
+  2 tree   level 2 [0, 4) combine 1 of | 26689031 x 28866529 g4 c31 1x1 1/0           | 26689031 x 28866529 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+  3 tree   level 2 [0, 4) combine 1 of | 26689031 x 28866529 g4 c31 1x1 1/0           | 26689031 x 28866529 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+  4 recip  j 54254 -> 108507 Q_t r     | 108510 x 54255 g2 c30 1x1 1/0                | 108510 x 54255 g2 c30 1x1 1/0                | agrees; sizes +0 +0
+  5 recip  j 54254 -> 108507 r d       | 54255 x 54254 g2 c30 1x1 1/0                 | 54255 x 54254 g2 c30 1x1 1/0                 | agrees; sizes +0 +0
+  6 recip  j 108507 -> 217014 Q_t r    | 217016 x 108508 g2 c30 1x1 1/0               | 217016 x 108508 g2 c30 1x1 1/0               | agrees; sizes +0 +0
+  7 recip  j 108507 -> 217014 r d      | 108508 x 108507 g2 c30 1x1 1/0               | 108508 x 108507 g2 c30 1x1 1/0               | agrees; sizes +0 +0
+  8 recip  j 217014 -> 434028 Q_t r    | 434030 x 217015 g2 c30 1x1 1/0               | 434030 x 217015 g2 c30 1x1 1/0               | agrees; sizes +0 +0
+  9 recip  j 217014 -> 434028 r d      | 217015 x 217014 g2 c30 1x1 1/0               | 217015 x 217014 g2 c30 1x1 1/0               | agrees; sizes +0 +0
+ 10 recip  j 434028 -> 868056 Q_t r    | 868058 x 434029 g4 c31 1x1 1/0               | 868058 x 434029 g4 c31 1x1 1/0               | agrees; sizes +0 +0
+ 11 recip  j 434028 -> 868056 r d      | 434029 x 434028 g4 c31 1x1 1/0               | 434029 x 434028 g4 c31 1x1 1/0               | agrees; sizes +0 +0
+ 12 recip  j 868056 -> 1736112 Q_t r   | 1736114 x 868057 g4 c31 1x1 1/0              | 1736114 x 868057 g4 c31 1x1 1/0              | agrees; sizes +0 +0
+ 13 recip  j 868056 -> 1736112 r d     | 868057 x 868056 g4 c31 1x1 1/0               | 868057 x 868056 g4 c31 1x1 1/0               | agrees; sizes +0 +0
+ 14 recip  j 1736112 -> 3472223 Q_t r  | 3472226 x 1736113 g4 c31 1x1 1/0             | 3472226 x 1736113 g4 c31 1x1 1/0             | agrees; sizes +0 +0
+ 15 recip  j 1736112 -> 3472223 r d    | 1736113 x 1736112 g4 c31 1x1 1/0             | 1736113 x 1736112 g4 c31 1x1 1/0             | agrees; sizes +0 +0
+ 16 recip  j 3472223 -> 6944445 Q_t r  | 6944448 x 3472224 g4 c31 1x1 1/0             | 6944448 x 3472224 g4 c31 1x1 1/0             | agrees; sizes +0 +0
+ 17 recip  j 3472223 -> 6944445 r d    | 3472224 x 3472223 g4 c31 1x1 1/0             | 3472224 x 3472223 g4 c31 1x1 1/0             | agrees; sizes +0 +0
+ 18 recip  j 6944445 -> 13888890 Q_t r | 13888892 x 6944446 g4 c31 1x1 1/0            | 13888892 x 6944446 g4 c31 1x1 1/0            | agrees; sizes +0 +0
+ 19 recip  j 6944445 -> 13888890 r d   | 6944446 x 6944445 g4 c31 1x1 1/0             | 6944446 x 6944445 g4 c31 1x1 1/0             | agrees; sizes +0 +0
+ 20 recip  j 13888890 -> 27777779 Q_t  | 27777782 x 13888891 g4 c31 1x1 1/0           | 27777782 x 13888891 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+ 21 recip  j 13888890 -> 27777779 r d  | 13888891 x 13888890 g4 c31 1x1 1/0           | 13888891 x 13888890 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+ 22 recip  j 27777779 -> 55555558 Q_t  | 55555560 x 27777780 g4 c31 1x1 1/0           | 55555560 x 27777780 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+ 23 recip  j 27777779 -> 55555558 r d  | 27777780 x 27777779 g4 c31 1x1 1/0           | 27777780 x 27777779 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+ 24 div    A_h mu                      | 55555557 x 55555558 g4 c31 1x1 1/0           | 55555557 x 55555558 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+ 25 div    X Q mod B^w                 | 55555557 x 55555560 g4 c31 1x1 1/0           | 55555557 x 55555560 g4 c31 1x1 1/0           | agrees; sizes +0 +0
+compare: 26 run products, 26 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
