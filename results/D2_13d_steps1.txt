@@ -55,7 +55,7 @@ Env modelled:  DIST_LOGN_TEST=27  NEWTON_MN_GROUPS=0   (plus the defaults; SLURM
     (default on) would move early doublings to 2 nodes, changing the reciprocal's counts but not the tree's.
   - POOL_LOG=29 is NOT useful: the mn cap is then 2^31 at S = 4 and the tree's first split is at 3.9e10 total (out of range).
     DIST_LOGN_TEST=28: first tree step at 1.93e10 total (one step only in range).
-*** UPDATE 20:35 EDT (D2): the code gives every node the same number of TERMS (mn.c: [1 + N r/g, 1 + N (r+1)/g)), so the
+*** UPDATE 20:24 EDT (D2): the code gives every node the same number of TERMS (mn.c: [1 + N r/g, 1 + N (r+1)/g)), so the
     nodes' digit shares differ: at size 4 near 1e10 total, nodes 0..3 hold 0.930 / 1.000 / 1.026 / 1.043 x the average.
     The S = 2 level therefore splits at different sizes in its two groups.  Exact thresholds (modelled from lgamma):
       DIST_LOGN_TEST=27:  S=2 top pair (nodes 2,3) splits 1x1 -> 2 pieces at T = 9.337e9

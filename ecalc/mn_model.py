@@ -170,6 +170,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
     else: t31 = T_PIECE_31_NP[dz.np] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
     t_loc = t31 * scale + 0.005
+    if dz is not None and not dz.legacy and CAL13: t_loc *= PIECE13        # Phase 13d D2: the pipeline's pieces against the isolated ones
     t_loc *= fab.gpu_share
     # the transforms' exchanges: EC_NP x (fwd + 1) layered all-to-alls of 8 q bytes per APU; the xGMI stage of one
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
@@ -209,7 +210,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1)
+    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -797,6 +798,58 @@ def node_phases(D, dz, g=1, exclude=None):
     out['label'] = 'modelled (%s products)' % bp['label']
     return out
 
+# ---- Phase 13d D2: the per-node compute recalibrated on the Phase 13c defaults ------------------------------------------------
+# node_phases is the Phase 13b model (K's kernels off, the four-prime phase table extrapolated beyond 4e10 by the rest's law);
+# at 7.64e10 it ran 6.2 % optimistic (RESULTS 80) -- all of it in dm (the design table's leaf_scale, fitted at 4e10 where the
+# model's bs is 12 % high, also scaled bs down by 5 %).  The recalibration: per phase group (init, bs, dm) the ratio measured /
+# node_phases of the DEFAULT design at every measured one-node size of the 13c code, interpolated linearly in log D (flat
+# outside the measured range) and applied to every non-legacy design in run() (CAL13 = True).  K-off runs enter through the
+# measured K ratios.  At g > 1: bs's ratio at the top node's leaf; dm's ratio (the pipeline's big products against the
+# isolated t_strategy pieces: ~85 % of dm at >= 7e10) on the fabric pieces' local part (ASSUMED to carry over).
+CAL13 = True
+K_BS = 23.5 / 25.2                     # MEASURED (M-run 13b, auto 2^31 at 4e10): K's kernels on (n 8) / off (n 3), bs
+K_DM = 22.5 / 22.9                     #   and dm; ASSUMED size-independent where a K-off run is used
+K_INIT = 1.0
+CAL13_RUNS = [   # D, K on, total, init, bs, dm, n, use ('fit' | 'check'), source -- the 13c defaults (auto, 2^31, shift 1024, depth 2) or as noted
+    dict(D=4e10, k=1, total=63.5, init=17.2, bs=23.7, dm=22.5, n=5, use='fit', src='RESULTS 80: five-run series C13c, s24-26 (63.5 +- 1.5 s)'),
+    dict(D=7.64e10, k=1, total=137.9, init=19.5, bs=57.5, dm=60.8, n=1, use='fit', src='RESULTS 80: the share run, s24-30'),
+    dict(D=1.30e11, k=0, total=353.1, init=38.6, bs=148.6, dm=165.8, n=1, use='fit', src='P13b 2^31 edge (job 21069, s24-30): C at 2^31 = auto there (no piece fits B), K off, no chunking, depth 1'),
+]
+_C13 = {}
+def _cal13_points():
+    if 'pts' in _C13: return _C13['pts']
+    d = DEFAULT13(); pts = []
+    for r in CAL13_RUNS:
+        if r['use'] != 'fit': continue
+        p = node_phases(r['D'], d)
+        kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
+        pts.append((r['D'], dict(init=r['init'] / p['init'], bs=r['bs'] * kb / (p['batch'] + p['top']), dm=r['dm'] * kd / (p['recip'] + p['div']))))
+    pts.sort(key=lambda x: x[0]); _C13['pts'] = pts
+    return pts
+
+def cal13(D, key):
+    """the ratio measured / node_phases for phase group key (init | bs | dm) at D digits per node (1 without CAL13)"""
+    if not CAL13: return 1.0
+    pts = _cal13_points()
+    if not pts: return 1.0
+    if D <= pts[0][0]: return pts[0][1][key]
+    if D >= pts[-1][0]: return pts[-1][1][key]
+    for (a, fa), (b, fb) in zip(pts, pts[1:]):
+        if a <= D <= b:
+            t = math.log(D / a) / math.log(b / a); return fa[key] + t * (fb[key] - fa[key])
+
+def cal13_reset():
+    global PIECE13
+    _C13.clear(); _PC.clear(); PIECE13 = 1.0; PIECE13 = piece13()
+
+def piece13():
+    """the fabric piece's local-part factor: dm's ratio at 7.64e10 (the target's per-node share; ASSUMED to carry from the one-node
+    big products, ~85 % of dm there, to the distributed pieces)"""
+    return cal13(7.64e10, 'dm') if CAL13 else 1.0
+PIECE13 = 1.0
+
+def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift', depth=2, modmul=1)   # the Phase 13c defaults
+
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     o = dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)
@@ -829,7 +882,8 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     else:
         ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
         npf = node_phases(D * ftop, design, g)
-        ph = dict(init=init_override if init_override is not None else npf["init"], batch=npf["batch"] * leaf_scale, top=npf["top"] * leaf_scale,
+        fb = cal13(D * ftop, 'bs'); fi = cal13(D * ftop, 'init')   # Phase 13d D2: the 13c recalibration (1 without CAL13)
+        ph = dict(init=init_override if init_override is not None else npf["init"] * fi, batch=npf["batch"] * leaf_scale * fb, top=npf["top"] * leaf_scale * fb,
                   other=npf["other"])
     levels = tree_cost(fab, nq, g, groups, form, T=None if design is None or design.legacy else D * g) if g > 1 else []
     if g > 1:
@@ -837,7 +891,8 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     elif design is None or design.legacy:
         rc = Cost(); rc.t = phase("recip", D); dc = Cost(); dc.t = phase("div", D); grp = []
     else:
-        rc = Cost(); rc.t = npf["recip"]; dc = Cost(); dc.t = npf["div"]; grp = []
+        fd = cal13(D, 'dm')                            # Phase 13d D2: the 13c recalibration of dm (1 without CAL13)
+        rc = Cost(); rc.t = npf["recip"] * fd; dc = Cost(); dc.t = npf["div"] * fd; grp = []
     t_levels = sum(c.t for _, _, c in levels)
     out_write = D / 1e9 / fab.write_bw                 # the node's part file at the write bandwidth
     t_lowprod = dc.t * 0.5
@@ -1001,6 +1056,8 @@ def main():
         print("  the third layer at 4e10 x 576 (group %d): wall %.1f -> %.1f s, exposed %.1f -> %.1f s, NIC bytes %s -> %s, messages per APU %d -> %d"
               % (a.group, r2["wall"], r3["wall"], r2["exposed"], r3["exposed"], fmt_b(r2["nic"]), fmt_b(r3["nic"]), r2["msgs"], r3["msgs"]))
     schedules(fab, a.rule, form=a.tree)
+
+cal13_reset()                          # Phase 13d D2: PIECE13 from the recalibration
 
 if __name__ == "__main__":
     main()
