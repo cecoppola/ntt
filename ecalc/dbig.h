@@ -37,7 +37,8 @@ void db_pool_pin_tail(int on);                         /* Phase 14 L1 (DM_TIGHT)
 void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh);   /* Phase 14 L1 (E5): the tail becomes the last `bytes` of the largest free extent (all of it when it is smaller; a line under DB_POOL_VERBOSE) */
 size_t db_pool_tail_bytes(int dev);
 int db_pool_vmm_on(void);                            /* Phase 14 R1 (E8): DB_POOL_VMM=1 -- the arena as a VMM range whose free chunks are remapped contiguously on demand (results/R114.md 5) */
-void *db_vmm_arena_alloc(int dev, size_t bytes);     /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly) */
+void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
+void db_vmm_arena_wait(int dev, size_t bytes);      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
 void db_vmm_arena_release(int dev);
 size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks);   /* chunks moved by remaps; the remap count; chunks created inside a phase */
 size_t db_pool_tail_stats(int dev, size_t *spills);  /* requests served from the tail's back; spills = small requests that had to enter the tail */
