@@ -29,6 +29,14 @@ void sp_drop_cache(int fd)
     fsync(fd);
     posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);     /* only clean pages go: hence the fsync first (apumult_M.md 2) */
 }
+/* every device's queued work complete (the DMA of this file runs on its own non-blocking streams, which are not ordered
+ * after the pipeline's null-stream work the way a hipMemcpy is); the calling thread's device kept */
+void sp_dev_sync_all(void)
+{
+    int cur, n = 0; SP_HIP(hipGetDevice(&cur)); SP_HIP(hipGetDeviceCount(&n)); if (n > 8) n = 8;
+    for (int d = 0; d < n; d++) { SP_HIP(hipSetDevice(d)); SP_HIP(hipDeviceSynchronize()); }
+    SP_HIP(hipSetDevice(cur));
+}
 void sp_drop_cache_path(const char *path)
 {
     int fd = open(path, O_RDONLY);
@@ -273,7 +281,8 @@ spill *spill_start_dir(dbig *x, size_t lo, size_t hi, const char *dir, const cha
     s->x = *x; s->flags = flags; s->lo = lo; s->hi = hi; s->n = x->n; s->cap = x->cap; s->qc = x->qc;
     if (flags & SPILL_FREE) { memset(x, 0, sizeof *x); s->owned = 1; }   /* the caller's descriptor no longer holds the blocks */
     mkdir(dir, 0777);
-    int seq = __atomic_add_fetch(&g_seq, 1, __ATOMIC_RELAXED);
+    sp_dev_sync_all();                                 /* the writers' DMA runs on their own non-blocking streams, not ordered after the caller's kernels */
+    int seq =__atomic_add_fetch(&g_seq, 1, __ATOMIC_RELAXED);
     s->t0 = mem_now();
     for (int d = 0; d < DB_NQ; d++) {
         size_t a = (size_t)d * s->qc, e = a + s->qc;

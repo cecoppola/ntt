@@ -52,6 +52,7 @@ int  spf_read_dev(sp_file *f, int dev, void *dst, size_t bytes, void *const buf[
 int  spf_close(sp_file *f, int ok);    /* write: the carry (padded, then ftruncate), fsync, DONTNEED; returns ok && no error */
 void sp_drop_cache(int fd);            /* fsync + posix_fadvise(DONTNEED) on a buffered file (the output writer, headers) */
 void sp_drop_cache_path(const char *path);
+void sp_dev_sync_all(void);            /* hipDeviceSynchronize on every device (the caller's device kept): before a DMA on our own streams reads what the pipeline wrote */
 
 /* ---- the spill primitive ---- */
 enum { SPILL_FREE = 1 };               /* spill_start takes the dbig (the caller's descriptor is zeroed) and frees its blocks when the data is on disk */
