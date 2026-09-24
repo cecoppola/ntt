@@ -920,7 +920,7 @@ def node_big(D, dz, g=1):
     if (D, dz.key(), g) not in _BIG: node_phases(D, dz, g, pipe=True)
     return _BIG[(D, dz.key(), g)]
 
-DM_REST = 4.08                         # Phase 13d D2: dm's rest (the reciprocal's small steps, the shifts, adds, window, corrections) as
+DM_REST = 4.00                         # Phase 13d D2: dm's rest (the reciprocal's small steps, the shifts, adds, window, corrections) as
                                        # DM_REST x (D / 4e10) seconds -- FITTED (fit13) on measured dm less the pipeline law's big products;
                                        # None: CAL13_LAW['dm'] on the phase table's rest (whose extrapolation beyond 1e11 runs 2.5 x high)
 def cal13_apply(D, dz, g, bs, dm):
@@ -1018,7 +1018,7 @@ def _cal13_points():
     return pts
 
 CAL13_MODE = 'law'                     # 'law': the ratio a (D / 4e10)^b per group (CAL13_LAW, fitted by fit13 with PIPE_F); 'interp': between the runs
-CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.754, -0.068), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
+CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.753, -0.071), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
 CAL13_RANGE = (4e10, 1.3e11)           # the law is held flat outside the measured range
 
 def cal13(D, key):
@@ -1097,6 +1097,7 @@ def fit13(runs=None, verbose=True, exclude=None):
     cal13_reset(); d = DEFAULT13(); pts = []
     for i, r in enumerate(runs):
         p = node_phases(r["D"], d, pipe=True); kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
+        nf = NODE_F.get(r.get('node') or next((k for k in NODE_F if k in r['src']), ''), 1.0); kb /= nf; kd /= nf   # the phases on an s24-16 / s24-26 node
         bt, bd = node_big(r['D'], d)
         pts.append(dict(i=i, D=r['D'], n=r.get('n', 1), init=r['init'], bs=r['bs'] * kb, dm=r['dm'] * kd,
                         other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']), m=dict(init=p['init'], bs=p['batch'] + p['top'] - bt, dm=p['recip'] + p['div'] - bd),
