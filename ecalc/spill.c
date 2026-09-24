@@ -235,6 +235,7 @@ void spill_prealloc(void)
     for (int d = 0; d < nd; d++) { void *b[2]; pthread_mutex_lock(&g_bmx[d]); bounce_get(d, b); pthread_mutex_unlock(&g_bmx[d]); }
 }
 
+struct restore_job { struct spill *s; int d; int ok; };
 struct spill {
     dbig x; int flags, owned;                          /* x: the descriptor (a copy; with SPILL_FREE the only one) */
     size_t lo, hi, n, cap, qc;
@@ -242,6 +243,7 @@ struct spill {
     pthread_t th[DB_NQ]; int running[DB_NQ], ok[DB_NQ]; volatile int ndone; int nwork, joined, status;
     double t0, t1, t_read; size_t bytes;
     dbig *rx;                                          /* restore target */
+    struct restore_job rj[DB_NQ]; pthread_t rth[DB_NQ]; int rth_on[DB_NQ], r_started, r_direct; double r_t0;   /* the restore in the background */
 };
 struct spill_job { spill *s; int d; };
 static void *spill_writer(void *a)
@@ -308,7 +310,6 @@ int spill_wait(spill *s)
     }
     return s->status;
 }
-struct restore_job { spill *s; int d; int ok; };
 static void *spill_reader(void *a)
 {
     struct restore_job *j = (struct restore_job *)a; spill *s = j->s; int d = j->d; dbig *x = s->rx;
@@ -332,29 +333,43 @@ static void *spill_reader(void *a)
     j->ok = ok;
     return 0;
 }
-int spill_restore(spill *s, dbig *x)
+/* the restore in the background: the blocks reserved here (the caller's thread: the pool's layout stays deterministic),
+ * the four readers started; spill_restore_wait joins them */
+int spill_restore_start(spill *s, dbig *x)
 {
     if (!s) return 0;
-    if (!spill_wait(s)) {                              /* the write failed: hand the blocks back as they are */
-        if (s->owned == 1) { *x = s->x; s->owned = 0; return 1; }
+    s->r_direct = 0; s->r_started = 0;
+    if (!spill_wait(s) || s->owned == 1) {             /* the write failed (or the blocks were never freed): hand them back as they are */
+        if (s->owned == 1) { *x = s->x; s->owned = 0; s->r_direct = 1; return 1; }
         return 0;
     }
-    if (s->owned == 1) { *x = s->x; s->owned = 0; return 1; }   /* (not freed: nothing to read) */
-    double t = mem_now();
     if (x->off) { fprintf(stderr, "spill_restore: a view\n"); return 0; }
+    s->r_t0 = mem_now();
     if (x->cap < s->cap) db_reserve(x, s->cap);
     s->rx = x;
-    struct restore_job j[DB_NQ]; pthread_t th[DB_NQ];
-    for (int d = 0; d < DB_NQ; d++) { j[d].s = s; j[d].d = d; j[d].ok = 0; if (pthread_create(&th[d], 0, spill_reader, &j[d])) { spill_reader(&j[d]); th[d] = 0; } }
+    for (int d = 0; d < DB_NQ; d++) {
+        s->rj[d].s = s; s->rj[d].d = d; s->rj[d].ok = 0; s->rth_on[d] = 0;
+        if (pthread_create(&s->rth[d], 0, spill_reader, &s->rj[d]) == 0) s->rth_on[d] = 1; else spill_reader(&s->rj[d]);
+    }
+    s->r_started = 1;
+    return 1;
+}
+int spill_restore_wait(spill *s)
+{
+    if (!s) return 0;
+    if (s->r_direct) { s->r_direct = 0; return 1; }
+    if (!s->r_started) return 0;
     int ok = 1;
-    for (int d = 0; d < DB_NQ; d++) { if (th[d]) pthread_join(th[d], 0); ok = ok && j[d].ok; }
-    x->n = s->n;
-    s->t_read = mem_now() - t;
+    for (int d = 0; d < DB_NQ; d++) { if (s->rth_on[d]) pthread_join(s->rth[d], 0); s->rth_on[d] = 0; ok = ok && s->rj[d].ok; }
+    s->rx->n = s->n;
+    s->t_read = mem_now() - s->r_t0; s->r_started = 0;
     return ok;
 }
+int spill_restore(spill *s, dbig *x) { return spill_restore_start(s, x) && spill_restore_wait(s); }
 void spill_drop(spill *s)
 {
     if (!s) return;
+    if (s->r_started) spill_restore_wait(s);
     spill_wait(s);
     if (s->owned == 1) db_free(&s->x);                 /* never restored: its blocks go back */
     for (int d = 0; d < DB_NQ; d++) unlink(s->path[d]);
