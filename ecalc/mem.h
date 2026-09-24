@@ -51,6 +51,7 @@ void  mem_dev_forget(void *p);
 void  mem_dev_free_raw(int dev, void *p);              /* hipFree of a block no longer in the registry (a forgotten arena) */
 int   mem_dev_of(const void *p);
 size_t mem_dev_pool_bytes(void);
+void mem_dev_note(int dev, void *p, size_t bytes);   /* Phase 14 R1 (E8): register a device range mapped elsewhere (the VMM arena) */
 int   mem_device_count(void);
 void  mem_dev_copy(void *dst, const void *src, size_t bytes);
 void  mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes);   /* hipMemcpy (DMA): CPU streaming stores into device pools run at ~8 GB/s */                    /* total in device pools (not in RSS) */

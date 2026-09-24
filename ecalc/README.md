@@ -241,6 +241,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `RNS_DIST_CACHE_HOLD` | keep a cached operand pinned across products (0) |
 | `RNS_DIST_CACHE_MARGIN_GB` | free device memory kept when sizing the cache (24) |
 | `RNS_VERBOSE` | *debug*: 1 per-call times, 2 CRT re-runs; also the pool allocations' times (unset) |
+| `DB_POOL_VMM` | *Phase 14 R1 (E8, results/R114.md 5–6)*: the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four APUs); a block-pool request that finds no contiguous free extent is satisfied by remapping the wholly free chunks contiguously (no page work), and only a remainder is created inside the phase (a "VMM growth" line) — never a hipMalloc; the seed thread's stores go through its buffers and DMA (a CPU store into a VMM range segfaults); bit-identical (0) |
+| `DB_POOL_VMM_CHUNK_GB`, `DB_POOL_VMM_RESERVE` | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) |
 | `DB_POOL_VERBOSE` | *debug*: the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) |
 | `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
