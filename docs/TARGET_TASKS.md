@@ -9,9 +9,10 @@ this note sets the order, the gates and what to hand back.
 
 ## Where things stand when you start
 
-- **The production target is 4.4 × 10¹³ digits on 576 nodes**: about 3.9 min modelled, 457–463 GB
-  per node (RESULTS §79–§80, `results/DESIGN_TABLE.md`). It sits 0.8 % below a grid step at
-  4.435 × 10¹³, where the tree levels go from 214 to 248 pieces (+30 s).
+- **The production target is 4.4 × 10¹³ digits on 576 nodes** (RESULTS §80), but Phase 13d (RESULTS §81) found it sits
+  past two grid steps, at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³ (the C code's own plan, `MN_PLAN_ONLY`): 275 s (4.6 min)
+  modelled, against 234 s (3.9 min), 452 GB per node, at 4.25 × 10¹³. Which size to run is the user's decision; check the
+  one chosen with `MN_PLAN_ONLY=<total digits>:576` before the run (T3).
 - **The defaults are the chosen design** (Phase 13c): three primes, `NTT_MODMUL=1`,
   `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
   `COMM_ALLTOALLV_DEPTH=2`, `NTT_B1R=3`, `NTT_PLAN=1`. Every other option is one switch away
