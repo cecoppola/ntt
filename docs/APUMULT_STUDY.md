@@ -7,7 +7,7 @@ possible**. The apumult source was not available; each technique was reconstruct
 
 Four agents did the work: F1 and F2 (Fable) decoded the six categories against our source; R did online research on
 MI300A memory and storage; M measured the disk and memory behavior on an aac6 node (job 21121). Their reports are
-`apumult_{F1,F2,R,M}.md` in the session scratchpad; the numbers below cite them. Every number is labeled
+`results/apumult/apumult_{F1,F2,R,M}.md` (the benchmark sources in `results/apumult/diskbench/`, the summary itself as `apumult_summary.md`); the numbers below cite them. Every number is labeled
 **measured**, **modelled** (`mem_model.py`, which matches the C layout to the byte and measured device totals to
 0.05–0.1 %) or **assumed**.
 
