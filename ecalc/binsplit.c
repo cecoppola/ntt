@@ -335,20 +335,30 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
      * limbs (r has j + 1 limbs), reserved + 8 by the grid: the largest block of the tight schedule, i.e. the hole */
     size_t jl = getenv("NEWTON_ANCHOR") && !atoi(getenv("NEWTON_ANCHOR")) ? k - 1 : (k + 1) / 2;
     size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
-    if (tight) tcap = t1a;
-    size_t hole1 = quarter_bytes(tcap); hole1 += hole1 / 64;
-    size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, tcap_s = (tcap + size - 1) / size, jl_s = (jl + size - 1) / size;
-    L->nq = nq; L->k = k; L->tcap = tcap; L->jl = jl; L->tight = tight; L->tail_dead = tdead; L->hole = quarter_bytes(tcap_s); L->hole += L->hole / 64; if (size == 1) L->hole = hole1;
+    size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, jl_s = (jl + size - 1) / size;
+    /* Phase 14 L1 (E2, third form -- jobs 21131-21134): the hole is the DIVISION's largest block, t = A_h mu of 2k + 8 limbs (xq = low(X Q)
+     * is n_Q + k + 8 <= it), and during the reciprocal it holds r (jl + 4) and t1 (Q_t r at jl) together -- r lands in its front because
+     * the space outside it is Q, S, r2 and the piece's; so the tail is whole again for t, and S's slot + the tail's rest hold xq once
+     * Aw is formed and S freed before the low product (newton_db_divmod_shifted).  Without this the tight reciprocal left t1 and r
+     * apart and t (2 n_Q) or Aw (1 n_Q) fell back to hipMalloc at 4e10 and 1e11 */
+    size_t hole_t = quarter_bytes((2 * k + 8 + size - 1) / size), hole_r = quarter_bytes((t1a + size - 1) / size) + quarter_bytes(jl_s + 4);
+    if (tight) { tcap = 2 * k + 8; L->hole = hole_t > hole_r ? hole_t : hole_r; }
+    else { size_t tcap_s = (tcap + size - 1) / size; L->hole = quarter_bytes(tcap_s); if (size == 1) L->hole = quarter_bytes(tcap); }
+    L->hole += L->hole / 64;
+    L->nq = nq; L->k = k; L->tcap = tcap; L->jl = jl; L->tight = tight; L->tail_dead = tdead;
     L->thresh = L->hole - L->hole * 3 / 8;
     size_t piece = ((size_t)1 << pl) + 8; if (piece > nq_s + k_s + 16) piece = nq_s + k_s + 16;
     size_t qp = quarter_bytes(nq_s + nq_s / 10 + 8);                          /* Q, or S = P + Q, with the bound's margin */
     if (!tight) L->v2 = 2 * qp + 2 * quarter_bytes(k_s + 4) + L->hole + quarter_bytes(piece);
-    else L->v2 = 2 * qp + quarter_bytes(jl_s + 4) + quarter_bytes(2 * jl_s + 4) + L->hole + quarter_bytes(piece);   /* E2: r at jl + 1, r2 at 2 jl + 4 (d and r' share it: db_pow_sub writes 2j + 1 limbs), t1 = the hole, at the last doubling's r |d| */
+    else L->v2 = 2 * qp + quarter_bytes(2 * jl_s + 4) + L->hole + quarter_bytes(piece);   /* E2: Q, S, r2 (d and r' share it: db_pow_sub writes 2j + 1 limbs), the hole (r + t1), a piece */
     if (tdead >= 2) L->v2 -= qp;                                               /* E5: P is on disk during the reciprocal */
-    /* Phase 14 L1: the division's own set -- S, Q, mu (k + 1) and t = A_h mu (2k + 8), or X (k) and the low product xq (n_Q + k + 8), a piece
-     * beside them.  Below the reciprocal's set today (5.2 n_Q against 6.2), it binds once the reciprocal is tight or P is spilled */
-    L->div = 2 * qp + quarter_bytes(piece);
-    { size_t hi = quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8), lo = quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8); L->div += hi > lo ? hi : lo; }
+    /* Phase 14 L1: the division's own set -- S, Q, mu (k + 1) and t = A_h mu (2k + 8), or (tight: S freed after the window Aw is formed)
+     * Q, X (k), Aw (n_Q + 2) and the low product xq (n_Q + k + 8), a piece beside them.  Below the reciprocal's set today (5.2 n_Q
+     * against 6.2), it binds once the reciprocal is tight or P is spilled */
+    L->div = quarter_bytes(piece);
+    { size_t hi = 2 * qp + quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8), lo = 2 * qp + quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8);
+      if (tight) lo = qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + k_s + 8);
+      L->div += hi > lo ? hi : lo; }
     if (L->div > L->v2) L->v2 = L->div;
     L->v2 += L->v2 / 8 < ((size_t)1 << 30) ? L->v2 / 8 : ((size_t)1 << 30);   /* slack for the odd small block (C3's 1 GiB at the large sizes) */
     L->need_dev = L->v2;

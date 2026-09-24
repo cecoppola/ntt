@@ -262,12 +262,17 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     const dbig *Xp = &Xd;
     if (newton_db_x_dev) { *newton_db_x_dev = Xd; db_init(&Xd); Xp = newton_db_x_dev; if (newton_db_x_hook) newton_db_x_hook(X, newton_db_x_arg); }   /* H B1: X stays on the device; the hook starts the writer on it */
     else if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
+    /* Phase 14 L1 (DM_TIGHT): the window Aw is formed BEFORE the low product and S (the caller's bs_Pd: its only reader from here) is freed
+     * right after, so the low product's set is Q + X + Aw + xq (+ a piece) and xq finds S's slot + the tail's rest as one extent; the
+     * caller's own db_free of S afterwards finds cap 0 and does nothing.  Values unchanged: Aw depends on S alone */
+    dm_switches(); int tight = dm_tight > 0;
+    if (tight) { db_set_shifted_low(&Aw, S, w - dl, dl, w); db_free((dbig *)S); }
     rns_mul_low_db(&xq, Xp, Qd, w);                                   /* low_w(X Q): Q's cached transforms hit when held (A1) */
     rns_dist_cache_hold(0); rns_dist_cache_release();                 /* A1: the low product was the last grid product; the planes go */
     if (newton_db_x_hook && !newton_db_x_dev) db_free(&Xd);           /* X is on the host; corrections go to the host copy */
     double td = mem_now();
     /* the window: A mod B^w = (S mod B^(w - dl)) B^dl; R formed in place in it */
-    db_set_shifted_low(&Aw, S, w - dl, dl, w);
+    if (!tight) db_set_shifted_low(&Aw, S, w - dl, dl, w);
     size_t nc = 0; long dx = 0;                                       /* corrections to X: applied to the host copy at the end */
     if (db_cmp(&Aw, &xq) >= 0) {                                      /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
         db_sub(&Aw, &Aw, &xq); db_free(&xq); Rd = Aw; db_init(&Aw);
