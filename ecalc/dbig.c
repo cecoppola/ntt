@@ -169,6 +169,8 @@ static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipM
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg; } g_vmm[DB_NQ];   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
+static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
+void db_vmm_bg_release(void) { pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
 static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
 {
@@ -186,7 +188,9 @@ static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t 
 }
 static void *vmm_bg_map(void *arg)                       /* the arena's chunks after the first `first` bytes, one at a time, while init and the seeds go on (the driver serialises the page work anyway) */
 {
-    int dev = (int)(intptr_t)arg; struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
+    int dev = (int)(intptr_t)arg; struct vmm *v = &g_vmm[dev];
+    pthread_mutex_lock(&g_pool_mx); while (!g_vmm_go) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
+    double t0 = mem_now();
     hipStream_t st; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipStreamCreateWithFlags(&st, hipStreamNonBlocking));
     for (int k = v->mapped; k < v->m0; k++) {
         hipMemGenericAllocationHandle_t h[1] = { 0 };
@@ -205,7 +209,8 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
 {
     struct vmm *v = &g_vmm[dev]; if (!v->base) return;
     size_t need = bytes < (size_t)v->m0 * v->chunk ? bytes : (size_t)v->m0 * v->chunk; int m = (int)((need + v->chunk - 1) / v->chunk);
-    pthread_mutex_lock(&g_pool_mx); while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
+    pthread_mutex_lock(&g_pool_mx); if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }   /* (a waiter before rns_init released it: tests, init-only) */
+    while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of `bytes` (rounded up to whole chunks: the rest is free pool space) as a VMM range; a borrowed region
@@ -264,6 +269,7 @@ static void ext_remove(int d, char *p, size_t bytes)   /* [p, p + bytes) out of 
 static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted) */
 {
     struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
+    if (v->mapped < v->m0 && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
     while (v->mapped < v->m0) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);   /* (the lock is held) the background mapping first: the slot table must be complete */
     double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
     int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;      /* the wholly free mapped slots */
@@ -362,6 +368,7 @@ void db_donate_adjacent(int dev, void *p, size_t bytes)
     pthread_mutex_lock(&g_pool_mx);
     { int reg; if (vmm_region_has(dev, (const char *)p, bytes, &reg)) {                                   /* Phase 14 R1 (E8): a range of the VMM arena joins its record (mapped first) */
         struct vmm *v = &g_vmm[dev]; int m = (int)(((char *)p + bytes - v->base + v->chunk - 1) / v->chunk); if (m > v->m0) m = v->m0;
+        if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
         while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
         ext_insert(dev, (char *)p, bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
     for (int i = 0; i < g_ndonated; i++) {

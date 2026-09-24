@@ -182,6 +182,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
+    db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* Phase 14 R1 (DB_POOL_VMM): the arenas' second halves map from here, after the plane pools */
     if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", mem_alloc_form_name(), sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
