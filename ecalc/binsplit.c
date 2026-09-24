@@ -334,7 +334,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
      * doubles from the seed and may start it anywhere below k: the bound k - 1 is taken).  Its first product Q_t r is take + (jl + 1)
      * limbs (r has j + 1 limbs), reserved + 8 by the grid: the largest block of the tight schedule, i.e. the hole */
     size_t jl = getenv("NEWTON_ANCHOR") && !atoi(getenv("NEWTON_ANCHOR")) ? k - 1 : (k + 1) / 2;
-    size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 1) + 8;
+    size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
     if (tight) tcap = t1a;
     size_t hole1 = quarter_bytes(tcap); hole1 += hole1 / 64;
     size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, tcap_s = (tcap + size - 1) / size, jl_s = (jl + size - 1) / size;
