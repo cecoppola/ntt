@@ -201,6 +201,7 @@ int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log)
 {
     g_quiet = getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET"));
     if (!bi_decimal) g_dpl = 64.0L * log10l(2.0L);
+    rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
     size_t p0, p1; rns_plane_pool_bytes(pool_log, rns_planes_3q30 > 0, np, &p0, &p1);          /* rns_init's pools (the device flow) */
     if (rns_pool1_bytes_req) p1 = rns_pool1_bytes_req;
