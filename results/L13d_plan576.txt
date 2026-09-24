@@ -1,0 +1,539 @@
+# MN_PLAN_ONLY sweep: g = 576, total digits 2.0e13 .. 6.0e13 step 0.01e13; 8e7a7b55 mn_plan: the leaf levels' largest node only; tests/plan_compare.py (a run's product lines against the plan's); env: (defaults otherwise)
+# columns: digits | tree (node 0's groups) | tree (each level's largest group) | recip | div | total (node 0) | total (largest groups) | grids tree/recip/div | levels node0/largest
+2.0000e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0100e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0200e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0300e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0400e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0500e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0600e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0700e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0800e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.0900e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1000e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1100e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1200e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1300e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1400e+13  tree   24  tree_max   24  recip  53  div  10  total   87  total_max   87  grids 4/2/2  levels 2/2,2/2,2/2,2/2,2/2,2/2,6/6,6/6
+2.1500e+13  tree   24  tree_max   34  recip  53  div  10  total   87  total_max   97  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/2,6/6,6/6
+2.1600e+13  tree   24  tree_max   38  recip  53  div  10  total   87  total_max  101  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/8,6/6
+2.1700e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.1800e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.1900e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2000e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2100e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2200e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2300e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2400e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2500e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2600e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2700e+13  tree   24  tree_max   40  recip  53  div  10  total   87  total_max  103  grids 4/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,6/10,6/6
+2.2800e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.2900e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3000e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3100e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3200e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3300e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3400e+13  tree   26  tree_max   40  recip  53  div  10  total   89  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,8/10,6/6
+2.3500e+13  tree   28  tree_max   40  recip  53  div  10  total   91  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.3600e+13  tree   28  tree_max   40  recip  53  div  10  total   91  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.3700e+13  tree   28  tree_max   40  recip  53  div  10  total   91  total_max  103  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.3800e+13  tree   28  tree_max   40  recip  54  div  14  total   96  total_max  108  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.3900e+13  tree   28  tree_max   40  recip  54  div  13  total   95  total_max  107  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.4000e+13  tree   28  tree_max   40  recip  54  div  13  total   95  total_max  107  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.4100e+13  tree   28  tree_max   40  recip  54  div  13  total   95  total_max  107  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.4200e+13  tree   28  tree_max   40  recip  54  div  13  total   95  total_max  107  grids 6/2/2  levels 2/4,2/4,2/4,2/4,2/4,2/4,10/10,6/6
+2.4300e+13  tree   30  tree_max   40  recip  54  div  14  total   98  total_max  108  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4400e+13  tree   30  tree_max   40  recip  54  div  14  total   98  total_max  108  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4500e+13  tree   30  tree_max   40  recip  54  div  14  total   98  total_max  108  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4600e+13  tree   30  tree_max   40  recip  54  div  14  total   98  total_max  108  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4700e+13  tree   30  tree_max   40  recip  54  div  14  total   98  total_max  108  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4800e+13  tree   30  tree_max   40  recip  54  div  13  total   97  total_max  107  grids 8/2/2  levels 2/4,2/4,2/4,2/4,2/4,4/4,10/10,6/6
+2.4900e+13  tree   32  tree_max   40  recip  54  div  13  total   99  total_max  107  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5000e+13  tree   32  tree_max   40  recip  54  div  13  total   99  total_max  107  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5100e+13  tree   32  tree_max   40  recip  54  div  13  total   99  total_max  107  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5200e+13  tree   32  tree_max   40  recip  54  div  14  total  100  total_max  108  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5300e+13  tree   32  tree_max   40  recip  54  div  14  total  100  total_max  108  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5400e+13  tree   32  tree_max   40  recip  54  div  14  total  100  total_max  108  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5500e+13  tree   32  tree_max   40  recip  54  div  14  total  100  total_max  108  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5600e+13  tree   32  tree_max   40  recip  54  div  14  total  100  total_max  108  grids 10/2/2  levels 2/4,2/4,2/4,2/4,4/4,4/4,10/10,6/6
+2.5700e+13  tree   34  tree_max   40  recip  54  div  13  total  101  total_max  107  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/10,6/6
+2.5800e+13  tree   34  tree_max   40  recip  54  div  13  total  101  total_max  107  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/10,6/6
+2.5900e+13  tree   34  tree_max   40  recip  54  div  13  total  101  total_max  107  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/10,6/6
+2.6000e+13  tree   34  tree_max   40  recip  54  div  13  total  101  total_max  107  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/10,6/6
+2.6100e+13  tree   34  tree_max   42  recip  54  div  14  total  102  total_max  110  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/12,6/6
+2.6200e+13  tree   34  tree_max   42  recip  54  div  14  total  102  total_max  110  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/12,6/6
+2.6300e+13  tree   34  tree_max   42  recip  54  div  14  total  102  total_max  110  grids 12/2/2  levels 2/4,2/4,2/4,4/4,4/4,4/4,10/12,6/6
+2.6400e+13  tree   36  tree_max   42  recip  57  div  16  total  109  total_max  115  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.6500e+13  tree   36  tree_max   42  recip  57  div  16  total  109  total_max  115  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.6600e+13  tree   36  tree_max   42  recip  57  div  15  total  108  total_max  114  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.6700e+13  tree   36  tree_max   42  recip  57  div  15  total  108  total_max  114  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.6800e+13  tree   36  tree_max   42  recip  57  div  14  total  107  total_max  113  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.6900e+13  tree   36  tree_max   42  recip  57  div  14  total  107  total_max  113  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7000e+13  tree   36  tree_max   42  recip  57  div  16  total  109  total_max  115  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7100e+13  tree   36  tree_max   42  recip  57  div  16  total  109  total_max  115  grids 14/3/2  levels 2/4,2/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7200e+13  tree   38  tree_max   42  recip  57  div  16  total  111  total_max  115  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7300e+13  tree   38  tree_max   42  recip  57  div  15  total  110  total_max  114  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7400e+13  tree   38  tree_max   42  recip  57  div  15  total  110  total_max  114  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7500e+13  tree   38  tree_max   42  recip  57  div  14  total  109  total_max  113  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7600e+13  tree   38  tree_max   42  recip  57  div  14  total  109  total_max  113  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7700e+13  tree   38  tree_max   42  recip  57  div  16  total  111  total_max  115  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7800e+13  tree   38  tree_max   42  recip  57  div  16  total  111  total_max  115  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.7900e+13  tree   38  tree_max   42  recip  57  div  15  total  110  total_max  114  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.8000e+13  tree   38  tree_max   42  recip  57  div  15  total  110  total_max  114  grids 16/3/2  levels 2/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.8100e+13  tree   40  tree_max   42  recip  57  div  15  total  112  total_max  114  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.8200e+13  tree   40  tree_max   42  recip  57  div  14  total  111  total_max  113  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.8300e+13  tree   40  tree_max   42  recip  58  div  14  total  112  total_max  114  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,10/12,6/6
+2.8400e+13  tree   42  tree_max   42  recip  58  div  16  total  116  total_max  116  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,12/12,6/6
+2.8500e+13  tree   42  tree_max   42  recip  58  div  16  total  116  total_max  116  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,12/12,6/6
+2.8600e+13  tree   42  tree_max   42  recip  58  div  15  total  115  total_max  115  grids 18/3/2  levels 4/4,4/4,4/4,4/4,4/4,4/4,12/12,6/6
+2.8700e+13  tree   42  tree_max   52  recip  58  div  15  total  115  total_max  125  grids 18/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/4,12/12,6/6
+2.8800e+13  tree   42  tree_max   56  recip  58  div  14  total  114  total_max  128  grids 18/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/14,6/6
+2.8900e+13  tree   42  tree_max   56  recip  58  div  14  total  114  total_max  128  grids 18/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/14,6/6
+2.9000e+13  tree   42  tree_max   58  recip  58  div  14  total  114  total_max  130  grids 18/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,6/6
+2.9100e+13  tree   42  tree_max   58  recip  58  div  16  total  116  total_max  132  grids 18/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,6/6
+2.9200e+13  tree   44  tree_max   60  recip  58  div  16  total  118  total_max  134  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9300e+13  tree   44  tree_max   60  recip  58  div  15  total  117  total_max  133  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9400e+13  tree   44  tree_max   60  recip  58  div  15  total  117  total_max  133  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9500e+13  tree   44  tree_max   60  recip  58  div  14  total  116  total_max  132  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9600e+13  tree   44  tree_max   60  recip  58  div  14  total  116  total_max  132  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9700e+13  tree   44  tree_max   60  recip  59  div  18  total  121  total_max  137  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9800e+13  tree   44  tree_max   60  recip  59  div  18  total  121  total_max  137  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+2.9900e+13  tree   44  tree_max   60  recip  59  div  18  total  121  total_max  137  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,8/8
+3.0000e+13  tree   46  tree_max   62  recip  59  div  18  total  123  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,10/10
+3.0100e+13  tree   46  tree_max   62  recip  59  div  18  total  123  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,10/10
+3.0200e+13  tree   46  tree_max   62  recip  59  div  18  total  123  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,10/10
+3.0300e+13  tree   46  tree_max   62  recip  59  div  18  total  123  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,12/16,10/10
+3.0400e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.0500e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.0600e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.0700e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.0800e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.0900e+13  tree   48  tree_max   62  recip  59  div  18  total  125  total_max  139  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/16,10/10
+3.1000e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1100e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1200e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1300e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1400e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1500e+13  tree   48  tree_max   64  recip  59  div  18  total  125  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,14/18,10/10
+3.1600e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.1700e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.1800e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.1900e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.2000e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.2100e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.2200e+13  tree   50  tree_max   64  recip  59  div  18  total  127  total_max  141  grids 20/3/2  levels 4/6,4/6,4/6,4/6,4/6,4/6,16/18,10/10
+3.2300e+13  tree   50  tree_max   74  recip  59  div  18  total  127  total_max  151  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,4/6,16/18,10/10
+3.2400e+13  tree   50  tree_max   76  recip  59  div  18  total  127  total_max  153  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,4/8,16/18,10/10
+3.2500e+13  tree   50  tree_max   78  recip  59  div  18  total  127  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,4/8,16/20,10/10
+3.2600e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.2700e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.2800e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.2900e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3000e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3100e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3200e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3300e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3400e+13  tree   52  tree_max   78  recip  59  div  18  total  129  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,4/8,6/8,16/20,10/10
+3.3500e+13  tree   54  tree_max   78  recip  59  div  18  total  131  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,16/20,10/10
+3.3600e+13  tree   54  tree_max   78  recip  59  div  18  total  131  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,16/20,10/10
+3.3700e+13  tree   54  tree_max   78  recip  59  div  18  total  131  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,16/20,10/10
+3.3800e+13  tree   54  tree_max   78  recip  59  div  18  total  131  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,16/20,10/10
+3.3900e+13  tree   54  tree_max   78  recip  59  div  18  total  131  total_max  155  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,16/20,10/10
+3.4000e+13  tree   56  tree_max   78  recip  61  div  22  total  139  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,18/20,10/10
+3.4100e+13  tree   56  tree_max   78  recip  61  div  22  total  139  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,18/20,10/10
+3.4200e+13  tree   56  tree_max   78  recip  61  div  22  total  139  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,18/20,10/10
+3.4300e+13  tree   58  tree_max   78  recip  61  div  22  total  141  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,20/20,10/10
+3.4400e+13  tree   58  tree_max   78  recip  61  div  22  total  141  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,4/8,6/8,6/8,20/20,10/10
+3.4500e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.4600e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.4700e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.4800e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.4900e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5000e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5100e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5200e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5300e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5400e+13  tree   60  tree_max   78  recip  61  div  22  total  143  total_max  161  grids 20/3/2  levels 4/8,4/8,4/8,6/8,6/8,6/8,20/20,10/10
+3.5500e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.5600e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.5700e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.5800e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.5900e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.6000e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.6100e+13  tree   62  tree_max   78  recip  61  div  22  total  145  total_max  161  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,10/10
+3.6200e+13  tree   64  tree_max   80  recip  61  div  22  total  147  total_max  163  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6300e+13  tree   64  tree_max   80  recip  61  div  22  total  147  total_max  163  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6400e+13  tree   64  tree_max   80  recip  61  div  22  total  147  total_max  163  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6500e+13  tree   64  tree_max   80  recip  61  div  22  total  147  total_max  163  grids 20/3/2  levels 4/8,4/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6600e+13  tree   66  tree_max   80  recip  61  div  22  total  149  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6700e+13  tree   66  tree_max   80  recip  61  div  22  total  149  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,6/8,20/20,12/12
+3.6800e+13  tree   68  tree_max   80  recip  61  div  22  total  151  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/20,12/12
+3.6900e+13  tree   68  tree_max   80  recip  61  div  22  total  151  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/20,12/12
+3.7000e+13  tree   68  tree_max   80  recip  61  div  22  total  151  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/20,12/12
+3.7100e+13  tree   68  tree_max   80  recip  61  div  22  total  151  total_max  163  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/20,12/12
+3.7200e+13  tree   68  tree_max   84  recip  61  div  25  total  154  total_max  170  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7300e+13  tree   68  tree_max   84  recip  61  div  25  total  154  total_max  170  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7400e+13  tree   68  tree_max   84  recip  61  div  24  total  153  total_max  169  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7500e+13  tree   68  tree_max   84  recip  61  div  23  total  152  total_max  168  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7600e+13  tree   68  tree_max   84  recip  61  div  25  total  154  total_max  170  grids 20/3/2  levels 4/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7700e+13  tree   70  tree_max   84  recip  61  div  25  total  156  total_max  170  grids 20/3/2  levels 6/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7800e+13  tree   70  tree_max   84  recip  61  div  26  total  157  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,6/8,8/8,20/24,12/12
+3.7900e+13  tree   72  tree_max   84  recip  61  div  26  total  159  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8000e+13  tree   72  tree_max   84  recip  61  div  26  total  159  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8100e+13  tree   72  tree_max   84  recip  61  div  25  total  158  total_max  170  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8200e+13  tree   72  tree_max   84  recip  61  div  25  total  158  total_max  170  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8300e+13  tree   72  tree_max   84  recip  61  div  23  total  156  total_max  168  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8400e+13  tree   72  tree_max   84  recip  61  div  23  total  156  total_max  168  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8500e+13  tree   72  tree_max   84  recip  61  div  26  total  159  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8600e+13  tree   72  tree_max   84  recip  61  div  25  total  158  total_max  170  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8700e+13  tree   72  tree_max   84  recip  61  div  26  total  159  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8800e+13  tree   72  tree_max   84  recip  61  div  26  total  159  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,6/8,8/8,8/8,20/24,12/12
+3.8900e+13  tree   74  tree_max   84  recip  61  div  26  total  161  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,12/12
+3.9000e+13  tree   76  tree_max   86  recip  61  div  25  total  162  total_max  172  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9100e+13  tree   76  tree_max   86  recip  61  div  25  total  162  total_max  172  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9200e+13  tree   76  tree_max   86  recip  61  div  23  total  160  total_max  170  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9300e+13  tree   76  tree_max   86  recip  61  div  24  total  161  total_max  171  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9400e+13  tree   76  tree_max   86  recip  61  div  25  total  162  total_max  172  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9500e+13  tree   76  tree_max   86  recip  61  div  25  total  162  total_max  172  grids 20/3/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9600e+13  tree   76  tree_max   86  recip  69  div  28  total  173  total_max  183  grids 20/4/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9700e+13  tree   76  tree_max   86  recip  69  div  28  total  173  total_max  183  grids 20/4/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9800e+13  tree   76  tree_max   86  recip  69  div  28  total  173  total_max  183  grids 20/4/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+3.9900e+13  tree   76  tree_max   86  recip  69  div  28  total  173  total_max  183  grids 20/4/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,20/24,14/14
+4.0000e+13  tree   80  tree_max   86  recip  69  div  28  total  177  total_max  183  grids 20/4/2  levels 6/8,6/8,6/8,8/8,8/8,8/8,24/24,14/14
+4.0100e+13  tree   82  tree_max   86  recip  69  div  28  total  179  total_max  183  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,14/14
+4.0200e+13  tree   82  tree_max   86  recip  69  div  28  total  179  total_max  183  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,14/14
+4.0300e+13  tree   82  tree_max   86  recip  69  div  28  total  179  total_max  183  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,14/14
+4.0400e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.0500e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.0600e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.0700e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.0800e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.0900e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1000e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1100e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1200e+13  tree   84  tree_max   88  recip  69  div  28  total  181  total_max  185  grids 20/4/2  levels 6/8,6/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1300e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1400e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1500e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1600e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1700e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1800e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1900e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2000e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2100e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2200e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2300e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2400e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2500e+13  tree   86  tree_max   88  recip  69  div  28  total  183  total_max  185  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2600e+13  tree   88  tree_max   88  recip  69  div  28  total  185  total_max  185  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2700e+13  tree   88  tree_max   88  recip  69  div  28  total  185  total_max  185  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2800e+13  tree   88  tree_max   88  recip  69  div  28  total  185  total_max  185  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2900e+13  tree   88  tree_max   88  recip  69  div  28  total  185  total_max  185  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.3000e+13  tree   88  tree_max  100  recip  69  div  28  total  185  total_max  197  grids 20/4/2  levels 8/12,8/12,8/12,8/8,8/8,8/8,24/24,16/16
+4.3100e+13  tree   88  tree_max  112  recip  69  div  28  total  185  total_max  209  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/24,16/16
+4.3200e+13  tree   88  tree_max  116  recip  69  div  28  total  185  total_max  213  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/28,16/16
+4.3300e+13  tree   88  tree_max  116  recip  69  div  28  total  185  total_max  213  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/28,16/16
+4.3400e+13  tree   90  tree_max  122  recip  69  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3500e+13  tree   90  tree_max  122  recip  69  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3600e+13  tree   90  tree_max  122  recip  69  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3700e+13  tree   90  tree_max  122  recip  69  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3800e+13  tree   90  tree_max  122  recip  69  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3900e+13  tree   92  tree_max  124  recip  69  div  28  total  189  total_max  221  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4000e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4100e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4200e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4300e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4400e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4500e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4600e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4700e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4800e+13  tree   92  tree_max  124  recip  71  div  34  total  197  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4900e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5000e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5100e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5200e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5300e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5400e+13  tree   92  tree_max  124  recip  71  div  33  total  196  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.5500e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.5600e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.5700e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.5800e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.5900e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6000e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6100e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6200e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6300e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6400e+13  tree   96  tree_max  124  recip  71  div  33  total  200  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6500e+13  tree   96  tree_max  124  recip  71  div  33  total  200  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6600e+13  tree   96  tree_max  124  recip  71  div  33  total  200  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6700e+13  tree   96  tree_max  124  recip  71  div  33  total  200  total_max  228  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6800e+13  tree   96  tree_max  124  recip  71  div  34  total  201  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,28/32,20/20
+4.6900e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7000e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7100e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7200e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7300e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7400e+13  tree  100  tree_max  124  recip  71  div  34  total  205  total_max  229  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7500e+13  tree  100  tree_max  124  recip  76  div  36  total  212  total_max  236  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7600e+13  tree  100  tree_max  124  recip  76  div  34  total  210  total_max  234  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7700e+13  tree  100  tree_max  124  recip  76  div  34  total  210  total_max  234  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7800e+13  tree  100  tree_max  124  recip  76  div  38  total  214  total_max  238  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.7900e+13  tree  100  tree_max  124  recip  76  div  36  total  212  total_max  236  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.8000e+13  tree  100  tree_max  124  recip  76  div  38  total  214  total_max  238  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.8100e+13  tree  100  tree_max  124  recip  76  div  33  total  209  total_max  233  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/32,20/20
+4.8200e+13  tree  100  tree_max  128  recip  76  div  35  total  211  total_max  239  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/36,20/20
+4.8300e+13  tree  100  tree_max  128  recip  76  div  36  total  212  total_max  240  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,32/36,20/20
+4.8400e+13  tree  104  tree_max  128  recip  76  div  36  total  216  total_max  240  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.8500e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.8600e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.8700e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.8800e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.8900e+13  tree  104  tree_max  128  recip  76  div  36  total  216  total_max  240  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9000e+13  tree  104  tree_max  128  recip  76  div  32  total  212  total_max  236  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9100e+13  tree  104  tree_max  128  recip  76  div  32  total  212  total_max  236  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9200e+13  tree  104  tree_max  128  recip  76  div  37  total  217  total_max  241  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9300e+13  tree  104  tree_max  128  recip  76  div  37  total  217  total_max  241  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9400e+13  tree  104  tree_max  128  recip  76  div  34  total  214  total_max  238  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9500e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9600e+13  tree  104  tree_max  128  recip  76  div  38  total  218  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,12/12,32/36,20/20
+4.9700e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+4.9800e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+4.9900e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0000e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0100e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0200e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0300e+13  tree  108  tree_max  128  recip  76  div  38  total  222  total_max  242  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0400e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0500e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0600e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0700e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0800e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.0900e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.1000e+13  tree  108  tree_max  128  recip  77  div  40  total  225  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,8/12,12/12,12/12,32/36,20/20
+5.1100e+13  tree  112  tree_max  128  recip  77  div  40  total  229  total_max  245  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,20/20
+5.1200e+13  tree  116  tree_max  132  recip  77  div  40  total  233  total_max  249  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,24/24
+5.1300e+13  tree  116  tree_max  132  recip  77  div  40  total  233  total_max  249  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,24/24
+5.1400e+13  tree  116  tree_max  132  recip  77  div  40  total  233  total_max  249  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,24/24
+5.1500e+13  tree  116  tree_max  132  recip  77  div  40  total  233  total_max  249  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,24/24
+5.1600e+13  tree  116  tree_max  132  recip  77  div  40  total  233  total_max  249  grids 20/4/2  levels 8/12,8/12,8/12,12/12,12/12,12/12,32/36,24/24
+5.1700e+13  tree  116  tree_max  152  recip  77  div  40  total  233  total_max  269  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/12,32/36,24/24
+5.1800e+13  tree  116  tree_max  156  recip  77  div  40  total  233  total_max  273  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,32/36,24/24
+5.1900e+13  tree  116  tree_max  160  recip  77  div  40  total  233  total_max  277  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,32/40,24/24
+5.2000e+13  tree  116  tree_max  160  recip  77  div  40  total  233  total_max  277  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,32/40,24/24
+5.2100e+13  tree  116  tree_max  164  recip  77  div  40  total  233  total_max  281  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,32/44,24/24
+5.2200e+13  tree  116  tree_max  164  recip  77  div  40  total  233  total_max  281  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,32/44,24/24
+5.2300e+13  tree  120  tree_max  164  recip  77  div  40  total  237  total_max  281  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,36/44,24/24
+5.2400e+13  tree  120  tree_max  164  recip  77  div  40  total  237  total_max  281  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,36/44,24/24
+5.2500e+13  tree  120  tree_max  164  recip  77  div  40  total  237  total_max  281  grids 20/4/2  levels 8/16,8/16,8/16,12/16,12/16,12/16,36/44,24/24
+5.2600e+13  tree  124  tree_max  164  recip  77  div  40  total  241  total_max  281  grids 20/4/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.2700e+13  tree  124  tree_max  164  recip  77  div  40  total  241  total_max  281  grids 20/4/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.2800e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.2900e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3000e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3100e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3200e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3300e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3400e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3500e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3600e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3700e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3800e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.3900e+13  tree  124  tree_max  164  recip  81  div  40  total  245  total_max  285  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4000e+13  tree  124  tree_max  164  recip  84  div  46  total  254  total_max  294  grids 20/5/2  levels 8/16,8/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4100e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4200e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4300e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4400e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4500e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4600e+13  tree  128  tree_max  164  recip  84  div  46  total  258  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,36/44,24/24
+5.4700e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.4800e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.4900e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.5000e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.5100e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.5200e+13  tree  132  tree_max  164  recip  84  div  46  total  262  total_max  294  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/44,24/24
+5.5300e+13  tree  132  tree_max  166  recip  84  div  46  total  262  total_max  296  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5400e+13  tree  132  tree_max  166  recip  84  div  46  total  262  total_max  296  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5500e+13  tree  132  tree_max  166  recip  84  div  46  total  262  total_max  296  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5600e+13  tree  132  tree_max  166  recip  84  div  46  total  262  total_max  296  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5700e+13  tree  132  tree_max  166  recip  84  div  46  total  262  total_max  296  grids 20/5/2  levels 8/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5800e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.5900e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6000e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6100e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6200e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6300e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6400e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6500e+13  tree  136  tree_max  166  recip  84  div  46  total  266  total_max  296  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,40/46,24/24
+5.6600e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.6700e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.6800e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.6900e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.7000e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.7100e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.7200e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.7300e+13  tree  140  tree_max  166  recip  85  div  46  total  271  total_max  297  grids 20/5/2  levels 12/16,12/16,12/16,12/16,12/16,12/16,44/46,24/24
+5.7400e+13  tree  140  tree_max  174  recip  85  div  46  total  271  total_max  305  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/16,12/16,44/46,24/24
+5.7500e+13  tree  140  tree_max  178  recip  85  div  46  total  271  total_max  309  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/46,24/24
+5.7600e+13  tree  140  tree_max  178  recip  85  div  46  total  271  total_max  309  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/46,24/24
+5.7700e+13  tree  140  tree_max  180  recip  85  div  46  total  271  total_max  311  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.7800e+13  tree  140  tree_max  180  recip  85  div  52  total  277  total_max  317  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.7900e+13  tree  140  tree_max  180  recip  85  div  52  total  277  total_max  317  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.8000e+13  tree  140  tree_max  180  recip  85  div  52  total  277  total_max  317  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.8100e+13  tree  140  tree_max  180  recip  85  div  47  total  272  total_max  312  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.8200e+13  tree  140  tree_max  180  recip  85  div  47  total  272  total_max  312  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,12/18,44/48,24/24
+5.8300e+13  tree  148  tree_max  184  recip  85  div  49  total  282  total_max  318  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8400e+13  tree  148  tree_max  184  recip  85  div  50  total  283  total_max  319  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8500e+13  tree  148  tree_max  184  recip  85  div  44  total  277  total_max  313  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8600e+13  tree  148  tree_max  184  recip  85  div  44  total  277  total_max  313  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8700e+13  tree  148  tree_max  184  recip  85  div  45  total  278  total_max  314  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8800e+13  tree  148  tree_max  184  recip  85  div  52  total  285  total_max  321  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.8900e+13  tree  148  tree_max  184  recip  85  div  49  total  282  total_max  318  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.9000e+13  tree  148  tree_max  184  recip  85  div  52  total  285  total_max  321  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/48,28/28
+5.9100e+13  tree  148  tree_max  190  recip  85  div  52  total  285  total_max  327  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9200e+13  tree  148  tree_max  190  recip  85  div  47  total  280  total_max  322  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9300e+13  tree  148  tree_max  190  recip  85  div  52  total  285  total_max  327  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9400e+13  tree  148  tree_max  190  recip  91  div  52  total  291  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9500e+13  tree  148  tree_max  190  recip  91  div  52  total  291  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9600e+13  tree  148  tree_max  190  recip  91  div  52  total  291  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9700e+13  tree  148  tree_max  190  recip  91  div  52  total  291  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9800e+13  tree  148  tree_max  190  recip  91  div  52  total  291  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,12/18,16/18,44/54,28/28
+5.9900e+13  tree  152  tree_max  190  recip  91  div  52  total  295  total_max  333  grids 20/5/2  levels 12/18,12/18,12/18,12/18,16/18,16/18,44/54,28/28
+6.0000e+13  tree  156  tree_max  194  recip  91  div  52  total  299  total_max  337  grids 20/5/2  levels 12/18,12/18,12/18,12/18,16/18,16/18,44/54,32/32
+# the steps (a count changes between two neighbouring sizes):
+#   2.1400e+13 -> 2.1500e+13: tree 24 -> 24, tree_max 24 -> 34, recip 53 -> 53, div 10 -> 10, total 87 -> 87, total_max 87 -> 97
+#   2.1500e+13 -> 2.1600e+13: tree 24 -> 24, tree_max 34 -> 38, recip 53 -> 53, div 10 -> 10, total 87 -> 87, total_max 97 -> 101
+#   2.1600e+13 -> 2.1700e+13: tree 24 -> 24, tree_max 38 -> 40, recip 53 -> 53, div 10 -> 10, total 87 -> 87, total_max 101 -> 103
+#   2.2700e+13 -> 2.2800e+13: tree 24 -> 26, tree_max 40 -> 40, recip 53 -> 53, div 10 -> 10, total 87 -> 89, total_max 103 -> 103
+#   2.3400e+13 -> 2.3500e+13: tree 26 -> 28, tree_max 40 -> 40, recip 53 -> 53, div 10 -> 10, total 89 -> 91, total_max 103 -> 103
+#   2.3700e+13 -> 2.3800e+13: tree 28 -> 28, tree_max 40 -> 40, recip 53 -> 54, div 10 -> 14, total 91 -> 96, total_max 103 -> 108
+#   2.3800e+13 -> 2.3900e+13: tree 28 -> 28, tree_max 40 -> 40, recip 54 -> 54, div 14 -> 13, total 96 -> 95, total_max 108 -> 107
+#   2.4200e+13 -> 2.4300e+13: tree 28 -> 30, tree_max 40 -> 40, recip 54 -> 54, div 13 -> 14, total 95 -> 98, total_max 107 -> 108
+#   2.4700e+13 -> 2.4800e+13: tree 30 -> 30, tree_max 40 -> 40, recip 54 -> 54, div 14 -> 13, total 98 -> 97, total_max 108 -> 107
+#   2.4800e+13 -> 2.4900e+13: tree 30 -> 32, tree_max 40 -> 40, recip 54 -> 54, div 13 -> 13, total 97 -> 99, total_max 107 -> 107
+#   2.5100e+13 -> 2.5200e+13: tree 32 -> 32, tree_max 40 -> 40, recip 54 -> 54, div 13 -> 14, total 99 -> 100, total_max 107 -> 108
+#   2.5600e+13 -> 2.5700e+13: tree 32 -> 34, tree_max 40 -> 40, recip 54 -> 54, div 14 -> 13, total 100 -> 101, total_max 108 -> 107
+#   2.6000e+13 -> 2.6100e+13: tree 34 -> 34, tree_max 40 -> 42, recip 54 -> 54, div 13 -> 14, total 101 -> 102, total_max 107 -> 110
+#   2.6300e+13 -> 2.6400e+13: tree 34 -> 36, tree_max 42 -> 42, recip 54 -> 57, div 14 -> 16, total 102 -> 109, total_max 110 -> 115
+#   2.6500e+13 -> 2.6600e+13: tree 36 -> 36, tree_max 42 -> 42, recip 57 -> 57, div 16 -> 15, total 109 -> 108, total_max 115 -> 114
+#   2.6700e+13 -> 2.6800e+13: tree 36 -> 36, tree_max 42 -> 42, recip 57 -> 57, div 15 -> 14, total 108 -> 107, total_max 114 -> 113
+#   2.6900e+13 -> 2.7000e+13: tree 36 -> 36, tree_max 42 -> 42, recip 57 -> 57, div 14 -> 16, total 107 -> 109, total_max 113 -> 115
+#   2.7100e+13 -> 2.7200e+13: tree 36 -> 38, tree_max 42 -> 42, recip 57 -> 57, div 16 -> 16, total 109 -> 111, total_max 115 -> 115
+#   2.7200e+13 -> 2.7300e+13: tree 38 -> 38, tree_max 42 -> 42, recip 57 -> 57, div 16 -> 15, total 111 -> 110, total_max 115 -> 114
+#   2.7400e+13 -> 2.7500e+13: tree 38 -> 38, tree_max 42 -> 42, recip 57 -> 57, div 15 -> 14, total 110 -> 109, total_max 114 -> 113
+#   2.7600e+13 -> 2.7700e+13: tree 38 -> 38, tree_max 42 -> 42, recip 57 -> 57, div 14 -> 16, total 109 -> 111, total_max 113 -> 115
+#   2.7800e+13 -> 2.7900e+13: tree 38 -> 38, tree_max 42 -> 42, recip 57 -> 57, div 16 -> 15, total 111 -> 110, total_max 115 -> 114
+#   2.8000e+13 -> 2.8100e+13: tree 38 -> 40, tree_max 42 -> 42, recip 57 -> 57, div 15 -> 15, total 110 -> 112, total_max 114 -> 114
+#   2.8100e+13 -> 2.8200e+13: tree 40 -> 40, tree_max 42 -> 42, recip 57 -> 57, div 15 -> 14, total 112 -> 111, total_max 114 -> 113
+#   2.8200e+13 -> 2.8300e+13: tree 40 -> 40, tree_max 42 -> 42, recip 57 -> 58, div 14 -> 14, total 111 -> 112, total_max 113 -> 114
+#   2.8300e+13 -> 2.8400e+13: tree 40 -> 42, tree_max 42 -> 42, recip 58 -> 58, div 14 -> 16, total 112 -> 116, total_max 114 -> 116
+#   2.8500e+13 -> 2.8600e+13: tree 42 -> 42, tree_max 42 -> 42, recip 58 -> 58, div 16 -> 15, total 116 -> 115, total_max 116 -> 115
+#   2.8600e+13 -> 2.8700e+13: tree 42 -> 42, tree_max 42 -> 52, recip 58 -> 58, div 15 -> 15, total 115 -> 115, total_max 115 -> 125
+#   2.8700e+13 -> 2.8800e+13: tree 42 -> 42, tree_max 52 -> 56, recip 58 -> 58, div 15 -> 14, total 115 -> 114, total_max 125 -> 128
+#   2.8900e+13 -> 2.9000e+13: tree 42 -> 42, tree_max 56 -> 58, recip 58 -> 58, div 14 -> 14, total 114 -> 114, total_max 128 -> 130
+#   2.9000e+13 -> 2.9100e+13: tree 42 -> 42, tree_max 58 -> 58, recip 58 -> 58, div 14 -> 16, total 114 -> 116, total_max 130 -> 132
+#   2.9100e+13 -> 2.9200e+13: tree 42 -> 44, tree_max 58 -> 60, recip 58 -> 58, div 16 -> 16, total 116 -> 118, total_max 132 -> 134
+#   2.9200e+13 -> 2.9300e+13: tree 44 -> 44, tree_max 60 -> 60, recip 58 -> 58, div 16 -> 15, total 118 -> 117, total_max 134 -> 133
+#   2.9400e+13 -> 2.9500e+13: tree 44 -> 44, tree_max 60 -> 60, recip 58 -> 58, div 15 -> 14, total 117 -> 116, total_max 133 -> 132
+#   2.9600e+13 -> 2.9700e+13: tree 44 -> 44, tree_max 60 -> 60, recip 58 -> 59, div 14 -> 18, total 116 -> 121, total_max 132 -> 137
+#   2.9900e+13 -> 3.0000e+13: tree 44 -> 46, tree_max 60 -> 62, recip 59 -> 59, div 18 -> 18, total 121 -> 123, total_max 137 -> 139
+#   3.0300e+13 -> 3.0400e+13: tree 46 -> 48, tree_max 62 -> 62, recip 59 -> 59, div 18 -> 18, total 123 -> 125, total_max 139 -> 139
+#   3.0900e+13 -> 3.1000e+13: tree 48 -> 48, tree_max 62 -> 64, recip 59 -> 59, div 18 -> 18, total 125 -> 125, total_max 139 -> 141
+#   3.1500e+13 -> 3.1600e+13: tree 48 -> 50, tree_max 64 -> 64, recip 59 -> 59, div 18 -> 18, total 125 -> 127, total_max 141 -> 141
+#   3.2200e+13 -> 3.2300e+13: tree 50 -> 50, tree_max 64 -> 74, recip 59 -> 59, div 18 -> 18, total 127 -> 127, total_max 141 -> 151
+#   3.2300e+13 -> 3.2400e+13: tree 50 -> 50, tree_max 74 -> 76, recip 59 -> 59, div 18 -> 18, total 127 -> 127, total_max 151 -> 153
+#   3.2400e+13 -> 3.2500e+13: tree 50 -> 50, tree_max 76 -> 78, recip 59 -> 59, div 18 -> 18, total 127 -> 127, total_max 153 -> 155
+#   3.2500e+13 -> 3.2600e+13: tree 50 -> 52, tree_max 78 -> 78, recip 59 -> 59, div 18 -> 18, total 127 -> 129, total_max 155 -> 155
+#   3.3400e+13 -> 3.3500e+13: tree 52 -> 54, tree_max 78 -> 78, recip 59 -> 59, div 18 -> 18, total 129 -> 131, total_max 155 -> 155
+#   3.3900e+13 -> 3.4000e+13: tree 54 -> 56, tree_max 78 -> 78, recip 59 -> 61, div 18 -> 22, total 131 -> 139, total_max 155 -> 161
+#   3.4200e+13 -> 3.4300e+13: tree 56 -> 58, tree_max 78 -> 78, recip 61 -> 61, div 22 -> 22, total 139 -> 141, total_max 161 -> 161
+#   3.4400e+13 -> 3.4500e+13: tree 58 -> 60, tree_max 78 -> 78, recip 61 -> 61, div 22 -> 22, total 141 -> 143, total_max 161 -> 161
+#   3.5400e+13 -> 3.5500e+13: tree 60 -> 62, tree_max 78 -> 78, recip 61 -> 61, div 22 -> 22, total 143 -> 145, total_max 161 -> 161
+#   3.6100e+13 -> 3.6200e+13: tree 62 -> 64, tree_max 78 -> 80, recip 61 -> 61, div 22 -> 22, total 145 -> 147, total_max 161 -> 163
+#   3.6500e+13 -> 3.6600e+13: tree 64 -> 66, tree_max 80 -> 80, recip 61 -> 61, div 22 -> 22, total 147 -> 149, total_max 163 -> 163
+#   3.6700e+13 -> 3.6800e+13: tree 66 -> 68, tree_max 80 -> 80, recip 61 -> 61, div 22 -> 22, total 149 -> 151, total_max 163 -> 163
+#   3.7100e+13 -> 3.7200e+13: tree 68 -> 68, tree_max 80 -> 84, recip 61 -> 61, div 22 -> 25, total 151 -> 154, total_max 163 -> 170
+#   3.7300e+13 -> 3.7400e+13: tree 68 -> 68, tree_max 84 -> 84, recip 61 -> 61, div 25 -> 24, total 154 -> 153, total_max 170 -> 169
+#   3.7400e+13 -> 3.7500e+13: tree 68 -> 68, tree_max 84 -> 84, recip 61 -> 61, div 24 -> 23, total 153 -> 152, total_max 169 -> 168
+#   3.7500e+13 -> 3.7600e+13: tree 68 -> 68, tree_max 84 -> 84, recip 61 -> 61, div 23 -> 25, total 152 -> 154, total_max 168 -> 170
+#   3.7600e+13 -> 3.7700e+13: tree 68 -> 70, tree_max 84 -> 84, recip 61 -> 61, div 25 -> 25, total 154 -> 156, total_max 170 -> 170
+#   3.7700e+13 -> 3.7800e+13: tree 70 -> 70, tree_max 84 -> 84, recip 61 -> 61, div 25 -> 26, total 156 -> 157, total_max 170 -> 171
+#   3.7800e+13 -> 3.7900e+13: tree 70 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 26 -> 26, total 157 -> 159, total_max 171 -> 171
+#   3.8000e+13 -> 3.8100e+13: tree 72 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 26 -> 25, total 159 -> 158, total_max 171 -> 170
+#   3.8200e+13 -> 3.8300e+13: tree 72 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 25 -> 23, total 158 -> 156, total_max 170 -> 168
+#   3.8400e+13 -> 3.8500e+13: tree 72 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 23 -> 26, total 156 -> 159, total_max 168 -> 171
+#   3.8500e+13 -> 3.8600e+13: tree 72 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 26 -> 25, total 159 -> 158, total_max 171 -> 170
+#   3.8600e+13 -> 3.8700e+13: tree 72 -> 72, tree_max 84 -> 84, recip 61 -> 61, div 25 -> 26, total 158 -> 159, total_max 170 -> 171
+#   3.8800e+13 -> 3.8900e+13: tree 72 -> 74, tree_max 84 -> 84, recip 61 -> 61, div 26 -> 26, total 159 -> 161, total_max 171 -> 171
+#   3.8900e+13 -> 3.9000e+13: tree 74 -> 76, tree_max 84 -> 86, recip 61 -> 61, div 26 -> 25, total 161 -> 162, total_max 171 -> 172
+#   3.9100e+13 -> 3.9200e+13: tree 76 -> 76, tree_max 86 -> 86, recip 61 -> 61, div 25 -> 23, total 162 -> 160, total_max 172 -> 170
+#   3.9200e+13 -> 3.9300e+13: tree 76 -> 76, tree_max 86 -> 86, recip 61 -> 61, div 23 -> 24, total 160 -> 161, total_max 170 -> 171
+#   3.9300e+13 -> 3.9400e+13: tree 76 -> 76, tree_max 86 -> 86, recip 61 -> 61, div 24 -> 25, total 161 -> 162, total_max 171 -> 172
+#   3.9500e+13 -> 3.9600e+13: tree 76 -> 76, tree_max 86 -> 86, recip 61 -> 69, div 25 -> 28, total 162 -> 173, total_max 172 -> 183
+#   3.9900e+13 -> 4.0000e+13: tree 76 -> 80, tree_max 86 -> 86, recip 69 -> 69, div 28 -> 28, total 173 -> 177, total_max 183 -> 183
+#   4.0000e+13 -> 4.0100e+13: tree 80 -> 82, tree_max 86 -> 86, recip 69 -> 69, div 28 -> 28, total 177 -> 179, total_max 183 -> 183
+#   4.0300e+13 -> 4.0400e+13: tree 82 -> 84, tree_max 86 -> 88, recip 69 -> 69, div 28 -> 28, total 179 -> 181, total_max 183 -> 185
+#   4.1200e+13 -> 4.1300e+13: tree 84 -> 86, tree_max 88 -> 88, recip 69 -> 69, div 28 -> 28, total 181 -> 183, total_max 185 -> 185
+#   4.2500e+13 -> 4.2600e+13: tree 86 -> 88, tree_max 88 -> 88, recip 69 -> 69, div 28 -> 28, total 183 -> 185, total_max 185 -> 185
+#   4.2900e+13 -> 4.3000e+13: tree 88 -> 88, tree_max 88 -> 100, recip 69 -> 69, div 28 -> 28, total 185 -> 185, total_max 185 -> 197
+#   4.3000e+13 -> 4.3100e+13: tree 88 -> 88, tree_max 100 -> 112, recip 69 -> 69, div 28 -> 28, total 185 -> 185, total_max 197 -> 209
+#   4.3100e+13 -> 4.3200e+13: tree 88 -> 88, tree_max 112 -> 116, recip 69 -> 69, div 28 -> 28, total 185 -> 185, total_max 209 -> 213
+#   4.3300e+13 -> 4.3400e+13: tree 88 -> 90, tree_max 116 -> 122, recip 69 -> 69, div 28 -> 28, total 185 -> 187, total_max 213 -> 219
+#   4.3800e+13 -> 4.3900e+13: tree 90 -> 92, tree_max 122 -> 124, recip 69 -> 69, div 28 -> 28, total 187 -> 189, total_max 219 -> 221
+#   4.3900e+13 -> 4.4000e+13: tree 92 -> 92, tree_max 124 -> 124, recip 69 -> 71, div 28 -> 34, total 189 -> 197, total_max 221 -> 229
+#   4.4800e+13 -> 4.4900e+13: tree 92 -> 92, tree_max 124 -> 124, recip 71 -> 71, div 34 -> 33, total 197 -> 196, total_max 229 -> 228
+#   4.5400e+13 -> 4.5500e+13: tree 92 -> 96, tree_max 124 -> 124, recip 71 -> 71, div 33 -> 34, total 196 -> 201, total_max 228 -> 229
+#   4.6300e+13 -> 4.6400e+13: tree 96 -> 96, tree_max 124 -> 124, recip 71 -> 71, div 34 -> 33, total 201 -> 200, total_max 229 -> 228
+#   4.6700e+13 -> 4.6800e+13: tree 96 -> 96, tree_max 124 -> 124, recip 71 -> 71, div 33 -> 34, total 200 -> 201, total_max 228 -> 229
+#   4.6800e+13 -> 4.6900e+13: tree 96 -> 100, tree_max 124 -> 124, recip 71 -> 71, div 34 -> 34, total 201 -> 205, total_max 229 -> 229
+#   4.7400e+13 -> 4.7500e+13: tree 100 -> 100, tree_max 124 -> 124, recip 71 -> 76, div 34 -> 36, total 205 -> 212, total_max 229 -> 236
+#   4.7500e+13 -> 4.7600e+13: tree 100 -> 100, tree_max 124 -> 124, recip 76 -> 76, div 36 -> 34, total 212 -> 210, total_max 236 -> 234
+#   4.7700e+13 -> 4.7800e+13: tree 100 -> 100, tree_max 124 -> 124, recip 76 -> 76, div 34 -> 38, total 210 -> 214, total_max 234 -> 238
+#   4.7800e+13 -> 4.7900e+13: tree 100 -> 100, tree_max 124 -> 124, recip 76 -> 76, div 38 -> 36, total 214 -> 212, total_max 238 -> 236
+#   4.7900e+13 -> 4.8000e+13: tree 100 -> 100, tree_max 124 -> 124, recip 76 -> 76, div 36 -> 38, total 212 -> 214, total_max 236 -> 238
+#   4.8000e+13 -> 4.8100e+13: tree 100 -> 100, tree_max 124 -> 124, recip 76 -> 76, div 38 -> 33, total 214 -> 209, total_max 238 -> 233
+#   4.8100e+13 -> 4.8200e+13: tree 100 -> 100, tree_max 124 -> 128, recip 76 -> 76, div 33 -> 35, total 209 -> 211, total_max 233 -> 239
+#   4.8200e+13 -> 4.8300e+13: tree 100 -> 100, tree_max 128 -> 128, recip 76 -> 76, div 35 -> 36, total 211 -> 212, total_max 239 -> 240
+#   4.8300e+13 -> 4.8400e+13: tree 100 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 36 -> 36, total 212 -> 216, total_max 240 -> 240
+#   4.8400e+13 -> 4.8500e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 36 -> 38, total 216 -> 218, total_max 240 -> 242
+#   4.8800e+13 -> 4.8900e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 38 -> 36, total 218 -> 216, total_max 242 -> 240
+#   4.8900e+13 -> 4.9000e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 36 -> 32, total 216 -> 212, total_max 240 -> 236
+#   4.9100e+13 -> 4.9200e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 32 -> 37, total 212 -> 217, total_max 236 -> 241
+#   4.9300e+13 -> 4.9400e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 37 -> 34, total 217 -> 214, total_max 241 -> 238
+#   4.9400e+13 -> 4.9500e+13: tree 104 -> 104, tree_max 128 -> 128, recip 76 -> 76, div 34 -> 38, total 214 -> 218, total_max 238 -> 242
+#   4.9600e+13 -> 4.9700e+13: tree 104 -> 108, tree_max 128 -> 128, recip 76 -> 76, div 38 -> 38, total 218 -> 222, total_max 242 -> 242
+#   5.0300e+13 -> 5.0400e+13: tree 108 -> 108, tree_max 128 -> 128, recip 76 -> 77, div 38 -> 40, total 222 -> 225, total_max 242 -> 245
+#   5.1000e+13 -> 5.1100e+13: tree 108 -> 112, tree_max 128 -> 128, recip 77 -> 77, div 40 -> 40, total 225 -> 229, total_max 245 -> 245
+#   5.1100e+13 -> 5.1200e+13: tree 112 -> 116, tree_max 128 -> 132, recip 77 -> 77, div 40 -> 40, total 229 -> 233, total_max 245 -> 249
+#   5.1600e+13 -> 5.1700e+13: tree 116 -> 116, tree_max 132 -> 152, recip 77 -> 77, div 40 -> 40, total 233 -> 233, total_max 249 -> 269
+#   5.1700e+13 -> 5.1800e+13: tree 116 -> 116, tree_max 152 -> 156, recip 77 -> 77, div 40 -> 40, total 233 -> 233, total_max 269 -> 273
+#   5.1800e+13 -> 5.1900e+13: tree 116 -> 116, tree_max 156 -> 160, recip 77 -> 77, div 40 -> 40, total 233 -> 233, total_max 273 -> 277
+#   5.2000e+13 -> 5.2100e+13: tree 116 -> 116, tree_max 160 -> 164, recip 77 -> 77, div 40 -> 40, total 233 -> 233, total_max 277 -> 281
+#   5.2200e+13 -> 5.2300e+13: tree 116 -> 120, tree_max 164 -> 164, recip 77 -> 77, div 40 -> 40, total 233 -> 237, total_max 281 -> 281
+#   5.2500e+13 -> 5.2600e+13: tree 120 -> 124, tree_max 164 -> 164, recip 77 -> 77, div 40 -> 40, total 237 -> 241, total_max 281 -> 281
+#   5.2700e+13 -> 5.2800e+13: tree 124 -> 124, tree_max 164 -> 164, recip 77 -> 81, div 40 -> 40, total 241 -> 245, total_max 281 -> 285
+#   5.3900e+13 -> 5.4000e+13: tree 124 -> 124, tree_max 164 -> 164, recip 81 -> 84, div 40 -> 46, total 245 -> 254, total_max 285 -> 294
+#   5.4000e+13 -> 5.4100e+13: tree 124 -> 128, tree_max 164 -> 164, recip 84 -> 84, div 46 -> 46, total 254 -> 258, total_max 294 -> 294
+#   5.4600e+13 -> 5.4700e+13: tree 128 -> 132, tree_max 164 -> 164, recip 84 -> 84, div 46 -> 46, total 258 -> 262, total_max 294 -> 294
+#   5.5200e+13 -> 5.5300e+13: tree 132 -> 132, tree_max 164 -> 166, recip 84 -> 84, div 46 -> 46, total 262 -> 262, total_max 294 -> 296
+#   5.5700e+13 -> 5.5800e+13: tree 132 -> 136, tree_max 166 -> 166, recip 84 -> 84, div 46 -> 46, total 262 -> 266, total_max 296 -> 296
+#   5.6500e+13 -> 5.6600e+13: tree 136 -> 140, tree_max 166 -> 166, recip 84 -> 85, div 46 -> 46, total 266 -> 271, total_max 296 -> 297
+#   5.7300e+13 -> 5.7400e+13: tree 140 -> 140, tree_max 166 -> 174, recip 85 -> 85, div 46 -> 46, total 271 -> 271, total_max 297 -> 305
+#   5.7400e+13 -> 5.7500e+13: tree 140 -> 140, tree_max 174 -> 178, recip 85 -> 85, div 46 -> 46, total 271 -> 271, total_max 305 -> 309
+#   5.7600e+13 -> 5.7700e+13: tree 140 -> 140, tree_max 178 -> 180, recip 85 -> 85, div 46 -> 46, total 271 -> 271, total_max 309 -> 311
+#   5.7700e+13 -> 5.7800e+13: tree 140 -> 140, tree_max 180 -> 180, recip 85 -> 85, div 46 -> 52, total 271 -> 277, total_max 311 -> 317
+#   5.8000e+13 -> 5.8100e+13: tree 140 -> 140, tree_max 180 -> 180, recip 85 -> 85, div 52 -> 47, total 277 -> 272, total_max 317 -> 312
+#   5.8200e+13 -> 5.8300e+13: tree 140 -> 148, tree_max 180 -> 184, recip 85 -> 85, div 47 -> 49, total 272 -> 282, total_max 312 -> 318
+#   5.8300e+13 -> 5.8400e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 49 -> 50, total 282 -> 283, total_max 318 -> 319
+#   5.8400e+13 -> 5.8500e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 50 -> 44, total 283 -> 277, total_max 319 -> 313
+#   5.8600e+13 -> 5.8700e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 44 -> 45, total 277 -> 278, total_max 313 -> 314
+#   5.8700e+13 -> 5.8800e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 45 -> 52, total 278 -> 285, total_max 314 -> 321
+#   5.8800e+13 -> 5.8900e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 52 -> 49, total 285 -> 282, total_max 321 -> 318
+#   5.8900e+13 -> 5.9000e+13: tree 148 -> 148, tree_max 184 -> 184, recip 85 -> 85, div 49 -> 52, total 282 -> 285, total_max 318 -> 321
+#   5.9000e+13 -> 5.9100e+13: tree 148 -> 148, tree_max 184 -> 190, recip 85 -> 85, div 52 -> 52, total 285 -> 285, total_max 321 -> 327
+#   5.9100e+13 -> 5.9200e+13: tree 148 -> 148, tree_max 190 -> 190, recip 85 -> 85, div 52 -> 47, total 285 -> 280, total_max 327 -> 322
+#   5.9200e+13 -> 5.9300e+13: tree 148 -> 148, tree_max 190 -> 190, recip 85 -> 85, div 47 -> 52, total 280 -> 285, total_max 322 -> 327
+#   5.9300e+13 -> 5.9400e+13: tree 148 -> 148, tree_max 190 -> 190, recip 85 -> 91, div 52 -> 52, total 285 -> 291, total_max 327 -> 333
+#   5.9800e+13 -> 5.9900e+13: tree 148 -> 152, tree_max 190 -> 190, recip 91 -> 91, div 52 -> 52, total 291 -> 295, total_max 333 -> 333
+#   5.9900e+13 -> 6.0000e+13: tree 152 -> 156, tree_max 190 -> 194, recip 91 -> 91, div 52 -> 52, total 295 -> 299, total_max 333 -> 337
