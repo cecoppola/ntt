@@ -324,7 +324,9 @@ def division_cost(fab, nq, dl, npn, g, rule, form):
     c = Cost()
     c.add(shift_cost(fab, nq, g)); c.add(small_cost(fab, g, 3))        # Q into P's basis, S = P + Q, residues of P, Q
     c.add(shift_cost(fab, na, g))                                      # A_h
-    nah = 2 * dl + 1
+    nah = dl + 1                                                       # Phase 13d D2: A_h = S >> (nq - 1 - dl), S = P + Q of nq limbs:
+                                                                       # dl + 1 limbs (newton_db.c 713; the 1.42e11 log: 7888888890 x 7888888891);
+                                                                       # the model had 2 dl + 1 (the shift applied to S B^dl), twice the product
     c.add(product_cost(fab, nah, k + 1, g, lowcut=k + 1, form=form))   # A_h mu
     c.add(shift_cost(fab, nah + k + 1, g))                             # X
     c.add(product_cost(fab, dl + 1, nq, g, highcut=w, form=form))      # X Q mod B^w
@@ -364,17 +366,17 @@ def top_factor(T, g):
     N = _terms(T)
     return range_limbs(T, g, g - 1, g) / (_lf(N) / LIMB_DIGITS / g)
 
-def level_top_group(g, groups=None):
-    """per level (S, [child limbs fractions]): the top group [start, g) of the level and its children (the previous level's
-    groups inside it), as node ranges"""
+def level_top_group(g, groups=None, which='top'):
+    """per level (S, [child limbs fractions]): the top group [start, g) of the level (which = 'bottom': node 0's, [0, S)) and
+    its children (the previous level's groups inside it), as node ranges"""
     out = []; P = 1
     for S in mem_model.mn_groups(g, groups):
-        start = ((g - 1) // S) * S; end = min(start + S, g); ch = []; k = start
+        start = ((g - 1) // S) * S if which == 'top' else 0; end = min(start + S, g); ch = []; k = start
         while k < end: ch.append((k, min(k + P, end))); k += P
         out.append((S, end - start, ch)); P = S
     return out
 
-def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None):
+def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='top'):
     """level by level (mem_model.level_children: the level's group of S nodes and its children m_1 .. m_k, the
     previous level's groups): a k-way level is the fold the tree runs (results/L.md; tree_level for k = 2):
     (P, Q) <- (P Q_i + P_i, Q Q_i) for i = 2 .. k -- 2 (k - 1) products over the level's S nodes, the accumulated
@@ -382,13 +384,15 @@ def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None):
     Phase 13d D2: SHARES = 'terms' (T, the total digits, given): the operands are the top group's children's real lengths"""
     rows = []
     if SHARES == 'terms' and T is not None:
-        for S, Sg, ch in level_top_group(g, groups):
-            c = Cost(); acc = int(range_limbs(T, g, ch[0][0], ch[0][1]))
-            for (r0, r1) in ch[1:]:
+        for S, Sg, ch in level_top_group(g, groups, which):
+            # mn.c tree_level (2 children: A = the lower, B = the upper) and tree_level_k (Horner from the top child: the running
+            # pair starts as child k-1's, then P = P_i Q + P, Q = Q_i Q for i = k-2 .. 0 -- A = child i, B = the running Q)
+            c = Cost(); run_ = int(range_limbs(T, g, ch[-1][0], ch[-1][1]))
+            for (r0, r1) in reversed(ch[:-1]):
                 m = int(range_limbs(T, g, r0, r1))
-                c.add(product_cost(fab, acc, m, Sg, with_x=True, form=form))
-                c.add(product_cost(fab, acc, m, Sg, form=form))
-                acc += m
+                c.add(product_cost(fab, m, run_, Sg, with_x=True, form=form))
+                c.add(product_cost(fab, m, run_, Sg, form=form))
+                run_ += m
             c.add(small_cost(fab, Sg, 2))
             rows.append((len(ch), Sg, c))
         return rows
@@ -562,7 +566,7 @@ def big_shapes(D, scope=('top', 'recip', 'div')):
             take = min(2 * j + 2, nq)
             out += [('recip', 'Q_t r', take, j + 1, 0, big, 1), ('recip', 'r d', j + 1, j + 2, 0, big, 1)]
     if 'div' in scope:
-        out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]
+        out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # Phase 13d D2: A_h has dl + 1 limbs (was 2 nq + 1)
     return out
 
 EDGE_INIT = 10.0                       # FITTED (agent P's five edge runs, 465-509 GB of device at init: init 34.4-47.1 s against 28-31 by the mapping
@@ -990,6 +994,37 @@ def calibrate(rule, gate=0.10, verbose=True):
     print("calibration %s (gate: every run within %.0f %%; worst %.1f %%)" % ("OK" if ok else "FAILED", 100 * gate, 100 * worst))
     return ok
 
+def plan(g, T, design=None, groups=None, fab=None):
+    """Phase 13d D2: the model's piece counts in agent L's categories (mn_plan.c's summary): tree (node 0's groups), tree_max
+    (each level's top group), recip (the sharded steps), div (A_h mu, X Q); the top node's leaf pieces (its big products)"""
+    design = design or DEFAULT13(); fab = fab or TARGET
+    global DZ
+    saved = DZ; DZ = design
+    try:
+        D = T / g; nq = int(D / LIMB_DIGITS)
+        t0 = tree_cost(fab, nq, g, groups, "grid", T=T, which='bottom'); tm = tree_cost(fab, nq, g, groups, "grid", T=T, which='top')
+        rc, dc, grp = division_cost(fab, nq * g, nq * g, nq * g, g, "model", "grid")
+        return dict(tree=sum(c.pieces for _, _, c in t0), tree_max=sum(c.pieces for _, _, c in tm), recip=rc.pieces, div=dc.pieces,
+                    levels0=[c.pieces for _, _, c in t0], levels_max=[c.pieces for _, _, c in tm], groups=sorted(set(gp for _, gp in grp)))
+    finally:
+        DZ = saved
+
+def plan_sweep(g, lo, hi, step, design=None, out=sys.stdout):
+    """L's plan_sweep.sh columns, from the model"""
+    print("# mn_model.plan sweep: g = %d, total digits %.4e .. %.4e step %.4e; SHARES %s" % (g, lo, hi, step, SHARES), file=out)
+    print("# columns: digits | tree (node 0's groups) | tree (each level's largest group) | recip | div | total (node 0) | total (largest groups) | levels node0/largest", file=out)
+    n = int(round((hi - lo) / step)); prev = None; ch = []
+    for i in range(n + 1):
+        T = lo + i * step; p = plan(g, T, design)
+        print("%.4e  tree %4d  tree_max %4d  recip %3d  div %3d  total %4d  total_max %4d  levels %s" % (T, p['tree'], p['tree_max'], p['recip'], p['div'],
+              p['tree'] + p['recip'] + p['div'], p['tree_max'] + p['recip'] + p['div'], ','.join('%d/%d' % ab for ab in zip(p['levels0'], p['levels_max']))), file=out)
+        k = (p['tree'], p['tree_max'], p['recip'], p['div'])
+        if prev and k != prev[1]: ch.append("%.4e -> %.4e: tree %d -> %d, tree_max %d -> %d, recip %d -> %d, div %d -> %d" % (prev[0], T, prev[1][0], k[0], prev[1][1], k[1], prev[1][2], k[2], prev[1][3], k[3]))
+        prev = (T, k)
+        out.flush()
+    print("# the steps (a count changes between two neighbouring sizes):", file=out)
+    for c in ch: print("#   " + c, file=out)
+
 def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid"):
     print("the level schedule at 576 (MN_GROUPS), per-node wall of the distributed levels (s) by D per node; every level")
     print("costed as the tree forms it (a k-way level = 2 (k - 1) products over the level's group); 'global' = TB per node over")
@@ -1022,11 +1057,14 @@ def main():
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
     ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
+    ap.add_argument("--plan", type=float, nargs=4, metavar=("G", "FROM", "TO", "STEP"), help="Phase 13d D2: the piece counts in agent L's plan_sweep columns (total digits)")
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
     if a.calib:
         sys.exit(0 if calibrate(a.rule) else 1)
+    if a.plan:
+        plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3]); return
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     if a.schedules:
         schedules(fab, a.rule, form=a.tree); return

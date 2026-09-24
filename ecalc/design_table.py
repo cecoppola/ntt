@@ -121,7 +121,7 @@ def max_d(design, budget):
 
 def size1_4e10(design):
     p = M.node_phases(4e10, design)
-    wall = sum(v for k, v in p.items() if k != 'label')
+    wall = M.run(M.TARGET, 4e10, 1, verbose=False, design=design)['wall']   # Phase 13d D2: with the 13c recalibration (CAL13; = the phases' sum without it)
     m = MM.mem_per_node(int(4e10), 1, design.mem_opts(4e10))
     return wall, m['node_peak'] / GB, m['dev_init'] / GB, p['label']
 
