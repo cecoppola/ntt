@@ -352,22 +352,23 @@ int main(int argc, char **argv)
               for (int i = 1; i < nh; i += 2) { struct buf t = b[d]; t.h = 0; t.nh = 0; if (!vmm_create_map(&t, (size_t)i * b[d].chunk, b[d].chunk, nd)) { ok2[d] = 0; break; } b[d].h[i] = t.h[0]; free(t.h); }
               if (ok2[d]) { struct buf t = b[d]; t.h = 0; t.nh = 0; if (vmm_create_map(&t, (size_t)nh * b[d].chunk, b[d].chunk, nd)) { b[d].h = (hipMemGenericAllocationHandle_t *)realloc(b[d].h, (nh + 1) * sizeof *b[d].h); b[d].h[nh] = t.h[0]; b[d].nh = nh + 1; free(t.h); } else ok2[d] = 0; }
               tm2[d] = now() - x; }
-            int all2 = 1; for (int d = 0; d < nd; d++) if (!ok2[d]) all2 = 0;
+            long free3b = meminfo_kb("MemFree"); int all2 = 1; for (int d = 0; d < nd; d++) if (!ok2[d]) all2 = 0;
             if (all2) {
                 double tf2[4]; int bad = 0;
 #pragma omp parallel num_threads(nd)
                 { int d = omp_get_thread_num(); HIP_CHECK(hipSetDevice(d)); size_t n2 = (size_t)b[d].nh * b[d].chunk / 8; double x = now();
                   k_fill<<<228 * 8, 256, 0, st[d]>>>((uint64_t *)b[d].p, n2, 11 + d); HIP_CHECK(hipStreamSynchronize(st[d]));
                   k_copy<<<228 * 8, 256, 0, st[d]>>>((uint64_t *)b[d].p + n2 / 2 / 2 * 2, (uint64_t *)b[d].p, n2 / 2 / 2 * 2); HIP_CHECK(hipStreamSynchronize(st[d])); tf2[d] = now() - x; }
-                for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); size_t n2 = (size_t)b[d].nh * b[d].chunk / 8, h2 = n2 / 2 / 2 * 2; uint64_t v; HIP_CHECK(hipMemcpy(&v, (uint64_t *)b[d].p + h2 + 5, 8, hipMemcpyDeviceToHost)); if (v != 11 + (uint64_t)d + 5) bad++; HIP_CHECK(hipMemcpy(&v, (uint64_t *)b[d].p + n2 - 1, 8, hipMemcpyDeviceToHost)); if (v != 11 + (uint64_t)d + n2 - 1) bad++; }
+                for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); size_t n2 = (size_t)b[d].nh * b[d].chunk / 8, h2 = n2 / 2 / 2 * 2; uint64_t v; HIP_CHECK(hipMemcpy(&v, (uint64_t *)b[d].p + h2 + 5, 8, hipMemcpyDeviceToHost)); if (v != 11 + (uint64_t)d + 5) bad++; HIP_CHECK(hipMemcpy(&v, (uint64_t *)b[d].p + n2 - 1, 8, hipMemcpyDeviceToHost)); if (v != 11 + (uint64_t)d + (n2 - 1 < 2 * h2 ? n2 - 1 - h2 : n2 - 1)) bad++; }
                 printf("  the holes re-mapped with fresh chunks and one chunk mapped past the end (%.2f s per APU, slowest): the range is now %d chunks = %.1f GB contiguous VA over non-contiguous physical memory; fill + copy over all of it %.2f s; values %s\n",
                        tmax(tm2, nd), b[0].nh, (double)b[0].nh * b[0].chunk / 1e9, tmax(tf2, nd), bad ? "MISMATCH" : "ok");
                 VERIFY(!bad, "vmm re-mapped range");
             } else printf("  re-mapping into the holes / past the end FAILED on some APU\n");
+            int nh_end = b[0].nh; printf("  MemFree after the re-map: %.1f GB (%+.1f vs after the release of the odd chunks)\n", free3b / 1e6, (free3b - free3) / 1e6);
             for (int d = 0; d < nd; d++) { HIP_CHECK(hipSetDevice(d)); vmm_free(&b[d], &tu[d], &tr[d]); }
             long free4 = meminfo_kb("MemFree");
             printf("  all unmapped + released: unmap %.3f s/GiB, release %.3f s/GiB; MemFree: start %.1f GB, mapped+filled %.1f GB (%+.1f), after release %.1f GB (%+.1f vs start)\n",
-                   tmax(tu, nd) / ((double)b[0].nh * b[0].chunk / 1073741824.0), tmax(tr, nd) / ((double)b[0].nh * b[0].chunk / 1073741824.0), free0 / 1e6, free2 / 1e6, (free2 - free0) / 1e6, free4 / 1e6, (free4 - free0) / 1e6);
+                   tmax(tu, nd) / ((double)nh_end * b[0].chunk / 1073741824.0), tmax(tr, nd) / ((double)nh_end * b[0].chunk / 1073741824.0), free0 / 1e6, free2 / 1e6, (free2 - free0) / 1e6, free4 / 1e6, (free4 - free0) / 1e6);
             (void)free1; (void)avail1;
             harness_result("vmm_map_s_per_GiB", "s/GiB", tmax(ta, nd) / (bytes / 1073741824.0));
         }
