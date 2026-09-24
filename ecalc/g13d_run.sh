@@ -14,7 +14,7 @@ log "job $J submitted"
 trap "scancel $J; log 'job $J cancelled'" EXIT
 until [ "$(squeue -j $J -h -o %T)" = RUNNING ]; do sleep 15; done
 T0=$(date +%s); log "job $J running on $(squeue -j $J -h -o %N)"
-STOP=$(date -d "22:38" +%s)
+STOP=$(date -d "${G_STOP:-22:38}" +%s)   # G_STOP: the hard stop (CDT on aac6), 22:38 = 23:38 EDT unless lifted
 while read -r -u 3 tag est np dg ref envs; do
   [ -z "$tag" ] || [ "${tag:0:1}" = "#" ] && continue
   now=$(date +%s)
