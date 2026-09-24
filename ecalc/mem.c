@@ -179,6 +179,11 @@ void *mem_dev_alloc(int dev, size_t bytes)
     { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
     return p;
 }
+void mem_dev_note(int dev, void *p, size_t bytes)    /* Phase 14 R1 (E8): a device range mapped elsewhere (the VMM arena) enters the registry: mem_dev_of / in_arena work as for hipMalloc'd memory */
+{
+#pragma omp critical(memreg)
+    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
+}
 void mem_dev_forget(void *p) { reg_del(p); }         /* drop from the registry without freeing (ownership passed on) */
 void mem_dev_free(void *p)
 {

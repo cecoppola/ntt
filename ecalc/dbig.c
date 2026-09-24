@@ -154,12 +154,116 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
     if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
     return p;
 }
+
+/* ---- Phase 14 R1 (E8, results/R114.md 5): the VMM-backed arena, DB_POOL_VMM=1 --------------------------------------------------
+ * One VA range per APU (hipMemAddressReserve, DB_POOL_VMM_RESERVE (3) x the arena), physical chunks of DB_POOL_VMM_CHUNK_GB (2) GiB
+ * (hipMemCreate, pinned device memory) mapped from the range's start (hipMemMap) with read-write access for the four APUs
+ * (hipMemSetAccess).  The pool's extents live over the range as over any region; a request that finds no contiguous extent is
+ * satisfied by REMAPPING: the chunks that are wholly free are unmapped and mapped again, contiguously, into the lowest run of
+ * empty slots (the same physical chunks: no create, no page work -- 0.002 s/GiB), and only when the free chunks do not cover the
+ * request are new chunks created for the remainder (a growth by mapping, counted apart; never a hipMalloc).  The host cannot
+ * write a VMM range (a CPU store segfaults): the seed thread's stores go through its buffers and DMA under this switch. */
+static int g_vmm_on = -1;
+int db_pool_vmm_on(void) { if (g_vmm_on < 0) { const char *e = getenv("DB_POOL_VMM"); g_vmm_on = e ? atoi(e) != 0 : 0; } return g_vmm_on; }
+static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
+                    size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap; } g_vmm[DB_NQ];
+static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
+static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
+{
+    struct vmm *v = &g_vmm[d]; hipMemAllocationProp prop; memset(&prop, 0, sizeof prop);
+    prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
+    for (int i = 0; i < m; i++) {
+        if (!hs[i]) { if (hipMemCreate(&hs[i], v->chunk, &prop, 0) != hipSuccess) return 0; v->n_grow++; v->grow_chunks++; }
+        if (hipMemMap(v->base + (size_t)(slot0 + i) * v->chunk, v->chunk, 0, hs[i], 0) != hipSuccess) return 0;
+        v->h[slot0 + i] = hs[i];
+    }
+    hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
+    for (int c = 0; c < v->nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
+    if (hipMemSetAccess(v->base + (size_t)slot0 * v->chunk, (size_t)m * v->chunk, ad, v->nd) != hipSuccess) return 0;
+    return 1;
+}
+void *db_vmm_arena_alloc(int dev, size_t bytes)       /* the arena of `bytes` (rounded up to whole chunks: the rest is free pool space) as a VMM range; a borrowed region record */
+{
+    struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
+    const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20; C = C / ((size_t)2 << 20) * ((size_t)2 << 20);
+    e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
+    int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
+    int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
+    v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
+    hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
+    size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
+    if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { fprintf(stderr, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); exit(1); }
+    if (!vmm_map_run(dev, 0, m0, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
+    v->n_grow = 0; v->grow_chunks = 0;                    /* the initial chunks are the arena, not a growth */
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m0 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
+    pthread_mutex_lock(&g_pool_mx);
+    if (g_ndonated >= 256) { fprintf(stderr, "db_vmm_arena_alloc: too many regions\n"); abort(); }
+    v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;
+    if ((size_t)m0 * C > bytes) ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg);   /* the last chunk's remainder: free at once */
+    pthread_mutex_unlock(&g_pool_mx);
+    mem_acct_register(db_acct);
+    if (vmm_vb() || getenv("RNS_VERBOSE")) printf("dbig pool: APU%d VMM arena %.2f GB = %d chunks of %.2f GiB mapped in %.2f s (%.3f s/GB), VA %.1f GB reserved at %p\n", dev, (double)m0 * C / 1e9, m0, C / 1073741824.0, mem_now() - t0, (mem_now() - t0) / ((double)m0 * C / 1e9), v->reserved / 1e9, (void *)v->base);
+    return v->base;
+}
+void db_vmm_arena_release(int dev)                     /* after the pool is done with it (rns_shutdown): every chunk unmapped and released, the VA freed */
+{
+    struct vmm *v = &g_vmm[dev]; if (!v->base) return;
+    for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
+    (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
+    if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_grow, v->grow_chunks);
+    memset(v, 0, sizeof *v);
+}
+static int vmm_region_has(int dev, const char *p, size_t bytes, int *reg)   /* is [p, p + bytes) inside device dev's VMM range? */
+{
+    struct vmm *v = &g_vmm[dev]; if (!v->base || p < v->base || p + bytes > v->base + v->reserved) return 0;
+    *reg = v->reg; return 1;
+}
+static void ext_remove(int d, char *p, size_t bytes)   /* [p, p + bytes) out of the free extents (it lies inside one extent: a wholly free chunk) */
+{
+    struct ext *e = g_ext[d].e; int n = g_ext[d].n;
+    for (int i = 0; i < n; i++) if (p >= e[i].p && p + bytes <= e[i].p + e[i].bytes) {
+        char *a = e[i].p, *b = e[i].p + e[i].bytes; int reg = e[i].reg;
+        if (p == a) { e[i].p += bytes; e[i].bytes -= bytes; if (!e[i].bytes) { memmove(&e[i], &e[i + 1], (n - i - 1) * sizeof *e); g_ext[d].n--; } }
+        else { e[i].bytes = (size_t)(p - a); if (p + bytes < b) ext_insert(d, p + bytes, (size_t)(b - (p + bytes)), reg); }
+        return;
+    }
+    fprintf(stderr, "dbig: ext_remove: range not free\n"); abort();
+}
+static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted) */
+{
+    struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
+    double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
+    int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;      /* the wholly free mapped slots */
+    for (int k = 0; k < v->nslot && nf < m; k++) if (v->h[k]) {
+        char *p = v->base + (size_t)k * C; int inside = 0;
+        for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { inside = 1; break; }
+        if (inside) fr[nf++] = k;
+    }
+    hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
+    for (int i = 0; i < nf; i++) { int k = fr[i]; ext_remove(d, v->base + (size_t)k * C, C); if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess) { fprintf(stderr, "dbig: hipMemUnmap failed\n"); abort(); } hs[i] = v->h[k]; v->h[k] = 0; }
+    int slot0 = -1;                                               /* the lowest run of m empty slots */
+    for (int k = 0, run = 0; k < v->nslot; k++) { run = v->h[k] ? 0 : run + 1; if (run == m) { slot0 = k - m + 1; break; } }
+    if (slot0 < 0) {                                              /* no room in the VA: put the free chunks back where they were */
+        for (int i = 0; i < nf; i++) { int k = fr[i]; hipMemGenericAllocationHandle_t one[1] = { hs[i] }; if (!vmm_map_run(d, k, 1, one)) { fprintf(stderr, "dbig: VMM restore failed\n"); abort(); } ext_insert(d, v->base + (size_t)k * C, C, v->reg); }
+        free(fr); free(hs); return 0;
+    }
+    if (!vmm_map_run(d, slot0, m, hs)) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
+    ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
+    v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0;
+    if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
+                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s; free %.2f GB in %d extents, live %.2f GB\n",
+                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
+                    if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
+    free(fr); free(hs); return 1;
+}
+size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks) { struct vmm *v = &g_vmm[dev]; if (remaps) *remaps = v->n_remap; if (grow_chunks) *grow_chunks = v->grow_chunks; return v->base ? v->remap_chunks : 0; }
 static uint64_t *q_alloc_locked(int d, size_t need);
 static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
 static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
 {
     int reg;
     char *p = ext_take(d, need, &reg);
+    if (!p && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
     if (!p) {
         static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
         if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }
@@ -223,6 +327,7 @@ void db_donate_ext(int dev, void *p, size_t bytes, int own)
 void db_donate_adjacent(int dev, void *p, size_t bytes)
 {
     pthread_mutex_lock(&g_pool_mx);
+    { int reg; if (vmm_region_has(dev, (const char *)p, bytes, &reg)) { ext_insert(dev, (char *)p, bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }   /* Phase 14 R1 (E8): a range of the VMM arena joins its record */
     for (int i = 0; i < g_ndonated; i++) {
         if (g_donated[i].dev != dev || g_donated[i].own) continue;
         char *rp = (char *)g_donated[i].p; size_t rb = g_donated[i].bytes;
@@ -237,7 +342,9 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 {
     pthread_mutex_lock(&g_pool_mx);
     for (int i = 0; i < g_ndonated; i++) { int d = g_donated[i].dev; if (d < 0 || d >= ndev) continue;
-        b[d][g_donated[i].kind == 2 ? MEM_DEV_POOL_HIPMALLOC : g_donated[i].kind == 1 ? MEM_DEV_POOL_BORROWED : MEM_DEV_POOL_DONATED] += g_donated[i].bytes; }
+        size_t bytes = g_donated[i].bytes;
+        if (g_vmm[d].base && i == g_vmm[d].reg) { bytes = 0; for (int k = 0; k < g_vmm[d].nslot; k++) if (g_vmm[d].h[k]) bytes += g_vmm[d].chunk; }   /* Phase 14 R1 (E8): the chunks mapped now */
+        b[d][g_donated[i].kind == 2 ? MEM_DEV_POOL_HIPMALLOC : g_donated[i].kind == 1 ? MEM_DEV_POOL_BORROWED : MEM_DEV_POOL_DONATED] += bytes; }
     for (int d = 0; d < DB_NQ && d < ndev; d++) { b[d][MEM_DEV_POOL_LIVE] += g_live_bytes[d]; b[d][MEM_DEV_POOL_PEAK_LIVE] += g_peak_live[d]; b[d][MEM_DEV_POOL_FREE] += db_pool_free_bytes(d); }
     pthread_mutex_unlock(&g_pool_mx);
 }

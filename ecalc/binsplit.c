@@ -133,7 +133,7 @@ static void bs_res_check(const struct level *lv, const struct level *prev, int l
  * two 14 GB halves that cannot merge left the pool falling back to hipMalloc, RESULTS 70).  A pool that outgrows
  * its half is re-allocated on its own (the half stays and is donated too); the arena itself outlives the block
  * pool's use of it (borrowed, never freed by db_release_pools) and goes at rns_shutdown. */
-static struct { uint64_t *base; size_t bytes, half, hole, thresh; int dev; int donated; } g_arena[NR];   /* Phase 11 M: bytes = 2 half + extra + hole; the hole (the last bytes) is the block pool's reserved tail */
+static struct { uint64_t *base; size_t bytes, half, hole, thresh; int dev; int donated; int vmm; } g_arena[NR];   /* vmm (Phase 14 R1, E8): a VMM range from db_vmm_arena_alloc */   /* Phase 11 M: bytes = 2 half + extra + hole; the hole (the last bytes) is the block pool's reserved tail */
 static int in_arena(int r, const uint64_t *p) { return g_arena[r].base && p >= g_arena[r].base && p < g_arena[r].base + g_arena[r].bytes / 8; }
 static void arena_half_range(int r, int which, char **p, size_t *bytes)   /* the arena's range that goes with parity `which`: half 1 carries the extra and the hole to the arena's end */
 {
@@ -164,7 +164,7 @@ static void donate_pools(int which)                  /* the region pools of one 
 }
 void binsplit_release_arenas(void)                   /* after the block pool is done with them (rns_shutdown) */
 {
-    for (int r = 0; r < NR; r++) if (g_arena[r].base) { if (g_arena[r].donated < 2) mem_dev_free(g_arena[r].base); else mem_dev_free_raw(g_arena[r].dev, g_arena[r].base); g_arena[r].base = 0; }
+    for (int r = 0; r < NR; r++) if (g_arena[r].base) { if (g_arena[r].vmm) { if (g_arena[r].donated < 2) mem_dev_forget(g_arena[r].base); db_vmm_arena_release(g_arena[r].dev); } else if (g_arena[r].donated < 2) mem_dev_free(g_arena[r].base); else mem_dev_free_raw(g_arena[r].dev, g_arena[r].base); g_arena[r].base = 0; }
 }
 static int region_of(size_t i, size_t n) { size_t r = i * NR / n; return (int)(r < NR ? r : NR - 1); }
 /* Phase 9 C2: the region of output node i of a level of n nodes.  Large levels: region NR i / n -- a subtree per
@@ -232,7 +232,8 @@ static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thres
     cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
     extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20); hole = (hole + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
     g_arena[r].dev = r % nd; g_arena[r].half = cap * 8; g_arena[r].bytes = 2 * cap * 8 + extra; if (hole > g_arena[r].bytes) hole = g_arena[r].bytes; g_arena[r].hole = hole; g_arena[r].thresh = thresh; g_arena[r].donated = 0;
-    g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
+    if (db_pool_vmm_on()) { g_arena[r].vmm = 1; g_arena[r].base = (uint64_t *)db_vmm_arena_alloc(g_arena[r].dev, g_arena[r].bytes); mem_dev_note(g_arena[r].dev, g_arena[r].base, g_arena[r].bytes); }   /* Phase 14 R1 (E8) */
+    else g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
     rns_shutdown_hook = binsplit_release_arenas;         /* Phase 10 B5 (agent M): released at rns_shutdown on every rank, whether or not binsplit_free_pools ran there (A-mem open issue 2) */
     for (int w = 0; w < 2; w++) { g_pool[w][r] = g_arena[r].base + w * cap; g_cap[w][r] = cap; }
     if (bs_verbose) printf("bs: region %d arena %.2f GB on APU %d (two parities of %.2f GB, dm extra %.2f GB, tail %.2f GB)\n", r, g_arena[r].bytes * 1e-9, g_arena[r].dev, cap * 8e-9, extra * 1e-9, hole * 1e-9);
@@ -1094,11 +1095,20 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     ss->t_alloc = mem_now() - t0;
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
+    int direct = !db_pool_vmm_on();                              /* Phase 14 R1 (E8): the host cannot store into a VMM range */
     for (int r = 0; r < NR; r++) {
         size_t lo = r0[r], hi = r0[r + 1];
         for (size_t c0 = lo; c0 < hi; c0 += ss->chunk_spans) {
             size_t c1 = c0 + ss->chunk_spans < hi ? c0 + ss->chunk_spans : hi; int b = ss->nchunks & 1;
-            if (seed_pools_ready(ss) || ss->npend == 2) {          /* into the region itself (CPU stores into device memory); the regions not there yet: through a buffer (two at most, then wait) */
+            if (!direct && ss->npend == 2) {                       /* Phase 14 R1 (E8): a VMM arena takes no CPU stores -- the two buffered chunks are DMA'd (the regions must exist) and the buffers reused */
+                double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
+                tw = mem_now();
+                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; mem_dev_copy_async(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
+                ss->t_issue += mem_now() - tw; tw = mem_now();
+                for (int bb = 0; bb < 2; bb++) if (ss->buf_dev[bb] >= 0) { mem_dev_copy_wait(ss->buf_dev[bb]); ss->buf_dev[bb] = -1; } ss->t_wait_dma += mem_now() - tw;
+                ss->npend = 0;
+            }
+            if (direct && (seed_pools_ready(ss) || ss->npend == 2)) {   /* into the region itself (CPU stores into device memory); the regions not there yet: through a buffer (two at most, then wait) */
                 double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
                 double ts = mem_now();
                 seed_spans(cur, per, S, N, r, lo, c0, c1, ss->pool[r] + 2 * per * (c0 - lo), 0, nt);
