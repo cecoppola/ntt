@@ -99,7 +99,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     nq = math.ceil(lg / dl10) + 2; dl = math.ceil((lg - 50.0) / dl10) + 1
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
     jl = (k + 1) // 2 if anchor else k - 1
-    take = min(2 * jl + 2, nq); t1a = take + (jl + 1) + 8
+    take = min(2 * jl + 2, nq); t1a = take + (jl + 2) + 8                      # r has j + 2 limbs (measured, job 21131)
     if tight: tcap = t1a
     hole1 = quarter_bytes(tcap); hole1 += hole1 // 64
     nq_s, k_s, tcap_s, jl_s = (nq + g - 1) // g, (k + g - 1) // g, (tcap + g - 1) // g, (jl + g - 1) // g
