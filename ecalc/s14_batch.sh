@@ -11,6 +11,8 @@
 # Every step is skipped when it cannot finish before the end time; the job is cancelled at the end.
 cd "$(dirname "$0")" || exit 1
 CUTOFF=${1:-0}; END=${2:-0}
+STEPS=${STEPS:-spill,4e10,accept}          # a subset: e.g. STEPS=accept (the second batch, 01:35 EDT)
+step() { [[ ",$STEPS," == *",$1,"* ]]; }
 OUT=results/S114_batch; mkdir -p $OUT
 REF4=${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_4e10.out}
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a $OUT/summary.txt; }
@@ -34,7 +36,7 @@ meminfo() { N "grep -E '^(MemAvailable|Cached|Dirty):' /proc/meminfo | tr -s ' '
 N "rm -rf /tmp/s14_*"
 
 # 1. the spill primitive
-if [ $(left) -gt 360 ]; then
+if step spill && [ $(left) -gt 360 ]; then
   log "t_spill: $(meminfo)"
   R 420 "./tests/t_spill /tmp 1 8 32" > $OUT/t_spill.log 2>&1; rc=$?
   log "t_spill rc $rc: $(grep -a 'VERIFY' $OUT/t_spill.log | tail -1)"
@@ -58,11 +60,11 @@ run4e10() {   # <tag> <env...>
   N "ls -la $f $f.top 2>/dev/null | head; rm -rf /tmp/s14_*"
   log "4e10 $tag: files removed: $(meminfo)"
 }
-[ $(left) -gt 480 ] && run4e10 odirect ECALC_ODIRECT=1
-[ $(left) -gt 480 ] && run4e10 buffered
+step 4e10 && [ $(left) -gt 480 ] && run4e10 odirect ECALC_ODIRECT=1
+step 4e10 && [ $(left) -gt 480 ] && run4e10 buffered
 
 # 4. the regression steps with the O_DIRECT paths
-if [ $(left) -gt 420 ]; then
+if step accept && [ $(left) -gt 420 ]; then
   log "mnaccept unit,e9,recheck with ECALC_ODIRECT=1 ($(left) s left)"
   ECALC_ODIRECT=1 timeout $(( $(left) - 30 )) ./mnaccept.sh $J --only unit,e9,recheck > $OUT/mnaccept.log 2>&1
   grep -a '^PASS\|^FAIL\|^==' $OUT/mnaccept.log | tee -a $OUT/summary.txt
