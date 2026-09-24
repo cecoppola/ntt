@@ -886,10 +886,15 @@ def node_big(D, dz, g=1):
     if (D, dz.key(), g) not in _BIG: node_phases(D, dz, g)
     return _BIG[(D, dz.key(), g)]
 
+DM_REST = 4.08                         # Phase 13d D2: dm's rest (the reciprocal's small steps, the shifts, adds, window, corrections) as
+                                       # DM_REST x (D / 4e10) seconds -- FITTED (fit13) on measured dm less the pipeline law's big products;
+                                       # None: CAL13_LAW['dm'] on the phase table's rest (whose extrapolation beyond 1e11 runs 2.5 x high)
 def cal13_apply(D, dz, g, bs, dm):
-    """Phase 13d D2: CAL13's smooth ratio on the rest of bs and dm (the phase table's part), the big products as the pipeline law has them"""
+    """Phase 13d D2: CAL13's smooth ratio on the rest of bs (the phase table's part) and dm's rest (DM_REST, linear in D), the big products
+    as the pipeline law has them"""
     bt, bd = node_big(D, dz, g)
-    return cal13(D, 'bs') * (bs - bt) + bt, cal13(D, 'dm') * (dm - bd) + bd
+    dm1 = (bd + DM_REST * D / 4e10) if DM_REST is not None else (cal13(D, 'dm') * (dm - bd) + bd)
+    return cal13(D, 'bs') * (bs - bt) + bt, dm1
 
 def node_phases(D, dz, g=1, exclude=None):
     """the per-node phases of one node at D digits per node under design dz: init, batch, top, recip, div, other (seconds) and
@@ -923,9 +928,9 @@ CAL13 = True
 # Phase 13d D2: the pipeline's per-product law.  S13's t_strategy medians are isolated products; in the pipeline (G's sweep logs, every
 # 'dist_db' line with its time: fit_pipe) a one-plane product takes PIPE_ONE x the law by form, and a piece of a grid adds GRID_ADD
 # seconds per 2^31 points (the piece's temporary and its shifted add into C).  FITTED on G13d's logs (see results/D213d.md).
-PIPE_ONE = {'C': 1.0, 'B': 1.0, 'B4': 1.0}
-GRID_ADD = {'C': 0.0, 'B': 0.0, 'B4': 0.0}
-GRID_NC = 0.0                          # s per piece of a grid per 2^31 limbs of the whole product (the size-1 grid's accumulation passes over C;
+PIPE_ONE = {'C': 1.221, 'B': 1.150, 'B4': 1.150}     # FITTED (fit_pipe on G13d's 11 sweep logs, 303 products / 1381 pieces >= 2^27 limbs)
+GRID_ADD = {'C': 0.0, 'B': 0.075, 'B4': 0.075}       # FITTED (s per 2^31 points of the piece)
+GRID_NC = 0.0793                          # s per piece of a grid per 2^31 limbs of the whole product (the size-1 grid's accumulation passes over C;
                                        # the mn tier normalises once per product, mn_grid: not applied there)
 K_BS = 23.5 / 25.2                     # MEASURED (M-run 13b, auto 2^31 at 4e10): K's kernels on (n 8) / off (n 3), bs
 K_DM = 22.5 / 22.9                     #   and dm; ASSUMED size-independent where a K-off run is used
@@ -933,8 +938,39 @@ K_INIT = 1.0
 CAL13_RUNS = [   # D, K on, total, init, bs, dm, n, use ('fit' | 'check'), source -- the 13c defaults (auto, 2^31, shift 1024, depth 2) or as noted
     dict(D=4e10, k=1, total=63.5, init=17.2, bs=23.7, dm=22.5, n=5, use='fit', src='RESULTS 80: five-run series C13c, s24-26 (63.5 +- 1.5 s)'),
     dict(D=7.64e10, k=1, total=137.9, init=19.5, bs=57.5, dm=60.8, n=1, use='fit', src='RESULTS 80: the share run, s24-30'),
-    dict(D=1.30e11, k=0, total=353.1, init=38.6, bs=148.6, dm=165.8, n=1, use='fit', src='P13b 2^31 edge (job 21069, s24-30): C at 2^31 = auto there (no piece fits B), K off, no chunking, depth 1'),
+    dict(D=1.30e11, k=0, total=353.1, init=38.6, bs=148.6, dm=165.8, n=1, use='check', strategy='C', node='s24-30',
+         src='P13b 2^31 edge (job 21069, s24-30): RNS_STRATEGY=C (not auto), K off, no chunking, depth 1 -- a shape check, not fitted'),
+    # G13d's sweep (a), job 21105, s24-16, main's defaults (auto, 2^31, shift 1024, depth 2, K's kernels): ~/g13d/a_*.log, every run VERIFY OK
+    dict(D=6.59e10, k=1, total=109.83, init=22.0, bs=45.3, dm=42.5, n=1, use='fit', src='G13d a_S3_lo_659e8 (s24-16)'),
+    dict(D=6.66e10, k=1, total=120.97, init=22.8, bs=46.0, dm=52.0, n=1, use='fit', src='G13d a_S3_hi_666e8 (s24-16)'),
+    dict(D=7.20e10, k=1, total=126.43, init=21.0, bs=50.8, dm=54.5, n=1, use='fit', src='G13d a_mid_720e8 (s24-16)'),
+    dict(D=7.77e10, k=1, total=150.50, init=24.4, bs=58.1, dm=67.9, n=1, use='fit', src='G13d a_S4_hi_777e8 (s24-16)'),
+    dict(D=8.56e10, k=1, total=172.55, init=22.6, bs=71.6, dm=77.7, n=1, use='fit', src='G13d a_S5_lo_856e8 (s24-16)'),
+    dict(D=8.61e10, k=1, total=178.92, init=22.3, bs=72.7, dm=83.8, n=1, use='fit', src='G13d a_S5_hi_861e8 (s24-16)'),
+    dict(D=9.24e10, k=1, total=189.83, init=24.0, bs=77.0, dm=88.7, n=1, use='fit', src='G13d a_S6_lo_924e8 (s24-16)'),
+    dict(D=9.31e10, k=1, total=191.70, init=20.7, bs=78.4, dm=92.5, n=1, use='fit', src='G13d a_S6_hi_931e8 (s24-16)'),
+    dict(D=1.156e11, k=1, total=307.85, init=31.4, bs=114.6, dm=161.7, n=1, use='fit', src='G13d a_S9_lo_1156e8 (s24-16)'),
+    dict(D=1.163e11, k=1, total=313.86, init=28.3, bs=114.4, dm=170.9, n=1, use='fit', src='G13d a_S9_hi_1163e8 (s24-16)'),
 ]
+NODE_F = {'s24-30': 70.73 / 67.89}      # MEASURED (P13b, the same 2^31 run at 4e10 on s24-30 and s24-16): s24-30 runs 4.2 % slower; used by
+                                       # calib13 only (the model predicts an s24-16 / s24-26 node)
+
+def calib13(verbose=True):
+    """Phase 13d D2: the recalibrated model against every measured one-node run of CAL13_RUNS (the gate: 3 % of the wall)"""
+    worst = 0.0
+    if verbose: print('%-10s | %7s %7s %6s | %6s %6s %6s | %s' % ('digits', 'wall', 'model', 'err', 'phases', 'model', 'err', 'source'))
+    for r in sorted(CAL13_RUNS, key=lambda r: r['D']):
+        d = Design(np=3, strategy=r.get('strategy', 'auto'), cap=1 << 31, chunk='shift' if r.get('strategy', 'auto') == 'auto' else 'off', depth=2 if r.get('strategy', 'auto') == 'auto' else 1)
+        x = run(TARGET, r['D'], 1, verbose=False, design=d)
+        nf = NODE_F.get(r.get('node') or next((k for k in NODE_F if k in r['src']), ''), 1.0)
+        kb, kd = (1.0, 1.0) if r['k'] else (1 / K_BS, 1 / K_DM)
+        ph = ((x['batch'] + x['top']) * kb + (x['recip'] + x['div']) * kd) * nf; w = x['init'] + ph + x['other']
+        e = w / r['total'] - 1; ep = ph / (r['bs'] + r['dm']) - 1
+        if r['use'] == 'fit': worst = max(worst, abs(e))
+        if verbose: print('%.4e | %7.1f %7.1f %+5.1f%% | %6.1f %6.1f %+5.1f%% | %s%s%s' % (r['D'], r['total'], w, 100 * e, r['bs'] + r['dm'], ph, 100 * ep, r['src'][:70],
+                          ' [node x %.3f]' % nf if nf != 1.0 else '', ' (check)' if r['use'] != 'fit' else ''))
+    if verbose: print('worst fitted-run wall error %.1f %%' % (100 * worst))
+    return worst
 _C13 = {}
 def _cal13_points():
     if 'pts' in _C13: return _C13['pts']
@@ -948,7 +984,7 @@ def _cal13_points():
     return pts
 
 CAL13_MODE = 'law'                     # 'law': the ratio a (D / 4e10)^b per group (CAL13_LAW, fitted by fit13 with PIPE_F); 'interp': between the runs
-CAL13_LAW = {'init': (1.0, 0.0), 'bs': (1.0, 0.0), 'dm': (1.0, 0.0)}
+CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.805, 0.067), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
 CAL13_RANGE = (4e10, 1.3e11)           # the law is held flat outside the measured range
 
 def cal13(D, key):
@@ -1031,20 +1067,22 @@ def fit13(runs=None, verbose=True, exclude=None):
         pts.append(dict(i=i, D=r['D'], n=r.get('n', 1), init=r['init'], bs=r['bs'] * kb, dm=r['dm'] * kd,
                         other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']), m=dict(init=p['init'], bs=p['batch'] + p['top'] - bt, dm=p['recip'] + p['div'] - bd),
                         big=dict(init=0.0, bs=bt, dm=bd)))
+    global DM_REST
     use = [q for q in pts if q['i'] != exclude]; law = {}
+    xs = [q['D'] / 4e10 for q in use]; DM_REST = sum(q['n'] * (q['dm'] - q['big']['dm']) * x for q, x in zip(use, xs)) / sum(q['n'] * x * x for q, x in zip(use, xs))
     for g in ('init', 'bs', 'dm'):
         xs = [math.log(q['D'] / 4e10) for q in use]; ys = [math.log(max(1e-3, q[g] - q['big'][g]) / q['m'][g]) for q in use]; ws = [q['n'] for q in use]
         c0, c1 = _lsq_line(xs, ys, ws); law[g] = (math.exp(c0), c1)
     rows = []; err = 0.0
     for q in pts:
         x = min(max(q['D'], CAL13_RANGE[0]), CAL13_RANGE[1]) / 4e10
-        w = sum(law[g][0] * x ** law[g][1] * q['m'][g] + q['big'][g] for g in ('init', 'bs', 'dm')) + q['other']
+        w = sum(law[g][0] * x ** law[g][1] * q['m'][g] + q['big'][g] for g in ('init', 'bs')) + q['big']['dm'] + DM_REST * q['D'] / 4e10 + q['other']
         meas = q['init'] + q['bs'] + q['dm'] + q['other']; e = (w - meas) / meas; rows.append((q, w, meas, e))
         if q['i'] != exclude: err += q['n'] * e * e
     CAL13_LAW.update(law); CAL13_MODE = 'law'; cal13_reset()
     if verbose:
-        print('fit13: law init %.3f (D/4e10)^%+.3f, bs %.3f ^%+.3f, dm %.3f ^%+.3f; rms %.2f %%' % (law['init'][0], law['init'][1], law['bs'][0], law['bs'][1],
-              law['dm'][0], law['dm'][1], 100 * math.sqrt(err / max(1, sum(q['n'] for q in use)))))
+        print('fit13: law init %.3f (D/4e10)^%+.3f, bs(rest) %.3f ^%+.3f; dm = the big products + %.2f s x D/4e10; rms %.2f %%' % (law['init'][0], law['init'][1], law['bs'][0], law['bs'][1],
+              DM_REST, 100 * math.sqrt(err / max(1, sum(q['n'] for q in use)))))
         for q, w, meas, e in rows:
             print('   %.4e  measured %6.1f  model %6.1f  %+5.1f %%%s   %s' % (q['D'], meas, w, 100 * e, ' (left out)' if q['i'] == exclude else '', runs[q['i']]['src']))
     return law, rows
@@ -1268,12 +1306,15 @@ def main():
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
     ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
+    ap.add_argument("--calib13", action="store_true", help="Phase 13d D2: the recalibrated model against the 13c one-node runs")
     ap.add_argument("--plan", type=float, nargs=4, metavar=("G", "FROM", "TO", "STEP"), help="Phase 13d D2: the piece counts in agent L's plan_sweep columns (total digits)")
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
     if a.calib:
         sys.exit(0 if calibrate(a.rule) else 1)
+    if a.calib13:
+        calib13(); return
     if a.plan:
         plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3]); return
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
