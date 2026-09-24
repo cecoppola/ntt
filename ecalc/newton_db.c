@@ -11,6 +11,7 @@
 #include "dbig.h"
 #include "rns_mul.h"
 #include "mem.h"
+#include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 static int nv = -1, anchor = 1, g_hold_q;                    /* g_hold_q (A1): the size-1 flow -- the reciprocal may keep Q's transforms for the division */
 static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); db_free(&g_mu); db_free(&g_t); db_free(&g_xq); }
@@ -36,6 +37,27 @@ static int maxidx_below(const dbig *a, size_t e) { dbig v = db_view(a, 0, e); v.
 /* (a << j) <= b, both with the same limb count (rare path: an explicit shift) */
 static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b) { dbig t; db_init(&t); db_shl_limbs(&t, a, j); int le = db_cmp(&t, b) <= 0; db_free(&t); return le; }
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed);
+/* Phase 13d L: the chain's next target and the sharded reciprocal's start, extracted unchanged from recip_db2 / recip_mn (the plan
+ * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
+ * after j is the smallest of them above j; NEWTON_ANCHOR=0: doubling */
+static void nv_init(void) { if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); } }
+size_t newton_chain_next(size_t j, size_t k)
+{
+    nv_init();
+    size_t jn = k;
+    if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
+    else jn = 2 * j < k ? 2 * j : k;
+    return jn;
+}
+/* recip_mn: the single-node part ends at the largest target <= split (NEWTON_MN_SPLIT, 2^16), or the seed's 2 */
+size_t newton_mn_chain_start(size_t k)
+{
+    nv_init();
+    size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
+    if (anchor) { while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2; if (kp > split) kp = 2; }
+    else { kp = 2; while (2 * kp <= split && 2 * kp < k) kp *= 2; if (kp > k) kp = k; }
+    return kp;
+}
 static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { recip_db2(mu, Qd, Q, k, 0); }
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed)
 {
@@ -50,9 +72,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
     db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap);
     seed_db(&r, Q, Qd, nq_seed, &j);
     while (j < k) {
-        size_t jn = k;
-        if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
-        else jn = 2 * j < k ? 2 * j : k;
+        size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
@@ -550,23 +570,26 @@ static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs, double
     return pieces * (t_loc + t_x) + t_re;
 }
 /* the level whose group [0, 2^L) the product should run on (0: the full group G); every node computes the same answer */
-static int x1_level(size_t na, size_t nb, mn_group *G, size_t reshard_limbs)
+/* Phase 13d L: the rule as a function of the group's size g and the machine's size (the plan printer asks it without groups);
+ * x1_level below is the run's call, for node groups that start at node 0 */
+int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs)
 {
     static int on = -1; static double bw, lat, fixed, share;
     if (on < 0) {
         on = getenv("NEWTON_MN_GROUPS") ? atoi(getenv("NEWTON_MN_GROUPS")) : 1;
         int tcp = getenv("MN_MODEL_TCP") ? atoi(getenv("MN_MODEL_TCP")) : 0;
-        bw = tcp ? 0.8 : 100.0; lat = tcp ? 0 : 2e-6; fixed = tcp ? 1e-3 : 0; share = tcp ? (double)mn_size() : 1.0;
+        bw = tcp ? 0.8 : 100.0; lat = tcp ? 0 : 2e-6; fixed = tcp ? 1e-3 : 0; share = tcp ? (double)size : 1.0;
         if (getenv("NEWTON_MN_BW")) bw = atof(getenv("NEWTON_MN_BW"));
         if (getenv("NEWTON_MN_LAT")) lat = atof(getenv("NEWTON_MN_LAT"));
         if (getenv("NEWTON_MN_FIXED")) fixed = atof(getenv("NEWTON_MN_FIXED"));
         if (getenv("NEWTON_MN_SHARE")) share = atof(getenv("NEWTON_MN_SHARE"));
     }
-    if (!on || G->g0 != 0 || G->g <= 2) return 0;
-    int best = 0; double bc = x1_cost(na, nb, G->g, reshard_limbs, bw, lat, fixed, share);
-    for (int L = 1; (1 << L) < G->g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs, bw, lat, fixed, share); if (c < bc) { bc = c; best = L; } }
+    if (!on || g <= 2) return 0;
+    int best = 0; double bc = x1_cost(na, nb, g, reshard_limbs, bw, lat, fixed, share);
+    for (int L = 1; (1 << L) < g; L++) { double c = x1_cost(na, nb, 1 << L, reshard_limbs, bw, lat, fixed, share); if (c < bc) { bc = c; best = L; } }
     return best;
 }
+static int x1_level(size_t na, size_t nb, mn_group *G, size_t reshard_limbs) { return G->g0 != 0 ? 0 : newton_mn_x1_level(na, nb, G->g, mn_size(), reshard_limbs); }
 static mn_group *x1_group(int level, mn_group *G) { return level ? mn_group_at(level) : G; }     /* (mn_group_at: this node's group at the level -- node 0's is [0, 2^L)) */
 static int x1_member(const mn_group *Gs) { return Gs->g0 == 0; }                                 /* this node is in [0, 2^L) */
 /* r (over a subgroup of `to`) re-sharded over `to`: the descriptor from node 0, then one exchange over `to` */
@@ -599,13 +622,11 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
 static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 {
     double t0 = mem_now();
-    if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
-    size_t nq = Q->n, split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16);
+    nv_init();
+    size_t nq = Q->n;
     int me = G->me, verbose = getenv("RNS_VERBOSE") != 0;
     /* the anchored chain from k: k, ceil(k/2), ...; the single-node part ends at the largest target <= split (or the seed's 2) */
-    size_t kp = k;
-    if (anchor) { while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2; if (kp > split) kp = 2; }
-    else { kp = 2; while (2 * kp <= split && 2 * kp < k) kp *= 2; if (kp > k) kp = k; }
+    size_t kp = newton_mn_chain_start(k);                              /* Phase 13d L: extracted (unchanged) */
     size_t T = 2 * kp + 2 < nq ? 2 * kp + 2 : nq;                     /* the top limbs of Q the single-node part reads */
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
@@ -622,9 +643,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     mdb qt, t, u, pw, d, corr, rs; memset(&qt, 0, sizeof qt); memset(&t, 0, sizeof t); memset(&u, 0, sizeof u); memset(&pw, 0, sizeof pw); memset(&d, 0, sizeof d); memset(&corr, 0, sizeof corr); memset(&rs, 0, sizeof rs);
     if (me == 0) printf("recip(mn): the single-node chain to %zu limbs (%.2f s), then the sharded steps to %zu over %d nodes\n", kp, t1 - t0, k, G->g);
     while (j < k) {
-        size_t jn = k;
-        if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
-        else jn = 2 * j < k ? 2 * j : k;
+        size_t jn = newton_chain_next(j, k);                           /* Phase 13d L: extracted (unchanged) */
         size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
         int Ln = x1_level(take, j + 1, G, 0); mn_group *Gn = x1_group(Ln, G);
         if (Gn != Gs) {                                                /* the group grows (never shrinks: the products only get longer) */
