@@ -1,0 +1,101 @@
+D2 (Phase 13d) -- the model's predicted steps, for agent G.   2026-09-23 20:15 EDT, mn_model.py @ main 566291d (unchanged)
+All numbers MODELLED (mn_model.run, Design(np=3, strategy='auto', cap=2^31, chunk='shift' 1024 MB, depth 2), K's kernels in
+the phase table via the 13c calibration). Pieces = the big products' pieces the model's port of split_grid (auto) forms:
+tree top (nq/2 x nq/2, x2 count), tree top-1 (nq/4 x nq/4, x4), the reciprocal's three largest doublings (Q_t r, r d each),
+the division's A_h mu (low cut) and X Q (high cut).  nq = D/18 limbs.
+
+=====================================================================================================================
+A. SIZE 1, the Phase 13c default (NO env needed: main's defaults = auto, ECALC_PLANE_CAP=2^31, MDB_SHIFT_CHUNK_MB=1024,
+   COMM_ALLTOALLV_DEPTH=2, NTT_B1R=3, NTT_PLAN=1).  5e10 .. 1.3e11 digits.
+=====================================================================================================================
+The model's calibration anchor: 7.64e10 measured 137.9 s (bs 57.5, dm 60.8, init 19.5); model now 133.2 (bs 57.5, dm 55.0,
+init 20.6) -- the whole miss is in dm (division + reciprocal), refit to follow (task 2).  Walls below are the UNREFITTED model:
+use them for the step POSITIONS and the size of the jump, not the absolute wall.
+
+MAJOR steps (the tree-top grid changes; every big product re-grids at once):   step between   wall below -> above   (jump)
+  S1  5.155e10   tree top 2->3 pieces, top-1 B(2^30)x2 -> C x1, recip top 4->5            5.15/5.16e10   83.2 -> 87.8   (+4.6 s)
+  S2  5.795e10   tree top 3->4, r d 3->4, A_h mu 17->18, X Q 7->9                          5.79/5.80e10   97.9 -> 102.9  (+5.0 s)
+  S3  6.625e10   recip Q_t r 6->8, A_h mu 21->24, X Q 9->11 (dm only)                       6.62/6.63e10  113.3 -> 119.1  (+5.8 s)
+  S4  7.735e10   tree top 4->6, top-1 1->2, recip 8->10 / 4->6 / 2->3, X Q 11->14           7.73/7.74e10  134.1 -> 149.4  (+15.3 s)  <-- the biggest;
+                 7.64e10 (the share run, 137.9 s measured) sits 1.2 % BELOW it
+  S5  8.585e10   Q_t r 10->12, A_h mu 34->37, X Q 14->16                                    8.58/8.59e10  163.8 -> 169.6  (+5.8 s)
+  S6  9.275e10   tree top 6->8, recip 12->14 / 6->8, A_h mu 41->44                          9.27/9.28e10  183.3 -> 193.3  (+10.0 s)
+  S7  1.0305e11  tree top 8->9, top-1 2->3, r d 8->9, recip's 2nd/3rd doublings regrid      1.030/1.031e11 219.0 -> 227.4 (+8.4 s)
+  S8  1.0545e11  Q_t r 15->18, A_h mu 50->53, X Q 20->23 (dm only)                          1.054/1.055e11 231.4 -> 238.8 (+7.4 s)
+  S9  1.1595e11  tree top 9->12, top-1 3->4, recip 18->20 / 9->12, A_h mu 62->64, X Q 22->26 1.159/1.160e11 274.6 -> 292.8 (+18.2 s)
+  S10 1.2485e11  Q_t r 21->24, A_h mu 69->72, X Q 27->30 (dm only)                          1.248/1.249e11 316.2 -> 323.7 (+7.5 s)
+minor (2.5-5 s): 8.185e10 (A_h mu 30->34, +3.4), 9.665e10 (A_h mu 44->46, X Q regrid, +5.0), 1.0125e11 (A_h mu 45->50, +4.2),
+  1.2065e11 (A_h mu 63->69, +5.0).
+NOT real steps (a model artefact, do not sweep): between the major steps the model's A_h mu / X Q piece counts saw-tooth by
+  +-1..4 pieces every ~0.07e10 (5.3e10-5.8e10, 7.3e10-7.7e10, 9.3e10-9.6e10, 1.13e11-1.15e11): which low-cut pieces are
+  skipped flips with nq mod the piece length.  Real, but small (+-2.5 s modelled), and the positions are fragile.
+
+Suggested sweep pairs (0.5-1 % either side of each major step), with the model's walls:
+   5.12e10  82.9  | 5.19e10  88.9      (S1)
+   5.76e10  97.7  | 5.83e10 103.2      (S2)
+   6.59e10 113.0  | 6.66e10 119.3      (S3)
+   7.70e10 133.0  | 7.77e10 149.7      (S4, the one that matters most; 7.64e10 is already measured)
+   9.24e10 182.9  | 9.31e10 192.9      (S6)
+  1.027e11 218.5  | 1.034e11 227.9     (S7)
+  1.156e11 272.8  | 1.163e11 293.7     (S9; device ~462 GB, init near the edge ramp)
+  1.245e11 315.6  | 1.252e11 324.3     (S10; device ~490 GB)
+  (S5 8.56/8.61e10 and S8 1.052/1.058e11 if time allows.)
+Device at init (modelled, mem_model): 5e10 268 GB, 7.7e10 343, 1e11 414, 1.16e11 463, 1.25e11 492, 1.3e11 507 GB.
+
+*** UPDATE 20:55 EDT (D2): two model fixes since (A_h in the division has dl + 1 limbs, not 2 dl + 1 -- the 1.42e11 log shows
+    7888888890 x 7888888891; the k-way tree level is Horner from the top child).  The MAJOR step POSITIONS above are unchanged
+    (S1 5.155, S2 5.795, S3 6.625, S4 7.735, S5 8.585, S6 9.275, S7 1.0305, S8 1.0545, S9 1.1595, S10 1.2485 e10/e11).  With the
+    13c recalibration (4e10 / 7.64e10 / 1.3e11 anchors) the modelled walls across S4 are 139.1 -> 155.4 s, across S6 188.2 -> 197.8,
+    S9 279.3 -> 296.4.  L's MN_PLAN_ONLY=<digits>:1 prints the C code's own size-1 pieces: use it for the saw-tooth sizes.
+
+*** UPDATE 21:05 EDT (D2): THE C CODE'S OWN SIZE-1 PLAN (L's MN_PLAN_ONLY=<D>:1, swept 5e10..1.3e11 at 1e8; the counts are
+    every product formed: leaf dist_db = the leaf's device-tier products, recip = the whole chain, div = A_h mu + X Q;
+    results/D2_13d_plan1_C.txt).  It CONFIRMS the model's major steps at the same 1e8 resolution:
+      5.155e10 (recip 66->73, div 14->22)   5.795e10 (recip 73->78, div 25->28; leaf +4/+2 at 5.845/5.865)
+      6.625e10 (recip 74->80, div 18->34)   7.735e10 (leaf 24->32, recip 73->92, div 26->40)  <-- S4, the biggest
+      9.275e10 (recip 92->101)  1.0305e11 (recip 101->115)  1.0545e11 (recip 103->116, div 40->70)
+      1.1595e11 (recip 121->133, div 79->86)  1.2485e11 (recip 119->138, div 54->97)
+    and shows steps DOWN the model does not have (auto's grid moves to B-form pieces; fewer pieces, maybe faster):
+      6.445e10 (recip 78->74, div 28->18)  7.375e10 (recip 79->73, div 38->26)  1.0435e11 (recip 115->103, div 69->40)
+      1.2275e11 (recip 134->119, div 88->54)
+    plus leaf-only changes at 8.165e10 (+18) / 8.215e10 (-12), 9.665e10 (div 38->61), 1.1625e11 (leaf -12), 1.1815e11 (+14).
+    The model's S5 (8.585e10) is only the division's saw-tooth in the C plan: drop it.  If time allows, one pair across a
+    step DOWN (7.35 | 7.40e10) tests whether fewer pieces there means a lower wall.
+
+=====================================================================================================================
+B. SIZE 4 on ONE node, reduced cap (G's mechanism test (c)), 1e9 .. 2e10 TOTAL digits
+=====================================================================================================================
+Env modelled:  DIST_LOGN_TEST=27  NEWTON_MN_GROUPS=0   (plus the defaults; SLURM_JOB_ID=$J ./mnrun.sh 4 ./ecalc <digits> ...)
+  - DIST_LOGN_TEST sets dist_logn_max(): the mn tier's cap is 2^(27 + log2 S) points over an S-node group (rns_dist.c
+    mn_logn_cap), so the tree's levels split where nc > 2^28 (S = 2) / 2^29 (S = 4).  NOTE ecalc.c: giving DIST_LOGN_TEST turns
+    the ECALC_PLANE_CAP default off (the old size rule, 3 2^30 planes below 5e10 digits, applies to the leaves), and it also
+    caps the leaves' own single-node products at 2^27 -- both are the same on both sides of each step, so the Delta wall at a
+    step is the mn tier's.
+  - NEWTON_MN_GROUPS=0 keeps every reciprocal product on the full group of 4 (the model's rule 'full'); the X1 group choice
+    (default on) would move early doublings to 2 nodes, changing the reciprocal's counts but not the tree's.
+  - POOL_LOG=29 is NOT useful: the mn cap is then 2^31 at S = 4 and the tree's first split is at 3.9e10 total (out of range).
+    DIST_LOGN_TEST=28: first tree step at 1.93e10 total (one step only in range).
+*** UPDATE 20:24 EDT (D2): the code gives every node the same number of TERMS (mn.c: [1 + N r/g, 1 + N (r+1)/g)), so the
+    nodes' digit shares differ: at size 4 near 1e10 total, nodes 0..3 hold 0.930 / 1.000 / 1.026 / 1.043 x the average.
+    The S = 2 level therefore splits at different sizes in its two groups.  Exact thresholds (modelled from lgamma):
+      DIST_LOGN_TEST=27:  S=2 top pair (nodes 2,3) splits 1x1 -> 2 pieces at T = 9.337e9
+                          S=4 (all four)            splits 1x1 -> 2x2 at    T = 9.664e9
+                          S=2 bottom pair (nodes 0,1) splits              at T = 1.0013e10
+      DIST_LOGN_TEST=28:  1.869e10 / 1.933e10 / 2.000e10 (same order)
+    THE CRISP TEST: run 9.2e9, 9.5e9, 9.8e9, 1.02e10 total with ECALC_VERBOSE=1 and read each node's "dist_mn node N: ...
+    ka x kb pieces" line at level 1: at 9.5e9 nodes 2,3 should show 2 pieces and nodes 0,1 one; at 9.8e9 the level-2
+    (S = 4) product split as well; at 1.02e10 all.  If instead every group splits together at 9.66e9, the shares are even
+    and the model's new 'terms' layout is wrong.  This mechanism is what moves the 576-node step (see results/D213d.md):
+    at 576 the top node holds 1.0358 x the average, so its leaf and its groups' levels reach the 2^31 step at 4.30e13,
+    not at the model's earlier 4.45e13 -- 4.4e13 would be ABOVE the step.
+    The table below is the earlier (even-share) scan; with term shares the S=2 level's (top group) steps come ~3.5 % earlier.
+Steps at DIST_LOGN_TEST=27 (pieces summed over the two tree levels' 2+2 products; recip / div = all pieces of the mn tier):
+  T1  9.664e9 total  (= 36 x 2^28: S=2 level nq x nq and S=4 level 2nq x 2nq both split 1x1 -> 1x2):
+        levels (2,2) -> (4,4), recip 27 -> 31, div 11 -> 14;    modelled (aac6 TCP fabric, rough) 70.2 -> 89.9 s   (+19.7)
+        sweep: 9.4e9 | 9.9e9
+  T2  1.2885e10 total: levels (4,4) -> (6,6), recip 32 -> 35;  modelled 112.6 -> 130.2 s (+17.6)      sweep: 1.26e10 | 1.31e10
+  T3  1.445e10 total: levels (6,6) -> (8,8), recip 36 -> 37;    modelled ~139 -> ~155 s (+16)          sweep: 1.43e10 | 1.47e10
+  T4  1.95e10 total: levels (8,8) -> (12,12), recip 39 -> 47
+  (the division's A_h mu saw-tooths between these by +-3 pieces, as at size 1: 1.35e10 / 1.375e10 / 1.42e10 flip 21 <-> 24)
+Walls at size 4 are the aac6 loopback fabric's fitted constants (+-10-20 %): compare Delta wall per step, and the per-level
+lines "dist_mn node 0: ... ka x kb pieces, N formed" (ECALC_VERBOSE=1) against the piece counts above.
