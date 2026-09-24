@@ -42,6 +42,12 @@ Suggested sweep pairs (0.5-1 % either side of each major step), with the model's
   (S5 8.56/8.61e10 and S8 1.052/1.058e11 if time allows.)
 Device at init (modelled, mem_model): 5e10 268 GB, 7.7e10 343, 1e11 414, 1.16e11 463, 1.25e11 492, 1.3e11 507 GB.
 
+*** UPDATE 20:55 EDT (D2): two model fixes since (A_h in the division has dl + 1 limbs, not 2 dl + 1 -- the 1.42e11 log shows
+    7888888890 x 7888888891; the k-way tree level is Horner from the top child).  The MAJOR step POSITIONS above are unchanged
+    (S1 5.155, S2 5.795, S3 6.625, S4 7.735, S5 8.585, S6 9.275, S7 1.0305, S8 1.0545, S9 1.1595, S10 1.2485 e10/e11).  With the
+    13c recalibration (4e10 / 7.64e10 / 1.3e11 anchors) the modelled walls across S4 are 139.1 -> 155.4 s, across S6 188.2 -> 197.8,
+    S9 279.3 -> 296.4.  L's MN_PLAN_ONLY=<digits>:1 prints the C code's own size-1 pieces: use it for the saw-tooth sizes.
+
 =====================================================================================================================
 B. SIZE 4 on ONE node, reduced cap (G's mechanism test (c)), 1e9 .. 2e10 TOTAL digits
 =====================================================================================================================
