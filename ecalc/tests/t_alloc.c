@@ -70,11 +70,11 @@ static int vmm_create_map(struct buf *b, size_t off, size_t len, int nd)   /* on
     hipMemGenericAllocationHandle_t h; double t0 = now();
     if (hipMemCreate(&h, len, &prop, 0) != hipSuccess) return 0;
     double t1 = now();
-    if (hipMemMap((char *)b->p + off, len, 0, h, 0) != hipSuccess) { hipMemRelease(h); return 0; }
+    if (hipMemMap((char *)b->p + off, len, 0, h, 0) != hipSuccess) { (void)hipMemRelease(h); return 0; }
     double t2 = now();
     hipMemAccessDesc ad[4]; memset(ad, 0, sizeof ad);
     for (int c = 0; c < nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
-    if (hipMemSetAccess((char *)b->p + off, len, ad, nd) != hipSuccess) { hipMemUnmap((char *)b->p + off, len); hipMemRelease(h); return 0; }
+    if (hipMemSetAccess((char *)b->p + off, len, ad, nd) != hipSuccess) { (void)hipMemUnmap((char *)b->p + off, len); (void)hipMemRelease(h); return 0; }
     double t3 = now();
     b->h = (hipMemGenericAllocationHandle_t *)realloc(b->h, (b->nh + 1) * sizeof *b->h); b->h[b->nh++] = h;
     b->t_create += t1 - t0; b->t_map += t2 - t1; b->t_access += t3 - t2;
