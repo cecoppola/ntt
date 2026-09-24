@@ -24,12 +24,12 @@ endif
 endif
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_strategy tests/t_cap tests/t_primes
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
 
-ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h
+ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(SHMEM_LIBS)
 
 ntt.o: ntt.c ntt.h modarith.h
@@ -41,13 +41,16 @@ ntt2.o: ntt2.c ntt2.h modarith2.h
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h
+rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h
+	$(HIPC) -c -o $@ $<
+# Phase 13d L: the plan printer (MN_PLAN_ONLY; ecalc.c calls it before rns_init)
+mn_plan.o: mn_plan.c mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
 	$(HIPC) -c -o $@ $<
 
 dbig.o: dbig.c dbig.h bigint.h mem.h
 	$(HIPC) -c -o $@ $<
 
-newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h
+newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_plan.h
 	$(HIPC) -c -o $@ $<
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
