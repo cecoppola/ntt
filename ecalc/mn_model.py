@@ -566,13 +566,51 @@ def _split_cap(na, nb, cap, r3, logmax):
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
 
+LEAF13 = True                          # Phase 13d D2: the leaf's mdev levels from the code's span tree (leaf_shapes), not nq/2 x nq/2 and nq/4 x nq/4
+BS_SEED_TERMS = 256
+BS_MDEV_LOGL = 30                      # RNS_BATCH_LOGL_MAX: a level whose 2 max + 1 limbs exceed 2^30 runs on the mdev tier (binsplit.c)
+
+def _lg10_f(a, b):
+    """log10 of P / Q over the terms [a, b) (mn_plan.c lg10_f: f = sum_{m=a}^{b-1} 1 / (a (a+1) ... m))"""
+    t = 1.0; f = 0.0
+    for m in range(a, min(b, a + 64)):
+        t /= m; f += t
+        if t < f * 1e-30: break
+    return math.log10(f)
+
+def _pq_limbs(a, b):
+    """(P limbs, Q limbs) over the terms [a, b): Q = a (a+1) ... (b-1)"""
+    lq = (math.lgamma(b) - math.lgamma(a)) / _L10 if b > a + 1 else (math.log10(a) if b == a + 1 else 0.0)
+    lim = lambda lg: 1 if lg < 0 else int(math.floor(lg / LIMB_DIGITS)) + 1
+    return lim(lq + _lg10_f(a, b)), lim(lq)
+
+@functools.lru_cache(maxsize=None)
+def leaf_shapes(D, a0=1, b1=None):
+    """binsplit.c's level loop over spans of BS_SEED_TERMS terms (agent L's mn_plan.c plan_leaf): node i of level l covers the spans
+    [i 2^l, (i+1) 2^l) (the last cut), pairs (2i, 2i+1) combined as P = P_a Q_b + P_b, Q = Q_a Q_b; the levels whose largest node
+    (the last two) has 2 max + 1 > 2^BS_MDEV_LOGL limbs are the mdev tier: every pair's two products, (phase 'top', ...)"""
+    if b1 is None: b1 = _terms(D) + 1
+    S = BS_SEED_TERMS; nspan = (b1 - a0 + S - 1) // S; n = nspan; out = []; l = 0
+    def rng(i, m):
+        s0 = i * m; s1 = min((i + 1) * m, nspan); return a0 + s0 * S, min(a0 + s1 * S, b1)
+    while n > 1:
+        npairs = n // 2; m = 1 << l
+        mx = max(max(_pq_limbs(*rng(i, m))) for i in range(max(0, n - 2), n))
+        if 2 * mx + 1 > (1 << BS_MDEV_LOGL):
+            for i in range(npairs):
+                ap, aq = _pq_limbs(*rng(2 * i, m)); bp, bq = _pq_limbs(*rng(2 * i + 1, m))
+                out += [('top', 'leaf level %d pair %d P' % (l + 1, i), ap, bq, 0, 1 << 62, 1), ('top', 'leaf level %d pair %d Q' % (l + 1, i), aq, bq, 0, 1 << 62, 1)]
+        n = npairs + (n & 1); l += 1
+    return tuple(out)
+
 def big_shapes(D, scope=('top', 'recip', 'div')):
     """t_cap's shapes at D digits (nq = D / 18 limbs): (phase, name, na, nb, lowcut, w, count)"""
     nq = int(D / 18); k = nq + 1; big = 1 << 62; out = []
     ex = exact_sizes(D) if EXACT13 else None                           # Phase 13d D2: the code's lengths (the cuts' skips turn on a few limbs)
     if ex: nq = ex['nq']; k = ex['pn'] + 1 + ex['dl'] - nq + 1          # the reciprocal's k_mu (newton_db.c)
     if 'top' in scope:
-        out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
+        if ex and LEAF13: out += leaf_shapes(D)                         # Phase 13d D2: the leaf's device (mdev) levels as binsplit.c forms them
+        else: out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
     if 'recip' in scope:
         for j in ((k + 1) // 2, (k + 3) // 4, (k + 7) // 8):
             take = min(2 * j + 2, nq)
@@ -590,20 +628,58 @@ EXTRA_MAP = {'B': 11.47 / 154.6, 'B4': 4.50 / 90.2}   # s/GB: the B forms' extra
 AUTO_FORM = 'B'                        # rns_dist.c: RNS_STRATEGY_FORM, default B (agent B: B4 is 3-7 % slower than B and fits the same planes)
 AUTO_GRID = True                       # RNS_STRATEGY_GRID=1 (the default under auto): the grid weighs B pieces x 0.70, C x 1, 3 2^k x 1.05
 
+def _b_len(nc):
+    """rns_dist.c b_len: the B form's transform length -- 2^k, or 3 2^(k-2) where it holds nc (the three-prime set has 3 2^k roots)"""
+    k = 20
+    while (1 << k) < nc: k += 1
+    if k > 20 and (3 << (k - 2)) >= nc: return 3 << (k - 2), True
+    return 1 << k, False
+
+@functools.lru_cache(maxsize=None)
+def _b_fits(nc, pl, r3, np):
+    """rns_dist.c b_fits: the B form's planes at b_len(nc) fit the pools as sized at init (b_place, first fit)"""
+    return not any(mem_model.b_extra_limbs(AUTO_FORM, _b_len(nc)[0], pl, r3, np))
+
 @functools.lru_cache(maxsize=None)
 def _split_auto(na, nb, cap, r3, logmax, np):
-    """rns_dist.c split_grid under auto (agent B, 744df439): the grid of the least weighted points, a piece that fits the B form
-    in the pools weighing 0.70 per point, a C piece 1, a 3 2^k length x 1.05; then the fewest pieces"""
+    """rns_dist.c split_grid under auto (RNS_STRATEGY_GRID=1): a piece that fits the B form weighs its B length (b_len: 2^k or
+    3 2^(k-2)) x 1.05 if 3 2^k x 0.70, one that does not its C plane x 1.05 if 3 2^k; the least cost (within 0.1 %), then the
+    fewest pieces (Phase 13d D2: the B pieces' length was the C plane's, so the 3 2^k B pieces at the 2^31 cap were missed)"""
     best = None
     for i in range(1, 33):
         for j in range(1, 33):
             pa, pb = -(-na // i), -(-nb // j)
             if pa + pb > cap: continue
-            pts = _plane_pts_cap(pa + pb, r3, logmax)
-            w = (0.70 if not any(mem_model.b_extra_limbs(AUTO_FORM, pts, logmax, r3, np)) else 1.0) * (1.05 if pts & (pts - 1) else 1.0)
-            cost = i * j * pts * w
-            if best is None or cost < best[0] - 1e-6 or (abs(cost - best[0]) <= 1e-6 and i * j < best[1] * best[2]): best = (cost, i, j)
+            if _b_fits(pa + pb, logmax, r3, np):
+                n, t3 = _b_len(pa + pb); cost = i * j * n * (1.05 if t3 else 1.0) * 0.70
+            else:
+                pts = _plane_pts_cap(pa + pb, r3, logmax); cost = i * j * pts * (1.05 if pts & (pts - 1) else 1.0)
+            if best is None or cost < best[0] * 0.999 or (cost <= best[0] * 1.001 and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
+
+@functools.lru_cache(maxsize=None)
+def product_pieces(na, nb, lowcut, w, strategy, cap, np):
+    """rns_dist.c mul_grid's pieces of one single-node product: ((ka, kb), [(form, points), ...] of the formed pieces)"""
+    pl, r3 = mem_model.cap_pool(cap); logmax = pl
+    nc = na + nb; one = nc <= cap; auto = strategy == 'auto' and AUTO_GRID
+    if one and (nc > (1 << logmax) or (auto and not _b_fits(nc, pl, r3, np))):   # rns_dist.c mul_grid (Phase 13d D2: as the code)
+        ka, kb = _split_auto(na, nb, cap, r3, logmax, np) if auto else _split_cap(na, nb, cap, r3, logmax); one = ka * kb == 1
+    elif one: ka = kb = 1
+    else: ka, kb = _split_auto(na, nb, cap, r3, logmax, np) if auto else _split_cap(na, nb, cap, r3, logmax)
+    pa, pb = -(-na // ka), -(-nb // kb); out = []
+    for jb in range(kb):
+        for ia in range(ka):
+            oa, ob = ia * pa, jb * pb
+            if oa >= na or ob >= nb: continue
+            la, lb = min(pa, na - oa), min(pb, nb - ob)
+            if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+            n_ = nc if one else la + lb
+            p = _plane_pts_cap(n_, r3, logmax); st = strategy
+            if strategy == 'auto':                                      # rns_dist.c b_choose: the form if its planes (at b_len) fit the pools
+                if _b_fits(n_, pl, r3, np): st = AUTO_FORM; p = _b_len(n_)[0]
+                else: st = 'C'
+            out.append((st, p))
+    return (ka, kb), tuple(out)
 
 @functools.lru_cache(maxsize=None)
 def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
@@ -611,34 +687,26 @@ def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
     'auto' (rns_dist.c b_choose): the B form (RNS_STRATEGY_FORM, default B) for a piece whose planes fit the pools as sized at
     init (whole planes, first fit: b_place), else C; auto never allocates.  Its grid (RNS_STRATEGY_GRID=1) prefers pieces that
     fit B (_split_auto): at the 3 2^30 cap the pieces become 2^31 (which fits the 18 + 18 GiB pools) and every product runs B"""
-    pl, r3 = mem_model.cap_pool(cap); logmax = pl
+    pl, r3 = mem_model.cap_pool(cap)
     out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
     for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
-        nc = na + nb; one = nc <= cap
-        if one and r3 and nc > (1 << logmax):
-            ka, kb = _split_cap(na, nb, cap, True, logmax); one = ka * kb == 1
-        if strategy == 'auto' and AUTO_GRID and not (one and not any(mem_model.b_extra_limbs(AUTO_FORM, _plane_pts_cap(nc, r3, logmax), pl, r3, np))):
-            ka, kb = _split_auto(na, nb, cap, r3, logmax, np); one = ka * kb == 1
-        elif one: ka = kb = 1
-        else: ka, kb = _split_cap(na, nb, cap, r3, logmax)
-        pa, pb = -(-na // ka), -(-nb // kb); t = 0.0
-        for jb in range(kb):
-            for ia in range(ka):
-                oa, ob = ia * pa, jb * pb
-                if oa >= na or ob >= nb: continue
-                la, lb = min(pa, na - oa), min(pb, nb - ob)
-                if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
-                p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
-                st = strategy
-                if strategy == 'auto':                                  # rns_dist.c b_choose: the form if its planes fit the pools
-                    st = AUTO_FORM if not any(mem_model.b_extra_limbs(AUTO_FORM, p, pl, r3, np)) else 'C'
-                tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
+        t = 0.0
+        for st, p in product_pieces(na, nb, lowcut, w, strategy, cap, np)[1]:
+            tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
     k = cap_factor(cap, np) if pl <= 30 else 1.0
     if (strategy, cap) in STRAT_FIT and np == 3: k *= strat_factor(strategy, cap)
     for ph in ('top', 'recip', 'div'): out[ph] *= k
     return out
+
+def pieces1(D, strategy='auto', cap=1 << 31, np=3):
+    """Phase 13d D2: size 1's piece counts in L's MN_PLAN_ONLY=<D>:1 categories for the big shapes: leaf (the mdev levels), div, and
+    the reciprocal's top three doublings"""
+    c = {'top': 0, 'recip': 0, 'div': 0}
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D):
+        c[ph] += count * len(product_pieces(na, nb, lowcut, w, strategy, cap, np)[1])
+    return c
 
 # the M-run (Phase 13b, ~/mrun on aac6, results/mrun_13b.log): 4e10 at size 1, three primes, NTT_MODMUL=1, agent K's kernels on, s24-26
 K_FACTOR = 62.91 / 65.38               # MEASURED: auto at 2^31 with NTT_B1R=3 NTT_PLAN=1 (n 8) against without (n 3)
