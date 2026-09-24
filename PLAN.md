@@ -1716,7 +1716,7 @@ wall is per-node compute), then verification and documents, then code reduction.
 `docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
 Phase A.
 
-### 33.Phase A — blockers for the target run (do first)
+### 33.1 Phase A — blockers for the target run (do first)
 
 | # | item | why first | evidence | size |
 |---|---|---|---|---|
@@ -1726,7 +1726,7 @@ Phase A.
 | A4 | **`t_mn_grid` on real nodes** (SOS, 2 and 3 nodes, small size) and **`mnrun.sh`'s SHMEM detection** under wrappers (`stdbuf`, `timeout`, `numactl`) | the any-size map is the target's path; only loopback-verified | S13d open 2, 5 | small |
 | A5 | **The dist tier's operand load: 10 × slower per call on s24-16 than on s24-30** (0.89 against 0.094 s) — find whether it is the node or the memory state | if it is memory state, it is a large speedup available everywhere, and a hazard at scale (it made a 1.42 × 10¹¹ run 2 × slower) | G13d (b), P13b | ½ session |
 
-### 33.Phase B — per-node speed and memory (in payoff order at the target's share, 133 s = init 25 + tree 53 + dm 56)
+### 33.2 Phase B — per-node speed and memory (in payoff order at the target's share, 133 s = init 25 + tree 53 + dm 56)
 
 | # | item | expected | evidence |
 |---|---|---|---|
@@ -1741,7 +1741,7 @@ Phase A.
 Recorded and not recommended: 2.5 (seeds in host memory: `hipMemcpy` drops to 21 GB/s), 2.6 (pairwise combine: ~0
 for the default schedule), 6.8 (truncated FFT). Closed by measurement: 6.7 / H2 (no MALL cliff), H6, H7.
 
-### 33.Phase C — the model, verification, documents
+### 33.3 Phase C — the model, verification, documents
 
 | # | item | evidence |
 |---|---|---|
@@ -1750,7 +1750,7 @@ for the default schedule), 6.8 (truncated FFT). Closed by measurement: 6.7 / H2 
 | C3 | **The papers** (`~/xetex/digits_as_limbs.tex`, `digit_cost.tex`): three primes, the design table, the target 4.25 × 10¹³, the term-share steps, `MN_PLAN_ONLY`, SHMEM on real nodes; 4.3 (four inferred cells of the complexity ladder: three short runs at tagged commits) | RESULTS §78–§82 |
 | C4 | **Documents in step**: TARGET.md §6 item 2 (depth 2 now measured: 74 % at 2 real nodes, 73–78 % at 3), TASKS §3 rows closed by Phase 13 (3.4 superseded, 3.5 measured), the README switch table against the source | — |
 
-### 33.Phase D — code reduction (PLAN §28, last)
+### 33.4 Phase D — code reduction (PLAN §28, last)
 
 | # | item |
 |---|---|
@@ -1758,13 +1758,13 @@ for the default schedule), 6.8 (truncated FFT). Closed by measurement: 6.7 / H2 
 | D2 | the Phase 13 switches the defaults superseded, **the user's decision per switch**: forced `B`, `B4`, `ECALC_PLANE_CAP=off`, `COMM_ALLTOALLV_DEPTH=1`, `NTT_MODMUL=0/2`, `NTT_MALL`, `NTT_B16_VAR`, the non-temporal pack, `DIST_TWREC`, `DIST_TPACK`, `NTT_B1R=0/4`, `NTT_PLAN=0` |
 | D3 | the regression and a five-run series after each step (the reduction must not move a digit or a second) |
 
-### 33.Decisions for the user
+### 33.5 Decisions for the user
 
 1. The GMP baseline at 4 × 10¹⁰ (TASKS 4.4): state that it does not fit (recommended) or spend ≈ 6 h proving it.
 2. D2: which superseded switches to delete.
 3. H1: whether to ask the administrator for a CPX-mode node.
 
-### 33.Suggested sessions
+### 33.6 Suggested sessions
 
 1. **A1 + A2 + A3 + A4** (the hang soak and fix, the pool, the clean exit, `t_mn_grid`): one multi-agent session; A1
    and A2 need nodes, A3 and A4 are small.
