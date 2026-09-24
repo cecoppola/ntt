@@ -229,6 +229,11 @@ void spill_fini(void)
 {
     for (int d = 0; d < DB_NQ; d++) { pthread_mutex_lock(&g_bmx[d]); for (int i = 0; i < 2; i++) { mem_hstage_free(g_bounce[d][i]); g_bounce[d][i] = 0; } pthread_mutex_unlock(&g_bmx[d]); }
 }
+void spill_prealloc(void)
+{
+    int nd = mem_device_count(); if (nd > DB_NQ || nd < 1) nd = DB_NQ;
+    for (int d = 0; d < nd; d++) { void *b[2]; pthread_mutex_lock(&g_bmx[d]); bounce_get(d, b); pthread_mutex_unlock(&g_bmx[d]); }
+}
 
 struct spill {
     dbig x; int flags, owned;                          /* x: the descriptor (a copy; with SPILL_FREE the only one) */

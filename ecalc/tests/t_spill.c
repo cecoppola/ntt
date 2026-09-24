@@ -157,8 +157,9 @@ static void t_size(const char *dir, double G)
 int main(int argc, char **argv)
 {
     harness_meta("t_spill"); bi_env_base(); rns_init(24);
+    double tp = now(); spill_prealloc(); tp = now() - tp;
     const char *dir = argc > 1 ? argv[1] : getenv("ECALC_SPILL_DIR") ? getenv("ECALC_SPILL_DIR") : "/tmp";
-    printf("t_spill: dir %s, bounce %s MB x 2 per APU\n", dir, getenv("SPILL_CHUNK_MB") ? getenv("SPILL_CHUNK_MB") : "256");
+    printf("t_spill: dir %s, bounce %s MB x 2 per APU (allocated and pinned in %.2f s)\n", dir, getenv("SPILL_CHUNK_MB") ? getenv("SPILL_CHUNK_MB") : "256", tp);
     t_file(dir);
     if (argc <= 2) t_size(dir, 1);
     for (int i = 2; i < argc; i++) t_size(dir, atof(argv[i]));
