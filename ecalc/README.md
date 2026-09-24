@@ -266,6 +266,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `NEWTON_DEVICE` | the reciprocal and division on device-resident numbers; the bs regions donated to the block pool, the staging released (1) |
 | `NEWTON_ANCHOR` | the doubling sequence anchored at the target precision; 0 = powers of two (1) |
 | `NEWTON_LOWPROD` | the low product X Q as the grid with the pieces above the window skipped; 0 = the full product truncated (1) |
+| `NEWTON_RECIP_CUT` | *Phase 14 R1 (E7, results/R114.md)*: the reciprocal's two products (Q_t r, read as t1 >> (take − j); r d, read as t1 >> j) as the grid with the pieces wholly below the read band skipped (`rns_mul_high_db`), at size 1 and over shares; the band is then off by at most one unit (in practice identical), an error of the kind the step's own floor makes, healed by the next doubling and absorbed by the division's corrections; the pieces skipped are printed per doubling; digits unchanged (0) |
+| `NEWTON_RECIP_GUARD` | with `NEWTON_RECIP_CUT`: limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) |
 | `NEWTON_MN_SPLIT` | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) |
 | `NEWTON_MN_GROUPS` | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) |
 | `NEWTON_MN_BW`, `NEWTON_MN_LAT`, `NEWTON_MN_FIXED`, `NEWTON_MN_SHARE` | that model's constants: GB/s per APU, seconds per message, seconds per exchange, the APU sharing (100, 2 µs, 0, auto) |
