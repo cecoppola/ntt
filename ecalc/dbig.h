@@ -30,6 +30,7 @@ int db_pool_extents(int dev);                        /* number of free extents (
 size_t db_pool_largest_free(int dev);                /* Phase 10 B4 (agent M): the largest free extent (what one block can get without a hipMalloc) */
 size_t db_pool_hipmalloc_bytes(int dev);             /* Phase 10 B4: bytes the pool mapped itself (fallback + pregrow), for the phase deltas */
 void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh);   /* Phase 11 M (decision 5): the last `bytes` of a donated region are the reserved tail: requests >= thresh are carved from its back, smaller ones avoid it while anything else fits */
+void db_pool_pack_large(int on);                       /* Phase 14 L1 (DM_TIGHT): requests >= the tail's thresh carved from the back of the highest-ending free extent that fits (the big blocks stack at the top) */
 void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh);   /* Phase 14 L1 (E5): the tail becomes the last `bytes` of the largest free extent (all of it when it is smaller; a line under DB_POOL_VERBOSE) */
 size_t db_pool_tail_bytes(int dev);
 size_t db_pool_tail_stats(int dev, size_t *spills);  /* requests served from the tail's back; spills = small requests that had to enter the tail */
