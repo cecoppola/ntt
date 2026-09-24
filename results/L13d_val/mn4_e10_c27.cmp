@@ -1,0 +1,36 @@
+  # plan product                       | run: A x B, grid, formed/skipped             | plan: A x B, grid, formed/skipped            | verdict
+  0 tree   level 1 [0, 2) combine 1 of | 129199173 x 138888890 g2 c28 1x1 1/0         | 129199173 x 138888890 g2 c28 1x1 1/0         | agrees; sizes +0 +0
+  1 tree   level 1 [0, 2) combine 1 of | 129199173 x 138888890 g2 c28 1x1 1/0         | 129199173 x 138888890 g2 c28 1x1 1/0         | agrees; sizes +0 +0
+  2 tree   level 2 [0, 4) combine 1 of | 268088063 x 287467497 g4 c29 1x2 2/0         | 268088063 x 287467497 g4 c29 1x2 2/0         | agrees; sizes +0 +0
+  3 tree   level 2 [0, 4) combine 1 of | 268088063 x 287467497 g4 c29 1x2 2/0         | 268088063 x 287467497 g4 c29 1x2 2/0         | agrees; sizes +0 +0
+  4 recip  j 33909 -> 67817 Q_t r      | 67820 x 33910 g2 c28 1x1 1/0                 | 67820 x 33910 g2 c28 1x1 1/0                 | agrees; sizes +0 +0
+  5 recip  j 33909 -> 67817 r d        | 33910 x 33909 g2 c28 1x1 1/0                 | 33910 x 33909 g2 c28 1x1 1/0                 | agrees; sizes +0 +0
+  6 recip  j 67817 -> 135634 Q_t r     | 135636 x 67818 g2 c28 1x1 1/0                | 135636 x 67818 g2 c28 1x1 1/0                | agrees; sizes +0 +0
+  7 recip  j 67817 -> 135634 r d       | 67818 x 67817 g2 c28 1x1 1/0                 | 67818 x 67817 g2 c28 1x1 1/0                 | agrees; sizes +0 +0
+  8 recip  j 135634 -> 271268 Q_t r    | 271270 x 135635 g2 c28 1x1 1/0               | 271270 x 135635 g2 c28 1x1 1/0               | agrees; sizes +0 +0
+  9 recip  j 135634 -> 271268 r d      | 135635 x 135634 g2 c28 1x1 1/0               | 135635 x 135634 g2 c28 1x1 1/0               | agrees; sizes +0 +0
+ 10 recip  j 271268 -> 542535 Q_t r    | 542538 x 271269 g2 c28 1x1 1/0               | 542538 x 271269 g2 c28 1x1 1/0               | agrees; sizes +0 +0
+ 11 recip  j 271268 -> 542535 r d      | 271269 x 271268 g2 c28 1x1 1/0               | 271269 x 271268 g2 c28 1x1 1/0               | agrees; sizes +0 +0
+ 12 recip  j 542535 -> 1085070 Q_t r   | 1085072 x 542536 g4 c29 1x1 1/0              | 1085072 x 542536 g4 c29 1x1 1/0              | agrees; sizes +0 +0
+ 13 recip  j 542535 -> 1085070 r d     | 542536 x 542535 g4 c29 1x1 1/0               | 542536 x 542535 g4 c29 1x1 1/0               | agrees; sizes +0 +0
+ 14 recip  j 1085070 -> 2170139 Q_t r  | 2170142 x 1085071 g4 c29 1x1 1/0             | 2170142 x 1085071 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 15 recip  j 1085070 -> 2170139 r d    | 1085071 x 1085070 g4 c29 1x1 1/0             | 1085071 x 1085070 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 16 recip  j 2170139 -> 4340278 Q_t r  | 4340280 x 2170140 g4 c29 1x1 1/0             | 4340280 x 2170140 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 17 recip  j 2170139 -> 4340278 r d    | 2170140 x 2170139 g4 c29 1x1 1/0             | 2170140 x 2170139 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 18 recip  j 4340278 -> 8680556 Q_t r  | 8680558 x 4340279 g4 c29 1x1 1/0             | 8680558 x 4340279 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 19 recip  j 4340278 -> 8680556 r d    | 4340279 x 4340278 g4 c29 1x1 1/0             | 4340279 x 4340278 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 20 recip  j 8680556 -> 17361112 Q_t r | 17361114 x 8680557 g4 c29 1x1 1/0            | 17361114 x 8680557 g4 c29 1x1 1/0            | agrees; sizes +0 +0
+ 21 recip  j 8680556 -> 17361112 r d   | 8680557 x 8680556 g4 c29 1x1 1/0             | 8680557 x 8680556 g4 c29 1x1 1/0             | agrees; sizes +0 +0
+ 22 recip  j 17361112 -> 34722223 Q_t  | 34722226 x 17361113 g4 c29 1x1 1/0           | 34722226 x 17361113 g4 c29 1x1 1/0           | agrees; sizes +0 +0
+ 23 recip  j 17361112 -> 34722223 r d  | 17361113 x 17361112 g4 c29 1x1 1/0           | 17361113 x 17361112 g4 c29 1x1 1/0           | agrees; sizes +0 +0
+ 24 recip  j 34722223 -> 69444445 Q_t  | 69444448 x 34722224 g4 c29 1x1 1/0           | 69444448 x 34722224 g4 c29 1x1 1/0           | agrees; sizes +0 +0
+ 25 recip  j 34722223 -> 69444445 r d  | 34722224 x 34722223 g4 c29 1x1 1/0           | 34722224 x 34722223 g4 c29 1x1 1/0           | agrees; sizes +0 +0
+ 26 recip  j 69444445 -> 138888890 Q_t | 138888892 x 69444446 g4 c29 1x1 1/0          | 138888892 x 69444446 g4 c29 1x1 1/0          | agrees; sizes +0 +0
+ 27 recip  j 69444445 -> 138888890 r d | 69444446 x 69444445 g4 c29 1x1 1/0           | 69444446 x 69444445 g4 c29 1x1 1/0           | agrees; sizes +0 +0
+ 28 recip  j 138888890 -> 277777779 Q_ | 277777782 x 138888891 g4 c29 1x1 1/0         | 277777782 x 138888891 g4 c29 1x1 1/0         | agrees; sizes +0 +0
+ 29 recip  j 138888890 -> 277777779 r  | 138888891 x 138888890 g4 c29 1x1 1/0         | 138888891 x 138888890 g4 c29 1x1 1/0         | agrees; sizes +0 +0
+ 30 recip  j 277777779 -> 555555558 Q_ | 555555560 x 277777780 g4 c29 3x1 3/0         | 555555560 x 277777780 g4 c29 3x1 3/0         | agrees; sizes +0 +0
+ 31 recip  j 277777779 -> 555555558 r  | 277777780 x 277777779 g4 c29 1x2 2/0         | 277777780 x 277777779 g4 c29 1x2 2/0         | agrees; sizes +0 +0
+ 32 div    A_h mu                      | 555555557 x 555555558 g4 c29 2x3 5/1         | 555555557 x 555555558 g4 c29 2x3 5/1         | agrees; sizes +0 +0
+ 33 div    X Q mod B^w                 | 555555557 x 555555560 g4 c29 2x3 5/1         | 555555557 x 555555560 g4 c29 2x3 5/1         | agrees; sizes +0 +0
+compare: 34 run products, 34 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
