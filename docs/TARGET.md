@@ -170,7 +170,7 @@ One process per node, four APUs per process (the process drives its APUs with fo
 
 ```
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
-export COMM_SHMEM_POOL_MB=8192                # the `pool` column of estimate.py for the transport's form (§3, trap 11)
+export COMM_SHMEM_POOL_MB=8192                # TOO SMALL at scale: 8479 MiB was in use at 10^10 on 2 aac6 nodes (Phase 13d S) -- size it by TARGET_TASKS.md T0 before any large run
 export SHMEM_SYMMETRIC_HEAP_SIZE=8704M XT_SYMMETRIC_HEAP_SIZE=8704M    # the pool + 512 MiB
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
