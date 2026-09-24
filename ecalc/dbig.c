@@ -42,7 +42,8 @@ static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; sta
 static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
 static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
 static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
-static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
+static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
+static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
 {
@@ -132,6 +133,17 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
+/* Phase 14 S1 (E1, E12): the pool's live bytes on a device now (read without the lock by the sampler thread: a size_t, one
+ * value may be a moment old), and the peak since the last reset (reset = 1 restarts the window at the current value) */
+size_t db_pool_live(int dev) { return dev >= 0 && dev < DB_NQ ? __atomic_load_n(&g_live_bytes[dev], __ATOMIC_RELAXED) : 0; }
+size_t db_pool_window_peak(int dev, int reset)
+{
+    if (dev < 0 || dev >= DB_NQ) return 0;
+    pthread_mutex_lock(&g_pool_mx);
+    size_t p = g_win_peak[dev]; if (reset) g_win_peak[dev] = g_live_bytes[dev];
+    pthread_mutex_unlock(&g_pool_mx);
+    return p;
+}
 /* M3: per-APU scratch from the block pool (the multi-node product's packed slabs and the layered comm's transposes) */
 uint64_t *db_pool_alloc(int dev, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8; return q_alloc(dev, (bytes + al - 1) / al * al); }
 void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
@@ -191,7 +203,7 @@ void db_release_pools(void)
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
-    memset(g_live_bytes, 0, sizeof g_live_bytes); memset(g_tail, 0, sizeof g_tail);   /* Phase 11 M: the reserved tails go with their regions */
+    memset(g_live_bytes, 0, sizeof g_live_bytes); memset(g_win_peak, 0, sizeof g_win_peak); memset(g_tail, 0, sizeof g_tail);   /* Phase 11 M: the reserved tails go with their regions */
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
