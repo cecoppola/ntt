@@ -100,17 +100,20 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
     jl = (k + 1) // 2 if anchor else k - 1
     take = min(2 * jl + 2, nq); t1a = take + (jl + 2) + 8                      # r has j + 2 limbs (measured, job 21131)
-    if tight: tcap = t1a
-    hole1 = quarter_bytes(tcap); hole1 += hole1 // 64
-    nq_s, k_s, tcap_s, jl_s = (nq + g - 1) // g, (k + g - 1) // g, (tcap + g - 1) // g, (jl + g - 1) // g
-    hole = quarter_bytes(tcap_s); hole += hole // 64
-    if g == 1: hole = hole1
+    nq_s, k_s, jl_s = (nq + g - 1) // g, (k + g - 1) // g, (jl + g - 1) // g
+    if tight:                                                                  # third form: the hole = t's block (2k + 8), holding r + t1 in the reciprocal
+        tcap = 2 * k + 8; hole = max(quarter_bytes(-(-(2 * k + 8) // g)), quarter_bytes(-(-t1a // g)) + quarter_bytes(jl_s + 4))
+    else:
+        hole = quarter_bytes(-(-tcap // g)) if g > 1 else quarter_bytes(tcap)
+    hole += hole // 64
     piece = min((1 << pool_log) + 8, nq_s + k_s + 16)
     qp = quarter_bytes(nq_s + nq_s // 10 + 8)
     if not tight: v2 = 2 * qp + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
-    else: v2 = 2 * qp + quarter_bytes(jl_s + 4) + quarter_bytes(2 * jl_s + 4) + hole + quarter_bytes(piece)
+    else: v2 = 2 * qp + quarter_bytes(2 * jl_s + 4) + hole + quarter_bytes(piece)
     if tail_dead >= 2: v2 -= qp
-    div = 2 * qp + quarter_bytes(piece) + max(quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8), quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8))
+    hi = 2 * qp + quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8)
+    lo = (qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + k_s + 8)) if tight else (2 * qp + quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8))
+    div = quarter_bytes(piece) + max(hi, lo)
     v2 = max(v2, div)
     v2 += min(v2 // 8, 1 << 30)
     inn = quarter_bytes(nq_s // 2 + nq_s // 20 + 8); out = qp
