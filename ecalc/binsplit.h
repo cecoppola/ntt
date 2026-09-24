@@ -54,6 +54,11 @@ int    bs_ckpt_bg_release(bs_ckpt_bg *b, int part);
 int    bs_ckpt_bg_done(bs_ckpt_bg *b, int part);
 size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *t_write, double *t_wait);   /* t_write: the writer's seconds; t_wait: the owner's (both releases and the join) */
 
+/* Phase 14 L1 (APUMULT_STUDY E2 / E5): DM_TIGHT (the reciprocal's scratch reserved per doubling, the top levels' pairs freed as consumed),
+ * DM_TAIL_DEAD (1: no hole reserved beside the top level, the tail re-laid over its dead inputs; 2: + the layout without P in the
+ * reciprocal, which needs the P spill: dm_p_spill_wired = 1 once it is there).  Read once by dm_switches(); -1 before */
+extern int dm_tight, dm_tail_dead, dm_p_spill_wired;
+void dm_switches(void);
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);

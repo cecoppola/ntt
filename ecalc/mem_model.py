@@ -88,22 +88,36 @@ def arena_of(base, want):
     """binsplit.c arena_get: the two parities (base) + the extra up to the dm / tree need, rounded up to 2 MiB"""
     ex = max(0, want - base); return base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
 
-def dm_layout(N, g, pool_log=31, decimal=True):
-    """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes)"""
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True):
+    """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
+    Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
+    jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
+    E5 layout that needs the spill); the division's own set (S, Q, mu + t or X + xq, a piece) is a term of v2 in every variant (it never
+    binds in the default one).  Returns v2 / v3 / div per device beside the need."""
     lg = math.lgamma(N + 1.0) / LN10
     dl10 = 18.0 if decimal else 64.0 / math.log2(10.0)
     nq = math.ceil(lg / dl10) + 2; dl = math.ceil((lg - 50.0) / dl10) + 1
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
+    jl = (k + 1) // 2 if anchor else k - 1
+    take = min(2 * jl + 2, nq); t1a = take + (jl + 1) + 8
+    if tight: tcap = t1a
     hole1 = quarter_bytes(tcap); hole1 += hole1 // 64
-    nq_s, k_s, tcap_s = (nq + g - 1) // g, (k + g - 1) // g, (tcap + g - 1) // g
+    nq_s, k_s, tcap_s, jl_s = (nq + g - 1) // g, (k + g - 1) // g, (tcap + g - 1) // g, (jl + g - 1) // g
     hole = quarter_bytes(tcap_s); hole += hole // 64
     if g == 1: hole = hole1
     piece = min((1 << pool_log) + 8, nq_s + k_s + 16)
-    need = 2 * quarter_bytes(nq_s + nq_s // 10 + 8) + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
-    need += min(need // 8, 1 << 30)
-    top = 4 * quarter_bytes(nq_s // 2 + nq_s // 20 + 8) + 2 * quarter_bytes(nq_s + nq_s // 10 + 8); top += top // 8 + hole   # v3: the top bs levels beside the tail
-    need_v2 = need; need = max(need, top)
-    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=need_v2, t1_quarter=quarter_bytes(tcap))
+    qp = quarter_bytes(nq_s + nq_s // 10 + 8)
+    if not tight: v2 = 2 * qp + 2 * quarter_bytes(k_s + 4) + hole + quarter_bytes(piece)
+    else: v2 = 2 * qp + quarter_bytes(jl_s + 4) + quarter_bytes(2 * jl_s + 4) + hole + quarter_bytes(piece)
+    if tail_dead >= 2: v2 -= qp
+    div = 2 * qp + quarter_bytes(piece) + max(quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8), quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8))
+    v2 = max(v2, div)
+    v2 += min(v2 // 8, 1 << 30)
+    inn = quarter_bytes(nq_s // 2 + nq_s // 20 + 8); out = qp
+    top = 4 * inn + 2 * out if not tight else max(4 * inn + out, 2 * inn + 2 * out)
+    top += top // 8 + (0 if tail_dead else hole)                                      # v3: the top bs levels beside the tail
+    need = max(v2, top)
+    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap))
 
 def mn_groups(g, spec=None):
     """rns_dist.c mn_groups_parse: the group size per tree level from MN_GROUPS (a list, or the string), default the
@@ -408,14 +422,14 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tight=False, tail_dead=0); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 13b D: np (ECALC_NP: pool 0 scales np/4), strategy (C | B | B4 | auto: B's 16 n planes), cap (the plane cap in points:
     # sets pool_log and the 3 2^k planes, cap_pool), depth (2 = the uneven exchange two deep: one more v-slot pair per APU on the
     # general-map levels), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
     if o['cap'] is not None: o['pool_log'], o['planes_3q30'] = cap_pool(o['cap'])
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'])
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'])
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
@@ -539,20 +553,49 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=0):
         if not line.startswith('layout:'): continue
         v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
         D, g, N = v['D'], int(v['g']), int(v['N'])
-        L = dm_layout(N, g, pool_log); sc = []
+        tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
+        L = dm_layout(N, g, pool_log, True, tight, tdead); sc = []
         tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb) if g > 1 else 0
         need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
         bs = arena_bs_bytes(N, (N + g - 1) // g); ar = sum(arena_of(b, want) for b in bs)
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
-        print('D %.3g g %d (N %d):' % (D, g, N))
+        if 'v2' in v: rows[3:3] = [('v2 / dev', v['v2'], L['v2']), ('v3 / dev', v['v3'], L['v3']), ('division / dev', v['div'], L['div']), ('jl (limbs)', v['jl'], L['jl'])]
+        print('D %.3g g %d (N %d) tight %d tail_dead %d:' % (D, g, N, tight, tdead))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0
             print('   %-18s C %16.0f  model %16.0f  %+.4f %%' % (name, c, py, 100 * rel))
             if name == 'arena / node': worst = max(worst, abs(rel))
-    print('largest arena difference: %.4f %%' % (100 * worst))
+            if py != c: nbad = globals().setdefault('_c_layout_bad', 0) + 1; globals()['_c_layout_bad'] = nbad
+    print('largest arena difference: %.4f %%; %d term(s) not exact' % (100 * worst, globals().get('_c_layout_bad', 0)))
     return worst
+
+# ---------------------------------------------------------------- Phase 14 L1: the modelled savings of DM_TIGHT / DM_TAIL_DEAD
+VARIANTS = [('V0 (defaults)', dict()), ('DM_TIGHT=1 (E2)', dict(tight=True)), ('DM_TAIL_DEAD=1', dict(tail_dead=1)),
+            ('DM_TIGHT=1 DM_TAIL_DEAD=1', dict(tight=True, tail_dead=1)), ('DM_TIGHT=1 DM_TAIL_DEAD=2 (E5 layout, needs the spill)', dict(tight=True, tail_dead=2))]
+TARGET576 = dict(transport='shmem', staging='resident', shift_chunk_mb=1024, depth=2)   # the target's switches (RESULTS 82: 452 GB at 7.38e10 per node)
+
+def savings():
+    print('== Phase 14 L1: node peak (GB, modelled) per variant; size 1 at 2^31, three primes, the host fitted; 576 = the target share with %s' % TARGET576)
+    sizes = [(1e10, 1), (4e10, 1), (1e11, 1), (1.3e11, 1), (1.68e11, 1), (7.38e10, 576)]
+    print('%-52s |' % 'variant' + ''.join(' %9s' % ('%.3gx%d' % (D, g) if g > 1 else '%.3g' % D) for D, g in sizes))
+    base = None
+    for name, o in VARIANTS:
+        row = []
+        for D, g in sizes:
+            oo = dict(o); oo.update(TARGET576 if g > 1 else {})
+            r = mem_per_node(int(D), g, oo); row.append((r['node_peak'], r['arena'], r['dm_need'], r['tree_need']))
+        if base is None: base = row
+        print('%-52s |' % name + ''.join(' %9.1f' % (p[0] / GB) for p in row))
+        print('%-52s |' % '   arena (dm need; tree)' + ''.join(' %9s' % ('%.0f(%.0f;%.0f)' % (p[1] / GB, p[2] / GB, p[3] / GB)) for p in row))
+        print('%-52s |' % '   saving vs V0' + ''.join(' %9.1f' % ((p[0] - b[0]) / GB) for p, b in zip(row, base)))
+    print()
+    print('== ceilings: one node (the largest D whose node peak fits 502 / 524 GB) and the 576 share (480 / 502 GB per node), per variant')
+    for name, o in VARIANTS:
+        c1 = [max_digits_per_node(nb * GB, 1, o) for nb in (502, 524)]
+        oo = dict(o); oo.update(TARGET576); c5 = [max_digits_per_node(nb * GB, 576, oo) for nb in (480, 502)]
+        print('  %-52s one node %.3e / %.3e; 576: %.3e / %.3e per node = %.3e / %.3e digits' % (name, c1[0], c1[1], c5[0], c5[1], 576 * c5[0], 576 * c5[1]))
 
 CONFIGS = [  # the one ceiling per configuration (TASKS 1.1): name, g, opts
     ('size 1 (one node, the defaults)', 1, dict()),
@@ -579,5 +622,7 @@ if __name__ == '__main__':
         c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 0)
     elif len(sys.argv) > 1 and sys.argv[1] == '--ceiling':
         ceilings()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--savings':
+        savings()
     else:
         main()
