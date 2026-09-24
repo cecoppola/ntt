@@ -93,9 +93,25 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
     size_t ov = (size_t)((b < tb ? b : tb) - (a > ta ? a : ta));
     return e->bytes - ov;
 }
+/* Phase 14 L1 (DM_TIGHT): large requests packed downward from the highest free end -- carved from the back of the highest-ending extent
+ * that holds them -- so the big blocks of the top level and the reciprocal (P, Q, t1, r2) stack at the arena's top and the free space
+ * below them stays one extent.  With the tail rule alone the top level's P takes the tail's back, nothing ends at the tail's end any
+ * more, and the reciprocal's r2 (1.0 n_Q) was best-fit into the middle: at 4e10 it found 10.8 GB free in 3 extents, largest 4.39 (job
+ * 21131).  Small requests keep the best fit from the front, outside the tail. */
+static int g_pack_large;
+void db_pool_pack_large(int on) { g_pack_large = on; }
 static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front (the reserved tail as above) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, best = -1;
+    if (g_pack_large && g_tail[d].bytes && need >= g_tail[d].thresh) {
+        for (int i = 0; i < n; i++) if (e[i].bytes >= need && (best < 0 || e[i].p + e[i].bytes > e[best].p + e[best].bytes)) best = i;
+        if (best >= 0) {
+            char *p = e[best].p + e[best].bytes - need; *reg = e[best].reg; e[best].bytes -= need; if (p + need == g_tail[d].end) g_tail[d].n_tail++;
+            if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
+            return p;
+        }
+        best = -1;
+    }
     if (g_tail[d].bytes && need >= g_tail[d].thresh) {       /* a large request: from the back of the extent ending at the tail's end */
         for (int i = 0; i < n; i++) if (e[i].p + e[i].bytes == g_tail[d].end && e[i].bytes >= need) {
             char *p = e[i].p + e[i].bytes - need; *reg = e[i].reg; e[i].bytes -= need; g_tail[d].n_tail++;
