@@ -26,6 +26,7 @@
 #include "dbig.h"
 #include "mn.h"
 #include "mn_out.h"
+#include "mn_plan.h"                                 /* Phase 13d L: MN_PLAN_ONLY */
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -263,9 +264,19 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 }
 int main(int argc, char **argv)
 {
-    if (argc < 2) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
-    unsigned long d_out = strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
-    const char *outfile = argc > 2 ? argv[2] : 0;
+    /* Phase 13d L (PLAN 32): MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
+     * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
+     * below are set (the plane-cap switch, the pools' sizes), before rns_init.  The digits (4.4e13 or 44000000000000) replace
+     * argv[1], which may be omitted; COMM_SIZE is set to g for the switch's `fit` (nothing else reads it before the exit) */
+    const char *plan = getenv("MN_PLAN_ONLY"); int plan_g = 1; unsigned long plan_d = 0;
+    if (plan && *plan) {
+        char *e; double dd = strtod(plan, &e); plan_d = (unsigned long)llround(dd); plan_g = *e == ':' ? atoi(e + 1) : 1;
+        if (dd < 1 || plan_g < 1 || (*e && *e != ':')) { fprintf(stderr, "MN_PLAN_ONLY=%s: <total digits>:<node-processes>, e.g. 4.4e13:576\n", plan); return 2; }
+        char gb[16]; snprintf(gb, sizeof gb, "%d", plan_g); setenv("COMM_SIZE", gb, 1); setenv("COMM_RANK", "0", 1);
+    } else plan = 0;
+    if (argc < 2 && !plan) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
+    unsigned long d_out = plan ? plan_d : strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
+    const char *outfile = argc > 2 && !plan ? argv[2] : 0;
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     if (getenv("NTT_B16_STG")) ntt_stg = atoi(getenv("NTT_B16_STG"));
@@ -296,6 +307,7 @@ int main(int argc, char **argv)
       rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); fflush(stdout); _exit(f); }   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
