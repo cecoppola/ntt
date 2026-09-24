@@ -187,8 +187,8 @@ static int place_node(size_t i, size_t n, const size_t *offr, int ra, int rb)
 /* copy limbs out of (or into) region r's pool with the threads of r's node (a lone memcpy from device memory runs at a few GB/s) */
 static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
 {
+    if (mem_dev_of(src) >= 0 || mem_dev_of(dst) >= 0) { mem_dev_copy(dst, src, limbs * 8); return; }   /* (first: a VMM arena takes no CPU access, Phase 14 R1 E8) */
     if (limbs < ((size_t)1 << 20)) { memcpy(dst, src, limbs * 8); return; }
-    if (mem_dev_of(src) >= 0 || mem_dev_of(dst) >= 0) { mem_dev_copy(dst, src, limbs * 8); return; }
 #pragma omp parallel
     {
         int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
@@ -1233,7 +1233,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         for (int r = 0; r < NR; r++) stage[r] = (uint64_t *)malloc((2 * per * (r0[r + 1] - r0[r]) + 2) * 8);
         seeds_compute(&cur, per, S, N, r0, stage);
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
-        for (int r = 0; r < NR; r++) { size_t limbs = 2 * per * (r0[r + 1] - r0[r]); memcpy(cur.pool[r], stage[r], limbs * 8); free(stage[r]); }
+        for (int r = 0; r < NR; r++) { size_t limbs = 2 * per * (r0[r + 1] - r0[r]); region_copy(cur.pool[r], stage[r], limbs, r); free(stage[r]); }   /* Phase 14 R1 (E8): by DMA when the pool is a VMM range (region_copy decides) */
     }
     bs_st.t_seed = mem_now() - t;
     if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s%s\n", N, nspan, S, bs_st.t_seed, g_pre.N == N && !own_stage ? " (waiting for the init thread)" : "");
