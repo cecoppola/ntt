@@ -83,7 +83,9 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
      * blocks never move and the free space beside them stays one extent.  The per-doubling free-and-reserve form left r in the middle of
      * the free space and r2 without a contiguous fit at the last doubling (jobs 21131, 21132: a 4.44 GB hipMalloc with 8-11 GB free) */
     size_t jl = j; if (tight) { while (newton_chain_next(jl, k) < k) jl = newton_chain_next(jl, k);
-        size_t tk = 2 * jl + 2 < nq ? 2 * jl + 2 : nq; db_reserve(&t1, tk + (jl + 2) + 8); db_reserve(&r2, 2 * jl + 4); db_reserve(&r, jl + 4); }
+        size_t tk = 2 * jl + 2 < nq ? 2 * jl + 2 : nq; db_reserve(&t1, tk + (jl + 2) + 8);   /* t1: the tail's back */
+        db_pool_pin_tail(1); db_reserve(&r, jl + 4); db_pool_pin_tail(0);                    /* r: right below it -- the tail is full (job 21154: 7 small blocks had spilled into its front and t found it 0.11 GB short) */
+        db_reserve(&r2, 2 * jl + 4); }                                                        /* r2: outside, just below Q (the highest free end); mu takes it */
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
