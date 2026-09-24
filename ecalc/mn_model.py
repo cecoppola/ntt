@@ -340,12 +340,57 @@ SCHEDULES = {                       # the three schedules for 576 (MN_GROUPS val
     "3x3": "2,4,8,16,32,64,192,576",                   # ... then two 3-way levels
 }
 
-def tree_cost(fab, nq_node, g, groups=None, form="grid"):
+# Phase 13d D2: the code gives every node the same number of TERMS (mn.c: node r computes [1 + N r / g, 1 + N (r+1) / g)),
+# not the same number of digits: a node's Q has sum log10 k over its terms, so the top node's share is ~3.6 % above the
+# average at 576 nodes (4.4e13: 1.0358; node 0's 0.772).  Every tree level waits for its slowest group -- the top one -- and
+# the wall for the slowest leaf -- the top node's.  SHARES = 'terms' costs the top group and the top node's leaf (the code);
+# 'even' = every node D digits (the model before 13d, which put the 576-node tree step 3.6 % too late).
+SHARES = 'terms'
+_L10 = math.log(10.0)
+def _lf(n): return math.lgamma(n + 1.0) / _L10                          # log10 n!
+
+@functools.lru_cache(maxsize=None)
+def _terms(T): return mem_model.e_terms(mem_model.digits_of_run(int(T)))
+
+def range_limbs(T, g, r0, r1):
+    """limbs of Q (P is the same length to a few limbs) over the nodes [r0, r1) of a g-node run of T total digits"""
+    N = _terms(T)
+    return (_lf(N * r1 // g) - _lf(N * r0 // g)) / LIMB_DIGITS
+
+def top_factor(T, g):
+    """the top node's digits over the average (1 at g = 1 or SHARES = 'even')"""
+    if g <= 1 or SHARES != 'terms': return 1.0
+    N = _terms(T)
+    return range_limbs(T, g, g - 1, g) / (_lf(N) / LIMB_DIGITS / g)
+
+def level_top_group(g, groups=None):
+    """per level (S, [child limbs fractions]): the top group [start, g) of the level and its children (the previous level's
+    groups inside it), as node ranges"""
+    out = []; P = 1
+    for S in mem_model.mn_groups(g, groups):
+        start = ((g - 1) // S) * S; end = min(start + S, g); ch = []; k = start
+        while k < end: ch.append((k, min(k + P, end))); k += P
+        out.append((S, end - start, ch)); P = S
+    return out
+
+def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None):
     """level by level (mem_model.level_children: the level's group of S nodes and its children m_1 .. m_k, the
     previous level's groups): a k-way level is the fold the tree runs (results/L.md; tree_level for k = 2):
     (P, Q) <- (P Q_i + P_i, Q Q_i) for i = 2 .. k -- 2 (k - 1) products over the level's S nodes, the accumulated
-    operand growing from m_1 to S - m_k leaf shares, the P product with the shifted add (X)."""
+    operand growing from m_1 to S - m_k leaf shares, the P product with the shifted add (X).
+    Phase 13d D2: SHARES = 'terms' (T, the total digits, given): the operands are the top group's children's real lengths"""
     rows = []
+    if SHARES == 'terms' and T is not None:
+        for S, Sg, ch in level_top_group(g, groups):
+            c = Cost(); acc = int(range_limbs(T, g, ch[0][0], ch[0][1]))
+            for (r0, r1) in ch[1:]:
+                m = int(range_limbs(T, g, r0, r1))
+                c.add(product_cost(fab, acc, m, Sg, with_x=True, form=form))
+                c.add(product_cost(fab, acc, m, Sg, form=form))
+                acc += m
+            c.add(small_cost(fab, Sg, 2))
+            rows.append((len(ch), Sg, c))
+        return rows
     for S, ch in mem_model.level_children(g, groups):
         c = Cost(); acc = ch[0]
         for m in ch[1:]:
@@ -782,10 +827,11 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         ph = dict(init=init_override if init_override is not None else phase("init", D),
                   batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale, other=0.0)
     else:
-        npf = node_phases(D, design, g)
+        ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
+        npf = node_phases(D * ftop, design, g)
         ph = dict(init=init_override if init_override is not None else npf["init"], batch=npf["batch"] * leaf_scale, top=npf["top"] * leaf_scale,
                   other=npf["other"])
-    levels = tree_cost(fab, nq, g, groups, form) if g > 1 else []
+    levels = tree_cost(fab, nq, g, groups, form, T=None if design is None or design.legacy else D * g) if g > 1 else []
     if g > 1:
         rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
     elif design is None or design.legacy:
