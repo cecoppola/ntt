@@ -78,7 +78,7 @@ def main():
     ap.add_argument("--taper", type=float, default=1.0)
     ap.add_argument("--write-bw", type=float, default=2.0, help="GB/s per node for the part file (assumed)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
-    ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.4e13 (the Phase 13c target), the proposed 4.25e13, and the step")
+    ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.25e13 (the target since Phase 13d; 4.4e13 was the Phase 13c target), the proposed 4.25e13, and the step")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP (Phase 13b step 0: 3)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
@@ -97,7 +97,7 @@ def main():
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
     if a.target:
         print("the standing estimate, 576 nodes (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message):" % (a.bw, a.lat * 1e6))
-        for T, what in ((4.25e13, "proposed target, 1.2 % below the step"), (4.29e13, "the last size below the step"), (4.30e13, "the step's first size"), (4.4e13, "the Phase 13c target")):
+        for T, what in ((4.25e13, "the target since Phase 13d, 1.2 % below the step"), (4.29e13, "the last size below the step"), (4.30e13, "the step's first size"), (4.4e13, "the Phase 13c target, past two steps")):
             e = estimate(576, T / 576, a.tree, a.groups, fab, a.rule, staging=a.staging, design=design)
             p = M.plan(576, T, design)
             print("  %.3e digits (%s): %.1f s = %.2f min; pieces tree_max %d + recip %d + div %d = %d; node %.0f GB (device %.0f + host %.0f)%s" % (
