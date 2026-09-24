@@ -3566,3 +3566,30 @@ The top node's share, 7.64 × 10¹⁰ digits, is the size run on one aac6 node i
 **576-node estimate (standing rule): 4.25 × 10¹³ digits in ≈ 3.9 minutes, 452 GB per node.** Modelled on measured
 per-node inputs, with the fabric assumed (100 GB/s per APU, 2 µs per message). The SHMEM pool at the target is still to
 be sized (`docs/TARGET_TASKS.md` T0).
+
+## 83. Phase 14 (so far) — the apumult optimizations (2026-09-24; results/{L114,S114,R114}.md, docs/APUMULT_STUDY.md)
+
+PLAN §34's order: every apumult item of `docs/APUMULT_STUDY.md` first. All new behavior sits behind switches that are
+off by default; the digits are identical wherever checked. The regression passes **21/21** on the merged tree, with the
+switches at their defaults: 4bc48ee (jobs 21149, 21148) and 5dbab07 (jobs 21215, 21216). The usage windows ran out
+far earlier than planned: W1 after ≈ 55 minutes with three agents. Work resumed on 2026-09-24 at 08:30 and 17:06.
+
+| item | switch | measured | verdict |
+|---|---|---|---|
+| E7 the reciprocal's products cut to the band read (R1) | `NEWTON_RECIP_CUT=1` | 10¹¹ same node: reciprocal 44.6 / 44.9 → **40.8 s (−8.5 %)**, corrections unchanged, VERIFY OK; 4 × 10¹⁰ identical; nothing to cut below ≈ 8 × 10¹⁰ | safe, small, free; exactness argument in R114 §1 |
+| E3 O_DIRECT for large files (S1) | `ECALC_ODIRECT=1` | 4 × 10¹⁰ with its 40 GB output: **82 s against 154 s** start to finish, identical | a clear win for any run that writes its digits |
+| E4 spill primitive, E1 live column, E12 sampler (S1) | `ECALC_SPILL_DIR`, `ECALC_LIVE`, `ECALC_MEM_SAMPLE` | spill round trip identical at 1, 8, 32 GiB | tools; the spills themselves (E5, E6) are worth ≤ 4–9 GB after E2 (L114 §3.3), not pursued |
+| E2 tight reservation (L1) | `DM_TIGHT=1` | arena 132.3 → 114.5 GB at 4 × 10¹⁰, **310.3 → 259.9 GB at 10¹¹** (model = init to 0.01 GB); but one block kept failing to find contiguous room (6 placement forms), 1.4 × 10¹¹ failed | needs E8's pool |
+| E8 a HIP-VMM block pool (R1) | `DB_POOL_VMM=1` | t_alloc: VMM costs what hipMalloc does, transforms 1.00 ×; the pool re-maps free chunks contiguously on demand. With `DM_TIGHT=1`: **0 in-phase allocations** at 4 × 10¹⁰ and 10¹¹; **1.4 × 10¹¹ at cap 2³¹ VERIFY OK in 485 s, 466.6 GB**, beyond the 1.30 × 10¹¹ ceiling at that cap | works; +15 s at 10¹¹ (init mapping and the seeds' DMA path; the dm phase identical), being reduced |
+| E9 Karatsuba over the device grid | — | modelled: −15…−23 % of dm but +68–89 GB | rejected |
+| E10 the 576 tree-level spill | — | modelled: replaced by a no-disk early free (E10a, ≈ 5.18 × 10¹³ at 576 with the tight layout) | E10a in progress |
+
+The document's premise figures for our code were stale (APUMULT_STUDY §5); the one-node gap to apumult's
+2.35 × 10¹¹ was ≈ 1.6–1.8 ×, and E2 + E8 close ≈ 40 % of it so far (1.30 → ≥ 1.40 × 10¹¹ measured at cap 2³¹; the
+model puts the new ceiling at 1.55–1.65 × 10¹¹).
+
+**For the user to decide** (once the overhead work lands): `NEWTON_RECIP_CUT=1`, `ECALC_ODIRECT=1`, and
+`DM_TIGHT=1` + `DB_POOL_VMM=1` as defaults.
+
+**576-node estimate, unchanged**: 4.25 × 10¹³ digits in ≈ 3.9 min, 452 GB per node (modelled). With `DM_TIGHT` the node
+peak at the target would fall to ≈ 428 GB (modelled, L114 §3).
