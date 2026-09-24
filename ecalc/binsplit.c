@@ -489,6 +489,7 @@ void binsplit_pregrow(unsigned long N)
         }
         if (bs_verbose && tail_on) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
                                           dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "");
+        if (dml.tight) db_pool_pack_large(1);                  /* Phase 14 L1 (DM_TIGHT): the large blocks packed at the arena's top (dbig.c ext_take) */
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
         if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
