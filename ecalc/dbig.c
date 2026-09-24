@@ -100,6 +100,8 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
  * 21131).  Small requests keep the best fit from the front, outside the tail. */
 static int g_pack_large;                              /* 1: bs (the top level's P, Q stay below the tail: t1 finds it whole); 2: the dm phase (the tail first, then the highest end) */
 void db_pool_pack_large(int on) { g_pack_large = on; }
+static int g_pin_tail;                                /* Phase 14 L1: while set, every request is carved from the back of the tail's free part (r right below t1: the tail is then full, nothing small can spill into it, and it is whole again once both are freed) */
+void db_pool_pin_tail(int on) { g_pin_tail = on; }
 static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p + need) out of extent i (front, back or middle: the remainder above becomes a new extent) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n; char *a = e[i].p, *b = e[i].p + e[i].bytes; int reg = e[i].reg;
@@ -111,6 +113,12 @@ static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p +
 static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front (the reserved tail as above) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, best = -1;
+    if (g_pin_tail && g_tail[d].bytes) {                  /* into the tail's free part, from its highest end (right below what is already there) */
+        char *ta = g_tail[d].p, *tb = g_tail[d].end, *bp = 0;
+        for (int i = 0; i < n; i++) { char *a = e[i].p, *b = e[i].p + e[i].bytes; if (b > tb) b = tb; if (a < ta) a = ta; if (b > a && (size_t)(b - a) >= need && (best < 0 || b > bp)) { best = i; bp = b; } }
+        if (best >= 0) { *reg = e[best].reg; return carve_at(d, best, bp - need, need); }
+        best = -1;
+    }
     if (g_pack_large && g_tail[d].bytes && need >= g_tail[d].thresh) {
         char *ta = g_tail[d].p, *tb = g_tail[d].end;
         if (g_pack_large >= 2) for (int i = 0; i < n; i++) if (e[i].p + e[i].bytes == tb && e[i].bytes >= need) { *reg = e[i].reg; return carve_at(d, i, e[i].p + e[i].bytes - need, need); }   /* the dm phase: the tail's back first */
