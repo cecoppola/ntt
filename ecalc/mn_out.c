@@ -11,6 +11,7 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
+#include "spill.h"                                    /* Phase 14 S1 (E3): ECALC_ODIRECT */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 
 /* ---- small collectives on host vectors, through comm_allgather (device buffers on APU 0) ---- */
@@ -158,10 +159,35 @@ struct wjob { const char *data; size_t len; size_t off; int prefix, newline, buf
 struct writer {
     int fd; pthread_t th; sem_t job_ready, job_taken, buf_free[2]; struct wjob job; int stop; double t_write; size_t bytes; int err;
     char *buf[2]; uint64_t *lbuf; size_t bufsz; int dev_src;
+    int direct; char *abuf; size_t ncarry; uint64_t apos;   /* Phase 14 S1 (E3): the O_DIRECT form -- an aligned staging copy, the < 4 KiB carry, the file offset of its first byte */
 };
 static void pwrite_all(int fd, const char *p, size_t n, size_t off, int *err)
 {
     while (n) { ssize_t w = pwrite(fd, p, n, (off_t)off); if (w < 0) { if (errno == EINTR) continue; *err = errno; return; } p += w; n -= (size_t)w; off += (size_t)w; }
+}
+/* Phase 14 S1 (E3): one job in the O_DIRECT form.  The jobs arrive in file order (each chunk starts where the last ended),
+ * so the bytes are appended to the aligned staging copy after the carry, the whole 4 KiB blocks written (8 threads, as
+ * the buffered form), the rest carried; mn_out_finish writes the last block padded and truncates the file to size */
+static void direct_job(struct writer *w, const struct wjob *j)
+{
+    if (w->err) return;
+    if (j->off != w->apos + w->ncarry) { w->err = EINVAL; fprintf(stderr, "mn_out: O_DIRECT writer: a chunk at %zu, expected %llu\n", j->off, (unsigned long long)(w->apos + w->ncarry)); return; }
+    char *p = w->abuf + w->ncarry;
+    if (j->prefix) { p[0] = j->first; p[1] = '.'; p += 2; w->bytes += 2; }
+    if (j->len) {
+        const int NT = 8; size_t seg = (j->len + NT - 1) / NT;
+#pragma omp parallel for num_threads(NT) schedule(static)
+        for (int t = 0; t < NT; t++) { size_t s = (size_t)t * seg; if (s < j->len) memcpy(p + s, j->data + s, j->len - s < seg ? j->len - s : seg); }
+        p += j->len; w->bytes += j->len;
+    }
+    if (j->newline) { *p++ = '\n'; w->bytes++; }
+    size_t tot = (size_t)(p - w->abuf), aw = tot & ~(size_t)(SP_ALIGN - 1);
+    if (aw) {
+        const int NT = 8; size_t seg = ((aw / NT) + SP_ALIGN - 1) & ~(size_t)(SP_ALIGN - 1);
+#pragma omp parallel for num_threads(NT) schedule(static)
+        for (int t = 0; t < NT; t++) { size_t s = (size_t)t * seg; if (s < aw) { size_t n = aw - s < seg ? aw - s : seg; pwrite_all(w->fd, w->abuf + s, n, w->apos + s, &w->err); } }
+    }
+    memmove(w->abuf, w->abuf + aw, tot - aw); w->ncarry = tot - aw; w->apos += aw;
 }
 static void *writer_run(void *a)
 {
@@ -170,6 +196,7 @@ static void *writer_run(void *a)
         sem_wait(&w->job_ready);
         if (w->stop) break;
         struct wjob j = w->job; sem_post(&w->job_taken);
+        if (w->direct) { double t0 = mem_now(); direct_job(w, &j); w->t_write += mem_now() - t0; sem_post(&w->buf_free[j.buf]); continue; }
         double t0 = mem_now(); size_t off = j.off;
         if (j.prefix) { char pf[2] = { j.first, '.' }; pwrite_all(w->fd, pf, 2, off, &w->err); off += 2; w->bytes += 2; }
         if (j.len) {
@@ -196,11 +223,16 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
     if (o->outfile) {
         char name[4096];
         if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
-        w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (sp_odirect() && (!getenv("ECALC_OUT_ODIRECT") || atoi(getenv("ECALC_OUT_ODIRECT")))) {   /* Phase 14 S1 (E3) */
+            w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC | O_DIRECT, 0644);
+            if (w->fd >= 0) w->direct = 1;
+        }
+        if (w->fd < 0) w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (w->fd < 0) { printf("mn_out: cannot open %s: %s\n", name, strerror(errno)); }
     }
     sem_init(&w->job_ready, 0, 0); sem_init(&w->job_taken, 0, 0); sem_init(&w->buf_free[0], 0, 1); sem_init(&w->buf_free[1], 0, 1);
     w->bufsz = L * 18 + 64;
+    if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { fprintf(stderr, "mn_out: %zu bytes\n", w->bufsz); exit(1); }
     for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { fprintf(stderr, "mn_out: %zu bytes\n", w->bufsz); exit(1); }
     if (src->dev) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
     pthread_create(&w->th, 0, writer_run, w);
@@ -243,7 +275,18 @@ void mn_out_finish(mn_out *o)
 {
     struct writer *w = (struct writer *)o->priv; if (!w) return;
     w->stop = 1; sem_post(&w->job_ready); pthread_join(w->th, 0);
+    if (w->direct && w->fd >= 0) {                     /* Phase 14 S1 (E3): the last block, padded, then the file cut to size */
+        double t0 = mem_now();
+        if (w->ncarry && !w->err) {
+            size_t pad = (w->ncarry + SP_ALIGN - 1) & ~(size_t)(SP_ALIGN - 1); memset(w->abuf + w->ncarry, 0, pad - w->ncarry);
+            pwrite_all(w->fd, w->abuf, pad, w->apos, &w->err);
+            if (!w->err && ftruncate(w->fd, (off_t)(w->apos + w->ncarry)) != 0) w->err = errno;
+        }
+        if (!w->err && fsync(w->fd) != 0) w->err = errno;
+        w->t_write += mem_now() - t0;
+    }
     if (w->fd >= 0) close(w->fd);
+    free(w->abuf);
     if (w->err) printf("mn_out: write error: %s\n", strerror(w->err));
     o->t_write = w->t_write; o->bytes = w->bytes;
     for (int b = 0; b < 2; b++) free(w->buf[b]);

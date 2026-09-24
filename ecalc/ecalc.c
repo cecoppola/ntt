@@ -27,6 +27,8 @@
 #include "mn.h"
 #include "mn_out.h"
 #include "mn_plan.h"                                 /* Phase 13d L: MN_PLAN_ONLY */
+#include "memsample.h"                               /* Phase 14 S1: E1, E12 */
+#include "spill.h"                                   /* Phase 14 S1: E3 (the output file under ECALC_ODIRECT) */
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -313,6 +315,7 @@ int main(int argc, char **argv)
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
         mn_barrier(); mn_finalize(); return f;
     }
+    mem_sampler_start();                            /* Phase 14 S1 (E12): ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
@@ -587,7 +590,8 @@ int main(int argc, char **argv)
         printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
         if (outfile) {
             FILE *f = fopen(outfile, "w");
-            if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); fclose(f); printf("wrote %s\n", outfile); }
+            if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); if (sp_odirect()) { fflush(f); sp_drop_cache(fileno(f)); }   /* Phase 14 S1 (E3): fsync + DONTNEED */
+                     fclose(f); printf("wrote %s\n", outfile); }
         }
         int fail = bad1 || bad2 || bad3;
         printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");

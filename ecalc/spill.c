@@ -93,7 +93,7 @@ static int stage_in(sp_file *f, int dev, void *dst, const void *src, size_t n, v
         if (__atomic_load_n(guard[1], __ATOMIC_SEQ_CST)) { __atomic_sub_fetch(guard[0], 1, __ATOMIC_SEQ_CST); return 0; }
     }
     hipStream_t s = sp_stream(f, dev);
-    SP_HIP(hipMemcpyAsync(dst, src, n, hipMemcpyDeviceToHost, s));
+    SP_HIP(hipMemcpyAsync(dst, src, n, hipMemcpyDefault, s));
     return 1;
 }
 static void stage_wait(sp_file *f, int dev, volatile int *guard[2])
@@ -158,7 +158,7 @@ static int spf_read_dev_(sp_file *f, int dev, void *dst, size_t bytes, void *con
     for (;;) {
         char *cb = (char *)buf[b];
         if (dev < 0) memcpy(d + done, cb + off[b], cnt[b]);
-        else SP_HIP(hipMemcpyAsync(d + done, cb + off[b], cnt[b], hipMemcpyHostToDevice, sp_stream(f, dev)));
+        else SP_HIP(hipMemcpyAsync(d + done, cb + off[b], cnt[b], hipMemcpyDefault, sp_stream(f, dev)));
         done += cnt[b];
         int nb = two ? b ^ 1 : b;
         if (done < bytes && two) SP_PIECE(nb);          /* the next read runs under this DMA */

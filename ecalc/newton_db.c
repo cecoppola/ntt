@@ -11,6 +11,7 @@
 #include "dbig.h"
 #include "rns_mul.h"
 #include "mem.h"
+#include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 static int nv = -1, anchor = 1, g_hold_q;                    /* g_hold_q (A1): the size-1 flow -- the reciprocal may keep Q's transforms for the division */
 static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
@@ -97,6 +98,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (converged) { dbig sw = r; r = r2; r2 = sw; }          /* r <- r' by swap */
             else db_shr_limbs(&r, &r2, j);
             if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9);
+            if (mem_live_on()) { char w_[64]; snprintf(w_, sizeof w_, "recip(db) j %zu -> %zu", j, jn); mem_live_line(w_); }   /* Phase 14 S1 (E1): the pool's live bytes per doubling */
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
@@ -271,6 +273,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     else if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
     db_mod_qs(&Rd, qs, nres, rres);
     double tf = mem_now();
+    if (mem_live_on()) mem_live_line("divmod(dev) end");         /* Phase 14 S1 (E1): the division's window peak */
     db_free(&Rd); db_free(&xq); db_free(&Aw);
     db_init(&g_mu); db_init(&g_t); db_init(&g_xq);
     size_t ch = 0, cm = 0; rns_dist_cache_stats(&ch, &cm);
@@ -684,6 +687,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             if (converged) { mfree(&r); r = rs; memset(&rs, 0, sizeof rs); }
             else { mdb_shift(&r, &rs, (long)j, rs.n > j ? rs.n - j : 1, Gs); mfree(&rs); }
             if (nv && me == 0) printf("newton(mn) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   %.2f s%s\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_now() - s0, Gs != G ? " (subgroup)" : "");
+            if (mem_live_on() && me == 0) { char w_[64]; snprintf(w_, sizeof w_, "recip(mn) j %zu -> %zu", j, jn); mem_live_line(w_); }   /* Phase 14 S1 (E1) */
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
@@ -760,6 +764,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
     mfree(&Qw);
     double te = mem_now();
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn) end");   /* Phase 14 S1 (E1) */
     mdb_mod_qs(&Rd, qs, nres, rres, G);
     mfree(&Rd);
     if (X->sh.cap) db_free(&X->sh);
