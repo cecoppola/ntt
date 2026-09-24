@@ -832,6 +832,21 @@ static void spill_merge(const rns_prod *q, const uint64_t *sp, int S)
         }
     }
 }
+__global__ void k_spill_merge(const struct bdesc *P, size_t M, const uint64_t *sp, int S, int decimal)   /* Phase 14 R1 (E8): spill_merge on the device, one thread per product (a VMM pool takes no CPU access) */
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x; if (i >= M) return;
+    const struct bdesc d = P[i]; size_t nc = d.na + d.nb, top = nc + (d.nx ? 1 : 0); uint64_t *out = d.c; const uint64_t *spi = sp + i * (size_t)S * 4;
+    for (int s = 0; s + 1 < S; s++) {
+        size_t k = nc * (s + 1) / S; const uint64_t *w = spi + s * 4; uint64_t cy = 0;
+        if (decimal) {
+            for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
+        } else {
+            for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
+            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+        }
+    }
+}
 static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc)
 {
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
@@ -898,7 +913,10 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
             HIP_CHECK(hipEventRecord(e3, v->s));
             HIP_CHECK(hipStreamSynchronize(v->s));
             double tm0 = mem_now();
-            if (S > 1) for (size_t i = 0; i < M; i++) spill_merge(&P[idx[first + i]], v->spill + i * S * 4, S);
+            if (S > 1) {
+                if (db_pool_vmm_on()) { k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->spill, S, bi_decimal); HIP_CHECK(hipStreamSynchronize(v->s)); }   /* Phase 14 R1 (E8): the outputs may be a VMM range */
+                else for (size_t i = 0; i < M; i++) spill_merge(&P[idx[first + i]], v->spill + i * S * 4, S);
+            }
             /* normalised lengths (the CPU reading one limb per product from device memory is latency-bound) */
             if (v->len_cap < M) { if (v->len) { HIP_CHECK(hipHostFree(v->len)); HIP_CHECK(hipFree(v->dlen)); } v->len_cap = M + 1024; HIP_CHECK(hipHostMalloc((void **)&v->len, v->len_cap * 4, 0)); HIP_CHECK(hipMalloc(&v->dlen, v->len_cap * 4)); }
             k_norm<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->dlen);
