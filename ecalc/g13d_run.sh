@@ -40,7 +40,7 @@ while read -r -u 3 tag est np dg ref envs; do
     [ "$h" = "$r" ] && cmpres="IDENTICAL(sha1)" || cmpres="DIFFER($h vs $r)"
     srun --jobid=$J -N1 --overlap bash -c "rm -f /tmp/g13d_*.out*"
   fi
-  v=$(grep -a -c '^VERIFY OK' $D/$tag.log)
+  v=$(grep -a -c '^VERIFY OK\|^mn: all .* VERIFY OK' $D/$tag.log)
   tot=$(grep -a '^total' $D/$tag.log | tail -1 | cut -c1-110)
   pcs=$(grep -a -o '[0-9]* x [0-9]* pieces' $D/$tag.log | sort | uniq -c | sort -k2n | awk '{printf "%s*%sx%s ", $1, $2, $4}')
   log "$tag np=$np D=$dg [$envs]: rc $rc, VERIFY OK x$v, $cmpres wall $((t2 - t1)) s | $tot | pieces: $pcs"
