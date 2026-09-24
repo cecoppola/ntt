@@ -48,6 +48,20 @@ Device at init (modelled, mem_model): 5e10 268 GB, 7.7e10 343, 1e11 414, 1.16e11
     13c recalibration (4e10 / 7.64e10 / 1.3e11 anchors) the modelled walls across S4 are 139.1 -> 155.4 s, across S6 188.2 -> 197.8,
     S9 279.3 -> 296.4.  L's MN_PLAN_ONLY=<digits>:1 prints the C code's own size-1 pieces: use it for the saw-tooth sizes.
 
+*** UPDATE 21:05 EDT (D2): THE C CODE'S OWN SIZE-1 PLAN (L's MN_PLAN_ONLY=<D>:1, swept 5e10..1.3e11 at 1e8; the counts are
+    every product formed: leaf dist_db = the leaf's device-tier products, recip = the whole chain, div = A_h mu + X Q;
+    results/D2_13d_plan1_C.txt).  It CONFIRMS the model's major steps at the same 1e8 resolution:
+      5.155e10 (recip 66->73, div 14->22)   5.795e10 (recip 73->78, div 25->28; leaf +4/+2 at 5.845/5.865)
+      6.625e10 (recip 74->80, div 18->34)   7.735e10 (leaf 24->32, recip 73->92, div 26->40)  <-- S4, the biggest
+      9.275e10 (recip 92->101)  1.0305e11 (recip 101->115)  1.0545e11 (recip 103->116, div 40->70)
+      1.1595e11 (recip 121->133, div 79->86)  1.2485e11 (recip 119->138, div 54->97)
+    and shows steps DOWN the model does not have (auto's grid moves to B-form pieces; fewer pieces, maybe faster):
+      6.445e10 (recip 78->74, div 28->18)  7.375e10 (recip 79->73, div 38->26)  1.0435e11 (recip 115->103, div 69->40)
+      1.2275e11 (recip 134->119, div 88->54)
+    plus leaf-only changes at 8.165e10 (+18) / 8.215e10 (-12), 9.665e10 (div 38->61), 1.1625e11 (leaf -12), 1.1815e11 (+14).
+    The model's S5 (8.585e10) is only the division's saw-tooth in the C plan: drop it.  If time allows, one pair across a
+    step DOWN (7.35 | 7.40e10) tests whether fewer pieces there means a lower wall.
+
 =====================================================================================================================
 B. SIZE 4 on ONE node, reduced cap (G's mechanism test (c)), 1e9 .. 2e10 TOTAL digits
 =====================================================================================================================
