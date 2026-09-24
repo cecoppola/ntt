@@ -1651,3 +1651,49 @@ measurement: the table's fabric column is assumed until the target's first run.
   session should start early enough to finish the M-run before midnight.
 - **B not ready in time**: that row falls back to t_strategy's per-product times composed
   through the model, labelled "modelled from measured products". The table is still complete.
+
+## 32. Phase 13d — confirm the target's grid step, recalibrate the model, SHMEM on real nodes (proposed 2026-09-23)
+
+TASKS status items 1 and 2, sharpened by two Phase 13c findings:
+- **The model runs 6.2 % optimistic** at the target's per-node share (7.64 × 10¹⁰ digits: 137.9 s measured,
+  129.9 s modelled; RESULTS §80). The 4.1-minute estimate and the step positions both come from the model.
+- **Nothing prints the piece counts the C code would choose at 576 nodes.** `BS_LAYOUT_ONLY` reports memory only.
+  The 4.4 × 10¹³ target rests on the model's port of the splitting rule, putting the 214 → 248 step at
+  4.435 × 10¹³.
+
+**Deliverables**: the step at the target confirmed or moved, by the C code's own plan; the model within 3 % of
+measured one-node walls from 4 × 10¹⁰ to 1.3 × 10¹¹; the step mechanism seen on real hardware; SHMEM correct across
+real nodes; RESULTS §81 with the regenerated table and the 576-node estimate.
+
+**Window**: three nodes idle (s24-16, s24-26, s24-30). The admin's nightly CI array takes every node from about
+00:00 EDT, so the session runs about 3.5 hours and ends before midnight, or runs tomorrow morning.
+
+### Agents
+
+| agent | task | owns | node use | gate |
+|---|---|---|---|---|
+| **L** — the plan printer | `MN_PLAN_ONLY=<total digits>:<g>`: from the C code's own schedule (`MN_GROUPS`, the tree levels, the reciprocal's doublings, the division's cuts) and its own `split_grid_cap`, print every large product's sizes, the grid (kₐ × k_b), the pieces formed and the per-node plane bytes, then exit. No GPU, no communicator: a login-node tool | new `ecalc/mn_plan.c`; read-only use of `rns_dist.c` / `mn.c` selection code (a shared helper extracted if needed, commented) | one short job to validate | its piece counts equal the per-level lines of real runs at sizes 1, 2, 3, 4 (10⁹ and 10¹⁰). Printed at 576 nodes for 2.0–6.0 × 10¹³ in 0.01 × 10¹³ steps, with every step listed. **The verdict**: 214 pieces at 4.4 × 10¹³, and where the next step really is |
+| **G** — the steps on real hardware | (a) a one-node sweep across the steps D2 predicts for size 1 at the 2³¹ cap, a pair just below and just above each, 5 × 10¹⁰ to 1.3 × 10¹¹; (b) the suspected cliff at the 2³⁰ cap, 1.42 against 1.44 × 10¹¹, repeated on the same node; (c) the multi-node mechanism at size 4 on one node, with a reduced cap (`POOL_LOG` / `DIST_LOGN_TEST`) so the mn tier's steps fall at 10⁹–10¹⁰ total digits: time across two predicted steps | tests and scripts only | **s24-16, pinned for the session** (45-min jobs), so every sweep point is on one node | each predicted step seen or refuted, with its measured size (Δ wall for Δ digits); every run VERIFY OK; the 1.44 × 10¹¹ question answered |
+| **D2** — the model | (1) the predicted one-node step list for G, **within the first 20 minutes**; (2) the per-node compute refitted on the Phase 13c defaults from G's sweep plus the 7.64 × 10¹⁰ share run (the 6.2 % gap); (3) the model's piece counts against L's C-printed ones at 576, over 2–6 × 10¹³ (every disagreement explained or fixed); (4) the design table and `estimate.py` regenerated | `mn_model.py`, `mem_model.py`, `design_table.py`, `estimate.py` | none | the model within 3 % of every measured one-node wall from 4 × 10¹⁰ to 1.3 × 10¹¹; step positions equal to L's; the 4.4 × 10¹³ estimate restated (or a new target proposed, if the step moved) |
+| **S** — SHMEM across real nodes (TASKS 1.5) | OSHMEM (`setarch -L`, `mnrun.sh`) or Sandia SOS (`~/sos`), one PE per real node. `t_comm`, `DIST_LAYERED=1 t_dist 24`, `t_mn_grid` at 2 and 3 nodes; `ecalc` 10⁸ / 10⁹ at 2 and 3 nodes and 10¹⁰ at 2 nodes against TCP; the depth-2 overlap at 3 real nodes (the general map, X13b's missing case) | `comm_shmem.c`, `mnrun.sh`, `tests/t_comm.c` | s24-26 + s24-30 for the two-node runs; **one 30-minute three-node slot at about hour 2.5** (G pauses) | byte-identical at every size; the SHMEM vs TCP walls; the both-busy fraction at 3 real nodes, depths 1 and 2 |
+
+Seams: L and D2 exchange one artifact, L's piece table (a text file under `results/`). G takes D2's predicted
+step list as its sweep points. S touches only the transport.
+
+### Hour by hour
+
+- **0–0.3**: launch. D2 writes the predicted one-node steps. G starts part (b), which needs no prediction.
+- **0.3–2**: G's sweep (a). L writes the plan printer. S builds and runs the two-node set.
+- **2–2.5**: L validates against real runs and prints the 576 table. D2 compares piece counts and refits.
+- **2.5–3**: S's three-node slot. G does part (c).
+- **3–3.5**: the integrator merges everything; the regression in two halves on two nodes; D2 regenerates the table
+  with G's runs; RESULTS §81 with the 576-node estimate.
+
+### Rules
+
+The §19/§21 protocol, with Phase 13b's additions:
+- Jobs of at most 45 minutes, and scripted batches that run unattended.
+- A RESUME section after every batch.
+- Kill processes only by PID or an anchored match.
+- Label every number measured, modelled or assumed.
+- **No default changes**: everything is measurement, tooling and model; adoption is the user's.
