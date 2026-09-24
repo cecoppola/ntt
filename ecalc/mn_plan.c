@@ -55,6 +55,7 @@ enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
 static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
 static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N];
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
+static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
 static void show_mn(int ph, const char *what, size_t na, size_t nb, int g, int has_x, size_t lowcut, size_t w, int print, struct rns_grid_plan *out)
 {
     struct rns_grid_plan p; rns_dist_mn_plan(na, nb, g, has_x, lowcut, w, &p);
@@ -138,7 +139,7 @@ static void plan_tree(unsigned long N, int size, long *level_max_total)
     *level_max_total = 0;
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;
-        long p0 = -1, pmin = -1, pmax = -1; int gmax = 0, ngroups = 0;
+        long p0 = -1, pmin = -1, pmax = -1, cs[4096]; int gmax = 0, ngroups = 0, nat = 0;
         for (int g0 = 0; g0 < size; g0 += Gl) {
             int g = Gl < size - g0 ? Gl : size - g0, nch = (g + Gp - 1) / Gp;
             if (nch < 2) continue;                                /* one child: carried up unchanged */
@@ -146,13 +147,16 @@ static void plan_tree(unsigned long N, int size, long *level_max_total)
             if (g0 == 0) p0 = c;
             if (pmin < 0 || c < pmin) pmin = c;
             if (c > pmax) { pmax = c; gmax = g0; }
+            if (ngroups < 4096) cs[ngroups] = c;
             ngroups++;
         }
         if (p0 < 0) continue;
+        for (int i = 0; i < ngroups && i < 4096; i++) nat += cs[i] == pmax;
         *level_max_total += pmax;
+        { size_t o = strlen(g_lvl); snprintf(g_lvl + o, sizeof g_lvl - o, "%s%ld/%ld", o ? " " : "", p0, pmax); }
         int nch = (Gl < size ? Gl : size) / Gp + ((Gl < size ? Gl : size) % Gp != 0);
-        if (!g_quiet) printf("plan tree   level %d: groups of %d (%d-way, children of %d): node 0's group %ld pieces; over the level's %d groups %ld .. %ld (the most: [%d, %d))\n",
-                             l, Gl, nch, Gp, p0, ngroups, pmin, pmax, gmax, gmax + (Gl < size - gmax ? Gl : size - gmax));
+        if (!g_quiet) printf("plan tree   level %d: groups of %d (%d-way, children of %d): node 0's group %ld pieces; over the level's %d groups %ld .. %ld (%d of them at %ld, the first [%d, %d))\n",
+                             l, Gl, nch, Gp, p0, ngroups, pmin, pmax, nat, pmax, gmax, gmax + (Gl < size - gmax ? Gl : size - gmax));
     }
     if (captest) rns_dist_plan_cap_test(0);
 }
@@ -232,9 +236,9 @@ int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log)
         show_db(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, 0, w);
     }
     long tot = g_pieces[PH_TREE] + g_pieces[PH_RECIP] + g_pieces[PH_DIV];
-    printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld\n",
+    printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
            (double)d, size, g_pieces[PH_TREE], g_pieces[PH_RECIP], g_pieces[PH_DIV], tot, size > 1 ? tree_max : 0, (size > 1 ? tree_max : 0) + g_pieces[PH_RECIP] + g_pieces[PH_DIV],
-           g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN]);
+           g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");
     return 0;
