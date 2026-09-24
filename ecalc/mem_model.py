@@ -557,7 +557,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=0):
     worst = 0.0
     for line in open(path, errors='replace'):
         if not line.startswith('layout:'): continue
-        v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
+        v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)(?!\w)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
         D, g, N = v['D'], int(v['g']), int(v['N'])
         tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
         ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
