@@ -13,6 +13,8 @@
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
+#include "spill.h"
+#include "memsample.h"
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (Phase 13b P: the layout report) */
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
@@ -588,6 +590,7 @@ static int ckpt_finish(FILE *f, int ok, const char *tmp, const char *final)
     if (f) fclose(f);
     if (ok && rename(tmp, final) != 0) ok = 0;
     if (!ok) { fprintf(stderr, "bs: checkpoint write failed for %s: %s\n", final, strerror(errno)); unlink(tmp); }
+    if (ok && sp_odirect()) sp_drop_cache_path(final);   /* Phase 14 S1 (E3): the header's pages leave the page cache too */
     return ok;
 }
 /* Phase 13 N (TASKS 4.1, 1.4): the context of a background tree-set write (bs_ckpt_bg_*) -- its own DMA buffers of `chunk`
@@ -598,31 +601,59 @@ struct ckpt_io { size_t chunk; double mbs; volatile int cancel, dma_active, pdon
 /* the 1 GiB host buffer for the DMA of thread r: region r's pinned staging (idle between levels), else malloc */
 static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 {
-    *own = 0;
-    if (io) { *own = 1; return (uint64_t *)malloc(io->chunk); }   /* Phase 13 N: a background writer's own chunk */
+    *own = 0; void *p = 0;
+    if (io) { *own = 1; if (posix_memalign(&p, (size_t)2 << 20, io->chunk)) p = 0; return (uint64_t *)p; }   /* Phase 13 N: a background writer's own chunk (Phase 14 S1: aligned, for O_DIRECT) */
     if (!bs_ckpt_own_buf && mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());   /* Phase 12 W: bs_ckpt_own_buf -> malloc */
-    *own = 1; return (uint64_t *)malloc(CKPT_CHUNK);
+    *own = 1; if (posix_memalign(&p, (size_t)2 << 20, CKPT_CHUNK)) p = 0; return (uint64_t *)p;
 }
-static FILE *ckpt_open(const char *kind, int level, int r, int write, char *tmp, char *final)
+/* Phase 14 S1 (E3): a checkpoint data file -- the stdio stream as before, or with ECALC_ODIRECT=1 spill.c's sp_file: O_DIRECT
+ * through the (aligned) DMA buffer, the 1 GiB buffer split in two halves so the DMA of one runs under the write of the
+ * other; nothing is left in the page cache (on the APU the cache is HBM, results/apumult/apumult_M.md) */
+typedef struct { FILE *f; sp_file sf; int direct; } ckf;
+static size_t ck_halves(uint64_t *buf, void *b2[2], size_t bytes) { b2[0] = buf; b2[1] = (char *)buf + bytes / 2; return bytes / 2; }
+static ckf *ckpt_open(const char *kind, int level, int r, int write, char *tmp, char *final)
 {
     ckpt_path(tmp, 4096, kind, level, "r", r, 1); ckpt_path(final, 4096, kind, level, "r", r, 0);
-    FILE *f = fopen(write ? tmp : final, write ? "wb" : "rb");
-    if (!f) fprintf(stderr, "bs: checkpoint: cannot open %s: %s\n", write ? tmp : final, strerror(errno));
-    return f;
+    ckf *c = (ckf *)calloc(1, sizeof *c); c->direct = sp_odirect();
+    if (c->direct) { if (!spf_open(&c->sf, write ? tmp : final, write, 1)) { free(c); return 0; } return c; }
+    c->f = fopen(write ? tmp : final, write ? "wb" : "rb");
+    if (!c->f) { fprintf(stderr, "bs: checkpoint: cannot open %s: %s\n", write ? tmp : final, strerror(errno)); free(c); return 0; }
+    return c;
 }
-static int ckpt_close(FILE *f, int ok, int write, const char *tmp, const char *final)
+static int ckpt_close(ckf *c, int ok, int write, const char *tmp, const char *final)
 {
+    if (c->direct) {
+        int e = c->sf.err; ok = spf_close(&c->sf, ok) && ok; free(c);
+        if (write) {
+            if (ok && rename(tmp, final) != 0) { e = errno; ok = 0; }
+            if (!ok) { fprintf(stderr, "bs: checkpoint write failed for %s: %s\n", final, strerror(e ? e : EIO)); unlink(tmp); }
+        } else if (!ok) fprintf(stderr, "bs: checkpoint: short read from %s\n", final);
+        return ok;
+    }
+    FILE *f = c->f; free(c);
     if (write) return ckpt_finish(f, ok, tmp, final);
     fclose(f);
     if (!ok) fprintf(stderr, "bs: checkpoint: short read from %s\n", final);
     return ok;
 }
+static void ckpt_abandon(ckf *c)                       /* a cancelled background write: closed without fsync (the caller unlinks it) */
+{
+    if (c->direct) spf_close(&c->sf, 0); else fclose(c->f);
+    free(c);
+}
 /* region r's limbs [0, limbs) -> file (write) or file -> pool (read), through a host buffer when the pool is device memory */
 static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int write)
 {
     char tmp[4096], final[4096];
-    FILE *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
+    ckf *cf = ckpt_open("level", level, r, write, tmp, final); if (!cf) return 0;
     int dev = mem_dev_of(pool), ok = 1, own = 0;
+    if (cf->direct) {                                  /* Phase 14 S1 (E3) */
+        uint64_t *b = ckpt_buf(r, &own, 0); void *b2[2]; size_t bc = ck_halves(b, b2, CKPT_CHUNK);
+        ok = b && (write ? spf_write_dev(&cf->sf, dev, pool, limbs * 8, b2, bc, 0) : spf_read_dev(&cf->sf, dev, pool, limbs * 8, b2, bc));
+        if (own) free(b);
+        return ckpt_close(cf, ok, write, tmp, final);
+    }
+    FILE *f = cf->f;
     uint64_t *buf = dev >= 0 ? ckpt_buf(r, &own, 0) : 0;
     for (size_t lo = 0; lo < limbs && ok; lo += CKPT_CHUNK / 8) {
         size_t cnt = limbs - lo < CKPT_CHUNK / 8 ? limbs - lo : CKPT_CHUNK / 8;
@@ -631,19 +662,35 @@ static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int wr
         else { ok = fread_all(f, buf, cnt * 8); if (ok) mem_dev_copy(pool + lo, buf, cnt * 8); }
     }
     if (own) free(buf);
-    return ckpt_close(f, ok, write, tmp, final);
+    return ckpt_close(cf, ok, write, tmp, final);
 }
 /* M6: the limbs [lo, hi) of a device number <-> the file, in runs inside one device quarter (limb g lives in
  * quarter (g >= qc) + (g >= 2 qc) + (g >= 3 qc), dbig.c), each run DMA'd on its quarter's device through buf */
-static int ckpt_dbig_io(FILE *f, dbig *x, size_t lo, size_t hi, uint64_t *buf, int write, struct ckpt_io *io, int part)
+static int ckpt_dbig_io(ckf *cf, dbig *x, size_t lo, size_t hi, uint64_t *buf, int write, struct ckpt_io *io, int part)
 {
     if (x->off) { fprintf(stderr, "bs: checkpoint of a dbig view\n"); abort(); }
     int ok = 1; size_t cap = (io ? io->chunk : CKPT_CHUNK) / 8;
+    FILE *f = cf->f;
+    void *b2[2] = { buf, 0 }; size_t bc = 0; volatile int *guard[2] = { 0, 0 };   /* Phase 14 S1 (E3): the O_DIRECT form */
+    if (cf->direct) {
+        if (io) { bc = io->chunk; cap = (io->chunk - SP_ALIGN) / 8; guard[0] = &io->dma_active; guard[1] = &io->cancel; }   /* one DMA per run, single-buffered: the cancel contract below */
+        else bc = ck_halves(buf, b2, CKPT_CHUNK);
+    }
     for (size_t i = lo; i < hi && ok;) {
         size_t d = (i >= x->qc) + (i >= 2 * x->qc) + (i >= 3 * x->qc), so = i - d * x->qc, run = x->qc - so;
         if (i + run > hi) run = hi - i;
         if (run > cap) run = cap;
-        if (write && io) {                             /* Phase 13 N: announce the device read, then look at cancel (the owner sets cancel, then waits for no read in flight) */
+        if (write && io && cf->direct) {               /* Phase 14 S1 (E3): the same contract, inside spf_write_dev (the guard) */
+            double tw = io->mbs > 0 ? mem_now() : 0;
+            ok = spf_write_dev(&cf->sf, (int)d, x->q[d] + so, run * 8, b2, bc, guard);
+            if (!ok && __atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) return 0;
+            if (io->mbs > 0) { double want = run * 8 / (io->mbs * 1e6 / NR); while (mem_now() - tw < want && !__atomic_load_n(&io->cancel, __ATOMIC_RELAXED)) usleep(5000); }
+            __atomic_add_fetch(part ? &io->bytes_all : &io->bytes_p, run * 8, __ATOMIC_RELAXED);
+            if (!part) __atomic_add_fetch(&io->bytes_all, run * 8, __ATOMIC_RELAXED);
+        }
+        else if (write && cf->direct) ok = spf_write_dev(&cf->sf, (int)d, x->q[d] + so, run * 8, b2, bc, 0);
+        else if (cf->direct) ok = spf_read_dev(&cf->sf, (int)d, x->q[d] + so, run * 8, b2, bc);
+        else if (write && io) {                        /* Phase 13 N: announce the device read, then look at cancel (the owner sets cancel, then waits for no read in flight) */
             __atomic_add_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST);
             if (__atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { __atomic_sub_fetch(&io->dma_active, 1, __ATOMIC_SEQ_CST); return 0; }
             mem_dev_copy_on((int)d, buf, x->q[d] + so, run * 8);
@@ -665,7 +712,7 @@ static size_t range_lo(size_t n, int r) { return n * (size_t)r / NR; }
 static int ckpt_devnodes_io(int level, struct level *lv, int r, int write)
 {
     char tmp[4096], final[4096];
-    FILE *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
+    ckf *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
     int ok = 1, own; uint64_t *buf = ckpt_buf(r, &own, 0);
     for (size_t i = 0; i < lv->n && ok; i++) {
         struct node *nd = &lv->nd[i];
@@ -748,6 +795,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
 /* the level just finished (cur, which, level) -> bs_ckpt_dir; returns bytes written (0: failed, the run goes on) */
 static size_t ckpt_write(struct level *cur, int which, int level, int mdev_host, const size_t *offr, size_t off, unsigned long N, int prev_level)
 {
+    if (sp_odirect()) sp_dev_sync_all();               /* Phase 14 S1 (E3): the O_DIRECT path's DMA is on its own streams */
     int dev_nodes = cur->nd[0].pd != 0;
     struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
     h.N = N; h.decimal = bi_decimal; h.seed_terms = bs_seed_terms; h.level = level; h.which = which;
@@ -804,7 +852,7 @@ static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out, 
 static int tree_io(int level, dbig *P, dbig *Q, int r, int write, struct ckpt_io *io)
 {
     char tmp[4096], final[4096];
-    FILE *f = ckpt_open("tree", level, r, write, tmp, final); if (!f) return 0;
+    ckf *f = ckpt_open("tree", level, r, write, tmp, final); if (!f) return 0;
     int ok, own; uint64_t *buf = ckpt_buf(r, &own, write ? io : 0);
     ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write, write ? io : 0, 0);
     if (write) __atomic_add_fetch(&bs_ckpt_tree_pdone, 1, __ATOMIC_RELEASE);   /* Phase 12 W: this file's P part is written (the fwrite returned: P's limbs are no longer read) */
@@ -812,7 +860,7 @@ static int tree_io(int level, dbig *P, dbig *Q, int r, int write, struct ckpt_io
     ok = ok && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write, write ? io : 0, 1);
     if (write && io) __atomic_add_fetch(&io->qdone, 1, __ATOMIC_RELEASE);        /* (after a cancel or a failure too: the file no longer reads P or Q) */
     if (own) free(buf);
-    if (write && io && __atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { fclose(f); unlink(tmp); return 0; }   /* abandoned: quietly, no fsync */
+    if (write && io && __atomic_load_n(&io->cancel, __ATOMIC_SEQ_CST)) { ckpt_abandon(f); unlink(tmp); return 0; }   /* abandoned: quietly, no fsync */
     return ckpt_close(f, ok, write, tmp, final);
 }
 static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q, struct ckpt_io *io, double *t_data)
@@ -832,7 +880,7 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
     size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
 }
-size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { return tree_write(level, N, desc, P, Q, 0, 0); }
+size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { if (sp_odirect()) sp_dev_sync_all(); return tree_write(level, N, desc, P, Q, 0, 0); }   /* Phase 14 S1: see ckpt_write */
 
 /* ---- Phase 13 N (TASKS 4.1, 1.4): a tree set written by a background thread ----
  * The top set (size 1: tree_000 from ecalc.c; size > 1: mn_tree's top level) is written while the reciprocal and the
@@ -856,6 +904,7 @@ static void *bg_run(void *a)
 }
 struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t desc[10], const dbig *P, const dbig *Q, int budget, double slack)
 {
+    if (sp_odirect()) sp_dev_sync_all();               /* Phase 14 S1 (E3): P and Q complete before the writer's DMA on its own streams */
     struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)calloc(1, sizeof *b);
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
     const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
@@ -1328,6 +1377,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bs_st.levels++;
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
         memset(&rns_st, 0, sizeof rns_st);
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "bs level %d %s", bs_st.levels, tier); mem_live_line(w); }   /* Phase 14 S1 (E1) */
         if (!finished) bs_res_check(&nxt, &cur, bs_st.levels, S, N);   /* Phase 11 V (D5): ECALC_RES_LOG (the children's pools of the other parity are still there) */
         free(cur.nd);
         cur = nxt;
