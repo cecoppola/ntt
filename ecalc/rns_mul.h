@@ -106,7 +106,7 @@ void rns_copy_probe_issue(int dev, size_t bytes, int level); void rns_copy_probe
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
 void rns_ensure_staging(void);
-struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; };
+struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; size_t n_formed, n_skipped; };   /* n_formed / n_skipped (Phase 14 R1, E7): mul_grid's piece counts, summed (the reciprocal reports its cut) */
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 
 #ifdef __cplusplus
