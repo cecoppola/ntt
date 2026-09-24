@@ -450,6 +450,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
     if (mn_tree_early_free > 0) db_free(&P->sh);             /* Phase 14 T1 (E10a): my child's P (PA or PB) is dead once P_n is formed */
+    if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", g_rank, l); mem_live_line(w); }   /* Phase 14 T1: the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
@@ -486,7 +487,9 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* Phase 14 T1: the first product's window */
         rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
+        if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
         if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
         if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }
         Pr = Pn; Qr = Qn; own = 1;
