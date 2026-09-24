@@ -1101,7 +1101,11 @@ void rns_mul_batch(rns_prod *P, size_t N)
         }
         rns_st.tb_scatter += tsc; rns_st.tb_ntt += tnt; rns_st.tb_crt += tcr;
         double tm0 = mem_now();
-        if (gpucrt) {
+        if (gpucrt && db_pool_vmm_on()) {                 /* Phase 14 R1 (E8): the outputs may be a VMM range -- the merge on device 0 (g_desc[0] holds the M descriptors) */
+            int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(0));
+            k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, D[0].s>>>(g_desc[0], M, g_spill, S, bi_decimal); HIP_CHECK(hipStreamSynchronize(D[0].s));
+            HIP_CHECK(hipSetDevice(cur));
+        } else if (gpucrt) {
             /* merge the stripe spills on the CPU: stripe s of product i spills at coefficient nc (s+1) / S */
 #pragma omp parallel for schedule(dynamic, 16)
             for (size_t i = 0; i < M; i++) {
