@@ -61,6 +61,8 @@ spill *spill_start_dir(dbig *x, size_t lo, size_t hi, const char *dir, const cha
 int    spill_done(spill *s);           /* 1 when the data is on disk (non-blocking) */
 int    spill_wait(spill *s);           /* waits; 1 ok.  With SPILL_FREE the blocks are free after it */
 int    spill_restore(spill *s, dbig *x);   /* x (empty or of cap >= the spilled number's) <- limbs [lo, hi), x->n = the spilled n; 1 ok */
+int    spill_restore_start(spill *s, dbig *x);   /* the same in the background: x's blocks reserved now, the reads started */
+int    spill_restore_wait(spill *s);   /* the restore's completion; 1 ok (x->n set here) */
 void   spill_drop(spill *s);           /* remove the files, free the handle */
 struct spill_stats { size_t bytes; double t_write, t_read, rate_w, rate_r; };
 void   spill_get_stats(const spill *s, struct spill_stats *st);

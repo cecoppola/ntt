@@ -126,7 +126,8 @@ static void t_size(const char *dir, double G)
     size_t live1 = 0; for (int d = 0; d < DB_NQ; d++) live1 += db_pool_live(d);
     VERIFY(live0 - live1 >= cap * 8, "SPILL_FREE: pool live %.2f -> %.2f GiB (the number %.2f GiB)", gib(live0), gib(live1), gib(cap * 8));
     dbig y; db_init(&y);
-    VERIFY(spill_restore(s, &y), "restore (free)");
+    VERIFY(spill_restore_start(s, &y), "restore_start (free)");   /* the background form */
+    VERIFY(spill_restore_wait(s), "restore_wait (free)");
     spill_get_stats(s, &st);
     bad = check(&y, n, seed, 0, n);
     VERIFY(bad == 0 && y.n == n, "SPILL_FREE round trip: %llu differ", bad);
