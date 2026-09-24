@@ -1,0 +1,3 @@
+# task (b) batch 2: the same sizes at RNS_STRATEGY=C (P13b's strategy then) on s24-16: strategy vs node
+b_230C_142e9 1100 1 142000000000 - ECALC_PLANE_CAP=2^30 RNS_STRATEGY=C
+b_230C_144e9 1300 1 144000000000 - ECALC_PLANE_CAP=2^30 RNS_STRATEGY=C
