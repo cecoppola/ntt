@@ -753,6 +753,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
 /* the level just finished (cur, which, level) -> bs_ckpt_dir; returns bytes written (0: failed, the run goes on) */
 static size_t ckpt_write(struct level *cur, int which, int level, int mdev_host, const size_t *offr, size_t off, unsigned long N, int prev_level)
 {
+    if (sp_odirect()) sp_dev_sync_all();               /* Phase 14 S1 (E3): the O_DIRECT path's DMA is on its own streams */
     int dev_nodes = cur->nd[0].pd != 0;
     struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
     h.N = N; h.decimal = bi_decimal; h.seed_terms = bs_seed_terms; h.level = level; h.which = which;
@@ -837,7 +838,7 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
     size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
 }
-size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { return tree_write(level, N, desc, P, Q, 0, 0); }
+size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q) { if (sp_odirect()) sp_dev_sync_all(); return tree_write(level, N, desc, P, Q, 0, 0); }   /* Phase 14 S1: see ckpt_write */
 
 /* ---- Phase 13 N (TASKS 4.1, 1.4): a tree set written by a background thread ----
  * The top set (size 1: tree_000 from ecalc.c; size > 1: mn_tree's top level) is written while the reciprocal and the
@@ -861,6 +862,7 @@ static void *bg_run(void *a)
 }
 struct bs_ckpt_bg *bs_ckpt_bg_start(int level, unsigned long N, const uint64_t desc[10], const dbig *P, const dbig *Q, int budget, double slack)
 {
+    if (sp_odirect()) sp_dev_sync_all();               /* Phase 14 S1 (E3): P and Q complete before the writer's DMA on its own streams */
     struct bs_ckpt_bg *b = (struct bs_ckpt_bg *)calloc(1, sizeof *b);
     b->level = level; b->N = N; memcpy(b->desc, desc, sizeof b->desc); b->P = *P; b->Q = *Q; b->budget = budget; b->slack = slack;
     const char *e = getenv("BS_CKPT_BG_CHUNK_MB"); b->io.chunk = (size_t)(e ? atoi(e) : 256) << 20; if (b->io.chunk < ((size_t)1 << 20)) b->io.chunk = (size_t)1 << 20;
