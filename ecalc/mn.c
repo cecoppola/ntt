@@ -10,6 +10,7 @@
 #include "ntt_dist.h"
 #include "modarith.h"
 #include "mem.h"
+#include "memsample.h"                                /* Phase 14 S1 (E1) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
@@ -401,6 +402,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
         /* (one child: no sibling group, carried up unchanged) */
         if (nch > 1 && db_res_log_on()) tree_check(P, Q, l, g0, g, mn_group_span(l, g0, g));
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", g_rank, l); mem_live_line(w); }   /* Phase 14 S1 (E1): the pool's live bytes per level */
         if (ck && (l % every == 0 || l == L)) {              /* M6: this node's shares after level l */
             /* C6: the sets below the previous set (g_ckpend) go here, not right after its write: every node wrote
              * g_ckpend before entering the next level, so this barrier waits for the nodes' compute, never for the
