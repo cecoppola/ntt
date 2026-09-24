@@ -49,7 +49,11 @@ N() { srun --jobid="$J" -N1 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
 # the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS
-cmpref() { N "cat $1.part* > $1.all 2>/dev/null || cp $1 $1.all 2>/dev/null; cmp -s $1.all $2 && echo identical || echo DIFFERS; rm -rf $1 $1.*"; }   # (also the .t1 sidecar and the .top directory)
+cmpref() { if [ "${ECALC_ODIRECT:-0}" = 1 ]; then cmpref_direct "$@"; return; fi
+           N "cat $1.part* > $1.all 2>/dev/null || cp $1 $1.all 2>/dev/null; cmp -s $1.all $2 && echo identical || echo DIFFERS; rm -rf $1 $1.*"; }   # (also the .t1 sidecar and the .top directory)
+# Phase 14 S1 (E3): with ECALC_ODIRECT=1 the comparison reads both sides with O_DIRECT (dd iflag=direct) and makes no .all copy:
+# neither the digits nor the reference stay in the page cache (HBM on the APU)
+cmpref_direct() { N "P=\$(ls $1.part* 2>/dev/null | sort); [ -n \"\$P\" ] || P=$1; cmp -s <(for p in \$P; do dd if=\$p iflag=direct bs=64M status=none; done) <(dd if=$2 iflag=direct bs=64M status=none) && echo identical || echo DIFFERS; rm -rf $1 $1.*"; }
 total_of() { grep -a '^total' "$1" | tail -1 | sed 's/  */ /g' | cut -c1-40; }
 N "mkdir -p $TMP; rm -f $TMP/*"
 

@@ -171,8 +171,8 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
     /* the single-node part: recip_db2 on the top T limbs of Q, from the seed's j = 2 */
     size_t j = 2; char w[96];
     while (j < kp) { size_t jn = newton_chain_next(j, kp), take = 2 * j + 2 < T ? 2 * j + 2 : T;
-        snprintf(w, sizeof w, "chain j %zu -> %zu Q_t r", j, jn); show_db(PH_RCHAIN, w, take, j + 1, 0, (size_t)-1);
-        snprintf(w, sizeof w, "chain j %zu -> %zu r d", j, jn); show_db(PH_RCHAIN, w, j + 1, D_EST(j), 0, (size_t)-1);
+        snprintf(w, sizeof w, "chain j %zu -> %zu Q_t r", j, jn); show_db(PH_RCHAIN, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, (size_t)-1);   /* Phase 14 R1 (E7): the cuts as newton_db.c takes them */
+        snprintf(w, sizeof w, "chain j %zu -> %zu r d", j, jn); show_db(PH_RCHAIN, w, j + 1, D_EST(j), newton_recip_cut(j), (size_t)-1);
         j = jn; }
     if (!g_quiet) printf("plan recip  recip(mn): the single-node chain to %zu limbs, then the sharded steps to %zu over %d nodes\n", kp, k, size);
     j = kp;
@@ -180,10 +180,11 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
         size_t jn = newton_chain_next(j, k), take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
         int Ln = newton_mn_x1_level(take, j + 1, size, size, 0), gs = Ln ? 1 << Ln : size;
         snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn);
-        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, 0, (size_t)-1, 1, 0);   /* Q itself (no cache hold: RNS_DIST_CACHE_HOLD off) */
-        else show_mn(PH_RECIP, w, take, j + 1, gs, 0, 0, (size_t)-1, 1, 0);
+        size_t c1 = j <= take ? newton_recip_cut(take - j) : 0;                                   /* Phase 14 R1 (E7) */
+        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, (size_t)-1, 1, 0);   /* Q itself (no cache hold: RNS_DIST_CACHE_HOLD off) */
+        else show_mn(PH_RECIP, w, take, j + 1, gs, 0, c1, (size_t)-1, 1, 0);
         snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn);
-        show_mn(PH_RECIP, w, j + 1, D_EST(j), gs, 0, 0, (size_t)-1, 1, 0);
+        show_mn(PH_RECIP, w, j + 1, D_EST(j), gs, 0, newton_recip_cut(j), (size_t)-1, 1, 0);
         j = jn;
     }
 }
@@ -192,8 +193,8 @@ static void plan_recip_db(size_t nq, size_t k)
 {
     size_t j = 2; char w[96];
     while (j < k) { size_t jn = newton_chain_next(j, k), take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
-        snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn); show_db(PH_RECIP, w, take, j + 1, 0, (size_t)-1);
-        snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn); show_db(PH_RECIP, w, j + 1, D_EST(j), 0, (size_t)-1);
+        snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn); show_db(PH_RECIP, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, (size_t)-1);   /* Phase 14 R1 (E7) */
+        snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn); show_db(PH_RECIP, w, j + 1, D_EST(j), newton_recip_cut(j), (size_t)-1);
         j = jn; }
 }
 

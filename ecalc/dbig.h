@@ -25,6 +25,8 @@ void db_donate_ext(int dev, void *p, size_t bytes, int own);
 void db_donate_adjacent(int dev, void *p, size_t bytes);   /* Phase 9 C4: a borrowed range joined to the borrowed region it touches (same allocation) */
 void db_pregrow(int dev, size_t bytes);              /* one owned region of `bytes` into the pool now (callable from a background thread) */   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
+size_t db_pool_live(int dev);                        /* Phase 14 S1 (E1): bytes handed out now */
+size_t db_pool_window_peak(int dev, int reset);      /* Phase 14 S1 (E1): the peak since the last reset (reset: restart the window) */
 size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
 int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
 size_t db_pool_largest_free(int dev);                /* Phase 10 B4 (agent M): the largest free extent (what one block can get without a hipMalloc) */

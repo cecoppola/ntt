@@ -1343,6 +1343,9 @@ def main():
     ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
     ap.add_argument("--calib13", action="store_true", help="Phase 13d D2: the recalibrated model against the 13c one-node runs")
     ap.add_argument("--plan", type=float, nargs=4, metavar=("G", "FROM", "TO", "STEP"), help="Phase 13d D2: the piece counts in agent L's plan_sweep columns (total digits)")
+    ap.add_argument("--e7", action="store_true", help="Phase 14 R1: the reciprocal's cut (NEWTON_RECIP_CUT) per doubling under the pipeline law")
+    ap.add_argument("--e9", action="store_true", help="Phase 14 R1: Karatsuba over the device grid and the cut-aware grid, the dm phase's big products")
+    ap.add_argument("--e10", action="store_true", help="Phase 14 R1: the 576-node tree-level spill against MN_T_CHUNK_MB=1024")
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
@@ -1350,6 +1353,9 @@ def main():
         sys.exit(0 if calibrate(a.rule) else 1)
     if a.calib13:
         calib13(); return
+    if a.e7: e7_report(); return
+    if a.e9: e9_report(share576=7.64e10); return
+    if a.e10: e10_report(); return
     if a.plan:
         plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3]); return
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
@@ -1381,6 +1387,265 @@ def main():
         print("  the third layer at 4e10 x 576 (group %d): wall %.1f -> %.1f s, exposed %.1f -> %.1f s, NIC bytes %s -> %s, messages per APU %d -> %d"
               % (a.group, r2["wall"], r3["wall"], r2["exposed"], r3["exposed"], fmt_b(r2["nic"]), fmt_b(r3["nic"]), r2["msgs"], r3["msgs"]))
     schedules(fab, a.rule, form=a.tree)
+
+
+# ============================================================================================================
+# Phase 14 R1 (PLAN 34 row R1, results/R114.md): E7 the reciprocal's products cut to the band read, E9 Karatsuba over
+# the device grid, E10 the 576-node tree-level spill.  Model terms only: the calibrated path (run / node_phases) is
+# untouched; every function here is evaluated on demand (--e7 / --e9 / --e10).  Labels: the pipeline law's constants
+# are FITTED (D2), the Karatsuba add rate and the spill's hidden writes are ASSUMED (said where used).
+# ============================================================================================================
+KARA_ADD_S = GRID_NC                   # ASSUMED: a dbig add/sub pass costs what the grid's accumulation pass over C costs, per 2^31 limbs (the same HBM-bound kernel family)
+E10_PEAK_GB = (NODE_GB_MARGIN, NODE_GB)
+
+def _law_piece(st, p, nc, grid, np=3):
+    """one piece's seconds under the pipeline law (D2): t_prod x PIPE_ONE (+ GRID_ADD per 2^31 points of the piece + GRID_NC per 2^31 limbs
+    of the whole product, when the product is a grid), x NTT_MODMUL=1's factor"""
+    tp = t_prod(st, p, np)[0] * PIPE_ONE.get(st, 1.0)
+    if grid: tp += (GRID_ADD.get(st, 0.0) * p + GRID_NC * nc) / (1 << 31)
+    return tp * F_MM1
+
+def law_product(na, nb, lowcut=0, w=1 << 62, strategy='auto', cap=1 << 31, np=3):
+    """(seconds, formed pieces, (ka, kb)) of one single-node product C = A B with the grid's cuts, under the pipeline law"""
+    if na <= 0 or nb <= 0 or w <= 0 or lowcut >= na + nb: return 0.0, 0, (0, 0)
+    (ka, kb), pcs = product_pieces(na, nb, lowcut, w, strategy, cap, np)
+    return sum(_law_piece(st, p, na + nb, ka * kb > 1, np) for st, p in pcs), len(pcs), (ka, kb)
+
+def recip_chain(D):
+    """the anchored chain at D digits (the code's exact sizes): [(j, jn, take)], k_mu, nq"""
+    ex = exact_sizes(D); nq = ex['nq']; k = ex['pn'] + 1 + ex['dl'] - nq + 1
+    j = 2; out = []
+    while j < k:
+        jn = k
+        while (jn + 1) // 2 > j: jn = (jn + 1) // 2
+        out.append((j, jn, min(2 * j + 2, nq))); j = jn
+    return out, k, nq
+
+def dm_phase(D, design=None):
+    """the calibrated model's reciprocal + division seconds at D digits on one node (run() under CAL13)"""
+    r = run(TARGET, D, 1, verbose=False, design=design or DEFAULT13())
+    return r['recip'], r['div']
+
+def e7_report(Ds=(4e10, 7.64e10, 1e11, 1.3e11), guard=1, verbose=True):
+    """E7: the reciprocal's two products per doubling with and without the low cut newton_db.c takes under NEWTON_RECIP_CUT (band - guard),
+    under the pipeline law; the saving against the calibrated dm phase.  Returns {D: (saved_s, recip_s, div_s)}"""
+    out = {}
+    for D in Ds:
+        chain, k, nq = recip_chain(D); t0 = t1 = 0.0; rows = []
+        for j, jn, take in chain:
+            for name, na, nb, v in (('Q_t r', take, j + 1, take - j), ('r d', j + 1, j + 2, j)):
+                c = v - guard if v > guard else 0
+                a, fa, g0 = law_product(na, nb); b, fb, g1 = law_product(na, nb, c)
+                t0 += a; t1 += b
+                if g0[0] * g0[1] > 1: rows.append((j, jn, name, na, nb, c, g0, fa, fb, a, b))
+        rs, ds = dm_phase(D); out[D] = (t0 - t1, rs, ds)
+        if verbose:
+            print("E7 at %.3g digits: k_mu %d, nq %d; the grid doublings (pipeline law, modelled):" % (D, k, nq))
+            for j, jn, name, na, nb, c, g, fa, fb, a, b in rows:
+                print("   j %d -> %d %-6s %d x %d limbs, grid %d x %d, cut %d: %d -> %d pieces, %.2f -> %.2f s" % (j, jn, name, na, nb, g[0], g[1], c, fa, fb, a, b))
+            print("   reciprocal's grid products %.2f -> %.2f s: saving %.2f s = %.1f %% of the modelled reciprocal (%.1f s), %.1f %% of dm (%.1f s)"
+                  % (t0, t1, t0 - t1, 100 * (t0 - t1) / rs if rs else 0, rs, 100 * (t0 - t1) / (rs + ds) if rs + ds else 0, rs + ds))
+    return out
+
+# ---- E9: a 2 x 2 Karatsuba layer on top of mul_grid ---------------------------------------------------------------------------
+def _split_cut_aware(na, nb, lowcut, w, cap, r3, logmax, np):
+    """the grid (ka, kb) that minimises the cost of the FORMED pieces under the cuts (rns_dist.c split_grid weighs every piece,
+    cut or not): the same weights as _split_auto (B length x 0.70, 3 2^k x 1.05), the fewest pieces on a 0.1 % tie"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            if pa + pb > cap: continue
+            if _b_fits(pa + pb, logmax, r3, np): n, t3 = _b_len(pa + pb); wgt = n * (1.05 if t3 else 1.0) * 0.70
+            else: pts = _plane_pts_cap(pa + pb, r3, logmax); wgt = pts * (1.05 if pts & (pts - 1) else 1.0)
+            formed = 0
+            for jb in range(j):
+                for ia in range(i):
+                    oa, ob = ia * pa, jb * pb
+                    if oa >= na or ob >= nb: continue
+                    la, lb = min(pa, na - oa), min(pb, nb - ob)
+                    if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+                    formed += 1
+            cost = formed * wgt
+            if best is None or cost < best[0] * 0.999 or (cost <= best[0] * 1.001 and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+def law_product_cutaware(na, nb, lowcut=0, w=1 << 62, strategy='auto', cap=1 << 31, np=3):
+    """law_product with the grid chosen knowing the cuts (a candidate code change in split_grid: E9's cheap alternative)"""
+    if na <= 0 or nb <= 0 or w <= 0 or lowcut >= na + nb: return 0.0, 0, (0, 0)
+    pl, r3 = mem_model.cap_pool(cap); logmax = pl
+    if na + nb <= cap and (na + nb <= (1 << logmax) and (strategy != 'auto' or _b_fits(na + nb, pl, r3, np))): return law_product(na, nb, lowcut, w, strategy, cap, np)
+    ka, kb = _split_cut_aware(na, nb, lowcut, w, cap, r3, logmax, np)
+    pa, pb = -(-na // ka), -(-nb // kb); t = 0.0; n = 0
+    for jb in range(kb):
+        for ia in range(ka):
+            oa, ob = ia * pa, jb * pb
+            if oa >= na or ob >= nb: continue
+            la, lb = min(pa, na - oa), min(pb, nb - ob)
+            if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+            n_ = la + lb
+            if strategy == 'auto' and _b_fits(n_, pl, r3, np): st = AUTO_FORM; p = _b_len(n_)[0]
+            else: st = 'C' if strategy == 'auto' else strategy; p = _plane_pts_cap(n_, r3, logmax)
+            t += _law_piece(st, p, na + nb, ka * kb > 1, np); n += 1
+    return t, n, (ka, kb)
+
+def kara_product(na, nb, lowcut=0, w=1 << 62, depth=1, min_pieces=4, strategy='auto', cap=1 << 31, np=3, cutaware=False):
+    """C = A B with the grid's cuts, with up to `depth` 2 x 2 Karatsuba layers above mul_grid: (seconds, pieces, add_limbs, extra_limbs).
+    A layer splits both operands at h = ceil(max(na, nb) / 2) (z0 = A0 B0, z1 = (A0 + A1)(B0 + B1), z2 = A1 B1; unequal operands:
+    the longer one in chunks of the shorter's length, each chunk x the shorter as its own product); each half product carries the
+    band the cuts need of it (z0 on [lowcut - h, w), z1 on [lowcut - h, w - h), z2 on [lowcut - 2h, w - h): the correction z1 - z0 - z2
+    needs the low parts even where the plain grid skips them -- for a half-cut product a layer saves nothing, see R114.md 3);
+    the layer's adds (two half-sums, two subtractions, two shifted adds) at KARA_ADD_S per 2^31 limbs (ASSUMED); the extra memory =
+    z1's buffer + the two half-sums (the plain grid needs C and one piece temporary).  A product that fits one plane, or whose plain grid
+    forms fewer than min_pieces pieces, is the plain grid."""
+    lp = (law_product_cutaware if cutaware else law_product)(na, nb, lowcut, w, strategy, cap, np)
+    if depth <= 0 or lp[1] < min_pieces or na + nb <= cap: return lp[0], lp[1], 0, 0
+    if na > 1.5 * nb or nb > 1.5 * na:                                 # unequal: chunks of the shorter's length
+        if nb > na: na, nb = nb, na
+        t = 0.0; n = 0; adds = 0; extra = 0; off = 0
+        while off < na:
+            la = min(nb, na - off)
+            lo2 = max(0, lowcut - off); w2 = w - off
+            if w2 > 0 and lo2 < la + nb:
+                a, b, c, d = kara_product(la, nb, lo2, w2, depth, min_pieces, strategy, cap, np, cutaware)
+                t += a; n += b; adds += c + (la + nb if off else 0); extra = max(extra, d)
+            off += nb
+        return t, n, adds, extra
+    h = -(-max(na, nb) // 2)
+    lo1 = max(0, lowcut - h); lo2 = max(0, lowcut - 2 * h); w1 = w - h
+    z0 = kara_product(h, h, lo1, w, depth - 1, min_pieces, strategy, cap, np, cutaware)
+    z1 = kara_product(h + 1, h + 1, lo1, w1, depth - 1, min_pieces, strategy, cap, np, cutaware)
+    z2 = kara_product(na - h, nb - h, lo2, w1, depth - 1, min_pieces, strategy, cap, np, cutaware)
+    layer_adds = 2 * (h + 1) + 2 * (2 * h + 2) + 2 * (2 * h + 2)
+    adds = layer_adds + z0[2] + z1[2] + z2[2]
+    extra = (2 * h + 2) + 2 * (h + 1) + max(z0[3], z1[3], z2[3])
+    t = z0[0] + z1[0] + z2[0] + KARA_ADD_S * F_MM1 * layer_adds / (1 << 31)
+    return t, z0[1] + z1[1] + z2[1], adds, extra
+
+def e9_report(Ds=(4e10, 7.64e10, 1e11, 1.3e11), verbose=True, share576=None):
+    """E9: the dm phase's big products (the reciprocal's top doublings, A_h mu, X Q) plain / cut-aware grid / Karatsuba 1 and 2 layers;
+    the saving against the calibrated dm phase and the extra memory.  share576: also the 576-node share (its size-1 shapes: the mn tier
+    is not modelled here -- its pieces are C-form over 576 nodes and its grids follow mn_grid, see R114.md 3)"""
+    res = {}
+    for D in list(Ds) + ([share576] if share576 else []):
+        chain, k, nq = recip_chain(D); ex = exact_sizes(D); dl, sn = ex['dl'], ex['sn']; kd = sn + dl - nq + 1
+        prods = []
+        for j, jn, take in chain[-3:]:
+            prods.append(('recip Q_t r j %d' % j, take, j + 1, 0, 1 << 62))
+            prods.append(('recip r d   j %d' % j, j + 1, j + 2, 0, 1 << 62))
+        prods.append(('div A_h mu (low cut)', sn - (nq - 1 - dl), kd + 1, kd + 1, 1 << 62))
+        prods.append(('div X Q mod B^w', dl + 1, nq, 0, nq + 2))
+        tot = dict(plain=0.0, cutaware=0.0, kara1=0.0, kara2=0.0, kara1c=0.0); extra = 0; rows = []
+        for name, na, nb, lo, w in prods:
+            p = law_product(na, nb, lo, w); c = law_product_cutaware(na, nb, lo, w)
+            k1 = kara_product(na, nb, lo, w, 1); k2 = kara_product(na, nb, lo, w, 2); k1c = kara_product(na, nb, lo, w, 1, cutaware=True)
+            tot['plain'] += p[0]; tot['cutaware'] += c[0]; tot['kara1'] += k1[0]; tot['kara2'] += k2[0]; tot['kara1c'] += k1c[0]
+            extra = max(extra, k1[3]); rows.append((name, na, nb, p, c, k1, k2, k1c))
+        rs, ds = dm_phase(D); res[D] = dict(tot=tot, extra_gb=extra * 8 / 1e9, recip=rs, div=ds)
+        if verbose:
+            print("E9 at %.4g digits (nq %d): dm = reciprocal %.1f + division %.1f s (calibrated model); the big products under the pipeline law:" % (D, nq, rs, ds))
+            print("   %-22s %11s %11s | %7s %-9s | %7s %-9s | %7s %-5s | %7s %-5s | %7s" % ('product', 'na', 'nb', 'plain', 'grid pcs', 'cut-aw', 'grid pcs', 'kara1', 'pcs', 'kara2', 'pcs', 'k1+cut'))
+            for name, na, nb, p, c, k1, k2, k1c in rows:
+                print("   %-22s %11d %11d | %6.1fs %2dx%-2d %3d | %6.1fs %2dx%-2d %3d | %6.1fs %4d  | %6.1fs %4d  | %6.1fs" % (name, na, nb, p[0], p[2][0], p[2][1], p[1], c[0], c[2][0], c[2][1], c[1], k1[0], k1[1], k2[0], k2[1], k1c[0]))
+            t = tot; dm = rs + ds
+            print("   totals: plain %.1f | cut-aware grid %.1f (%+.1f %% of dm) | Karatsuba 1 layer %.1f (%+.1f %%), 2 layers %.1f (%+.1f %%), 1 layer + cut-aware %.1f (%+.1f %%); extra memory of a layer %.1f GB (z1 + the half-sums)"
+                  % (t['plain'], t['cutaware'], 100 * (t['cutaware'] - t['plain']) / dm, t['kara1'], 100 * (t['kara1'] - t['plain']) / dm, t['kara2'], 100 * (t['kara2'] - t['plain']) / dm, t['kara1c'], 100 * (t['kara1c'] - t['plain']) / dm, extra * 8 / 1e9))
+    return res
+
+# ---- E10: the 576-node tree-level spill (apumult M56) against MN_T_CHUNK_MB=1024 -------------------------------------------------
+def tree_need_e10(nq_leaf, g, opts, variant='code', where='top'):
+    """mem_model.tree_need_dev's level loop with the top level's live set under a variant (per device, bytes; the 1/16 as there):
+    'code'  : both pairs of the child, the running pair (k-way), the new pair, all live across the level's two products (mn.c tree_level_k);
+    'free'  : E10a (no disk) -- P_i and P_run are dead after MUL1 (P_n = P_i Q_run + P_run) and freed before MUL2 (Q_n = Q_i Q_run);
+    'spill' : E10b (M56) -- 'free' + Q_i spilled to disk under MUL1 (read back before MUL2) and P_n spilled under MUL2 (read back after);
+    the peak is max(MUL1, MUL2) of the shares live + the product's scratch.  where: 'top' (the top level only) or 'all'.
+    Returns (need_bytes, level_bytes_by_size, cold_read_bytes at the top level)"""
+    qb = mem_model.quarter_bytes; best = 0; levels = {}; cold = 0; lv = []
+    for S, ch in mem_model.level_children(g, opts.get('groups')):
+        gg = S; nch = len(ch); P = ch[0]
+        if nch < 2: continue
+        nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
+        share_child = nq_leaf + 8; share_run = -(-nb // gg); share_new = -(-nc // gg)
+        scratch, pieces = mem_model.mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, opts.get('pool_log', 31), opts.get('logr_delta', 0), opts.get('t_chunk_mb', 0))
+        c, r, n = qb(share_child + share_child // 8), qb(share_run + share_run // 8), qb(share_new + share_new // 8)
+        lv.append((S, nch, c, r, n, scratch))
+    top_code = max(2 * c + (2 * r if nch > 2 else 0) + 2 * n + scratch for S, nch, c, r, n, scratch in lv)
+    for S, nch, c, r, n, scratch in lv:
+        code = 2 * c + (2 * r if nch > 2 else 0) + 2 * n
+        v = variant if (S == g or (where == 'all' and code + scratch >= 0.9 * top_code)) else 'code'   # 'all': every level as heavy as the top (the 3-way ones at 576)
+        if v == 'code': live = code
+        else:
+            rr = r if nch > 2 else 0
+            mul1 = 2 * c + 2 * rr + n if v == 'free' else c + 2 * rr + n      # P_i (Q_i spilled), P_run, Q_run, P_n
+            mul2 = c + rr + 2 * n if v == 'free' else c + rr + n              # Q_i, Q_run, Q_n (P_n spilled)
+            live = max(mul1, mul2)
+            if v == 'spill': cold += c + n                                     # read back per spilled level: Q_i before MUL2, P_n after
+        levels[S] = (live + scratch) * 17 // 16
+        best = max(best, live + scratch)
+    return best + best // 16, levels, cold
+
+def node_peak_e10(D, g, opts, variant='code', dm_factor=1.0, where='top'):
+    """mem_model.mem_per_node with the tree need replaced by tree_need_e10's and the dm need scaled by dm_factor (V2 / V3 of F1 6:
+    ASSUMED as the ratio 270 / 309, 243 / 309 at the target share): the node peak (bytes), the parts, the cold bytes read back"""
+    r = mem_model.mem_per_node(int(D), g, opts)
+    nq_leaf = (r['nq'] + g - 1) // g
+    tree1, levels, cold = tree_need_e10(nq_leaf, g, opts, variant, where)
+    dm = r['dm_need'] * dm_factor
+    arena0 = max(r['dm_need'], r['tree_need']); arena1 = max(dm, mem_model.NR * tree1)
+    peak = r['node_peak'] - (arena0 - arena1)
+    return dict(peak=peak, arena=r['arena'] - (arena0 - arena1), dm_need=dm, tree_need=mem_model.NR * tree1, tree0=r['tree_need'], cold=mem_model.NR * cold, levels=levels, planes=r['planes'], exchange=r['exchange'], host=r['host_hwm'])
+
+def ceiling_e10(g, budget_bytes, opts, variant='code', dm_factor=1.0, lo=2e10, hi=2e11, where='top'):
+    """the largest D per node (to 10^8) whose node_peak_e10 fits the budget"""
+    lo, hi = int(lo), int(hi)
+    if node_peak_e10(hi, g, opts, variant, dm_factor, where)['peak'] <= budget_bytes: return hi
+    if node_peak_e10(lo, g, opts, variant, dm_factor, where)['peak'] > budget_bytes: return 0
+    while hi - lo > 1e8:
+        m = (lo + hi) // 2
+        if node_peak_e10(m, g, opts, variant, dm_factor, where)['peak'] <= budget_bytes: lo = m
+        else: hi = m
+    return lo // 10**8 * 10**8
+
+def e10_report(g=576, bws=(5.0, 10.0), verbose=True):
+    """E10 at 576: per variant (the code / E10a free / E10b spill) x (dm as built V0 / V2 / V3 of F1) x (MN_T_CHUNK_MB 0 / 1024): the
+    per-node ceiling at 480 and 502 GB, the total digits (the top node's share = 1.036 x the average: top_factor), the wall at the
+    ceiling (mn_model.run + the spill's exposed read-back at bw GB/s; the writes hidden under the level's products if bw >= bytes /
+    product time, else the excess exposed -- ASSUMED), and the elasticity against the built default (% time per % digits)"""
+    dz0 = DEFAULT13(); dz1 = Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1)
+    base = None; rows = []
+    for chunk_name, dz in (('T off', dz0), ('T 1024', dz1)):
+        for dmn, dmf in (('V0', 1.0), ('V2', 270.0 / 309.0), ('V3', 243.0 / 309.0)):
+            for variant, where in (('code', 'top'), ('free', 'all'), ('spill', 'top'), ('spill', 'all')):
+                opts = dict(dz.mem_opts(4.25e13), transport='shmem', staging='resident')
+                for budget in E10_PEAK_GB:
+                    Dn = ceiling_e10(g, budget * 1e9, opts, variant, dmf, where=where)
+                    if not Dn: continue
+                    m = node_peak_e10(Dn, g, opts, variant, dmf, where)
+                    tf = top_factor(Dn * g, g); Dtot = Dn * g / tf
+                    r = run(TARGET, Dn / tf, g, verbose=False, design=dz)
+                    top = [c for k_, s_, c in r['levels_rows'] if s_ == g]; t_top = top[0].t if top else 0.0
+                    io = {}
+                    for bw in bws:
+                        rd = m['cold'] / 1e9 / bw
+                        wr = max(0.0, m['cold'] / 1e9 / bw - t_top / 2)
+                        io[bw] = rd + wr
+                    row = dict(chunk=chunk_name, dm=dmn, variant=variant + ('' if where == 'top' or variant == 'code' else '*'), budget=budget, Dn=Dn, Dtot=Dtot, peak=m['peak'] / 1e9, arena=m['arena'] / 1e9, dm_need=m['dm_need'] / 1e9,
+                               tree=m['tree_need'] / 1e9, tree0=m['tree0'] / 1e9, cold=m['cold'] / 1e9, wall=r['wall'], io=io, t_top=t_top)
+                    rows.append(row)
+                    if base is None and chunk_name == 'T off' and dmn == 'V0' and variant == 'code' and budget == NODE_GB_MARGIN: base = row
+    if verbose:
+        print("E10 at %d nodes (modelled: mem_model's terms with the tree's top level under the variant; the wall from mn_model.run at the ceiling; the spill's I/O per node at %s GB/s):" % (g, '/'.join('%g' % b for b in bws)))
+        print("   base = the built default at 480 GB: D/node %.3e, %.3e digits, wall %.1f s" % (base['Dn'], base['Dtot'], base['wall']))
+        print("   (tree: code = mn.c as built; free = E10a, P_i and P_run freed after the level's first product, every heavy level; spill = E10b (M56), + Q_i and P_n spilled, the top level only, spill* = every heavy level)")
+        print("   %-7s %-3s %-6s %4s | %9s %9s | %6s %6s %6s %6s %5s | %7s %s | %s" % ('chunk', 'dm', 'tree', 'GB', 'D/node', 'digits', 'peak', 'arena', 'dm', 'tree', 'cold', 'wall', ' '.join('+io@%g' % b for b in bws), 'elasticity (% time / % digits) at each bw'))
+        for row in rows:
+            el = []
+            for bw in bws:
+                w1 = row['wall'] + row['io'][bw]; dd = row['Dtot'] / base['Dtot'] - 1
+                el.append('%.2f' % ((w1 / base['wall'] - 1) / dd) if abs(dd) > 1e-3 else '  - ')
+            print("   %-7s %-3s %-6s %4.0f | %9.3e %9.3e | %6.0f %6.0f %6.0f %6.0f %5.0f | %7.1f %s | %s" % (row['chunk'], row['dm'], row['variant'], row['budget'], row['Dn'], row['Dtot'], row['peak'], row['arena'], row['dm_need'], row['tree'], row['cold'], row['wall'],
+                  ' '.join('%6.1f' % row['io'][b] for b in bws), ' '.join(el)))
+    return rows
 
 cal13_reset()                          # Phase 13d D2: PIECE13 from the recalibration
 
