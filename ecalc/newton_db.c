@@ -103,7 +103,8 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             rns_mul_high_db(&t1, &r, &r2, newton_recip_cut(j));    /* r |d| -> t1 (u is consumed); E7: the pieces below j - guard skipped */
             dbig corr = db_view(&t1, j, t1.n > j ? t1.n - j : 0); db_norm(&corr);   /* |corr| = t1 >> j */
             int converged = corr.n <= j + 1;
-            if (recip_cut) printf("newton(db) j %zu (k %zu): recip cut %zu pieces skipped, %zu formed in the step's two products\n", j, k, rns_dist_st.n_skipped - s0, rns_dist_st.n_formed - f0);
+            if (recip_cut && rns_dist_st.n_formed + rns_dist_st.n_skipped > f0 + s0)   /* the doublings whose products are grids */
+                printf("newton(db) j %zu (k %zu): recip cut %zu pieces skipped, %zu formed in the step's two products\n", j, k, rns_dist_st.n_skipped - s0, rns_dist_st.n_formed - f0);
             if (neg) {                                              /* r' = (r << j) - corr; overshoot if that would be <= 0 (E7: <= 1) */
                 size_t rn = r.n + j; int over = rn < corr.n || (rn == corr.n && shifted_cmp_le(&r, j, &corr, recip_cut));
                 if (over) { newton_st.overshoots++; shrink_db(&r); continue; }
