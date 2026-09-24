@@ -157,7 +157,7 @@ class Cost:
         self.t += o.t; self.t_exposed += o.t_exposed; self.nic += o.nic; self.glob += o.glob; self.msgs += o.msgs; self.pieces += o.pieces; self.xfers += o.xfers
         return self
 
-def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
+def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=False):
     """one piece product of pts plane points over a group of g nodes (every node transforms: L's balanced map): the
     local passes on 4 g ranks, the fabric exchanges (12 layered all-to-alls per piece: 3 per prime, fewer with cache
     hits), the operand redistributions and the result exchange, the spill all-gather (form 'flat': every rank's 4 C
@@ -170,6 +170,8 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid"):
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
     else: t31 = T_PIECE_31_NP[dz.np] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
     t_loc = t31 * scale + 0.005
+    if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
+        t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
     t_loc *= fab.gpu_share
     # the transforms' exchanges: EC_NP x (fwd + 1) layered all-to-alls of 8 q bytes per APU; the xGMI stage of one
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
@@ -209,7 +211,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1)
+    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'])
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -242,7 +244,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
                 if i > 0 and not first: fwd = 1                       # B piece j is in its slot: A only
                 if i == 0 and j > 0: fwd = 1                          # A piece 0 is in its slot: B only
                 if i > 0 and j > 0: fwd = 1
-            c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form))
+            c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form, grid=True))
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
@@ -315,15 +317,26 @@ def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
     if cur != g: c.add(shift_cost(fab, k + 1, g))                      # mu onto the full group
     return c, groups
 
-def division_cost(fab, nq, dl, npn, g, rule, form):
+def exact_sizes(T):
+    """Phase 13d D2: the run's lengths as the code has them (agent L's mn_plan.c pq_of): dl = ceil(d / 18) for d = T rounded up to
+    a multiple of 18; Q(1, N+1) = N! has log10 N! digits, P = Q (e - 1), S = P + Q = Q e; limbs = floor(log10 / 18) + 1"""
+    d = mem_model.digits_of_run(int(T)); N = _terms(T); lq = _lf(N)
+    lim = lambda lg: int(math.floor(lg / LIMB_DIGITS)) + 1
+    return dict(dl=(d + 17) // 18, nq=lim(lq), pn=lim(lq + math.log10(math.e - 1)), sn=lim(lq + math.log10(math.e)))
+
+def division_cost(fab, nq, dl, npn, g, rule, form, sn=None):
     """S = P + Q, A_h = S >> (nq - 1 - dl), t = A_h mu (low cut k + 1), X = t >> (k + 1), X Q mod B^w (high cut w),
-    the window, the corrections, the residues; the reciprocal first"""
-    na = npn + dl; k = na - nq + 1; w = nq + 2
-    rc, groups = recip_cost(fab, nq, k, g, rule, form)
+    the window, the corrections, the residues; the reciprocal first.  Phase 13d D2 (newton_db.c newton_mn_divmod, L's plan):
+    the reciprocal to k_mu = P + 1 + dl - nq + 1 (S's largest possible length), the division's k = S + dl - nq + 1"""
+    if sn is None: sn = npn
+    na = sn + dl; k = na - nq + 1; w = nq + 2; kmu = npn + 1 + dl - nq + 1
+    rc, groups = recip_cost(fab, nq, kmu, g, rule, form)
     c = Cost()
     c.add(shift_cost(fab, nq, g)); c.add(small_cost(fab, g, 3))        # Q into P's basis, S = P + Q, residues of P, Q
     c.add(shift_cost(fab, na, g))                                      # A_h
-    nah = 2 * dl + 1
+    nah = sn - (nq - 1 - dl)                                           # Phase 13d D2: A_h = S >> (nq - 1 - dl): dl + 1 limbs (newton_db.c 713;
+                                                                       # the 1.42e11 log: 7888888890 x 7888888891); the model had 2 dl + 1
+                                                                       # (the shift applied to S B^dl), twice the product
     c.add(product_cost(fab, nah, k + 1, g, lowcut=k + 1, form=form))   # A_h mu
     c.add(shift_cost(fab, nah + k + 1, g))                             # X
     c.add(product_cost(fab, dl + 1, nq, g, highcut=w, form=form))      # X Q mod B^w
@@ -340,12 +353,60 @@ SCHEDULES = {                       # the three schedules for 576 (MN_GROUPS val
     "3x3": "2,4,8,16,32,64,192,576",                   # ... then two 3-way levels
 }
 
-def tree_cost(fab, nq_node, g, groups=None, form="grid"):
+# Phase 13d D2: the code gives every node the same number of TERMS (mn.c: node r computes [1 + N r / g, 1 + N (r+1) / g)),
+# not the same number of digits: a node's Q has sum log10 k over its terms, so the top node's share is ~3.6 % above the
+# average at 576 nodes (4.4e13: 1.0358; node 0's 0.772).  Every tree level waits for its slowest group -- the top one -- and
+# the wall for the slowest leaf -- the top node's.  SHARES = 'terms' costs the top group and the top node's leaf (the code);
+# 'even' = every node D digits (the model before 13d, which put the 576-node tree step 3.6 % too late).
+SHARES = 'terms'
+EXACT13 = True                         # Phase 13d D2: big_shapes (size 1) on the code's exact lengths (exact_sizes)
+_L10 = math.log(10.0)
+def _lf(n): return math.lgamma(n + 1.0) / _L10                          # log10 n!
+
+@functools.lru_cache(maxsize=None)
+def _terms(T): return mem_model.e_terms(mem_model.digits_of_run(int(T)))
+
+def range_limbs(T, g, r0, r1):
+    """limbs of Q (P is the same length to a few limbs) over the nodes [r0, r1) of a g-node run of T total digits"""
+    N = _terms(T)
+    return (_lf(N * r1 // g) - _lf(N * r0 // g)) / LIMB_DIGITS
+
+def top_factor(T, g):
+    """the top node's digits over the average (1 at g = 1 or SHARES = 'even')"""
+    if g <= 1 or SHARES != 'terms': return 1.0
+    N = _terms(T)
+    return range_limbs(T, g, g - 1, g) / (_lf(N) / LIMB_DIGITS / g)
+
+def level_top_group(g, groups=None, which='top'):
+    """per level (S, [child limbs fractions]): the top group [start, g) of the level (which = 'bottom': node 0's, [0, S)) and
+    its children (the previous level's groups inside it), as node ranges"""
+    out = []; P = 1
+    for S in mem_model.mn_groups(g, groups):
+        start = ((g - 1) // S) * S if which == 'top' else 0; end = min(start + S, g); ch = []; k = start
+        while k < end: ch.append((k, min(k + P, end))); k += P
+        out.append((S, end - start, ch)); P = S
+    return out
+
+def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='top'):
     """level by level (mem_model.level_children: the level's group of S nodes and its children m_1 .. m_k, the
     previous level's groups): a k-way level is the fold the tree runs (results/L.md; tree_level for k = 2):
     (P, Q) <- (P Q_i + P_i, Q Q_i) for i = 2 .. k -- 2 (k - 1) products over the level's S nodes, the accumulated
-    operand growing from m_1 to S - m_k leaf shares, the P product with the shifted add (X)."""
+    operand growing from m_1 to S - m_k leaf shares, the P product with the shifted add (X).
+    Phase 13d D2: SHARES = 'terms' (T, the total digits, given): the operands are the top group's children's real lengths"""
     rows = []
+    if SHARES == 'terms' and T is not None:
+        for S, Sg, ch in level_top_group(g, groups, which):
+            # mn.c tree_level (2 children: A = the lower, B = the upper) and tree_level_k (Horner from the top child: the running
+            # pair starts as child k-1's, then P = P_i Q + P, Q = Q_i Q for i = k-2 .. 0 -- A = child i, B = the running Q)
+            c = Cost(); run_ = int(range_limbs(T, g, ch[-1][0], ch[-1][1]))
+            for (r0, r1) in reversed(ch[:-1]):
+                m = int(range_limbs(T, g, r0, r1))
+                c.add(product_cost(fab, m, run_, Sg, with_x=True, form=form))
+                c.add(product_cost(fab, m, run_, Sg, form=form))
+                run_ += m
+            c.add(small_cost(fab, Sg, 2))
+            rows.append((len(ch), Sg, c))
+        return rows
     for S, ch in mem_model.level_children(g, groups):
         c = Cost(); acc = ch[0]
         for m in ch[1:]:
@@ -506,17 +567,61 @@ def _split_cap(na, nb, cap, r3, logmax):
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
 
-def big_shapes(D, scope=('top', 'recip', 'div')):
+LEAF13 = True                          # Phase 13d D2: the leaf's mdev levels from the code's span tree (leaf_shapes), not nq/2 x nq/2 and nq/4 x nq/4
+BS_SEED_TERMS = 256
+BS_MDEV_LOGL = 30                      # RNS_BATCH_LOGL_MAX: a level whose 2 max + 1 limbs exceed 2^30 runs on the mdev tier (binsplit.c)
+
+def _lg10_f(a, b):
+    """log10 of P / Q over the terms [a, b) (mn_plan.c lg10_f: f = sum_{m=a}^{b-1} 1 / (a (a+1) ... m))"""
+    t = 1.0; f = 0.0
+    for m in range(a, min(b, a + 64)):
+        t /= m; f += t
+        if t < f * 1e-30: break
+    return math.log10(f)
+
+def _pq_limbs(a, b):
+    """(P limbs, Q limbs) over the terms [a, b): Q = a (a+1) ... (b-1)"""
+    lq = (math.lgamma(b) - math.lgamma(a)) / _L10 if b > a + 1 else (math.log10(a) if b == a + 1 else 0.0)
+    lim = lambda lg: 1 if lg < 0 else int(math.floor(lg / LIMB_DIGITS)) + 1
+    return lim(lq + _lg10_f(a, b)), lim(lq)
+
+@functools.lru_cache(maxsize=None)
+def leaf_shapes(D, a0=1, b1=None):
+    """binsplit.c's level loop over spans of BS_SEED_TERMS terms (agent L's mn_plan.c plan_leaf): node i of level l covers the spans
+    [i 2^l, (i+1) 2^l) (the last cut), pairs (2i, 2i+1) combined as P = P_a Q_b + P_b, Q = Q_a Q_b; the levels whose largest node
+    (the last two) has 2 max + 1 > 2^BS_MDEV_LOGL limbs are the mdev tier: every pair's two products, (phase 'top', ...)"""
+    if b1 is None: b1 = _terms(D) + 1
+    S = BS_SEED_TERMS; nspan = (b1 - a0 + S - 1) // S; n = nspan; out = []; l = 0
+    def rng(i, m):
+        s0 = i * m; s1 = min((i + 1) * m, nspan); return a0 + s0 * S, min(a0 + s1 * S, b1)
+    while n > 1:
+        npairs = n // 2; m = 1 << l
+        mx = max(max(_pq_limbs(*rng(i, m))) for i in range(max(0, n - 2), n))
+        if 2 * mx + 1 > (1 << BS_MDEV_LOGL):
+            for i in range(npairs):
+                ap, aq = _pq_limbs(*rng(2 * i, m)); bp, bq = _pq_limbs(*rng(2 * i + 1, m))
+                out += [('top', 'leaf level %d pair %d P' % (l + 1, i), ap, bq, 0, 1 << 62, 1), ('top', 'leaf level %d pair %d Q' % (l + 1, i), aq, bq, 0, 1 << 62, 1)]
+        n = npairs + (n & 1); l += 1
+    return tuple(out)
+
+def big_shapes(D, scope=('top', 'recip', 'div'), v13=True):
     """t_cap's shapes at D digits (nq = D / 18 limbs): (phase, name, na, nb, lowcut, w, count)"""
     nq = int(D / 18); k = nq + 1; big = 1 << 62; out = []
+    ex = exact_sizes(D) if (EXACT13 and v13) else None                 # Phase 13d D2: the code's lengths (the cuts' skips turn on a few limbs); v13 off = 13b
+    if ex: nq = ex['nq']; k = ex['pn'] + 1 + ex['dl'] - nq + 1          # the reciprocal's k_mu (newton_db.c)
     if 'top' in scope:
-        out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
+        if ex and LEAF13: out += leaf_shapes(D)                         # Phase 13d D2: the leaf's device (mdev) levels as binsplit.c forms them
+        else: out += [('top', 'tree top', nq // 2, nq // 2, 0, big, 2), ('top', 'tree top-1', nq // 4, nq // 4, 0, big, 4)]
     if 'recip' in scope:
         for j in ((k + 1) // 2, (k + 3) // 4, (k + 7) // 8):
             take = min(2 * j + 2, nq)
             out += [('recip', 'Q_t r', take, j + 1, 0, big, 1), ('recip', 'r d', j + 1, j + 2, 0, big, 1)]
     if 'div' in scope:
-        out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]
+        if ex:                                                         # Phase 13d D2: A_h = S >> (nq - 1 - dl), k = S + dl - nq + 1, X = dl + 1
+            dl, sn = ex['dl'], ex['sn']; kd = sn + dl - nq + 1
+            out += [('div', 'A_h mu', sn - (nq - 1 - dl), kd + 1, kd + 1, big, 1), ('div', 'X Q', dl + 1, nq, 0, nq + 2, 1)]
+        elif v13: out += [('div', 'A_h mu', nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]   # A_h has dl + 1 limbs (was 2 nq + 1)
+        else: out += [('div', 'A_h mu', 2 * nq + 1, nq + 2, nq + 2, big, 1), ('div', 'X Q', nq + 1, nq, 0, nq + 2, 1)]    # the Phase 13b shapes (A_h 2 nq + 1)
     return out
 
 EDGE_INIT = 10.0                       # FITTED (agent P's five edge runs, 465-509 GB of device at init: init 34.4-47.1 s against 28-31 by the mapping
@@ -525,10 +630,21 @@ EXTRA_MAP = {'B': 11.47 / 154.6, 'B4': 4.50 / 90.2}   # s/GB: the B forms' extra
 AUTO_FORM = 'B'                        # rns_dist.c: RNS_STRATEGY_FORM, default B (agent B: B4 is 3-7 % slower than B and fits the same planes)
 AUTO_GRID = True                       # RNS_STRATEGY_GRID=1 (the default under auto): the grid weighs B pieces x 0.70, C x 1, 3 2^k x 1.05
 
+def _b_len(nc):
+    """rns_dist.c b_len: the B form's transform length -- 2^k, or 3 2^(k-2) where it holds nc (the three-prime set has 3 2^k roots)"""
+    k = 20
+    while (1 << k) < nc: k += 1
+    if k > 20 and (3 << (k - 2)) >= nc: return 3 << (k - 2), True
+    return 1 << k, False
+
 @functools.lru_cache(maxsize=None)
-def _split_auto(na, nb, cap, r3, logmax, np):
-    """rns_dist.c split_grid under auto (agent B, 744df439): the grid of the least weighted points, a piece that fits the B form
-    in the pools weighing 0.70 per point, a C piece 1, a 3 2^k length x 1.05; then the fewest pieces"""
+def _b_fits(nc, pl, r3, np):
+    """rns_dist.c b_fits: the B form's planes at b_len(nc) fit the pools as sized at init (b_place, first fit)"""
+    return not any(mem_model.b_extra_limbs(AUTO_FORM, _b_len(nc)[0], pl, r3, np))
+
+@functools.lru_cache(maxsize=None)
+def _split_auto_13b(na, nb, cap, r3, logmax, np):
+    """the Phase 13b port of split_grid under auto (the B pieces at the C plane length, an absolute tie): the 13b layer (pipe off)"""
     best = None
     for i in range(1, 33):
         for j in range(1, 33):
@@ -541,39 +657,104 @@ def _split_auto(na, nb, cap, r3, logmax, np):
     return best[1], best[2]
 
 @functools.lru_cache(maxsize=None)
-def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div')):
-    """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
-    'auto' (rns_dist.c b_choose): the B form (RNS_STRATEGY_FORM, default B) for a piece whose planes fit the pools as sized at
-    init (whole planes, first fit: b_place), else C; auto never allocates.  Its grid (RNS_STRATEGY_GRID=1) prefers pieces that
-    fit B (_split_auto): at the 3 2^30 cap the pieces become 2^31 (which fits the 18 + 18 GiB pools) and every product runs B"""
+def _split_auto(na, nb, cap, r3, logmax, np):
+    """rns_dist.c split_grid under auto (RNS_STRATEGY_GRID=1): a piece that fits the B form weighs its B length (b_len: 2^k or
+    3 2^(k-2)) x 1.05 if 3 2^k x 0.70, one that does not its C plane x 1.05 if 3 2^k; the least cost (within 0.1 %), then the
+    fewest pieces (Phase 13d D2: the B pieces' length was the C plane's, so the 3 2^k B pieces at the 2^31 cap were missed)"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            if pa + pb > cap: continue
+            if _b_fits(pa + pb, logmax, r3, np):
+                n, t3 = _b_len(pa + pb); cost = i * j * n * (1.05 if t3 else 1.0) * 0.70
+            else:
+                pts = _plane_pts_cap(pa + pb, r3, logmax); cost = i * j * pts * (1.05 if pts & (pts - 1) else 1.0)
+            if best is None or cost < best[0] * 0.999 or (cost <= best[0] * 1.001 and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+@functools.lru_cache(maxsize=None)
+def product_pieces(na, nb, lowcut, w, strategy, cap, np, v13=True):
+    """rns_dist.c mul_grid's pieces of one single-node product: ((ka, kb), [(form, points), ...] of the formed pieces).
+    v13 = False: the Phase 13b port (the model node_phases had before 13d: design_table --calibrate's gate)"""
     pl, r3 = mem_model.cap_pool(cap); logmax = pl
-    out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
-    for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope):
-        nc = na + nb; one = nc <= cap
+    nc = na + nb; one = nc <= cap; auto = strategy == 'auto' and AUTO_GRID
+    if not v13:
         if one and r3 and nc > (1 << logmax):
             ka, kb = _split_cap(na, nb, cap, True, logmax); one = ka * kb == 1
-        if strategy == 'auto' and AUTO_GRID and not (one and not any(mem_model.b_extra_limbs(AUTO_FORM, _plane_pts_cap(nc, r3, logmax), pl, r3, np))):
-            ka, kb = _split_auto(na, nb, cap, r3, logmax, np); one = ka * kb == 1
+        if auto and not (one and not any(mem_model.b_extra_limbs(AUTO_FORM, _plane_pts_cap(nc, r3, logmax), pl, r3, np))):
+            ka, kb = _split_auto_13b(na, nb, cap, r3, logmax, np); one = ka * kb == 1
         elif one: ka = kb = 1
         else: ka, kb = _split_cap(na, nb, cap, r3, logmax)
-        pa, pb = -(-na // ka), -(-nb // kb); t = 0.0
+        pa, pb = -(-na // ka), -(-nb // kb); out = []
         for jb in range(kb):
             for ia in range(ka):
                 oa, ob = ia * pa, jb * pb
                 if oa >= na or ob >= nb: continue
                 la, lb = min(pa, na - oa), min(pb, nb - ob)
                 if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
-                p = _plane_pts_cap(nc if one else la + lb, r3, logmax)
-                st = strategy
-                if strategy == 'auto':                                  # rns_dist.c b_choose: the form if its planes fit the pools
-                    st = AUTO_FORM if not any(mem_model.b_extra_limbs(AUTO_FORM, p, pl, r3, np)) else 'C'
-                tp, lab = t_prod(st, p, np); t += tp; labels.add(lab)
+                p = _plane_pts_cap(nc if one else la + lb, r3, logmax); st = strategy
+                if strategy == 'auto': st = AUTO_FORM if not any(mem_model.b_extra_limbs(AUTO_FORM, p, pl, r3, np)) else 'C'
+                out.append((st, p))
+        return (ka, kb), tuple(out)
+    if one and (nc > (1 << logmax) or (auto and not _b_fits(nc, pl, r3, np))):   # rns_dist.c mul_grid (Phase 13d D2: as the code)
+        ka, kb = _split_auto(na, nb, cap, r3, logmax, np) if auto else _split_cap(na, nb, cap, r3, logmax); one = ka * kb == 1
+    elif one: ka = kb = 1
+    else: ka, kb = _split_auto(na, nb, cap, r3, logmax, np) if auto else _split_cap(na, nb, cap, r3, logmax)
+    pa, pb = -(-na // ka), -(-nb // kb); out = []
+    for jb in range(kb):
+        for ia in range(ka):
+            oa, ob = ia * pa, jb * pb
+            if oa >= na or ob >= nb: continue
+            la, lb = min(pa, na - oa), min(pb, nb - ob)
+            if oa + ob >= w or oa + ob + la + lb <= lowcut: continue
+            n_ = nc if one else la + lb
+            p = _plane_pts_cap(n_, r3, logmax); st = strategy
+            if strategy == 'auto':                                      # rns_dist.c b_choose: the form if its planes (at b_len) fit the pools
+                if _b_fits(n_, pl, r3, np): st = AUTO_FORM; p = _b_len(n_)[0]
+                else: st = 'C'
+            out.append((st, p))
+    return (ka, kb), tuple(out)
+
+@functools.lru_cache(maxsize=None)
+def big_products(D, strategy, cap, np, scope=('top', 'recip', 'div'), pipe=False):
+    """the time of the big products at D digits under (strategy, cap, np), per phase: {'top': s, 'recip': s, 'div': s, 'label': ...}.
+    'auto' (rns_dist.c b_choose): the B form (RNS_STRATEGY_FORM, default B) for a piece whose planes fit the pools as sized at
+    init (whole planes, first fit: b_place), else C; auto never allocates.  Its grid (RNS_STRATEGY_GRID=1) prefers pieces that
+    fit B (_split_auto): at the 3 2^30 cap the pieces become 2^31 (which fits the 18 + 18 GiB pools) and every product runs B"""
+    pl, r3 = mem_model.cap_pool(cap)
+    out = {'top': 0.0, 'recip': 0.0, 'div': 0.0}; labels = set()
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D, scope, v13=pipe):   # Phase 13d D2: the 13d structure with the pipeline law (run() under
+        t = 0.0                                                         # CAL13), the Phase 13b one without (node_phases' default: the 13b gate)
+        (ka, kb), pcs = product_pieces(na, nb, lowcut, w, strategy, cap, np, v13=pipe)
+        for st, p in pcs:
+            tp, lab = t_prod(st, p, np); labels.add(lab)
+            if CAL13 and pipe:                                          # Phase 13d D2: the pipeline's per-product law (fit_pipe, G's logs)
+                tp = tp * PIPE_ONE.get(st, 1.0) + ((GRID_ADD.get(st, 0.0) * p + GRID_NC * (na + nb)) / (1 << 31) if ka * kb > 1 else 0.0)
+            t += tp
         out[ph] += t * count
     out['label'] = 'modelled' if 'modelled' in labels else 'measured'
     k = cap_factor(cap, np) if pl <= 30 else 1.0
     if (strategy, cap) in STRAT_FIT and np == 3: k *= strat_factor(strategy, cap)
     for ph in ('top', 'recip', 'div'): out[ph] *= k
     return out
+
+def big_by_form(D, strategy='auto', cap=1 << 31, np=3):
+    """Phase 13d D2: the big products' plain-law seconds by (phase group 'bs' | 'dm', form), x NTT_MODMUL=1's factor (the fit's input)"""
+    out = {}
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D):
+        g = 'bs' if ph == 'top' else 'dm'
+        for st, p in product_pieces(na, nb, lowcut, w, strategy, cap, np)[1]:
+            out[(g, st)] = out.get((g, st), 0.0) + count * t_prod(st, p, np)[0] * F_MM1
+    return out
+
+def pieces1(D, strategy='auto', cap=1 << 31, np=3):
+    """Phase 13d D2: size 1's piece counts in L's MN_PLAN_ONLY=<D>:1 categories for the big shapes: leaf (the mdev levels), div, and
+    the reciprocal's top three doublings"""
+    c = {'top': 0, 'recip': 0, 'div': 0}
+    for ph, name, na, nb, lowcut, w, count in big_shapes(D):
+        c[ph] += count * len(product_pieces(na, nb, lowcut, w, strategy, cap, np)[1])
+    return c
 
 # the M-run (Phase 13b, ~/mrun on aac6, results/mrun_13b.log): 4e10 at size 1, three primes, NTT_MODMUL=1, agent K's kernels on, s24-26
 K_FACTOR = 62.91 / 65.38               # MEASURED: auto at 2^31 with NTT_B1R=3 NTT_PLAN=1 (n 8) against without (n 3)
@@ -733,14 +914,30 @@ def np_factors(np):
     f['other'] = 1.0                                                  # is 0.4 s at 4e10: its own ratio would be noise)
     return f
 
-def node_phases(D, dz, g=1, exclude=None):
+_BIG = {}
+def node_big(D, dz, g=1):
+    """the design's big products (with the pipeline law) inside node_phases' top and recip + div: (top, dm) seconds"""
+    if (D, dz.key(), g) not in _BIG: node_phases(D, dz, g, pipe=True)
+    return _BIG[(D, dz.key(), g)]
+
+DM_REST = 4.00                         # Phase 13d D2: dm's rest (the reciprocal's small steps, the shifts, adds, window, corrections) as
+                                       # DM_REST x (D / 4e10) seconds -- FITTED (fit13) on measured dm less the pipeline law's big products;
+                                       # None: CAL13_LAW['dm'] on the phase table's rest (whose extrapolation beyond 1e11 runs 2.5 x high)
+def cal13_apply(D, dz, g, bs, dm):
+    """Phase 13d D2: CAL13's smooth ratio on the rest of bs (the phase table's part) and dm's rest (DM_REST, linear in D), the big products
+    as the pipeline law has them"""
+    bt, bd = node_big(D, dz, g)
+    dm1 = (bd + DM_REST * D / 4e10) if DM_REST is not None else (cal13(D, 'dm') * (dm - bd) + bd)
+    return cal13(D, 'bs') * (bs - bt) + bt, dm1
+
+def node_phases(D, dz, g=1, exclude=None, pipe=False):
     """the per-node phases of one node at D digits per node under design dz: init, batch, top, recip, div, other (seconds) and
     the label of each.  At g = 1 the whole pipeline; at g > 1 init, batch and top (the leaf) -- the distributed levels, the
     reciprocal and the division come from the fabric model.  top / recip / div = rest x the prime factor + the big products
     under (strategy, cap) (S13's per-product law); x F_MM1 with NTT_MODMUL=1; init by the mapped device (MAP_RATE)"""
     tab = phase_table(exclude); f = np_factors(dz.np); fm = dz.f_mm()
     digits = D * g; cap = dz.cap_at(digits)
-    bp = big_products(D, dz.strategy, cap, dz.np)
+    bp = big_products(D, dz.strategy, cap, dz.np, pipe=pipe)            # Phase 13d D2: pipe = the pipeline law on the design pieces (run() under CAL13); off = the Phase 13b model
     out = dict(batch=_interp(tab, 'batch_ref', D) * BATCH_CAP.get(cap, 1.0) * f['batch'] * fm, other=_interp(tab, 'other', D))
     for ph in ('top', 'recip', 'div'):
         out[ph] = max(0.0, _interp(tab, ph + '_rest', D) * f[ph] + bp[ph]) * fm
@@ -750,7 +947,193 @@ def node_phases(D, dz, g=1, exclude=None):
     out['init'] = _interp(tab, 'init_ref', D) + MAP_RATE * (dev - _dev_init_ref(D, 4, R31)) + EDGE_INIT * min(1.0, max(0.0, (dev - 440.0) / 25.0))
     out['top'] += EXTRA_MAP.get(dz.strategy, MAP_RATE) * extra        # MEASURED per form (agent B, 4e10: 11.47 s for 154.6 GB, 4.50 s for 90.2 GB)
     out['label'] = 'modelled (%s products)' % bp['label']
+    if pipe: _BIG[(D, dz.key(), g)] = (bp['top'] * fm, (bp['recip'] + bp['div']) * fm)   # Phase 13d D2: the big products inside top / recip + div (CAL13's law acts on the rest)
     return out
+
+# ---- Phase 13d D2: the per-node compute recalibrated on the Phase 13c defaults ------------------------------------------------
+# node_phases is the Phase 13b model (K's kernels off, the four-prime phase table extrapolated beyond 4e10 by the rest's law);
+# at 7.64e10 it ran 6.2 % optimistic (RESULTS 80) -- all of it in dm (the design table's leaf_scale, fitted at 4e10 where the
+# model's bs is 12 % high, also scaled bs down by 5 %).  The recalibration: per phase group (init, bs, dm) the ratio measured /
+# node_phases of the DEFAULT design at every measured one-node size of the 13c code, interpolated linearly in log D (flat
+# outside the measured range) and applied to every non-legacy design in run() (CAL13 = True).  K-off runs enter through the
+# measured K ratios.  At g > 1: bs's ratio at the top node's leaf; dm's ratio (the pipeline's big products against the
+# isolated t_strategy pieces: ~85 % of dm at >= 7e10) on the fabric pieces' local part (ASSUMED to carry over).
+CAL13 = True
+# Phase 13d D2: the pipeline's per-product law.  S13's t_strategy medians are isolated products; in the pipeline (G's sweep logs, every
+# 'dist_db' line with its time: fit_pipe) a one-plane product takes PIPE_ONE x the law by form, and a piece of a grid adds GRID_ADD
+# seconds per 2^31 points (the piece's temporary and its shifted add into C).  FITTED on G13d's logs (see results/D213d.md).
+PIPE_ONE = {'C': 1.221, 'B': 1.150, 'B4': 1.150}     # FITTED (fit_pipe on G13d's 11 sweep logs, 303 products / 1381 pieces >= 2^27 limbs)
+GRID_ADD = {'C': 0.0, 'B': 0.075, 'B4': 0.075}       # FITTED (s per 2^31 points of the piece)
+GRID_NC = 0.0793                          # s per piece of a grid per 2^31 limbs of the whole product (the size-1 grid's accumulation passes over C;
+                                       # the mn tier normalises once per product, mn_grid: not applied there)
+K_BS = 23.5 / 25.2                     # MEASURED (M-run 13b, auto 2^31 at 4e10): K's kernels on (n 8) / off (n 3), bs
+K_DM = 22.5 / 22.9                     #   and dm; ASSUMED size-independent where a K-off run is used
+K_INIT = 1.0
+CAL13_RUNS = [   # D, K on, total, init, bs, dm, n, use ('fit' | 'check'), source -- the 13c defaults (auto, 2^31, shift 1024, depth 2) or as noted
+    dict(D=4e10, k=1, total=63.5, init=17.2, bs=23.7, dm=22.5, n=5, use='fit', src='RESULTS 80: five-run series C13c, s24-26 (63.5 +- 1.5 s)'),
+    dict(D=7.64e10, k=1, total=137.9, init=19.5, bs=57.5, dm=60.8, n=1, use='fit', src='RESULTS 80: the share run, s24-30'),
+    dict(D=1.30e11, k=0, total=353.1, init=38.6, bs=148.6, dm=165.8, n=1, use='check', strategy='C', node='s24-30',
+         src='P13b 2^31 edge (job 21069, s24-30): RNS_STRATEGY=C (not auto), K off, no chunking, depth 1 -- a shape check, not fitted'),
+    # G13d's sweep (a), job 21105, s24-16, main's defaults (auto, 2^31, shift 1024, depth 2, K's kernels): ~/g13d/a_*.log, every run VERIFY OK
+    dict(D=6.59e10, k=1, total=109.83, init=22.0, bs=45.3, dm=42.5, n=1, use='fit', src='G13d a_S3_lo_659e8 (s24-16)'),
+    dict(D=6.66e10, k=1, total=120.97, init=22.8, bs=46.0, dm=52.0, n=1, use='fit', src='G13d a_S3_hi_666e8 (s24-16)'),
+    dict(D=7.20e10, k=1, total=126.43, init=21.0, bs=50.8, dm=54.5, n=1, use='fit', src='G13d a_mid_720e8 (s24-16)'),
+    dict(D=7.77e10, k=1, total=150.50, init=24.4, bs=58.1, dm=67.9, n=1, use='fit', src='G13d a_S4_hi_777e8 (s24-16)'),
+    dict(D=8.56e10, k=1, total=172.55, init=22.6, bs=71.6, dm=77.7, n=1, use='fit', src='G13d a_S5_lo_856e8 (s24-16)'),
+    dict(D=8.61e10, k=1, total=178.92, init=22.3, bs=72.7, dm=83.8, n=1, use='fit', src='G13d a_S5_hi_861e8 (s24-16)'),
+    dict(D=9.24e10, k=1, total=189.83, init=24.0, bs=77.0, dm=88.7, n=1, use='fit', src='G13d a_S6_lo_924e8 (s24-16)'),
+    dict(D=9.31e10, k=1, total=191.70, init=20.7, bs=78.4, dm=92.5, n=1, use='fit', src='G13d a_S6_hi_931e8 (s24-16)'),
+    dict(D=1.156e11, k=1, total=307.85, init=31.4, bs=114.6, dm=161.7, n=1, use='fit', src='G13d a_S9_lo_1156e8 (s24-16)'),
+    dict(D=1.163e11, k=1, total=313.86, init=28.3, bs=114.4, dm=170.9, n=1, use='fit', src='G13d a_S9_hi_1163e8 (s24-16)'),
+]
+NODE_F = {'s24-30': 70.73 / 67.89}      # MEASURED (P13b, the same 2^31 run at 4e10 on s24-30 and s24-16): s24-30 runs 4.2 % slower; used by
+                                       # calib13 only (the model predicts an s24-16 / s24-26 node)
+
+def calib13(verbose=True):
+    """Phase 13d D2: the recalibrated model against every measured one-node run of CAL13_RUNS (the gate: 3 % of the wall)"""
+    worst = 0.0
+    if verbose: print('%-10s | %7s %7s %6s | %6s %6s %6s | %s' % ('digits', 'wall', 'model', 'err', 'phases', 'model', 'err', 'source'))
+    for r in sorted(CAL13_RUNS, key=lambda r: r['D']):
+        d = Design(np=3, strategy=r.get('strategy', 'auto'), cap=1 << 31, chunk='shift' if r.get('strategy', 'auto') == 'auto' else 'off', depth=2 if r.get('strategy', 'auto') == 'auto' else 1)
+        x = run(TARGET, r['D'], 1, verbose=False, design=d)
+        nf = NODE_F.get(r.get('node') or next((k for k in NODE_F if k in r['src']), ''), 1.0)
+        kb, kd = (1.0, 1.0) if r['k'] else (1 / K_BS, 1 / K_DM)
+        ph = ((x['batch'] + x['top']) * kb + (x['recip'] + x['div']) * kd) * nf; w = x['init'] + ph + x['other']
+        e = w / r['total'] - 1; ep = ph / (r['bs'] + r['dm']) - 1
+        if r['use'] == 'fit': worst = max(worst, abs(e))
+        if verbose: print('%.4e | %7.1f %7.1f %+5.1f%% | %6.1f %6.1f %+5.1f%% | %s%s%s' % (r['D'], r['total'], w, 100 * e, r['bs'] + r['dm'], ph, 100 * ep, r['src'][:70],
+                          ' [node x %.3f]' % nf if nf != 1.0 else '', ' (check)' if r['use'] != 'fit' else ''))
+    if verbose: print('worst fitted-run wall error %.1f %%' % (100 * worst))
+    return worst
+_C13 = {}
+def _cal13_points():
+    if 'pts' in _C13: return _C13['pts']
+    d = DEFAULT13(); pts = []
+    for r in CAL13_RUNS:
+        if r['use'] != 'fit': continue
+        p = node_phases(r['D'], d)
+        kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
+        pts.append((r['D'], dict(init=r['init'] / p['init'], bs=r['bs'] * kb / (p['batch'] + p['top']), dm=r['dm'] * kd / (p['recip'] + p['div']))))
+    pts.sort(key=lambda x: x[0]); _C13['pts'] = pts
+    return pts
+
+CAL13_MODE = 'law'                     # 'law': the ratio a (D / 4e10)^b per group (CAL13_LAW, fitted by fit13 with PIPE_F); 'interp': between the runs
+CAL13_LAW = {'init': (1.047, -0.105), 'bs': (0.753, -0.071), 'dm': (1.0, 0.0)}   # FITTED (fit13 on CAL13_RUNS' 'fit' rows; 'dm' unused with DM_REST)
+CAL13_RANGE = (4e10, 1.3e11)           # the law is held flat outside the measured range
+
+def cal13(D, key):
+    """the ratio measured / node_phases for phase group key (init | bs | dm) at D digits per node (1 without CAL13)"""
+    if not CAL13: return 1.0
+    if CAL13_MODE == 'law':
+        a, b = CAL13_LAW[key]; Dc = min(max(D, CAL13_RANGE[0]), CAL13_RANGE[1])
+        return a * (Dc / 4e10) ** b
+    pts = _cal13_points()
+    if not pts: return 1.0
+    if D <= pts[0][0]: return pts[0][1][key]
+    if D >= pts[-1][0]: return pts[-1][1][key]
+    for (a, fa), (b, fb) in zip(pts, pts[1:]):
+        if a <= D <= b:
+            t = math.log(D / a) / math.log(b / a); return fa[key] + t * (fb[key] - fa[key])
+
+def _lsq_line(xs, ys, ws):
+    """weighted least squares y = c0 + c1 x"""
+    W = sum(ws); mx = sum(w * x for w, x in zip(ws, xs)) / W; my = sum(w * y for w, y in zip(ws, ys)) / W
+    sxx = sum(w * (x - mx) ** 2 for w, x in zip(ws, xs)); sxy = sum(w * (x - mx) * (y - my) for w, x, y in zip(ws, xs, ys))
+    c1 = sxy / sxx if sxx > 0 else 0.0
+    return my - c1 * mx, c1
+
+def _solve(A, b):
+    """least squares by the normal equations (small, dense)"""
+    n = len(A[0]); N = [[sum(r[i] * r[j] for r in A) for j in range(n)] for i in range(n)]; y = [sum(r[i] * bb for r, bb in zip(A, b)) for i in range(n)]
+    for i in range(n):
+        piv = max(range(i, n), key=lambda r: abs(N[r][i])); N[i], N[piv] = N[piv], N[i]; y[i], y[piv] = y[piv], y[i]
+        for r in range(n):
+            if r != i and N[i][i]:
+                f = N[r][i] / N[i][i]; N[r] = [a_ - f * c for a_, c in zip(N[r], N[i])]; y[r] -= f * y[i]
+    return [y[i] / N[i][i] if N[i][i] else 0.0 for i in range(n)]
+
+def fit_pipe(logs, verbose=True):
+    """Phase 13d D2: the pipeline's per-product law from ecalc logs of the default design (every 'dist_db' line with its time: a size-1
+    product): per form F, a one-plane product = PIPE_ONE[F] x t_prod; a piece of a grid adds GRID_ADD[F] x its points / 2^31 + GRID_NC x the
+    whole product's limbs / 2^31.  Least squares per form over the products of >= 2^27 limbs (weights 1 / sqrt(t)); GRID_NC is the
+    pieces-weighted mean of the two forms' values (0.078 B, 0.076 C on G13d's first seven logs).  Sets them; returns the rows."""
+    import re
+    global GRID_NC
+    cap = 1 << 31; pl, r3 = mem_model.cap_pool(cap); rows = []
+    for fn in logs:
+        for line in open(fn, errors='replace'):
+            m = re.search(r'dist_db (\d+) x (\d+) limbs: (\d+) x (\d+) pieces of (\d+) \+ (\d+), (\d+) formed, (\d+) skipped.*?: ([\d.]+) s', line)
+            if m: nc = int(m.group(1)) + int(m.group(2)); n = int(m.group(5)) + int(m.group(6)); k = int(m.group(7)); t = float(m.group(9)); grid = True
+            else:
+                m = re.search(r'dist_db (\d+) limbs: ([\d.]+) s', line)
+                if not m or int(m.group(1)) < (1 << 27): continue
+                n = nc = int(m.group(1)); k = 1; t = float(m.group(2)); grid = False
+            if _b_fits(n, pl, r3, 3): st, pts = 'B', _b_len(n)[0]
+            else: st, pts = 'C', _plane_pts_cap(n, r3, pl)
+            rows.append((fn, st, pts, k, t, grid, nc, t_prod(st, pts, 3)[0] * F_MM1))
+    nc_fit = []
+    for F in ('B', 'C'):
+        rs = [r for r in rows if r[1] == F]
+        if not rs: continue
+        A = []; bb = []
+        for r in rs:
+            w = 1.0 / max(r[4], 0.05) ** 0.5
+            A.append([w * r[3] * r[7], w * (r[3] * r[2] / 2 ** 31 if r[5] else 0.0), w * (r[3] * r[6] / 2 ** 31 if r[5] else 0.0)]); bb.append(w * r[4])
+        x = _solve(A, bb)
+        PIPE_ONE[F] = x[0]; GRID_ADD[F] = max(0.0, x[1]); nc_fit.append((x[2], sum(r[3] for r in rs if r[5])))
+        if F == 'B': PIPE_ONE['B4'] = x[0]; GRID_ADD['B4'] = max(0.0, x[1])
+        if verbose: print('fit_pipe %s: %d products (%d pieces): one-plane %.3f x the law; a grid piece + %.3f s per 2^31 points + %.4f s per 2^31 limbs of the product'
+                          % (F, len(rs), sum(r[3] for r in rs), x[0], max(0.0, x[1]), x[2]))
+    if nc_fit: GRID_NC = sum(v * w for v, w in nc_fit) / max(1, sum(w for v, w in nc_fit))
+    cal13_reset()
+    return rows
+
+def fit13(runs=None, verbose=True, exclude=None):
+    """Phase 13d D2: the per-node compute refitted on the 13c defaults: with the pipeline law (PIPE_ONE, GRID_ADD) in node_phases, per group
+    (init, bs, dm) the ratio measured / modelled as a (D/4e10)^b by weighted log-linear least squares (weights n; K-off runs through the
+    measured K ratios).  exclude: a run index left out (the leave-one-out check).  Sets CAL13_LAW; returns (law, rows)."""
+    global CAL13_MODE
+    runs = [r for r in (runs or CAL13_RUNS) if r['use'] == 'fit']
+    cal13_reset(); d = DEFAULT13(); pts = []
+    for i, r in enumerate(runs):
+        p = node_phases(r["D"], d, pipe=True); kb, kd = (1.0, 1.0) if r['k'] else (K_BS, K_DM)
+        nf = NODE_F.get(r.get('node') or next((k for k in NODE_F if k in r['src']), ''), 1.0); kb /= nf; kd /= nf   # the phases on an s24-16 / s24-26 node
+        bt, bd = node_big(r['D'], d)
+        pts.append(dict(i=i, D=r['D'], n=r.get('n', 1), init=r['init'], bs=r['bs'] * kb, dm=r['dm'] * kd,
+                        other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']), m=dict(init=p['init'], bs=p['batch'] + p['top'] - bt, dm=p['recip'] + p['div'] - bd),
+                        big=dict(init=0.0, bs=bt, dm=bd)))
+    global DM_REST
+    use = [q for q in pts if q['i'] != exclude]; law = {}
+    xs = [q['D'] / 4e10 for q in use]; DM_REST = sum(q['n'] * (q['dm'] - q['big']['dm']) * x for q, x in zip(use, xs)) / sum(q['n'] * x * x for q, x in zip(use, xs))
+    for g in ('init', 'bs', 'dm'):
+        xs = [math.log(q['D'] / 4e10) for q in use]; ys = [math.log(max(1e-3, q[g] - q['big'][g]) / q['m'][g]) for q in use]; ws = [q['n'] for q in use]
+        c0, c1 = _lsq_line(xs, ys, ws); law[g] = (math.exp(c0), c1)
+    rows = []; err = 0.0
+    for q in pts:
+        x = min(max(q['D'], CAL13_RANGE[0]), CAL13_RANGE[1]) / 4e10
+        w = sum(law[g][0] * x ** law[g][1] * q['m'][g] + q['big'][g] for g in ('init', 'bs')) + q['big']['dm'] + DM_REST * q['D'] / 4e10 + q['other']
+        meas = q['init'] + q['bs'] + q['dm'] + q['other']; e = (w - meas) / meas; rows.append((q, w, meas, e))
+        if q['i'] != exclude: err += q['n'] * e * e
+    CAL13_LAW.update(law); CAL13_MODE = 'law'; cal13_reset()
+    if verbose:
+        print('fit13: law init %.3f (D/4e10)^%+.3f, bs(rest) %.3f ^%+.3f; dm = the big products + %.2f s x D/4e10; rms %.2f %%' % (law['init'][0], law['init'][1], law['bs'][0], law['bs'][1],
+              DM_REST, 100 * math.sqrt(err / max(1, sum(q['n'] for q in use)))))
+        for q, w, meas, e in rows:
+            print('   %.4e  measured %6.1f  model %6.1f  %+5.1f %%%s   %s' % (q['D'], meas, w, 100 * e, ' (left out)' if q['i'] == exclude else '', runs[q['i']]['src']))
+    return law, rows
+
+def cal13_reset():
+    global PIECE13
+    _BIG.clear(); _C13.clear(); _PC.clear(); big_products.cache_clear(); phase_table.cache_clear(); np_factors.cache_clear(); _CAPF.clear(); _SF.clear()
+    PIECE13 = 1.0; PIECE13 = piece13()
+
+def piece13():
+    """the fabric piece's local-part factor: the one-node pipeline's C-form factor PIPE_ONE['C'] (ASSUMED to carry to the mn tier's
+    pieces, which S13's isolated C at 2^31 prices); a piece of a grid adds GRID_ADD['C'] (piece_cost)"""
+    return PIPE_ONE.get('C', 1.0) if CAL13 else 1.0
+PIECE13 = 1.0
+
+def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift', depth=2, modmul=1)   # the Phase 13c defaults
 
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
@@ -782,16 +1165,22 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         ph = dict(init=init_override if init_override is not None else phase("init", D),
                   batch=phase("batch", D) * leaf_scale, top=phase("top", D) * leaf_scale, other=0.0)
     else:
-        npf = node_phases(D, design, g)
-        ph = dict(init=init_override if init_override is not None else npf["init"], batch=npf["batch"] * leaf_scale, top=npf["top"] * leaf_scale,
+        ftop = top_factor(D * g, g)                    # Phase 13d D2: the slowest leaf is the top node's (SHARES = 'terms')
+        npf = node_phases(D * ftop, design, g, pipe=CAL13)
+        fi = cal13(D * ftop, 'init')                   # Phase 13d D2: the 13c recalibration (1 without CAL13): the law on bs's rest
+        bs0 = npf["batch"] + npf["top"]; bs1 = cal13_apply(D * ftop, design, g, bs0, 0.0)[0] if CAL13 else bs0; fb = bs1 / bs0 if bs0 > 0 else 1.0
+        ph = dict(init=init_override if init_override is not None else npf["init"] * fi, batch=npf["batch"] * leaf_scale * fb, top=npf["top"] * leaf_scale * fb,
                   other=npf["other"])
-    levels = tree_cost(fab, nq, g, groups, form) if g > 1 else []
+    levels = tree_cost(fab, nq, g, groups, form, T=None if design is None or design.legacy else D * g) if g > 1 else []
     if g > 1:
-        rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
+        if design is None or design.legacy: rc, dc, grp = division_cost(fab, nq_tot, dl_tot, np_tot, g, rule, form)
+        else:                                          # Phase 13d D2: the code's exact lengths (the cuts' skips are decided at a few limbs)
+            ex = exact_sizes(D * g); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, rule, form, sn=ex['sn'])
     elif design is None or design.legacy:
         rc = Cost(); rc.t = phase("recip", D); dc = Cost(); dc.t = phase("div", D); grp = []
     else:
-        rc = Cost(); rc.t = npf["recip"]; dc = Cost(); dc.t = npf["div"]; grp = []
+        dm0 = npf["recip"] + npf["div"]; fd = (cal13_apply(D, design, 1, 0.0, dm0)[1] / dm0 if dm0 > 0 else 1.0) if CAL13 else 1.0   # Phase 13d D2: the law on dm's rest
+        rc = Cost(); rc.t = npf["recip"] * fd; dc = Cost(); dc.t = npf["div"] * fd; grp = []
     t_levels = sum(c.t for _, _, c in levels)
     out_write = D / 1e9 / fab.write_bw                 # the node's part file at the write bandwidth
     t_lowprod = dc.t * 0.5
@@ -889,6 +1278,37 @@ def calibrate(rule, gate=0.10, verbose=True):
     print("calibration %s (gate: every run within %.0f %%; worst %.1f %%)" % ("OK" if ok else "FAILED", 100 * gate, 100 * worst))
     return ok
 
+def plan(g, T, design=None, groups=None, fab=None):
+    """Phase 13d D2: the model's piece counts in agent L's categories (mn_plan.c's summary): tree (node 0's groups), tree_max
+    (each level's top group), recip (the sharded steps), div (A_h mu, X Q); the top node's leaf pieces (its big products)"""
+    design = design or DEFAULT13(); fab = fab or TARGET
+    global DZ
+    saved = DZ; DZ = design
+    try:
+        D = T / g; nq = int(D / LIMB_DIGITS)
+        t0 = tree_cost(fab, nq, g, groups, "grid", T=T, which='bottom'); tm = tree_cost(fab, nq, g, groups, "grid", T=T, which='top')
+        ex = exact_sizes(T); rc, dc, grp = division_cost(fab, ex['nq'], ex['dl'], ex['pn'], g, "model", "grid", sn=ex['sn'])
+        return dict(tree=sum(c.pieces for _, _, c in t0), tree_max=sum(c.pieces for _, _, c in tm), recip=rc.pieces, div=dc.pieces,
+                    levels0=[c.pieces for _, _, c in t0], levels_max=[c.pieces for _, _, c in tm], groups=sorted(set(gp for _, gp in grp)))
+    finally:
+        DZ = saved
+
+def plan_sweep(g, lo, hi, step, design=None, out=sys.stdout):
+    """L's plan_sweep.sh columns, from the model"""
+    print("# mn_model.plan sweep: g = %d, total digits %.4e .. %.4e step %.4e; SHARES %s" % (g, lo, hi, step, SHARES), file=out)
+    print("# columns: digits | tree (node 0's groups) | tree (each level's largest group) | recip | div | total (node 0) | total (largest groups) | levels node0/largest", file=out)
+    n = int(round((hi - lo) / step)); prev = None; ch = []
+    for i in range(n + 1):
+        T = lo + i * step; p = plan(g, T, design); _PC.clear(); split_grid.cache_clear(); plane_pts.cache_clear()   # (the memo grows by GBs over a sweep)
+        print("%.4e  tree %4d  tree_max %4d  recip %3d  div %3d  total %4d  total_max %4d  levels %s" % (T, p['tree'], p['tree_max'], p['recip'], p['div'],
+              p['tree'] + p['recip'] + p['div'], p['tree_max'] + p['recip'] + p['div'], ','.join('%d/%d' % ab for ab in zip(p['levels0'], p['levels_max']))), file=out)
+        k = (p['tree'], p['tree_max'], p['recip'], p['div'])
+        if prev and k != prev[1]: ch.append("%.4e -> %.4e: tree %d -> %d, tree_max %d -> %d, recip %d -> %d, div %d -> %d" % (prev[0], T, prev[1][0], k[0], prev[1][1], k[1], prev[1][2], k[2], prev[1][3], k[3]))
+        prev = (T, k)
+        out.flush()
+    print("# the steps (a count changes between two neighbouring sizes):", file=out)
+    for c in ch: print("#   " + c, file=out)
+
 def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid"):
     print("the level schedule at 576 (MN_GROUPS), per-node wall of the distributed levels (s) by D per node; every level")
     print("costed as the tree forms it (a k-way level = 2 (k - 1) products over the level's group); 'global' = TB per node over")
@@ -921,11 +1341,17 @@ def main():
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
     ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
+    ap.add_argument("--calib13", action="store_true", help="Phase 13d D2: the recalibrated model against the 13c one-node runs")
+    ap.add_argument("--plan", type=float, nargs=4, metavar=("G", "FROM", "TO", "STEP"), help="Phase 13d D2: the piece counts in agent L's plan_sweep columns (total digits)")
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
     if a.calib:
         sys.exit(0 if calibrate(a.rule) else 1)
+    if a.calib13:
+        calib13(); return
+    if a.plan:
+        plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3]); return
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     if a.schedules:
         schedules(fab, a.rule, form=a.tree); return
@@ -955,6 +1381,8 @@ def main():
         print("  the third layer at 4e10 x 576 (group %d): wall %.1f -> %.1f s, exposed %.1f -> %.1f s, NIC bytes %s -> %s, messages per APU %d -> %d"
               % (a.group, r2["wall"], r3["wall"], r2["exposed"], r3["exposed"], fmt_b(r2["nic"]), fmt_b(r3["nic"]), r2["msgs"], r3["msgs"]))
     schedules(fab, a.rule, form=a.tree)
+
+cal13_reset()                          # Phase 13d D2: PIECE13 from the recalibration
 
 if __name__ == "__main__":
     main()
