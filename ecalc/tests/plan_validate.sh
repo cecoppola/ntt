@@ -25,4 +25,6 @@ M mn4_e10 900 4 POOL_LOG=29 $V ./ecalc 10000000000;                  P mn4_e10 1
 R s1_e9_c26 300 DIST_LOGN_TEST=26 $V ./ecalc 1000000000;             P s1_e9_c26 1000000000:1 DIST_LOGN_TEST=26
 M mn3_e9_c24 600 3 POOL_LOG=29 DIST_LOGN_TEST=24 $V ./ecalc 1000000000; P mn3_e9_c24 1000000000:3 POOL_LOG=29 DIST_LOGN_TEST=24
 M mn4_e10_c27 900 4 POOL_LOG=29 DIST_LOGN_TEST=27 $V ./ecalc 10000000000; P mn4_e10_c27 10000000000:4 POOL_LOG=29 DIST_LOGN_TEST=27
+# the regression gate for the C change (the extracted helpers), in the same job
+[ -n "$PLAN_VALIDATE_ACCEPT" ] && { ./mnaccept.sh "$J" --only unit,e9 > "$OUT/mnaccept.log" 2>&1; echo "mnaccept rc $?: $(tail -3 "$OUT/mnaccept.log" | tr '\n' ' ')"; }
 scancel "$J"; echo "done $(date)"
