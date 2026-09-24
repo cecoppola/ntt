@@ -98,19 +98,29 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
  * below them stays one extent.  With the tail rule alone the top level's P takes the tail's back, nothing ends at the tail's end any
  * more, and the reciprocal's r2 (1.0 n_Q) was best-fit into the middle: at 4e10 it found 10.8 GB free in 3 extents, largest 4.39 (job
  * 21131).  Small requests keep the best fit from the front, outside the tail. */
-static int g_pack_large;
+static int g_pack_large;                              /* 1: bs (the top level's P, Q stay below the tail: t1 finds it whole); 2: the dm phase (the tail first, then the highest end) */
 void db_pool_pack_large(int on) { g_pack_large = on; }
+static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p + need) out of extent i (front, back or middle: the remainder above becomes a new extent) */
+{
+    struct ext *e = g_ext[d].e; int n = g_ext[d].n; char *a = e[i].p, *b = e[i].p + e[i].bytes; int reg = e[i].reg;
+    if (p + need == g_tail[d].end) g_tail[d].n_tail++;
+    if (p == a) { e[i].p += need; e[i].bytes -= need; if (!e[i].bytes) { memmove(&e[i], &e[i + 1], (n - i - 1) * sizeof *e); g_ext[d].n--; } }
+    else { e[i].bytes = (size_t)(p - a); if (p + need < b) ext_insert(d, p + need, (size_t)(b - (p + need)), reg); }
+    return p;
+}
 static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved from the front (the reserved tail as above) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n, best = -1;
     if (g_pack_large && g_tail[d].bytes && need >= g_tail[d].thresh) {
-        for (int i = 0; i < n; i++) if (e[i].bytes >= need && (best < 0 || e[i].p + e[i].bytes > e[best].p + e[best].bytes)) best = i;
-        if (best >= 0) {
-            char *p = e[best].p + e[best].bytes - need; *reg = e[best].reg; e[best].bytes -= need; if (p + need == g_tail[d].end) g_tail[d].n_tail++;
-            if (!e[best].bytes) { memmove(&e[best], &e[best + 1], (n - best - 1) * sizeof *e); g_ext[d].n--; }
-            return p;
+        char *ta = g_tail[d].p, *tb = g_tail[d].end;
+        if (g_pack_large >= 2) for (int i = 0; i < n; i++) if (e[i].p + e[i].bytes == tb && e[i].bytes >= need) { *reg = e[i].reg; return carve_at(d, i, e[i].p + e[i].bytes - need, need); }   /* the dm phase: the tail's back first */
+        char *bp = 0; for (int i = 0; i < n; i++) {          /* else the highest end outside the tail: the block ends at min(extent end, tail start) */
+            char *a = e[i].p, *b = e[i].p + e[i].bytes; if (b > ta && a < tb) b = a < ta ? ta : a;
+            if (b > a && (size_t)(b - a) >= need && (best < 0 || b > bp)) { best = i; bp = b; }
         }
-        best = -1;
+        if (best >= 0) { *reg = e[best].reg; return carve_at(d, best, bp - need, need); }
+        for (int i = 0; i < n; i++) if (e[i].bytes >= need && (best < 0 || e[i].p + e[i].bytes > e[best].p + e[best].bytes)) best = i;   /* nothing outside it: the highest end anywhere */
+        if (best >= 0) { *reg = e[best].reg; return carve_at(d, best, e[best].p + e[best].bytes - need, need); }
     }
     if (g_tail[d].bytes && need >= g_tail[d].thresh) {       /* a large request: from the back of the extent ending at the tail's end */
         for (int i = 0; i < n; i++) if (e[i].p + e[i].bytes == g_tail[d].end && e[i].bytes >= need) {
