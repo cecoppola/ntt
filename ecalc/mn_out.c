@@ -384,6 +384,7 @@ static int recheck_pass(const char *name, int first_part, uint64_t *dres, size_t
     if (!ok) { r.stop = 1; sem_post(&r.empty[0]); sem_post(&r.empty[1]); }   /* the reader may be waiting for a buffer */
     pthread_join(th, 0);
     for (int b = 0; b < 2; b++) { free(r.buf[b]); sem_destroy(&r.full[b]); sem_destroy(&r.empty[b]); }
+    if (sp_odirect()) posix_fadvise(fileno(r.f), 0, 0, POSIX_FADV_DONTNEED);   /* Phase 14 S1 (E3): the digits read by the recheck leave the page cache (clean pages) */
     fclose(r.f);
     *ndig = n;
     return ok;
