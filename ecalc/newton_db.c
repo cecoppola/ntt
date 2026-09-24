@@ -12,6 +12,7 @@
 #include "rns_mul.h"
 #include "mem.h"
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
+#include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
 static int nv = -1, anchor = 1, g_hold_q;                    /* g_hold_q (A1): the size-1 flow -- the reciprocal may keep Q's transforms for the division */
 static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); db_free(&g_mu); db_free(&g_t); db_free(&g_xq); }
@@ -69,12 +70,18 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
      * other temporaries, so the donated bs regions cover everything (RESULTS.md 59) */
     dbig r = g_r, r2 = g_r2, t1 = g_t1, t2 = g_t2;
     size_t tcap = (nq + k > 2 * k ? nq + k : 2 * k) + 8;
-    db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap);
+    /* Phase 14 L1 (APUMULT_STUDY E2, DM_TIGHT=1): the scratch at its use instead -- t1 per doubling at Q_t r's size (take + r.n + 8,
+     * freed first: nothing of it survives a doubling), r2 at 2j + 4 right before d (db_pow_sub / db_sub_pow write 2j + 1 limbs; r' = (r << j)
+     * +/- corr needs r.n + j + 1) and freed whenever its content is dead (after every swap).  The values are the same: only capacities
+     * change.  The last doubling's set is P + Q + r (j + 1) + r2 (2j + 4) + t1 (n_Q + j + 9) + a piece = 5.2 n_Q + piece against 6.2 */
+    dm_switches(); int tight = dm_tight > 0;
+    if (!tight) { db_reserve(&r, k + 4); db_reserve(&r2, k + 4); db_reserve(&t1, tcap); }
     seed_db(&r, Q, Qd, nq_seed, &j);
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
             size_t take = 2 * j + 2 < nq ? 2 * j + 2 : nq;
+            if (tight) { size_t need = take + r.n + 8; if (t1.cap < need) { db_free(&t1); db_reserve(&t1, need); } }   /* E2: t1 for this doubling's Q_t r (its old content is dead) */
             dbig qt = db_view(Qd, nq - take, take);                  /* top limbs of Q */
             /* Phase 10 A1: at the top Q_t is Q itself, the operand of the division's X Q: its pieces' transforms are kept
              * (rns_dist_cache_hold: only when the cache has the slots for them) -- Q as the B operand, whose pieces the
@@ -85,7 +92,9 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (j <= take) { u = db_view(&t1, take - j, t1.n > take - j ? t1.n - (take - j) : 0); db_norm(&u); }
             else { db_shl_limbs(&t2, &t1, j - take); u = t2; }
             int neg = u.n > 2 * j + 1 || (u.n == 2 * j + 1 && (db_top(&u) > 1 || maxidx_below(&u, 2 * j)));
+            if (tight && r2.cap < 2 * j + 4) { db_free(&r2); db_reserve(&r2, 2 * j + 4); }   /* E2: r2 reserved when d is first written, at d's and r''s size */
             if (neg) db_sub_pow(&r2, &u, 2 * j); else db_pow_sub(&r2, 2 * j, &u);   /* d = |B^(2j) - u| -> r2 */
+            size_t dn = r2.n;
             rns_mul_dist_db(&t1, &r, &r2);                          /* r |d| -> t1 (u is consumed) */
             dbig corr = db_view(&t1, j, t1.n > j ? t1.n - j : 0); db_norm(&corr);   /* |corr| = t1 >> j */
             int converged = corr.n <= j + 1;
@@ -94,17 +103,17 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
                 if (over) { newton_st.overshoots++; shrink_db(&r); continue; }
                 db_sub_shifted(&r2, &r, j, &corr);
             } else db_add_shifted(&r2, &r, j, &corr);
-            if (converged) { dbig sw = r; r = r2; r2 = sw; }          /* r <- r' by swap */
+            if (converged) { dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }   /* r <- r' by swap (E2: the old iterate's block goes) */
             else db_shr_limbs(&r, &r2, j);
-            if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9);
+            if (nv) printf("newton(db) j %zu -> %zu (k %zu): take %zu, r %zu limbs%s   dev pools %.1f GB%s (d %zu limbs, t1 %zu of cap %zu, r2 cap %zu)\n", j, jn, k, take, r.n, converged ? "" : " (repeat)", mem_dev_pool_bytes() / 1e9, tight ? "  tight" : "", dn, t1.n, t1.cap, r2.cap);
             if (!converged) { newton_st.repeats++; continue; }
             break;
         }
-        if (jn < 2 * j) { db_shr_limbs(&r2, &r, 2 * j - jn); dbig sw = r; r = r2; r2 = sw; }
+        if (jn < 2 * j) { db_shr_limbs(&r2, &r, 2 * j - jn); dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }
         j = jn;
         newton_st.iters++;
     }
-    if (j > k) { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; }
+    if (j > k) { db_shr_limbs(&r2, &r, j - k); dbig sw = r; r = r2; r2 = sw; if (tight) db_free(&r2); }
     { dbig sw = *mu; *mu = r; r = sw; }                          /* mu takes r's block */
     g_r = r; g_r2 = r2; g_t1 = t1; g_t2 = t2;
     newton_st.t_recip += mem_now() - t0;
