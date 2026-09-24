@@ -149,7 +149,7 @@ static void donate_one(int which, int r)             /* pool (which, r) to the b
 {
     uint64_t *p = g_pool[which][r]; size_t cap = g_cap[which][r]; if (!p || mem_dev_of(p) < 0) return;
     int dev = r % mem_device_count();
-    if (in_arena(r, p)) { char *hp; size_t hb; arena_half_range(r, which, &hp, &hb); db_donate_adjacent(dev, hp, hb); arena_donated_half(r, which, dev); }
+    if (in_arena(r, p)) { char *hp; size_t hb; arena_half_range(r, which, &hp, &hb); if (g_arena[r].vmm) db_vmm_arena_wait(dev, (size_t)-1); db_donate_adjacent(dev, hp, hb); arena_donated_half(r, which, dev); }
     else {
         db_donate(dev, p, cap * 8); mem_dev_forget(p);
         if (g_arena[r].base) {                       /* this parity outgrew its arena half: the idle half goes too */
@@ -218,6 +218,7 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
 }
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
+    if (which == 1 && g_arena[r].vmm && in_arena(r, g_pool[1][r])) db_vmm_arena_wait(g_arena[r].dev, 2 * g_arena[r].half);   /* Phase 14 R1: the parity-1 half is mapped in the background during the seeds */
     if (g_cap[which][r] < limbs) {
         if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
             if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
@@ -241,7 +242,7 @@ static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thres
     cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
     extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20); hole = (hole + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
     g_arena[r].dev = r % nd; g_arena[r].half = cap * 8; g_arena[r].bytes = 2 * cap * 8 + extra; if (hole > g_arena[r].bytes) hole = g_arena[r].bytes; g_arena[r].hole = hole; g_arena[r].thresh = thresh; g_arena[r].donated = 0;
-    if (db_pool_vmm_on()) { g_arena[r].vmm = 1; g_arena[r].base = (uint64_t *)db_vmm_arena_alloc(g_arena[r].dev, g_arena[r].bytes); mem_dev_note(g_arena[r].dev, g_arena[r].base, g_arena[r].bytes); }   /* Phase 14 R1 (E8) */
+    if (db_pool_vmm_on()) { g_arena[r].vmm = 1; g_arena[r].base = (uint64_t *)db_vmm_arena_alloc(g_arena[r].dev, g_arena[r].bytes, g_arena[r].half); mem_dev_note(g_arena[r].dev, g_arena[r].base, g_arena[r].bytes); }   /* Phase 14 R1 (E8) */
     else g_arena[r].base = (uint64_t *)mem_dev_alloc(g_arena[r].dev, g_arena[r].bytes);
     rns_shutdown_hook = binsplit_release_arenas;         /* Phase 10 B5 (agent M): released at rns_shutdown on every rank, whether or not binsplit_free_pools ran there (A-mem open issue 2) */
     for (int w = 0; w < 2; w++) { g_pool[w][r] = g_arena[r].base + w * cap; g_cap[w][r] = cap; }
@@ -1096,7 +1097,7 @@ static void seed_spans(struct level *cur, size_t per, unsigned long S, unsigned 
 static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0)
 {
     double t0 = mem_now(); int nd = mem_device_count();
-    size_t mb = getenv("BS_SEED_CHUNK_MB") ? (size_t)atol(getenv("BS_SEED_CHUNK_MB")) : 2048, bytes = mb << 20, span_bytes = 2 * per * 8, mx = 0;
+    size_t mb = getenv("BS_SEED_CHUNK_MB") ? (size_t)atol(getenv("BS_SEED_CHUNK_MB")) : (db_pool_vmm_on() ? 4096 : 2048), bytes = mb << 20, span_bytes = 2 * per * 8, mx = 0;
     for (int r = 0; r < NR; r++) { size_t b = span_bytes * (r0[r + 1] - r0[r]); if (b > mx) mx = b; }
     if (bytes > mx) bytes = mx; if (bytes < span_bytes) bytes = span_bytes;
     ss->chunk_spans = bytes / span_bytes; ss->bytes = ss->chunk_spans * span_bytes;
