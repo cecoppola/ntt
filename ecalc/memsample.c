@@ -9,6 +9,7 @@
 #include "mem.h"
 #include "dbig.h"
 int mn_rank(void);
+static int rank_now(void) { const char *e = getenv("COMM_RANK"); return e ? atoi(e) : mn_rank(); }   /* (the sampler starts before mn_init) */
 
 int mem_meminfo(struct meminfo *m)
 {
@@ -66,7 +67,7 @@ static void sample_once(void)
     if (rss > S.max_rss) S.max_rss = rss;
     S.n++;
     fprintf(S.out, "memsample r%d t %8.1f s: RSS %.2f MemFree %.2f MemAvailable %.2f Cached %.2f Dirty %.2f Writeback %.2f | pool live %.2f %.2f %.2f %.2f GB\n",
-            mn_rank(), mem_now() - S.t0, rss * 1e-9, m.free * 1e-9, m.avail * 1e-9, m.cached * 1e-9, m.dirty * 1e-9, m.writeback * 1e-9,
+            rank_now(), mem_now() - S.t0, rss * 1e-9, m.free * 1e-9, m.avail * 1e-9, m.cached * 1e-9, m.dirty * 1e-9, m.writeback * 1e-9,
             live[0] * 1e-9, live[1] * 1e-9, live[2] * 1e-9, live[3] * 1e-9);
     fflush(S.out);
 }
@@ -93,7 +94,7 @@ void mem_sampler_stop(void)
     pthread_join(S.th, 0); S.on = 0;
     sample_once();
     fprintf(S.out, "memsample r%d summary: %ld samples over %.1f s: MemAvailable min %.2f GB, Cached max %.2f, Dirty max %.2f, RSS max %.2f, pool live max %.2f %.2f %.2f %.2f GB\n",
-            mn_rank(), S.n, mem_now() - S.t0, S.min_avail * 1e-9, S.max_cached * 1e-9, S.max_dirty * 1e-9, S.max_rss * 1e-9,
+            rank_now(), S.n, mem_now() - S.t0, S.min_avail * 1e-9, S.max_cached * 1e-9, S.max_dirty * 1e-9, S.max_rss * 1e-9,
             S.max_live[0] * 1e-9, S.max_live[1] * 1e-9, S.max_live[2] * 1e-9, S.max_live[3] * 1e-9);
     fflush(S.out);
     if (S.out != stderr) fclose(S.out);
@@ -108,7 +109,7 @@ void mem_sampler_start(void)
     if (fn && *fn) {
         char name[4096];
         const char *pc = strstr(fn, "%d");
-        if (pc) snprintf(name, sizeof name, "%.*s%d%s", (int)(pc - fn), fn, mn_rank(), pc + 2); else snprintf(name, sizeof name, "%s", fn);
+        if (pc) snprintf(name, sizeof name, "%.*s%d%s", (int)(pc - fn), fn, rank_now(), pc + 2); else snprintf(name, sizeof name, "%s", fn);
         FILE *f = fopen(name, "w"); if (f) S.out = f; else fprintf(stderr, "memsample: cannot open %s, using stderr\n", name);
     }
     if (pthread_create(&S.th, 0, sampler, 0)) { fprintf(stderr, "memsample: cannot start the thread\n"); return; }
