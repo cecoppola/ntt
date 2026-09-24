@@ -65,6 +65,9 @@ void   spill_drop(spill *s);           /* remove the files, free the handle */
 struct spill_stats { size_t bytes; double t_write, t_read, rate_w, rate_r; };
 void   spill_get_stats(const spill *s, struct spill_stats *st);
 int    spill_enabled(void);            /* ECALC_SPILL_DIR set */
+void   spill_prealloc(void);           /* the bounce buffers of the four APUs now (2 x SPILL_CHUNK_MB each, pinned, NUMA-local: 2 GiB at
+                                        * the default; from the main thread at a quiet point -- mem.c's registry is read unlocked); else
+                                        * they are allocated at the first spill */
 void   spill_fini(void);               /* release the bounce buffers */
 
 #ifdef __cplusplus
