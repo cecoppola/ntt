@@ -21,11 +21,12 @@ while read -r -u 3 tag est np dg ref envs; do
   if [ $((now - T0 + est)) -gt 2640 ] || [ $((now + est)) -gt $STOP ]; then log "SKIP $tag (est $est s, elapsed $((now - T0)) s)"; continue; fi
   out=""; [ "$ref" != "-" ] && out=/tmp/g13d_$tag.out
   base="$envs ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 RNS_VERBOSE=1"
+  wd=$((3 * est + 120))   # watchdog: a run hung after init once (a_S4_lo_770e8, 2 threads in kfd_wait_on_events)
   t1=$(date +%s)
   if [ "$np" = 1 ]; then
-    srun --jobid=$J -N1 --gpus=4 --overlap bash -lc "module load rocm >/dev/null 2>&1; cd ~/ntt-G13d/ecalc; rm -f /tmp/g13d_*.out*; env $base /usr/bin/time -v ./ecalc $dg $out" > $D/$tag.log 2>&1
+    srun --jobid=$J -N1 --gpus=4 --overlap bash -lc "module load rocm >/dev/null 2>&1; cd ~/ntt-G13d/ecalc; rm -f /tmp/g13d_*.out*; env $base timeout -s TERM $wd /usr/bin/time -v ./ecalc $dg $out" > $D/$tag.log 2>&1
   else
-    bash -lc "module load rocm >/dev/null 2>&1; cd ~/ntt-G13d/ecalc; srun --jobid=$J -N1 --overlap bash -c 'rm -f /tmp/g13d_*.out*'; SLURM_JOB_ID=$J env $base ./mnrun.sh $np ./ecalc $dg $out" > $D/$tag.log 2>&1
+    bash -lc "module load rocm >/dev/null 2>&1; cd ~/ntt-G13d/ecalc; srun --jobid=$J -N1 --overlap bash -c 'rm -f /tmp/g13d_*.out*'; SLURM_JOB_ID=$J env $base timeout -s TERM $wd ./mnrun.sh $np ./ecalc $dg $out" > $D/$tag.log 2>&1
   fi
   rc=$?; t2=$(date +%s)
   cmpres=""
