@@ -94,7 +94,9 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
         size_t npairs = n / 2, m = (size_t)1 << l, max_nl = 0;
         /* node i of level l covers spans [i 2^l, (i+1) 2^l) (the last cut at nspan) */
         #define NODE_RANGE(i, lo, hi) do { unsigned long s0 = (unsigned long)((i) * m), s1 = (unsigned long)(((i) + 1) * m); if (s1 > nspan) s1 = nspan; lo = a0 + s0 * S; hi = a0 + s1 * S; if (hi > b1) hi = b1; } while (0)
-        for (size_t i = 0; i < n; i++) { unsigned long lo, hi; NODE_RANGE(i, lo, hi); struct pq x = pq_of(lo, hi); if (x.pn > max_nl) max_nl = x.pn; if (x.qn > max_nl) max_nl = x.qn; }
+        /* the level's largest node: a term's factor grows with the term, so it is the last full node (or the cut last one):
+         * the last two nodes are all binsplit's max over the level can be (a full scan costs 10^8 lgammal calls at 4.4e13) */
+        for (size_t i = n >= 2 ? n - 2 : 0; i < n; i++) { unsigned long lo, hi; NODE_RANGE(i, lo, hi); struct pq x = pq_of(lo, hi); if (x.pn > max_nl) max_nl = x.pn; if (x.qn > max_nl) max_nl = x.qn; }
         int mdev = max_nl > school && 2 * max_nl + 1 > ((size_t)1 << mlog);
         if (!mdev || !devm) { nbatch++; n = npairs + (n & 1); continue; }
         lvl++;
