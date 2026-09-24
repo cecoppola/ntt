@@ -1,0 +1,22 @@
+job 21103 on ppac-pl1-s24-30, Wed Sep 23 07:29:42 PM CDT 2026
+running Wed Sep 23 07:41:34 PM CDT 2026
+s1_e9 rc 0 total    12.70 s   (bs 0.8 + 10dP 0.1 + dm 1.9 + T1 0.0 + dc 0.0 + T2 0.0 = 2.8; init 9.6; other 0.3); VmHWM 15.7 GB VERIFY OK  19:41:54
+  compare s1_e9: compare: 52 run products, 52 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 3.60e-08
+mn2_e9 rc 0 total    21.64 s   (bs 3.0 + 10dP 0.0 + dm 13.7 + T1 0.0 + dc 0.2 + T2 0.0 = 16.9; init 4.7; other 0.0); VmHWM 19.1 GB mn: all 2 nodes: VERIFY OK  19:42:18
+  compare mn2_e9: compare: 24 run products, 24 plan products, 24 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+mn3_e9 rc 0 total    18.96 s   (bs 3.7 + 10dP 0.0 + dm 10.2 + T1 0.0 + dc 0.2 + T2 0.0 = 14.1; init 4.8; other 0.0); VmHWM 18.6 GB mn: all 3 nodes: VERIFY OK  19:42:38
+  compare mn3_e9: compare: 26 run products, 26 plan products, 26 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+mn4_e9 rc 0 total    16.21 s   (bs 3.1 + 10dP 0.0 + dm 8.1 + T1 0.0 + dc 0.1 + T2 0.0 = 11.3; init 4.9; other 0.0); VmHWM 18.3 GB mn: all 4 nodes: VERIFY OK  19:42:56
+  compare mn4_e9: compare: 26 run products, 26 plan products, 26 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+s1_e10 rc 0 total    23.32 s   (bs 6.2 + 10dP 0.6 + dm 4.9 + T1 0.0 + dc 0.0 + T2 0.0 = 11.6; init 10.1; other 1.6); VmHWM 39.7 GB VERIFY OK  19:43:21
+  compare s1_e10: compare: 60 run products, 60 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 1.67e-01
+mn4_e10 rc 0 total    72.75 s   (bs 23.0 + 10dP 0.0 + dm 42.7 + T1 0.1 + dc 0.7 + T2 0.0 = 66.4; init 6.3; other 0.0); VmHWM 24.8 GB mn: all 4 nodes: VERIFY OK  19:44:36
+  compare mn4_e10: compare: 34 run products, 34 plan products, 34 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+s1_e9_c26 rc 0 total    15.83 s   (bs 0.9 + 10dP 0.1 + dm 2.1 + T1 0.0 + dc 0.0 + T2 0.0 = 3.1; init 12.5; other 0.2); VmHWM 16.2 GB VERIFY OK  19:44:53
+  compare s1_e9_c26: compare: 52 run products, 52 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 3.60e-08
+mn3_e9_c24 rc 0 total    23.24 s   (bs 4.3 + 10dP 0.0 + dm 13.9 + T1 0.0 + dc 0.2 + T2 0.0 = 18.5; init 4.8; other 0.0); VmHWM 18.5 GB mn: all 3 nodes: VERIFY OK  19:45:18
+  compare mn3_e9_c24: compare: 26 run products, 26 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+mn4_e10_c27 rc 0 total    88.07 s   (bs 28.7 + 10dP 0.0 + dm 52.2 + T1 0.1 + dc 0.7 + T2 0.0 = 81.6; init 6.5; other 0.0); VmHWM 23.7 GB mn: all 4 nodes: VERIFY OK  19:46:48
+  compare mn4_e10_c27: compare: 34 run products, 34 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 0.00e+00
+mnaccept rc 0: PASS e9 size 1 LIMB_BASE=10: identical; total 11.49 s (bs 0.9 + 10dP 0.1 + dm 1. PASS e9 size 1 LIMB_BASE=2: identical; total 24.05 s (bs 0.9 + 10dP 0.4 + dm 1. == 10 passed, 0 failed; 1217 s; d5feb1e9; logs in results/mnaccept/21103 == 
+done Wed Sep 23 08:07:05 PM CDT 2026

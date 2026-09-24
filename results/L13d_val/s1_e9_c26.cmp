@@ -1,0 +1,54 @@
+  # plan product                       | run: A x B, grid, formed/skipped             | plan: A x B, grid, formed/skipped            | verdict
+  0 recip  j 2 -> 4 Q_t r              | 9 limbs (one plane)                          | 9 limbs (one plane)                          | agrees; sizes +0 +0
+  1 recip  j 2 -> 4 r d                | 5 limbs (one plane)                          | 5 limbs (one plane)                          | agrees; sizes +0 +0
+  2 recip  j 4 -> 7 Q_t r              | 15 limbs (one plane)                         | 15 limbs (one plane)                         | agrees; sizes +0 +0
+  3 recip  j 4 -> 7 r d                | 9 limbs (one plane)                          | 9 limbs (one plane)                          | agrees; sizes +0 +0
+  4 recip  j 7 -> 14 Q_t r             | 24 limbs (one plane)                         | 24 limbs (one plane)                         | agrees; sizes +0 +0
+  5 recip  j 7 -> 14 r d               | 15 limbs (one plane)                         | 15 limbs (one plane)                         | agrees; sizes +0 +0
+  6 recip  j 14 -> 27 Q_t r            | 45 limbs (one plane)                         | 45 limbs (one plane)                         | agrees; sizes +0 +0
+  7 recip  j 14 -> 27 r d              | 29 limbs (one plane)                         | 29 limbs (one plane)                         | agrees; sizes +0 +0
+  8 recip  j 27 -> 53 Q_t r            | 84 limbs (one plane)                         | 84 limbs (one plane)                         | agrees; sizes +0 +0
+  9 recip  j 27 -> 53 r d              | 55 limbs (one plane)                         | 55 limbs (one plane)                         | agrees; sizes +0 +0
+ 10 recip  j 53 -> 106 Q_t r           | 162 limbs (one plane)                        | 162 limbs (one plane)                        | agrees; sizes +0 +0
+ 11 recip  j 53 -> 106 r d             | 107 limbs (one plane)                        | 107 limbs (one plane)                        | agrees; sizes +0 +0
+ 12 recip  j 106 -> 212 Q_t r          | 321 limbs (one plane)                        | 321 limbs (one plane)                        | agrees; sizes +0 +0
+ 13 recip  j 106 -> 212 r d            | 213 limbs (one plane)                        | 213 limbs (one plane)                        | agrees; sizes +0 +0
+ 14 recip  j 212 -> 424 Q_t r          | 639 limbs (one plane)                        | 639 limbs (one plane)                        | agrees; sizes +0 +0
+ 15 recip  j 212 -> 424 r d            | 425 limbs (one plane)                        | 425 limbs (one plane)                        | agrees; sizes +0 +0
+ 16 recip  j 424 -> 848 Q_t r          | 1275 limbs (one plane)                       | 1275 limbs (one plane)                       | agrees; sizes +0 +0
+ 17 recip  j 424 -> 848 r d            | 849 limbs (one plane)                        | 849 limbs (one plane)                        | agrees; sizes +0 +0
+ 18 recip  j 848 -> 1696 Q_t r         | 2547 limbs (one plane)                       | 2547 limbs (one plane)                       | agrees; sizes +0 +0
+ 19 recip  j 848 -> 1696 r d           | 1697 limbs (one plane)                       | 1697 limbs (one plane)                       | agrees; sizes +0 +0
+ 20 recip  j 1696 -> 3391 Q_t r        | 5091 limbs (one plane)                       | 5091 limbs (one plane)                       | agrees; sizes +0 +0
+ 21 recip  j 1696 -> 3391 r d          | 3393 limbs (one plane)                       | 3393 limbs (one plane)                       | agrees; sizes +0 +0
+ 22 recip  j 3391 -> 6782 Q_t r        | 10176 limbs (one plane)                      | 10176 limbs (one plane)                      | agrees; sizes +0 +0
+ 23 recip  j 3391 -> 6782 r d          | 6783 limbs (one plane)                       | 6783 limbs (one plane)                       | agrees; sizes +0 +0
+ 24 recip  j 6782 -> 13564 Q_t r       | 20349 limbs (one plane)                      | 20349 limbs (one plane)                      | agrees; sizes +0 +0
+ 25 recip  j 6782 -> 13564 r d         | 13565 limbs (one plane)                      | 13565 limbs (one plane)                      | agrees; sizes +0 +0
+ 26 recip  j 13564 -> 27127 Q_t r      | 40695 limbs (one plane)                      | 40695 limbs (one plane)                      | agrees; sizes +0 +0
+ 27 recip  j 13564 -> 27127 r d        | 27129 limbs (one plane)                      | 27129 limbs (one plane)                      | agrees; sizes +0 +0
+ 28 recip  j 27127 -> 54254 Q_t r      | 81384 limbs (one plane)                      | 81384 limbs (one plane)                      | agrees; sizes +0 +0
+ 29 recip  j 27127 -> 54254 r d        | 54255 limbs (one plane)                      | 54255 limbs (one plane)                      | agrees; sizes +0 +0
+ 30 recip  j 54254 -> 108507 Q_t r     | 162765 limbs (one plane)                     | 162765 limbs (one plane)                     | agrees; sizes +0 +0
+ 31 recip  j 54254 -> 108507 r d       | 108509 limbs (one plane)                     | 108509 limbs (one plane)                     | agrees; sizes +0 +0
+ 32 recip  j 108507 -> 217014 Q_t r    | 325524 limbs (one plane)                     | 325524 limbs (one plane)                     | agrees; sizes +0 +0
+ 33 recip  j 108507 -> 217014 r d      | 217015 limbs (one plane)                     | 217015 limbs (one plane)                     | agrees; sizes +0 +0
+ 34 recip  j 217014 -> 434028 Q_t r    | 651045 limbs (one plane)                     | 651045 limbs (one plane)                     | agrees; sizes +0 +0
+ 35 recip  j 217014 -> 434028 r d      | 434029 limbs (one plane)                     | 434029 limbs (one plane)                     | agrees; sizes +0 +0
+ 36 recip  j 434028 -> 868056 Q_t r    | 1302087 limbs (one plane)                    | 1302087 limbs (one plane)                    | agrees; sizes +0 +0
+ 37 recip  j 434028 -> 868056 r d      | 868057 limbs (one plane)                     | 868057 limbs (one plane)                     | agrees; sizes +0 +0
+ 38 recip  j 868056 -> 1736112 Q_t r   | 2604171 limbs (one plane)                    | 2604171 limbs (one plane)                    | agrees; sizes +0 +0
+ 39 recip  j 868056 -> 1736112 r d     | 1736113 limbs (one plane)                    | 1736113 limbs (one plane)                    | agrees; sizes +0 +0
+ 40 recip  j 1736112 -> 3472223 Q_t r  | 5208339 limbs (one plane)                    | 5208339 limbs (one plane)                    | agrees; sizes +0 +0
+ 41 recip  j 1736112 -> 3472223 r d    | 3472225 limbs (one plane)                    | 3472225 limbs (one plane)                    | agrees; sizes +0 +0
+ 42 recip  j 3472223 -> 6944445 Q_t r  | 10416672 limbs (one plane)                   | 10416672 limbs (one plane)                   | agrees; sizes +0 +0
+ 43 recip  j 3472223 -> 6944445 r d    | 6944447 limbs (one plane)                    | 6944447 limbs (one plane)                    | agrees; sizes +0 +0
+ 44 recip  j 6944445 -> 13888890 Q_t r | 20833338 limbs (one plane)                   | 20833338 limbs (one plane)                   | agrees; sizes +0 +0
+ 45 recip  j 6944445 -> 13888890 r d   | 13888891 limbs (one plane)                   | 13888891 limbs (one plane)                   | agrees; sizes +0 +0
+ 46 recip  j 13888890 -> 27777779 Q_t  | 41666673 limbs (one plane)                   | 41666673 limbs (one plane)                   | agrees; sizes +0 +0
+ 47 recip  j 13888890 -> 27777779 r d  | 27777781 limbs (one plane)                   | 27777781 limbs (one plane)                   | agrees; sizes +0 +0
+ 48 recip  j 27777779 -> 55555558 Q_t  | 83333341 limbs (one plane)                   | 83333340 limbs (one plane)                   | agrees; sizes -1 +0
+ 49 recip  j 27777779 -> 55555558 r d  | 55555561 limbs (one plane)                   | 55555559 limbs (one plane)                   | agrees; sizes -2 +0
+ 50 div    A_h mu                      | 55555557 x 55555558 g1 c0 1x2 2/0            | 55555557 x 55555558 g1 c0 1x2 2/0            | agrees; sizes +0 +0
+ 51 div    X Q mod B^w                 | 55555557 x 55555560 g1 c0 1x2 2/0            | 55555557 x 55555560 g1 c0 1x2 2/0            | agrees; sizes +0 +0
+compare: 52 run products, 52 plan products, 0 disagree in grid/formed/skipped/g/cap or count; largest relative size difference 3.60e-08
