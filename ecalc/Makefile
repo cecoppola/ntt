@@ -23,8 +23,8 @@ SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_strategy tests/t_cap tests/t_primes
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_strategy tests/t_cap tests/t_primes tests/t_spill
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
@@ -49,6 +49,13 @@ mn_plan.o: mn_plan.c mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
 
 dbig.o: dbig.c dbig.h bigint.h mem.h
 	$(HIPC) -c -o $@ $<
+# Phase 14 S1: O_DIRECT file I/O and the spill primitive (E3, E4); the memory sampler and the live-bytes lines (E12, E1)
+spill.o: spill.c spill.h dbig.h mem.h
+	$(HIPC) -c -o $@ $<
+memsample.o: memsample.c memsample.h dbig.h mem.h
+	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
+tests/t_spill: tests/t_spill.c $(OBJS) spill.h memsample.h dbig.h tests/harness.h
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_plan.h
 	$(HIPC) -c -o $@ $<
@@ -101,7 +108,7 @@ todec.o: todec.c todec.h rns_mul.h newton.h mem.h modarith.h
 	$(HIPC) -c -o $@ $<
 verify.o: verify.c verify.h bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
-binsplit.o: binsplit.c binsplit.h bigint.h rns_mul.h mem.h
+binsplit.o: binsplit.c binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 newton.o: newton.c newton.h bigint.h rns_mul.h mem.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
