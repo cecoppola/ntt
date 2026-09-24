@@ -33,6 +33,7 @@ void rns_dist_plan_cap_test(int logn);
 /* newton_db.c: the reciprocal's anchored chain (NEWTON_ANCHOR) and the sharded part's start (NEWTON_MN_SPLIT), the X1 group */
 size_t newton_chain_next(size_t j, size_t k);
 size_t newton_mn_chain_start(size_t k);
+size_t newton_recip_cut(size_t v);      /* Phase 14 R1 (E7): the low cut of a reciprocal product read as t1 >> v under NEWTON_RECIP_CUT (0 = none) */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs);   /* L: the step runs on [0, 2^L) (0: the full group of g nodes) */
 /* mn_plan.c: print the plan of a run of d digits (N terms) on `size` node-processes and return the exit status */
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log);
