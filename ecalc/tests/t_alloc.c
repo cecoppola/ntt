@@ -267,8 +267,9 @@ int main(int argc, char **argv)
               HIP_CHECK(hipMemcpyAsync(q + half / 8, p, cp, hipMemcpyDefault, st[d])); HIP_CHECK(hipStreamSynchronize(st[d]));
               double x = now(); HIP_CHECK(hipMemcpyAsync(q + half / 8, p, cp, hipMemcpyDefault, st[d])); HIP_CHECK(hipStreamSynchronize(st[d])); tp[d] = cp / 1e9 / (now() - x); }
         }
-        /* cpu: streaming stores from threads on the buffer's node, 4 GB per device */
-        {
+        /* cpu: streaming stores from threads on the buffer's node, 4 GB per device (not for vmm: a VMM range is a device VA the host
+         * cannot touch -- the process segfaults; the seed thread's stores would need a hipMalloc'd or host-registered target) */
+        if (f != F_VMM) {
             size_t cb = bytes < ((size_t)4 << 30) ? bytes : ((size_t)4 << 30);
 #pragma omp parallel num_threads(nd)
             { int d = omp_get_thread_num(); int nt = mem_ncpus_node(d); if (nt < 1) nt = 16; double x = now();
