@@ -128,7 +128,12 @@ static int alloc_form(struct buf *b, int form, int dev, size_t bytes)
     HIP_CHECK(hipSetDevice(dev));
     switch (form) {
     case F_HIPMALLOC: return hipMalloc(&b->p, bytes) == hipSuccess;
-    case F_VMM: return vmm_alloc(b, g_vmm_nd);
+    case F_VMM: { static int serial = -1; if (serial < 0) serial = getenv("T_ALLOC_VMM_SERIAL") ? atoi(getenv("T_ALLOC_VMM_SERIAL")) : 1;   /* the VMM calls under one lock (default): the four threads' concurrent reserve/create/map crashed on ROCm 7.2 (R114.md 5) */
+        int r; if (serial) {
+#pragma omp critical(vmm_alloc)
+            r = vmm_alloc(b, g_vmm_nd);
+        } else r = vmm_alloc(b, g_vmm_nd);
+        return r; }
     case F_ASYNC: {
         if (!b->pool) {
             hipMemPoolProps pr; memset(&pr, 0, sizeof pr); pr.allocType = hipMemAllocationTypePinned; pr.handleTypes = hipMemHandleTypeNone;
@@ -162,7 +167,9 @@ static void free_form(struct buf *b)
     case F_ASYNC: HIP_CHECK(hipFreeAsync(b->p, 0)); HIP_CHECK(hipStreamSynchronize(0)); break;
     case F_HOSTC: case F_HOSTNC: case F_HOSTNUMA: HIP_CHECK(hipHostFree(b->p)); break;
     case F_MMAP: case F_MMAP4K: case F_HUGETLB: HIP_CHECK(hipHostUnregister(b->p)); munmap(b->p, b->bytes); break;
-    case F_VMM: vmm_free(b, 0, 0); break;
+    case F_VMM: {
+#pragma omp critical(vmm_alloc)
+        vmm_free(b, 0, 0); } break;
     default: HIP_CHECK(hipFree(b->p));
     }
     b->p = 0;
