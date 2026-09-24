@@ -68,6 +68,21 @@ void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh)
     g_tail[dev].p = (char *)p; g_tail[dev].bytes = bytes; g_tail[dev].end = (char *)p + bytes; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
     pthread_mutex_unlock(&g_pool_mx);
 }
+/* Phase 14 L1 (E5's layout half, DM_TAIL_DEAD): after the bs top level its dead inputs' blocks are free again -- the largest free extent
+ * of the device is where the reciprocal's largest block (t1) should land: its last `bytes` become the tail (the whole extent when it is
+ * smaller, and then t1 cannot land in it whole: said on the line).  The former tail (the arena's end) is forgotten. */
+void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh)
+{
+    if (dev < 0 || dev >= DB_NQ) return;
+    static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
+    pthread_mutex_lock(&g_pool_mx);
+    int best = -1; size_t fr = 0; for (int i = 0; i < g_ext[dev].n; i++) { fr += g_ext[dev].e[i].bytes; if (best < 0 || g_ext[dev].e[i].bytes > g_ext[dev].e[best].bytes) best = i; }
+    size_t lg = best >= 0 ? g_ext[dev].e[best].bytes : 0, tb = lg < bytes ? lg : bytes;
+    if (best >= 0) { g_tail[dev].end = g_ext[dev].e[best].p + lg; g_tail[dev].p = g_tail[dev].end - tb; g_tail[dev].bytes = tb; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0; }
+    pthread_mutex_unlock(&g_pool_mx);
+    if (vb || lg < bytes) printf("dbig pool: APU%d tail moved to the top level's dead inputs: %.2f GB at the back of the largest free extent (%.2f GB; free %.2f GB in %d extents, live %.2f GB)%s\n",
+                                 dev, tb / 1e9, lg / 1e9, fr / 1e9, g_ext[dev].n, g_live_bytes[dev] / 1e9, lg < bytes ? "  SHORT: t1's quarter will not fit it whole" : "");
+}
 size_t db_pool_tail_bytes(int dev) { return dev >= 0 && dev < DB_NQ ? g_tail[dev].bytes : 0; }
 size_t db_pool_tail_stats(int dev, size_t *spills) { if (dev < 0 || dev >= DB_NQ) { if (spills) *spills = 0; return 0; } if (spills) *spills = g_tail[dev].n_spill; return g_tail[dev].n_tail; }
 static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's bytes not in the reserved tail (an extent never straddles the tail's end: it is a region's end) */
