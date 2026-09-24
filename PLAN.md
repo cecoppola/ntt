@@ -1775,3 +1775,77 @@ for the default schedule), 6.8 (truncated FFT). Closed by measurement: 6.7 / H2 
 5. **D1–D3** (code reduction), then a final regression and series.
 
 The target agent's T0–T9 can start any time; its T4 (the 4.25 × 10¹³ run) waits for session 1.
+
+## 34. Phase 14 — three windows: the apumult optimizations, then PLAN §33 (written 2026-09-24 00:40 EDT)
+
+**Order (the user's)**: first implement and test **every apumult optimization** of `docs/APUMULT_STUDY.md` (E1–E12),
+then work through **PLAN §33** (Phase A first). Every change keeps the digits bit-identical and goes behind a switch,
+off by default; adoption stays the user's decision, presented with the measurements at each window's close.
+
+**Windows** (the account's usage windows; the user's figures): **W1 00:40–04:50, W2 05:00–10:00, W3 10:00–15:00**,
+≈ 15 M tokens each for the integrator and default-model agents. **Fable tokens are counted separately** and are used for
+the highest-value thinking: memory-layout design, exactness proofs, model derivations, root-cause analysis.
+
+**Staying off the usage wall** (an agent killed at the limit wastes its work and the prompt cache):
+- no new agent after **T − 45 min** (04:05, 09:15, 14:15); every agent commits and writes its RESUME by **T − 15**
+  (04:35, 09:45, 14:45); nothing of the integrator's or the agents' runs past **T − 10**;
+- at most **3–4 agents at once** (six hit the limit about two hours in on 2026-09-23);
+- the integrator sums each agent's reported tokens as it finishes and reports the running total per window;
+- node batches are scripted to run unattended and to finish and cancel themselves by T − 15; no job is left pending
+  at a window's end (a pending job would start with nobody to run it);
+- one-shot schedules in this session: **04:05** (wrap-up), **05:02** (start W2), **09:15** (wrap-up), **10:02** (start
+  W3), **14:15** (wrap-up). They need this Claude Code session to stay open.
+
+**Nodes**: the admin's nightly CI array holds the PPAC nodes from ≈ 00:00 to ≈ 03:30–04:00 at higher priority, so W1
+is code and models; its node tests queue for ≈ 04:00 or move to W2. Then s24-16, s24-26, s24-30 (s24-35 down). Jobs
+≤ 45 min; kill only by PID or an anchored pattern; bundle from aac6's actual `main` (check the clone's commit).
+
+### W1 (00:40–04:50): build the apumult items — no GPU needed until the end
+
+| agent | model | items (APUMULT_STUDY) | deliverable by 04:35 |
+|---|---|---|---|
+| **L1** memory layout | **Fable** | **E2** tight reservation (r2 reserved at first write, r / t1 per doubling, the top tree level released pair by pair); **E5's layout half** (the tail placed in the top level's dead half, no reserved hole; `dm_layout` v2 without P); `mem_model.py` mirrored; `BS_LAYOUT_ONLY` prints each variant | code behind switches (`DM_TIGHT=1`, `DM_TAIL_DEAD=1`); `mem_model.py --check-c` exact for every variant on the login node; the modelled savings at 10¹¹, 1.68 × 10¹¹ and the 576 share |
+| **S1** spill and I/O | default | **E1** live-bytes column; **E3** O_DIRECT (or `fsync` + `posix_fadvise(DONTNEED)`) for the checkpoint writer, the output file and the reference compare; **E4** the spill primitive (`ckpt_dbig_io` + the background writer generalized: dbig range → pinned bounce → O_DIRECT, four APUs, `ECALC_SPILL_DIR`, `db_free` / `db_reserve` + restore); **E12** the memory sampler (`/proc/meminfo`, not `hipMemGetInfo`) | code and unit tests (a spill/restore round trip of a dbig, byte-identical); node tests scripted for ≈ 04:00 |
+| **R1** reciprocal and products | **Fable** | **E7** the reciprocal's products cut to the band read: the exactness argument written out, then code (`NEWTON_RECIP_CUT`); **E9** Karatsuba over the device grid modelled with D2's per-piece cost; **E10** the 576 tree-level spill modelled against `MN_T_CHUNK_MB=1024` | the proof and the code (t_newton exact); the two model verdicts with numbers |
+
+At ≈ 04:00, if the CI array has cleared: one short validation job per agent (e9 in both bases, `t_newton`, the spill
+round trip, `BS_LAYOUT_ONLY` against a real init with `ECALC_INIT_ONLY=1`), finished by 04:35.
+
+### W2 (05:00–10:00): measure the apumult items on hardware, and finish them
+
+- **05:00–05:30**: the integrator merges W1's branches into an integration branch, builds on aac6, runs the regression
+  in two halves on two nodes.
+- **Agents** (≤ 4):
+  - **L1** (Fable): **E5 complete** (P spilled during the reciprocal via S1's primitive, restored for S = P + Q), then
+    **E6** (Q spilled to the low product, the division reordered). Runs at 1.4, 1.5, 1.6 × 10¹¹ at cap 2³¹ on one node
+    (beyond today's 1.30 × 10¹¹ ceiling), digits verified, wall and exposed I/O measured: **the elasticity**.
+  - **S1**: E3 measured (the checkpoint rate before/after O_DIRECT at 4 × 10¹⁰), the spill primitive's rate, E12 in use.
+  - **R1** (Fable): **E7** measured (the reciprocal's time at 10¹¹ with and without the cut); **E9** implemented as a
+    2 × 2 Karatsuba layer in `mul_grid` if the model showed ≥ 20 % of the division phase, else recorded.
+  - **V1**: **E8**, the HIP VMM form in `tests/t_alloc.c` (reserve/map/unmap/release, peer access, the transform rate);
+    if it works, a design note for a VMM-backed pool that removes the contiguity limit (the 1.245 × 10¹¹ OOM).
+- **09:15–09:45**: merge, the regression, a five-run 4 × 10¹⁰ series with every new switch off (no regression) and one
+  with E2 + E7 on; RESULTS §83 with the ceiling, the elasticity and the 576 estimate; the adoption questions for the
+  user.
+
+### W3 (10:00–15:00): finish the apumult list, then PLAN §33
+
+- **10:00–11:30 — the apumult remainder**: whatever of E5, E6, E8, E9 did not finish in W2; **E10** implemented if its
+  model beat `MN_T_CHUNK_MB=1024`; **E11** (V6, band-sized products) as a Fable design note with the modelled
+  ceiling, implemented only if the user asks; **E12**'s collective budget check at size > 1 (with TASKS A3).
+- **11:30–14:15 — PLAN §33 Phase A**, agents in parallel:
+  - **A1** the hang (Fable for the root cause): soak runs at 7.64 × 10¹⁰ and 10⁹ × 200 with `g13d_hang.sh`, stacks,
+    the fix, a zero-hang soak;
+  - **A2** the SHMEM pool: its high-water at 2 real nodes and 4 processes at 10⁸–10¹⁰, the model, TASKS 2.4's staging;
+  - **A3** clean exits from worker threads (with E12's budget check);
+  - **A4** `t_mn_grid` on real nodes (SOS) and `mnrun.sh`'s detection;
+  - **A5** the per-node load speed (0.094 against 0.89 s per call).
+- **Then, if time remains**: PLAN §33 Phase B1 (initialization) is next.
+- **14:15–14:45**: merge, regression, RESULTS §84, the 576-node estimate, `TASKS.md` and PLAN §33 updated with what is
+  done.
+
+### Gates (every code change)
+
+`t_newton` and `t_mul`; e9 identical in both bases; a 4 × 10¹⁰ run identical to `results/e_4e10.out`; `mem_model.py
+--check-c` exact; `./mnaccept.sh --only unit,e9` plus the touched steps; the full regression at each window's close.
+Every number labeled measured / modelled / assumed.
