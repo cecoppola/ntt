@@ -26,12 +26,24 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL
     # Phase 12 S: the implementation the binary was built against: SOS (make SHMEM_HOME=~/sos; libsma) or OSHMEM (oshcc).
-    # COMM_SHMEM_IMPL=sos|oshmem overrides the detection (the command may be a wrapper).
+    # COMM_SHMEM_IMPL=sos|oshmem overrides the detection.
+    # Phase 14 N4 (A4): the detection looks through wrappers (env, stdbuf, timeout, numactl, setarch, nice, ...): every word of
+    # the command that resolves to an executable ELF file is checked for libsma / liboshmem in its dynamic section, the
+    # first that links either decides (the wrappers link neither); none found: oshmem, as before, with a note.
     impl=${COMM_SHMEM_IMPL:-}
+    case "$impl" in ""|sos|oshmem) ;; *) echo "mnrun.sh: COMM_SHMEM_IMPL=$impl: use sos or oshmem"; exit 1;; esac
     if [ -z "$impl" ]; then
-        bin=; for a in "$@"; do case "$a" in env|*=*) ;; *) bin=$a; break;; esac; done      # the command behind `env X=Y ...`
-        if ldd "$bin" 2>/dev/null | grep -q libsma; then impl=sos; else impl=oshmem; fi
+        for a in "$@"; do
+            case "$a" in *=*|-*) continue;; esac                                 # env assignments, wrapper options
+            f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
+            head -c 4 "$f" 2>/dev/null | grep -q ELF || continue                  # scripts: their interpreter is not the binary
+            need=$(readelf -d "$f" 2>/dev/null | grep NEEDED; ldd "$f" 2>/dev/null)
+            if echo "$need" | grep -q libsma; then impl=sos; break; fi
+            if echo "$need" | grep -q liboshmem; then impl=oshmem; break; fi
+        done
+        [ -n "$impl" ] || { impl=oshmem; echo "mnrun.sh: no libsma/liboshmem found in the command's executables; assuming oshmem (set COMM_SHMEM_IMPL)" >&2; }
     fi
+    [ -n "${MNRUN_SHOW_IMPL:-}" ] && { echo "mnrun.sh: SHMEM implementation $impl"; [ "$MNRUN_SHOW_IMPL" = only ] && exit 0; }   # (test hook: MNRUN_SHOW_IMPL=only prints and stops)
     if [ "$impl" = sos ]; then
         # SOS: PMI-1 (simple PMI) under srun's pmi2 plugin; the sockets provider of libfabric (the tcp provider lacks what SOS asks
         # for); the pool is the transport's own shmem_malloc (SHMEM_SYMMETRIC_SIZE) or, with COMM_SHMEM_DEVHEAP=1, a HIP buffer
