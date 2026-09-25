@@ -4,6 +4,8 @@
 #   spec  mn:<procs>:<digits>:<count>:<timeout_s>[:ENV=V,ENV=V]   node-processes through mnrun.sh (POOL_LOG as mnaccept: 27 at 1e8, 29 at 1e9)
 #         s1:<digits>:<count>:<timeout_s>[:ENV=V,...]             one process, four APUs
 #         g1:<digits>:<count>:<timeout_s>[:ENV=V,...]             the same under gdb (launch mode: a hang gets SIGINT and every thread's stack)
+#         x1:<command>:<count>:<timeout_s>                        a command in ecalc/ on the node (a test; no ':' in it); passes on rc 0 + VERIFY OK
+# A size without a reference file runs without an output file and passes on VERIFY OK alone.
 # Every run's digits are compared with ~/ntt/ecalc/ref/e_<digits>.txt (or ~/ntt/ecalc/results/e_4e10.out).  A run that outlives its
 # timeout is a HANG: the wchan histogram of its threads, rocm-smi and the log's tail are captured before it is killed.
 # Logs: ~/A114/<tag>/<run>.log; the running count in ~/A114/<tag>.txt.  The job is cancelled when the script exits.
@@ -34,15 +36,18 @@ nok=0; nbad=0; nhang=0; ndiff=0; nrun=0
 one() {   # <kind> <procs> <digits> <timeout> <env> <name>
   local kind=$1 p=$2 d=$3 to=$4 envs=$5 name=$6; local f=/tmp/A114_${TAG}_$name t1 rc c v
   local ref; ref=$(ref_of "$d"); local pl=27; [ ${#d} -ge 10 ] && pl=29; [ ${#d} -ge 11 ] && pl=31
+  [ "$kind" != x1 ] && [ ! -s "$ref" ] && { ref=""; f=""; }   # no reference at this size: no output file, VERIFY OK is the check
   t1=$(date +%s)
   case $kind in
     mn) SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env POOL_LOG=$pl ${envs//,/ } ./ecalc "$d" "$f" > "$D/$name.log" 2>&1; rc=$? ;;
     s1) timeout "$to" srun --jobid="$J" -N1 --gpus=4 --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $E; env ${envs//,/ } ./ecalc $d $f" > "$D/$name.log" 2>&1 < /dev/null; rc=$? ;;
     g1) timeout "$to" srun --jobid="$J" -N1 --gpus=4 --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $E; env ${envs//,/ } $GDB ./ecalc $d $f" > "$D/$name.log" 2>&1 < /dev/null; rc=$? ;;
+    x1) timeout "$to" srun --jobid="$J" -N1 --gpus=4 --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $E; $d" > "$D/$name.log" 2>&1 < /dev/null; rc=$?
+        nrun=$((nrun + 1)); if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$D/$name.log"; then nok=$((nok + 1)); log "$name: ok ($(grep -a 'VERIFY OK' "$D/$name.log" | tail -1 | cut -c1-80))"; else nbad=$((nbad + 1)); log "$name: FAIL rc $rc: $(grep -a 'VERIFY\|error\|FAIL' "$D/$name.log" | tail -1 | cut -c1-160)"; fi; return ;;
   esac
   nrun=$((nrun + 1))
-  if [ $rc -eq 124 ]; then nhang=$((nhang + 1)); log "$name: HANG after $to s (rc 124): capturing"; capture "$name"; N "rm -rf $f $f.*"; return; fi
-  c=$(N "cat $f.part* > $f.all 2>/dev/null || cp $f $f.all 2>/dev/null; cmp -s $f.all $ref && echo identical || echo DIFFERS; rm -rf $f $f.*")
+  if [ $rc -eq 124 ]; then nhang=$((nhang + 1)); log "$name: HANG after $to s (rc 124): capturing"; capture "$name"; [ -n "$f" ] && N "rm -rf $f $f.*"; return; fi
+  if [ -n "$ref" ]; then c=$(N "cat $f.part* > $f.all 2>/dev/null || cp $f $f.all 2>/dev/null; cmp -s $f.all $ref && echo identical || echo DIFFERS; rm -rf $f $f.*"); else c=identical; fi
   v=$(grep -ac 'VERIFY OK' "$D/$name.log")
   local want=1; [ "$kind" = mn ] && want=$((p + 1))
   if [ $rc -eq 0 ] && [ "$c" = identical ] && [ "$v" -ge "$want" ] && ! grep -aq 'VERIFY FAILED' "$D/$name.log"; then nok=$((nok + 1)); echo "$(date +%T) $name: ok $(( $(date +%s) - t1 )) s" >> "$S"
@@ -53,7 +58,7 @@ for spec in "$@"; do
   IFS=: read -r kind a b c d e <<< "$spec"
   case $kind in
     mn) p=$a; dg=$b; cnt=$c; to=$d; envs=${e:-};;
-    s1|g1) p=1; dg=$a; cnt=$b; to=$c; envs=${d:-};;
+    s1|g1|x1) p=1; dg=$a; cnt=$b; to=$c; envs=${d:-};;
     *) log "bad spec $spec"; continue;;
   esac
   for ((i = 1; i <= cnt; i++)); do
