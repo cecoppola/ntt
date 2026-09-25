@@ -3,6 +3,7 @@
 #define _GNU_SOURCE
 #endif
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
@@ -13,7 +14,7 @@
 #include "mem.h"
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 double mem_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 
@@ -162,9 +163,8 @@ void mem_dev_release(int dev, void *p)
 }
 void mem_oom(const char *where, int dev, size_t bytes)
 {
-    fprintf(stderr, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, mem_alloc_form_name(), bytes / 1e9, dev);
-    fflush(stderr); mem_report("OOM"); mem_report_summary(); fflush(stdout);
-    exit(1);
+    ec_fatal_begin(EC_RC_OOM, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, mem_alloc_form_name(), bytes / 1e9, dev);   /* Phase 14 C3: the first failing thread reports, the others wait for the _exit */
+    mem_report("OOM"); mem_report_summary(); ec_fatal_end(EC_RC_OOM);
 }
 void *mem_dev_alloc(int dev, size_t bytes)
 {
@@ -230,7 +230,7 @@ void mem_dev_copy_wait(int dev)
     for (;;) {
         hipError_t e = hipStreamQuery(g_cs[dev]);
         if (e == hipSuccess) break;
-        if (e != hipErrorNotReady) { fprintf(stderr, "mem_dev_copy_wait: hipStreamQuery on device %d: %s\n", dev, hipGetErrorString(e)); exit(1); }
+        if (e != hipErrorNotReady) { ec_fatal(EC_RC_FATAL, "mem_dev_copy_wait: hipStreamQuery on device %d: %s\n", dev, hipGetErrorString(e)); }
         if (!reported && mem_now() - t0 > report_s) { reported = 1; fprintf(stderr, "mem_dev_copy_wait: the copy on device %d's stream is not complete after %.0f s (still polling)\n", dev, mem_now() - t0); fflush(stderr); }
         struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0);
     }
@@ -249,7 +249,7 @@ void *mem_hreg_alloc(size_t bytes)
     const size_t huge = 2u << 20;
     bytes = (bytes + huge - 1) & ~(huge - 1);
     void *p = 0;
-    if (posix_memalign(&p, huge, bytes)) { fprintf(stderr, "hreg: posix_memalign %zu failed\n", bytes); exit(1); }
+    if (posix_memalign(&p, huge, bytes)) { ec_fatal(EC_RC_OOM, "hreg: posix_memalign %zu failed\n", bytes); }
     madvise(p, bytes, MADV_HUGEPAGE);
     unsigned char *b = (unsigned char *)p;
 #pragma omp parallel for schedule(static)
@@ -271,7 +271,7 @@ void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s)
     const size_t huge = 2u << 20;
     bytes = (bytes + huge - 1) & ~(huge - 1);
     void *p = 0;
-    if (posix_memalign(&p, huge, bytes)) { fprintf(stderr, "hstage: posix_memalign %zu failed\n", bytes); exit(1); }
+    if (posix_memalign(&p, huge, bytes)) { ec_fatal(EC_RC_OOM, "hstage: posix_memalign %zu failed\n", bytes); }
     madvise(p, bytes, MADV_HUGEPAGE);
     int node = mem_numa_node_of_device(dev);
     double t0 = mem_now();
@@ -348,7 +348,7 @@ void *hpool_get(hpool *h, size_t bytes)
     if (h->p && h->cap >= bytes) return h->p;
     size_t cap = pow2_ceil(bytes);
     free(h->p);
-    if (posix_memalign(&h->p, 4096, cap)) { fprintf(stderr, "hpool: %zu failed\n", cap); exit(1); }
+    if (posix_memalign(&h->p, 4096, cap)) { ec_fatal(EC_RC_OOM, "hpool: %zu failed\n", cap); }
     h->cap = cap;
     return h->p;
 }
@@ -399,6 +399,7 @@ static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NC
 static const char *rank_prefix(void) { static char b[24]; const char *r = getenv("COMM_RANK"), *s = getenv("COMM_SIZE"); if (r && s && atoi(s) > 1) snprintf(b, sizeof b, "mem[%s] ", r); else snprintf(b, sizeof b, "mem "); return b; }
 void mem_report(const char *phase)
 {
+    ec_fatal_phase(phase);                        /* Phase 14 C3: a fatal error names the last boundary passed */
     int ndev = mem_device_count(); if (ndev > MEM_MAX_DEV) ndev = MEM_MAX_DEV;
     size_t dev[MEM_MAX_DEV][MEM_DEV_NCAT], host[MEM_HOST_NCAT];
     gather(dev, ndev, host);

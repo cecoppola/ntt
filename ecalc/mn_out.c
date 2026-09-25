@@ -1,5 +1,6 @@
 /* mn_out.c - per-node output and verification: see mn_out.h (Phase 9 A-out, PLAN.md 19 M5 + C1) */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -12,7 +13,7 @@
 #include "mn_out.h"
 #include "mem.h"
 #include "spill.h"                                    /* Phase 14 S1 (E3): ECALC_ODIRECT */
-#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 /* ---- small collectives on host vectors, through comm_allgather (device buffers on APU 0) ---- */
 void mn_out_allgather_u64(comm *c, const uint64_t *v, int k, uint64_t *out)
@@ -232,8 +233,8 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
     }
     sem_init(&w->job_ready, 0, 0); sem_init(&w->job_taken, 0, 0); sem_init(&w->buf_free[0], 0, 1); sem_init(&w->buf_free[1], 0, 1);
     w->bufsz = L * 18 + 64;
-    if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { fprintf(stderr, "mn_out: %zu bytes\n", w->bufsz); exit(1); }
-    for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { fprintf(stderr, "mn_out: %zu bytes\n", w->bufsz); exit(1); }
+    if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
+    for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     if (src->dev) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
     pthread_create(&w->th, 0, writer_run, w);
     size_t fbase = k0 == 0 ? 0 : k0 + 1, kw_end = o->d_out + 1;      /* the part's first byte in the file; digits < kw_end are written */

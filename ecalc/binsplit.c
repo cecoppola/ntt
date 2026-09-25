@@ -1,5 +1,6 @@
 /* binsplit.c - see binsplit.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -223,7 +224,7 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
     if (g_cap[which][r] < limbs) {
         if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
             if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
-            if (!rns_pool_grow) { fprintf(stderr, "bs: region pool %d of parity %d would grow inside bs, %.2f -> %.2f GB: the regions are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", r, which, g_cap[which][r] * 8e-9, limbs * 8e-9); fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1); }
+            if (!rns_pool_grow) { ec_fatal_begin(EC_RC_OOM, "bs: region pool %d of parity %d would grow inside bs, %.2f -> %.2f GB: the regions are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", r, which, g_cap[which][r] * 8e-9, limbs * 8e-9); mem_report("GROW"); mem_report_summary(); ec_fatal_end(EC_RC_OOM); }   /* Phase 14 C3: one report per process, then _exit (the four APU threads meet it together) */
         }
         if (g_pool[which][r] && !in_arena(r, g_pool[which][r])) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
         size_t cap = limbs + limbs / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
@@ -504,7 +505,7 @@ void binsplit_pregrow(unsigned long N)
         struct dm_layout dml; memset(&dml, 0, sizeof dml); int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
         if (tail_on) dm_layout(N, sz, &dml);
         if (dml.tail_dead >= 2 && !dm_p_spill_wired && !(getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY")))) {   /* Phase 14 L1: the E5 layout needs the P spill (W2) */
-            fprintf(stderr, "bs: DM_TAIL_DEAD=%d lays the arena out without P during the reciprocal, but the P spill is not wired in this build: layout only (BS_LAYOUT_ONLY, ECALC_INIT_ONLY=1)\n", dml.tail_dead); fflush(stderr); exit(2);
+            fprintf(stderr, "bs: DM_TAIL_DEAD=%d lays the arena out without P during the reciprocal, but the P spill is not wired in this build: layout only (BS_LAYOUT_ONLY, ECALC_INIT_ONLY=1)\n", dml.tail_dead); exit(2);
         }
         size_t extra[NR], hole[NR], cap[NR]; int nd = mem_device_count(), per_dev = (NR + nd - 1) / nd;   /* regions per device (one, on the four-APU node) */
         for (int r = 0; r < NR; r++) {
@@ -686,7 +687,7 @@ static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int wr
  * quarter (g >= qc) + (g >= 2 qc) + (g >= 3 qc), dbig.c), each run DMA'd on its quarter's device through buf */
 static int ckpt_dbig_io(ckf *cf, dbig *x, size_t lo, size_t hi, uint64_t *buf, int write, struct ckpt_io *io, int part)
 {
-    if (x->off) { fprintf(stderr, "bs: checkpoint of a dbig view\n"); abort(); }
+    if (x->off) { ec_fatal(EC_RC_FATAL, "bs: checkpoint of a dbig view\n"); }
     int ok = 1; size_t cap = (io ? io->chunk : CKPT_CHUNK) / 8;
     FILE *f = cf->f;
     void *b2[2] = { buf, 0 }; size_t bc = 0; volatile int *guard[2] = { 0, 0 };   /* Phase 14 S1 (E3): the O_DIRECT form */
@@ -802,8 +803,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
         snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
                  p, (unsigned long long)h->N, h->decimal ? "10^18" : "2^64", h->seed_terms, v2 ? x->size : 1, v2 ? x->rank : 0, N, mn_size(), me);
         if (g_ck_noabort) { g_ck_err = 1; return 0; }  /* Phase 13 N: the restart scan reports it; mn.c fails every node together */
-        fprintf(stderr, "%s\n", g_ck_msg);
-        abort();
+        ec_fatal(EC_RC_FATAL, "%s", g_ck_msg);
     }
     if (!check_files) return 1;
     struct stat st;
@@ -1051,7 +1051,7 @@ static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsign
                 span(&p, &q, a, b);
                 struct node *nd = &cur->nd[i];
                 nd->r = r; nd->po = 2 * per * (i - lo); nd->pn = p.n; nd->qo = nd->po + per; nd->qn = q.n;
-                if (p.n > per || q.n > per) { fprintf(stderr, "bs: seed span overflow\n"); abort(); }
+                if (p.n > per || q.n > per) { ec_fatal(EC_RC_FATAL, "bs: seed span overflow\n"); }
                 memcpy(stage[r] + nd->po, p.l, p.n * 8); memcpy(stage[r] + nd->qo, q.l, q.n * 8);
             }
         }
@@ -1093,7 +1093,7 @@ static void seed_spans(struct level *cur, size_t per, unsigned long S, unsigned 
             span(&p, &q, a, bb);
             struct node *nd_ = &cur->nd[i];
             nd_->r = r; nd_->po = 2 * per * (i - lo); nd_->pn = p.n; nd_->qo = nd_->po + per; nd_->qn = q.n;
-            if (p.n > per || q.n > per) { fprintf(stderr, "bs: seed span overflow\n"); abort(); }
+            if (p.n > per || q.n > per) { ec_fatal(EC_RC_FATAL, "bs: seed span overflow\n"); }
             uint64_t *dst = dst_c0 + 2 * per * (i - c0);
             memcpy(dst, p.l, p.n * 8); if (pad) memset(dst + p.n, 0, (per - p.n) * 8);
             memcpy(dst + per, q.l, q.n * 8); if (pad) memset(dst + per + q.n, 0, (per - q.n) * 8);
@@ -1210,7 +1210,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (l) {
             mem_pool_guard = 0; binsplit_pregrow(N);   /* Phase 12 R: the restart lays the regions out again */
             t = mem_now(); size_t off = 0;
-            if (!ckpt_read(&cur, &which, l, &off, N)) { fprintf(stderr, "bs: restart from %s level %d failed\n", bs_ckpt_dir, l); abort(); }
+            if (!ckpt_read(&cur, &which, l, &off, N)) { ec_fatal(EC_RC_FATAL, "bs: restart from %s level %d failed\n", bs_ckpt_dir, l); }
             bs_st.levels = l; bs_st.restart_level = l; ckpt_level = l; resumed = 1;
             if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
             bs_st.t_restart = mem_now() - t;
@@ -1237,7 +1237,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     if (g_pre.active && !own_stage && g_pre.N == N) {                      /* I2: computed (and streamed) during init; take the table */
         if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0;
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
-        for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { fprintf(stderr, "bs: region %d's pool moved after the seeds were streamed into it\n", r); abort(); }
+        for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { ec_fatal(EC_RC_FATAL, "bs: region %d's pool moved after the seeds were streamed into it\n", r); }
         if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it (max %.2f); %d chunks of %zu MB, %d through a buffer%s)\n",
                                g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.t_issue_max, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
     } else if (!own_stage) {
@@ -1260,6 +1260,13 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     }                                                /* !resumed */
 
     mem_pool_guard = 1;                              /* Phase 12 R: from here nothing may grow (the reciprocal and the division keep it set) */
+    if (getenv("ECALC_FATAL_TEST") && atoi(getenv("ECALC_FATAL_TEST")) == 1) {   /* Phase 14 C3 (test): the four APU threads fail at once, as the in-phase guards do */
+#pragma omp parallel num_threads(NR)
+        {
+#pragma omp barrier
+            ec_fatal(EC_RC_FATAL, "ECALC_FATAL_TEST=1: a forced failure in bs's worker %d of %d (all at once, after the seeds)", omp_get_thread_num(), NR);
+        }
+    }
     while (cur.n > 1) {
         t = mem_now();
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;

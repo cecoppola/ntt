@@ -1,6 +1,7 @@
 /* mn.c - the multi-node layer: environment, one mesh per APU thread (TCP, or SHMEM PE sets with COMM_TRANSPORT=shmem --
  * Phase 11 S), the start-up self-test (PLAN.md 17, M1) */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
@@ -11,7 +12,7 @@
 #include "modarith.h"
 #include "mem.h"
 #include "memsample.h"                                /* Phase 14 S1 (E1) */
-#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
 static const char *g_hosts; static int g_port = 27000;
@@ -26,7 +27,7 @@ int mn_init(void)
     g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported, as TCP does) */
     g_topo = getenv("MN_TOPO_GROUP") ? atoi(getenv("MN_TOPO_GROUP")) : 0;
     if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
-        if (!comm_shmem_available()) { fprintf(stderr, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); exit(1); }
+        if (!comm_shmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); }
         double t0 = mem_now();
         g_size = comm_shmem_init(); g_rank = comm_shmem_rank();
         if (g_size <= 1) { g_size = 1; g_rank = 0; comm_shmem_finalize(); return 1; }
@@ -38,7 +39,7 @@ int mn_init(void)
     }
     g_size = es ? atoi(es) : 1; g_rank = er ? atoi(er) : 0;
     if (g_size <= 1) { g_size = 1; g_rank = 0; return 1; }
-    if (!eh) { fprintf(stderr, "mn: COMM_SIZE %d needs COMM_HOSTS\n", g_size); exit(1); }
+    if (!eh) { ec_fatal(EC_RC_FATAL, "mn: COMM_SIZE %d needs COMM_HOSTS\n", g_size); }
     int base = ep ? atoi(ep) : 27000;
     g_hosts = strdup(eh); g_port = base;
     /* mesh d joins APU thread d of every node: rank = node, size = nodes */
@@ -154,7 +155,7 @@ static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
  * created on first use by all its members together (a singleton group has none) */
 mn_group *mn_group_at(int level)
 {
-    if (level < 1 || level >= MN_MAXL) { fprintf(stderr, "mn_group_at: level %d\n", level); exit(1); }
+    if (level < 1 || level >= MN_MAXL) { ec_fatal(EC_RC_FATAL, "mn_group_at: level %d\n", level); }
     if (g_groups[level]) return g_groups[level];
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     int k = g_rank >> level; G->g0 = k << level; G->g = (1 << level) < g_size - G->g0 ? (1 << level) : g_size - G->g0;
@@ -181,15 +182,15 @@ mn_group *mn_group_at(int level)
 static mn_group *g_sched[MN_MAXL];
 mn_group *mn_group_span(int l, int g0, int g)
 {
-    if (l < 1 || l >= MN_MAXL) { fprintf(stderr, "mn_group_span: level %d\n", l); exit(1); }
+    if (l < 1 || l >= MN_MAXL) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d\n", l); }
     int lv = 0; while ((1 << lv) < g) lv++;
     if (((1 << lv) == g && (g0 & (g - 1)) == 0) || (g0 == 0 && g == g_size)) {
         if (g0 == 0 && g == g_size) { lv = 0; while ((1 << lv) < g_size) lv++; }
         mn_group *B = mn_group_at(lv);
-        if (B->g0 != g0 || B->g != g) { fprintf(stderr, "mn_group_span: level %d [%d, %d) is not the binary group [%d, %d)\n", l, g0, g0 + g, B->g0, B->g0 + B->g); exit(1); }
+        if (B->g0 != g0 || B->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d [%d, %d) is not the binary group [%d, %d)\n", l, g0, g0 + g, B->g0, B->g0 + B->g); }
         return B;
     }
-    if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { fprintf(stderr, "mn_group_span: level %d group changed\n", l); exit(1); } return g_sched[l]; }
+    if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = g_rank - g0;
     double t0 = mem_now();
@@ -235,7 +236,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
         comm *xg = comm_xgmi_create(d), *cm = getenv("MN_LAYERED_RAW") ? xg : comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
-        if (comm_rank(cm) != r || comm_size(cm) != nr) { fprintf(stderr, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); exit(1); }
+        if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
         {   /* the all-to-all alone: slab sigma of rank rho tagged (rho, sigma, i) must arrive as slab rho of rank sigma */
@@ -386,7 +387,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
         double t0 = mem_now(); uint64_t d[10]; dbig ps, qs;
-        if (!bs_ckpt_tree_read(lr, bs_N, d, &ps, &qs)) { fprintf(stderr, "mn: node %d: restart from tree level %d failed\n", g_rank, lr); exit(1); }
+        if (!bs_ckpt_tree_read(lr, bs_N, d, &ps, &qs)) { ec_fatal(EC_RC_FATAL, "mn: node %d: restart from tree level %d failed\n", g_rank, lr); }
         db_free(&P->sh); db_free(&Q->sh);
         P->sh = ps; P->n = d[0]; P->N = d[1]; P->g0 = (int)d[2]; P->g = (int)d[3]; Q->sh = qs; Q->n = d[5]; Q->N = d[6]; Q->g0 = (int)d[7]; Q->g = (int)d[8];
         bs_st.t_restart += mem_now() - t0;

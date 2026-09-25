@@ -29,6 +29,7 @@
 #include "mn_plan.h"                                 /* Phase 13d L: MN_PLAN_ONLY */
 #include "memsample.h"                               /* Phase 14 S1: E1, E12 */
 #include "spill.h"                                   /* Phase 14 S1: E3 (the output file under ECALC_ODIRECT) */
+#include "fatal.h"                                   /* Phase 14 C3: ec_quit, EC_RC_BUDGET */
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -227,6 +228,62 @@ static int out_stage(struct out_ctx *c)
  * the end of the division: 113 s of wait at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
  * (ECALC_CKPT_TOP_SLACK seconds, default 1): a set the disk cannot finish in time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
+/* Phase 14 C3 (APUMULT_STUDY E12, PLAN §33 A3): ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
+ * mem_report("init")), every rank models its peak and the ranks decide together whether any node is over its budget; if one
+ * is, every rank stops here (rc EC_RC_BUDGET = 8) with the figures, instead of one node dying mid-run.
+ *   rank peak = max(device bytes in use now [the layout just mapped], the model's plane pools + arena [binsplit_node_bytes at
+ *               this run's cap: covers a VMM arena still mapping in the background]) + max(the model's host terms [runtime,
+ *               checkpoint staging, seed buffers, + 6 GB of comm at size > 1], VmRSS now);
+ *   to come   = rank peak - (device in use now + VmRSS now): what the rank still has to take from the node;
+ *   node over = the sum of its ranks' peaks > ECALC_NODE_GB (default 480), or the sum of their "to come" > MemAvailable
+ *               (/proc/meminfo, the smallest reading of the node's ranks); a rank is also over when its peak exceeds its
+ *               share of the node budget (ECALC_NODE_GB / ranks on the node; ECALC_BUDGET_RANK_GB=<r>:<GB> sets rank r's
+ *               share, a test hook: one rank over while the node is not).
+ * The ranks allgather their figures (the host name's hash, the node's ranks found by it) and all apply the same rule to the
+ * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default off. */
+static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
+static void budget_check(unsigned long N, int verbose)
+{
+    const char *sw = getenv("ECALC_BUDGET_CHECK"); if (!sw || !atoi(sw)) return;
+    int me = mn_rank(), sz = mn_size(); if (sz < 1) sz = 1;
+    double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
+    int cap = (rns_pool_log() >= 31 ? 2 : 0) + (rns_planes_3q30 ? 1 : 0);
+    size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, sz, cap, ec_np_init(), &pb, &ab, &hb);
+    size_t dev = mem_report_dev_total(), rss = mem_vmrss();
+    size_t dpk = dev > pb + ab ? dev : pb + ab, hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;
+    struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
+    const int K = 7;
+    uint64_t v[7] = { host_hash(), peak, dpk, hpk, peak > now ? peak - now : 0, mi.avail, (uint64_t)-1 };
+    const char *t = getenv("ECALC_BUDGET_RANK_GB");   /* test hook: <rank>:<GB> */
+    if (t) { int r = atoi(t); const char *c = strchr(t, ':'); if (c && r == me) v[6] = (uint64_t)(atof(c + 1) * 1e9); }
+    uint64_t *all = (uint64_t *)calloc((size_t)sz * K, 8);
+    if (sz > 1) mn_allgather(mn_comm(0), v, K, all); else memcpy(all, v, sizeof v);
+    int nover = 0, first = -1; char *over = (char *)calloc(sz, 1);
+    for (int r = 0; r < sz; r++) {
+        const uint64_t *a = all + (size_t)r * K; int nr = 0; uint64_t sum = 0, come = 0, avail = (uint64_t)-1;
+        for (int q = 0; q < sz; q++) { const uint64_t *b = all + (size_t)q * K; if (b[0] != a[0]) continue; nr++; sum += b[1]; come += b[4]; if (b[5] < avail) avail = b[5]; }
+        double share = a[6] != (uint64_t)-1 ? (double)a[6] : node_gb * 1e9 / nr;
+        int why = (double)sum > node_gb * 1e9 ? 1 : (avail && come > avail) ? 2 : (double)a[1] > share ? 3 : 0;
+        over[r] = (char)why; if (why) { nover++; if (first < 0) first = r; }
+        if (why || (verbose >= 2 && me == 0))
+            if (me == 0 || r == me)
+                printf("budget: rank %d%s: peak %.1f GB (device %.1f, host %.1f), still to take %.1f GB | node of %d rank%s: peaks %.1f of %.0f GB, to take %.1f of MemAvailable %.1f GB | rank share %.1f GB%s\n",
+                       r, why ? " OVER" : "", a[1] * 1e-9, a[2] * 1e-9, a[3] * 1e-9, a[4] * 1e-9, nr, nr > 1 ? "s" : "", sum * 1e-9, node_gb, come * 1e-9, avail * 1e-9, share * 1e-9,
+                       why == 1 ? " -- the node's peaks exceed ECALC_NODE_GB" : why == 2 ? " -- the node cannot supply what its ranks still need" : why == 3 ? " -- the rank exceeds its share" : "");
+    }
+    if (nover) {
+        const uint64_t *a = all + (size_t)first * K;
+        fprintf(stderr, "ecalc: BUDGET CHECK FAILED (ECALC_BUDGET_CHECK=1) on rank %d of %d: %d rank%s over, the first rank %d (peak %.1f GB: device %.1f + host %.1f; %s); every rank stops before compute, rc %d\n",
+                me, sz, nover, nover > 1 ? "s" : "", first, a[1] * 1e-9, a[2] * 1e-9, a[3] * 1e-9,
+                over[first] == 1 ? "its node's peaks exceed ECALC_NODE_GB" : over[first] == 2 ? "its node's MemAvailable is short" : "over its share of the node budget", EC_RC_BUDGET);
+        fflush(stdout); fflush(stderr);
+        if (sz > 1) mn_barrier();                    /* every rank has printed before any leaves (the launcher kills the rest at the first exit) */
+        ec_quit(EC_RC_BUDGET);
+    }
+    uint64_t mx = 0; for (int r = 0; r < sz; r++) if (all[(size_t)r * K + 1] > mx) mx = all[(size_t)r * K + 1];
+    if (me == 0) printf("budget: ECALC_BUDGET_CHECK ok: %d rank%s, largest rank peak %.1f GB, node budget %.0f GB\n", sz, sz > 1 ? "s" : "", mx * 1e-9, node_gb);
+    free(all); free(over);
+}
 /* Phase 13b P (PLAN 31, the K axis): the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
  * 31, 3x30) sets the three knobs that make a cap: POOL_LOG (30 or 31: the plane pools' base, the batch and mdev tiers' 2^pool_log),
  * RNS_PLANES_3Q30 (the 3 2^k planes, whose default size rule is on below 5e10 digits at POOL_LOG 31) and DIST_LOGN_TEST (the
@@ -329,6 +386,7 @@ int main(int argc, char **argv)
     RESULT("init", "s", t_init);
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
+    budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = dec_verbose = verbose >= 2;
     bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the bs regions become the dm phase's blocks (default since RESULTS.md 62b) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
