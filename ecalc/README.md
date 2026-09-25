@@ -207,6 +207,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MEM_DPOOL_FILL` | *test*: fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0) |
 | `MEM_ALLOC` | *Phase 12 (I)*: the form of every large device allocation — `hipmalloc` / `fine` / `uncached` / `managed` / `host` / `mmap` (hipmalloc) |
 | `MEM_COPY_NOWAIT` | *Phase 12 (R), test*: the pre-fix `mem_dev_copy_on` (no wait on the caller's stream) for the witness runs (0) |
+| `MEM_COPY_WAIT_POLL` | *Phase 14 (A1), diagnostic*: `mem_dev_copy_wait` (the seed thread's DMA wait) polls `hipStreamQuery` instead of `hipStreamSynchronize` and reports a copy still incomplete after `MEM_COPY_WAIT_REPORT_S` (60) seconds (0) |
 
 **The transform and the product tiers (`NTT_`, `PW_FUSE`, `RNS_`)**
 
