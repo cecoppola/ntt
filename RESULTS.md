@@ -3613,3 +3613,14 @@ The apumult list is done except E12's collective budget check, which goes with T
 
 **For the user to decide**, each measured and passing in combination: `NEWTON_RECIP_CUT=1`, `ECALC_ODIRECT=1`,
 `DM_TIGHT=1` + `DB_POOL_VMM=1`, `MN_TREE_EARLY_FREE=1` as defaults.
+
+**C3 (TASKS A3 + E12, results/C314.md), merged (546afba)**: every `exit(1)`/`abort()` reachable from the worker
+threads goes through `ecalc/fatal.c`. The first failing thread prints one line (rank, host, APU, thread, the last phase,
+what failed, the sizes) and leaves by `_exit`; the other failing threads wait. Codes: 3 run error, 6 allocation or
+in-phase pool growth, 8 budget. G13d's configuration that segfaulted with rc 139 (`POOL_LOG=27`, 9.2 × 10⁹ over 4) now
+exits with rc 6 on every rank, one message each. `ECALC_BUDGET_CHECK=1` (off by default): after init the ranks share
+their modelled peak against `ECALC_NODE_GB` and MemAvailable, and if any node is over, all ranks stop with rc 8 before
+compute; tested with the whole node over, one rank over, and a normal budget (no effect, identical). **Regression on
+546afba** (jobs 21264, 21263, 21265): defaults 16/16 + 5/5; all new switches on 9/9, 4 × 10¹⁰ identical. **The apumult
+list (E1–E12) is complete**: adopted as switches E1, E2, E3, E4, E7, E8, E10a, E12; rejected or superseded E5, E6 (≤ 4–9 GB
+after E2), E9 (+68–89 GB), E10 (replaced by E10a); E11 left to the user.
