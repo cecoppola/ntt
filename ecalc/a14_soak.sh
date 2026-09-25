@@ -50,6 +50,7 @@ one() {   # <kind> <procs> <digits> <timeout> <env> <name>
   if [ -n "$ref" ]; then c=$(N "cat $f.part* > $f.all 2>/dev/null || cp $f $f.all 2>/dev/null; cmp -s $f.all $ref && echo identical || echo DIFFERS; rm -rf $f $f.*"); else c=identical; fi
   v=$(grep -ac 'VERIFY OK' "$D/$name.log")
   local want=1; [ "$kind" = mn ] && want=$((p + 1))
+  [ "$kind" = g1 ] && [ $rc -eq 1 ] && rc=0      # gdb's `kill` after a normal exit returns 1 ("the program is not being run")
   if [ $rc -eq 0 ] && [ "$c" = identical ] && [ "$v" -ge "$want" ] && ! grep -aq 'VERIFY FAILED' "$D/$name.log"; then nok=$((nok + 1)); echo "$(date +%T) $name: ok $(( $(date +%s) - t1 )) s" >> "$S"
   else nbad=$((nbad + 1)); [ "$c" = DIFFERS ] && ndiff=$((ndiff + 1))
        log "$name: FAIL rc $rc, $c, $v VERIFY OK; $(grep -a 'VERIFY FAILED\|leaf P\|exceeds\|abort\|error\|maxidx\|Killed\|MISMATCH' "$D/$name.log" | head -2 | tr '\n' ';' | cut -c1-200)"; fi
