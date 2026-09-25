@@ -252,7 +252,7 @@ def t_chunk_limbs(mb):
     """rns_dist.c mn_t_chunk_limbs: MN_T_CHUNK_MB per APU -> limbs per node per round (0: off)"""
     return int(mb * 1048576.0 / 8) * 4 if mb and mb > 0 else 0
 
-def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None, t_chunk_mb=0):
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None, t_chunk_mb=0, early_free=False):
     """the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes); scratch_out[0] = the top
     level's scratch alone (the sharded division's products carry the same), [1] = its per-rank plane q.
     form 'flat': the arena formula of the code before Phase 12 (tree_need_dev_flat above; kept for the before/after tables).
@@ -260,7 +260,9 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
     of nch children of P nodes is combined by Horner from the top child (mn.c tree_level_k: (P, Q) <- (P_i Q + P, Q_i Q)
     for i = nch - 2 .. 0), its largest product P_0 x Q_run = P leaf shares x (nch - 1) P; the product's scratch is
     mn_scratch (the code's rns_mul_dist_mn_scratch: the pieces at the cap, the exact spills -- O(share) + O(q), no g-term);
-    the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8."""
+    the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8.
+    early_free (Phase 14 T1, E10a, MN_TREE_EARLY_FREE=1): P_i, P_run freed between the level's two products -- the live set is
+    max(2c + 2r + n, c + r + 2n) instead of 2c + 2r + 2n (c, r, n = the child's, the running, the new share's quarter + 1/8)."""
     if form == 'flat': return tree_need_dev_flat(nq_leaf, g, scratch_out, logr_delta)
     best = 0; top_scratch = 0; top_q = 0
     for S, ch in level_children(g, groups):
@@ -269,7 +271,8 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
         nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
         share_child = nq_leaf + 8; share_run = -(-nb // gg); share_new = -(-nc // gg)
         scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta, t_chunk_mb)
-        live = 2 * quarter_bytes(share_child + share_child // 8) + (2 * quarter_bytes(share_run + share_run // 8) if nch > 2 else 0) + 2 * quarter_bytes(share_new + share_new // 8)
+        c = quarter_bytes(share_child + share_child // 8); r = quarter_bytes(share_run + share_run // 8) if nch > 2 else 0; n = quarter_bytes(share_new + share_new // 8)
+        live = max(2 * c + 2 * r + n, c + r + 2 * n) if early_free else 2 * c + 2 * r + 2 * n
         best = max(best, live + scratch); top_scratch = scratch; top_q = mn_shape(min(nc, 1 << mn_cap_log(gg, pool_log)), gg, logr_delta)[3]
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
@@ -425,7 +428,7 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tight=False, tail_dead=0); o.update(opts or {})   # form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tight=False, tail_dead=0, early_free=False); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 13b D: np (ECALC_NP: pool 0 scales np/4), strategy (C | B | B4 | auto: B's 16 n planes), cap (the plane cap in points:
     # sets pool_log and the 3 2^k planes, cap_pool), depth (2 = the uneven exchange two deep: one more v-slot pair per APU on the
     # general-map levels), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
@@ -433,7 +436,7 @@ def mem_per_node(D, g=1, opts=None):
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal']); bs_total = sum(bs)
     L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'])
-    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb']) if g > 1 else 0
+    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
@@ -554,18 +557,19 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=0):
     worst = 0.0
     for line in open(path, errors='replace'):
         if not line.startswith('layout:'): continue
-        v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
+        v = dict((k, float(x)) for k, x in re.findall(r'(\w+(?: \w+)?) ([0-9.e+]+)(?!\w)', line.replace('(', ' ').replace(')', ' ').replace('|', ' ')))
         D, g, N = v['D'], int(v['g']), int(v['N'])
         tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
+        ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
         L = dm_layout(N, g, pool_log, True, tight, tdead); sc = []
-        tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb) if g > 1 else 0
+        tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef) if g > 1 else 0
         need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
         bs = arena_bs_bytes(N, (N + g - 1) // g); ar = sum(arena_of(b, want) for b in bs)
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
         if 'v2' in v: rows[3:3] = [('v2 / dev', v['v2'], L['v2']), ('v3 / dev', v['v3'], L['v3']), ('division / dev', v['div'], L['div']), ('jl (limbs)', v['jl'], L['jl'])]
-        print('D %.3g g %d (N %d) tight %d tail_dead %d:' % (D, g, N, tight, tdead))
+        print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d:' % (D, g, N, tight, tdead, ef))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0
             print('   %-18s C %16.0f  model %16.0f  %+.4f %%' % (name, c, py, 100 * rel))
@@ -620,7 +624,21 @@ def ceilings():
             name, D1, D2, D1 * g, r['node_peak'] / GB, r['planes'] / GB, r['pool_total'] / GB, r['arena'] / GB, r['regions_bs'] / GB, r['dm_need'] / GB, r['tree_need'] / GB,
             r['top_scratch'] / GB, r['exchange'] / GB, r['host_hwm'] / GB, r['shmem_pool'] / GB))
 
+# ---------------------------------------------------------------- Phase 14 T1 (E10a): MN_TREE_EARLY_FREE at 576
+def early_free_ceilings():
+    print('== Phase 14 T1 (E10a): the 576 per-node ceiling (modelled) at 480 / 502 GB, the target switches %s, without / with MN_TREE_EARLY_FREE' % TARGET576)
+    for name, o in [('V0', dict()), ('DM_TIGHT=1', dict(tight=True)), ('DM_TIGHT=1 MN_T_CHUNK_MB=1024', dict(tight=True, t_chunk_mb=1024))]:
+        for ef in (False, True):
+            oo = dict(o); oo.update(TARGET576); oo['early_free'] = ef
+            cs = []
+            for nb in (480, 502):
+                Dm = max_digits_per_node(nb * GB, 576, oo); r = mem_per_node(Dm, 576, oo)
+                cs.append('%.3e per node = %.3e digits (peak %.1f: arena %.1f = max(bs %.1f, dm %.1f, tree %.1f))' % (Dm, 576 * Dm, r['node_peak'] / GB, r['arena'] / GB, r['regions_bs'] / GB, r['dm_need'] / GB, r['tree_need'] / GB))
+            print('  %-32s early_free %d: 480 GB: %s\n  %-32s               502 GB: %s' % (name, ef, cs[0], '', cs[1]))
+
 if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == '--e10a':
+        early_free_ceilings(); sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == '--check-c':
         c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 0)
     elif len(sys.argv) > 1 and sys.argv[1] == '--ceiling':

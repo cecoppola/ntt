@@ -312,8 +312,9 @@ static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 40
  * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  DM_TAIL_DEAD=1 -- v3 no longer reserves the hole beside the top level:
  * after the top level its dead inputs' space becomes the block pool's tail (db_pool_retarget_tail); =2 -- also v2 without the P term
  * (E5: P spilled during the reciprocal), which needs the spill (W2): refused at init until dm_p_spill_wired says it is there. */
-int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0;
-void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : 0; dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0; } }
+int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0, mn_tree_early_free = -1;
+void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : 0; dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0;
+                                            mn_tree_early_free = getenv("MN_TREE_EARLY_FREE") ? atoi(getenv("MN_TREE_EARLY_FREE")) : 0; } }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* Phase 12 G (agent G, minimal: the body): the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary
@@ -323,13 +324,16 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
      * combined by Horner from the top child (mn.c tree_level_k): the largest product is P_0 x Q_run with Q_run of (nch - 1) gp
      * nq_leaf limbs; the live shares are the child's pair, the running pair (nch > 2) and the new pair, a quarter each + 1/8 */
     size_t best = 0; if (top_scratch) *top_scratch = 0;
+    dm_switches();
     int gs[32]; int L = mn_groups_parse(size, gs, 31);
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1, g = Gl < size ? Gl : size, nch = (g + Gp - 1) / Gp; if (nch < 2) continue;
         size_t nqc = nq_leaf * (size_t)Gp + 8, na = nqc, nb = nqc * (size_t)(nch - 1), nc = na + nb;
         size_t share_child = nq_leaf + 8, share_run = (nb + g - 1) / g, share_new = (nc + g - 1) / g;
         int pieces = 0; size_t scratch = rns_mul_dist_mn_scratch(na, nb, 1, g, share_child, share_run, share_new, &pieces);
-        size_t live = 2 * quarter_bytes(share_child + share_child / 8) + (nch > 2 ? 2 * quarter_bytes(share_run + share_run / 8) : 0) + 2 * quarter_bytes(share_new + share_new / 8);
+        size_t c = quarter_bytes(share_child + share_child / 8), r = nch > 2 ? quarter_bytes(share_run + share_run / 8) : 0, n = quarter_bytes(share_new + share_new / 8);
+        size_t live = 2 * c + 2 * r + 2 * n;
+        if (mn_tree_early_free > 0) { size_t m1 = 2 * c + 2 * r + n, m2 = c + r + 2 * n; live = m1 > m2 ? m1 : m2; }   /* Phase 14 T1 (E10a): P_i, P_run freed after P_n = P_i Q_run + P_run, before Q_n = Q_i Q_run */
         size_t tot = live + scratch; if (tot > best) best = tot; if (top_scratch) *top_scratch = scratch;   /* the top level's: the sharded division's products carry the same */
         if (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) > 1) printf("bs: tree layout: level %d group %d (%d children of %d): %zu x %zu limbs, %d pieces, scratch %.2f GB + live %.2f GB per device\n", l, g, nch, Gp, na, nb, pieces, scratch * 1e-9, live * 1e-9);
     }
@@ -448,8 +452,8 @@ static void binsplit_layout_only(const char *spec)
             size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
             arena += base + extra; bs2 += base;
         }
-        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu\n",
-               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div);   /* Phase 14 L1: the variant and its terms (per device) */
+        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d\n",
+               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, mn_tree_early_free > 0);   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */
         /* Phase 13b P: the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
          * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
         { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);

@@ -1,0 +1,64 @@
+== ecalc: e to 100000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-24T18:14:33 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 100000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-24T18:14:33 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 100000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-24T18:14:33 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 100000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-24T18:14:33 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+mn: node 0 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21605): connected in 0.20 s
+mn: node 1 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21605): connected in 0.20 s
+mn: node 2 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21605): connected in 0.10 s
+mn: node 3 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21605): connected in 0.06 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (0.49 s)
+mn: node 2: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (0.50 s)
+mn: node 1: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (0.50 s)
+mn: node 3: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (0.52 s)
+mn: node 0: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.19 s)
+mn: node 2 computes terms [7421459, 11132188) of 14842916
+RESULT ecalc init s 2.8358
+      VmRSS 8.6 GB after init (staging 4.3 GB pinned + device regions 0 GB); init 2.8 s
+mem[2] [init] device 10.2 GB in use (per APU 2.5..2.6): planes 7.5, regions 0.2, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 2.46, other 0.0
+mem[2] [init] host 8.6 GB RSS (HWM 9.0): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.3
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.21 s)
+mn: node 1 computes terms [3710730, 7421459) of 14842916
+RESULT ecalc init s 2.84906
+      VmRSS 8.6 GB after init (staging 4.3 GB pinned + device regions 0 GB); init 2.8 s
+mem[1] [init] device 10.2 GB in use (per APU 2.5..2.6): planes 7.5, regions 0.2, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 2.47, other 0.0
+mem[1] [init] host 8.6 GB RSS (HWM 9.0): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.3
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.20 s)
+mn: node 0 computes terms [1, 3710730) of 14842916
+RESULT ecalc init s 2.85884
+      VmRSS 8.6 GB after init (staging 4.3 GB pinned + device regions 0 GB); init 2.9 s
+mem[0] [init] device 10.2 GB in use (per APU 2.5..2.6): planes 7.5, regions 0.2, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 2.47, other 0.0
+mem[0] [init] host 8.6 GB RSS (HWM 9.0): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.3
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.21 s)
+mn: node 3 computes terms [11132188, 14842917) of 14842916
+RESULT ecalc init s 2.86584
+      VmRSS 8.6 GB after init (staging 4.3 GB pinned + device regions 0 GB); init 2.9 s
+mem[3] [init] device 10.2 GB in use (per APU 2.5..2.6): planes 7.5, regions 0.2, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 2.45, other 0.0
+mem[3] [init] host 8.6 GB RSS (HWM 9.0): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.3
+mn: node 3 leaf P 18385101070989787659 limbs, Q 1466159 limbs (device)
+mn: node 2 leaf P 1435737 limbs, Q 1435737 limbs (device)
+mn: node 2: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.00 s
+mn: node 3: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.01 s
+rns_mul_dist_mn: the added operand (18385101070989787659 limbs) exceeds the product (2901896)
+rns_mul_dist_mn: the added operand (18385101070989787659 limbs) exceeds the product (2901896)
+mn: node 1 leaf P 1388890 limbs, Q 1388890 limbs (device)
+mn: node 0 leaf P 1264775 limbs, Q 1264775 limbs (device)
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.01 s
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+mn: node 0 level 1 [0, 2): P 2653665 limbs, Q 2653665 limbs (my share of P [0, 1326833)) in 0.28 s
+mn: node 1 level 1 [0, 2): P 2653665 limbs, Q 2653665 limbs (my share of P [1326833, 2653666)) in 0.29 s
+comm_tcp: peer closed
+comm_tcp: peer closed
+srun: error: ppac-pl1-s24-16: tasks 2-3: Exited with exit code 1
+srun: error: ppac-pl1-s24-16: tasks 0-1: Exited with exit code 1
