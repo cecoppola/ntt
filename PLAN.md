@@ -1716,7 +1716,7 @@ wall is per-node compute), then verification and documents, then code reduction.
 `docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
 Phase A.
 
-### 33.1 Phase A — blockers for the target run (do first)
+### 33.1 Phase A — blockers for the target run (do first) — DONE 2026-09-25 (RESULTS §84)
 
 | # | item | why first | evidence | size |
 |---|---|---|---|---|

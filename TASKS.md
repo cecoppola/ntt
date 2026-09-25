@@ -18,7 +18,7 @@ wall is per-node compute), then verification and documents, then code reduction.
 `docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
 Phase A.
 
-### Phase A — blockers for the target run (do first)
+### Phase A — blockers for the target run (do first) — **DONE 2026-09-25 (RESULTS §84)**: A1 race fixed (hang unproven), A2 pool law (the target needs MN_T_CHUNK_MB=1024 to fit), A3 clean exits, A4 real-node grid + mnrun detection, A5 RNS_PLANES_FIRST
 
 | # | item | why first | evidence | size |
 |---|---|---|---|---|
