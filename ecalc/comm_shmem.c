@@ -138,8 +138,8 @@ static size_t pool_alloc(size_t len, int kind)
     size_t used = S.cur_all, need = ((used + len + S.mb_bytes) >> 20) + 1;   /* Phase 14 P2: name the size that would have held it (first fit: at least) */
     pthread_mutex_unlock(&S.alloc_lock);
     ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more (in use %zu MiB: control %zu, staging %zu, symmetric buffers %zu): "
-             "COMM_SHMEM_POOL_MB >= %zu needed (COMM_SHMEM_POOL_AUTO=1 sizes it from the model at init)\n",
-             S.me, S.pool_bytes >> 20, len >> 20, used >> 20, S.cur[K_CTRL] >> 20, S.cur[K_STAGE] >> 20, S.cur[K_SYM] >> 20, need);
+             "COMM_SHMEM_POOL_MB >= %zu needed now; the model's need for this run: %s MiB (COMM_SHMEM_POOL_AUTO=1 sizes it at init)\n",
+             S.me, S.pool_bytes >> 20, len >> 20, used >> 20, S.cur[K_CTRL] >> 20, S.cur[K_STAGE] >> 20, S.cur[K_SYM] >> 20, need, getenv("COMM_SHMEM_POOL_NEED_MB") ? getenv("COMM_SHMEM_POOL_NEED_MB") : "?");
 }
 static void pool_free(size_t off)
 {
