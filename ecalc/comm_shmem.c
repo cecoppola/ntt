@@ -104,6 +104,7 @@ static struct {
     int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
+static void site_print(void);                           /* Phase 14 P2 (below) */
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
 static int g_trace;
@@ -272,6 +273,7 @@ void comm_shmem_finalize(void)
         /* Phase 14 P2: what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
         printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
                S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
+        if (S.verbose >= 2) site_print();
     }
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
@@ -329,19 +331,36 @@ static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence
 /* the staging of one exchange (send, receive): allocated per exchange, released when it completes (staging_release) --
  * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels
  * (Q, Phase 12); pool-resident buffers (comm_sym_alloc) need none */
+/* Phase 14 P2: COMM_SHMEM_VERBOSE=2 -- every staged exchange by its call site (the return addresses of the frames above the
+ * transport, as object offsets for addr2line -f -e <object> <offset>): count, largest send and receive, printed at finalize */
+#define NSITE 64
+static struct site { void *key[4]; int n; long count; size_t smax, rmax; } g_site[NSITE]; static int g_nsite;
+static void site_note(size_t send, size_t recv)
+{
+    void *bt[8]; int nb = backtrace(bt, 8), n = nb - 3 < 4 ? nb - 3 : 4; if (n < 1) return;
+    pthread_mutex_lock(&S.alloc_lock);
+    int i; for (i = 0; i < g_nsite; i++) if (g_site[i].n == n && !memcmp(g_site[i].key, bt + 3, n * sizeof(void *))) break;
+    if (i == g_nsite && g_nsite < NSITE) { g_nsite++; memcpy(g_site[i].key, bt + 3, n * sizeof(void *)); g_site[i].n = n; }
+    if (i < NSITE) { struct site *t = &g_site[i]; t->count++; if (send > t->smax) t->smax = send; if (recv > t->rmax) t->rmax = recv; }
+    pthread_mutex_unlock(&S.alloc_lock);
+}
+static void site_print(void)
+{
+    for (int i = 0; i < g_nsite; i++) {
+        struct site *t = &g_site[i]; char line[640]; int k = snprintf(line, sizeof line, "comm_shmem: pe %d: staged site %d: %ld exchanges, largest send %.1f recv %.1f MiB; callers", S.me, i, t->count, t->smax / 1048576.0, t->rmax / 1048576.0);
+        for (int j = 0; j < t->n && k < (int)sizeof line - 48; j++) { Dl_info di; if (dladdr(t->key[j], &di) && di.dli_fbase) k += snprintf(line + k, sizeof line - k, " %s+0x%lx", strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname, (unsigned long)((char *)t->key[j] - (char *)di.dli_fbase - 1)); }
+        printf("%s\n", line);
+    }
+}
 static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 {
     if (send > p->sst_cap) { if (p->sst) pool_free(p->sst); p->sst = pool_alloc(send, K_STAGE); p->sst_cap = send; }
     if (recv > p->rst_cap) { if (p->rst) pool_free(p->rst); p->rst = pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
+    if (S.verbose >= 2 && (send || recv)) site_note(send, recv);
     if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* Phase 14 P2: which exchange raises the staging peak (racy read: a report, not the accounting) */
         S.stage_rep = S.cur[K_STAGE];
         printf("comm_shmem: pe %d: staging %.1f MiB in use (%zu blocks, pool %.1f MiB): comm %d (%d PEs) %s send %.1f + recv %.1f MiB\n", S.me, S.cur[K_STAGE] / 1048576.0, S.nstage, S.cur_all / 1048576.0,
                p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
-        if (S.verbose >= 2) {                             /* COMM_SHMEM_VERBOSE=2: the callers, as offsets in their objects (addr2line -f -e <object> <offset>) */
-            void *bt[8]; int nb = backtrace(bt, 8); char line[512]; int k = snprintf(line, sizeof line, "comm_shmem: pe %d: staging callers:", S.me);
-            for (int i = 2; i < nb && k < (int)sizeof line - 40; i++) { Dl_info di; if (dladdr(bt[i], &di) && di.dli_fbase) k += snprintf(line + k, sizeof line - k, " %s+0x%lx", strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname, (unsigned long)((char *)bt[i] - (char *)di.dli_fbase - 1)); }
-            printf("%s\n", line);
-        }
     }
 }
 static void staging_release(shm_priv *p)
