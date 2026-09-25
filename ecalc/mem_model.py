@@ -485,7 +485,8 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
         cap = 1 << mn_cap_log(S, pool_log); qmax = max(qmax, mn_shape(min(na + nb, cap), S)[3])
     ch = int(shift_chunk_mb * 1048576 / 8) if shift_chunk_mb else 0             # mdb_shift: the division's t (2 nq limbs) >> (k + 1) -> X (nq): my share of t
     s_out, s_in = -(-2 * nq_total // g) // 4, -(-nq_total // g) // 4          # out, my share of X in, a quarter per APU each (measured: send 106 + recv 53 MiB
-    shift = (min(s_out, ch) if ch else s_out) + (min(s_in, ch) if ch else s_in)   # per APU at 1e9 on 2 nodes, the high node; MDB_SHIFT_CHUNK_MB bounds each)
+    K = -(-min(s_out, s_in) // ch) if ch and min(s_out, s_in) > ch else 1       # per APU at 1e9 on 2 nodes, the high node); newton_db.c: K rounds from the
+    shift = -(-(s_out + s_in) // K)                                              # shorter side's part (SL), so a side can exceed the chunk (1e10: 1059.6 + 529.8, K 1)
     if shift > best: best, who = shift, 'mdb_shift'
     staging = NR * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
@@ -504,6 +505,7 @@ MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TES
     (1e10, 4, 29, 0, 4238.6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
     (1e9, 2, 25, 0, 635.8, 'P214 b4 (job 21276), 2 real nodes, DIST_LOGN_TEST=25: the division in 2 x 2 pieces (PE 1; PE 0 529.8)'),
     (1e9, 2, 29, 64, 635.8, 'P214 b4 (job 21276), 2 real nodes, MN_T_CHUNK_MB=64: the mdb_shift sets it (PE 1; PE 0 529.8)'),
+    (1e10, 2, 31, 0, 8477.1, 'P214 b5 (job 21279), 2 real nodes, SOS, the pool set by COMM_SHMEM_POOL_AUTO=1 (8960 MiB); the shift 1059.6 + 529.8'),
 ]
 
 def pool_target():
