@@ -32,7 +32,7 @@ capture() {   # <name>: the state of a hung run on the node, then SIGINT (gdb pr
 GDB="gdb -q -batch -ex 'set pagination off' -ex 'set confirm off' -ex 'handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint pass' -ex run -ex 'echo ==GDB STOPPED==\\n' -ex 'info threads' -ex 'thread apply all bt 25' -ex kill --args"
 nok=0; nbad=0; nhang=0; ndiff=0; nrun=0
 one() {   # <kind> <procs> <digits> <timeout> <env> <name>
-  local kind=$1 p=$2 d=$3 to=$4 envs=$5 name=$6 f=/tmp/A114_${TAG}_$name t1 rc c v
+  local kind=$1 p=$2 d=$3 to=$4 envs=$5 name=$6; local f=/tmp/A114_${TAG}_$name t1 rc c v
   local ref; ref=$(ref_of "$d"); local pl=27; [ ${#d} -ge 10 ] && pl=29; [ ${#d} -ge 11 ] && pl=31
   t1=$(date +%s)
   case $kind in
