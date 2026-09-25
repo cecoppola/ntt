@@ -1135,7 +1135,7 @@ PIECE13 = 1.0
 
 def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift', depth=2, modmul=1)   # the Phase 13c defaults
 
-def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="resident", design=None):
+def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     o = dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)
     if design is not None and not design.legacy: o.update(design.mem_opts(D * g))
@@ -1147,7 +1147,7 @@ def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, stagi
                 shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"))
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="resident", design=None):
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="code", design=None):
     """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
     --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
     global DZ
@@ -1219,7 +1219,7 @@ def print_run(fab, r, rule):
           % (r["form"], r["staging"], m["device"], m["planes"], m["arena"], m["regions"], m["dm_need"], m["tree_need"], m["top_scratch"], m["exchange"], m["host"], m["shmem_pool"], m["shmem_staging"], m["node"], NODE_GB,
              "" if m["node"] <= NODE_GB else "  ** DOES NOT FIT **"))
 
-def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="resident", design=None):
+def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="code", design=None):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
     o = dict(form=form, groups=groups, transport=transport, staging=staging)
     if design is None: o.update(np=4, host_fit=False)
@@ -1228,7 +1228,7 @@ def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging=
         if design.cap is None and g == 1: o.pop('cap')          # size 1: the code's rule follows D (3 2^30 below 5e10)
     return mem_model.max_digits_per_node(node_gb * 1e9, g, o)
 
-def headline(fab, g, rule, form="grid", groups=None, staging="resident"):
+def headline(fab, g, rule, form="grid", groups=None, staging="code"):
     """the largest D per node that fits the node (502 GB) and the safe budget (480 GB), their walls"""
     out = []
     for budget in (NODE_GB, NODE_GB_MARGIN):
@@ -1340,7 +1340,7 @@ def main():
     ap.add_argument("--rule", default="model", choices=("model", "full"), help="X1's group choice in the reciprocal (model) or every product on the full group (full)")
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
-    ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
+    ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/P214.md), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging: resident (Phase 12 S: the slabs in the pool), per_exchange (freed after each wait), cached (the code at 7aded87: kept per communicator)")
     ap.add_argument("--calib13", action="store_true", help="Phase 13d D2: the recalibrated model against the 13c one-node runs")
     ap.add_argument("--plan", type=float, nargs=4, metavar=("G", "FROM", "TO", "STEP"), help="Phase 13d D2: the piece counts in agent L's plan_sweep columns (total digits)")
     ap.add_argument("--e7", action="store_true", help="Phase 14 R1: the reciprocal's cut (NEWTON_RECIP_CUT) per doubling under the pipeline law")

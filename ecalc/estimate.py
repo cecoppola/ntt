@@ -29,12 +29,12 @@ LABELS = {
     "exposed": "modelled: the fabric time not hidden under the local passes -- assumes 100 GB/s per APU, 2 us per message (--bw, --lat), the general map's overlap (GEN_HIDE)",
     "fabric": "modelled: bytes through the node's eight NICs and over the dragonfly's global links (MN_TOPO_GROUP = 64, two-layer all-to-all)",
     "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
-    "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB and the staging the transport needs -- --staging resident 0 / per_exchange one exchange / cached every live communicator's)",
+    "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB (8192) and the pool the run needs -- Phase 14 P2's law (--staging code, the default): 4 APU threads x the largest staged exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it; MN_T_CHUNK_MB bounds it) + the control blocks; measured to 0.01 % at 1e8-1e10 on 2 nodes and 1e9-1e10 on 4 processes, results/P214.md)",
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
     "output": "assumed: the part file at --write-bw GB/s per node (2 GB/s), exposed beyond half the division",
 }
 
-def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="shmem", staging="resident", verbose=False, design=M.DEFAULT):
+def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transport="shmem", staging="code", verbose=False, design=M.DEFAULT):
     """the estimate for g nodes at D digits per node: a dict of the numbers (seconds, GB, bytes) and their labels.
     design: an mn_model.Design (default: the code after Phase 13b step 0); None = the legacy (Phase 12) model"""
     fab = fabric or M.TARGET
@@ -50,7 +50,7 @@ def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transpor
 
 def fmt_b(b): return M.fmt_b(b)
 
-def table(gs, Ds, tree, groups, fab, rule, staging="resident", design=M.DEFAULT):
+def table(gs, Ds, tree, groups, fab, rule, staging="code", design=M.DEFAULT):
     print("%-4s %-8s %-10s | %7s %6s %6s %5s | %6s %6s %6s %6s | %8s %8s %8s | %s" % ("g", "D/node", "digits", "wall s", "min", "expo s", "%", "dev GB", "hst GB", "pool", "node", "NIC/node", "per NIC", "global", "fits 502 / 480 GB"))
     rows = []
     for g in gs:
@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 7.7e10, 1e11])
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's memory form: grid (Phase 12 G) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,192,576); default = the code's schedule")
-    ap.add_argument("--staging", default="resident", choices=("resident", "per_exchange", "cached"), help="the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
+    ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/P214.md), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
     ap.add_argument("--bw", type=float, default=100.0, help="GB/s per APU injection (assumed: PLAN 25's two 400 Gb/s NICs)")
