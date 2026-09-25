@@ -1,0 +1,15 @@
+== mnaccept: job 21222 on ppac-pl1-s24-16, 2026-09-24T17:54:46-05:00, 33b9b04d T114 6: batch 2 script, RESUME; ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-T114/ecalc/ref ==
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.01 s (bs 0.8 + 10dP 0.0 + dm 3.4
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 7.82 s (bs 1.2 + 10dP 0.0 + dm 3.6
+FAIL mn e8 size 4: rc 1; DIFFERS; 0 VERIFY OK; srun: error: ppac-pl1-s24-16: tasks 2-3: Exited with exit code 1
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 22.14 s (bs 2.9 + 10dP 0.0 + dm 13
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.31 s (bs 2.9 + 10dP 0.0 + dm 7.
+== 12 passed, 1 failed ( mn e8 size 4 ); 1245 s; 33b9b04d; logs in results/mnaccept/21222 ==
