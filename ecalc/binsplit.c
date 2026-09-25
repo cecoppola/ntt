@@ -442,6 +442,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
     int autoset = getenv("COMM_SHMEM_POOL_AUTO") && atoi(getenv("COMM_SHMEM_POOL_AUTO"));
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
+    { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_NEED_MB", v, 1); }   /* for comm_shmem's pool-full error */
     if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB\n", mb, by, mb + 512); return mb; }
     if (mb > have && autoset) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1);
