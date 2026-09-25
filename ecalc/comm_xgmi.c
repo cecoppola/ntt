@@ -10,13 +10,14 @@
  * multiples) and copies its own; complete after the closing barrier.  The host
  * variant is three memcpys from the peers' host blocks between two barriers. */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
 #include "comm.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
 static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t bar; uint64_t red[NR];
                 hipStream_t ps[NR][NR]; hipEvent_t ev[NR][NR], start[NR]; int streams[NR];
@@ -155,7 +156,7 @@ static void x_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     HIP_CHECK(hipSetDevice(me)); streams_init(me);
     struct push3 a; size_t nb[3]; int k = 0, pr[3];
     for (int r = 0; r < NR; r++) {
-        if (scnt[r] != G.rcnt[r][me]) { fprintf(stderr, "comm_xgmi: alltoallv count mismatch: rank %d sends %zu to rank %d, which expects %zu\n", me, scnt[r], r, G.rcnt[r][me]); exit(1); }
+        if (scnt[r] != G.rcnt[r][me]) { ec_fatal(EC_RC_FATAL, "comm_xgmi: alltoallv count mismatch: rank %d sends %zu to rank %d, which expects %zu\n", me, scnt[r], r, G.rcnt[r][me]); }
         const void *src = (const char *)sb + sdsp[r]; void *dst = (char *)G.rb[r] + G.rdsp[r][me];
         if (r == me) { if (scnt[r] && src != dst) HIP_CHECK(hipMemcpyAsync(dst, src, scnt[r], hipMemcpyDeviceToDevice, s)); continue; }
         a.src[k] = src; a.dst[k] = dst; nb[k] = scnt[r]; pr[k] = r; k++;
@@ -175,7 +176,7 @@ static void x_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     pthread_barrier_wait(&G.bar);
     for (int r = 0; r < NR; r++) {
         size_t n = G.scnt[r][me];
-        if (n != rcnt[r]) { fprintf(stderr, "comm_xgmi: alltoallv_host count mismatch (%d -> %d: %zu vs %zu)\n", r, me, n, rcnt[r]); exit(1); }
+        if (n != rcnt[r]) { ec_fatal(EC_RC_FATAL, "comm_xgmi: alltoallv_host count mismatch (%d -> %d: %zu vs %zu)\n", r, me, n, rcnt[r]); }
         if (n) memmove((char *)rb + rdsp[r], (const char *)G.hsb[r] + G.rdsp[r][me], n);
     }
     pthread_barrier_wait(&G.bar);                       /* nobody's send buffer is reused before every read */

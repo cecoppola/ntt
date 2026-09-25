@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "fatal.h"
 
 typedef struct { uint64_t *l; size_t n, cap; } bigint;
 
@@ -37,7 +38,7 @@ static inline void bi_reserve(bigint *a, size_t cap)
     if (cap <= a->cap) return;
     if (cap * sizeof *a->l >= ((size_t)64 << 20)) { a->l = bi_alloc_huge(a->l, a->n, cap); a->cap = cap; return; }
     a->l = (uint64_t *)realloc(a->l, cap * sizeof *a->l);
-    if (!a->l) { abort(); }
+    if (!a->l) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * sizeof *a->l);
     a->cap = cap;
 }
 static inline void bi_norm(bigint *a) { while (a->n && a->l[a->n - 1] == 0) a->n--; }

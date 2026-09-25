@@ -3,11 +3,12 @@
  * copies of the block (a device temporary of size x bytes).  comm_allgather_host: the transport's host op, else
  * the device op through temporaries. */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "comm.h"
 #ifndef COMM_HOST_ONLY
-#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+#define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #endif
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
 {
@@ -51,7 +52,7 @@ void comm_allgather_host(comm *c, const void *sendbuf, void *recvbuf, size_t byt
  * device op through temporaries (a mismatch of a receiver's rcnt with the sender's scnt is caught by the transport). */
 void comm_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
-    if (!c->ops->alltoallv) { fprintf(stderr, "comm: alltoallv not provided by this transport\n"); exit(1); }
+    if (!c->ops->alltoallv) { ec_fatal(EC_RC_FATAL, "comm: alltoallv not provided by this transport\n"); }
     c->ops->alltoallv(c, sb, scnt, sdsp, rb, rcnt, rdsp, s);
 }
 void comm_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)

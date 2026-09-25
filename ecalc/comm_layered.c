@@ -25,11 +25,12 @@
  * the [r][d] slabs into the receive buffer at the caller's offsets.  Its scratch (2 x the intra total + the receive
  * total) is the communicator's own; a v-exchange never overlaps an equal-slab one (either kind completes the other). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "comm.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
@@ -78,7 +79,7 @@ static void *lst_watch(void *a)
 static void lst_watch_start(lay_priv *p, pthread_t *th, int *on, double *f1)
 {
     struct lst_w *w = (struct lst_w *)malloc(sizeof *w); w->inter = p->inter; w->dev = p->dev; w->f1 = f1;
-    if (pthread_create(th, NULL, lst_watch, w)) { fprintf(stderr, "comm_layered: pthread_create\n"); exit(1); }
+    if (pthread_create(th, NULL, lst_watch, w)) { ec_fatal(EC_RC_FATAL, "comm_layered: pthread_create\n"); }
     *on = 1;
 }
 /* the inter wait of the oldest exchange: the watcher's join (mode 2) or the wait itself; returns the fabric's end stamp */
@@ -241,7 +242,7 @@ static void need_tmp(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->tmp_cap >= bytes) return;
-    if (!p->own_tmp && p->tmp) { fprintf(stderr, "comm_layered: the caller's scratch (%zu B) is smaller than the exchange (%zu B)\n", p->tmp_cap, bytes); exit(1); }
+    if (!p->own_tmp && p->tmp) { ec_fatal(EC_RC_FATAL, "comm_layered: the caller's scratch (%zu B) is smaller than the exchange (%zu B)\n", p->tmp_cap, bytes); }
     if (p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     HIP_CHECK(hipSetDevice(p->dev));
     /* Phase 12 S (a minimal change): the scratch from the inter transport's symmetric pool where it has one (the SHMEM
@@ -529,7 +530,7 @@ static void y_wait(comm *c)
     p->nlog--;
 }
 static void y_barrier(comm *c) { lay_priv *p = PRIV(c); comm_barrier(p->intra); comm_barrier(p->inter); comm_barrier(p->intra); }
-static uint64_t y_modq(comm *c, uint64_t v, uint64_t q, uint64_t w) { (void)c; (void)v; (void)q; (void)w; fprintf(stderr, "comm_layered: allreduce_modq not provided\n"); exit(1); }
+static uint64_t y_modq(comm *c, uint64_t v, uint64_t q, uint64_t w) { (void)c; (void)v; (void)q; (void)w; ec_fatal(EC_RC_FATAL, "comm_layered: allreduce_modq not provided\n"); }
 static size_t y_max(comm *c, size_t v)
 {
     lay_priv *p = PRIV(c);
@@ -585,7 +586,7 @@ static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_b
 static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode(); }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
-    if (comm_size(intra) != NA) { fprintf(stderr, "comm_layered: the intra communicator must have %d ranks\n", NA); exit(1); }
+    if (comm_size(intra) != NA) { ec_fatal(EC_RC_FATAL, "comm_layered: the intra communicator must have %d ranks\n", NA); }
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
     p->intra = intra; p->inter = inter; p->d = d; p->dev = d; p->na = NA; p->g = comm_size(inter);
     c->ops = &lay_ops; c->priv = p; c->size = NA * p->g; c->rank = p->g * d + comm_rank(inter); c->inflight = 2;
@@ -607,7 +608,7 @@ comm *comm_layered_create_minor(comm *intra, comm *inter, int dev)
 void comm_layered_scratch(comm *c, void *p, size_t bytes)
 {
     lay_priv *v = PRIV(c);
-    if (v->npend) { fprintf(stderr, "comm_layered: scratch replaced with an exchange pending\n"); exit(1); }
+    if (v->npend) { ec_fatal(EC_RC_FATAL, "comm_layered: scratch replaced with an exchange pending\n"); }
     if (v->own_tmp && v->tmp) { HIP_CHECK(hipSetDevice(v->dev)); if (v->tmp_sym) comm_sym_free(v->inter, v->tmp); else HIP_CHECK(hipFree(v->tmp)); }
     v->tmp = (char *)p; v->tmp_cap = bytes; v->own_tmp = 0; v->tmp_sym = 0;
 }

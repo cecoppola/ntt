@@ -1,5 +1,6 @@
 /* crt.c - see crt.h.  From bench/20_cpu (garner4, crt_carry_par_tight). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
@@ -48,7 +49,7 @@ int ec_np_init(void)
     const char *e = getenv("ECALC_NP");
     if (e) {
         int v = atoi(e);
-        if (v != 3 && v != 4) { fprintf(stderr, "ECALC_NP=%s: the prime count must be 3 or 4\n", e); exit(1); }
+        if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3 or 4\n", e); }
         ec_np = v;
     }
     ec_np3_max_terms = np3_max_terms();
@@ -57,15 +58,13 @@ int ec_np_init(void)
 void ec_np_check(size_t nterms, int decimal, const char *where)
 {
     if (ec_np == 4) return;
-    if (ec_np != 3) { fprintf(stderr, "%s: ec_np = %d, must be 3 or 4\n", where, ec_np); exit(1); }
+    if (ec_np != 3) { ec_fatal(EC_RC_FATAL, "%s: ec_np = %d, must be 3 or 4\n", where, ec_np); }
     if (!ec_np3_max_terms) ec_np3_max_terms = np3_max_terms();
     if (!decimal) {
-        fprintf(stderr, "%s: ECALC_NP=3 needs base-10^18 limbs: binary 2^64 limbs need all four primes (LIMB_BASE=2 with ECALC_NP=3 is refused)\n", where);
-        fflush(stderr); exit(1);
+        ec_fatal(EC_RC_FATAL, "%s: ECALC_NP=3 needs base-10^18 limbs: binary 2^64 limbs need all four primes (LIMB_BASE=2 with ECALC_NP=3 is refused)\n", where);
     }
     if (nterms > ec_np3_max_terms) {
-        fprintf(stderr, "%s: ECALC_NP=3: a product of %zu terms exceeds the three-prime bound (at most %zu terms: nterms (10^18-1)^2 < p0 p1 p2)\n", where, nterms, ec_np3_max_terms);
-        fflush(stderr); exit(1);
+        ec_fatal(EC_RC_FATAL, "%s: ECALC_NP=3: a product of %zu terms exceeds the three-prime bound (at most %zu terms: nterms (10^18-1)^2 < p0 p1 p2)\n", where, nterms, ec_np3_max_terms);
     }
 }
 
@@ -182,7 +181,7 @@ void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T)
 void crt_carry_par4_q(uint64_t *const buf[4], size_t Q, size_t n, uint64_t *out, int T)
 {
     crt_init();
-    if (bi_decimal) { fprintf(stderr, "crt_carry_par4_q: binary base only\n"); abort(); }
+    if (bi_decimal) { ec_fatal(EC_RC_FATAL, "crt_carry_par4_q: binary base only\n"); }
     ec_np_check(n, bi_decimal, "crt_carry_par4_q");                    /* (binary: refuses ec_np = 3) */
     for (size_t i = n; i < n + 4; i++) out[i] = 0;
     if (T < 4) T = 4;
