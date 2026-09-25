@@ -641,7 +641,7 @@ __global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t h
 }
 
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
-static uint8_t *g_flags[DB_NQ][2]; static size_t g_flags_cap[DB_NQ]; static size_t *g_red[DB_NQ]; static size_t *g_hred;
+static uint8_t *g_flags[DB_NQ][2]; static size_t g_flags_cap[DB_NQ]; static size_t *g_red[DB_NQ];   /* per quarter, touched only by the thread driving quarter d (Phase 14 A1: the shared host reduction buffer g_hred is gone -- its first-use allocation raced between the four threads) */
 static void flags_reserve(int d, size_t chunks)
 {
     if (g_flags_cap[d] >= chunks) return;
@@ -650,7 +650,6 @@ static void flags_reserve(int d, size_t chunks)
     HIP_CHECK(hipHostMalloc((void **)&g_flags[d][0], chunks + 16, 0)); HIP_CHECK(hipHostMalloc((void **)&g_flags[d][1], chunks + 16, 0));   /* pinned host: written by the kernel, scanned by the host */
     g_flags_cap[d] = chunks;
     if (!g_red[d]) { HIP_CHECK(hipMalloc(&g_red[d], 228 * 8 * 8)); }
-    if (!g_hred) g_hred = (size_t *)malloc(228 * 8 * 8 * DB_NQ);
 }
 /* the limbs [lo, hi) of x (n limbs, possibly a view at x->off) whose storage is in quarter d */
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi)
@@ -814,11 +813,18 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         unsigned blocks = nblk(hi - lo);
 #pragma omp critical
         k_maxidx<<<blocks, 256>>>(va, vb, b != 0, lo, hi, g_red[d]);
-        HIP_CHECK(hipMemcpy(g_hred + d * 228 * 8, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
-        size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (g_hred[d * 228 * 8 + i] > m) m = g_hred[d * 228 * 8 + i];
+        /* Phase 14 A1 (the intermittent garbage leaf length, results/A114.md): the per-block results come to this thread's own
+         * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
+         * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
+         * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at
+         * size > 1 (binsplit.c), so it returned heap garbage as P's length once (mn e8 size 4, job 21222: 18385101070989787659) */
+        size_t hred[228 * 8];
+        HIP_CHECK(hipMemcpy(hred, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
+        size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (hred[i] > m) m = hred[i];
         if (m > best) best = m;
     }
     db_st.t_maxidx += tnow() - t0;
+    if (best > n) { fprintf(stderr, "dbig: maxidx returned %zu for %zu limbs (a corrupted length reduction)\n", best, n); abort(); }   /* Phase 14 A1: a length is never garbage silently */
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }
