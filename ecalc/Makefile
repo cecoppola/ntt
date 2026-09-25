@@ -24,7 +24,7 @@ endif
 endif
 
 TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc
@@ -51,6 +51,8 @@ dbig.o: dbig.c dbig.h bigint.h mem.h
 	$(HIPC) -c -o $@ $<
 # Phase 14 S1: O_DIRECT file I/O and the spill primitive (E3, E4); the memory sampler and the live-bytes lines (E12, E1)
 spill.o: spill.c spill.h dbig.h mem.h
+	$(HIPC) -c -o $@ $<
+fatal.o: fatal.c fatal.h
 	$(HIPC) -c -o $@ $<
 memsample.o: memsample.c memsample.h dbig.h mem.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
@@ -95,8 +97,8 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_util.c comm.h
-	$(CC) -O2 -DCOMM_HOST_ONLY $(SHMEM_CFLAGS) -I. $< comm_tcp.c comm_shmem.c comm_util.c -lpthread $(SHMEM_LIBS) -o $@
+tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_util.c fatal.c comm.h fatal.h
+	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) -I. $< comm_tcp.c comm_shmem.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
@@ -148,23 +150,23 @@ tests/t_verify: tests/t_verify.c verify.o binsplit.o bigint.o rns_mul.o ntt.o me
 tests/t_primes: tests/t_primes.c $(OBJS) crt.h modarith.h rns_mul.h tests/harness.h
 	$(HIPC) -DT_PRIMES_GPU $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)
 
-tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o crt.h mem.h tests/harness.h
-	$(HIPC) $< -x none crt.o mem.o bigint.o -o $@ -lgmp
+tests/t_crt: tests/t_crt.c crt.o mem.o bigint.o fatal.o crt.h mem.h tests/harness.h
+	$(HIPC) $< -x none crt.o mem.o bigint.o fatal.o -o $@ -lgmp
 
-tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o ntt.h modarith.h tests/harness.h
-	$(HIPC) $< -x none ntt.o ntt3.o bigint.o -o $@ -lgmp
+tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/harness.h
+	$(HIPC) $< -x none ntt.o ntt3.o bigint.o fatal.o -o $@ -lgmp
 
-tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o ntt.h mem.h tests/harness.h
-	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o -o $@ -lgmp -lpthread
+tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h tests/harness.h
+	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ -lgmp -lpthread
 
-tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o ntt2.h modarith2.h tests/harness.h
-	$(HIPC) $< -x none ntt2.o bigint.o -o $@ -lgmp
+tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o fatal.o ntt2.h modarith2.h tests/harness.h
+	$(HIPC) $< -x none ntt2.o bigint.o fatal.o -o $@ -lgmp
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< -lgmp -lm
 
-tests/t_modarith: tests/t_modarith.c bigint.o modarith.h tests/harness.h bigint.h
-	$(HIPC) $< -x none bigint.o -o $@ -lgmp
+tests/t_modarith: tests/t_modarith.c bigint.o fatal.o modarith.h tests/harness.h bigint.h
+	$(HIPC) $< -x none bigint.o fatal.o -o $@ -lgmp
 
 clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc

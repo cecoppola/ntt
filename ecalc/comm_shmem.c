@@ -44,6 +44,7 @@
  * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM=1 with oshcc, or SHMEM_HOME=<SOS prefix>); without it the
  * entry points abort.  The exact call list is in results/S12.md (the portability contract). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -53,7 +54,7 @@
 #include <time.h>
 #include "comm.h"
 #ifndef COMM_SHMEM
-static void no_shmem(void) { fprintf(stderr, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); exit(1); }
+static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); }
 int   comm_shmem_init(void) { no_shmem(); return 0; }
 int   comm_shmem_rank(void) { return 0; }
 int   comm_shmem_size(void) { return 1; }
@@ -76,7 +77,7 @@ const char *comm_shmem_impl(void) { return "none"; }
 #define SYNC(st)
 #else
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define COPY(d, s, n, st) HIP_CHECK(hipMemcpyAsync(d, s, n, hipMemcpyDefault, st))
 #define SYNC(st) HIP_CHECK(hipStreamSynchronize(st))
 #endif
@@ -100,7 +101,7 @@ enum { K_CTRL, K_STAGE, K_SYM };
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
 static int g_trace;
 #define TRACE(...) do { if (g_trace) { fprintf(stderr, "comm_shmem: pe %d: ", S.me); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
-static void die(const char *m) { fprintf(stderr, "comm_shmem: pe %d: %s\n", S.me, m); exit(1); }
+static void die(const char *m) { ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: %s\n", S.me, m); }
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 const char *comm_shmem_impl(void)
 {
@@ -125,7 +126,7 @@ static size_t pool_alloc(size_t len, int kind)
         pthread_mutex_unlock(&S.alloc_lock); return b->off;
     }
     pthread_mutex_unlock(&S.alloc_lock);
-    fprintf(stderr, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more\n", S.me, S.pool_bytes >> 20, len >> 20); exit(1);
+    ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more\n", S.me, S.pool_bytes >> 20, len >> 20);
 }
 static void pool_free(size_t off)
 {
@@ -237,7 +238,7 @@ int comm_shmem_init(void)
         else { void *dp = 0; if (hipHostGetDevicePointer(&dp, S.pool, 0) != hipSuccess || dp != S.pool) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n"); S.registered = 2; } }
     } else if (S.extheap) {                               /* the other APUs of this process reach the device buffer through peer access */
         int nd = 0, cur = 0; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipGetDevice(&cur));
-        for (int d = 0; d < nd; d++) if (d != cur) { HIP_CHECK(hipSetDevice(d)); hipError_t pe = hipDeviceEnablePeerAccess(cur, 0); if (pe != hipSuccess && pe != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "comm_shmem: peer access %d -> %d: %s\n", d, cur, hipGetErrorString(pe)); exit(1); } (void)hipGetLastError(); }
+        for (int d = 0; d < nd; d++) if (d != cur) { HIP_CHECK(hipSetDevice(d)); hipError_t pe = hipDeviceEnablePeerAccess(cur, 0); if (pe != hipSuccess && pe != hipErrorPeerAccessAlreadyEnabled) { ec_fatal(EC_RC_FATAL, "comm_shmem: peer access %d -> %d: %s\n", d, cur, hipGetErrorString(pe)); } (void)hipGetLastError(); }
         HIP_CHECK(hipSetDevice(cur));
     }
 #endif
@@ -367,7 +368,7 @@ static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
         long *sw = W(p, p->base, W_SIG, r); wait_ge(sw, PACK(p->seq, 0));
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->seq) die("signal sequence mismatch");
-        if ((long)UNOFF(x) != want) { fprintf(stderr, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); exit(1); }
+        if ((long)UNOFF(x) != want) { ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); }
     }
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();
 }
@@ -580,7 +581,7 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     SHM_LOCK();
     p->own_ctx = !S.serial && shmem_ctx_create(0, &p->ctx) == 0;   /* one context per communicator (= per APU thread) when the calls run concurrently; under the lock the default context serves (and OSHMEM 4.1 loses puts on a context created after another was destroyed) */
     if (!p->own_ctx) p->ctx = SHMEM_CTX_DEFAULT;
-    if (*mailbox(id, S.me) != 0) { SHM_UNLOCK(); fprintf(stderr, "comm_shmem: communicator id %d used twice\n", id); exit(1); }
+    if (*mailbox(id, S.me) != 0) { SHM_UNLOCK(); ec_fatal(EC_RC_FATAL, "comm_shmem: communicator id %d used twice\n", id); }
     for (int r = 0; r < n; r++) shmem_ctx_long_p(p->ctx, mailbox(id, S.me), (long)p->base + 1, p->pe[r]);   /* my block's offset into every member's row (mine included), indexed by PE */
     shmem_ctx_quiet(p->ctx);
     SHM_UNLOCK();

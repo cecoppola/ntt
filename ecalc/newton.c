@@ -1,5 +1,6 @@
 /* newton.c - see newton.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "newton.h"
@@ -50,7 +51,7 @@ static void divmod_school_dec(bigint *X, bigint *R, const bigint *A, const bigin
 /* ---- Knuth algorithm D ----------------------------------------------------- */
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 {
-    if (!Q->n) { fprintf(stderr, "divmod: Q = 0\n"); abort(); }
+    if (!Q->n) { ec_fatal(EC_RC_FATAL, "divmod: Q = 0\n"); }
     if (bi_cmp(A, Q) < 0) { bi_set_zero(X); bi_copy(R, A); return; }
     if (Q->n == 1) { uint64_t r = bi_divmod_u64(X, A, Q->l[0]); bi_set_u64(R, r); return; }
     if (bi_decimal) { divmod_school_dec(X, R, A, Q); return; }
@@ -177,7 +178,7 @@ void newton_recip(bigint *mu, const bigint *Q, size_t k) { newton_recip_seeded(m
 void newton_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     double t0 = mem_now();
-    if (!Q->n) { fprintf(stderr, "newton_divmod: Q = 0\n"); abort(); }
+    if (!Q->n) { ec_fatal(EC_RC_FATAL, "newton_divmod: Q = 0\n"); }
     if (bi_cmp(A, Q) < 0) { bi_set_zero(X); bi_copy(R, A); return; }
     size_t nq = Q->n, na = A->n, k = na - nq + 1;
     if (na + nq < (size_t)rns_school_max * 4) { bi_divmod_school(X, R, A, Q); newton_st.t_div += mem_now() - t0; return; }
@@ -222,7 +223,7 @@ void newton_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const
             bi_add_u64(X, 1);
             newton_st.up_corr++;
         }
-        if (++nc > 64) { fprintf(stderr, "newton_divmod: %zu corrections, mu is wrong\n", nc); abort(); }
+        if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_divmod: %zu corrections, mu is wrong\n", nc); }
     }
     R->n = w; bi_norm(R);
     g_mu = mu; g_t = t; g_xq = xq;
