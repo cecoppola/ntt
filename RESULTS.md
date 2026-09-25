@@ -3593,3 +3593,23 @@ model puts the new ceiling at 1.55–1.65 × 10¹¹).
 
 **576-node estimate, unchanged**: 4.25 × 10¹³ digits in ≈ 3.9 min, 452 GB per node (modelled). With `DM_TIGHT` the node
 peak at the target would fall to ≈ 428 GB (modelled, L114 §3).
+
+### §83, continued (2026-09-24 22:00 – 2026-09-25 08:40)
+
+**Merged** (main @ 9ad8fd4 + this note): R1's `DB_POOL_VMM` final form, T1's `MN_TREE_EARLY_FREE` (E10a), A1's race fix.
+**Regression on the merged tree** (jobs 21255, 21254): the defaults pass **21/21**; the full 4 × 10¹⁰ run is identical in
+66.5 s, and 148 s start to finish including writing its output. **All new switches on together** (`DM_TIGHT=1 DB_POOL_VMM=1
+MN_TREE_EARLY_FREE=1 NEWTON_RECIP_CUT=1 ECALC_ODIRECT=1`, job 21260): **9/9**, covering e9 in both bases, the mn sizes and 4 × 10¹⁰
+identical in 68.0 s, **83 s** start to finish.
+
+| item | measured |
+|---|---|
+| `DB_POOL_VMM` overhead (R1, R114 §6b) | 10¹¹ same node: default 213.8 / 215.6 s, tight + VMM **217.2 / 216.6 s = +1.0 %** (was +15 s). Init is 5 s faster than the default; the rest is in bs. The decisive step: serialize the four background mappers, which had held the runtime lock while blocking one another |
+| 1.4 × 10¹¹ at cap 2³¹, tight + VMM, final form (job 21232) | **VERIFY OK, 407.8 s**, 0 in-phase allocations, 7 remaps; lowest MemAvailable during the run 46.1 GB (the sampler) |
+| **The race** (A1, A114): `maxidx`'s shared host buffer `g_hred` was allocated at first use by four threads with no guard | the root of T1's garbage leaf length (job 21222, `mn e8 size 4`). `tests/t_hred_race` replays the old pattern: **9,884 double allocations and 29,402 garbage reads in 20,000 trials; 0 with the per-thread buffer**. Soaks: 140/140 before and 140/140 after the fix (10⁸ at size 4), 69 runs of 7.7 × 10¹⁰ under gdb with 0 hangs. Whether the 2026-09-23 hang had the same cause is not proven (never reproduced) |
+| `MN_TREE_EARLY_FREE` (T1, T114) | frees the dead P shares between a tree level's two products. Modelled 576 per-node ceiling with `DM_TIGHT`: **8.73 → 9.39 × 10¹⁰ at 480 GB** (+7.6 %). Measured: 11 multi-process runs identical, the second product's window lower by the freed shares |
+
+The apumult list is done except E12's collective budget check, which goes with TASKS A3 (agent C3, running).
+
+**For the user to decide**, each measured and passing in combination: `NEWTON_RECIP_CUT=1`, `ECALC_ODIRECT=1`,
+`DM_TIGHT=1` + `DB_POOL_VMM=1`, `MN_TREE_EARLY_FREE=1` as defaults.
