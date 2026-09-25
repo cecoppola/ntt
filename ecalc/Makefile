@@ -144,7 +144,7 @@ tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
 tests/t_dec: tests/t_dec.c $(OBJS) todec.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
-tests/t_verify: tests/t_verify.c verify.o binsplit.o bigint.o rns_mul.o ntt.o mem.o crt.o newton.o verify.h tests/harness.h
+tests/t_verify: tests/t_verify.c $(OBJS) verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
 tests/t_primes: tests/t_primes.c $(OBJS) crt.h modarith.h rns_mul.h tests/harness.h
