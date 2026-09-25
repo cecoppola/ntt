@@ -17,6 +17,7 @@
  * Build with -DCOMM_HOST_ONLY to use host memory and memcpy instead of HIP
  * (for testing on a machine without GPUs). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -35,7 +36,7 @@
 #define HOST_FREE(p) free(p)
 #else
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define DEV_TO_HOST(d, s, n, st) do { HIP_CHECK(hipMemcpyAsync(d, s, n, hipMemcpyDeviceToHost, st)); HIP_CHECK(hipStreamSynchronize(st)); } while (0)
 #define HOST_TO_DEV(d, s, n, st) do { HIP_CHECK(hipMemcpyAsync(d, s, n, hipMemcpyHostToDevice, st)); HIP_CHECK(hipStreamSynchronize(st)); } while (0)
 static void *host_alloc(size_t n) { void *p; HIP_CHECK(hipHostMalloc(&p, n, 0)); return p; }
@@ -53,7 +54,7 @@ typedef struct {
 } tcp_priv;
 #define PRIV(c) ((tcp_priv *)(c)->priv)
 
-static void die(const char *what) { perror(what); exit(1); }
+static void die(const char *what) { ec_fatal(EC_RC_FATAL, "comm_tcp: %s: %s", what, strerror(errno)); }
 static void write_all(int fd, const void *b, size_t n)
 {
     const char *p = (const char *)b;
@@ -62,7 +63,7 @@ static void write_all(int fd, const void *b, size_t n)
 static void read_all(int fd, void *b, size_t n)
 {
     char *p = (char *)b;
-    while (n) { ssize_t k = read(fd, p, n); if (k < 0) { if (errno == EINTR) continue; die("read"); } if (k == 0) { fprintf(stderr, "comm_tcp: peer closed\n"); exit(1); } p += k; n -= (size_t)k; }
+    while (n) { ssize_t k = read(fd, p, n); if (k < 0) { if (errno == EINTR) continue; die("read"); } if (k == 0) { ec_fatal(EC_RC_FATAL, "comm_tcp: peer closed\n"); } p += k; n -= (size_t)k; }
 }
 static int t_rank(comm *c) { return c->rank; }
 static int t_size(comm *c) { return c->size; }
@@ -75,7 +76,7 @@ static void *sender(void *a) { send_job *j = (send_job *)a; if (j->hdr) { uint64
 typedef struct { comm *c; char *dst; size_t bytes; const size_t *cnt, *dsp; } recv_job;
 static void recv_one(int fd, int r, char *dst, size_t n, int hdr)
 {
-    if (hdr) { uint64_t h; read_all(fd, &h, 8); if (h != n) { fprintf(stderr, "comm_tcp: alltoallv count mismatch: rank %d sends %llu bytes, %zu expected\n", r, (unsigned long long)h, n); exit(1); } }
+    if (hdr) { uint64_t h; read_all(fd, &h, 8); if (h != n) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoallv count mismatch: rank %d sends %llu bytes, %zu expected\n", r, (unsigned long long)h, n); } }
     read_all(fd, dst, n);
 }
 static void *receiver(void *a)
@@ -115,7 +116,7 @@ static void exchange_join(comm *c)
 static void t_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     tcp_priv *p = PRIV(c); int n = c->size, me = c->rank;
-    if (p->pending) { fprintf(stderr, "comm_tcp: alltoall while one is pending\n"); exit(1); }
+    if (p->pending) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoall while one is pending\n"); }
     staging(p, bytes * n);
     DEV_TO_HOST(p->hs, sb, bytes * n, s);
     p->bytes = bytes; p->rb_dev = rb; p->st = s; p->pending = 1; p->v = 0;
@@ -127,7 +128,7 @@ static void t_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
 static void t_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     tcp_priv *p = PRIV(c); int n = c->size, me = c->rank;
-    if (p->pending) { fprintf(stderr, "comm_tcp: alltoallv while an exchange is pending\n"); exit(1); }
+    if (p->pending) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoallv while an exchange is pending\n"); }
     if (!p->roff) p->roff = (size_t *)malloc(2 * (size_t)n * sizeof(size_t));
     size_t *soff = p->roff + n, ts = comm_prefix(scnt, soff, n), tr = comm_prefix(rcnt, p->roff, n);
     staging(p, ts > tr ? ts : tr);
@@ -138,7 +139,7 @@ static void t_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
         HIP_CHECK(hipMemcpyAsync(p->hs + soff[r], (const char *)sb + sdsp[r], scnt[r], hipMemcpyDeviceToHost, s));
 #endif
     }
-    if (scnt[me] != rcnt[me]) { fprintf(stderr, "comm_tcp: alltoallv self count mismatch\n"); exit(1); }
+    if (scnt[me] != rcnt[me]) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoallv self count mismatch\n"); }
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) {
 #ifdef COMM_HOST_ONLY
         memmove((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me]);
@@ -176,8 +177,8 @@ static void t_wait(comm *c)
 static void t_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {
     tcp_priv *p = PRIV(c); int n = c->size, me = c->rank, small = 1;
-    if (p->pending) { fprintf(stderr, "comm_tcp: alltoallv_host while an exchange is pending\n"); exit(1); }
-    if (scnt[me] != rcnt[me]) { fprintf(stderr, "comm_tcp: alltoallv self count mismatch\n"); exit(1); }
+    if (p->pending) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoallv_host while an exchange is pending\n"); }
+    if (scnt[me] != rcnt[me]) { ec_fatal(EC_RC_FATAL, "comm_tcp: alltoallv self count mismatch\n"); }
     if (scnt[me]) memmove((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me]);
     for (int r = 0; r < n; r++) if (scnt[r] > 4096 || rcnt[r] > 4096) small = 0;
     if (small) {
@@ -191,7 +192,7 @@ static void t_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
 static void t_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
     tcp_priv *p = PRIV(c); int n = c->size, me = c->rank;
-    if (p->pending) { fprintf(stderr, "comm_tcp: allgather while an all-to-all is pending\n"); exit(1); }
+    if (p->pending) { ec_fatal(EC_RC_FATAL, "comm_tcp: allgather while an all-to-all is pending\n"); }
     char *self = (char *)rb + (size_t)me * bytes;
     if (self != sb) memcpy(self, sb, bytes);
     if (bytes <= 4096) {
@@ -205,7 +206,7 @@ static void t_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 static void t_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 {
     tcp_priv *p = PRIV(c); int n = c->size;
-    if (p->pending) { fprintf(stderr, "comm_tcp: allgather while an all-to-all is pending\n"); exit(1); }
+    if (p->pending) { ec_fatal(EC_RC_FATAL, "comm_tcp: allgather while an all-to-all is pending\n"); }
     staging(p, bytes * n);
     DEV_TO_HOST(p->hs, sb, bytes, 0);
     t_allgather_host(c, p->hs, p->hr, bytes);
@@ -260,7 +261,7 @@ static int connect_to(const char *host, int port)
 {
     struct addrinfo hints, *res; memset(&hints, 0, sizeof hints); hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
     char ps[16]; snprintf(ps, sizeof ps, "%d", port);
-    if (getaddrinfo(host, ps, &hints, &res)) { fprintf(stderr, "comm_tcp: cannot resolve %s\n", host); exit(1); }
+    if (getaddrinfo(host, ps, &hints, &res)) { ec_fatal(EC_RC_FATAL, "comm_tcp: cannot resolve %s\n", host); }
     int fd = -1;
     for (int tries = 0; tries < 6000; tries++) {                /* peers may start later (M3: a level's group meshes open when its members arrive): retry for 600 s */
         fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -268,7 +269,7 @@ static int connect_to(const char *host, int port)
         close(fd); fd = -1; usleep(100000);
     }
     freeaddrinfo(res);
-    if (fd < 0) { fprintf(stderr, "comm_tcp: cannot connect to %s:%d\n", host, port); exit(1); }
+    if (fd < 0) { ec_fatal(EC_RC_FATAL, "comm_tcp: cannot connect to %s:%d\n", host, port); }
     return fd;
 }
 static void set_opts(int fd) { int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one); }
@@ -276,17 +277,17 @@ static void set_opts(int fd) { int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODE
 comm *comm_tcp_create(void)
 {
     const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT");
-    if (!er || !es || !eh) { fprintf(stderr, "comm_tcp: need COMM_RANK, COMM_SIZE, COMM_HOSTS\n"); exit(1); }
+    if (!er || !es || !eh) { ec_fatal(EC_RC_FATAL, "comm_tcp: need COMM_RANK, COMM_SIZE, COMM_HOSTS\n"); }
     return comm_tcp_create_at(atoi(er), atoi(es), eh, ep ? atoi(ep) : 27000);
 }
 /* the mesh for rank me of n at the given hosts (comma list of n names) and port base (rank r listens on base + r);
  * several meshes may live in one process on distinct port bases (Phase 8 M1: one per APU thread) */
 comm *comm_tcp_create_at(int me, int n, const char *eh, int base)
 {
-    if (n < 1 || n > 4096 || me < 0 || me >= n) { fprintf(stderr, "comm_tcp: bad rank/size\n"); exit(1); }
+    if (n < 1 || n > 4096 || me < 0 || me >= n) { ec_fatal(EC_RC_FATAL, "comm_tcp: bad rank/size\n"); }
     char *hosts = strdup(eh), *host[4096]; int nh = 0;
     char *sp; for (char *t = strtok_r(hosts, ",", &sp); t && nh < n; t = strtok_r(NULL, ",", &sp)) host[nh++] = t;   /* (strtok_r: four meshes are created by four threads at once) */
-    if (nh != n) { fprintf(stderr, "comm_tcp: COMM_HOSTS lists %d hosts for size %d\n", nh, n); exit(1); }
+    if (nh != n) { ec_fatal(EC_RC_FATAL, "comm_tcp: COMM_HOSTS lists %d hosts for size %d\n", nh, n); }
     comm *c = (comm *)calloc(1, sizeof *c); tcp_priv *p = (tcp_priv *)calloc(1, sizeof *p);
     c->ops = &tcp_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
     p->fd = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->fd[r] = -1;
@@ -297,7 +298,7 @@ comm *comm_tcp_create_at(int me, int n, const char *eh, int base)
     for (int k = 0; k < me; k++) {
         int fd = accept(lfd, NULL, NULL); if (fd < 0) die("accept");
         uint64_t id; read_all(fd, &id, 8);
-        if (id >= (uint64_t)me) { fprintf(stderr, "comm_tcp: bad hello\n"); exit(1); }
+        if (id >= (uint64_t)me) { ec_fatal(EC_RC_FATAL, "comm_tcp: bad hello\n"); }
         set_opts(fd); p->fd[id] = fd;
     }
     if (lfd >= 0) close(lfd);

@@ -1,5 +1,6 @@
 /* rns_mul.c - see rns_mul.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
@@ -13,7 +14,7 @@
 #include "ntt2.h"
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 rns_stats rns_st;
 int rns_repack_wide = 0;          /* RNS_REPACK_WIDE=1: one full-width copy per device (slower: 1.20 vs 0.78 s at 2^31) */
@@ -128,7 +129,7 @@ int rns_init(int pool_log)
     if (g_nd) return g_nd;
     HIP_CHECK(hipGetDeviceCount(&g_nd));
     if (g_nd > EC_NP) g_nd = EC_NP;
-    if (g_nd < EC_NP) { fprintf(stderr, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); exit(1); }
+    if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
     if (getenv("MEM_PIN") && atoi(getenv("MEM_PIN"))) mem_pin_threads(g_nd);   /* WP3: optional; no CPU pass touches device memory now, and pinning costs the decimal seeds 30 % (RESULTS.md 56) */
@@ -177,7 +178,7 @@ int rns_init(int pool_log)
         HIP_CHECK(hipSetDevice(d));
         for (int c = 0; c < g_nd; c++) if (c != d) {
             hipError_t e = hipDeviceEnablePeerAccess(c, 0);
-            if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "peer access %d->%d: %s\n", d, c, hipGetErrorString(e)); exit(1); }
+            if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { ec_fatal(EC_RC_FATAL, "peer access %d->%d: %s\n", d, c, hipGetErrorString(e)); }
             (void)hipGetLastError();
         }
     }
@@ -212,8 +213,8 @@ void *rns_dpool(int dev, int which, size_t bytes)
          * pool between two tiers -- safe as such (every tier re-reads the pool pointer after this call), just never intended. */
         if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
         if (!rns_pool_grow) {
-            fprintf(stderr, "rns_dpool: plane pool %d on APU %d would grow inside a phase, %.2f -> %.2f GB: the pools are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
-            fflush(stderr); mem_report("GROW"); mem_report_summary(); fflush(stdout); exit(1);
+            ec_fatal_begin(EC_RC_OOM, "rns_dpool: plane pool %d on APU %d would grow inside a phase, %.2f -> %.2f GB: the pools are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", which, dev, dp->cap / 1e9, bytes / 1e9);   /* Phase 14 C3: one report per process, then _exit */
+            mem_report("GROW"); mem_report_summary(); ec_fatal_end(EC_RC_OOM);
         }
 #pragma omp atomic
         g_n_grow++;
@@ -369,9 +370,9 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
     for (int j = 0; j < np; j++) { nc[j] = na[j] + nb; if (nc[j] > ncmax) ncmax = nc[j]; }
     int logk, r3 = pick_len(ncmax, &logk), logn = r3 ? logk + 2 : logk;   /* logn: the 2^k length this replaces (pool checks, stats) */
     size_t n = len_of(r3, logk);
-    if (n > ((size_t)1 << g_pool_log) || n > D[0].da.cap / 8) { fprintf(stderr, "rns_mul_mdev: %zu points > pool 2^%d (plane pool 0: %zu limbs)\n", ncmax, g_pool_log, D[0].da.cap / 8); exit(1); }
+    if (n > ((size_t)1 << g_pool_log) || n > D[0].da.cap / 8) { ec_fatal(EC_RC_FATAL, "rns_mul_mdev: %zu points > pool 2^%d (plane pool 0: %zu limbs)\n", ncmax, g_pool_log, D[0].da.cap / 8); }
     if (ec_np == 3) ec_np_check(na[0] < nb ? na[0] : nb, bi_decimal, "rns_mul_mdev");   /* P3 (a pair: both a's are checked below by the CRT's n) */
-    if (na[0] + (np > 1 ? na[1] : 0) + nb > ((size_t)1 << g_pool_log)) { fprintf(stderr, "mdev_pair: operands exceed staging\n"); exit(1); }
+    if (na[0] + (np > 1 ? na[1] : 0) + nb > ((size_t)1 << g_pool_log)) { ec_fatal(EC_RC_FATAL, "mdev_pair: operands exceed staging\n"); }
     double t0 = mem_now(), tcrt = 0;
     double tr[EC_NP], th[EC_NP], tf[EC_NP], ti[EC_NP], td[EC_NP], tg[EC_NP] = {0, 0, 0, 0};
     size_t offb = na[0] + (np > 1 ? na[1] : 0);
@@ -509,7 +510,7 @@ static bigint g_scr[KDEPTH][5];
 static void mul_karatsuba(bigint *C, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, int depth)
 {
     size_t m = na > nb ? na : nb, h = (m + 1) / 2;
-    if (depth >= KDEPTH) { fprintf(stderr, "karatsuba: depth\n"); exit(1); }
+    if (depth >= KDEPTH) { ec_fatal(EC_RC_FATAL, "karatsuba: depth\n"); }
     bigint *z0 = &g_scr[depth][0], *z1 = &g_scr[depth][2], *sa = &g_scr[depth][3], *sb = &g_scr[depth][4];
     /* z0 and z2 are formed in place inside C (views: l into C, cap the room
      * available); every tier reserves at most nc + 4 and the Karatsuba below
@@ -553,7 +554,7 @@ static void mul_chunked(bigint *C, const uint64_t *a, size_t na, const uint64_t 
     size_t pool = mdev_pts();                              /* 2^pool_log (P3: less with three primes) */
     if (rns_engine == 2) pool = pool * E2_BITS / 64 - 2;
     size_t chunk = pool - nb;
-    if (depth >= KDEPTH) { fprintf(stderr, "chunked: depth\n"); exit(1); }
+    if (depth >= KDEPTH) { ec_fatal(EC_RC_FATAL, "chunked: depth\n"); }
     bigint *part = &g_scr[depth][0];
     bi_reserve(C, na + nb + 1);
     par_zero(C->l, na + nb + 1);
@@ -580,7 +581,7 @@ static void mul_rec(bigint *C, const uint64_t *a, size_t na, const uint64_t *b, 
         return;
     }
     if (rns_engine == 2) {
-        if (bi_decimal) { fprintf(stderr, "engine 2 is binary-base only\n"); exit(1); }
+        if (bi_decimal) { ec_fatal(EC_RC_FATAL, "engine 2 is binary-base only\n"); }
         size_t pts = e2_points(nc);
         if (pts <= pool) { rns2_mul_mdev(C, a, na, b, nb); return; }
         size_t lim = pool * E2_BITS / 64 - 2;        /* limbs whose 45-bit points fit a plane */
@@ -601,7 +602,7 @@ void rns_free_scratch(void)
 }
 void rns_mul(bigint *C, const bigint *A, const bigint *B)
 {
-    if (C == A || C == B) { fprintf(stderr, "rns_mul: aliasing\n"); exit(1); }
+    if (C == A || C == B) { ec_fatal(EC_RC_FATAL, "rns_mul: aliasing\n"); }
     mul_rec(C, A->l, A->n, B->l, B->n, 0);
 }
 
@@ -852,7 +853,7 @@ static void rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_
 {
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
     size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* B3: pool 0's real capacity (3 2^(pool_log-1) with the 3 2^k planes) */
-    size_t Mmax = plane_cap / (ec_np * L); if (Mmax < 1) { fprintf(stderr, "rns_mul_batch_local: L %zu does not fit the pools\n", L); exit(1); }
+    size_t Mmax = plane_cap / (ec_np * L); if (Mmax < 1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_local: L %zu does not fit the pools\n", L); }
     /* Phase 9 B1: products 2j, 2j+1 with the same B (the tree's P1 Q2 + P2 and Q1 Q2) on the same device: B is
      * scattered and transformed once per pair (M/2 B transforms per tile), the fused inverse reads y transform
      * t >> 1 for x transform t.  Pairs stay adjacent in every device's list (both go to the region's device, in
@@ -956,7 +957,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     }
     if (ec_np == 3) { size_t mt = 0; for (size_t i = 0; i < N; i++) { size_t t = P[i].na < P[i].nb ? P[i].na : P[i].nb; if (t > mt) mt = t; } ec_np_check(mt, bi_decimal, "rns_mul_batch"); }   /* P3 */
     int logL = ceil_log2(maxnc); if (logL < NTT_LOGN_MIN) logL = NTT_LOGN_MIN;
-    if (logL > RNS_BATCH_LOGL_MAX) { fprintf(stderr, "rns_mul_batch: L 2^%d too large\n", logL); exit(1); }
+    if (logL > RNS_BATCH_LOGL_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: L 2^%d too large\n", logL); }
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
     for (size_t i = 1; i < N && grpB; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
@@ -1011,7 +1012,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         stagedP = (rns_prod *)calloc(N, sizeof *stagedP);
         size_t off = cap;
         for (size_t i = 0; i < N; i++) {
-            if (P[i].x && P[i].nx) { fprintf(stderr, "rns_mul_batch: an added operand needs registered products\n"); exit(1); }
+            if (P[i].x && P[i].nx) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: an added operand needs registered products\n"); }
             stagedP[i].na = P[i].na; stagedP[i].nb = P[i].nb;
             stagedP[i].a = D[0].hstage + off; off += P[i].na;
             stagedP[i].b = D[0].hstage + off; off += P[i].nb;
