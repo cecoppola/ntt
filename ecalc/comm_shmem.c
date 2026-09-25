@@ -334,13 +334,13 @@ static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence
 /* Phase 14 P2: COMM_SHMEM_VERBOSE=2 -- every staged exchange by its call site (the return addresses of the frames above the
  * transport, as object offsets for addr2line -f -e <object> <offset>): count, largest send and receive, printed at finalize */
 #define NSITE 64
-static struct site { void *key[4]; int n; long count; size_t smax, rmax; } g_site[NSITE]; static int g_nsite;
-static void site_note(size_t send, size_t recv)
+static struct site { void *key[5]; int n; long count; size_t smax, rmax; } g_site[NSITE]; static int g_nsite;
+static __attribute__((noinline)) void site_note(size_t send, size_t recv)
 {
-    void *bt[8]; int nb = backtrace(bt, 8), n = nb - 3 < 4 ? nb - 3 : 4; if (n < 1) return;
+    void *bt[9]; int nb = backtrace(bt, 9), n = nb - 2 < 5 ? nb - 2 : 5; if (n < 1) return;   /* bt[0] here, bt[1] staging (or the exchange, inlined): the key from bt[2] */
     pthread_mutex_lock(&S.alloc_lock);
-    int i; for (i = 0; i < g_nsite; i++) if (g_site[i].n == n && !memcmp(g_site[i].key, bt + 3, n * sizeof(void *))) break;
-    if (i == g_nsite && g_nsite < NSITE) { g_nsite++; memcpy(g_site[i].key, bt + 3, n * sizeof(void *)); g_site[i].n = n; }
+    int i; for (i = 0; i < g_nsite; i++) if (g_site[i].n == n && !memcmp(g_site[i].key, bt + 2, n * sizeof(void *))) break;
+    if (i == g_nsite && g_nsite < NSITE) { g_nsite++; memcpy(g_site[i].key, bt + 2, n * sizeof(void *)); g_site[i].n = n; }
     if (i < NSITE) { struct site *t = &g_site[i]; t->count++; if (send > t->smax) t->smax = send; if (recv > t->rmax) t->rmax = recv; }
     pthread_mutex_unlock(&S.alloc_lock);
 }
