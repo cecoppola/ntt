@@ -43,6 +43,9 @@
  * is the shim for shmem_team_split_strided.
  * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM=1 with oshcc, or SHMEM_HOME=<SOS prefix>); without it the
  * entry points abort.  The exact call list is in results/S12.md (the portability contract). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE                                       /* dladdr (COMM_SHMEM_VERBOSE=2) */
+#endif
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
