@@ -217,7 +217,25 @@ void mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipMemcpyAsync(dst, src, bytes, hipMemcpyDefault, g_cs[dev]));
     HIP_CHECK(hipSetDevice(cur));
 }
-void mem_dev_copy_wait(int dev) { if (g_cs_init[dev]) HIP_CHECK(hipStreamSynchronize(g_cs[dev])); }
+void mem_dev_copy_wait(int dev)
+{
+    if (!g_cs_init[dev]) return;
+    /* Phase 14 A1 (results/A114.md §4): MEM_COPY_WAIT_POLL=1 waits by polling hipStreamQuery (the signal's value in memory, no
+     * interrupt) instead of hipStreamSynchronize, and reports to stderr when a copy is not complete after MEM_COPY_WAIT_REPORT_S
+     * seconds (60) -- the seed thread's final DMA wait is the one signal wait on the path where the 7.70e10 run hung after init */
+    static int poll = -1, report_s = 60;
+    if (poll < 0) { poll = getenv("MEM_COPY_WAIT_POLL") ? atoi(getenv("MEM_COPY_WAIT_POLL")) : 0; if (getenv("MEM_COPY_WAIT_REPORT_S")) report_s = atoi(getenv("MEM_COPY_WAIT_REPORT_S")); }
+    if (!poll) { HIP_CHECK(hipStreamSynchronize(g_cs[dev])); return; }
+    double t0 = mem_now(); int reported = 0;
+    for (;;) {
+        hipError_t e = hipStreamQuery(g_cs[dev]);
+        if (e == hipSuccess) break;
+        if (e != hipErrorNotReady) { fprintf(stderr, "mem_dev_copy_wait: hipStreamQuery on device %d: %s\n", dev, hipGetErrorString(e)); exit(1); }
+        if (!reported && mem_now() - t0 > report_s) { reported = 1; fprintf(stderr, "mem_dev_copy_wait: the copy on device %d's stream is not complete after %.0f s (still polling)\n", dev, mem_now() - t0); fflush(stderr); }
+        struct timespec ts = { 0, 200000 }; nanosleep(&ts, 0);
+    }
+    if (reported) fprintf(stderr, "mem_dev_copy_wait: device %d's copy completed after %.1f s\n", dev, mem_now() - t0);
+}
 void mem_dev_copy(void *dst, const void *src, size_t bytes)   /* DMA copy between any of: device pools, registered host, pageable host */
 {
     int cur, dd = mem_dev_of(dst), ds = mem_dev_of(src); HIP_CHECK(hipGetDevice(&cur));
