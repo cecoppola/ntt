@@ -1,5 +1,6 @@
 /* bigint.c - see bigint.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <omp.h>
 #include "bigint.h"
 #include <stdlib.h>
@@ -10,10 +11,10 @@
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 {
     static int huge = -1; if (huge < 0) huge = getenv("BI_HUGE") ? atoi(getenv("BI_HUGE")) : 0;   /* measured harmful on this node (THP defrag stalls: 10dP 3.5-10 s -> 26 s), off by default */
-    if (!huge) { uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) abort(); return p; }
+    if (!huge) { uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8); return p; }
     size_t bytes = (cap * 8 + ((size_t)2 << 20) - 1) & ~(((size_t)2 << 20) - 1);
     uint64_t *p = (uint64_t *)aligned_alloc((size_t)2 << 20, bytes);
-    if (!p) abort();
+    if (!p) ec_fatal(EC_RC_OOM, "bigint: aligned_alloc of %zu bytes (host) failed", bytes);
     madvise(p, bytes, MADV_HUGEPAGE);
     if (old && oldn) {
 #pragma omp parallel for schedule(static)
@@ -28,7 +29,7 @@ typedef unsigned __int128 u128;
 int bi_decimal = 0;
 void bi_set_decimal(int on) { bi_decimal = on ? 1 : 0; }
 int bi_env_base(void) { const char *e = getenv("LIMB_BASE"); if (e) bi_decimal = atoi(e) == 10; return bi_decimal; }   /* the tests default to binary (bit operations); ecalc defaults to decimal */
-static void need_binary(const char *what) { if (bi_decimal) { fprintf(stderr, "bigint: %s is a bit operation; not valid in the decimal base\n", what); abort(); } }
+static void need_binary(const char *what) { if (bi_decimal) { ec_fatal(EC_RC_FATAL, "bigint: %s is a bit operation; not valid in the decimal base\n", what); } }
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
 {
@@ -284,7 +285,7 @@ void bi_add(bigint *r, const bigint *a, const bigint *b)
 }
 void bi_sub(bigint *r, const bigint *a, const bigint *b)
 {
-    if (bi_cmp(a, b) < 0) { fprintf(stderr, "bi_sub: a < b\n"); abort(); }
+    if (bi_cmp(a, b) < 0) { ec_fatal(EC_RC_FATAL, "bi_sub: a < b\n"); }
     bi_reserve(r, a->n);
     limb_sub(r->l, a->l, a->n, b->l, b->n);
     r->n = a->n; bi_norm(r);
@@ -302,9 +303,9 @@ void bi_add_shifted(bigint *r, const bigint *a, size_t k)
 }
 void bi_sub_shifted(bigint *r, const bigint *a, size_t k)
 {
-    if (r->n < a->n + k) { fprintf(stderr, "bi_sub_shifted: r too small\n"); abort(); }
+    if (r->n < a->n + k) { ec_fatal(EC_RC_FATAL, "bi_sub_shifted: r too small\n"); }
     uint64_t br = limb_sub(r->l + k, r->l + k, r->n - k, a->l, a->n);
-    if (br) { fprintf(stderr, "bi_sub_shifted: negative\n"); abort(); }
+    if (br) { ec_fatal(EC_RC_FATAL, "bi_sub_shifted: negative\n"); }
     bi_norm(r);
 }
 void bi_shl(bigint *r, const bigint *a, size_t bits)
@@ -368,7 +369,7 @@ void bi_shr_limbs(bigint *r, const bigint *a, size_t k) { bi_shr(r, a, 64 * k); 
 void bi_mul_pow10(bigint *r, const bigint *a, unsigned k)
 {
     static const uint64_t p10[19] = {1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,1000000000000ULL,10000000000000ULL,100000000000000ULL,1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,1000000000000000000ULL};
-    if (!bi_decimal) { fprintf(stderr, "bi_mul_pow10: decimal base only\n"); abort(); }
+    if (!bi_decimal) { ec_fatal(EC_RC_FATAL, "bi_mul_pow10: decimal base only\n"); }
     bi_mul_u64(r, a, p10[k]);
 }
 void bi_set_base_pow(bigint *r, size_t k)

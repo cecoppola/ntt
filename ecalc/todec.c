@@ -1,5 +1,6 @@
 /* todec.c - see todec.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -12,7 +13,7 @@
 #include "modarith.h"
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 dec_stats dec_st;
 int dec_verbose = 0;
@@ -187,7 +188,7 @@ void todec(char *out, const bigint *X, unsigned long ndig)
                 view(&Xs, cur + j * nl, nl);
                 newton_divmod(&Q, &R, &Xs, &d->T, &d->mu);
                 uint64_t *hi = nxt + (2 * j) * nl_next, *lo = hi + nl_next;
-                if (Q.n > nl_next || R.n > nl_next) { fprintf(stderr, "dc: piece overflow at level %d\n", lev); abort(); }
+                if (Q.n > nl_next || R.n > nl_next) { ec_fatal(EC_RC_FATAL, "dc: piece overflow at level %d\n", lev); }
                 par_memset0(hi + Q.n, nl_next - Q.n); par_memset0(lo + R.n, nl_next - R.n);
                 par_copy64(hi, Q.l, Q.n); par_copy64(lo, R.l, R.n);
             }
@@ -199,7 +200,7 @@ void todec(char *out, const bigint *X, unsigned long ndig)
             size_t nT = d->T.n, k = d->k, npr = nl + d->mu.n, sh = nT + k;
             if (g_scr_cap < g_scr_need) { if (g_scr) mem_hreg_free(g_scr); g_scr_cap = g_scr_need; g_scr = (uint64_t *)mem_hreg_alloc(g_scr_cap * 8); }
             uint64_t *scr = g_scr;
-            if (g_scr_cap < np * npr) { fprintf(stderr, "dc: scratch undersized\n"); abort(); }
+            if (g_scr_cap < np * npr) { ec_fatal(EC_RC_FATAL, "dc: scratch undersized\n"); }
             rns_prod *pr = (rns_prod *)calloc(1, np * sizeof *pr);
             for (size_t j = 0; j < np; j++) { pr[j].a = cur + j * nl; pr[j].na = nl; pr[j].b = d->mu.l; pr[j].nb = d->mu.n; pr[j].c = scr + j * npr; }
             q1 = mem_now();
@@ -219,7 +220,7 @@ void todec(char *out, const bigint *X, unsigned long ndig)
             }
             /* X_j T into the scratch, then R_j = A_j - X_j T over w = nl_next + 2 limbs (mod 2^(64 w)) with corrections */
             size_t npr2 = nl_next + nT;
-            if (g_scr_cap < np * npr2) { fprintf(stderr, "dc: scratch undersized (2)\n"); abort(); }
+            if (g_scr_cap < np * npr2) { ec_fatal(EC_RC_FATAL, "dc: scratch undersized (2)\n"); }
             for (size_t j = 0; j < np; j++) { pr[j].a = nxt + (2 * j) * nl_next; pr[j].na = nl_next; pr[j].b = d->T.l; pr[j].nb = nT; pr[j].c = scr + j * npr2; }
             q3 = mem_now();
             rns_mul_batch(pr, np);
@@ -255,9 +256,9 @@ void todec(char *out, const bigint *X, unsigned long ndig)
                         for (size_t k = nl_next; k < wl; k++) { uint64_t rv = ext[k - nl_next], tv = k < nT ? d->T.l[k] : 0, v = rv - tv - bb; bb = (rv < tv) | (rv == tv && bb); ext[k - nl_next] = v; }
                         { uint64_t c = 1; for (size_t i = 0; i < nl_next && c; i++) { hi[i] += c; c = hi[i] == 0; } }
                     }
-                    if (++guard > 8) { fprintf(stderr, "dc: too many corrections\n"); abort(); }
+                    if (++guard > 8) { ec_fatal(EC_RC_FATAL, "dc: too many corrections\n"); }
                 }
-                for (size_t k = nl_next; k < wl; k++) if (ext[k - nl_next]) { fprintf(stderr, "dc: remainder overflow\n"); abort(); }
+                for (size_t k = nl_next; k < wl; k++) if (ext[k - nl_next]) { ec_fatal(EC_RC_FATAL, "dc: remainder overflow\n"); }
             }
             if (dec_verbose) printf("dc:   setup %.3f batch1 %.3f copy %.3f batch2 %.3f corr %.3f\n", q1 - q0, q2 - q1, q3 - q2, q4 - q3, mem_now() - q4);
         }

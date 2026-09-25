@@ -4,6 +4,7 @@
  * The host bigint interface is kept at the phase boundary: Q (and A) are
  * copied to device once, mu / X / R come back once. */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -164,7 +165,7 @@ dbig *newton_db_x_dev = 0;   /* Phase 10 H (B1): when set, X stays on the device
 static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, B1: the corrections on the device X) */
 {
     int co = 0, pr = 0; db_share_add_val(x, x->n, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, &co, &pr);
-    if (co) { fprintf(stderr, "newton_db: X %s out of its top limb\n", dx < 0 ? "borrows" : "carries"); abort(); }
+    if (co) { ec_fatal(EC_RC_FATAL, "newton_db: X %s out of its top limb\n", dx < 0 ? "borrows" : "carries"); }
     if (dx < 0) db_norm(x);
 }
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
@@ -183,7 +184,7 @@ int newton_db_free_inputs = 0;                       /* the host A shrinks to it
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     double t0 = mem_now();
-    if (!Q->n) { fprintf(stderr, "newton_db_divmod: Q = 0\n"); abort(); }
+    if (!Q->n) { ec_fatal(EC_RC_FATAL, "newton_db_divmod: Q = 0\n"); }
     if (bi_cmp(A, Q) < 0) { bi_set_zero(X); bi_copy(R, A); return; }
     size_t nq = Q->n, na = A->n, k = na - nq + 1;
     dbig Qd, mu = g_mu, t = g_t, xq = g_xq, Xd, one; db_init(&Qd); db_init(&Xd); db_init(&one);
@@ -240,7 +241,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
             bi_add_u64(X, 1);
             newton_st.up_corr++;
         }
-        if (++nc > 64) { fprintf(stderr, "newton_db_divmod: %zu corrections, mu is wrong\n", nc); abort(); }
+        if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db_divmod: %zu corrections, mu is wrong\n", nc); }
     }
     R->n = w; bi_norm(R);
     bi_free(&hxq);
@@ -261,8 +262,8 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 {
     double t0 = mem_now();
     size_t nq = Qd->n, na = S->n + dl, k = na - nq + 1, w = nq + 2;
-    if (!nq || na < nq) { fprintf(stderr, "newton_db_divmod_shifted: A < Q not supported here\n"); abort(); }
-    if (dl + 1 > nq) { fprintf(stderr, "newton_db_divmod_shifted: dl >= nq\n"); abort(); }
+    if (!nq || na < nq) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: A < Q not supported here\n"); }
+    if (dl + 1 > nq) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: dl >= nq\n"); }
     dbig mu = g_mu, t = g_t, xq = g_xq, Xd, Aw, Rd; db_init(&Xd); db_init(&Aw); db_init(&Rd);
     double ta = mem_now();
     int kept_ok = g_mu_kept.n >= k + 1 && g_mu_ql == Qd->q[0] && g_mu_qn == nq && g_mu_qtop == db_top(Qd);
@@ -299,10 +300,10 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     size_t nc = 0; long dx = 0;                                       /* corrections to X: applied to the host copy at the end */
     if (db_cmp(&Aw, &xq) >= 0) {                                      /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
         db_sub(&Aw, &Aw, &xq); db_free(&xq); Rd = Aw; db_init(&Aw);
-        while (db_cmp(&Rd, Qd) >= 0) { db_sub(&Rd, &Rd, Qd); dx++; if (++nc > 64) { fprintf(stderr, "newton_db_divmod_shifted: %zu corrections\n", nc); abort(); } }
+        while (db_cmp(&Rd, Qd) >= 0) { db_sub(&Rd, &Rd, Qd); dx++; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: %zu corrections\n", nc); } }
     } else {                                                          /* D = xq - Aw > 0: X -= 1, R = Q - D; while D > Q: D -= Q, X -= 1 */
         db_sub(&xq, &xq, &Aw); db_free(&Aw); Rd = xq; db_init(&xq);
-        for (;;) { dx--; if (++nc > 64) { fprintf(stderr, "newton_db_divmod_shifted: %zu corrections\n", nc); abort(); }
+        for (;;) { dx--; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: %zu corrections\n", nc); }
                    if (db_cmp(&Rd, Qd) <= 0) { db_sub(&Rd, Qd, &Rd); break; } db_sub(&Rd, &Rd, Qd); }
         newton_st.down_corr += (size_t)(-dx);
     }
@@ -342,7 +343,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 #include <omp.h>
 #include "mdb.h"
 #include "mn.h"
-#define MN_HIP(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+#define MN_HIP(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 struct sacc { uint64_t *q[4]; size_t qc, off; };                     /* a dbig's limbs by index (any quarter: peer access) */
 __device__ static inline uint64_t *sacc_p(const struct sacc a, size_t i) { size_t g = a.off + i, d = (g >= a.qc) + (g >= 2 * a.qc) + (g >= 3 * a.qc); return a.q[d] + (g - d * a.qc); }
 static struct sacc sacc_of(const dbig *x) { struct sacc a; for (int d = 0; d < 4; d++) a.q[d] = x->q[d]; a.qc = x->qc; a.off = x->off; return a; }
@@ -470,14 +471,14 @@ static void mdb_norm(mdb *Y, mn_group *G)
 static void mdb_addsub(mdb *Y, const mdb *A, const mdb *B, int sub, mn_group *G)
 {
     double t0 = mem_now(); mn_st.n_addsub++;
-    if (A->N != B->N || A->g0 != B->g0 || A->g != B->g) { fprintf(stderr, "mdb_addsub: bases %zu / %zu\n", A->N, B->N); exit(1); }
+    if (A->N != B->N || A->g0 != B->g0 || A->g != B->g) { ec_fatal(EC_RC_FATAL, "mdb_addsub: bases %zu / %zu\n", A->N, B->N); }
     int node = G->g0 + G->me; size_t lo, hi; mdb_share(A, node, &lo, &hi); size_t cn = hi - lo;
     mdb Yn; if (Y == A || Y == B) Yn = *Y; else { memset(&Yn, 0, sizeof Yn); Yn.N = A->N; Yn.g0 = A->g0; Yn.g = A->g; db_init(&Yn.sh); db_zero_fill(&Yn.sh, cn); }
     int co = 0, pr = 1, top = 0;
     if (cn) db_share_addsub(&Yn.sh, &A->sh, &B->sh, cn, sub, &co, &pr);
     int cin = node_scan(G, co, pr, &top);
-    if (top) { fprintf(stderr, "mdb_addsub: %s out of the top (basis %zu)\n", sub ? "borrow" : "carry", A->N); exit(1); }
-    if (cin) { int c2 = 0; if (!cn) { fprintf(stderr, "mdb_addsub: a carry into an empty share\n"); exit(1); } db_share_add_val(&Yn.sh, cn, 0, 1, sub, &c2, 0); }
+    if (top) { ec_fatal(EC_RC_FATAL, "mdb_addsub: %s out of the top (basis %zu)\n", sub ? "borrow" : "carry", A->N); }
+    if (cin) { int c2 = 0; if (!cn) { ec_fatal(EC_RC_FATAL, "mdb_addsub: a carry into an empty share\n"); } db_share_add_val(&Yn.sh, cn, 0, 1, sub, &c2, 0); }
     Yn.sh.n = cn;
     if (Y != A && Y != B && Y->sh.cap) db_free(&Y->sh);
     *Y = Yn; mdb_norm(Y, G);
@@ -491,7 +492,7 @@ static void mdb_add_val(mdb *Y, size_t pos, uint64_t val, int sub, mn_group *G)
     int co = 0, pr = 1, top = 0, mine = pos >= lo && pos < hi;
     if (cn) db_share_add_val(&Y->sh, cn, mine ? pos - lo : 0, mine ? val : 0, sub, &co, &pr);
     int cin = node_scan(G, co, pr, &top);
-    if (top) { fprintf(stderr, "mdb_add_val: %s out of the top\n", sub ? "borrow" : "carry"); exit(1); }
+    if (top) { ec_fatal(EC_RC_FATAL, "mdb_add_val: %s out of the top\n", sub ? "borrow" : "carry"); }
     if (cin) { int c2 = 0; db_share_add_val(&Y->sh, cn, 0, 1, sub, &c2, 0); }
     Y->sh.n = cn; mdb_norm(Y, G);
     mn_st.t_small += mem_now() - t0;
@@ -501,7 +502,7 @@ static void mdb_pow(mdb *Y, size_t e, size_t N2, mn_group *G)
 {
     mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = e + 1; db_init(&Yn.sh);
     int node = G->g0 + G->me; size_t lo, hi; mdb_share(&Yn, node, &lo, &hi); size_t cn = hi - lo;
-    if (e >= N2) { fprintf(stderr, "mdb_pow: B^%zu in basis %zu\n", e, N2); exit(1); }
+    if (e >= N2) { ec_fatal(EC_RC_FATAL, "mdb_pow: B^%zu in basis %zu\n", e, N2); }
     db_zero_fill(&Yn.sh, cn);
     if (e >= lo && e < hi) { uint64_t one = 1; size_t gg = e - lo, d = (gg >= Yn.sh.qc) + (gg >= 2 * Yn.sh.qc) + (gg >= 3 * Yn.sh.qc); mem_dev_copy_on((int)d, Yn.sh.q[d] + (gg - d * Yn.sh.qc), &one, 8); }
     Yn.sh.n = cn;
@@ -511,7 +512,7 @@ static void mdb_pow(mdb *Y, size_t e, size_t N2, mn_group *G)
 /* sign of A - B (one basis): the highest node whose shares differ decides */
 static int mdb_cmp(const mdb *A, const mdb *B, mn_group *G)
 {
-    if (A->N != B->N) { fprintf(stderr, "mdb_cmp: bases %zu / %zu\n", A->N, B->N); exit(1); }
+    if (A->N != B->N) { ec_fatal(EC_RC_FATAL, "mdb_cmp: bases %zu / %zu\n", A->N, B->N); }
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(A, node, &lo, &hi); size_t cn = hi - lo;
     int c = 0; if (cn) { dbig a = A->sh, b = B->sh; a.n = b.n = cn; c = db_cmp(&a, &b); }
     uint64_t v = (uint64_t)(c + 1), *all = (uint64_t *)malloc((size_t)g * 8);
@@ -557,7 +558,7 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
 static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
 {
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); size_t ms = mshare_max(X); if (!ms) ms = 1;
-    if (ms > 0x7fffffff) { fprintf(stderr, "mdb_to_host_all: share too large\n"); exit(1); }
+    if (ms > 0x7fffffff) { ec_fatal(EC_RC_FATAL, "mdb_to_host_all: share too large\n"); }
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
     {   /* an all-gather over mesh 0 (device blocks; Phase 11 L (agent L, B7): one copy of the block instead of g) */
@@ -575,7 +576,7 @@ static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
 static void mdb_from_db(mdb *Y, const dbig *r, size_t N2, mn_group *G)
 {
     mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = r->n; db_init(&Yn.sh);
-    if (r->n > N2) { fprintf(stderr, "mdb_from_db: %zu limbs in basis %zu\n", r->n, N2); exit(1); }
+    if (r->n > N2) { ec_fatal(EC_RC_FATAL, "mdb_from_db: %zu limbs in basis %zu\n", r->n, N2); }
     int node = G->g0 + G->me; size_t lo, hi; mdb_share(&Yn, node, &lo, &hi); size_t cn = hi - lo;
     db_zero_fill(&Yn.sh, cn);
     if (cn && lo < r->n) { size_t h = hi < r->n ? hi : r->n; dbig v = db_view(r, lo, h - lo); db_copy(&Yn.sh, &v); }
@@ -769,9 +770,9 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     if (newton_mn_pq_hook) newton_mn_pq_hook(0, P);   /* Phase 13 N (1.4): P is overwritten next -- the background top set's writer lets go of it */
     mdb_addsub(P, P, &Qp, 0, G); mfree(&Qp); S = *P; memset(P, 0, sizeof *P);
     size_t na = S.n + dl, k = na - nq + 1, w = nq + 2;
-    if (!nq || na < nq) { fprintf(stderr, "newton_mn_divmod: A < Q not supported\n"); exit(1); }
-    if (dl + 1 > nq) { fprintf(stderr, "newton_mn_divmod: dl >= nq\n"); exit(1); }
-    if (mu.n < k + 1) { fprintf(stderr, "newton_mn_divmod: mu has %zu limbs, k %zu\n", mu.n, k); exit(1); }
+    if (!nq || na < nq) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: A < Q not supported\n"); }
+    if (dl + 1 > nq) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: dl >= nq\n"); }
+    if (mu.n < k + 1) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: mu has %zu limbs, k %zu\n", mu.n, k); }
     if (mu.n > k + 1) { mdb m2; memset(&m2, 0, sizeof m2); mdb_shift(&m2, &mu, (long)(mu.n - (k + 1)), k + 1, G); mfree(&mu); mu = m2; }
     double tb = mem_now();
     /* X = ((S >> (nq - 1 - dl)) mu) >> (k + 1) */
@@ -796,10 +797,10 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     size_t nc = 0; long dx = 0;
     if (mdb_cmp(&Aw, &xql, G) >= 0) {                                 /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
         mdb_addsub(&Aw, &Aw, &xql, 1, G); mfree(&xql); Rd = Aw; memset(&Aw, 0, sizeof Aw);
-        while (mdb_cmp(&Rd, &Qw, G) >= 0) { mdb_addsub(&Rd, &Rd, &Qw, 1, G); dx++; if (++nc > 64) { fprintf(stderr, "newton_mn_divmod: %zu corrections\n", nc); exit(1); } }
+        while (mdb_cmp(&Rd, &Qw, G) >= 0) { mdb_addsub(&Rd, &Rd, &Qw, 1, G); dx++; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: %zu corrections\n", nc); } }
     } else {                                                          /* D = xq - Aw > 0: X -= 1, R = Q - D; while D > Q: D -= Q, X -= 1 */
         mdb_addsub(&xql, &xql, &Aw, 1, G); mfree(&Aw); Rd = xql; memset(&xql, 0, sizeof xql);
-        for (;;) { dx--; if (++nc > 64) { fprintf(stderr, "newton_mn_divmod: %zu corrections\n", nc); exit(1); }
+        for (;;) { dx--; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: %zu corrections\n", nc); }
                    if (mdb_cmp(&Rd, &Qw, G) <= 0) { mdb_addsub(&Rd, &Qw, &Rd, 1, G); break; } mdb_addsub(&Rd, &Rd, &Qw, 1, G); }
         newton_st.down_corr += (size_t)(-dx);
     }

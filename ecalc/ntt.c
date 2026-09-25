@@ -3,6 +3,7 @@
  * 25, 33), made two-directional and given the scale / pointwise fusions.
  */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "ntt.h"
@@ -13,7 +14,7 @@
 #define B1R_TW 4096                /* Phase 13b K: the register-blocked b1's per-stage twiddle table (b1 lengths up to 2^12) */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 int ntt_stg = 7;
 int ntt_pw_fuse = 14;
@@ -662,7 +663,7 @@ static void make_plan(struct plan *pl, int logn)
         int hi = logn - 1;
         while (hi >= lb) {
             int lo = hi - stg + 1; if (lo < lb) lo = lb;
-            if (pl->npass == NTT_MAXPASS) { fprintf(stderr, "ntt: too many passes for logn %d stg %d\n", logn, stg); exit(1); }
+            if (pl->npass == NTT_MAXPASS) { ec_fatal(EC_RC_FATAL, "ntt: too many passes for logn %d stg %d\n", logn, stg); }
             pl->s_hi[pl->npass] = hi; pl->s_lo[pl->npass] = lo; pl->npass++;
             hi = lo - 1;
         }
@@ -670,7 +671,7 @@ static void make_plan(struct plan *pl, int logn)
         int lo = lb, n = 0, slo[NTT_MAXPASS], shi[NTT_MAXPASS];
         while (lo < logn) {
             int hi = lo + stg - 1; if (hi > logn - 1) hi = logn - 1;
-            if (n == NTT_MAXPASS) { fprintf(stderr, "ntt: too many passes for logn %d stg %d\n", logn, stg); exit(1); }
+            if (n == NTT_MAXPASS) { ec_fatal(EC_RC_FATAL, "ntt: too many passes for logn %d stg %d\n", logn, stg); }
             slo[n] = lo; shi[n] = hi; n++;
             lo = hi + 1;
         }
@@ -784,7 +785,7 @@ static struct plan_tw *get_plan_tw(ntt_ctx *c, int logn, const struct plan *pl)
 
 static void check_logn(int logn)
 {
-    if (logn < NTT_LOGN_MIN || logn > NTT_LOGN_MAX) { fprintf(stderr, "ntt: logn %d out of range\n", logn); exit(1); }
+    if (logn < NTT_LOGN_MIN || logn > NTT_LOGN_MAX) { ec_fatal(EC_RC_FATAL, "ntt: logn %d out of range\n", logn); }
 }
 
 #define LAUNCH_B16(S, INV) case S: k_b16<S, INV><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, INV ? c->tabT_i[S] : c->tabT_f[S], scale); break;
@@ -826,8 +827,8 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
 #undef LAUNCH_R
         return;
     }
-    if (inv) switch (stg) { LAUNCH_B16(1, 1) LAUNCH_B16(2, 1) LAUNCH_B16(3, 1) LAUNCH_B16(4, 1) LAUNCH_B16(5, 1) LAUNCH_B16(6, 1) LAUNCH_B16(7, 1) default: abort(); }
-    else     switch (stg) { LAUNCH_B16(1, 0) LAUNCH_B16(2, 0) LAUNCH_B16(3, 0) LAUNCH_B16(4, 0) LAUNCH_B16(5, 0) LAUNCH_B16(6, 0) LAUNCH_B16(7, 0) default: abort(); }
+    if (inv) switch (stg) { LAUNCH_B16(1, 1) LAUNCH_B16(2, 1) LAUNCH_B16(3, 1) LAUNCH_B16(4, 1) LAUNCH_B16(5, 1) LAUNCH_B16(6, 1) LAUNCH_B16(7, 1) default: ec_fatal(EC_RC_FATAL, "ntt: the radix-16 pass of %d stages is not built", stg); }
+    else     switch (stg) { LAUNCH_B16(1, 0) LAUNCH_B16(2, 0) LAUNCH_B16(3, 0) LAUNCH_B16(4, 0) LAUNCH_B16(5, 0) LAUNCH_B16(6, 0) LAUNCH_B16(7, 0) default: ec_fatal(EC_RC_FATAL, "ntt: the radix-16 pass of %d stages is not built", stg); }
 }
 /* Phase 13b K: the register-blocked b1 (NTT_B1R), 2^LGL-point blocks */
 template <int LGL, int LGV>
@@ -859,11 +860,11 @@ static void launch_b1(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int
         case 3: launch_b1r<11, 4>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
         case 4: launch_b1r<12, 3>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
         case 5: launch_b1r<12, 4>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
-        default: fprintf(stderr, "ntt: b1 length 2^%d not built\n", lb); exit(1);
+        default: ec_fatal(EC_RC_FATAL, "ntt: b1 length 2^%d not built\n", lb);
         }
         return;
     }
-    if (lb != B1_LGL) { fprintf(stderr, "ntt: b1 length 2^%d needs NTT_B1R\n", lb); exit(1); }
+    if (lb != B1_LGL) { ec_fatal(EC_RC_FATAL, "ntt: b1 length 2^%d needs NTT_B1R\n", lb); }
     if (mm == 2 || (mm == 0 && ntt_b1_shoup)) {
         if (mode == 0) k_b1s<B1_LGL, 0><<<nb, THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1s_f, c->tab1sp_f, 0.0, 0);
         else if (mode == 1) k_b1s<B1_LGL, 1><<<nb, THREADS, 0, s>>>(x, 0, 0, 0, c->m, c->tab1s_i, c->tab1sp_i, scale, 0);
@@ -964,9 +965,9 @@ void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass
 void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s)
 {
     int key = (s_lo * 8 + stg) * 2 + inv + 1, k;
-    if (s_lo < 4 || s_lo + stg > logn || logn < 11) { fprintf(stderr, "ntt_pass_at: s_lo %d stg %d logn %d\n", s_lo, stg, logn); exit(1); }
+    if (s_lo < 4 || s_lo + stg > logn || logn < 11) { ec_fatal(EC_RC_FATAL, "ntt_pass_at: s_lo %d stg %d logn %d\n", s_lo, stg, logn); }
     for (k = 0; k < 64 && c->adhoc_key[k] && c->adhoc_key[k] != key; k++) ;
-    if (k == 64) { fprintf(stderr, "ntt_pass_at: cache full\n"); exit(1); }
+    if (k == 64) { ec_fatal(EC_RC_FATAL, "ntt_pass_at: cache full\n"); }
     if (!c->adhoc_key[k]) { build_pass_tw(&c->adhoc[k], c->prime, s_lo, s_lo + stg - 1, inv); c->adhoc_key[k] = key; }
     launch_b16(c, x, logn, s_lo, stg, &c->adhoc[k], inv, 0.0, (unsigned)(batch << (logn - 11)), s);
 }
