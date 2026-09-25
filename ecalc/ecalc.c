@@ -366,7 +366,7 @@ int main(int argc, char **argv)
       rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
-    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); fflush(stdout); _exit(f); }   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
+    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* Phase 14 P2: + the SHMEM pool line */   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
@@ -374,6 +374,7 @@ int main(int argc, char **argv)
     }
     mem_sampler_start();                            /* Phase 14 S1 (E12): ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
+    binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model (COMM_SHMEM_POOL_AUTO=1) or a warning */
     int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */

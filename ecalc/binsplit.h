@@ -75,7 +75,9 @@ size_t binsplit_seed_stage_bytes(unsigned long N);       /* the pinned staging t
 extern int bs_region_slack;              /* Phase 8 I2: the seeds in a background thread during init (needs the pinned staging) */                  /* WP3: allocate the region pools at init (outside the timed phase) */
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
-size_t binsplit_dm_hole_bytes(unsigned long N, int size);   /* Phase 11 M (decision 5): t1's quarter in bytes -- the arena's reserved tail (the block pool's largest block) */
+size_t binsplit_dm_hole_bytes(unsigned long N, int size);
+size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen);   /* Phase 14 P2: the SHMEM pool this run needs (bytes per node-process) */
+size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);                   /* Phase 14 P2: COMM_SHMEM_POOL_AUTO / the warning / MN_PLAN_ONLY's line */   /* Phase 11 M (decision 5): t1's quarter in bytes -- the arena's reserved tail (the block pool's largest block) */
 void binsplit_release_arenas(void);                      /* Phase 9 C4: the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* Phase 9 C2: levels with at most this many nodes are laid out least-loaded-first (16) */
 extern int bs_donate_pools;

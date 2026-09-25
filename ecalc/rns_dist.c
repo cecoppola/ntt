@@ -1642,6 +1642,31 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 #undef RT
     return bytes;
 }
+/* Phase 14 P2 (results/P214.md): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
+ * its largest staged exchange (comm_shmem.c stages every buffer outside its symmetric pool, per exchange, released after it; the
+ * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
+ * piece RT(nc), and my window's part win / 4), the redistribution of A or B (my share's part va / 4 + 2 g rows out, my rows RT(pa)
+ * in), the transform's inter-node stage (q / 4 each way).  mem_model.py mn_stage is the same formula; measured to the MiB at 1e8 -
+ * 1e10 on 2 nodes and 1e9 - 1e10 on 4 processes.  *qmax = the product's plane q (DIST_MN_SYM_SLABS keeps 3 q per APU). */
+size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax)
+{
+    if (qmax) *qmax = 0;
+    if (!na || !nb || g < 2) return 0;
+    size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
+    if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
+    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
+    int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
+#define RT(len) ((((len) + R - 1) / R + 1) * rows < qs ? (((len) + R - 1) / R + 1) * rows : qs)
+    size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
+    size_t win = share_c < nc ? share_c : nc, send = RT(nc);
+    { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / 4 + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
+    size_t result = send + win / 4;
+    size_t ra = RT(pa) + va / 4, rb = RT(pb) + vb / 4, redist = (ra > rb ? ra : rb) + 2 * (size_t)g * rows;
+    size_t transform = 2 * (q / 4);
+#undef RT
+    size_t m = result > redist ? result : redist; return m > transform ? m : transform;
+}
 /* ---- Phase 11 L: the level -> group-size schedule of the distributed tree (MN_GROUPS) ------------------------------
  * out[l-1] = the group size of tree level l >= 1 (the nodes [k G_l, min((k+1) G_l, size)), k = rank / G_l); the children of
  * a level are the groups of the previous level (size 1 at level 1), so a ratio G_l / G_{l-1} > 2 is a k-way step (the

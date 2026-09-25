@@ -241,7 +241,7 @@ int comm_shmem_init(void)
     S.keep_staging = env_int("COMM_SHMEM_KEEP_STAGING", 0);
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);
-        if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE?)\n", S.me, S.pool_bytes >> 20); shmem_global_exit(1); }
+        if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
     }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
 #ifndef COMM_HOST_ONLY
