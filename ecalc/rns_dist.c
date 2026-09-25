@@ -15,6 +15,7 @@
  * up to 2^31 points in the standard pools (4 q in one, 3 q in the other).  3 all-to-alls per product.
  * Operands and results: host bigints (staged) or device bigints (dbig). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
@@ -26,7 +27,7 @@
 #include "mem.h"
 #include "mn_plan.h"                                        /* Phase 13d L: the plan printer asks this file's decisions */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NR 4
 #define DIST_LOGN_MAX 31
 /* the plane cap; DIST_LOGN_TEST lowers it (tests only) so the grid split runs at small sizes */
@@ -360,7 +361,7 @@ static int strat_get(void)
         else if (!strcmp(e, "B") || !strcmp(e, "b")) g_strat = STRAT_B;
         else if (!strcmp(e, "B4") || !strcmp(e, "b4")) g_strat = STRAT_B4;
         else if (!strcmp(e, "auto")) g_strat = STRAT_AUTO;
-        else { fprintf(stderr, "RNS_STRATEGY=%s: C, B, B4 or auto\n", e); exit(1); }
+        else { ec_fatal(EC_RC_FATAL, "RNS_STRATEGY=%s: C, B, B4 or auto\n", e); }
     }
     g_strat_form = f && (!strcmp(f, "B4") || !strcmp(f, "b4")) ? STRAT_B4 : STRAT_B;   /* auto's form: B (results/B13b.md: B4 is 3-7 % slower and fits the same pools) */
     if (g_strat != STRAT_C) atexit(strat_report);
@@ -583,7 +584,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)  
             if (full) { memset(&hd[ns], 0, sizeof hd[ns]); hd[ns].c = Cd->q[j] + (c0 - j * Cd->qc); hd[ns].na = (uint32_t)full; c0s[ns] = c0; S_[ns] = full / rows; ns++; }
             if (len > full) { memset(&hd[ns], 0, sizeof hd[ns]); hd[ns].c = Cd->q[j] + (c0 + full - j * Cd->qc); hd[ns].na = (uint32_t)(len - full); c0s[ns] = c0 + full; S_[ns] = 1; ns++; }
             c0 = e;
-            if (ns > 14) { fprintf(stderr, "b_core: too many CRT segments\n"); exit(1); }
+            if (ns > 14) { ec_fatal(EC_RC_FATAL, "b_core: too many CRT segments\n"); }
         }
         double x3 = mem_now();
         if (ns) {
@@ -603,7 +604,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)  
     Cd->n = nc;
     const uint64_t *spp[4] = { sp4[0], sp4[1], sp4[2], sp4[3] };
     db_add_spills(Cd, Cd, spp, R, rows, Ccol, nc);
-    if (Cd->n > nc) { fprintf(stderr, "b_core: carry out of the product\n"); exit(1); }
+    if (Cd->n > nc) { ec_fatal(EC_RC_FATAL, "b_core: carry out of the product\n"); }
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_merge += mem_now() - tsp; rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
@@ -622,7 +623,7 @@ static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
     bigint x, y; bi_init(&x); bi_init(&y); db_to_bi(&x, Cw.owner); db_to_bi(&y, &T); bi_norm(&x); bi_norm(&y);
     size_t k = 0, m = x.n < y.n ? x.n : y.n; while (k < m && x.l[k] == y.l[k]) k++;
     int T3; int lk; size_t n = b_len(nc, &T3, &lk);
-    if (x.n != y.n || k < m) { fprintf(stderr, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); exit(7); }
+    if (x.n != y.n || k < m) { ec_fatal(7, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); }
     static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
     bi_free(&x); bi_free(&y); db_free(&T);
 }
@@ -634,7 +635,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     if (logn < 20) logn = 20;                                  /* R, C >= 2^10 */
     int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
     if (r3) logn--;                                            /* the 2^k length whose pool this replaces: n = 3 2^(logn-1) */
-    if (logn > dist_logn_max()) { fprintf(stderr, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); exit(1); }
+    if (logn > dist_logn_max()) { ec_fatal(EC_RC_FATAL, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); }
     if (ec_np == 3) ec_np_check(nc, bi_decimal, "dist_core");  /* Phase 13a P3: three primes -- decimal limbs, within the bound */
     int logR = r3 ? (logn - 1) / 2 : logn / 2 + dist_logr_delta(), logk, logC;
     if (!r3) { if (logR < 10) logR = 10; if (logR > logn - 10) logR = logn - 10; }   /* (A6: DIST_LOGR_DELTA; R, C >= 2^10) */
@@ -722,7 +723,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         dbig *Cd = Cw.owner; Cd->n = nc;
         const uint64_t *sp[4] = { RS[0].spill, RS[1].spill, RS[2].spill, RS[3].spill };
         db_add_spills(Cd, Cd, sp, R, rows, C, nc);               /* in place, one chunked-carry pass */
-        if (Cd->n > nc) { fprintf(stderr, "dist: carry out of the product\n"); exit(1); }
+        if (Cd->n > nc) { ec_fatal(EC_RC_FATAL, "dist: carry out of the product\n"); }
     }
     rns_dist_st.t_merge += mem_now() - tsp;
     rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0; g_bst.n[0]++; g_bst.t[0] += mem_now() - t0;
@@ -809,7 +810,7 @@ static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int 
         size_t cost = (size_t)i * j * pts * ((pts & (pts - 1)) ? 21 : 20);   /* Phase 11 B3 (agent P): a 3 2^k plane costs ~5 % more per point (A-grid C5: 1.57x for 1.5x the points) */
         if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
-    if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
+    if (!*ka) { ec_fatal(EC_RC_FATAL, "split_grid: %zu x %zu limbs\n", na, nb); }
 }
 /* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (RNS_STRATEGY_GRID, default 1 under auto):
  * a piece that fits the B form's planes costs its B-length points x 0.70 (the library's B against C per product, measured
@@ -839,7 +840,7 @@ static void split_grid(size_t na, size_t nb, int *ka, int *kb)
         else { size_t pts = plane_pts(pa + pb, dist_r3()); cost = (double)i * j * pts * ((pts & (pts - 1)) ? 1.05 : 1.0); }
         if (!*ka || cost < best * 0.999 || (cost <= best * 1.001 && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
-    if (!*ka) { fprintf(stderr, "split_grid: %zu x %zu limbs\n", na, nb); exit(1); }
+    if (!*ka) { ec_fatal(EC_RC_FATAL, "split_grid: %zu x %zu limbs\n", na, nb); }
 }
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
@@ -1042,7 +1043,7 @@ static int node_carry_in(mn_group *G, int c, int p)
     for (int r = 0; r < me; r++) cin = (all[r] & 1) | (((all[r] >> 1) & 1) & cin);
     int top = cin; for (int r = me; r < g; r++) top = (all[r] & 1) | (((all[r] >> 1) & 1) & top);
     free(all);
-    if (top && !g_top_ok) { fprintf(stderr, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); exit(1); }
+    if (top && !g_top_ok) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: carry out of the top share (node %d)\n", G->g0 + me); }
     return cin;
 }
 /* the carries across the nodes after a fixed-length add on the shares (n limbs; co, pr its flags -- a node that had nothing
@@ -1253,7 +1254,7 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
         int co = 0, pr = 1, c2 = 0, p2 = 0;
         db_share_add_spills_x(T, wn, wlo, sp, sptab, R, R / nr, C, g, &co, &pr);
         if (rd->cy) { int co1 = 0, pr1 = 0; db_share_add_val(T, wn, 0, 1, 0, &co1, &pr1); co += co1; }
-        if (co > 1) { fprintf(stderr, "rns_mul_dist_mn: two carries out of a chunk (the bound is 1)\n"); exit(1); }
+        if (co > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: two carries out of a chunk (the bound is 1)\n"); }
         db_share_add_shifted(&Cn->sh, cn, T, wlo + shift - clo, &c2, &p2); rd->kc += c2; rd->pr = p2;
         rd->cy = co;
         if (last) {
@@ -1274,10 +1275,10 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     int g = G->g, me = G->me, nr = 4 * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
     int gen = !is_pow2(g) || dist_gen_forced();                /* the general transform (unequal parts) or ntt_dist's pipelined one */
     size_t na = A->len, nb = B->len, nc = na + nb, Np = nc + (X ? 1 : 0);
-    if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
-    if (X && X->n > nc) { fprintf(stderr, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); exit(1); }
+    if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
+    if (X && X->n > nc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); }
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
-    if (logn > mn_logn_cap(g)) { fprintf(stderr, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d nodes\n", nc, mn_logn_cap(g), g); exit(1); }
+    if (logn > mn_logn_cap(g)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d nodes\n", nc, mn_logn_cap(g), g); }
     if (ec_np == 3) ec_np_check(nc, bi_decimal, "mn_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
@@ -1290,7 +1291,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     cache_plan(&slA, &slB, ha, hb, A->m, A->off, A->len, B->m, B->off, B->len, q, 1);
     size_t clo, chi; mdb_share(Cn, node, &clo, &chi); size_t cn = chi - clo;
     size_t tlo, thi; piece_window(Cn, node, shift, Np, &tlo, &thi); size_t tn = thi - tlo;
-    if (direct && shift) { fprintf(stderr, "rns_mul_dist_mn: a direct piece at a shift\n"); exit(1); }   /* direct: the window is the share's first tn limbs */
+    if (direct && shift) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a direct piece at a shift\n"); }   /* direct: the window is the share's first tn limbs */
     /* Phase 13a M (TASKS 1.3): MN_T_CHUNK_MB=m > 0 -- an accumulating piece's window goes through T in rounds of W = 4 m MB of
      * limbs per node (m MB per APU): round c exchanges the rows and spills of every node's chunk c of its window, and this node
      * adds its chunk into C's share at once (mn_round_add), so T and rbO are O(W) instead of O(my share of C) (35 GB per node
@@ -1321,7 +1322,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         uint64_t *xa[EC_NP] = { 0 }, *xb = p1, *sl = p1 + q + 16, *xt = sl;
         for (int p = 0; p < ec_np; p++) xa[p] = pl + (size_t)p * q;
         comm *cl = lay_get(G, d);
-        if (comm_rank(cl) != rho || comm_size(cl) != nr) { fprintf(stderr, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); exit(1); }
+        if (comm_rank(cl) != rho || comm_size(cl) != nr) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); }
         if (tmp) comm_layered_scratch(cl, tmp, q * 8);
         for (int p = 0; p < ec_np; p++) {
             if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl) {
@@ -1426,7 +1427,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     { size_t b = (T.cap ? T.cap * 8 : 0); for (int d = 0; d < NR; d++) b += rbo_max[d]; if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }   /* Phase 13a M: measured T + rbO */
     double t4 = mem_now(); int co = 0, pr = 1;                /* an empty window propagates (the windows tile the piece) */
     if (chunked) {                                            /* Phase 13a M: the rounds added the chunks into C; the two carry scans */
-        if (rd.kc > 1) { fprintf(stderr, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); exit(1); }
+        if (rd.kc > 1) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %d carries out of a share in one piece (the bound is 1)\n", rd.kc); }
         share_carry_fix(G, &Cn->sh, cn, rd.kc, rd.pr);        /* C's own carries, with the propagate flag of its last add */
         share_carry_fix(G, &Cn->sh, cn, rd.cot, 0);           /* the piece's carries out of the windows that end at their share's top */
         db_free(&T);
@@ -1489,8 +1490,8 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
 {
     int g = G->g, node = g_node_of(G), verbose = getenv("RNS_VERBOSE") != 0;
     size_t na = A->len, nb = B->len, nc = na + nb, N = nc + (X ? 1 : 0), cap = (size_t)1 << mn_logn_cap(g);
-    if (!na || !nb) { fprintf(stderr, "rns_mul_dist_mn: a zero operand\n"); exit(1); }
-    if (X && (w < N || lowcut)) { fprintf(stderr, "rns_mul_dist_mn: the added operand with a cut\n"); exit(1); }
+    if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
+    if (X && (w < N || lowcut)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand with a cut\n"); }
     int trunc = w < N; if (trunc) N = w;                       /* the result in basis w: the limbs at or above w are never formed */
     double t0 = mem_now();
     mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = N; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
@@ -1646,12 +1647,12 @@ int mn_groups_parse(int size, int *out, int max)
         const char *s = e;
         while (*s) {
             char *end; long v = strtol(s, &end, 10);
-            if (end == s || (*end && *end != ',')) { fprintf(stderr, "MN_GROUPS: cannot parse '%s'\n", e); exit(1); }
+            if (end == s || (*end && *end != ',')) { ec_fatal(EC_RC_FATAL, "MN_GROUPS: cannot parse '%s'\n", e); }
             s = *end ? end + 1 : end;
-            if (v < 2 || (n && v <= out[n - 1])) { fprintf(stderr, "MN_GROUPS: sizes must be > 1 and increasing ('%s')\n", e); exit(1); }
-            if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); }
+            if (v < 2 || (n && v <= out[n - 1])) { ec_fatal(EC_RC_FATAL, "MN_GROUPS: sizes must be > 1 and increasing ('%s')\n", e); }
+            if (n == max) { ec_fatal(EC_RC_FATAL, "MN_GROUPS: more than %d levels\n", max); }
             if (v >= size) { out[n++] = size; break; }
-            if (n && v % out[n - 1]) { fprintf(stderr, "MN_GROUPS: %ld is not a multiple of %d ('%s')\n", v, out[n - 1], e); exit(1); }
+            if (n && v % out[n - 1]) { ec_fatal(EC_RC_FATAL, "MN_GROUPS: %ld is not a multiple of %d ('%s')\n", v, out[n - 1], e); }
             out[n++] = (int)v;
         }
     } else {
@@ -1663,7 +1664,7 @@ int mn_groups_parse(int size, int *out, int max)
         int rest = size / v;
         for (int f = 3; rest > 1 && n < max; f += 2) while (rest % f == 0 && n < max) { v *= f; out[n++] = v; rest /= f; }
     }
-    if (!n || out[n - 1] != size) { if (n == max) { fprintf(stderr, "MN_GROUPS: more than %d levels\n", max); exit(1); } out[n++] = size; }
+    if (!n || out[n - 1] != size) { if (n == max) { ec_fatal(EC_RC_FATAL, "MN_GROUPS: more than %d levels\n", max); } out[n++] = size; }
     return n;
 }
 
@@ -1744,7 +1745,7 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
         HIP_CHECK(hipSetDevice(0));
         if (wn) { int co = 0, p = 0; db_share_add_shifted(&C->sh, cn, &T, wlo - clo, &co, &p); kc += co; pr = p; if (whi < thi) db_zero_fill(&T, tcap); }
     }
-    if (kc > 1) { fprintf(stderr, "mdb_add_shifted: %d carries out of a share (the bound is 1)\n", kc); exit(1); }
+    if (kc > 1) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %d carries out of a share (the bound is 1)\n", kc); }
     { size_t b = T.cap * 8 + add_rb / (K ? K : 1); if (b > rns_dist_tscratch_max) rns_dist_tscratch_max = b; }
     share_carry_fix(G, &C->sh, cn, kc, pr);
     db_free(&T);
@@ -1754,7 +1755,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
     int g = G->g, node = g_node_of(G); size_t nX = X->n;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; }
-    if (nX && k + nX > C->N) { fprintf(stderr, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); exit(1); }
+    if (nX && k + nX > C->N) { ec_fatal(EC_RC_FATAL, "mdb_add_shifted: %zu limbs at %zu exceed the basis %zu\n", nX, k, C->N); }
     { size_t W = mn_t_chunk_limbs(), mx = 0; if (W) { for (int r = 0; r < g; r++) { size_t lo, hi; add_window(C, G->g0 + r, k, nX, &lo, &hi); if (hi - lo > mx) mx = hi - lo; }
       if (mx > W) { int K = (int)((mx + W - 1) / W); mdb_add_shifted_rounds(C, X, k, G, W, K);
                     if (getenv("RNS_VERBOSE")) printf("mdb_add_shifted node %d: %zu limbs at %zu into a basis of %zu, %d rounds of %zu limbs (T bounded): %.3f s\n", node, nX, k, C->N, K, W, mem_now() - t0);

@@ -1,5 +1,6 @@
 /* dbig.c - see dbig.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <omp.h>
@@ -9,7 +10,7 @@
 #include "mem.h"
 #include <time.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
 static const uint64_t B10 = 1000000000000000000ULL;
 struct db_stats db_st;
@@ -25,7 +26,7 @@ __device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.off = a->off; v.shift = 0; return v; }
 static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2 * a->qc) + (g >= 3 * a->qc); }   /* host: quarter of global limb g */
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
-static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
+static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { ec_fatal(EC_RC_FATAL, "dbig: %s into a view\n", what); } }
 
 /* Phase 14 R1 (DB_POOL_VMM): a host -> device copy by a kernel on the device (pinned host memory read over the fabric) on a non-blocking
  * stream per device, and the wait: hipMemcpyAsync into a VMM range ran at 6 GB/s and blocked the seed thread for the copy's duration */
@@ -62,7 +63,7 @@ static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a ba
 static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
 static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
 static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
-static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { fprintf(stderr, "dbig: live table full\n"); abort(); } }
+static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { ec_fatal(EC_RC_FATAL, "dbig: live table full\n"); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
 {
@@ -72,7 +73,7 @@ static void ext_insert(int d, char *p, size_t bytes, int reg)
     if (mprev && mnext) { e[i - 1].bytes += bytes + e[i].bytes; memmove(&e[i], &e[i + 1], (n - i - 1) * sizeof *e); g_ext[d].n--; }
     else if (mprev) e[i - 1].bytes += bytes;
     else if (mnext) { e[i].p = p; e[i].bytes += bytes; }
-    else { if (n >= 8192) { fprintf(stderr, "dbig: extent table full\n"); abort(); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
+    else { if (n >= 8192) { ec_fatal(EC_RC_FATAL, "dbig: extent table full\n"); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
 }
 /* Phase 11 M (PLAN 26, decision 5): a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
  * by binsplit_pregrow to hold the largest block of the dm phase, t1's quarter).  Requests >= thresh are carved from the BACK of
@@ -247,19 +248,19 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
     hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
-    if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { fprintf(stderr, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); exit(1); }
+    if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m1 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx);
-    if (g_ndonated >= 256) { fprintf(stderr, "db_vmm_arena_alloc: too many regions\n"); abort(); }
+    if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions\n"); }
     v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;
     v->mapped = m1;
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
     if (vmm_vb() || getenv("RNS_VERBOSE")) printf("dbig pool: APU%d VMM arena %.2f GB = %d chunks of %.2f GiB, the first %d mapped in %.2f s (%.3f s/GB)%s, VA %.1f GB reserved at %p\n", dev, (double)m0 * C / 1e9, m0, C / 1073741824.0, m1, mem_now() - t0, (mem_now() - t0) / ((double)m1 * C / 1e9), m1 < m0 ? ", the rest in the background" : "", v->reserved / 1e9, (void *)v->base);
-    if (m1 < m0) { v->bg_on = 1; if (pthread_create(&v->bg, 0, vmm_bg_map, (void *)(intptr_t)dev)) { fprintf(stderr, "db_vmm_arena_alloc: pthread_create\n"); abort(); } }
+    if (m1 < m0) { v->bg_on = 1; if (pthread_create(&v->bg, 0, vmm_bg_map, (void *)(intptr_t)dev)) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: pthread_create\n"); } }
     else { v->n_grow = 0; v->grow_chunks = 0; if ((size_t)m0 * C > bytes) { pthread_mutex_lock(&g_pool_mx); ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg); pthread_mutex_unlock(&g_pool_mx); } }
     return v->base;
 }
@@ -286,7 +287,7 @@ static void ext_remove(int d, char *p, size_t bytes)   /* [p, p + bytes) out of 
         else { e[i].bytes = (size_t)(p - a); if (p + bytes < b) ext_insert(d, p + bytes, (size_t)(b - (p + bytes)), reg); }
         return;
     }
-    fprintf(stderr, "dbig: ext_remove: range not free\n"); abort();
+    ec_fatal(EC_RC_FATAL, "dbig: ext_remove: range not free\n");
 }
 static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a contiguous free extent of >= need bytes by remapping; 0 = not possible (the VA is exhausted) */
 {
@@ -301,11 +302,11 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
         if (inside) fr[nf++] = k;
     }
     hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
-    for (int i = 0; i < nf; i++) { int k = fr[i]; ext_remove(d, v->base + (size_t)k * C, C); if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess) { fprintf(stderr, "dbig: hipMemUnmap failed\n"); abort(); } hs[i] = v->h[k]; v->h[k] = 0; }
+    for (int i = 0; i < nf; i++) { int k = fr[i]; ext_remove(d, v->base + (size_t)k * C, C); if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess) { ec_fatal(EC_RC_FATAL, "dbig: hipMemUnmap failed\n"); } hs[i] = v->h[k]; v->h[k] = 0; }
     int slot0 = -1;                                               /* the lowest run of m empty slots */
     for (int k = 0, run = 0; k < v->nslot; k++) { run = v->h[k] ? 0 : run + 1; if (run == m) { slot0 = k - m + 1; break; } }
     if (slot0 < 0) {                                              /* no room in the VA: put the free chunks back where they were */
-        for (int i = 0; i < nf; i++) { int k = fr[i]; hipMemGenericAllocationHandle_t one[1] = { hs[i] }; if (!vmm_map_run(d, k, 1, one)) { fprintf(stderr, "dbig: VMM restore failed\n"); abort(); } ext_insert(d, v->base + (size_t)k * C, C, v->reg); }
+        for (int i = 0; i < nf; i++) { int k = fr[i]; hipMemGenericAllocationHandle_t one[1] = { hs[i] }; if (!vmm_map_run(d, k, 1, one)) { ec_fatal(EC_RC_FATAL, "dbig: VMM restore failed\n"); } ext_insert(d, v->base + (size_t)k * C, C, v->reg); }
         free(fr); free(hs); return 0;
     }
     if (!vmm_map_run(d, slot0, m, hs)) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
@@ -333,7 +334,7 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
         void *m; if (hipMalloc(&m, need) != hipSuccess) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (inside a phase)", d, need); } HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
         HIP_CHECK(hipSetDevice(cur));
-        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { fprintf(stderr, "dbig: region table full\n"); abort(); }
+        if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { ec_fatal(EC_RC_FATAL, "dbig: region table full\n"); }
         p = (char *)m;
     }
     live_add((uint64_t *)p, d, need, reg); return (uint64_t *)p;
@@ -342,7 +343,7 @@ static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur
 static void q_free(int d, uint64_t *p)
 {
     pthread_mutex_lock(&g_pool_mx);
-    int reg; size_t bytes = live_take(p, &reg); if (!bytes) { fprintf(stderr, "dbig: freeing an unknown block\n"); abort(); }
+    int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     ext_insert(d, (char *)p, bytes, reg);
     pthread_mutex_unlock(&g_pool_mx);
 }
@@ -375,7 +376,7 @@ void db_pregrow(int dev, size_t bytes)
 void db_donate_ext(int dev, void *p, size_t bytes, int own)
 {
     pthread_mutex_lock(&g_pool_mx);
-    if (g_ndonated >= 256) { fprintf(stderr, "db_donate: too many regions\n"); abort(); }
+    if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_donate: too many regions\n"); }
     g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_donated[g_ndonated].kind = own ? 0 : 1; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
     pthread_mutex_unlock(&g_pool_mx);
@@ -433,7 +434,7 @@ void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
     double t0 = tnow(); db_st.n_reserve++;
-    if (x->off) { fprintf(stderr, "db_reserve: a view\n"); abort(); }
+    if (x->off) { ec_fatal(EC_RC_FATAL, "db_reserve: a view\n"); }
     /* quarters of exactly ceil(limbs/4) rounded up to DB_ALIGN: no size classes (a 2^l / 3 2^l class wasted up to
      * 45 % of the dm phase's device memory at 4e10, RESULTS.md 70); the pool coalesces any sizes */
     size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
@@ -571,7 +572,7 @@ static void db_mod_qs_check(const dbig *x, const uint64_t *qs, int nq, const uin
 }
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
 {
-    if (nq > MQ_MAXQ) { fprintf(stderr, "db_mod_qs: %d primes\n", nq); abort(); }
+    if (nq > MQ_MAXQ) { ec_fatal(EC_RC_FATAL, "db_mod_qs: %d primes\n", nq); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
     pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
@@ -727,7 +728,7 @@ static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi)
 static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i] = a[i + shift], n limbs */
 {
     double t0 = tnow(); db_st.n_shift++;
-    if (r == a) { fprintf(stderr, "db shift: in place\n"); abort(); }
+    if (r == a) { ec_fatal(EC_RC_FATAL, "db shift: in place\n"); }
     need_owner(r, "shift"); db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
@@ -780,8 +781,8 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     }
     if (nfix) { if (cout) *cout = cy; if (prop) *prop = allp; }
     else {
-    if (cy && !sub) { fprintf(stderr, "db_add: carry out of the top (n undersized)\n"); abort(); }
-    if (cy && sub) { fprintf(stderr, "db_sub: a < b\n"); abort(); }
+    if (cy && !sub) { ec_fatal(EC_RC_FATAL, "db_add: carry out of the top (n undersized)\n"); }
+    if (cy && sub) { ec_fatal(EC_RC_FATAL, "db_sub: a < b\n"); }
     }
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
@@ -850,7 +851,7 @@ __global__ void k_complement(uint64_t *out, size_t lo, size_t hi, struct dv a, s
 }
 void db_pow_sub(dbig *r, size_t e, const dbig *a)
 {
-    if (r == a) { fprintf(stderr, "db_pow_sub: in place\n"); abort(); }
+    if (r == a) { ec_fatal(EC_RC_FATAL, "db_pow_sub: in place\n"); }
     need_owner(r, "pow_sub"); db_reserve(r, e + 1);
     struct dv va = view_of(a); uint64_t top = bi_decimal ? B10 - 1 : ~0ULL;
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
@@ -889,7 +890,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         if (m > best) best = m;
     }
     db_st.t_maxidx += tnow() - t0;
-    if (best > n) { fprintf(stderr, "dbig: maxidx returned %zu for %zu limbs (a corrupted length reduction)\n", best, n); abort(); }   /* Phase 14 A1: a length is never garbage silently */
+    if (best > n) { ec_fatal(EC_RC_FATAL, "dbig: maxidx returned %zu for %zu limbs (a corrupted length reduction)\n", best, n); }   /* Phase 14 A1: a length is never garbage silently */
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }

@@ -11,10 +11,11 @@
  * (w_n^(j >> 16 << 16) and w_n^(j & 0xffff)), one extra modmul per point.
  * Needs the EC_PRIMES=1 prime set (3 * 2^44 | p - 1). */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include "ntt.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 struct r3tw { uint64_t *t1, *t2, *t1i, *t2i; };
 static struct r3tw g_tw[8][EC_NP][NTT_LOGN_MAX + 1];      /* [device][prime][logk] */
@@ -38,7 +39,7 @@ static const struct r3tw *tables(int prime, int logk)
     int dev; HIP_CHECK(hipGetDevice(&dev));
     struct r3tw *t = &g_tw[dev][prime][logk];
     if (!t->t1) {
-        if (!ec_has_radix3()) { fprintf(stderr, "ntt3: the prime set has no 3 2^k roots (build with EC_PRIMES=1)\n"); exit(1); }
+        if (!ec_has_radix3()) { ec_fatal(EC_RC_FATAL, "ntt3: the prime set has no 3 2^k roots (build with EC_PRIMES=1)\n"); }
         make_tables(&t->t1, &t->t2, prime, ec_root3(prime, logk), logk);
         make_tables(&t->t1i, &t->t2i, prime, ec_root3_inv(prime, logk), logk);
     }

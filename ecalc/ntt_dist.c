@@ -1,5 +1,6 @@
 /* ntt_dist.c - see ntt_dist.h */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "ntt_dist.h"
@@ -7,7 +8,7 @@
 #include <time.h>
 #include <pthread.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 __device__ static inline unsigned brev(unsigned v, int bits) { return __brev(v) >> (32 - bits); }
 

@@ -3,6 +3,7 @@
  * 25, 33), made two-directional and given the scale / pointwise fusions.
  */
 #include <stdio.h>
+#include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
 #include "ntt2.h"
@@ -12,7 +13,7 @@
 #define B1_LGL 10                  /* b1 block length 2^10 (rule 3b) */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
-    fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
+    ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 int ntt2_stg = 7;
 int ntt2_pw_fuse = 14;
@@ -314,7 +315,7 @@ static void make_plan(struct plan *pl, int logn)
     pl->npass = 0;
     while (hi >= B1_LGL) {
         int lo = hi - stg + 1; if (lo < B1_LGL) lo = B1_LGL;
-        if (pl->npass == NTT_MAXPASS) { fprintf(stderr, "ntt: too many passes for logn %d stg %d\n", logn, stg); exit(1); }
+        if (pl->npass == NTT_MAXPASS) { ec_fatal(EC_RC_FATAL, "ntt: too many passes for logn %d stg %d\n", logn, stg); }
         pl->s_hi[pl->npass] = hi; pl->s_lo[pl->npass] = lo; pl->npass++;
         hi = lo - 1;
     }
@@ -394,7 +395,7 @@ static struct plan_tw *get_plan_tw(ntt2_ctx *c, int logn, const struct plan *pl)
 
 static void check_logn(int logn)
 {
-    if (logn < NTT_LOGN_MIN || logn > NTT_LOGN_MAX) { fprintf(stderr, "ntt: logn %d out of range\n", logn); exit(1); }
+    if (logn < NTT_LOGN_MIN || logn > NTT_LOGN_MAX) { ec_fatal(EC_RC_FATAL, "ntt: logn %d out of range\n", logn); }
 }
 
 #define LAUNCH_B16(S, INV) case S: k_b16<S, INV><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, INV ? c->tabT_i[S] : c->tabT_f[S], scale); break;
@@ -409,8 +410,8 @@ static void launch_b16(ntt2_ctx *c, uint64_t *x, int logn, int s_lo, int stg, co
                                  else     k_b16r<0, 0><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale); }
         return;
     }
-    if (inv) switch (stg) { LAUNCH_B16(1, 1) LAUNCH_B16(2, 1) LAUNCH_B16(3, 1) LAUNCH_B16(4, 1) LAUNCH_B16(5, 1) LAUNCH_B16(6, 1) LAUNCH_B16(7, 1) default: abort(); }
-    else     switch (stg) { LAUNCH_B16(1, 0) LAUNCH_B16(2, 0) LAUNCH_B16(3, 0) LAUNCH_B16(4, 0) LAUNCH_B16(5, 0) LAUNCH_B16(6, 0) LAUNCH_B16(7, 0) default: abort(); }
+    if (inv) switch (stg) { LAUNCH_B16(1, 1) LAUNCH_B16(2, 1) LAUNCH_B16(3, 1) LAUNCH_B16(4, 1) LAUNCH_B16(5, 1) LAUNCH_B16(6, 1) LAUNCH_B16(7, 1) default: ec_fatal(EC_RC_FATAL, "ntt: the radix-16 pass of %d stages is not built", stg); }
+    else     switch (stg) { LAUNCH_B16(1, 0) LAUNCH_B16(2, 0) LAUNCH_B16(3, 0) LAUNCH_B16(4, 0) LAUNCH_B16(5, 0) LAUNCH_B16(6, 0) LAUNCH_B16(7, 0) default: ec_fatal(EC_RC_FATAL, "ntt: the radix-16 pass of %d stages is not built", stg); }
 }
 
 void ntt2_fwd(ntt2_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
