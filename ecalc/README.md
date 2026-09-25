@@ -302,6 +302,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `COMM_PORT` | the TCP port base (`mnrun.sh` picks a random one per run) |
 | `COMM_TRANSPORT` | `tcp` or `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) (tcp) |
 | `COMM_SHMEM_POOL_MB` | the SHMEM transport's symmetric pool (8192) |
+| `COMM_SHMEM_IMPL` | `mnrun.sh`: `sos` or `oshmem` — the SHMEM library the binary was built against, i.e. the launch form (`srun --mpi=pmi2` or `--mpi=pmix` + `setarch -L`) (detected: the first executable of the command, through wrappers such as `env`, `stdbuf`, `timeout`, `numactl`, that links `libsma` or `liboshmem`; neither: oshmem) |
+| `MNRUN_SHOW_IMPL` | *Phase 14 (N4), test*: `mnrun.sh` prints the SHMEM implementation it chose; `only` prints it and exits without launching (unset) |
 | `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (1) |
 | `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory: 1 on an implementation whose `shmem_malloc` is device memory or SOS with the external-heap patch, 2 managed (0; *Phase 12 (S)*) |
 | `COMM_SHMEM_FENCE` | Phase 11's form of `COMM_SHMEM_ORDER=fence` (0) |
