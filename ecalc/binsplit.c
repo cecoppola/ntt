@@ -419,7 +419,8 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     size_t sh = (nq + size - 1) / size;
     { size_t st = rns_mul_dist_mn_stage(nq, nq, size, sh, sh, (2 * nq + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the division's A_h mu"; } }
     { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
-    { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), s4 = sh / 4, st = 2 * (ch && s4 > ch ? ch : s4); if (st > best) { best = st; who = "mdb_shift"; } }
+    { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
+      size_t st = (ch && so > ch ? ch : so) + (ch && si > ch ? ch : si); if (st > best) { best = st; who = "the division's mdb_shift"; } }
     size_t staging = 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];

@@ -469,7 +469,8 @@ def shmem_products(nq_total, g, groups=None):
 
 def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
-      staging  = NR x 8 x the largest mn_stage over the run's products (and mdb_shift: 2 x min(share / 4, MDB_SHIFT_CHUNK_MB))
+      staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
+                 my share of each, each at most MDB_SHIFT_CHUNK_MB)
       control  = 4 communicators per level of size S (the level's G->all[d]; the top level's are mn.c's meshes of g), each
                  8 words x S + S x the ring: 4 x (g + sum of the lower levels' S) x (ring + 64 B)  (measured 2 MiB at 2, 6 at 4)
       mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
@@ -481,8 +482,9 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
         pp = {}; st = mn_stage(na, nb, S, sa, sb, sc, pool_log, 0, t_chunk_mb, pp)
         if st > best: best, who = st, '%s (%s)' % (name, max(('result', 'redist', 'transform'), key=lambda k: pp[k]))
         cap = 1 << mn_cap_log(S, pool_log); qmax = max(qmax, mn_shape(min(na + nb, cap), S)[3])
-    share4 = -(-nq_total // g) // 4
-    shift = 2 * (min(share4, int(shift_chunk_mb * 1048576 / 8)) if shift_chunk_mb else share4)
+    ch = int(shift_chunk_mb * 1048576 / 8) if shift_chunk_mb else 0             # mdb_shift: the division's t (2 nq limbs) >> (k + 1) -> X (nq): my share of t
+    s_out, s_in = -(-2 * nq_total // g) // 4, -(-nq_total // g) // 4          # out, my share of X in, a quarter per APU each (measured: send 106 + recv 53 MiB
+    shift = (min(s_out, ch) if ch else s_out) + (min(s_in, ch) if ch else s_in)   # per APU at 1e9 on 2 nodes, the high node; MDB_SHIFT_CHUNK_MB bounds each)
     if shift > best: best, who = shift, 'mdb_shift'
     staging = NR * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
@@ -493,12 +495,14 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8)
     return need
 
-MEASURED_POOL = [  # (total digits, g, POOL_LOG, pool peak MiB on PE 0 = control + staging (+ the self-tests at init), source) -- P214 section 1
-    (1e8, 2, 27, 84.8 + 2, 'P214 b1a (job 21269), 2 real nodes, SOS'),
-    (1e9, 2, 29, 847.7 + 2, 'P214 b1a (job 21269), 2 real nodes, SOS'),
-    (1e10, 2, 31, 8477 + 2, 'S13d (job 21104), 2 real nodes, SOS'),
-    (1e9, 4, 29, 423.9 + 6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
-    (1e10, 4, 29, 4238.6 + 6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
+MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TEST when lower), MN_T_CHUNK_MB, the staging peak MiB of the largest PE, source) -- P214 section 1
+    (1e8, 2, 27, 0, 84.8, 'P214 b1a (job 21269), 2 real nodes, SOS'),
+    (1e9, 2, 29, 0, 847.7, 'P214 b1a (job 21269), 2 real nodes, SOS'),
+    (1e10, 2, 31, 0, 8477.0, 'S13d (job 21104), 2 real nodes, SOS (8479 MiB with the control blocks)'),
+    (1e9, 4, 29, 0, 423.9, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
+    (1e10, 4, 29, 0, 4238.6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
+    (1e9, 2, 25, 0, 635.8, 'P214 b4 (job 21276), 2 real nodes, DIST_LOGN_TEST=25: the division in 2 x 2 pieces (PE 1; PE 0 529.8)'),
+    (1e9, 2, 29, 64, 635.8, 'P214 b4 (job 21276), 2 real nodes, MN_T_CHUNK_MB=64: the mdb_shift sets it (PE 1; PE 0 529.8)'),
 ]
 
 def pool_target():
@@ -518,14 +522,14 @@ def pool_target():
                 det.get('control', 0) / GB, det.get('sym', 0) / GB, r['node_peak'] / GB, r['dev_dm'] / GB, r['host_hwm'] / GB, 'fits' if r['node_peak'] <= 480 * GB else 'EXCEEDS'))
 
 def pool_check():
-    """the pool law against the measured peaks (staging + control; the model's margin and self-test term left out)"""
-    print('== Phase 14 P2: the SHMEM pool (MiB per node-process): measured peak (staging + control) vs the law')
-    for D, g, pl, meas, src in MEASURED_POOL:
+    """the pool law against the measured staging peaks (the largest PE: the pool is the same size on every PE)"""
+    print('== Phase 14 P2: the SHMEM pool staging (MiB per node-process, the largest PE): measured vs the law')
+    for D, g, pl, tmb, meas, src in MEASURED_POOL:
         d = digits_of_run(D); L = dm_layout(e_terms(d), g, pl); det = {}
-        shmem_pool(L['nq'], g, None, pl, detail=det)
-        m = (det['staging'] + det['control']) / 1048576.0
-        print('  %.0e g %d POOL_LOG %d: measured %8.1f  law %8.1f (%+.2f %%)  staging %8.1f = 4 x %.1f MiB by %-12s control %.1f  | %s' % (
-            D, g, pl, meas, m, 100 * (m / meas - 1), det['staging'] / 1048576.0, det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
+        shmem_pool(L['nq'], g, None, pl, tmb, detail=det)
+        m = det['staging'] / 1048576.0
+        print('  %.0e g %d cap log %d T chunk %3d: measured %8.1f  law %8.1f (%+.2f %%) = 4 x %.1f MiB by %-26s control %.1f MiB | %s' % (
+            D, g, pl, tmb, meas, m, 100 * (m / meas - 1), det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
 
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
