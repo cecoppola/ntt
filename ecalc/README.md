@@ -234,6 +234,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `RNS_BATCH_TILE_GB` | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) |
 | `RNS_POOL1_GB` | plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs) |
 | `RNS_POOL_GROW` | *Phase 12 (R)*: a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) |
+| `RNS_PLANES_FIRST` | *Phase 14 (N4)*: map the plane pools before the region arenas (and the seeds after them), so that near the node's memory edge the planes get 2 MiB blocks and the arenas the remainder (results/N414.md, A5) (0) |
 | `RNS_PLANES_3Q30` | 3·2³⁰-point planes for the top levels and the dm phase, sized at init: 1 / 0 / `auto` (on below 5 × 10¹⁰ at 2³¹ pools); the mapping costs more than the products gain (0) |
 | `RNS_DIST_CACHE` | transform-cache slots of the single-node dist tier (0: the planes' mapping costs more than the transforms saved) |
 | `RNS_DIST_CACHE_MN` | transform-cache slots over shares at size > 1 (2) |
