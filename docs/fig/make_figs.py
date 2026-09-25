@@ -217,7 +217,29 @@ def fig_phases():
     save(fig, "phases.svg")
 
 
+# 10. register blocking: a DIF stage acts on one index bit; groups of 3 bits live in one thread's registers
+def fig_regblock():
+    fig, ax = plt.subplots(figsize=(8.2, 2.5)); ax.grid(False); ax.axis("off")
+    groups = [(6, 5, 4), (3, 2, 1), (0,)]
+    cols = [C1, C2, C3]
+    for g, (bits, col) in enumerate(zip(groups, cols)):
+        for b in bits:
+            x = 6 - b
+            ax.add_patch(Rectangle((x * 1.1, 0), 1.0, 1.0, color=col, lw=0))
+            ax.text(x * 1.1 + 0.5, 0.5, f"b{b}", ha="center", va="center", color="white" if col != C3 else INK, fontsize=10)
+            ax.text(x * 1.1 + 0.5, 1.25, f"stage {7 - b}", ha="center", fontsize=8, color=INK2)
+    ax.text(1.1 * 1.5, -0.45, "A: 3 stages, registers", ha="center", fontsize=8.5, color=INK2)
+    ax.text(1.1 * 4.5, -0.45, "B: 3 stages, registers", ha="center", fontsize=8.5, color=INK2)
+    ax.text(1.1 * 6 + 0.5, -0.45, "C: 1 stage", ha="center", fontsize=8.5, color=INK2)
+    for xb in (3, 6):
+        ax.annotate("", xy=(xb * 1.1 - 0.05, 1.9), xytext=(xb * 1.1 - 0.05, 0.0), arrowprops=dict(arrowstyle="-", color=INK2, lw=1.2, ls="--"))
+        ax.text(xb * 1.1 - 0.05, 2.05, "LDS exchange", ha="center", fontsize=8, color=INK2)
+    ax.text(8.6, 0.5, "index m = (b6 b5 b4 b3 b2 b1 b0)₂\nDIF stage s pairs m with m ⊕ 2^(7−s)", fontsize=8.5, va="center")
+    ax.set_xlim(-0.2, 13.2); ax.set_ylim(-0.8, 2.4)
+    save(fig, "regblock.svg")
+
+
 if __name__ == "__main__":
-    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases):
+    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases, fig_regblock):
         f()
     print("ok")

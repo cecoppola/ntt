@@ -97,7 +97,12 @@ Q(a,b) = \prod_{k=a+1}^{b} k, \qquad
 \frac{P(a,b)}{Q(a,b)} = \sum_{k=a+1}^{b}\ \prod_{i=a+1}^{k}\frac{1}{i}.
 $$
 
-Then for any split point $a < m < b$:
+Then for any split point $a < m < b$, since every term of the right half carries the extra factor
+$1/Q(a,m)$,
+
+$$
+\frac{P(a,b)}{Q(a,b)} = \frac{P(a,m)}{Q(a,m)} + \frac{1}{Q(a,m)}\cdot\frac{P(m,b)}{Q(m,b)}
+\quad\Longrightarrow\quad
 
 $$
 P(a,b) = P(a,m)\,Q(m,b) + P(m,b), \qquad Q(a,b) = Q(a,m)\,Q(m,b),
@@ -105,11 +110,20 @@ $$
 
 with leaves $P(a,a{+}1) = 1,\ Q(a,a{+}1) = a+1$, and $e = 1 + P(0,N)/Q(0,N)$ with an error below
 $1/N!$. This is the classical binary-splitting scheme for hypergeometric-type series (Haible & Papanikolaou 1998;
-Brent & Zimmermann 2010, §4.9; Arndt 2011). Because every term's ratio to its predecessor is
+Brent & Zimmermann 2010, §4.9; Arndt 2011). The truncation error is exactly the tail,
+
+$$
+0 < e - 1 - \frac{P(0,N)}{Q(0,N)} = \sum_{k>N}\frac{1}{k!} = \frac{1}{(N+1)!}\Big(1 + \frac{1}{N+2} + \cdots\Big) < \frac{1}{N!\,N}.
+$$
+
+*Worked example ($N = 4$, split at $m = 2$).* Left: $P(0,2)/Q(0,2) = 1 + \tfrac12 = \tfrac32$. Right:
+$P(2,4)/Q(2,4) = \tfrac13 + \tfrac1{12} = \tfrac5{12}$. Merge: $P = 3\cdot 12 + 5 = 41$, $Q = 2\cdot 12 = 24$, and
+indeed $1 + \tfrac12 + \tfrac16 + \tfrac1{24} = \tfrac{41}{24}$. No division, no rounding, and only one
+large-by-large product per sequence. Because every term's ratio to its predecessor is
 $1/k$ with no numerator polynomial, $e$ needs only **two** sequences, where π's Chudnovsky series needs
 three ($P, Q, T$). That is one reason $e$ is the natural target for a memory-bound machine.
 
-The term count is the smallest $N$ with $\log_{10} N! \ge d + 50$. `ecalc` finds it by bisection on
+The term count is the smallest $N$ with $\log_{10} N! \ge d + 50$, which by the tail bound leaves 50 guard digits. `ecalc` finds it by bisection on
 `lgamma`. (A linear scan of 4.3 × 10⁹ `lgamma` calls had silently cost 45 s outside every phase
 timer; RESULTS §40.)
 
@@ -211,9 +225,17 @@ every $c_i$ divisible by 3. Every length $n = 2^k$ or $3\cdot 2^k$ with $k \le 3
 chosen maximum) therefore has a root. The constants `ec_W33` (order $2^{33}$) and `ec_W3X33` (order
 $3\cdot 2^{33}$) in `modarith.h` are those roots, and every other root is a power of them.
 
-*Worked example.* $p = 17$, $n = 4$, $\omega = 4$ ($4^2 = 16 \equiv -1$, $4^4 \equiv 1$). To multiply
-$12 \times 13$ in base 10: $a = (2,1,0,0)$, $b = (3,1,0,0)$. Transform, multiply pointwise, invert
-(with $n^{-1} = 13$): $c = (6,5,1,0)$, i.e. $6 + 50 + 100 = 156$. Every step is exact because each
+*Worked example.* $p = 17$, $n = 4$, $\omega = 4$ ($4^2 = 16 \equiv -1$, $4^4 \equiv 1$), $\omega^{-1} = 13$,
+$n^{-1} = 13$. To multiply $12 \times 13$ in base 10, take $a = (2,1,0,0)$ and $b = (3,1,0,0)$, least significant first:
+
+| $k$ | $\hat a_k = \sum_j a_j\omega^{jk}$ | $\hat b_k$ | $\hat c_k = \hat a_k\hat b_k$ | $c_k = n^{-1}\sum_j \hat c_j\,\omega^{-jk}$ |
+|---|---|---|---|---|
+| 0 | 3 | 4 | 12 | 6 |
+| 1 | 6 | 7 | 8 | 5 |
+| 2 | 1 | 2 | 2 | 1 |
+| 3 | 15 | 16 | 2 | 0 |
+
+(all mod 17). The result is $c = (6,5,1,0)$, i.e. $6 + 50 + 100 = 156$. Every step is exact because each
 true coefficient is below $p$. Chapter 3 is about guaranteeing that at scale.
 
 ### 2.3 Why the lengths $3\cdot 2^k$ matter
@@ -222,7 +244,16 @@ The transform length must be at least the product's length. With only powers of 
 limb past $2^k$ must be padded to $2^{k+1}$ points, doubling time and memory. Allowing $3\cdot 2^k$
 places a length between every pair of powers of two, which caps the padding waste at 50 %
 instead of 100 % (Figure 2). A radix-3 layer (`ntt3.c`) factors $n = 3\cdot 2^k$ as a length-3 transform composed
-with length-$2^k$ transforms via the same Cooley–Tukey index split as §6. The truncated Fourier
+with length-$2^k$ transforms via the same Cooley–Tukey index split as §6. A length-3 DFT with
+$\omega_3 = \omega_n^{n/3}$ looks like it needs four multiplications, but since $1 + \omega_3 + \omega_3^2 = 0$,
+
+$$
+X_0 = x_0 + x_1 + x_2,\qquad
+X_1 = (x_0 - x_2) + \omega_3\,(x_1 - x_2),\qquad
+X_2 = (x_0 - x_1) - \omega_3\,(x_1 - x_2),
+$$
+
+so a radix-3 butterfly needs **one** modular multiplication plus additions. The truncated Fourier
 transform (van der Hoeven 2004) exists to smooth out exactly this power-of-two jump; here, the mixed
 radix together with the plane cap of chapter 7 makes it unnecessary.
 
@@ -236,7 +267,15 @@ Measured: decimal phase −7 s at 4 × 10¹⁰, no memory change (RESULTS §57).
 ### 2.4 The forward/inverse pairing
 
 The forward transform is **decimation-in-frequency** (Gentleman–Sande butterflies,
-$(u,v) \mapsto (u+v,\ (u-v)\,\omega)$), whose output is in bit-reversed order. The inverse is
+$(u,v) \mapsto (u+v,\ (u-v)\,\omega)$). One stage is the identity (using $\omega_n^{n/2} = -1$)
+
+$$
+X[2k] = \sum_{j<n/2}\big(x_j + x_{j+n/2}\big)\,\omega_{n/2}^{jk},\qquad
+X[2k+1] = \sum_{j<n/2}\big(x_j - x_{j+n/2}\big)\,\omega_n^{j}\;\omega_{n/2}^{jk},
+$$
+
+that is, two half-length DFTs of the butterfly outputs, one giving the even and one the odd frequencies.
+Recursing $\log_2 n$ times leaves the output in bit-reversed order. The inverse is
 **decimation-in-time** (Cooley–Tukey, $(u,v)\mapsto(u+\omega v,\ u-\omega v)$), which *accepts*
 bit-reversed input. The pointwise product does not care about order, so **no bit-reversal
 permutation is ever performed**. That saves a full pass over memory per transform. The $1/n$ scaling
@@ -300,11 +339,13 @@ $$
 
 with the inverses $p_0^{-1} \bmod p_1$ and so on precomputed (Knuth, TAOCP vol. 2, §4.3.2).
 Because $0 \le v_i < p_i$, the result satisfies $0 \le c < p_0p_1p_2$: this is the unique representative, which is the
-exact coefficient whenever the bound of §3.2 holds. Every step is a modular operation on one
+exact coefficient whenever the bound of §3.2 holds. *Small example* ($p = 5, 7, 11$; $c = 156$; residues $r = (1, 2, 2)$):
+$v_0 = 1$; $v_1 = (2-1)\cdot 5^{-1} \bmod 7 = 1\cdot 3 = 3$; $v_2 = \big((2-1)\cdot 5^{-1} - 3\big)\cdot 7^{-1} \bmod 11 = (9-3)\cdot 8 \bmod 11 = 4$;
+so $c = 1 + 3\cdot 5 + 4\cdot 35 = 156$. Every step is a modular operation on one
 word, so each coefficient reconstructs independently: an embarrassingly parallel GPU kernel. The
 result is a 3-word (decimal) or 4-word (binary) integer per coefficient, which is then split into
 base-$B$ digits (`ec_words_to_dec3`: three Barrett divisions by $10^{18}$) and **carried**. Because a
-coefficient spans at most 3 limbs, the carry into limb $k$ depends only on coefficients $k-1, k-2$
+coefficient is below $p_0p_1p_2 < 2^{156} < B^3$, it spans at most 3 limbs, and the carry into limb $k$ depends only on coefficients $k-1, k-2$
 (the "3-limb window"), so the carry is also local, except for rare long runs (chapter 10).
 
 **Engineering.** The CRT kernel is striped by coefficient and reads all prime planes coalesced. It
@@ -394,6 +435,18 @@ butterfly is therefore a hybrid: FP64 for the multiply, integer ALU for the adds
 | **Shoup / Harvey** (Harvey 2014) | for a *fixed* multiplier $w$, precompute $w' = \lfloor w\,2^{64}/p\rfloor$; $q = \mathrm{hi}_{64}(a\,w')$, $r = aw - qp \bmod 2^{64} \in [0,2p)$ | the best integer method: 15.2 cyc/modmul; enables lazy $[0,4p)$ butterflies |
 | **FP64 Barrett** (chosen) | §4.3 | 22 VALU instructions, 1 330 Gmodmul/s/APU |
 
+Shoup's method is worth stating precisely, because it is the standard of comparison (Harvey 2014): for
+$p < 2^{63}$, a fixed $w < p$ and $w' = \lfloor w\,2^{64}/p\rfloor$, every $a < 2^{64}$ gives
+
+$$
+q = \Big\lfloor \frac{a\,w'}{2^{64}} \Big\rfloor \ \Longrightarrow\ 0 \le a w - q p < 2p ,
+$$
+
+(proof: write $w' = w2^{64}/p - \delta$ and $q = aw'/2^{64} - \delta'$ with $\delta,\delta'\in[0,1)$; then
+$aw - qp = a\delta p/2^{64} + \delta' p < 2p$), so $aw - qp$ can be computed with wrapping 64-bit arithmetic (the true value is known to be small), and the
+result is left in $[0, 2p)$ without a correction. Harvey's butterflies keep all values lazily in $[0, 4p)$ and
+reduce only when a bound would be exceeded.
+
 In a register-only micro-benchmark, Shoup beat FP64 Barrett by 1.14×. **In a real transform pass it
 was 2–3 % slower**, and integer Montgomery chains ran 25 % below FP64 Barrett (RESULTS §47–48). The
 reason is instruction-level parallelism across execution units: the FP64 multiply and the integer
@@ -417,13 +470,25 @@ unit, shared by a thread block, organised in 32 banks).
 
 ### 5.2 Register blocking
 
-A length-$2^s$ transform needs $s$ stages. In the simple kernel every stage reads its pair from LDS,
-computes, writes back, and synchronises: $s$ round trips and $s$ barriers. In the **register-blocked**
+A length-$2^s$ transform needs $s$ stages. The key fact is that **each stage acts on exactly one bit of the
+point index**: DIF stage $t$ pairs index $m$ with $m \oplus 2^{s-t}$. In the simple kernel every stage reads its pair
+from LDS, computes, writes back, and synchronises: $s$ round trips and $s$ barriers. In the **register-blocked**
 kernel each thread holds 8 (or 16) points in registers. Three (or four) consecutive stages pair only
 points *within* one thread's set, so they run with no communication at all. Between groups of stages
 the block exchanges data through LDS once, as a transpose. `ecalc`'s production body does **7 stages
 with 8 rows per thread and two LDS exchanges**: +19 % forward and +15 % inverse over the reproduced
 paper's tile kernel at $2^{31}$ points, bit-identical output (RESULTS §43).
+
+In index terms: a thread that holds the 8 points whose indices differ only in bits $\{b_6, b_5, b_4\}$ can
+perform the three stages acting on those bits alone. An LDS exchange then redistributes the points so that
+each thread holds a set differing in the next three bits. Figure 10 shows one grouping of 7 stages consistent
+with 8 points per thread and two exchanges.
+
+![Register blocking by index bits](fig/regblock.svg)
+
+*Figure 10. Register blocking as a partition of index bits (illustrative grouping 3 + 3 + 1). Stages inside a
+group are butterflies between a thread's own registers. Only the group boundaries cost an LDS exchange and a
+barrier: 2 instead of 7.*
 
 ### 5.3 Bank conflicts and the XOR swizzle
 
@@ -444,7 +509,9 @@ of the high bits).
 
 *Figure 5. Sixteen threads read a column at stride 16 (elements $16t + 5$). Without the swizzle every access falls
 in class 5 and they serialise 16-way. With $e' = e \oplus ((e \gg 4)\,\&\,15)$ the class becomes $5 \oplus t$, which
-takes all 16 values. The map is its own inverse on each 256-element block, so reads and writes use the same formula.* Measured on the earlier kernel: +5 % forward (2 211 → 2 325 Gbfly/s), and the performance
+takes all 16 values. The map is its own inverse ($e \gg 4$ is unchanged by it), so reads and writes use the same formula.*
+
+Measured on the earlier kernel: +5 % forward (2 211 → 2 325 Gbfly/s), and the performance
 spread across the four APUs fell from 12.4 % to 1.8 % (ALGORITHM S6).
 
 ### 5.4 Twiddles from two tables
@@ -578,6 +645,18 @@ once: 0.45 → 0.18 s for the 12 exchanges of a $2^{31}$-point product. The exch
 $k{+}1$'s row transform and twiddle compute. (In isolation the push corner turn overlapped butterfly
 compute at 74 %; `bench/11`.)
 
+**A volume check.** A $2^{31}$-point plane of 8-byte residues is 17.2 GB per prime. In an all-to-all over $P = 4$
+APUs, each rank keeps $1/P$ of its quarter and sends the rest, so a fraction $(P-1)/P$ of the plane crosses the
+fabric:
+
+$$
+V = 3 \times n_p \times \frac{P-1}{P}\times 8n = 3\times 4\times\tfrac34\times 17.2\ \text{GB} \approx 155\ \text{GB per product}
+$$
+
+(three all-to-alls, four primes: the "12 exchanges"). At 909 GB/s that is 0.17 s, against 0.18 s measured.
+The exchange runs at the fabric's rate, and the only way to cut its cost is to cut $V$. That is why the design
+minimises the **number** of all-to-alls rather than their speed.
+
 ---
 
 ## 7. Grid splitting
@@ -616,7 +695,14 @@ $[o_i + o_l,\ o_i + o_l + \ell_a + \ell_b)$, so lines of constant $o_a + o_b$ ar
 when only the part above a cut is read, pieces wholly below it are skipped. Right: for a low product, pieces
 starting at or above $w$ are skipped.*
 
-**Choosing the grid.** The piece shape is a cost-minimising search over $(k_a, k_b)$ and the piece
+**Choosing the grid.** With transform reuse, the cost of a $k_a\times k_b$ grid is modelled as
+
+$$
+T(k_a,k_b) \approx (k_a + k_b)\,T_{\text{fwd}}(L) \;+\; k_a k_b\,\big(T_{\text{pw}}(L) + T_{\text{inv}}(L) + T_{\text{add}}\big),
+\qquad \ell_a + \ell_b \le L \le L_{\text{cap}},
+$$
+
+minus the skipped pieces. The piece shape is the minimiser of this cost over $(k_a, k_b)$ and the piece
 lengths, subject to each piece product fitting the cap. It turned decimal's $2.2\times10^9$-limb
 squared products from 8 planes into 6, with no memory change (dm 48.9 → 38.0 s; RESULTS §66).
 
@@ -656,6 +742,19 @@ $\varepsilon^2$. So one needs only about $\log_2(\text{digits})$ steps, and, mor
 can be computed at the precision it will deliver: the first steps are tiny, and the total cost is
 about that of the last step, a small constant times one full multiplication (Brent & Zimmermann 2010, §4.2;
 Bernstein 2008). The quotient is then $X \approx A\cdot(1/Q)$, followed by a small correction.
+
+*Worked example ($Q = 7$, $r_0 = 0.1$):*
+
+| step | $r$ | $\varepsilon = 1 - 7r$ | correct digits of $1/7 = 0.142857\ldots$ |
+|---|---|---|---|
+| 0 | 0.1 | 0.3 | 0 |
+| 1 | 0.13 | 0.09 | 1 |
+| 2 | 0.1417 | 0.0081 | 2 |
+| 3 | 0.14284777 | 0.00006561 | 4 |
+| 4 | 0.14285714… | 4.3 × 10⁻⁹ | 8 |
+
+*Each step squares $\varepsilon$ and doubles the correct digits. The first steps are cheap because they need only a
+few digits.*
 
 ### 8.2 The fixed-point iteration used
 
@@ -752,7 +851,14 @@ A binary result must be converted to decimal at the end, and at 10¹⁰⁺ digit
 full-scale divide-and-conquer computation: the **long pole** of most record programs. The fastest
 method, Bernstein's **scaled remainder tree** (2004), treats $X/10^d$ as a fraction in $[0,1)$ and
 repeatedly multiplies by powers of $10$, keeping the integer part as leading digits and the fractional
-part for the rest. That is a tree of $O(\log d)$ levels, each a full-size multiplication, with inexact
+part for the rest. Written as a recursion on a fraction $y\in[0,1)$ whose first $h = h_1 + h_2$ digits are wanted,
+
+$$
+\mathrm{digits}_h(y) \;=\; \mathrm{digits}_{h_1}(y)\ \big\Vert\ \mathrm{digits}_{h_2}\big(\{10^{h_1}y\}\big),
+$$
+
+where $\{\cdot\}$ is the fractional part and each branch needs $y$ only to about $h_i$ digits plus guard digits.
+That is a tree of $O(\log d)$ levels, each level a full-size multiplication in total, with inexact
 fixed-point arithmetic whose carry corner cases (a fractional part of $0.999\ldots$) are notoriously
 hard to get right, and a table of powers of 10 that costs another full-size number of memory. The
 reproduced paper's dc phase took 82.5 s at 4 × 10¹⁰, the largest phase of all.
@@ -907,8 +1013,24 @@ $$
 
 The first identity checks every multiplication, the reciprocal and the division. The second checks the
 output formatting. If a result is wrong, the discrepancy $\Delta \neq 0$ escapes a check only if
-$q_i \mid \Delta$. For errors not correlated with the moduli that has probability ≈ $2^{-62}$ per prime,
-≈ $2^{-496}$ for all eight. **T2** adds 50-digit windows at fixed positions compared with published
+$q_i \mid \Delta$. The precise statement is a counting argument. If $|\Delta| < 2^{S}$, then $\Delta$ has at most
+$S/62$ distinct prime factors above $2^{62}$. There are about $2^{62}/(63\ln 2) \approx 10^{17}$ primes in
+$[2^{62}, 2^{63})$, so for a modulus drawn at random from them,
+
+$$
+\Pr[q \mid \Delta] \;\le\; \frac{S/62}{10^{17}} \approx 5\times10^{-8}\quad (S \approx 3\times10^{11}\ \text{bits}),
+$$
+
+and about $(5\times10^{-8})^8 \approx 10^{-58}$ for eight independent draws. With *fixed* moduli the same number is a
+heuristic (it assumes the error does not "know" the moduli). §12.3 shows how that assumption fails.
+
+Residues of billion-limb numbers are computed in parallel by splitting Horner's rule over chunks of $L$ limbs:
+
+$$
+X \bmod q \;=\; \sum_{c}\big(X_c \bmod q\big)\cdot\big(B^{L} \bmod q\big)^{c} \bmod q ,
+$$
+
+one Horner pass per chunk $X_c$, then a short combine. **T2** adds 50-digit windows at fixed positions compared with published
 digits, which guards against a wrong $d$, $N$ or off-by-one in the output.
 
 ### 12.3 Failure 1: seven of the eight "primes" were composite

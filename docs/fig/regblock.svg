@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="477.188024pt" height="153pt" viewBox="0 0 477.188024 153" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-25T04:36:08.336562</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 153 
+L 477.188024 153 
+L 477.188024 0 
+L 0 0 
+z
+" style="fill: #fcfcfb"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 14.029254 111.15 
+L 48.175522 111.15 
+L 48.175522 67.8375 
+L 14.029254 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 51.590149 111.15 
+L 85.736418 111.15 
+L 85.736418 67.8375 
+L 51.590149 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 89.151045 111.15 
+L 123.297313 111.15 
+L 123.297313 67.8375 
+L 89.151045 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 126.71194 111.15 
+L 160.858209 111.15 
+L 160.858209 67.8375 
+L 126.71194 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #eb6834"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 164.272836 111.15 
+L 198.419104 111.15 
+L 198.419104 67.8375 
+L 164.272836 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #eb6834"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 201.833731 111.15 
+L 235.98 111.15 
+L 235.98 67.8375 
+L 201.833731 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #eb6834"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 239.394627 111.15 
+L 273.540896 111.15 
+L 273.540896 67.8375 
+L 239.394627 67.8375 
+z
+" clip-path="url(#p35fc26d7ef)" style="fill: #1baf7a"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="31.102388" y="92.091797" transform="rotate(-0 31.102388 92.091797)">b6</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="31.102388" y="57.009375" transform="rotate(-0 31.102388 57.009375)">stage 1</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="68.663284" y="92.091797" transform="rotate(-0 68.663284 92.091797)">b5</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="68.663284" y="57.009375" transform="rotate(-0 68.663284 57.009375)">stage 2</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="106.224179" y="92.091797" transform="rotate(-0 106.224179 92.091797)">b4</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="106.224179" y="57.009375" transform="rotate(-0 106.224179 57.009375)">stage 3</text>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="143.785075" y="92.091797" transform="rotate(-0 143.785075 92.091797)">b3</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="143.785075" y="57.009375" transform="rotate(-0 143.785075 57.009375)">stage 4</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="181.34597" y="92.091797" transform="rotate(-0 181.34597 92.091797)">b2</text>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="181.34597" y="57.009375" transform="rotate(-0 181.34597 57.009375)">stage 5</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="218.906866" y="92.091797" transform="rotate(-0 218.906866 92.091797)">b1</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="218.906866" y="57.009375" transform="rotate(-0 218.906866 57.009375)">stage 6</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #0b0b0b" x="256.467761" y="92.091797" transform="rotate(-0 256.467761 92.091797)">b0</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="256.467761" y="57.009375" transform="rotate(-0 256.467761 57.009375)">stage 7</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="70.370597" y="130.640625" transform="rotate(-0 70.370597 130.640625)">A: 3 stages, registers</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="183.053284" y="130.640625" transform="rotate(-0 183.053284 130.640625)">B: 3 stages, registers</text>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="256.467761" y="130.640625" transform="rotate(-0 256.467761 130.640625)">C: 1 stage</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 125.004627 109.148409 
+Q 125.004627 70.004512 125.004627 30.860614 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #52514e; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="125.004627" y="22.359375" transform="rotate(-0 125.004627 22.359375)">LDS exchange</text>
+   </g>
+   <g id="patch_10">
+    <path d="M 237.687313 109.148409 
+Q 237.687313 70.004512 237.687313 30.860614 
+" style="fill: none; stroke-dasharray: 4.44,1.92; stroke-dashoffset: 0; stroke: #52514e; stroke-width: 1.2; stroke-linecap: round"/>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52514e" x="237.687313" y="22.359375" transform="rotate(-0 237.687313 22.359375)">LDS exchange</text>
+   </g>
+   <g id="text_20">
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(307.687164 86.600928)">index m = (b6 b5 b4 b3 b2 b1 b0)₂</text>
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(307.687164 96.803252)">DIF stage s pairs m with m ⊕ 2^(7−s)</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p35fc26d7ef">
+   <rect x="7.2" y="7.2" width="457.56" height="138.6"/>
+  </clipPath>
+ </defs>
+</svg>
