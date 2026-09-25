@@ -216,9 +216,10 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
     for (int w = 0; w < 2; w++) if (g_hpool[w].p && !g_hpool_taken[w]) { g_hpool_taken[w] = 1; *cap_limbs = g_hpool[w].cap / 8; return (uint64_t *)g_hpool[w].p; }
     *cap_limbs = 0; return 0;
 }
+static int g_in_pregrow;                            /* Phase 14 R1 (DB_POOL_VMM): pool_get inside binsplit_pregrow (the sizing pass) */
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
-    if (which == 1 && g_arena[r].vmm && in_arena(r, g_pool[1][r])) db_vmm_arena_wait(g_arena[r].dev, 2 * g_arena[r].half);   /* Phase 14 R1: the parity-1 half is mapped in the background during the seeds */
+    if (which == 1 && g_arena[r].vmm && !g_in_pregrow && in_arena(r, g_pool[1][r])) db_vmm_arena_wait(g_arena[r].dev, 2 * g_arena[r].half);   /* Phase 14 R1: the parity-1 half is mapped in the background during the seeds (its first use is level 1's outputs; pregrow's own pool_get must not wait, or the mapping runs inside init) */
     if (g_cap[which][r] < limbs) {
         if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
             if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
@@ -517,6 +518,7 @@ void binsplit_pregrow(unsigned long N)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
         if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
     }
+    g_in_pregrow = 1;
 #pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
     for (int r = 0; r <= NR; r++) {
         if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, need[r]); }
@@ -525,6 +527,7 @@ void binsplit_pregrow(unsigned long N)
 #pragma omp parallel for schedule(static) num_threads(par ? 96 : omp_get_max_threads())
             for (size_t i = 0; i < total0 + total0 / 8; i += 512) hp[i] = 0; }
     }
+    g_in_pregrow = 0;
 }
 /* WP7: periodic snapshots of the level loop (PLAN.md 15, WP7).  A checkpoint is the state the
  * loop needs at the top of an iteration: the node table of the current level, `which`, the
