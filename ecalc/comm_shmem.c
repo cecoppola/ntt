@@ -95,6 +95,8 @@ static struct {
     pthread_mutex_t alloc_lock;
     struct blk *blocks;
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
+    size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
+    int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
@@ -122,18 +124,23 @@ static size_t pool_alloc(size_t len, int kind)
     for (struct blk *b = S.blocks; b; b = b->next) if (!b->used && b->len >= len) {
         if (b->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
         b->used = 1; b->kind = kind;
-        S.cur[kind] += len; if (S.cur[kind] > S.peak[kind]) S.peak[kind] = S.cur[kind]; S.cur_all += len; if (S.cur_all > S.peak_all) S.peak_all = S.cur_all;
+        S.cur[kind] += len; if (S.cur[kind] > S.peak[kind]) S.peak[kind] = S.cur[kind]; S.cur_all += len;
+        if (kind == K_STAGE) { S.nstage++; if (len > S.stage_blk_max) S.stage_blk_max = len; }
+        if (S.cur_all > S.peak_all) { S.peak_all = S.cur_all; memcpy(S.at_peak, S.cur, sizeof S.at_peak); S.nstage_at_peak = S.nstage; }
         pthread_mutex_unlock(&S.alloc_lock); return b->off;
     }
+    size_t used = S.cur_all, need = ((used + len + S.mb_bytes) >> 20) + 1;   /* Phase 14 P2: name the size that would have held it (first fit: at least) */
     pthread_mutex_unlock(&S.alloc_lock);
-    ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more\n", S.me, S.pool_bytes >> 20, len >> 20);
+    ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more (in use %zu MiB: control %zu, staging %zu, symmetric buffers %zu): "
+             "COMM_SHMEM_POOL_MB >= %zu needed (COMM_SHMEM_POOL_AUTO=1 sizes it from the model at init)\n",
+             S.me, S.pool_bytes >> 20, len >> 20, used >> 20, S.cur[K_CTRL] >> 20, S.cur[K_STAGE] >> 20, S.cur[K_SYM] >> 20, need);
 }
 static void pool_free(size_t off)
 {
     pthread_mutex_lock(&S.alloc_lock);
     struct blk *p = 0;
     for (struct blk *b = S.blocks; b; p = b, b = b->next) if (b->off == off) {
-        b->used = 0; S.cur[b->kind] -= b->len; S.cur_all -= b->len;
+        b->used = 0; S.cur[b->kind] -= b->len; S.cur_all -= b->len; if (b->kind == K_STAGE) S.nstage--;
         if (b->next && !b->next->used) { struct blk *n = b->next; b->len += n->len; b->next = n->next; free(n); }
         if (p && !p->used) { p->len += b->len; p->next = b->next; free(b); }
         break;
@@ -184,6 +191,7 @@ int comm_shmem_init(void)
     if (S.inited) return S.npes;
     int prov = -1;
     g_trace = getenv("COMM_SHMEM_TRACE") != 0;
+    S.verbose = env_int("COMM_SHMEM_VERBOSE", 0) || env_int("ECALC_VERBOSE", 1) >= 2;
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
 #ifdef COMM_SHMEM_DEVICE_HEAP
     S.devheap = 1;
@@ -254,7 +262,12 @@ void comm_shmem_finalize(void)
 {
     if (!S.inited) return;
     shmem_barrier_all();
-    if (S.me == 0 || g_trace) printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
+    if (S.me == 0 || g_trace || S.verbose) {
+        printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
+        /* Phase 14 P2: what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
+        printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
+               S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
+    }
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
 #endif
@@ -311,10 +324,15 @@ static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence
 /* the staging of one exchange (send, receive): allocated per exchange, released when it completes (staging_release) --
  * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels
  * (Q, Phase 12); pool-resident buffers (comm_sym_alloc) need none */
-static void staging(shm_priv *p, size_t send, size_t recv)
+static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 {
     if (send > p->sst_cap) { if (p->sst) pool_free(p->sst); p->sst = pool_alloc(send, K_STAGE); p->sst_cap = send; }
     if (recv > p->rst_cap) { if (p->rst) pool_free(p->rst); p->rst = pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
+    if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* Phase 14 P2: which exchange raises the staging peak (racy read: a report, not the accounting) */
+        S.stage_rep = S.cur[K_STAGE];
+        printf("comm_shmem: pe %d: staging %.1f MiB in use (%zu blocks, pool %.1f MiB): comm %d (%d PEs) %s send %.1f + recv %.1f MiB\n", S.me, S.cur[K_STAGE] / 1048576.0, S.nstage, S.cur_all / 1048576.0,
+               p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
+    }
 }
 static void staging_release(shm_priv *p)
 {
@@ -379,7 +397,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoall while one is pending");
     int sin = in_pool(sb), rin = in_pool(rb);
-    staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n);
+    staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall");
     p->seq++; p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst;
     TRACE("comm %d: alltoall seq %ld, %zu B per slab%s%s", p->id, p->seq, bytes, sin ? ", send in pool" : "", rin ? ", recv in pool" : "");
@@ -395,7 +413,7 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     if (p->pending) die("alltoallv while an exchange is pending");
     int sin = in_pool(sb), rin = in_pool(rb);
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
-    staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8);
+    staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     p->seq++; p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst; p->sdsp = sin ? sdsp : p->spre;
@@ -427,7 +445,7 @@ static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv_host while an exchange is pending");
     size_t tr = comm_prefix(rcnt, p->rpre, n);
-    staging(p, 0, tr + 8);
+    staging(p, 0, tr + 8, "alltoallv_host");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     if (scnt[me]) memmove((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me]);
     p->seq++; p->src = (const char *)sb; p->scnt = scnt; p->sdsp = sdsp; p->bytes = 0;
@@ -441,7 +459,7 @@ static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("allgather while an exchange is pending");
-    staging(p, 0, bytes * n);
+    staging(p, 0, bytes * n, "allgather_host");
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) memcpy(self, sb, bytes);
     p->seq++; p->src = (const char *)sb; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
     publish(p, p->rst, bytes, 0);
@@ -455,7 +473,7 @@ static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("allgather while an exchange is pending");
     int sin = in_pool(sb), rin = in_pool(rb);
-    staging(p, sin ? 0 : bytes, rin ? 0 : bytes * n);
+    staging(p, sin ? 0 : bytes, rin ? 0 : bytes * n, "allgather");
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) COPY(self, sb, bytes, 0);
     if (!sin) COPY(S.pool + p->sst, sb, bytes, 0);
     SYNC(0);
