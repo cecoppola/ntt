@@ -1,0 +1,15 @@
+== mnaccept: job 21218 on ppac-pl1-s24-16, 2026-09-24T17:25:14-05:00, 1167339c T114 1: MN_TREE_EARLY_FREE (E10a): tree levels free P_i / P_run between their two products; tree_need_dev max(2c+2r+n, c+r+2n); mem_model mirror, --e10a ceilings; ref /shared/prerelease/home/mpo_2026/chcoppola/ntt/ecalc/ref ==
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.07 s (bs 0.8 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 7.65 s (bs 1.2 + 10dP 0.0 + dm 3.9
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 6.99 s (bs 0.9 + 10dP 0.0 + dm 3.1
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 21.18 s (bs 3.1 + 10dP 0.0 + dm 13
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.28 s (bs 3.0 + 10dP 0.0 + dm 8.
+== 13 passed, 0 failed; 1238 s; 1167339c; logs in results/mnaccept/21218 ==

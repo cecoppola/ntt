@@ -58,6 +58,9 @@ size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *
  * DM_TAIL_DEAD (1: no hole reserved beside the top level, the tail re-laid over its dead inputs; 2: + the layout without P in the
  * reciprocal, which needs the P spill: dm_p_spill_wired = 1 once it is there).  Read once by dm_switches(); -1 before */
 extern int dm_tight, dm_tail_dead, dm_p_spill_wired;
+/* Phase 14 T1 (APUMULT_STUDY E10a): MN_TREE_EARLY_FREE=1 -- mn.c's tree levels free the dead P_i / P_run shares between a level's two
+ * products and tree_need_dev counts max(2c + 2r + n, c + r + 2n) instead of 2c + 2r + 2n.  Read by dm_switches(); -1 before */
+extern int mn_tree_early_free;
 void dm_switches(void);
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */

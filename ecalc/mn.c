@@ -381,6 +381,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = g_rank; P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = g_rank; Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
+    dm_switches(); if (mn_tree_early_free > 0 && g_rank == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
     int gs[MN_MAXL]; int L = mn_groups_parse(g_size, gs, MN_MAXL - 1);   /* Phase 12 G: the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
@@ -448,6 +449,8 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
+    if (mn_tree_early_free > 0) db_free(&P->sh);             /* Phase 14 T1 (E10a): my child's P (PA or PB) is dead once P_n is formed */
+    if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", g_rank, l); mem_live_line(w); }   /* Phase 14 T1: the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
@@ -479,7 +482,14 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
         if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
         mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
         rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
+        if (mn_tree_early_free > 0) {                        /* Phase 14 T1 (E10a): P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
+            if (ci == i || (!own && ci == nch - 1)) db_free(&P->sh);   /* my child's P_i, or the top child's P (= P_run, not owned) */
+            if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
+            memset(&PA.sh, 0, sizeof PA.sh);
+        }
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* Phase 14 T1: the first product's window */
         rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
+        if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
         if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
         if (own) { db_free(&Pr.sh); db_free(&Qr.sh); }
         Pr = Pn; Qr = Qn; own = 1;
