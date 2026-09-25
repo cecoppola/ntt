@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="471.96pt" height="119.736pt" viewBox="0 0 471.96 119.736" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-25T04:26:49.183012</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 119.736 
+L 471.96 119.736 
+L 471.96 0 
+L 0 0 
+z
+" style="fill: #fcfcfb"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 11.476262 42.312 
+L 460.483738 42.312 
+L 460.483738 14.2224 
+L 11.476262 14.2224 
+z
+" clip-path="url(#p7f3c4d89fd)" style="fill: #e4e3df"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 11.476262 84.4464 
+L 238.118131 84.4464 
+L 238.118131 56.3568 
+L 11.476262 56.3568 
+z
+" clip-path="url(#p7f3c4d89fd)" style="fill: #2a78d6"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 238.118131 84.4464 
+L 460.483738 84.4464 
+L 460.483738 56.3568 
+L 238.118131 56.3568 
+z
+" clip-path="url(#p7f3c4d89fd)" style="fill: #eb6834"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #0b0b0b" x="235.98" y="30.605442" transform="rotate(-0 235.98 30.605442)">exact product a·b: up to 105 bits (a &lt; 2p, b &lt; p, p &lt; 2⁵²)</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="124.797196" y="72.739842" transform="rotate(-0 124.797196 72.739842)">hi = fl(a·b): 53-bit significand</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="349.300935" y="72.739842" transform="rotate(-0 349.300935 72.739842)">lo = fma(a, b, −hi): the exact rounding error</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #52514e" x="11.476262" y="102.0024" transform="rotate(-0 11.476262 102.0024)">most significant</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; text-anchor: end; fill: #52514e" x="460.483738" y="102.0024" transform="rotate(-0 460.483738 102.0024)">least significant</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p7f3c4d89fd">
+   <rect x="7.2" y="7.2" width="457.56" height="105.336"/>
+  </clipPath>
+ </defs>
+</svg>

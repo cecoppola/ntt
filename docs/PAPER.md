@@ -45,6 +45,20 @@ APUs (each a CPU and GPU sharing ≈ 128 GB of HBM), or over many such nodes:
 | **dc** — radix conversion | decimal digits of $X$ (deleted in the final design) | 9 |
 | **T1/T2** — verification | residue identities and digit windows | 12 |
 
+```mermaid
+flowchart LR
+  S["seeds<br/>(CPU, 256-term spans)"] --> B["bs: level-synchronous<br/>binary splitting → P, Q"]
+  B --> T["10dP: A = 10^d (P+Q)<br/>(a limb shift in base 10¹⁸)"]
+  T --> N["dm: Newton reciprocal μ ≈ B^k/Q,<br/>X = ⌊A/Q⌋ with corrections"]
+  N --> O["digits: format base-10¹⁸ limbs,<br/>stream to disk"]
+  B -. "P, Q mod q" .-> V["T1/T2: residue identities<br/>and digit windows"]
+  N -. "X, R mod q" .-> V
+  O -. "digits mod q" .-> V
+  M(["the multiply: RNS–NTT, 3 primes,<br/>batched / per-APU / distributed / grid"]) === B
+  M === N
+```
+*Figure 0. The pipeline. Solid arrows: data; dotted: what verification reads; the double line marks the phases built on the multiply.*
+
 Every expensive step reduces to one primitive — the product of two integers of up to
 several billion 64-bit words — and that primitive (chapters 2–7) is where most of the engineering
 lives. One observation governs every design decision: **on this machine memory, not time, limits
@@ -90,7 +104,8 @@ P(a,b) = P(a,m)\,Q(m,b) + P(m,b), \qquad Q(a,b) = Q(a,m)\,Q(m,b),
 $$
 
 with leaves $P(a,a{+}1) = 1,\ Q(a,a{+}1) = a+1$, and $e = 1 + P(0,N)/Q(0,N)$ with an error below
-$1/N!$ (Haible & Papanikolaou 1998). Because every term's ratio to its predecessor is
+$1/N!$. This is the classical binary-splitting scheme for hypergeometric-type series (Haible & Papanikolaou 1998;
+Brent & Zimmermann 2010, §4.9; Arndt 2011). Because every term's ratio to its predecessor is
 $1/k$ with no numerator polynomial, $e$ needs only **two** sequences, where π's Chudnovsky series needs
 three ($P, Q, T$). That is one reason $e$ is the natural target for a memory-bound machine.
 
@@ -102,14 +117,27 @@ timer; RESULTS §40.)
 
 Let $S = \log_2 Q(0,N) \approx N\log_2 N$ be the size of the result. At tree depth $\ell$ the node
 sizes **add up to $S$**, because $\log Q(a,b)$ is additive over disjoint ranges. A level therefore
-costs $\sum_i M(s_i)$ with $\sum_i s_i = S$. Since $M$ is superlinear
-($M(s) \approx c\, s\log s$), $\sum_i M(s_i) \le M(S)$. There are $\lceil\log_2 N\rceil$ levels, so
+costs $\sum_i M(s_i)$ with $\sum_i s_i = S$. If $M(s)/s$ is non-decreasing (true for every multiplication algorithm of interest, and for
+$M(s) = c\,s\log s$), then
+
+$$
+\sum_i M(s_i) = \sum_i s_i\,\frac{M(s_i)}{s_i} \le \sum_i s_i\,\frac{M(S)}{S} = M(S).
+$$
+
+(Stirling gives $S = \log_2 N! = N\log_2 N - N\log_2 e + O(\log N)$.) There are $\lceil\log_2 N\rceil$ levels, so
 
 $$
 T_{\text{bs}} = O\big(M(S)\,\log N\big).
 $$
 
 At $d = 10^{11}$ digits, $N \approx 1.0 \times 10^{10}$ terms and the depth is 33–34.
+
+![Size-balanced binary splitting tree](fig/bs_tree.svg)
+
+*Figure 1. The binary-splitting tree for $N = 16$, drawn to scale. Each box is a node $(a,b)$ with width
+$\log_2 Q(a,b)$ bits. Every level spans the same total width $\log_2 16!$, which is the
+additivity behind $T_{\text{bs}} = O(M(S)\log N)$. The balanced split puts $m$ at 10, not 8, because
+late terms are larger.*
 
 **Size-balanced splitting.** Since $\log Q(a,b) = \log b! - \log a!$ grows with $k$, splitting at
 the index midpoint gives unbalanced children (Yee: 215 vs 311 digits for $100!$). Choosing $m$ so
@@ -154,10 +182,12 @@ $$
 c = \mathcal{F}^{-1}\big(\mathcal{F}(a)\cdot\mathcal{F}(b)\big),
 $$
 
-and the FFT computes $\mathcal{F}$ in $O(n\log n)$. With complex floating-point numbers the result
+and the FFT computes $\mathcal{F}$ in $O(n\log n)$ (Cooley & Tukey 1965). Precisely, a length-$n$ DFT turns
+*cyclic* convolution (products taken mod $x^n - 1$) into a pointwise product, so $n$ must be at least
+$\ell_a + \ell_b - 1$ for the cyclic wrap-around to add only zeros. With complex floating-point numbers the result
 carries rounding errors that grow with $n$. At billions of points they would swamp the answer
 unless each coefficient carried very few bits. The **number-theoretic transform (NTT)** performs
-the same algebra in the integers modulo a prime $p$, where arithmetic is **exact** (Pollard 1971).
+the same algebra in the integers modulo a prime $p$, where arithmetic is **exact** (Pollard 1971; Crandall & Pomerance 2005, §9.5).
 
 ### 2.2 What the DFT needs, and where to find it in ℤ/p
 
@@ -190,10 +220,17 @@ true coefficient is below $p$. Chapter 3 is about guaranteeing that at scale.
 
 The transform length must be at least the product's length. With only powers of two, a product one
 limb past $2^k$ must be padded to $2^{k+1}$ points, doubling time and memory. Allowing $3\cdot 2^k$
-places a length between every pair of powers of two, which caps the padding waste at 33 %
-instead of 100 %. A radix-3 layer (`ntt3.c`) factors $n = 3\cdot 2^k$ as a length-3 transform composed
+places a length between every pair of powers of two, which caps the padding waste at 50 %
+instead of 100 % (Figure 2). A radix-3 layer (`ntt3.c`) factors $n = 3\cdot 2^k$ as a length-3 transform composed
 with length-$2^k$ transforms via the same Cooley–Tukey index split as §6. The truncated Fourier
-transform literature exists to fix this power-of-two jump; the mixed radix removes the need for it.
+transform (van der Hoeven 2004) exists to smooth out exactly this power-of-two jump; here, the mixed
+radix together with the plane cap of chapter 7 makes it unnecessary.
+
+![Padding waste for 2^k and 3·2^k lengths](fig/padding.svg)
+
+*Figure 2. Padding waste $L/n - 1$ when the length $L$ is the smallest admissible one $\ge n$. Powers of two
+alone waste up to 100 % (39 % on average over $n$); adding $3\cdot 2^k$ caps the waste at 50 % (19 % on average).*
+
 Measured: decimal phase −7 s at 4 × 10¹⁰, no memory change (RESULTS §57).
 
 ### 2.4 The forward/inverse pairing
@@ -204,6 +241,12 @@ $(u,v) \mapsto (u+v,\ (u-v)\,\omega)$), whose output is in bit-reversed order. T
 bit-reversed input. The pointwise product does not care about order, so **no bit-reversal
 permutation is ever performed**. That saves a full pass over memory per transform. The $1/n$ scaling
 and the pointwise product are fused into the neighbouring passes for the same reason.
+
+![DIF signal-flow graph for n = 8](fig/dif8.svg)
+
+*Figure 3. Decimation-in-frequency (Gentleman & Sande 1966) for $n = 8$. Each stage halves the butterfly span,
+and the output appears in bit-reversed order: $X[4]$ sits in position 1 because $1 = 001_2$ reverses to $100_2 = 4$.
+The DIT inverse is this graph mirrored: it consumes bit-reversed input and produces natural order.*
 
 ---
 
@@ -248,7 +291,16 @@ c = v_0 + v_1\,p_0 + v_2\,p_0p_1 + \cdots,\qquad
 v_0 = r_0,\quad v_1 = (r_1 - v_0)\,p_0^{-1} \bmod p_1,\quad \ldots
 $$
 
-with the inverses $p_0^{-1} \bmod p_1$ and so on precomputed. Every step is a modular operation on one
+and in full, for three primes,
+
+$$
+v_2 = \big((r_2 - v_0)\,p_0^{-1} - v_1\big)\,p_1^{-1} \bmod p_2 ,
+\qquad 0 \le v_i < p_i ,
+$$
+
+with the inverses $p_0^{-1} \bmod p_1$ and so on precomputed (Knuth, TAOCP vol. 2, §4.3.2).
+Because $0 \le v_i < p_i$, the result satisfies $0 \le c < p_0p_1p_2$: this is the unique representative, which is the
+exact coefficient whenever the bound of §3.2 holds. Every step is a modular operation on one
 word, so each coefficient reconstructs independently: an embarrassingly parallel GPU kernel. The
 result is a 3-word (decimal) or 4-word (binary) integer per coefficient, which is then split into
 base-$B$ digits (`ec_words_to_dec3`: three Barrett divisions by $10^{18}$) and **carried**. Because a
@@ -285,9 +337,14 @@ $$
 \ell = \mathrm{fma}(a, b, -h) \quad\Longrightarrow\quad ab = h + \ell \ \text{exactly}.
 $$
 
-This is the error-free transformation of Dekker (1971), in the FMA form of Ogita, Rump & Oishi
-(2005). It holds because the rounding error of a product is itself representable. The pair $(h,\ell)$
+This is the error-free transformation of Dekker (1971), in the FMA form called *2MultFMA* (Ogita, Rump & Oishi
+2005; Muller et al. 2018, ch. 4). The identity holds for any product that neither overflows nor underflows. It holds because the rounding error of a product is itself representable. The pair $(h,\ell)$
 is a 106-bit product in two registers.
+
+![hi/lo split of the exact product](fig/twoprod.svg)
+
+*Figure 4. The exact product $ab$ of a lazy $a < 2p$ and canonical $b < p$ is split into the rounded
+$h$ and the exact error $\ell$, with $|\ell| \le \tfrac12\,\mathrm{ulp}(h) \le 2^{51}$.*
 
 ### 4.3 Barrett reduction on that pair
 
@@ -303,19 +360,27 @@ r += (r < 0.0 ? p : 0.0);  r += (r < 0.0 ? p : 0.0);    // two corrections up
 r -= (r >= p ? p : 0.0);   r -= (r >= p ? p : 0.0);     // two corrections down
 ```
 
-Why it works: $q$ differs from the true quotient by a small integer, so $ab - qp$ is a small
-multiple of $p$ away from the true remainder. It is an integer of modest size, so the single-rounding
+Why it works, as an error budget. All four primes satisfy $2^{51} < p < 2^{52}$. With $a < 2p$ and $b < p$,
+$h/p < 2p < 2^{53}$. The two roundings in `hi * pinv` (in $1/p$ and in the product) each contribute a relative
+error of at most $2^{-53}$, so $\mathrm{fl}(h\cdot p^{-1})$ is within about $2^{53}\cdot 2^{-52} = 2$ of $h/p$. And
+$|\ell|/p < 1$, so $h/p$ is within 1 of $ab/p$. Hence $q$ differs from $\lfloor ab/p\rfloor$ by a small integer,
+and $ab - qp$ lies a small multiple of $p$ away from the true remainder. It is an integer of modest size, so the single-rounding
 `fma` computes $hi - qp$ exactly, adding $lo$ restores the dropped bits, and at most two
 additions or subtractions of $p$ land in $[0,p)$.
 
 ### 4.4 The condition, and how it was learned
 
 "Small" is conditional. The argument needs the intermediate $ab - qp$ to fit the 53-bit significand,
-which bounds the operand ranges. The rule, established by exhaustive and adversarial testing
+which bounds the operand ranges. The rule, established by randomized and adversarial testing
 (`bench/15`, `tests/t_modarith`; RESULTS §19, §30):
 
 > **At most one operand may be "lazy" (in $[0,2p)$); the other must be canonical (in $[0,p)$).**
 > With both lazy, or either in $[0,4p)$, the result is wrong in 0.4–21 % of cases.
+
+The rule is the error budget above made concrete. With both operands lazy, $h/p$ reaches $4p \approx 2^{54}$, the
+quotient estimate's error doubles, and the intermediate $h - qp$ is no longer guaranteed to fit the 53-bit
+significand, so the `fma` itself rounds. The repository establishes the admissible ranges empirically rather
+than with a formal proof.
 
 A second rule: **butterfly additions are done in 64-bit integers, never in doubles.** $u+v$ with
 $u, v < 2p \approx 2^{52.8}$ exceeds $2^{53}$ and does not survive a round trip through FP64. The
@@ -362,8 +427,9 @@ paper's tile kernel at $2^{31}$ points, bit-identical output (RESULTS §43).
 
 ### 5.3 Bank conflicts and the XOR swizzle
 
-LDS serves 32 (or 64) addresses per cycle only if they fall in *distinct banks* (bank = address mod
-32 words). In the exchange phases, threads access points at strides that are multiples of 16 or 32,
+LDS is organised as 32 banks of 4 bytes (AMD 2025, CDNA3 ISA). Accesses in one cycle proceed in parallel only if
+they fall in *distinct banks*. A 64-bit element $e$ occupies banks $2(e \bmod 16)$ and $2(e \bmod 16)+1$, so its
+**conflict class** is $e \bmod 16$. In the exchange phases, threads access points at strides that are multiples of 16 or 32,
 so all of them hit the same bank: a 16- or 32-way conflict serialises the access. Permuting the
 storage index with
 
@@ -372,7 +438,13 @@ e' = e \oplus \big((e \gg 4)\ \&\ 15\big)
 $$
 
 spreads any stride-16 column across 16 distinct banks while remaining a bijection (XOR with a function
-of the high bits). Measured on the earlier kernel: +5 % forward (2 211 → 2 325 Gbfly/s), and the performance
+of the high bits).
+
+![Bank-conflict class before and after the swizzle](fig/swizzle.svg)
+
+*Figure 5. Sixteen threads read a column at stride 16 (elements $16t + 5$). Without the swizzle every access falls
+in class 5 and they serialise 16-way. With $e' = e \oplus ((e \gg 4)\,\&\,15)$ the class becomes $5 \oplus t$, which
+takes all 16 values. The map is its own inverse on each 256-element block, so reads and writes use the same formula.* Measured on the earlier kernel: +5 % forward (2 211 → 2 325 Gbfly/s), and the performance
 spread across the four APUs fell from 12.4 % to 1.8 % (ALGORITHM S6).
 
 ### 5.4 Twiddles from two tables
@@ -397,7 +469,9 @@ became 3.3 % slower**, on all four APUs individually (ALGORITHM R9).
 The explanation matters more than the 3 %. An earlier micro-benchmark had shown the butterfly to be
 *issue-bound* (latency/throughput ≈ 1) in registers. The real kernel also waits on global twiddle
 loads and LDS exchanges, and the "useless" multiplications were **filling those wait slots**. Removing
-them exposed the stalls. **Instruction count is not a proxy for time in a latency-hiding machine.** The
+them exposed the stalls. **Instruction count is not a proxy for time in a latency-hiding machine.** This is Volkov's (2010)
+observation in another form: GPU throughput comes from enough independent work in flight, whether as more
+warps (occupancy) or as more independent instructions per thread (ILP), to cover memory latency. The
 kernel sits at a local optimum where arithmetic and memory latency are balanced, and perturbing either
 side loses. Two other "obvious" wins failed the same way: an LDS-staged twiddle table (0.96×, lost
 occupancy) and non-temporal loads (0.66×, broke coalescing).
@@ -468,6 +542,12 @@ $i + Rj$ for $i\in[rR/P, (r{+}1)R/P)$ and **every** $j$. In terms of the integer
 runs of $R/P$ contiguous limbs, one run per column: a **block-cyclic** distribution, not a contiguous
 slice. This follows from doing the row pass first, which is what makes step (1) communication-free.
 
+![Four-step layout and block-cyclic ownership](fig/fourstep.svg)
+
+*Figure 6. $R = C = 8$, four ranks. Left: the $R\times C$ layout, with rows owned by ranks. Right: the same ownership read
+along the integer, where each rank holds $C$ runs of $R/P = 2$ consecutive limbs. Steps ①–② are local to each
+rank, ③ is the only communication, and ④ is local again.*
+
 The alternative, contiguous ownership (rank $r$ holds limbs $[rn/P, (r{+}1)n/P)$), costs a second
 all-to-all per transform, and there is no formulation of the inverse with a single all-to-all under it
 (modelled and run, RESULTS §51, §59). `ecalc` therefore keeps the numbers **contiguous at the
@@ -529,6 +609,13 @@ reciprocal's two products, chapter 8). A piece at offsets $(o_a, o_b)$ with $\el
 lies entirely below $B^{o_a+o_b+\ell_a+\ell_b}$. If that is at or below the cut, the piece is skipped.
 The skipped mass is bounded, which is what makes the answer provably still correct (§8.5).
 
+![Grid split with skipped pieces](fig/grid.svg)
+
+*Figure 7. A $4\times 3$ grid of piece products. Piece $A_iB_l$ contributes to limbs
+$[o_i + o_l,\ o_i + o_l + \ell_a + \ell_b)$, so lines of constant $o_a + o_b$ are lines of equal limb position. Left:
+when only the part above a cut is read, pieces wholly below it are skipped. Right: for a low product, pieces
+starting at or above $w$ are skipped.*
+
 **Choosing the grid.** The piece shape is a cost-minimising search over $(k_a, k_b)$ and the piece
 lengths, subject to each piece product fitting the cap. It turned decimal's $2.2\times10^9$-limb
 squared products from 8 planes into 6, with no memory change (dm 48.9 → 38.0 s; RESULTS §66).
@@ -567,8 +654,8 @@ $$
 roughly **doubles the number of correct digits**. The error $\varepsilon = 1 - Qr$ becomes
 $\varepsilon^2$. So one needs only about $\log_2(\text{digits})$ steps, and, more importantly, each step
 can be computed at the precision it will deliver: the first steps are tiny, and the total cost is
-about that of the last step, a small constant times one full multiplication (Brent & Zimmermann 2010,
-§4.2). The quotient is then $X \approx A\cdot(1/Q)$, followed by a small correction.
+about that of the last step, a small constant times one full multiplication (Brent & Zimmermann 2010, §4.2;
+Bernstein 2008). The quotient is then $X \approx A\cdot(1/Q)$, followed by a small correction.
 
 ### 8.2 The fixed-point iteration used
 
@@ -597,6 +684,12 @@ required $k$. The last step then computes at a full $2j > k$ and throws most of 
 plans the targets **backwards from $k$**: $k, \lceil k/2\rceil, \lceil k/4\rceil, \dots$ down to the
 seed, so every step is a (near-)exact doubling and the last one lands on $k$ exactly. Measured: binary
 291 → 271 s, the decimal reciprocal **112 → 45 s** (RESULTS §53–54).
+
+![Cost of doubling vs anchored doubling](fig/newton.svg)
+
+*Figure 8. Modelled cost of the precision schedule, with $M(n) = n\log_2 n$ and seed precision 4. Plain doubling
+(4, 8, …, $2^m$, then a final step computed at $2^{m+1}$) against anchored doubling ($\ldots, \lceil k/4\rceil, \lceil k/2\rceil, k$).
+The ratio approaches 2 just above each power of two.*
 
 ### 8.4 The error recurrence
 
@@ -708,10 +801,22 @@ $$
 (g_2, p_2)\circ(g_1, p_1) = \big(g_2 \lor (p_2 \land g_1),\ p_2\land p_1\big),
 $$
 
-so the carry into every chunk is an **exclusive prefix scan** of these pairs (Ladner & Fischer 1980;
-Blelloch 1990): logarithmic depth, or a single cheap pass over the few chunk flags ($n/4096$ of them;
+so the carry into every chunk is an **exclusive prefix scan** of these pairs (the carry-lookahead recurrence of
+Kogge & Stone 1973; the scan framework of Ladner & Fischer 1980 and Blelloch 1990): logarithmic depth, or a single cheap pass over the few chunk flags ($n/4096$ of them;
 `ecalc` scans them on the host). A final kernel adds each chunk's carry-in, which ripples only through
 that chunk's leading $(B-1)$ limbs.
+
+*Worked example (base 10, chunks of 3 digits, adding $x = 214\,999\,607$ and $y = 000\,000\,395$; chunks listed
+from the least significant):*
+
+| chunk | local sum (carry-in 0) | $g$ | $p$ | carry in (scan) | final |
+|---|---|---|---|---|---|
+| 0: 607 + 395 | 002, carry out 1 | 1 | 0 | 0 | 002 |
+| 1: 999 + 000 | 999 | 0 | 1 | $g_0 = 1$ | 000, carry out 1 |
+| 2: 214 + 000 | 214 | 0 | 0 | $g_1 \lor (p_1 \land g_0) = 1$ | 215 |
+
+*The result is $215\,000\,002$. Chunk 1's carry-in is known from the flags alone, before any digit of chunk 1 is
+revisited.*
 
 ### 10.3 Why the obvious alternatives fail
 
@@ -736,7 +841,8 @@ at 1.4 × 10¹¹, against 502 GB physical.
 
 ### 11.2 Locality: a 40-to-1 bandwidth ratio
 
-An MI300A GPU reads memory on its **own** NUMA node at ≈ 3.8 TB/s and **any other** node's at ≈ 93 GB/s,
+MI300A packages CPU and GPU dies around a single HBM pool (AMD 2023, CDNA 3 white paper), but the node's four APUs
+still form four NUMA domains. An MI300A GPU reads memory on its **own** NUMA node at ≈ 3.8 TB/s and **any other** node's at ≈ 93 GB/s,
 whether the memory is `hipMalloc`'d or ordinary OS pages. **The allocation kind is irrelevant; the node
 is everything** (RESULTS §55). Consequences:
 
@@ -757,7 +863,7 @@ and the division's temporaries live in memory that the previous phase already pa
 Tightening the reservation to the exact modelled need (`DM_TIGHT`) cut the arena from 310 to 260 GB
 at 10¹¹. But at 1.4 × 10¹¹ one large block repeatedly found no **contiguous** free range: the free
 memory existed, fragmented into holes, and six placement strategies all failed. The fix separates
-*address* from *memory*. A pool built on HIP's virtual-memory API (`DB_POOL_VMM`) reserves a large
+*address* from *memory*. A pool built on HIP's virtual-memory API (`DB_POOL_VMM`; `hipMemAddressReserve`, `hipMemCreate`, `hipMemMap`, AMD ROCm docs) reserves a large
 virtual range and maps physical chunks into it on demand. A request is satisfied by re-mapping free
 physical chunks, wherever they are, into one contiguous virtual block. Result: **zero in-phase
 allocations and 1.4 × 10¹¹ digits verified in 485 s at 466.6 GB**, beyond the previous 1.30 × 10¹¹
@@ -884,6 +990,12 @@ digits, was run for real: 137.9 s, VERIFY OK, within 6.2 % of the model's time a
 | Phase 11 | 66.0 | 81.5 | 11.7 GB host (numbers on device) |
 | **Phase 13c defaults** | **46.3** | **63.5 ± 1.5** | device-resident |
 
+![Phase times through the project](fig/phases.svg)
+
+*Figure 9. The sum of phases at 4 × 10¹⁰ digits, split by phase (RESULTS §63, §80). Phase 4's bars sum to
+224.9 s; the reported 229 s includes time outside the listed phases. Base $10^{18}$ removes dc; the device-resident
+design then halves bs and dm.*
+
 ### 14.2 Where the factor of 4.5 came from
 
 | chapter | technique | measured effect |
@@ -916,34 +1028,76 @@ digits, was run for real: 137.9 s, VERIFY OK, within 6.2 % of the model's time a
 
 ## References
 
-- D. H. Bailey, "FFTs in external or hierarchical memory," *J. Supercomputing* 4 (1990) 23–35.
-- P. Barrett, "Implementing the Rivest Shamir and Adleman public key encryption algorithm on a standard
-  digital signal processor," *CRYPTO '86*, LNCS 263, 311–323.
-- D. J. Bernstein, "Scaled remainder trees," 2004. https://cr.yp.to/arith/scaledmod-20040820.pdf
-- G. E. Blelloch, "Prefix sums and their applications," CMU-CS-90-190, 1990.
-- R. P. Brent, P. Zimmermann, *Modern Computer Arithmetic*, Cambridge Univ. Press, 2010.
-- T. J. Dekker, "A floating-point technique for extending the available precision," *Numer. Math.* 18
-  (1971) 224–242.
-- H. L. Garner, "The residue number system," *IRE Trans. Electronic Computers* EC-8 (1959) 140–147.
+Grouped by topic. Where a free, authoritative copy exists, a link is given.
+
+**Series evaluation and multiprecision arithmetic**
 - B. Haible, T. Papanikolaou, "Fast multiprecision evaluation of series of rational numbers," *ANTS-III*,
-  LNCS 1423 (1998) 338–350.
+  LNCS 1423 (1998) 338–350. [PDF](https://www.ginac.de/CLN/binsplit.pdf)
+- R. P. Brent, P. Zimmermann, *Modern Computer Arithmetic*, Cambridge Univ. Press, 2010: §4.2 (Newton's
+  method), §4.9 (binary splitting), ch. 1–2 (multiplication, division, CRT).
+- D. J. Bernstein, "Fast multiplication and its applications," in *Algorithmic Number Theory*, MSRI Publ. 44,
+  Cambridge Univ. Press (2008) 325–384. [cr.yp.to/papers.html#multapps](https://cr.yp.to/papers.html#multapps)
+- D. J. Bernstein, "Scaled remainder trees," 2004. [PDF](https://cr.yp.to/arith/scaledmod-20040820.pdf)
+- J. Arndt, *Matters Computational: Ideas, Algorithms, Source Code*, Springer, 2011 (NTTs, binary splitting,
+  radix conversion). [Free PDF](https://www.jjj.de/fxt/fxtbook.pdf)
+- R. Crandall, C. Pomerance, *Prime Numbers: A Computational Perspective*, 2nd ed., Springer, 2005, ch. 9.
+- D. E. Knuth, *The Art of Computer Programming*, Vol. 2, 3rd ed., Addison-Wesley, 1997, §4.3 (Algorithm D,
+  §4.3.2 modular arithmetic and Garner's method) and §4.6.
 - G. Hanrot, M. Quercia, P. Zimmermann, "The middle product algorithm I," *AAECC* 14 (2004) 415–438.
-- D. Harvey, "Faster arithmetic for number-theoretic transforms," *J. Symbolic Comput.* 60 (2014) 113–119.
-- D. E. Knuth, *The Art of Computer Programming*, Vol. 2, 3rd ed., §4.3 and §4.6.
-- R. E. Ladner, M. J. Fischer, "Parallel prefix computation," *J. ACM* 27 (1980) 831–838.
-- P. L. Montgomery, "Modular multiplication without trial division," *Math. Comp.* 44 (1985) 519–521.
-- T. Ogita, S. M. Rump, S. Oishi, "Accurate sum and dot product," *SIAM J. Sci. Comput.* 26 (2005) 1955–1988.
+- A. J. Yee, y-cruncher: technical documentation. [numberworld.org/y-cruncher](http://www.numberworld.org/y-cruncher/)
+- "High-Performance Computation of e to 40 Billion Decimal Digits on a Single MI300A Node" (the reproduced paper, 4 pp.).
+
+**Fast Fourier and number-theoretic transforms**
+- J. W. Cooley, J. W. Tukey, "An algorithm for the machine calculation of complex Fourier series,"
+  *Math. Comp.* 19 (1965) 297–301.
+- W. M. Gentleman, G. Sande, "Fast Fourier transforms — for fun and profit," *AFIPS Fall Joint Computer
+  Conference* 29 (1966) 563–578.
 - J. M. Pollard, "The fast Fourier transform in a finite field," *Math. Comp.* 25 (1971) 365–374.
 - A. Schönhage, V. Strassen, "Schnelle Multiplikation großer Zahlen," *Computing* 7 (1971) 281–292.
-- V. Shoup, NTL: A Library for doing Number Theory (the precomputed-quotient modmul).
-- C. Van Loan, *Computational Frameworks for the Fast Fourier Transform*, SIAM, 1992.
-- A. J. Yee, y-cruncher documentation. http://www.numberworld.org/y-cruncher/
-- "High-Performance Computation of e to 40 Billion Decimal Digits on a Single MI300A Node" (the
-  reproduced paper; 4 pp.).
+- D. Harvey, J. van der Hoeven, "Integer multiplication in time O(n log n)," *Annals of Math.* 193 (2021)
+  563–617. [doi:10.4007/annals.2021.193.2.4](https://doi.org/10.4007/annals.2021.193.2.4)
+- D. H. Bailey, "FFTs in external or hierarchical memory," *J. Supercomputing* 4 (1990) 23–35.
+  [PDF](https://www.davidhbailey.com/dhbpapers/fftq.pdf)
+- C. Van Loan, *Computational Frameworks for the Fast Fourier Transform*, SIAM, 1992 (Kronecker-product
+  formulation of the four-step and six-step algorithms).
+- J. van der Hoeven, "The truncated Fourier transform and applications," *Proc. ISSAC 2004*, 290–296.
+  [doi:10.1145/1005285.1005327](https://dl.acm.org/doi/10.1145/1005285.1005327)
+- A. Karatsuba, Yu. Ofman, "Multiplication of multidigit numbers on automata," *Soviet Physics Doklady* 7
+  (1963) 595–596.
+
+**Modular and floating-point arithmetic**
+- P. Barrett, "Implementing the Rivest Shamir and Adleman public key encryption algorithm on a standard
+  digital signal processor," *CRYPTO '86*, LNCS 263, 311–323.
+- P. L. Montgomery, "Modular multiplication without trial division," *Math. Comp.* 44 (1985) 519–521.
+- V. Shoup, NTL: A Library for doing Number Theory (the precomputed-quotient "MulMod" with `mulmod_precon`).
+  [libntl.org](https://libntl.org/)
+- D. Harvey, "Faster arithmetic for number-theoretic transforms," *J. Symbolic Comput.* 60 (2014) 113–119.
+  [arXiv:1205.2926](https://arxiv.org/abs/1205.2926)
+- H. L. Garner, "The residue number system," *IRE Trans. Electronic Computers* EC-8 (1959) 140–147.
+- T. J. Dekker, "A floating-point technique for extending the available precision," *Numer. Math.* 18
+  (1971) 224–242.
+- T. Ogita, S. M. Rump, S. Oishi, "Accurate sum and dot product," *SIAM J. Sci. Comput.* 26 (2005) 1955–1988.
+- J.-M. Muller et al., *Handbook of Floating-Point Arithmetic*, 2nd ed., Birkhäuser, 2018 (error-free
+  transformations, 2MultFMA). [Book page](https://perso.ens-lyon.fr/jean-michel.muller/Handbook.html)
+
+**Parallel algorithms and GPU architecture**
+- P. M. Kogge, H. S. Stone, "A parallel algorithm for the efficient solution of a general class of recurrence
+  equations," *IEEE Trans. Computers* C-22 (1973) 786–793.
+- R. E. Ladner, M. J. Fischer, "Parallel prefix computation," *J. ACM* 27 (1980) 831–838.
+- G. E. Blelloch, "Prefix sums and their applications," Tech. Rep. CMU-CS-90-190, 1990.
+- V. Volkov, "Better performance at lower occupancy," GPU Technology Conference, 2010.
+  [PDF](https://www.nvidia.com/content/gtc-2010/pdfs/2238_gtc2010.pdf)
+- AMD, *AMD CDNA 3 Architecture* white paper, 2023.
+  [PDF](https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/white-papers/amd-cdna-3-white-paper.pdf)
+- AMD, *AMD Instinct MI300 "CDNA 3" Instruction Set Architecture Reference Guide*, 2025 (LDS organisation, MFMA).
+  [PDF](https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-mi300-cdna3-instruction-set-architecture.pdf)
+- AMD ROCm documentation, "HIP virtual memory management."
+  [rocm.docs.amd.com](https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_runtime_api/memory_management/virtual_memory.html)
 
 In-repository sources: `ALGORITHM.md` (segments S1–S16, reviews R1–R14, corrections in Part 6),
 `RESULTS.md` (§§38–83; section numbers are cited above), `results/R114.md` (the Newton band-cut proof),
-`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`.
+`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Figures 1–9 are generated by
+`docs/fig/make_figs.py` from the formulas stated in their captions or from the cited RESULTS sections.
 
 ## Appendix: parameters
 
