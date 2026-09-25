@@ -417,6 +417,116 @@ def shmem_staging(nq_total, g, groups=None, pool_log=31, staging='cached', chunk
     if staging == 'per_exchange': return NR * max(per_level)
     return NR * sum(per_level)
 
+# ---------------------------------------------------------------- Phase 14 P2: the SHMEM pool as the code uses it (measured law)
+SHMEM_RING = 256 << 10                                    # COMM_SHMEM_RING_KB: the point-to-point ring per (communicator, source)
+SHMEM_MAXID = 1024                                        # comm_shmem.c MAXID: the mailbox rows
+SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered's symmetric buffers at init (measured 128 MiB at 2 PEs, 64 at 4)
+SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
+
+def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None):
+    """Phase 14 P2 (results/P214.md): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
+    (limbs; send + receive of its largest staged exchange -- the staging is allocated per exchange and released after it, and
+    the four APU threads run the same exchange at once, so the pool holds NR of these).  The code's buffers (mn_scratch's
+    terms): the result exchange (rns_dist.c: xb in plane pool 1 -> rbO from the block pool, neither in the symmetric pool)
+    sends my rows of the piece, RT(nc), and receives my window's part, win / 4 (win = min(share_c, nc): my share of C inside
+    the piece); the redistribution of A (B) sends my share's part of the piece, va / 4 (+ 2 g rows), and receives my rows,
+    RT(pa); the transform's inter-node stage (comm_layered) q / K each way.  MN_T_CHUNK_MB=m: the result exchange in rounds
+    of m MiB per APU each way.  Measured (P214 section 1): the result exchange of the division's A_h mu product is the peak
+    at 1e8 / 1e9 / 1e10 on 2 nodes and 1e9 / 1e10 on 4 processes, to the MiB."""
+    if not na or not nb or g < 2: return 0
+    cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
+    nr = 4 * g; lg = 0
+    while (1 << lg) < nr: lg += 1
+    if na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << max(20, 2 * (5 + lg)))
+    pa = -(-na // ka); pb = -(-nb // kb); nc = pa + pb
+    logn, logR, logC, q = mn_shape(nc, g, logr_delta)
+    R = 1 << logR; C = 1 << logC; rows = -(-R // nr); qs = rows * C
+    def RT(ln): return min((-(-ln // R) + 1) * rows, qs)
+    va = min(share_a, pa); vb = min(share_b, pb)
+    win = min(share_c, nc); send = RT(nc)
+    Wt = t_chunk_limbs(t_chunk_mb)
+    if Wt and win > Wt: win = Wt; send = min(send, Wt // 4 + 2 * g * rows)
+    result = send + win // 4
+    redist = max(RT(pa) + va // 4, RT(pb) + vb // 4) + 2 * g * rows
+    transform = 2 * (q // K_CHUNKS_MEM)
+    if parts is not None: parts.update(result=result, redist=redist, transform=transform, ka=ka, kb=kb, nc=nc, win=win)
+    return max(result, redist, transform)
+
+def shmem_products(nq_total, g, groups=None):
+    """the run's mn_core products for the pool law: (name, S, na, nb, share_a, share_b, share_c) -- the tree levels as
+    tree_need_dev forms them (the largest product of each level) and the division at g: A_h mu (nq x (k + 1), C of 2 nq
+    limbs: newton_db.c newton_mn_divmod; the largest), the reciprocal's last step Q_t r (nq x nq / 2)"""
+    nq_leaf = (nq_total + g - 1) // g; out = []
+    for S, ch in level_children(g, groups):
+        nch = len(ch); P = ch[0]
+        if nch < 2: continue
+        nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
+        out.append(('tree %d' % S, S, na, nb, nq_leaf + 8, -(-nb // S), -(-nc // S)))
+    sh = -(-nq_total // g)
+    out.append(('div A_h mu', g, nq_total, nq_total, sh, sh, -(-2 * nq_total // g)))
+    out.append(('recip Q_t r', g, nq_total, nq_total // 2 + 1, sh, -(-(nq_total // 2) // g), -(-(3 * nq_total // 2) // g)))
+    return out
+
+def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None):
+    """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
+      staging  = NR x 8 x the largest mn_stage over the run's products (and mdb_shift: 2 x min(share / 4, MDB_SHIFT_CHUNK_MB))
+      control  = 4 communicators per level of size S (the level's G->all[d]; the top level's are mn.c's meshes of g), each
+                 8 words x S + S x the ring: 4 x (g + sum of the lower levels' S) x (ring + 64 B)  (measured 2 MiB at 2, 6 at 4)
+      mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
+      sym_slabs (DIST_MN_SYM_SLABS=1, TASKS 2.4): + NR x 3 q x 8 B kept (q = the largest mn_core plane), the transform's staging gone.
+    detail (a dict) receives the parts and the product that sets the staging."""
+    if g <= 1: return 0
+    best, who, qmax = 0, '', 0
+    for name, S, na, nb, sa, sb, sc in shmem_products(nq_total, g, groups):
+        pp = {}; st = mn_stage(na, nb, S, sa, sb, sc, pool_log, 0, t_chunk_mb, pp)
+        if st > best: best, who = st, '%s (%s)' % (name, max(('result', 'redist', 'transform'), key=lambda k: pp[k]))
+        cap = 1 << mn_cap_log(S, pool_log); qmax = max(qmax, mn_shape(min(na + nb, cap), S)[3])
+    share4 = -(-nq_total // g) // 4
+    shift = 2 * (min(share4, int(shift_chunk_mb * 1048576 / 8)) if shift_chunk_mb else share4)
+    if shift > best: best, who = shift, 'mdb_shift'
+    staging = NR * best * 8
+    lv = [S for S in mn_groups(g, groups) if S < g]
+    control = 4 * (g + sum(lv)) * (ring + 64)
+    mailbox = SHMEM_MAXID * g * 8
+    sym = NR * 3 * qmax * 8 if sym_slabs else 0
+    need = max(staging, SHMEM_SELFTEST) + control + mailbox + sym + SHMEM_MARGIN
+    if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8)
+    return need
+
+MEASURED_POOL = [  # (total digits, g, POOL_LOG, pool peak MiB on PE 0 = control + staging (+ the self-tests at init), source) -- P214 section 1
+    (1e8, 2, 27, 84.8 + 2, 'P214 b1a (job 21269), 2 real nodes, SOS'),
+    (1e9, 2, 29, 847.7 + 2, 'P214 b1a (job 21269), 2 real nodes, SOS'),
+    (1e10, 2, 31, 8477 + 2, 'S13d (job 21104), 2 real nodes, SOS'),
+    (1e9, 4, 29, 423.9 + 6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
+    (1e10, 4, 29, 4238.6 + 6, 'P214 b1b (job 21271), 4 processes on one node, SOS'),
+]
+
+def pool_target():
+    """the pool the 4.25e13 target needs on 576 nodes (MN_GROUPS 2,4,8,16,32,64,192,576) and the node total with it"""
+    groups = '2,4,8,16,32,64,192,576'; D = 4.25e13 / 576
+    print('== Phase 14 P2: the 4.25e13 target on 576 nodes (D %.3e per node, MN_GROUPS %s): the SHMEM pool and the node total (GB, modelled)' % (D, groups))
+    for name, o in [('the code (staged exchanges)', dict()), ('MN_T_CHUNK_MB=1024', dict(t_chunk_mb=1024)), ('DIST_MN_SYM_SLABS=1', dict(staging='sym')),
+                    ('the old model (resident, 8 GiB flat)', dict(staging='resident'))]:
+        for tight in (False, True):
+            oo = dict(TARGET576); oo.update(groups=groups, tight=tight); oo.update(o)
+            r = mem_per_node(int(D), 576, oo); det = {}
+            if oo['staging'] in ('code', 'sym'):
+                L = dm_layout(e_terms(digits_of_run(D * 576)), 576, 31, True, tight)
+                shmem_pool(L['nq'], 576, groups, 31, oo.get('t_chunk_mb', 0), oo.get('shift_chunk_mb', 1024), oo['staging'] == 'sym', detail=det)
+            print('  %-38s%s: pool %6.1f (staging %6.1f = 4 x %.2f by %s, control %.2f, sym %.1f) -> node %6.1f (device %6.1f + host %5.1f): %s 480' % (
+                name, ' DM_TIGHT' if tight else '         ', r['shmem_pool'] / GB, det.get('staging', 0) / GB, det.get('per_apu', 0) / GB, det.get('by', '-'),
+                det.get('control', 0) / GB, det.get('sym', 0) / GB, r['node_peak'] / GB, r['dev_dm'] / GB, r['host_hwm'] / GB, 'fits' if r['node_peak'] <= 480 * GB else 'EXCEEDS'))
+
+def pool_check():
+    """the pool law against the measured peaks (staging + control; the model's margin and self-test term left out)"""
+    print('== Phase 14 P2: the SHMEM pool (MiB per node-process): measured peak (staging + control) vs the law')
+    for D, g, pl, meas, src in MEASURED_POOL:
+        d = digits_of_run(D); L = dm_layout(e_terms(d), g, pl); det = {}
+        shmem_pool(L['nq'], g, None, pl, detail=det)
+        m = (det['staging'] + det['control']) / 1048576.0
+        print('  %.0e g %d POOL_LOG %d: measured %8.1f  law %8.1f (%+.2f %%)  staging %8.1f = 4 x %.1f MiB by %-12s control %.1f  | %s' % (
+            D, g, pl, meas, m, 100 * (m / meas - 1), det['staging'] / 1048576.0, det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
+
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
@@ -427,7 +537,7 @@ def mem_per_node(D, g=1, opts=None):
           transport ('tcp' | 'shmem': the SHMEM transport's symmetric pool -- the larger of COMM_SHMEM_POOL_MB (pool_mb, 8192)
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
-    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='cached', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None,
+    o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', t_chunk_mb=0, shift_chunk_mb=0, planes_3q30=None,
              np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tight=False, tail_dead=0, early_free=False); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 13b D: np (ECALC_NP: pool 0 scales np/4), strategy (C | B | B4 | auto: B's 16 n planes), cap (the plane cap in points:
     # sets pool_log and the 3 2^k planes, cap_pool), depth (2 = the uneven exchange two deep: one more v-slot pair per APU on the
@@ -462,8 +572,13 @@ def mem_per_node(D, g=1, opts=None):
     live_dm = NR * L['need_dev'] + xchg
     if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
     dev_dm = planes + pool_total
-    stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
-    pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
+    pdet = {}
+    if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
+        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet)
+        stg = pdet['staging']; pool = max(o['pool_mb'] << 20, need)
+    else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
+        stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
+        pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
     comm = (HOST_COMM_PER_PROC + pool) if g > 1 else 0
     host_init = HOST_RUNTIME + HOST_STAGING + HOST_SEEDBUF + comm
     host_dm = HOST_RUNTIME + HOST_STAGING + HOST_WRITER + comm
@@ -473,7 +588,7 @@ def mem_per_node(D, g=1, opts=None):
     peak = max(dev_init + host_init, dev_dm + host_dm) * (1 + o['margin'])
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
-                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool,
+                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''),
                 dev_init=dev_init, dev_dm=dev_dm, host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 node_peak=peak)
 
@@ -581,7 +696,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=0):
 # ---------------------------------------------------------------- Phase 14 L1: the modelled savings of DM_TIGHT / DM_TAIL_DEAD
 VARIANTS = [('V0 (defaults)', dict()), ('DM_TIGHT=1 (E2)', dict(tight=True)), ('DM_TAIL_DEAD=1', dict(tail_dead=1)),
             ('DM_TIGHT=1 DM_TAIL_DEAD=1', dict(tight=True, tail_dead=1)), ('DM_TIGHT=1 DM_TAIL_DEAD=2 (E5 layout, needs the spill)', dict(tight=True, tail_dead=2))]
-TARGET576 = dict(transport='shmem', staging='resident', shift_chunk_mb=1024, depth=2)   # the target's switches (RESULTS 82: 452 GB at 7.38e10 per node)
+TARGET576 = dict(transport='shmem', staging='code', shift_chunk_mb=1024, depth=2)   # Phase 14 P2: staging 'code' (the measured pool law; was 'resident', the flat 8 GiB)   # the target's switches (RESULTS 82: 452 GB at 7.38e10 per node)
 
 def savings():
     print('== Phase 14 L1: node peak (GB, modelled) per variant; size 1 at 2^31, three primes, the host fitted; 576 = the target share with %s' % TARGET576)
@@ -645,5 +760,7 @@ if __name__ == '__main__':
         ceilings()
     elif len(sys.argv) > 1 and sys.argv[1] == '--savings':
         savings()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--pool':
+        pool_check(); print(); pool_target()
     else:
         main()
