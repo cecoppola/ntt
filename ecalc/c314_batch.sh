@@ -6,7 +6,7 @@ set -u
 D=~/C314; mkdir -p $D; S=$D/summary.txt
 E=~/ntt-C314/ecalc; cd $E || exit 1
 log() { echo "$(date +%T) $*" | tee -a $S; }
-J=$(sbatch -p PPAC_MI300A_SPX -N1 --gpus=4 -t 0:45:00 -J C314 --parsable --wrap "sleep 2700")
+J=$(sbatch -p PPAC_MI300A_SPX -N1 --gpus=4 -t 0:45:00 -J C314 ${C3_BEGIN:+--begin=$C3_BEGIN} --parsable --wrap "sleep 2700")   # C3_BEGIN: not before the integrator's hold ends
 log "job $J submitted"
 trap "scancel $J; log 'job $J cancelled'" EXIT
 GIVEUP=$(( $(date +%s) + 4 * 3600 ))
