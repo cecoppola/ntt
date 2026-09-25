@@ -95,7 +95,7 @@ Transport (`comm_shmem.c`, `mn.c`; results/S.md):
 | `COMM_TRANSPORT=shmem` | set | selects the SHMEM transport (default TCP: `COMM_HOSTS`/`COMM_PORT`, the aac6 correctness path) |
 | `COMM_SHMEM_SERIAL=0` | set (Cray / SOS) | one context per communicator and blocking `wait_until`; the default 1 is one process-wide lock around every library call (OSHMEM 4.1's `SHMEM_THREAD_MULTIPLE` is nominal). The code falls back to serial if `shmem_init_thread` does not provide MULTIPLE |
 | `COMM_SHMEM_DEVHEAP=1` | set where the symmetric heap is device memory (Cray on the APU, rocSHMEM); 0 with a host heap | skips the `hipHostRegister` of the pool; the staging copies become D2D. Untested on aac6 (no such implementation): run `t_comm` and `t_dist` first (§4) |
-| `COMM_SHMEM_POOL_MB` | **the staging the transport needs**, from `estimate.py` (the `pool` column): with S's pool-resident slabs 8192 (the default) is enough; with the staging freed per exchange ≈ 60 000 at 6 × 10¹⁰ per node (the largest single exchange: `mdb_shift`'s share/4 limbs per APU thread, 6.8 GB each way, four threads); with the transport as at 7aded87 ≈ 350 000 (every level's mesh keeps its largest exchange's staging — trap 11), which no node has | the symmetric pool holds the control blocks and the staging of every exchange (`comm_shmem.c` `staging()`: grown per communicator, never freed); the pool aborts the run when an exchange does not fit (`comm_shmem: pe r: the symmetric pool … cannot hold …`) — size it from the model, in the node's HBM whether host-registered or a device heap (`COMM_SHMEM_DEVHEAP=1`): the memory model counts it |
+| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it |
 | `SHMEM_SYMMETRIC_HEAP_SIZE` | `COMM_SHMEM_POOL_MB` + 512 MiB (`mnrun.sh` sets it) | the library's heap must hold the pool; the name is OpenSHMEM's, Cray reads `XT_SYMMETRIC_HEAP_SIZE` too — set both |
 | `COMM_SHMEM_FENCE=1` | set on a conforming implementation | orders the data before its signal with `shmem_ctx_fence` (one call) instead of `quiet`; OSHMEM 4.1.6's fence does not order nbi puts (trap 2) — verify with `t_comm` before switching |
 | `COMM_SHMEM_RING_KB` | 256 (default) | the point-to-point ring per (source, dest); only small values flow through it |
@@ -170,8 +170,9 @@ One process per node, four APUs per process (the process drives its APUs with fo
 
 ```
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
-export COMM_SHMEM_POOL_MB=8192                # TOO SMALL at scale: 8479 MiB was in use at 10^10 on 2 aac6 nodes (Phase 13d S) -- size it by TARGET_TASKS.md T0 before any large run
-export SHMEM_SYMMETRIC_HEAP_SIZE=8704M XT_SYMMETRIC_HEAP_SIZE=8704M    # the pool + 512 MiB
+export MN_T_CHUNK_MB=1024                     # Phase 14 P2: needed for the pool to fit (the user's decision; without it the pool is 77824 MiB and the node 525 GB)
+export COMM_SHMEM_POOL_MB=43008               # Phase 14 P2: the measured law at 4.25e13 / 576 with MN_T_CHUNK_MB=1024 (MN_PLAN_ONLY prints it: `plan pool`)
+export SHMEM_SYMMETRIC_HEAP_SIZE=43520M XT_SYMMETRIC_HEAP_SIZE=43520M  # the pool + 512 MiB
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
@@ -209,7 +210,7 @@ tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which 
 | 3 | 64 | 6.4 × 10¹¹ | 10¹⁰ | ≈ 1.3 min (modelled); `cmp` against a single-node 10¹⁰ run | the tree at 6 levels, the checkpoints' cost (`BS_CKPT_DIR` on), the recheck |
 | 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 1 min; VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
 | 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 1.8 min** modelled (just below the 2.24 × 10¹³ grid step) | the first large run, 150 GB of margin. The recheck after it |
-| 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | **≈ 3.9 min** modelled (234 s, the Phase 13d model recalibrated to the C code; fabric assumed), 452 GB per node (inside the 480 GB budget; the SHMEM pool still to be sized, TARGET_TASKS T0) | the headline run (Phase 13d, RESULTS §82): 185 pieces on the critical path, 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (275 s at 4.4 × 10¹³). Check before the run: `MN_PLAN_ONLY=4.25e13:576 MN_PLAN_QUIET=1 ./ecalc` (185 pieces) |
+| 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | **≈ 3.9 min** modelled (234 s, the Phase 13d model recalibrated to the C code; fabric assumed), 452 GB per node with the old flat 8 GiB pool; **with the measured pool (Phase 14 P2) 525 GB with the defaults — over the 480 GB budget — and 460 GB with `MN_T_CHUNK_MB=1024`** (pool 45 GB, 244.9 s modelled; TARGET_TASKS T0) | the headline run (Phase 13d, RESULTS §82): 185 pieces on the critical path, 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (275 s at 4.4 × 10¹³). Check before the run: `MN_PLAN_ONLY=4.25e13:576 MN_PLAN_QUIET=1 ./ecalc` (185 pieces) |
 | 7 the 480 GB ceiling | 576 | 4.66 × 10¹³ | 8.09 × 10¹⁰ | 4.5 min modelled, 480 GB | **not recommended**: past the grid step, 13 % more time for 6 % more digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
 
 Between 6 and 7, `estimate.py --g 576 --D <D>` gives the peak per D in 10⁹ steps; take the largest whose modelled
@@ -340,6 +341,10 @@ it comes from.
     abort at the first level. Agent S's Phase 12 form (the callers' slabs resident in the pool, no staging) removes
     it; failing that, free the staging in `wait()` after the H2D copy (`--staging per_exchange`: 54 GB per node at
     6 × 10¹⁰) and size `COMM_SHMEM_POOL_MB` to the `pool` column of `estimate.py`.
+    *Phase 14 P2 (measured)*: the staging has been freed per exchange since Phase 12, and the callers' slabs are not in the
+    pool (`rns_dist.c` stages every exchange; TASKS 2.4's resident slabs measured and rejected: +3 q per APU of pool, the peak
+    unchanged). The pool's peak is 4 × the largest exchange's send + receive: 81.6 GB per node at the target with the
+    defaults, 45.0 GB with `MN_T_CHUNK_MB=1024` (results/P214.md; `estimate.py`'s `pool` column follows the law).
 
 ## 9. The variables named here exist in the code (checked 2026-09-21 on the q12 branch)
 
