@@ -1069,7 +1069,7 @@ struct seed_stream {
     uint64_t *buf[2]; size_t bytes, chunk_spans; int buf_dev[2];         /* buf_dev: the device of the copy in flight from the buffer (-1: none) */
     struct { int r, b; size_t c0, c1; } pend[2]; int npend;              /* chunks computed into the buffers while the regions did not exist yet */
     uint64_t *pool[NR]; pthread_mutex_t mx; pthread_cond_t cv; int pools_ready;
-    double t_span, t_wait_pool, t_wait_dma, t_alloc, t_issue, t_free; int nchunks, nbuf;   /* t_issue: inside hipMemcpyAsync (blocked while the main thread's hipMalloc holds the runtime); nbuf: chunks that went through a buffer */
+    double t_span, t_wait_pool, t_wait_dma, t_alloc, t_issue, t_free, t_issue_max; int nchunks, nbuf;   /* t_issue: inside hipMemcpyAsync (blocked while the main thread's hipMalloc holds the runtime); nbuf: chunks that went through a buffer */
 };
 static void seed_stream_pools(struct seed_stream *ss, uint64_t **pool)   /* the region pools exist: the DMAs may start */
 {
@@ -1118,7 +1118,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
             if (!direct && ss->npend == 2) {                       /* Phase 14 R1 (E8): a VMM arena takes no CPU stores -- the two buffered chunks are DMA'd (the regions must exist) and the buffers reused */
                 double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
                 tw = mem_now();
-                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
+                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; double ti = mem_now(); cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
                 ss->t_issue += mem_now() - tw; tw = mem_now();
                 for (int bb = 0; bb < 2; bb++) if (ss->buf_dev[bb] >= 0) { cwait(ss->buf_dev[bb]); ss->buf_dev[bb] = -1; } ss->t_wait_dma += mem_now() - tw;
                 ss->npend = 0;
@@ -1138,7 +1138,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     }
     double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
     tw = mem_now();
-    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
+    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; double ti = mem_now(); cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
     ss->t_issue += mem_now() - tw; tw = mem_now();
     for (int b = 0; b < 2; b++) if (ss->buf_dev[b] >= 0) { cwait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
@@ -1234,8 +1234,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0;
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
         for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { fprintf(stderr, "bs: region %d's pool moved after the seeds were streamed into it\n", r); abort(); }
-        if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it; %d chunks of %zu MB, %d through a buffer%s)\n",
-                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
+        if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it (max %.2f); %d chunks of %zu MB, %d through a buffer%s)\n",
+                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.t_issue_max, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
     } else if (!own_stage) {
         if (g_pre.active) { if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0; free(g_pre.nd); g_pre.nd = 0; }
         struct seed_stream ss; memset(&ss, 0, sizeof ss); pthread_mutex_init(&ss.mx, 0); pthread_cond_init(&ss.cv, 0);
