@@ -39,7 +39,9 @@ size_t db_pool_tail_bytes(int dev);
 int db_pool_vmm_on(void);                            /* Phase 14 R1 (E8): DB_POOL_VMM=1 -- the arena as a VMM range whose free chunks are remapped contiguously on demand (results/R114.md 5) */
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
 void db_vmm_arena_wait(int dev, size_t bytes);
-void db_vmm_bg_release(void);                        /* rns_init after the plane pools: the arenas' background mapping may start */      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
+void db_vmm_bg_release(void);
+void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes);   /* Phase 14 R1: a host -> device copy by a kernel on dev's own stream (the seeds into a VMM range) */
+void db_copy_h2d_wait(int dev);                        /* rns_init after the plane pools: the arenas' background mapping may start */      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
 void db_vmm_arena_release(int dev);
 size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks);   /* chunks moved by remaps; the remap count; chunks created inside a phase */
 size_t db_pool_tail_stats(int dev, size_t *spills);  /* requests served from the tail's back; spills = small requests that had to enter the tail */

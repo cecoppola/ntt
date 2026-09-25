@@ -1109,6 +1109,8 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* Phase 14 R1 (E8): the host cannot store into a VMM range */
+    void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : db_copy_h2d_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
+    void (*cwait)(int) = direct ? mem_dev_copy_wait : db_copy_h2d_wait;
     for (int r = 0; r < NR; r++) {
         size_t lo = r0[r], hi = r0[r + 1];
         for (size_t c0 = lo; c0 < hi; c0 += ss->chunk_spans) {
@@ -1116,9 +1118,9 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
             if (!direct && ss->npend == 2) {                       /* Phase 14 R1 (E8): a VMM arena takes no CPU stores -- the two buffered chunks are DMA'd (the regions must exist) and the buffers reused */
                 double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
                 tw = mem_now();
-                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; mem_dev_copy_async(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
+                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
                 ss->t_issue += mem_now() - tw; tw = mem_now();
-                for (int bb = 0; bb < 2; bb++) if (ss->buf_dev[bb] >= 0) { mem_dev_copy_wait(ss->buf_dev[bb]); ss->buf_dev[bb] = -1; } ss->t_wait_dma += mem_now() - tw;
+                for (int bb = 0; bb < 2; bb++) if (ss->buf_dev[bb] >= 0) { cwait(ss->buf_dev[bb]); ss->buf_dev[bb] = -1; } ss->t_wait_dma += mem_now() - tw;
                 ss->npend = 0;
             }
             if (direct && (seed_pools_ready(ss) || ss->npend == 2)) {   /* into the region itself (CPU stores into device memory); the regions not there yet: through a buffer (two at most, then wait) */
@@ -1136,9 +1138,9 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     }
     double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
     tw = mem_now();
-    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; mem_dev_copy_async(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
+    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; }
     ss->t_issue += mem_now() - tw; tw = mem_now();
-    for (int b = 0; b < 2; b++) if (ss->buf_dev[b] >= 0) { mem_dev_copy_wait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;
+    for (int b = 0; b < 2; b++) if (ss->buf_dev[b] >= 0) { cwait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
 }
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
