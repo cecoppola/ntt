@@ -24,6 +24,7 @@ void ec_fatal_phase(const char *name) { if (name) snprintf(g_phase, sizeof g_pha
 
 static long tid_now(void) { return (long)syscall(SYS_gettid); }
 
+static void leave(int code) __attribute__((noreturn));
 static void leave(int code)
 {
     fflush(stdout); fflush(stderr);
