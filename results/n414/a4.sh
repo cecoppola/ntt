@@ -2,8 +2,9 @@
 # N414 A4: t_mn_grid on real nodes over SOS, and mnrun.sh's detection through wrappers.  Runs unattended; cancels its job.
 OUT=~/N414/a4; mkdir -p $OUT; D=~/ntt-N414-sos/ecalc; cd $D
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a $OUT/summary.txt; }
-J=$(sbatch -p PPAC_MI300A_SPX -N3 --gpus-per-node=4 -t 0:45:00 -J N4 --parsable --wrap "sleep 2700")
+J=$(sbatch -p PPAC_MI300A_SPX -N${A4_N:-3} ${A4_W:+-w $A4_W} --gpus-per-node=4 -t 0:45:00 -J N4 --parsable --wrap "sleep 2700")
 log "job $J submitted (-N3)"
+trap "scancel \$J" EXIT
 until [ "$(squeue -j $J -h -o %T 2>/dev/null)" = RUNNING ]; do sleep 10; [ -z "$(squeue -j $J -h -o %T 2>/dev/null)" ] && { log "job $J gone"; exit 1; }; done
 log "job $J running on $(squeue -j $J -h -o %N)"
 DEADLINE=$(( $(date +%s) + 42 * 60 )); left() { echo $(( DEADLINE - $(date +%s) )); }
@@ -28,8 +29,8 @@ tst comm_timeout 300 2 timeout 250 ./tests/t_comm
 tst comm_numactl 300 2 numactl --interleave=all ./tests/t_comm
 tst comm_chain 300 2 env X=1 stdbuf -oL timeout 250 ./tests/t_comm
 # (a) t_mn_grid at 3 and 2 real nodes
-tst grid3_010 900 3 stdbuf -oL ./tests/t_mn_grid 0.1 25
+[ ${A4_N:-3} -ge 3 ] && tst grid3_010 900 3 stdbuf -oL ./tests/t_mn_grid 0.1 25
 tst grid2_010 900 2 stdbuf -oL ./tests/t_mn_grid 0.1 25
-[ $(left) -gt 900 ] && tst grid2_025 $(( $(left) - 60 )) 2 stdbuf -oL ./tests/t_mn_grid 0.25 25
-[ $(left) -gt 600 ] && tst grid3_025 $(( $(left) - 60 )) 3 stdbuf -oL ./tests/t_mn_grid 0.25 25
+[ $(left) -gt 1300 ] && tst grid2_025 1200 2 stdbuf -oL ./tests/t_mn_grid 0.25 25
+[ ${A4_N:-3} -ge 3 ] && [ $(left) -gt 600 ] && tst grid3_025 $(( $(left) - 60 )) 3 stdbuf -oL ./tests/t_mn_grid 0.25 25
 scancel $J; log "job $J cancelled; done"
