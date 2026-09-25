@@ -19,7 +19,8 @@
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (Phase 13b P: the layout report) */
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
-int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
+int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
+size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);   /* Phase 14 P2 (rns_dist.c) */   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
 unsigned long bs_N = 0;                              /* M6: the run's N, for the tree sets written by mn.c */
 
 bs_stats bs_st;
@@ -394,6 +395,62 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     L->need_dev += top_scratch;
 }
 size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
+/* Phase 14 P2 (results/P214.md): the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
+ * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
+ * levels as tree_need_dev forms them; the division's A_h mu -- nq x nq, C of 2 nq limbs, the largest -- and the reciprocal's last
+ * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
+ * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin; DIST_MN_SYM_SLABS=1 adds 3 q per APU.
+ * by: the product that sets the staging. */
+size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen)
+{
+    if (size < 2) return 0;
+    struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, size, &L);
+    size_t nq = L.nq, nq_leaf = (nq + size - 1) / size, best = 0, qmax = 0, q; const char *who = "-"; static char lvl[48];
+    int gs[32]; int nl = mn_groups_parse(size, gs, 31), prev = 1;
+    for (int l = 0; l < nl; l++) {                         /* the tree's levels: nch children of prev nodes; the largest product P_0 x Q_run */
+        int S = gs[l], nch = (S + prev - 1) / prev;
+        if (nch >= 2) {
+            size_t nqc = nq_leaf * (size_t)prev + 8, na = nqc, nb = nqc * (size_t)(nch - 1), nc = na + nb;
+            size_t st = rns_mul_dist_mn_stage(na, nb, S, nq_leaf + 8, (nb + S - 1) / S, (nc + S - 1) / S, &q); if (q > qmax) qmax = q;
+            if (st > best) { best = st; snprintf(lvl, sizeof lvl, "tree level of %d", S); who = lvl; }
+        }
+        prev = S;
+    }
+    size_t sh = (nq + size - 1) / size;
+    { size_t st = rns_mul_dist_mn_stage(nq, nq, size, sh, sh, (2 * nq + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the division's A_h mu"; } }
+    { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
+    { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), s4 = sh / 4, st = 2 * (ch && s4 > ch ? ch : s4); if (st > best) { best = st; who = "mdb_shift"; } }
+    size_t staging = 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
+    if (ring < 4096) ring = 4096;
+    for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
+    size_t control = 4 * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
+    size_t sym = getenv("DIST_MN_SYM_SLABS") && atoi(getenv("DIST_MN_SYM_SLABS")) ? 4 * 3 * qmax * 8 : 0;
+    if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, sym ? ", DIST_MN_SYM_SLABS slabs" : "");
+    return (staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20)) + control + mailbox + sym + ((size_t)256 << 20);
+}
+/* Phase 14 P2: the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
+ * COMM_SHMEM_POOL_AUTO=1 sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default);
+ * otherwise a pool below the need gets a warning naming the size (the run goes on as before: the model can overestimate, and a
+ * pool that runs out stops with comm_shmem's error, which names the size too).  Returns the need in MiB (0: not a SHMEM run). */
+size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
+{
+    const char *tr = getenv("COMM_TRANSPORT");
+    if (size < 2 || (!plan && !(tr && !strcmp(tr, "shmem")))) return 0;
+    char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
+    mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
+    size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
+    int autoset = getenv("COMM_SHMEM_POOL_AUTO") && atoi(getenv("COMM_SHMEM_POOL_AUTO"));
+    const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
+    if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB\n", mb, by, mb + 512); return mb; }
+    if (mb > have && autoset) {
+        char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1);
+        if (rank0) printf("comm_shmem pool: COMM_SHMEM_POOL_AUTO=1 -- COMM_SHMEM_POOL_MB %zu -> %zu (%s)\n", have, mb, by);
+    } else if (mb > have) {
+        if (rank0) fprintf(stderr, "comm_shmem pool: WARNING: COMM_SHMEM_POOL_MB=%zu is below the modelled need of this run, %zu MiB (%s): set COMM_SHMEM_POOL_MB=%zu "
+                                   "(and the SHMEM heap >= %zu MiB with a host heap) or COMM_SHMEM_POOL_AUTO=1; the run continues and stops if the pool runs out\n", have, mb, by, mb, mb + 512);
+    } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("comm_shmem pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
+    return mb;
+}
 /* Phase 13a M (TASKS 1.1): BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits
  * per node over g node-processes (rank 0's term range, this process's POOL_LOG and switches), without allocating it, and
  * exit.  One `layout:` line per point (bytes, per device unless named): mem_model.py --check-c compares its own port of these
