@@ -27,6 +27,25 @@ static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
 static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { fprintf(stderr, "dbig: %s into a view\n", what); abort(); } }
 
+/* Phase 14 R1 (DB_POOL_VMM): a host -> device copy by a kernel on the device (pinned host memory read over the fabric) on a non-blocking
+ * stream per device, and the wait: hipMemcpyAsync into a VMM range ran at 6 GB/s and blocked the seed thread for the copy's duration */
+__global__ void k_copy_h2d(uint64_t *dst, const uint64_t *src, size_t n)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += stride) dst[i] = src[i];
+}
+static hipStream_t g_h2d_s[DB_NQ]; static int g_h2d_init[DB_NQ];
+void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
+{
+    int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
+    if (!g_h2d_init[dev]) { HIP_CHECK(hipStreamCreateWithFlags(&g_h2d_s[dev], hipStreamNonBlocking)); g_h2d_init[dev] = 1; }
+    void *dsrc = 0; if (hipHostGetDevicePointer(&dsrc, (void *)src, 0) != hipSuccess || !dsrc) dsrc = (void *)src;
+    size_t n = bytes / 8; unsigned blocks = (unsigned)((n + 255) / 256); if (blocks > 228 * 16) blocks = 228 * 16;
+    k_copy_h2d<<<blocks, 256, 0, g_h2d_s[dev]>>>((uint64_t *)dst, (const uint64_t *)dsrc, n);
+    if (bytes & 7) HIP_CHECK(hipMemcpyAsync((char *)dst + n * 8, (const char *)src + n * 8, bytes & 7, hipMemcpyDefault, g_h2d_s[dev]));
+    HIP_CHECK(hipSetDevice(cur));
+}
+void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
 __global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
 /* quarter blocks come from per-device free lists by size class (hipMalloc costs ~0.06 s/GB and the Newton
  * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
