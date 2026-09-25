@@ -3624,3 +3624,28 @@ compute; tested with the whole node over, one rank over, and a normal budget (no
 546afba** (jobs 21264, 21263, 21265): defaults 16/16 + 5/5; all new switches on 9/9, 4 × 10¹⁰ identical. **The apumult
 list (E1–E12) is complete**: adopted as switches E1, E2, E3, E4, E7, E8, E10a, E12; rejected or superseded E5, E6 (≤ 4–9 GB
 after E2), E9 (+68–89 GB), E10 (replaced by E10a); E11 left to the user.
+
+## 84. Phase 14 — PLAN §33 Phase A (the target blockers), done (2026-09-25; results/{A114,C314,P214,N414}.md)
+
+All five Phase A items are done. Every new behavior sits behind a switch that is off by default.
+**Regression on 4c5d2b3** (jobs 21290, 21291, 21293): the defaults pass **16/16 + 5/5**, with 4 × 10¹⁰ identical in 64.0 s.
+**Every candidate switch on together**, `RNS_PLANES_FIRST DM_TIGHT DB_POOL_VMM MN_TREE_EARLY_FREE NEWTON_RECIP_CUT
+ECALC_ODIRECT MN_T_CHUNK_MB=1024`: **9/9**, with 4 × 10¹⁰ identical in 66.6 s, 82 s start to finish (151 s with the defaults).
+
+| item | result (measured unless marked) |
+|---|---|
+| A1 the leaf fault and the hang (A1) | root cause of the garbage leaf length: `maxidx`'s host buffer allocated at first use by four threads with no guard. Fixed with a per-thread buffer, and a length > n now aborts. `t_hred_race`: 9,884 double allocations → 0. The hang did not recur (69 runs under gdb); its cause is unproven |
+| A2 the SHMEM pool (P2) | every exchange is staged through the pool. **Peak = 4 threads × (send + receive) of the largest exchange** (the division's A_h µ); the law fits 8 measured points to 0.3 MiB and is now in the models and in C. **At 4.25 × 10¹³ on 576: 81.6 GB of pool, node 525 GB (501 with DM_TIGHT), over 480 GB; with `MN_T_CHUNK_MB=1024`: 45.0 GB, node 460 GB (434), inside**, ≈ 4.1 min modelled. 576-node 480 GB ceilings: 3.73 × 10¹³ (defaults), 4.59 × 10¹³ (chunked). TASKS 2.4's pool-resident slabs were measured and rejected (+51.5 GB). `COMM_SHMEM_POOL_AUTO=1` sizes the pool; a pool that is too small warns, and a pool that runs out exits 3 naming the need |
+| A3 + E12 clean exits, budget check (C3) | `fatal.c`: one message, `_exit`, codes 3 / 6 / 8. The configuration that segfaulted now exits 6 on every rank. `ECALC_BUDGET_CHECK=1` stops all ranks before compute if any node is over budget |
+| A4 `t_mn_grid` on real nodes (N4) | VERIFY OK on 2 and 3 real nodes over SOS; `mnrun.sh` detects the SHMEM library through any wrapper (16/16 cases) |
+| A5 the per-node load speed (N4) | **cause: memory state**. Near the edge the planes, allocated last, get the small pages left after the arenas, and loads and transforms run 4–10× slower; the free memory in ≥ 2 MiB blocks differs by node (448–475 GB). **`RNS_PLANES_FIRST=1`**: 1.42 × 10¹¹ / 2³⁰ / C on s24-16 **1349.7 → 672.0 s**; **1.30 × 10¹¹ on the defaults 497.7 → 364.7 s (−27 %)**; digits identical; no effect at 4 × 10¹⁰. With it, C beats auto at 1.42 × 10¹¹ / 2³⁰ (G13d's opposite finding was an artifact of the slow planes) |
+
+Also: a Makefile race is fixed (`tests/t_verify` linked `$(OBJS)` without depending on them), and the agent protocol now lives in
+`docs/AGENT_PROTOCOL.md`.
+
+**For the user to decide**, all measured and passing together: `RNS_PLANES_FIRST=1`, `NEWTON_RECIP_CUT=1`, `ECALC_ODIRECT=1`,
+`DM_TIGHT=1` + `DB_POOL_VMM=1`, `MN_TREE_EARLY_FREE=1`, `ECALC_BUDGET_CHECK=1`, and **`MN_T_CHUNK_MB=1024`, which the
+4.25 × 10¹³ target needs to fit 480 GB** (`docs/TARGET.md` §4 already uses it, flagged as pending).
+
+**576-node estimate (standing rule)**: 4.25 × 10¹³ digits in ≈ 4.1 min at 460 GB per node with `MN_T_CHUNK_MB=1024`
+(modelled with the measured pool law; the fabric assumed). The defaults do not fit 480 GB at that size.
