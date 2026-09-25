@@ -52,6 +52,8 @@
 #include <sched.h>
 #include <unistd.h>
 #include <time.h>
+#include <execinfo.h>
+#include <dlfcn.h>
 #include "comm.h"
 #ifndef COMM_SHMEM
 static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); }
@@ -191,7 +193,7 @@ int comm_shmem_init(void)
     if (S.inited) return S.npes;
     int prov = -1;
     g_trace = getenv("COMM_SHMEM_TRACE") != 0;
-    S.verbose = env_int("COMM_SHMEM_VERBOSE", 0) || env_int("ECALC_VERBOSE", 1) >= 2;
+    S.verbose = env_int("COMM_SHMEM_VERBOSE", 0); if (!S.verbose && env_int("ECALC_VERBOSE", 1) >= 2) S.verbose = 1;
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
 #ifdef COMM_SHMEM_DEVICE_HEAP
     S.devheap = 1;
@@ -332,6 +334,11 @@ static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
         S.stage_rep = S.cur[K_STAGE];
         printf("comm_shmem: pe %d: staging %.1f MiB in use (%zu blocks, pool %.1f MiB): comm %d (%d PEs) %s send %.1f + recv %.1f MiB\n", S.me, S.cur[K_STAGE] / 1048576.0, S.nstage, S.cur_all / 1048576.0,
                p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
+        if (S.verbose >= 2) {                             /* COMM_SHMEM_VERBOSE=2: the callers, as offsets in their objects (addr2line -f -e <object> <offset>) */
+            void *bt[8]; int nb = backtrace(bt, 8); char line[512]; int k = snprintf(line, sizeof line, "comm_shmem: pe %d: staging callers:", S.me);
+            for (int i = 2; i < nb && k < (int)sizeof line - 40; i++) { Dl_info di; if (dladdr(bt[i], &di) && di.dli_fbase) k += snprintf(line + k, sizeof line - k, " %s+0x%lx", strrchr(di.dli_fname, '/') ? strrchr(di.dli_fname, '/') + 1 : di.dli_fname, (unsigned long)((char *)bt[i] - (char *)di.dli_fbase - 1)); }
+            printf("%s\n", line);
+        }
     }
 }
 static void staging_release(shm_priv *p)
