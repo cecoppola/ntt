@@ -158,7 +158,12 @@ int rns_init(int pool_log)
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus; device open %.2f s, contexts %.2f s, stream+staging %.2f s\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu, x1 - x0, x2 - x1, x3 - x2);
     }
     double ti1 = mem_now();
-    if (rns_after_staging_hook) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
+    /* Phase 14 N4 (A5): RNS_PLANES_FIRST=1 maps the plane pools before the hook's region arenas.  Near the node's memory
+     * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
+     * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
+     * (results/N414.md).  Mapped first, they take 2 MiB blocks; the seeds start after them (default 0: the hook first). */
+    int planes_first = getenv("RNS_PLANES_FIRST") ? atoi(getenv("RNS_PLANES_FIRST")) : 0;
+    if (rns_after_staging_hook && !planes_first) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
@@ -169,6 +174,7 @@ int rns_init(int pool_log)
         else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log (paper) */
         dpool_get_exact(&D[d].db, d, b1);
     }
+    if (rns_after_staging_hook && planes_first) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); }   /* N4: the region arenas and the seeds after the plane pools */
     mem_par_init = 0;
     if (g_snap_on < 0) g_snap_on = getenv("ECALC_B_SNAPSHOT") ? atoi(getenv("ECALC_B_SNAPSHOT")) : 0;
     if (g_snap_on) { g_snap_cap = (size_t)1 << 30; for (int d = 0; d < g_nd; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&g_snap[d], g_snap_cap)); } }   /* Phase 12 R witness buffers */
