@@ -1100,7 +1100,7 @@ static void seed_spans(struct level *cur, size_t per, unsigned long S, unsigned 
 static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, unsigned long S, unsigned long N, const size_t *r0)
 {
     double t0 = mem_now(); int nd = mem_device_count();
-    size_t mb = getenv("BS_SEED_CHUNK_MB") ? (size_t)atol(getenv("BS_SEED_CHUNK_MB")) : (db_pool_vmm_on() ? 4096 : 2048), bytes = mb << 20, span_bytes = 2 * per * 8, mx = 0;
+    size_t mb = getenv("BS_SEED_CHUNK_MB") ? (size_t)atol(getenv("BS_SEED_CHUNK_MB")) : (db_pool_vmm_on() ? 8192 : 2048), bytes = mb << 20, span_bytes = 2 * per * 8, mx = 0;
     for (int r = 0; r < NR; r++) { size_t b = span_bytes * (r0[r + 1] - r0[r]); if (b > mx) mx = b; }
     if (bytes > mx) bytes = mx; if (bytes < span_bytes) bytes = span_bytes;
     ss->chunk_spans = bytes / span_bytes; ss->bytes = ss->chunk_spans * span_bytes;
