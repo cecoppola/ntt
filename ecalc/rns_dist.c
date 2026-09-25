@@ -1653,7 +1653,8 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     if (qmax) *qmax = 0;
     if (!na || !nb || g < 2) return 0;
     size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
-    if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
+    if (na + nb > cap && (na + 31) / 32 + (nb + 31) / 32 > cap) { ka = (int)((na + cap / 2 - 1) / (cap / 2)); kb = (int)((nb + cap / 2 - 1) / (cap / 2)); }   /* beyond split_grid_cap's 32 x 32 (the product itself would stop): a sizing guess, no abort here */
+    else if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
     size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
     int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;

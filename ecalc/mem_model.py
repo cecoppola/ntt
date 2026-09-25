@@ -437,7 +437,8 @@ def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_
     cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
     nr = 4 * g; lg = 0
     while (1 << lg) < nr: lg += 1
-    if na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << max(20, 2 * (5 + lg)))
+    if na + nb > cap and -(-na // 32) + -(-nb // 32) > cap: ka, kb = -(-na // (cap // 2)), -(-nb // (cap // 2))   # beyond the code's 32 x 32 grid (the run would stop there): pieces at the cap, for the model's sweeps
+    elif na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << max(20, 2 * (5 + lg)))
     pa = -(-na // ka); pb = -(-nb // kb); nc = pa + pb
     logn, logR, logC, q = mn_shape(nc, g, logr_delta)
     R = 1 << logR; C = 1 << logC; rows = -(-R // nr); qs = rows * C
@@ -725,11 +726,12 @@ def savings():
 
 CONFIGS = [  # the one ceiling per configuration (TASKS 1.1): name, g, opts
     ('size 1 (one node, the defaults)', 1, dict()),
-    ('576, SHMEM resident, 8 GiB pool (the target as coded)', 576, dict(transport='shmem', staging='resident')),
+    ('576, SHMEM, the pool by the measured law (P214)', 576, dict(transport='shmem', staging='code', shift_chunk_mb=0)),
+    ('576, SHMEM resident, 8 GiB pool (the pre-P214 model)', 576, dict(transport='shmem', staging='resident')),
     ('576, TCP (no SHMEM pool; aac6-style)', 576, dict(transport='tcp')),
-    ('576, SHMEM + MDB_SHIFT_CHUNK_MB=1024', 576, dict(transport='shmem', staging='resident', shift_chunk_mb=1024)),
-    ('576, SHMEM + MN_T_CHUNK_MB=1024', 576, dict(transport='shmem', staging='resident', t_chunk_mb=1024)),
-    ('576, SHMEM + both at 1024 MB', 576, dict(transport='shmem', staging='resident', shift_chunk_mb=1024, t_chunk_mb=1024)),
+    ('576, SHMEM + MDB_SHIFT_CHUNK_MB=1024 (the code)', 576, dict(transport='shmem', staging='code', shift_chunk_mb=1024)),
+    ('576, SHMEM + MN_T_CHUNK_MB=1024', 576, dict(transport='shmem', staging='code', t_chunk_mb=1024)),
+    ('576, SHMEM + both at 1024 MB', 576, dict(transport='shmem', staging='code', shift_chunk_mb=1024, t_chunk_mb=1024)),
 ]
 
 def ceilings():
