@@ -64,13 +64,15 @@ static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; mem
 struct rank_state {
     comm *cm; ntt_ctx *ctx[EC_NP]; hipStream_t s;
     dpool desc; uint64_t *spill; size_t spill_cap;
-    struct { dist_plan pl; int logR, logC, built; comm *cm; } plan[EC_NP];   /* cm: the plan's communicator (the node's xGMI, or a group's layered one) */
+    struct { dist_plan pl; int logR, logC, built; comm *cm; uint64_t *sl; } plan[EC_NP];   /* cm: the plan's communicator (the node's xGMI, or a group's layered one); sl: its slabs */
+    uint64_t *ssl, *stmp; size_t ssl_q, stmp_q;          /* Phase 14 P2 (TASKS 2.4, DIST_MN_SYM_SLABS=1): mn_core's slabs and layered scratch in the transport's symmetric pool, kept */
 };
 static struct rank_state RS[NR];
 static int g_init;
 static uint64_t *g_stage; static size_t g_stage_cap;      /* registered host staging for unregistered host operands/result */
 struct rns_dist_stats rns_dist_st;
 
+static int mn_sym_slabs(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_MN_SYM_SLABS"); v = e ? atoi(e) != 0 : 0; } return v; }   /* Phase 14 P2 (TASKS 2.4) */
 static void rank_init(int r)
 {
     struct rank_state *v = &RS[r];
@@ -663,10 +665,10 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         struct ctx3 c3[EC_NP];
         for (int p = 0; p < ec_np; p++) {
             if (r3) { plan3_get(&P3[r][p], p, logR, logk); struct ctx3 c = { v->cm, v->ctx[p], p, logR, logk, rows, C / NR, sl, sl + q, &P3[r][p] }; c3[p] = c; continue; }
-            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != v->cm) {
+            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != v->cm || v->plan[p].sl != sl) {
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
                 dist_plan_create_shared(&v->plan[p].pl, v->cm, v->ctx[p], p, logR, logC, sl, sl + q);
-                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = v->cm;
+                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = v->cm; v->plan[p].sl = sl;
             }
         }
         double s0 = mem_now(), lg = 0, lf = 0;
@@ -1315,20 +1317,29 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         struct seg *dseg = (struct seg *)db_pool_alloc(d, 8 * g * sizeof *hseg + 64), *dsI = dseg + 7 * g;
         size_t *cnt = (size_t *)malloc(23 * g * sizeof *cnt), *ocnt = cnt + 12 * g, *pcnt = cnt + 16 * g, *htab = cnt + 20 * g;   /* Phase 12 G: pcnt (4 g) and htab (3 g) for the spill exchange */
         oA.hs = hseg; oA.ds = dseg; oA.cnt = cnt; oB.hs = hseg + 2 * g; oB.ds = dseg + 2 * g; oB.cnt = cnt + 4 * g; oX.hs = hseg + 4 * g; oX.ds = dseg + 4 * g; oX.cnt = cnt + 8 * g;
-        uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : db_pool_alloc(d, q * 8);
+        comm *cl = lay_get(G, d);
+        /* Phase 14 P2 (TASKS 2.4): DIST_MN_SYM_SLABS=1 -- the transform's slabs (2 q) and the layered scratch (q) from the transport's
+         * symmetric pool (comm_sym_alloc: 0 under TCP or an unregistered pool -> as before), kept per APU at the largest q: the
+         * inter-node stage is then put from / into them, no staging.  The transpose scratch stays in pool 1 (it is local work).
+         * Costs 3 q x 8 B per APU of pool on top of pool 1 (which the size-1 tiers still need); off by default (results/P214.md) */
+        int symsl = mn_sym_slabs();
+        if (symsl && v->ssl_q < q) { if (v->ssl) comm_sym_free(cl, v->ssl); v->ssl = (uint64_t *)comm_sym_alloc(cl, 2 * q * 8); v->ssl_q = v->ssl ? q : 0; }
+        if (symsl && !gen && v->stmp_q < q) { if (v->stmp) comm_sym_free(cl, v->stmp); v->stmp = (uint64_t *)comm_sym_alloc(cl, q * 8); v->stmp_q = v->stmp ? q : 0; }
+        int tmp_sym = symsl && !gen && v->stmp;
+        uint64_t *cx = X ? db_pool_alloc(d, q * 8) : 0, *tmp = gen ? 0 : tmp_sym ? v->stmp : db_pool_alloc(d, q * 8);
         uint64_t *ca = slA >= 0 ? g_cache.s[slA].pl[d] : 0, *cb = slB >= 0 ? g_cache.s[slB].pl[d] : 0;   /* A1: the cache planes of A and B on this rank */
         /* planes: xa[4] in pool 0, xb (q + 16: the CRT's carry limb) | sbuf | rbuf in pool 1 */
         uint64_t *pl = (uint64_t *)rns_dpool(d, 0, (size_t)ec_np * q * 8), *p1 = (uint64_t *)rns_dpool(d, 1, (size_t)(3 * q + 16) * 8);
         uint64_t *xa[EC_NP] = { 0 }, *xb = p1, *sl = p1 + q + 16, *xt = sl;
+        if (symsl && v->ssl) sl = v->ssl;                   /* (xt stays p1 + q + 16) */
         for (int p = 0; p < ec_np; p++) xa[p] = pl + (size_t)p * q;
-        comm *cl = lay_get(G, d);
         if (comm_rank(cl) != rho || comm_size(cl) != nr) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: layered rank %d/%d, expected %d/%d\n", comm_rank(cl), comm_size(cl), rho, nr); }
         if (tmp) comm_layered_scratch(cl, tmp, q * 8);
         for (int p = 0; p < ec_np; p++) {
-            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl) {
+            if (!v->plan[p].built || v->plan[p].logR != logR || v->plan[p].logC != logC || v->plan[p].cm != cl || v->plan[p].sl != sl) {
                 if (v->plan[p].built) dist_plan_free(&v->plan[p].pl);
                 dist_plan_create_shared(&v->plan[p].pl, cl, v->ctx[p], p, logR, logC, sl, sl + q);
-                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl;
+                v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = cl; v->plan[p].sl = sl;
             }
         }
         struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, d);
@@ -1420,7 +1431,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         if (cx) db_pool_free(d, cx);
         db_pool_free(d, (uint64_t *)dseg); free(hseg); free(cnt);
         if (gen) gplan_free(&gp, d);
-        if (tmp) { comm_layered_scratch(cl, 0, 0); db_pool_free(d, tmp); }
+        if (tmp) { comm_layered_scratch(cl, 0, 0); if (!tmp_sym) db_pool_free(d, tmp); }
     }
     HIP_CHECK(hipSetDevice(0));
     /* the spills into the windows, then the carries across the nodes */
