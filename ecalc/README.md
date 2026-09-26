@@ -246,6 +246,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `NTT_PLAN` | *Phase 13b (K)*: the pass boundaries chosen per length to keep the passes off the slow strides (2¹⁷, 2²⁴ at 2³¹) and to drop a short last pass (2²⁵, 2²⁶: 1.21–1.32 ×); 0 = the original plan; bit-identical (1 since Phase 13c) |
 | `RNS_STRATEGY_FORM` | *Phase 13b (B)*: the form `auto` uses, `B` or `B4` (`B`) |
 | `RNS_STRATEGY_GRID` | *Phase 13b (B)*: under `auto` the grid prefers pieces that fit the B form (1) |
+| `RNS_AUTO_PIECE_COST` | *Phase 14 (V2)*: under `auto` the grid also prices each extra piece (0.075 s per 2³¹ B points of the piece + 0.079 s per 2³¹ limbs of the product, results/D213d.md): fewer, larger pieces above 10¹¹ on one node (results/V214.md) (0) |
 | `RNS_STRATEGY_CHECK` | *Phase 13b (B), test*: every B-form product formed again by C and compared, abort on a difference (0) |
 | `RNS_DIST_CACHE_HOLD` | keep a cached operand pinned across products (0) |
 | `RNS_DIST_CACHE_MARGIN_GB` | free device memory kept when sizing the cache (24) |
