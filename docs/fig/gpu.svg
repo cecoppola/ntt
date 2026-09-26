@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="494.28pt" height="230.616pt" viewBox="0 0 494.28 230.616" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-26T20:51:30.369116</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 230.616 
+L 494.28 230.616 
+L 494.28 0 
+L 0 0 
+z
+" style="fill: #fcfcfb"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 12.532 128.026588 
+L 119.172 128.026588 
+L 119.172 48.535412 
+L 12.532 48.535412 
+z
+" clip-path="url(#pee4728e2f0)" style="fill: #2a78d6; stroke: #fcfcfb; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 129.836 128.026588 
+L 236.476 128.026588 
+L 236.476 48.535412 
+L 129.836 48.535412 
+z
+" clip-path="url(#pee4728e2f0)" style="fill: #eb6834; stroke: #fcfcfb; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 247.14 128.026588 
+L 353.78 128.026588 
+L 353.78 48.535412 
+L 247.14 48.535412 
+z
+" clip-path="url(#pee4728e2f0)" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 364.444 128.026588 
+L 471.084 128.026588 
+L 471.084 48.535412 
+L 364.444 48.535412 
+z
+" clip-path="url(#pee4728e2f0)" style="fill: #eda100; stroke: #fcfcfb; stroke-width: 2; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="65.852" y="70.211341" transform="rotate(-0 65.852 70.211341)">node</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(35.602625 99.866443)">4 MI300A APUs</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(19.503875 109.468631)">linked by Infinity Fabric</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(21.55075 160.28005)">≈ 502 GB usable HBM</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(17.567625 169.882237)">remote reads ≈ 93 GB/s</text>
+   </g>
+   <g id="patch_6">
+    <path d="M 121.174104 89.870824 
+Q 124.504789 89.870824 126.71744 89.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+    <path d="M 122.71744 87.870824 
+L 126.71744 89.870824 
+L 122.71744 91.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+   </g>
+   <g id="text_4">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="183.156" y="70.21095" transform="rotate(-0 183.156 70.21095)">APU</text>
+   </g>
+   <g id="text_5">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(138.58725 99.866443)">24 CPU cores + a GPU</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(140.371625 109.468631)">of 228 compute units</text>
+   </g>
+   <g id="text_6">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(134.514125 160.279737)">128 GB HBM, ≈ 3.8 TB/s</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(139.255375 169.881925)">256 MB Infinity Cache</text>
+   </g>
+   <g id="patch_7">
+    <path d="M 238.478104 89.870824 
+Q 241.808789 89.870824 244.02144 89.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+    <path d="M 240.02144 87.870824 
+L 244.02144 89.870824 
+L 240.02144 91.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #0b0b0b" x="300.46" y="70.211341" transform="rotate(-0 300.46 70.211341)">compute unit</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(275.28875 99.866756)">4 SIMD units</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(278.833125 109.468943)">× 16 lanes</text>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(255.82125 160.28005)">64 KiB LDS (32 banks)</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(266.294375 169.882237)">512 KiB registers</text>
+   </g>
+   <g id="patch_8">
+    <path d="M 355.782104 89.870824 
+Q 359.112789 89.870824 361.32544 89.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+    <path d="M 357.32544 87.870824 
+L 361.32544 89.870824 
+L 357.32544 91.870824 
+" style="fill: none; stroke: #52514e; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #0b0b0b" x="417.764" y="70.211341" transform="rotate(-0 417.764 70.211341)">wavefront</text>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(379.5015 99.866756)">64 threads running</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #0b0b0b" transform="translate(369.214 109.468943)">one instruction together</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(376.82775 160.28005)">each thread: its own</text>
+    <text style="font-size: 8px; font-family: 'DejaVu Sans'; fill: #52514e" transform="translate(400.254625 169.882237)">registers</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #0b0b0b" x="12.532" y="23.098235" transform="rotate(-0 12.532 23.098235)">each level contains several of the next; each has faster but smaller memory</text>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 8.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #52514e" x="12.532" y="207.517765" transform="rotate(-0 12.532 207.517765)">work unit: one kernel launch = many blocks of threads; a block runs on one compute unit and shares its LDS</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pee4728e2f0">
+   <rect x="7.2" y="7.2" width="479.88" height="216.216"/>
+  </clipPath>
+ </defs>
+</svg>

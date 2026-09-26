@@ -267,7 +267,56 @@ def fig_representation():
     save(fig, "representation.svg")
 
 
+# 12. Z/17 as a clock: the powers of the generator 3, and the 4th roots of unity among them
+def fig_clock():
+    import numpy as np
+    fig, axs = plt.subplots(1, 2, figsize=(8.6, 4.0))
+    for ax in axs: ax.set_aspect("equal"); ax.axis("off"); ax.grid(False)
+    ax = axs[0]
+    for r in range(17):
+        a = np.pi / 2 - 2 * np.pi * r / 17
+        ax.scatter(np.cos(a), np.sin(a), s=260, color=C1 if r else C2, zorder=3)
+        ax.text(np.cos(a), np.sin(a), str(r), ha="center", va="center", color="white", fontsize=8.5, zorder=4)
+    ax.add_patch(matplotlib.patches.Circle((0, 0), 1, fill=False, color=MUTED, lw=1))
+    ax.text(0, 0, "residues\nmod 17", ha="center", va="center", fontsize=9, color=INK2)
+    ax.set_title("ℤ/17: counting wraps around after 16", fontsize=9, loc="left")
+    ax.set_xlim(-1.3, 1.3); ax.set_ylim(-1.3, 1.3)
+    ax = axs[1]
+    pw = [pow(3, i, 17) for i in range(16)]
+    for i, v in enumerate(pw):
+        a = np.pi / 2 - 2 * np.pi * i / 16
+        root4 = i % 4 == 0
+        ax.scatter(np.cos(a), np.sin(a), s=300, color=C2 if root4 else "#86b6ef", zorder=3)
+        ax.text(np.cos(a), np.sin(a), str(v), ha="center", va="center", fontsize=8.5, color="white" if root4 else INK, zorder=4)
+        ax.text(1.28 * np.cos(a), 1.28 * np.sin(a), f"3^{i}", ha="center", va="center", fontsize=7, color=INK2)
+    ax.add_patch(matplotlib.patches.Circle((0, 0), 1, fill=False, color=MUTED, lw=1))
+    ax.text(0, 0, "powers of 3\n(orange: 4th roots\nof unity 1, 13, 16, 4)", ha="center", va="center", fontsize=8, color=INK2)
+    ax.set_title("3 generates every nonzero residue", fontsize=9, loc="left")
+    ax.set_xlim(-1.45, 1.45); ax.set_ylim(-1.45, 1.45)
+    save(fig, "clock.svg")
+
+
+# 13. the machine: node -> APU -> compute unit -> SIMD lanes, with the memory at each level
+def fig_gpu():
+    fig, ax = plt.subplots(figsize=(8.6, 3.9)); ax.grid(False); ax.axis("off")
+    boxes = [("node", "4 MI300A APUs\nlinked by Infinity Fabric", "≈ 502 GB usable HBM\nremote reads ≈ 93 GB/s", C1),
+             ("APU", "24 CPU cores + a GPU\nof 228 compute units", "128 GB HBM, ≈ 3.8 TB/s\n256 MB Infinity Cache", C2),
+             ("compute unit", "4 SIMD units\n× 16 lanes", "64 KiB LDS (32 banks)\n512 KiB registers", C3),
+             ("wavefront", "64 threads running\none instruction together", "each thread: its own\nregisters", C4)]
+    for i, (name, what, mem, col) in enumerate(boxes):
+        x = i * 2.2
+        ax.add_patch(Rectangle((x, 1.6), 2.0, 1.25, facecolor=col, edgecolor=SURF, lw=2))
+        ax.text(x + 1.0, 2.55, name, ha="center", va="center", fontsize=10, color="white" if col in (C1, C2) else INK, weight="bold")
+        ax.text(x + 1.0, 2.0, what, ha="center", va="center", fontsize=8, color="white" if col in (C1, C2) else INK)
+        ax.text(x + 1.0, 1.05, mem, ha="center", va="center", fontsize=8, color=INK2)
+        if i < 3: ax.annotate("", xy=(x + 2.2, 2.2), xytext=(x + 2.0, 2.2), arrowprops=dict(arrowstyle="->", color=INK2))
+    ax.text(0, 3.25, "each level contains several of the next; each has faster but smaller memory", fontsize=9)
+    ax.text(0, 0.35, "work unit: one kernel launch = many blocks of threads; a block runs on one compute unit and shares its LDS", fontsize=8.5, color=INK2)
+    ax.set_xlim(-0.1, 8.9); ax.set_ylim(0.1, 3.5)
+    save(fig, "gpu.svg")
+
+
 if __name__ == "__main__":
-    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases, fig_regblock, fig_representation):
+    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases, fig_regblock, fig_representation, fig_clock, fig_gpu):
         f()
     print("ok")

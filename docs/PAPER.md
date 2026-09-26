@@ -86,146 +86,428 @@ the machine. Chapters 1–14 then treat each technique in depth.
 
 ## A. Concepts and terminology
 
-This chapter defines every term the rest of the paper uses, and explains what each object *is*: a number, an
-array, an operation or a piece of hardware. Terms are grouped by the layer they belong to, and each group
-builds on the previous one.
+This chapter is a self-contained introduction to the ideas the rest of the paper builds on. It assumes school
+algebra and a general idea of what a computer program is, and nothing more. Each section introduces one layer:
+how very large numbers are stored, arithmetic with remainders, how multiplication is turned into a Fourier
+transform, the specific objects of the $e$ algorithm, and how a GPU carries out the work. Every new term appears
+in **bold** where it is defined. Section A.7 collects them in a quick-reference table.
 
-### A.1 Numbers and how they are written down
+Readers who already know a topic can skip its section; the later chapters refer back here by section number.
 
-- **Digit, decimal digit.** One of 0–9 in the decimal expansion of $e = 2.71828\ldots$ "Computing $d$ digits" means
-  producing the integer $\lfloor 10^d e\rfloor$ exactly, whose decimal form is "2" followed by $d$ digits.
-- **Big integer (multiprecision integer).** An integer too large for one machine register. Here the integers have
-  billions of decimal digits, and every quantity in the algorithm ($P$, $Q$, $A$, $X$, $\mu$) is one.
-- **Base, radix $B$.** The number in which a big integer is written positionally, $x = \sum_{m} x_m B^m$. `ecalc`
-  uses $B = 10^{18}$, the largest power of ten that fits in a 64-bit word ($10^{18} < 2^{64} \approx 1.8\times10^{19}$).
-- **Limb.** One base-$B$ "digit" $x_m$, with $0 \le x_m < B$, stored as one 64-bit unsigned integer (`uint64_t`).
-  A limb holds exactly 18 decimal digits. The **limb count** $n$ of $x$ is its length in limbs, so $x < B^n$.
-- **Little-endian.** Limb $x_0$ (the least significant) is stored first, at the lowest memory address. Multiplying
-  by $B^t$ is then "move every limb $t$ places up", and dividing by $B^t$ with truncation is "drop the lowest $t$
-  limbs".
-- **Precision (in limbs).** When a number approximates a real quantity, such as $1/Q$, its precision is how many
-  of its leading limbs are correct.
-- **Unit (in the last place).** An error of "a few units" means a few times $B^0$ in the integer being computed,
-  i.e. a few times the value of its lowest limb.
-- **$W$, bytes per digit.** $W$ is the size of the final result in memory. In base $10^{18}$, 18 digits take 8 bytes,
-  so $W \approx 0.444$ bytes per digit. The whole machine's memory, divided by the bytes needed per digit,
-  bounds the digit count.
+### A.1 Numbers too large for the machine
 
-### A.2 Modular arithmetic
+#### Machine words and why they are not enough
 
-- **Modulus, residue.** For a positive integer $p$ (the **modulus**), $x \bmod p$ is the remainder of $x$ divided
-  by $p$, a number in $[0, p)$. Two integers are **congruent** mod $p$, written $x \equiv y \pmod p$, when they
-  have the same remainder. Addition and multiplication "commute" with taking remainders:
-  $(x\cdot y) \bmod p = \big((x \bmod p)(y\bmod p)\big)\bmod p$.
-- **Prime field $\mathbb{Z}/p$.** For a prime $p$, the residues $\{0, \ldots, p-1\}$ with addition and multiplication
-  mod $p$ form a field. Every nonzero residue has a multiplicative **inverse** $x^{-1}$ with $x\,x^{-1} \equiv 1$, so
-  division is possible. This is what lets a Fourier transform work with integers.
-- **Canonical and lazy representation.** A residue is **canonical** when stored in $[0, p)$. It is **lazy** when it
-  is allowed to lie in a slightly larger range such as $[0, 2p)$: it still represents $x \bmod p$, and the final
-  reduction is postponed to save instructions.
-- **Modular reduction.** Computing $x \bmod p$ from a larger $x$, for example the 104-bit product of two residues.
-  Division is slow on every processor, so fast methods replace it with multiplication by a precomputed
-  approximation of $1/p$ plus a small correction. The three standard methods are **Barrett** (a precomputed
-  reciprocal of $p$), **Montgomery** (arithmetic in a scaled form) and **Shoup** (a precomputed quotient for one
-  fixed multiplier). Chapter 4 compares them.
-- **Residue number system (RNS).** Representing an integer $c$ by its residues $(c \bmod p_0, c \bmod p_1,
-  c\bmod p_2)$ for several **coprime** moduli (no common factor). Arithmetic can proceed independently for each
-  modulus.
-- **Chinese remainder theorem (CRT).** If $0 \le c < p_0p_1p_2$, the residues determine $c$ uniquely.
-  **Garner's algorithm** is the standard way to reconstruct $c$ from its residues (§3.3).
+A computer's arithmetic works on fixed-size binary numbers called **words**. On every processor in this paper
+a word is 64 bits. An unsigned 64-bit word holds the integers from 0 to $2^{64} - 1 = 18\,446\,744\,073\,709\,551\,615$,
+about $1.8\times 10^{19}$, or 19 decimal digits. One instruction can add or multiply two words. A result that does
+not fit **overflows**: the processor keeps only the low 64 bits (a product of two words can need 128 bits, and
+special instructions return its upper half separately).
 
-### A.3 Polynomials, convolution and transforms
+The numbers in this computation are vastly larger. $Q = N!$ at $1.4\times10^{11}$ digits has 140 billion decimal
+digits and needs 62 GB just to store. Such a number is a **big integer** (or **multiprecision integer**): a number
+represented by many words, with arithmetic implemented in software, one word at a time.
 
-- **Coefficient vector.** The limbs $(x_0, \ldots, x_{n-1})$ of an integer read as the coefficients of the
-  polynomial $x(t) = \sum x_m t^m$. Setting $t = B$ recovers the integer.
-- **Convolution.** The coefficients of a product of polynomials, $c_k = \sum_{i+j=k} a_i b_j$. Integer multiplication
-  is convolution followed by **carry propagation** (bringing each $c_k$ back into $[0, B)$ by moving the excess
-  upward). Direct convolution costs $n^2$ multiplications. **Cyclic** convolution wraps indices around mod $L$,
-  and it equals the ordinary (acyclic) one when $L \ge \ell_a + \ell_b - 1$.
-- **Root of unity.** An $\omega$ with $\omega^L = 1$. It is **primitive** of **order** $L$ when no smaller power
-  equals 1. In $\mathbb{Z}/p$ such an $\omega$ exists exactly when $L$ divides $p-1$ (§2.2).
-- **Discrete Fourier transform (DFT).** The linear map $\hat x_k = \sum_{m<L} x_m\,\omega^{mk}$: a vector of $L$
-  values in, $L$ values out. It is the evaluation of the polynomial $x(t)$ at the $L$ points $\omega^0, \ldots,
-  \omega^{L-1}$. Its key property is that it turns cyclic convolution into a pointwise product. Over $\mathbb{Z}/p$
-  it is called the **number-theoretic transform (NTT)**, and it is exact.
-- **Transform length, points.** $L$ is the length and its entries are **points**. A product needs $L \ge
-  \ell_a + \ell_b - 1$, so shorter operands are **zero-padded**. Admissible lengths here are $2^k$ and $3\cdot2^k$.
-- **FFT.** Any algorithm computing the DFT in $O(L\log L)$ operations instead of $L^2$, by factoring it into
-  $\log_2 L$ **stages**. Each stage consists of $L/2$ **butterflies**: small 2-in, 2-out operations
-  $(u, v) \mapsto (u + v,\ (u-v)\,\omega^j)$.
-- **Twiddle factor.** The power $\omega^j$ multiplying one butterfly. There are many distinct twiddles, so they
-  come from tables.
-- **Bit-reversed order.** The FFT naturally produces outputs in an order where index $k$ sits at the position
-  whose binary digits are $k$'s reversed. DIF (decimation in frequency) produces this order and DIT (decimation
-  in time) consumes it, so the pair needs no reordering (§2.4).
-- **Pointwise product.** Multiplying two transformed vectors entry by entry, $\hat c_k = \hat a_k\hat b_k$. It is the
-  only step that actually "multiplies".
-- **Plane.** `ecalc`'s name for one transform-sized array of residues: $L$ points for one prime, stored as
-  consecutive `uint64_t`. A product uses one plane per prime per operand. The **plane cap** ($2^{31}$ points by
-  default) is the largest plane the device pools provide.
-- **Mixed radix.** A length with more than one prime factor, here $3\cdot 2^k$, computed with a radix-3 stage
-  alongside radix-2 stages.
+#### Positional notation in a large base
 
-### A.4 The algorithm's objects
+We write numbers in base 10: the digits of 4 096 mean $4\cdot10^3 + 0\cdot10^2 + 9\cdot10 + 6$. Nothing requires the base
+to be 10. For any **base** (or **radix**) $B \ge 2$, every non-negative integer has a unique expansion
 
-- **Term, partial sum, truncation.** Term $k$ of the series is $1/k!$. The partial sum up to $N$ is
-  $e_N = \sum_{k\le N}1/k!$, and truncation is replacing $e$ by $e_N$.
-- **$P$, $Q$ (binary splitting).** Integers with $P(a,b)/Q(a,b) = \sum_{k=a+1}^{b} a!/k!$ and $Q(a,b) = b!/a!$. The
-  whole sum is $P(0,N)/Q(0,N)$, and $Q(0,N) = N!$.
-- **Span, node, seed, level, merge.** A **span** is a range of terms $[a,b)$, and a **node** is the pair
-  $(P(a,b), Q(a,b))$ for a span. **Seeds** are the initial nodes, 256 terms each. A **level** is one layer of the
-  binary tree. A **merge** combines two adjacent nodes into one: $P = P_1Q_2 + P_2$, $Q = Q_1Q_2$.
-- **Numerator $A$, quotient $X$, remainder $R$.** $A = 10^d(P+Q)$, $X = \lfloor A/Q \rfloor$, and $R = A - XQ$ with
-  $0 \le R < Q$. $X$ *is* the answer: its decimal digits are "2718…".
-- **Reciprocal $\mu$.** An integer approximating $B^{n_Q+k}/Q$, i.e. $1/Q$ scaled to have $k$ correct limbs. The
-  division becomes a multiplication by $\mu$.
-- **Newton iteration, precision doubling.** A refinement $r \mapsto r + r(1-Qr)$ that roughly doubles the number of
-  correct limbs of $r \approx 1/Q$ per step. Each step is computed at the precision it will deliver.
-- **High, low and middle products.** Parts of a product: the top limbs only (**high**), the bottom $w$ limbs only
-  (**low**), or a band in between. When only part is needed, part of the work can be skipped.
-- **Grid, piece.** A product too large for one plane is cut into a $k_a\times k_b$ **grid** of smaller **piece
-  products** that are added together at shifted positions (chapter 7).
-- **Radix conversion.** Converting a binary number to decimal. `ecalc` avoids it entirely by working in base
-  $10^{18}$ (chapter 9).
+$$
+x = x_0 + x_1B + x_2B^2 + \cdots + x_{n-1}B^{n-1} = \sum_{m=0}^{n-1} x_m B^m,\qquad 0 \le x_m < B .
+$$
 
-### A.5 The machine
+A big integer is stored as exactly this list of "digits" $x_m$, each in its own word. To avoid confusion with
+decimal digits, a base-$B$ digit is called a **limb**. The list is stored as an **array**, a block of consecutive
+words in memory, and the number of limbs $n$ is the number's **length** or **size**.
 
-- **Node, APU, MI300A.** A **node** is one server. Each node here has four AMD Instinct MI300A **APUs**
-  (accelerated processing units). An APU is a single package holding CPU cores, GPU compute dies and 128 GB of
-  **HBM** (high-bandwidth memory) that both can address.
-- **XCD, CU, wavefront, lane.** The GPU part of an MI300A has 6 accelerator dies (**XCDs**) with 228 **compute units**
-  (CUs) in total. A CU runs **wavefronts** of 64 **lanes** (threads) in lockstep. One instruction therefore performs
-  64 operations, one per lane.
-- **VALU, registers, LDS.** The **VALU** (vector ALU) executes a wavefront's arithmetic. **Registers** (VGPRs)
-  are the fastest storage, private to a lane. The **LDS** (local data share) is 64 KiB of fast on-chip memory per
-  CU, shared by the threads of a block and divided into 32 **banks**. Accesses that hit the same bank in one
-  cycle serialise: a **bank conflict**.
-- **Kernel, launch, block, stream.** A **kernel** is a GPU function run by many threads at once. A **launch** starts
-  one (about 4 µs of overhead). Threads are grouped into **blocks** that share an LDS allocation. A **stream** is
-  a queue of launches and copies that execute in order.
-- **Occupancy, latency hiding.** The number of wavefronts resident on a CU. While one wavefront waits for memory,
-  another computes. Enough independent work in flight hides memory latency.
-- **Bandwidth, NUMA.** **Bandwidth** is bytes per second. MI300A reads its own HBM at ≈ 3.8 TB/s and another
-  APU's at ≈ 93 GB/s. That asymmetry makes the node **NUMA** (non-uniform memory access): where data lives
-  decides how fast it can be read.
-- **Infinity Fabric, xGMI, all-to-all.** The links between the four APUs. An **all-to-all** is a collective
-  exchange in which every APU sends a distinct block to every other APU.
-- **Rank.** One participant in a distributed computation: an APU within a node, or a process across nodes.
-- **Device and host memory; pinned (registered) memory.** Memory allocated for GPU use (`hipMalloc`) versus
-  ordinary process memory. **Pinned** host memory is locked in place so the GPU can read it directly.
-- **Pool, arena, fragmentation, virtual memory mapping.** A **pool** or **arena** is a large region allocated once
-  and subdivided by the program. **Fragmentation** is free space split into holes too small for a request.
-  **Virtual memory mapping** assigns physical memory to addresses on demand, so scattered physical chunks can
-  appear contiguous.
+`ecalc` uses $B = 10^{18}$. It is the largest power of ten that fits in a word ($10^{19}$ does not fit), and a power of
+ten makes each limb exactly 18 decimal digits (chapter 9 explains why that matters). For example,
 
-### A.6 Verification
+$$
+2^{100} = 1\,267\,650\,600\,228\,229\,401\,496\,703\,205\,376 = 229\,401\,496\,703\,205\,376 \;+\; 1\,267\,650\,600\,228 \cdot 10^{18},
+$$
 
-- **Check modulus $q$.** A 62-bit prime used only for verification. The **residue** of a big integer, $x \bmod q$, is
-  a fingerprint: equal numbers have equal residues, and unequal ones almost never do.
-- **Horner's rule.** Evaluating $x \bmod q = (\cdots((x_{n-1}B + x_{n-2})B + x_{n-3})\cdots)\bmod q$, one limb at a
-  time, with word-sized arithmetic.
-- **T1, T2.** The two verification tiers: identities between residues (T1), and 50-digit windows compared with
-  published digits of $e$ (T2).
+so $2^{100}$ is the two-limb array $(x_0, x_1) = (229401496703205376,\ 1267650600228)$. The limbs are split off from the
+right, 18 decimal digits at a time.
+
+**Little-endian order.** `ecalc` stores the least significant limb $x_0$ first, at the lowest memory address. This is
+called **little-endian** order, and it makes two operations trivial:
+
+- **Multiplying by $B^t$** shifts every limb up by $t$ places, just as multiplying by 1000 appends three zeros in
+  decimal. In memory, the array simply starts $t$ positions later, with zeros below.
+- **Dividing by $B^t$ and discarding the remainder** (written $\lfloor x/B^t\rfloor$, the **floor**) drops the lowest $t$
+  limbs. The program just starts reading the array $t$ positions in. No arithmetic is done.
+
+#### Arithmetic on limbs
+
+Every operation on big integers is a loop over limbs, the same way pencil-and-paper arithmetic loops over digits.
+
+**Addition** adds limbs pairwise from the bottom. When a sum reaches $B$, it keeps the sum minus $B$ and **carries** 1
+into the next position. For example, in base $10^{18}$:
+
+$$
+(999999999999999999) + (999999999999999999) = 1\,999999999999999998 = 1\cdot 10^{18} + 999999999999999998 ,
+$$
+
+so the result limb is $999999999999999998$ with a carry of 1. Because $2(B-1) < 2^{64}$, the sum of two limbs never
+overflows a word. The carry makes addition *sequential* in principle, since each position waits for the one below
+it. Chapter 10 shows how the carries are computed in parallel.
+
+**Multiplication** of two limbs gives a product up to $(B-1)^2 \approx 10^{36}$, which needs two words (128 bits).
+It is split into a new limb and a carry by dividing by $10^{18}$. **Schoolbook multiplication** of two $n$-limb numbers
+multiplies every limb of one by every limb of the other, $n^2$ limb products, exactly as taught in school. At
+$n = 7.8\times10^9$ that would be $6\times10^{19}$ operations, years of computing. Sections A.3 and chapters 2–7 are about
+avoiding it.
+
+**Sizes.** A limb is 8 bytes and holds 18 digits, so the result takes $W \approx 8/18 = 0.444$ bytes per decimal digit.
+**Precision** means how many leading limbs of an approximation are correct. A **unit** means the value 1 in the
+lowest position of an integer, so an error of "a few units" is an error of a few in its lowest limb.
+
+### A.2 Arithmetic with remainders
+
+#### Clock arithmetic
+
+On a 12-hour clock, 5 hours after 9 o'clock is 2 o'clock: the count wraps around at 12. **Modular arithmetic**
+makes this precise for any whole number $p \ge 2$, the **modulus**. The **residue** of an integer $x$ modulo $p$ is the
+remainder after dividing $x$ by $p$, written $x \bmod p$. It always lies in $\{0, 1, \ldots, p-1\}$. Two integers are
+**congruent modulo $p$**, written $x \equiv y \pmod p$, when they leave the same remainder, i.e. when $p$ divides $x - y$.
+So $14 \equiv 2 \pmod{12}$, and $23 \equiv 3 \pmod 5$.
+
+The key fact is that remainders are compatible with addition and multiplication:
+
+$$
+(x + y) \bmod p = \big((x \bmod p) + (y \bmod p)\big)\bmod p,\qquad
+(x\cdot y) \bmod p = \big((x \bmod p)\cdot(y \bmod p)\big)\bmod p .
+$$
+
+To know the remainder of a huge product, it is enough to multiply the small remainders. This is what lets a
+computation on 62 GB integers be carried out, and checked, on single words. Figure A1 (left) pictures the residues
+modulo 17 as a clock face.
+
+![Z/17 as a clock and the powers of 3](fig/clock.svg)
+
+*Figure A1. Left: arithmetic modulo 17 counts around a 17-hour clock. Right: the successive powers
+$3^0, 3^1, \ldots, 3^{15}$ modulo 17 visit every nonzero residue once. Every fourth power (orange) is a 4th root of unity:
+$x^4 \equiv 1$.*
+
+#### Primes, inverses and fields
+
+When the modulus is a **prime** $p$ (divisible only by 1 and itself), something more holds: every nonzero residue $x$ has
+a **multiplicative inverse** $x^{-1}$, a residue with $x\cdot x^{-1} \equiv 1 \pmod p$. For example $3\cdot 5 = 15 \equiv 1 \pmod 7$,
+so $3^{-1} \equiv 5 \pmod 7$. Inverses can be computed with the extended Euclidean algorithm, or with
+**Fermat's little theorem**, $x^{p-1} \equiv 1$, which gives $x^{-1} \equiv x^{p-2}$. A set in which one can add, subtract,
+multiply and divide (except by zero) is called a **field**. The residues modulo a prime form one, written $\mathbb{Z}/p$
+("the integers modulo $p$").
+
+Division is what makes the Fourier transform of section A.3 possible in integers: it needs to divide by the
+transform length at the end, and in $\mathbb{Z}/p$ that is multiplication by an inverse.
+
+#### Generators and roots of unity
+
+Take the powers of 3 modulo 17: $1, 3, 9, 10, 13, 5, 15, 11, 16, 14, 8, 7, 4, 12, 2, 6$, and then $3^{16} \equiv 1$ again.
+They run through all 16 nonzero residues before repeating (Figure A1, right). An element whose powers reach every
+nonzero residue is a **generator** (or **primitive root**) of $\mathbb{Z}/p$. Every prime has one, and its powers repeat
+with period $p - 1$.
+
+A **root of unity of order $L$** is a residue $\omega$ with $\omega^L \equiv 1$. It is **primitive** if no smaller positive
+power equals 1. In the example, $\omega = 3^4 \equiv 13$ is a primitive 4th root of unity: its powers are $1, 13, 16, 4$,
+and then 1 again. In general, if $g$ is a generator and $L$ divides $p - 1$, then $\omega = g^{(p-1)/L}$ is a primitive $L$-th root
+of unity. If $L$ does not divide $p - 1$, none exists. This is why the primes used here have the special form
+$p = c\cdot 2^{44} + 1$: $p - 1$ is divisible by every power of two up to $2^{44}$, so transforms of all those lengths are
+available (chapter 2).
+
+#### Representing and reducing residues
+
+A residue is stored in one word. It is **canonical** when it lies in $[0, p)$. It is **lazy** when it is allowed to
+lie in a slightly larger range, such as $[0, 2p)$, while still standing for the same residue. Laziness saves the
+comparison-and-subtraction that would bring it back into $[0, p)$ after every addition, as long as the growth stays
+bounded.
+
+**Modular reduction** is computing $x \bmod p$ for a larger $x$, typically the 104-bit product of two residues. The
+obvious method, division, is one of the slowest instructions on any processor. Fast methods replace it with
+multiplication by a precomputed approximation of $1/p$. **Barrett reduction** is the simplest to explain. Precompute
+$m = \lfloor 2^k/p\rfloor$ once. Then for any $x$ in range, the quotient estimate
+
+$$
+\hat q = \Big\lfloor \frac{x\cdot m}{2^k} \Big\rfloor \;\approx\; \frac{x}{p}
+$$
+
+needs only a multiplication and a shift, and $x - \hat q\,p$ is the remainder, possibly plus a small multiple of $p$ that
+one or two subtractions remove. With $p = 97$ and $k = 16$: $m = \lfloor 65536/97\rfloor = 675$. For $x = 5000$,
+$\hat q = \lfloor 5000\cdot 675/65536\rfloor = 51$, and $5000 - 51\cdot 97 = 53$, which is indeed $5000 \bmod 97$. **Montgomery** and
+**Shoup** reduction are variations that are faster in particular situations. Chapter 4 describes the one used here,
+a Barrett reduction carried out with floating-point instructions.
+
+#### Several moduli at once: RNS and the Chinese remainder theorem
+
+Take the moduli 5 and 7. The number 23 leaves remainders $23 \bmod 5 = 3$ and $23 \bmod 7 = 2$. Remarkably, the pair
+$(3, 2)$ identifies 23 uniquely among $0, 1, \ldots, 34$: no other number below $35 = 5\cdot 7$ has the same two
+remainders. This is the **Chinese remainder theorem (CRT)**. If moduli $p_0, p_1, \ldots$ are **coprime** (share no
+common factor), then the remainders of $c$ modulo each of them determine $c$ uniquely, provided $0 \le c < p_0p_1\cdots$.
+
+Representing a number by its tuple of remainders is a **residue number system (RNS)**. Its value here is that a
+computation whose results are too large for one modulus can be run independently modulo several moduli, each
+with word-sized arithmetic, and the true result reconstructed at the end. **Garner's algorithm** (§3.3) is the
+standard reconstruction method.
+
+### A.3 Multiplication as a Fourier transform
+
+#### Integers as polynomials
+
+The limbs of an integer are also the coefficients of a **polynomial**: $x = \sum x_m B^m$ is the polynomial
+$x(t) = \sum x_m t^m$ evaluated at $t = B$. Multiplying two integers is therefore multiplying two polynomials and then
+evaluating at $B$. The coefficients of a product of polynomials are the **convolution** of the coefficient lists,
+
+$$
+c_k = \sum_{i + j = k} a_i\,b_j .
+$$
+
+For example, $123 \times 456$ in base 10: $a = (3, 2, 1)$ and $b = (6, 5, 4)$, least significant first, give
+
+$$
+c_0 = 3\cdot 6 = 18,\quad c_1 = 3\cdot 5 + 2\cdot 6 = 27,\quad c_2 = 3\cdot 4 + 2\cdot 5 + 1\cdot 6 = 28,\quad c_3 = 13,\quad c_4 = 4 .
+$$
+
+These coefficients exceed the base, so a final **carry propagation** brings each back below 10 and moves the excess
+up: $18 \to 8$ carry 1; $27 + 1 = 28 \to 8$ carry 2; $28 + 2 = 30 \to 0$ carry 3; $13 + 3 = 16 \to 6$ carry 1; $4 + 1 = 5$.
+Reading from the top: $56\,088 = 123\times456$. Computing all the $c_k$ directly is the $n^2$ schoolbook method.
+
+#### Evaluate, multiply, interpolate
+
+A polynomial of degree less than $L$ is completely determined by its values at any $L$ distinct points. So there is
+a detour around convolution:
+
+1. **evaluate** both polynomials at $L$ chosen points;
+2. **multiply** the values point by point, $L$ multiplications;
+3. **interpolate**: recover the coefficients of the product from its $L$ values.
+
+Step 2 is cheap. Steps 1 and 3 are cheap too, *if* the points are chosen cleverly: the $L$ powers of a primitive $L$-th
+root of unity $\omega$. Evaluation at those points is the **discrete Fourier transform (DFT)**,
+
+$$
+\hat x_k = \sum_{m=0}^{L-1} x_m\,\omega^{mk},\qquad k = 0, \ldots, L-1 ,
+$$
+
+and interpolation is the same formula with $\omega^{-1}$ in place of $\omega$, followed by division by $L$.
+
+The DFT is a matrix-vector product. In $\mathbb{Z}/17$ with $L = 4$ and $\omega = 4$ (another primitive 4th root, with
+powers $1, 4, 16, 13$), the matrix $(\omega^{mk})$ is
+
+$$
+F_4 = \begin{pmatrix} 1 & 1 & 1 & 1\\ 1 & 4 & 16 & 13\\ 1 & 16 & 1 & 16\\ 1 & 13 & 16 & 4 \end{pmatrix} \pmod{17}.
+$$
+
+The vector entries are called **points**, $L$ is the **transform length**, and the output $\hat x$ is the **spectrum**.
+
+**The convolution theorem.** Transforming $a$ and $b$, multiplying the spectra entry by entry (the **pointwise
+product** $\hat c_k = \hat a_k\hat b_k$), and transforming back gives the convolution of $a$ and $b$, but a **cyclic** one:
+indices are counted modulo $L$, so terms that would land at position $L$ or beyond wrap around to the start. Making
+$L$ at least $\ell_a + \ell_b - 1$ (the product's length) and filling the unused entries with zeros (**zero padding**)
+leaves nothing to wrap, and the cyclic convolution equals the true one.
+
+**Why exactness matters.** With complex numbers, $\omega = e^{2\pi i/L}$ and the transform is computed in floating point
+with rounding errors that grow with $L$. At billions of points the errors would corrupt the result. In $\mathbb{Z}/p$ every
+operation is exact. The DFT over $\mathbb{Z}/p$ is the **number-theoretic transform (NTT)**. Its one requirement is a
+primitive $L$-th root of unity, which exists when $L$ divides $p - 1$ (section A.2). Its one cost is that it computes each
+$c_k$ only modulo $p$, which is why several primes and the CRT are needed.
+
+#### The fast Fourier transform
+
+Computed directly, the DFT is $L^2$ multiplications, no better than schoolbook. The **fast Fourier transform (FFT)** exploits
+the structure of the powers of $\omega$. Split the sum into even and odd indices:
+
+$$
+\hat x_k = \sum_{m\ \text{even}} x_m\omega^{mk} + \omega^k \sum_{m\ \text{odd}} x_m\omega^{(m-1)k} ,
+$$
+
+and both halves are DFTs of length $L/2$ with root $\omega^2$. Repeating the split $\log_2 L$ times reduces everything
+to operations on pairs of values, called **butterflies** (from the shape of their data-flow diagram, Figure 3 in §2.4):
+
+$$
+(u,\ v) \;\longmapsto\; (u + \omega^j v,\ \ u - \omega^j v).
+$$
+
+The multiplier $\omega^j$ is a **twiddle factor**. A transform of length $L = 2^s$ has $s$ **stages** of $L/2$ butterflies each,
+$\tfrac L2\log_2 L$ in total. For $L = 2^{31}$ that is $3.3\times10^{10}$ butterflies instead of $L^2 \approx 4.6\times10^{18}$
+multiplications: a factor of $10^8$ fewer.
+
+The splitting reorders the data. The simplest FFT variants produce their output in **bit-reversed order**: the value for
+index $k$ ends up at the position whose binary representation is $k$'s written backwards. For $L = 8$:
+
+| position | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| holds $\hat x_k$ for $k$ = | 0 | 4 | 2 | 6 | 1 | 5 | 3 | 7 |
+
+(position $1 = 001_2$ holds $k = 100_2 = 4$). The two standard variants, **decimation in frequency (DIF)** and **decimation
+in time (DIT)**, produce and consume this order respectively, so pairing them avoids ever sorting the data (§2.4).
+
+**Other transform vocabulary.** A **plane** is `ecalc`'s name for one transform-sized array of residues, $L$ points for one
+prime. A **radix** in FFT terminology is the size of the pieces a stage combines: radix 2 combines pairs, and a radix-3
+stage combines triples, which is how lengths $3\cdot2^k$ are handled (a **mixed-radix** transform, §2.3).
+
+### A.4 The objects of the $e$ computation
+
+**The series and its truncation.** The algorithm computes $e = \sum_{k\ge0} 1/k! = 1 + 1 + \tfrac12 + \tfrac16 + \tfrac1{24} + \cdots$.
+The $k$-th **term** is $1/k!$. The terms shrink so fast that summing $N$ of them, the **partial sum** $e_N$, is accurate
+to about $\log_{10}N!$ digits. Replacing $e$ by $e_N$ is the **truncation**. It is the only approximation in the whole
+algorithm.
+
+**Binary splitting: $P$ and $Q$.** Adding billions of fractions one at a time would cost a full-precision operation per term.
+Instead, the terms are combined as exact fractions in a balanced tree. For a range of terms $[a, b)$, called a **span**,
+two integers $P(a,b)$ and $Q(a,b) = (a+1)(a+2)\cdots b$ satisfy $P(a,b)/Q(a,b) = \sum_{k=a+1}^{b} a!/k!$. A **node** of the tree is
+the pair $(P, Q)$ for one span. The **seeds** are the smallest nodes, 256 terms each, computed directly. A **merge** combines
+two adjacent nodes into one, using two multiplications: $P = P_1Q_2 + P_2$ and $Q = Q_1Q_2$. A **level** is one layer of
+merges. At the root, $P/Q$ is the whole sum. The numbers only become large near the top of the tree, where there are
+few of them. Chapter 1 derives this.
+
+**Numerator, quotient, remainder.** To obtain $d$ decimal digits the fraction is scaled to an integer division: the
+**numerator** $A = 10^d(P + Q)$ divided by $Q$. The **quotient** $X = \lfloor A/Q\rfloor$ and **remainder** $R = A - XQ$ satisfy
+$0 \le R < Q$. The decimal digits of $X$ are the answer: "2" followed by $d$ digits of $e$.
+
+**Reciprocal and Newton's method.** Dividing big integers directly is slow, so $X$ is computed as $A$ times an approximation of
+$1/Q$, called the **reciprocal** $\mu$. It is obtained by **Newton's method**: from a guess $r \approx 1/Q$, the improved guess
+$r' = r + r(1 - Qr)$ has about twice as many correct digits. Starting from a few correct limbs, each step doubles the
+**precision**, and each step is carried out only at the precision it produces, so early steps are cheap (chapter 8).
+
+**Parts of a product.** Often only part of a product is needed. A **high product** keeps only the upper limbs, a **low product**
+only the lower $w$ limbs, and a **middle product** a band between. Skipping the unneeded part saves work.
+
+**Grid and pieces.** The largest products are too big for one transform. They are cut into a **grid** of smaller **piece
+products** that are added together at shifted positions, like long multiplication with "digits" of a billion limbs
+each (chapter 7). The largest transform allowed is the **plane cap**, $2^{31}$ points by default.
+
+**Radix conversion.** Changing the base of a number, typically from binary to decimal for output. `ecalc` works in base $10^{18}$
+throughout, so it needs none (chapter 9).
+
+### A.5 How a GPU carries out the work
+
+#### From one processor to thousands of lanes
+
+A CPU core executes a stream of instructions quickly, one or a few at a time. A **GPU** (graphics processing unit) runs the same
+instruction on many data items at once and has thousands of arithmetic units. It suits exactly the kind of work in
+this computation: billions of identical butterflies, reductions and additions.
+
+The machine is a hierarchy, shown in Figure A2:
+
+- A **node** is one server. Here it contains four **AMD Instinct MI300A** chips.
+- Each MI300A is an **APU** (accelerated processing unit): 24 CPU cores and a GPU in one package, sharing 128 GB of
+  **HBM** (high-bandwidth memory, stacked directly on the package).
+- The GPU consists of 6 dies (**XCDs**) with 228 **compute units (CUs)** in total. A CU is the GPU's basic building block.
+- Each CU has four **SIMD units** ("single instruction, multiple data") of 16 arithmetic **lanes**. Threads are grouped
+  into **wavefronts** of 64, which execute each instruction together, 16 lanes at a time over 4 cycles.
+
+![The machine hierarchy](fig/gpu.svg)
+
+*Figure A2. The hardware hierarchy, from the node down to a wavefront, and the memory at each level. Figures from
+AMD's documentation and this project's measurements (RESULTS §48).*
+
+#### Kernels, threads and blocks
+
+A GPU program is a **kernel**: a function run by a very large number of **threads** at once, each working on different
+data. For example, a kernel that adds two arrays assigns element $i$ to thread $i$. Starting a kernel is a **launch**, which
+costs a few microseconds of overhead (about 4 µs here), so work must be batched into few, large launches (§1.4). Threads
+are organised in **blocks** (AMD also calls them workgroups) of up to 1024 threads. A block runs on a single CU, and its
+threads can cooperate through fast shared memory. A **stream** is a queue of launches and memory copies that the GPU
+executes in order. Different streams can run concurrently.
+
+#### The memory hierarchy
+
+Data lives at several levels, each smaller and faster than the one below:
+
+- **Registers** are private to one thread and the fastest storage there is. A CU has 512 KiB of them, shared among its
+  resident threads.
+- The **LDS** (local data share) is 64 KiB of on-chip memory per CU, shared by the threads of a block. It is how threads
+  exchange data quickly. The LDS is divided into 32 **banks** of 4 bytes, and each bank serves one address per cycle. If
+  several threads of a wavefront access different addresses in the same bank, the accesses queue one behind another:
+  a **bank conflict** (§5.3).
+- **Caches** (per-CU L1, a shared L2, and a 256 MB "Infinity Cache" per APU) keep recently used data automatically.
+- **HBM** is the main memory: 128 GB per APU, readable at about 3.8 TB/s.
+
+**Bandwidth** is the rate at which data can be moved (bytes per second). **Latency** is the delay before a request is
+answered. Reading HBM takes hundreds of cycles. A GPU hides this latency by keeping many wavefronts resident on each CU
+and switching to one that is ready while others wait. The number of resident wavefronts is the **occupancy**. More
+occupancy, or more independent instructions within each thread, hides more latency (§5.5). Memory is read fastest when
+the 64 threads of a wavefront access consecutive addresses, which the hardware merges into a few wide transactions.
+This is called **coalesced** access.
+
+#### Four APUs, one node
+
+The four APUs of a node are connected by **Infinity Fabric** links. Any APU can read any other's memory, but at very
+different speeds: about 3.8 TB/s from its own HBM, and about 93 GB/s from another APU's. Memory whose speed depends on where
+it is, relative to the processor reading it, is called **NUMA** (non-uniform memory access). On this machine it is the
+single most important fact about data placement (§11.2).
+
+When a computation is split across the APUs, each is a **rank**, a numbered participant. An **all-to-all** is the
+collective operation in which every rank sends a distinct block of data to every other rank, like dealing out a matrix
+so that each rank ends up with one column. The distributed transform needs it (chapter 6).
+
+#### Allocating memory
+
+**Device memory** is memory the GPU allocates for itself (with `hipMalloc`). **Host memory** is ordinary program memory.
+**Pinned** (or **registered**) host memory is locked in place so the GPU can transfer it directly. Allocating is slow at this
+scale, about 0.06 s per GB, so `ecalc` allocates large **pools** (or **arenas**) once at startup and hands out pieces of them
+itself. When pieces are freed in a different order than they were taken, free space ends up scattered in holes, and a
+large request may fail even though enough total memory is free. That is **fragmentation**. **Virtual memory mapping**
+solves it: physical memory is allocated in chunks, and the chunks are mapped to whatever addresses are needed, so
+scattered chunks can appear to the program as one contiguous block (§11.4).
+
+### A.6 Checking the answer
+
+A 140-billion-digit result cannot be compared with anything, so it is checked indirectly. The residue of a number modulo a
+prime $q$ is a **fingerprint**: two equal numbers have equal residues, and two different numbers almost never do when $q$ is a
+large prime. Because remainders are compatible with arithmetic (section A.2), a true identity between huge numbers, such as
+$A = XQ + R$, must also hold between their residues, and residues are single words.
+
+A residue is computed with **Horner's rule**, which reads the number one limb (or digit) at a time from the top and
+keeps a running remainder. For $123456 \bmod 7$ in base 10:
+
+$$
+(((((1)\,10 + 2)\,10 + 3)\,10 + 4)\,10 + 5)\,10 + 6 \pmod 7 \;=\; 4 ,
+$$
+
+reducing modulo 7 after every step so the running value stays small. `ecalc` checks its results with eight 62-bit
+**check moduli** (tier **T1**), and compares 50-digit windows with published digits of $e$ (tier **T2**). Chapter 12
+explains the checks in detail.
+
+### A.7 Quick reference
+
+| term | meaning | section |
+|---|---|---|
+| word | a 64-bit machine integer, $0$ to $2^{64}-1$ | A.1 |
+| big integer | a number stored as many words | A.1 |
+| base $B$, limb | $x = \sum x_m B^m$; each $x_m < B = 10^{18}$ is one limb (one word) | A.1 |
+| little-endian | least significant limb first in memory | A.1 |
+| carry | the excess moved to the next limb when a limb overflows $B$ | A.1 |
+| precision, unit | correct leading limbs; the value of the lowest position | A.1 |
+| modulus, residue, $x \bmod p$ | the remainder of $x$ divided by $p$ | A.2 |
+| congruent, $\equiv$ | same remainder | A.2 |
+| $\mathbb{Z}/p$, field, inverse | residues mod a prime, where division works | A.2 |
+| generator, root of unity | $g$ whose powers give all nonzero residues; $\omega^L = 1$ | A.2 |
+| canonical, lazy | residue kept in $[0,p)$; allowed in a larger range | A.2 |
+| Barrett, Montgomery, Shoup | fast modular-reduction methods | A.2, ch. 4 |
+| RNS, CRT, Garner | many small moduli; unique reconstruction; its algorithm | A.2, §3.3 |
+| convolution | $c_k = \sum_{i+j=k}a_ib_j$, the coefficients of a product | A.3 |
+| DFT, NTT | evaluation at the powers of $\omega$; over $\mathbb{Z}/p$ | A.3 |
+| point, length, spectrum | transform entry; number of entries; transformed vector | A.3 |
+| pointwise product | entry-by-entry product of two spectra | A.3 |
+| zero padding, cyclic | filling with zeros; indices taken mod $L$ | A.3 |
+| FFT, butterfly, stage, twiddle | fast DFT; its 2-point step; one layer; the step's $\omega^j$ | A.3 |
+| bit-reversed order, DIF, DIT | FFT output order; the variants producing and consuming it | A.3 |
+| plane, radix, mixed radix | a transform array for one prime; piece size; lengths $3\cdot2^k$ | A.3 |
+| term, partial sum, truncation | $1/k!$; $e_N$; replacing $e$ by $e_N$ | A.4 |
+| span, node, seed, merge, level | the binary-splitting tree | A.4 |
+| $P$, $Q$, $A$, $X$, $R$ | tree values; numerator; quotient; remainder | A.4 |
+| reciprocal $\mu$, Newton's method | approximation of $1/Q$; its precision-doubling iteration | A.4 |
+| high, low, middle product | parts of a product | A.4 |
+| grid, piece, plane cap | split products; largest transform | A.4 |
+| APU, XCD, CU, SIMD, lane, wavefront | the hardware hierarchy | A.5 |
+| kernel, launch, thread, block, stream | the GPU programming model | A.5 |
+| register, LDS, bank, cache, HBM | the memory hierarchy | A.5 |
+| bandwidth, latency, occupancy, coalesced | memory performance | A.5 |
+| NUMA, Infinity Fabric, rank, all-to-all | multi-APU operation | A.5 |
+| device, host, pinned memory; pool; fragmentation; VMM | memory allocation | A.5 |
+| fingerprint, check modulus, Horner, T1, T2 | verification | A.6 |
 
 ## B. The whole calculation, step by step, at 1.4 × 10¹¹ digits
 
@@ -1761,7 +2043,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
 In-repository sources: `ALGORITHM.md` (segments S1–S16, reviews R1–R14, corrections in Part 6),
 `RESULTS.md` (§§38–83; section numbers are cited above), `results/R114.md` (the Newton band-cut proof),
 `ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Chapter B's derived quantities are printed by `docs/walk/scale.py`; its times and memory are from the run logs.
-Figures 1–10 and B1 are generated by
+Figures 1–10, A1, A2 and B1 are generated by
 `docs/fig/make_figs.py` from the formulas stated in their captions or from the cited RESULTS sections.
 
 ## Appendix: parameters

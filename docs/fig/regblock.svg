@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-09-26T20:19:24.178772</dc:date>
+    <dc:date>2026-09-26T20:51:30.072633</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -35,7 +35,7 @@ L 48.175522 111.15
 L 48.175522 67.8375 
 L 14.029254 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #2a78d6"/>
+" clip-path="url(#p9b8474c746)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_3">
     <path d="M 51.590149 111.15 
@@ -43,7 +43,7 @@ L 85.736418 111.15
 L 85.736418 67.8375 
 L 51.590149 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #2a78d6"/>
+" clip-path="url(#p9b8474c746)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_4">
     <path d="M 89.151045 111.15 
@@ -51,7 +51,7 @@ L 123.297313 111.15
 L 123.297313 67.8375 
 L 89.151045 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #2a78d6"/>
+" clip-path="url(#p9b8474c746)" style="fill: #2a78d6"/>
    </g>
    <g id="patch_5">
     <path d="M 126.71194 111.15 
@@ -59,7 +59,7 @@ L 160.858209 111.15
 L 160.858209 67.8375 
 L 126.71194 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #eb6834"/>
+" clip-path="url(#p9b8474c746)" style="fill: #eb6834"/>
    </g>
    <g id="patch_6">
     <path d="M 164.272836 111.15 
@@ -67,7 +67,7 @@ L 198.419104 111.15
 L 198.419104 67.8375 
 L 164.272836 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #eb6834"/>
+" clip-path="url(#p9b8474c746)" style="fill: #eb6834"/>
    </g>
    <g id="patch_7">
     <path d="M 201.833731 111.15 
@@ -75,7 +75,7 @@ L 235.98 111.15
 L 235.98 67.8375 
 L 201.833731 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #eb6834"/>
+" clip-path="url(#p9b8474c746)" style="fill: #eb6834"/>
    </g>
    <g id="patch_8">
     <path d="M 239.394627 111.15 
@@ -83,7 +83,7 @@ L 273.540896 111.15
 L 273.540896 67.8375 
 L 239.394627 67.8375 
 z
-" clip-path="url(#p6e95279d0e)" style="fill: #1baf7a"/>
+" clip-path="url(#p9b8474c746)" style="fill: #1baf7a"/>
    </g>
    <g id="text_1">
     <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #ffffff" x="31.102388" y="92.091797" transform="rotate(-0 31.102388 92.091797)">b6</text>
@@ -159,7 +159,7 @@ Q 237.687313 70.004512 237.687313 30.860614
   </g>
  </g>
  <defs>
-  <clipPath id="p6e95279d0e">
+  <clipPath id="p9b8474c746">
    <rect x="7.2" y="7.2" width="457.56" height="138.6"/>
   </clipPath>
  </defs>
