@@ -1,0 +1,26 @@
+CPU(s):                                  192
+Model name:                              AMD Instinct MI300A Accelerator
+CPU(s) scaling MHz:                      48%
+k0 4.000e+09 (log2 31.90)  spans 400000 of 256  threads 96  final Q 137.0 limbs
+  A pipeline span(): 0.344 s = 3.36 ns/term (all threads) | B fused+fast: 0.204 s (x1.69) mismatches 0 | C fast mul only: 0.206 s (x1.67) mismatches 0
+  D Barrett widened (shift 40): 0.312 s = 3.05 ns/term (x1.10) mismatches 0;  per limb-step x threads (A, D): 4.714, 4.269 ns
+k0 1.000e+10 (log2 33.22)  spans 400000 of 256  threads 96  final Q 143.0 limbs
+  A pipeline span(): 0.448 s = 4.38 ns/term (all threads) | B fused+fast: 0.213 s (x2.11) mismatches 0 | C fast mul only: 0.214 s (x2.09) mismatches 0
+  D Barrett widened (shift 40): 0.272 s = 2.66 ns/term (x1.65) mismatches 0;  per limb-step x threads (A, D): 5.880, 3.570 ns
+k0 3.500e+12 (log2 41.67)  spans 400000 of 256  threads 96  final Q 179.0 limbs
+  A pipeline span(): 0.582 s = 5.68 ns/term (all threads) | B fused+fast: 0.266 s (x2.19) mismatches 0 | C fast mul only: 0.269 s (x2.16) mismatches 0
+  D Barrett widened (shift 40): 0.400 s = 3.91 ns/term (x1.45) mismatches 0;  per limb-step x threads (A, D): 6.096, 4.193 ns
+k0 4.000e+09 (log2 31.90)  spans 4000 of 256  threads 1  final Q 137.0 limbs
+  A pipeline span(): 0.322 s = 314.05 ns/term (all threads) | B fused+fast: 0.191 s (x1.69) mismatches 0 | C fast mul only: 0.193 s (x1.67) mismatches 0
+  D Barrett widened (shift 40): 0.296 s = 289.50 ns/term (x1.08) mismatches 0;  per limb-step x threads (A, D): 4.585, 4.226 ns
+k0 3.500e+12 (log2 41.67)  spans 4000 of 256  threads 1  final Q 179.0 limbs
+  A pipeline span(): 0.550 s = 536.80 ns/term (all threads) | B fused+fast: 0.250 s (x2.20) mismatches 0 | C fast mul only: 0.251 s (x2.19) mismatches 0
+  D Barrett widened (shift 40): 0.381 s = 371.73 ns/term (x1.44) mismatches 0;  per limb-step x threads (A, D): 5.998, 4.153 ns
+logk | batch | fwd3 3*2^k ms | fwd 2^k x3 ms | r3 pass ms (share) | inv3 ms | inv 2^k x3 ms | r3 inv (share)
+  10 | 524288 |   33.786 |   16.960 |   16.826 (49.8 %) |   35.098 |   19.185 |   15.913 (45.3 %)
+  12 | 131072 |   33.911 |   20.567 |   13.344 (39.3 %) |   38.650 |   21.906 |   16.744 (43.3 %)
+  17 |  4096 |   48.517 |   32.672 |   15.845 (32.7 %) |   50.996 |   35.116 |   15.881 (31.1 %)
+  22 |   128 |   68.074 |   51.849 |   16.225 (23.8 %) |   70.482 |   54.276 |   16.206 (23.0 %)
+  26 |     8 |   69.380 |   53.023 |   16.357 (23.6 %) |   70.811 |   54.851 |   15.960 (22.5 %)
+  28 |     2 |   81.843 |   65.569 |   16.273 (19.9 %) |   84.358 |   68.132 |   16.227 (19.2 %)
+  29 |     1 |   84.840 |   68.024 |   16.817 (19.8 %) |   87.022 |   70.802 |   16.220 (18.6 %)
