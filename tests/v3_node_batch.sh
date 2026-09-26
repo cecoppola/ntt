@@ -4,6 +4,7 @@
 # 2. 10^11 on the defaults (ECALC_VERBOSE=2: the seed thread's line), and with BS_SEED_TERMS=168 (the batch tier's first products
 #    at 3 2^6 = 192 points instead of 384)
 # 3. 4 x 10^10: defaults, BS_SEED_TERMS=236 (2^8) and 176 (3 2^6)
+# (bench.log also has tests/v3_r3_bench: the radix-3 pass inside a 3 2^k transform)
 set -u
 OUT=~/V314/node; mkdir -p $OUT; cd ~/ntt-V314/ecalc
 J=$(sbatch -p PPAC_MI300A_SPX -N1 --gpus=4 -t 0:30:00 -J V3 --begin=17:32 --parsable --wrap "sleep 1800")
@@ -23,6 +24,7 @@ for f in ['results/e_4e10.out']:
   R lscpu | grep -E "Model name|^CPU\(s\)"
   for k in 4000000000 10000000000 3500000000000; do R env OMP_NUM_THREADS=96 OMP_PROC_BIND=spread ~/V314/v3sb $k 400000; done
   for k in 4000000000 3500000000000; do R env OMP_NUM_THREADS=1 ~/V314/v3sb $k 4000; done
+  R ~/ntt-V314/tests/v3_r3_bench 10 12 17 22 26 28 29
 } > $OUT/bench.log 2>&1
 echo "bench done $(( $(date +%s) - t0 )) s"
 run() { local tag=$1; shift; evict; ( time R env ECALC_VERBOSE=2 ECALC_BUDGET_CHECK=0 "$@" ) > $OUT/$tag.log 2>&1; echo "$tag rc $? $(( $(date +%s) - t0 )) s: $(grep -E 'VERIFY' $OUT/$tag.log | head -1)"; }
