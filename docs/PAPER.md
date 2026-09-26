@@ -9,6 +9,7 @@ non-specialist can follow, the precise mathematics, the conditions under which i
 ## Contents
 
 0. [The map](#0-the-map)
+A. [The whole calculation, step by step](#a-the-whole-calculation-step-by-step)
 1. [Binary splitting: why the cost is M(N)·log N, and why the tree runs level by level](#1-binary-splitting-the-cost-and-the-execution-order)
 2. [Convolution in exact arithmetic: the number-theoretic transform](#2-convolution-in-exact-arithmetic-the-number-theoretic-transform)
 3. [Several primes at once: the residue number system and reconstruction](#3-several-primes-at-once-rns-and-crt)
@@ -74,6 +75,271 @@ Headline results, all measured and verified unless marked:
 | 10¹¹ digits, one node | 263 s, 445 GB |
 | 1.4 × 10¹¹ digits, one node | 485 s, 466.6 GB |
 | 4.25 × 10¹³ digits, 576 nodes | ≈ 3.9 min, 452 GB/node — **modelled** |
+
+---
+
+## A. The whole calculation, step by step
+
+This chapter follows one computation from its input, the number of digits $d$, to its output, the digit
+string. It shows how the problem is broken into parts and transformed at each stage, and why the result is
+exactly right. Every number in it comes from `docs/walk/toy_run.py`, which runs **the same algorithm with
+`ecalc`'s own parameters** on a small input, $d = 200$:
+
+- base-$10^{18}$ limbs;
+- the three primes $c\cdot 2^{44}+1$ and their roots from `modarith.h`;
+- the Newton step of `newton.c` and the division of `newton_divmod`.
+
+It then gives the same stages at the size of a real run, $d = 4\times10^{10}$. The later chapters explain the
+machinery of each stage in depth. This one is the map of how the stages fit together.
+
+### A.1 The chain of transformations
+
+The calculation is a chain of five exact transformations. Only the first one approximates anything:
+
+$$
+\underbrace{e = \sum_{k\ge 0}\frac1{k!}}_{\text{the definition}}
+\ \xrightarrow{\ \text{truncate at }N\ }\
+\underbrace{1 + \frac{P}{Q}}_{\text{binary splitting}}
+\ \xrightarrow{\ \times 10^{d}\ }\
+\underbrace{\frac{A}{Q},\ A = 10^{d}(P+Q)}_{\text{one integer quotient}}
+\ \xrightarrow{\ \text{Newton}\ }\
+\underbrace{X = \Big\lfloor\frac{A}{Q}\Big\rfloor}_{\text{exact integer}}
+\ \xrightarrow{\ \text{format}\ }\
+\text{“2.71828…”}
+$$
+
+**Why the answer is right.** Let $e_N = 1 + P/Q$ be the truncated sum. By the tail bound of §1.2 and the choice
+of $N$ (below), $0 < e - e_N < 1/(N!\,N) < 10^{-(d+50)}$. Multiply by $10^d$:
+
+$$
+0 \;<\; 10^d e - \frac{A}{Q} \;<\; 10^{-50}.
+$$
+
+The integer $X = \lfloor A/Q\rfloor$ therefore equals $\lfloor 10^d e\rfloor$, the first $d+1$ digits of $e$, unless an
+integer lies strictly between $A/Q$ and $10^d e$. That requires the fractional part of $10^d e$ to be below
+$10^{-50}$, meaning 50 consecutive zeros in $e$'s expansion right after position $d$. Everything after truncation
+is exact integer arithmetic, and the division is exact by construction (§A.7). So **the only approximation in the
+whole computation is the truncation, and its error is 50 digits below the last digit reported.**
+
+### A.2 Stage 0: from $d$ to the parameters
+
+**The term count.** $N$ is the smallest integer with $\log_{10}N! \ge d + 50$. Since
+$\log_{10}N! = \ln\Gamma(N+1)/\ln 10$ is increasing, `ecalc` finds $N$ by bisection on the C library's
+`lgamma`: about 60 evaluations (doubling to bracket $N$, then halving), where a linear scan needed $4.3\times10^9$.
+
+**The representation.** Every integer is an array of **limbs**, the digits of the number in base $B = 10^{18}$
+(the largest power of ten below $2^{64}$), stored least significant first:
+
+$$
+x = \sum_{i=0}^{n-1} x_i\,B^{i},\qquad 0 \le x_i < B .
+$$
+
+| quantity | toy run, $d = 200$ | real run, $d = 4\times10^{10}$ |
+|---|---|---|
+| terms $N$ | 145 ($\log_{10}145! = 251.9$) | 4 346 031 742 |
+| $Q = N!$ | 252 digits = 14 limbs | $2.222\times10^9$ limbs (40 GB) |
+| $A = 10^d(P+Q)$ | 26 limbs | $4.444\times10^9$ limbs |
+| reciprocal precision $k = n_A - n_Q + 1$ | 13 limbs | ≈ $2.22\times10^9$ limbs |
+| output $X$ | 201 digits | $4\times10^{10}+1$ digits |
+
+### A.3 Stage 1: the seeds
+
+The range of terms $[0, N)$ is cut into **seed spans** of consecutive terms: 16 in the toy run, 256 in
+`ecalc`. Inside a span, $P$ and $Q$ are built one term at a time with word-sized arithmetic. Adding term $k$ to
+the span $[a, k-1)$ multiplies $Q$ by $k$, and the new term $a!/k!$ becomes exactly $1$ once scaled by the new
+$Q(a,k) = k!/a!$:
+
+$$
+Q(a,k) = Q(a,k-1)\cdot k,\qquad P(a,k) = P(a,k-1)\cdot k + 1 .
+$$
+
+For example, the first span of 8 terms gives $P(0,8)/Q(0,8) = 69281/40320 = \sum_{k=1}^{8}1/k!$. The seeds are
+independent, so `ecalc` computes them on the CPU while the GPUs are still being initialised (RESULTS §69).
+
+### A.4 Stage 2: the merge levels
+
+The seeds are the leaves of a binary tree. Each level merges adjacent pairs with the recurrence of §1.2:
+
+$$
+P = P_1Q_2 + P_2,\qquad Q = Q_1Q_2 .
+$$
+
+A merge is therefore **two big products and one addition**. Both products share the operand $Q_2$. When a level
+has an odd number of nodes, the last one is copied up unchanged. (That copy was the site of the race found in
+§12.4.) The toy run's tree, with the limb count of each node's $Q$:
+
+| level | nodes | limbs of $Q$ per node |
+|---|---|---|
+| 0 (seeds) | 10 | 1 2 2 2 2 2 2 2 2 1 |
+| 1 | 5 | 2 3 4 4 3 |
+| 2 | 3 | 5 8 3 |
+| 3 | 2 | 12 3 |
+| 4 (root) | 1 | 14 |
+
+The sizes roughly double at each level, as §1.3 predicts. They are uneven because later terms are larger:
+the span $[64,128)$ has 8 limbs against 5 for $[0,64)$. At the root, the script checks $Q = 145!$ exactly.
+
+At full size ($d = 4\times10^{10}$) there are 25 levels above the 256-term seeds. The top of the tree is where
+the work is:
+
+| level from the top | nodes | $Q$ of the largest node | product sizes, limbs |
+|---|---|---|---|
+| 3 | 8 | $2.9\times10^8$ | ≈ $2.9\times10^8 \times 2.9\times10^8$ |
+| 2 | 4 | $5.8\times10^8$ | ≈ $5.8\times10^8 \times 5.8\times10^8$ |
+| 1 | 2 | $1.15\times10^9$ | ≈ $1.1\times10^9 \times 1.1\times10^9$ |
+| 0 (root) | 1 | $2.22\times10^9$ | — (the result) |
+
+The last merge produces a product of $2.2\times10^9$ limbs, more than the $2^{31}\approx 2.15\times10^9$-point plane
+cap. It is therefore computed as a grid of piece products (chapter 7), while the lower levels go through the
+batched and per-APU tiers (§1.4).
+
+### A.5 Inside one product
+
+Every product in stages 2, 4 and 5 goes through the same eight steps. Here is the toy run's level-2 merge
+$P(0,64)\cdot Q(64,128)$, a 5-limb number times an 8-limb one.
+
+```mermaid
+flowchart LR
+  L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"]
+  Z --> F0["forward NTT<br/>mod p₀, p₁, p₂"]
+  F0 --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
+  PW --> I0["inverse NTT<br/>× n⁻¹ mod pᵢ"]
+  I0 --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"]
+  G --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
+```
+*Figure A1. One product. Every arrow is exact integer arithmetic. The three primes run independently until
+Garner's step joins them.*
+
+1. **Choose the length.** The product has $5 + 8 - 1 = 12$ coefficients, and the smallest admissible length is
+   $n = 12 = 3\cdot 2^2$, a mixed-radix length (§2.3). A power-of-two design would pad to 16.
+2. **Choose the roots.** For each prime, $\omega_{12} = \omega_{3\cdot2^{33}}^{\,2^{31}}$, a power of the
+   `ec_W3X33` constant. It has exact order 12.
+3. **Forward transforms.** $\hat a = F_{12}\,a$ and $\hat b = F_{12}\,b$ modulo each $p_i$: 12 residues per operand per
+   prime.
+4. **Pointwise product.** $\hat c_k = \hat a_k \hat b_k \bmod p_i$. This single line *is* the convolution.
+5. **Inverse transforms.** $c = n^{-1}F_{12}^{-1}\hat c \bmod p_i$. Each prime now holds every coefficient
+   $c_k = \sum_{i+j=k}a_ib_j$ reduced modulo $p_i$.
+6. **Reconstruct.** Coefficient $c_1 = a_0b_1 + a_1b_0$ arrives as three residues:
+
+   $$
+   c_1 \bmod (p_0, p_1, p_2) = (3358104948782169,\ 3500052316097566,\ 1264840967479048).
+   $$
+
+   Garner's formulas (§3.3) turn them into
+
+   $$
+   c_1 = 138724505180013176\,679894676812120115 \;<\; p_0p_1p_2 \approx 5.8\times10^{46},
+   $$
+
+   the exact value, as the bound $n(B-1)^2 = 1.2\times10^{37} < p_0p_1p_2$ guarantees.
+7. **Carry.** Each coefficient is up to 3 limbs wide, so it is split in base $10^{18}$ and added into the limbs
+   at positions $k$, $k+1$ and $k+2$. Here
+   $c_0 = 54844316730212301\cdot B + 0$ and $c_1 = 138724505180013176\cdot B + 679894676812120115$. So limb 0
+   is 0, limb 1 is $679894676812120115 + 54844316730212301 = 734738993542332416$ (no overflow), and
+   $138724505180013176$ carries into limb 2, and so on.
+8. **Check.** The script asserts that the resulting limbs equal the product computed by Python's own big
+   integers.
+
+At full scale the same eight steps run with $n$ up to $3\cdot 2^{30}$ or $2^{31}$ points per prime, spread across
+the four APUs (chapter 6) or cut into grid pieces (chapter 7). But the mathematics is exactly this.
+
+### A.6 Stage 3: the scaled numerator
+
+The quotient $A/Q$ must have $d$ digits after the point, so the numerator is scaled by $10^d$. In base
+$10^{18}$ that is almost free. With $d = 18\,t + s$ ($0 \le s < 18$),
+
+$$
+A = 10^{d}(P + Q) = \big(10^{s}(P+Q)\big)\cdot B^{t},
+$$
+
+one multiplication by a single word and a shift by $t$ whole limbs. For the toy run, $200 = 18\cdot 11 + 2$:
+multiply $P+Q$ by 100 and shift by 11 limbs, giving $n_A = 26$ limbs. In `ecalc`'s device flow the shift is
+never even materialised: the division reads $A$ as $S\cdot B^{t}$ with $S = P+Q$ (`newton_db_divmod_shifted`).
+
+### A.7 Stage 4: the reciprocal
+
+Division is replaced by multiplication by a precomputed reciprocal. With $n_Q$ limbs in $Q$ and
+$k = n_A - n_Q + 1$ (the number of quotient limbs), `ecalc` computes
+
+$$
+\mu \;\approx\; \Big\lfloor \frac{B^{\,n_Q + k}}{Q} \Big\rfloor ,
+$$
+
+an integer of $k+1$ limbs: the first $k$ limbs of $1/Q$, scaled to be an integer.
+
+**Seed.** From the top 4 limbs $q_t$ of $Q$, rounded up, one schoolbook division gives
+$r = \lfloor B^{6}/(q_t + 1)\rfloor \approx B^{n_Q+2}/Q$, correct to $j = 2$ limbs.
+
+**Schedule.** The precisions are planned backwards from $k$ by halving and rounding up (§8.3):
+$13 \to 7 \to 4 \to 2$, so the steps are $2 \to 4 \to 7 \to 13$.
+
+**Each step** (§8.2) forms the scaled residual $d = B^{2j} - \lfloor Q_t r / B^{\text{take}-j}\rfloor$ and the correction
+$\lfloor r\,|d|/B^{j}\rfloor$. The toy run's steps:
+
+| step | limbs of $Q$ used (`take`) | relative residual $d/B^{2j}$ | error of $r'$ (units in the last limb) |
+|---|---|---|---|
+| $2 \to 4$ | 6 | $6.6\times10^{-37}$ | 0 |
+| $4 \to 7$ | 10 | $3.2\times10^{-73}$ | 0 |
+| $7 \to 13$ | 14 | $3.7\times10^{-128}$ | 0 |
+
+The residual's exponent roughly doubles each step ($-37, -73, -128$): Newton's quadratic convergence,
+measured in digits. Each step also reads only the top $2j+2$ limbs of $Q$. The final $\mu$ equals
+$\lfloor B^{27}/Q\rfloor$ exactly. The error bound of §8.4 allows a few units, and the division absorbs them.
+
+At full scale the same schedule is 31 steps, $2 \to 3 \to 5 \to 9 \to 17 \to \cdots \to 1.11\times10^9 \to 2.22\times10^9$ limbs, and,
+since the precision doubles each step, the last step alone costs about as much as all the earlier ones combined.
+
+### A.8 Stage 5: the quotient and the remainder
+
+With $\mu$ in hand:
+
+1. **Estimate.** Keep only the top $k$ limbs of $A$, $A_h = \lfloor A/B^{\,n_Q-1}\rfloor$ (the dropped limbs change the
+   quotient by less than one unit), and form
+
+   $$
+   X_0 = \Big\lfloor \frac{A_h\,\mu}{B^{\,k+1}} \Big\rfloor \;\approx\; \frac{A}{B^{\,n_Q-1}}\cdot\frac{B^{\,n_Q+k}}{Q}\cdot\frac{1}{B^{\,k+1}} = \frac{A}{Q}.
+   $$
+
+2. **Remainder.** $R = A - X_0Q$. Since $R$ is known to be within a few multiples of $Q$ of zero, only its low
+   $n_Q + 2$ limbs are computed, using a *low product* (§7.2). Its sign is read from the top limb of that window.
+3. **Correct.** While $R < 0$, set $X \leftarrow X - 1$. While $R \ge Q$, set $X \leftarrow X + 1$. Stop with
+   $0 \le R < Q$, which is exactly the definition of $X = \lfloor A/Q\rfloor$. More than 64 corrections aborts the run.
+
+In the toy run, $X_0$ needed **no** corrections, and $R/Q = 0.157$. The result is
+
+$$
+X = 2718281828459045235360287471352662497757247093699959574966967627724076630353547594571382178525166427\ldots5101901,
+$$
+
+all 201 digits of $\lfloor 10^{200}e\rfloor$.
+
+### A.9 Stage 6: digits and verification
+
+**Digits.** $X$ is already decimal. Its top limb holds the leading "2", and every other limb prints as exactly 18
+digits with leading zeros kept. Inserting the decimal point after the first digit gives the output. At full scale
+each node formats its own limbs and streams them to disk in chunks (RESULTS §76).
+
+**Verification.** With $q = 2^{62} + 135$ (the first T1 modulus), the toy run computes both sides of
+$T(P+Q) \equiv XQ + R \pmod q$ independently:
+
+$$
+10^{200}(P+Q) \bmod q = 1911749413146909884 = (XQ + R) \bmod q .
+$$
+
+$P \bmod q$ and $Q \bmod q$ come from running the seed recurrence of §A.3 directly in $\mathbb{Z}/q$, never from the
+big integers. So the identity checks every product, the reciprocal and the division at once (chapter 12).
+
+### A.10 Where each stage's cost goes
+
+| stage | mathematics | dominant operation | 4 × 10¹⁰ digits, Phase 13c (s) |
+|---|---|---|---|
+| seeds | $P, Q$ over 256-term spans | word × limb | overlapped with init |
+| merge levels | $P_1Q_2+P_2$, $Q_1Q_2$ | batched, per-APU and grid products | bs 23.7 |
+| scaling | $A = 10^d(P+Q)$ | limb shift | ≈ 0 |
+| reciprocal + division | $\mu$, then $X$, $R$ | 31 Newton steps + 2 full products | dm 22.5 |
+| digits + verification | formatting, residues | streaming I/O, Horner | < 0.1 (overlapped) |
+
+(Stage times from RESULTS §80: phases 46.3 s of the 63.5 s wall; the rest is initialisation.)
 
 ---
 
@@ -1169,6 +1435,15 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
 - A. J. Yee, y-cruncher: technical documentation. [numberworld.org/y-cruncher](http://www.numberworld.org/y-cruncher/)
 - "High-Performance Computation of e to 40 Billion Decimal Digits on a Single MI300A Node" (the reproduced paper, 4 pp.).
 
+**Instructional sources**
+- R. P. Brent, P. Zimmermann, *Modern Computer Arithmetic*, free electronic version 0.5.9.
+  [PDF](https://maths-people.anu.edu.au/~brent/pd/mca-cup-0.5.9.pdf), especially ch. 1 (integer division by
+  Newton's method) and ch. 2 (the FFT over finite rings, the CRT).
+- cp-algorithms, "Fast Fourier transform" (long-integer multiplication, NTT, iterative butterflies).
+  [cp-algorithms.com/algebra/fft.html](https://cp-algorithms.com/algebra/fft.html)
+- A. J. Yee, "Binary Splitting" (y-cruncher internals: the two-variable "hyperdescent" recursion used for e).
+  [numberworld.org](https://www.numberworld.org/y-cruncher/internals/binary-splitting.html)
+
 **Fast Fourier and number-theoretic transforms**
 - J. W. Cooley, J. W. Tukey, "An algorithm for the machine calculation of complex Fourier series,"
   *Math. Comp.* 19 (1965) 297–301.
@@ -1218,7 +1493,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
 
 In-repository sources: `ALGORITHM.md` (segments S1–S16, reviews R1–R14, corrections in Part 6),
 `RESULTS.md` (§§38–83; section numbers are cited above), `results/R114.md` (the Newton band-cut proof),
-`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Figures 1–9 are generated by
+`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Chapter A's numbers are printed by `docs/walk/toy_run.py`. Figures 1–10 are generated by
 `docs/fig/make_figs.py` from the formulas stated in their captions or from the cited RESULTS sections.
 
 ## Appendix: parameters
