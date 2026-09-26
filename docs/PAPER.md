@@ -47,7 +47,7 @@ APUs (each a CPU and GPU sharing ≈ 128 GB of HBM), or over many such nodes:
 | **T1/T2** — verification | residue identities and digit windows | 12 |
 
 ```mermaid
-flowchart LR
+flowchart TB
   S["seeds<br/>(CPU, 256-term spans)"] --> B["bs: level-synchronous<br/>binary splitting → P, Q"]
   B --> T["10dP: A = 10^d (P+Q)<br/>(a limb shift in base 10¹⁸)"]
   T --> N["dm: Newton reciprocal μ ≈ B^k/Q,<br/>X = ⌊A/Q⌋ with corrections"]
@@ -200,12 +200,15 @@ $P(0,64)\cdot Q(64,128)$, a 5-limb number times an 8-limb one.
 
 ```mermaid
 flowchart TB
-  L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"]
-  Z --> F0["forward NTT<br/>mod p₀, p₁, p₂"]
-  F0 --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
-  PW --> I0["inverse NTT<br/>× n⁻¹ mod pᵢ"]
-  I0 --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"]
-  G --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
+  subgraph R1[" "]
+    direction LR
+    L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"] --> F0["forward NTT<br/>mod p₀, p₁, p₂"] --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
+  end
+  subgraph R2[" "]
+    direction LR
+    I0["inverse NTT<br/>× n⁻¹ mod pᵢ"] --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"] --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
+  end
+  R1 --> R2
 ```
 *Figure A1. One product. Every arrow is exact integer arithmetic. The three primes run independently until
 Garner's step joins them.*
@@ -1418,6 +1421,7 @@ design then halves bs and dm.*
 Grouped by topic. Where a free, authoritative copy exists, a link is given.
 
 **Series evaluation and multiprecision arithmetic**
+
 - B. Haible, T. Papanikolaou, "Fast multiprecision evaluation of series of rational numbers," *ANTS-III*,
   LNCS 1423 (1998) 338–350. [PDF](https://www.ginac.de/CLN/binsplit.pdf)
 - R. P. Brent, P. Zimmermann, *Modern Computer Arithmetic*, Cambridge Univ. Press, 2010: §4.2 (Newton's
@@ -1435,6 +1439,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
 - "High-Performance Computation of e to 40 Billion Decimal Digits on a Single MI300A Node" (the reproduced paper, 4 pp.).
 
 **Instructional sources**
+
 - R. P. Brent, P. Zimmermann, *Modern Computer Arithmetic*, free electronic version 0.5.9.
   [PDF](https://maths-people.anu.edu.au/~brent/pd/mca-cup-0.5.9.pdf), especially ch. 1 (integer division by
   Newton's method) and ch. 2 (the FFT over finite rings, the CRT).
@@ -1444,6 +1449,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
   [numberworld.org](https://www.numberworld.org/y-cruncher/internals/binary-splitting.html)
 
 **Fast Fourier and number-theoretic transforms**
+
 - J. W. Cooley, J. W. Tukey, "An algorithm for the machine calculation of complex Fourier series,"
   *Math. Comp.* 19 (1965) 297–301.
 - W. M. Gentleman, G. Sande, "Fast Fourier transforms — for fun and profit," *AFIPS Fall Joint Computer
@@ -1462,6 +1468,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
   (1963) 595–596.
 
 **Modular and floating-point arithmetic**
+
 - P. Barrett, "Implementing the Rivest Shamir and Adleman public key encryption algorithm on a standard
   digital signal processor," *CRYPTO '86*, LNCS 263, 311–323.
 - P. L. Montgomery, "Modular multiplication without trial division," *Math. Comp.* 44 (1985) 519–521.
@@ -1477,6 +1484,7 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
   transformations, 2MultFMA). [Book page](https://perso.ens-lyon.fr/jean-michel.muller/Handbook.html)
 
 **Parallel algorithms and GPU architecture**
+
 - P. M. Kogge, H. S. Stone, "A parallel algorithm for the efficient solution of a general class of recurrence
   equations," *IEEE Trans. Computers* C-22 (1973) 786–793.
 - R. E. Ladner, M. J. Fischer, "Parallel prefix computation," *J. ACM* 27 (1980) 831–838.

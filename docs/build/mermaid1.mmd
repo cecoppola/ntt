@@ -1,7 +1,10 @@
 flowchart TB
-  L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"]
-  Z --> F0["forward NTT<br/>mod p₀, p₁, p₂"]
-  F0 --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
-  PW --> I0["inverse NTT<br/>× n⁻¹ mod pᵢ"]
-  I0 --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"]
-  G --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
+  subgraph R1[" "]
+    direction LR
+    L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"] --> F0["forward NTT<br/>mod p₀, p₁, p₂"] --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
+  end
+  subgraph R2[" "]
+    direction LR
+    I0["inverse NTT<br/>× n⁻¹ mod pᵢ"] --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"] --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
+  end
+  R1 --> R2

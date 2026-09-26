@@ -1,4 +1,4 @@
-flowchart LR
+flowchart TB
   S["seeds<br/>(CPU, 256-term spans)"] --> B["bs: level-synchronous<br/>binary splitting → P, Q"]
   B --> T["10dP: A = 10^d (P+Q)<br/>(a limb shift in base 10¹⁸)"]
   T --> N["dm: Newton reciprocal μ ≈ B^k/Q,<br/>X = ⌊A/Q⌋ with corrections"]

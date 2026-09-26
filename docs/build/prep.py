@@ -16,7 +16,7 @@ s = re.sub(r"```mermaid\n.*?```\n", lambda _: f"![](build/mermaid{next(k)}.pdf)\
 def fig(mm):
     path, cap = mm.group(1).replace(".svg", ".pdf"), " ".join(mm.group(2).split())
     cap = re.sub(r"^(Figure [A0-9]+\.)", r"**\1**", cap)
-    w = "24%" if "mermaid1" in path else "100%"
+    w = {"mermaid0": "46%", "mermaid1": "88%"}.get(path.split("/")[-1][:-4], "100%")
     return f"![{cap}]({path}){{width={w}}}\n\n"
 s = re.sub(r"!\[[^\]]*\]\(([^)]+)\)\n+\*(Figure .+?)\*\n\n", fig, s, flags=re.S)
 
@@ -59,7 +59,7 @@ header-includes: |
   \\usepackage{{caption}}
   \\captionsetup[figure]{{labelformat=empty,font=small,width=0.92\\textwidth}}
   \\usepackage{{float}}
-  \\floatplacement{{figure}}{{H}}
+  \\floatplacement{{figure}}{{htbp}}
   \\newfontfamily\\fallbackfont[Scale=0.85]{{DejaVu Sans}}
   \\newcommand\\fb[1]{{{{\\fallbackfont #1}}}}
   \\usepackage{{etoolbox}}
