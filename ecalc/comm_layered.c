@@ -46,7 +46,7 @@
 struct lst_rec { double a0, x0, x1, r1, f0, f1, c1, l0, l1; size_t xb, fb; int v; };   /* [l0, l1]: the push kernel's link-active interval (COMM_XGMI_STATS=1) */
 extern "C" int comm_xgmi_last_push(int rank, double *t0, double *t1);   /* comm_xgmi.c */
 struct lst { struct lst_rec *r; int n, cap; };
-static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 0; } return v; }
+static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 1; } return v; }   /* default 1 since Phase 14 (X13b: one transpose kernel; at 576 8.2 ms -> 0.012 ms per transpose); =0 the copies */
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
