@@ -120,7 +120,7 @@ static struct {
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
     size_t round_bytes;                    /* Phase 14 V1: COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
-    long nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges carried in rounds, their rounds, the largest per-round staging (send + recv) */
+    long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* Phase 14 V1: all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
@@ -312,7 +312,7 @@ void comm_shmem_finalize(void)
                S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
         if (S.verbose >= 2) site_print();
         printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads)", S.me, S.nv, S.tv);   /* Phase 14 V1 */
-        if (S.round_bytes) printf("; %ld carried in %ld rounds (COMM_SHMEM_ROUND_MB=%.6g, the largest round's staging %.1f MiB send + recv)", S.nround_ex, S.nrounds, S.round_bytes / 1048576.0, S.round_stage_max / 1048576.0);
+        if (S.round_bytes) printf("; %ld through the rounds' path, %ld of them in %ld rounds (COMM_SHMEM_ROUND_MB=%.6g, the largest round's staging %.1f MiB send + recv)", S.nrpath, S.nround_ex, S.nrounds, S.round_bytes / 1048576.0, S.round_stage_max / 1048576.0);
         printf("\n");
     }
 #ifndef COMM_HOST_ONLY
@@ -556,18 +556,19 @@ static void *rounder(void *a)
         }
     }
     for (int r = 0; r < n; r++) if (r != me) { p->oseq[r] += round_count(scnt[r], c); p->iseq[r] += round_count(rcnt[r], c); }
-    pthread_mutex_lock(&S.alloc_lock); S.nround_ex++; S.nrounds += K; pthread_mutex_unlock(&S.alloc_lock);
+    pthread_mutex_lock(&S.alloc_lock); S.nrpath++; if (K > 1) { S.nround_ex++; S.nrounds += K; } pthread_mutex_unlock(&S.alloc_lock);
     return 0;
 }
-/* the exchange in rounds when a pair of mine needs more than one (else 0: the ordinary exchange, which a peer in rounds meets
- * pair by pair -- a pair of one round is the same words) */
+/* the exchange through the rounds (under COMM_SHMEM_ROUND_MB; else 0: the ordinary exchange.  A pair of one round is the
+ * ordinary exchange's words, so the two paths interoperate pair by pair) */
 static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (!S.round_bytes || n < 2) return 0;
     size_t ch = round_chunk(p); long K = 1;
     for (int r = 0; r < n; r++) if (r != me) { long ko = round_count(scnt[r], ch), ki = round_count(rcnt[r], ch); if (ko > K) K = ko; if (ki > K) K = ki; }
-    if (K < 2) return 0;
+    /* (K = 1 too: under the switch every all-to-all takes this path -- its staging leaves out the self slab, which the ordinary
+     * path stages although it never leaves the node: half the staging at 2 PEs) */
     for (int r = 0; r < n; r++) if (r != me && (p->oseq[r] + K >= ((long)1 << 23) || p->iseq[r] + K >= ((long)1 << 23))) die("exchange sequence overflow (2^23 exchanges or rounds on one communicator)");
     size_t ss = 0, rs = 0;                                /* a slot per peer: its chunk (min(c, count)) */
     for (int r = 0; r < n; r++) { size_t a = r == me ? 0 : scnt[r] < ch ? scnt[r] : ch, b = r == me ? 0 : rcnt[r] < ch ? rcnt[r] : ch; p->spre[r] = ss; p->rpre[r] = rs; ss += a; rs += b; }
