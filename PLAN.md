@@ -1849,3 +1849,37 @@ round trip, `BS_LAYOUT_ONLY` against a real init with `ECALC_INIT_ONLY=1`), fini
 `t_newton` and `t_mul`; e9 identical in both bases; a 4 × 10¹⁰ run identical to `results/e_4e10.out`; `mem_model.py
 --check-c` exact; `./mnaccept.sh --only unit,e9` plus the touched steps; the full regression at each window's close.
 Every number labeled measured / modelled / assumed.
+
+## 35. Phase 14, continued — the adopted defaults, the 10¹¹ standard, and the remaining options (2026-09-26)
+
+**The user's decisions (2026-09-26)**:
+- Adopt as defaults the seven measured switches: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DB_POOL_VMM`
+  (`DM_TIGHT` follows it), `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024` and `ECALC_BUDGET_CHECK`; and for the large job,
+  `COMM_LAYER_TKERNEL=1` and `COMM_SHMEM_POOL_AUTO=1`.
+- **The standard full-size test is 10¹¹ digits** (it was 4 × 10¹⁰).
+- Investigate every remaining option, including the four not-yet-built items.
+
+Branch `p14-defaults`:
+- b257753: the seven switches;
+- 8b476da: `COMM_LAYER_TKERNEL`;
+- 4855842: the standard size `ECALC_STD_DIGITS`, default 10¹¹, in `mnaccept.sh` and `closing.sh`.
+
+`COMM_SHMEM_POOL_AUTO` becomes the default together with the heap sizing it needs (agent V1): with a host heap, `mnrun.sh`
+sizes the heap from the pool before launch.
+
+**Steps**
+1. **The 10¹¹ reference** (`results/e_1e11.out`), built on the new defaults and checked four ways: the ten Phase 11 windows
+   (`ECALC_WINDOWS`), the first 4 × 10¹⁰ digits against `e_4e10.out`, RECHECK, and a second run with all nine new switches
+   off (the old path), compared in full.
+2. **Verification of the defaults at 10¹¹**: the regression (both halves) on the defaults; the same with the nine switches off;
+   the five-run 10¹¹ series (the new baseline). Then merge into `main`.
+3. **Agents** (default model; the Fable credits ran out 2026-09-24):
+   - **V1**: `COMM_SHMEM_POOL_AUTO` by default with the heap sized from the model; **C1**, the transport without the duplicate
+     copy (staging in rounds, or pool-resident exchange buffers), behind a switch.
+   - **V2**: **C2**, `auto` with the per-piece cost; `DIST_TWREC` at 10¹¹; checkpoints with O_DIRECT (`ECALC_CKPT_TOP`, tree
+     sets). Measured verdicts.
+   - **V3**: **C3**, Phase B (B1 initialization, B2 reciprocal, B4 lengths, B5 kernels, B6/B7), and **C4**, E11 (band-sized
+     products): a ranked investigation (benefit at 10¹¹ and at the 576 target, memory, effort, risk). No pipeline code.
+4. **The Python models** follow the new defaults (`DM_TIGHT`, early free, chunking, pool auto); `estimate.py --target` and
+   `results/DESIGN_TABLE.md` regenerated; RESULTS §85 with the new 10¹¹ baseline and the 576-node estimate.
+5. The user decides on V1–V3's findings; then Phase B in the order V3 recommends.
