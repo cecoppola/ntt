@@ -6,8 +6,9 @@
 # <procs> (Slurm places tasks by blocks otherwise, and COMM_HOSTS must match the placement), listed explicitly.
 #   mnrun.sh <procs> <command...>          e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
 # SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by srun's PMIx (OpenMPI 4.1.6 OSHMEM on aac6; the
-# target's srun likewise), rank = PE.  COMM_SHMEM_POOL_MB (8192) sizes the transport's symmetric pool; the OSHMEM
-# heap is set 512 MiB above it.  setarch -L (the legacy bottom-up mmap layout) makes OSHMEM's scan of the static
+# target's srun likewise), rank = PE.  COMM_SHMEM_POOL_MB sizes the transport's symmetric pool (unset: the run's modelled
+# need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); a host heap (OSHMEM, SOS without COMM_SHMEM_DEVHEAP) is set
+# 512 MiB above it.  setarch -L (the legacy bottom-up mmap layout) makes OSHMEM's scan of the static
 # data segments deterministic across the PEs -- without it every anonymous mapping below liboshmem (thread stacks,
 # malloc arenas) is registered and their count differs per PE, and shmem_init crashes in the key exchange about
 # half the time (results/S.md).
@@ -23,6 +24,28 @@ hosts=$(echo "$use" | awk -v per=$per '{ for (i = 0; i < per; i++) printf "%s%s"
 list=$(echo "$use" | paste -sd,)
 export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}    # a per-run port base: a straggler of a failed run must not catch the next run's connections (M3 uses base .. base + 6656); below the ephemeral range 32768-60999, where a listener collides with any outgoing connection now and then (S: "bind: Address already in use" once in ~4 runs at 8 processes)
 if [ "$COMM_TRANSPORT" = shmem ]; then
+    # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
+    # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
+    # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
+    # COMM_SHMEM_POOL_MB -- so COMM_SHMEM_POOL_AUTO (on in ecalc by default) finds the pool already at the need, and a host heap
+    # (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE = pool + 512 MiB) holds it.  Other commands: 8192 as before.
+    # MNRUN_PLAN_POOL=0 skips the plan.
+    if [ -z "${COMM_SHMEM_POOL_MB:-}" ] && [ "${MNRUN_PLAN_POOL:-1}" != 0 ]; then
+        pbin=; pd=; pas=()
+        for a in "$@"; do
+            if [ -n "$pbin" ]; then case "$a" in -*) continue;; esac; case "$a" in *[!0-9]*|"") ;; *) pd=$a;; esac; break; fi
+            case "$a" in [A-Za-z_]*=*) pas+=("$a"); continue;; -*) continue;; esac
+            f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
+            head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
+            readelf -d "$f" 2>/dev/null | grep NEEDED | grep -q -e libsma -e liboshmem && pbin=$f
+        done
+        if [ -n "$pbin" ] && [ -n "$pd" ]; then
+            pline=$(bash -lc 'module load rocm > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" COMM_TRANSPORT=shmem MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
+            pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
+            if [ -n "$pmb" ]; then export COMM_SHMEM_POOL_MB=$pmb; echo "mnrun.sh: COMM_SHMEM_POOL_MB=$pmb from MN_PLAN_ONLY=$pd:$P ($(echo "$pline" | sed 's/^plan pool *//'))"
+            else echo "mnrun.sh: MN_PLAN_ONLY=$pd:$P of $pbin gave no 'plan pool' line: the pool stays at COMM_SHMEM_POOL_MB=8192" >&2; fi
+        fi
+    fi
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL
     # Phase 12 S: the implementation the binary was built against: SOS (make SHMEM_HOME=~/sos; libsma) or OSHMEM (oshcc).
