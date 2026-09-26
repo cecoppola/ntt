@@ -244,7 +244,7 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
 static void budget_check(unsigned long N, int verbose)
 {
-    const char *sw = getenv("ECALC_BUDGET_CHECK"); if (!sw || !atoi(sw)) return;
+    const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on since Phase 14 (C314); =0 off */
     int me = mn_rank(), sz = mn_size(); if (sz < 1) sz = 1;
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = (rns_pool_log() >= 31 ? 2 : 0) + (rns_planes_3q30 ? 1 : 0);

@@ -184,7 +184,21 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
  * request are new chunks created for the remainder (a growth by mapping, counted apart; never a hipMalloc).  The host cannot
  * write a VMM range (a CPU store segfaults): the seed thread's stores go through its buffers and DMA under this switch. */
 static int g_vmm_on = -1;
-int db_pool_vmm_on(void) { if (g_vmm_on < 0) { const char *e = getenv("DB_POOL_VMM"); g_vmm_on = e ? atoi(e) != 0 : 0; } return g_vmm_on; }
+int db_pool_vmm_on(void)
+{
+    if (g_vmm_on < 0) {
+        const char *e = getenv("DB_POOL_VMM");
+        g_vmm_on = e ? atoi(e) != 0 : 1;                                  /* default 1 since Phase 14 (R114) */
+        /* the engine-2 batch tier and the CPU schoolbook tier write pool memory from the host, which a VMM range forbids */
+        int host_tiers = (getenv("RNS_ENGINE") && atoi(getenv("RNS_ENGINE")) == 2) || (getenv("BS_SCHOOL_NL") && atol(getenv("BS_SCHOOL_NL")) > 0);
+        if (g_vmm_on && host_tiers) {
+            if (e) { fprintf(stderr, "DB_POOL_VMM=1 cannot be combined with RNS_ENGINE=2 or BS_SCHOOL_NL > 0 (they write pool memory from the host)\n"); exit(2); }
+            g_vmm_on = 0;
+            fprintf(stderr, "dbig pool: DB_POOL_VMM off (RNS_ENGINE=2 or BS_SCHOOL_NL set: host-writing tiers)\n");
+        }
+    }
+    return g_vmm_on;
+}
 static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg; } g_vmm[DB_NQ];   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */

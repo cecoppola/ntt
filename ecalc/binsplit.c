@@ -315,8 +315,8 @@ static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 40
  * after the top level its dead inputs' space becomes the block pool's tail (db_pool_retarget_tail); =2 -- also v2 without the P term
  * (E5: P spilled during the reciprocal), which needs the spill (W2): refused at init until dm_p_spill_wired says it is there. */
 int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0, mn_tree_early_free = -1;
-void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : 0; dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0;
-                                            mn_tree_early_free = getenv("MN_TREE_EARLY_FREE") ? atoi(getenv("MN_TREE_EARLY_FREE")) : 0; } }
+void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (Phase 14; it places DM_TIGHT's blocks) */ dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0;
+                                            mn_tree_early_free = getenv("MN_TREE_EARLY_FREE") ? atoi(getenv("MN_TREE_EARLY_FREE")) : 1;   /* default 1 since Phase 14 (T114) */ } }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* Phase 12 G (agent G, minimal: the body): the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary

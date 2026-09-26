@@ -170,8 +170,8 @@ One process per node, four APUs per process (the process drives its APUs with fo
 
 ```
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
-export MN_T_CHUNK_MB=1024                     # Phase 14 P2: needed for the pool to fit (the user's decision; without it the pool is 77824 MiB and the node 525 GB)
-export COMM_SHMEM_POOL_MB=43008               # Phase 14 P2: the measured law at 4.25e13 / 576 with MN_T_CHUNK_MB=1024 (MN_PLAN_ONLY prints it: `plan pool`)
+export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity: without it the pool is 77824 MiB and the node 525 GB
+export COMM_SHMEM_POOL_MB=43008               # the measured law at 4.25e13 / 576 with MN_T_CHUNK_MB=1024 (MN_PLAN_ONLY prints it: `plan pool`)
 export SHMEM_SYMMETRIC_HEAP_SIZE=43520M XT_SYMMETRIC_HEAP_SIZE=43520M  # the pool + 512 MiB
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
@@ -181,7 +181,7 @@ srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=bl
 
 The argument is the **total** digit count, not the per-node share (the pre-13c text had 61000000000, the per-node
 share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.25 × 10¹³ is the target since Phase 13d (§5 step 6; RESULTS §82): the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
-The defaults since Phase 13c are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
+The defaults (Phase 13c, extended in Phase 14: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DM_TIGHT` + `DB_POOL_VMM`, `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024`, `ECALC_BUDGET_CHECK`; RESULTS §85) are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
 `COMM_ALLTOALLV_DEPTH=2`, with K's kernels `NTT_B1R=3 NTT_PLAN=1` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
 
 `COMM_RANK`/`COMM_SIZE` are what `mn_init` reads for the rank and the size (under SHMEM the PE number is checked
