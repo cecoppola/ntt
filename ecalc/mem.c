@@ -182,7 +182,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
 void mem_dev_note(int dev, void *p, size_t bytes)    /* Phase 14 R1 (E8): a device range mapped elsewhere (the VMM arena) enters the registry: mem_dev_of / in_arena work as for hipMalloc'd memory */
 {
 #pragma omp critical(memreg)
-    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
+    { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 2; nreg++; }   /* stage 2: a noted VMM arena (its borrowed part is the pool's) */
 }
 void mem_dev_forget(void *p) { reg_del(p); }         /* drop from the registry without freeing (ownership passed on) */
 void mem_dev_free(void *p)
@@ -387,10 +387,15 @@ static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NC
 {
     memset(dev, 0, (size_t)ndev * MEM_DEV_NCAT * sizeof(size_t)); memset(host, 0, MEM_HOST_NCAT * sizeof(size_t));
     for (int i = 0; i < g_nacct; i++) g_acct[i](ndev, dev);
+    size_t noted[64] = {0};
     for (int i = 0; i < nreg; i++) {
-        if (reg[i].dev >= 0 && reg[i].dev < ndev) dev[reg[i].dev][MEM_DEV_REGIONS] += reg[i].bytes;
+        if (reg[i].dev >= 0 && reg[i].dev < ndev) { dev[reg[i].dev][MEM_DEV_REGIONS] += reg[i].bytes; if (reg[i].stage == 2 && reg[i].dev < 64) noted[reg[i].dev] += reg[i].bytes; }
         else if (reg[i].dev < 0) host[reg[i].stage ? MEM_HOST_STAGING : MEM_HOST_REGISTERED] += reg[i].bytes;
     }
+    /* Phase 14: a VMM arena (DB_POOL_VMM) stays in the registry while the pool borrows parts of it; count those bytes once
+     * (as pool:borrowed / donated), not also as regions -- the budget check and the mem tables read this total (it had double-counted:
+     * 488 GB "in use" at 1e11 against ~363 real) */
+    for (int d = 0; d < ndev && d < 64; d++) if (noted[d]) { size_t pooled = dev[d][MEM_DEV_POOL_BORROWED] + dev[d][MEM_DEV_POOL_DONATED], sub = pooled < noted[d] ? pooled : noted[d]; dev[d][MEM_DEV_REGIONS] -= sub; }   /* under VMM every pool byte is the arena's */
     host[MEM_HOST_X] = g_host_item[MEM_HOST_X]; host[MEM_HOST_DIGITS] = g_host_item[MEM_HOST_DIGITS]; host[MEM_HOST_NAMED] = g_host_item[MEM_HOST_NAMED];
     host[MEM_HOST_RSS] = mem_vmrss(); host[MEM_HOST_HWM] = mem_vmhwm();
     size_t known = host[MEM_HOST_STAGING] + host[MEM_HOST_REGISTERED] + host[MEM_HOST_X] + host[MEM_HOST_DIGITS] + host[MEM_HOST_NAMED];
