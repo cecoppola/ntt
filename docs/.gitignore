@@ -1,0 +1,8 @@
+build/paper*
+build/pandoc.out
+build/*.aux
+build/*.log
+build/*.out
+build/*.toc
+build/mermaid*.svg
+fig/*.pdf

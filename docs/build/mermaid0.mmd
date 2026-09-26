@@ -1,0 +1,10 @@
+flowchart LR
+  S["seeds<br/>(CPU, 256-term spans)"] --> B["bs: level-synchronous<br/>binary splitting → P, Q"]
+  B --> T["10dP: A = 10^d (P+Q)<br/>(a limb shift in base 10¹⁸)"]
+  T --> N["dm: Newton reciprocal μ ≈ B^k/Q,<br/>X = ⌊A/Q⌋ with corrections"]
+  N --> O["digits: format base-10¹⁸ limbs,<br/>stream to disk"]
+  B -. "P, Q mod q" .-> V["T1/T2: residue identities<br/>and digit windows"]
+  N -. "X, R mod q" .-> V
+  O -. "digits mod q" .-> V
+  M(["the multiply: RNS–NTT, 3 primes,<br/>batched / per-APU / distributed / grid"]) === B
+  M === N

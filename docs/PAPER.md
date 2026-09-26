@@ -199,7 +199,7 @@ Every product in stages 2, 4 and 5 goes through the same eight steps. Here is th
 $P(0,64)\cdot Q(64,128)$, a 5-limb number times an 8-limb one.
 
 ```mermaid
-flowchart LR
+flowchart TB
   L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"]
   Z --> F0["forward NTT<br/>mod p₀, p₁, p₂"]
   F0 --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
@@ -308,7 +308,7 @@ With $\mu$ in hand:
 In the toy run, $X_0$ needed **no** corrections, and $R/Q = 0.157$. The result is
 
 $$
-X = 2718281828459045235360287471352662497757247093699959574966967627724076630353547594571382178525166427\ldots5101901,
+X = 2\,7182818284\,5904523536\,0287471352\,6624977572\,\ldots\,8298807531\,9525101901,
 $$
 
 all 201 digits of $\lfloor 10^{200}e\rfloor$.
@@ -367,11 +367,10 @@ Then for any split point $a < m < b$, since every term of the right half carries
 $1/Q(a,m)$,
 
 $$
-\frac{P(a,b)}{Q(a,b)} = \frac{P(a,m)}{Q(a,m)} + \frac{1}{Q(a,m)}\cdot\frac{P(m,b)}{Q(m,b)}
-\quad\Longrightarrow\quad
-
-$$
-P(a,b) = P(a,m)\,Q(m,b) + P(m,b), \qquad Q(a,b) = Q(a,m)\,Q(m,b),
+\begin{aligned}
+\frac{P(a,b)}{Q(a,b)} &= \frac{P(a,m)}{Q(a,m)} + \frac{1}{Q(a,m)}\cdot\frac{P(m,b)}{Q(m,b)},\\[4pt]
+\text{hence}\quad P(a,b) &= P(a,m)\,Q(m,b) + P(m,b), \qquad Q(a,b) = Q(a,m)\,Q(m,b),
+\end{aligned}
 $$
 
 with leaves $P(a,a{+}1) = 1,\ Q(a,a{+}1) = a+1$, and $e = 1 + P(0,N)/Q(0,N)$ with an error below
