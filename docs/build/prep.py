@@ -16,7 +16,7 @@ s = re.sub(r"```mermaid\n.*?```\n", lambda _: f"![](build/mermaid{next(k)}.pdf)\
 def fig(mm):
     path, cap = mm.group(1).replace(".svg", ".pdf"), " ".join(mm.group(2).split())
     cap = re.sub(r"^(Figure [A0-9]+\.)", r"**\1**", cap)
-    w = {"mermaid0": "46%", "mermaid1": "88%"}.get(path.split("/")[-1][:-4], "100%")
+    w = {"mermaid0": "38%"}.get(path.split("/")[-1][:-4], "100%")
     return f"![{cap}]({path}){{width={w}}}\n\n"
 s = re.sub(r"!\[[^\]]*\]\(([^)]+)\)\n+\*(Figure .+?)\*\n\n", fig, s, flags=re.S)
 

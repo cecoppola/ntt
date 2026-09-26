@@ -239,7 +239,35 @@ def fig_regblock():
     save(fig, "regblock.svg")
 
 
+# 11. from a number to planes and back: the data objects of one product
+def fig_representation():
+    fig, ax = plt.subplots(figsize=(8.6, 4.6)); ax.grid(False); ax.axis("off")
+    cols = [C1, C2, C3, C4]
+    def bar(y, x0, w, col, label=None, hatch=None, tc="white"):
+        ax.add_patch(Rectangle((x0, y), w, 0.55, facecolor=col, edgecolor=SURF, lw=1.5, hatch=hatch))
+        if label: ax.text(x0 + w / 2, y + 0.27, label, ha="center", va="center", fontsize=8, color=tc)
+    # row 1: the integer, as four quarters of limbs
+    ax.text(0, 5.05, "a big integer x = Σ xₘ Bᵐ, B = 10¹⁸: an array of n limbs (uint64), least significant first, in four quarters", fontsize=8.5)
+    for q in range(4): bar(4.35, q * 2.5, 2.5, cols[q], f"quarter {q}: HBM of APU {q}")
+    ax.text(0, 4.1, "x₀", fontsize=8, color=INK2); ax.text(9.7, 4.1, "xₙ₋₁", fontsize=8, color=INK2)
+    # row 2: planes
+    ax.text(0, 3.55, "load (canon64): one plane per prime, plane_i[m] = xₘ mod pᵢ for m < n, zero for n ≤ m < L", fontsize=8.5)
+    for i in range(3):
+        y = 2.85 - i * 0.62
+        bar(y, 0, 6.2, "#86b6ef", f"p{'₀₁₂'[i]}: residues < 2⁵², one uint64 each", tc=INK)
+        bar(y, 6.2, 3.8, "#e4e3df", "zero padding to length L", tc=INK2)
+    ax.text(10.25, 2.2, "3 planes ×\nL points ×\n8 bytes", fontsize=8, color=INK2, va="center")
+    # row 3: what happens to the planes
+    steps = ["forward NTT\n(in place, bit-reversed)", "pointwise ×\nother operand", "inverse NTT\n× L⁻¹", "Garner: 3 residues\n→ cₘ < p₀p₁p₂", "carry: cₘ → 3 limbs\n→ result array"]
+    for t, lab in enumerate(steps):
+        ax.add_patch(Rectangle((t * 2.05, 0.35), 1.85, 0.75, facecolor=GRID, edgecolor=MUTED, lw=1))
+        ax.text(t * 2.05 + 0.925, 0.72, lab, ha="center", va="center", fontsize=7.8)
+        if t < 4: ax.annotate("", xy=(t * 2.05 + 2.03, 0.72), xytext=(t * 2.05 + 1.87, 0.72), arrowprops=dict(arrowstyle="->", color=INK2))
+    ax.set_xlim(-0.1, 11.2); ax.set_ylim(0.2, 5.3)
+    save(fig, "representation.svg")
+
+
 if __name__ == "__main__":
-    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases, fig_regblock):
+    for f in (fig_bs_tree, fig_padding, fig_dif, fig_swizzle, fig_fourstep, fig_grid, fig_newton, fig_twoprod, fig_phases, fig_regblock, fig_representation):
         f()
     print("ok")

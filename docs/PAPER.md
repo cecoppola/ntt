@@ -9,7 +9,9 @@ non-specialist can follow, the precise mathematics, the conditions under which i
 ## Contents
 
 0. [The map](#0-the-map)
-A. [The whole calculation, step by step](#a-the-whole-calculation-step-by-step)
+A. [Concepts and terminology](#a-concepts-and-terminology)
+B. [The whole calculation, step by step, at 1.4 × 10¹¹ digits](#b-the-whole-calculation-step-by-step-at-14--10¹¹-digits)
+C. [From mathematics to the machine](#c-from-mathematics-to-the-machine)
 1. [Binary splitting: why the cost is M(N)·log N, and why the tree runs level by level](#1-binary-splitting-the-cost-and-the-execution-order)
 2. [Convolution in exact arithmetic: the number-theoretic transform](#2-convolution-in-exact-arithmetic-the-number-theoretic-transform)
 3. [Several primes at once: the residue number system and reconstruction](#3-several-primes-at-once-rns-and-crt)
@@ -76,25 +78,170 @@ Headline results, all measured and verified unless marked:
 | 1.4 × 10¹¹ digits, one node | 485 s, 466.6 GB |
 | 4.25 × 10¹³ digits, 576 nodes | ≈ 3.9 min, 452 GB/node — **modelled** |
 
+**How to read this paper.** Chapter A defines the vocabulary. Chapter B follows one real run, 1.4 × 10¹¹ digits,
+from its input to its output. Chapter C shows how each mathematical object is held in memory and operated on by
+the machine. Chapters 1–14 then treat each technique in depth.
+
 ---
 
-## A. The whole calculation, step by step
+## A. Concepts and terminology
 
-This chapter follows one computation from its input, the number of digits $d$, to its output, the digit
-string. It shows how the problem is broken into parts and transformed at each stage, and why the result is
-exactly right. Every number in it comes from `docs/walk/toy_run.py`, which runs **the same algorithm with
-`ecalc`'s own parameters** on a small input, $d = 200$:
+This chapter defines every term the rest of the paper uses, and explains what each object *is*: a number, an
+array, an operation or a piece of hardware. Terms are grouped by the layer they belong to, and each group
+builds on the previous one.
 
-- base-$10^{18}$ limbs;
-- the three primes $c\cdot 2^{44}+1$ and their roots from `modarith.h`;
-- the Newton step of `newton.c` and the division of `newton_divmod`.
+### A.1 Numbers and how they are written down
 
-It then gives the same stages at the size of a real run, $d = 4\times10^{10}$. The later chapters explain the
-machinery of each stage in depth. This one is the map of how the stages fit together.
+- **Digit, decimal digit.** One of 0–9 in the decimal expansion of $e = 2.71828\ldots$ "Computing $d$ digits" means
+  producing the integer $\lfloor 10^d e\rfloor$ exactly, whose decimal form is "2" followed by $d$ digits.
+- **Big integer (multiprecision integer).** An integer too large for one machine register. Here the integers have
+  billions of decimal digits, and every quantity in the algorithm ($P$, $Q$, $A$, $X$, $\mu$) is one.
+- **Base, radix $B$.** The number in which a big integer is written positionally, $x = \sum_{m} x_m B^m$. `ecalc`
+  uses $B = 10^{18}$, the largest power of ten that fits in a 64-bit word ($10^{18} < 2^{64} \approx 1.8\times10^{19}$).
+- **Limb.** One base-$B$ "digit" $x_m$, with $0 \le x_m < B$, stored as one 64-bit unsigned integer (`uint64_t`).
+  A limb holds exactly 18 decimal digits. The **limb count** $n$ of $x$ is its length in limbs, so $x < B^n$.
+- **Little-endian.** Limb $x_0$ (the least significant) is stored first, at the lowest memory address. Multiplying
+  by $B^t$ is then "move every limb $t$ places up", and dividing by $B^t$ with truncation is "drop the lowest $t$
+  limbs".
+- **Precision (in limbs).** When a number approximates a real quantity, such as $1/Q$, its precision is how many
+  of its leading limbs are correct.
+- **Unit (in the last place).** An error of "a few units" means a few times $B^0$ in the integer being computed,
+  i.e. a few times the value of its lowest limb.
+- **$W$, bytes per digit.** $W$ is the size of the final result in memory. In base $10^{18}$, 18 digits take 8 bytes,
+  so $W \approx 0.444$ bytes per digit. The whole machine's memory, divided by the bytes needed per digit,
+  bounds the digit count.
 
-### A.1 The chain of transformations
+### A.2 Modular arithmetic
 
-The calculation is a chain of five exact transformations. Only the first one approximates anything:
+- **Modulus, residue.** For a positive integer $p$ (the **modulus**), $x \bmod p$ is the remainder of $x$ divided
+  by $p$, a number in $[0, p)$. Two integers are **congruent** mod $p$, written $x \equiv y \pmod p$, when they
+  have the same remainder. Addition and multiplication "commute" with taking remainders:
+  $(x\cdot y) \bmod p = \big((x \bmod p)(y\bmod p)\big)\bmod p$.
+- **Prime field $\mathbb{Z}/p$.** For a prime $p$, the residues $\{0, \ldots, p-1\}$ with addition and multiplication
+  mod $p$ form a field. Every nonzero residue has a multiplicative **inverse** $x^{-1}$ with $x\,x^{-1} \equiv 1$, so
+  division is possible. This is what lets a Fourier transform work with integers.
+- **Canonical and lazy representation.** A residue is **canonical** when stored in $[0, p)$. It is **lazy** when it
+  is allowed to lie in a slightly larger range such as $[0, 2p)$: it still represents $x \bmod p$, and the final
+  reduction is postponed to save instructions.
+- **Modular reduction.** Computing $x \bmod p$ from a larger $x$, for example the 104-bit product of two residues.
+  Division is slow on every processor, so fast methods replace it with multiplication by a precomputed
+  approximation of $1/p$ plus a small correction. The three standard methods are **Barrett** (a precomputed
+  reciprocal of $p$), **Montgomery** (arithmetic in a scaled form) and **Shoup** (a precomputed quotient for one
+  fixed multiplier). Chapter 4 compares them.
+- **Residue number system (RNS).** Representing an integer $c$ by its residues $(c \bmod p_0, c \bmod p_1,
+  c\bmod p_2)$ for several **coprime** moduli (no common factor). Arithmetic can proceed independently for each
+  modulus.
+- **Chinese remainder theorem (CRT).** If $0 \le c < p_0p_1p_2$, the residues determine $c$ uniquely.
+  **Garner's algorithm** is the standard way to reconstruct $c$ from its residues (§3.3).
+
+### A.3 Polynomials, convolution and transforms
+
+- **Coefficient vector.** The limbs $(x_0, \ldots, x_{n-1})$ of an integer read as the coefficients of the
+  polynomial $x(t) = \sum x_m t^m$. Setting $t = B$ recovers the integer.
+- **Convolution.** The coefficients of a product of polynomials, $c_k = \sum_{i+j=k} a_i b_j$. Integer multiplication
+  is convolution followed by **carry propagation** (bringing each $c_k$ back into $[0, B)$ by moving the excess
+  upward). Direct convolution costs $n^2$ multiplications. **Cyclic** convolution wraps indices around mod $L$,
+  and it equals the ordinary (acyclic) one when $L \ge \ell_a + \ell_b - 1$.
+- **Root of unity.** An $\omega$ with $\omega^L = 1$. It is **primitive** of **order** $L$ when no smaller power
+  equals 1. In $\mathbb{Z}/p$ such an $\omega$ exists exactly when $L$ divides $p-1$ (§2.2).
+- **Discrete Fourier transform (DFT).** The linear map $\hat x_k = \sum_{m<L} x_m\,\omega^{mk}$: a vector of $L$
+  values in, $L$ values out. It is the evaluation of the polynomial $x(t)$ at the $L$ points $\omega^0, \ldots,
+  \omega^{L-1}$. Its key property is that it turns cyclic convolution into a pointwise product. Over $\mathbb{Z}/p$
+  it is called the **number-theoretic transform (NTT)**, and it is exact.
+- **Transform length, points.** $L$ is the length and its entries are **points**. A product needs $L \ge
+  \ell_a + \ell_b - 1$, so shorter operands are **zero-padded**. Admissible lengths here are $2^k$ and $3\cdot2^k$.
+- **FFT.** Any algorithm computing the DFT in $O(L\log L)$ operations instead of $L^2$, by factoring it into
+  $\log_2 L$ **stages**. Each stage consists of $L/2$ **butterflies**: small 2-in, 2-out operations
+  $(u, v) \mapsto (u + v,\ (u-v)\,\omega^j)$.
+- **Twiddle factor.** The power $\omega^j$ multiplying one butterfly. There are many distinct twiddles, so they
+  come from tables.
+- **Bit-reversed order.** The FFT naturally produces outputs in an order where index $k$ sits at the position
+  whose binary digits are $k$'s reversed. DIF (decimation in frequency) produces this order and DIT (decimation
+  in time) consumes it, so the pair needs no reordering (§2.4).
+- **Pointwise product.** Multiplying two transformed vectors entry by entry, $\hat c_k = \hat a_k\hat b_k$. It is the
+  only step that actually "multiplies".
+- **Plane.** `ecalc`'s name for one transform-sized array of residues: $L$ points for one prime, stored as
+  consecutive `uint64_t`. A product uses one plane per prime per operand. The **plane cap** ($2^{31}$ points by
+  default) is the largest plane the device pools provide.
+- **Mixed radix.** A length with more than one prime factor, here $3\cdot 2^k$, computed with a radix-3 stage
+  alongside radix-2 stages.
+
+### A.4 The algorithm's objects
+
+- **Term, partial sum, truncation.** Term $k$ of the series is $1/k!$. The partial sum up to $N$ is
+  $e_N = \sum_{k\le N}1/k!$, and truncation is replacing $e$ by $e_N$.
+- **$P$, $Q$ (binary splitting).** Integers with $P(a,b)/Q(a,b) = \sum_{k=a+1}^{b} a!/k!$ and $Q(a,b) = b!/a!$. The
+  whole sum is $P(0,N)/Q(0,N)$, and $Q(0,N) = N!$.
+- **Span, node, seed, level, merge.** A **span** is a range of terms $[a,b)$, and a **node** is the pair
+  $(P(a,b), Q(a,b))$ for a span. **Seeds** are the initial nodes, 256 terms each. A **level** is one layer of the
+  binary tree. A **merge** combines two adjacent nodes into one: $P = P_1Q_2 + P_2$, $Q = Q_1Q_2$.
+- **Numerator $A$, quotient $X$, remainder $R$.** $A = 10^d(P+Q)$, $X = \lfloor A/Q \rfloor$, and $R = A - XQ$ with
+  $0 \le R < Q$. $X$ *is* the answer: its decimal digits are "2718…".
+- **Reciprocal $\mu$.** An integer approximating $B^{n_Q+k}/Q$, i.e. $1/Q$ scaled to have $k$ correct limbs. The
+  division becomes a multiplication by $\mu$.
+- **Newton iteration, precision doubling.** A refinement $r \mapsto r + r(1-Qr)$ that roughly doubles the number of
+  correct limbs of $r \approx 1/Q$ per step. Each step is computed at the precision it will deliver.
+- **High, low and middle products.** Parts of a product: the top limbs only (**high**), the bottom $w$ limbs only
+  (**low**), or a band in between. When only part is needed, part of the work can be skipped.
+- **Grid, piece.** A product too large for one plane is cut into a $k_a\times k_b$ **grid** of smaller **piece
+  products** that are added together at shifted positions (chapter 7).
+- **Radix conversion.** Converting a binary number to decimal. `ecalc` avoids it entirely by working in base
+  $10^{18}$ (chapter 9).
+
+### A.5 The machine
+
+- **Node, APU, MI300A.** A **node** is one server. Each node here has four AMD Instinct MI300A **APUs**
+  (accelerated processing units). An APU is a single package holding CPU cores, GPU compute dies and 128 GB of
+  **HBM** (high-bandwidth memory) that both can address.
+- **XCD, CU, wavefront, lane.** The GPU part of an MI300A has 6 accelerator dies (**XCDs**) with 228 **compute units**
+  (CUs) in total. A CU runs **wavefronts** of 64 **lanes** (threads) in lockstep. One instruction therefore performs
+  64 operations, one per lane.
+- **VALU, registers, LDS.** The **VALU** (vector ALU) executes a wavefront's arithmetic. **Registers** (VGPRs)
+  are the fastest storage, private to a lane. The **LDS** (local data share) is 64 KiB of fast on-chip memory per
+  CU, shared by the threads of a block and divided into 32 **banks**. Accesses that hit the same bank in one
+  cycle serialise: a **bank conflict**.
+- **Kernel, launch, block, stream.** A **kernel** is a GPU function run by many threads at once. A **launch** starts
+  one (about 4 µs of overhead). Threads are grouped into **blocks** that share an LDS allocation. A **stream** is
+  a queue of launches and copies that execute in order.
+- **Occupancy, latency hiding.** The number of wavefronts resident on a CU. While one wavefront waits for memory,
+  another computes. Enough independent work in flight hides memory latency.
+- **Bandwidth, NUMA.** **Bandwidth** is bytes per second. MI300A reads its own HBM at ≈ 3.8 TB/s and another
+  APU's at ≈ 93 GB/s. That asymmetry makes the node **NUMA** (non-uniform memory access): where data lives
+  decides how fast it can be read.
+- **Infinity Fabric, xGMI, all-to-all.** The links between the four APUs. An **all-to-all** is a collective
+  exchange in which every APU sends a distinct block to every other APU.
+- **Rank.** One participant in a distributed computation: an APU within a node, or a process across nodes.
+- **Device and host memory; pinned (registered) memory.** Memory allocated for GPU use (`hipMalloc`) versus
+  ordinary process memory. **Pinned** host memory is locked in place so the GPU can read it directly.
+- **Pool, arena, fragmentation, virtual memory mapping.** A **pool** or **arena** is a large region allocated once
+  and subdivided by the program. **Fragmentation** is free space split into holes too small for a request.
+  **Virtual memory mapping** assigns physical memory to addresses on demand, so scattered physical chunks can
+  appear contiguous.
+
+### A.6 Verification
+
+- **Check modulus $q$.** A 62-bit prime used only for verification. The **residue** of a big integer, $x \bmod q$, is
+  a fingerprint: equal numbers have equal residues, and unequal ones almost never do.
+- **Horner's rule.** Evaluating $x \bmod q = (\cdots((x_{n-1}B + x_{n-2})B + x_{n-3})\cdots)\bmod q$, one limb at a
+  time, with word-sized arithmetic.
+- **T1, T2.** The two verification tiers: identities between residues (T1), and 50-digit windows compared with
+  published digits of $e$ (T2).
+
+## B. The whole calculation, step by step, at 1.4 × 10¹¹ digits
+
+This chapter follows one real computation from its input to its output: **$d = 1.4\times 10^{11}$ decimal
+digits of $e$ on one node of four MI300A APUs**, the largest single-node run verified so far (RESULTS §83,
+`results/R114.md`: VERIFY OK, 485.2 s). It shows how the problem is broken into parts and transformed at each
+stage, and why the result is exact. Where a second data point helps, the measured $10^{11}$-digit run on the
+same node is given alongside.
+
+Two kinds of number appear. Quantities that follow from $d$ alone (term counts, limb counts, plane sizes, the
+Newton schedule) are **computed exactly** by `docs/walk/scale.py`. Times and memory are **measured**, quoted
+from the run logs.
+
+### B.1 The chain of transformations
+
+The calculation is a chain of five transformations. Only the first one approximates anything:
 
 $$
 \underbrace{e = \sum_{k\ge 0}\frac1{k!}}_{\text{the definition}}
@@ -115,186 +262,146 @@ $$
 0 \;<\; 10^d e - \frac{A}{Q} \;<\; 10^{-50}.
 $$
 
-The integer $X = \lfloor A/Q\rfloor$ therefore equals $\lfloor 10^d e\rfloor$, the first $d+1$ digits of $e$, unless an
-integer lies strictly between $A/Q$ and $10^d e$. That requires the fractional part of $10^d e$ to be below
-$10^{-50}$, meaning 50 consecutive zeros in $e$'s expansion right after position $d$. Everything after truncation
-is exact integer arithmetic, and the division is exact by construction (§A.7). So **the only approximation in the
-whole computation is the truncation, and its error is 50 digits below the last digit reported.**
+The integer $X = \lfloor A/Q\rfloor$ therefore equals $\lfloor 10^d e\rfloor$, which is "2" followed by the first $d$
+decimals of $e$, unless an integer lies strictly between $A/Q$ and $10^d e$. That requires 50 consecutive zeros in
+$e$'s expansion right after position $d$. Everything after truncation is exact integer arithmetic, and the
+division is exact by construction (§B.8). So **the only approximation in the whole computation is the
+truncation, and its error is 50 digits below the last digit reported.**
 
-### A.2 Stage 0: from $d$ to the parameters
+### B.2 Stage 0: from $d$ to the parameters
 
-**The term count.** $N$ is the smallest integer with $\log_{10}N! \ge d + 50$. Since
-$\log_{10}N! = \ln\Gamma(N+1)/\ln 10$ is increasing, `ecalc` finds $N$ by bisection on the C library's
-`lgamma`: about 60 evaluations (doubling to bracket $N$, then halving), where a linear scan needed $4.3\times10^9$.
+The term count $N$ is the smallest integer with $\log_{10}N! \ge d + 50$. Since
+$\log_{10}N! = \ln\Gamma(N+1)/\ln 10$ is increasing, it is found by bisection on the C library's `lgamma`: about
+60 evaluations. Everything else follows from $N$ and the limb base $B = 10^{18}$.
 
-**The representation.** Every integer is an array of **limbs**, the digits of the number in base $B = 10^{18}$
-(the largest power of ten below $2^{64}$), stored least significant first:
-
-$$
-x = \sum_{i=0}^{n-1} x_i\,B^{i},\qquad 0 \le x_i < B .
-$$
-
-| quantity | toy run, $d = 200$ | real run, $d = 4\times10^{10}$ |
+| quantity | $d = 10^{11}$ | $d = 1.4\times10^{11}$ |
 |---|---|---|
-| terms $N$ | 145 ($\log_{10}145! = 251.9$) | 4 346 031 742 |
-| $Q = N!$ | 252 digits = 14 limbs | $2.222\times10^9$ limbs (40 GB) |
-| $A = 10^d(P+Q)$ | 26 limbs | $4.444\times10^9$ limbs |
-| reciprocal precision $k = n_A - n_Q + 1$ | 13 limbs | ≈ $2.22\times10^9$ limbs |
-| output $X$ | 201 digits | $4\times10^{10}+1$ digits |
+| terms $N$ | 10 433 891 469 | 14 397 383 496 |
+| $Q = N!$: limbs ($n_Q$) and bytes | $5.56\times10^{9}$ limbs, 44.4 GB | $7.78\times10^{9}$ limbs, 62.2 GB |
+| numerator $A = 10^d(P+Q)$ | $1.11\times10^{10}$ limbs, 88.9 GB | $1.56\times10^{10}$ limbs, 124.4 GB |
+| seeds (256-term spans) | 40 757 389 | 56 239 780 |
+| merge levels above the seeds | 26 | 26 |
+| quotient limbs $k = n_A - n_Q + 1$ | $5.56\times10^{9}$ | $7.78\times10^{9}$ |
+| Newton steps | 32 | 32 |
+| output | 100 GB of digits | 140 GB of digits |
 
-### A.3 Stage 1: the seeds
+$Q$ alone occupies 62.2 GB at $1.4\times10^{11}$ digits, about half of one APU's 128 GB. That is why nothing below
+can be done on one APU, and why memory rather than arithmetic decides how far the calculation can go.
 
-The range of terms $[0, N)$ is cut into **seed spans** of consecutive terms: 16 in the toy run, 256 in
-`ecalc`. Inside a span, $P$ and $Q$ are built one term at a time with word-sized arithmetic. Adding term $k$ to
-the span $[a, k-1)$ multiplies $Q$ by $k$, and the new term $a!/k!$ becomes exactly $1$ once scaled by the new
-$Q(a,k) = k!/a!$:
+### B.3 Stage 1: the seeds
+
+The range of terms $[0, N)$ is cut into **56 239 780 seed spans** of 256 consecutive terms. Inside a span,
+$P$ and $Q$ are built one term at a time. Adding term $k$ to the span $[a, k-1)$ multiplies $Q$ by $k$, and the new
+term $a!/k!$ becomes exactly 1 once scaled by the new $Q(a,k) = k!/a!$:
 
 $$
 Q(a,k) = Q(a,k-1)\cdot k,\qquad P(a,k) = P(a,k-1)\cdot k + 1 .
 $$
 
-For example, the first span of 8 terms gives $P(0,8)/Q(0,8) = 69281/40320 = \sum_{k=1}^{8}1/k!$. The seeds are
-independent, so `ecalc` computes them on the CPU while the GPUs are still being initialised (RESULTS §69).
+Each step multiplies a big integer by one word ($k < 2^{34}$) and adds 1. In base $10^{18}$ a word
+multiplication produces a two-word result per limb that is split with a Barrett division by $10^{18}$ (the
+`mul_1` of §9.2). A seed near the end of the range, where terms are largest, has
+$\log_{10}\big(Q(N-256, N)\big) \approx 256\,\log_{10}(1.44\times10^{10}) \approx 2\,600$ digits, i.e. about 144 limbs.
+Seeds near the start are a few limbs long. The seeds are independent of each other, so they are computed on
+the CPU cores while the GPUs are still being initialised (RESULTS §69).
 
-### A.4 Stage 2: the merge levels
+### B.4 Stage 2: the merge levels
 
-The seeds are the leaves of a binary tree. Each level merges adjacent pairs with the recurrence of §1.2:
-
-$$
-P = P_1Q_2 + P_2,\qquad Q = Q_1Q_2 .
-$$
-
-A merge is therefore **two big products and one addition**. Both products share the operand $Q_2$. When a level
-has an odd number of nodes, the last one is copied up unchanged. (That copy was the site of the race found in
-§12.4.) The toy run's tree, with the limb count of each node's $Q$:
-
-| level | nodes | limbs of $Q$ per node |
-|---|---|---|
-| 0 (seeds) | 10 | 1 2 2 2 2 2 2 2 2 1 |
-| 1 | 5 | 2 3 4 4 3 |
-| 2 | 3 | 5 8 3 |
-| 3 | 2 | 12 3 |
-| 4 (root) | 1 | 14 |
-
-The sizes roughly double at each level, as §1.3 predicts. They are uneven because later terms are larger:
-the span $[64,128)$ has 8 limbs against 5 for $[0,64)$. At the root, the script checks $Q = 145!$ exactly.
-
-At full size ($d = 4\times10^{10}$) there are 25 levels above the 256-term seeds. The top of the tree is where
-the work is:
-
-| level from the top | nodes | $Q$ of the largest node | product sizes, limbs |
-|---|---|---|---|
-| 3 | 8 | $2.9\times10^8$ | ≈ $2.9\times10^8 \times 2.9\times10^8$ |
-| 2 | 4 | $5.8\times10^8$ | ≈ $5.8\times10^8 \times 5.8\times10^8$ |
-| 1 | 2 | $1.15\times10^9$ | ≈ $1.1\times10^9 \times 1.1\times10^9$ |
-| 0 (root) | 1 | $2.22\times10^9$ | — (the result) |
-
-The last merge produces a product of $2.2\times10^9$ limbs, more than the $2^{31}\approx 2.15\times10^9$-point plane
-cap. It is therefore computed as a grid of piece products (chapter 7), while the lower levels go through the
-batched and per-APU tiers (§1.4).
-
-### A.5 Inside one product
-
-Every product in stages 2, 4 and 5 goes through the same eight steps. Here is the toy run's level-2 merge
-$P(0,64)\cdot Q(64,128)$, a 5-limb number times an 8-limb one.
-
-```mermaid
-flowchart TB
-  subgraph R1[" "]
-    direction LR
-    L["limbs of a, b<br/>(base 10¹⁸)"] --> Z["pad to length n<br/>n ≥ ℓa+ℓb−1"] --> F0["forward NTT<br/>mod p₀, p₁, p₂"] --> PW["pointwise<br/>ĉ = â·b̂ mod pᵢ"]
-  end
-  subgraph R2[" "]
-    direction LR
-    I0["inverse NTT<br/>× n⁻¹ mod pᵢ"] --> G["Garner:<br/>3 residues → cₖ < p₀p₁p₂"] --> C["carry:<br/>cₖ → base-10¹⁸ limbs"]
-  end
-  R1 --> R2
-```
-*Figure A1. One product. Every arrow is exact integer arithmetic. The three primes run independently until
-Garner's step joins them.*
-
-1. **Choose the length.** The product has $5 + 8 - 1 = 12$ coefficients, and the smallest admissible length is
-   $n = 12 = 3\cdot 2^2$, a mixed-radix length (§2.3). A power-of-two design would pad to 16.
-2. **Choose the roots.** For each prime, $\omega_{12} = \omega_{3\cdot2^{33}}^{\,2^{31}}$, a power of the
-   `ec_W3X33` constant. It has exact order 12.
-3. **Forward transforms.** $\hat a = F_{12}\,a$ and $\hat b = F_{12}\,b$ modulo each $p_i$: 12 residues per operand per
-   prime.
-4. **Pointwise product.** $\hat c_k = \hat a_k \hat b_k \bmod p_i$. This single line *is* the convolution.
-5. **Inverse transforms.** $c = n^{-1}F_{12}^{-1}\hat c \bmod p_i$. Each prime now holds every coefficient
-   $c_k = \sum_{i+j=k}a_ib_j$ reduced modulo $p_i$.
-6. **Reconstruct.** Coefficient $c_1 = a_0b_1 + a_1b_0$ arrives as three residues:
-
-   $$
-   c_1 \bmod (p_0, p_1, p_2) = (3358104948782169,\ 3500052316097566,\ 1264840967479048).
-   $$
-
-   Garner's formulas (§3.3) turn them into
-
-   $$
-   c_1 = 138724505180013176\,679894676812120115 \;<\; p_0p_1p_2 \approx 5.8\times10^{46},
-   $$
-
-   the exact value, as the bound $n(B-1)^2 = 1.2\times10^{37} < p_0p_1p_2$ guarantees.
-7. **Carry.** Each coefficient is up to 3 limbs wide, so it is split in base $10^{18}$ and added into the limbs
-   at positions $k$, $k+1$ and $k+2$. Here
-   $c_0 = 54844316730212301\cdot B + 0$ and $c_1 = 138724505180013176\cdot B + 679894676812120115$. So limb 0
-   is 0, limb 1 is $679894676812120115 + 54844316730212301 = 734738993542332416$ (no overflow), and
-   $138724505180013176$ carries into limb 2, and so on.
-8. **Check.** The script asserts that the resulting limbs equal the product computed by Python's own big
-   integers.
-
-At full scale the same eight steps run with $n$ up to $3\cdot 2^{30}$ or $2^{31}$ points per prime, spread across
-the four APUs (chapter 6) or cut into grid pieces (chapter 7). But the mathematics is exactly this.
-
-### A.6 Stage 3: the scaled numerator
-
-The quotient $A/Q$ must have $d$ digits after the point, so the numerator is scaled by $10^d$. In base
-$10^{18}$ that is almost free. With $d = 18\,t + s$ ($0 \le s < 18$),
+The seeds are the leaves of a binary tree of 26 levels. Each level merges adjacent pairs with
 
 $$
-A = 10^{d}(P + Q) = \big(10^{s}(P+Q)\big)\cdot B^{t},
+P = P_1Q_2 + P_2,\qquad Q = Q_1Q_2 ,
 $$
 
-one multiplication by a single word and a shift by $t$ whole limbs. For the toy run, $200 = 18\cdot 11 + 2$:
-multiply $P+Q$ by 100 and shift by 11 limbs, giving $n_A = 26$ limbs. In `ecalc`'s device flow the shift is
-never even materialised: the division reads $A$ as $S\cdot B^{t}$ with $S = P+Q$ (`newton_db_divmod_shifted`).
+so a merge is **two big products and one addition**. Both products share the operand $Q_2$. At the bottom
+there are 28 million merges per level of a few hundred limbs each. They run as one **batched** launch per step
+of the product (the level-synchronous execution of §1.4), with each APU taking the subtrees whose data it
+holds (§11.2). Sizes double at each level, so the top of the tree is where the work concentrates:
 
-### A.7 Stage 4: the reciprocal
+| level from the top | nodes | $Q$ of the largest node, limbs | largest product formed at that merge | vs the $2^{31}$-point cap |
+|---|---|---|---|---|
+| 3 | 8 | $1.01\times10^{9}$ | — | — |
+| 2 | 4 | $2.02\times10^{9}$ | $1.01\times10^9 \times 1.01\times10^9 \to 2.03\times10^9$ | 0.94 (fits one plane) |
+| 1 | 2 | $4.01\times10^{9}$ | $2.02\times10^9 \times 2.02\times10^9 \to 4.04\times10^9$ | 1.88 (grid) |
+| 0 (root) | 1 | $7.78\times10^{9}$ | $3.8\text{–}4.0\times10^9$ squared $\to 7.78\times10^{9}$ | 3.73 (grid) |
 
-Division is replaced by multiplication by a precomputed reciprocal. With $n_Q$ limbs in $Q$ and
-$k = n_A - n_Q + 1$ (the number of quotient limbs), `ecalc` computes
+The last two merges produce products larger than one transform plane can hold, so each is cut into a grid of
+piece products (chapter 7). At the root, the two halves of the term range are $3.77\times10^9$ and
+$4.01\times10^9$ limbs: the right half is larger because later terms are larger, as §1.3 describes.
+
+**Measured:** the whole merge phase (bs) takes **182.8 s** at $1.4\times10^{11}$ digits and 88.0 s at $10^{11}$.
+
+### B.5 Inside one product at full size
+
+Every product in stages 2, 4 and 5 goes through the same steps. Take the level-2 merge above,
+$P_1\cdot Q_2$ with both operands about $1.01\times10^9$ limbs:
+
+![From limbs to planes and back](fig/representation.svg)
+
+*Figure B1. The data objects of one product. The integer is a limb array split across the four APUs. Loading
+reduces each limb modulo each prime into a plane, and the planes go through transform, pointwise product,
+inverse transform, reconstruction and carry.*
+
+1. **Length.** The product has $\ell_a + \ell_b - 1 \approx 2.03\times10^9$ coefficients. The smallest admissible
+   length is $L = 2^{31} = 2.147\times10^9$ (the next smaller, $3\cdot 2^{29} = 1.61\times10^9$, is too short). Padding
+   is 5.5 %.
+2. **Coefficient bound.** Each true coefficient satisfies
+   $c_m \le L\,(B-1)^2 = 2.1\times10^{45} < p_0p_1p_2 = 5.8\times10^{46}$. Three primes reconstruct it exactly,
+   with a 27-fold margin (§3.2).
+3. **Load.** Each limb is reduced modulo each prime, $x_m \bmod p_i$ (`canon64`, a Barrett reduction of a
+   64-bit value), into three planes of $2^{31}$ points × 8 bytes = **17.2 GB each, 51.5 GB per operand**.
+4. **Forward transforms.** Each plane is transformed in place: 31 stages of $2^{30}$ butterflies each,
+   $\tfrac L2\log_2 L = 3.3\times10^{10}$ butterflies per plane. Depending on size, the `auto` strategy either gives
+   each APU its own prime or spreads every plane over the four APUs as the rows of the four-step decomposition
+   (chapter 6). In the four-step form, each forward transform includes one all-to-all.
+5. **Pointwise product.** $\hat c_m = \hat a_m\hat b_m \bmod p_i$ for all $2^{31}$ points of each prime, fused into the
+   first inverse pass.
+6. **Inverse transforms.** (One more all-to-all in the four-step form.) Then $c_m \bmod p_i$ is available for every $m$.
+7. **Reconstruct and carry.** Garner's formulas turn the three residues of each coefficient into $c_m < 2^{156}$,
+   which is split into three base-$10^{18}$ limbs and added into the result at positions $m$, $m+1$ and $m+2$.
+
+Counted over the three primes: $3\times 3 = 9$ transforms of $2^{31}$ points, $3\times10^{11}$ butterflies, and
+in the four-step form, three all-to-alls moving $3 \times 3 \times \tfrac34 \times 17.2 = 116$ GB between the APUs. At
+the measured 909 GB/s of the fabric that is about 0.13 s. A $2^{31}$-point product through the four-APU tier took
+about 1.2 s when measured with four primes (RESULTS §59).
+
+### B.6 Stage 3: the scaled numerator
+
+The quotient must carry $d$ digits after the point, so the numerator is scaled by $10^d$. In base $10^{18}$ this is
+almost free. With $d = 18\,t + s$ ($0 \le s < 18$),
 
 $$
-\mu \;\approx\; \Big\lfloor \frac{B^{\,n_Q + k}}{Q} \Big\rfloor ,
+A = 10^{d}(P + Q) = \big(10^{s}(P+Q)\big)\cdot B^{t}.
 $$
 
-an integer of $k+1$ limbs: the first $k$ limbs of $1/Q$, scaled to be an integer.
+For $d = 1.4\times10^{11}$: $t = 7\,777\,777\,777$ and $s = 14$. So $A$ is $P+Q$ times $10^{14}$ (one word), shifted
+up by 7 777 777 777 limbs. In `ecalc` the shift is never carried out: the division reads $A$ as $S\cdot B^{t}$ with
+$S = P+Q$ (`newton_db_divmod_shifted`). The 62 GB of zero limbs it would add are never stored.
 
-**Seed.** From the top 4 limbs $q_t$ of $Q$, rounded up, one schoolbook division gives
-$r = \lfloor B^{6}/(q_t + 1)\rfloor \approx B^{n_Q+2}/Q$, correct to $j = 2$ limbs.
+### B.7 Stage 4: the reciprocal
 
-**Schedule.** The precisions are planned backwards from $k$ by halving and rounding up (§8.3):
-$13 \to 7 \to 4 \to 2$, so the steps are $2 \to 4 \to 7 \to 13$.
+Division is replaced by multiplication by a precomputed reciprocal,
 
-**Each step** (§8.2) forms the scaled residual $d = B^{2j} - \lfloor Q_t r / B^{\text{take}-j}\rfloor$ and the correction
-$\lfloor r\,|d|/B^{j}\rfloor$. The toy run's steps:
+$$
+\mu \;\approx\; \Big\lfloor \frac{B^{\,n_Q + k}}{Q} \Big\rfloor ,\qquad k = 7.78\times10^{9}\ \text{limbs}.
+$$
 
-| step | limbs of $Q$ used (`take`) | relative residual $d/B^{2j}$ | error of $r'$ (units in the last limb) |
-|---|---|---|---|
-| $2 \to 4$ | 6 | $6.6\times10^{-37}$ | 0 |
-| $4 \to 7$ | 10 | $3.2\times10^{-73}$ | 0 |
-| $7 \to 13$ | 14 | $3.7\times10^{-128}$ | 0 |
+$\mu$ has $k+1$ limbs (62 GB): the first $k$ limbs of $1/Q$, scaled to be an integer.
 
-The residual's exponent roughly doubles each step ($-37, -73, -128$): Newton's quadratic convergence,
-measured in digits. Each step also reads only the top $2j+2$ limbs of $Q$. The final $\mu$ equals
-$\lfloor B^{27}/Q\rfloor$ exactly. The error bound of §8.4 allows a few units, and the division absorbs them.
+- **Seed.** From the top 4 limbs of $Q$, rounded up, one schoolbook division gives $r \approx B^{n_Q+2}/Q$, correct
+  to $j = 2$ limbs.
+- **Schedule.** The precisions are planned backwards from $k$ by halving and rounding up (§8.3). That gives 32 steps:
+  $2 \to 4 \to 8 \to 15 \to 29 \to 58 \to \cdots \to 1.94\times10^9 \to 3.89\times10^9 \to 7.78\times10^9$ limbs.
+- **Each step** from $j$ to $2j$ limbs reads the top $2j + 2$ limbs of $Q$ and forms two products: $Q_t\cdot r$ (to
+  measure the residual $d = B^{2j} - \lfloor Q_t r/B^{\text{take}-j}\rfloor$) and $r\cdot|d|$ (the correction). The
+  residual shrinks quadratically, so the step's correction lands exactly on the new limbs (§8.2, §8.4).
 
-At full scale the same schedule is 31 steps, $2 \to 3 \to 5 \to 9 \to 17 \to \cdots \to 1.11\times10^9 \to 2.22\times10^9$ limbs, and,
-since the precision doubles each step, the last step alone costs about as much as all the earlier ones combined.
+Because the precision doubles, the cost is dominated by the last steps. The final one multiplies the full
+$7.78\times10^9$-limb $Q$ by a $3.89\times10^9$-limb $r$, a product 5.4 times the plane cap that goes through the
+grid. Both products are cut to the band that is actually read (§8.5). **Measured:** the reciprocal takes
+**≈ 115 s** at $1.4\times10^{11}$ digits and 44.4–45.6 s at $10^{11}$.
 
-### A.8 Stage 5: the quotient and the remainder
-
-With $\mu$ in hand:
+### B.8 Stage 5: the quotient and the remainder
 
 1. **Estimate.** Keep only the top $k$ limbs of $A$, $A_h = \lfloor A/B^{\,n_Q-1}\rfloor$ (the dropped limbs change the
    quotient by less than one unit), and form
@@ -303,48 +410,201 @@ With $\mu$ in hand:
    X_0 = \Big\lfloor \frac{A_h\,\mu}{B^{\,k+1}} \Big\rfloor \;\approx\; \frac{A}{B^{\,n_Q-1}}\cdot\frac{B^{\,n_Q+k}}{Q}\cdot\frac{1}{B^{\,k+1}} = \frac{A}{Q}.
    $$
 
-2. **Remainder.** $R = A - X_0Q$. Since $R$ is known to be within a few multiples of $Q$ of zero, only its low
-   $n_Q + 2$ limbs are computed, using a *low product* (§7.2). Its sign is read from the top limb of that window.
+   This is a $7.78\times10^9 \times 7.78\times10^9$-limb product, 7.2 times the plane cap, of which only the upper
+   half is read.
+2. **Remainder.** $R = A - X_0Q$ is known to be within a few multiples of $Q$ of zero. So only its low $n_Q + 2$
+   limbs are needed, which is a *low product* of $X_0$ and $Q$ (§7.2). Its sign is read from the top limb of that
+   window.
 3. **Correct.** While $R < 0$, set $X \leftarrow X - 1$. While $R \ge Q$, set $X \leftarrow X + 1$. Stop with
    $0 \le R < Q$, which is exactly the definition of $X = \lfloor A/Q\rfloor$. More than 64 corrections aborts the run.
 
-In the toy run, $X_0$ needed **no** corrections, and $R/Q = 0.157$. The result is
+**Measured:** the whole dm phase (reciprocal plus division) takes **257.8 s**, so the division itself takes about
+143 s. At $10^{11}$ the dm phase takes 102.2 s.
 
-$$
-X = 2\,7182818284\,5904523536\,0287471352\,6624977572\,\ldots\,8298807531\,9525101901,
-$$
+### B.9 Stage 6: digits and verification
 
-all 201 digits of $\lfloor 10^{200}e\rfloor$.
+**Digits.** $X$ has $7.78\times10^9$ limbs and is already decimal: its top limb holds the leading "2", and every
+other limb prints as exactly 18 digits with leading zeros kept. The output is a 140 GB text file, formatted and
+streamed to disk in chunks (optionally with direct I/O, `ECALC_ODIRECT`).
 
-### A.9 Stage 6: digits and verification
+**Verification.** For each of eight 62-bit primes $q$, both sides of $T(P+Q) \equiv XQ + R \pmod q$ are computed
+independently (chapter 12). $P \bmod q$ and $Q \bmod q$ come from running the seed recurrence of §B.3 over all
+$1.44\times10^{10}$ terms directly in $\mathbb{Z}/q$ on the CPU, never touching the big integers. $X$, $R$ and the
+digit string are reduced by chunked Horner passes. The identity checks every product, the reciprocal and the
+division at once.
 
-**Digits.** $X$ is already decimal. Its top limb holds the leading "2", and every other limb prints as exactly 18
-digits with leading zeros kept. Inserting the decimal point after the first digit gives the output. At full scale
-each node formats its own limbs and streams them to disk in chunks (RESULTS §76).
+### B.10 Where the time and memory go
 
-**Verification.** With $q = 2^{62} + 135$ (the first T1 modulus), the toy run computes both sides of
-$T(P+Q) \equiv XQ + R \pmod q$ independently:
+| | $d = 10^{11}$ (default layout) | $d = 1.4\times10^{11}$ (`DM_TIGHT`, VMM pool) |
+|---|---|---|
+| initialisation (pools, tables, seeds) | 21.1 s | 44.4 s |
+| bs: seeds and merge levels | 88.0 s | 182.8 s |
+| dm: reciprocal | 45.6 s | ≈ 115 s |
+| dm: division | 56.6 s | ≈ 143 s |
+| **total wall time** | **212.1 s** | **485.2 s** |
+| peak device memory | — | 466.6 GB of ≈ 502 GB usable |
 
-$$
-10^{200}(P+Q) \bmod q = 1911749413146909884 = (XQ + R) \bmod q .
-$$
+(Source: `results/R114.md`. The $10^{11}$ figures are the first of two runs on the same node; the second is within 2.5 s.)
 
-$P \bmod q$ and $Q \bmod q$ come from running the seed recurrence of §A.3 directly in $\mathbb{Z}/q$, never from the
-big integers. So the identity checks every product, the reciprocal and the division at once (chapter 12).
+Going from $10^{11}$ to $1.4\times10^{11}$ digits multiplies the digit count by 1.4 and the time by 2.3. The reason is
+the plane cap: the largest products grow from about 2.6 to 3.7 times the cap, so they are cut into more grid pieces
+(the staircase of §7.3). The memory peak of 466.6 GB is 7.5 times the size of $Q$, or 3.3 bytes per digit. The
+reciprocal's live set alone (its operands, iterates and product temporaries) peaks at 326.7 GB, 5.25 times $Q$.
+Chapter 11 explains how that set was fitted into the node.
 
-### A.10 Where each stage's cost goes
+## C. From mathematics to the machine
 
-| stage | mathematics | dominant operation | 4 × 10¹⁰ digits, Phase 13c (s) |
-|---|---|---|---|
-| seeds | $P, Q$ over 256-term spans | word × limb | overlapped with init |
-| merge levels | $P_1Q_2+P_2$, $Q_1Q_2$ | batched, per-APU and grid products | bs 23.7 |
-| scaling | $A = 10^d(P+Q)$ | limb shift | ≈ 0 |
-| reciprocal + division | $\mu$, then $X$, $R$ | 31 Newton steps + 2 full products | dm 22.5 |
-| digits + verification | formatting, residues | streaming I/O, Horner | < 0.1 (overlapped) |
+Chapters A and B describe the calculation as mathematics. This chapter describes how each mathematical object is
+**represented** in memory and how each operation becomes **machine work**. The translation is where most of
+the design decisions live. The same equation can cost a pointer increment or a full pass over 62 GB, depending on
+how its objects are laid out.
 
-(Stage times from RESULTS §80: phases 46.3 s of the 63.5 s wall; the rest is initialisation.)
+| mathematical object | representation in `ecalc` | size at $d = 1.4\times10^{11}$ |
+|---|---|---|
+| integer $x = \sum x_m B^m$ | `bigint`: array of `uint64_t` limbs, base $10^{18}$, least significant first | $Q$: $7.78\times10^9$ limbs, 62.2 GB |
+| integer spread over the node | `dbig`: four quarters, one per APU's HBM | 15.6 GB per quarter of $Q$ |
+| residue $x \bmod p$ | one `uint64_t` in $[0,p)$ or $[0,2p)$; converted to `double` inside the multiply | 8 bytes |
+| a prime and its constants | `ec_mod` = $\{p,\ 1/p$ as double$,\ \lfloor 2^{115}/p\rfloor\}$, passed to every kernel | 32 bytes |
+| polynomial / coefficient vector mod $p$ | a **plane**: $L$ consecutive residues | $2^{31}$ points = 17.2 GB |
+| DFT matrix $F_L$ | never stored: $\log_2 L$ butterfly stages grouped into memory passes | 4 passes for $L = 2^{31}$ |
+| roots of unity $\omega^j$ | two small twiddle tables per prime and length | $\approx 2\sqrt L$ entries |
+| binary-splitting tree | a level-by-level node table with pointers into four region pools | 26 levels |
+| truncated division $\lfloor x/B^t\rfloor$ | a *view*: the same array, starting $t$ limbs later | 0 bytes, 0 time |
 
----
+### C.1 An integer is an array of limbs
+
+The core type (`bigint.h`) is three fields:
+
+```c
+typedef struct { uint64_t *l; size_t n, cap; } bigint;   // limbs, limb count, allocated capacity
+```
+
+$x = \sum_{m=0}^{n-1} l[m]\,B^m$ with $0 \le l[m] < B = 10^{18}$. Each mathematical operation on integers becomes a
+loop, or a GPU kernel, over this array:
+
+- **Addition $x + y$.** Add limb by limb, and whenever a sum reaches $B$, subtract $B$ and carry 1 into the next
+  limb. The carry makes this sequential in principle. Chapter 10 shows how it becomes a parallel scan.
+- **Multiplication by a word, $x\cdot w$** (the seeds, and the $10^s$ of §B.6). Each limb gives a 128-bit product
+  $l[m]\,w + \text{carry}$, which is split into a new limb and a carry by division by $10^{18}$. That division is a
+  Barrett reduction with the constant $\lfloor 2^{123}/10^{18}\rfloor$ (`ec_div1e18`), so no hardware divide is used.
+- **Multiplication by $B^t$, and truncated division by $B^t$.** These cost nothing. $\lfloor x/B^t\rfloor$ is the same
+  array starting at `l + t` with `n - t` limbs, and $x\cdot B^t$ is the array read as if it started $t$ limbs
+  later. Every $\lfloor\cdot / B^{j}\rfloor$ in the Newton formulas of §B.7 is therefore a pointer offset. That is
+  why those formulas are written with powers of $B$: they are chosen to be free on this representation.
+- **Comparison and sign.** $x < y$ is decided by the highest differing limb. The division's remainder window is a
+  two's-complement number modulo $B^{w}$, whose sign is read from its top limb (§B.8).
+
+**Why base $10^{18}$ and not $2^{64}$.** In base $2^{64}$ the carry from a 128-bit product is just its high word,
+which is cheaper. But the result would then need a full radix conversion to decimal (chapter 9). In base $10^{18}$ a
+limb holds exactly 18 decimal digits, so the output is formatting. The price is one Barrett division per limb
+wherever a product is split, plus 6.6 % more limbs for the same number.
+
+### C.2 An integer spread across four APUs
+
+$Q$ at 62 GB is half of one APU's memory, and the products need several times that. So in the division phase every
+big integer is a `dbig` (`dbig.h`):
+
+```c
+typedef struct dbig_s { uint64_t *q[4]; size_t n, cap, qc, off; } dbig;   // four quarters, qc limbs each
+```
+
+Limbs $[\,i\cdot qc,\ (i+1)\cdot qc)$ live in the HBM of APU $i$, as `q[i]`. An addition of two `dbig`s is four
+kernels, one per APU, each on its own quarter at local bandwidth (≈ 3.8 TB/s), plus a carry correction across
+the three quarter boundaries. A **view** (`cap = 0`, `off` = its first limb) names a sub-range such as the top $k$
+limbs of $A$ without copying. Across several nodes the same idea continues one level up: an `mdb` is a number
+sharded over the nodes of a group.
+
+### C.3 A residue and a prime
+
+A residue is a `uint64_t`. All primes are below $2^{52}$, so a residue also fits exactly in a `double`'s 53-bit
+significand. That is what lets the modular multiply of chapter 4 run on the FP64 units: the kernel converts both
+operands to `double`, forms the exact 104-bit product as a pair $(h, \ell)$, and reduces it. Additions and
+subtractions stay in integer registers, because a sum of two lazy residues can exceed $2^{53}$ (§4.4).
+
+Everything a kernel needs to know about its prime travels in one small struct, passed by value:
+
+```c
+typedef struct { double p, pinv; uint64_t pu, mu; int idx; } ec_mod;   // p, 1/p, p (integer), floor(2^115/p)
+```
+
+**From limb to residue.** A limb is below $10^{18} \approx 2^{59.8}$, larger than any prime, so it must be reduced before
+it can enter a transform. `canon64` computes $l \bmod p$ with a Barrett step using $\mu = \lfloor 2^{115}/p\rfloor$.
+This is the first operation applied to every limb of every operand of every product.
+
+### C.4 A polynomial is a plane
+
+For each prime, an operand's coefficient vector $(x_0 \bmod p, \ldots, x_{n-1}\bmod p, 0, \ldots, 0)$ of length $L$ is one
+contiguous array, a **plane** (Figure B1). A product at the $2^{31}$ cap uses three primes × two operands = six planes
+of 17.2 GB, or 103 GB, before anything else is counted. That is why the plane cap is a memory decision, not a speed
+decision (§7.1), and why the planes live in pools allocated once at start-up (§11).
+
+The transform then works **in place** on the plane. After the forward transform the plane holds
+$\hat x_k = \sum_m x_m\omega^{mk}$ in bit-reversed order. After the pointwise product it holds $\hat c_k$, and after the
+inverse transform it holds $c_m \bmod p$ in natural order. The same memory holds three different mathematical objects in
+succession.
+
+### C.5 The DFT matrix becomes passes over memory
+
+$F_L$ is an $L\times L$ matrix, $2^{62}$ entries at $L = 2^{31}$. It is never formed. Its FFT factorisation into 31 stages is
+applied instead, and the stages are grouped so that the plane is read and written as few times as possible (`ntt.h`):
+
+- **High stages (spans $2^{30}$ down to $2^{10}$): three passes of 7 stages.** A thread block loads a tile of 128 points
+  whose indices differ only in the 7 bits those stages act on. It does the 7 stages in registers and LDS (chapter 5),
+  and writes the tile back. Each pass is one read and one write of the whole plane.
+- **Low stages (spans $2^9$ down to $1$): one pass of 10 stages** on independent 1024-point blocks, entirely on-chip.
+
+So a $2^{31}$-point transform is **4 passes** over 17.2 GB instead of 31. Stage $t$ of the mathematics ("pair index $m$
+with $m \oplus 2^{31-t}$") becomes an address calculation inside a tile. The butterfly's $\omega^j$ comes from the
+two-level tables of §5.4, and the $1/L$ of the inverse and the pointwise product are folded into existing passes.
+
+### C.6 The four-step matrix becomes a data layout
+
+When a plane is spread over four APUs, the four-step identity of chapter 6 is used literally as a layout. The plane is
+viewed as an $R\times C$ matrix, stored row-major, and APU $r$ holds rows $[rR/4, (r+1)R/4)$. "Length-$C$ DFTs along
+rows" is then an ordinary local transform on each APU. "Multiply by $\omega_L^{iv}$" is a pointwise pass. "Transpose" is
+the all-to-all, a push kernel in which each APU writes its slabs directly into the other three APUs' memory
+(§6.4). The block-cyclic ownership of limbs (Figure 6) is simply what "rows of this matrix" means in terms of the
+original integer.
+
+### C.7 Reconstruction becomes one kernel per coefficient
+
+The CRT is applied independently to each of the $L$ coefficients. One GPU thread reads the three residues $c_m \bmod p_i$
+from the three planes (the same index $m$ in each, so the reads are coalesced), runs Garner's three steps in 64-bit
+modular arithmetic, and assembles $c_m$ as a 3-word (156-bit) integer. It splits that into three base-$10^{18}$ digits,
+three Barrett divisions (`ec_words_to_dec3`), and adds them into the result's limbs $m$, $m+1$ and $m+2$. In a
+binary-splitting merge, the same kernel also performs the addition $P_1Q_2 + P_2$ and the normalisation, so the
+product never exists un-added (§3.3).
+
+### C.8 The tree becomes a loop over levels
+
+The binary-splitting tree is never built as a linked structure. Each level is a table of nodes: a span $[a, b)$ plus
+the locations of $P(a,b)$ and $Q(a,b)$ in one of four **region pools**, one per APU. The loop over levels
+(`binsplit.c`) processes a whole level at once:
+
+1. pair adjacent nodes;
+2. for the small products, gather all pairs of the level into one batch and run each product step as one launch;
+3. for the large products, call the per-APU or distributed tiers one product at a time;
+4. write the new level's nodes into the pools.
+
+A subtree's nodes stay on the APU that computed them, so most operand reads are local (§11.2). When the tree is
+finished, the region pools are handed to the division phase's allocator instead of being freed (§11.3).
+
+### C.9 The Newton iteration becomes a loop over precisions
+
+Each Newton step is five operations on `dbig`s (§B.7): a view of $Q$'s top limbs, a product, a subtraction from
+$B^{2j}$, a product, and a shifted addition. The "shifts" are views and the products go through the grid.
+Temporaries are not allocated per step. The iterate $r$ and its successor live in two blocks that swap roles each
+step. The precision schedule, the step count and each step's operand sizes are all known before the first
+step, so the memory plan can be checked in advance (`mem_model.py`, §11.1).
+
+### C.10 Exactness becomes bounded integer arithmetic
+
+Every floor in the equations is an integer truncation: dropping limbs, or a Barrett quotient. Every "approximately"
+is a quantity with a proven error bound in units. The code turns each bound into a guard: the division's
+correction loop and its 64-step abort, the Newton step's repeat test, the one-lazy-operand rule of the FP64 multiply,
+and the coefficient bound that fixes the number of primes. The verification of chapter 12 then checks the end
+result independently. The mathematics says which quantities must be exact. The representation makes the exact
+ones cheap and puts an explicit test wherever something is approximated.
 
 ## 1. Binary splitting: the cost and the execution order
 
@@ -1500,7 +1760,8 @@ Grouped by topic. Where a free, authoritative copy exists, a link is given.
 
 In-repository sources: `ALGORITHM.md` (segments S1–S16, reviews R1–R14, corrections in Part 6),
 `RESULTS.md` (§§38–83; section numbers are cited above), `results/R114.md` (the Newton band-cut proof),
-`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Chapter A's numbers are printed by `docs/walk/toy_run.py`. Figures 1–10 are generated by
+`ecalc/modarith.h`, `newton.c`, `ntt_dist.h`, `rns_dist.c`, `dbig.h`, `verify.h`. Chapter B's derived quantities are printed by `docs/walk/scale.py`; its times and memory are from the run logs.
+Figures 1–10 and B1 are generated by
 `docs/fig/make_figs.py` from the formulas stated in their captions or from the cited RESULTS sections.
 
 ## Appendix: parameters
