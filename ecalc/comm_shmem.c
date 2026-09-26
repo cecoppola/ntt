@@ -568,6 +568,7 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
     size_t ch = round_chunk(p); long K = 1;
     for (int r = 0; r < n; r++) if (r != me) { long ko = round_count(scnt[r], ch), ki = round_count(rcnt[r], ch); if (ko > K) K = ko; if (ki > K) K = ki; }
     if (K < 2) return 0;
+    for (int r = 0; r < n; r++) if (r != me && (p->oseq[r] + K >= ((long)1 << 23) || p->iseq[r] + K >= ((long)1 << 23))) die("exchange sequence overflow (2^23 exchanges or rounds on one communicator)");
     size_t ss = 0, rs = 0;                                /* a slot per peer: its chunk (min(c, count)) */
     for (int r = 0; r < n; r++) { size_t a = r == me ? 0 : scnt[r] < ch ? scnt[r] : ch, b = r == me ? 0 : rcnt[r] < ch ? rcnt[r] : ch; p->spre[r] = ss; p->rpre[r] = rs; ss += a; rs += b; }
     staging(p, sin ? 0 : ss + 8, rin ? 0 : rs + 8, "alltoallv rounds");
