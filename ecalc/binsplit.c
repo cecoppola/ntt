@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "binsplit.h"
-#include "comm.h"                                   /* Phase 14 V1: comm_shmem_pool_in_heap, comm_shmem_heap_env (the pool rule) */
+size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void);   /* Phase 14 V1 (comm.h; comm_shmem.c): the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
