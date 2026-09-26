@@ -95,7 +95,7 @@ Transport (`comm_shmem.c`, `mn.c`; results/S.md):
 | `COMM_TRANSPORT=shmem` | set | selects the SHMEM transport (default TCP: `COMM_HOSTS`/`COMM_PORT`, the aac6 correctness path) |
 | `COMM_SHMEM_SERIAL=0` | set (Cray / SOS) | one context per communicator and blocking `wait_until`; the default 1 is one process-wide lock around every library call (OSHMEM 4.1's `SHMEM_THREAD_MULTIPLE` is nominal). The code falls back to serial if `shmem_init_thread` does not provide MULTIPLE |
 | `COMM_SHMEM_DEVHEAP=1` | set where the symmetric heap is device memory (Cray on the APU, rocSHMEM); 0 with a host heap | skips the `hipHostRegister` of the pool; the staging copies become D2D. Untested on aac6 (no such implementation): run `t_comm` and `t_dist` first (§4) |
-| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it |
+| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it. *Phase 14 V1*: `COMM_SHMEM_POOL_AUTO=1` is the default (the pool raised to the need at init), and a heap set on the launch line below the pool + 512 MiB stops every rank before `shmem_init` with both sizes named (rc 8) — the launch-line rule is in §4. With `COMM_SHMEM_ROUND_MB=1024` (off; the user's decision) the pool is **9472** MiB at the target (9.8 GB, node ≈ 424 GB modelled with the defaults; results/V114.md) |
 | `SHMEM_SYMMETRIC_HEAP_SIZE` | `COMM_SHMEM_POOL_MB` + 512 MiB (`mnrun.sh` sets it) | the library's heap must hold the pool; the name is OpenSHMEM's, Cray reads `XT_SYMMETRIC_HEAP_SIZE` too — set both |
 | `COMM_SHMEM_FENCE=1` | set on a conforming implementation | orders the data before its signal with `shmem_ctx_fence` (one call) instead of `quiet`; OSHMEM 4.1.6's fence does not order nbi puts (trap 2) — verify with `t_comm` before switching |
 | `COMM_SHMEM_RING_KB` | 256 (default) | the point-to-point ring per (source, dest); only small values flow through it |
@@ -178,6 +178,24 @@ export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_D
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
      bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 42500000000000 /out/e.txt'
 ```
+
+**The pool and the heap (Phase 14 V1).** The pool is carved from the SHMEM library's heap unless the heap is SOS's external
+heap (`COMM_SHMEM_DEVHEAP=1` on SOS with the patch: a HIP buffer of exactly the pool). So, on the target:
+1. With the exact environment of the run, on the login node (no device is touched, < 0.1 s):
+   `MN_PLAN_ONLY=42500000000000:576 ./ecalc | grep 'plan pool'` — it prints `COMM_SHMEM_POOL_MB=<need>` and the heap
+   (`>= <need + 512> MiB`). Every switch that shapes the exchanges must be the run's (`MN_GROUPS`, `MN_T_CHUNK_MB`,
+   `MDB_SHIFT_CHUNK_MB`, `COMM_SHMEM_ROUND_MB`, `COMM_SHMEM_RING_KB`, `ECALC_PLANE_CAP` / `POOL_LOG`).
+2. Export `COMM_SHMEM_POOL_MB=<need>` and, **unless** the heap is the SOS external heap, the library's heap variable at
+   `<need + 512>M` — `SHMEM_SYMMETRIC_SIZE` (SOS, Cray; Cray also `XT_SYMMETRIC_HEAP_SIZE`), `SHMEM_SYMMETRIC_HEAP_SIZE`
+   (OSHMEM); a device heap that the library sizes from such a variable (Cray on the APU, rocSHMEM's own variable) is a
+   heap too: set it the same way.
+3. `COMM_SHMEM_POOL_AUTO=1` (the default) then finds the pool at the need; if the pool had to grow past the heap it
+   stops before `shmem_init` on every rank: `comm_shmem pool: the SHMEM heap SHMEM_SYMMETRIC_SIZE=… MiB cannot hold the
+   symmetric pool COMM_SHMEM_POOL_MB=… MiB (+ 512 MiB; the modelled need …)` (rc 8) — fix the launch line, nothing ran.
+   A heap the transport cannot see (a variable other than the two above) is not checked: `shmem_malloc`'s failure then names
+   the size at init.
+aac6's `mnrun.sh` does steps 1–2 itself when `COMM_SHMEM_POOL_MB` is not set (the command's SHMEM-linked executable and its
+digit count; `MNRUN_PLAN_POOL=0` skips it). The launch line above has the values of step 1 for the defaults.
 
 The argument is the **total** digit count, not the per-node share (the pre-13c text had 61000000000, the per-node
 share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.25 × 10¹³ is the target since Phase 13d (§5 step 6; RESULTS §82): the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
