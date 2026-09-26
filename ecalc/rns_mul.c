@@ -162,7 +162,7 @@ int rns_init(int pool_log)
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
      * (results/N414.md).  Mapped first, they take 2 MiB blocks; the seeds start after them (default 0: the hook first). */
-    int planes_first = getenv("RNS_PLANES_FIRST") ? atoi(getenv("RNS_PLANES_FIRST")) : 0;
+    int planes_first = getenv("RNS_PLANES_FIRST") ? atoi(getenv("RNS_PLANES_FIRST")) : 1;   /* default 1 since Phase 14 (N414: the planes get the 2 MiB pages) */
     if (rns_after_staging_hook && !planes_first) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);

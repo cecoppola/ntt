@@ -21,7 +21,7 @@
 int sp_odirect(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("ECALC_ODIRECT") ? atoi(getenv("ECALC_ODIRECT")) : 0;
+    if (v < 0) v = getenv("ECALC_ODIRECT") ? atoi(getenv("ECALC_ODIRECT")) : 1;   /* default 1 since Phase 14 (S114); a file system that refuses O_DIRECT falls back to buffered + dropped cache */
     return v;
 }
 void sp_drop_cache(int fd)

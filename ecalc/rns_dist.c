@@ -1232,7 +1232,7 @@ int rns_mul_dist_mn_logcap(mn_group *G) { return mn_logn_cap(G->g); }
 struct mn_times { double redistribute, ntt, crt, out, carry, total; };
 size_t rns_dist_tscratch_max;                                 /* Phase 13a M: the largest window temporary + result slabs of one product or shifted add (bytes per node-process, measured) */
 /* ---- Phase 13a M (TASKS 1.3): the accumulating piece's window in rounds (MN_T_CHUNK_MB) ------------------------------ */
-static size_t mn_t_chunk_limbs(void) { static long v = -1; if (v < 0) { const char *e = getenv("MN_T_CHUNK_MB"); v = e ? (long)(atof(e) * 1048576.0 / 8) * 4 : 0; if (v < 0) v = 0; } return (size_t)v; }   /* limbs per node per round (4 APUs) */
+static size_t mn_t_chunk_limbs(void) { static long v = -1; if (v < 0) { const char *e = getenv("MN_T_CHUNK_MB"); v = (long)((e ? atof(e) : 1024.0) * 1048576.0 / 8) * 4;   /* default 1024 MB since Phase 14 (RESULTS §84: the target needs it to fit 480 GB); =0 one round */ if (v < 0) v = 0; } return (size_t)v; }   /* limbs per node per round (4 APUs) */
 /* node r's chunk c of its window (piece coordinates): [lo + c W, min(lo + (c + 1) W, hi)); the whole window when not chunked */
 static void mn_win_chunk(const mdb *C, int r, size_t shift, size_t Np, int c, size_t W, int chunked, size_t *lo, size_t *hi)
 {

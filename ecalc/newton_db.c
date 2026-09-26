@@ -50,7 +50,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
  * below the band kept: the band is then off by at most one unit (in practice identical), the same kind of error as the floor the
  * step already makes; healed by the next doubling, absorbed by the division's corrections at the last.  0 (the default): whole */
 static int recip_cut = -1, recip_guard = 1;
-static void cut_init(void) { if (recip_cut < 0) { const char *e = getenv("NEWTON_RECIP_CUT"); recip_cut = e ? atoi(e) != 0 : 0; e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
+static void cut_init(void) { if (recip_cut < 0) { const char *e = getenv("NEWTON_RECIP_CUT"); recip_cut = e ? atoi(e) != 0 : 1;   /* default 1 since Phase 14 (R114) */ e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
 size_t newton_recip_cut(size_t v) { cut_init(); return recip_cut && v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed);
 /* Phase 13d L: the chain's next target and the sharded reciprocal's start, extracted unchanged from recip_db2 / recip_mn (the plan
@@ -817,5 +817,5 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     if (me == 0) printf("divmod(mn) %.2f s: reciprocal %.2f (products %.2f), S = P + Q %.2f, A mu + shift %.2f, X Q + window %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
                         mem_now() - t0, ta - t0, p_rec, tb - ta, tc - tb, td - tc, te - td, dx, mem_now() - te, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
     if (me == 0) printf("scratch(mn): mdb_shift slabs %.3f GB per node-process at most (MDB_SHIFT_CHUNK_MB=%s), window temporaries T + rbO %.3f GB (MN_T_CHUNK_MB=%s)\n",
-                        mn_st.shift_max * 1e-9, getenv("MDB_SHIFT_CHUNK_MB") ? getenv("MDB_SHIFT_CHUNK_MB") : "1024", rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "0");   /* Phase 13a M */
+                        mn_st.shift_max * 1e-9, getenv("MDB_SHIFT_CHUNK_MB") ? getenv("MDB_SHIFT_CHUNK_MB") : "1024", rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "1024");   /* Phase 13a M */
 }
