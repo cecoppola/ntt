@@ -450,7 +450,7 @@ def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_
     Wt = t_chunk_limbs(t_chunk_mb)
     if Wt and win > Wt: win = Wt; send = min(send, Wt // 4 + 2 * g * rows)
     Rl = int(round_mb * 1048576) // 8 if round_mb else 0
-    def RM(x): return min(x, Rl) if Rl else x
+    def RM(x): return min(x // g * (g - 1), Rl) if Rl else x       # the peers' part (the rounds' path stages no self slab), at most Rl
     result = RM(send) + RM(win // 4)
     redist = max(RM(RT(pa)) + RM(va // 4 + 2 * g * rows), RM(RT(pb)) + RM(vb // 4 + 2 * g * rows))
     transform = 2 * RM(q // K_CHUNKS_MEM)
@@ -493,7 +493,7 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     K = -(-min(s_out, s_in) // ch) if ch and min(s_out, s_in) > ch else 1       # per APU at 1e9 on 2 nodes, the high node); newton_db.c: K rounds from the
     shift = -(-(s_out + s_in) // K)                                              # shorter side's part (SL), so a side can exceed the chunk (1e10: 1059.6 + 529.8, K 1)
     if round_mb:                                                                 # Phase 14 V1: the transport's rounds bound each side
-        Rl = int(round_mb * 1048576) // 8; shift = min(-(-s_out // K), Rl) + min(-(-s_in // K), Rl)
+        Rl = int(round_mb * 1048576) // 8; shift = min(-(-s_out // K) // g * (g - 1), Rl) + min(-(-s_in // K) // g * (g - 1), Rl)
     if shift > best: best, who = shift, 'mdb_shift'
     staging = NR * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
