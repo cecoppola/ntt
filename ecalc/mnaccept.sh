@@ -13,7 +13,7 @@
 #   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
 #          ECALC_RECHECK=1 on their files (RECHECK OK on every node, P and Q from the checkpoint) and on a copy with one
 #          digit flipped (RECHECK FAILED)
-#   full   4 x 10^10 at size 1 (--full only; ~ 2 min of the whole node): the reference evicted from the page
+#   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
 #          cache first, the wall printed, digits cmp'd against results/e_4e10.out; then ECALC_RECHECK=1 on its files
 #          (the top-level set the run wrote by default into <outfile>.top) -- a second PASS/FAIL line with its time
 #   stress 10 runs of 10^9 at size 4 with a plane pool forced to grow inside bs (--stress only, ~ 10 min; Phase 12 R):
@@ -30,7 +30,9 @@ cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
 REF=${ECALC_REF:-$HOME/ntt/ecalc/ref}; [ -s ref/e_1000000000.txt ] && REF=$ECALC_DIR/ref
 for f in "$REF"/e_*; do [ -e "ref/$(basename "$f")" ] || ln -s "$f" ref/; done   # t_bs reads ref/e_<d>.sha256 relative to ecalc/ (the files are git-ignored)
-REF4=${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_4e10.out}
+STD=${ECALC_STD_DIGITS:-100000000000}                                   # the standard size (Phase 14: 10^11; ECALC_STD_DIGITS=40000000000 = the old 4e10 step)
+case $STD in 40000000000) STDT=4e10;; 100000000000) STDT=1e11;; *) STDT=$STD;; esac
+REF4=${ECALC_REF_STD:-${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_$STDT.out}}
 [ "$(squeue -j "$J" -h -o %T 2>/dev/null)" = "RUNNING" ] || { echo "job $J is not running"; exit 2; }
 NODE=$(squeue -j "$J" -h -o %N)
 OUT=results/mnaccept/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
@@ -145,22 +147,22 @@ fi
 
 # ---- 4 x 10^10 at size 1 (--full) ------------------------------------------------------------------------------------
 if [ $FULL = 1 ] && want full; then
-  log=$OUT/full_4e10.log; f=$TMP/e4e10.txt
+  log=$OUT/full_$STDT.log; f=$TMP/e$STDT.txt
   N "python3 -c \"import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\" $REF4 2>/dev/null; true"
   t1=$(date +%s)
-  R 1800 "env ECALC_VERBOSE=2 ./ecalc 40000000000 $f" > "$log" 2>&1; rc=$?
+  R 1800 "env ECALC_VERBOSE=2 ./ecalc $STD $f" > "$log" 2>&1; rc=$?
   el=$(( $(date +%s) - t1 ))
-  lg=$OUT/full_4e10_recheck.log; t2=$(date +%s)                        # Phase 12 W: the recheck from the run's files (digits, .t1, .top)
-  R 1200 "env ECALC_RECHECK=1 ./ecalc 40000000000 $f" > "$lg" 2>&1; rc2=$?
+  lg=$OUT/full_${STDT}_recheck.log; t2=$(date +%s)                        # Phase 12 W: the recheck from the run's files (digits, .t1, .top)
+  R 1200 "env ECALC_RECHECK=1 ./ecalc $STD $f" > "$lg" 2>&1; rc2=$?
   el2=$(( $(date +%s) - t2 ))
   c=$(cmpref "$f" "$REF4")
   tot=$(grep -a '^total' "$log" | tail -1 | sed 's/  */ /g')
-  echo "  4e10: $tot" | tee -a "$SUM"
-  echo "  4e10: $(grep -a '^bs \|^dm \|^init\|checkpoint: the top-level' "$log" | sed 's/  */ /g' | cut -c1-100 | tr '\n' ';')" | tee -a "$SUM"
-  if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "full 4e10 size 1" "$c; wall $(echo "$tot" | cut -c1-16) (${el} s elapsed with the write)"
-  else fail "full 4e10 size 1" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error\|Killed' "$log" | head -1 | cut -c1-120)"; fi
-  if [ $rc2 -eq 0 ] && grep -aq '^RECHECK OK' "$lg" && grep -aqE 'from the (checkpoint|sidecar)' "$lg"; then pass "full 4e10 recheck" "RECHECK OK, P, Q from the $(grep -aoE 'from the (checkpoint|sidecar)' "$lg" | head -1 | cut -d' ' -f3) (the top set is off by default since 3524146); ${el2} s; $(grep -a 'recheck: .*digits read' "$lg" | head -1 | sed 's/.*digits read from [^ ]* in \([0-9.]* s\).*/file read in \1/')"
-  else fail "full 4e10 recheck" "rc $rc2; $(grep -a 'RECHECK\|DIFFER\|BAD\|cannot\|error' "$lg" | head -1 | cut -c1-120)"; fi
+  echo "  $STDT: $tot" | tee -a "$SUM"
+  echo "  $STDT: $(grep -a '^bs \|^dm \|^init\|checkpoint: the top-level' "$log" | sed 's/  */ /g' | cut -c1-100 | tr '\n' ';')" | tee -a "$SUM"
+  if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "full $STDT size 1" "$c; wall $(echo "$tot" | cut -c1-16) (${el} s elapsed with the write)"
+  else fail "full $STDT size 1" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error\|Killed' "$log" | head -1 | cut -c1-120)"; fi
+  if [ $rc2 -eq 0 ] && grep -aq '^RECHECK OK' "$lg" && grep -aqE 'from the (checkpoint|sidecar)' "$lg"; then pass "full $STDT recheck" "RECHECK OK, P, Q from the $(grep -aoE 'from the (checkpoint|sidecar)' "$lg" | head -1 | cut -d' ' -f3) (the top set is off by default since 3524146); ${el2} s; $(grep -a 'recheck: .*digits read' "$lg" | head -1 | sed 's/.*digits read from [^ ]* in \([0-9.]* s\).*/file read in \1/')"
+  else fail "full $STDT recheck" "rc $rc2; $(grep -a 'RECHECK\|DIFFER\|BAD\|cannot\|error' "$lg" | head -1 | cut -c1-120)"; fi
 fi
 
 # ---- forced pool growth at 10^9 size 4 (--stress) ---------------------------------------------------------------------
