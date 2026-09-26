@@ -112,6 +112,8 @@ int   comm_shmem_rank(void);
 int   comm_shmem_size(void);
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
 void  comm_shmem_finalize(void);
+size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
+int   comm_shmem_pool_in_heap(void);           /* Phase 14 V1: 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 /* S (PLAN.md 25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
  * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */

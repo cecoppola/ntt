@@ -423,7 +423,7 @@ SHMEM_MAXID = 1024                                        # comm_shmem.c MAXID: 
 SHMEM_SELFTEST = 128 << 20                                # mn_selftest_layered's symmetric buffers at init (measured 128 MiB at 2 PEs, 64 at 4)
 SHMEM_MARGIN = 256 << 20                                  # first-fit slack and the small exchanges (spills, counts, reductions): assumed
 
-def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None):
+def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, parts=None, round_mb=0):
     """Phase 14 P2 (results/P214.md): the SHMEM transport's staging for one mn_core product C = A B over g nodes, per APU thread
     (limbs; send + receive of its largest staged exchange -- the staging is allocated per exchange and released after it, and
     the four APU threads run the same exchange at once, so the pool holds NR of these).  The code's buffers (mn_scratch's
@@ -432,7 +432,9 @@ def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_
     the piece); the redistribution of A (B) sends my share's part of the piece, va / 4 (+ 2 g rows), and receives my rows,
     RT(pa); the transform's inter-node stage (comm_layered) q / K each way.  MN_T_CHUNK_MB=m: the result exchange in rounds
     of m MiB per APU each way.  Measured (P214 section 1): the result exchange of the division's A_h mu product is the peak
-    at 1e8 / 1e9 / 1e10 on 2 nodes and 1e9 / 1e10 on 4 processes, to the MiB."""
+    at 1e8 / 1e9 / 1e10 on 2 nodes and 1e9 / 1e10 on 4 processes, to the MiB.
+    Phase 14 V1: round_mb = COMM_SHMEM_ROUND_MB -- the transport carries each all-to-all in rounds staging at most round_mb
+    each way, so every side of every exchange is bounded by it (rns_dist.c rns_mul_dist_mn_stage's RMIN)."""
     if not na or not nb or g < 2: return 0
     cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
     nr = 4 * g; lg = 0
@@ -447,9 +449,11 @@ def mn_stage(na, nb, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_
     win = min(share_c, nc); send = RT(nc)
     Wt = t_chunk_limbs(t_chunk_mb)
     if Wt and win > Wt: win = Wt; send = min(send, Wt // 4 + 2 * g * rows)
-    result = send + win // 4
-    redist = max(RT(pa) + va // 4, RT(pb) + vb // 4) + 2 * g * rows
-    transform = 2 * (q // K_CHUNKS_MEM)
+    Rl = int(round_mb * 1048576) // 8 if round_mb else 0
+    def RM(x): return min(x, Rl) if Rl else x
+    result = RM(send) + RM(win // 4)
+    redist = max(RM(RT(pa)) + RM(va // 4 + 2 * g * rows), RM(RT(pb)) + RM(vb // 4 + 2 * g * rows))
+    transform = 2 * RM(q // K_CHUNKS_MEM)
     if parts is not None: parts.update(result=result, redist=redist, transform=transform, ka=ka, kb=kb, nc=nc, win=win)
     return max(result, redist, transform)
 
@@ -468,7 +472,7 @@ def shmem_products(nq_total, g, groups=None):
     out.append(('recip Q_t r', g, nq_total, nq_total // 2 + 1, sh, -(-(nq_total // 2) // g), -(-(3 * nq_total // 2) // g)))
     return out
 
-def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None):
+def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
       staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
                  my share of each, each at most MDB_SHIFT_CHUNK_MB)
@@ -476,17 +480,20 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
                  8 words x S + S x the ring: 4 x (g + sum of the lower levels' S) x (ring + 64 B)  (measured 2 MiB at 2, 6 at 4)
       mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
       sym_slabs (DIST_MN_SYM_SLABS=1, TASKS 2.4): + NR x 3 q x 8 B kept (q = the largest mn_core plane), the transform's staging gone.
+      round_mb (COMM_SHMEM_ROUND_MB, Phase 14 V1): every side of every staged exchange at most round_mb.
     detail (a dict) receives the parts and the product that sets the staging."""
     if g <= 1: return 0
     best, who, qmax = 0, '', 0
     for name, S, na, nb, sa, sb, sc in shmem_products(nq_total, g, groups):
-        pp = {}; st = mn_stage(na, nb, S, sa, sb, sc, pool_log, 0, t_chunk_mb, pp)
+        pp = {}; st = mn_stage(na, nb, S, sa, sb, sc, pool_log, 0, t_chunk_mb, pp, round_mb)
         if st > best: best, who = st, '%s (%s)' % (name, max(('result', 'redist', 'transform'), key=lambda k: pp[k]))
         cap = 1 << mn_cap_log(S, pool_log); qmax = max(qmax, mn_shape(min(na + nb, cap), S)[3])
     ch = int(shift_chunk_mb * 1048576 / 8) if shift_chunk_mb else 0             # mdb_shift: the division's t (2 nq limbs) >> (k + 1) -> X (nq): my share of t
     s_out, s_in = -(-2 * nq_total // g) // 4, -(-nq_total // g) // 4          # out, my share of X in, a quarter per APU each (measured: send 106 + recv 53 MiB
     K = -(-min(s_out, s_in) // ch) if ch and min(s_out, s_in) > ch else 1       # per APU at 1e9 on 2 nodes, the high node); newton_db.c: K rounds from the
     shift = -(-(s_out + s_in) // K)                                              # shorter side's part (SL), so a side can exceed the chunk (1e10: 1059.6 + 529.8, K 1)
+    if round_mb:                                                                 # Phase 14 V1: the transport's rounds bound each side
+        Rl = int(round_mb * 1048576) // 8; shift = min(-(-s_out // K), Rl) + min(-(-s_in // K), Rl)
     if shift > best: best, who = shift, 'mdb_shift'
     staging = NR * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
@@ -513,26 +520,28 @@ def pool_target():
     groups = '2,4,8,16,32,64,192,576'; D = 4.25e13 / 576
     print('== Phase 14 P2: the 4.25e13 target on 576 nodes (D %.3e per node, MN_GROUPS %s): the SHMEM pool and the node total (GB, modelled)' % (D, groups))
     for name, o in [('the code (staged exchanges)', dict()), ('MN_T_CHUNK_MB=1024', dict(t_chunk_mb=1024)), ('DIST_MN_SYM_SLABS=1', dict(staging='sym')),
+                    ('COMM_SHMEM_ROUND_MB=1024 (V1)', dict(round_mb=1024)), ('MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024', dict(t_chunk_mb=1024, round_mb=1024)),
                     ('the old model (resident, 8 GiB flat)', dict(staging='resident'))]:
         for tight in (False, True):
             oo = dict(TARGET576); oo.update(groups=groups, tight=tight); oo.update(o)
             r = mem_per_node(int(D), 576, oo); det = {}
             if oo['staging'] in ('code', 'sym'):
                 L = dm_layout(e_terms(digits_of_run(D * 576)), 576, 31, True, tight)
-                shmem_pool(L['nq'], 576, groups, 31, oo.get('t_chunk_mb', 0), oo.get('shift_chunk_mb', 1024), oo['staging'] == 'sym', detail=det)
-            print('  %-38s%s: pool %6.1f (staging %6.1f = 4 x %.2f by %s, control %.2f, sym %.1f) -> node %6.1f (device %6.1f + host %5.1f): %s 480' % (
+                shmem_pool(L['nq'], 576, groups, 31, oo.get('t_chunk_mb', 0), oo.get('shift_chunk_mb', 1024), oo['staging'] == 'sym', detail=det, round_mb=oo.get('round_mb', 0))
+            print('  %-44s%s: pool %6.1f (staging %6.1f = 4 x %.2f by %s, control %.2f, sym %.1f) -> node %6.1f (device %6.1f + host %5.1f): %s 480' % (
                 name, ' DM_TIGHT' if tight else '         ', r['shmem_pool'] / GB, det.get('staging', 0) / GB, det.get('per_apu', 0) / GB, det.get('by', '-'),
                 det.get('control', 0) / GB, det.get('sym', 0) / GB, r['node_peak'] / GB, r['dev_dm'] / GB, r['host_hwm'] / GB, 'fits' if r['node_peak'] <= 480 * GB else 'EXCEEDS'))
 
 def pool_check():
     """the pool law against the measured staging peaks (the largest PE: the pool is the same size on every PE)"""
     print('== Phase 14 P2: the SHMEM pool staging (MiB per node-process, the largest PE): measured vs the law')
-    for D, g, pl, tmb, meas, src in MEASURED_POOL:
+    for row in MEASURED_POOL:
+        D, g, pl, tmb, meas, src = row[:6]; rmb = row[6] if len(row) > 6 else 0     # Phase 14 V1: + COMM_SHMEM_ROUND_MB
         d = digits_of_run(D); L = dm_layout(e_terms(d), g, pl); det = {}
-        shmem_pool(L['nq'], g, None, pl, tmb, detail=det)
+        shmem_pool(L['nq'], g, None, pl, tmb, detail=det, round_mb=rmb)
         m = det['staging'] / 1048576.0
-        print('  %.0e g %d cap log %d T chunk %3d: measured %8.1f  law %8.1f (%+.2f %%) = 4 x %.1f MiB by %-26s control %.1f MiB | %s' % (
-            D, g, pl, tmb, meas, m, 100 * (m / meas - 1), det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
+        print('  %.0e g %d cap log %d T chunk %4d rounds %4d: measured %8.1f  law %8.1f (%+.2f %%) = 4 x %.1f MiB by %-26s control %.1f MiB | %s' % (
+            D, g, pl, tmb, rmb, meas, m, 100 * (m / meas - 1), det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
 
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
@@ -581,7 +590,7 @@ def mem_per_node(D, g=1, opts=None):
     dev_dm = planes + pool_total
     pdet = {}
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
-        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet)
+        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0))
         stg = pdet['staging']; pool = max(o['pool_mb'] << 20, need)
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
         stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0

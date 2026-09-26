@@ -58,7 +58,24 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include "comm.h"
+/* Phase 14 V1: the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
+ * size from the launch line's variable (SHMEM_SYMMETRIC_HEAP_SIZE for OSHMEM, SHMEM_SYMMETRIC_SIZE for SOS and Cray; K / M / G / T
+ * suffixes, else bytes), 0 when unset; *name = the variable */
+size_t comm_shmem_heap_env(const char **name)
+{
+#if defined(COMM_SHMEM_OSHMEM)
+    const char *nm = "SHMEM_SYMMETRIC_HEAP_SIZE";
+#else
+    const char *nm = "SHMEM_SYMMETRIC_SIZE";
+#endif
+    if (name) *name = nm;
+    const char *e = getenv(nm); if (!e || !*e) return 0;
+    char *end; double v = strtod(e, &end);
+    switch (*end) { case 'k': case 'K': v *= 1024.0; break; case 'm': case 'M': v *= 1048576.0; break; case 'g': case 'G': v *= 1073741824.0; break; case 't': case 'T': v *= 1099511627776.0; break; default: break; }
+    return v > 0 ? (size_t)v : 0;
+}
 #ifndef COMM_SHMEM
+int comm_shmem_pool_in_heap(void) { return 0; }
 static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); }
 int   comm_shmem_init(void) { no_shmem(); return 0; }
 int   comm_shmem_rank(void) { return 0; }
@@ -102,6 +119,9 @@ static struct {
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
+    size_t round_bytes;                    /* Phase 14 V1: COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
+    long nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges carried in rounds, their rounds, the largest per-round staging (send + recv) */
+    double tv; long nv;                    /* Phase 14 V1: all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* Phase 14 P2 (below) */
@@ -179,6 +199,21 @@ static void wait_ne(long *p, long v)
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
 int comm_shmem_available(void) { return 1; }
+/* Phase 14 V1: 1 when the pool will be shmem_malloc'd from the library's heap (OSHMEM, SOS without the device heap, Cray /
+ * rocSHMEM whose heap is device memory but sized by the launch line), 0 when it is SOS's external heap (COMM_SHMEM_DEVHEAP=1
+ * with the patch: a HIP buffer of the pool's own size) */
+int comm_shmem_pool_in_heap(void)
+{
+#if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)
+#ifdef COMM_SHMEM_DEVICE_HEAP
+    return 0;
+#else
+    return !(getenv("COMM_SHMEM_DEVHEAP") && atoi(getenv("COMM_SHMEM_DEVHEAP")));
+#endif
+#else
+    return 1;
+#endif
+}
 int comm_shmem_rank(void) { return S.me; }
 int comm_shmem_size(void) { return S.npes; }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
@@ -239,6 +274,7 @@ int comm_shmem_init(void)
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     S.keep_staging = env_int("COMM_SHMEM_KEEP_STAGING", 0);
+    { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }   /* Phase 14 V1 */
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);
         if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
@@ -259,6 +295,7 @@ int comm_shmem_init(void)
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
     shmem_barrier_all();                                  /* every mailbox is zeroed before anyone posts */
     S.inited = 1;
+    if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.extheap ? (S.devheap == 2 ? " (HIP managed, SOS external heap)" : " (HIP fine-grained device, SOS external heap)") : S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.thread_always ? ", helper thread" : S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us);
@@ -274,6 +311,9 @@ void comm_shmem_finalize(void)
         printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
                S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
         if (S.verbose >= 2) site_print();
+        printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads)", S.me, S.nv, S.tv);   /* Phase 14 V1 */
+        if (S.round_bytes) printf("; %ld carried in %ld rounds (COMM_SHMEM_ROUND_MB=%.6g, the largest round's staging %.1f MiB send + recv)", S.nround_ex, S.nrounds, S.round_bytes / 1048576.0, S.round_stage_max / 1048576.0);
+        printf("\n");
     }
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
@@ -299,6 +339,12 @@ typedef struct {
     const char *src; const size_t *scnt, *sdsp;   /* the push's inputs: src + stride r (equal slabs; stride 0: one block to all) or src + sdsp[r], scnt[r] */
     size_t stride;
     long *sent, *got;                      /* point-to-point: bytes sent to / received from each rank */
+    /* Phase 14 V1: the words' sequences per pair -- oseq[r] my sends to r (the roff word r writes into my block, my signal
+     * into r's), iseq[r] r's sends to me.  An ordinary exchange advances every pair by one (so they equal seq); an exchange in
+     * rounds advances a pair by its round count, which both ends derive from the pair's byte count alone */
+    long *oseq, *iseq;
+    size_t *acnt, *adsp;                   /* an equal exchange's counts and offsets for the rounds */
+    int rounds, dev, rs_made; hipStream_t rs; size_t chunk, rsb_cap; const char *vsb; char *vrb; int vsin; double t0;   /* the pending exchange in rounds (helper thread, own stream) */
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
 static long *W(shm_priv *p, size_t base, int w, int r) { return (long *)(S.pool + base + ((size_t)w * p->n + r) * 8); }   /* word w of rank r in the block at base */
@@ -374,9 +420,8 @@ static void staging_release(shm_priv *p)
  * >= 0: returns the first peer not ready), put, signal.  Returns n when every peer is done. */
 static int push_peers(shm_priv *p, int from, long spin_us)
 {
-    long seq = p->seq;
     for (int r = from; r < p->n; r++) if (r != p->me) {
-        long *w = W(p, p->base, W_ROFF, r);
+        long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
         if (spin_us < 0) wait_ge(w, PACK(seq, 0));
         else { double t0 = 0; for (unsigned spins = 0; !test_ge(w, PACK(seq, 0)); spins++) { if (spins > 32) { double t = now_s(); if (!t0) t0 = t; else if ((t - t0) * 1e6 > (double)spin_us) return r; sched_yield(); } } }
         long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
@@ -385,7 +430,7 @@ static int push_peers(shm_priv *p, int from, long spin_us)
     }
     if (S.order == ORDER_QUIET) {
         SHM_LOCK(); shmem_ctx_quiet(p->ctx);
-        for (int r = from; r < p->n; r++) if (r != p->me) put_word(p, r, W_SIG, p->me, PACK(seq, p->scnt ? p->scnt[r] : p->bytes));
+        for (int r = from; r < p->n; r++) if (r != p->me) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
         SHM_UNLOCK();
     }
     return p->n;
@@ -401,33 +446,44 @@ static void start_push(comm *c)
     if (p->next < p->n) { if (pthread_create(&p->th, 0, pusher, c)) die("pthread_create"); p->thread = 1; }
 }
 /* the receiver's half: publish where every sender's slab lands: base + r * bytes, or base + the caller's / prefix offsets */
+/* the next exchange: every pair's sequence + 1 */
+static void seq_next(shm_priv *p)
+{
+    p->seq++;
+    for (int r = 0; r < p->n; r++) if (r != p->me) { p->oseq[r]++; p->iseq[r]++; if (p->oseq[r] >= ((long)1 << 23) || p->iseq[r] >= ((long)1 << 23)) die("exchange sequence overflow (2^23 exchanges or rounds on one communicator)"); }
+}
 static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 {
-    if (p->seq >= ((long)1 << 23)) die("exchange sequence overflow (2^23 exchanges on one communicator)");
     SHM_LOCK();
-    for (int r = 0; r < p->n; r++) if (r != p->me) put_word(p, r, W_ROFF, p->me, PACK(p->seq, base + (dsp ? dsp[r] : bytes * (size_t)r)));
+    for (int r = 0; r < p->n; r++) if (r != p->me) put_word(p, r, W_ROFF, p->me, PACK(p->iseq[r], base + (dsp ? dsp[r] : bytes * (size_t)r)));
     SHM_UNLOCK();
 }
 /* wait for every sender's signal (and count), then the context's completion (my send buffer is free again) */
 static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
     for (int r = 0; r < p->n; r++) if (r != p->me) {
-        long *sw = W(p, p->base, W_SIG, r); wait_ge(sw, PACK(p->seq, 0));
+        long *sw = W(p, p->base, W_SIG, r); wait_ge(sw, PACK(p->iseq[r], 0));
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
-        if (UNSEQ(x) != p->seq) die("signal sequence mismatch");
+        if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
         if ((long)UNOFF(x) != want) { ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); }
     }
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();
 }
 static int s_rank(comm *c) { return c->rank; }
 static int s_size(comm *c) { return c->size; }
+static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin);   /* Phase 14 V1 (below) */
 static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoall while one is pending");
     int sin = in_pool(sb), rin = in_pool(rb);
+    p->t0 = now_s();
+    if (S.round_bytes) {                                  /* Phase 14 V1: the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
+        for (int r = 0; r < n; r++) { p->acnt[r] = bytes; p->adsp[r] = (size_t)r * bytes; }
+        if (alltoallv_rounds(c, sb, p->acnt, p->adsp, rb, p->acnt, p->adsp, s, sin, rin)) return;
+    }
     staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall");
-    p->seq++; p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
+    seq_next(p); p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst;
     TRACE("comm %d: alltoall seq %ld, %zu B per slab%s%s", p->id, p->seq, bytes, sin ? ", send in pool" : "", rin ? ", recv in pool" : "");
     if (!sin) COPY(S.pool + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
@@ -436,15 +492,111 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
     start_push(c);
 }
+/* ---- Phase 14 V1: the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
+ * The staging of an ordinary exchange is its whole send and receive, so the pool's high-water is 4 APU threads x the largest
+ * exchange's pair -- a second copy of buffers the callers already hold (results/P214.md 2).  With COMM_SHMEM_ROUND_MB = m, a
+ * pair (s -> r) of b bytes goes in K = ceil(b / c) rounds of c = m / (n - 1) bytes (K = 1 when b <= c: then exactly the
+ * ordinary exchange's words), so one round stages at most m each way whatever the exchange.  Both ends know b (scnt / rcnt,
+ * checked by the signal), so both derive K and the pair's sequence advances by K on both -- no collective.  Round j: every
+ * member publishes, per sender still active, where its chunk j lands (its slot in the receive staging, or the pool-resident
+ * rb directly); stages its own chunks j; puts each after the receiver's word of round j; waits for the signals of round j;
+ * quiets (the send staging is free again) and copies the received chunks out.  A member enters round j only after round j - 1
+ * completed, and every member publishes before it blocks, so the rounds cannot deadlock.  The rounds run in a helper thread on
+ * the communicator's own stream: the call returns at once, as the ordinary exchange does (comm_layered overlaps its intra
+ * stage with the inter exchange), and s_wait joins it. */
+static size_t round_chunk(const shm_priv *p)
+{
+    size_t c = S.round_bytes / (size_t)(p->n > 1 ? p->n - 1 : 1); c &= ~(size_t)(ALIGN - 1);
+    return c < 4096 ? 4096 : c;
+}
+static long round_count(size_t b, size_t c) { return b <= c ? 1 : (long)((b + c - 1) / c); }
+static void *rounder(void *a)
+{
+    shm_priv *p = (shm_priv *)a; int n = p->n, me = p->me; size_t c = p->chunk;
+    const size_t *scnt = p->scnt, *sdsp = p->sdsp, *rcnt = p->rcnt, *rdsp = p->rdsp;
+#ifndef COMM_HOST_ONLY
+    HIP_CHECK(hipSetDevice(p->dev));
+#endif
+    long K = 1;
+    for (int r = 0; r < n; r++) if (r != me) { long ko = round_count(scnt[r], c), ki = round_count(rcnt[r], c); if (ko > K) K = ko; if (ki > K) K = ki; }
+    for (long j = 0; j < K; j++) {
+        size_t o = (size_t)j * c;
+        SHM_LOCK();                                       /* the receiver's half: where each active sender's chunk j lands */
+        for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c))
+            put_word(p, r, W_ROFF, me, PACK(p->iseq[r] + 1 + j, p->rin ? off_of(p->vrb) + rdsp[r] + o : p->rst + p->rpre[r]));
+        SHM_UNLOCK();
+        if (!p->vsin) {                                   /* my chunks j into the send staging (free: round j - 1's quiet) */
+            int any = 0;
+            for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c) && scnt[r] > o) { size_t len = scnt[r] - o < c ? scnt[r] - o : c; COPY(S.pool + p->sst + p->spre[r], p->vsb + sdsp[r] + o, len, p->rs); any = 1; }
+            if (any) SYNC(p->rs);
+        }
+        for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) {   /* the sender's half */
+            long seq = p->oseq[r] + 1 + j, *w = W(p, p->base, W_ROFF, r); wait_ge(w, PACK(seq, 0));
+            long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("round sequence mismatch");
+            size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0;
+            const char *src = p->vsin ? p->vsb + sdsp[r] + o : S.pool + p->sst + p->spre[r];
+            SHM_LOCK(); put_signalled(p, r, UNOFF(x), src, len, PACK(seq, len)); SHM_UNLOCK();
+        }
+        if (S.order == ORDER_QUIET) {
+            SHM_LOCK(); shmem_ctx_quiet(p->ctx);
+            for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
+            SHM_UNLOCK();
+        }
+        for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c)) {   /* the signals of round j */
+            long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); wait_ge(sw, PACK(seq, 0));
+            long x = *(volatile long *)sw; size_t want = rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0;
+            if (UNSEQ(x) != seq) die("round signal sequence mismatch");
+            if (UNOFF(x) != want) ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch (round %ld): rank %d sends %ld bytes to rank %d, which expects %zu\n", j, r, (long)UNOFF(x), me, want);
+        }
+        SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();   /* my puts of round j are complete: the send staging is free */
+        if (!p->rin) {
+            int any = 0;
+            for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c) && rcnt[r] > o) { size_t len = rcnt[r] - o < c ? rcnt[r] - o : c; COPY(p->vrb + rdsp[r] + o, S.pool + p->rst + p->rpre[r], len, p->rs); any = 1; }
+            if (any) SYNC(p->rs);                         /* before round j + 1 publishes the same slots */
+        }
+    }
+    for (int r = 0; r < n; r++) if (r != me) { p->oseq[r] += round_count(scnt[r], c); p->iseq[r] += round_count(rcnt[r], c); }
+    pthread_mutex_lock(&S.alloc_lock); S.nround_ex++; S.nrounds += K; pthread_mutex_unlock(&S.alloc_lock);
+    return 0;
+}
+/* the exchange in rounds when a pair of mine needs more than one (else 0: the ordinary exchange, which a peer in rounds meets
+ * pair by pair -- a pair of one round is the same words) */
+static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin)
+{
+    shm_priv *p = PRIV(c); int n = p->n, me = p->me;
+    if (!S.round_bytes || n < 2) return 0;
+    size_t ch = round_chunk(p); long K = 1;
+    for (int r = 0; r < n; r++) if (r != me) { long ko = round_count(scnt[r], ch), ki = round_count(rcnt[r], ch); if (ko > K) K = ko; if (ki > K) K = ki; }
+    if (K < 2) return 0;
+    size_t ss = 0, rs = 0;                                /* a slot per peer: its chunk (min(c, count)) */
+    for (int r = 0; r < n; r++) { size_t a = r == me ? 0 : scnt[r] < ch ? scnt[r] : ch, b = r == me ? 0 : rcnt[r] < ch ? rcnt[r] : ch; p->spre[r] = ss; p->rpre[r] = rs; ss += a; rs += b; }
+    staging(p, sin ? 0 : ss + 8, rin ? 0 : rs + 8, "alltoallv rounds");
+    { size_t st = (sin ? 0 : ss) + (rin ? 0 : rs); pthread_mutex_lock(&S.alloc_lock); if (st > S.round_stage_max) S.round_stage_max = st; pthread_mutex_unlock(&S.alloc_lock); }
+    if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
+    p->seq++;                                             /* (the pairs' sequences advance in the rounds) */
+    p->v = 1; p->rounds = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->sdsp = sdsp; p->rin = rin; p->pending = 1;
+    p->vsb = (const char *)sb; p->vrb = (char *)rb; p->vsin = sin; p->chunk = ch;
+#ifndef COMM_HOST_ONLY
+    if (!p->rs_made) { HIP_CHECK(hipGetDevice(&p->dev)); HIP_CHECK(hipStreamCreateWithFlags(&p->rs, hipStreamNonBlocking)); p->rs_made = 1; }
+#endif
+    if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
+    SYNC(s);                                              /* the caller's stream is done with sb and rb */
+    TRACE("comm %d: alltoallv in %ld rounds of %zu B per pair (staging %zu + %zu B)", p->id, K, ch, ss, rs);
+    if (pthread_create(&p->th, 0, rounder, p)) die("pthread_create");
+    p->thread = 1;
+    return 1;
+}
 static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv while an exchange is pending");
     int sin = in_pool(sb), rin = in_pool(rb);
+    p->t0 = now_s();
+    if (alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
-    p->seq++; p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
+    seq_next(p); p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : S.pool + p->sst; p->sdsp = sin ? sdsp : p->spre;
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(S.pool + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
@@ -458,6 +610,11 @@ static void s_wait(comm *c)
     if (!p->pending) return;
     TRACE("comm %d: wait seq %ld", p->id, p->seq);
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
+    if (p->rounds) {                                      /* Phase 14 V1: the rounds completed in the helper thread */
+        p->rounds = 0; staging_release(p); p->pending = 0;
+        double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; pthread_mutex_unlock(&S.alloc_lock);
+        return;
+    }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
     TRACE("comm %d: wait seq %ld: arrived", p->id, p->seq);
     if (!p->rin) {
@@ -467,6 +624,7 @@ static void s_wait(comm *c)
     }
     staging_release(p);
     p->pending = 0;
+    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; pthread_mutex_unlock(&S.alloc_lock); }   /* Phase 14 V1 */
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
 static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
@@ -477,7 +635,7 @@ static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     staging(p, 0, tr + 8, "alltoallv_host");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     if (scnt[me]) memmove((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me]);
-    p->seq++; p->src = (const char *)sb; p->scnt = scnt; p->sdsp = sdsp; p->bytes = 0;
+    seq_next(p); p->src = (const char *)sb; p->scnt = scnt; p->sdsp = sdsp; p->bytes = 0;
     publish(p, p->rst, 0, p->rpre);
     push_peers(p, 0, -1);
     arrive(p, 0, rcnt);
@@ -490,7 +648,7 @@ static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
     if (p->pending) die("allgather while an exchange is pending");
     staging(p, 0, bytes * n, "allgather_host");
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) memcpy(self, sb, bytes);
-    p->seq++; p->src = (const char *)sb; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
+    seq_next(p); p->src = (const char *)sb; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
     publish(p, p->rst, bytes, 0);
     push_peers(p, 0, -1);
     arrive(p, bytes, 0);
@@ -506,7 +664,7 @@ static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) COPY(self, sb, bytes, 0);
     if (!sin) COPY(S.pool + p->sst, sb, bytes, 0);
     SYNC(0);
-    p->seq++; p->src = sin ? (const char *)sb : S.pool + p->sst; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
+    seq_next(p); p->src = sin ? (const char *)sb : S.pool + p->sst; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
     publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
     push_peers(p, 0, -1);
     arrive(p, bytes, 0);
@@ -605,7 +763,10 @@ static void s_destroy(comm *c)
     if (p->sst) pool_free(p->sst);
     if (p->rst) pool_free(p->rst);
     pool_free(p->base);
-    free(p->pe); free(p->rbase); free(p->rpre); free(p->spre); free(p->sent); free(p->got); free(p); free(c);
+#ifndef COMM_HOST_ONLY
+    if (p->rs_made) HIP_CHECK(hipStreamDestroy(p->rs));
+#endif
+    free(p->pe); free(p->rbase); free(p->rpre); free(p->spre); free(p->sent); free(p->got); free(p->oseq); free(p->iseq); free(p->acnt); free(p); free(c);
 }
 static const struct comm_ops shm_ops = { s_rank, s_size, s_alltoall, s_wait, s_barrier, s_modq, s_max, s_destroy, s_send, s_recv, s_allgather, s_allgather_host, s_alltoallv, s_alltoallv_host, s_sym_alloc, s_sym_free };
 
@@ -625,6 +786,8 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
     p->rbase = (size_t *)calloc(n, sizeof(size_t)); p->rpre = (size_t *)calloc(n, sizeof(size_t)); p->spre = (size_t *)calloc(n, sizeof(size_t));
     p->sent = (long *)calloc(n, sizeof(long)); p->got = (long *)calloc(n, sizeof(long));
+    p->oseq = (long *)calloc(n, sizeof(long)); p->iseq = (long *)calloc(n, sizeof(long));
+    p->acnt = (size_t *)calloc(2 * (size_t)n, sizeof(size_t)); p->adsp = p->acnt + n;
     SHM_LOCK();
     p->own_ctx = !S.serial && shmem_ctx_create(0, &p->ctx) == 0;   /* one context per communicator (= per APU thread) when the calls run concurrently; under the lock the default context serves (and OSHMEM 4.1 loses puts on a context created after another was destroyed) */
     if (!p->own_ctx) p->ctx = SHMEM_CTX_DEFAULT;
