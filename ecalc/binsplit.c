@@ -898,7 +898,8 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
     if (!ok) return 0;
     if (sc) *sc = s3;
     int v2 = h->magic[7] >= '2', me = g_ck_node < 0 ? 0 : g_ck_node;
-    if (h->N != N || h->decimal != bi_decimal || h->seed_terms != bs_seed_terms || h->nregions != NR
+    long want_st = (getenv("BS_SEED_FILL") && atol(getenv("BS_SEED_FILL")) > 0) ? (long)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1) : bs_seed_terms;   /* Phase 15 integration: BS_SEED_FILL's span, as seed_limbs sets it (RECHECK reads the set before seed_limbs runs) */
+    if (h->N != N || h->decimal != bi_decimal || h->seed_terms != want_st || h->nregions != NR
         || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
         || (!v2 && mn_size() > 1)) {
         snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
