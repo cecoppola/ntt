@@ -14,7 +14,11 @@
  *     -q                 no summary line
  *
  * The parts of a multi-node run (<outfile>.part0000 ...) may be given in any order: they are sorted by the part index in
- * their headers, and their limb ranges must join (part 0 the top limbs, the last part limb 0).  The residue check: every
+ * their headers, and their limb ranges must join (part 0 the top limbs, the last part limb 0).  Phase 15 IO2: any
+ * consecutive subset may be given -- one node converts its own part: `unpack_digits -o <outfile>.txt.part0003
+ * <outfile>.part0003` writes exactly that part's bytes of the ASCII file ("2." only from part 0, the newline only from the
+ * last part), so `cat <outfile>.txt.part*` (in part order) is the exact file; `--cmp <ref>` compares a subset with the same
+ * byte range of the reference (the offset from the part's digit range in its header).  The residue check: every
  * part's digits [k0, k1), formatted here, as a decimal number mod the eight T1 primes against the residues its run stored
  * in the header (the run's own "digits == X mod q" values) -- it checks this program's formatting and the file's bytes.
  *
@@ -96,7 +100,7 @@ static void *reader(void *a)
 }
 /* the output: ASCII pieces to a file / stdout, or compared with a reference */
 struct outbuf { char *mem; const char *s; size_t n; int last; };
-static struct { struct outbuf b[2]; sem_t full[2], empty[2]; int fd, cmp_fd, mode; size_t off, line; char *cbuf; int differ; double t_io; } W;   /* mode 0 write, 1 compare, 2 nothing */
+static struct { struct outbuf b[2]; sem_t full[2], empty[2]; int fd, cmp_fd, mode, has_last; size_t off, line, base; char *cbuf; int differ; double t_io; } W;   /* mode 0 write, 1 compare, 2 nothing */
 static void *consumer(void *a)
 {
     (void)a;
@@ -111,17 +115,17 @@ static void *consumer(void *a)
                 ssize_t r = read(W.cmp_fd, W.cbuf, b->n - done < (64u << 20) ? b->n - done : (64u << 20));
                 if (r < 0 && errno == EINTR) continue;
                 if (r < 0) { fprintf(stderr, "unpack_digits: reading the reference: %s\n", strerror(errno)); exit(2); }
-                if (r == 0) { printf("unpack_digits: EOF on the reference after byte %zu (the packed digits are longer)\n", W.off + done); W.differ = 1; break; }
+                if (r == 0) { printf("unpack_digits: EOF on the reference after byte %zu (the packed digits are longer)\n", W.base + W.off + done); W.differ = 1; break; }
                 if (memcmp(W.cbuf, b->s + done, (size_t)r)) {
                     size_t i = 0; while (W.cbuf[i] == b->s[done + i]) i++;
                     size_t line = W.line; for (size_t j = 0; j < done + i; j++) if (b->s[j] == '\n') line++;
-                    printf("unpack_digits: differ: byte %zu, line %zu (reference '%c', packed '%c')\n", W.off + done + i + 1, line + 1, W.cbuf[i], b->s[done + i]);
+                    printf("unpack_digits: differ: byte %zu, line %zu (reference '%c', packed '%c')\n", W.base + W.off + done + i + 1, line + 1, W.cbuf[i], b->s[done + i]);
                     W.differ = 1; break;
                 }
                 done += (size_t)r;
             }
             for (size_t j = 0; j < b->n; j++) if (b->s[j] == '\n') W.line++;
-            if (b->last && !W.differ) { char c; ssize_t r = read(W.cmp_fd, &c, 1); if (r > 0) { printf("unpack_digits: EOF on the packed digits after byte %zu (the reference is longer)\n", W.off + b->n); W.differ = 1; } }
+            if (b->last && !W.differ && W.has_last) { char c; ssize_t r = read(W.cmp_fd, &c, 1); if (r > 0) { printf("unpack_digits: EOF on the packed digits after byte %zu (the reference is longer)\n", W.base + W.off + b->n); W.differ = 1; } }   /* (a subset without the last part: the reference goes on) */
         }
         W.off += b->n; W.t_io += now() - t0;
         int last = b->last; sem_post(&W.empty[k]);
@@ -158,19 +162,29 @@ int main(int argc, char **argv)
     qsort(p, (size_t)np, sizeof *p, part_cmp);
     for (int i = 0; i < np; i++) {
         const ecp_hdr *h = &p[i].h, *h0 = &p[0].h;
-        if ((int)h->part != i || (int)h->nparts != np) { fprintf(stderr, "unpack_digits: %s is part %u of %u; %d files given (parts 0..%d needed)\n", p[i].name, h->part, h->nparts, np, np - 1); return 2; }
+        if (h->nparts != h0->nparts || (i > 0 && h->part != p[i - 1].h.part + 1)) { fprintf(stderr, "unpack_digits: %s is part %u of %u: the parts given must be consecutive parts of one run\n", p[i].name, h->part, h->nparts); return 2; }
         if (h->d != h0->d || h->d_out != h0->d_out || h->nl != h0->nl || h->pad != h0->pad) die("%s belongs to another run (d, d_out or the limb count differ)", p[i].name);
-        if (i == 0 && h->hi != h->nl) die("%s: part 0 does not end at the top limb", p[i].name);
+        if (h->part == 0 && h->hi != h->nl) die("%s: part 0 does not end at the top limb", p[i].name);
         if (i > 0 && h->hi != p[i - 1].h.lo) die("%s: its limb range does not join the part before it", p[i].name);
-        if (i == np - 1 && h->lo != 0) die("%s: the last part does not reach limb 0", p[i].name);
+        if (h->part == h->nparts - 1 && h->lo != 0) die("%s: the last part does not reach limb 0", p[i].name);
     }
     const ecp_hdr *H = &p[0].h; size_t pad = H->pad, nl = H->nl, d_out = H->d_out;
+    /* Phase 15 IO2: a subset of the parts (one node's part, or consecutive parts) gives exactly its byte range of the ASCII
+     * file: bytes [b0, b1) with b(k) = 0 for digit 0, k + 1 for digit k >= 1 (the "." after digit 0), the newline at byte
+     * d_out + 1 -- "2." only from part 0, the newline only from the last part; the parts' outputs concatenated in part order
+     * are the file.  --cmp compares with the same range of the reference. */
+    const ecp_hdr *HL = &p[np - 1].h;
+    int whole = H->part == 0 && HL->part == HL->nparts - 1;
+    size_t k0s = H->k0 < d_out + 1 ? H->k0 : d_out + 1, k1s = HL->k1 < d_out + 1 ? HL->k1 : d_out + 1;
+    size_t b0 = k0s == 0 ? 0 : k0s + 1, b1 = (k1s == 0 ? 0 : k1s + 1) + (HL->part == HL->nparts - 1 ? 1 : 0);
+    W.base = b0; W.has_last = HL->part == HL->nparts - 1;
+    if (!whole && !quiet) fprintf(stderr, "unpack_digits: parts %u..%u of %u: bytes [%zu, %zu) of the ASCII file (digits [%zu, %zu))\n", H->part, HL->part, H->nparts, b0, b1, k0s, k1s);
     /* the pipeline */
     R.p = p; R.np = np; R.CHL = (chunk_mb << 20) / 8;
     for (int k = 0; k < 2; k++) { R.b[k].l = malloc(R.CHL * 8); W.b[k].mem = malloc(R.CHL * 18 + 64); if (!R.b[k].l || !W.b[k].mem) die("%s", "out of memory"); sem_init(&R.full[k], 0, 0); sem_init(&R.empty[k], 0, 1); sem_init(&W.full[k], 0, 0); sem_init(&W.empty[k], 0, 1); }
     W.mode = none ? 2 : cmpname ? 1 : 0; W.fd = 1;
     if (W.mode == 0 && outname && strcmp(outname, "-")) { W.fd = open(outname, O_WRONLY | O_CREAT | O_TRUNC, 0644); if (W.fd < 0) die("cannot create %s", outname); }
-    if (W.mode == 1) { W.cmp_fd = open(cmpname, O_RDONLY); if (W.cmp_fd < 0) die("cannot open %s", cmpname); posix_fadvise(W.cmp_fd, 0, 0, POSIX_FADV_SEQUENTIAL); W.cbuf = malloc(64u << 20); }
+    if (W.mode == 1) { W.cmp_fd = open(cmpname, O_RDONLY); if (W.cmp_fd < 0) die("cannot open %s", cmpname); if (b0 && lseek(W.cmp_fd, (off_t)b0, SEEK_SET) != (off_t)b0) die("cannot seek in %s", cmpname); posix_fadvise(W.cmp_fd, 0, 0, POSIX_FADV_SEQUENTIAL); W.cbuf = malloc(64u << 20); }
     double t0 = now(), t_fmt = 0, t_res = 0;
     pthread_t rth, wth; pthread_create(&rth, 0, reader, 0); pthread_create(&wth, 0, consumer, 0);
     uint64_t res[ECP_NQ], acc[ECP_NQ]; int cur = -1, badres = 0; size_t ndig_out = 0;
@@ -214,6 +228,6 @@ int main(int argc, char **argv)
                         np, np > 1 ? "s" : "", ndig_out, d_out, R.bytes * 1e-9, R.t_io, R.t_io > 0 ? R.bytes * 1e-9 / R.t_io : 0,
                         W.mode == 0 ? "wrote" : W.mode == 1 ? "compared" : "made", W.off * 1e-9, W.t_io, W.mode == 1 ? "comparer" : "writer", t_fmt, nores ? "(off) " : badres ? "MISMATCH " : "ok ", t_res, t, t > 0 ? W.off * 1e-9 / t : 0,
                         W.mode == 1 ? (W.differ ? "; DIFFER" : "; IDENTICAL") : "");
-    if (W.mode == 1 && !W.differ) printf("unpack_digits: identical to %s (%zu bytes)\n", cmpname, W.off);
+    if (W.mode == 1 && !W.differ) { if (whole) printf("unpack_digits: identical to %s (%zu bytes)\n", cmpname, W.off); else printf("unpack_digits: identical to bytes [%zu, %zu) of %s (%zu bytes)\n", b0, b0 + W.off, cmpname, W.off); }
     return badres || W.differ ? 1 : 0;
 }
