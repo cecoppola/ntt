@@ -25,6 +25,7 @@ static uint64_t rnd(void) { static uint64_t s = 0x9E3779B97F4A7C15ull; s ^= s <<
 int main(void)
 {
     printf("== t_out ==\n"); harness_meta("t_out");
+    setenv("ECALC_OUT_PACKED", "0", 0);   /* this test checks the ASCII part files byte by byte; the packed form (the default since Phase 15) is checked by mnaccept's e9 / mn / full steps (digcmp.sh) and tools/test_unpack.py */
     bi_set_decimal(1);
     int fails = 0, checks = 0;
     for (int it = 0; it < 60; it++) {
