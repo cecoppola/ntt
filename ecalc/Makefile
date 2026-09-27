@@ -23,7 +23,7 @@ SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
 
-TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill
+TESTS = tests/t_modarith tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed
 OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o
 REF   = ref/gen_e
 
@@ -137,6 +137,10 @@ tests/t_ntt3: tests/t_ntt3.c $(OBJS) ntt.h tests/harness.h
 
 tests/t_dist: tests/t_dist.c $(OBJS) ntt_dist.h tests/harness.h
 	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
+
+# Phase 15 S1: the fast decimal mul_1 and the fused seed span against the serial path
+tests/t_seed: tests/t_seed.c $(OBJS) bigint.h tests/harness.h
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)
 
 tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)

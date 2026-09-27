@@ -1,0 +1,32 @@
+job 21465 node any Sat Sep 26 10:09:09 PM CDT 2026
+running on ppac-pl1-s24-30 Sat Sep 26 10:09:19 PM CDT 2026
+commit 65d463f S1: report skeleton with RESUME
+== gsh tseed env OMP_NUM_THREADS=96 OMP_PROC_BIND=spread ./tests/t_seed 400 400000  22:09:20
+   rc 0
+   k up to 2^44                               off 6.002 ns/term  on 2.494 ns/term  x2.41
+
+t_seed: VERIFY OK (3 checks)
+   5 s elapsed; 
+== gsh tseed1 env OMP_NUM_THREADS=1 ./tests/t_seed 20 4000  22:09:25
+   rc 0
+   k up to 2^44                               off 571.838 ns/term  on 239.621 ns/term  x2.39
+
+t_seed: VERIFY OK (3 checks)
+   5 s elapsed; 
+== acc unit,e9,mn BI_MUL1_FAST=1   22:09:30
+   rc 0
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 21.42 s (bs 2.9 + 10dP 0.0 + dm 13
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.17 s (bs 3.0 + 10dP 0.0 + dm 8.
+== 15 passed, 0 failed; 1298 s; 65d463f; logs in results/mnaccept/21465 ==
+   1298 s elapsed; 
+== run e10on 10000000000 BI_MUL1_FAST=1  22:31:08
+   rc 0
+   31 s elapsed; total    25.14 s   (bs 8.9 + 10dP 0.6 + dm 4.9 + T1 0.0 + dc 0.0 + T2 0.0 = 14.4; init 8.6; other 2.1); VmHWM 39.9 GB
+   bs: seeds were computed during init (5.51 s: buffers 0.57 + 0.07, spans 1.95, waited 0.95 for the regions, 0.03 for the DMA, 1.94 issuing it (max 0.89); 4 chunks of 2382 MB, 4 through a buffer, the rest stored into the regions; BI_MUL1_FAST|bs: 1158787585 terms, 4526515 spans of 256, seeds 2.83 s (waiting for the init thread)|VERIFY OK|
+   sha 3fc025473586ed222be1605df7fac8774f951f3a  -  (41 s with the hash)
+== run e11on 100000000000 BI_MUL1_FAST=1  22:31:49
+   rc 0
+   302 s elapsed; total   239.12 s   (bs 95.0 + 10dP 0.1 + dm 104.3 + T1 23.0 + dc 0.0 + T2 0.0 = 222.4; init 16.6; other 0.2); VmHWM 27.2 GB
+   bs: seeds were computed during init (28.49 s: buffers 1.54 + 0.10, spans 18.39, waited 5.48 for the regions, 0.67 for the DMA, 2.30 issuing it (max 0.87); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions; BI_MUL1_|bs: 10433891470 terms, 40757389 spans of 256, seeds 17.47 s (waiting for the init thread)|VERIFY OK|
+   sha 578f5efb0ff2b9af6b681a375c9ff39197f55cb7  -  (404 s with the hash)
+done Sat Sep 26 10:38:33 PM CDT 2026, 1754 s
