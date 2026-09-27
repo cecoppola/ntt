@@ -6,7 +6,8 @@ NAME=$1; NODE=$2; BATCH=$3
 D=$HOME/IO15/$NAME; mkdir -p $D; cd $HOME/ntt-IO15/ecalc || exit 1
 exec > $D/driver.log 2>&1
 W=; [ "$NODE" = any ] || W="-w $NODE"
-J=$(sbatch -p PPAC_MI300A_SPX -N${NN:-1} $W --gpus=4 -t 0:45:00 -J IO --parsable --wrap "sleep 2700")
+GP="--gpus=4"; [ "${NN:-1}" -gt 1 ] && GP="--gpus-per-node=4"   # (a 2-node job with --gpus=4 gets 4 in total: srun --gpus=4 per step failed, batch W)
+J=$(sbatch -p PPAC_MI300A_SPX -N${NN:-1} $W $GP -t 0:45:00 -J IO --parsable --wrap "sleep 2700")
 echo "job $J $(date)"
 trap 'scancel $J' EXIT
 while [ "$(squeue -j $J -h -o %T)" != RUNNING ]; do [ -z "$(squeue -j $J -h -o %T)" ] && { echo gone; exit 1; }; sleep 10; done
