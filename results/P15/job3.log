@@ -1,0 +1,4 @@
+p15_job batch 3: job 21516 submitted Sun Sep 27 09:56:53 AM CDT 2026
+job 21516 running on ppac-pl1-s24-16 Sun Sep 27 09:57:14 AM CDT 2026
+big34b rc 0 t_dist: VERIFY OK (3 checks)
+p15_job batch 3 done Sun Sep 27 10:00:34 AM CDT 2026

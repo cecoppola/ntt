@@ -1,0 +1,12 @@
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-27T09:57:14
+  big 2^34 (17 x 17) prime 1 (v2 47): fwd + inv = identity (dense): 0 of 17179869184 points differ (fill 2.1 s, transforms 32.0 s, check 1.2 s)
+  big 2^34 (17 x 17) prime 1 (v2 47): square of a sparse plane vs the direct convolution: 0 of 17179869184 points differ (fill 1.2 s, transforms 21.0 s, check 1.1 s)
+  big 2^34 prime 1: 2080 nonzero points in the product (K = 64), 58.6 s in all (transforms 53.0, checks 2.3)
+  big 2^34 (17 x 17) prime 2 (v2 44): fwd + inv = identity (dense): 0 of 17179869184 points differ (fill 1.2 s, transforms 19.0 s, check 1.1 s)
+  big 2^34 (17 x 17) prime 2 (v2 44): square of a sparse plane vs the direct convolution: 0 of 17179869184 points differ (fill 1.1 s, transforms 19.9 s, check 1.0 s)
+  big 2^34 prime 2: 2080 nonzero points in the product (K = 64), 43.4 s in all (transforms 38.9, checks 2.2)
+  big 2^34 (17 x 17) prime 3 (v2 44): fwd + inv = identity (dense): 0 of 17179869184 points differ (fill 1.1 s, transforms 19.9 s, check 1.1 s)
+  big 2^34 (17 x 17) prime 3 (v2 44): square of a sparse plane vs the direct convolution: 0 of 17179869184 points differ (fill 1.0 s, transforms 19.6 s, check 1.0 s)
+  big 2^34 prime 3: 2080 nonzero points in the product (K = 64), 43.7 s in all (transforms 39.5, checks 2.0)
+
+t_dist: VERIFY OK (3 checks)
