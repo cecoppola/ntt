@@ -375,22 +375,26 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
     free(empty);
     size_t xbytes = 0;                                            /* DB_POOL_VMM_EXTEND: the free extent the remap extends (0: a fresh run) */
     if (vmm_extend()) {                                           /* the free extent that needs the fewest chunks moved to reach `need`, extended at its end or its front into empty slots */
+        int *wf = (int *)malloc(v->nslot * sizeof *wf), nw = 0;  /* every wholly free mapped chunk */
+        for (int k = 0; k < v->nslot; k++) if (v->h[k]) {
+            char *p = v->base + (size_t)k * C;
+            for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { wf[nw++] = k; break; }
+        }
         int bx = m, bslot = -1, be = -1;
         for (int i = 0; i < g_ext[d].n; i++) {
             struct ext *e = &g_ext[d].e[i]; if (e->reg != v->reg || e->bytes >= need) continue;
             int x = (int)((need - e->bytes + C - 1) / C); if (x >= bx) continue;
+            int out = 0; for (int j = 0; j < nw; j++) { char *p = v->base + (size_t)wf[j] * C; if (!(p >= e->p && p + C <= e->p + e->bytes)) out++; }
+            if (out < x) continue;                                /* only a move of existing chunks (never more growth than the default) */
             size_t oa = (size_t)(e->p - v->base), ob = oa + e->bytes;
             if (ob % C == 0) { int k = (int)(ob / C), ok = k + x <= v->nslot; for (int j = k; ok && j < k + x; j++) if (v->h[j]) ok = 0; if (ok) { bx = x; bslot = k; be = i; continue; } }
             if (oa % C == 0) { int k = (int)(oa / C), ok = k - x >= 0; for (int j = k - x; ok && j < k; j++) if (v->h[j]) ok = 0; if (ok) { bx = x; bslot = k - x; be = i; } }
         }
-        if (be >= 0) {
+        if (be >= 0) {                                            /* the first bx wholly free chunks outside that extent move next to it */
             char *a = g_ext[d].e[be].p, *b = a + g_ext[d].e[be].bytes; xbytes = g_ext[d].e[be].bytes; m = bx; slot0 = bslot; nf = 0;
-            for (int k = 0; k < v->nslot && nf < m; k++) if (v->h[k]) {   /* the wholly free chunks outside that extent */
-                char *p = v->base + (size_t)k * C; if (p >= a && p + C <= b) continue; int inside = 0;
-                for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { inside = 1; break; }
-                if (inside) fr[nf++] = k;
-            }
+            for (int j = 0; j < nw && nf < m; j++) { char *p = v->base + (size_t)wf[j] * C; if (!(p >= a && p + C <= b)) fr[nf++] = wf[j]; }
         }
+        free(wf);
     }
     if (slot0 < 0) { free(fr); return 0; }                        /* no room in the VA: nothing was touched */
     hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
