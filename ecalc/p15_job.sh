@@ -27,5 +27,5 @@ b2() {
 b3() {   # the other primes at 2^34 (the first run's driver stopped after prime 0: strtok, fixed)
     R "DIST_BIG=34 DIST_BIG_PRIMES=1,2,3 OMP_NUM_THREADS=96 timeout 1200 ./tests/t_dist" > "$OUT/big34b.log" 2>&1; echo "big34b rc $? $(tail -1 "$OUT/big34b.log")"
 }
-for b in$(echo "$B" | grep -o .); do b$b; done
+for b in $(echo "$B" | grep -o .); do b$b; done
 echo "p15_job batch $B done $(date)"
