@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include "spill.h"
 #include "mem.h"
 
@@ -21,8 +22,44 @@
 int sp_odirect(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("ECALC_ODIRECT") ? atoi(getenv("ECALC_ODIRECT")) : 1;   /* default 1 since Phase 14 (S114); a file system that refuses O_DIRECT falls back to buffered + dropped cache */
+    if (v < 0) v = getenv("ECALC_ODIRECT") ? (sp_odirect_auto() ? 1 : atoi(getenv("ECALC_ODIRECT"))) : 1;   /* default 1 since Phase 14 (S114); a file system that refuses O_DIRECT falls back to buffered + dropped cache */
     return v;
+}
+/* ---- Phase 15 IO (W7): O_DIRECT by file-system type ---- */
+int sp_odirect_auto(void)
+{
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("ECALC_ODIRECT"); v = e && !strcmp(e, "auto"); }
+    return v;
+}
+int sp_fs_kind(const char *path)
+{
+    struct statfs s; char dir[4096];
+    if (!path || !*path) path = ".";
+    if (statfs(path, &s) != 0) {                                    /* not created yet: its directory */
+        snprintf(dir, sizeof dir, "%s", path); char *sl = strrchr(dir, '/');
+        if (sl) { if (sl == dir) sl[1] = 0; else *sl = 0; } else snprintf(dir, sizeof dir, ".");
+        if (statfs(dir, &s) != 0) return SP_FS_OTHER;
+    }
+    unsigned long t = (unsigned long)s.f_type;
+    if (t == 0x6969UL || t == 0x6E667364UL /* nfsd */ || t == 0xFE534D42UL /* smb2 */ || t == 0xFF534D42UL /* cifs */) return SP_FS_NFS;
+    if (t == 0x0BD00BD0UL) return SP_FS_LUSTRE;
+    if (t == 0x01021994UL || t == 0x858458F6UL /* ramfs */) return SP_FS_TMPFS;
+    if (t == 0xEF53UL /* ext2/3/4 */ || t == 0x58465342UL /* xfs */ || t == 0x9123683EUL /* btrfs */ || t == 0x2FC12FC1UL /* zfs */) return SP_FS_LOCAL;
+    return SP_FS_OTHER;
+}
+const char *sp_fs_name(int k) { static const char *n[] = { "local", "NFS", "Lustre", "tmpfs", "other" }; return k >= 0 && k <= SP_FS_OTHER ? n[k] : "?"; }
+int sp_direct_for(const char *path) { return sp_odirect_auto() ? sp_direct_by_fs(path) : sp_odirect(); }
+int sp_direct_by_fs(const char *path)
+{
+    const char *e;
+    switch (sp_fs_kind(path)) {
+    case SP_FS_NFS:    e = getenv("ECALC_ODIRECT_NFS");    return e ? atoi(e) : 1;   /* W1 (results/IO15.md §3): on aac6's NFS O_DIRECT 0.64-0.96 GB/s vs buffered + fsync 0.36-0.48 (10 GbE), 0.113-0.116 vs 0.098-0.104 (1 GbE) */
+    case SP_FS_LUSTRE: e = getenv("ECALC_ODIRECT_LUSTRE"); return e ? atoi(e) : 1;   /* ASSUMED: large aligned direct writes are Lustre's fast path; measure on the target (TARGET_TASKS T1) */
+    case SP_FS_TMPFS:  return 0;
+    case SP_FS_OTHER:  e = getenv("ECALC_ODIRECT_OTHER");  return e ? atoi(e) : 1;
+    default:           return 1;
+    }
 }
 void sp_drop_cache(int fd)
 {
@@ -49,6 +86,7 @@ int spf_open(sp_file *f, const char *path, int write, int direct)
 {
     memset(f, 0, sizeof *f); f->fd = -1; f->write = write;
     int fl = write ? O_WRONLY | O_CREAT | O_TRUNC : O_RDONLY;
+    if (direct && sp_odirect_auto()) direct = sp_direct_for(path);   /* Phase 15 IO (W7) */
     if (direct) {
         f->fd = open(path, fl | O_DIRECT, 0644);
         if (f->fd >= 0) f->direct = 1;

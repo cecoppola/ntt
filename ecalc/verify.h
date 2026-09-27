@@ -50,6 +50,7 @@ int tier2(const char *digits, size_t ndig, int verbose);
  * Returns the failing windows.  tier2(s, n) == tier2_range(s, 0, n, 0, 0, n). */
 void tier2_windows_reset(void);   /* forget the loaded window table (tests that change ECALC_WINDOWS) */
 int tier2_range(const char *s, size_t k0, size_t k1, const char *head, size_t nhead, size_t ndig, int verbose, int *nchecked);
+int tier2_window_offsets(unsigned long *off, int max);   /* Phase 15 IO (W2): the windows' first digits; returns the count */
 #ifdef __cplusplus
 }
 #endif

@@ -18,7 +18,8 @@
  *
  * Switches: ECALC_ODIRECT=1 (the checkpoint writer, the top set and the output file use this file's I/O; off = the old
  * buffered code), ECALC_SPILL_DIR=<dir> (unset: spilling disabled, spill_start returns 0), SPILL_CHUNK_MB (the bounce
- * buffers, 2 per APU, default 256), SPILL_BUFFERED=1 (test: no O_DIRECT, fsync + DONTNEED instead). */
+ * buffers, 2 per APU, default 256), SPILL_BUFFERED=1 (test: no O_DIRECT, fsync + DONTNEED instead).  Phase 15 IO (W7):
+ * ECALC_ODIRECT=auto (see sp_direct_for). */
 #ifndef EC_SPILL_H
 #define EC_SPILL_H
 #include <stddef.h>
@@ -40,7 +41,17 @@ typedef struct sp_file {
     uint64_t bytes;                    /* payload bytes moved */
 } sp_file;
 
-int  sp_odirect(void);                 /* ECALC_ODIRECT=1 */
+int  sp_odirect(void);                 /* ECALC_ODIRECT=1 (also 1 for ECALC_ODIRECT=auto: the cache-hygiene paths on, O_DIRECT per file below) */
+/* Phase 15 IO (W7): ECALC_ODIRECT=auto -- O_DIRECT chosen per file by the file system under it (statfs f_type): local disks
+ * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/IO15.md; ECALC_ODIRECT_NFS=0: buffered + fsync + DONTNEED); Lustre O_DIRECT (an ASSUMPTION
+ * to be measured on the target; ECALC_ODIRECT_LUSTRE=0: buffered); tmpfs buffered (it refuses O_DIRECT; the file is memory).
+ * Without auto, sp_direct_for() is sp_odirect(). */
+enum { SP_FS_LOCAL = 0, SP_FS_NFS, SP_FS_LUSTRE, SP_FS_TMPFS, SP_FS_OTHER };
+int  sp_odirect_auto(void);            /* ECALC_ODIRECT=auto */
+int  sp_fs_kind(const char *path);     /* the file system under path (or its directory when path does not exist yet) */
+const char *sp_fs_name(int kind);
+int  sp_direct_for(const char *path);  /* O_DIRECT for this file? (auto: by sp_fs_kind; else sp_odirect()) */
+int  sp_direct_by_fs(const char *path);   /* the file-system rule alone (ECALC_OUT_MODE=auto uses it whatever ECALC_ODIRECT says) */
 int  spf_open(sp_file *f, const char *path, int write, int direct);   /* 1 ok; direct falls back to buffered if the fs refuses O_DIRECT */
 /* the next `bytes` of the file <- src (write) / -> dst (read).  dev >= 0: device memory on APU dev, moved through buf[0]
  * (and buf[1] if non-null: double-buffered) of bcap bytes each (aligned, a multiple of SP_ALIGN, >= 4 SP_ALIGN; pinned
