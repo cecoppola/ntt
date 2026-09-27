@@ -240,6 +240,14 @@ int tier2_range(const char *s, size_t k0, size_t k1, const char *head, size_t nh
     if (nchecked) *nchecked += n;
     return bad;
 }
+/* Phase 15 IO (W2, ECALC_OUT_PACKED): the windows' first digits (tier2_range's indexing: a window covers the digits [o, o + 50)),
+ * for a writer that formats only the digits the windows need.  Returns the count; at most max are stored. */
+int tier2_window_offsets(unsigned long *off, int max)
+{
+    win_load();
+    for (int i = 0; i < g_nwin && i < max; i++) off[i] = g_win[i].off;
+    return g_nwin;
+}
 int tier2(const char *digits, size_t ndig, int verbose)
 {
     win_load();
