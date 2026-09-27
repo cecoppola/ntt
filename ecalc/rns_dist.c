@@ -1662,9 +1662,15 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     size_t va = share_a < pa ? share_a : pa, vb = share_b < pb ? share_b : pb;
     size_t win = share_c < nc ? share_c : nc, send = RT(nc);
     { size_t Wt = mn_t_chunk_limbs(); if (Wt && win > Wt) { win = Wt; size_t sc = Wt / 4 + 2 * (size_t)g * rows; if (send > sc) send = sc; } }   /* MN_T_CHUNK_MB: the rounds */
-    size_t result = send + win / 4;
-    size_t ra = RT(pa) + va / 4, rb = RT(pb) + vb / 4, redist = (ra > rb ? ra : rb) + 2 * (size_t)g * rows;
-    size_t transform = 2 * (q / 4);
+    /* Phase 14 V1: COMM_SHMEM_ROUND_MB = m -- comm_shmem.c carries an all-to-all whose pair exceeds m / (n - 1) in rounds that
+     * stage at most m each way, and leaves the self slab out of the staging: each side of each exchange is its peers' part
+     * (modelled as (g - 1) / g of it) bounded by m (RMIN) */
+    const char *er = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;
+#define RMIN(x) (Rl ? ((x) / (size_t)g * (size_t)(g - 1) > Rl ? Rl : (x) / (size_t)g * (size_t)(g - 1)) : (x))
+    size_t result = RMIN(send) + RMIN(win / 4);
+    size_t ra = RMIN(RT(pa)) + RMIN(va / 4 + 2 * (size_t)g * rows), rb = RMIN(RT(pb)) + RMIN(vb / 4 + 2 * (size_t)g * rows), redist = ra > rb ? ra : rb;
+    size_t transform = 2 * RMIN(q / 4);
+#undef RMIN
 #undef RT
     size_t m = result > redist ? result : redist; return m > transform ? m : transform;
 }

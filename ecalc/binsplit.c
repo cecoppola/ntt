@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "binsplit.h"
+size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void);   /* Phase 14 V1 (comm.h; comm_shmem.c): the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
@@ -401,6 +402,7 @@ size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; d
  * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
  * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin; DIST_MN_SYM_SLABS=1 adds 3 q per APU.
  * by: the product that sets the staging. */
+static size_t g_stage_apu;                                  /* Phase 14 V1: the last need's per-APU staging (bytes), for the staging regions */
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen)
 {
     if (size < 2) return 0;
@@ -421,7 +423,10 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     { size_t st = rns_mul_dist_mn_stage(nq, nq / 2 + 1, size, sh, (nq / 2 + size - 1) / size, (3 * nq / 2 + size - 1) / size, &q); if (q > qmax) qmax = q; if (st > best) { best = st; who = "the reciprocal's Q_t r"; } }
     { const char *e = getenv("MDB_SHIFT_CHUNK_MB"); size_t ch = (size_t)((e ? atof(e) : 1024.0) * 1048576.0 / 8), so = (2 * nq + size - 1) / size / 4, si = sh / 4;   /* the division's mdb_shift: t (2 nq) >> (k + 1) -> X (nq) */
       size_t sl = so < si ? so : si, K = ch && sl > ch ? (sl + ch - 1) / ch : 1, st = (so + si + K - 1) / K;   /* newton_db.c: K rounds from the shorter side's part */
+      const char *er = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* Phase 14 V1: the transport's rounds bound each side */
+      if (Rl) { size_t a = (so + K - 1) / K / size * (size - 1), b = (si + K - 1) / K / size * (size - 1); st = (a > Rl ? Rl : a) + (b > Rl ? Rl : b); }   /* (the peers' part: no self slab) */
       if (st > best) { best = st; who = "the division's mdb_shift"; } }
+    g_stage_apu = best * 8;
     size_t staging = 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
@@ -433,7 +438,11 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 /* Phase 14 P2: the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
  * COMM_SHMEM_POOL_AUTO=1 sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default);
  * otherwise a pool below the need gets a warning naming the size (the run goes on as before: the model can overestimate, and a
- * pool that runs out stops with comm_shmem's error, which names the size too).  Returns the need in MiB (0: not a SHMEM run). */
+ * pool that runs out stops with comm_shmem's error, which names the size too).  Returns the need in MiB (0: not a SHMEM run).
+ * Phase 14 V1: COMM_SHMEM_POOL_AUTO=1 is the default (the user's decision; =0 restores the warning).  When the pool is carved
+ * from the library's heap (comm_shmem_pool_in_heap: OSHMEM, SOS without the device heap, a device heap sized by the launch
+ * line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
+ * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; docs/TARGET.md 4. */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
@@ -441,9 +450,10 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
-    int autoset = getenv("COMM_SHMEM_POOL_AUTO") && atoi(getenv("COMM_SHMEM_POOL_AUTO"));
+    int autoset = getenv("COMM_SHMEM_POOL_AUTO") ? atoi(getenv("COMM_SHMEM_POOL_AUTO")) != 0 : 1;   /* Phase 14 V1: on by default */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_NEED_MB", v, 1); }   /* for comm_shmem's pool-full error */
+    { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* Phase 14 V1: comm_shmem's staging regions (one per APU; + 1 MiB of alignment) */
     if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB\n", mb, by, mb + 512); return mb; }
     if (mb > have && autoset) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1);
@@ -452,6 +462,14 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
         if (rank0) fprintf(stderr, "comm_shmem pool: WARNING: COMM_SHMEM_POOL_MB=%zu is below the modelled need of this run, %zu MiB (%s): set COMM_SHMEM_POOL_MB=%zu "
                                    "(and the SHMEM heap >= %zu MiB with a host heap) or COMM_SHMEM_POOL_AUTO=1; the run continues and stops if the pool runs out\n", have, mb, by, mb, mb + 512);
     } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("comm_shmem pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
+    {   /* Phase 14 V1: the heap must hold the pool (+ 512 MiB: the mailbox, the library's own) -- every rank decides alike, before shmem_init */
+        size_t pool = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192; const char *hn = "";
+        size_t heap = comm_shmem_pool_in_heap() ? comm_shmem_heap_env(&hn) >> 20 : 0;
+        if (heap && heap < pool + 512)
+            ec_fatal(EC_RC_BUDGET, "comm_shmem pool: the SHMEM heap %s=%zu MiB cannot hold the symmetric pool COMM_SHMEM_POOL_MB=%zu MiB (+ 512 MiB; the modelled need of this run %zu MiB: %s): "
+                     "launch with %s >= %zuM (mnrun.sh sets it from `MN_PLAN_ONLY=<digits>:<procs> ./ecalc`'s `plan pool` line when neither is set by hand), or with a device heap "
+                     "(COMM_SHMEM_DEVHEAP=1 on SOS with the external-heap patch); docs/TARGET.md 4\n", hn, heap, pool, mb, by, hn, pool + 512);
+    }
     return mb;
 }
 /* Phase 13a M (TASKS 1.1): BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits
