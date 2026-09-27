@@ -1,0 +1,41 @@
+# MN_PLAN_ONLY sweep: g = 576, total digits 4.15e13 .. 4.45e13 step 0.01e13; 0f54b5af P15: plan check counts min(pa, pb) too; t_dist DIST_BIG=<logn> (a distributed transform above 2^33 on four APUs: identity + sparse square); tests/p15_options.py (the three options, modelled); env: (defaults otherwise)
+# columns: digits | tree (node 0's groups) | tree (each level's largest group) | recip | div | total (node 0) | total (largest groups) | grids tree/recip/div | levels node0/largest
+4.1500e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1600e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1700e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1800e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.1900e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2000e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2100e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2200e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2300e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2400e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2500e+13  tree   86  tree_max   88  recip  67  div  28  total  181  total_max  183  grids 20/4/2  levels 6/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2600e+13  tree   88  tree_max   88  recip  67  div  28  total  183  total_max  183  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2700e+13  tree   88  tree_max   88  recip  67  div  28  total  183  total_max  183  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2800e+13  tree   88  tree_max   88  recip  67  div  28  total  183  total_max  183  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.2900e+13  tree   88  tree_max   88  recip  67  div  28  total  183  total_max  183  grids 20/4/2  levels 8/8,8/8,8/8,8/8,8/8,8/8,24/24,16/16
+4.3000e+13  tree   88  tree_max  100  recip  67  div  28  total  183  total_max  195  grids 20/4/2  levels 8/12,8/12,8/12,8/8,8/8,8/8,24/24,16/16
+4.3100e+13  tree   88  tree_max  112  recip  67  div  28  total  183  total_max  207  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/24,16/16
+4.3200e+13  tree   88  tree_max  116  recip  67  div  28  total  183  total_max  211  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/28,16/16
+4.3300e+13  tree   88  tree_max  116  recip  67  div  28  total  183  total_max  211  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/28,16/16
+4.3400e+13  tree   90  tree_max  122  recip  67  div  28  total  185  total_max  217  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3500e+13  tree   90  tree_max  122  recip  67  div  28  total  185  total_max  217  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3600e+13  tree   90  tree_max  122  recip  67  div  28  total  185  total_max  217  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3700e+13  tree   90  tree_max  122  recip  67  div  28  total  185  total_max  217  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3800e+13  tree   90  tree_max  122  recip  67  div  28  total  185  total_max  217  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,18/18
+4.3900e+13  tree   92  tree_max  124  recip  67  div  28  total  187  total_max  219  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4000e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4100e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4200e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4300e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4400e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+4.4500e+13  tree   92  tree_max  124  recip  69  div  34  total  195  total_max  227  grids 20/4/2  levels 8/12,8/12,8/12,8/12,8/12,8/12,24/32,20/20
+# the steps (a count changes between two neighbouring sizes):
+#   4.2500e+13 -> 4.2600e+13: tree 86 -> 88, tree_max 88 -> 88, recip 67 -> 67, div 28 -> 28, total 181 -> 183, total_max 183 -> 183
+#   4.2900e+13 -> 4.3000e+13: tree 88 -> 88, tree_max 88 -> 100, recip 67 -> 67, div 28 -> 28, total 183 -> 183, total_max 183 -> 195
+#   4.3000e+13 -> 4.3100e+13: tree 88 -> 88, tree_max 100 -> 112, recip 67 -> 67, div 28 -> 28, total 183 -> 183, total_max 195 -> 207
+#   4.3100e+13 -> 4.3200e+13: tree 88 -> 88, tree_max 112 -> 116, recip 67 -> 67, div 28 -> 28, total 183 -> 183, total_max 207 -> 211
+#   4.3300e+13 -> 4.3400e+13: tree 88 -> 90, tree_max 116 -> 122, recip 67 -> 67, div 28 -> 28, total 183 -> 185, total_max 211 -> 217
+#   4.3800e+13 -> 4.3900e+13: tree 90 -> 92, tree_max 122 -> 124, recip 67 -> 67, div 28 -> 28, total 185 -> 187, total_max 217 -> 219
+#   4.3900e+13 -> 4.4000e+13: tree 92 -> 92, tree_max 124 -> 124, recip 67 -> 69, div 28 -> 34, total 187 -> 195, total_max 219 -> 227

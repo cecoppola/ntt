@@ -15,6 +15,7 @@ the code reads is listed once, with its default, in **Switches** at the end.
     module load rocm && make          # ref/gen_e, ntt.o mem.o crt.o bigint.o rns_mul.o, tests/t_*
     salloc -p PPAC_MI300A_SPX -N1 --gpus=4 -t 6:00:00 --no-shell
     ./run tests/t_modarith 1000       # -> results/t_modarith.txt
+    ./tests/t_roots                   # the roots above 2^33 (host only: runs on the login node)
     ./run tests/t_ntt 31
     ./run tests/t_mul 20              # part 1 at a 2^20 pool, then the 2^31 pool; "0 big" for the 10dP-size product; "0 batch"
     ./run tests/t_crt 30
@@ -22,7 +23,7 @@ the code reads is listed once, with its default, in **Switches** at the end.
 
 | file | what |
 |---|---|
-| `modarith.h` | four primes, FP64-Barrett modmul (one lazy operand!), canon64, Shoup alternative, roots |
+| `modarith.h` | four primes, FP64-Barrett modmul (one lazy operand!), canon64, Shoup alternative, roots (*Phase 15 (P)*: any 2ᵏ / 3·2ᵏ up to v₂(p − 1) = 44, from the generator above 2³³; `ec_fatal` beyond; `tests/t_roots`, host only) |
 | `ntt.h/.c` | tiled DIF forward / DIT inverse, scale and pointwise fusions, broadcast pointwise, load+canon |
 | `bigint.h/.c` | limb arrays; parallel add/sub, schoolbook, shifts |
 | `mem.h/.c` | NUMA-pinned registered staging, registered host pools, grow-only device pools, RSS |
@@ -330,7 +331,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MN_GROUPS` | the tree's level → group-size schedule, e.g. `2,4,8,16,32,64,576` (on `w12`: the powers of two up to the size, then the size; *Phase 12 (G, Q's decision)*: the powers of two dividing the size, then the odd part's prime factors ascending — 576 → …, 64, 192, 576) |
 | `MDB_SHIFT_CHUNK_MB` | *Phase 13a (M), TASKS 1.2*: the sharded division's `mdb_shift` exchanged in rounds of about this many MB per APU per slab (sb, rb) instead of the whole share / 4 (71 GB per node at 576 × 8 × 10¹⁰); bit-identical; 0 = one round (the default: `mn_t_chunk_limbs` reads 0 when unset; only `MDB_SHIFT_CHUNK_MB` became 1024 in Phase 13c — Phase 14 P2). At the 576 target it also halves the SHMEM pool (81.6 → 45.0 GB per node, results/P214.md) |
 | `MN_T_CHUNK_MB` | *Phase 13a (M), TASKS 1.3*: a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node at 576 × 8 × 10¹⁰); the arena request (`rns_mul_dist_mn_scratch`) follows; bit-identical; 0 = one round (the default: `mn_t_chunk_limbs` reads 0 when unset; only `MDB_SHIFT_CHUNK_MB` became 1024 in Phase 13c — Phase 14 P2). At the 576 target it also halves the SHMEM pool (81.6 → 45.0 GB per node, results/P214.md) (1024 since Phase 14; =0 one round) |
-| `BS_LAYOUT_ONLY` | *Phase 13a (M), tool*: `D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares it with the model term by term (unset) |
+| `BS_LAYOUT_ONLY` | *Phase 13a (M), tool*: `D:g[,D:g…]` — print the arena request `binsplit_pregrow` would make for D digits per node over g node-processes (one `layout:` line each) and exit; `mem_model.py --check-c <log>` compares it with the model term by term (unset). *Phase 15 (P)*: each point with g > 1 is first checked against the prime set as `MN_PLAN_ONLY` checks it (the plan of D × g total digits; one `plan check` / `plan REFUSED` line) and a refusal makes the exit status 3 |
+| `MN_PLAN_ONLY` | *Phase 13d (L), tool*: `<total digits>:<g>` — the plan of a run (every large product's grid, pieces, planes, from the code's own decisions; no device) and exit. *Phase 15 (P)*: the last line checks every planned product (every group of every tree level, the reciprocal, the division, the leaf's `dist_db`) against the prime set: the term bound of `ECALC_NP` (three primes: a piece's pa + pb ≤ 58 424 467 928 limbs, what `mn_core` / `dist_core` pass to `ec_np_check`) and the roots' 2-adic limit (a transform of 2ᵏ or 3·2ᵏ points needs k ≤ v₂(p − 1) = 44 for the primes in use); `plan check … OK` or `plan REFUSED …` naming the first product that fails, and exit status 3. At 4.25 × 10¹³ on 576: refused with `ECALC_NP=3` (84 products, the first at tree level 5), OK with `ECALC_NP=4` (unset) |
 | `MN_TOPO_GROUP` | nodes per dragonfly group: the exchanges of a transform group layered intra/inter group (0 = the plain mesh) |
 | `MN_OUT_CHUNK_MB` | the streamed writer's digit chunk per node (256) |
 | `MN_COMBINE=host` | *stand-in*: M2's combine — the leaf results sent to node 0 and multiplied on its host mdev tier — instead of the distributed tree |
@@ -345,6 +347,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DIST_STATS` | per-part timing of the distributed transform, the exposed exchange per part (unset) |
 | `DIST_PW_FUSE` | the pointwise product fused into the column inverse's first pass (bit-identical) (1) |
 | `DIST_LOGR_DELTA` | the four-step split logR = logn/2 + this, −3…3 (0) |
+| `DIST_BIG` | *Phase 15 (P), test*: `tests/t_dist` only — `DIST_BIG=<logn>` (`DIST_BIG_PRIMES=0,2`, `DIST_BIG_K=64`) runs one distributed transform of 2^logn points on the four APUs per prime: forward + inverse of a dense plane = identity, and the square of a sparse plane against its direct cyclic convolution at every point (no single-device reference; the rank's plane in `hipHostMalloc`). 2³⁴ fits one node (96 GiB per APU) — the roots above 2³³ (`modarith.h`, from the generator since Phase 15) (unset) |
 | `DIST_R3` | 3·2ᵏ lengths in the distributed tier (follows `RNS_PLANES_3Q30`) |
 | `DIST_LOGN_TEST` | *test*: a lower plane cap so the grid split runs at small sizes (31) |
 | `DIST_GEN` | *test*: the general (any-g) transform at a power-of-two group size too (0) |

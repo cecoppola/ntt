@@ -292,6 +292,8 @@ static void budget_check(unsigned long N, int verbose)
  * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: 2^31 (the Phase 13c default),
  * unless POOL_LOG, RNS_PLANES_3Q30 or DIST_LOGN_TEST is given; =off: the size rule as before.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served
  * here, before rns_init, so the layout report needs no device. */
+static int g_layout_refused;                                         /* Phase 15 P: BS_LAYOUT_ONLY's prime-set check refused a point */
+static void layout_refused_exit(void) { fflush(stdout); _exit(EC_RC_FATAL); }
 static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 {
     const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
@@ -318,7 +320,19 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
         pool_log = c >= 2 ? 31 : 30;
         if (verbose) printf("ECALC_PLANE_CAP: %s points (POOL_LOG=%s RNS_PLANES_3Q30=%s DIST_LOGN_TEST=%s)\n", bs_cap_name[c], pl, b3, pl);
     }
-    if (getenv("BS_LAYOUT_ONLY")) { rns_preinit_pool_log(pool_log); binsplit_pregrow(N); }   /* prints the layout lines and exits */
+    if (getenv("BS_LAYOUT_ONLY")) {
+        /* Phase 15 P: each point D:g (D digits per node) with g > 1 checked first against the prime set (mn_plan_check: the plan of
+         * D g total digits; one `plan check` / `plan REFUSED` line), and a refusal turns the layout's exit status into 3 */
+        char *dup = strdup(getenv("BS_LAYOUT_ONLY"));
+        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) {
+            char *c = strchr(t, ':'); int g = c ? atoi(c + 1) : 1; double D = atof(t);
+            if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); if (bi_decimal) dt = (dt + 17) / 18 * 18;
+                                  if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1; }
+        }
+        free(dup);
+        if (g_layout_refused) atexit(layout_refused_exit);           /* binsplit_layout_only ends with exit(0) */
+        rns_preinit_pool_log(pool_log); binsplit_pregrow(N);         /* prints the layout lines and exits */
+    }
     return pool_log;
 }
 int main(int argc, char **argv)
