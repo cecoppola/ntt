@@ -1,0 +1,5 @@
+# tag digits mode | total | init | bs | recip | dm | T1 | remaps (count, s) | dm-remaps | growth | verify | digits | elapsed | node | env
+t11 100000000000 nw | total 207.41 | init 19.1492 | bs 82.40 | recip 38.58 | dm 105.50 | T1 0.00 | remaps 15 9.49 s | after recip 9 8.40 s | growth 3 | VERIFY OK | - | 210s | ppac-pl1-s24-16 | DB_POOL_TRACE=1
+t11f0 100000000000 nw | total 199.62 | init 17.1869 | bs 90.96 | recip 37.05 | dm 91.15 | T1 0.00 | remaps 3 1.43 s | after recip 3 1.43 s | growth 0 | VERIFY OK | - | 202s | ppac-pl1-s24-16 | DB_POOL_TRACE=1 BS_SEED_FILL=0
+t4 40000000000 nw | total 58.68 | init 12.3698 | bs 24.54 | recip 9.35 | dm 21.62 | T1 0.00 | remaps 2 0.44 s | after recip 2 0.44 s | growth 0 | VERIFY OK | - | 61s | ppac-pl1-s24-16 | DB_POOL_TRACE=1
+t13 130000000000 nw | total 287.55 | init 19.8979 | bs 122.67 | recip 56.70 | dm 144.52 | T1 0.00 | remaps 4 3.01 s | after recip 4 3.01 s | growth 0 | VERIFY OK | - | 290s | ppac-pl1-s24-16 | DB_POOL_TRACE=1
