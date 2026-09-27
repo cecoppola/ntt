@@ -243,12 +243,10 @@ the record is the run's (D3: `total` and the process's exit, without and with th
    results/IO15.md §2.2: 100 GB of ASCII written in 179 s, 0.56 GB/s, on aac6's NVMe; the read at 1.66 GB/s and the
    formatting, 2.6 s per 10¹¹ digits, hide under the write): 73.8 GB of ASCII per node at 0.6–0.8 GB/s = **≈ 1.5–2.1 min
    per node, the nodes in parallel** — if the file system's aggregate carries 576 writers (§6 item 5(b)); 42.5 TB at the
-   aggregate otherwise. **As built at c2aedc2 the tool converts only the complete set of parts in one process** (it checks
-   that the parts join from part 0 to limb 0): `tools/unpack_digits -o $OUT/e.txt $OUT/e.out.part*` is one stream, 42.5 TB
-   at one node's ≈ 0.6 GB/s ≈ 20 h (modelled). The per-node form needs a one-part mode in the tool — each node writes
-   `e.txt.part<k>` from its own `e.out.part<k>` ("2." on part 0000, the newline on the last; the concatenation is the
-   single file) — **not built: an open item** (results/DOC15.md §4). With it:
-   `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits <one-part flag> -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`.
+   aggregate otherwise. *Phase 15 IO2 (eb3b29f)*: the tool converts any consecutive subset of parts, so every node converts
+   its own part (`e.txt.part<k>` from `e.out.part<k>`: "2." on part 0000, the newline on the last; the concatenation is the
+   single file; measured on aac6 at 1e9 sizes 2 and 4, 1e10 size 2, results/IO215.md):
+   `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits -q -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`.
 3. **Verify the converted output**: (a) every conversion exits 0 (its residue check); (b) `ECALC_RECHECK=1` on the ASCII
    parts (`<outfile>` = `$OUT/e.txt`, the same launch line: 73.8 GB read per node, 86–95 s, modelled) → `RECHECK OK` on every
    node; (c) the leading 10¹¹ digits against the 10¹¹ reference (`results/e_1e11.out`, sha1 578f5efb…): `cat
@@ -316,7 +314,7 @@ does not** (a record timing run: no top set, no `BS_CKPT_DIR`). Every step repor
 | 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 18 s without the write, 19 s with it (modelled); VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
 | 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 2.2 min without the write, 2.5 min with it** (131.6 / 149.7 s modelled; was ≈ 1.8 min on three primes) | the first large run (327 GB per node, modelled). The recheck after it; the off-the-clock conversion of §4 rehearsed here (0.3 of the target's bytes) |
 | 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | *2026-09-27* (the launch line of §4: four primes, packed, the early writer; §1): **256.0 s (4.27 min) without the write; 285.7 s (4.76 min) with it at 0.6 GB/s, 272.0 s at 0.8, 251.5 s at 2.0**; **416.0 GB per node** (modelled; the fabric and the write rate with 576 writers assumed). *History*: 3.9 min / 452 GB (Phase 13d, the flat 8 GiB pool), 525 / 460 GB with the measured pool (Phase 14 P2), 231.1 s / 398.8 GB on three primes (2026-09-26, not runnable: the plan check refuses three primes) | the headline run (Phase 13d, RESULTS §82): **182 pieces** on the critical path (88 + 66 + 28; `NEWTON_RECIP_MID` 67 → 66), 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (309.5 s without the write at 4.4 × 10¹³). **No `ECALC_CHECKPOINT`, no top set.** Check before the run, with the launch line's environment: `MN_PLAN_ONLY=4.25e13:576 ./ecalc` — the last line must read **`plan check … OK`** (`ECALC_NP=4`; with three primes it reads `plan REFUSED …` and exits 3) and `plan summary` 182 pieces with the largest groups |
-| 6b off the clock | 576 | — | — | RECHECK ≈ 1 min per node; the conversion ≈ 1.5–2.1 min per node in parallel (needs the tool's one-part mode; ≈ 20 h in one stream as built); the ASCII RECHECK ≈ 1.5 min per node (modelled) | §4 "Off the clock": RECHECK of the packed parts, `tools/unpack_digits`, the converted output verified (its residue check, RECHECK on the ASCII parts, the leading 10¹¹ digits against `e_1e11.out`) |
+| 6b off the clock | 576 | — | — | RECHECK ≈ 1 min per node; the conversion ≈ 1.5–2.1 min per node in parallel (one part per node: Phase 15 IO2); the ASCII RECHECK ≈ 1.5 min per node (modelled) | §4 "Off the clock": RECHECK of the packed parts, `tools/unpack_digits`, the converted output verified (its residue check, RECHECK on the ASCII parts, the leading 10¹¹ digits against `e_1e11.out`) |
 | 7 the 480 GB ceiling | 576 | 5.57 × 10¹³ (*2026-09-27*, four primes with the rounds; was 4.66 × 10¹³ on the Phase 13d model) | 9.67 × 10¹⁰ | 6.9 min without the write, 7.4 min with it (modelled), 480 GB | **not recommended**: past several grid steps, +61 % time for +31 % digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
 
 Between 6 and 7, `estimate.py --g 576 --D <D>` (the launch line's design by default since 2026-09-27) gives the peak per D in 10⁹ steps; take the largest whose modelled
@@ -520,9 +518,8 @@ it comes from.
     unchanged). The pool's peak is 4 × the largest exchange's send + receive: 81.6 GB per node at the target with the
     defaults, 45.0 GB with `MN_T_CHUNK_MB=1024` (results/P214.md; `estimate.py`'s `pool` column follows the law).
 
-12. **(2026-09-27) `tools/unpack_digits` takes the whole set of parts.** Given one part it stops ("is part k of 576; 1 files
-    given"); the parallel off-the-clock conversion of §4 needs a one-part mode (not built). Until then convert in one stream
-    (≈ 20 h at 0.6 GB/s for 42.5 TB) or only verify (RECHECK, and the leading 10¹¹ digits streamed through `head`).
+12. **(2026-09-27) Convert per node, not in one stream.** `tools/unpack_digits` over all 576 parts in one process is 42.5 TB
+    through one node (≈ 20 h at 0.6 GB/s); give each node its own part (§4, Phase 15 IO2).
 13. **(2026-09-27) Three primes are refused at the target.** `ECALC_NP` unset means three primes for decimal limbs; at 4.25 ×
     10¹³ on 576 the plan check stops the run (rc 3) at tree level 5. The launch line sets `ECALC_NP=4`; `MN_PLAN_ONLY` with the
     launch line's environment must end with `plan check … OK`.
