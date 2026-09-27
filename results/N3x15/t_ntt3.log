@@ -1,0 +1,4 @@
+META bench=t_ntt3 host=ppac-pl1-s24-16 date=2026-09-27T18:24:19
+      NTT_R3_FUSE=1: the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass (k >= 13)
+
+t_ntt3: VERIFY OK (88 checks)
