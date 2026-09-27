@@ -102,7 +102,7 @@ def main():
     ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.25e13 (the target since Phase 13d; 4.4e13 was the Phase 13c target), the proposed 4.25e13, and the step")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
-    ap.add_argument("--np-mn", type=int, default=4, choices=(3, 4), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 on 576)")
+    ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default=4, choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 on 576; auto = Phase 15 NP's per-product count: four only over the three-prime bound)")
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
     ap.add_argument("--b0", action="store_true", help="the Phase 14 defaults (B0, mn_model.DEFAULT15: three primes, the ASCII part file after T1, no fill / fast mul_1 / middle product / TWREC)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
@@ -121,7 +121,7 @@ def main():
     fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
-             " (%d at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
+             " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
              (", COMM_SHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
               ("after T1" if design.out_overlap == 'none' else "under half the division"))) if design.p15 else " (the Phase 13/14 model)"),
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
