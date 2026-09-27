@@ -830,14 +830,14 @@ static int b_grid_on(void)
     static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_GRID"); v = e ? atoi(e) != 0 : 1; }
     return v && strat_get() == STRAT_AUTO && !cache_slots();
 }
-/* Phase 14 V2: RNS_AUTO_PIECE_COST=1 (off by default) -- auto's grid also prices what each extra piece costs in the pipeline
+/* Phase 14 V2: RNS_AUTO_PIECE_COST=1 (the default since Phase 15, D1) -- auto's grid also prices what each extra piece costs in the pipeline
  * (results/D213d.md, fit_pipe on G13d's logs: a piece of a grid adds 0.075 s per 2^31 B points of the piece + 0.079 s per
  * 2^31 limbs of the whole product, its accumulation pass over C).  In split_grid's units (C plane points; the pipeline's C
  * product costs ~0.86 s per 2^31 points, mn_model.t_prod x PIPE_ONE) that is + 0.087 x the piece's B points + 0.092 x nc per
  * piece of a grid of more than one piece.  Without it auto forms up to 7 x 10 grids of small B pieces at >= 1e11 on one node. */
 static int auto_piece_cost(void)
 {
-    static int v = -1; if (v < 0) { const char *e = getenv("RNS_AUTO_PIECE_COST"); v = e ? atoi(e) != 0 : 0; }
+    static int v = -1; if (v < 0) { const char *e = getenv("RNS_AUTO_PIECE_COST"); v = e ? atoi(e) != 0 : 1; }   /* default 1 since Phase 15 (the user's decision D1; results/C215.md) */
     return v;
 }
 static void split_grid(size_t na, size_t nb, int *ka, int *kb)
