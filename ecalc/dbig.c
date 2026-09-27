@@ -208,6 +208,7 @@ static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the backgr
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_par(void) { static int p = -1; if (p < 0) { const char *e = getenv("DB_POOL_VMM_PAR"); p = e && atoi(e) != 0; } return p; }   /* Phase 15 RL: DB_POOL_VMM_PAR (below, vmm_make_room_par) */
+static int vmm_extend(void) { static int p = -1; if (p < 0) { const char *e = getenv("DB_POOL_VMM_EXTEND"); p = e && atoi(e) != 0; } return p; }   /* Phase 15 RL: DB_POOL_VMM_EXTEND (vmm_make_room_par) */
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
 static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
 {
@@ -372,6 +373,25 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
     int slot0 = -1;                                               /* the lowest run of m slots empty once the free chunks are unmapped (as vmm_make_room) */
     for (int k = 0, run = 0; k < v->nslot; k++) { run = empty[k] ? run + 1 : 0; if (run == m) { slot0 = k - m + 1; break; } }
     free(empty);
+    size_t xbytes = 0;                                            /* DB_POOL_VMM_EXTEND: the free extent the remap extends (0: a fresh run) */
+    if (vmm_extend()) {                                           /* the free extent that needs the fewest chunks moved to reach `need`, extended at its end or its front into empty slots */
+        int bx = m, bslot = -1, be = -1;
+        for (int i = 0; i < g_ext[d].n; i++) {
+            struct ext *e = &g_ext[d].e[i]; if (e->reg != v->reg || e->bytes >= need) continue;
+            int x = (int)((need - e->bytes + C - 1) / C); if (x >= bx) continue;
+            size_t oa = (size_t)(e->p - v->base), ob = oa + e->bytes;
+            if (ob % C == 0) { int k = (int)(ob / C), ok = k + x <= v->nslot; for (int j = k; ok && j < k + x; j++) if (v->h[j]) ok = 0; if (ok) { bx = x; bslot = k; be = i; continue; } }
+            if (oa % C == 0) { int k = (int)(oa / C), ok = k - x >= 0; for (int j = k - x; ok && j < k; j++) if (v->h[j]) ok = 0; if (ok) { bx = x; bslot = k - x; be = i; } }
+        }
+        if (be >= 0) {
+            char *a = g_ext[d].e[be].p, *b = a + g_ext[d].e[be].bytes; xbytes = g_ext[d].e[be].bytes; m = bx; slot0 = bslot; nf = 0;
+            for (int k = 0; k < v->nslot && nf < m; k++) if (v->h[k]) {   /* the wholly free chunks outside that extent */
+                char *p = v->base + (size_t)k * C; if (p >= a && p + C <= b) continue; int inside = 0;
+                for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { inside = 1; break; }
+                if (inside) fr[nf++] = k;
+            }
+        }
+    }
     if (slot0 < 0) { free(fr); return 0; }                        /* no room in the VA: nothing was touched */
     hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
     for (int i = 0; i < nf; i++) { ext_remove(d, v->base + (size_t)fr[i] * C, C); hs[i] = v->h[fr[i]]; }
@@ -391,8 +411,9 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
     ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
     v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0; v->t_hip += th;
     if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
-                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s (concurrent: HIP calls %.3f s = unmap %.3f + map %.3f + access %.3f); free %.2f GB in %d extents, live %.2f GB\n",
-                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, th, t_unmap, th - t_unmap - t_acc, t_acc, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
+                    char xb[64]; snprintf(xb, sizeof xb, ", extending a %.2f GB free extent", xbytes / 1e9);
+                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous%s) in %.3f s (concurrent: HIP calls %.3f s = unmap %.3f + map %.3f + access %.3f); free %.2f GB in %d extents, live %.2f GB\n",
+                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, xbytes ? xb : "", mem_now() - t0, th, t_unmap, th - t_unmap - t_acc, t_acc, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
     free(fr); free(hs); return 1;
 }
@@ -403,11 +424,11 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
 {
     int reg;
     char *p = ext_take(d, need, &reg);
-    if (!p && vmm_par()) {                                            /* Phase 15 RL: a remap of this device in flight (lock dropped) -- wait for it, then look again */
+    if (!p && (vmm_par() || vmm_extend())) {                                            /* Phase 15 RL: a remap of this device in flight (lock dropped) -- wait for it, then look again */
         while (!p && g_vmm[d].busy) { pthread_cond_wait(&g_vmm_cv, &g_pool_mx); p = ext_take(d, need, &reg); }
         if (!p && vmm_make_room_par(d, need)) p = ext_take(d, need, &reg);
     }
-    if (!p && !vmm_par() && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
+    if (!p && !vmm_par() && !vmm_extend() && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
     if (!p) {
         static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
         if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }
