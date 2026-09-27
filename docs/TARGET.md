@@ -370,8 +370,8 @@ it comes from.
   consecutive subset of parts and writes exactly that subset's byte range of the ASCII file ("2." only from part 0, the
   newline only from the last part), so the part outputs concatenated in part order are the exact file:
   ```
-  srun -N576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $((575 - SLURM_PROCID))); \
-      tools/unpack_digits -q -o <outdir>/e.txt.part$k <outfile>.part$k'      # rank r holds part size-1-r
+  srun -N576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); \
+      tools/unpack_digits -q -o <outdir>/e.txt.part$k <outfile>.part$k'      # the parts are on the shared file system: any node converts any part
   cat <outdir>/e.txt.part* > e.txt                                            # optional: one file (parts sort by name)
   ```
   Each part's digits are checked against the residues its run stored in the header. `--cmp <reference>` on one part
