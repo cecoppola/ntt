@@ -98,6 +98,11 @@ void bi_shl(bigint *r, const bigint *a, size_t bits);          /* bits: binary b
 void bi_shr(bigint *r, const bigint *a, size_t bits);
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
+/* Phase 15 S1: BI_MUL1_FAST=1 -- the decimal mul_1 by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs)
+ * and the fused seed step.  bi_mul1_fast: -1 = read the environment on first use; 0/1 = set by a test */
+extern int bi_mul1_fast;
+int bi_mul1_fast_on(void);
+void bi_span_step(bigint *P, bigint *Q, uint64_t k);                /* P += Q; Q *= k in one pass (decimal; else the two calls) */
 void bi_add_u64(bigint *r, uint64_t v);
 uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);     /* returns remainder */
 #ifdef __cplusplus

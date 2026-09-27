@@ -54,11 +54,16 @@ unsigned long e_terms(unsigned long d)
 static void span(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 {
     bi_set_u64(P, 1); bi_set_u64(Q, b - 1);
+    if (bi_decimal && bi_mul1_fast_on()) {            /* Phase 15 S1 (BI_MUL1_FAST=1): P += Q; Q *= k fused, the quotient by a precomputed reciprocal */
+        for (unsigned long k = b - 1; k-- > a;) bi_span_step(P, Q, k);
+        return;
+    }
     for (unsigned long k = b - 1; k-- > a;) {
         bi_add(P, P, Q);
         bi_mul_u64(Q, Q, k);
     }
 }
+void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b) { span(P, Q, a, b); }   /* Phase 15 S1: for tests/t_seed (declared there) */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 {
     if (b - a <= 64) { span(P, Q, a, b); return; }
@@ -1317,7 +1322,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
         for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { ec_fatal(EC_RC_FATAL, "bs: region %d's pool moved after the seeds were streamed into it\n", r); }
         if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it (max %.2f); %d chunks of %zu MB, %d through a buffer%s)\n",
-                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.t_issue_max, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, ", the rest stored into the regions");
+                               g_pre.t, g_pre.ss.t_alloc, g_pre.ss.t_free, g_pre.ss.t_span, g_pre.ss.t_wait_pool, g_pre.ss.t_wait_dma, g_pre.ss.t_issue, g_pre.ss.t_issue_max, g_pre.ss.nchunks, g_pre.ss.bytes >> 20, g_pre.ss.nbuf, bi_mul1_fast_on() ? ", the rest stored into the regions; BI_MUL1_FAST=1" : ", the rest stored into the regions");
     } else if (!own_stage) {
         if (g_pre.active) { if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0; free(g_pre.nd); g_pre.nd = 0; }
         struct seed_stream ss; memset(&ss, 0, sizeof ss); pthread_mutex_init(&ss.mx, 0); pthread_cond_init(&ss.cv, 0);

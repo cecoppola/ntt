@@ -264,6 +264,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `BS_SEED_TERMS` | the seed span in terms (256) |
 | `BS_SEED_THREADS` | threads of the seed pass; fewer than all leaves cores to init's allocations (all) |
 | `BS_SEED_CHUNK_MB` | the seed stream's buffered chunk per region (2048) |
+| `BI_MUL1_FAST` | *Phase 15 (S1), results/S115.md*: 1 = the decimal `mul_1` (`bigint.c mul1_serial`, every caller) by a precomputed reciprocal of 10¹⁸ — one high multiply per limb for **any** multiplier < 10¹⁸, no 128-bit division above 2³³ — and the seed span's Horner step fused (`bi_span_step`: P += Q and Q ·= k in one pass); exact, bit-identical (`tests/t_seed`: 0 mismatches over every k range up to 2⁴⁴) (0) |
 | `BS_SCHOOL_NL` | CPU schoolbook tier below this many limbs; 0 = never (0) |
 | `BS_DEVICE_POOLS` | the level pools as four device regions (WP3); 0 = registered host (1) |
 | `BS_DEV_MDEV` | the top levels as device numbers through the distributed tier (§64) (1) |

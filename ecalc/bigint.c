@@ -166,10 +166,61 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     }
     free(w1);
 }
+/* Phase 15 S1 (BI_MUL1_FAST): the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
+ * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
+ * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
+ * So s = x m - qe B + c (mod 2^64; the true value is (x m mod B) + (Q - qe) B + c, in [0, 3B) < 2^64 while c <= B) needs at
+ * most two corrections, each a compare against a constant (branch-free: clang made the one-at-a-time form branchy, 2x slower
+ * on Zen 2).  The quotient does not depend on the incoming carry: the loop-carried chain is only s, c = qe + f + g
+ * (<= m <= B - 1 since x < B).  The limbs are those of the exact product, hence identical to the serial form's. */
+/* floor(m 2^64 / 10^18) for m < 10^18 (a 64-bit value: kept out of line so that the loops see a 64-bit multiplier) */
+__attribute__((noinline)) static uint64_t recip_b10(uint64_t m) { return (uint64_t)(((u128)m << 64) / B10); }
+static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t c)
+{
+    const uint64_t mh = recip_b10(m);
+    for (size_t i = 0; i < na; i++) {
+        uint64_t x = a[i];
+        uint64_t qe = (uint64_t)(((u128)x * mh) >> 64);
+        uint64_t s = x * m - qe * B10 + c;           /* true value: (x m - Q B) + (Q - qe) B + c in [0, 3B) */
+        uint64_t f = s >= B10, g = s >= 2 * B10;
+        r[i] = s - (B10 & (0 - f)) - (B10 & (0 - g)); c = qe + f + g;
+    }
+    return c;
+}
+int bi_mul1_fast = -1;
+int bi_mul1_fast_on(void) { if (bi_mul1_fast < 0) { const char *e = getenv("BI_MUL1_FAST"); bi_mul1_fast = e ? atoi(e) != 0 : 0; } return bi_mul1_fast; }
+/* P += Q; Q *= k in one pass over the limbs (the seed span's Horner step; decimal, k < B, P and Q canonical; else the two
+ * calls).  Q's limb is read once for both; the multiply is mul1_dec_fast's */
+void bi_span_step(bigint *P, bigint *Q, uint64_t k)
+{
+    size_t n = Q->n, pn = P->n, i;
+    if (!bi_decimal || k >= B10) { bi_add(P, P, Q); bi_mul_u64(Q, Q, k); return; }
+    bi_reserve(P, (pn > n ? pn : n) + 1); bi_reserve(Q, n + 1);
+    uint64_t *p = P->l, *q = Q->l, ca = 0, c = 0;
+    const uint64_t mh = recip_b10(k);
+    size_t lo = pn < n ? pn : n;
+#define SPAN_MUL(x) do { uint64_t qe = (uint64_t)(((u128)(x) * mh) >> 64), s = (x) * k - qe * B10 + c; \
+                         uint64_t f = s >= B10, g = s >= 2 * B10; \
+                         q[i] = s - (B10 & (0 - f)) - (B10 & (0 - g)); c = qe + f + g; } while (0)
+    for (i = 0; i < lo; i++) {
+        uint64_t x = q[i], t = p[i] + x + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca));
+        SPAN_MUL(x);
+    }
+    for (; i < n; i++) {                               /* Q longer than P (the usual case: by one limb at most) */
+        uint64_t x = q[i], t = x + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca));
+        SPAN_MUL(x);
+    }
+#undef SPAN_MUL
+    for (; i < pn; i++) { uint64_t t = p[i] + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca)); }
+    P->n = i; if (ca) P->l[P->n++] = ca;
+    if (!k || !n) { Q->n = 0; return; }
+    Q->n = n; if (c) Q->l[Q->n++] = c;                 /* c <= k < B: one limb */
+}
 static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
-    if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
+    if (bi_decimal && m < B10 && add <= B10 && bi_mul1_fast_on()) return mul1_dec_fast(r, a, na, m, add);
+    if (bi_decimal) {                              /* m < B: a[i] m + c < B^2 + B */
         if (m < ((uint64_t)1 << 33)) {
             /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
              * with mu = floor(2^94 / 10^18) < 2^35, then at most two corrections (WP4, RESULTS.md 58) */
