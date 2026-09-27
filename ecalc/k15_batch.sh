@@ -3,7 +3,7 @@
 #   A  gates: t_patch (O_DIRECT and buffered), t_newton 20, t_mul 20; mnaccept unit,e9,mn with the switch off
 #   B  forced corrections: mnaccept e9,mn,recheck with ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7, e9 with k = -7 (on) and
 #      k = 7 (off); the longest chains of e's first 10^9 digits (d = 0 mod 18): size 1 on / off, size 2 and 4 on / off
-#   C  10^11 timing: off / on / off / on with the digit file (sha1 against e_1e11.out's); K15_NOFILE=1: the same without a file
+#   C  10^11 timing: off / on / off / on with the digit file (sha1 against e_1e11.out's); D: the same without a file
 # Waits for Stage 0 (~/reg15b.done: 3 lines, polled every 10 min), one 1-node job (-J K, 45 min), cancels it at the end.
 ST=$1 SHA=$2
 cd ~/ntt-K15/ecalc || exit 1
@@ -49,7 +49,7 @@ B)
         one c108d_off_$p $p 108072396 POOL_LOG=27 ECALC_TEST_CORR=-39
     done
     ;;
-C)
+C|D)
     E11=~/ntt/ecalc/results/e_1e11.out WANT=$(cut -c1-40 ~/V214/e_1e11.sha1)
     run11() { # tag file(0/1) env...
         local tag=$1 wf=$2; shift 2; local log=$L/$tag.log f=; [ "$wf" = 1 ] && f=$T/e11.txt
@@ -62,7 +62,7 @@ C)
         echo "RUN11 $tag: rc $rc wall ${wall} s; $(grep -a '^total' "$log" | awk '{print "total", $2}'); $(grep -a '^T1 ' "$log" | awk '{print "T1", $2}'); $(grep -a '^dc ' "$log" | awk '{print "dc", $3}'); $(grep -a '^dm ' "$log" | grep -o 'corrections [0-9/]*'); $(grep -a 'patch: X' "$log" | tr -s ' ' | cut -c1-120); $(grep -ac 'VERIFY OK' "$log") VERIFY OK; $same"
         N "rm -f $T/e11.txt*"
     }
-    if [ "${K15_NOFILE:-0}" = 1 ]; then run11 off_nf1 0; run11 on_nf1 0 ECALC_CORR_PATCH=1; run11 off_nf2 0; run11 on_nf2 0 ECALC_CORR_PATCH=1
+    if [ "$ST" = D ]; then run11 off_nf1 0; run11 on_nf1 0 ECALC_CORR_PATCH=1; run11 off_nf2 0; run11 on_nf2 0 ECALC_CORR_PATCH=1
     else run11 off_w1 1; run11 on_w1 1 ECALC_CORR_PATCH=1; run11 off_w2 1; run11 on_w2 1 ECALC_CORR_PATCH=1; fi
     ;;
 esac
