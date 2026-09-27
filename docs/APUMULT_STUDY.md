@@ -5,6 +5,16 @@ by the same algorithm). The user reports that its measurements were taken **on t
 node-local SSD at `/ssd0`), so its numbers are treated as target-node evidence and the goal is **adoption where
 possible**. The apumult source was not available; each technique was reconstructed from the summary.
 
+> **Dated note, 2026-09-26 (Phase 15, agent IO; the text below is kept as written).** The target node's `/ssd0` is **not
+> node-local NVMe**: the apumult reverse-port catalog (`apucode/apumult-ntt-reverse-port-catalog.md`) measured it on a target
+> node as **Lustre over Slingshot, 122 TB shared, 0.58–0.64 GB/s single-stream write and 0.78–0.86 GB/s read**. Every disk
+> rate this study uses for the target (2 GB/s, "10 down to 2 GB/s", the E5/E6 costs per 1 % digits) is aac6's NVMe, a
+> rate the target does not have, and the target's rate is shared by 576 nodes. At 0.6–0.8 GB/s a spill's read-back is
+> 3–4× slower than the 2 GB/s column assumes (E5's 75 GB: ≈ 90–125 s against a ≈ 245 s run), which puts E5/E6 past the
+> user's 1.6 % per 1 % rule (not re-modelled; PLAN §36.1 already sets the spills aside), and the 576-node part file grows
+> the wall 260 → 316–347 s (modelled; 264–278 s with the packed file, results/IO15.md). `/tmp` on the target is probably
+> tmpfs, i.e. HBM (check with `df`). The measured aac6 numbers below stay valid for aac6.
+
 Four agents did the work: F1 and F2 (Fable) decoded the six categories against our source; R did online research on
 MI300A memory and storage; M measured the disk and memory behavior on an aac6 node (job 21121). Their reports are
 `results/apumult/apumult_{F1,F2,R,M}.md` (the benchmark sources in `results/apumult/diskbench/`, the summary itself as `apumult_summary.md`); the numbers below cite them. Every number is labeled

@@ -34,7 +34,8 @@ Labels:
 - **Modelled**: the per-node compute, from measured one-node runs of the current code (four primes: 4 × 10¹⁰ 81.5 s,
   8 × 10¹⁰ 190.7 s, 10¹¹ 262.9 s; three primes: 4 × 10¹⁰ 68.3 s) and S13's measured per-product times.
 - **Modelled**: the memory, from the code's own sizing formulas (within 0.05 % of every measured device total).
-- **Assumed**: the fabric (100 GB/s per APU, 2 µs per message), the part file (2 GB/s per node), and the cost of one
+- **Assumed**: the fabric (100 GB/s per APU, 2 µs per message), the part file (2 GB/s per node — *Phase 15*: the target's
+  `/ssd0` is Lustre, 0.6–0.8 GB/s single-stream measured there: 316–347 s ASCII, 264–278 s packed, modelled; §6 item 5), and the cost of one
   extra exchange round (`T_ROUND`, 0.03 s, range 0.01–0.1 s: the aac6 chunk sweep shows no trend above its noise).
 
 The ranking of the rows does not change between 50 and 200 GB/s per APU (Spearman ≥ 0.999). The chunk rounds' cost does
@@ -145,6 +146,11 @@ Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.
 | `ECALC_STAGING` | 1 (default) | the pinned staging sized to the seeds |
 | `ECALC_ARENA_GB`, `ECALC_DM_POOL_K`, `ECALC_POOL_GROW_GB`, `BS_REGION_SLACK`, `BS_BALANCE_N`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_SEED_TERMS`, `BS_SEED_CHUNK_MB` | defaults | tuning knobs of the arena, the pool, the leaf layout; nothing on the target asks for them |
 | `MN_OUT_CHUNK_MB` | 256 (default) | the writer's chunk per node; the part file streams during the low product |
+| `MN_OUT_EARLY` | *Phase 15 IO*: 1 once measured at step 3 (off by default) | at size > 1 the part file is written after T1 unless this is set: then it streams during the division's low product as on one node (W5d; results/IO15.md) |
+| `ECALC_OUT_PACKED` | *Phase 15 IO*: the user's decision (PLAN §36.2 D4) | the part file as base-10¹⁸ limbs, 0.444 B/digit (32.8 instead of 73.8 GB per node); `tools/unpack_digits` makes the ASCII file after the run, `--cmp` checks without converting |
+| `ECALC_OUT_MODE`, `ECALC_ODIRECT` | `ECALC_ODIRECT=auto` after §6 item 5(a) | the write mode per file system: O_DIRECT on Lustre is **assumed** until 5(a) measures it; `ECALC_OUT_MODE=sync` or `drop` if buffered writes are faster there (never plain `buffered`: the page cache is HBM) |
+| `MN_OUT_STRIPE`, `MN_OUT_WAVES` | from §6 item 5(b)/(c) | a Lustre layout per part file; at most ⌈576/n⌉ nodes writing at once |
+| `ECALC_MEM_GUARD_GB` | e.g. 4–8 | the sampler stops the run with rc 9 and one line naming rank, host and phase when MemAvailable falls below it — a named stop instead of the OOM killer |
 | `MEM_REPORT_DEVS=1` | on for the first runs | the per-APU rows of the memory table every node prints (`mem[rank]`) |
 | `ECALC_VERBOSE=2`, `RNS_VERBOSE=1`, `DB_POOL_VERBOSE=1`, `NEWTON_VERBOSE=1` | on for the smoke and calibration runs | per-level lines, per-call times, the pool's fallbacks and tail statistics, the reciprocal's steps |
 | `MN_DM=host`, `MN_COMBINE=host` | never | the host-flow stand-ins (a cross-check on aac6; node 0's host cannot hold the target's numbers) |
@@ -154,7 +160,7 @@ Checkpoints and verification (`binsplit.c`, `mn.c`, `verify.c`, `mn_out.c`; READ
 
 | variable | target | why |
 |---|---|---|
-| `BS_CKPT_DIR=<node-local dir>` | set (the node's NVMe; one directory per node or a shared one — the names carry the rank) | leaf sets `n<rank>_level_LLL.*` and tree sets `n<rank>_tree_LLL.*`; a leaf set is ≈ 35 GB / 4 × 10¹⁰ per node, a tree set the same; at ≈ 1 GB/s per node each set costs ≈ 30–60 s of the writer thread (hidden or not by the file system — measure at 10¹⁰, §5) |
+| `BS_CKPT_DIR=<node-local dir>` | set (the node's NVMe; one directory per node or a shared one — the names carry the rank; *Phase 15*: the target has no node-local disk — a Lustre directory, 0.6–0.8 GB/s per node single-stream) | leaf sets `n<rank>_level_LLL.*` and tree sets `n<rank>_tree_LLL.*`; a leaf set is ≈ 35 GB / 4 × 10¹⁰ per node, a tree set the same; at ≈ 1 GB/s per node each set costs ≈ 30–60 s of the writer thread (hidden or not by the file system — measure at 10¹⁰, §5) |
 | `BS_CKPT_MIN_LEVEL` | 16 (default), `BS_CKPT_EVERY` 4 | the leaf sets from the top levels only (a snapshot is a full pass of the pools) |
 | `BS_CKPT_TREE` | 1 (default with `BS_CKPT_DIR`), `BS_CKPT_TREE_EVERY` 1 → **3** at 576 | a tree set after every level costs 10 writes; every third level plus the top (always written) is enough for a restart above the leaves |
 | `BS_RESTART=1` | on a restart, with the same `BS_CKPT_DIR`, digits and base on every node | the nodes agree on the lowest complete tree level and resume above it, or each inside its leaf tree; bit-identical |
@@ -234,7 +240,9 @@ tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which 
 Between 6 and 7, `estimate.py --g 576 --D <D>` gives the peak per D in 10⁹ steps; take the largest whose modelled
 peak stays below 502 GB minus the measured error of step 6. Evict the reference file from the page cache before a
 timed run (`posix_fadvise DONTNEED`, RESULTS §68) if the reference lives on the node; the target's part files go to
-the parallel file system (`/out`), the checkpoints to node-local disk.
+the parallel file system (`/out`), the checkpoints to node-local disk. *Phase 15 IO*: the target node has no node-local
+disk: `/ssd0` is Lustre (shared, 0.6–0.8 GB/s single-stream, measured by the catalog), so part files and checkpoints both
+go there, and **nothing large goes to `/tmp`** (§6 item 10).
 
 ## 6. What to measure first, and how to feed it into the model
 
@@ -268,13 +276,43 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
    both switches at 1024. The difference in `dm`, over the extra rounds the model counts, is the cost. Feed: the three
    runs as an M-run-format log (`design_table.py --mrun` refits `T_ROUND` from any runs of one size that differ only in
    chunking), or `T_ROUND` in `mn_model.py`.
-5. **The part-file bandwidth** (assumed 2 GB/s per node). Step 3 prints `dc` (the writer's time) per node and the
-   run's `total`. The part file is D bytes of digits per node (10 GB at 10¹⁰), so the `dc` seconds give GB/s, and
-   `total − phases` says whether it hid under the low product. Feed: `--write-bw`.
+5. **The part-file bandwidth** (assumed 2 GB/s per node until Phase 15; *Phase 15 IO, 2026-09-26*: **the prior is now
+   0.6–0.8 GB/s single-stream** — the target node's `/ssd0` is **Lustre over Slingshot, 122 TB shared**, measured there at
+   0.58–0.64 GB/s single-stream write and 0.78–0.86 GB/s read (`apucode/apumult-ntt-reverse-port-catalog.md`), not
+   node-local NVMe). At 0.6–0.8 GB/s the 576-node wall grows 260 → 316–347 s (modelled, `mn_model.py --D 7.38e10 --g 576
+   --write-bw <x>`); with the packed part file (`ECALC_OUT_PACKED=1`, 0.444 B/digit: 32.8 instead of 73.8 GB per node) the
+   same disk is worth 2.25× the rate, 264–278 s (modelled, `--write-bw 1.8` / `1.35`). Measure, in this order:
+   - **(a) one node, one stream**: `dd if=/dev/zero of=<dir>/dd.bin bs=64M count=64 oflag=direct` and the same with
+     `conv=fsync` (buffered), then a 10¹⁰ one-node run into the same directory with `ECALC_VERBOSE=2`: the `wrote … (x GB;
+     write y s in the writer thread …)` line gives the writer's GB/s. Repeat with `ECALC_OUT_MODE=direct|sync|drop` and
+     `MN_OUT_THREADS=8|32` (results/IO15.md W1: on aac6's NFS the choice mattered; on Lustre it is **unmeasured**);
+   - **(b) 64 nodes writing at once** (step 3 with the digit file): each node's `wrote` line and `dc`. The aggregate
+     (64 × the per-node rate) against (a) says whether the file system, not the node, is the limit; the 576-node write is
+     then 42.5 TB (ASCII) or 18.9 TB (packed) at the **aggregate** rate, which at 576 nodes will be far below
+     576 × 0.6 GB/s = 346 GB/s if the file system has few storage targets;
+   - **(c) the storage targets**: `lfs df -h <dir>` (the number of OSTs and their sizes), `lfs getstripe -d <dir>` (the
+     default stripe count and size of the output directory). With few OSTs and stripe count 1, 576 files land on the same
+     few targets: set a layout per part file (`MN_OUT_STRIPE=<count>:<MB>:<OSTs>`, or `lfs setstripe -c <count> -S <MB>M
+     <dir>` on the directory before the run) and, if (b) shows the aggregate saturating, cap the concurrent writers with
+     `MN_OUT_WAVES=<n>` (at most ⌈576/n⌉ nodes write at once; the others hold their digits on the device);
+   - **(d) the exposed write**: with `MN_OUT_EARLY=1` the part file streams during the division's low product, as on one
+     node (Phase 15 IO W5d; without it, at size > 1 the whole write comes after T1 and is exposed: MD15). Compare `total`
+     and the `wrote` line with and without it at step 3.
+   Feed: `--write-bw` = min(the per-node rate of (a), the aggregate of (b) / nodes), divided by 0.444 for a packed run.
+   Report both walls (PLAN §36.2 D3): without the write and with it.
 6. **The mapping rate of device memory** (measured 0.057–0.072 s/GB on aac6; `MAP_RATE` 0.065 in `mn_model.py`). It
    prices the planes of every row. Read init's `pools … s` line. Feed: `MAP_RATE`.
-7. **The checkpoint bandwidth** (assumed 1 GB/s per node to local disk). The `mn: node r: checkpoint tree level l`
-   lines print GB and GB/s. `BS_CKPT_TREE_EVERY` and `BS_CKPT_MIN_LEVEL` are the knobs if it does not hide.
+7. **The checkpoint bandwidth** (assumed 1 GB/s per node to local disk; *Phase 15 IO*: there is no node-local disk — the
+   checkpoints go to the same Lustre as the part files, 0.6–0.8 GB/s single-stream at best). The `mn: node r: checkpoint
+   tree level l` lines print GB and GB/s. `BS_CKPT_TREE_EVERY` and `BS_CKPT_MIN_LEVEL` are the knobs if it does not hide.
+   The top set (`ECALC_CKPT_TOP`, ≈ 35 GB per node at the target, written during the division) competes with the part
+   file for the same bandwidth: 58 s at 0.6 GB/s (modelled). `ECALC_CKPT_TOP=2` drops it when the disk cannot finish it in
+   time; RECHECK then runs in its residue form (results/IO15.md W6: the digits are checked as fully; only the stored P, Q
+   limbs are not re-read). `ECALC_ODIRECT=auto` picks O_DIRECT by file-system type (Lustre: O_DIRECT, **assumed**; check
+   with (a) above whether buffered + `fsync` is faster there and set `ECALC_ODIRECT_LUSTRE=0` if it is).
+10. **`/tmp` on the compute node** (Phase 15 IO): `df -h /tmp; findmnt -T /tmp`. If it is `tmpfs` it is memory — on the
+   APU the same HBM the run needs: **no digit file, checkpoint or reference goes to `/tmp` on the target**; the part files
+   and `BS_CKPT_DIR` go to the Lustre directory (with its stripe layout, (c) above).
 8. **The global-link taper** (assumed 1.0). Compare the 64-node run (step 2/3) with the 576-node run at the same D per
    node (step 4 with D = 10¹⁰: `estimate.py --g 64 --D 1e10` against `--g 576 --D 1e10`). The levels above 64 are the
    only difference; if their exposed time exceeds the model's, `--taper` moves it.
@@ -315,7 +353,17 @@ it comes from.
   node removes its older sets only after every node has the newer one), and resume above it; a node with no set
   recomputes its leaf tree. The digits are bit-identical.
 - The recheck (`ECALC_RECHECK=1`, same line, same `BS_CKPT_DIR`, same `<outfile>`) needs the top-level tree set and
-  `<outfile>.t1` — keep both until the recheck says OK on every node.
+  `<outfile>.t1` — keep both until the recheck says OK on every node. *Phase 15 IO (W6)*: without the top set it runs in
+  its residue form (P, Q mod q from `<outfile>.t1`, still checked against the recomputed term recurrence); only `.t1` and the
+  part files are needed then.
+- **Read-back times at the target** (Phase 15 IO, W9; modelled from the measured Lustre read rate 0.78–0.86 GB/s
+  single-stream): RECHECK reads each node's part file once (73.8 GB ASCII: 86–95 s; packed 32.8 GB: 38–42 s) and, with the
+  top set, its 35 GB (41–45 s): **≈ 2–2.5 min per node for ASCII, ≈ 1.5 min packed, all nodes in parallel** — if the file
+  system's aggregate read rate carries 576 streams; else 42.5 TB (ASCII) / 18.9 TB (packed) at the aggregate. A compare
+  against a reference reads two files (twice that). Converting a packed file to ASCII (`tools/unpack_digits`) reads
+  0.444 B and writes 1 B per digit: at Lustre rates the write dominates (73.8 GB at 0.6 GB/s ≈ 2 min per part, on the nodes
+  in parallel); to check without converting, `tools/unpack_digits --cmp <reference> <parts…>`, or `unpack_digits <parts…> |
+  sha1sum`.
 
 ## 8. Known traps
 
