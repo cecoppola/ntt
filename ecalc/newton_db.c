@@ -732,6 +732,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             if (!Gs) { r.n = r.N = r0.n; r.g0 = Gn->g0; r.g = Gn->g; if (member) mdb_from_db(&r, &r0, r0.n, Gn); }   /* every node has r0: the members take their share */
             else if (member) x1_regroup(&r, Gn, was);
             Gs = Gn;
+            mid_ok = 0;                                                /* R4: the new group's nodes must agree (a node that was not a member has no previous round); job 21475: size 3, 4 */
             if (nv && me == 0 && Gs != G) printf("newton(mn): j %zu on the group [0, %d)\n", j, Gs->g);
         }
         if (take == nq && Gs == G) ;                                   /* Q_t = Q itself (no shift copy) */
