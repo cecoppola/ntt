@@ -1,0 +1,10 @@
+# T2 step 1 (c): the +3.4 s in dm at BS_SEED_TERMS=168 (V3, one run).  B0, one node, 10^11 without the digit file, paired and
+# interleaved: the default and 168 twice each (DB_POOL_VERBOSE=1: the block pool's VMM remaps and tail moves, print-only), then one
+# pair with RNS_VERBOSE=1 (divmod's split: A mu, X out + low product, window + corrections), then the rule's first run.
+d1  100000000000 nw DB_POOL_VERBOSE=1
+s1  100000000000 nw DB_POOL_VERBOSE=1 BS_SEED_TERMS=168
+d2  100000000000 nw DB_POOL_VERBOSE=1
+s2  100000000000 nw DB_POOL_VERBOSE=1 BS_SEED_TERMS=168
+dv  100000000000 nw RNS_VERBOSE=1
+sv  100000000000 nw RNS_VERBOSE=1 BS_SEED_TERMS=168
+f128 100000000000 nw DB_POOL_VERBOSE=1 BS_SEED_FILL=128
