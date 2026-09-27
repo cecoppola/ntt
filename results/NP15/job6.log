@@ -1,0 +1,13 @@
+np15_job 6 at 994e43a  Sun Sep 27 06:42:25 PM CDT 2026
+batch 6: job 21633 submitted Sun Sep 27 06:42:25 PM CDT 2026
+batch 6: job 21633 running on ppac-pl1-s24-30 Sun Sep 27 06:42:45 PM CDT 2026
+e1e11_def_r (): rc 0 VERIFY OK | total   199.37 s   (bs 75.1 + 10dP 0.1 + dm 105.3 + T1 0.0 + dc 0.0 + T2 0.0 = 180.6; init 18.6; other 0.2); VmHWM 27.5 GB
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 ref 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+SHA1 IDENTICAL
+e1e11_auto_r (ECALC_NP=auto): rc 0 VERIFY OK | total   197.17 s   (bs 75.5 + 10dP 0.1 + dm 103.6 + T1 0.0 + dc 0.0 + T2 0.0 = 179.3; init 17.7; other 0.2); VmHWM 27.4 GB
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 58424467928 terms; plane pool 0 for 3 primes
+sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 ref 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+SHA1 IDENTICAL
+batch 6 done Sun Sep 27 06:51:53 PM CDT 2026
+np15_job 6 done Sun Sep 27 06:51:53 PM CDT 2026
