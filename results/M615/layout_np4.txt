@@ -1,0 +1,61 @@
+== ecalc: e to 42500000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=aac6-fe1 date=2026-09-27T17:14:45 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+plan check  4.25e+13 digits g 576, ECALC_NP=4: OK -- 1240 products; the largest piece 1077046986225 limbs (dist_mn level 8 [0, 576) combine 2 of 2 P (g 576): piece 756030955002 + 321016031223 = 1077046986225 limbs), bound none (4 primes); the longest transform 2^40 of 2^44 (the roots' limit)
+layout: D 1e+11 g 1 d 100000000008 N 10433891470 nq 5555555562 k 5555555562 tcap 11111111132 | hole 22569497600 dm_need 63819613184 (top scratch 0) tree_need 0 want 63819613184 | bs regions 261238030336 arena 273607032832 (node, bytes) | tight 1 tail_dead 0 jl 2777777781 v2 63493846016 v3 63819613184 div 62072848384 early_free 1
+planes: D 1e+11 g 1 np 4 | cap 2^30: planes 69.33 arena 273.61 device 342.94 node 358.53 | cap 3*2^29: planes 90.81 arena 273.61 device 364.42 node 380.01 | cap 2^31*: planes 120.88 arena 273.61 device 394.48 node 410.07 | cap 3*2^30: planes 181.01 arena 273.61 device 454.61 node 470.20 | (GB; device = plane pools + arena + 0.61 tables, node = + host init 15.6)
+layout: D 1.4e+11 g 1 d 140000000004 N 14397383496 nq 7777777784 k 7777777784 tcap 15555555576 | hole 31597230080 dm_need 89347266560 (top scratch 0) tree_need 0 want 89347266560 | bs regions 319786319872 arena 357396643840 (node, bytes) | tight 1 tail_dead 0 jl 3888888892 v2 86743775232 v3 89347266560 div 85183922176 early_free 1
+planes: D 1.4e+11 g 1 np 4 | cap 2^30: planes 69.33 arena 357.40 device 426.73 node 442.32 | cap 3*2^29: planes 90.81 arena 357.40 device 448.21 node 463.80 | cap 2^31*: planes 120.88 arena 357.40 device 478.27 node 493.86 | cap 3*2^30: planes 181.01 arena 357.40 device 538.40 node 553.99 | (GB; device = plane pools + arena + 0.61 tables, node = + host init 15.6)
+layout: D 1.52e+11 g 1 d 152000000010 N 15576674735 nq 8444444451 k 8444444451 tcap 16888888910 | hole 34305556480 dm_need 97005654016 (top scratch 0) tree_need 0 want 97005654016 | bs regions 353911177216 arena 392188395520 (node, bytes) | tight 1 tail_dead 0 jl 4222222226 v2 93718757376 v3 97005654016 div 92117237760 early_free 1
+planes: D 1.52e+11 g 1 np 4 | cap 2^30: planes 69.33 arena 392.19 device 461.52 node 477.11 | cap 3*2^29: planes 90.81 arena 392.19 device 483.00 node 498.59 | cap 2^31*: planes 120.88 arena 392.19 device 513.07 node 528.66 | cap 3*2^30: planes 181.01 arena 392.19 device 573.20 node 588.79 | (GB; device = plane pools + arena + 0.61 tables, node = + host init 15.6)
+bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 4 pieces, scratch 13.57 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 8 pieces, scratch 12.01 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 6 pieces, scratch 12.93 GB + live 39.97 GB per device
+bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 4 pieces, scratch 13.57 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 8 pieces, scratch 12.01 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 6 pieces, scratch 12.93 GB + live 39.97 GB per device
+layout: D 7.378e+10 g 576 d 42500000000016 N 3509230438617 nq 2361111111117 k 2361111111118 tcap 4722222222244 | hole 16652846080 dm_need 61183493712 (top scratch 12927287888) tree_need 56200005237 want 61183493712 | bs regions 185207881728 arena 244737638400 (node, bytes) | tight 1 tail_dead 0 jl 1180555555559 v2 48256205824 v3 47089091584 div 46926233600 early_free 1
+planes: D 7.378e+10 g 576 np 4 |bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 16 pieces, scratch 7.32 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 16 pieces, scratch 9.37 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 32 pieces, scratch 10.64 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 18 pieces, scratch 11.10 GB + live 39.97 GB per device
+ cap 2^30: planes 69.33 arena 232.76 device 302.09 node 323.68 |bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 16 pieces, scratch 7.32 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 16 pieces, scratch 9.37 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 16 pieces, scratch 13.47 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 32 pieces, scratch 10.64 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 18 pieces, scratch 11.10 GB + live 39.97 GB per device
+ cap 3*2^29: planes 90.81 arena 232.76 device 323.57 node 345.16 |bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 4 pieces, scratch 13.57 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 8 pieces, scratch 12.01 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 6 pieces, scratch 12.93 GB + live 39.97 GB per device
+ cap 2^31*: planes 120.88 arena 244.74 device 365.62 node 387.21 |bs: tree layout: level 1 group 2 (2 children of 1): 4099151243 x 4099151243 limbs, 4 pieces, scratch 13.57 GB + live 27.67 GB per device
+bs: tree layout: level 2 group 4 (2 children of 2): 8198302478 x 8198302478 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 3 group 8 (2 children of 4): 16396604948 x 16396604948 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 4 group 16 (2 children of 8): 32793209888 x 32793209888 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 5 group 32 (2 children of 16): 65586419768 x 65586419768 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 6 group 64 (2 children of 32): 131172839528 x 131172839528 limbs, 4 pieces, scratch 17.67 GB + live 27.67 GB per device
+bs: tree layout: level 7 group 192 (3 children of 64): 262345679048 x 524691358096 limbs, 8 pieces, scratch 12.01 GB + live 39.97 GB per device
+bs: tree layout: level 8 group 576 (3 children of 192): 787037037128 x 1574074074256 limbs, 6 pieces, scratch 12.93 GB + live 39.97 GB per device
+ cap 3*2^30: planes 181.01 arena 244.74 device 425.74 node 447.33 | (GB; device = plane pools + arena + 0.61 tables, node = + host init 21.6)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 0 products 0.00 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
