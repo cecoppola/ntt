@@ -290,7 +290,7 @@ static void writer_drain(struct writer *w)
 }
 
 /* ---- Phase 15 IO (W2): the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e && atoi(e); } return v; }
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
 /* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is handed */

@@ -27,7 +27,11 @@ TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_ntt2 tests/t_mul test
 OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o
 REF   = ref/gen_e
 
-all: $(REF) $(OBJS) $(TESTS) ecalc
+all: $(REF) $(OBJS) $(TESTS) ecalc tools
+
+# Phase 15: the packed digit converter / checker (default output since Phase 15) is part of every build
+tools:
+	$(MAKE) -s -C ../tools
 
 ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(SHMEM_LIBS)
@@ -181,4 +185,4 @@ tests/t_modarith: tests/t_modarith.c bigint.o fatal.o modarith.h tests/harness.h
 clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc
 
-.PHONY: all clean
+.PHONY: all clean tools
