@@ -247,6 +247,78 @@ static int one_xgmi(int prime, int logR, int logC)
     free(hx); free(hy); free(ref); free(got);
     return bad == 0 && !bad_ag;
 }
+/* ---- Phase 15 P (PLAN 36): one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
+ * DIST_BIG=<logn> [DIST_BIG_PRIMES=0,2] [DIST_BIG_K=64]: four real APUs over xGMI (ntt_dist.c plan_create: ec_root(prime, logn)), no
+ * single-device reference (2^34 points = 128 GiB per plane).  Per prime: (1) forward + inverse of a dense plane x[m] = h(m) mod p
+ * must give x back (the inverse scales by n^-1); (2) the square of a sparse plane (K random points, random values: fwd, pw(x, x),
+ * inv) against its cyclic self-convolution computed directly on the host (K^2 terms, the slower path) at EVERY point.
+ * Memory per APU: the rank's plane (n / 4 points) in hipHostMalloc (the 96 GiB hipMalloc cap of amdttm.pages_limit), the two slab
+ * buffers (hipMalloc, n / 4 each): 96 GiB per APU at 2^34, 384 GiB per node. */
+static inline uint64_t big_h(uint64_t m) { uint64_t z = m * 0x9E3779B97F4A7C15ull + 0x632BE59BD9B4E019ull; z ^= z >> 31; z *= 0xBF58476D1CE4E5B9ull; z ^= z >> 29; return z; }
+static int big_xgmi(int prime, int logn, int K)
+{
+    int logR = logn / 2, logC = logn - logR; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / 4, rows = rr * C;
+    uint64_t p = ec_P[prime]; size_t n = (size_t)1 << logn;
+    uint64_t *hx[4]; for (int r = 0; r < 4; r++) { HIP_CHECK(hipSetDevice(r)); HIP_CHECK(hipHostMalloc((void **)&hx[r], rows * 8, 0)); }
+    /* the sparse points and their self-convolution (distinct positions) */
+    size_t *pos = (size_t *)malloc(K * sizeof *pos); uint64_t *val = (uint64_t *)malloc(K * 8);
+    for (int k = 0; k < K; k++) { int dup; do { pos[k] = rng_next(&rg) & (n - 1); dup = 0; for (int j = 0; j < k; j++) dup |= pos[j] == pos[k]; } while (dup); val[k] = rng_next(&rg) % p; }
+    size_t *cpos = (size_t *)malloc((size_t)K * K * sizeof *cpos); uint64_t *cval = (uint64_t *)malloc((size_t)K * K * 8); size_t nc = 0;
+    for (int a = 0; a < K; a++) for (int b = 0; b < K; b++) {
+        size_t m = (pos[a] + pos[b]) & (n - 1); uint64_t v = ec_mulmod_ref(val[a], val[b], p); size_t k;
+        for (k = 0; k < nc && cpos[k] != m; k++) ;
+        if (k == nc) { cpos[nc] = m; cval[nc++] = v; } else cval[k] = (cval[k] + v) % p;
+    }
+    double t0 = tnow(), tf = 0, tchk = 0; size_t bad[2] = { 0, 0 }, first[2] = { n, n };
+    for (int test = 0; test < 2; test++) {
+        double a0 = tnow();
+        /* fill: row il of rank r, column j holds point m = r rr + il + R j */
+#pragma omp parallel for schedule(static) collapse(2)
+        for (int r = 0; r < 4; r++) for (size_t il = 0; il < rr; il++) {
+            uint64_t *row = hx[r] + il * C; size_t m0 = r * rr + il;
+            if (test == 0) for (size_t j = 0; j < C; j++) row[j] = big_h(m0 + R * j) % p; else memset(row, 0, C * 8);
+        }
+        if (test == 1) for (int k = 0; k < K; k++) { size_t m = pos[k], i = m & (R - 1), j = m >> logR; hx[i / rr][(i % rr) * C + j] = val[k]; }
+        double a1 = tnow();
+#pragma omp parallel num_threads(4)
+        {
+            int r = omp_get_thread_num(); HIP_CHECK(hipSetDevice(r));
+            comm *cm = comm_xgmi_create(r); ntt_ctx *ctx = ntt_ctx_create(prime); hipStream_t s; HIP_CHECK(hipStreamCreate(&s));
+            dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
+            HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
+            dist_fwd(&pl, hx[r], s);
+            if (test == 1) dist_pw(&pl, hx[r], hx[r], s);
+            dist_inv(&pl, hx[r], s);
+            HIP_CHECK(hipStreamSynchronize(s)); comm_barrier(cm);
+            dist_plan_free(&pl); comm_destroy(cm); ntt_ctx_free(ctx); HIP_CHECK(hipStreamDestroy(s));
+        }
+        double a2 = tnow(); tf += a2 - a1;
+        size_t b = 0, f = n;
+        if (test == 0) {
+#pragma omp parallel for schedule(static) collapse(2) reduction(+:b) reduction(min:f)
+            for (int r = 0; r < 4; r++) for (size_t il = 0; il < rr; il++) {
+                const uint64_t *row = hx[r] + il * C; size_t m0 = r * rr + il;
+                for (size_t j = 0; j < C; j++) if (row[j] != big_h(m0 + R * j) % p) { b++; if (m0 + R * j < f) f = m0 + R * j; }
+            }
+        } else {
+            for (size_t k = 0; k < nc; k++) { size_t m = cpos[k], i = m & (R - 1), j = m >> logR; uint64_t *e = &hx[i / rr][(i % rr) * C + j];
+                                              if (*e != cval[k]) { b++; if (m < f) f = m; } *e = 0; }   /* the expected nonzeros, then zeroed: the rest must be 0 */
+#pragma omp parallel for schedule(static) collapse(2) reduction(+:b) reduction(min:f)
+            for (int r = 0; r < 4; r++) for (size_t il = 0; il < rr; il++) {
+                const uint64_t *row = hx[r] + il * C; size_t m0 = r * rr + il;
+                for (size_t j = 0; j < C; j++) if (row[j]) { b++; if (m0 + R * j < f) f = m0 + R * j; }
+            }
+        }
+        tchk += tnow() - a2; bad[test] = b; first[test] = f;
+        printf("  big 2^%d (%d x %d) prime %d (v2 %d): %s: %zu of %zu points differ%s (fill %.1f s, transforms %.1f s, check %.1f s)\n", logn, logR, logC, prime, ec_v2(prime),
+               test == 0 ? "fwd + inv = identity (dense)" : "square of a sparse plane vs the direct convolution", b, n, b ? "" : "", a1 - a0, a2 - a1, tnow() - a2);
+        if (b) printf("    first at point %zu\n", f);
+    }
+    printf("  big 2^%d prime %d: %zu nonzero points in the product (K = %d), %.1f s in all (transforms %.1f, checks %.1f)\n", logn, prime, nc, K, tnow() - t0, tf, tchk);
+    for (int r = 0; r < 4; r++) HIP_CHECK(hipHostFree(hx[r]));
+    free(pos); free(val); free(cpos); free(cval);
+    return bad[0] == 0 && bad[1] == 0;
+}
 /* ---- Phase 13a X (PLAN.md 29 E9 part 1, H4): the measurement drivers ---- */
 extern "C" void comm_layered_stats_report(const char *tag);
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
@@ -346,6 +418,12 @@ int main(int argc, char **argv)
         int sz = getenv("DIST_PSIZE") ? atoi(getenv("DIST_PSIZE")) : 4, reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
         char *dup = strdup(getenv("DIST_PBENCH")); HIP_CHECK(hipSetDevice(0));
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(dist_pack_bench(atoi(t), sz, reps) == 0, "pack-bench 2^%s: the tiled packs bit-identical", t);
+        free(dup); return verify_done("t_dist");
+    }
+    if (getenv("DIST_BIG")) {                           /* Phase 15 P: DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
+        int lg = atoi(getenv("DIST_BIG")), K = getenv("DIST_BIG_K") ? atoi(getenv("DIST_BIG_K")) : 64;
+        char *dup = strdup(getenv("DIST_BIG_PRIMES") ? getenv("DIST_BIG_PRIMES") : "0,2");
+        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(big_xgmi(atoi(t), lg, K), "big 2^%d prime %s: identity and the sparse square", lg, t);
         free(dup); return verify_done("t_dist");
     }
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
