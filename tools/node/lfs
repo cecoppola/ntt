@@ -1,0 +1,5 @@
+#!/bin/bash
+# a stand-in for Lustre's lfs (IO15 W5a: the command path tested off Lustre): logs the call and creates the file
+echo "fake lfs: $*" >> $HOME/IO15/fakelfs.log
+[ "$1" = setstripe ] && touch "${@: -1}"
+exit 0

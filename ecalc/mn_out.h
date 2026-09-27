@@ -13,7 +13,13 @@
  * chunks with 10^len, joined across the nodes the same way) and the T2 windows (a window straddling a chunk or
  * a node boundary is checked by the piece it ends in, from the 49 chars before it: the previous chunk's tail,
  * or the tails of the nodes above, all-gathered before the run).  The writes go through a helper thread with
- * two chunk buffers, so a chunk is written while the next one is formatted. */
+ * two chunk buffers, so a chunk is written while the next one is formatted.
+ *
+ * Phase 15 IO (results/IO15.md): the write mode ECALC_OUT_MODE (direct, buffered, sync, drop, auto) and MN_OUT_THREADS; the
+ * packed form ECALC_OUT_PACKED=1 (the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
+ * from the packed bytes, the T2 windows from the digits they cover; tools/unpack_digits converts and checks); MN_OUT_STRIPE
+ * (a Lustre layout per part file); MN_OUT_WAVES (at most ceil(size/n) nodes write at once).  ECALC_RECHECK reads packed
+ * files too. */
 #ifndef EC_MN_OUT_H
 #define EC_MN_OUT_H
 #include <stdint.h>
@@ -43,6 +49,10 @@ typedef struct {
     char tail[24]; size_t ntail;             /* Phase 11 V: the d - d_out computed digits after d_out (the node holding limb 0) */
     void *priv;                              /* the writer thread while a write is in flight (mn_out_finish joins it) */
     size_t t2_defer;                         /* Phase 15 K: > 0 -- the T2 windows ending in the last t2_defer digits (>= d_out + 1 - t2_defer) are left to mn_out_tail_fix */
+    /* Phase 15 IO */
+    comm *c;                                 /* set by mn_out_boundaries: MN_OUT_WAVES's barrier (0: no waves) */
+    int packed;                              /* out: the part was written packed (ECALC_OUT_PACKED=1, packed_fmt.h) */
+    int wave, nwaves; double t_wave, t_wave_own;   /* out: MN_OUT_WAVES -- this rank's wave, the waves, the seconds waiting for the others / in its own */
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
@@ -60,6 +70,17 @@ int  mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_
 /* the node-local part: low = the global low limbs [0, w) of the uncorrected X (every node the same); returns -1 (nothing done) when
  * the carry or the windows' context reaches past them -- the caller gathers more -- else this node's failures */
 int  mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_fix *f);
+/* Phase 15 IO (W5d): MN_OUT_EARLY=1 at size > 1 -- the part file streamed during the division's low product, as the one-node
+ * path does (the division's hook, newton_mn_x_hook, gives X before the low product).  mn_out_early_start runs on every rank at
+ * the hook (it all-gathers the T2 tails: a collective) and starts a background thread running mn_out_run over this rank's
+ * share of X (read on the device, as out_stage reads it); mn_out_early_join returns the finished mn_out (its last write still
+ * in flight: mn_out_finish as usual).  A correction to X after the hook (newton_st's corrections) makes the caller redo the
+ * part file (mn_out_run again), as at size 1.  No waves in the background (MN_OUT_WAVES is ignored with it). */
+typedef struct mn_out_early mn_out_early;
+struct mdb_s;
+mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
+mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
+void mn_out_early_free(mn_out_early *e);                              /* after mn_out_finish */
 /* the digit residues of the whole string from the nodes' (ndig, dres) (all-gathered over c; c = 0 at size 1) */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres);
 /* residues of a limb share modulo the T1 primes: the device kernel (db_mod_qs) or the host Horner */

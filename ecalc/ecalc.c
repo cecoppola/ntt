@@ -109,9 +109,17 @@ struct out_ctx {
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm), else node 0's, broadcast (the host flows) */
     struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
     int defer; long dx; size_t zone;                 /* Phase 15 K (ECALC_CORR_PATCH): X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
+    mn_out_early *early; double t_early;             /* Phase 15 IO (W5d): MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
     double t00, t_init, t_bs, t_10dp, t_dm;
 };
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: node %d: ", c->rank); }
+/* Phase 15 IO (W5d): MN_OUT_EARLY=1 -- the division's hook (newton_mn_x_hook) starts this rank's part file on X before the low product */
+static void mn_early_hook(mdb *X, void *a)
+{
+    struct out_ctx *c = (struct out_ctx *)a;
+    if (getenv("MN_OUT_WAVES") && atoi(getenv("MN_OUT_WAVES")) > 1 && c->rank == 0) printf("mn: MN_OUT_EARLY: MN_OUT_WAVES is ignored (no barriers in the background)\n");
+    c->early = mn_out_early_start(X, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), newton_x_defer ? c->zone : 0);   /* (K's deferred tail windows) */
+}
 static int out_stage(struct out_ctx *c)
 {
     comm *cm = mn_comm(0); int multi = c->size > 1;
@@ -188,6 +196,10 @@ static int out_stage(struct out_ctx *c)
             printf("      X corrected after the formatting started: redoing the digits\n");
             mn_out_finish(o); x_bg_writer(c->xb);
         }
+    } else if (c->early) {                            /* Phase 15 IO (W5d): the part file streamed during the low product */
+        double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
+        node_pfx(c); printf("      the part file started in the division (MN_OUT_EARLY): its writer ran %.2f s, joined after %.2f s here%s\n", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
+        if (c->ncorr && !c->defer) {   /* (Phase 15 integration: with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); o->c = 0; mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
         if (c->defer) o->t2_defer = c->zone;          /* Phase 15 K */
@@ -225,6 +237,7 @@ static int out_stage(struct out_ctx *c)
         printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
+    if (c->early) { ow = *o; o = &ow; mn_out_early_free(c->early); c->early = 0; }   /* Phase 15 IO (W5d): the results kept, the early writer's state freed */
     if (c->outfile) { node_pfx(c); if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
                       else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
     int fail = bad1 || bad2 || bad3;
@@ -490,7 +503,9 @@ int main(int argc, char **argv)
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
             double td = mem_now();
+            if (outfile && getenv("MN_OUT_EARLY") && atoi(getenv("MN_OUT_EARLY"))) { newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
+            newton_mn_x_hook = 0;
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
