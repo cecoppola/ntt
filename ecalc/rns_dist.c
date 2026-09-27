@@ -830,16 +830,28 @@ static int b_grid_on(void)
     static int v = -1; if (v < 0) { const char *e = getenv("RNS_STRATEGY_GRID"); v = e ? atoi(e) != 0 : 1; }
     return v && strat_get() == STRAT_AUTO && !cache_slots();
 }
+/* Phase 14 V2: RNS_AUTO_PIECE_COST=1 (off by default) -- auto's grid also prices what each extra piece costs in the pipeline
+ * (results/D213d.md, fit_pipe on G13d's logs: a piece of a grid adds 0.075 s per 2^31 B points of the piece + 0.079 s per
+ * 2^31 limbs of the whole product, its accumulation pass over C).  In split_grid's units (C plane points; the pipeline's C
+ * product costs ~0.86 s per 2^31 points, mn_model.t_prod x PIPE_ONE) that is + 0.087 x the piece's B points + 0.092 x nc per
+ * piece of a grid of more than one piece.  Without it auto forms up to 7 x 10 grids of small B pieces at >= 1e11 on one node. */
+static int auto_piece_cost(void)
+{
+    static int v = -1; if (v < 0) { const char *e = getenv("RNS_AUTO_PIECE_COST"); v = e ? atoi(e) != 0 : 0; }
+    return v;
+}
 static void split_grid(size_t na, size_t nb, int *ka, int *kb)
 {
     if (!b_grid_on()) { split_grid_cap(na, nb, dist_cap(), 0, dist_r3(), ka, kb); return; }
-    size_t cap = dist_cap(); double best = 0; *ka = *kb = 0;
+    size_t cap = dist_cap(); double best = 0; *ka = *kb = 0; const int pc = auto_piece_cost();
     for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
         size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
         if (pa + pb > cap) continue;
         double cost;
-        if (b_fits(pa + pb)) { int T, lk; size_t n = b_len(pa + pb, &T, &lk); cost = (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70; }
+        const int bf = b_fits(pa + pb);
+        if (bf) { int T, lk; size_t n = b_len(pa + pb, &T, &lk); cost = (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70; }
         else { size_t pts = plane_pts(pa + pb, dist_r3()); cost = (double)i * j * pts * ((pts & (pts - 1)) ? 1.05 : 1.0); }
+        if (pc && i * j > 1) { int T, lk; size_t n = bf ? b_len(pa + pb, &T, &lk) : 0; cost += (double)i * j * (0.087 * n + 0.092 * (na + nb)); }   /* Phase 14 V2: the per-piece cost */
         if (!*ka || cost < best * 0.999 || (cost <= best * 1.001 && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
     if (!*ka) { ec_fatal(EC_RC_FATAL, "split_grid: %zu x %zu limbs\n", na, nb); }
