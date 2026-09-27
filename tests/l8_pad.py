@@ -13,7 +13,7 @@ Cost model (per point of one transform on one APU, ps):
   c2(k)  the 2^k part: MEASURED (results/V314/bench.log "fwd 2^k x3" over 3 2^29 points; k = 31 from V3's 0.87 ratio),
          linear in k between the measured points
   cr     one radix-r pass: r = 3 MEASURED 16.3 ms per 3 2^29 points = 10.1 ps (memory-bound, 1.58 TB/s, flat in k);
-         r = 5, 7, 15 MODELLED equal (one read + one write per point; the arithmetic stays under the memory time, §4)
+         r = 5, 7, 15: 10.1 ps x the MEASURED stand-alone ratio to radix 3 (RATIO below: 1.23, 1.59, 1.58)
   fused  (item 2a): the pass folded into the first 2^k pass, 70 % of it recovered (V3's ASSUMED recovery): cr = 3.0 ps
 A product's transform time (modelled): 3 transforms (2 forward, 1 inverse) x pieces x wall(L); wall = cost(L) in the B form
 (each prime on its own APU), 3/4 cost(L) in the C form (one 2^31-class plane spread over the four APUs).
@@ -34,9 +34,12 @@ FAMS = [('today-costpick', (1, 3)), ('+5', (1, 3, 5)), ('+15', (1, 3, 15)), ('+5
 B_CAP, C_CAP = 3 << 29, 1 << 31            # the B form's per-APU pool (12 GiB) and DIST_LOGN_MAX
 KMIN = 10                                   # NTT_LOGN_MIN (the 2^k part of every length)
 
+# the pass cost relative to radix 3, MEASURED stand-alone (tests/l8_rbench.c, results/L815/l8_rbench.log, s24-16, naive DFTs in
+# k_r3_fwd's style; radix 15 as Cooley-Tukey 3 x 5): r3 7.2-7.4 ps/point (= the copy kernel), r5 8.8-8.9, r7 11.5, r15 11.4
+RATIO = {3: 1.0, 5: 1.23, 7: 1.59, 15: 1.58}
 def cr(r, fused, r15=1):
     if r == 1: return 0.0
-    p = CR_PASS * (0.3 if fused else 1.0)
+    p = CR_PASS * RATIO[r] * (0.3 if fused else 1.0)
     return p * (r15 if r == 15 else 1)
 def cost(L, fused=False, r15=1):
     r = L

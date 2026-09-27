@@ -5,7 +5,7 @@ batch tier: level, pairs, needed nc (2 max_nl), today's length (pad), measured n
    2  10189347 nc        570  2^10      pad 1.796  ntt 0.62 (model 0.41) | +5:2^10(1.796) +15:2^10(1.796) +5,15:2^10(1.796) +5,7:2^10(1.796) +5,7,15:2^10(1.796)
    3   5094674 nc       1140  2^11      pad 1.796  ntt 0.66 (model 0.46) | +5:2^11(1.796) +15:2^11(1.796) +5,15:2^11(1.796) +5,7:2^11(1.796) +5,7,15:2^11(1.796)
    4   2547337 nc       2280  3*2^10    pad 1.347  ntt 0.73 (model 0.61) | +5:2^12(1.796) +15:2^12(1.796) +5,15:2^12(1.796) +5,7:2^12(1.796) +5,7,15:2^12(1.796)
-   5   1273668 nc       4560  3*2^11    pad 1.347  ntt 0.76 (model 0.64) | +5:5*2^10(1.123) +15:2^13(1.796) +5,15:5*2^10(1.123) +5,7:5*2^10(1.123) +5,7,15:5*2^10(1.123)
+   5   1273668 nc       4560  3*2^11    pad 1.347  ntt 0.76 (model 0.64) | +5:2^13(1.796) +15:2^13(1.796) +5,15:2^13(1.796) +5,7:2^13(1.796) +5,7,15:2^13(1.796)
    6    636834 nc       9120  3*2^12    pad 1.347  ntt 0.79 (model 0.67) | +5:5*2^11(1.123) +15:2^14(1.796) +5,15:5*2^11(1.123) +5,7:5*2^11(1.123) +5,7,15:5*2^11(1.123)
    7    318417 nc      18240  3*2^13    pad 1.347  ntt 0.90 (model 0.72) | +5:5*2^12(1.123) +15:2^15(1.796) +5,15:5*2^12(1.123) +5,7:5*2^12(1.123) +5,7,15:5*2^12(1.123)
    8    159209 nc      36478  3*2^14    pad 1.347  ntt 0.93 (model 0.76) | +5:5*2^13(1.123) +15:2^16(1.797) +5,15:5*2^13(1.123) +5,7:5*2^13(1.123) +5,7,15:5*2^13(1.123)
@@ -73,11 +73,11 @@ above the batch tier (plan): phase, product, nc per piece, pieces, today's lengt
 summary 10^11, S = 256 (default) (modelled transform seconds; time-weighted padding; savings against the code as it is, unfused):
   today code     batch 25.27 s pad 1.488 | above 38.54 s pad 1.048 | all 63.81 s pad 1.223 | saving vs today 0.00 s (batch 0.00, above 0.00)
   today-costpick batch 24.89 s pad 1.576 | above 38.54 s pad 1.048 | all 63.43 s pad 1.255 | saving vs today 0.38 s (batch 0.38, above 0.00)
-  +5             batch 20.57 s pad 1.344 | above 38.25 s pad 1.038 | all 58.82 s pad 1.145 | saving vs today 4.99 s (batch 4.70, above 0.29)
+  +5             batch 21.75 s pad 1.353 | above 38.30 s pad 1.039 | all 60.05 s pad 1.152 | saving vs today 3.75 s (batch 3.52, above 0.23)
   +15            batch 24.89 s pad 1.576 | above 38.54 s pad 1.048 | all 63.43 s pad 1.255 | saving vs today 0.38 s (batch 0.38, above 0.00)
-  +5,15          batch 20.57 s pad 1.344 | above 38.25 s pad 1.038 | all 58.82 s pad 1.145 | saving vs today 4.99 s (batch 4.70, above 0.29)
-  +5,7           batch 20.57 s pad 1.344 | above 38.25 s pad 1.038 | all 58.82 s pad 1.145 | saving vs today 4.99 s (batch 4.70, above 0.29)
-  +5,7,15        batch 20.57 s pad 1.344 | above 38.25 s pad 1.038 | all 58.82 s pad 1.145 | saving vs today 4.99 s (batch 4.70, above 0.29)
+  +5,15          batch 21.75 s pad 1.353 | above 38.30 s pad 1.039 | all 60.05 s pad 1.152 | saving vs today 3.75 s (batch 3.52, above 0.23)
+  +5,7           batch 21.75 s pad 1.353 | above 38.30 s pad 1.039 | all 60.05 s pad 1.152 | saving vs today 3.75 s (batch 3.52, above 0.23)
+  +5,7,15        batch 21.75 s pad 1.353 | above 38.30 s pad 1.039 | all 60.05 s pad 1.152 | saving vs today 3.75 s (batch 3.52, above 0.23)
 
 ==== 10^11, S = 168 (V3 item 2, measured best) (e11_s168.log, L815_plan1_s168.txt) ====
 batch tier: level, pairs, needed nc (2 max_nl), today's length (pad), measured ntt s, modelled ntt s; best length per family
@@ -150,42 +150,42 @@ above the batch tier (plan): phase, product, nc per piece, pieces, today's lengt
 summary 10^11, S = 168 (V3 item 2, measured best) (modelled transform seconds; time-weighted padding; savings against the code as it is, unfused):
   today code     batch 21.24 s pad 1.517 | above 36.45 s pad 1.034 | all 57.69 s pad 1.212 | saving vs today 0.00 s (batch 0.00, above 0.00)
   today-costpick batch 20.95 s pad 1.582 | above 36.45 s pad 1.034 | all 57.41 s pad 1.234 | saving vs today 0.29 s (batch 0.29, above 0.00)
-  +5             batch 20.95 s pad 1.582 | above 36.36 s pad 1.030 | all 57.31 s pad 1.232 | saving vs today 0.38 s (batch 0.29, above 0.10)
+  +5             batch 20.95 s pad 1.582 | above 36.38 s pad 1.030 | all 57.33 s pad 1.232 | saving vs today 0.36 s (batch 0.29, above 0.08)
   +15            batch 20.95 s pad 1.582 | above 36.45 s pad 1.034 | all 57.41 s pad 1.234 | saving vs today 0.29 s (batch 0.29, above 0.00)
-  +5,15          batch 20.95 s pad 1.582 | above 36.36 s pad 1.030 | all 57.31 s pad 1.232 | saving vs today 0.38 s (batch 0.29, above 0.10)
-  +5,7           batch 20.95 s pad 1.582 | above 36.36 s pad 1.030 | all 57.31 s pad 1.232 | saving vs today 0.38 s (batch 0.29, above 0.10)
-  +5,7,15        batch 20.95 s pad 1.582 | above 36.36 s pad 1.030 | all 57.31 s pad 1.232 | saving vs today 0.38 s (batch 0.29, above 0.10)
+  +5,15          batch 20.95 s pad 1.582 | above 36.38 s pad 1.030 | all 57.33 s pad 1.232 | saving vs today 0.36 s (batch 0.29, above 0.08)
+  +5,7           batch 20.95 s pad 1.582 | above 36.38 s pad 1.030 | all 57.33 s pad 1.232 | saving vs today 0.36 s (batch 0.29, above 0.08)
+  +5,7,15        batch 20.95 s pad 1.582 | above 36.38 s pad 1.030 | all 57.33 s pad 1.232 | saving vs today 0.36 s (batch 0.29, above 0.08)
 summary 10^11, S = 256 (default) -- FUSED radix pass (2a) (modelled transform seconds; time-weighted padding; savings against the code as it is, unfused):
   today code     batch 20.70 s pad 1.519 | above 33.86 s pad 1.048 | all 54.55 s pad 1.227 | saving vs today 9.25 s (batch 4.57, above 4.68)
   today-costpick batch 20.70 s pad 1.519 | above 33.86 s pad 1.048 | all 54.55 s pad 1.227 | saving vs today 9.25 s (batch 4.57, above 4.68)
-  +5             batch 16.85 s pad 1.375 | above 33.60 s pad 1.038 | all 50.45 s pad 1.151 | saving vs today 13.36 s (batch 8.42, above 4.94)
+  +5             batch 17.20 s pad 1.370 | above 33.62 s pad 1.038 | all 50.82 s pad 1.151 | saving vs today 12.99 s (batch 8.07, above 4.92)
   +15            batch 20.70 s pad 1.519 | above 33.86 s pad 1.048 | all 54.55 s pad 1.227 | saving vs today 9.25 s (batch 4.57, above 4.68)
-  +5,15          batch 16.85 s pad 1.375 | above 33.60 s pad 1.038 | all 50.45 s pad 1.151 | saving vs today 13.36 s (batch 8.42, above 4.94)
-  +5,7           batch 16.85 s pad 1.375 | above 33.60 s pad 1.038 | all 50.45 s pad 1.151 | saving vs today 13.36 s (batch 8.42, above 4.94)
-  +5,7,15        batch 16.85 s pad 1.375 | above 33.60 s pad 1.038 | all 50.45 s pad 1.151 | saving vs today 13.36 s (batch 8.42, above 4.94)
+  +5,15          batch 17.20 s pad 1.370 | above 33.62 s pad 1.038 | all 50.82 s pad 1.151 | saving vs today 12.99 s (batch 8.07, above 4.92)
+  +5,7           batch 17.20 s pad 1.370 | above 33.62 s pad 1.038 | all 50.82 s pad 1.151 | saving vs today 12.99 s (batch 8.07, above 4.92)
+  +5,7,15        batch 17.20 s pad 1.370 | above 33.62 s pad 1.038 | all 50.82 s pad 1.151 | saving vs today 12.99 s (batch 8.07, above 4.92)
 summary 10^11, S = 168 (V3 item 2, measured best) -- FUSED radix pass (2a) (modelled transform seconds; time-weighted padding; savings against the code as it is, unfused):
   today code     batch 17.73 s pad 1.614 | above 31.98 s pad 1.034 | all 49.70 s pad 1.241 | saving vs today 7.99 s (batch 3.51, above 4.48)
   today-costpick batch 17.73 s pad 1.614 | above 31.98 s pad 1.034 | all 49.70 s pad 1.241 | saving vs today 7.99 s (batch 3.51, above 4.48)
-  +5             batch 17.73 s pad 1.614 | above 31.89 s pad 1.030 | all 49.62 s pad 1.239 | saving vs today 8.08 s (batch 3.51, above 4.56)
+  +5             batch 17.73 s pad 1.614 | above 31.90 s pad 1.030 | all 49.63 s pad 1.239 | saving vs today 8.07 s (batch 3.51, above 4.55)
   +15            batch 17.73 s pad 1.614 | above 31.98 s pad 1.034 | all 49.70 s pad 1.241 | saving vs today 7.99 s (batch 3.51, above 4.48)
-  +5,15          batch 17.73 s pad 1.614 | above 31.89 s pad 1.030 | all 49.62 s pad 1.239 | saving vs today 8.08 s (batch 3.51, above 4.56)
-  +5,7           batch 17.73 s pad 1.614 | above 31.89 s pad 1.030 | all 49.62 s pad 1.239 | saving vs today 8.08 s (batch 3.51, above 4.56)
-  +5,7,15        batch 17.73 s pad 1.614 | above 31.89 s pad 1.030 | all 49.62 s pad 1.239 | saving vs today 8.08 s (batch 3.51, above 4.56)
+  +5,15          batch 17.73 s pad 1.614 | above 31.90 s pad 1.030 | all 49.63 s pad 1.239 | saving vs today 8.07 s (batch 3.51, above 4.55)
+  +5,7           batch 17.73 s pad 1.614 | above 31.90 s pad 1.030 | all 49.63 s pad 1.239 | saving vs today 8.07 s (batch 3.51, above 4.55)
+  +5,7,15        batch 17.73 s pad 1.614 | above 31.90 s pad 1.030 | all 49.63 s pad 1.239 | saving vs today 8.07 s (batch 3.51, above 4.55)
 
 ==== the batch tier by seed span S (modelled, 10^11): ntt s / padding; the best S in [160, 320] per family ====
   today code   S=256: 20.83 s pad 1.449 | best S=229: 13.27 s pad 1.244
   today-costpick S=256: 20.51 s pad 1.535 | best S=229: 13.27 s pad 1.244
-  +5           S=256: 16.90 s pad 1.292 | best S=229: 13.27 s pad 1.244
+  +5           S=256: 17.92 s pad 1.304 | best S=229: 13.27 s pad 1.244
   +15          S=256: 20.51 s pad 1.535 | best S=229: 13.27 s pad 1.244
-  +5,15        S=256: 16.90 s pad 1.292 | best S=229: 13.27 s pad 1.244
-  +5,7         S=256: 16.90 s pad 1.292 | best S=229: 13.27 s pad 1.244
-  +5,7,15      S=256: 16.90 s pad 1.292 | best S=229: 13.27 s pad 1.244
+  +5,15        S=256: 17.92 s pad 1.304 | best S=229: 13.27 s pad 1.244
+  +5,7         S=256: 17.92 s pad 1.304 | best S=229: 13.27 s pad 1.244
+  +5,7,15      S=256: 17.92 s pad 1.304 | best S=229: 13.27 s pad 1.244
 
 ==== the batch tier by seed span S (modelled, 10^11) -- fused: ntt s / padding; the best S in [160, 320] per family ====
   today code   S=256: 16.91 s pad 1.474 | best S=229: 13.27 s pad 1.244
   today-costpick S=256: 16.91 s pad 1.474 | best S=229: 13.27 s pad 1.244
-  +5           S=256: 13.71 s pad 1.315 | best S=286: 12.27 s pad 1.177
-  +15          S=256: 16.91 s pad 1.474 | best S=214: 12.11 s pad 1.326
-  +5,15        S=256: 13.71 s pad 1.315 | best S=214: 12.11 s pad 1.326
-  +5,7         S=256: 13.71 s pad 1.315 | best S=286: 12.27 s pad 1.177
-  +5,7,15      S=256: 13.71 s pad 1.315 | best S=214: 12.11 s pad 1.326
+  +5           S=256: 14.02 s pad 1.311 | best S=286: 12.55 s pad 1.174
+  +15          S=256: 16.91 s pad 1.474 | best S=214: 12.72 s pad 1.311
+  +5,15        S=256: 14.02 s pad 1.311 | best S=286: 12.55 s pad 1.174
+  +5,7         S=256: 14.02 s pad 1.311 | best S=286: 12.55 s pad 1.174
+  +5,7,15      S=256: 14.02 s pad 1.311 | best S=286: 12.55 s pad 1.174
