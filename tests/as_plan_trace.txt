@@ -1,0 +1,5 @@
+# AS step 1: pool traces on the defaults (BS_SEED_FILL=128) and with the fill off, without the digit file
+t11 100000000000 nw DB_POOL_TRACE=1
+t11f0 100000000000 nw DB_POOL_TRACE=1 BS_SEED_FILL=0
+t4 40000000000 nw DB_POOL_TRACE=1
+t13 130000000000 nw DB_POOL_TRACE=1
