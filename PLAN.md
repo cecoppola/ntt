@@ -1849,3 +1849,170 @@ round trip, `BS_LAYOUT_ONLY` against a real init with `ECALC_INIT_ONLY=1`), fini
 `t_newton` and `t_mul`; e9 identical in both bases; a 4 × 10¹⁰ run identical to `results/e_4e10.out`; `mem_model.py
 --check-c` exact; `./mnaccept.sh --only unit,e9` plus the touched steps; the full regression at each window's close.
 Every number labeled measured / modelled / assumed.
+
+## 35. Phase 14, continued — the adopted defaults, the 10¹¹ standard, and the remaining options (2026-09-26)
+
+**The user's decisions (2026-09-26)**:
+- Adopt as defaults the seven measured switches: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DB_POOL_VMM`
+  (`DM_TIGHT` follows it), `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024` and `ECALC_BUDGET_CHECK`; and for the large job,
+  `COMM_LAYER_TKERNEL=1` and `COMM_SHMEM_POOL_AUTO=1`.
+- **The standard full-size test is 10¹¹ digits** (it was 4 × 10¹⁰).
+- Investigate every remaining option, including the four not-yet-built items.
+
+Branch `p14-defaults`:
+- b257753: the seven switches;
+- 8b476da: `COMM_LAYER_TKERNEL`;
+- 4855842: the standard size `ECALC_STD_DIGITS`, default 10¹¹, in `mnaccept.sh` and `closing.sh`.
+
+`COMM_SHMEM_POOL_AUTO` becomes the default together with the heap sizing it needs (agent V1): with a host heap, `mnrun.sh`
+sizes the heap from the pool before launch.
+
+**Steps**
+1. **The 10¹¹ reference** (`results/e_1e11.out`), built on the new defaults and checked four ways: the ten Phase 11 windows
+   (`ECALC_WINDOWS`), the first 4 × 10¹⁰ digits against `e_4e10.out`, RECHECK, and a second run with all nine new switches
+   off (the old path), compared in full.
+2. **Verification of the defaults at 10¹¹**: the regression (both halves) on the defaults; the same with the nine switches off;
+   the five-run 10¹¹ series (the new baseline). Then merge into `main`.
+3. **Agents** (default model; the Fable credits ran out 2026-09-24):
+   - **V1**: `COMM_SHMEM_POOL_AUTO` by default with the heap sized from the model; **C1**, the transport without the duplicate
+     copy (staging in rounds, or pool-resident exchange buffers), behind a switch.
+   - **V2**: **C2**, `auto` with the per-piece cost; `DIST_TWREC` at 10¹¹; checkpoints with O_DIRECT (`ECALC_CKPT_TOP`, tree
+     sets). Measured verdicts.
+   - **V3**: **C3**, Phase B (B1 initialization, B2 reciprocal, B4 lengths, B5 kernels, B6/B7), and **C4**, E11 (band-sized
+     products): a ranked investigation (benefit at 10¹¹ and at the 576 target, memory, effort, risk). No pipeline code.
+4. **The Python models** follow the new defaults (`DM_TIGHT`, early free, chunking, pool auto); `estimate.py --target` and
+   `results/DESIGN_TABLE.md` regenerated; RESULTS §85 with the new 10¹¹ baseline and the 576-node estimate.
+5. The user decides on V1–V3's findings; then Phase B in the order V3 recommends.
+
+**Status (2026-09-26 21:50 EDT)**: steps 1–3 done. Step 1: `e_1e11.out` passes RECHECK; three runs (defaults to NFS,
+defaults to local `/tmp`, all nine switches off) are identical; its first 4 × 10¹⁰ digits equal `e_4e10.out`. (The first
+window file was off by one digit at nine offsets, the paper's "position p" being the first digit's index; fixed.) Step 2:
+the regression on 2085d1e passes 29/30, the one failure `t_bs` (it reads P, Q on the host; a VMM range is device-only) fixed
+in the test (3e0cacf, VERIFY OK on a node); all switches off 9/9; five 10¹¹ runs 240.3 s mean (239.6–241.0), identical.
+Step 3: V1, V2, V3 reported (results/V114.md, V214.md, V314.md on their branches). Steps 4–5 continue as §36.
+
+## 36. Phase 15 — consolidate, then three batches: speed, output I/O on Lustre, the length family (2026-09-26)
+
+Written 2026-09-26 22:00 EDT and approved in outline by the user the same evening; the launch waits for the user's word.
+Times are Eastern. Every new behavior goes behind a switch, off by default; every adoption is the user's decision on
+measured data; every number is labelled measured, modelled or assumed.
+
+### 36.1 Where things stand (measured 2026-09-26 unless marked)
+
+- **10¹¹ reference** `results/e_1e11.out` verified (§35 status).
+- **The defaults** (§35's nine) pass the regression; the 10¹¹ standard is **240.3 s** (five runs, σ ≈ 0.6 s), with the digit file
+  written. Of that, ≈ 21–24 s is `T1` waiting for the writer after the division's **two corrections**, each of which also
+  rewrites the whole digit file (V2's finding: ≈ 63 s end to end at 10¹¹).
+- **NFS**: the first reference run wrote 100 GB to `/shared` with O_DIRECT at ≈ 112 MB/s (`T1` 841 s); to local `/tmp`, `T1`
+  20.9 s. O_DIRECT is right on a local disk and unproven on a network file system.
+- **V1** (branch `p14-V1`, 1484a5e): `COMM_SHMEM_POOL_AUTO=1` by default (`mnrun.sh` takes the pool from `MN_PLAN_ONLY`, heap =
+  pool + 512 MiB; a heap too small stops every rank with rc 8); per-APU staging regions (8f3b136, a fragmentation fix);
+  **C1** `COMM_SHMEM_ROUND_MB` (exchanges in rounds): pool peak 2–4× lower, no time cost; at the target (modelled) the pool
+  45.0 → 9.8 GB and the node 434 → 399 GB. Open: the 2-node 10⁹ rerun on 8f3b136.
+- **V2** (branch `p14-V2`, c4cc287): **C2** `RNS_AUTO_PIECE_COST=1`: 10¹¹ 234.6 → 206.0 s (−12.2 %, part of it no corrections),
+  1.16 × 10¹¹ −10.1 %, 1.3 × 10¹¹ −6.4 %, all identical. Not measured: `DIST_TWREC` at 10¹¹ (`~/V214/C.steps`), checkpoints
+  with O_DIRECT (`~/V214/D.steps`); both scripted (`bash ~/V214/chain.sh any now C D`).
+- **V3** (branch `p14-V3`, results/V314.md): the ranked items 1–8 below; 10¹¹ without the digit file 215.9 / 217.1 s; the
+  576 target 244.9 s (modelled); the model's seed wait ≈ 8 s optimistic.
+- **The apumult reverse-port catalog** (`apucode/apumult-ntt-reverse-port-catalog.md`, reviewed 2026-09-26): the target
+  node's `/ssd0` is **Lustre over Slingshot, 122 TB, 0.58–0.64 GB/s single-stream write, 0.78–0.86 read** (measured there);
+  our model assumed node-local NVMe at 2 GB/s. At 0.6–0.8 GB/s the 576-node wall grows 260 → 316–347 s (modelled,
+  `mn_model.py --write-bw`). Of its 47 items two are new and worth exploring (N2, N3 below); the rest are done, equivalent,
+  not applicable to the decimal pipeline, or rejected (the spills: ≤ 4–9 GB after DM_TIGHT, and 98 GB at 0.6 GB/s is 163 s
+  each way against a 245 s run; memory no longer binds at the target, the grid step at 4.29 × 10¹³ does).
+
+### 36.2 The user's decisions (2026-09-26)
+
+- **D1**: C2 (`RNS_AUTO_PIECE_COST=1`) becomes a default once Batch 1's paired five-run series (1e) confirms it.
+- **D2**: `COMM_SHMEM_ROUND_MB=1024` on the target's launch line (`docs/TARGET.md` §4), once the 2-node rerun (0.2) passes.
+- **D3**: **two walls in every report**: without the disk write (digits computed and verified) and with it. Both are
+  optimized. The `total` line, `closing.sh`, `mnaccept.sh` and `mn_model.py` print both (task 1g).
+- **D4**: the packed digit output for the headline run: deferred until W2 has measured it.
+- The plan's batches, agents, items W1–W9, K, N2, N3 and L8 as below.
+
+### 36.3 Stage 0 — consolidate (≈ 1.5 h, the integrator)
+
+| # | task | nodes |
+|---|---|---|
+| 0.1 | Integration branch `int15` = `p14-defaults` (3e0cacf) + `p14-V1` (pool auto on; rounds switch off) + `p14-V2` (C2 switch off) + V3's write-up and logs | — |
+| 0.2 | Regression on `int15`, both halves; the 2-node 10⁹ rerun of V1's staging regions (8f3b136) with and without `COMM_SHMEM_ROUND_MB=1024` | 3 nodes, ≈ 35 min |
+| 0.3 | Merge into `main`, push, sync aac6 (bundle from aac6's commit). **This is baseline B0** | — |
+| 0.4 | RESULTS §85 (the reference, the defaults verified, V1–V3); the Python models to the defaults (DM_TIGHT, early free, chunking, pool auto, rounds as the target's launch line); `estimate.py --target`, `results/DESIGN_TABLE.md` regenerated; memory files | — |
+
+### 36.4 Batch 1 — speed and output (six agents in parallel)
+
+| # | agent | task | expected (labelled) | nodes |
+|---|---|---|---|---|
+| 1a | **S1** | V3 item 1: a faster decimal `mul_1` and a fused seed span (`bigint.c mul1_serial`, `binsplit.c span`). Unit test against the serial path, 0 mismatches over every k range **including k > 2³³** (the target's top node's path, never taken on one node); byte compare at 10⁹, 10¹⁰, 10¹¹ | −9 s at 10¹¹; −9…−11 s at the target (modelled) | ≈ 1 node-h |
+| 1b | **R4** | V3 item 4 (B2): the reciprocal's Q_t·r as a middle product (`newton_db.c`). `t_newton`; byte compare at 10⁹, 10¹¹ | −3.4 s at 10¹¹; −1 s at the target (modelled) | ≈ 1 node-h |
+| 1c | **T2** | V3 item 2: `BS_SEED_TERMS` chosen per run so the batch tier fills its transform lengths. Build the sweep now and explain the +3.4 s in `dm` V3 saw; sweep 4 × 10¹⁰ and 10¹¹ **after 1a merges**; a per-run rule if one value does not fit every size | −6.6 s at 10¹¹ (one run); −3…−7 s at the target (assumed) | ≈ 2 node-h |
+| 1d | **K** (new, from V2) | **A correction without a rewrite**: a correction adds ±1 to X, which changes only the tail of digits its carry reaches; patch that tail in the part file instead of rewriting it, and never make `T1` wait for the writer. Multi-node: only the part file holding the tail changes | −20…−25 s at 10¹¹ (measured cost of the wait + rewrite); at the target it avoids a 74 GB rewrite per affected node (90–120 s at Lustre rates) when a correction occurs | ≈ 1 node-h |
+| 1e | **C2** | Paired five-run series at 10¹¹, same node: C2 off / on, and with `DIST_TWREC=1` (V2's item C); C2 in `mn_model.py` at 576. Feeds D1 | confirms −6…−12 % at 10¹¹ | ≈ 2 node-h |
+| 1f | **IO** | **W1** the writer on a network FS, aac6's NFS `/shared` as the stand-in: buffered, O_DIRECT, `fsync` + `posix_fadvise(DONTNEED)`; chunk size and threads; checkpoints with O_DIRECT (V2's item D). **W2** packed output (`ECALC_OUT_PACKED`): the base-10¹⁸ limbs as 8 bytes per 18 digits (0.444 B/digit), no ASCII formatting in the run, an offline converter and a `cmp`-equivalent checker. **W5** write scheduling: a stripe layout per node on distinct storage targets (`lfs setstripe`), a wave limit on concurrent writers, the order of the `.top` set and the part file within a node. **W6** the `.top` set at the target (≈ 35 GB per node written during the division; `ECALC_CKPT_TOP=2` drops it when the disk is slow, which removes RECHECK): policy from the measured rate, packed, or RECHECK's residue form. **W7** the O_DIRECT default chosen by file-system type. **N3** a runtime memory guard in the sampler (`ECALC_MEM_SAMPLE`): below a MemAvailable threshold, stop cleanly naming rank and phase. **W4, W8, W9** docs: TARGET §6 / TARGET_TASKS T1 (the write-rate prior 0.6–0.8 GB/s; measure 1 node, then 64 writing at once; the number of storage targets), no digit files to `/tmp` on the target (likely tmpfs = HBM; check with `df`), read-back times (RECHECK and compares ≈ 2–3 min per node at the target, on the nodes in parallel) | W2: output I/O and space 2.25× smaller (42.5 → 18.9 TB); the exposed write at 0.6–0.8 GB/s 78–109 → ≈ 20–35 s (modelled) | ≈ 1 node-h |
+| 1g | integrator | Integration of 1a–1f; the regression; a paired five-run 10¹¹ series B0 vs B0 + Batch 1; **D3's two walls** in `total`, `closing.sh`, `mnaccept.sh`, `mn_model.py`; RESULTS §86, README rows, the model refit (seed wait), the 576 estimate | — | ≈ 3 node-h |
+
+- **Order**: 1a, 1b, 1d, 1e, 1f start together; 1c's sweep after 1a merges; 1g last.
+- **Node time**: ≈ 11 node-hours, ≈ 4 h wall on 3 nodes.
+- **Expected** (modelled, not strictly additive): **≈ −45…−60 s at 10¹¹** (240 → ≈ 185–195 s with the digit file); at the
+  target **−15…−25 s** plus W's protection against the slow write.
+- **Gate**: the user's adoption decisions (D1 and every new switch). Nothing past Batch 1 without them.
+
+### 36.5 Batch 2 — assess, then build where safe (after Batch 1's decisions)
+
+Each agent first writes a one-page feasibility note (approach, risks, test plan, expected gain); a note that concludes "not
+safe" or "not worth it" goes to the user before more work.
+
+| # | agent | item | gain (V3, modelled unless marked) | nodes |
+|---|---|---|---|---|
+| 2a | **N3x** | V3 item 3: fuse the radix-3 pass of 3·2ᵏ into the first 2ᵏ pass; 2ᵏ⁺² for k ≤ 12. `t_ntt` over **every** length, transforms bitwise identical to the old path; the full regression; byte compare at 10¹¹ | −6…−8 s at 10¹¹; −3…−4 s at the target | 1 |
+| 2b | **G5** | V3 item 5: faster twiddle packs for the 576 map (`k_twpack_g`, `k_unpacktw_g`). `t_mn_grid`; timing on 2–3 nodes; the 576 gain modelled | −2…−3 s at the target (assumed) | **2–3, one exclusive window** |
+| 2c | **M6** | V3 item 6 (E11: band-sized t1, chunked division window), with D2 of the catalog (trim the 10 % bound margin on Q and S) | −17 GB per node at the target; one-node ceiling 1.41 → 1.52 × 10¹¹ | 1 |
+| 2d | **M6** | V3 item 7: the 2³¹ plan's 5-stage top pass; built only if the note shows > 0.3 s at the target | ≤ −0.3 s at the target | little |
+| 2e | **MAP** | **N2** (catalog F11): map the arena's second half in the background, in chunks, while the seeds and the batch tier run, and the four APUs in parallel if they are serial today; the planes still map first (`RNS_PLANES_FIRST`, the 2 MiB-page fix) | −5…−10 s at 10¹¹ and at the target (assumed), on top of 1a | 1 |
+
+### 36.6 Batch 3 — the length family (agent **L8**, starts with Batch 1, desk work)
+
+1. The measured distribution of transform lengths and each length's share of the time, at 10¹¹ (logs) and at the target
+   (`MN_PLAN_ONLY=4.25e13:576`).
+2. The time-weighted padding for {2ᵏ, 3·2ᵏ} (today), + 5·2ᵏ, + 5·2ᵏ and 15·2ᵏ, + 5·2ᵏ, 7·2ᵏ and 15·2ᵏ, before and after item 2.
+   (Log-uniform sizes, modelled: mean padding 1.202 / 1.130 / 1.106 / 1.089; worst 1.50 / 1.33 / 1.25 / 1.25.)
+3. The prime change: 5·2ᵏ and 15·2ᵏ need 5 | p − 1 for all three primes (today only c = 240 has it; c = 216, 207 do not); 7·2ᵏ
+   needs three new primes. Candidates c·2⁴⁴ + 1 with 15 | c, the three-prime bound at the 2⁴⁰ cap, and everything that
+   changes (CRT constants, verification primes, references).
+4. The cost of a radix-5 pass (a short node run after 2a), with and without 2a's fusion.
+5. A recommendation with its conditions (expected: 15·2ᵏ only after item 3, and only if much padding remains after item 2;
+   the target's grid steps are counts of pieces at the 2⁴⁰ cap and no length family moves them).
+
+### 36.7 Not pursued (with reasons; V3 and the catalog review)
+
+Seeds before the planes or on the GPU (the mapping floor binds; revisit after N2); B6, B7; V3's item 8 as a direct
+5·2ᵏ / 7·2ᵏ build (L8 decides); every catalog spill (A1–A8); the catalog's B, C, D items already equivalent or binary-only;
+F kernel variants (superseded or measured dead on this hardware); G1's extra windows (the X mod q check covers the whole
+string, and published digits of e end near 3.5 × 10¹³).
+
+### 36.8 Rules for this phase
+
+- **Nodes**: three (s24-16, 26, 30). The integrator hands out node time in turns: Stage 0 → Batch 1 series → 2b's
+  exclusive window → the rest. Timing series alone on a node; paired comparisons on the same node. The user's own
+  "apucode" jobs are never touched; ours queue behind them.
+- **Every run checks its commit** ("WRONG COMMIT"); byte compares use `e_1e11.out` (sha1 in `~/V214/e_1e11.sha1`: reading
+  the reference from `/shared` takes ≈ 15 min, so compare hashes, or compare on the node).
+- Agents: the protocol in `docs/AGENT_PROTOCOL.md`; one worktree and branch each (`p15-<agent>`) from B0; a written report
+  with RESUME section; a final node batch is announced by the integrator.
+- **Reports**: two walls (D3); Eastern times; every session close gives the estimated maximum digits and wall for 576
+  nodes (measured / modelled / assumed).
+- Kill processes only by PID or an anchored match.
+
+### 36.9 Calendar
+
+| when | work |
+|---|---|
+| 2026-09-26 night | Stage 0; the Batch 1 agents start coding; L8 starts |
+| day 1 | Batch 1 node runs, integration, docs → the user's decisions (a morning report) |
+| days 2–4 | Batch 2 notes, prototypes, checks; L8 finishes |
+
+### 36.10 The 576-node estimate at this writing
+
+**4.25 × 10¹³ digits in ≈ 4.1 min** (modelled) with the part file at an assumed 2 GB/s per node; **5.3–5.8 min** at the
+measured single-stream Lustre rate (0.6–0.8 GB/s) until W lands. Memory **434 GB per node** on the defaults, **399 GB** with
+D2's rounds (modelled), against 480.
