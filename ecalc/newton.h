@@ -39,6 +39,11 @@ void newton_seed_top(bigint *r, const uint64_t *top4, size_t top, size_t nq, siz
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k);
 void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt);
 void newton_db_free_scratch(void);
+/* Phase 15 R4 (NEWTON_RECIP_MID): the reciprocal's Q_t r as a middle product; counts of the rounds that took it / the whole product,
+ * and a test hook overriding NEWTON_RECIP_CUT / NEWTON_RECIP_MID (-1 keeps a switch) */
+struct newton_mid_stats { size_t mid, whole; };
+extern struct newton_mid_stats newton_mid_st;
+void newton_recip_set(int cut, int mid);
 extern int newton_db_free_inputs;
 void newton_db_divmod_shifted(bigint *X, const struct dbig_s *S, size_t dl, const struct dbig_s *Qd, const uint64_t *qs, int nres, uint64_t *rres);   /* I3: A = S B^dl, all on device; R's residues out */
 extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on device (owned by the caller) */
