@@ -52,7 +52,8 @@ while [ $i -lt ${#RUNS[@]} ] && [ $njobs -lt $MAXJOBS ]; do
     bsl=$(g '^bs [0-9. ]*s ' | sed 's/.*(seeds \([0-9.]*\) school [0-9.]* batch \([0-9.]*\) mdev \([0-9.]*\).*/\1 \2 \3/'); bst=$(g '^bs [0-9. ]*s ' | cut -d' ' -f2)
     rec=$(g '^recip ' | cut -d' ' -f2); dm=$(g '^dm ' | cut -d' ' -f2); t1s=$(g '^T1 ' | cut -d' ' -f2)
     ver=$(grep -a -m1 '^VERIFY' "$lg" || echo "no VERIFY"); [ $rc -ne 0 ] && ver="$ver rc $rc"
-    line="$tag $D $mode S=$S | total $tot | init $ini | bs $bst ($bsl) | recip $rec | dm $dm | T1 $t1s | $ver | $dig | ${el}s | $NODE | $envs"
+    rem=$(grep -a 'VMM arena released' "$lg" | sed 's/.*(\([0-9]*\) remaps of [0-9]* chunks in \([0-9.]*\) s.*/\1 \2/' | awk '{n += $1; s += $2} END {printf "%d remaps %.2f s", n, s}')   # DB_POOL_VERBOSE=1
+    line="$tag $D $mode S=$S | total $tot | init $ini | bs $bst ($bsl) | recip $rec | dm $dm | T1 $t1s | $ver | $dig | $rem | ${el}s | $NODE | $envs"
     echo "$line" >> "$SUM"; log "$line"
     i=$((i + 1))
   done
