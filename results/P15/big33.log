@@ -1,0 +1,6 @@
+META bench=t_dist host=ppac-pl1-s24-16 date=2026-09-26T22:46:33
+  big 2^33 (16 x 17) prime 0 (v2 48): fwd + inv = identity (dense): 0 of 8589934592 points differ (fill 1.2 s, transforms 9.6 s, check 0.8 s)
+  big 2^33 (16 x 17) prime 0 (v2 48): square of a sparse plane vs the direct convolution: 0 of 8589934592 points differ (fill 0.6 s, transforms 9.5 s, check 0.5 s)
+  big 2^33 prime 0: 2080 nonzero points in the product (K = 64), 22.2 s in all (transforms 19.1, checks 1.4)
+
+t_dist: VERIFY OK (1 checks)

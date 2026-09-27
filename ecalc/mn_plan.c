@@ -56,9 +56,61 @@ static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
 static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N];
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
+/* ---- Phase 15 P (PLAN 36): the plan-time check -- every planned product against the prime set's limits ------------------------
+ * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
+ * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms (p0 p1 p2 > nterms (10^18-1)^2), and
+ * binary limbs refused -- and plan_create / plan3_get take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
+ * (ec_logn_limit(np): 2^44 for the WP8 set; modarith.h stops the run beyond).  The plan checks both for every product it forms,
+ * on every group of every tree level (not only node 0's), and prints the first that fails; mn_plan_run returns EC_RC_FATAL (3)
+ * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (docs/TARGET_TASKS.md T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
+ * check (mn_plan_check). */
+static struct {
+    int np, lim, decimal; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */
+    long nbound, nroot, nprod;                /* products over the bound / over the root limit / checked */
+    long nmin;                                /* products whose min(pa, pb) (the coefficients' real term count) exceeds the bound: information */
+    size_t worst_nt; int worst_logn;          /* the largest piece nc and transform log2 planned */
+    char worst[256], first[512];
+} g_chk;
+static void chk_init(int np)
+{
+    memset(&g_chk, 0, sizeof g_chk);
+    g_chk.np = np; g_chk.lim = ec_logn_limit(np); g_chk.decimal = bi_decimal;
+    g_chk.bound = np == 3 ? ec_np3_max_terms : 0;
+}
+/* one product's largest piece: nc = pa + pb limbs (what mn_core / dist_core pass to ec_np_check), a transform of 2^logk (r3 = 0)
+ * or 3 2^logk points (r3 = 1: ec_root3(prime, logk)) */
+static void chk(const char *tier, const char *what, int g, size_t pa, size_t pb, int logk, int r3)
+{
+    size_t nc = pa + pb; char why[200] = "";
+    g_chk.nprod++;
+    if (nc > g_chk.worst_nt) { g_chk.worst_nt = nc; snprintf(g_chk.worst, sizeof g_chk.worst, "%s %s (g %d): piece %zu + %zu = %zu limbs", tier, what, g, pa, pb, nc); }
+    if (logk > g_chk.worst_logn) g_chk.worst_logn = logk;
+    if (g_chk.bound && (pa < pb ? pa : pb) > g_chk.bound) g_chk.nmin++;
+    if (g_chk.np == 3 && !g_chk.decimal) { g_chk.nbound++; snprintf(why, sizeof why, "ECALC_NP=3 with binary limbs (four primes needed)"); }
+    else if (g_chk.bound && nc > g_chk.bound) { g_chk.nbound++; snprintf(why, sizeof why, "%zu terms > the three-prime bound %zu (%.2fx over)", nc, g_chk.bound, (double)nc / g_chk.bound); }
+    if (logk > g_chk.lim) { g_chk.nroot++; size_t o = strlen(why); snprintf(why + o, sizeof why - o, "%sa transform of %s2^%d points > 2^%d (no root: 2^%d | p - 1 for %d primes)", o ? "; " : "", r3 ? "3*" : "", logk, g_chk.lim, g_chk.lim, g_chk.np); }
+    if (why[0] && !g_chk.first[0])
+        snprintf(g_chk.first, sizeof g_chk.first, "%s %s (g %d): piece %zu + %zu limbs, %s2^%d points: %s", tier, what, g, pa, pb, r3 ? "3*" : "", logk, why);
+}
+/* the verdict line; returns the exit status (0, or EC_RC_FATAL when a product fails) */
+static int chk_report(double d, int size)
+{
+    char bound[64]; if (g_chk.bound) snprintf(bound, sizeof bound, "%zu terms (three primes)", g_chk.bound); else snprintf(bound, sizeof bound, "none (%d primes)", g_chk.np);
+    if (!g_chk.nbound && !g_chk.nroot) {
+        printf("plan check  %.4g digits g %d, ECALC_NP=%d: OK -- %ld products; the largest piece %zu limbs (%s), bound %s; the longest transform 2^%d of 2^%d (the roots' limit)\n",
+               d, size, g_chk.np, g_chk.nprod, g_chk.worst_nt, g_chk.worst, bound, g_chk.worst_logn, g_chk.lim);
+        return 0;
+    }
+    printf("plan REFUSED %.4g digits g %d, ECALC_NP=%d: %ld of %ld products exceed the prime set (%ld over the term bound %s as the run checks it, pa + pb; %ld by min(pa, pb); %ld over the roots' 2^%d); the first: %s; the largest piece %zu limbs (%s)%s\n",
+           d, size, g_chk.np, g_chk.nbound + g_chk.nroot, g_chk.nprod, g_chk.nbound, bound, g_chk.nmin, g_chk.nroot, g_chk.lim, g_chk.first, g_chk.worst_nt, g_chk.worst,
+           g_chk.np == 3 && !g_chk.nroot ? " -- ECALC_NP=4 holds any piece below 2^78 terms" : "");
+    fflush(stdout);
+    return EC_RC_FATAL;
+}
 static void show_mn(int ph, const char *what, size_t na, size_t nb, int g, int has_x, size_t lowcut, size_t w, int print, struct rns_grid_plan *out)
 {
     struct rns_grid_plan p; rns_dist_mn_plan(na, nb, g, has_x, lowcut, w, &p);
+    if (p.formed) chk("dist_mn", what, g, p.pa, p.pb, (int)log2((double)p.pts), 0);
     size_t N = na + nb + (has_x ? 1 : 0); int trunc = w < N;
     if (ph >= 0) { g_pieces[ph] += p.formed; g_prods[ph]++; if (!p.one) g_grids[ph]++; }
     if (print && !g_quiet)
@@ -70,6 +122,7 @@ static void show_mn(int ph, const char *what, size_t na, size_t nb, int g, int h
 static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcut, size_t w)
 {
     struct rns_grid_plan p; rns_dist_db_plan(na, nb, lowcut, w, &p);
+    { int r3 = (p.pts & (p.pts - 1)) != 0; if (p.formed) chk("dist_db", what, 1, p.pa, p.pb, (int)log2((double)(r3 ? p.pts / 3 : p.pts)), r3); }
     g_pieces[ph] += p.formed; g_prods[ph]++; if (!p.one) g_grids[ph]++;
     if (g_quiet) return;
     char pts[32]; if (p.pts & (p.pts - 1)) snprintf(pts, sizeof pts, "3*2^%d", (int)log2((double)(p.pts / 3))); else snprintf(pts, sizeof pts, "2^%d", (int)log2((double)p.pts));
@@ -198,12 +251,14 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
-int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log)
+static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
-    g_quiet = getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET"));
+    g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
+    memset(g_pieces, 0, sizeof g_pieces); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
     if (!bi_decimal) g_dpl = 64.0L * log10l(2.0L);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
+    chk_init(np);                                                 /* Phase 15 P: the plan-time check */
     size_t p0, p1; rns_plane_pool_bytes(pool_log, rns_planes_3q30 > 0, np, &p0, &p1);          /* rns_init's pools (the device flow) */
     if (rns_pool1_bytes_req) p1 = rns_pool1_bytes_req;
     if (getenv("RNS_POOL1_GB")) p1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
@@ -211,10 +266,12 @@ int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log)
     struct pq all = pq_of(1, N + 1);
     size_t nq = all.qn, pn = all.pn, dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
+    if (!silent) {
     printf("== MN_PLAN_ONLY: e to %lu digits on %d node-process%s: N %lu terms, P %zu limbs, Q %zu limbs (predicted), dl %zu; pool_log %d, %d primes, pools %.2f + %.2f GiB per APU; MN_GROUPS",
            d, size, size > 1 ? "es" : "", N, pn, nq, dl, pool_log, np, p0 / 1073741824.0, p1 / 1073741824.0);
     for (int l = 0; l < L; l++) printf("%c%d", l ? ',' : ' ', gs[l]);
     printf("%s ==\n", L ? "" : " - (one node)");
+    }
 
     /* the leaf (node 0's range) */
     plan_leaf(1, size > 1 ? term0(N, 1, size) : N + 1);
@@ -240,10 +297,14 @@ int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log)
         show_db(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, 0, w);
     }
     long tot = g_pieces[PH_TREE] + g_pieces[PH_RECIP] + g_pieces[PH_DIV];
-    printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
+    if (!silent) printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
            (double)d, size, g_pieces[PH_TREE], g_pieces[PH_RECIP], g_pieces[PH_DIV], tot, size > 1 ? tree_max : 0, (size > 1 ? tree_max : 0) + g_pieces[PH_RECIP] + g_pieces[PH_DIV],
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");
-    return 0;
+    return chk_report((double)d, size);                          /* Phase 15 P: the verdict line; EC_RC_FATAL when a product exceeds the primes */
 }
+int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log) { return plan_run(d, N, size, pool_log, 0); }
+/* Phase 15 P: the check alone (BS_LAYOUT_ONLY): the plan of d total digits (N terms) on `size` node-processes, silently, then the
+ * verdict line; returns 0 or EC_RC_FATAL */
+int mn_plan_check(unsigned long d, unsigned long N, int size, int pool_log) { return plan_run(d, N, size, pool_log, 1); }

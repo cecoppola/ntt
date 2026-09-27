@@ -17,6 +17,7 @@
 #define EC_MODARITH_H
 #include <stdint.h>
 #include <math.h>
+#include "fatal.h"                          /* ec_fatal: ec_root / ec_root3 beyond the prime's 2-adic order (Phase 15 P) */
 
 #if defined(__HIPCC__) || defined(__HIP__)
 #include <hip/hip_runtime.h>
@@ -26,7 +27,8 @@
 #endif
 
 #define EC_NP 4                             /* the size of the prime set: array bounds, and one prime per device in the mdev / striped tiers */
-#define EC_LOGN_MAX 33                      /* 2^33 | p-1 for all four primes */
+#define EC_LOGN_MAX 33                      /* the order of the stored root tables ec_W33 / ec_W3X33 (2^33 | p-1 for all four primes).
+                                               Not the transform limit: ec_root derives any 2^logn up to v2(p-1) (Phase 15 P) */
 
 /* Phase 13a P3 (PLAN 29 E1/E3): the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
  * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
@@ -201,16 +203,40 @@ static inline uint64_t ec_powmod(uint64_t a, uint64_t e, uint64_t p)
     return r;
 }
 static inline uint64_t ec_inv(uint64_t a, uint64_t p) { return ec_powmod(a, p - 2, p); }
-/* primitive 2^logn-th root of unity for prime i, 0 <= logn <= 33 */
+/* ---- the roots of unity (Phase 15 P, PLAN 36: roots above 2^33) ----------------------------------------------------------
+ * Before: ec_root(i, logn) = w33^(2^(33 - logn)), a negative shift (undefined; the "root" came out 1) for logn > 33, which the
+ * mn tier reaches from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  Now:
+ *   logn <= EC_LOGN_MAX: the table formula as before (bit-identical by construction, the same cost);
+ *   EC_LOGN_MAX < logn <= v2(p_i - 1): g^((p_i - 1) / 2^logn) from the generator ec_G.  Both are g^((p-1)/2^logn) (w33 =
+ *   g^((p-1)/2^33)); tests/t_roots checks the two agree for logn 1..33 on every prime, and the order (w^(2^logn) = 1,
+ *   w^(2^(logn-1)) = p - 1) and the chain root(k+1)^2 = root(k) up to v2(p - 1);
+ *   logn > v2(p_i - 1) or < 0: ec_fatal (no such root in this prime).
+ * v2(p - 1) = 48, 47, 44, 44 for the WP8 set (c 2^44 + 1: 15 2^48, 27 2^47, 207 2^44, 147 2^44): 2^44 for any subset.
+ * The same for the order 3 2^logk (w3x33 = g^((p-1)/(3 2^33))). */
+static inline int ec_v2(int i) { return __builtin_ctzll(ec_P[i] - 1); }        /* v2(p_i - 1): the largest 2^k root prime i has */
+/* the largest logn every one of the first np primes supports (the transform-length limit of a product on np primes) */
+static inline int ec_logn_limit(int np)
+{
+    int v = 64; for (int i = 0; i < np && i < EC_NP; i++) if (ec_v2(i) < v) v = ec_v2(i);
+    return v;
+}
+/* primitive 2^logn-th root of unity for prime i, 0 <= logn <= v2(p_i - 1) */
 static inline uint64_t ec_root(int i, int logn)
 {
-    return ec_powmod(ec_W33[i], 1ULL << (EC_LOGN_MAX - logn), ec_P[i]);
+    if (logn <= EC_LOGN_MAX && logn >= 0) return ec_powmod(ec_W33[i], 1ULL << (EC_LOGN_MAX - logn), ec_P[i]);
+    if (logn < 0 || logn > ec_v2(i))
+        ec_fatal(EC_RC_FATAL, "ec_root: no root of order 2^%d for prime %d (p = %llu: 2^%d | p - 1 at most)\n", logn, i, (unsigned long long)ec_P[i], ec_v2(i));
+    return ec_powmod(ec_G[i], (ec_P[i] - 1) >> logn, ec_P[i]);
 }
 static inline uint64_t ec_root_inv(int i, int logn) { return ec_inv(ec_root(i, logn), ec_P[i]); }
-/* primitive 3 2^logk-th root of unity for prime i (0 when the prime set has none) */
+/* primitive 3 2^logk-th root of unity for prime i (0 when the prime set has none), 0 <= logk <= v2(p_i - 1) */
 static inline uint64_t ec_root3(int i, int logk)
 {
-    return ec_W3X33[i] ? ec_powmod(ec_W3X33[i], 1ULL << (EC_LOGN_MAX - logk), ec_P[i]) : 0;
+    if (!ec_W3X33[i]) return 0;
+    if (logk <= EC_LOGN_MAX && logk >= 0) return ec_powmod(ec_W3X33[i], 1ULL << (EC_LOGN_MAX - logk), ec_P[i]);
+    if (logk < 0 || logk > ec_v2(i) || ((ec_P[i] - 1) >> logk) % 3)
+        ec_fatal(EC_RC_FATAL, "ec_root3: no root of order 3 2^%d for prime %d (p = %llu: 2^%d | p - 1 at most)\n", logk, i, (unsigned long long)ec_P[i], ec_v2(i));
+    return ec_powmod(ec_G[i], ((ec_P[i] - 1) >> logk) / 3, ec_P[i]);
 }
 static inline uint64_t ec_root3_inv(int i, int logk) { return ec_inv(ec_root3(i, logk), ec_P[i]); }
 static inline int ec_has_radix3(void) { return ec_W3X33[0] != 0; }
