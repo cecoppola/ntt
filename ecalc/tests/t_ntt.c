@@ -536,11 +536,11 @@ static int n3x_bench(int kmin, int kmax)
     HIP_CHECK(hipMalloc(&dx, cap * 8)); HIP_CHECK(hipMalloc(&dy, cap * 8));
     dev_fill(dx, cap, ec_P[pr], 1); dev_fill(dy, cap, ec_P[pr], 2);
     printf("== t_ntt r3bench: APU0, prime %d, ms per call (median of 5), about 3 2^28 points per call; fused = NTT_R3_FUSE=1 ==\n", pr);
-    printf("%-6s %6s | %8s %8s %6s | %8s %8s %6s | %8s %8s %6s | %8s %8s | %9s %9s %9s %6s %6s\n", "3*2^k", "batch",
-           "fwd3", "fused", "gain", "inv3", "fused", "gain", "invpw3", "fused", "gain", "fwd2^k+2", "invpw", "prod3", "prod3f", "prod2^k+2", "3/4", "3f/4");
+    printf("%-6s %6s | %8s %8s %6s %8s | %8s %8s %6s %8s | %8s %8s %6s | %8s %8s | %9s %9s %9s %6s %6s\n", "3*2^k", "batch",
+           "fwd3", "fused", "gain", "floor", "inv3", "fused", "gain", "floor", "invpw3", "fused", "gain", "fwd2^k+2", "invpw", "prod3", "prod3f", "prod2^k+2", "3/4", "3f/4");
     for (int logk = kmin; logk <= kmax; logk++) {
         int lb = 28 - logk; size_t batch = lb > 0 ? (size_t)1 << lb : 1;
-        float f0, f1, i0, i1, p0, p1, f4, p4;
+        float f0, f1, i0, i1, p0, p1, f4, p4, ff, fi;
         ntt_r3_fuse = 0;
         TIME_MS(f0, 3, ntt_fwd3(c, dx, logk, batch, 0));
         TIME_MS(i0, 3, ntt_inv3(c, dx, logk, batch, 0));
@@ -553,9 +553,11 @@ static int n3x_bench(int kmin, int kmax)
         ntt_r3_fuse = 0;
         TIME_MS(f4, 3, ntt_fwd(c, dx, logk + 2, batch, 0));
         TIME_MS(p4, 3, ntt_inv_pw(c, dx, dy, logk + 2, batch, 0));
+        TIME_MS(ff, 3, ntt_fwd(c, dx, logk, 3 * batch, 0));          /* the floor: the 2^k transforms of the thirds alone */
+        TIME_MS(fi, 3, ntt_inv(c, dx, logk, 3 * batch, 0));
         float pr3 = 2 * f0 + p0, pr3f = 2 * f1 + p1, pr4 = 2 * f4 + p4;
-        printf("%-6d %6zu | %8.3f %8.3f %5.1f%% | %8.3f %8.3f %5.1f%% | %8.3f %8.3f %5.1f%% | %8.3f %8.3f | %9.3f %9.3f %9.3f %6.3f %6.3f%s\n", logk, batch,
-               f0, f1, 100 * (1 - f1 / f0), i0, i1, 100 * (1 - i1 / i0), p0, p1, 100 * (1 - p1 / p0), f4, p4, pr3, pr3f, pr4, pr3 / pr4, pr3f / pr4, fz ? "" : "  (no fused form)");
+        printf("%-6d %6zu | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% | %8.3f %8.3f | %9.3f %9.3f %9.3f %6.3f %6.3f%s\n", logk, batch,
+               f0, f1, 100 * (1 - f1 / f0), ff, i0, i1, 100 * (1 - i1 / i0), fi, p0, p1, 100 * (1 - p1 / p0), f4, p4, pr3, pr3f, pr4, pr3 / pr4, pr3f / pr4, fz ? "" : "  (no fused form)");
         fflush(stdout);
     }
     ntt_ctx_free(c);
