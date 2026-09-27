@@ -383,8 +383,8 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     { size_t e0 = zs > o->k0 ? zs : o->k0, e1 = b; if (e0 < e1) { size_t s0 = e0 > 49 ? e0 - 49 : 0; o->bad2 += tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &o->nwin); } }
     if (kp < zs) { size_t e0 = kp > o->k0 ? kp : o->k0, e1 = zs < b ? zs : b;
                    if (e0 < e1) { size_t s0 = e0 > 49 ? e0 - 49 : 0; int nold = 0, nnew = 0;
-                                  printf("      patch: re-checking the windows over the patched digits [%zu, %zu) (an uncorrected-digit BAD below is replaced)\n", e0, e1);
-                                  o->bad2 -= tier2_range(SO(s0), s0, e1, 0, 0, dend, 0, &nold); o->bad2 += tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &nnew); } }
+                                  int bo = tier2_range(SO(s0), s0, e1, 0, 0, dend, 0, &nold), bn = tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &nnew); o->bad2 += bn - bo;
+                                  if (nnew) printf("      patch: %d window%s ending in the patched digits [%zu, %zu) re-checked on the new digits: %d bad (%d on the uncorrected ones, replaced)\n", nnew, nnew == 1 ? "" : "s", e0, e1, bn, bo); } }
     f->nwin += o->nwin - nwin0;
     if (o->k0 <= o->d_out && o->d_out < o->k1 && kp <= o->d_out) { size_t t = strlen(o->last); memcpy(o->last, SN(o->d_out + 1 - t), t); }
     if (o->ntail && kp <= o->d) memcpy(o->tail, SN(o->d_out + 1), o->ntail);
