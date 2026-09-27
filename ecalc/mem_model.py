@@ -112,6 +112,11 @@ def arena_bs_bytes(N, nterms, decimal=True, S=256):
 
 def quarter_bytes(limbs): return ((limbs + 3) // 4 + 4095) // 4096 * 4096 * 8
 VMM_CHUNK = 2 << 30                      # dbig.c db_pool_vmm_chunk: DB_POOL_VMM_CHUNK_GB (2 GiB)
+AS_HOST = 7000000000 + (8 << 30)         # binsplit.c as_room_fits: BS_HOST_INIT_BYTES ...
+AS_HOST_MARGIN = 10000000000             # ... + AS_HOST_MARGIN (+ 6e9 of comm at g > 1): the room is dropped when the node with it exceeds ECALC_NODE_GB
+def as_room_fits(planes, arena_with_room, g, node_gb=480.0):
+    """binsplit.c as_room_fits (Phase 15 AS): BS_ARENA_ROOM's room only if the node with it fits the budget"""
+    return planes + arena_with_room + AS_HOST + (6000000000 if g > 1 else 0) + AS_HOST_MARGIN <= node_gb * 1e9
 def arena_of(base, want, chunk=0):
     """binsplit.c arena_get: the two parities (base) + the extra up to the dm / tree need, rounded up to 2 MiB.
     Phase 15 AS: chunk > 0 (BS_ARENA_ROOM with the VMM pool, binsplit.c as_arena) -- the arena in whole chunks"""
@@ -674,6 +679,10 @@ def mem_per_node(D, g=1, opts=None):
                                                                           # size 2, 8.5 -> 11.2 at 3), S = one chunk of the plane (q / K):
                                                                           # one more quarter-plane per APU on the general-map levels
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], o['np'], o['strategy'])
+    if aroom > 0 and o['tail'] and not as_room_fits(planes, sum(arena), g):   # Phase 15 AS: the room dropped over the budget (the arenas stay in whole chunks)
+        aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0)
+        if g > 1: L['need_dev'] += sc[0]
+        want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (o['np'] * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + (sum(arena) if o["tail"] else bs_total)          # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak)
@@ -789,16 +798,19 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         D, g, N = v['D'], int(v['g']), int(v['N'])
         tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
         ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
-        L = dm_layout(N, g, pool_log, True, tight, tdead, room=arena_room); sc = []
-        tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef) if g > 1 else 0
-        need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
         ch = VMM_CHUNK if arena_room > 0 else 0
-        bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill)); ar = sum(arena_of(b, want, ch) for b in bs)
+        bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
+        for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
+            L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm); sc = []
+            tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef) if g > 1 else 0
+            need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
+            ar = sum(arena_of(b, want, ch) for b in bs)
+            if rm == 0 or as_room_fits(int(v.get('room_planes', 0)), ar, g): break
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
         if 'v2' in v: rows[3:3] = [('v2 / dev', v['v2'], L['v2']), ('v3 / dev', v['v3'], L['v3']), ('division / dev', v['div'], L['div']), ('jl (limbs)', v['jl'], L['jl'])]
-        if 'room' in v: rows[3:3] = [('room / dev', v['room'], L['room']), ('chunk', v['chunk'], ch)]   # Phase 15 AS
+        if 'room' in v: rows[3:3] = [('room / dev', v['room'], L['room']), ('chunk', v['chunk'], ch)]   # Phase 15 AS (the room decision from the C line's room_planes)
         print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d:' % (D, g, N, tight, tdead, ef))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0

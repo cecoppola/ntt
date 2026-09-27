@@ -388,6 +388,31 @@ static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_
     if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
     size_t C = db_pool_vmm_chunk(); return (bytes + C - 1) / C * C;
 }
+/* The room is time, the budget is not: the room is dropped (the arenas stay in whole chunks, which costs nothing) when the node with it
+ * -- the plane pools at this run's cap and prime count + the arena with the room + the host's init constants + AS_HOST_MARGIN -- would
+ * exceed ECALC_NODE_GB (480).  AS_HOST_MARGIN: the budget check counts VmRSS at init (measured 24.4-24.9 GB at size 1, jobs 21626 and
+ * 21634) where the layout counts 15.6 GB of constants; 1.3e11 on one node was refused at 480.8 GB with the room (job 21634).  The
+ * decision is made once per (N, size) (layout_arena simulates the levels) and printed once. */
+#define AS_HOST_MARGIN ((size_t)10000000000)
+static size_t layout_arena(unsigned long N, int g, size_t *bs2_);
+static int g_room_probe;                              /* 1: dm_layout keeps the room without deciding (the probe's own layout_arena) */
+static size_t g_room_planes;                         /* the plane figure of the last decision (the layout line prints it: mem_model.py --check-c decides alike) */
+static int as_room_fits(unsigned long N, int size, size_t room)
+{
+    static unsigned long cN; static int cs, cfit = -1, cpl = -1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
+    if (cfit >= 0 && cN == N && cs == size && cpl == pl) return cfit;
+    int b3 = rns_planes_3q30 >= 0 ? rns_planes_3q30 : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
+    size_t planes = NR * rns_plane_pool_bytes(pl, b3, ec_np_init(), 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
+    g_room_probe = 1; size_t ar = layout_arena(N, size, 0); g_room_probe = 0;
+    size_t host = (size_t)7000000000 + ((size_t)8 << 30) + (size > 1 ? (size_t)6000000000 : 0) + AS_HOST_MARGIN;   /* BS_HOST_INIT_BYTES + the comm */
+    double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
+    cN = N; cs = size; cpl = pl; cfit = (double)(planes + ar + host) <= budget; g_room_planes = planes;
+    const char *er = getenv("COMM_RANK");
+    if (!cfit && (!er || atoi(er) == 0))
+        printf("bs: BS_ARENA_ROOM: the room (%.2f GB per APU) is dropped -- the node with it, %.1f GB (planes %.1f + arena %.1f + host %.1f), exceeds ECALC_NODE_GB %.0f; the arenas stay in whole chunks\n",
+               room * 1e-9, (planes + ar + host) * 1e-9, planes * 1e-9, ar * 1e-9, host * 1e-9, budget * 1e-9);
+    return cfit;
+}
 static void dm_layout(unsigned long N, int size, struct dm_layout *L)
 {
     double lg = lgamma((double)N + 1.0) / log(10.0);                          /* log10 N! = log10 Q */
@@ -440,6 +465,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     size_t top_scratch = 0; L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl, &top_scratch) : 0;
     L->need_dev += top_scratch;
     L->room = bs_arena_room() > 0 && db_pool_vmm_on() ? (size_t)(bs_arena_room() * (double)L->hole) : 0;   /* Phase 15 AS */
+    if (L->room && !g_room_probe && !as_room_fits(N, size, L->room)) L->room = 0;                              /* (over the node budget: dropped) */
     L->need_dev += L->room;
 }
 size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
@@ -578,9 +604,9 @@ static void binsplit_layout_only(const char *spec)
             size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
             arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS */
         }
-        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu\n",
+        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu\n",
                D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, mn_tree_early_free > 0,
-               L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0);   /* Phase 15 AS: BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */
+               L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0, bs_arena_room() > 0 && db_pool_vmm_on() ? g_room_planes : (size_t)0);   /* Phase 15 AS: BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */
         /* Phase 13b P: the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
          * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
         { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);
