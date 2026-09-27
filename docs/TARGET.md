@@ -365,6 +365,19 @@ it comes from.
   0.444 B and writes 1 B per digit: at Lustre rates the write dominates (73.8 GB at 0.6 GB/s ≈ 2 min per part, on the nodes
   in parallel); to check without converting, `tools/unpack_digits --cmp <reference> <parts…>`, or `unpack_digits <parts…> |
   sha1sum`.
+- **The ASCII file after a packed run, off the clock (Phase 15 IO2)**: convert **on every node, its own part, in parallel**
+  — one stream over all 576 parts would be 42.5 TB through one node (≈ 20 h at 0.6 GB/s). The converter takes any
+  consecutive subset of parts and writes exactly that subset's byte range of the ASCII file ("2." only from part 0, the
+  newline only from the last part), so the part outputs concatenated in part order are the exact file:
+  ```
+  srun -N576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $((575 - SLURM_PROCID))); \
+      tools/unpack_digits -q -o <outdir>/e.txt.part$k <outfile>.part$k'      # rank r holds part size-1-r
+  cat <outdir>/e.txt.part* > e.txt                                            # optional: one file (parts sort by name)
+  ```
+  Each part's digits are checked against the residues its run stored in the header. `--cmp <reference>` on one part
+  compares it with the same byte range of the reference (the offset comes from the part's digit range in its header), so
+  a reference check also runs per node in parallel. The byte range of part k: from byte 0 (part 0) or k0 + 1 (its first
+  digit k0) to k1 + 1, plus the newline for the last part (k0, k1 in the header; the converter prints them).
 
 ## 8. Known traps
 
