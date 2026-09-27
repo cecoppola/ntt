@@ -88,24 +88,34 @@ __device__ static inline size_t y_base(size_t base, size_t Lt, int ymode)
 }
 
 /* Phase 15 N3x (NTT_R3_FUSE): the radix-3 stage of ntt3.c (k_r3_fwd / k_r3_inv) on one point triple (a0, a1, a2) =
- * third 0, 1, 2 at position j < m; the same operations in the same order, so the values are those of the separate pass */
-__device__ static inline uint64_t r3_add3(uint64_t a, uint64_t b, uint64_t c, uint64_t p) { uint64_t s = ec_fold(a + b, p); return ec_fold(s + c, p); }
-__device__ static inline void r3_fwd_pt(uint64_t &a0, uint64_t &a1, uint64_t &a2, size_t j, const ntt_r3arg &ra, const ec_mod md)
+ * third 0, 1, 2 at position j < m.  With 1 + w3 + w3^2 = 0 the butterfly needs one product, t = w3 (a1 - a2):
+ *   a0 + w3 a1 + w3^2 a2 = a0 - a2 + t,   a0 + w3^2 a1 + w3 a2 = a0 - a1 - t
+ * (ntt3.c forms the four products w3^r a_i).  Forward: then the twiddles w_n^j, w_n^2j as ntt3.c.  Inverse: 3^-1 is folded
+ * into the last pass's scale ((3m)^-1 instead of m^-1).  Every value is canonical, so the outputs equal the separate pass's
+ * bit for bit (t_ntt hash).  5 modmuls per triple instead of 8 (forward) and 11 (inverse). */
+__device__ static inline void r3_bfly(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t w3, const ec_mod md, uint64_t &y0, uint64_t &y1, uint64_t &y2)
 {
     const uint64_t p = md.pu;
-    uint64_t w3a1 = ec_mmu(a1, ra.w3, md), w3sa1 = ec_mmu(a1, ra.w3s, md), w3a2 = ec_mmu(a2, ra.w3, md), w3sa2 = ec_mmu(a2, ra.w3s, md);
-    uint64_t y0 = r3_add3(a0, a1, a2, p), y1 = r3_add3(a0, w3a1, w3sa2, p), y2 = r3_add3(a0, w3sa1, w3a2, p);
+    uint64_t t = ec_mmu(ec_fold(a1 + p - a2, p), w3, md);
+    y0 = ec_fold(ec_fold(a0 + a1, p) + a2, p);
+    y1 = ec_fold(ec_fold(a0 + p - a2, p) + t, p);
+    y2 = ec_fold(ec_fold(a0 + p - a1, p) + p - t, p);
+}
+__device__ static inline void r3_fwd_pt(uint64_t &a0, uint64_t &a1, uint64_t &a2, size_t j, const ntt_r3arg &ra, const ec_mod md)
+{
+    uint64_t y0, y1, y2;
+    r3_bfly(a0, a1, a2, ra.w3, md, y0, y1, y2);
     uint64_t w = ec_mmu(ra.t2[j & 0xffff], ra.t1[j >> 16], md), w2 = ec_mmu(w, w, md);
     a0 = y0; a1 = ec_mmu(y1, w, md); a2 = ec_mmu(y2, w2, md);
 }
+/* v0..v2 canonical and already scaled by (3m)^-1; x1 = a0 + w3^2 a1 + w3 a2, x2 = a0 + w3 a1 + w3^2 a2 (as k_r3_inv) */
 __device__ static inline void r3_inv_pt(uint64_t &v0, uint64_t &v1, uint64_t &v2, size_t j, const ntt_r3arg &ra, const ec_mod md)
 {
     const uint64_t p = md.pu;
     uint64_t wi = ec_mmu(ra.t2[j & 0xffff], ra.t1[j >> 16], md), wi2 = ec_mmu(wi, wi, md);
-    uint64_t a0 = ec_fold(v0, p), a1 = ec_mmu(ec_fold(v1, p), wi, md), a2 = ec_mmu(ec_fold(v2, p), wi2, md);
-    uint64_t w3a1 = ec_mmu(a1, ra.w3, md), w3sa1 = ec_mmu(a1, ra.w3s, md), w3a2 = ec_mmu(a2, ra.w3, md), w3sa2 = ec_mmu(a2, ra.w3s, md);
-    uint64_t x0 = r3_add3(a0, a1, a2, p), x1 = r3_add3(a0, w3sa1, w3a2, p), x2 = r3_add3(a0, w3a1, w3sa2, p);
-    v0 = ec_mmu(x0, ra.inv3, md); v1 = ec_mmu(x1, ra.inv3, md); v2 = ec_mmu(x2, ra.inv3, md);
+    uint64_t a0 = ec_fold(v0, p), a1 = ec_mmu(ec_fold(v1, p), wi, md), a2 = ec_mmu(ec_fold(v2, p), wi2, md), x0, x1, x2;
+    r3_bfly(a0, a1, a2, ra.w3, md, x0, x2, x1);
+    v0 = x0; v1 = x1; v2 = x2;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1089,7 +1099,10 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
     if (i0 < 0) {
         launch_b1(c, x, y, Lt, ymode, y ? 2 : 1, pl.npass ? 0.0 : sc, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
         for (int i = pl.npass - 1; i >= 0; i--) {
-            if (ra && i == 0) launch_b16_r3(c, x, logn, pl.s_lo[0], pl.s_hi[0] - pl.s_lo[0] + 1, &pt->i[0], 1, sc, (unsigned)((batch / 3) << (logn - 11)), ra, s);
+            if (ra && i == 0) {                            /* N3x: the scale (3m)^-1 = m^-1 3^-1, the radix-3 stage's 3^-1 folded in */
+                double sc3 = (double)ec_mulmod_ref((uint64_t)sc, ra->inv3, ec_P[c->prime]);
+                launch_b16_r3(c, x, logn, pl.s_lo[0], pl.s_hi[0] - pl.s_lo[0] + 1, &pt->i[0], 1, sc3, (unsigned)((batch / 3) << (logn - 11)), ra, s);
+            }
             else launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
         }
         return;
