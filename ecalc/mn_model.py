@@ -184,8 +184,9 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     scale = q / (1 << 29)
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
     dz = DZ
+    npc = piece_np(dz, nc)                              # Phase 15 NP: the piece's primes (ECALC_NP=auto: 4 over the three-prime bound)
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
-    else: t31 = T_PIECE_31_NP[dz.np] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
+    else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
     t_loc = t31 * scale + 0.005
     if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
@@ -201,7 +202,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
         hide = (1.0 if fab.target else HIDDEN_XGMI) * (1.0 if pow2 else gen)
     else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
         hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
-    n_tr = (EC_NP if dz is None or dz.legacy else dz.np) * (fwd + 1)
+    n_tr = (EC_NP if dz is None or dz.legacy else npc) * (fwd + 1)
     t_f, nic, glob, msgs = fab.a2a(8 * q, g, K_CHUNKS)
     exposed_tr = max(0.0, t_f - hide * t_x)
     c.nic += n_tr * nic; c.glob += n_tr * glob; c.msgs += n_tr * msgs; c.xfers += n_tr
@@ -224,12 +225,22 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     c.t_exposed = n_tr * exposed_tr + t_r + t_s + t_small
     return c
 
+NP_AUTO_TERMS = mem_model.NP3_MAX_TERMS   # Phase 15 NP: ECALC_NP=auto's switch-over (ECALC_NP_AUTO_TERMS; the three-prime bound)
+NP_STATS = dict(n3=0, n4=0)                # the pieces priced at three / four primes under auto (the memo counts a product once)
+def piece_np(dz, nc):
+    """Phase 15 NP (crt.c ec_np_for): a piece's prime count -- the design's np, or under np_auto four when nc = pa + pb exceeds the
+    switch-over (mn_core / dist_core decide per product; the one-node tiers keep three)"""
+    if dz is None or dz.legacy: return EC_NP
+    if getattr(dz, 'np_auto', False):
+        k = 4 if nc > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
+    return dz.np
+
 _PC = {}
 def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=True, form="grid"):
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -485,7 +496,7 @@ class Design:
     (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
-                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None):
+                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
@@ -504,12 +515,17 @@ class Design:
         # (size > 1: the part file from the hook before the low product, overlapping OVL1 x the division as at size 1); EXIT_S on both walls.
         # np_mn: ECALC_NP at size > 1 (the target's launch line: 4, the user's decision 1); None = np.
         self.p15b, self.np_mn = p15b, np_mn
+        # Phase 15 NP: np_mn = 'auto' (ECALC_NP=auto at size > 1): at_g gives np 3 with np_auto -- every piece of the distributed tiers priced at
+        # four primes when its pa + pb exceeds the three-prime bound (piece_np), the leaf and the one-node tiers at three; pool 0 at four planes
+        # where the run's largest group can form such a piece (mem_model.np_planes: at the target, as ECALC_NP=4)
+        self.np_auto = np_auto
         self.packed = p15b if packed is None else packed
         self.early = p15b if early is None else early
     def at_g(self, g):
         """the design as a run of g node-processes uses it: np_mn at size > 1 (ECALC_NP=4 on the target's launch line)"""
         if g > 1 and self.np_mn and self.np_mn != self.np:
-            d = Design(np=self.np_mn, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb, legacy=self.legacy,
+            auto = self.np_mn == 'auto'
+            d = Design(np=3 if auto else self.np_mn, np_auto=auto, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb, legacy=self.legacy,
                        p15=self.p15, tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm, recip_cut=self.recip_cut,
                        out_overlap=self.out_overlap, p15b=self.p15b, np_mn=None, packed=self.packed, early=self.early)
             d.gen_hide, d.force_gen = self.gen_hide, self.force_gen
@@ -522,16 +538,17 @@ class Design:
         o = dict(mem_model.DEFAULTS15 if self.p15 else mem_model.OLD13)
         if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm,
                               seed_fill=mem_model.SEED_FILL if self.p15b else 0, out_early=bool(self.early))   # Phase 15 (2026-09-27): BS_SEED_FILL, MN_OUT_EARLY
-        o.update(np=self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
+        o.update(np='auto' if self.np_auto else self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
         return o
     def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy,
-                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early)
+                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early, self.np_auto)
     def name(self):
-        return '%s %s %s d%d%s%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '', 'b' if self.p15b else '')
+        return '%s %s %s d%d%s%s%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '', 'b' if self.p15b else '',
+                                       ' np-auto' if (self.np_auto or self.np_mn == 'auto') else '')
     def env(self):
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
-        e = dict(ECALC_NP=self.np_mn or self.np, NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
+        e = dict(ECALC_NP='auto' if (self.np_auto or self.np_mn == 'auto') else (self.np_mn or self.np), NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
         if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)

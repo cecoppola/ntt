@@ -612,7 +612,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
     rns_dist_st.t_merge += mem_now() - tsp; rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
     g_bst.n[f] += 1; g_bst.t[f] += mem_now() - t0;
-    if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ml, mf, mc, mem_now() - tsp, mem_now() - t0);
+    if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     return 1;
 }
 /* RNS_STRATEGY_CHECK=1 (test): every B-form product formed again by C into a temporary and compared (abort on a difference) */
