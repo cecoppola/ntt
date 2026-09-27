@@ -285,7 +285,7 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
    - **(a) one node, one stream**: `dd if=/dev/zero of=<dir>/dd.bin bs=64M count=64 oflag=direct` and the same with
      `conv=fsync` (buffered), then a 10¹⁰ one-node run into the same directory with `ECALC_VERBOSE=2`: the `wrote … (x GB;
      write y s in the writer thread …)` line gives the writer's GB/s. Repeat with `ECALC_OUT_MODE=direct|sync|drop` and
-     `MN_OUT_THREADS=8|32` (results/IO15.md W1: on aac6's NFS the choice mattered; on Lustre it is **unmeasured**);
+     `MN_OUT_THREADS=8|32` (results/IO15.md W1: on aac6's NFS O_DIRECT was the fastest form, 1.5–2× buffered + fsync at 10 GbE, and threads and chunk did not matter; on Lustre it is **unmeasured**; `tools/wbench` repeats the writer's pattern without a GPU);
    - **(b) 64 nodes writing at once** (step 3 with the digit file): each node's `wrote` line and `dc`. The aggregate
      (64 × the per-node rate) against (a) says whether the file system, not the node, is the limit; the 576-node write is
      then 42.5 TB (ASCII) or 18.9 TB (packed) at the **aggregate** rate, which at 576 nodes will be far below
