@@ -84,7 +84,7 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
 {
     /* the tier knobs read as binsplit.c reads them (seed_limbs, binsplit_e): BS_SEED_TERMS 256, BS_SCHOOL_NL 0, BS_MDEV_LOGL
      * RNS_BATCH_LOGL_MAX, BS_DEV_MDEV 1, BS_DEVICE_POOLS 1 */
-    unsigned long S = getenv("BS_SEED_TERMS") ? strtoul(getenv("BS_SEED_TERMS"), 0, 10) : 256;
+    unsigned long S = bs_seed_terms_for(b1);                      /* Phase 15 T2: BS_SEED_FILL's per-run span, else BS_SEED_TERMS (256) */
     size_t school = getenv("BS_SCHOOL_NL") ? (size_t)atol(getenv("BS_SCHOOL_NL")) : 0;
     int mlog = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : RNS_BATCH_LOGL_MAX;
     int devm = (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);

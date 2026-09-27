@@ -1,0 +1,8 @@
+# tag digits mode S | total | init | bs (seeds batch mdev) | recip | dm | T1 | verify | digits | elapsed | node | env
+d1 100000000000 nw S=256 | total 210.75 | init 17.5951 | bs 93.31 (19.5 35.9 37.8) | recip 41.22 | dm 98.84 | T1 0.65 | VERIFY OK | - | 218s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1
+s1 100000000000 nw S=168 | total 200.64 | init 15.5298 | bs 83.13 (14.9 34.7 33.4) | recip 41.16 | dm 100.91 | T1 0.64 | VERIFY OK | - | 209s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BS_SEED_TERMS=168
+d2 100000000000 nw S=256 | total 211.53 | init 16.9796 | bs 94.15 (20.5 35.6 37.9) | recip 41.28 | dm 99.42 | T1 0.65 | VERIFY OK | - | 219s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1
+s2 100000000000 nw S=168 | total 204.92 | init 18.3653 | bs 84.34 (15.1 35.7 33.3) | recip 41.34 | dm 101.14 | T1 0.65 | VERIFY OK | - | 213s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BS_SEED_TERMS=168
+dv 100000000000 nw S=256 | total 210.73 | init 17.104 | bs 93.45 (20.5 35.4 37.5) | recip 41.59 | dm 99.19 | T1 0.65 | VERIFY OK | - | 219s | ppac-pl1-s24-26 | RNS_VERBOSE=1
+sv 100000000000 nw S=168 | total 202.39 | init 15.664 | bs 84.08 (15.3 35.4 33.2) | recip 41.61 | dm 101.57 | T1 0.65 | VERIFY OK | - | 210s | ppac-pl1-s24-26 | RNS_VERBOSE=1 BS_SEED_TERMS=168
+f128 100000000000 nw S=229 | total 198.79 | init 18.4109 | bs 78.57 (19.7 29.5 29.2) | recip 42.10 | dm 100.80 | T1 0.65 | VERIFY OK | - | 207s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BS_SEED_FILL=128
