@@ -721,7 +721,10 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
             if (multi) printf("mn: node %d: ", rank); printf("recheck: P (%zu limbs), Q (%zu limbs) from the tree level %d set in %s\n", P.n, Q.n, L, bs_ckpt_dir);
         } else printf("recheck: node %d: no tree level %d set for this run in %s (P, Q taken from the sidecar)\n", rank, L, bs_ckpt_dir);
     } else printf("recheck: node %d: no BS_CKPT_DIR and no %s.top (P, Q taken from the sidecar)\n", rank, outfile);
-    if (!have_pq) { memcpy(Pc, sP, sizeof Pc); memcpy(Qc, sQ, sizeof Qc); }
+    if (!have_pq) { memcpy(Pc, sP, sizeof Pc); memcpy(Qc, sQ, sizeof Qc);
+                    if (rank == 0) printf("recheck: the residue form (Phase 15 IO, W6): no top-level set, so P, Q mod q are the run's (the sidecar) -- they are still checked "
+                                          "against the term recurrence recomputed here, and the digits, the windows, X mod q and the T1 identity are checked as with the set; "
+                                          "only the run's P, Q residues against the stored P, Q limbs (the set's own check) is not made\n"); }
     double t3 = mem_now();
     /* 4. the recurrence over this node's terms, joined */
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
