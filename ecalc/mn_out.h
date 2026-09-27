@@ -13,7 +13,13 @@
  * chunks with 10^len, joined across the nodes the same way) and the T2 windows (a window straddling a chunk or
  * a node boundary is checked by the piece it ends in, from the 49 chars before it: the previous chunk's tail,
  * or the tails of the nodes above, all-gathered before the run).  The writes go through a helper thread with
- * two chunk buffers, so a chunk is written while the next one is formatted. */
+ * two chunk buffers, so a chunk is written while the next one is formatted.
+ *
+ * Phase 15 IO (results/IO15.md): the write mode ECALC_OUT_MODE (direct, buffered, sync, drop, auto) and MN_OUT_THREADS; the
+ * packed form ECALC_OUT_PACKED=1 (the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
+ * from the packed bytes, the T2 windows from the digits they cover; tools/unpack_digits converts and checks); MN_OUT_STRIPE
+ * (a Lustre layout per part file); MN_OUT_WAVES (at most ceil(size/n) nodes write at once).  ECALC_RECHECK reads packed
+ * files too. */
 #ifndef EC_MN_OUT_H
 #define EC_MN_OUT_H
 #include <stdint.h>
@@ -42,6 +48,10 @@ typedef struct {
     char first[80], last[24];                /* the first 62 and the last 20 digits of the node's range */
     char tail[24]; size_t ntail;             /* Phase 11 V: the d - d_out computed digits after d_out (the node holding limb 0) */
     void *priv;                              /* the writer thread while a write is in flight (mn_out_finish joins it) */
+    /* Phase 15 IO */
+    comm *c;                                 /* set by mn_out_boundaries: MN_OUT_WAVES's barrier (0: no waves) */
+    int packed;                              /* out: the part was written packed (ECALC_OUT_PACKED=1, packed_fmt.h) */
+    int wave, nwaves; double t_wave, t_wave_own;   /* out: MN_OUT_WAVES -- this rank's wave, the waves, the seconds waiting for the others / in its own */
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
