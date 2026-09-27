@@ -382,7 +382,7 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
         }
         int bx = m, bslot = -1, be = -1;
         for (int i = 0; i < g_ext[d].n; i++) {
-            struct ext *e = &g_ext[d].e[i]; if (e->reg != v->reg || e->bytes >= need) continue;
+            struct ext *e = &g_ext[d].e[i]; if (e->reg != v->reg || e->bytes >= need || 2 * e->bytes < need) continue;   /* at least half the request: a small extent saves a chunk or two and leaves the moved run carved into partial chunks (job 21542, fill 128: the next request found no wholly free chunk and grew the arena) */
             int x = (int)((need - e->bytes + C - 1) / C); if (x >= bx) continue;
             int out = 0; for (int j = 0; j < nw; j++) { char *p = v->base + (size_t)wf[j] * C; if (!(p >= e->p && p + C <= e->p + e->bytes)) out++; }
             if (out < x) continue;                                /* only a move of existing chunks (never more growth than the default) */
