@@ -1,5 +1,6 @@
 # AS step 3: timing, one node (sbatch -w), the switch off (B1 defaults) vs on (BS_ARENA_ROOM=0.16), interleaved.
 # nw = without the digit file, w = with it (packed, hashed against the reference's sha1)
+c1 100000000000 nw BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
 q4off 40000000000 nw BS_ARENA_ROOM=0
 q4on 40000000000 nw BS_ARENA_ROOM=0.16
 n1a 100000000000 nw BS_ARENA_ROOM=0.16
