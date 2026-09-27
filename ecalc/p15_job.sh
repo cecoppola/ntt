@@ -24,5 +24,8 @@ b2() {
     grep -a "VERIFY" "$OUT/e1e11.log" | tail -3
     R "ls -la $F*; S=\$(dd if=$F iflag=direct bs=64M status=none | sha1sum | cut -d' ' -f1); R=\$(cut -d' ' -f1 ~/V214/e_1e11.sha1); echo \"sha1 \$S ref \$R\"; [ \"\$S\" = \"\$R\" ] && echo SHA1 IDENTICAL || echo SHA1 DIFFERS; rm -rf $F*" > "$OUT/e1e11_hash.log" 2>&1; cat "$OUT/e1e11_hash.log"
 }
-for b in $(echo "$B" | grep -o .); do b$b; done
+b3() {   # the other primes at 2^34 (the first run's driver stopped after prime 0: strtok, fixed)
+    R "DIST_BIG=34 DIST_BIG_PRIMES=1,2,3 OMP_NUM_THREADS=96 timeout 1200 ./tests/t_dist" > "$OUT/big34b.log" 2>&1; echo "big34b rc $? $(tail -1 "$OUT/big34b.log")"
+}
+for b in$(echo "$B" | grep -o .); do b$b; done
 echo "p15_job batch $B done $(date)"

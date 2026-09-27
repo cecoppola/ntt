@@ -423,7 +423,8 @@ int main(int argc, char **argv)
     if (getenv("DIST_BIG")) {                           /* Phase 15 P: DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
         int lg = atoi(getenv("DIST_BIG")), K = getenv("DIST_BIG_K") ? atoi(getenv("DIST_BIG_K")) : 64;
         char *dup = strdup(getenv("DIST_BIG_PRIMES") ? getenv("DIST_BIG_PRIMES") : "0,2");
-        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(big_xgmi(atoi(t), lg, K), "big 2^%d prime %s: identity and the sparse square", lg, t);
+        char *sv = 0;                                   /* strtok_r: the transforms below call strtok (the first run had only the first prime) */
+        for (char *t = strtok_r(dup, ",", &sv); t; t = strtok_r(NULL, ",", &sv)) VERIFY(big_xgmi(atoi(t), lg, K), "big 2^%d prime %s: identity and the sparse square", lg, t);
         free(dup); return verify_done("t_dist");
     }
     xgmi = getenv("DIST_XGMI") && atoi(getenv("DIST_XGMI"));
