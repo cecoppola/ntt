@@ -67,6 +67,7 @@ static char g_lvl[1024];                                          /* per tree le
 static struct {
     int np, lim, decimal; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */
     long nbound, nroot, nprod;                /* products over the bound / over the root limit / checked */
+    long nmin;                                /* products whose min(pa, pb) (the coefficients' real term count) exceeds the bound: information */
     size_t worst_nt; int worst_logn;          /* the largest piece nc and transform log2 planned */
     char worst[256], first[512];
 } g_chk;
@@ -84,6 +85,7 @@ static void chk(const char *tier, const char *what, int g, size_t pa, size_t pb,
     g_chk.nprod++;
     if (nc > g_chk.worst_nt) { g_chk.worst_nt = nc; snprintf(g_chk.worst, sizeof g_chk.worst, "%s %s (g %d): piece %zu + %zu = %zu limbs", tier, what, g, pa, pb, nc); }
     if (logk > g_chk.worst_logn) g_chk.worst_logn = logk;
+    if (g_chk.bound && (pa < pb ? pa : pb) > g_chk.bound) g_chk.nmin++;
     if (g_chk.np == 3 && !g_chk.decimal) { g_chk.nbound++; snprintf(why, sizeof why, "ECALC_NP=3 with binary limbs (four primes needed)"); }
     else if (g_chk.bound && nc > g_chk.bound) { g_chk.nbound++; snprintf(why, sizeof why, "%zu terms > the three-prime bound %zu (%.2fx over)", nc, g_chk.bound, (double)nc / g_chk.bound); }
     if (logk > g_chk.lim) { g_chk.nroot++; size_t o = strlen(why); snprintf(why + o, sizeof why - o, "%sa transform of %s2^%d points > 2^%d (no root: 2^%d | p - 1 for %d primes)", o ? "; " : "", r3 ? "3*" : "", logk, g_chk.lim, g_chk.lim, g_chk.np); }
@@ -99,8 +101,8 @@ static int chk_report(double d, int size)
                d, size, g_chk.np, g_chk.nprod, g_chk.worst_nt, g_chk.worst, bound, g_chk.worst_logn, g_chk.lim);
         return 0;
     }
-    printf("plan REFUSED %.4g digits g %d, ECALC_NP=%d: %ld of %ld products exceed the prime set (%ld over the term bound %s, %ld over the roots' 2^%d); the first: %s; the largest piece %zu limbs (%s)%s\n",
-           d, size, g_chk.np, g_chk.nbound + g_chk.nroot, g_chk.nprod, g_chk.nbound, bound, g_chk.nroot, g_chk.lim, g_chk.first, g_chk.worst_nt, g_chk.worst,
+    printf("plan REFUSED %.4g digits g %d, ECALC_NP=%d: %ld of %ld products exceed the prime set (%ld over the term bound %s as the run checks it, pa + pb; %ld by min(pa, pb); %ld over the roots' 2^%d); the first: %s; the largest piece %zu limbs (%s)%s\n",
+           d, size, g_chk.np, g_chk.nbound + g_chk.nroot, g_chk.nprod, g_chk.nbound, bound, g_chk.nmin, g_chk.nroot, g_chk.lim, g_chk.first, g_chk.worst_nt, g_chk.worst,
            g_chk.np == 3 && !g_chk.nroot ? " -- ECALC_NP=4 holds any piece below 2^78 terms" : "");
     fflush(stdout);
     return EC_RC_FATAL;
