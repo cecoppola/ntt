@@ -3751,3 +3751,27 @@ three primes cannot hold the target's mn pieces (largest 4.72 × 10¹¹ terms vs
 277.9 s without the write (modelled), four primes only where needed 257.8 s (not built).
 
 **576-node estimate (standing rule)**: see the decision list of 2026-09-27 (four primes needed).
+
+## 87. Phase 15 — the user's decisions applied; main = B1 (2026-09-27; results/{DOC15,IO215}.md)
+
+The user's decisions of 2026-09-27 (PLAN §36 status) are the defaults in `main` (b18f404, **B1**):
+`RNS_AUTO_PIECE_COST=1`, `ECALC_CORR_PATCH=2`, `NEWTON_RECIP_MID=1`, `BS_SEED_FILL=128`, `BI_MUL1_FAST=1`, `DIST_TWREC=1`,
+**`ECALC_OUT_PACKED=1`** (converted off the clock by `tools/unpack_digits`, one part per node: IO2), `MN_OUT_EARLY=1`,
+`ECALC_ODIRECT=auto`; the top set off by default, **`ECALC_CHECKPOINT=1`** for development (the budgeted set). The target's
+launch line adds `ECALC_NP=4` (four primes), `ECALC_MEM_GUARD_GB=6`, `COMM_SHMEM_ROUND_MB=1024`. `ecalc/digcmp.sh` compares
+packed or ASCII output with a reference (`mnaccept.sh`, `closing.sh`); `make` builds `tools/`.
+
+**Regression on the new defaults** (measured; jobs 21579–21581, 21607):
+- all steps (unit, e9, mn, ckpt, recheck, full 10¹¹, stress): 20/21 on c2aedc2, the one failure `t_out` (it byte-compares
+  ASCII parts: the test now pins ASCII, b18f404), then unit + e9 **10/10** on b18f404, and the converter's test PASS;
+- every Phase 15 switch off: **11/11**;
+- `closing.sh`, three 10¹¹ runs on the defaults (packed): **194.0 / 195.0 / 195.5 s** `total`, all identical to `e_1e11.out`.
+
+**The 10¹¹ standard** (measured, one node, s24-26): **≈ 195 s** on B1 (packed digit file written) against 240.3 s on the
+Phase 14 defaults (RESULTS §85) and ≈ 297 s wall on B0 with its ASCII file (§86).
+
+**576-node estimate (standing rule; modelled, DOC15)**: **4.25 × 10¹³ digits in 256.0 s (4.27 min) without the write, 285.7 s
+(4.76 min) with the packed write at 0.6 GB/s per node** (272.0 s at 0.8 GB/s); four primes; node memory 416.0 GB of 480;
+182 pieces, 1.2 % below the grid step at 4.29 → 4.30 × 10¹³. Assumed: the fabric, 576 simultaneous writers each at the
+single-stream Lustre rate, the early writer's overlap on the target. Off the clock: the per-node conversion ≈ 92–123 s at
+0.6–0.8 GB/s (modelled, IO215).
