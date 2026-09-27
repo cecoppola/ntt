@@ -641,13 +641,20 @@ void binsplit_pregrow(unsigned long N)
             extra[r] = want > base ? want - base : 0;             /* the hole is a policy over the arena's last bytes, not bytes added: at the dm phase the
                                                                   * level pools are dead and the pool's blocks keep out of the tail, so it is free whenever
                                                                   * the arena holds the dm need at all (v2; v1 added the hole to the arena: +3.7 GB at 4e10, +32 at 9e10) */
-            extra[r] = as_arena(base + extra[r]) - base;          /* Phase 15 AS: whole chunks under BS_ARENA_ROOM (the tail ends at the last chunk's end) */
+            if (bs_arena_room() > 0 && db_pool_vmm_on()) {         /* Phase 15 AS: whole chunks under BS_ARENA_ROOM (the tail ends at the last chunk's end) -- from the
+                                                                  * base arena_get lays out (cap and extra in 2 MiB steps), or the arena ends a few MiB into one more
+                                                                  * chunk and its remainder lies after the tail again (job 21619's first runs) */
+                size_t m2 = (size_t)2 << 20, capr = (cap[r] * 8 + m2 - 1) / m2 * m2 / 8, b2 = 2 * capr * 8, ex = want > b2 ? (want - b2 + m2 - 1) / m2 * m2 : 0;
+                extra[r] = as_arena(b2 + ex) - b2;
+            }
         }
         if (bs_verbose && tail_on) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
                                           dml.room ? "; BS_ARENA_ROOM: room in need, arenas in whole chunks" : "", dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "");
         if (dml.tight) db_pool_pack_large(1);                  /* Phase 14 L1 (DM_TIGHT): the large blocks packed at the arena's top (dbig.c ext_take) */
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
+        if (bs_arena_room() > 0 && db_pool_vmm_on()) for (int r = 0; r < NR; r++)   /* Phase 15 AS: the layout's promise (whole chunks, the tail at the last chunk's end) */
+            if (g_arena[r].base && g_arena[r].bytes % db_pool_vmm_chunk()) fprintf(stderr, "bs: BS_ARENA_ROOM: WARNING: region %d's arena %zu bytes is not whole chunks (the tail is not at the arena's end)\n", r, g_arena[r].bytes);
         if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
     }
     g_in_pregrow = 1;
