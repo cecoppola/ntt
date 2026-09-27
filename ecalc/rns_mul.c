@@ -84,6 +84,14 @@ static size_t pool0_np3_bytes(void)
 {
     size_t p0; rns_plane_pool_bytes(g_pool_log ? g_pool_log : 31, planes_3q30(), 3, &p0, 0); return p0;
 }
+/* Phase 15 NP: the planes pool 0 is made for -- ec_np, or under ECALC_NP=auto four when a product of this run's largest group
+ * (COMM_SIZE node-processes) can exceed the auto bound (ec_np_planes); the one-node tiers still see the three-prime pool
+ * (rns_plane_limbs, mdev_pts): only mn_core / dist_core's four-prime products use the fourth plane */
+int rns_pool0_np(void)
+{
+    const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
+    return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
+}
 /* Phase 13b P (PLAN 31 step 0.3): the plane pools' bytes per APU as rns_init makes them, from (pool_log, the 3 2^k planes,
  * the prime count) alone -- the one formula for rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and
  * mem_model.py's port).  q = the dist tier's rank plane per prime: 2^(pool_log-2), or 3 2^(pool_log-3) with the 3 2^k planes
@@ -106,7 +114,7 @@ void rns_preinit_pool_log(int pool_log) { if (!g_nd) g_pool_log = pool_log ? poo
 size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */
 {
     int pl = g_pool_log ? g_pool_log : 31;
-    if (g_nd && D[0].da.p) return D[0].da.cap / 8;
+    if (g_nd && D[0].da.p) return ec_np_auto && ec_np == 3 && D[0].da.cap > pool0_np3_bytes() ? pool0_np3_bytes() / 8 : D[0].da.cap / 8;   /* NP: the one-node tiers' view under auto */
     if (ec_np_init() == 3) return pool0_np3_bytes() / 8;
     return planes_3q30() ? (size_t)3 << (pl - 1) : (size_t)1 << pl;
 }
@@ -139,7 +147,8 @@ int rns_init(int pool_log)
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
     bi_env_base();
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
-    if (ec_np == 3) { ec_np_check(0, bi_decimal, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }   /* P3: refuse three primes with binary limbs at start (the tests set the base before rns_init) */
+    if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
+    else if (ec_np == 3) { ec_np_check(0, bi_decimal, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }   /* P3: refuse three primes with binary limbs at start (the tests set the base before rns_init) */
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
@@ -169,7 +178,8 @@ int rns_init(int pool_log)
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
-        if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
+        if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, planes_3q30(), 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
+        else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
         else if (planes_3q30()) dpool_get_exact(&D[d].da, d, ((size_t)3 << (g_pool_log - 1)) * 8);   /* B3: 3 2^(pool_log-1) limbs exactly (24 GiB), not the power of two above it */
         else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log (paper) */
         dpool_get_exact(&D[d].db, d, b1);
@@ -322,7 +332,7 @@ static size_t mdev_pts(void)
 {
     size_t p = (size_t)1 << g_pool_log;
     if (ec_np == 4 || !g_nd) return p;
-    size_t cap = D[0].da.cap / 8;
+    size_t cap = D[0].da.cap / 8; if (ec_np_auto && cap > pool0_np3_bytes() / 8) cap = pool0_np3_bytes() / 8;   /* NP: as at ECALC_NP=3 */
     if (cap >= p) return p;
     int k; pick_len(3 * (p / 4), &k);                                  /* (initialises rns_r3) */
     return rns_r3 && ec_has_radix3() && 3 * (p / 4) <= cap ? 3 * (p / 4) : p / 2;
