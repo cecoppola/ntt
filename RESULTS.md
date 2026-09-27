@@ -3714,3 +3714,40 @@ and with the disk write); D4 the packed digit output deferred until measured.
 **576-node estimate (standing rule)**: 4.25 × 10¹³ digits in ≈ 4.1 min (modelled) with the part file at an assumed
 2 GB/s per node; 5.3–5.8 min at the measured single-stream Lustre rate until the output work lands. Node memory
 434 GB on the defaults, 399 GB with D2's rounds (modelled), against 480.
+
+## 86. Phase 15 Batch 1 — integration and final verification (2026-09-27; results/{S115,R415,T215,K15,C215,IO15,P15,RL15,L815,MD15}.md)
+
+Integration branch `int15b` (90f139a) = B0 (7367e25) + S1, T2, P, R4, K, C2 (now a default: the user's D1), L8, IO; RL not
+merged (no gain, below). Two integration fixes: IO's early multi-node writer takes K's deferred tail windows and skips its
+redo when K's patch owns the corrections; `BS_SEED_FILL`'s span in the checkpoint check (RECHECK refused its own set).
+
+**Final verification** (aac6, 2026-09-27 12:56–14:46 CDT; logs `~/fin15/`), measured:
+- Regression, the defaults (C2 on): **21/21**, 10¹¹ identical, RECHECK OK, stress 10/10.
+- Regression, all candidate switches on (`BI_MUL1_FAST NEWTON_RECIP_MID ECALC_CORR_PATCH=2 BS_SEED_FILL=128 DIST_TWREC
+  MN_OUT_EARLY ECALC_ODIRECT=auto`): 18/20 on aac5368; the two RECHECK failures fixed in 90f139a and rerun **3/3**.
+- `MN_OUT_EARLY=1 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7` (forced corrections, early writer, sizes 1–4): **7/7** identical.
+- Packed output: 10¹¹ three runs unpacked identical; e9 at sizes 1 and 2 with the candidates unpacked identical.
+- The root fix: `t_roots` VERIFY OK (2789); the plan check refuses 4.25e13:576 with `ECALC_NP=3` (84 products over the
+  bound) and passes with `ECALC_NP=4`.
+
+**Paired 10¹¹ series** (same node per series; elapsed = launch to exit; every run VERIFY OK; every digit file identical to
+`e_1e11.out`):
+
+| arm | wall with the digit file (3 runs, s24-16) | `total` | wall without it (4 runs, s24-26) | `total` |
+|---|---|---|---|---|
+| B0 | 296.9 (292.7–300.2) | 238.0 | 217.6 (215.9–218.5) | 210.2 |
+| the new defaults (C2) | 239.4 (237.1–242.2) | 214.6 | 205.9 (204.4–207.8) | 203.8 |
+| + every candidate | 224.7 (218.2–228.9) | 200.8 | 193.6 (190.4–196.2) | 191.3 |
+| + every candidate, packed output | **203.7 (200.7–206.9)** | 201.2 | — | — |
+
+Candidates vs the defaults: bs −21 s (`BS_SEED_FILL`, `BI_MUL1_FAST`), dm +6…+12 s (the fill's pool remaps; RL showed the
+HIP runtime serializes them). No hang in 36 runs (RL saw 1 in 20 on B0 code).
+
+**RL** (not merged): `DB_POOL_VMM_PAR` saves nothing (the runtime serializes the VMM calls; `hipMemSetAccess` ≈ 0.021 s/GiB);
+`DB_POOL_VMM_EXTEND` −1.7 s at the default seed span, +7.7 s at `BS_SEED_FILL=128`.
+
+**P** (the target blockers): roots above 2³³ fixed (bit-identical below; 2³⁴ distributed transform exact on four primes);
+three primes cannot hold the target's mn pieces (largest 4.72 × 10¹¹ terms vs 5.84 × 10¹⁰): `ECALC_NP=4` at the target
+277.9 s without the write (modelled), four primes only where needed 257.8 s (not built).
+
+**576-node estimate (standing rule)**: see the decision list of 2026-09-27 (four primes needed).
