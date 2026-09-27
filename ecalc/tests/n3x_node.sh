@@ -1,6 +1,6 @@
 #!/bin/bash
 # Phase 15 N3x: one unattended node batch.  Usage: bash tests/n3x_node.sh <step list> [node]
-#   steps: hash (t_ntt hash: the old tree, the new one off and on, diffed), hashcfg (NTT_MODMUL=0, NTT_PLAN=0,
+#   steps: timing (10^11 off/on x3 + the with-file pair, sha1), gates (mnaccept unit,e9,mn + 10^11 digcmp, switches on), hash (t_ntt hash: the old tree, the new one off and on, diffed), hashcfg (NTT_MODMUL=0, NTT_PLAN=0,
 #          NTT_B16_BODY=0, NTT_B1R=0: old vs new-on), bench (t_ntt r3bench), units (t_ntt3, t_mul, t_newton, t_dist, t_ntt 4c at 2^24)
 # Allocates its own job (-J N3x, <= 45 min), runs the steps with srun, cancels the job at the end.
 # Logs in ~/N3x15/<step>.log.
@@ -37,6 +37,27 @@ for s in ${STEPS//,/ }; do
     run "cd $NEW && NTT_R3_FUSE=1 tests/t_newton 20" > $D/t_newton.log 2>&1
     run "cd $NEW && NTT_R3_FUSE=1 tests/t_dist" > $D/t_dist.log 2>&1
     grep -H "VERIFY" $D/t_ntt3.log $D/t_ntt4c.log $D/t_mul.log $D/t_newton.log $D/t_dist.log | tail -20 > $D/units_summary.log ;;
+  timing)   # 10^11, same node: off / on alternating x3 without the digit file, one fuse + RNS_R3_MINK=11 run, then the pair with the file
+    REF=~/ntt/ecalc/results/e_1e11.out; WANT=$(cut -c1-40 ~/V214/e_1e11.sha1)
+    one() {   # one <tag> <env> [outfile]: a run, its total and process wall
+      local tag=$1 env=$2 f=${3:-}
+      run "cd $NEW; python3 -c \"import os; fd=os.open('$REF', os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\"; rm -rf /tmp/n3x_e11*; t0=\$(date +%s.%N); env $env ./ecalc 100000000000 $f; t1=\$(date +%s.%N); echo \"PROCESS WALL \$(echo \"\$t1 - \$t0\" | bc) s\"" > $D/e11_$tag.log 2>&1
+      echo "$tag ($env${f:+, file}): $(grep -a '^total' $D/e11_$tag.log | head -1 | cut -c1-60); $(grep -a 'PROCESS WALL' $D/e11_$tag.log); $(grep -a 'VERIFY\|T2 ' $D/e11_$tag.log | head -1 | cut -c1-80); $(grep -ac 'NTT_R3_FUSE=1' $D/e11_$tag.log) fuse notices" | tee -a $D/timing_summary.log
+    }
+    for i in 1 2 3; do one off$i NTT_R3_FUSE=0; one on$i NTT_R3_FUSE=1; done
+    one mink NTT_R3_FUSE=1\ RNS_R3_MINK=11
+    for c in off on; do
+      [ $c = on ] && e=NTT_R3_FUSE=1 || e=NTT_R3_FUSE=0
+      one file_$c $e /tmp/n3x_e11.out
+      run "S=\$(~/ntt-N3x15/tools/unpack_digits /tmp/n3x_e11.out | sha1sum | cut -c1-40); echo \"sha1 \$S ref $WANT\"; [ \"\$S\" = \"$WANT\" ] && echo SHA1 IDENTICAL || echo SHA1 DIFFERS; rm -rf /tmp/n3x_e11*" > $D/e11_file_${c}_sha1.log 2>&1
+      echo "file_$c digits: $(tail -1 $D/e11_file_${c}_sha1.log)" | tee -a $D/timing_summary.log
+    done ;;
+  gates)    # NTT_R3_FUSE=1 (and RNS_R3_MINK=11): mnaccept unit,e9,mn; 10^11 compared by digcmp.sh
+    (cd $NEW && NTT_R3_FUSE=1 RNS_R3_MINK=11 ./mnaccept.sh $J --only unit,e9,mn) > $D/mnaccept.log 2>&1
+    grep -E "^(PASS|FAIL)" $D/mnaccept.log | tee $D/gates_summary.log
+    echo "fuse notices in the mnaccept logs: $(grep -rl 'NTT_R3_FUSE=1' $NEW/results/mnaccept/$J/ 2>/dev/null | wc -l) files" | tee -a $D/gates_summary.log
+    run "cd $NEW; rm -rf /tmp/n3x_g11*; NTT_R3_FUSE=1 RNS_R3_MINK=11 ./ecalc 100000000000 /tmp/n3x_g11.out; echo DIGCMP \$(./digcmp.sh /tmp/n3x_g11.out ~/ntt/ecalc/results/e_1e11.out); rm -rf /tmp/n3x_g11*" > $D/g11.log 2>&1
+    echo "10^11 fuse+mink: $(grep -a '^total' $D/g11.log | head -1 | cut -c1-40); $(grep -a DIGCMP $D/g11.log); $(grep -ac 'NTT_R3_FUSE=1' $D/g11.log) fuse notices" | tee -a $D/gates_summary.log ;;
   esac
   echo "step $s done $(date)" | tee -a $D/jobs.log
 done
