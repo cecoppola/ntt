@@ -201,11 +201,13 @@ int db_pool_vmm_on(void)
 }
 static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
-                    int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg; } g_vmm[DB_NQ];   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
+                    int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg;
+                    int busy; double t_hip; } g_vmm[DB_NQ];   /* busy (DB_POOL_VMM_PAR): a remap of this device is in its HIP calls with the pool lock dropped; t_hip: those calls' seconds */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
+static int vmm_par(void) { static int p = -1; if (p < 0) { const char *e = getenv("DB_POOL_VMM_PAR"); p = e && atoi(e) != 0; } return p; }   /* Phase 15 RL: DB_POOL_VMM_PAR (below, vmm_make_room_par) */
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
 static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
 {
@@ -284,7 +286,7 @@ void db_vmm_arena_release(int dev)                     /* after the pool is done
     db_vmm_arena_wait(dev, (size_t)-1);
     for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
     (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
-    if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_grow, v->grow_chunks);
+    if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s%s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, vmm_par() ? " (DB_POOL_VMM_PAR)" : "", v->n_grow, v->grow_chunks);
     memset(v, 0, sizeof *v);
 }
 static int vmm_region_has(int dev, const char *p, size_t bytes, int *reg)   /* is [p, p + bytes) inside device dev's VMM range? */
@@ -332,6 +334,66 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
     free(fr); free(hs); return 1;
 }
+/* Phase 15 RL (DB_POOL_VMM_PAR=1, results/RL15.md): the remap with the global pool lock dropped around its HIP calls, so that the
+ * four APUs' remaps run concurrently (T2, results/T215.md 4: at 1e11 the division's t and xq blocks remap on all four APUs, 0.46 s
+ * each, serialized under g_pool_mx and by db_reserve's quarter loop: 1.84 s).  Everything the pool shares across devices stays under
+ * g_pool_mx: the plan (which free chunks move, the target slots), the extents, the slot table h[] (read by db_acct: it changes
+ * only after the calls, in one step, so mem_report never counts a chunk twice or not at all), the statistics.  Per device, `busy`
+ * keeps a second request of the same device out of the slot table while the calls run (it waits, then retries its ext_take).  The
+ * chunks that move are out of the extents before the lock is dropped, and the target slots are empty or among them, so nothing
+ * else in the pool can touch that VA meanwhile.  Same free chunks, same target slot as vmm_make_room: the same layout. */
+static int vmm_hip_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs, int *created)   /* vmm_map_run without the slot table or the counters */
+{
+    struct vmm *v = &g_vmm[d]; hipMemAllocationProp prop; memset(&prop, 0, sizeof prop);
+    prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
+    for (int i = 0; i < m; i++) {
+        if (!hs[i]) { if (hipMemCreate(&hs[i], v->chunk, &prop, 0) != hipSuccess) return 0; (*created)++; }
+        if (hipMemMap(v->base + (size_t)(slot0 + i) * v->chunk, v->chunk, 0, hs[i], 0) != hipSuccess) return 0;
+    }
+    hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
+    for (int c = 0; c < v->nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
+    return hipMemSetAccess(v->base + (size_t)slot0 * v->chunk, (size_t)m * v->chunk, ad, v->nd) == hipSuccess;
+}
+static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on entry and on return; dropped during the HIP calls) as vmm_make_room */
+{
+    struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
+    while (v->busy) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
+    if (v->mapped < v->m0 && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
+    while (v->mapped < v->m0) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
+    double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
+    int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;
+    for (int k = 0; k < v->nslot && nf < m; k++) if (v->h[k]) {
+        char *p = v->base + (size_t)k * C; int inside = 0;
+        for (int i = 0; i < g_ext[d].n; i++) if (p >= g_ext[d].e[i].p && p + C <= g_ext[d].e[i].p + g_ext[d].e[i].bytes) { inside = 1; break; }
+        if (inside) fr[nf++] = k;
+    }
+    char *empty = (char *)malloc(v->nslot); for (int k = 0; k < v->nslot; k++) empty[k] = !v->h[k]; for (int i = 0; i < nf; i++) empty[fr[i]] = 1;
+    int slot0 = -1;                                               /* the lowest run of m slots empty once the free chunks are unmapped (as vmm_make_room) */
+    for (int k = 0, run = 0; k < v->nslot; k++) { run = empty[k] ? run + 1 : 0; if (run == m) { slot0 = k - m + 1; break; } }
+    free(empty);
+    if (slot0 < 0) { free(fr); return 0; }                        /* no room in the VA: nothing was touched */
+    hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(m, sizeof *hs);
+    for (int i = 0; i < nf; i++) { ext_remove(d, v->base + (size_t)fr[i] * C, C); hs[i] = v->h[fr[i]]; }
+    v->busy = 1;
+    pthread_mutex_unlock(&g_pool_mx);
+    double th = mem_now(); int created = 0, ok = 1;
+    for (int i = 0; i < nf; i++) if (hipMemUnmap(v->base + (size_t)fr[i] * C, C) != hipSuccess) { ec_fatal(EC_RC_FATAL, "dbig: hipMemUnmap failed\n"); }
+    ok = vmm_hip_run(d, slot0, m, hs, &created);
+    th = mem_now() - th;
+    pthread_mutex_lock(&g_pool_mx);
+    for (int i = 0; i < nf; i++) v->h[fr[i]] = 0;
+    for (int i = 0; i < m; i++) if (hs[i]) v->h[slot0 + i] = hs[i];
+    v->n_grow += (size_t)created; v->grow_chunks += (size_t)created;
+    v->busy = 0; pthread_cond_broadcast(&g_vmm_cv);
+    if (!ok) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
+    ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
+    v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0; v->t_hip += th;
+    if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
+                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s (concurrent: HIP calls %.3f s); free %.2f GB in %d extents, live %.2f GB\n",
+                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, th, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
+                    if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
+    free(fr); free(hs); return 1;
+}
 size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks) { struct vmm *v = &g_vmm[dev]; if (remaps) *remaps = v->n_remap; if (grow_chunks) *grow_chunks = v->grow_chunks; return v->base ? v->remap_chunks : 0; }
 static uint64_t *q_alloc_locked(int d, size_t need);
 static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
@@ -339,7 +401,11 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
 {
     int reg;
     char *p = ext_take(d, need, &reg);
-    if (!p && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
+    if (!p && vmm_par()) {                                            /* Phase 15 RL: a remap of this device in flight (lock dropped) -- wait for it, then look again */
+        while (!p && g_vmm[d].busy) { pthread_cond_wait(&g_vmm_cv, &g_pool_mx); p = ext_take(d, need, &reg); }
+        if (!p && vmm_make_room_par(d, need)) p = ext_take(d, need, &reg);
+    }
+    if (!p && !vmm_par() && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
     if (!p) {
         static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
         if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }
@@ -444,6 +510,23 @@ void db_release_pools(void)
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
 void db_free(dbig *x) { if (x->cap) for (int d = 0; d < DB_NQ; d++) if (x->q[d]) q_free(d, x->q[d]); memset(x, 0, sizeof *x); }
+/* Phase 15 RL (DB_POOL_VMM_PAR): the four quarters of one reservation.  Each is first taken without a remap (under the lock, as
+ * q_alloc's ext_take); the devices whose pool has no contiguous extent (the remaps, 0.3-0.5 s each at 1e11) are then served by one
+ * thread each, so that their HIP calls overlap.  The pools are per device and ext_take reads no other device's state, so every
+ * quarter lands where the serial loop would have put it. */
+struct qa_arg { int d; size_t need; uint64_t *p; };
+static void *qa_thread(void *a) { struct qa_arg *q = (struct qa_arg *)a; q->p = q_alloc(q->d, q->need); return 0; }
+static void db_reserve_par(uint64_t *q[DB_NQ], size_t need)
+{
+    int miss[DB_NQ], nm = 0;
+    pthread_mutex_lock(&g_pool_mx);
+    for (int d = 0; d < DB_NQ; d++) { int reg; char *p = ext_take(d, need, &reg); if (p) { live_add((uint64_t *)p, d, need, reg); q[d] = (uint64_t *)p; } else { q[d] = 0; miss[nm++] = d; } }
+    pthread_mutex_unlock(&g_pool_mx);
+    if (nm < 2) { for (int i = 0; i < nm; i++) q[miss[i]] = q_alloc(miss[i], need); return; }
+    struct qa_arg a[DB_NQ]; pthread_t th[DB_NQ];
+    for (int i = 0; i < nm; i++) { a[i].d = miss[i]; a[i].need = need; a[i].p = 0; if (pthread_create(&th[i], 0, qa_thread, &a[i])) { ec_fatal(EC_RC_FATAL, "db_reserve: pthread_create\n"); } }
+    for (int i = 0; i < nm; i++) { pthread_join(th[i], 0); q[miss[i]] = a[i].p; }
+}
 void db_reserve(dbig *x, size_t limbs)
 {
     if (limbs <= x->cap) return;
@@ -453,7 +536,8 @@ void db_reserve(dbig *x, size_t limbs)
      * 45 % of the dm phase's device memory at 4e10, RESULTS.md 70); the pool coalesces any sizes */
     size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
     dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc;
-    for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, qc * 8);
+    if (vmm_par() && g_vmm_on == 1) db_reserve_par(y.q, qc * 8);    /* Phase 15 RL: the quarters that need a remap, concurrently */
+    else for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, qc * 8);
     if (getenv("DBIG_WARM")) {                             /* touch every 2 MiB page of each quarter from every other device */
         for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
             HIP_CHECK(hipSetDevice(c));
