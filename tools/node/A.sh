@@ -26,3 +26,11 @@ step guard1 G "ECALC_MEM_GUARD_GB=100000 ./ecalc 1000000000 /tmp/io_g.txt; echo 
 step guard2 G "A=\$(awk '/MemAvailable/{print int(\$2/1e6)}' /proc/meminfo); echo MemAvailable \$A GB; ECALC_MEM_GUARD_GB=\$((A-40)) ECALC_MEM_SAMPLE=1 ./ecalc 10000000000 /tmp/io_g.txt 2>&1 | grep -a 'memsample: ECALC\|FATAL\|^bs \|^dm \|^total\|VERIFY' ; echo rc=\${PIPESTATUS[0]}; rm -rf /tmp/io_g.txt*"
 step guard3 M 2 env ECALC_MEM_GUARD_GB=100000 ./ecalc 1000000000 /tmp/io_g2.txt
 N "rm -rf /tmp/io_g*"
+# W5d: MN_OUT_EARLY (the part file during the low product) at size 2 and 4 on one node, ASCII and packed; 1e10 size 2 paired
+step s2e M 2 env MN_OUT_EARLY=1 ECALC_VERBOSE=2 ./ecalc 1000000000 /tmp/io_s2e.txt
+step s2ec N "cat /tmp/io_s2e.txt.part* | cmp - $R && echo IDENTICAL; rm -rf /tmp/io_s2e.txt*"
+step s4ep M 4 env MN_OUT_EARLY=1 ECALC_OUT_PACKED=1 ./ecalc 1000000000 /tmp/io_s4e.txt
+step s4epc N "$U --cmp $R /tmp/io_s4e.txt.part*; rm -rf /tmp/io_s4e.txt*"
+step s2n10 M 2 env ECALC_VERBOSE=2 ./ecalc 10000000000 /tmp/io_n10.txt
+step s2e10 M 2 env MN_OUT_EARLY=1 ECALC_VERBOSE=2 ./ecalc 10000000000 /tmp/io_e10.txt
+step s2c10 N "for f in n10 e10; do cat /tmp/io_\$f.txt.part* | sha1sum; done; rm -rf /tmp/io_n10.txt* /tmp/io_e10.txt*"
