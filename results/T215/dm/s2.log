@@ -1,0 +1,227 @@
+== T2 run s2: 100000000000 nw, env: DB_POOL_VERBOSE=1 BS_SEED_TERMS=168; job 21461 on ppac-pl1-s24-26, clone at 594ba4c, 2026-09-26 22:19:41 CDT
+== ecalc: e to 100000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-26 date=2026-09-26T22:19:42 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+dbig pool: APU3 VMM arena 64.42 GB = 30 chunks of 2.00 GiB, the first 14 mapped in 3.85 s (0.128 s/GB), the rest in the background, VA 195.4 GB reserved at 0x77d967600000
+dbig pool: APU0 VMM arena 64.42 GB = 30 chunks of 2.00 GiB, the first 15 mapped in 7.22 s (0.224 s/GB), the rest in the background, VA 195.4 GB reserved at 0x783667c00000
+dbig pool: APU2 VMM arena 64.42 GB = 30 chunks of 2.00 GiB, the first 15 mapped in 8.61 s (0.267 s/GB), the rest in the background, VA 195.4 GB reserved at 0x77abe7400000
+dbig pool: APU1 VMM arena 64.42 GB = 30 chunks of 2.00 GiB, the first 15 mapped in 10.41 s (0.323 s/GB), the rest in the background, VA 195.4 GB reserved at 0x7808e7a00000
+bs: arenas 255.3 GB allocated in 10.41 s (layout pass 0.29 s; dm extra 18.0 GB, tails 90.3 GB)
+      init: region pools 10.70 s (inside rns_init, before the plane pools: the seeds stream into them)
+      init: rns_init 18.37 s, region pools 0.00 s, the rest 0.00 s
+RESULT ecalc init s 18.3653
+      VmRSS 24.5 GB after init (staging 4.3 GB pinned + device regions 255 GB); init 18.4 s
+mem [init] device 359.0 GB in use (per APU 89.7..89.7): planes 103.1, regions 128.6, block pool 126.7 (donated 0.0, borrowed 126.7, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0
+mem [init] host 24.5 GB RSS (HWM 24.5): staging 21.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 3.0
+budget: rank 0: peak 384.1 GB (device 359.0, host 25.1), still to take 0.0 GB | node of 1 rank: peaks 384.1 of 480 GB, to take 0.0 of MemAvailable 270.2 GB | rank share 480.0 GB
+budget: ECALC_BUDGET_CHECK ok: 1 rank, largest rank peak 384.1 GB, node budget 480 GB
+bs: seeds were computed during init (26.40 s: buffers 1.49 + 0.11, spans 15.42, waited 5.99 for the regions, 0.67 for the DMA, 2.71 issuing it (max 0.89); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions)
+bs: 10433891470 terms, 62106497 spans of 168, seeds 15.15 s (waiting for the init thread)
+bs:   layout 1.455  batch 5.202  add+norm 0.362
+bs: level  1 batch  31053248 pairs  max_nl         94  pool  89.51 GB  7.02 s  (batch 3.94: scatter 0.34 ntt 1.80 crt 0.20 merge 0.17)
+live: bs level 1 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 151.5 GB, Cached 0.6 GB
+bs:   layout 0.688  batch 2.466  add+norm 0.099
+bs: level  2 batch  15526624 pairs  max_nl        188  pool  89.19 GB  3.25 s  (batch 1.87: scatter 0.17 ntt 0.88 crt 0.18 merge 0.08)
+live: bs level 2 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 153.9 GB, Cached 0.6 GB
+bs:   layout 0.441  batch 1.301  add+norm 0.053
+bs: level  3 batch   7763312 pairs  max_nl        375  pool  89.04 GB  1.79 s  (batch 1.00: scatter 0.09 ntt 0.43 crt 0.17 merge 0.04)
+live: bs level 3 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 155.2 GB, Cached 0.6 GB
+bs:   layout 0.107  batch 0.998  add+norm 0.026
+bs: level  4 batch   3881656 pairs  max_nl        749  pool  88.97 GB  1.13 s  (batch 0.85: scatter 0.08 ntt 0.45 crt 0.16 merge 0.02)
+live: bs level 4 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 155.9 GB, Cached 0.6 GB
+bs:   layout 0.057  batch 0.899  add+norm 0.015
+bs: level  5 batch   1940828 pairs  max_nl       1497  pool  88.93 GB  0.97 s  (batch 0.83: scatter 0.06 ntt 0.52 crt 0.16 merge 0.01)
+live: bs level 5 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.2 GB, Cached 0.6 GB
+bs:   layout 0.029  batch 0.856  add+norm 0.009
+bs: level  6 batch    970414 pairs  max_nl       2993  pool  88.91 GB  0.89 s  (batch 0.82: scatter 0.06 ntt 0.55 crt 0.16 merge 0.02)
+live: bs level 6 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.017  batch 0.872  add+norm 0.005
+bs: level  7 batch    485207 pairs  max_nl       5985  pool  88.90 GB  0.89 s  (batch 0.85: scatter 0.06 ntt 0.57 crt 0.16 merge 0.04)
+live: bs level 7 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.3 GB, Cached 0.6 GB
+bs:   layout 0.010  batch 0.906  add+norm 0.002
+bs: level  8 batch    242604 pairs  max_nl      11969  pool  88.89 GB  0.92 s  (batch 0.90: scatter 0.06 ntt 0.66 crt 0.16 merge 0.01)
+live: bs level 8 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.003  batch 0.921  add+norm 0.002
+bs: level  9 batch    121302 pairs  max_nl      23938  pool  88.89 GB  0.93 s  (batch 0.92: scatter 0.06 ntt 0.68 crt 0.17 merge 0.00)
+live: bs level 9 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.013  batch 0.961  add+norm 0.001
+bs: level 10 batch     60651 pairs  max_nl      47875  pool  88.89 GB  0.97 s  (batch 0.96: scatter 0.06 ntt 0.72 crt 0.18 merge 0.00)
+live: bs level 10 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.002  batch 0.974  add+norm 0.000
+bs: level 11 batch     30325 pairs  max_nl      95750  pool  88.89 GB  0.98 s  (batch 0.97: scatter 0.06 ntt 0.72 crt 0.19 merge 0.00)
+live: bs level 11 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.003  batch 0.925  add+norm 0.000
+bs: level 12 batch     15163 pairs  max_nl     191500  pool  88.89 GB  0.93 s  (batch 0.92: scatter 0.06 ntt 0.67 crt 0.20 merge 0.00)
+live: bs level 12 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 0.948  add+norm 0.000
+bs: level 13 batch      7581 pairs  max_nl     382998  pool  88.89 GB  0.95 s  (batch 0.95: scatter 0.06 ntt 0.69 crt 0.20 merge 0.00)
+live: bs level 13 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 0.982  add+norm 0.000
+bs: level 14 batch      3791 pairs  max_nl     765994  pool  88.89 GB  0.98 s  (batch 0.98: scatter 0.06 ntt 0.73 crt 0.20 merge 0.00)
+live: bs level 14 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.155  add+norm 0.000
+bs: level 15 batch      1895 pairs  max_nl    1531974  pool  88.89 GB  1.16 s  (batch 1.16: scatter 0.06 ntt 0.88 crt 0.22 merge 0.00)
+live: bs level 15 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.172  add+norm 0.000
+bs: level 16 batch       948 pairs  max_nl    3063930  pool  88.89 GB  1.17 s  (batch 1.17: scatter 0.06 ntt 0.89 crt 0.22 merge 0.00)
+live: bs level 16 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.213  add+norm 0.000
+bs: level 17 batch       474 pairs  max_nl    6127649  pool  88.89 GB  1.21 s  (batch 1.21: scatter 0.06 ntt 0.93 crt 0.22 merge 0.00)
+live: bs level 17 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.169  add+norm 0.000
+bs: level 18 batch       237 pairs  max_nl   12254454  pool  88.89 GB  1.17 s  (batch 1.17: scatter 0.06 ntt 0.94 crt 0.18 merge 0.00)
+live: bs level 18 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.201  add+norm 0.000
+bs: level 19 batch       118 pairs  max_nl   24505529  pool  88.89 GB  1.20 s  (batch 1.20: scatter 0.06 ntt 0.96 crt 0.18 merge 0.00)
+live: bs level 19 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.4 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.167  add+norm 0.000
+bs: level 20 batch        59 pairs  max_nl   49006535  pool  88.89 GB  1.17 s  (batch 1.17: scatter 0.06 ntt 0.93 crt 0.18 merge 0.00)
+live: bs level 20 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.3 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 1.292  add+norm 0.000
+bs: level 21 batch        30 pairs  max_nl   97994906  pool  88.89 GB  1.29 s  (batch 1.29: scatter 0.07 ntt 1.03 crt 0.19 merge 0.01)
+live: bs level 21 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.3 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 2.001  add+norm 0.000
+bs: level 22 batch        15 pairs  max_nl  195768671  pool  88.89 GB  2.00 s  (batch 2.00: scatter 0.37 ntt 1.48 crt 0.24 merge 0.01)
+live: bs level 22 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.3 GB, Cached 0.6 GB
+bs:   layout 0.000  batch 2.659  add+norm 0.087
+bs: level 23 batch         7 pairs  max_nl  390615115  pool  88.89 GB  2.75 s  (batch 2.66: scatter 0.60 ntt 1.98 crt 0.67 merge 0.01)
+live: bs level 23 batch              pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.60 0.60 0.60 0.60 GB per APU; peak/pool 0.0 %; MemAvailable 156.3 GB, Cached 0.6 GB
+dbig pool: APU0 VMM arena: the background thread mapped chunks 0..29 in 13.45 s
+dbig pool: APU1 VMM arena: the background thread mapped chunks 0..29 in 5.30 s
+dbig pool: APU2 VMM arena: the background thread mapped chunks 0..29 in 9.85 s
+dbig pool: APU3 VMM arena: the background thread mapped chunks 0..29 in 8.00 s
+bs: level 24 mdev          4 pairs  max_nl  779921147  pool  88.89 GB  4.83 s  (batch 0.00: scatter 0.00 ntt 0.00 crt 0.00 merge 0.00)
+live: bs level 24 mdev               pool live 22.22 22.22 22.22 22.22 | window peak 22.22 22.22 22.22 22.22 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 34.5 %; MemAvailable 155.6 GB, Cached 0.6 GB
+bs: level 25 mdev          2 pairs  max_nl 1541608478  pool  88.89 GB  9.56 s  (batch 0.00: scatter 0.00 ntt 0.00 crt 0.00 merge 0.00)
+live: bs level 25 mdev               pool live 22.22 22.22 22.22 22.22 | window peak 30.98 30.98 30.98 30.98 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 48.1 %; MemAvailable 155.6 GB, Cached 0.6 GB
+bs: level 26 mdev          1 pairs  max_nl 2917774976  pool  88.89 GB  18.90 s  (batch 0.00: scatter 0.00 ntt 0.00 crt 0.00 merge 0.00)
+live: bs level 26 mdev               pool live 22.22 22.22 22.22 22.22 | window peak 36.55 36.55 36.55 36.55 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 56.7 %; MemAvailable 155.6 GB, Cached 0.6 GB
+bs       84.34 s   N 10433891470, P 5555555560 limbs, Q 5555555560 limbs (seeds 15.1 school 0.0 batch 35.7 mdev 33.3; pool 99.4 GB; dev pools 0.0 GB)   VmRSS 8.9 GB, VmHWM 28.4 GB
+RESULT ecalc bs s 84.3417
+mem [bs] device 361.4 GB in use (per APU 90.3..90.3): planes 103.1, regions 0.0, block pool 257.7 (donated 0.0, borrowed 257.7, hipMalloc 0.0; live 88.9, peak live 146.2, free 168.8), tables 0.61, other 0.0
+mem [bs] host 8.9 GB RSS (HWM 28.4): staging 4.3 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 4.6
+      I3: plane pool tails donated: 0.0 GB
+live: recip(db) j 2 -> 3             pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 3 -> 6             pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 6 -> 11            pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 11 -> 21           pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 21 -> 42           pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 42 -> 83           pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 83 -> 166          pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 166 -> 332         pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 332 -> 663         pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 663 -> 1325        pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 1325 -> 2650       pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 2650 -> 5299       pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 5299 -> 10597      pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 10597 -> 21193     pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 21193 -> 42386     pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 42386 -> 84772     pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 84772 -> 169543    pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 169543 -> 339085   pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 339085 -> 678169   pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 678169 -> 1356337  pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 1356337 -> 2712674 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 2712674 -> 5425348 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 5425348 -> 10850695 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 10850695 -> 21701389 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 21701389 -> 43402778 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 43402778 -> 86805556 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 86805556 -> 173611112 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 173611112 -> 347222223 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 347222223 -> 694444445 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.7 GB, Cached 0.6 GB
+live: recip(db) j 694444445 -> 1388888890 pool live 55.56 55.56 55.56 55.56 | window peak 55.56 55.56 55.56 55.56 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 86.2 %; MemAvailable 157.4 GB, Cached 0.6 GB
+newton(db) j 1388888890 (k 5555555558): recip cut 0 pieces skipped, 6 formed in the step's two products
+live: recip(db) j 1388888890 -> 2777777779 pool live 55.56 55.56 55.56 55.56 | window peak 59.72 59.72 59.72 59.72 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 92.7 %; MemAvailable 157.4 GB, Cached 0.6 GB
+   dist_db 5555555560 x 2777777780 limbs: 9 x 3 pieces of 617283952 + 925925927, 24 formed, 3 skipped (low cut): 19.425 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 2777777780 x 2777777779 limbs: 2 x 4 pieces of 1388888890 + 694444445, 7 formed, 1 skipped (low cut): 8.142 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 2777777779 (k 5555555558): recip cut 4 pieces skipped, 31 formed in the step's two products
+live: recip(db) j 2777777779 -> 5555555558 pool live 55.56 55.56 55.56 55.56 | window peak 59.72 59.72 59.72 59.72 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 92.7 %; MemAvailable 157.4 GB, Cached 0.6 GB
+recip    41.34 s   mu 5555555559 limbs (32 iterations, 0 mdev)   VmRSS 6.9 GB, VmHWM 28.4 GB
+mem [recip] device 361.4 GB in use (per APU 90.3..90.3): planes 103.1, regions 0.0, block pool 257.7 (donated 0.0, borrowed 257.7, hipMalloc 0.0; live 133.3, peak live 238.9, free 124.4), tables 0.61, other 0.0
+mem [recip] host 6.9 GB RSS (HWM 28.4): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 6.8
+      I3: P, Q residues by kernel 1.30 s (before the reciprocal), S = P + Q on device 0.14 s; no host A
+10dP      0.14 s   T 5555555556 limbs, A 11111111116 limbs (0 mdev, 0 splits)   VmRSS 6.9 GB, VmHWM 28.4 GB
+RESULT ecalc 10dP s 0.142795
+dbig pool: APU0 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 30 (23.62 GB contiguous) in 0.430 s; free 31.09 GB in 5 extents, live 33.33 GB
+dbig pool: APU1 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 30 (23.62 GB contiguous) in 0.469 s; free 31.09 GB in 5 extents, live 33.33 GB
+dbig pool: APU2 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 30 (23.62 GB contiguous) in 0.464 s; free 31.09 GB in 5 extents, live 33.33 GB
+dbig pool: APU3 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 30 (23.62 GB contiguous) in 0.483 s; free 31.09 GB in 5 extents, live 33.33 GB
+   dist_db 5555555557 x 5555555558 limbs: 7 x 7 pieces of 793650794 + 793650794, 28 formed, 21 skipped (low cut): 25.236 s (cache 0 slots: 0 hits, 0 misses)
+dbig pool: APU0 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 41 (23.62 GB contiguous) in 0.443 s; free 31.09 GB in 5 extents, live 33.33 GB
+  T2 window@50 ok
+  T2 window@1000000 ok
+  T2 window@100000000 ok
+  T2 window@1000000000 ok
+dbig pool: APU1 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 41 (23.62 GB contiguous) in 0.473 s; free 31.09 GB in 5 extents, live 33.33 GB
+dbig pool: APU2 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 41 (23.62 GB contiguous) in 0.473 s; free 31.09 GB in 5 extents, live 33.33 GB
+dbig pool: APU3 VMM remap for a 22.22 GB request: 11 free chunks moved to slot 41 (23.62 GB contiguous) in 0.491 s; free 31.09 GB in 5 extents, live 33.33 GB
+   dist_db 5555555557 x 5555555560 limbs: 7 x 7 pieces of 793650794 + 793650795, 31 formed, 18 skipped (low product): 27.759 s (cache 0 slots: 0 hits, 0 misses)
+live: divmod(dev) end                pool live 33.33 33.33 33.33 33.33 | window peak 58.73 58.73 58.73 58.73 | pool 64.42 64.42 64.42 64.42 GB per APU; peak/pool 91.2 %; MemAvailable 156.7 GB, Cached 0.6 GB
+mem [division] device 361.4 GB in use (per APU 90.3..90.3): planes 103.1, regions 0.0, block pool 257.7 (donated 0.0, borrowed 257.7, hipMalloc 0.0; live 44.4, peak live 238.9, free 213.3), tables 0.61, other 0.0
+mem [division] host 7.6 GB RSS (HWM 28.4): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 7.5
+dm      101.14 s   X 5555555557 limbs, R 0 limbs (recip 41.3 s; corrections 0/2; 0 mdev); X on the device   VmRSS 7.6 GB, VmHWM 28.4 GB
+mem [dm] device 361.4 GB in use (per APU 90.3..90.3): planes 103.1, regions 0.0, block pool 257.7 (donated 0.0, borrowed 257.7, hipMalloc 0.0; live 44.4, peak live 238.9, free 213.3), tables 0.61, other 0.0
+mem [dm] host 7.6 GB RSS (HWM 28.4): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 7.5
+RESULT ecalc dm s 101.137
+  T1 q0=4611686018427388039: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q1=4611686018427388073: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q2=4611686018427388081: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q3=4611686018427388091: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q4=4611686018427388093: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q5=4611686018427388097: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q6=4611686018427388157: P ok, Q ok, T(P+Q) == XQ+R ok
+  T1 q7=4611686018427388181: P ok, Q ok, T(P+Q) == XQ+R ok
+T1        0.65 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence overlapped with bs)
+      overlapped with bs: P, Q mod q recurrence 11.42 s, block pool pregrown by 0 GB in 0.00 s
+RESULT ecalc T1 s 0.646327
+      VmRSS 7.6 GB before dc
+total   204.92 s   (bs 84.3 + 10dP 0.1 + dm 101.1 + T1 0.6 + dc 0.0 + T2 0.0 = 186.3; init 18.4; other 0.3); VmHWM 28.4 GB
+RESULT ecalc total s 204.925
+RESULT ecalc phases s 186.268
+RESULT ecalc other s 0.291473
+RESULT ecalc vmhwm GB 28.3992
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+      X corrected after the formatting started: redoing the digits
+  T2 window@50 ok
+  T2 window@1000000 ok
+  T2 window@100000000 ok
+  T2 window@1000000000 ok
+  T1 q0: digits == X ok
+  T1 q1: digits == X ok
+  T1 q2: digits == X ok
+  T1 q3: digits == X ok
+  T1 q4: digits == X ok
+  T1 q5: digits == X ok
+  T1 q6: digits == X ok
+  T1 q7: digits == X ok
+dc        5.72 s   digits [0, 100000000009) of 100000000009 formatted from 5555555557 decimal limbs in 373 chunks (streamed with the low product; joined after total) (residues 0.68, format 1.95, digit residue 2.85, T2 0.00, fetch 0.85, waiting for the writer 0.00)
+RESULT ecalc dc s 5.71567
+T2        0.00 s   windows ok (4 checked), digits == X mod q ok (overlapped)
+RESULT ecalc T2 s 0
+digits: 27182818284590452353602874713526624977572470936999595749669676...37703810896884928977
+VERIFY OK
+dbig pool: APU0 tail 22.57 GB: 0 large blocks from its back, 3 small blocks spilled into it
+dbig pool: APU1 tail 22.57 GB: 0 large blocks from its back, 3 small blocks spilled into it
+dbig pool: APU2 tail 22.57 GB: 0 large blocks from its back, 3 small blocks spilled into it
+dbig pool: APU3 tail 22.57 GB: 0 large blocks from its back, 3 small blocks spilled into it
+mem [end] device 103.7 GB in use (per APU 25.9..25.9): planes 103.1, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 238.9, free 0.0), tables 0.61, other 0.0
+mem [end] host 7.0 GB RSS (HWM 28.4): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 6.9
+mem summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem init             359.0    89.7 |   103.1   128.6     0.0   126.7     0.0     0.0     0.0   0.61 |    24.5    21.5     0.0     0.0     0.0     3.0    24.5
+mem bs               361.4    90.3 |   103.1     0.0     0.0   257.7     0.0    88.9   146.2   0.61 |     8.9     4.3     0.1     0.0     0.0     4.6    28.4
+mem recip            361.4    90.3 |   103.1     0.0     0.0   257.7     0.0   133.3   238.9   0.61 |     6.9     0.0     0.1     0.0     0.0     6.8    28.4
+mem division         361.4    90.3 |   103.1     0.0     0.0   257.7     0.0    44.4   238.9   0.61 |     7.6     0.0     0.1     0.0     0.0     7.5    28.4
+mem dm               361.4    90.3 |   103.1     0.0     0.0   257.7     0.0    44.4   238.9   0.61 |     7.6     0.0     0.1     0.0     0.0     7.5    28.4
+mem end              103.7    25.9 |   103.1     0.0     0.0     0.0     0.0     0.0   238.9   0.61 |     7.0     0.0     0.1     0.0     0.0     6.9    28.4
+dbig pool: APU0 VMM arena released (2 remaps of 22 chunks in 0.87 s, 0 growths of 0 chunks)
+dbig pool: APU1 VMM arena released (2 remaps of 22 chunks in 0.94 s, 0 growths of 0 chunks)
+dbig pool: APU2 VMM arena released (2 remaps of 22 chunks in 0.94 s, 0 growths of 0 chunks)
+dbig pool: APU3 VMM arena released (2 remaps of 22 chunks in 0.97 s, 0 growths of 0 chunks)
+rns_dist: RNS_STRATEGY=auto form B: C 14 products 11.79 s, B 188 products 65.18 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+
+real	3m32.752s
+user	0m0.005s
+sys	0m0.017s
