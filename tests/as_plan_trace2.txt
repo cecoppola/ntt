@@ -1,0 +1,7 @@
+# AS step 1b: pool traces at more sizes on the defaults, without the digit file
+t2 20000000000 nw DB_POOL_TRACE=1
+t6 60000000000 nw DB_POOL_TRACE=1
+t8 80000000000 nw DB_POOL_TRACE=1
+t116 116000000000 nw DB_POOL_TRACE=1
+t12 120000000000 nw DB_POOL_TRACE=1
+t9 90000000000 nw DB_POOL_TRACE=1
