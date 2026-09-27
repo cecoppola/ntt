@@ -18,6 +18,7 @@ size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void)
 #include "spill.h"
 #include "memsample.h"
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (Phase 13b P: the layout report) */
+extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (crt.c), Phase 15 NP: pool 0's planes (ECALC_NP=auto: 3 or 4 by the run's largest group) */
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
@@ -536,6 +537,7 @@ const char *const bs_cap_name[4] = { "2^30", "3*2^29", "2^31", "3*2^30" };
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes_, size_t *arena_, size_t *host_)
 {
     int pl0 = rns_pool_log(), pl = cap >= 2 ? 31 : 30, b3 = cap & 1;
+    if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);                /* Phase 15 NP (ECALC_NP=auto): pool 0 holds four planes where a product of g nodes may need them */
     rns_preinit_pool_log(pl);
     size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, b3, np, 0, 0) + BS_TABLES_BYTES;
     rns_preinit_pool_log(pl0);

@@ -19,6 +19,8 @@ struct rns_grid_plan {
     size_t pts;          /* the largest piece's transform length (points) */
     int logR, logC;      /* the mn tier's four-step split of that plane (mn_shape) */
     int form_b;          /* the dist tier under auto: the largest piece fits the B form's planes (split_grid's weight 0.70) */
+    int np;              /* Phase 15 NP: the largest piece's primes (ec_np_for: ECALC_NP=auto -- 4 over the three-prime bound) */
+    int formed4;         /* Phase 15 NP: of the formed pieces, those at four primes (every one when ec_np = 4; under auto la + lb > ec_np_auto_terms) */
     double plane_bytes;  /* the transform planes one node holds for the largest piece (all primes, four APUs) */
 };
 /* the dist tier (one node; rns_mul_dist_db / rns_mul_high_db / rns_mul_low_db): mul_grid's decision for na x nb limbs with the

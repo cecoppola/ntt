@@ -42,18 +42,47 @@ static size_t np3_max_terms(void)
         q--;
     }
 }
+int ec_np_auto;
+size_t ec_np_auto_terms;
 int ec_np_init(void)
 {
     if (g_np_init) return ec_np;
     g_np_init = 1;
+    ec_np3_max_terms = np3_max_terms();
+    ec_np_auto_terms = ec_np3_max_terms;
     const char *e = getenv("ECALC_NP");
-    if (e) {
+    if (e && !strcmp(e, "auto")) {                  /* Phase 15 NP: per product (decimal limbs); binary limbs need four everywhere */
+        ec_np = bi_decimal ? 3 : 4; ec_np_auto = bi_decimal;
+        const char *t = getenv("ECALC_NP_AUTO_TERMS");   /* the test knob: a lower bound, so both counts occur at small sizes */
+        if (t && ec_np_auto) {
+            size_t v = (size_t)strtoull(t, 0, 10);
+            if (v < 1 || v > ec_np3_max_terms) { ec_fatal(EC_RC_FATAL, "ECALC_NP_AUTO_TERMS=%s: must be in [1, %zu] (the three-prime bound)\n", t, ec_np3_max_terms); }
+            ec_np_auto_terms = v;
+        }
+    } else if (e) {
         int v = atoi(e);
-        if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3 or 4\n", e); }
+        if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }
         ec_np = v;
     }
-    ec_np3_max_terms = np3_max_terms();
     return ec_np;
+}
+int ec_np_for(size_t nterms)
+{
+    ec_np_init();
+    return ec_np_auto && nterms > ec_np_auto_terms ? 4 : ec_np;
+}
+int ec_np_prod(size_t nterms, int decimal, const char *where)
+{
+    int np = ec_np_for(nterms);
+    if (np == 3) ec_np_check(nterms, decimal, where);
+    return np;
+}
+int ec_np_planes(int pool_log, int g)
+{
+    ec_np_init();
+    if (!ec_np_auto) return ec_np;
+    int c = pool_log > 0 && pool_log < 31 ? pool_log : 31, lg = 0; while (g > 1 && (2 << lg) <= g) lg++;
+    return ((size_t)1 << (c + lg)) > ec_np_auto_terms ? 4 : 3;   /* (an upper bound of mn_logn_cap / dist_cap: no product of the run exceeds it) */
 }
 void ec_np_check(size_t nterms, int decimal, const char *where)
 {

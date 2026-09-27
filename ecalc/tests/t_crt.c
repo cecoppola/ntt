@@ -89,6 +89,44 @@ int main(int argc, char **argv)
     crt_gmp_init();
     if (ec_np == 3 && !bi_decimal) { printf("   ECALC_NP=3: three primes are decimal-only -- running parts 1 and 2 in base 10^18\n"); bi_set_decimal(1); }
     printf("   %d primes, %s limbs\n", ec_np, bi_decimal ? "decimal" : "binary");
+    /* 0. Phase 15 NP: ECALC_NP=auto (run with LIMB_BASE=10; ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
+     *    and pool 0's planes, and the two CRTs agree on every value three primes hold: v = k (B-1)^2 + random < p0 p1 p2 for k up
+     *    to the bound gives garner3(v mod p0..p2) == garner4(v mod p0..p3) == v, and at the bound + 1 garner3 wraps (the bound is exact) */
+    if (ec_np_auto) {
+        size_t b3 = ec_np3_max_terms, bt = ec_np_auto_terms;
+        printf("-- 0. ECALC_NP=auto: three-prime bound %zu terms, auto switch-over %zu terms\n", b3, bt);
+        VERIFY(ec_np == 3 && bi_decimal, "auto: ec_np %d decimal %d", ec_np, bi_decimal);
+        VERIFY(ec_np_for(1) == 3 && ec_np_for(bt) == 3 && ec_np_for(bt + 1) == 4 && ec_np_for(b3 + 1) == 4 && ec_np_for((size_t)1 << 40) == 4, "ec_np_for around %zu", bt);
+        VERIFY(ec_np_prod(bt, 1, "t_crt") == 3 && ec_np_prod(bt + 1, 1, "t_crt") == 4, "ec_np_prod");
+        for (int pl = 27; pl <= 31; pl++) for (int g = 1; g <= 1024; g = g < 4 ? g + 1 : g * 3 / 2) {
+            int lg = 0; while ((2 << lg) <= g) lg++;
+            int want = ((size_t)1 << (pl + lg)) > bt ? 4 : 3;
+            VERIFY(ec_np_planes(pl, g) == want, "ec_np_planes(%d, %d) = %d, want %d", pl, g, ec_np_planes(pl, g), want);
+        }
+        printf("   pool 0 planes at pool_log 31: g 1 -> %d, 2 -> %d, 32 -> %d, 576 -> %d\n", ec_np_planes(31, 1), ec_np_planes(31, 2), ec_np_planes(31, 32), ec_np_planes(31, 576));
+        mpz_t v, D, P3, t; mpz_inits(v, D, P3, t, NULL);
+        mpz_set_ui(D, BI_B10 - 1); mpz_mul(D, D, D);                          /* (B-1)^2 */
+        mpz_set_ui(P3, ec_P[0]); mpz_mul_ui(P3, P3, ec_P[1]); mpz_mul_ui(P3, P3, ec_P[2]);
+        int agree = 0, n3 = 0;
+        for (int it = 0; it < 20000; it++) {
+            size_t k = it == 0 ? b3 : it == 1 ? 1 : it == 2 ? bt : 1 + rng_next(&rng) % b3;
+            mpz_mul_ui(v, D, k);                                              /* a coefficient of k terms at its largest */
+            if (it > 2) { mpz_set_ui(t, rng_next(&rng)); mpz_mul_ui(t, t, (unsigned long)(k & 0xffffffff)); mpz_sub(v, v, t); if (mpz_sgn(v) < 0) mpz_set_ui(v, 0); }
+            uint64_t r[4], o3[3], o4[4]; for (int i = 0; i < 4; i++) r[i] = mpz_fdiv_ui(v, ec_P[i]);
+            crt_garner3(r, o3); crt_garner4(r, o4);
+            mpz_t w3, w4; mpz_inits(w3, w4, NULL); mpz_import(w3, 3, -1, 8, 0, 0, o3); mpz_import(w4, 4, -1, 8, 0, 0, o4);   /* (binary words: garner's output) */
+            int ok = !mpz_cmp(w3, v) && !mpz_cmp(w4, v); agree += ok; n3++;
+            if (!ok && it < 5) printf("   k %zu: garner3 %s, garner4 %s\n", k, mpz_cmp(w3, v) ? "WRONG" : "ok", mpz_cmp(w4, v) ? "WRONG" : "ok");
+            mpz_clears(w3, w4, NULL);
+        }
+        VERIFY(agree == n3, "garner3 == garner4 == v for values of at most the bound's terms: %d of %d", agree, n3);
+        { mpz_mul_ui(v, D, b3 + 1); uint64_t r[4], o3[3], o4[4]; for (int i = 0; i < 4; i++) r[i] = mpz_fdiv_ui(v, ec_P[i]);
+          crt_garner3(r, o3); crt_garner4(r, o4); mpz_t w3, w4; mpz_inits(w3, w4, NULL); mpz_import(w3, 3, -1, 8, 0, 0, o3); mpz_import(w4, 4, -1, 8, 0, 0, o4);   /* (binary words: garner's output) */
+          VERIFY(mpz_cmp(v, P3) >= 0 && mpz_cmp(w3, v) != 0 && mpz_cmp(w4, v) == 0, "at the bound + 1 (%zu terms): three primes wrap, four hold", b3 + 1);
+          mpz_clears(w3, w4, NULL); }
+        printf("   garner3 == garner4 on %d values up to %zu terms of (B-1)^2; at %zu terms three primes wrap and four hold\n", n3, b3, b3 + 1);
+        mpz_clears(v, D, P3, t, NULL);
+    }
     /* 1 + 2 */
     {
         size_t n = 1 << 16; uint64_t *res[4];
