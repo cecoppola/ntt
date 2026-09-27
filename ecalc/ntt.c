@@ -312,7 +312,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
     const double p = m.p, pinv = m.pinv;
     const double pinvl = MM == 1 ? fma(-p, pinv, 1.0) * pinv : 0.0;
     const uint64_t pu = m.pu, p2 = 2 * pu;
-    uint64_t vv[NR][8];
+    uint64_t vv[NR][8], v[8];                          /* R3: vv the thirds waiting (forward) / done (inverse), v the working one */
     double T[INV ? STG : 1];
     uint64_t Tu[MM == 2 ? (INV ? STG : 1) : 1], Tq[MM == 2 ? (INV ? STG : 1) : 1];
     int i;
@@ -411,11 +411,16 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BPX + bb]
 
     const int odd = tt & 1;
-#pragma unroll
+    /* N3x: the thirds in a rolled loop (unrolled, the compiler keeps each stage's twiddles live across the thirds: 185 VGPRs,
+     * 2 blocks per CU); the registers rotate through static indices so nothing goes to scratch */
+#pragma unroll 1
     for (int r_ = 0; r_ < NR; r_++) {
-    uint64_t (&v)[8] = vv[r_];
     const size_t xo = base + (size_t)r_ * n;
     if (r_) { __syncthreads(); if (!INV) T[0] = T0; }  /* N3x: the previous third's LDS reads are done; its T */
+    if (R3 && !INV) {
+#pragma unroll
+        for (i = 0; i < 8; i++) { v[i] = vv[0][i]; vv[0][i] = vv[R3 ? 1 : 0][i]; vv[R3 ? 1 : 0][i] = vv[R3 ? 2 : 0][i]; }
+    }
     if (!INV) {
         if (!R3) LOAD_G(ROW_A);
         if (R4) { STAGE4(6, 2, ROW_A); STAGE(4, 0, ROW_A); } else { STAGE(6, 2, ROW_A); STAGE(5, 1, ROW_A); STAGE(4, 0, ROW_A); }
@@ -449,6 +454,10 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
         if (R4) { STAGE(4, 0, ROW_A); STAGE4(6, 2, ROW_A); } else { STAGE(4, 0, ROW_A); STAGE(5, 1, ROW_A); STAGE(6, 2, ROW_A); }
         STORE_G(ROW_A);
+    }
+    if (R3 && INV) {
+#pragma unroll
+        for (i = 0; i < 8; i++) { vv[0][i] = vv[R3 ? 1 : 0][i]; vv[R3 ? 1 : 0][i] = vv[R3 ? 2 : 0][i]; vv[R3 ? 2 : 0][i] = v[i]; }
     }
     }
     if (R3 && INV) {                                   /* N3x: the radix-3 stage on the scaled triples, one store */
