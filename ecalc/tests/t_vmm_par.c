@@ -8,8 +8,8 @@
  * remap, the new quarters are writable and read back, the pool's live / free bytes and mem_report's accounting (the chunks mapped)
  * are exact, one remap per APU per round and no growth, no hipMalloc inside the phase.  Prints db_reserve's time per round
  * (serial remaps: ~4x one APU's; concurrent: ~1x if the driver lets the four overlap).
- * T_VMM_TOP=1: the top two blocks are freed too (a 2-chunk free extent at the arena's end, empty slots above it): with
- * DB_POOL_VMM_EXTEND=1 the remap extends it and moves 2 chunks fewer (checked), without it the remap moves k/2 chunks (checked). */
+ * T_VMM_TOP=1: the top t = ceil(k/4) blocks are freed too (a free extent of half the request at the arena's end, empty slots above
+ * it): with DB_POOL_VMM_EXTEND=1 the first remap extends it and moves t chunks fewer (checked), without it k/2 (checked). */
 #include "harness.h"
 #include <hip/hip_runtime.h>
 #include <pthread.h>
@@ -23,7 +23,8 @@ static int sample_ok(const void *p, size_t bytes, unsigned char v)   /* the firs
     for (int k = 0; k < 3; k++) { HIP_CHECK(hipMemcpy(h, (const char *)p + off[k], s, hipMemcpyDeviceToHost)); for (size_t i = 0; i < s; i += 4093) if (h[i] != v) return 0; if (h[s - 1] != v) return 0; }
     return 1;
 }
-static int kept(int i, int k, int top) { return (i & 1) && !(top && i >= k - 2); }   /* the blocks that stay live through the remap */
+static int top_t(int k, int top) { int t = (k + 3) / 4; return top ? (t < 2 ? 2 : t) : 0; }
+static int kept(int i, int k, int top) { return (i & 1) && i < k - top_t(k, top); }   /* the blocks that stay live through the remap */
 static volatile int g_stop; static int g_bg_bad, g_bg_n; static pthread_mutex_t g_bgmx = PTHREAD_MUTEX_INITIALIZER;   /* held by the test while it reads the pool's totals */
 static void *bg_small(void *arg)                                   /* small blocks on every APU while the remaps run */
 {
@@ -72,14 +73,14 @@ int main(int argc, char **argv)
         VERIFY(okx, "round %d: the new quarters lie in their APU's VA range, are writable and read back", r);
         size_t rm1[DB_NQ], gr1[DB_NQ]; int okr = 1;
         for (int d = 0; d < DB_NQ; d++) { db_pool_vmm_stats(d, &rm1[d], &gr1[d]); okr &= rm1[d] == rm0[d] + 1 && gr1[d] == gr0[d]; }
-        int okm = 1; size_t wantmv = (size_t)k / 2 - (top && xt ? 2 : 0); for (int d = 0; d < DB_NQ; d++) okm &= db_pool_vmm_stats(d, 0, 0) - mv0[d] == wantmv || (top && r > 0);   /* (top: the layout after round 0 is the remaps' own) */
+        int okm = 1; size_t wantmv = (size_t)k / 2 - (top && xt ? top_t(k, top) : 0); for (int d = 0; d < DB_NQ; d++) okm &= db_pool_vmm_stats(d, 0, 0) - mv0[d] == wantmv || (top && r > 0);   /* (top: the layout after round 0 is the remaps' own) */
         VERIFY(okm, "round %d: chunks moved per APU %zu (want %zu)", r, db_pool_vmm_stats(0, 0, 0) - mv0[0], wantmv);
         VERIFY(okr, "round %d: one remap per APU, no growth (remaps %zu %zu %zu %zu)", r, rm1[0] - rm0[0], rm1[1] - rm0[1], rm1[2] - rm0[2], rm1[3] - rm0[3]);
         pthread_mutex_lock(&g_bgmx);
         mem_report("t_vmm_par");                                    /* the accounting: prints the table; the checks below read the pool */
         int oka = 1; for (int d = 0; d < DB_NQ; d++) { size_t fb = db_pool_free_bytes(d), lb = db_pool_live(d);
             /* the arena: k/2 kept + k/2 in x (all chunks live, none free); the small region: 64 MiB less the bg thread's block */
-            oka &= fb + lb == A + sbytes && lb >= A - (top ? C : 0) && db_pool_largest_free(d) <= (top ? C : sbytes) && db_pool_hipmalloc_bytes(d) == 0; }
+            oka &= fb + lb == A + sbytes && (top || (lb >= A && db_pool_largest_free(d) <= sbytes)) && db_pool_hipmalloc_bytes(d) == 0; }
         pthread_mutex_unlock(&g_bgmx);
         VERIFY(oka, "round %d: live + free = arena + small region on every APU, the arena fully live, no hipMalloc", r);
         printf("  round %d: db_reserve of 4 x %.2f GB (4 remaps of %d chunks) in %.3f s\n", r, A / 2 / 1e9, k / 2, t);
