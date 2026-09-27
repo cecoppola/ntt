@@ -21,6 +21,12 @@ Phase 15 (agent MD): the default design is DEFAULT15() -- the code's defaults si
 the user's D2); --model p13 gives the Phase 13/14 model, --model legacy the Phase 12 one.  Two walls everywhere (the user's D3): without the disk
 write (the digits computed and verified) and with it; the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre,
 0.58-0.64 GB/s single-stream, MEASURED there -- apucode/apumult-ntt-reverse-port-catalog.md; 2.0 was the assumption before).
+
+Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default design is DEFAULT15B() -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
+BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the
+target's launch line (ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); --model p15 is B0 (DEFAULT15, the Phase 14 defaults).  The terms and their
+labels are in the block above CAL15_RUNS (FILL_BS, SEED15B, P15B_RECIP1, P15B_DIV1, TWREC_F, PACKED_BPD, EXIT_S); --calib15b compares the model with
+RESULTS 86's paired 1e11 series.
 """
 import argparse, math, sys, os, functools
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -183,6 +189,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     t_loc = t31 * scale + 0.005
     if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
+    if dz is not None and not dz.legacy and dz.p15b: t_loc *= TWREC_F   # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes
     t_loc *= fab.gpu_share
     # the transforms' exchanges: EC_NP x (fwd + 1) layered all-to-alls of 8 q bytes per APU; the xGMI stage of one
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
@@ -222,7 +229,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'])
+    dk = None if dz is None else (dz.legacy, dz.np, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -296,6 +303,7 @@ def choose_group(fab, n_pts, g, rule, form):
     return best[1]
 
 NEWTON_RECIP_GUARD = 1                 # newton_db.c: the cut keeps one guard limb (NEWTON_RECIP_GUARD, default 1)
+NEWTON_RECIP_MID_HI = 4                # newton_db.c MID_HI: NEWTON_RECIP_MID's high cut at take + 4 (Phase 15 R4; default since 2026-09-27)
 def newton_recip_cut(v): return v - NEWTON_RECIP_GUARD if v > NEWTON_RECIP_GUARD else 0   # newton_db.c newton_recip_cut
 
 def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
@@ -309,18 +317,21 @@ def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
     c.add(shift_cost(fab, T, g))                                       # Q's top to every node (mdb_to_host_all)
     t1, nic1, glob1, msgs1 = fab.a2a(8 * T / 4, g, 1); c.t += t1; c.t_exposed += t1; c.nic += nic1 * 1; c.glob += glob1; c.msgs += msgs1
     c.t += 0.02 * fab.gpu_share * math.log2(max(kp, 4))                # the replicated single-node chain (kernel-launch bound)
-    j = kp; cur = None
+    j = kp; cur = None; mid_ok = False                                 # Phase 15 R4: the first sharded round forms the whole product
+    mid = DZ is not None and DZ.p15b                                   # NEWTON_RECIP_MID=1 (default since 2026-09-27)
     while j < k:
         jn = k
         while (jn + 1) // 2 > j: jn = (jn + 1) // 2
         take = min(2 * j + 2, nq)
         gp = choose_group(fab, take + j + 1, g, rule, form)
         if gp != cur:                                                  # r re-sharded onto the step's group
-            c.add(shift_cost(fab, j + 1, max(gp, cur or 1))); cur = gp
+            c.add(shift_cost(fab, j + 1, max(gp, cur or 1))); cur = gp; mid_ok = False   # (R4: a group change restarts the middle product)
         groups.append((j, gp))
         if take < nq: c.add(shift_cost(fab, take, g))                  # Q_t out of Q (Q is over the full group)
         cut = DZ is not None and DZ.p15 and DZ.recip_cut                # Phase 15: NEWTON_RECIP_CUT (default since Phase 14): the pieces wholly below the
-        c.add(product_cost(fab, take, j + 1, gp, lowcut=newton_recip_cut(take - j) if cut and j <= take else 0, form=form))   # band read are not formed -- Q_t r
+        hw = take + NEWTON_RECIP_MID_HI if (mid and mid_ok and NEWTON_RECIP_MID_HI <= j <= take) else None   # R4: the middle product -- pieces at or above take + 4 skipped
+        c.add(product_cost(fab, take, j + 1, gp, lowcut=newton_recip_cut(take - j) if cut and j <= take else 0, highcut=hw, form=form))   # band read are not formed -- Q_t r
+        mid_ok = True                                                  # (newton_db.c: mid_ok = |d| <= j + 1 -- ASSUMED true after every round, no overshoot)
         c.add(shift_cost(fab, take + j + 1, gp))                       # u
         c.add(small_cost(fab, gp, 4))                                  # limb, nonzero_below, pow, |B^2j - u|
         c.add(product_cost(fab, j + 1, j + 2, gp, lowcut=newton_recip_cut(j) if cut else 0, form=form))          # r d
@@ -474,7 +485,7 @@ class Design:
     (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
-                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None):
+                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
@@ -486,22 +497,41 @@ class Design:
         # p15 False: exactly the Phase 13/14 model (every memory form as before, no cut, no CAL15, the part file beyond half the division).
         self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut = p15, tight, early_free, round_mb, pool, vmm, recip_cut
         self.out_overlap = out_overlap if out_overlap is not None else ('none' if p15 else 'half')
+        # Phase 15 (agent DOC): p15b = the user's decisions of 2026-09-27 on top of p15 -- BS_SEED_FILL=128 (FILL_BS, the regions' bytes in mem_model),
+        # BI_MUL1_FAST=1 (SEED15B: no slow path above 2^33), NEWTON_RECIP_MID=1 (the middle product in recip_cost at size > 1), DIST_TWREC=1 (TWREC_F on the
+        # pieces' local passes), RNS_AUTO_PIECE_COST=1 (C2: one-node grids only, 0 at the target -- results/C215.md), ECALC_CORR_PATCH=2 (no rewrite, no T1 wait),
+        # size 1 recip / div by the measured ratios (P15B_RECIP1, P15B_DIV1); packed = ECALC_OUT_PACKED=1 (8 bytes per 18 digits); early = MN_OUT_EARLY=1
+        # (size > 1: the part file from the hook before the low product, overlapping OVL1 x the division as at size 1); EXIT_S on both walls.
+        # np_mn: ECALC_NP at size > 1 (the target's launch line: 4, the user's decision 1); None = np.
+        self.p15b, self.np_mn = p15b, np_mn
+        self.packed = p15b if packed is None else packed
+        self.early = p15b if early is None else early
+    def at_g(self, g):
+        """the design as a run of g node-processes uses it: np_mn at size > 1 (ECALC_NP=4 on the target's launch line)"""
+        if g > 1 and self.np_mn and self.np_mn != self.np:
+            d = Design(np=self.np_mn, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb, legacy=self.legacy,
+                       p15=self.p15, tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm, recip_cut=self.recip_cut,
+                       out_overlap=self.out_overlap, p15b=self.p15b, np_mn=None, packed=self.packed, early=self.early)
+            d.gen_hide, d.force_gen = self.gen_hide, self.force_gen
+            return d
+        return self
     def f_mm(self): return F_MM1 if self.modmul == 1 else 1.0
     def cap_at(self, digits): return self.cap if self.cap is not None else mem_model.code_cap(digits)
     def pool_log(self, digits=1e12): return mem_model.cap_pool(self.cap_at(digits))[0]
     def mem_opts(self, digits):
         o = dict(mem_model.DEFAULTS15 if self.p15 else mem_model.OLD13)
-        if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm)
+        if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm,
+                              seed_fill=mem_model.SEED_FILL if self.p15b else 0, out_early=bool(self.early))   # Phase 15 (2026-09-27): BS_SEED_FILL, MN_OUT_EARLY
         o.update(np=self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
         return o
     def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy,
-                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap)
+                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early)
     def name(self):
-        return '%s %s %s d%d%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '')
+        return '%s %s %s d%d%s%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '', 'b' if self.p15b else '')
     def env(self):
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
-        e = dict(ECALC_NP=self.np, NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)
+        e = dict(ECALC_NP=self.np_mn or self.np, NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
         if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
@@ -514,7 +544,13 @@ def DEFAULT15(**kw):
     depth 2, NTT_MODMUL=1, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, COMM_SHMEM_ROUND_MB=1024 (D2)"""
     o = dict(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True); o.update(kw)
     return Design(**o)
-DEFAULT = DEFAULT15()                  # Phase 15: the estimate's design (was Design(): C, the cap rule, no chunking, depth 1 -- the code after step 0)
+def DEFAULT15B(**kw):
+    """Phase 15 (agent DOC): the code's defaults of 2026-09-27 (the user's decisions: BS_SEED_FILL=128, BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC,
+    RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (COMM_SHMEM_ROUND_MB=1024,
+    ECALC_NP=4 at size > 1; three primes, the code's default, at size 1)"""
+    o = dict(np=3, np_mn=mem_model.TARGET_NP, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True); o.update(kw)
+    return Design(**o)
+DEFAULT = DEFAULT15B()                 # Phase 15 (2026-09-27): the estimate's design (was DEFAULT15(): the Phase 14 defaults, three primes at 576)
 DZ = None                              # the design of the run in progress (run() sets it; the cost functions read it)
 
 def round_cost(fab, g):
@@ -1190,6 +1226,34 @@ DC_FMT1 = 0.0545                       # MEASURED (V314 e11_def / e11_def2 witho
 DC_FMT_MN = 0.061                      # s per 1e9 digits: size > 1, mn_out_run's formatting + digit residues + fetch, pipelined with the write -- MEASURED at size 1,
                                        # 1e11 without a file (format 1.86 + digit residue 2.7 + fetch 0.86 + residues 0.7 = 6.1 s, V314), ASSUMED to carry to the target's
                                        # 7.4e10 per node; 2 nodes at 5e9 per node measured 0.104 (V114 b2: 0.23 + 0.22 + 0.07 s, the small size's fixed costs)
+# ---- Phase 15 (agent DOC): the user's decisions of 2026-09-27 (p15b designs), calibrated on RESULTS 86's paired 1e11 series (jobs 21550 with the digit
+# file on s24-16, 21563 without it on s24-26; B0 = the Phase 14 defaults, "cand" = every candidate on = the defaults of 2026-09-27; logs ~/fin15/ on aac6).
+# Means, without the file (four runs each, s24-26): B0 init 16.60, bs 93.40 (seed wait 20.10), recip 41.41, dm 99.17 (2 corrections), total 210.15;
+# cand init 18.08, bs 72.50 (seed wait 16.11), recip 37.67, dm 100.35 (0 corrections), total 191.28.
+FILL_BS = 0.7693                       # MEASURED ratio of bs without the seed wait, cand / B0 = 56.39 / 73.30 s (BS_SEED_FILL=128: one more level in the batch tier,
+                                       # every batch length filled; T2 modelled -8.4 s of it, results/T215.md); ASSUMED to carry to the target's leaf (T2: the fill holds
+                                       # 128 limbs on every node, S = 235 on node 0, ~184 on the top node)
+SEED15B = (7.589, 0.2681)              # FITTED (ten cand runs, both series: the seeds end at init + the wait = 34.40 s at 1e11): BI_MUL1_FAST -- one form for every
+                                       # multiplier, no u128 path above 2^33 (SLOW_F no longer applies); the intercept kept from SEED15.  At the target's top node the
+                                       # seeds end 7.3 s earlier (modelled; S1 had -3...-7 s, results/S115.md)
+P15B_RECIP1 = 0.9097                   # MEASURED ratio at size 1, cand / B0: the reciprocal 37.67 / 41.41 s (NEWTON_RECIP_MID -3.4 s (R4), C2's grids, DIST_TWREC)
+P15B_DIV1 = 1.0851                     # MEASURED ratio at size 1, cand / B0: the division (dm - recip) 62.68 / 57.76 s -- the fill's pool remaps (+6..+12 s, RL showed the
+                                       # HIP runtime serializes them) against C2 (no corrections) and DIST_TWREC; size 1 only (at size > 1 the division is the fabric
+                                       # model's pieces; the remap penalty there is ASSUMED 0 -- the arena is the dm need's, which the fill leaves unchanged)
+TWREC_F = 0.98                         # the pieces' local passes x this with DIST_TWREC=1: MODELLED from the measured -1.8 s of dm at 1e11 on ~90 s of four-step products
+                                       # (results/C215.md 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
+PACKED_BPD = 8.0 / 18.0                # ECALC_OUT_PACKED=1: 8 bytes per 18 digits (0.444 B/digit; 1.0 for ASCII) -- exact (results/IO15.md W2)
+EXIT_S = 2.4                           # MEASURED: the process's elapsed wall less `total` less dc, every run of RESULTS 86's series (2.15-2.64 s: the pools' release, exit)
+CAL15B_RUNS = [   # RESULTS 86's paired 1e11 series: arm, file, runs (total, elapsed), node, the design's switches -- the D3 walls are the elapsed times
+    dict(arm='B0', file=True, total=(239.08, 233.96, 241.05), wall=(297.71, 292.71, 300.24), node='s24-16', corr=2),
+    dict(arm='B0', file=False, total=(211.11, 210.16, 210.46, 208.88), wall=(218.54, 217.62, 218.22, 215.93), node='s24-26', corr=2),
+    dict(arm='def', file=True, total=(217.13, 212.00, 214.69), wall=(242.21, 237.05, 238.81), node='s24-16', corr=0),
+    dict(arm='def', file=False, total=(204.30, 202.21, 203.00, 205.63), wall=(206.45, 204.36, 205.07, 207.79), node='s24-26', corr=0),
+    dict(arm='cand', file=True, total=(205.37, 193.92, 203.02), wall=(228.86, 218.17, 227.01), node='s24-16', corr=0),
+    dict(arm='cand', file=False, total=(193.82, 191.56, 191.49, 188.23), wall=(196.20, 193.80, 193.99, 190.44), node='s24-26', corr=0),
+    dict(arm='candpk', file=True, total=(204.26, 201.06, 198.09), wall=(206.86, 203.65, 200.67), node='s24-16', corr=0),
+]
+
 CAL15_RUNS = [   # the Phase 14 defaults, one node: D, init, bs, seeds (the bs line's wait), dm, recip, T1, total, corrections, file (a digit file written), dc, n, source
     dict(D=4e10, init=11.1, bs=32.03, seeds=8.2, dm=23.47, recip=9.9, T1=0.0, total=66.66, corr=0, file=False, dc=0.0, n=1, src='V314 e4_def (job 21436, s24-30), no file'),
     dict(D=1e11, init=17.2, bs=96.29, seeds=19.7, dm=101.61, recip=43.0, T1=0.67, total=215.93, corr=2, file=False, dc=5.55, n=1, src='V314 e11_def (job 21436, s24-30), no file'),
@@ -1218,9 +1282,11 @@ def slow_frac(T, g):
 def span_digits(Dt, g, T):
     return Dt * (1.0 + (SLOW_F - 1.0) * slow_frac(T, g))
 
-def seed_wait15(Dt, g, T, init):
-    """bs's wait for the seeds after init (s): the seed thread's end (SEED15, on the node's span digits) less init"""
+def seed_wait15(Dt, g, T, init, fast=False):
+    """bs's wait for the seeds after init (s): the seed thread's end (SEED15, on the node's span digits) less init; fast = BI_MUL1_FAST (SEED15B,
+    no slow path above 2^33)"""
     if not CAL15: return 0.0
+    if fast: return max(0.0, SEED15B[0] + SEED15B[1] * Dt / 1e9 - init)
     return max(0.0, SEED15[0] + SEED15[1] * span_digits(Dt, g, T) / 1e9 - init)
 
 def fit15(verbose=True):
@@ -1276,8 +1342,33 @@ def calib15(verbose=True):
     if verbose: print('worst `total` error %.1f %% (the model: DEFAULT15 at size 1; e2e = `total` + dc, the end-to-end wall with (file yes) or without (no) the digit file; the part file at %.2f GB/s, the size-1 writer under %.3f of the division)' % (100 * worst, WRITE_BW_AAC6, OVL1))
     return worst
 
+def calib15b(verbose=True):
+    """Phase 15 (agent DOC): the model at 1e11 on one node against RESULTS 86's paired series -- B0 (DEFAULT15, two corrections), the defaults of 2026-09-27
+    with ASCII output (DEFAULT15B(packed=False)) and packed (DEFAULT15B()); `total` and the two walls (D3: the process's elapsed time with and without the digit
+    file; B0's model walls + EXIT_S, which the p15b designs carry).  'def' (C2 alone) is listed measured only (the model has no C2 term at size 1).
+    Returns the worst error of the walls."""
+    fab = Fabric(TARGET.name, TARGET.bw, TARGET.lat, write_bw=WRITE_BW_AAC6); worst = 0.0
+    designs = {'B0': DEFAULT15(), 'cand': DEFAULT15B(packed=False), 'candpk': DEFAULT15B()}
+    if verbose: print('%-7s %-5s %-7s %2s | %8s %8s %6s | %8s %8s %6s' % ('arm', 'file', 'node', 'n', 'total', 'model', 'err', 'wall', 'model', 'err'))
+    for r in CAL15B_RUNS:
+        mt = sum(r['total']) / len(r['total']); mw = sum(r['wall']) / len(r['wall'])
+        d = designs.get(r['arm'])
+        if d is None:
+            if verbose: print('%-7s %-5s %-7s %2d | %8.1f %8s %6s | %8.1f %8s %6s   (measured only: C2 alone)' % (r['arm'], 'yes' if r['file'] else 'no', r['node'], len(r['total']), mt, '-', '-', mw, '-', '-'))
+            continue
+        x = run(fab, 1e11, 1, verbose=False, design=d, corrections=r['corr'])
+        ex = 0.0 if d.p15b else EXIT_S
+        tot = x['total_line'] if r['file'] else x['compute']
+        if d.p15b and r['file']: tot = x['total_line']
+        w = (x['wall_write'] if r['file'] else x['wall_nowrite']) + ex
+        et, ew = tot / mt - 1, w / mw - 1; worst = max(worst, abs(ew))
+        if verbose: print('%-7s %-5s %-7s %2d | %8.1f %8.1f %+5.1f%% | %8.1f %8.1f %+5.1f%%' % (r['arm'], 'yes' if r['file'] else 'no', r['node'], len(r['total']), mt, tot, 100 * et, mw, w, 100 * ew))
+    if verbose: print('worst wall error %.1f %% (modelled against measured means; the part file at %.2f GB/s, the aac6 /tmp rate fitted by fit15)' % (100 * worst, WRITE_BW_AAC6))
+    return worst
+
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
+    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
     if design is not None and not design.legacy: o.update(design.mem_opts(D * g))
     elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
@@ -1292,6 +1383,7 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
     """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
     --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
     global DZ
+    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
     saved = DZ; DZ = design
     try:
         return _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections)
@@ -1325,22 +1417,23 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         rc = Cost(); rc.t = npf["recip"] * fd; dc = Cost(); dc.t = npf["div"] * fd; grp = []
     t_levels = sum(c.t for _, _, c in levels)
     p15 = design is not None and not design.legacy and design.p15
+    p15b = p15 and design.p15b
     seed_wait = 0.0
     if p15 and CAL15 and init_override is None:          # Phase 15: the one-node compute refitted on the Phase 14 defaults (CAL15), the seed wait its own term
         Dt = D * ftop
         ph["init"] = ph["init"] * cal15(Dt, 'init')
-        f_bs = cal15(Dt, 'bs'); ph["batch"] *= f_bs; ph["top"] *= f_bs
-        seed_wait = seed_wait15(Dt, g, D * g, ph["init"]) * (leaf_scale if leaf_scale > 0 else 0.0)
+        f_bs = cal15(Dt, 'bs') * (FILL_BS if p15b else 1.0); ph["batch"] *= f_bs; ph["top"] *= f_bs
+        seed_wait = seed_wait15(Dt, g, D * g, ph["init"], fast=p15b) * (leaf_scale if leaf_scale > 0 else 0.0)
         if g == 1:
-            rc.t *= cal15(D, 'recip'); dc.t *= cal15(D, 'div')   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
+            rc.t *= cal15(D, 'recip') * (P15B_RECIP1 if p15b else 1.0); dc.t *= cal15(D, 'div') * (P15B_DIV1 if p15b else 1.0)   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
     t_compute = ph["init"] + seed_wait + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + ph["other"]
-    out_write = D / 1e9 / fab.write_bw                 # the node's part file at the write bandwidth
+    out_write = D * (PACKED_BPD if (p15 and design.packed) else 1.0) / 1e9 / fab.write_bw   # the node's part file at the write bandwidth (packed: 0.444 B/digit)
     t_lowprod = dc.t * 0.5
     t1_wait = 0.0
     if p15 and dc_exposed is None:                     # Phase 15 (D3): the two walls, the part file as the code writes it
         if g == 1:                                     # size 1: the writer starts at the hook (before the low product) and overlaps OVL1 x the division; a
             O = OVL1 * dc.t; fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
-            if corrections:                            # the file after `total` (V2's finding, results/V214.md)
+            if corrections and not p15b:               # the file after `total` (V2's finding, results/V214.md); ECALC_CORR_PATCH (p15b): no wait, no rewrite
                 t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
             else:
                 dc_file = max(0.0, out_write - O); dc_nofile = 0.0
@@ -1348,8 +1441,11 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
             wall_nowrite = t_compute + dc_nofile
         else:                                          # size > 1: mn_out_run after T1 -- formatting (DC_FMT_MN) and the write in a pipeline, nothing under the division
             fmt = DC_FMT_MN * D / 1e9
-            out_exposed = max(out_write, fmt) if design.out_overlap == 'none' else max(fmt, out_write - t_lowprod)
-            wall_nowrite = t_compute + fmt
+            if design.early:                           # MN_OUT_EARLY=1 (2026-09-27): the part file starts at the hook (X formed, before the low product) and
+                out_exposed = max(0.0, max(out_write, fmt) - OVL1 * dc.t)   # overlaps OVL1 x the division, as the size-1 writer does (IO15: dc -> 0 on 2 nodes)
+            else: out_exposed = max(out_write, fmt) if design.out_overlap == 'none' else max(fmt, out_write - t_lowprod)
+            wall_nowrite = t_compute + fmt                 # (without a part file the hook is not set: the digits' residues after T1)
+        if p15b: out_exposed += EXIT_S; wall_nowrite += EXIT_S   # the process's exit (measured), on both walls
     else:
         out_exposed = (max(0.0, out_write - t_lowprod) if g > 1 else 0.0) if dc_exposed is None else dc_exposed   # at size 1 the file is hidden under the division (measured: the wall = init + phases)
         wall_nowrite = t_compute
@@ -1392,6 +1488,7 @@ def print_run(fab, r, rule):
 
 def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="code", design=None):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
+    if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(mem_model.OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
     if design is None: o.update(np=4, host_fit=False)
     elif not design.legacy:
@@ -1452,7 +1549,7 @@ def calibrate(rule, gate=0.10, verbose=True):
 def plan(g, T, design=None, groups=None, fab=None):
     """Phase 13d D2: the model's piece counts in agent L's categories (mn_plan.c's summary): tree (node 0's groups), tree_max
     (each level's top group), recip (the sharded steps), div (A_h mu, X Q); the top node's leaf pieces (its big products)"""
-    design = design or DEFAULT15(); fab = fab or TARGET              # Phase 15: the code's plan has NEWTON_RECIP_CUT (DEFAULT15; DEFAULT13 had no cut)
+    design = (design or DEFAULT15B()).at_g(g); fab = fab or TARGET   # Phase 15: the code's plan has NEWTON_RECIP_CUT and (2026-09-27) NEWTON_RECIP_MID (DEFAULT15B)
     global DZ
     saved = DZ; DZ = design
     try:
@@ -1508,7 +1605,9 @@ def main():
     ap.add_argument("--bw", type=float, default=100.0, help="GB/s per APU injection")
     ap.add_argument("--lat", type=float, default=2e-6, help="seconds per message")
     ap.add_argument("--write-bw", type=float, default=TARGET_WRITE_BW, help="GB/s per node for the part file (Phase 15: 0.6, the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
-    ap.add_argument("--model", default="p15", choices=("p15", "p13", "legacy"), help="Phase 15: p15 = DEFAULT15() (the code's defaults since Phase 14 + the target's launch line); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
+    ap.add_argument("--model", default="p15b", choices=("p15b", "p15", "p13", "legacy"), help="Phase 15: p15b = DEFAULT15B() (the code's defaults of 2026-09-27 + the target's launch line: ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); p15 = DEFAULT15() (the Phase 14 defaults, B0; three primes); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
+    ap.add_argument("--ascii", action="store_true", help="p15b: ECALC_OUT_PACKED=0 (the ASCII part file, 1 B/digit)")
+    ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: none = the part file after T1 (the code); half = hidden under half the division (the model before Phase 15)")
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent: 2 at 1e11 on the defaults) -- T1 waits for the writer and the file is rewritten")
@@ -1537,7 +1636,9 @@ def main():
         fit15(); calib15(); return
     if a.calib15:
         calib15(); return
-    design = {'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
+    if a.calib15b:
+        calib15b(); return
+    design = {'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
               'legacy': lambda: None}[a.model]()
     if a.plan:
         plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3], design=design if design is not None else None); return
@@ -1548,6 +1649,8 @@ def main():
           % (576, a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw, a.tree, a.model, (" (" + design.name() + ", COMM_SHMEM_ROUND_MB=%g)" % a.round_mb) if design is not None else ""))
     print("single node (measured, size 1, the Phase 14 defaults): 1e11 `total` 240.3 s (five runs, the digit file to /tmp; T1 waits 23.5 s for the writer after the division's 2 corrections,"
           " then dc 60.2 s after `total`: ~300 s end to end); without the file 215.9 / 217.1 s (+ dc 5.5 s); 4e10 66.7 s (no file)")
+    print("single node (measured, RESULTS 86, the defaults of 2026-09-27): 1e11 wall 203.7 s with the packed file (3 runs, s24-16), 224.7 s with ASCII, 193.6 s without a file (4 runs, s24-26);"
+          " B0 on the same nodes 296.9 / 217.6 s (`mn_model.py --calib15b`)")
     for D in a.D:
         for g in a.g:
             run(fab, D, g, a.rule, groups=a.groups, form=a.tree, staging=a.staging, design=design, corrections=a.corrections)
