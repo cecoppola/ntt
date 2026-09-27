@@ -97,7 +97,7 @@ static void chk(const char *tier, const char *what, int g, size_t pa, size_t pb,
 /* the verdict line; returns the exit status (0, or EC_RC_FATAL when a product fails) */
 static int chk_report(double d, int size)
 {
-    char bound[64]; if (g_chk.bound) snprintf(bound, sizeof bound, "%zu terms (three primes)", g_chk.bound); else snprintf(bound, sizeof bound, "none (%d primes)", g_chk.np);
+    char bound[192]; if (g_chk.bound) snprintf(bound, sizeof bound, "%zu terms (three primes)", g_chk.bound); else snprintf(bound, sizeof bound, "none (%d primes)", g_chk.np);
     if (!g_chk.nbound && !g_chk.nroot) {
         if (ec_np_auto) { long p4 = 0, pt = 0; for (int i = 0; i < PH_N; i++) { p4 += g_pieces4[i]; pt += g_pieces[i]; }
                           snprintf(bound, sizeof bound, "per product (four primes over %zu terms: %ld of %ld pieces)", ec_np_auto_terms, p4, pt); }
