@@ -1,0 +1,13 @@
+# RL step 1: the unit test off/on (the remap time), t_dbig 0, mnaccept unit,e9 with the switch, 1e11 written with the switch
+# (hash vs ~/V214/e_1e11.sha1), then 1e11 without the digit file off/on/off/on (the remap lines: DB_POOL_VERBOSE=1, print-only).
+vp0  node DB_POOL_VMM_PAR=0 ./tests/t_vmm_par 16 6
+vp1  node DB_POOL_VMM_PAR=1 ./tests/t_vmm_par 16 6
+vq0  node DB_POOL_VMM_PAR=0 DB_POOL_VERBOSE=1 ./tests/t_vmm_par 44 3
+vq1  node DB_POOL_VMM_PAR=1 DB_POOL_VERBOSE=1 ./tests/t_vmm_par 44 3
+db1  node DB_POOL_VMM_PAR=1 ./tests/t_dbig 0
+acc  login DB_POOL_VMM_PAR=1 ./mnaccept.sh $J --only unit,e9
+w1   100000000000 w DB_POOL_VERBOSE=1 DB_POOL_VMM_PAR=1
+d0a  100000000000 nw DB_POOL_VERBOSE=1
+d1a  100000000000 nw DB_POOL_VERBOSE=1 DB_POOL_VMM_PAR=1
+d0b  100000000000 nw DB_POOL_VERBOSE=1
+d1b  100000000000 nw DB_POOL_VERBOSE=1 DB_POOL_VMM_PAR=1
