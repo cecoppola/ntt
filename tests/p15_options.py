@@ -102,7 +102,6 @@ def main():
         for x in rows:
             r = x['r']
             det = "levels %.1f recip %.1f div %.1f" % (r['levels'], r['recip'], r['div'])
-            if x['st']['n4']: det += "; pieces at 4 primes %d of %d" % (x['st']['n4'], x['st']['n3'] + x['st']['n4'])
             print("%-46s %9.1f %9.1f %7d %8.1f %8.1f %s" % (x['label'], x['wall'], x['wallw'], x['pieces'], x['node'], x['planes'], det))
 
 if __name__ == '__main__':
