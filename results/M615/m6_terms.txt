@@ -1,0 +1,12 @@
+D 1e+11 g 1: N 10433891470 nq 5555555562 k 5555555562 jl 2777777781 (k-nq 0) take 5555555562 t1a 8333333353
+  per device GB: qp 12.22 (no margin 11.11)  hole 22.57 (hole_t 22.22 hole_r 22.22)  r2 11.11  piece 4.30
+  v2(recip) 62.42  div hi 57.78 lo 56.67 (+piece)  v2 63.49  v3 63.82  need_dev 63.82  x4 = 255.3
+D 1.4e+11 g 1: N 14397383496 nq 7777777784 k 7777777784 jl 3888888892 (k-nq 0) take 7777777784 t1a 11666666686
+  per device GB: qp 17.11 (no margin 15.56)  hole 31.60 (hole_t 31.11 hole_r 31.11)  r2 15.56  piece 4.30
+  v2(recip) 85.67  div hi 80.89 lo 79.33 (+piece)  v2 86.74  v3 89.35  need_dev 89.35  x4 = 357.4
+D 1.52e+11 g 1: N 15576674735 nq 8444444451 k 8444444451 jl 4222222226 (k-nq 0) take 8444444451 t1a 12666666687
+  per device GB: qp 18.58 (no margin 16.89)  hole 34.31 (hole_t 33.78 hole_r 33.78)  r2 16.89  piece 4.30
+  v2(recip) 92.65  div hi 87.82 lo 86.13 (+piece)  v2 93.72  v3 97.01  need_dev 97.01  x4 = 388.0
+D 4.25e+13 g 576: N 3509230438617 nq 2361111111117 k 2361111111118 jl 1180555555559 (k-nq 1) take 2361111111117 t1a 3541666666686
+  per device GB: qp 9.02 (no margin 8.20)  hole 16.65 (hole_t 16.40 hole_r 16.40)  r2 8.20  piece 4.30
+  v2(recip) 47.18  div hi 42.63 lo 41.81 (+piece)  v2 48.26  v3 47.09  need_dev 48.26  x4 = 193.0

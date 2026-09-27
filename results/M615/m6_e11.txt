@@ -1,0 +1,41 @@
+target: the last node local Q / (n_Q / g) = 1.0358; one node top split (Q2 / n_Q at N/2) = 0.5157
+as built (B1)            one node ceiling 480 / 502 GB: 1.34e+11 / 1.43e+11
+    1e+11: node 410.4 arena 273.6 (bs 261.2, dm 255.3; v2 63.5 v3 63.8 hole 22.6 /dev)
+    1.4e+11: node 495.0 arena 357.4 (bs 319.8, dm 357.4; v2 86.7 v3 89.3 hole 31.6 /dev)
+    target: node 416.0 arena 244.7 (bs 185.2, dm 244.7, tree 224.8; v2 48.3 v3 47.1 hole 16.7 /dev); 576 ceiling at 480 GB 9.67e+10 per node = 5.57e+13 digits
+T  margin trim           one node ceiling 480 / 502 GB: 1.42e+11 / 1.48e+11
+    1e+11: node 403.4 arena 266.6 (bs 261.2, dm 245.1; v2 61.3 v3 60.1 hole 22.6 /dev)
+    1.4e+11: node 474.0 arena 336.4 (bs 319.8, dm 336.4; v2 83.6 v3 84.1 hole 31.6 /dev)
+    target: node 409.5 arena 238.2 (bs 185.2, dm 238.2, tree 224.8; v2 46.6 v3 45.3 hole 16.7 /dev); 576 ceiling at 480 GB 9.98e+10 per node = 5.75e+13 digits
+B  band (safe)           one node ceiling 480 / 502 GB: 1.41e+11 / 1.48e+11
+    1e+11: node 405.0 arena 268.3 (bs 261.2, dm 248.1; v2 62.0 v3 58.2 hole 16.9 /dev)
+    1.4e+11: node 476.4 arena 338.8 (bs 319.8, dm 338.8; v2 84.7 v3 81.4 hole 23.7 /dev)
+    target: node 411.7 arena 240.4 (bs 185.2, dm 240.4, tree 224.8; v2 47.2 v3 42.9 hole 12.5 /dev); 576 ceiling at 480 GB 9.88e+10 per node = 5.69e+13 digits
+W  chunked window        one node ceiling 480 / 502 GB: 1.34e+11 / 1.43e+11
+    1e+11: node 410.4 arena 273.6 (bs 261.2, dm 255.3; v2 63.5 v3 63.8 hole 22.6 /dev)
+    1.4e+11: node 495.0 arena 357.4 (bs 319.8, dm 357.4; v2 86.7 v3 89.3 hole 31.6 /dev)
+    target: node 416.0 arena 244.7 (bs 185.2, dm 244.7, tree 224.8; v2 48.3 v3 47.1 hole 16.7 /dev); 576 ceiling at 480 GB 9.67e+10 per node = 5.57e+13 digits
+B+W                      one node ceiling 480 / 502 GB: 1.47e+11 / 1.51e+11
+    1e+11: node 400.3 arena 263.5 (bs 261.2, dm 232.7; v2 57.9 v3 58.2 hole 16.9 /dev)
+    1.4e+11: node 463.4 arena 325.8 (bs 319.8, dm 325.8; v2 78.8 v3 81.4 hole 23.7 /dev)
+    target: node 399.4 arena 228.1 (bs 185.2, dm 228.1, tree 224.8; v2 44.1 v3 42.9 hole 12.5 /dev); 576 ceiling at 480 GB 1.04e+11 per node = 6e+13 digits
+T+B+W (E11 + trim)       one node ceiling 480 / 502 GB: 1.48e+11 / 1.57e+11
+    1e+11: node 398.0 arena 261.2 (bs 261.2, dm 222.5; v2 55.6 v3 54.4 hole 16.9 /dev)
+    1.4e+11: node 457.4 arena 319.8 (bs 319.8, dm 304.8; v2 75.7 v3 76.2 hole 23.7 /dev)
+    target: node 396.1 arena 224.8 (bs 185.2, dm 221.5, tree 224.8; v2 42.5 v3 41.2 hole 12.5 /dev); 576 ceiling at 480 GB 1.04e+11 per node = 6e+13 digits
+T+B0+W (t1 mid-only)     one node ceiling 480 / 502 GB: 1.48e+11 / 1.57e+11
+    1e+11: node 398.0 arena 261.2 (bs 261.2, dm 199.9; v2 50.0 v3 48.8 hole 11.3 /dev)
+    1.4e+11: node 457.4 arena 319.8 (bs 319.8, dm 273.2; v2 67.8 v3 68.3 hole 15.8 /dev)
+    target: node 396.1 arena 224.8 (bs 185.2, dm 204.9, tree 224.8; v2 38.3 v3 37.0 hole 8.3 /dev); 576 ceiling at 480 GB 1.04e+11 per node = 6e+13 digits
+T+Bid+Ww (identical values) one node ceiling 480 / 502 GB: 1.42e+11 / 1.48e+11
+    1e+11: node 403.4 arena 266.6 (bs 261.2, dm 245.1; v2 61.3 v3 60.1 hole 22.6 /dev)
+    1.4e+11: node 474.0 arena 336.4 (bs 319.8, dm 336.4; v2 83.6 v3 84.1 hole 31.6 /dev)
+    target: node 409.5 arena 238.2 (bs 185.2, dm 238.2, tree 224.8; v2 46.6 v3 45.3 hole 16.7 /dev); 576 ceiling at 480 GB 9.98e+10 per node = 5.75e+13 digits
+  no dm growth, as built (B1)          one node ceiling 480 / 502 GB: 1.34e+11 / 1.43e+11
+  no dm growth, T+B+W (E11 + trim)     one node ceiling 480 / 502 GB: 1.48e+11 / 1.57e+11
+target, per device: u = 8.20 GB, product scratch 12.93 GB, reservation (need_dev + scratch) 61.18 GB, tree floor 56.20 GB
+  recip r|d| product: P Q r t_old d + C        now 5.0 u =  53.9 GB   after 4.0 u =  45.7 GB  (free t once d is formed)
+  recip r' formed: P Q r t corr rs             now 5.5 u =  45.1 GB   after 4.5 u =  36.9 GB  (free t once corr is formed)
+  division A_h mu: S Q mu Ah + t (2k basis)    now 6.0 u =  62.1 GB   after 5.0 u =  53.9 GB  (A_h as a view of S (4.0 with t from k+1-G))
+  division X Q: S Q X xq(w)                    now 4.0 u =  45.7 GB   after 4.0 u =  45.7 GB  (-)
+  division window: S Q X xq Aw                 now 5.0 u =  41.0 GB   after 5.0 u =  41.0 GB  (-)
