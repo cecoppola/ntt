@@ -23,7 +23,8 @@ typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total, t_ckpt, t_re
                  int n_grow; size_t grow_bytes; } bs_stats;   /* Phase 9: region pool growths inside the phase (count, bytes) */
 extern bs_stats bs_st;
 extern int bs_seed_terms;     /* 256 (BS_SEED_TERMS) */
-unsigned long bs_seed_terms_for(unsigned long bend);   /* Phase 15 T2: the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
+unsigned long bs_seed_terms_for(unsigned long bend);
+long bs_seed_fill(void);                                  /* Phase 15: the fill in limbs (BS_SEED_FILL; 128 by default; 0 = the fixed span) */   /* Phase 15 T2: the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
 extern int bs_school_nl;      /* 160 limbs */
 extern int bs_verbose;
 /* WP7: per-level checkpoints of the level loop (ecalc/README.md: BS_CKPT_DIR, BS_CKPT_EVERY, BS_RESTART) */

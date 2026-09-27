@@ -7,10 +7,10 @@ STD=${ECALC_STD_DIGITS:-100000000000}; case $STD in 40000000000) STDT=4e10;; 100
 REF=${ECALC_REF_STD:-${ECALC_REF_4E10:-results/e_$STDT.out}}; [ -f "$REF" ] || REF=~/ntt/ecalc/results/e_$STDT.out; [ -f "$REF" ] || { echo "closing.sh: no $STDT reference ($REF)"; exit 1; }
 evict() { python3 -c "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)" "$1" 2>/dev/null; }
 for i in $(seq 1 $N); do
-  evict $REF; evict /tmp/e_close.out; rm -f /tmp/e_close.out
+  evict $REF; evict /tmp/e_close.out; rm -f /tmp/e_close.out /tmp/e_close.out.*
   ./ecalc $STD /tmp/e_close.out > $OUT/run$i.log 2>&1
-  if cmp -s /tmp/e_close.out $REF; then D=identical; else D=DIFFERS; fi
+  D=$(./digcmp.sh /tmp/e_close.out $REF)   # Phase 15: packed (the default) or ASCII
   evict $REF; evict /tmp/e_close.out
   echo "run $i: $(grep -aE '^total' $OUT/run$i.log | head -1); $(grep -ao 'VmHWM [0-9.]* GB' $OUT/run$i.log | tail -1); $(grep -a VERIFY $OUT/run$i.log | head -1); digits $D"
 done
-rm -f /tmp/e_close.out; echo done
+rm -f /tmp/e_close.out /tmp/e_close.out.*; echo done

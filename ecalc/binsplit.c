@@ -263,9 +263,18 @@ static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thres
  * has at most 2^l <limbs> limbs, so with <limbs> = 128 every batch product from 2^10 points up fills its 2^k length and the batch
  * tier's top level ends at the mdev threshold (2^30); 96 or 192 fill 3 2^k.  S depends on log10 of the run's last term (at 10^11:
  * 128 -> 229, at 4 x 10^10: 239; tests/t2_seed_model.py), so no one BS_SEED_TERMS fits every size.  Overrides BS_SEED_TERMS */
+/* Phase 15 (the user's decision): BS_SEED_FILL=128 by default; BS_SEED_FILL=0 (or a BS_SEED_TERMS in the environment, or a caller
+ * that set bs_seed_terms before the first use, as the unit tests do) keeps the fixed span */
+static int g_fill_auto = -1;
+long bs_seed_fill(void)
+{
+    const char *e = getenv("BS_SEED_FILL"); if (e) return atol(e);
+    if (g_fill_auto < 0) g_fill_auto = !getenv("BS_SEED_TERMS") && bs_seed_terms == 256;
+    return g_fill_auto ? 128 : 0;
+}
 unsigned long bs_seed_terms_for(unsigned long bend)
 {
-    const char *e = getenv("BS_SEED_FILL"); long fill = e ? atol(e) : 0;
+    long fill = bs_seed_fill();
     if (fill <= 0 || bend < 3) return getenv("BS_SEED_TERMS") ? (unsigned long)atol(getenv("BS_SEED_TERMS")) : (unsigned long)bs_seed_terms;
     long double dpl = bi_decimal ? 18.0L : 64.0L * log10l(2.0L), l10 = logl(10.0L), lb = lgammal((long double)bend);
 #define SEED_FILL_LIMBS(S) ((long)floorl((lb - lgammal((long double)(bend - (S)))) / l10 / dpl) + 1)
@@ -278,7 +287,7 @@ unsigned long bs_seed_terms_for(unsigned long bend)
 static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
 {
     if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
-    if (getenv("BS_SEED_FILL") && atol(getenv("BS_SEED_FILL")) > 0) bs_seed_terms = (int)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1);   /* Phase 15 T2 */
+    if (bs_seed_fill() > 0) bs_seed_terms = (int)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1);   /* Phase 15 T2 (default 128 since Phase 15) */
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
@@ -898,7 +907,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
     if (!ok) return 0;
     if (sc) *sc = s3;
     int v2 = h->magic[7] >= '2', me = g_ck_node < 0 ? 0 : g_ck_node;
-    long want_st = (getenv("BS_SEED_FILL") && atol(getenv("BS_SEED_FILL")) > 0) ? (long)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1) : bs_seed_terms;   /* Phase 15 integration: BS_SEED_FILL's span, as seed_limbs sets it (RECHECK reads the set before seed_limbs runs) */
+    long want_st = bs_seed_fill() > 0 ? (long)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1) : bs_seed_terms;   /* Phase 15 integration: BS_SEED_FILL's span, as seed_limbs sets it (RECHECK reads the set before seed_limbs runs) */
     if (h->N != N || h->decimal != bi_decimal || h->seed_terms != want_st || h->nregions != NR
         || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
         || (!v2 && mn_size() > 1)) {

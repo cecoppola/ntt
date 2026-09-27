@@ -51,11 +51,9 @@ N() { srun --jobid="$J" -N1 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
 # the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS
-cmpref() { if [ "${ECALC_ODIRECT:-0}" = 1 ]; then cmpref_direct "$@"; return; fi
-           N "cat $1.part* > $1.all 2>/dev/null || cp $1 $1.all 2>/dev/null; cmp -s $1.all $2 && echo identical || echo DIFFERS; rm -rf $1 $1.*"; }   # (also the .t1 sidecar and the .top directory)
-# Phase 14 S1 (E3): with ECALC_ODIRECT=1 the comparison reads both sides with O_DIRECT (dd iflag=direct) and makes no .all copy:
-# neither the digits nor the reference stay in the page cache (HBM on the APU)
-cmpref_direct() { N "P=\$(ls $1.part* 2>/dev/null | sort); [ -n \"\$P\" ] || P=$1; cmp -s <(for p in \$P; do dd if=\$p iflag=direct bs=64M status=none; done) <(dd if=$2 iflag=direct bs=64M status=none) && echo identical || echo DIFFERS; rm -rf $1 $1.*"; }
+# the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS.
+# Phase 15: digcmp.sh -- packed parts (the default output) through tools/unpack_digits --cmp, ASCII with O_DIRECT reads
+cmpref() { N "$PWD/digcmp.sh $1 $2; rm -rf $1 $1.*"; }   # (also the .t1 sidecar and the .top directory)
 total_of() { grep -a '^total' "$1" | tail -1 | sed 's/  */ /g' | cut -c1-40; }
 N "mkdir -p $TMP; rm -f $TMP/*"
 
@@ -120,7 +118,7 @@ recheck_check() { local tag=$1 p=$2 d=$3 pl=$4; shift 4
   local log=$OUT/$tag.log f=$TMP/$tag.txt name="recheck e$(( ${#d} - 1 )) size $p" rc c lg lb
   if [ "$p" = 1 ]; then R 900 "env POOL_LOG=$pl ECALC_CKPT_TOP=1 $* ./ecalc $d $f" > "$log" 2>&1; rc=$?
   else M 600 "$p" POOL_LOG=$pl ECALC_CKPT_TOP=1 "$@" ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
-  N "cat $f.part* > $f.all 2>/dev/null || cp $f $f.all; cmp -s $f.all $REF/e_$d.txt && echo identical || echo DIFFERS; rm -f $f.all" > "$OUT/$tag.cmp" 2>&1; c=$(cat "$OUT/$tag.cmp")
+  N "$PWD/digcmp.sh $f $REF/e_$d.txt" > "$OUT/$tag.cmp" 2>&1; c=$(cat "$OUT/$tag.cmp")
   if ! { [ $rc -eq 0 ] && grep -aq "VERIFY OK" "$log" && ! grep -aq "VERIFY FAILED" "$log" && [ "$c" = identical ]; }; then
     fail "$name" "the run: rc $rc; $c; $(grep -a 'VERIFY FAILED\|abort\|error\|Killed' "$log" | head -1 | cut -c1-120)"; N "rm -rf $f $f.* "; return; fi
   lg=$OUT/${tag}_recheck.log
@@ -130,7 +128,7 @@ recheck_check() { local tag=$1 p=$2 d=$3 pl=$4; shift 4
   local rl; rl=$(grep -a 'recheck: .*digits read' "$lg" | head -1 | sed 's/.*digits read from [^ ]* in \([0-9.]* s\).*/read in \1/')
   # one digit flipped in the (last) part file: the recheck must fail
   local pf; pf=$(N "ls $f.part* 2>/dev/null | tail -1"); [ -z "$pf" ] && pf=$f
-  N "python3 -c \"import sys; p=sys.argv[1]; f=open(p,'r+b'); f.seek(1000); c=f.read(1); f.seek(1000); f.write(b'0' if c != b'0' else b'1'); f.close()\" $pf"
+  N "python3 -c \"import sys; p=sys.argv[1]; f=open(p,'r+b'); pk=f.read(8)==b'ECPACK18'; o=4096+8*100 if pk else 1000; f.seek(o); c=f.read(1); f.seek(o); f.write(bytes([c[0]^1]) if pk else (b'0' if c != b'0' else b'1')); f.close()\" $pf"   # (Phase 15: in a packed part, the low byte of a limb past the header)
   lb=$OUT/${tag}_recheck_bad.log
   if [ "$p" = 1 ]; then R 600 "env ECALC_RECHECK=1 ./ecalc $d $f" > "$lb" 2>&1
   else M 600 "$p" ECALC_RECHECK=1 ./ecalc "$d" "$f" > "$lb" 2>&1; fi
