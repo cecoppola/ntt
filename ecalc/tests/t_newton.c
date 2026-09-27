@@ -18,6 +18,7 @@ static int use_db = -1;
 #define newton_divmod(x, r, a, q, mu) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_divmod(x, r, a, q, mu) : newton_divmod(x, r, a, q, mu))
 #include "../rns_mul.h"
 #include "../mem.h"
+#include "../dbig.h"
 
 static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
 {
@@ -115,6 +116,63 @@ int main(int argc, char **argv)
         newton_recip(&mu, &Q, nq + 8);
         check_div("supplied mu", &A, &Q, &mu);
         printf("   2^%d limbs ok  (down %zu, up %zu corrections, %zu overshoots, %zu repeats so far)\n", lg, newton_st.down_corr, newton_st.up_corr, newton_st.overshoots, newton_st.repeats);
+    }
+
+    if (use_db > 0) {
+        /* Phase 15 R4 (NEWTON_RECIP_MID, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
+         * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal with the
+         * middle product bit-identical to the one without, under NEWTON_RECIP_CUT 0 and 1, at several sizes, k and generators (a grid at
+         * the top doublings under DIST_LOGN_TEST=20..22), and the path taken */
+        printf("-- 5. the reciprocal's middle product (NEWTON_RECIP_MID)\n");
+        int cut_env = getenv("NEWTON_RECIP_CUT") ? atoi(getenv("NEWTON_RECIP_CUT")) != 0 : 1, mid_env = getenv("NEWTON_RECIP_MID") ? atoi(getenv("NEWTON_RECIP_MID")) != 0 : 0;
+        bigint B1, C0, C1; bi_init(&B1); bi_init(&C0); bi_init(&C1);
+        static const size_t band_sz[][2] = { {3000, 1000}, {(1u << 20) + 5, (1u << 19) + 3}, {(3u << 20) + 1, (3u << 19) - 5}, {(1u << 22) + 3, (1u << 21) + 1} };   /* the last two: grids split on both operands at cap 2^20..2^22, so the high cut skips pieces */
+        for (int si = 0; si < 4; si++) for (int ki = 0; ki < 2; ki++) {
+            size_t na = band_sz[si][0], nb = band_sz[si][1], v = na - nb + 1, w = v + nb + 3;   /* the reciprocal's shape: take x (j + 1), v = take - j, w = take + 4 */
+            bi_random(&A, na, ki ? GEN_ONES : GEN_UNIFORM, &rng); bi_random(&B1, nb, ki ? GEN_ONES : GEN_UNIFORM, &rng);
+            dbig a, b, c; db_init(&a); db_init(&b); db_init(&c); db_from_bi(&a, &A); db_from_bi(&b, &B1);
+            rns_mul_dist_db(&c, &a, &b); db_to_bi(&C0, &c);
+            size_t f0 = rns_dist_st.n_formed, s0 = rns_dist_st.n_skipped;
+            rns_mul_band_db(&c, &a, &b, 0, w); db_to_bi(&C1, &c);
+            size_t sk = rns_dist_st.n_skipped - s0, fo = rns_dist_st.n_formed - f0;
+            mpz_t z0, z1, bw, bv; mpz_inits(z0, z1, bw, bv, NULL); bi_to_mpz(z0, &C0); bi_to_mpz(z1, &C1);
+            if (bi_decimal) { mpz_ui_pow_ui(bw, BI_B10, w); mpz_ui_pow_ui(bv, BI_B10, v); } else { mpz_set_ui(bw, 1); mpz_mul_2exp(bw, bw, 64 * w); mpz_set_ui(bv, 1); mpz_mul_2exp(bv, bv, 64 * v); }
+            mpz_mod(z0, z0, bw);
+            VERIFY(mpz_cmp(z0, z1) == 0 && C1.n <= w, "band %zu x %zu w %zu: mod B^w differs", na, nb, w);
+            rns_mul_band_db(&c, &a, &b, v - 1, w); db_to_bi(&C1, &c); bi_to_mpz(z1, &C1);   /* with the low cut one limb below the band */
+            mpz_t bb; mpz_init(bb); mpz_tdiv_q(bb, bw, bv);                               /* B^(w - v) */
+            mpz_fdiv_q(z0, z0, bv); mpz_fdiv_q(z1, z1, bv); mpz_sub(z0, z0, z1); mpz_mod(z0, z0, bb);
+            VERIFY(mpz_cmp_ui(z0, 1) <= 0, "band %zu x %zu w %zu, low cut %zu: the band is off by more than one unit", na, nb, w, v - 1);
+            printf("   band %zu x %zu (w %zu): %zu pieces formed, %zu skipped; mod B^w identical, cut band off by %lu\n", na, nb, w, fo, sk, mpz_get_ui(z0));
+            mpz_clears(z0, z1, bw, bv, bb, NULL); db_free(&a); db_free(&b); db_free(&c);
+        }
+        static const size_t rq[] = { 4097, (1u << 17) + 3, (1u << 20) + 1, (3u << 20) + 5, (1u << 22) + 1 };   /* the last two: the top doublings are 2-D grids at cap 2^20 (the high cut skips) */
+        for (int qi = 0; qi < 5; qi++) {
+            size_t nq = rq[qi];
+            static const int kinds[] = {GEN_UNIFORM, GEN_ONES, GEN_BIT};
+            for (int gi = 0; gi < 3; gi++) {
+                bi_random(&Q, nq, kinds[gi], &rng);
+                size_t ks[3] = {nq / 2 + 1, nq, 2 * nq};
+                for (int i = 0; i < 3; i++) for (int cut = 0; cut <= 1; cut++) {
+                    size_t k = ks[i];
+                    if (nq > (1u << 21) && (gi > 0 || i != 1)) continue;   /* the largest size: uniform, k = nq only (time) */
+                    size_t sa = rns_dist_st.n_skipped;
+                    newton_recip_set(cut, 0); newton_db_recip(&mu, &Q, k);
+                    struct newton_mid_stats m0 = newton_mid_st; size_t s0 = rns_dist_st.n_skipped, sk0 = s0 - sa;
+                    newton_recip_set(cut, 1); newton_db_recip(&t, &Q, k);
+                    size_t nm = newton_mid_st.mid - m0.mid, sk = rns_dist_st.n_skipped - s0;
+                    if (nq > (1u << 21)) VERIFY(sk > sk0, "recip mid nq %zu k %zu cut %d: the high cut skipped nothing (%zu vs %zu)", nq, k, cut, sk, sk0);
+                    VERIFY(bi_cmp(&mu, &t) == 0, "recip mid nq %zu k %zu %s cut %d: mu differs from the whole product's", nq, k, gen_name[kinds[gi]], cut);
+                    VERIFY(nm > 0, "recip mid nq %zu k %zu: the middle product was never taken", nq, k);
+                    bi_to_mpz(q, &Q); mpz_recip(m, q, nq, k); bi_to_mpz(x, &t); mpz_sub(x, m, x);
+                    long err = mpz_fits_slong_p(x) ? mpz_get_si(x) : 1L << 40;
+                    VERIFY(err >= -8 && err <= 8, "recip mid nq %zu k %zu %s cut %d: error %ld units", nq, k, gen_name[kinds[gi]], cut, err);
+                    if (gi == 0) printf("   nq %-8zu k %-8zu cut %d: identical, error %+ld, %zu rounds on the middle product, pieces skipped %zu (switch off) -> %zu (on)\n", nq, k, cut, err, nm, sk0, sk);
+                }
+            }
+        }
+        newton_recip_set(cut_env, mid_env);
+        bi_free(&B1); bi_free(&C0); bi_free(&C1);
     }
 
     printf("-- 4. time at 2^%d limbs\n", LOGMAX);
