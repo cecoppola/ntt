@@ -6,10 +6,14 @@
  *  E12  a sampler thread (ECALC_MEM_SAMPLE=<seconds>): RSS, MemFree, MemAvailable, Cached, Dirty, Writeback (from
  *       /proc/meminfo, which sees the page cache in HBM; hipMemGetInfo does not) and the pool's live bytes per APU, one
  *       line per sample to stderr or ECALC_MEM_SAMPLE_FILE (a "%d" in the name: the node-process rank); a summary line
- *       at stop (the minimum MemAvailable, the maxima of Cached, Dirty, RSS and each APU's live bytes). */
+ *       at stop (the minimum MemAvailable, the maxima of Cached, Dirty, RSS and each APU's live bytes).
+ *  N3   (Phase 15 IO) a guard in the sampler: ECALC_MEM_GUARD_GB=<x> -- when MemAvailable falls below x GB the sampler stops the
+ *       run through ec_fatal (one line naming the rank, host, the last phase boundary passed and the figures; rc EC_RC_MEMGUARD
+ *       = 9).  Without ECALC_MEM_SAMPLE the sampler runs for the guard alone, silent, every ECALC_MEM_GUARD_PERIOD s (1). */
 #ifndef EC_MEMSAMPLE_H
 #define EC_MEMSAMPLE_H
 #include <stddef.h>
+#define EC_RC_MEMGUARD 9                              /* Phase 15 IO (N3): the memory guard stopped the run (fatal.h lists the other codes) */
 #ifdef __cplusplus
 extern "C" {
 #endif
