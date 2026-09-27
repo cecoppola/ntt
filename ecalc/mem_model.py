@@ -513,6 +513,11 @@ MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TES
     (1e9, 2, 25, 0, 635.8, 'P214 b4 (job 21276), 2 real nodes, DIST_LOGN_TEST=25: the division in 2 x 2 pieces (PE 1; PE 0 529.8)'),
     (1e9, 2, 29, 64, 635.8, 'P214 b4 (job 21276), 2 real nodes, MN_T_CHUNK_MB=64: the mdb_shift sets it (PE 1; PE 0 529.8)'),
     (1e10, 2, 31, 0, 8477.1, 'P214 b5 (job 21279), 2 real nodes, SOS, the pool set by COMM_SHMEM_POOL_AUTO=1 (8960 MiB); the shift 1059.6 + 529.8'),
+    # Phase 14 V1 (results/V114.md): the Phase 14 defaults (MN_T_CHUNK_MB=1024), the pool from mnrun.sh's plan; 7th field COMM_SHMEM_ROUND_MB
+    (1e9, 2, 31, 1024, 847.7, 'V114 b1 (job 21435), 2 real nodes, SOS host heap, pool 1280 from the plan'),
+    (1e10, 2, 31, 1024, 8192.0, 'V114 b2 (job 21439), 2 real nodes, SOS host heap, pool 8704 from the plan'),
+    (1e9, 2, 31, 1024, 423.9, 'V114 b3 (job 21442), 2 real nodes, COMM_SHMEM_ROUND_MB=64 (the self slab left out)', 64),
+    (1e10, 2, 31, 1024, 2048.0, 'V114 b3 (job 21442), 2 real nodes, COMM_SHMEM_ROUND_MB=256: 84 exchanges in 176 rounds', 256),
 ]
 
 def pool_target():
