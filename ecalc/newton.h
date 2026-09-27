@@ -60,6 +60,7 @@ long newton_test_corr(void);
  * stays sharded; P, Q are consumed; the residues of P, Q and R mod qs[nres] come back; t_recip = the reciprocal's seconds */
 struct mdb_s; struct mn_group;
 extern void (*newton_mn_pq_hook)(int stage, struct mdb_s *x);   /* Phase 13 N: called before S = P + Q overwrites P (0) and before Q is freed (1; may take Q->sh) */
+extern void (*newton_mn_x_hook)(struct mdb_s *X, void *arg); extern void *newton_mn_x_arg;   /* Phase 15 IO (W5d, MN_OUT_EARLY): X over the group before the low product (corrections may still change it) */
 void newton_mn_divmod(struct mdb_s *X, struct mdb_s *P, struct mdb_s *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
