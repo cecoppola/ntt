@@ -476,6 +476,7 @@ static uint64_t n3x_hash(const uint64_t *x, size_t n)
 }
 static int n3x_hash_mode(int kmax2, int kmax3)
 {
+    if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));   /* as ecalc.c reads it */
 #ifndef T_NTT_OLD
     printf("== t_ntt hash: NTT_R3_FUSE %d, NTT_MODMUL %d, NTT_PLAN %d, NTT_B1R %d, NTT_B16_BODY %d ==\n", ntt_r3_fuse_get(), ntt_modmul_get(), ntt_plan_get(), ntt_b1r_get(), ntt_b16_body);
 #else
