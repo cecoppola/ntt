@@ -75,12 +75,12 @@ static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->s
 /* O4 (Phase 9 A-out, M5 + C1): X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
  * gets X on the host before it */
-struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd (Phase 10 H, B1): X on the device -- the writer and the residues read it there; no host X */
+struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; size_t t2_defer; };   /* t2_defer: Phase 15 K */   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd (Phase 10 H, B1): X on the device -- the writer and the residues read it there; no host X */
 static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); if (b->Xd) { s.dev = b->Xd; s.cnt = b->Xd->n; } else { s.host = b->X->l; s.cnt = b->X->n; } return s; }
 static void x_bg_writer(struct x_bg *b)                /* the chunked writer over X (host or device; also the redo after a correction) */
 {
     mn_out_src src = x_bg_src(b);
-    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose;
+    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose; b->o.t2_defer = b->t2_defer;
     mn_out_run(&b->o, &src);
 }
 static void *x_bg_run(void *a)
@@ -108,6 +108,7 @@ struct out_ctx {
     mdb *Xm;                                       /* B1, size > 1 in the distributed division: X sharded over the nodes (A-div's mdb); this node's share is read in place */
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm), else node 0's, broadcast (the host flows) */
     struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
+    int defer; long dx; size_t zone;                 /* Phase 15 K (ECALC_CORR_PATCH): X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
     double t00, t_init, t_bs, t_10dp, t_dm;
 };
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: node %d: ", c->rank); }
@@ -147,10 +148,12 @@ static int out_stage(struct out_ctx *c)
      * scaled by B^lo and summed over the group); the host flows broadcast node 0's */
     if (multi && !c->Xm) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
-    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && !c->ncorr, joined = 0;
+    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && (!c->ncorr || c->defer), joined = 0;   /* (Phase 15 K: deferred corrections -- T1 never waits for the writer) */
     if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
     else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
+    if (c->defer && c->dx && src.lo == 0)             /* Phase 15 K: the uncorrected X's residues + dx (the node holding limb 0) */
+        for (int i = 0; i < T1_NQ; i++) { uint64_t q = t1_q[i], a = (uint64_t)(c->dx < 0 ? -c->dx : c->dx) % q; xs[i] = vf_add_mod(xs[i], c->dx < 0 ? (a ? q - a : 0) : a, q); }
     mn_out_res_combine(cm, xs, src.lo, Xres);
     if (rlog) { printf("RES node %d X share [%zu, +%zu) res", c->rank, src.lo, src.cnt); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)xs[i]);
                 printf(" | X"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Xres[i]);
@@ -181,19 +184,28 @@ static int out_stage(struct out_ctx *c)
     mn_out ow, *o = &ow; memset(&ow, 0, sizeof ow);
     if (!multi && c->xb->started) {
         o = &c->xb->o; if (!joined) pthread_join(c->xb->th, 0);
-        if (c->ncorr) {                               /* X changed after the hook: the digits from the final X, the file rewritten */
+        if (c->ncorr && !c->defer) {                  /* X changed after the hook: the digits from the final X, the file rewritten */
             printf("      X corrected after the formatting started: redoing the digits\n");
             mn_out_finish(o); x_bg_writer(c->xb);
         }
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
+        if (c->defer) o->t2_defer = c->zone;          /* Phase 15 K */
         mn_out_boundaries(o, &src, cm);
         mn_out_run(o, &src);
     }
+    mn_out_fix fx; memset(&fx, 0, sizeof fx); int badp = 0;
+    if (c->defer) {                                   /* Phase 15 K: the file complete, then the tail the corrections reach patched (collective at size > 1) */
+        mn_out_finish(o); badp = mn_out_tail_fix(o, &src, cm, c->dx, &fx);
+        node_pfx(c); printf("      patch: X %+ld after the formatting started (ECALC_CORR_PATCH): %s; %d deferred windows; %.3f s%s\n", c->dx,
+                            c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
+        if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
+    }
     uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
+    if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* Phase 15 K: the patched tail's new - old (the bytes read back) */
     if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
                 printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
-    int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2);
+    int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
     if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } }
     if (c->Xm) db_free(&c->Xm->sh);
@@ -405,6 +417,10 @@ int main(int argc, char **argv)
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
+    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 0;   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
+      newton_x_defer = bi_decimal && ((mn_size_ == 1 && ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2));
+      oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
+      if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
@@ -465,6 +481,7 @@ int main(int argc, char **argv)
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
+            oc.defer = newton_x_defer; oc.dx = newton_x_dx;   /* Phase 15 K (ECALC_CORR_PATCH=2) */
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
             if (mn_rank() != 0) { int f = out_stage(&oc); mn_ckpt_top_finish(); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (Phase 13 N: after the top set's writer) */
         } else {
@@ -663,6 +680,7 @@ int main(int argc, char **argv)
     if (!rres_ok) for (int i = 0; i < T1_NQ; i++) Rres[i] = vf_limbs_mod(R.l, R.n, t1_q[i]);   /* the host flow's R (the device flow's came from the kernel) */
     memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
+    if (mn_size_ == 1) { oc.defer = newton_x_defer && xb.started; oc.dx = oc.defer ? newton_x_dx : 0; }   /* Phase 15 K: the size-1 writer started before the corrections (size > 1: set after newton_mn_divmod) */
     bi_free(&A); bi_free(&R); bi_free(&Q);
     int fail = out_stage(&oc);
     if (topbg) {                                      /* Phase 13 N (4.1): the top set's writer -- Q released (held so far if it was still needed), then joined */

@@ -45,6 +45,12 @@ extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on de
 extern int newton_db_mu_host;                        /* 0: no host copy of mu after the reciprocal */
 extern void (*newton_db_x_hook)(bigint *X, void *arg); extern void *newton_db_x_arg;   /* X on the host before the low product */
 extern struct dbig_s *newton_db_x_dev;               /* Phase 10 H (B1): when set, X stays on the device and is returned here (corrected in place); no host X */
+/* Phase 15 K (ECALC_CORR_PATCH): newton_x_defer = 1 -- the division's +/-1 corrections are NOT applied to X once the hook has
+ * started the writer on it (size 1) / at all (newton_mn_divmod, size > 1): their sum comes back in newton_x_dx and the output
+ * stage patches the written digits' tail instead (mn_out_tail_fix).  newton_test_corr(): ECALC_TEST_CORR=<k> (a test hook,
+ * |k| <= 60) moves the division's X by -k before the corrections, which then make k more up- (k > 0) or down- (k < 0) corrections */
+extern int newton_x_defer; extern long newton_x_dx;
+long newton_test_corr(void);
 /* Phase 9 M4 (A-div): the reciprocal and division over sharded numbers (mdb over the top-level group G): X = floor((P + Q) B^dl / Q)
  * stays sharded; P, Q are consumed; the residues of P, Q and R mod qs[nres] come back; t_recip = the reciprocal's seconds */
 struct mdb_s; struct mn_group;

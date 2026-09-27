@@ -42,10 +42,24 @@ typedef struct {
     char first[80], last[24];                /* the first 62 and the last 20 digits of the node's range */
     char tail[24]; size_t ntail;             /* Phase 11 V: the d - d_out computed digits after d_out (the node holding limb 0) */
     void *priv;                              /* the writer thread while a write is in flight (mn_out_finish joins it) */
+    size_t t2_defer;                         /* Phase 15 K: > 0 -- the T2 windows ending in the last t2_defer digits (>= d_out + 1 - t2_defer) are left to mn_out_tail_fix */
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
 void mn_out_finish(mn_out *o);                                       /* wait for the writes, close the part file */
+/* Phase 15 K (ECALC_CORR_PATCH): the division's corrections (X + dx, |dx| <= 64) applied to digits already written from the uncorrected X.
+ * Only the tail its carry / borrow reaches changes: the low limbs of X (gathered over the nodes, more until the carry ends inside
+ * them) give the old and the new digits of that tail; every node whose part holds some of them checks the bytes on disk are the
+ * old ones, rewrites the 4 KiB blocks holding them (O_DIRECT when the writer used it) and reads them back; the digit residues move
+ * by new - old of the tail (so digits == X mod q is checked against the patched bytes), the T2 windows ending in the last
+ * o->t2_defer digits (skipped by the writer) are checked on the new digits, and last / tail / first follow.  Call it after
+ * mn_out_finish, on every node (collective at size > 1), also when dx == 0 (the deferred windows).  Returns this node's
+ * failures (the bytes on disk were not the expected ones, an I/O error, or a carry past X's top); f gets the adjustment. */
+typedef struct { uint64_t dres_adj[T1_NQ]; size_t kp, w, bytes; int parts, nwin; double t; } mn_out_fix;
+int  mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_fix *f);
+/* the node-local part: low = the global low limbs [0, w) of the uncorrected X (every node the same); returns -1 (nothing done) when
+ * the carry or the windows' context reaches past them -- the caller gathers more -- else this node's failures */
+int  mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_fix *f);
 /* the digit residues of the whole string from the nodes' (ndig, dres) (all-gathered over c; c = 0 at size 1) */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres);
 /* residues of a limb share modulo the T1 primes: the device kernel (db_mod_qs) or the host Horner */
