@@ -1,0 +1,93 @@
+== ecalc: e to 100000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=aac6-fe1 date=2026-09-26T21:34:52 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+== MN_PLAN_ONLY: e to 100000000008 digits on 1 node-process: N 10433891470 terms, P 5555555560 limbs, Q 5555555560 limbs (predicted), dl 5555555556; pool_log 31, 3 primes, pools 12.00 + 12.00 GiB per APU; MN_GROUPS - (one node) ==
+plan leaf   level 23 pair 0 of 5 P:    dist_db 974711768 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 0 of 5 Q:    dist_db 974711768 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 1 of 5 P:    dist_db 1040928717 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 1 of 5 Q:    dist_db 1040928717 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 2 of 5 P:    dist_db 1065921890 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 2 of 5 Q:    dist_db 1065921891 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan leaf   level 23 pair 3 of 5 P:    dist_db 1082152492 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 23 pair 3 of 5 Q:    dist_db 1082152493 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 23 pair 4 of 5 P:    dist_db 1094221457 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 23 pair 4 of 5 Q:    dist_db 1094221458 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 24 pair 0 of 3 P:    dist_db 2015640485 limbs | one plane of 2^31 points (C form), planes 51.54 GB per node
+plan leaf   level 24 pair 0 of 3 Q:    dist_db 2015640485 limbs | one plane of 2^31 points (C form), planes 51.54 GB per node
+plan leaf   level 24 pair 1 of 3 P:    dist_db 1065921890 x 1082152492 limbs: 1 x 2 pieces of 1065921890 + 541076246, 2 formed, 0 skipped | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan leaf   level 24 pair 1 of 3 Q:    dist_db 1065921890 x 1082152492 limbs: 1 x 2 pieces of 1065921890 + 541076246, 2 formed, 0 skipped | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan leaf   level 24 pair 2 of 3 P:    dist_db 1391840694 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 24 pair 2 of 3 Q:    dist_db 1391840694 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan leaf   level 25 pair 0 of 1 P:    dist_db 2015640484 x 2148074382 limbs: 2 x 2 pieces of 1007820242 + 1074037191, 4 formed, 0 skipped | 2^31 points per piece (C form), planes 51.54 GB per node
+plan leaf   level 25 pair 0 of 1 Q:    dist_db 2015640484 x 2148074382 limbs: 2 x 2 pieces of 1007820242 + 1074037191, 4 formed, 0 skipped | 2^31 points per piece (C form), planes 51.54 GB per node
+plan leaf   level 26 pair 0 of 1 P:    dist_db 4163714866 x 1391840694 limbs: 5 x 2 pieces of 832742974 + 695920347, 10 formed, 0 skipped | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan leaf   level 26 pair 0 of 1 Q:    dist_db 4163714866 x 1391840694 limbs: 5 x 2 pieces of 832742974 + 695920347, 10 formed, 0 skipped | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan leaf   terms [1, 10433891471): 44211405 spans of 236, 22 levels below the device tier (batch/school: no grids), 4 device (mdev) levels
+plan recip  j 2 -> 3 Q_t r:    dist_db 9 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 2 -> 3 r d:    dist_db 5 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 3 -> 6 Q_t r:    dist_db 12 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 3 -> 6 r d:    dist_db 7 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 6 -> 11 Q_t r:    dist_db 21 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 6 -> 11 r d:    dist_db 13 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 11 -> 21 Q_t r:    dist_db 36 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 11 -> 21 r d:    dist_db 23 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 21 -> 42 Q_t r:    dist_db 66 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 21 -> 42 r d:    dist_db 43 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 42 -> 83 Q_t r:    dist_db 129 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 42 -> 83 r d:    dist_db 85 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 83 -> 166 Q_t r:    dist_db 252 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 83 -> 166 r d:    dist_db 167 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 166 -> 332 Q_t r:    dist_db 501 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 166 -> 332 r d:    dist_db 333 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 332 -> 663 Q_t r:    dist_db 999 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 332 -> 663 r d:    dist_db 665 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 663 -> 1325 Q_t r:    dist_db 1992 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 663 -> 1325 r d:    dist_db 1327 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 1325 -> 2650 Q_t r:    dist_db 3978 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 1325 -> 2650 r d:    dist_db 2651 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 2650 -> 5299 Q_t r:    dist_db 7953 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 2650 -> 5299 r d:    dist_db 5301 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 5299 -> 10597 Q_t r:    dist_db 15900 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 5299 -> 10597 r d:    dist_db 10599 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 10597 -> 21193 Q_t r:    dist_db 31794 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 10597 -> 21193 r d:    dist_db 21195 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 21193 -> 42386 Q_t r:    dist_db 63582 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 21193 -> 42386 r d:    dist_db 42387 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 42386 -> 84772 Q_t r:    dist_db 127161 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 42386 -> 84772 r d:    dist_db 84773 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 84772 -> 169543 Q_t r:    dist_db 254319 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 84772 -> 169543 r d:    dist_db 169545 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 169543 -> 339085 Q_t r:    dist_db 508632 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 169543 -> 339085 r d:    dist_db 339087 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 339085 -> 678169 Q_t r:    dist_db 1017258 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 339085 -> 678169 r d:    dist_db 678171 limbs | one plane of 2^20 points (B form), planes 0.05 GB per node
+plan recip  j 678169 -> 1356337 Q_t r:    dist_db 2034510 limbs | one plane of 2^21 points (B form), planes 0.10 GB per node
+plan recip  j 678169 -> 1356337 r d:    dist_db 1356339 limbs | one plane of 3*2^19 points (B form), planes 0.08 GB per node
+plan recip  j 1356337 -> 2712674 Q_t r:    dist_db 4069014 limbs | one plane of 2^22 points (B form), planes 0.20 GB per node
+plan recip  j 1356337 -> 2712674 r d:    dist_db 2712675 limbs | one plane of 3*2^20 points (B form), planes 0.15 GB per node
+plan recip  j 2712674 -> 5425348 Q_t r:    dist_db 8138025 limbs | one plane of 2^23 points (B form), planes 0.40 GB per node
+plan recip  j 2712674 -> 5425348 r d:    dist_db 5425349 limbs | one plane of 3*2^21 points (B form), planes 0.30 GB per node
+plan recip  j 5425348 -> 10850695 Q_t r:    dist_db 16276047 limbs | one plane of 2^24 points (B form), planes 0.81 GB per node
+plan recip  j 5425348 -> 10850695 r d:    dist_db 10850697 limbs | one plane of 3*2^22 points (B form), planes 0.60 GB per node
+plan recip  j 10850695 -> 21701389 Q_t r:    dist_db 32552088 limbs | one plane of 2^25 points (B form), planes 1.61 GB per node
+plan recip  j 10850695 -> 21701389 r d:    dist_db 21701391 limbs | one plane of 3*2^23 points (B form), planes 1.21 GB per node
+plan recip  j 21701389 -> 43402778 Q_t r:    dist_db 65104170 limbs | one plane of 2^26 points (B form), planes 3.22 GB per node
+plan recip  j 21701389 -> 43402778 r d:    dist_db 43402779 limbs | one plane of 3*2^24 points (B form), planes 2.42 GB per node
+plan recip  j 43402778 -> 86805556 Q_t r:    dist_db 130208337 limbs | one plane of 2^27 points (B form), planes 6.44 GB per node
+plan recip  j 43402778 -> 86805556 r d:    dist_db 86805557 limbs | one plane of 3*2^25 points (B form), planes 4.83 GB per node
+plan recip  j 86805556 -> 173611112 Q_t r:    dist_db 260416671 limbs | one plane of 2^28 points (B form), planes 12.88 GB per node
+plan recip  j 86805556 -> 173611112 r d:    dist_db 173611113 limbs | one plane of 3*2^26 points (B form), planes 9.66 GB per node
+plan recip  j 173611112 -> 347222223 Q_t r:    dist_db 520833339 limbs | one plane of 2^29 points (B form), planes 25.77 GB per node
+plan recip  j 173611112 -> 347222223 r d:    dist_db 347222225 limbs | one plane of 3*2^27 points (B form), planes 19.33 GB per node
+plan recip  j 347222223 -> 694444445 Q_t r:    dist_db 1041666672 limbs | one plane of 2^30 points (B form), planes 51.54 GB per node
+plan recip  j 347222223 -> 694444445 r d:    dist_db 694444447 limbs | one plane of 3*2^28 points (B form), planes 38.65 GB per node
+plan recip  j 694444445 -> 1388888890 Q_t r:    dist_db 2083333338 limbs | one plane of 2^31 points (C form), planes 51.54 GB per node
+plan recip  j 694444445 -> 1388888890 r d:    dist_db 1388888891 limbs | one plane of 3*2^29 points (B form), planes 77.31 GB per node
+plan recip  j 1388888890 -> 2777777779 Q_t r:    dist_db 2777777782 x 1388888891 limbs: 2 x 2 pieces of 1388888891 + 694444446, 4 formed, 0 skipped (low cut) | 2^31 points per piece (C form), planes 51.54 GB per node
+plan recip  j 1388888890 -> 2777777779 r d:    dist_db 1388888891 x 1388888890 limbs: 1 x 2 pieces of 1388888891 + 694444445, 2 formed, 0 skipped (low cut) | 2^31 points per piece (C form), planes 51.54 GB per node
+plan recip  j 2777777779 -> 5555555558 Q_t r:    dist_db 5555555560 x 2777777780 limbs: 9 x 3 pieces of 617283952 + 925925927, 24 formed, 3 skipped (low cut) | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan recip  j 2777777779 -> 5555555558 r d:    dist_db 2777777780 x 2777777779 limbs: 2 x 4 pieces of 1388888890 + 694444445, 7 formed, 1 skipped (low cut) | 2^31 points per piece (C form), planes 51.54 GB per node
+plan div    A_h mu:    dist_db 5555555557 x 5555555558 limbs: 7 x 7 pieces of 793650794 + 793650794, 28 formed, 21 skipped (low cut) | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan div    X Q mod B^w:    dist_db 5555555557 x 5555555560 limbs: 7 x 7 pieces of 793650794 + 793650795, 31 formed, 18 skipped (low product) | 3*2^29 points per piece (B form), planes 77.31 GB per node
+plan summary 1e+11 digits g 1: pieces tree 0 recip 97 div 59 total 156 | tree with each level's largest group 0, total 156 | grids tree 0 recip 4 div 2 | leaf dist_db 46 (6 grids) recip single-node chain 0 | levels (node 0 / largest) -
+plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div); size 1: the dist tier's (the model counts none there)
