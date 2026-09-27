@@ -176,7 +176,8 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
             for (int l = STG - 1; l > 0; l--) T[mm_][l - 1] = ec_mm(T[mm_][l], T[mm_][l], p, pinv);
         }
     }
-#pragma unroll
+    /* the thirds in a rolled loop, the registers rotating through static indices (unrolled: 175-228 VGPRs) */
+#pragma unroll 1
     for (int r_ = 0; r_ < NR; r_++) {
         const size_t xo = base + (size_t)r_ * n;
         if (r_) {
@@ -188,7 +189,10 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
         }
         if (R3 && !INV) {
 #pragma unroll
-            for (int i = 0; i < 8; i++) sh[(tt + 16 * i) * BP + bb] = rv[R3 ? r_ : 0][R3 ? i : 0];
+            for (int i = 0; i < 8; i++) {
+                sh[(tt + 16 * i) * BP + bb] = rv[0][R3 ? i : 0];
+                rv[0][R3 ? i : 0] = rv[R3 ? 1 : 0][R3 ? i : 0]; rv[R3 ? 1 : 0][R3 ? i : 0] = rv[R3 ? 2 : 0][R3 ? i : 0];
+            }
         } else {
 #pragma unroll
             for (j = tt; j < 128; j += 16) sh[j * BP + bb] = x[xo + EOFF(j)];
@@ -231,7 +235,7 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
             for (int i = 0; i < 8; i++) {
                 uint64_t v = sh[(tt + 16 * i) * BP + bb];
                 if (scale != 0.0) v = (uint64_t)ec_mm((double)v, scale, p, pinv);
-                rv[R3 ? r_ : 0][R3 ? i : 0] = v;
+                rv[0][R3 ? i : 0] = rv[R3 ? 1 : 0][R3 ? i : 0]; rv[R3 ? 1 : 0][R3 ? i : 0] = rv[R3 ? 2 : 0][R3 ? i : 0]; rv[R3 ? 2 : 0][R3 ? i : 0] = v;
             }
         } else {
 #pragma unroll
