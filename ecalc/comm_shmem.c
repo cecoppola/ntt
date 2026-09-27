@@ -115,7 +115,8 @@ static struct {
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
     pthread_mutex_t alloc_lock;
-    struct blk *blocks;
+    struct blk *blocks;                    /* the general area's blocks */
+    struct blk *slot[4]; size_t slot_bytes; int nslot;   /* Phase 14 V1: the staging regions, one per APU (COMM_SHMEM_STAGE_SLOT_MB, set by the pool rule) */
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
@@ -142,12 +143,27 @@ const char *comm_shmem_impl(void)
 #endif
 }
 
-/* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free) */
+/* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free).
+ * Phase 14 V1: with the pool sized to the model's need (COMM_SHMEM_POOL_AUTO, mnrun.sh's plan) one first-fit area fragments:
+ * the four APU threads allocate and free staging of different sizes out of step (4 processes at 1e10: 529 MiB not found with
+ * 1441 MiB free in a 4608 MiB pool).  So the staging has one region per APU (the thread's HIP device), each the model's
+ * per-APU need (COMM_SHMEM_STAGE_SLOT_MB, exported by binsplit_shmem_pool_rule): a thread's staging is its current exchange's
+ * send + receive, freed before the next, so its region never fragments.  A request that does not fit its region (the model
+ * low, a fifth thread) falls back to the general area; COMM_SHMEM_STAGE_SLOTS=0 turns the regions off. */
+static struct blk **alloc_list(int kind)
+{
+#ifndef COMM_HOST_ONLY
+    if (kind == K_STAGE && S.nslot) { int d = -1; if (hipGetDevice(&d) != hipSuccess) { (void)hipGetLastError(); d = -1; } if (d >= 0 && d < S.nslot) return &S.slot[d]; }
+#endif
+    (void)kind; return &S.blocks;
+}
 static size_t pool_alloc(size_t len, int kind)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
+    struct blk **lists[2] = { alloc_list(kind), &S.blocks };
     pthread_mutex_lock(&S.alloc_lock);
-    for (struct blk *b = S.blocks; b; b = b->next) if (!b->used && b->len >= len) {
+    for (int li = 0; li < (lists[0] == lists[1] ? 1 : 2); li++)
+    for (struct blk *b = *lists[li]; b; b = b->next) if (!b->used && b->len >= len) {
         if (b->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
         b->used = 1; b->kind = kind;
         S.cur[kind] += len; if (S.cur[kind] > S.peak[kind]) S.peak[kind] = S.cur[kind]; S.cur_all += len;
@@ -164,8 +180,9 @@ static size_t pool_alloc(size_t len, int kind)
 static void pool_free(size_t off)
 {
     pthread_mutex_lock(&S.alloc_lock);
-    struct blk *p = 0;
-    for (struct blk *b = S.blocks; b; p = b, b = b->next) if (b->off == off) {
+    struct blk *p = 0, *head = S.blocks;
+    if (S.nslot && off >= S.pool_bytes - (size_t)S.nslot * S.slot_bytes) head = S.slot[(off - (S.pool_bytes - (size_t)S.nslot * S.slot_bytes)) / S.slot_bytes];
+    for (struct blk *b = head; b; p = b, b = b->next) if (b->off == off) {
         b->used = 0; S.cur[b->kind] -= b->len; S.cur_all -= b->len; if (b->kind == K_STAGE) S.nstage--;
         if (b->next && !b->next->used) { struct blk *n = b->next; b->len += n->len; b->next = n->next; free(n); }
         if (p && !p->used) { p->len += b->len; p->next = b->next; free(b); }
@@ -293,9 +310,19 @@ int comm_shmem_init(void)
     }
 #endif
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
+#ifndef COMM_HOST_ONLY
+    {   /* Phase 14 V1: the four staging regions at the pool's end, when the rule sized them and the general area keeps >= 64 MiB */
+        const char *es = getenv("COMM_SHMEM_STAGE_SLOT_MB"); size_t sb = es ? (size_t)(atof(es) * 1048576.0) : 0; sb = (sb + ALIGN - 1) & ~(size_t)(ALIGN - 1);
+        if (sb && env_int("COMM_SHMEM_STAGE_SLOTS", 1) && 4 * sb + ((size_t)64 << 20) <= S.blocks->len) {
+            S.nslot = 4; S.slot_bytes = sb; S.blocks->len -= 4 * sb;
+            for (int i = 0; i < 4; i++) { struct blk *b = (struct blk *)malloc(sizeof *b); b->off = S.pool_bytes - (size_t)(4 - i) * sb; b->len = sb; b->used = 0; b->next = 0; S.slot[i] = b; }
+        } else if (sb && S.me == 0) fprintf(stderr, "comm_shmem: no staging regions (%zu MiB each do not fit the pool beside 64 MiB): one first-fit area\n", sb >> 20);
+    }
+#endif
     shmem_barrier_all();                                  /* every mailbox is zeroed before anyone posts */
     S.inited = 1;
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
+    if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.extheap ? (S.devheap == 2 ? " (HIP managed, SOS external heap)" : " (HIP fine-grained device, SOS external heap)") : S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.thread_always ? ", helper thread" : S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us);

@@ -402,6 +402,7 @@ size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; d
  * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
  * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin; DIST_MN_SYM_SLABS=1 adds 3 q per APU.
  * by: the product that sets the staging. */
+static size_t g_stage_apu;                                  /* Phase 14 V1: the last need's per-APU staging (bytes), for the staging regions */
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen)
 {
     if (size < 2) return 0;
@@ -425,6 +426,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
       const char *er = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl = er && atof(er) > 0 ? (size_t)(atof(er) * 1048576.0) / 8 : 0;   /* Phase 14 V1: the transport's rounds bound each side */
       if (Rl) { size_t a = (so + K - 1) / K / size * (size - 1), b = (si + K - 1) / K / size * (size - 1); st = (a > Rl ? Rl : a) + (b > Rl ? Rl : b); }   /* (the peers' part: no self slab) */
       if (st > best) { best = st; who = "the division's mdb_shift"; } }
+    g_stage_apu = best * 8;
     size_t staging = 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
@@ -451,6 +453,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     int autoset = getenv("COMM_SHMEM_POOL_AUTO") ? atoi(getenv("COMM_SHMEM_POOL_AUTO")) != 0 : 1;   /* Phase 14 V1: on by default */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_NEED_MB", v, 1); }   /* for comm_shmem's pool-full error */
+    { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* Phase 14 V1: comm_shmem's staging regions (one per APU; + 1 MiB of alignment) */
     if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB\n", mb, by, mb + 512); return mb; }
     if (mb > have && autoset) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1);
