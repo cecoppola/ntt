@@ -342,7 +342,7 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
  * keeps a second request of the same device out of the slot table while the calls run (it waits, then retries its ext_take).  The
  * chunks that move are out of the extents before the lock is dropped, and the target slots are empty or among them, so nothing
  * else in the pool can touch that VA meanwhile.  Same free chunks, same target slot as vmm_make_room: the same layout. */
-static int vmm_hip_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs, int *created)   /* vmm_map_run without the slot table or the counters */
+static int vmm_hip_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs, int *created, double *t_acc)   /* vmm_map_run without the slot table or the counters; t_acc: hipMemSetAccess's seconds */
 {
     struct vmm *v = &g_vmm[d]; hipMemAllocationProp prop; memset(&prop, 0, sizeof prop);
     prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
@@ -352,7 +352,8 @@ static int vmm_hip_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t 
     }
     hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
     for (int c = 0; c < v->nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
-    return hipMemSetAccess(v->base + (size_t)slot0 * v->chunk, (size_t)m * v->chunk, ad, v->nd) == hipSuccess;
+    double t0 = mem_now(); int ok = hipMemSetAccess(v->base + (size_t)slot0 * v->chunk, (size_t)m * v->chunk, ad, v->nd) == hipSuccess; *t_acc = mem_now() - t0;
+    return ok;
 }
 static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on entry and on return; dropped during the HIP calls) as vmm_make_room */
 {
@@ -376,9 +377,10 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
     for (int i = 0; i < nf; i++) { ext_remove(d, v->base + (size_t)fr[i] * C, C); hs[i] = v->h[fr[i]]; }
     v->busy = 1;
     pthread_mutex_unlock(&g_pool_mx);
-    double th = mem_now(); int created = 0, ok = 1;
+    double th = mem_now(); int created = 0, ok = 1; double t_acc = 0;
     for (int i = 0; i < nf; i++) if (hipMemUnmap(v->base + (size_t)fr[i] * C, C) != hipSuccess) { ec_fatal(EC_RC_FATAL, "dbig: hipMemUnmap failed\n"); }
-    ok = vmm_hip_run(d, slot0, m, hs, &created);
+    double t_unmap = mem_now() - th;
+    ok = vmm_hip_run(d, slot0, m, hs, &created, &t_acc);
     th = mem_now() - th;
     pthread_mutex_lock(&g_pool_mx);
     for (int i = 0; i < nf; i++) v->h[fr[i]] = 0;
@@ -389,8 +391,8 @@ static int vmm_make_room_par(int d, size_t need)       /* (the pool lock held on
     ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
     v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0; v->t_hip += th;
     if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
-                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s (concurrent: HIP calls %.3f s); free %.2f GB in %d extents, live %.2f GB\n",
-                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, th, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
+                    printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s (concurrent: HIP calls %.3f s = unmap %.3f + map %.3f + access %.3f); free %.2f GB in %d extents, live %.2f GB\n",
+                           d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, th, t_unmap, th - t_unmap - t_acc, t_acc, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
     free(fr); free(hs); return 1;
 }
