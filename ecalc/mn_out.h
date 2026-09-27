@@ -56,6 +56,17 @@ typedef struct {
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
 void mn_out_finish(mn_out *o);                                       /* wait for the writes, close the part file */
+/* Phase 15 IO (W5d): MN_OUT_EARLY=1 at size > 1 -- the part file streamed during the division's low product, as the one-node
+ * path does (the division's hook, newton_mn_x_hook, gives X before the low product).  mn_out_early_start runs on every rank at
+ * the hook (it all-gathers the T2 tails: a collective) and starts a background thread running mn_out_run over this rank's
+ * share of X (read on the device, as out_stage reads it); mn_out_early_join returns the finished mn_out (its last write still
+ * in flight: mn_out_finish as usual).  A correction to X after the hook (newton_st's corrections) makes the caller redo the
+ * part file (mn_out_run again), as at size 1.  No waves in the background (MN_OUT_WAVES is ignored with it). */
+typedef struct mn_out_early mn_out_early;
+struct mdb_s;
+mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c);
+mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
+void mn_out_early_free(mn_out_early *e);                              /* after mn_out_finish */
 /* the digit residues of the whole string from the nodes' (ndig, dres) (all-gathered over c; c = 0 at size 1) */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres);
 /* residues of a limb share modulo the T1 primes: the device kernel (db_mod_qs) or the host Horner */

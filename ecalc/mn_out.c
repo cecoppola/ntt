@@ -502,6 +502,37 @@ void mn_out_finish(mn_out *o)
     sem_destroy(&w->job_ready); sem_destroy(&w->job_taken); sem_destroy(&w->buf_free[0]); sem_destroy(&w->buf_free[1]);
     free(w); o->priv = 0;
 }
+/* ---- Phase 15 IO (W5d): MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
+#include "mdb.h"
+struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run; };
+static void *early_run(void *a)
+{
+    struct mn_out_early *e = (struct mn_out_early *)a;
+    omp_set_num_threads(getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's */
+    double t0 = mem_now(); mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
+    return 0;
+}
+mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c)
+{
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
+    e->sh = X->sh;                                     /* the share's descriptor by value (the division moves its mdb; the blocks stay) */
+    size_t lo, hi; mdb_share(X, rank, &lo, &hi);
+    e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
+    e->o.d = d; e->o.d_out = d_out; e->o.outfile = outfile; e->o.rank = rank; e->o.size = size; e->o.verbose = verbose;
+    mn_out_boundaries(&e->o, &e->src, c);             /* collective: every rank is at the hook */
+    e->o.c = 0;                                        /* no waves in the background (their barriers would race the division's exchanges) */
+    sp_dev_sync_all();                                 /* X complete on every APU before the writer's copies on its own streams */
+    if (pthread_create(&e->th, 0, early_run, e) == 0) e->started = 1; else early_run(e);
+    return e;
+}
+mn_out *mn_out_early_join(mn_out_early *e, double *t_run)
+{
+    if (e->started) { pthread_join(e->th, 0); e->started = 0; }
+    if (t_run) *t_run = e->t_run;
+    return &e->o;
+}
+void mn_out_early_free(mn_out_early *e) { if (e) { if (e->started) pthread_join(e->th, 0); free(e); } }
+
 /* the whole string's residue from the nodes' pieces, top node first: D = D 10^ndig_r + dres_r */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
 {

@@ -752,6 +752,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 /* X = floor((P + Q) B^dl / Q) over G (P, Q consumed); pres/qres/rres: residues mod qs[nres] of P, Q and R = A - X Q;
  * t_recip: the reciprocal's seconds.  Mirrors newton_db_divmod_shifted with S = P + Q. */
 void (*newton_mn_pq_hook)(int stage, mdb *x) = 0;   /* Phase 13 N (mn.c): 0 = before S = P + Q overwrites P, 1 = before Q is freed */
+void (*newton_mn_x_hook)(mdb *X, void *arg) = 0; void *newton_mn_x_arg = 0;   /* Phase 15 IO (W5d): the part file streamed during the low product (ecalc.c, MN_OUT_EARLY) */
 void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
 {
     double t0 = mem_now(); int me = G->me;
@@ -782,6 +783,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     else mn_prod(&t, &Ah, &mu, G);
     mfree(&Ah); mfree(&mu);
     mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
+    if (newton_mn_x_hook) newton_mn_x_hook(&Xn, newton_mn_x_arg);   /* Phase 15 IO (W5d): every rank, the same point (the hook may run a collective) */
     double tc = mem_now();
     /* the low product X Q mod B^w (A5: the grid with the pieces above w skipped, delivered in basis w), the window
      * A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
