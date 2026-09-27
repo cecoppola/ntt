@@ -1,0 +1,11 @@
+# RL step 2: mnaccept's stress step with the switch; the concurrent remap's call split (unmap / map / access) and a 4 GiB chunk;
+# then BS_SEED_FILL=128 (p15-T2, the scratch checkout rl-fill = p15-RL + p15-T2, timing only) at 1e11 without the digit file off/on/off/on.
+stress login DB_POOL_VMM_PAR=1 ./mnaccept.sh $J --stress --only stress
+pq1  node DB_POOL_VMM_PAR=1 DB_POOL_VERBOSE=1 ./tests/t_vmm_par 44 2
+pq4  node DB_POOL_VMM_PAR=0 DB_POOL_VERBOSE=1 ./tests/t_vmm_par 44 2 4
+f0a  100000000000 nw:s DB_POOL_VERBOSE=1 BS_SEED_FILL=128
+f1a  100000000000 nw:s DB_POOL_VERBOSE=1 BS_SEED_FILL=128 DB_POOL_VMM_PAR=1
+f0b  100000000000 nw:s DB_POOL_VERBOSE=1 BS_SEED_FILL=128
+f1b  100000000000 nw:s DB_POOL_VERBOSE=1 BS_SEED_FILL=128 DB_POOL_VMM_PAR=1
+d0b  100000000000 nw DB_POOL_VERBOSE=1
+d1b  100000000000 nw DB_POOL_VERBOSE=1 DB_POOL_VMM_PAR=1
