@@ -72,5 +72,13 @@ b4() {
         erun $tag $p 10000000000 $([ $p = 1 ] && echo 31 || echo 29) ECALC_NP=auto $ex RNS_STRATEGY=C RNS_VERBOSE=1
     done; done
 }
+b5() {   # size 1 again with the B form's lines tagged (59371a3): the forced unit tests and runs, the B form and C
+    R "LIMB_BASE=10 ECALC_NP=auto ECALC_NP_AUTO_TERMS=4000000 RNS_VERBOSE=1 ./tests/t_dbig 0 x" > "$OUT/t_dbig_k5.log" 2>&1; echo "t_dbig 0 x (decimal, bound 4e6) rc $? $(vline "$OUT/t_dbig_k5.log"); lines at 4 primes $(grep -ac ', 4 primes' "$OUT/t_dbig_k5.log"), at 3 $(grep -ac ', 3 primes' "$OUT/t_dbig_k5.log")"
+    R "LIMB_BASE=10 ECALC_NP=auto ECALC_NP_AUTO_TERMS=300000 RNS_VERBOSE=1 ./tests/t_newton 20" > "$OUT/t_newton_k5.log" 2>&1; echo "t_newton 20 (decimal, bound 3e5) rc $? $(vline "$OUT/t_newton_k5.log"); lines at 4 primes $(grep -ac ', 4 primes' "$OUT/t_newton_k5.log"), at 3 $(grep -ac ', 3 primes' "$OUT/t_newton_k5.log")"
+    R "LIMB_BASE=10 ECALC_NP=auto ECALC_NP_AUTO_TERMS=300000 RNS_VERBOSE=1 RNS_STRATEGY=C ./tests/t_newton 20" > "$OUT/t_newton_k5c.log" 2>&1; echo "t_newton 20 (decimal, bound 3e5, RNS_STRATEGY=C) rc $? $(vline "$OUT/t_newton_k5c.log"); lines at 4 primes $(grep -ac ', 4 primes' "$OUT/t_newton_k5c.log"), at 3 $(grep -ac ', 3 primes' "$OUT/t_newton_k5c.log")"
+    erun e9_k8e6_1b 1 1000000000 31 ECALC_NP=auto ECALC_NP_AUTO_TERMS=8000000 RNS_VERBOSE=1
+    erun e9_k8e6_1c 1 1000000000 31 ECALC_NP=auto ECALC_NP_AUTO_TERMS=8000000 RNS_VERBOSE=1 RNS_STRATEGY=C
+    erun e8_k2e6_1b 1 100000000 31 ECALC_NP=auto ECALC_NP_AUTO_TERMS=2000000 RNS_VERBOSE=1
+}
 for b in $(echo "$1" | grep -o .); do job $b; done
 echo "np15_job $1 done $(date)"
