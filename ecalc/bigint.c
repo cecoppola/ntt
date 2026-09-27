@@ -169,9 +169,10 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
 /* Phase 15 S1 (BI_MUL1_FAST): the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
  * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
  * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
- * So rem = x m - qe B (mod 2^64; the true value is in [0, 2B) < 2^64) needs one correction.  The quotient does not depend
- * on the incoming carry: the only loop-carried chain is s = rem + c, c = qe + (s >= B) (Q <= m - 1 since x < B, so
- * c <= m <= B - 1 and s < 2B).  The limbs are those of the exact product, hence identical to the serial form's. */
+ * So s = x m - qe B + c (mod 2^64; the true value is (x m mod B) + (Q - qe) B + c, in [0, 3B) < 2^64 while c <= B) needs at
+ * most two corrections, each a compare against a constant (branch-free: clang made the one-at-a-time form branchy, 2x slower
+ * on Zen 2).  The quotient does not depend on the incoming carry: the loop-carried chain is only s, c = qe + f + g
+ * (<= m <= B - 1 since x < B).  The limbs are those of the exact product, hence identical to the serial form's. */
 /* floor(m 2^64 / 10^18) for m < 10^18 (a 64-bit value: kept out of line so that the loops see a 64-bit multiplier) */
 __attribute__((noinline)) static uint64_t recip_b10(uint64_t m) { return (uint64_t)(((u128)m << 64) / B10); }
 static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t c)
@@ -180,10 +181,9 @@ static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, 
     for (size_t i = 0; i < na; i++) {
         uint64_t x = a[i];
         uint64_t qe = (uint64_t)(((u128)x * mh) >> 64);
-        uint64_t rem = x * m - qe * B10;
-        uint64_t f = rem >= B10; rem -= B10 & (0 - f); qe += f;
-        uint64_t s = rem + c, g = s >= B10;
-        r[i] = s - (B10 & (0 - g)); c = qe + g;
+        uint64_t s = x * m - qe * B10 + c;           /* true value: (x m - Q B) + (Q - qe) B + c in [0, 3B) */
+        uint64_t f = s >= B10, g = s >= 2 * B10;
+        r[i] = s - (B10 & (0 - f)) - (B10 & (0 - g)); c = qe + f + g;
     }
     return c;
 }
@@ -199,9 +199,9 @@ void bi_span_step(bigint *P, bigint *Q, uint64_t k)
     uint64_t *p = P->l, *q = Q->l, ca = 0, c = 0;
     const uint64_t mh = recip_b10(k);
     size_t lo = pn < n ? pn : n;
-#define SPAN_MUL(x) do { uint64_t qe = (uint64_t)(((u128)(x) * mh) >> 64), rem = (x) * k - qe * B10; \
-                         uint64_t f = rem >= B10; rem -= B10 & (0 - f); qe += f; \
-                         uint64_t s = rem + c, g = s >= B10; q[i] = s - (B10 & (0 - g)); c = qe + g; } while (0)
+#define SPAN_MUL(x) do { uint64_t qe = (uint64_t)(((u128)(x) * mh) >> 64), s = (x) * k - qe * B10 + c; \
+                         uint64_t f = s >= B10, g = s >= 2 * B10; \
+                         q[i] = s - (B10 & (0 - f)) - (B10 & (0 - g)); c = qe + f + g; } while (0)
     for (i = 0; i < lo; i++) {
         uint64_t x = q[i], t = p[i] + x + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca));
         SPAN_MUL(x);
