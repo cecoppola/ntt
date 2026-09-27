@@ -258,13 +258,18 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
     while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
+size_t db_pool_vmm_chunk(void)                      /* Phase 15 AS: the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
+{
+    const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20;
+    return C / ((size_t)2 << 20) * ((size_t)2 << 20);
+}
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of `bytes` (rounded up to whole chunks: the rest is free pool space) as a VMM range; a borrowed region
                                                                  * record.  The first `first` bytes (the parity-0 half: the seeds' target) are mapped before returning, the rest by a thread
                                                                  * (db_vmm_arena_wait before their first use: Phase 14 R1, the +8 s of init) */
 {
     struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
-    const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20; C = C / ((size_t)2 << 20) * ((size_t)2 << 20);
-    e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
+    size_t C = db_pool_vmm_chunk();
+    const char *e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
     int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
     int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);

@@ -340,7 +340,7 @@ static void region_need(unsigned long N, size_t need[NR])
  * at 4 / 7 / 8e10, exactly the in-phase hipMalloc) -- reserved as the arena's tail; thresh is what the pool treats as "large"
  * (5/8 of the hole: r, r2 at ~ half of it stay out of the tail, t1 takes it).  At size > 1 the shares are 1/size of it
  * (the sharded division, A-div) and the tree's products add their slabs (tree_need_dev). */
-struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight, tail_dead; };   /* Phase 14 L1: jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
+struct dm_layout { size_t nq, k, tcap, hole, thresh, need_dev, tree_dev; size_t jl, v2, v3, div; int tight, tail_dead; size_t room; };   /* Phase 15 AS: room = BS_ARENA_ROOM's term (in need_dev) */   /* Phase 14 L1: jl = the last doubling's start, v2 / v3 / div = the terms per device, the switches */
 static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 4096 * 4096 * 8; }
 /* Phase 14 L1 (APUMULT_STUDY E2, E5): DM_TIGHT=1 -- the reciprocal reserves r2 only when d is first written (2j + 4 limbs, freed whenever
  * its content is dead) and t1 per doubling at Q_t (take) + r (j + 1) + 8, and the device tier's top levels free each input pair as it is
@@ -374,6 +374,19 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     }
     (void)pool_log;
     return best + best / 16;
+}
+/* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
+ * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
+ * the dm need and the VMM pool remapped them (15 remaps, 9.5 s at 1e11 on B1, measured): (1) every VMM arena is laid out in whole
+ * chunks (DB_POOL_VMM_CHUNK_GB) -- the chunks are mapped whole anyway, so this costs no memory, and the reserved tail then ends
+ * where the arena's last extent ends (a remainder after it made the pool carve spills from the tail's front: the reciprocal's two
+ * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
+ * whole.  f from the pool replays of measured traces (tests/as_pool_replay.py). */
+static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.0; if (f < 0) f = 0; } return f; }
+static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_ARENA_ROOM lays it out: whole VMM chunks */
+{
+    if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
+    size_t C = db_pool_vmm_chunk(); return (bytes + C - 1) / C * C;
 }
 static void dm_layout(unsigned long N, int size, struct dm_layout *L)
 {
@@ -426,6 +439,8 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
       if (top > L->need_dev) L->need_dev = top; }
     size_t top_scratch = 0; L->tree_dev = size > 1 ? tree_need_dev(nq_s, size, pl, &top_scratch) : 0;
     L->need_dev += top_scratch;
+    L->room = bs_arena_room() > 0 && db_pool_vmm_on() ? (size_t)(bs_arena_room() * (double)L->hole) : 0;   /* Phase 15 AS */
+    L->need_dev += L->room;
 }
 size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
 /* Phase 14 P2 (results/P214.md): the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
@@ -519,7 +534,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
         size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
         cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
         size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
-        arena += base + extra; bs2 += base;
+        arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS: whole chunks under BS_ARENA_ROOM */
     }
     if (bs2_) *bs2_ = bs2;
     return arena;
@@ -561,10 +576,11 @@ static void binsplit_layout_only(const char *spec)
             size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
             cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;   /* arena_get's rounding */
             size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
-            arena += base + extra; bs2 += base;
+            arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS */
         }
-        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d\n",
-               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, mn_tree_early_free > 0);   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */
+        printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu\n",
+               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, mn_tree_early_free > 0,
+               L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0);   /* Phase 15 AS: BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */
         /* Phase 13b P: the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
          * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
         { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);
@@ -625,9 +641,10 @@ void binsplit_pregrow(unsigned long N)
             extra[r] = want > base ? want - base : 0;             /* the hole is a policy over the arena's last bytes, not bytes added: at the dm phase the
                                                                   * level pools are dead and the pool's blocks keep out of the tail, so it is free whenever
                                                                   * the arena holds the dm need at all (v2; v1 added the hole to the arena: +3.7 GB at 4e10, +32 at 9e10) */
+            extra[r] = as_arena(base + extra[r]) - base;          /* Phase 15 AS: whole chunks under BS_ARENA_ROOM (the tail ends at the last chunk's end) */
         }
-        if (bs_verbose && tail_on) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
-                                          dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "");
+        if (bs_verbose && tail_on) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
+                                          dml.room ? "; BS_ARENA_ROOM: room in need, arenas in whole chunks" : "", dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "");
         if (dml.tight) db_pool_pack_large(1);                  /* Phase 14 L1 (DM_TIGHT): the large blocks packed at the arena's top (dbig.c ext_take) */
 #pragma omp parallel for num_threads(NR) schedule(static) if(par)
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
