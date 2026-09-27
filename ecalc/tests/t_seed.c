@@ -15,7 +15,10 @@
  */
 #include "harness.h"
 #include <omp.h>
-void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b);
+#ifdef __cplusplus
+extern "C"
+#endif
+void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b);   /* binsplit.c (Phase 15 S1) */
 
 #define B BI_B10
 static long mism = 0;
@@ -32,7 +35,7 @@ static void test_mul1(rng_t *rg)
     const uint64_t edge[] = { 0, 1, 2, 10, (1ULL << 33) - 1, 1ULL << 33, (1ULL << 33) + 1, 3500000000000ULL, 4000000000000ULL, (1ULL << 44) - 1,
                               1ULL << 44, 100000000000000000ULL, B / 2, B - 2, B - 1 };
     const size_t lens[] = { 1, 2, 3, 17, 64, 256, 287, 300, 1000 };
-    size_t cap = 1001; uint64_t *a = malloc(cap * 8), *r0 = malloc(cap * 8), *r1 = malloc(cap * 8);
+    size_t cap = 1001; uint64_t *a = (uint64_t *)malloc(cap * 8), *r0 = (uint64_t *)malloc(cap * 8), *r1 = (uint64_t *)malloc(cap * 8);
     long checks = 0, gmp_checks = 0; mpz_t za, zr, zb;
     mpz_init(za); mpz_init(zr); mpz_init(zb);
     int nr = sizeof R / sizeof *R, ne = sizeof edge / sizeof *edge;
@@ -56,7 +59,7 @@ static void test_mul1(rng_t *rg)
                 }
     free(a); free(r0); free(r1);
     /* the parallel path (chunks of 2^20 limbs above 2^22): one per range */
-    size_t N = ((size_t)1 << 22) + 5; a = malloc(N * 8); r0 = malloc(N * 8); r1 = malloc(N * 8);
+    size_t N = ((size_t)1 << 22) + 5; a = (uint64_t *)malloc(N * 8); r0 = (uint64_t *)malloc(N * 8); r1 = (uint64_t *)malloc(N * 8);
     gen_limbs(a, N, GEN_UNIFORM, rg);
     for (int ri = 0; ri < nr; ri++) {
         uint64_t m = rnd_range(rg, R[ri][0], R[ri][1]);
@@ -111,8 +114,8 @@ static void test_span(rng_t *rg, long per)
         uint64_t seed = rng_next(rg);
         /* the switch is a process-wide flag: every span computed off and stored, then on and compared (two passes) */
         long ns = per * (long)(sizeof Ss / sizeof *Ss);
-        unsigned long *as = malloc(ns * sizeof *as), *bs = malloc(ns * sizeof *bs);
-        bigint *P = calloc(ns, sizeof *P), *Q = calloc(ns, sizeof *Q);
+        unsigned long *as = (unsigned long *)malloc(ns * sizeof *as), *bs = (unsigned long *)malloc(ns * sizeof *bs);
+        bigint *P = (bigint *)calloc(ns, sizeof *P), *Q = (bigint *)calloc(ns, sizeof *Q);
         rng_t r = { seed };
         for (long i = 0; i < ns; i++) {
             unsigned long S = Ss[i % (sizeof Ss / sizeof *Ss)];
