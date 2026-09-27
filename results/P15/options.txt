@@ -1,0 +1,14 @@
+T = 4.25e+13 digits on 576 nodes, write 0.6 GB/s per node (MODELLED: mn_model DEFAULT15, TARGET fabric)
+option                                            wall s  +write s  pieces  node GB   planes detail
+3 primes (the plan today: stops at level 5)        231.1     349.6     183    398.8    103.7 levels 86.6 recip 28.4 div 29.1
+(a) ECALC_NP=4 everywhere                          277.9     396.3     183    416.0    120.9 levels 108.5 recip 35.0 div 36.0
+(b) 4 primes for pieces > the 3-prime bound        257.8     376.2     183    416.0    120.9 levels 100.0 recip 34.8 div 36.0
+(c) 3 primes, mn cap 2^35                         3242.8    3361.3   46472    384.7    103.7 levels 1047.1 recip 850.6 div 1258.2
+(c) 3 primes, mn cap 2^34                         9783.9    9902.4  184235    384.5    103.7 levels 3134.3 recip 2518.2 div 4044.4
+T = 4.29e+13 digits on 576 nodes, write 0.6 GB/s per node (MODELLED: mn_model DEFAULT15, TARGET fabric)
+option                                            wall s  +write s  pieces  node GB   planes detail
+3 primes (the plan today: stops at level 5)        231.6     351.2     183    400.9    103.7 levels 86.7 recip 28.2 div 29.1
+(a) ECALC_NP=4 everywhere                          278.4     398.0     183    418.1    120.9 levels 108.6 recip 34.9 div 36.0
+(b) 4 primes for pieces > the 3-prime bound        258.2     377.8     183    418.1    120.9 levels 100.1 recip 34.6 div 36.0
+(c) 3 primes, mn cap 2^35                         3304.9    3424.5   47392    386.6    103.7 levels 1067.5 recip 865.9 div 1283.9
+(c) 3 primes, mn cap 2^34                         9964.8   10084.4  187708    386.4    103.7 levels 3193.2 recip 2565.2 div 4118.8
