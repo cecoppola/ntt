@@ -12,8 +12,15 @@ sharded division are built product by product (the same grids, chains and cuts t
     ./mn_model.py --calib          the aac6 calibration (sizes 2, 3, 4, 6, 9 at 10^8-10^10 on one node, TCP and OSHMEM loopback)
     ./mn_model.py --schedules      the 576-node level schedules compared (MN_GROUPS: binary-clipped, 9-way, 3.3)
     ./mn_model.py --tree grid --groups 2,4,8,16,32,64,192,576 --group 64 --layers 3 --taper 0.5 --write-bw 2   (see ARGS)
+    ./mn_model.py --calib15        Phase 15: the model on the defaults against the Phase 14 one-node runs (both walls)
+    ./mn_model.py --fit15          Phase 15: refit CAL15 (init, bs, the seed wait, recip, division, the size-1 writer) and print it
 
 Everything printed as "modelled" is this script's arithmetic; "measured" cites the RESULTS section.
+
+Phase 15 (agent MD): the default design is DEFAULT15() -- the code's defaults since Phase 14 on the target's launch line (COMM_SHMEM_ROUND_MB=1024,
+the user's D2); --model p13 gives the Phase 13/14 model, --model legacy the Phase 12 one.  Two walls everywhere (the user's D3): without the disk
+write (the digits computed and verified) and with it; the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre,
+0.58-0.64 GB/s single-stream, MEASURED there -- apucode/apumult-ntt-reverse-port-catalog.md; 2.0 was the assumption before).
 """
 import argparse, math, sys, os, functools
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -106,7 +113,11 @@ class Fabric:
         """a small collective (all-gather of a few words, a max-reduction) over g nodes"""
         return 0.0 if g <= 1 else (g - 1) * self.lat + self.coll_fixed + 20e-6
 
-TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0)
+TARGET_WRITE_BW = 0.6                  # Phase 15: the target's /ssd0 (Lustre over Slingshot) single-stream write, MEASURED there 0.58-0.64 GB/s (the apumult
+                                       # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
+TARGET_WRITE_BWS = (2.0, 0.8, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
+TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
+TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=2.0)   # the historical reports (e10) at the old 2 GB/s
 
 # aac6: g node-processes on ONE node over a loopback transport (correctness transports; every product's local passes
 # shared g-way over the four APUs).  Fitted on the recorded walls (results/X.md, L.md, M11.md, S.md; --calib):
@@ -284,6 +295,9 @@ def choose_group(fab, n_pts, g, rule, form):
     if best[1] * 2 > g and best[1] != g: return g
     return best[1]
 
+NEWTON_RECIP_GUARD = 1                 # newton_db.c: the cut keeps one guard limb (NEWTON_RECIP_GUARD, default 1)
+def newton_recip_cut(v): return v - NEWTON_RECIP_GUARD if v > NEWTON_RECIP_GUARD else 0   # newton_db.c newton_recip_cut
+
 def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
     """the anchored chain k, ceil(k/2), ... : the single-node part to `split` on every node, then the sharded
     steps: per step Q_t r (take x (j+1)), the shift chain, r d ((j+1) x (j+2)), two adds"""
@@ -305,10 +319,11 @@ def recip_cost(fab, nq, k, g, rule, form, split=1 << 16):
             c.add(shift_cost(fab, j + 1, max(gp, cur or 1))); cur = gp
         groups.append((j, gp))
         if take < nq: c.add(shift_cost(fab, take, g))                  # Q_t out of Q (Q is over the full group)
-        c.add(product_cost(fab, take, j + 1, gp, form=form))           # Q_t r
+        cut = DZ is not None and DZ.p15 and DZ.recip_cut                # Phase 15: NEWTON_RECIP_CUT (default since Phase 14): the pieces wholly below the
+        c.add(product_cost(fab, take, j + 1, gp, lowcut=newton_recip_cut(take - j) if cut and j <= take else 0, form=form))   # band read are not formed -- Q_t r
         c.add(shift_cost(fab, take + j + 1, gp))                       # u
         c.add(small_cost(fab, gp, 4))                                  # limb, nonzero_below, pow, |B^2j - u|
-        c.add(product_cost(fab, j + 1, j + 2, gp, form=form))          # r d
+        c.add(product_cost(fab, j + 1, j + 2, gp, lowcut=newton_recip_cut(j) if cut else 0, form=form))          # r d
         c.add(shift_cost(fab, 2 * j + 3, gp))                          # corr
         c.add(shift_cost(fab, 2 * j + 1, gp))                          # r << j
         c.add(small_cost(fab, gp, 2))                                  # cmp, add
@@ -458,19 +473,31 @@ class Design:
     (None = the code's own rule: 3 2^30 below 5e10 digits of the run, else 2^31); chunk: 'off' | 'shift'
     (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
-    def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False):
+    def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
+                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
         self.t_mb = chunk_mb if chunk == 'both' else 0
+        # Phase 15 (agent MD): p15 = the code since Phase 14 (DEFAULT15()): the memory forms (DM_TIGHT, MN_TREE_EARLY_FREE, the SHMEM pool from the
+        # plan, DB_POOL_VMM's host and bs terms, COMM_SHMEM_ROUND_MB = round_mb: 1024 on the target's launch line, the user's D2), NEWTON_RECIP_CUT
+        # in the fabric's reciprocal, CAL15 (the one-node compute refitted on the Phase 14 defaults, the seed wait as its own term) and the part
+        # file as the code writes it (size > 1: after T1, not overlapped; out_overlap='half' = the model before: hidden under half the division).
+        # p15 False: exactly the Phase 13/14 model (every memory form as before, no cut, no CAL15, the part file beyond half the division).
+        self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut = p15, tight, early_free, round_mb, pool, vmm, recip_cut
+        self.out_overlap = out_overlap if out_overlap is not None else ('none' if p15 else 'half')
     def f_mm(self): return F_MM1 if self.modmul == 1 else 1.0
     def cap_at(self, digits): return self.cap if self.cap is not None else mem_model.code_cap(digits)
     def pool_log(self, digits=1e12): return mem_model.cap_pool(self.cap_at(digits))[0]
     def mem_opts(self, digits):
-        return dict(np=self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
-    def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy)
+        o = dict(mem_model.DEFAULTS15 if self.p15 else mem_model.OLD13)
+        if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm)
+        o.update(np=self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
+        return o
+    def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy,
+                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap)
     def name(self):
-        return '%s %s %s d%d' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth)
+        return '%s %s %s d%d%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '')
     def env(self):
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
@@ -479,9 +506,15 @@ class Design:
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
         e['COMM_ALLTOALLV_DEPTH'] = self.depth
+        if self.p15 and self.round_mb: e['COMM_SHMEM_ROUND_MB'] = int(self.round_mb)   # the target's launch line (D2); the rest are the code's defaults
         return e
 
-DEFAULT = Design()                     # the code after step 0: three primes, C, the code's cap rule, no chunking, depth 1, NTT_MODMUL=1
+def DEFAULT15(**kw):
+    """Phase 15 (agent MD): the code's defaults since Phase 14 on the target's launch line -- three primes, auto, 2^31, both chunks at 1024 MB,
+    depth 2, NTT_MODMUL=1, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM pool from the plan, COMM_SHMEM_ROUND_MB=1024 (D2)"""
+    o = dict(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True); o.update(kw)
+    return Design(**o)
+DEFAULT = DEFAULT15()                  # Phase 15: the estimate's design (was Design(): C, the cap rule, no chunking, depth 1 -- the code after step 0)
 DZ = None                              # the design of the run in progress (run() sets it; the cost functions read it)
 
 def round_cost(fab, g):
@@ -857,7 +890,7 @@ def _run_phases(r):
     return dict(init=r['init'], batch=batch, top=top, recip=r['recip'], div=div, other=max(0.0, r['total'] - r['init'] - r['bs'] - r['dm']))
 
 def _dev_init_ref(D, np, cap):
-    return mem_model.mem_per_node(int(D), 1, dict(np=np, cap=cap))['dev_init'] / 1e9
+    return mem_model.mem_per_node(int(D), 1, dict(mem_model.OLD13, np=np, cap=cap))['dev_init'] / 1e9
 
 @functools.lru_cache(maxsize=None)
 def phase_table(exclude=None):
@@ -1135,30 +1168,139 @@ PIECE13 = 1.0
 
 def DEFAULT13(): return Design(np=3, strategy='auto', cap=1 << 31, chunk='shift', depth=2, modmul=1)   # the Phase 13c defaults
 
+# ---- Phase 15 (agent MD): the one-node compute refitted on the Phase 14 defaults, the seed wait, the part file -------------------------------
+# CAL13 (above) is the 13c calibration; on the Phase 14 defaults (RNS_PLANES_FIRST, NEWTON_RECIP_CUT, DB_POOL_VMM + DM_TIGHT, ...) it had init
+# +7 s, bs -7 s and dm +7 s at 1e11 (23.6 / 90.0 / 110.0 against the measured 16.5 / 97.2 / 102.8).  CAL15 is a ratio law per group on top of
+# it, fitted like fit13 (weighted log-linear least squares in D / 4e10, held flat outside CAL15_RANGE) on CAL15_RUNS, and applies to every p15
+# design: init and bs (without the seed wait) at the leaf of the slowest node, dm at size 1 only (at size > 1 the reciprocal and the division
+# are the fabric model's pieces, with NEWTON_RECIP_CUT in the plan).  The seed wait (bs waiting for the level-0 spans after init; V3,
+# results/V314.md 1) is its own term: the seeds end at SEED15[0] + SEED15[1] x the node's span digits / 1e9 after the start, where a term above
+# 2^33 costs SLOW_F x (mul1_serial's u128 path, measured x 1.29 per limb-step on the node's Zen 4 CPU by V3) -- at the 576 target every
+# term of the top node is above 2^33, on one node only those of the top 18 % (1e11) to 36 % (1.3e11) of the digits.
+CAL15 = True
+CAL15_RANGE = (4e10, 1.3e11)
+CAL15_LAW = {'init': (0.6589, 0.2432), 'bs': (1.0154, -0.206), 'recip': (0.8657, -0.1572), 'div': (1.1631, -0.0625)}   # FITTED by fit15() on CAL15_RUNS (`mn_model.py --fit15`)
+SEED15 = (7.589, 0.28189)               # FITTED by fit15(): seeds end = a + b x span digits / 1e9 (s after the start)
+SLOW_K = 1 << 33                       # binsplit.c mul1_serial: the Barrett step only for m < 2^33
+SLOW_F = 1.29                          # MEASURED (V314 1: the u128 path's cost per limb-step against the fast one, Zen 4)
+OVL1 = 0.577                           # FITTED by fit15(): size 1 -- the writer runs under this fraction of the division (it starts at the hook, before the low product)
+WRITE_BW_AAC6 = 1.723                  # FITTED by fit15() (GB/s): aac6's local /tmp with ECALC_ODIRECT=1 -- the corrected runs' rewrite (dc less DC_FIX)
+DC_FIX = 1.6                           # MEASURED (the corrected 1e11 runs): dc's residues + fetch beside the write (0.7 + 0.9 s)
+DC_FMT1 = 0.0545                       # MEASURED (V314 e11_def / e11_def2 without a file: dc 5.55 / 5.43 s at 1e11, the digits redone after the corrections): s per 1e9 digits
+DC_FMT_MN = 0.061                      # s per 1e9 digits: size > 1, mn_out_run's formatting + digit residues + fetch, pipelined with the write -- MEASURED at size 1,
+                                       # 1e11 without a file (format 1.86 + digit residue 2.7 + fetch 0.86 + residues 0.7 = 6.1 s, V314), ASSUMED to carry to the target's
+                                       # 7.4e10 per node; 2 nodes at 5e9 per node measured 0.104 (V114 b2: 0.23 + 0.22 + 0.07 s, the small size's fixed costs)
+CAL15_RUNS = [   # the Phase 14 defaults, one node: D, init, bs, seeds (the bs line's wait), dm, recip, T1, total, corrections, file (a digit file written), dc, n, source
+    dict(D=4e10, init=11.1, bs=32.03, seeds=8.2, dm=23.47, recip=9.9, T1=0.0, total=66.66, corr=0, file=False, dc=0.0, n=1, src='V314 e4_def (job 21436, s24-30), no file'),
+    dict(D=1e11, init=17.2, bs=96.29, seeds=19.7, dm=101.61, recip=43.0, T1=0.67, total=215.93, corr=2, file=False, dc=5.55, n=1, src='V314 e11_def (job 21436, s24-30), no file'),
+    dict(D=1e11, init=18.5, bs=96.62, seeds=20.5, dm=101.20, recip=42.7, T1=0.67, total=217.10, corr=2, file=False, dc=5.43, n=1, src='V314 e11_def2 (job 21436, s24-30), no file'),
+    dict(D=1e11, init=16.48, bs=97.23, seeds=20.36, dm=102.81, recip=42.88, T1=23.46, total=240.33, corr=2, file=True, dc=60.18, n=5,
+         src='the five-run 1e11 series (closing.sh, s24-30, 2026-09-26 20:09-21:32 EDT): 239.58-241.04, digits to /tmp'),
+    dict(D=1e11, init=15.9, bs=95.07, seeds=20.0, dm=100.85, recip=42.1, T1=21.6, total=233.84, corr=2, file=True, dc=None, e2e=293.0, n=1,
+         src='mnaccept full 1e11 (job 21444, s24-16): 293 s elapsed with the write'),
+    dict(D=1e11, init=16.8, bs=96.66, seeds=20.5, dm=99.88, recip=41.7, T1=20.91, total=234.55, corr=2, file=True, dc=57.01, n=1, src='V214 A3 c2_1e11_def (job 21443, s24-16)'),
+    dict(D=1.16e11, init=21.2, bs=116.75, seeds=24.2, dm=149.32, recip=60.2, T1=0.0, total=287.74, corr=0, file=True, dc=19.48, n=1, src='V214 B c2_116_def (job 21447, s24-26)'),
+    dict(D=1.3e11, init=19.5, bs=141.59, seeds=28.2, dm=163.69, recip=59.6, T1=0.0, total=325.17, corr=0, file=True, dc=22.27, n=1, src='V214 B c2_130_def (job 21447, s24-26)'),
+]
+
+def cal15(D, key):
+    """the Phase 15 ratio measured / (the model with CAL13) for group key (init | bs | dm) at D digits of the node"""
+    if not CAL15: return 1.0
+    a, b = CAL15_LAW[key]; Dc = min(max(D, CAL15_RANGE[0]), CAL15_RANGE[1])
+    return a * (Dc / 4e10) ** b
+
+def slow_frac(T, g):
+    """the fraction of the slowest node's digits whose terms are above 2^33 (weighted by log10 k: the digits a term adds)"""
+    N = _terms(T); a0 = N * (g - 1) // g if g > 1 else 1
+    if N <= SLOW_K: return 0.0
+    return (_lf(N) - _lf(max(a0, SLOW_K))) / max(1e-9, _lf(N) - _lf(a0))
+
+def span_digits(Dt, g, T):
+    return Dt * (1.0 + (SLOW_F - 1.0) * slow_frac(T, g))
+
+def seed_wait15(Dt, g, T, init):
+    """bs's wait for the seeds after init (s): the seed thread's end (SEED15, on the node's span digits) less init"""
+    if not CAL15: return 0.0
+    return max(0.0, SEED15[0] + SEED15[1] * span_digits(Dt, g, T) / 1e9 - init)
+
+def fit15(verbose=True):
+    """Phase 15: refit CAL15_LAW, SEED15, OVL1 and WRITE_BW_AAC6 on CAL15_RUNS (the model with CAL13, CAL15 off, the default design).  Sets them."""
+    global CAL15, SEED15, OVL1, WRITE_BW_AAC6
+    saved = CAL15; CAL15 = False; d = DEFAULT15(); pts = []
+    for r in CAL15_RUNS:
+        x = run(TARGET, r['D'], 1, verbose=False, design=d)
+        pts.append((r, x))
+    CAL15 = saved
+    law = {}
+    for key, meas, mod in (('init', lambda r: r['init'], lambda x: x['init']), ('bs', lambda r: r['bs'] - r['seeds'], lambda x: x['batch'] + x['top']),
+                           ('recip', lambda r: r['recip'], lambda x: x['recip']), ('div', lambda r: r['dm'] - r['recip'], lambda x: x['div'])):
+        xs = [math.log(r['D'] / 4e10) for r, x in pts]; ys = [math.log(meas(r) / mod(x)) for r, x in pts]; ws = [r['n'] for r, x in pts]
+        c0, c1 = _lsq_line(xs, ys, ws); law[key] = (round(math.exp(c0), 4), round(c1, 4))
+    xs = [span_digits(r['D'], 1, r['D']) / 1e9 for r, x in pts]; ys = [r['init'] + r['seeds'] for r, x in pts]; ws = [r['n'] for r, x in pts]
+    c0, c1 = _lsq_line(xs, ys, ws); SEED15 = (round(c0, 3), round(c1, 5))
+    bws = [(r['D'] / 1e9 / (r['dc'] - DC_FIX), r['n']) for r, x in pts if r['file'] and r['corr'] and r['dc']]
+    WRITE_BW_AAC6 = round(sum(b * n for b, n in bws) / sum(n for b, n in bws), 3)
+    ov = []
+    for r, x in pts:
+        if not r['file']: continue
+        W = r['D'] / 1e9 / WRITE_BW_AAC6; div = r['dm'] - r['recip']
+        O = W - r['T1'] if r['corr'] else (W - r['dc'] if r['dc'] is not None else None)
+        if O is not None: ov.append((O / div, r['n']))
+    OVL1 = round(sum(o * n for o, n in ov) / sum(n for o, n in ov), 3)
+    CAL15_LAW.update(law)
+    if verbose:
+        print('fit15: init %.4f (D/4e10)^%+.4f, bs (without the seed wait) %.4f ^%+.4f, recip %.4f ^%+.4f, division %.4f ^%+.4f; seeds end %.3f + %.5f s per 1e9 span digits; '
+              'aac6 /tmp write %.3f GB/s; the size-1 writer under %.3f of the division (per run: %s)' % (law['init'][0], law['init'][1], law['bs'][0], law['bs'][1],
+              law['recip'][0], law['recip'][1], law['div'][0], law['div'][1],
+              SEED15[0], SEED15[1], WRITE_BW_AAC6, OVL1, ', '.join('%.2f' % o for o, n in ov)))
+    return law
+
+def calib15(verbose=True):
+    """Phase 15: the model (DEFAULT15, one node, the aac6 disk) against every run of CAL15_RUNS: init, bs (seed wait), dm, T1, `total`, and the
+    end-to-end walls with and without the digit file (D3); returns the worst error of `total`"""
+    fab = Fabric(TARGET.name, TARGET.bw, TARGET.lat, write_bw=WRITE_BW_AAC6); d = DEFAULT15(); worst = 0.0
+    if verbose:
+        print('%-8s %-4s %-4s | %5s %5s | %6s %6s | %5s %5s | %6s %6s | %5s %5s | %7s %7s %6s | %6s %6s %6s | %s' % ('D', 'corr', 'file', 'init', 'model', 'bs', 'model', 'seeds', 'model',
+              'dm', 'model', 'T1', 'model', 'total', 'model', 'err', 'e2e', 'model', 'err', 'source'))
+    for r in CAL15_RUNS:
+        x = run(fab, r['D'], 1, verbose=False, design=d, corrections=r['corr'])
+        tot = x['total_line'] if r['file'] else x['compute']
+        e2e_m = x['wall_write'] if r['file'] else x['wall_nowrite']
+        e2e = (r['total'] + r['dc']) if r['dc'] is not None else r.get('e2e')
+        err = tot / r['total'] - 1; worst = max(worst, abs(err))
+        if verbose:
+            print('%-8.3g %-4d %-4s | %5.1f %5.1f | %6.1f %6.1f | %5.1f %5.1f | %6.1f %6.1f | %5.1f %5.1f | %7.2f %7.2f %+5.1f%% | %6s %6.1f %6s | %s%s' % (
+                r['D'], r['corr'], 'yes' if r['file'] else 'no', r['init'], x['init'], r['bs'], x['batch'] + x['top'] + x['seed_wait'], r['seeds'], x['seed_wait'],
+                r['dm'], x['recip'] + x['div'], r['T1'], x['t1_wait'] if r['file'] else 0.0, r['total'], tot, 100 * err, '%.1f' % e2e if e2e else '-', e2e_m,
+                '%+.1f%%' % (100 * (e2e_m / e2e - 1)) if e2e else '-', r['src'][:64], ' (n=%d)' % r['n'] if r['n'] > 1 else ''))
+    if verbose: print('worst `total` error %.1f %% (the model: DEFAULT15 at size 1; e2e = `total` + dc, the end-to-end wall with (file yes) or without (no) the digit file; the part file at %.2f GB/s, the size-1 writer under %.3f of the division)' % (100 * worst, WRITE_BW_AAC6, OVL1))
+    return worst
+
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
-    o = dict(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)
+    o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
     if design is not None and not design.legacy: o.update(design.mem_opts(D * g))
     elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
     r = mem_model.mem_per_node(int(D), g, o)
     gb = lambda k: r[k] / 1e9
-    return dict(device=gb("dev_dm"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
+    return dict(device=gb("dev_max"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
                 dm_need=gb("dm_need"), tree_need=gb("tree_need"), top_scratch=gb("top_scratch"), exchange=gb("exchange"), regions=gb("regions_bs"),
                 shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"))
 
 # ------------------------------------------------------------------------------------------------------------
-def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="code", design=None):
+def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="code", design=None, corrections=0):
     """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
     --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
     global DZ
     saved = DZ; DZ = design
     try:
-        return _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design)
+        return _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections)
     finally:
         DZ = saved
 
-def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design):
+def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections=0):
     nq = int(D / LIMB_DIGITS)                          # limbs of Q per node (the leaf's share)
+    ftop = 1.0
     dl = nq
     nq_tot, dl_tot, np_tot = nq * g, dl * g, nq * g
     if design is None or design.legacy:
@@ -1182,15 +1324,43 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         dm0 = npf["recip"] + npf["div"]; fd = (cal13_apply(D, design, 1, 0.0, dm0)[1] / dm0 if dm0 > 0 else 1.0) if CAL13 else 1.0   # Phase 13d D2: the law on dm's rest
         rc = Cost(); rc.t = npf["recip"] * fd; dc = Cost(); dc.t = npf["div"] * fd; grp = []
     t_levels = sum(c.t for _, _, c in levels)
+    p15 = design is not None and not design.legacy and design.p15
+    seed_wait = 0.0
+    if p15 and CAL15 and init_override is None:          # Phase 15: the one-node compute refitted on the Phase 14 defaults (CAL15), the seed wait its own term
+        Dt = D * ftop
+        ph["init"] = ph["init"] * cal15(Dt, 'init')
+        f_bs = cal15(Dt, 'bs'); ph["batch"] *= f_bs; ph["top"] *= f_bs
+        seed_wait = seed_wait15(Dt, g, D * g, ph["init"]) * (leaf_scale if leaf_scale > 0 else 0.0)
+        if g == 1:
+            rc.t *= cal15(D, 'recip'); dc.t *= cal15(D, 'div')   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
+    t_compute = ph["init"] + seed_wait + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + ph["other"]
     out_write = D / 1e9 / fab.write_bw                 # the node's part file at the write bandwidth
     t_lowprod = dc.t * 0.5
-    out_exposed = (max(0.0, out_write - t_lowprod) if g > 1 else 0.0) if dc_exposed is None else dc_exposed   # at size 1 the file is hidden under the division (measured: the wall = init + phases)
-    wall = ph["init"] + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + out_exposed + ph["other"]
+    t1_wait = 0.0
+    if p15 and dc_exposed is None:                     # Phase 15 (D3): the two walls, the part file as the code writes it
+        if g == 1:                                     # size 1: the writer starts at the hook (before the low product) and overlaps OVL1 x the division; a
+            O = OVL1 * dc.t; fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
+            if corrections:                            # the file after `total` (V2's finding, results/V214.md)
+                t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
+            else:
+                dc_file = max(0.0, out_write - O); dc_nofile = 0.0
+            out_exposed = t1_wait + dc_file
+            wall_nowrite = t_compute + dc_nofile
+        else:                                          # size > 1: mn_out_run after T1 -- formatting (DC_FMT_MN) and the write in a pipeline, nothing under the division
+            fmt = DC_FMT_MN * D / 1e9
+            out_exposed = max(out_write, fmt) if design.out_overlap == 'none' else max(fmt, out_write - t_lowprod)
+            wall_nowrite = t_compute + fmt
+    else:
+        out_exposed = (max(0.0, out_write - t_lowprod) if g > 1 else 0.0) if dc_exposed is None else dc_exposed   # at size 1 the file is hidden under the division (measured: the wall = init + phases)
+        wall_nowrite = t_compute
+    wall = t_compute + out_exposed
+    total_line = t_compute + t1_wait if g == 1 else wall   # what ecalc's `total` line shows (size 1: before the writer's join)
     tot = Cost()
     for _, _, c in levels: tot.add(c)
     tot.add(rc); tot.add(dc)
     m = memory(D, g, form, groups, transport, pool_log, staging, design)
-    res = dict(D=D, g=g, wall=wall, other=ph["other"], init=ph["init"], batch=ph["batch"], top=ph["top"], levels=t_levels, recip=rc.t, div=dc.t,
+    res = dict(D=D, g=g, wall=wall, wall_write=wall, wall_nowrite=wall_nowrite, total_line=total_line, t1_wait=t1_wait, seed_wait=seed_wait, compute=t_compute,
+               corrections=corrections, write_bw=fab.write_bw, other=ph["other"], init=ph["init"], batch=ph["batch"], top=ph["top"], levels=t_levels, recip=rc.t, div=dc.t,
                out=out_exposed, out_write=out_write, exposed=tot.t_exposed, nic=tot.nic, glob=tot.glob, msgs=tot.msgs,
                pieces=tot.pieces, digits=D * g, levels_rows=levels, groups=grp, rc=rc, dc=dc, mem=m, form=form, staging=staging, schedule=mem_model.mn_groups(g, groups))
     if verbose: print_run(fab, res, rule)
@@ -1204,8 +1374,9 @@ def print_run(fab, r, rule):
     print("=" * 112)
     print("D = %.2e digits per node, g = %d nodes (%s; dragonfly group %d nodes, %d-layer all-to-all, X1 groups: %s; tree form %s; MN_GROUPS %s)"
           % (D, g, fab.name, fab.group, fab.layers, rule, r["form"], ",".join(str(s) for s in r["schedule"]) or "-"))
-    print("  total digits %.3e; per-node wall %.1f s = %.1f min: init %.1f, batch %.1f, top levels %.1f, distributed levels %.1f, reciprocal %.1f, division %.1f, output exposed %.1f (the part file %.0f s at %.1f GB/s)"
-          % (r["digits"], r["wall"], r["wall"] / 60, r["init"], r["batch"], r["top"], r["levels"], r["recip"], r["div"], r["out"], r["out_write"], fab.write_bw))
+    print("  total digits %.3e; per-node wall %.1f s = %.1f min with the part file, %.1f s = %.1f min without it (D3): init %.1f, seed wait %.1f, batch %.1f, top levels %.1f, distributed levels %.1f, reciprocal %.1f, division %.1f, output exposed %.1f (the part file %.0f s at %.2f GB/s%s)"
+          % (r["digits"], r["wall"], r["wall"] / 60, r["wall_nowrite"], r["wall_nowrite"] / 60, r["init"], r["seed_wait"], r["batch"], r["top"], r["levels"], r["recip"], r["div"], r["out"], r["out_write"], fab.write_bw,
+             "; T1 waits %.1f s for it" % r["t1_wait"] if r["t1_wait"] else ""))
     for k, size, c in r["levels_rows"]:
         print("    level: group %4d (%d-way)  %6.2f s  exposed %5.2f  pieces %2d  NIC %s  global %s  msgs/APU %d" % (size, k, c.t, c.t_exposed, c.pieces, fmt_b(c.nic), fmt_b(c.glob), c.msgs))
     rc, dc = r["rc"], r["dc"]
@@ -1221,19 +1392,19 @@ def print_run(fab, r, rule):
 
 def max_digits(g, node_gb, form="grid", groups=None, transport="shmem", staging="code", design=None):
     """the largest D per node (to 1e8) whose modelled node peak fits node_gb (design None: the legacy four-prime memory)"""
-    o = dict(form=form, groups=groups, transport=transport, staging=staging)
+    o = dict(mem_model.OLD13, form=form, groups=groups, transport=transport, staging=staging)   # Phase 15: a p15 design's mem_opts override the old forms
     if design is None: o.update(np=4, host_fit=False)
     elif not design.legacy:
         o.update(design.mem_opts(1e12 * g))                     # the cap rule at the run's digits: 2^31 above 5e10 (every 576-node size)
         if design.cap is None and g == 1: o.pop('cap')          # size 1: the code's rule follows D (3 2^30 below 5e10)
     return mem_model.max_digits_per_node(node_gb * 1e9, g, o)
 
-def headline(fab, g, rule, form="grid", groups=None, staging="code"):
+def headline(fab, g, rule, form="grid", groups=None, staging="code", design=None):
     """the largest D per node that fits the node (502 GB) and the safe budget (480 GB), their walls"""
     out = []
     for budget in (NODE_GB, NODE_GB_MARGIN):
-        D = max_digits(g, budget, form, groups, staging=staging)
-        r = run(fab, D, g, rule, verbose=False, groups=groups, form=form, staging=staging) if D else None
+        D = max_digits(g, budget, form, groups, staging=staging, design=design)
+        r = run(fab, D, g, rule, verbose=False, groups=groups, form=form, staging=staging, design=design) if D else None
         out.append((budget, D, r))
     return out
 
@@ -1281,7 +1452,7 @@ def calibrate(rule, gate=0.10, verbose=True):
 def plan(g, T, design=None, groups=None, fab=None):
     """Phase 13d D2: the model's piece counts in agent L's categories (mn_plan.c's summary): tree (node 0's groups), tree_max
     (each level's top group), recip (the sharded steps), div (A_h mu, X Q); the top node's leaf pieces (its big products)"""
-    design = design or DEFAULT13(); fab = fab or TARGET
+    design = design or DEFAULT15(); fab = fab or TARGET              # Phase 15: the code's plan has NEWTON_RECIP_CUT (DEFAULT15; DEFAULT13 had no cut)
     global DZ
     saved = DZ; DZ = design
     try:
@@ -1309,7 +1480,7 @@ def plan_sweep(g, lo, hi, step, design=None, out=sys.stdout):
     print("# the steps (a count changes between two neighbouring sizes):", file=out)
     for c in ch: print("#   " + c, file=out)
 
-def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid"):
+def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid", design=None):
     print("the level schedule at 576 (MN_GROUPS), per-node wall of the distributed levels (s) by D per node; every level")
     print("costed as the tree forms it (a k-way level = 2 (k - 1) products over the level's group); 'global' = TB per node over")
     print("the dragonfly's global links in the levels (MN_TOPO_GROUP = %d), 'msgs' = messages per APU in the levels (k):" % fab.group)
@@ -1318,7 +1489,7 @@ def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid"):
     for name, spec in SCHEDULES.items():
         cells = []; tot = 0.0
         for D in D_list:
-            r = run(fab, D, 576, rule, verbose=False, groups=spec, form=form)
+            r = run(fab, D, 576, rule, verbose=False, groups=spec, form=form, design=design)
             L = r["levels_rows"]
             cells.append("%15.1f %4.1f %3d %6.1f %5dk" % (r["levels"], sum(c.t_exposed for _, _, c in L), sum(c.pieces for _, _, c in L), sum(c.glob for _, _, c in L) / 1e12, sum(c.msgs for _, _, c in L) / 1000))
             tot += r["levels"]
@@ -1336,7 +1507,13 @@ def main():
     ap.add_argument("--taper", type=float, default=1.0, help="global-link bandwidth as a fraction of the group's injection")
     ap.add_argument("--bw", type=float, default=100.0, help="GB/s per APU injection")
     ap.add_argument("--lat", type=float, default=2e-6, help="seconds per message")
-    ap.add_argument("--write-bw", type=float, default=2.0, help="GB/s per node for the part file")
+    ap.add_argument("--write-bw", type=float, default=TARGET_WRITE_BW, help="GB/s per node for the part file (Phase 15: 0.6, the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
+    ap.add_argument("--model", default="p15", choices=("p15", "p13", "legacy"), help="Phase 15: p15 = DEFAULT15() (the code's defaults since Phase 14 + the target's launch line); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
+    ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
+    ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: none = the part file after T1 (the code); half = hidden under half the division (the model before Phase 15)")
+    ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent: 2 at 1e11 on the defaults) -- T1 waits for the writer and the file is rewritten")
+    ap.add_argument("--calib15", action="store_true", help="Phase 15: the model against the Phase 14 one-node runs")
+    ap.add_argument("--fit15", action="store_true", help="Phase 15: refit CAL15 on the Phase 14 one-node runs and print the check")
     ap.add_argument("--rule", default="model", choices=("model", "full"), help="X1's group choice in the reciprocal (model) or every product on the full group (full)")
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's form: grid (Phase 12 G: O(share) spills) or flat (the code at 7aded87)")
     ap.add_argument("--groups", default=None, help="MN_GROUPS (e.g. 2,4,8,16,32,64,576); default = the code's schedule")
@@ -1356,37 +1533,44 @@ def main():
     if a.e7: e7_report(); return
     if a.e9: e9_report(share576=7.64e10); return
     if a.e10: e10_report(); return
+    if a.fit15:
+        fit15(); calib15(); return
+    if a.calib15:
+        calib15(); return
+    design = {'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
+              'legacy': lambda: None}[a.model]()
     if a.plan:
-        plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3]); return
+        plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3], design=design if design is not None else None); return
     fab = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     if a.schedules:
-        schedules(fab, a.rule, form=a.tree); return
-    print("the target (PLAN 25): %d nodes = 2 304 APUs; %.0f GB/s per APU, %.1f us per message, dragonfly groups of %d nodes, %d-layer all-to-all, global taper %.2f; part files at %.1f GB/s per node; tree form %s"
-          % (576, a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw, a.tree))
-    print("single node (measured, size 1): 4e10 in 81.5 s, 8e10 in 195.5 s, 1e11 in 262.9 s")
+        schedules(fab, a.rule, form=a.tree, design=design); return
+    print("the target (PLAN 25): %d nodes = 2 304 APUs; %.0f GB/s per APU, %.1f us per message, dragonfly groups of %d nodes, %d-layer all-to-all, global taper %.2f; part files at %.2f GB/s per node; tree form %s; model %s%s"
+          % (576, a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw, a.tree, a.model, (" (" + design.name() + ", COMM_SHMEM_ROUND_MB=%g)" % a.round_mb) if design is not None else ""))
+    print("single node (measured, size 1, the Phase 14 defaults): 1e11 `total` 240.3 s (five runs, the digit file to /tmp; T1 waits 23.5 s for the writer after the division's 2 corrections,"
+          " then dc 60.2 s after `total`: ~300 s end to end); without the file 215.9 / 217.1 s (+ dc 5.5 s); 4e10 66.7 s (no file)")
     for D in a.D:
         for g in a.g:
-            run(fab, D, g, a.rule, groups=a.groups, form=a.tree, staging=a.staging)
+            run(fab, D, g, a.rule, groups=a.groups, form=a.tree, staging=a.staging, design=design, corrections=a.corrections)
     print("=" * 112)
-    print("HEADLINE (modelled from the measured per-node profile; the memory model with the tail layout and alltoallv shifts; tree form %s, SHMEM staging %s):" % (a.tree, a.staging))
-    for budget, D, r in headline(fab, 576, a.rule, a.tree, a.groups, a.staging):
+    print("HEADLINE (modelled; model %s; tree form %s, SHMEM staging %s; two walls: without / with the part file at %.2f GB/s):" % (a.model, a.tree, a.staging, a.write_bw))
+    for budget, D, r in headline(fab, 576, a.rule, a.tree, a.groups, a.staging, design):
         if r is None: print("  576 nodes: nothing fits %.0f GB" % budget); continue
-        print("  576 nodes, %.0f GB per node: the largest D per node %.2e (node peak %.0f GB) -> %.3e digits in %.1f min per-node wall (%.1f min without the part file's exposed %.0f s)"
-              % (budget, D, r["mem"]["node"], r["digits"], r["wall"] / 60, (r["wall"] - r["out"]) / 60, r["out"]))
+        print("  576 nodes, %.0f GB per node: the largest D per node %.2e (node peak %.0f GB) -> %.3e digits: %.1f min without the disk write, %.1f min with it (the part file's exposed %.0f s)"
+              % (budget, D, r["mem"]["node"], r["digits"], r["wall_nowrite"] / 60, r["wall"] / 60, r["out"]))
     for Dn in (4e10, 7.7e10):
-        r = run(fab, Dn, 576, a.rule, verbose=False, groups=a.groups, form=a.tree, staging=a.staging)
-        print("  576 nodes x %.1e = %.3e digits: %.1f min per-node wall (exposed communication %.1f s, %s on the NICs per node, node peak %.0f GB%s)" % (Dn, r["digits"], r["wall"] / 60, r["exposed"], fmt_b(r["nic"]), r["mem"]["node"], "" if r["mem"]["node"] <= NODE_GB else " -- does not fit"))
+        r = run(fab, Dn, 576, a.rule, verbose=False, groups=a.groups, form=a.tree, staging=a.staging, design=design)
+        print("  576 nodes x %.1e = %.3e digits: %.1f / %.1f min per-node wall without / with the write (exposed communication %.1f s, %s on the NICs per node, node peak %.0f GB%s)" % (Dn, r["digits"], r["wall_nowrite"] / 60, r["wall"] / 60, r["exposed"], fmt_b(r["nic"]), r["mem"]["node"], "" if r["mem"]["node"] <= NODE_GB else " -- does not fit"))
     for g in a.g:
         if g < 8: continue
-        rm = run(fab, 4e10, g, "model", verbose=False, form=a.tree); rf = run(fab, 4e10, g, "full", verbose=False, form=a.tree)
+        rm = run(fab, 4e10, g, "model", verbose=False, form=a.tree, design=design); rf = run(fab, 4e10, g, "full", verbose=False, form=a.tree, design=design)
         print("  X1 at 4e10 x %d: the reciprocal on the model's groups %.1f s vs every product on the full group %.1f s (exposed %.1f vs %.1f, messages per APU %d vs %d)"
               % (g, rm["recip"], rf["recip"], rm["rc"].t_exposed, rf["rc"].t_exposed, rm["rc"].msgs, rf["rc"].msgs))
     if a.layers == 2:
         fab3 = Fabric(TARGET.name, a.bw, a.lat, group=a.group, layers=3, taper=a.taper, write_bw=a.write_bw)
-        r2 = run(fab, 4e10, 576, a.rule, verbose=False, form=a.tree); r3 = run(fab3, 4e10, 576, a.rule, verbose=False, form=a.tree)
+        r2 = run(fab, 4e10, 576, a.rule, verbose=False, form=a.tree, design=design); r3 = run(fab3, 4e10, 576, a.rule, verbose=False, form=a.tree, design=design)
         print("  the third layer at 4e10 x 576 (group %d): wall %.1f -> %.1f s, exposed %.1f -> %.1f s, NIC bytes %s -> %s, messages per APU %d -> %d"
               % (a.group, r2["wall"], r3["wall"], r2["exposed"], r3["exposed"], fmt_b(r2["nic"]), fmt_b(r3["nic"]), r2["msgs"], r3["msgs"]))
-    schedules(fab, a.rule, form=a.tree)
+    schedules(fab, a.rule, form=a.tree, design=design)
 
 
 # ============================================================================================================
@@ -1622,7 +1806,7 @@ def e10_report(g=576, bws=(5.0, 10.0), verbose=True):
                     if not Dn: continue
                     m = node_peak_e10(Dn, g, opts, variant, dmf, where)
                     tf = top_factor(Dn * g, g); Dtot = Dn * g / tf
-                    r = run(TARGET, Dn / tf, g, verbose=False, design=dz)
+                    r = run(TARGET_W2, Dn / tf, g, verbose=False, design=dz)
                     top = [c for k_, s_, c in r['levels_rows'] if s_ == g]; t_top = top[0].t if top else 0.0
                     io = {}
                     for bw in bws:
