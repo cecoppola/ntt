@@ -22,6 +22,11 @@ at 1024 MB, depth 2, DM_TIGHT, MN_TREE_EARLY_FREE, NEWTON_RECIP_CUT, the SHMEM p
 --round-mb 0 without it; --p13 = the Phase 13/14 model).  Every estimate prints two walls (the user's D3): without the disk write (the digits
 computed and verified) and with it, the part file at --write-bw GB/s per node (default 0.6: the target's /ssd0 is Lustre, 0.58-0.64 GB/s
 single-stream, measured there; --target prints 2.0 (the old assumption), 0.8 and 0.6).  ./estimate.py --target is the standing estimate.
+
+Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_model.DEFAULT15B -- the code's defaults of 2026-09-27 (BS_SEED_FILL=128,
+BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
+launch line (ECALC_NP=4 at size > 1: --np-mn; COMM_SHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
+started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).  --b0 gives the Phase 14 defaults (DEFAULT15).
 """
 import argparse, math, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,7 +44,8 @@ LABELS = {
     "device": "modelled: mem_model (the code's own sizing formulas; measured to 0.05 % at size 1: 4e10 313.3 GB at four primes / 287.5 at three, 8e10 369.1, 1e11 431.2; at 10^10/4 19.9 GB arena)",
     "host": "modelled: 7 GB runtime + 4 GiB staging + the seed buffers at init + 6 GB per process of transport + the SHMEM pool ('pool': the larger of COMM_SHMEM_POOL_MB (8192) and the pool the run needs -- Phase 14 P2's law (--staging code, the default): 4 APU threads x the largest staged exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it; MN_T_CHUNK_MB bounds it) + the control blocks; measured to 0.01 % at 1e8-1e10 on 2 nodes and 1e9-1e10 on 4 processes, results/P214.md)",
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
-    "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Exposed whole at size > 1 (mn_out_run after T1: nothing under the division -- the model before Phase 15 hid half the division)",
+    "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
+    "p15b": "modelled (Phase 15, the defaults of 2026-09-27, mn_model DEFAULT15B, calibrated on RESULTS 86's paired 1e11 series within -3.1..+2.0 %: `mn_model.py --calib15b`): bs without the seed wait x 0.769 (BS_SEED_FILL, MEASURED at 1e11, ASSUMED at the target's leaf); the seeds' end on SEED15B (BI_MUL1_FAST, FITTED on ten runs; no slow path above 2^33); NEWTON_RECIP_MID in the fabric's reciprocal (66 pieces = the C plan); DIST_TWREC x 0.98 on the pieces' local passes (MODELLED from C2's -2.8 s at 1e11); ECALC_NP=4 at size > 1 (the plan check refuses three primes at 4.25e13 on 576: results/P15.md)",
     "host15": "modelled (Phase 15): + DB_POOL_VMM's two 8 GiB pinned seed buffers at init (measured 21.5 GB pinned on one node), the bs phase's +6 GB device (measured 2.1-5.8), the SHMEM pool = the plan's need (256 MiB steps) = the C plan exactly (43008 MiB; 9472 with COMM_SHMEM_ROUND_MB=1024)",
 }
 
@@ -95,7 +101,10 @@ def main():
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
     ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.25e13 (the target since Phase 13d; 4.4e13 was the Phase 13c target), the proposed 4.25e13, and the step")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
-    ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP (Phase 13b step 0: 3)")
+    ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
+    ap.add_argument("--np-mn", type=int, default=4, choices=(3, 4), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 on 576)")
+    ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
+    ap.add_argument("--b0", action="store_true", help="the Phase 14 defaults (B0, mn_model.DEFAULT15: three primes, the ASCII part file after T1, no fill / fast mul_1 / middle product / TWREC)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
     ap.add_argument("--cap", default="2^31", choices=list(mem_model.CAPS) + ["rule"], help="the plane cap (default 2^31 since Phase 13c; rule = the pre-13c size rule)")
     ap.add_argument("--chunk", default="both", choices=M.CHUNKS, help="off | shift (MDB_SHIFT_CHUNK_MB) | both (+ MN_T_CHUNK_MB, the default since Phase 14), at --chunk-mb")
@@ -105,12 +114,16 @@ def main():
     ap.add_argument("--legacy", action="store_true", help="the Phase 12 model: four primes, the Phase 10/11 phase table")
     a = ap.parse_args()
     if a.as_is: a.tree, a.staging = "flat", "cached"
+    p15b = not (a.p13 or a.b0)
     design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb,
-                                            p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None)
+                                            p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None,
+                                            p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False)
     fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node"
-          % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d, NTT_MODMUL=%d%s" % (design.name(), design.np, design.modmul,
-             ", COMM_SHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "after T1" if design.out_overlap == 'none' else "under half the division") if design.p15 else " (the Phase 13/14 model)"),
+          % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
+             " (%d at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
+             (", COMM_SHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
+              ("after T1" if design.out_overlap == 'none' else "under half the division"))) if design.p15 else " (the Phase 13/14 model)"),
              a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
     if a.target:
         target(a, design); return
@@ -149,9 +162,12 @@ def target(a, design):
             p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], "" if e["fits_margin"] else "  (over 480 GB)"))
     e = estimate(576, 4.25e13 / 576, a.tree, groups, fabs[-1][1], a.rule, staging=a.staging, design=design)
     fm = M.DC_FMT_MN * 4.25e13 / 576 / 1e9
+    b15 = design is not None and design.p15b; bpd = M.PACKED_BPD if (b15 and design.packed) else 1.0; gbn = 4.25e13 / 576 * bpd / 1e9
     print("  4.25e13 by phase (modelled): init %.1f + seed wait %.1f + batch %.1f + top %.1f + distributed levels %.1f + reciprocal %.1f + division %.1f + other %.1f + the digits' formatting"
-          " and residues %.1f = %.1f s without the write; the part file %.1f GB per node, written after T1 with the formatting in a pipeline: %s s" % (e["init"], e["seed_wait"], e["batch"],
-          e["top"], e["levels"], e["recip"], e["div"], e["other"], fm, e["nowrite_s"], 4.25e13 / 576 / 1e9, " / ".join("%.1f @%.1f" % (4.25e13 / 576 / 1e9 / b, b) for b, f in fabs)))
+          " and residues %.1f%s = %.1f s without the write; the part file %.1f GB per node (%s), %s: %s s of writing" % (e["init"], e["seed_wait"], e["batch"],
+          e["top"], e["levels"], e["recip"], e["div"], e["other"], fm, " + the exit %.1f" % M.EXIT_S if b15 else "", e["nowrite_s"], gbn, "packed, 0.444 B/digit" if bpd < 1 else "ASCII",
+          "started at the division's hook, %.1f s of it hidden under the division (MN_OUT_EARLY)" % (M.OVL1 * e["div"]) if b15 and design.early else "written after T1 with the formatting in a pipeline",
+          " / ".join("%.1f @%.1f" % (gbn / b, b) for b, f in fabs)))
     print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps at 4.30 / 4.40e13):")
     for budget in (M.NODE_GB_MARGIN, M.NODE_GB):
         D = M.max_digits(576, budget, a.tree, groups, staging=a.staging, design=design)
