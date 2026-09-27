@@ -4,7 +4,8 @@
 1. The mn tier (tree levels, the sharded reciprocal, the division): V3's patch of mn_model's plane_pts (tests/v3_b4.py) with
    the families {2^k} (as built: mn_shape is powers of two only), +3, +3,5, +3,15, +3,5,15, +3,5,7,15.  A non-power-of-two
    plane costs F x its points (the extra radix pass over a piece whose time is exchange-dominated): F = 1.05 for every radix
-   (MODELLED: one memory-bound pass, l8_pad.py; V3 used 1.05 for 3), and the sensitivity F = 1.10 for 5, 7, 15.
+   (V3 used 1.05 for 3), and F = 1.10 for 5, 7, 15; the MEASURED pass ratios (l8_rbench: 1.23-1.59x radix 3) put them at
+   about 1.06-1.08.
 2. The leaf's batch tier on the top node (the critical path: terms near 3.5e12, seeds of S log10(3.5e12) / 18 limbs) and on
    node 0, with l8_pad.py's cost model, at S = 256 and the best S."""
 import os, sys, math
