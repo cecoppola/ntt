@@ -46,6 +46,16 @@ extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
  * upper bound of it) could exceed p0 p1 p2 */
 void ec_np_check(size_t nterms, int decimal, const char *where);
+/* Phase 15 NP (PLAN 37 row 1, P15 option b): ECALC_NP=auto -- the prime count per product of the distributed tiers.
+ * ec_np stays 3 (every one-node tier, the host CRT and ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form)
+ * take ec_np_for(nc): four primes when nc = pa + pb > ec_np_auto_terms, else three.  ec_np_auto_terms = ec_np3_max_terms
+ * unless ECALC_NP_AUTO_TERMS=<n> lowers it (a test knob: both counts at small sizes; never above the bound).  Binary limbs:
+ * auto = 4 everywhere (ec_np = 4, ec_np_auto = 0).  Plane pool 0 is sized for ec_np_planes(pool_log, g) planes at init. */
+extern int ec_np_auto;                      /* 1: ECALC_NP=auto (decimal limbs) */
+extern size_t ec_np_auto_terms;             /* auto: the largest nc a three-prime product of the distributed tiers takes */
+int ec_np_for(size_t nterms);               /* the product's prime count: ec_np, or under auto 3 / 4 by nterms (no check) */
+int ec_np_prod(size_t nterms, int decimal, const char *where);   /* ec_np_for + the check of that count (ec_np_check at 3) */
+int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 when the largest plane of g nodes (2^(min(31, pool_log) + floor(log2 g)) points) exceeds ec_np_auto_terms */
 #ifdef __cplusplus
 }
 #endif
