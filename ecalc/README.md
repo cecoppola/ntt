@@ -291,6 +291,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DB_POOL_VMM` | *Phase 14 R1 (E8, results/R114.md 5–6)*: the bs/dm arena of every APU as a HIP virtual-memory range (`hipMemAddressReserve` at `DB_POOL_VMM_RESERVE` (3) × the arena; 2 GiB chunks `hipMemCreate`d and mapped with access for the four APUs); a block-pool request that finds no contiguous free extent is satisfied by remapping the wholly free chunks contiguously (no page work), and only a remainder is created inside the phase (a "VMM growth" line) — never a hipMalloc; the seed thread's stores go through its buffers and DMA (a CPU store into a VMM range segfaults); bit-identical (1 since Phase 14; off by itself with `RNS_ENGINE=2` or `BS_SCHOOL_NL`) |
 | `DB_POOL_VMM_CHUNK_GB`, `DB_POOL_VMM_RESERVE` | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) |
 | `DB_POOL_VERBOSE` | *debug*: the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) |
+| `DB_POOL_TRACE` | *debug, Phase 15 (AS)*: 1 = every block-pool event as a `dbtrace:` line (donations, blocks taken and freed, the tail, the pack / pin flags, VMM remaps; offsets from the APU's VMM base) for `tests/as_pool_replay.py`, which replays the pool exactly and tries other arena layouts offline (0) |
 | `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
 
@@ -298,6 +299,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 
 | switch | meaning (default) |
 |---|---|
+| `BS_ARENA_ROOM` | *Phase 15 (AS)*, with `DB_POOL_VMM`: f > 0 lays every arena out in whole VMM chunks (free: the chunks are mapped whole anyway; the reserved tail then ends where the arena's last extent ends) and adds f × the hole (the division's largest block) to `dm_layout`'s dm need, so the division's `t` and `xq` find a contiguous extent instead of remapping (`results/AS15.md`; `BS_LAYOUT_ONLY` prints `room` and `chunk`, `mem_model.py --check-c FILE 31 1024 128 <f>`) (0 = off) |
 | `BS_SEED_TERMS` | the seed span in terms (256; set in the environment it turns `BS_SEED_FILL`'s default off) |
 | `BS_SEED_FILL` | *Phase 15 (T2)*: the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), 96 / 192 fill 3·2ᵏ; per node from its own last term; overrides `BS_SEED_TERMS` (`tests/t2_seed_model.py`); the bs regions hold one more batch level (at 10¹¹ on one node: +13.7 GB of arena, and the division then grows the pool by 12.9 GB, measured; `mem_model.py` exact against `BS_LAYOUT_ONLY`) (**128** since 2026-09-27, the user's decision of 2026-09-27; `0`, or a `BS_SEED_TERMS` in the environment, keeps the fixed span) |
 | `BS_SEED_THREADS` | threads of the seed pass; fewer than all leaves cores to init's allocations (all) |

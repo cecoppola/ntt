@@ -10,7 +10,7 @@ results/M.md, results/M11.md (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
     mem_per_node(D, g, opts) -> dict      (bytes; opts: pool_log, tail, alltoallv, margin, form, groups, transport ...)
     python3 mem_model.py                  prints the calibration table, the ceilings per node and the 576-node digits
     python3 mem_model.py --p15            Phase 15: the defaults against the measured runs, the target, the ceilings
-    python3 mem_model.py --check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL]]]   the C layout (BS_LAYOUT_ONLY) against this port (MN_T_CHUNK_MB 1024, BS_SEED_FILL 128)
+    python3 mem_model.py --check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL [BS_ARENA_ROOM]]]]   the C layout (BS_LAYOUT_ONLY) against this port (MN_T_CHUNK_MB 1024, BS_SEED_FILL 128, BS_ARENA_ROOM 0)
 
 Phase 15 (agent MD): mem_per_node's defaults are the code's since Phase 14 (DEFAULTS15: DM_TIGHT, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and
 MDB_SHIFT_CHUNK_MB 1024, the SHMEM pool from the plan, DB_POOL_VMM's host and bs terms, ECALC_PLANE_CAP 2^31); OLD13 gives the forms before,
@@ -111,11 +111,14 @@ def arena_bs_bytes(N, nterms, decimal=True, S=256):
     return out
 
 def quarter_bytes(limbs): return ((limbs + 3) // 4 + 4095) // 4096 * 4096 * 8
-def arena_of(base, want):
-    """binsplit.c arena_get: the two parities (base) + the extra up to the dm / tree need, rounded up to 2 MiB"""
-    ex = max(0, want - base); return base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
+VMM_CHUNK = 2 << 30                      # dbig.c db_pool_vmm_chunk: DB_POOL_VMM_CHUNK_GB (2 GiB)
+def arena_of(base, want, chunk=0):
+    """binsplit.c arena_get: the two parities (base) + the extra up to the dm / tree need, rounded up to 2 MiB.
+    Phase 15 AS: chunk > 0 (BS_ARENA_ROOM with the VMM pool, binsplit.c as_arena) -- the arena in whole chunks"""
+    ex = max(0, want - base); a = base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
+    return (a + chunk - 1) // chunk * chunk if chunk else a
 
-def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True):
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
     Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
     jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
@@ -147,7 +150,9 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     top = 4 * inn + 2 * out if not tight else max(4 * inn + out, 2 * inn + 2 * out)
     top += top // 8 + (0 if tail_dead else hole)                                      # v3: the top bs levels beside the tail
     need = max(v2, top)
-    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap))
+    room_b = int(room * float(hole)) if room > 0 else 0                  # Phase 15 AS: BS_ARENA_ROOM=<room> (with the VMM pool): room x the hole in the dm need
+    need += room_b
+    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap), room=room_b)
 
 def mn_groups(g, spec=None):
     """rns_dist.c mn_groups_parse: the group size per tree level from MN_GROUPS (a list, or the string), default the
@@ -637,7 +642,7 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0); o.update(DEFAULTS15B); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0); o.update(DEFAULTS15B); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS15: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); pass OLD13 for the forms before.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
@@ -648,12 +653,13 @@ def mem_per_node(D, g=1, opts=None):
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'])
+    aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
-        arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
+        arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want, VMM_CHUNK if aroom > 0 else 0) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
         pool_in_phase = 0
         pool_total = sum(arena)
     else:
@@ -690,7 +696,7 @@ def mem_per_node(D, g=1, opts=None):
         host_init = host_size1_vmm(D_total) if o['vmm'] else host_size1(D_total)   # the HWM is at init (staging pinned + other), and grows
         host_dm = min(host_dm, host_init)                                 # slowly with D (seeds); the dm phase stays below it at >= 2e10
     dev_bs = dev_init + (VMM_BS_GROW if o['vmm'] else 0)                  # Phase 15: the bs phase's measured growth under VMM; counted with the host HWM
-    if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal']:           # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11)
+    if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
@@ -772,7 +778,7 @@ def main():
         print('  form %-4s MN_GROUPS %-28s: D per node %.1e -> %.2e digits over 576 nodes' % (form, groups or '(default)', Dm, 576 * Dm))
 
 # ---------------------------------------------------------------- Phase 13a M (TASKS 1.1): the C request against this port, and the one ceiling
-def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL):   # Phase 15: MN_T_CHUNK_MB=1024 is the code's default (the layout line does not print it); BS_SEED_FILL 128 (2026-09-27; 0 for a log run with BS_SEED_FILL=0)
+def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, arena_room=0.0):   # Phase 15 AS: arena_room = the run's BS_ARENA_ROOM   # Phase 15: MN_T_CHUNK_MB=1024 is the code's default (the layout line does not print it); BS_SEED_FILL 128 (2026-09-27; 0 for a log run with BS_SEED_FILL=0)
     """compare the `layout:` lines of `BS_LAYOUT_ONLY=D:g,... ./ecalc 1e6 x` (binsplit.c binsplit_layout_only: the arena request
     of binsplit_pregrow, not allocated) with this file's port, term by term; returns the largest relative difference of the arena"""
     import re
@@ -783,14 +789,16 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL):   #
         D, g, N = v['D'], int(v['g']), int(v['N'])
         tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
         ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
-        L = dm_layout(N, g, pool_log, True, tight, tdead); sc = []
+        L = dm_layout(N, g, pool_log, True, tight, tdead, room=arena_room); sc = []
         tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef) if g > 1 else 0
         need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
-        bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill)); ar = sum(arena_of(b, want) for b in bs)
+        ch = VMM_CHUNK if arena_room > 0 else 0
+        bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill)); ar = sum(arena_of(b, want, ch) for b in bs)
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
         if 'v2' in v: rows[3:3] = [('v2 / dev', v['v2'], L['v2']), ('v3 / dev', v['v3'], L['v3']), ('division / dev', v['div'], L['div']), ('jl (limbs)', v['jl'], L['jl'])]
+        if 'room' in v: rows[3:3] = [('room / dev', v['room'], L['room']), ('chunk', v['chunk'], ch)]   # Phase 15 AS
         print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d:' % (D, g, N, tight, tdead, ef))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0
@@ -910,7 +918,8 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--e10a':
         early_free_ceilings(); sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == '--check-c':
-        c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 1024, int(sys.argv[5]) if len(sys.argv) > 5 else SEED_FILL)
+        c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 1024, int(sys.argv[5]) if len(sys.argv) > 5 else SEED_FILL,
+                       float(sys.argv[6]) if len(sys.argv) > 6 else 0.0)
     elif len(sys.argv) > 1 and sys.argv[1] == '--ceiling':
         ceilings()
     elif len(sys.argv) > 1 and sys.argv[1] == '--savings':
