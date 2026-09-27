@@ -54,7 +54,7 @@ for line in "${RUNS[@]}"; do
       if [ $need -gt $left ]; then log "run $tag needs ~$need s, $left s left: skipped"; echo "$tag SKIPPED" >> "$SUM"; continue; fi
       f=$TMP/e.out; if [ "$mode" = w ]; then arg="$f"; else arg=""; fi
       { echo "== RL run $tag: $D $mode, env: $envs; job $J on $NODE, clone at $HEAD, $(date '+%F %T %Z')"
-        time R bash -lc "module load rocm; cd $EE && env ECALC_VERBOSE=2 $envs ./ecalc $D $arg"; } > "$lg" 2>&1; rc=$?
+        time timeout $(( need * 2 )) srun --jobid=$J -N1 -n1 --gpus=4 --overlap bash -lc "module load rocm; cd $EE && env ECALC_VERBOSE=2 $envs ./ecalc $D $arg"; } > "$lg" 2>&1; rc=$?   # (a hang, as f0b in job 21530, costs 2x the estimate, not the job)
       el=$(( $(date +%s) - t1 )); dig=-
       if [ "$mode" = w ]; then
         want=$(sha_of $D)
