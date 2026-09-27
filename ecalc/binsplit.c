@@ -253,9 +253,27 @@ static void arena_get(int r, size_t cap, size_t extra, size_t hole, size_t thres
     if (bs_verbose) printf("bs: region %d arena %.2f GB on APU %d (two parities of %.2f GB, dm extra %.2f GB, tail %.2f GB)\n", r, g_arena[r].bytes * 1e-9, g_arena[r].dev, cap * 8e-9, extra * 1e-9, hole * 1e-9);
 }
 
+/* Phase 15 T2: BS_SEED_FILL=<limbs> (0 = off, the default): the seed span chosen per run as the largest S whose largest span, the last
+ * one [bend - S, bend), has at most <limbs> limbs (mn_plan.c's size: floor(log10 Q / digits per limb) + 1).  A node of level l then
+ * has at most 2^l <limbs> limbs, so with <limbs> = 128 every batch product from 2^10 points up fills its 2^k length and the batch
+ * tier's top level ends at the mdev threshold (2^30); 96 or 192 fill 3 2^k.  S depends on log10 of the run's last term (at 10^11:
+ * 128 -> 229, at 4 x 10^10: 239; tests/t2_seed_model.py), so no one BS_SEED_TERMS fits every size.  Overrides BS_SEED_TERMS */
+unsigned long bs_seed_terms_for(unsigned long bend)
+{
+    const char *e = getenv("BS_SEED_FILL"); long fill = e ? atol(e) : 0;
+    if (fill <= 0 || bend < 3) return getenv("BS_SEED_TERMS") ? (unsigned long)atol(getenv("BS_SEED_TERMS")) : (unsigned long)bs_seed_terms;
+    long double dpl = bi_decimal ? 18.0L : 64.0L * log10l(2.0L), l10 = logl(10.0L), lb = lgammal((long double)bend);
+#define SEED_FILL_LIMBS(S) ((long)floorl((lb - lgammal((long double)(bend - (S)))) / l10 / dpl) + 1)
+    unsigned long S = (unsigned long)(fill * dpl / log10l((long double)bend)); if (S < 1) S = 1; if (S > bend - 2) S = bend - 2;
+    while (S > 1 && SEED_FILL_LIMBS(S) > fill) S--;
+    while (S + 2 < bend && SEED_FILL_LIMBS(S + 1) <= fill) S++;
+#undef SEED_FILL_LIMBS
+    return S;
+}
 static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_out)
 {
     if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
+    if (getenv("BS_SEED_FILL") && atol(getenv("BS_SEED_FILL")) > 0) bs_seed_terms = (int)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1);   /* Phase 15 T2 */
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
@@ -1271,7 +1289,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     memset(&bs_st, 0, sizeof bs_st); bs_N = N;
     unsigned long S = bs_seed_terms, nspan; size_t per;
     /* seed spans: Q(a,b) < b^S, P < S b^S: reserve (S log2(N+1) + 64 + 64) / 64 limbs each */
-    seed_limbs(N, &per, &nspan);
+    seed_limbs(N, &per, &nspan); S = bs_seed_terms;           /* Phase 15 T2: seed_limbs sets it (BS_SEED_TERMS, BS_SEED_FILL) */
     struct level cur, nxt;
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     int which = 0, ckpt_level = 0, resumed = 0;      /* ckpt_level: the level whose set is on disk */
