@@ -1,4 +1,4 @@
-# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21; Phase 13b agent D, 2026-09-23: §1, §3, §6)
+# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21; Phase 13b agent D, 2026-09-23: §1, §3, §6; Phase 15 agent DOC, 2026-09-27: the user's decisions — §1, §3, §4, §5, §6, §7)
 
 The target: 576 MI300A nodes (4 APUs each, 2 304 APUs), HPE Slingshot-2 dragonfly (diameter 3, groups all-to-all
 inside and globally), two 400 Gb/s NICs per APU (100 GB/s per APU, 400 GB/s per node), SHMEM (Cray OpenSHMEMX
@@ -9,6 +9,43 @@ labelled **measured** (a recorded aac6 run), **modelled** (arithmetic on measure
 parameter no aac6 measurement can give).
 
 ## 1. What to expect (the standing estimate; Phase 13b: the design table)
+
+**Phase 15 (agent DOC, 2026-09-27 — the user's decisions; this block supersedes the figures below, which are kept as history).**
+The code's defaults of 2026-09-27 (`ecalc/README.md`'s header list) on the launch line of §4 — **four primes** (`ECALC_NP=4`:
+three cannot hold the target's pieces, and `MN_PLAN_ONLY` refuses them), `COMM_SHMEM_ROUND_MB=1024`, the part file **packed**
+(0.444 B/digit: 32.8 GB per node, 18.9 TB in all) and started at the division's hook (`MN_OUT_EARLY=1`), no top set.
+`./estimate.py --target` (**modelled**; the fabric **assumed**: 100 GB/s per APU, 2 µs per message; 576 nodes writing at once
+each at its single-stream rate **assumed**):
+
+| total digits | without the disk write | with it @ 2.0 GB/s | @ 0.8 GB/s | @ 0.6 GB/s | pieces (tree_max + recip + div) | node |
+|---|---|---|---|---|---|---|
+| **4.25 × 10¹³ (the target)** | **256.0 s (4.27 min)** | 251.5 s (4.19 min) | 272.0 s (4.53 min) | **285.7 s (4.76 min)** | 88 + 66 + 28 = 182 | **416.0 GB** |
+| 4.29 × 10¹³ (the last size below the step) | 256.4 s | 251.9 s | 272.7 s | 286.5 s | 182 | 418.1 GB |
+| 4.30 × 10¹³ (the step: tree_max 88 → 100) | 271.0 s | 266.5 s | 287.5 s | 301.3 s | 194 | 418.6 GB |
+| the 480-GB ceiling: 5.57 × 10¹³ (9.67 × 10¹⁰ per node) | 411.9 s (6.9 min) | 406.0 s | 426.9 s | 444.8 s (7.4 min) | 166 + 79 + 46 | 479.8 GB |
+
+- By phase at 4.25 × 10¹³ (modelled): init 17.2 + seed wait 10.9 + batch 25.3 + top levels 19.6 + distributed levels 107.0 +
+  reciprocal 33.5 + division 35.5 + other 0.1 + the digits' residues 4.5 + the process's exit 2.4 = 256.0 s. The part file:
+  32.8 GB at 0.6 / 0.8 / 2.0 GB/s = 54.7 / 41.0 / 16.4 s of writing, of which 20.5 s hide under the division (the size-1
+  overlap, **fitted** there and **assumed** at 576). At 2 GB/s the whole write hides and the with-write wall is below the
+  no-write one: without a digit file the residue pass runs after T1 (4.5 s), with one it runs inside the early writer.
+- Against the Phase 14 defaults on four primes (P15 option (a): 277.9 s without the write, 396.3 s with the ASCII file at
+  0.6 GB/s, **modelled**): −21.9 s of compute (the seed fill −13.5 s of bs, the fast `mul_1` −7.3 s of seed wait, the middle
+  product and `DIST_TWREC` −3.6 s of the distributed products, +2.4 s of exit now counted) and −88.7 s of exposed write (packed + early).
+  With the ASCII file (`ECALC_OUT_PACKED=0`) the target would take 267.9 / 323.2 / 354.0 s at 2.0 / 0.8 / 0.6 GB/s.
+- **Node memory 416.0 GB** (modelled; = max(init 365.6 + host 44.4, bs 371.6 + 44.4, dm 377.9 + 28.8)); the fourth prime costs
+  +17.2 GB of pool 0 (16 instead of 12 GiB per APU), the fill and the early writer nothing that binds at the target (the arena
+  is the dm need's, 244.7 GB, which the fill leaves unchanged; `mem_model.py --check-c` exact against `BS_LAYOUT_ONLY` with
+  `ECALC_NP=4`). The SHMEM pool stays **9472 MiB** (`plan pool`, measured on the login node with `ECALC_NP=4`).
+- **The grid step**: 4.25 × 10¹³ is 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the code's plan with `ECALC_NP=4`:
+  results/P15/sweep576_np4.txt; the grids are the same at three and four primes); the step costs +15.0 s.
+- **The calibration** (`mn_model.py --calib15b`): at 10¹¹ on one node the model is within −3.1 … +2.0 % of the integrator's
+  paired series (RESULTS §86, measured): the new defaults 224.7 s with the ASCII file, **203.7 s packed**, 193.6 s without
+  a file; the Phase 14 defaults (B0) 296.9 / 217.6 s. The node-to-node spread in that series (s24-16 against s24-26) is ≈ 5 %.
+- What is **assumed** beyond the fabric: the fill's bs gain (−23 % of bs without the seed wait, measured at 10¹¹) carries to
+  the target's leaf; `DIST_TWREC`'s −2 % carries to the mn tier's local passes; the fill's division remaps (+4.9 s net at 10¹¹ on
+  one node) do not occur at size > 1; the early writer's Lustre traffic does not slow the division's exchanges on the same
+  Slingshot NICs (aac6's shared 1 GbE link slowed the low product by 12.9 s: results/IO15.md §2.6 — measure at step 3).
 
 **Phase 13b (agent D).** The estimate is now of the code after step 0 (three primes `ECALC_NP=3`, `NTT_MODMUL=1`) and of
 every design that still differs: `ecalc/design_table.py` prints the 96 combinations of product strategy
@@ -35,7 +72,8 @@ Labels:
   8 × 10¹⁰ 190.7 s, 10¹¹ 262.9 s; three primes: 4 × 10¹⁰ 68.3 s) and S13's measured per-product times.
 - **Modelled**: the memory, from the code's own sizing formulas (within 0.05 % of every measured device total).
 - **Assumed**: the fabric (100 GB/s per APU, 2 µs per message), the part file (2 GB/s per node — *Phase 15*: the target's
-  `/ssd0` is Lustre, 0.6–0.8 GB/s single-stream measured there: 316–347 s ASCII, 264–278 s packed, modelled; §6 item 5), and the cost of one
+  `/ssd0` is Lustre, 0.6–0.8 GB/s single-stream measured there: 316–347 s ASCII, 264–278 s packed, modelled on three primes
+  (2026-09-26); *2026-09-27*: 272–286 s packed with the early writer on four primes, the block above; §6 item 5), and the cost of one
   extra exchange round (`T_ROUND`, 0.03 s, range 0.01–0.1 s: the aac6 chunk sweep shows no trend above its noise).
 
 The ranking of the rows does not change between 50 and 200 GB/s per APU (Spearman ≥ 0.999). The chunk rounds' cost does
@@ -96,7 +134,7 @@ Transport (`comm_shmem.c`, `mn.c`; results/S.md):
 | `COMM_TRANSPORT=shmem` | set | selects the SHMEM transport (default TCP: `COMM_HOSTS`/`COMM_PORT`, the aac6 correctness path) |
 | `COMM_SHMEM_SERIAL=0` | set (Cray / SOS) | one context per communicator and blocking `wait_until`; the default 1 is one process-wide lock around every library call (OSHMEM 4.1's `SHMEM_THREAD_MULTIPLE` is nominal). The code falls back to serial if `shmem_init_thread` does not provide MULTIPLE |
 | `COMM_SHMEM_DEVHEAP=1` | set where the symmetric heap is device memory (Cray on the APU, rocSHMEM); 0 with a host heap | skips the `hipHostRegister` of the pool; the staging copies become D2D. Untested on aac6 (no such implementation): run `t_comm` and `t_dist` first (§4) |
-| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it. *Phase 14 V1*: `COMM_SHMEM_POOL_AUTO=1` is the default (the pool raised to the need at init), and a heap set on the launch line below the pool + 512 MiB stops every rank before `shmem_init` with both sizes named (rc 8) — the launch-line rule is in §4. With `COMM_SHMEM_ROUND_MB=1024` (off by default; **on the target's launch line by the user's decision D2**, PLAN §36) the pool is **9472** MiB at the target (9.8 GB, node ≈ 424 GB modelled with the defaults; results/V114.md) |
+| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it. *Phase 14 V1*: `COMM_SHMEM_POOL_AUTO=1` is the default (the pool raised to the need at init), and a heap set on the launch line below the pool + 512 MiB stops every rank before `shmem_init` with both sizes named (rc 8) — the launch-line rule is in §4. With `COMM_SHMEM_ROUND_MB=1024` (off by default; **on the target's launch line by the user's decision D2**, PLAN §36) the pool is **9472** MiB at the target (9.8 GB, node ≈ 424 GB modelled with the defaults; results/V114.md). *2026-09-27*: the same 9472 MiB with `ECALC_NP=4` (`plan pool`, login node); node 416.0 GB modelled |
 | `SHMEM_SYMMETRIC_HEAP_SIZE` | `COMM_SHMEM_POOL_MB` + 512 MiB (`mnrun.sh` sets it) | the library's heap must hold the pool; the name is OpenSHMEM's, Cray reads `XT_SYMMETRIC_HEAP_SIZE` too — set both |
 | `COMM_SHMEM_FENCE=1` | set on a conforming implementation | orders the data before its signal with `shmem_ctx_fence` (one call) instead of `quiet`; OSHMEM 4.1.6's fence does not order nbi puts (trap 2) — verify with `t_comm` before switching |
 | `COMM_SHMEM_RING_KB` | 256 (default) | the point-to-point ring per (source, dest); only small values flow through it |
@@ -125,11 +163,11 @@ after the merge:
 
 | variable | target | why |
 |---|---|---|
-| `ECALC_NP` | 3 (the default for decimal limbs since step 0) | three primes: −17 % wall, −25.8 GB of planes per node (RESULTS §78); binary limbs need 4 |
+| `ECALC_NP` | **4 on the target's launch line** (the user's decision 1, 2026-09-27; the code's default stays 3 for decimal limbs) | three primes (−17 % wall, −25.8 GB of planes per node, RESULTS §78) cannot hold the target's mn pieces: a piece of pa + pb > 58 424 467 928 terms needs four, and at 4.25 × 10¹³ on 576 nodes 84 products exceed it from tree level 5 on (`MN_PLAN_ONLY` refuses `ECALC_NP=3`, rc 3: results/P15.md). Four primes: +46.8 s and +17.2 GB per node against three (modelled); four only where needed (option (b), −20 s) is for Batch 2 |
 | `NTT_MODMUL` | 1 (the default since step 0) | the reduced-correction Barrett: +5–12 % per transform, bit-identical |
 | `RNS_STRATEGY` | the recommended row of `results/DESIGN_TABLE.md` (auto as of the M-run) | the single-node product's form: C four-step, B prime-per-APU, B4 over all four APUs, or auto. At 576 it acts on the leaf's top levels (agent B, p13b-B) |
 | `ECALC_PLANE_CAP` | the recommended row (2^31 as of this writing) | the plane cap 2^30 / 3*2^29 / 2^31 / 3*2^30; it sets `POOL_LOG`, `RNS_PLANES_3Q30` and `DIST_LOGN_TEST`. `fit` takes the largest cap that fits (agent P, p13b-P) |
-| `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row | the sharded division's shift and the window temporary, in rounds: +1.4 × 10¹³ digits at 576, at one round's cost each (§6 item 4) |
+| `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row (the defaults since Phase 13c / 14) | the sharded division's shift and the window temporary, in rounds: +1.4 × 10¹³ digits at 576, at one round's cost each (§6 item 4). *2026-09-27*: `MN_T_CHUNK_MB=1024` stays the default; **test 0 against 1024 on the target** once the per-round cost is measured (the user's decision 13; §6 item 4) |
 | `COMM_ALLTOALLV_DEPTH` | 2 in the recommended row | the uneven exchange (the 192- and 576-node levels, the machine-wide products) pipelined two deep (agent X, p13b-X) |
 
 Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.c`):
@@ -146,11 +184,11 @@ Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.
 | `ECALC_STAGING` | 1 (default) | the pinned staging sized to the seeds |
 | `ECALC_ARENA_GB`, `ECALC_DM_POOL_K`, `ECALC_POOL_GROW_GB`, `BS_REGION_SLACK`, `BS_BALANCE_N`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_SEED_TERMS`, `BS_SEED_CHUNK_MB` | defaults | tuning knobs of the arena, the pool, the leaf layout; nothing on the target asks for them |
 | `MN_OUT_CHUNK_MB` | 256 (default) | the writer's chunk per node; the part file streams during the low product |
-| `MN_OUT_EARLY` | *Phase 15 IO*: 1 once measured at step 3 (off by default) | at size > 1 the part file is written after T1 unless this is set: then it streams during the division's low product as on one node (W5d; results/IO15.md) |
-| `ECALC_OUT_PACKED` | *Phase 15 IO*: the user's decision (PLAN §36.2 D4) | the part file as base-10¹⁸ limbs, 0.444 B/digit (32.8 instead of 73.8 GB per node); `tools/unpack_digits` makes the ASCII file after the run, `--cmp` checks without converting |
-| `ECALC_OUT_MODE`, `ECALC_ODIRECT` | `ECALC_ODIRECT=auto` after §6 item 5(a) | the write mode per file system: O_DIRECT on Lustre is **assumed** until 5(a) measures it; `ECALC_OUT_MODE=sync` or `drop` if buffered writes are faster there (never plain `buffered`: the page cache is HBM) |
-| `MN_OUT_STRIPE`, `MN_OUT_WAVES` | from §6 item 5(b)/(c) | a Lustre layout per part file; at most ⌈576/n⌉ nodes writing at once |
-| `ECALC_MEM_GUARD_GB` | e.g. 4–8 | the sampler stops the run with rc 9 and one line naming rank, host and phase when MemAvailable falls below it — a named stop instead of the OOM killer |
+| `MN_OUT_EARLY` | **1 (the default since 2026-09-27**, the user's decision 8) | at size > 1 the part file starts at the division's hook and streams during the low product as on one node (W5d; results/IO15.md); `=0` writes it after T1 (the comparison of §6 item 5(d)) |
+| `ECALC_OUT_PACKED` | **1 (the default since 2026-09-27**, the user's decision 7) | the part file as base-10¹⁸ limbs, 0.444 B/digit (32.8 instead of 73.8 GB per node); converted to ASCII **off the clock** by `tools/unpack_digits` (§4, after the launch line); `ecalc/digcmp.sh` compares packed or ASCII output with a reference |
+| `ECALC_OUT_MODE`, `ECALC_ODIRECT` | `ECALC_ODIRECT=auto` (**the default since 2026-09-27**, the user's decision 9) | the write mode per file system: O_DIRECT on Lustre is **assumed** until §6 item 5(a) measures it; `ECALC_ODIRECT_LUSTRE=0` or `ECALC_OUT_MODE=sync` / `drop` if buffered writes are faster there (never plain `buffered`: the page cache is HBM) |
+| `MN_OUT_STRIPE`, `MN_OUT_WAVES` | **no default (the user's decision 12): measure striping and waves on the target** (§6 item 5(b)/(c)) | a Lustre layout per part file; at most ⌈576/n⌉ nodes writing at once (waves are ignored with `MN_OUT_EARLY=1`) |
+| `ECALC_MEM_GUARD_GB` | **6 on the launch line** (the user's decision 10, 2026-09-27; not a code default) | the sampler stops the run with rc 9 and one line naming rank, host and phase when MemAvailable falls below it — a named stop instead of the OOM killer |
 | `MEM_REPORT_DEVS=1` | on for the first runs | the per-APU rows of the memory table every node prints (`mem[rank]`) |
 | `ECALC_VERBOSE=2`, `RNS_VERBOSE=1`, `DB_POOL_VERBOSE=1`, `NEWTON_VERBOSE=1` | on for the smoke and calibration runs | per-level lines, per-call times, the pool's fallbacks and tail statistics, the reciprocal's steps |
 | `MN_DM=host`, `MN_COMBINE=host` | never | the host-flow stand-ins (a cross-check on aac6; node 0's host cannot hold the target's numbers) |
@@ -160,12 +198,13 @@ Checkpoints and verification (`binsplit.c`, `mn.c`, `verify.c`, `mn_out.c`; READ
 
 | variable | target | why |
 |---|---|---|
-| `BS_CKPT_DIR=<node-local dir>` | set (the node's NVMe; one directory per node or a shared one — the names carry the rank; *Phase 15*: the target has no node-local disk — a Lustre directory, 0.6–0.8 GB/s per node single-stream) | leaf sets `n<rank>_level_LLL.*` and tree sets `n<rank>_tree_LLL.*`; a leaf set is ≈ 35 GB / 4 × 10¹⁰ per node, a tree set the same; at ≈ 1 GB/s per node each set costs ≈ 30–60 s of the writer thread (hidden or not by the file system — measure at 10¹⁰, §5) |
+| `BS_CKPT_DIR=<node-local dir>` | development steps only, not the headline (2026-09-27: record timing runs write no checkpoint sets); set (the node's NVMe; one directory per node or a shared one — the names carry the rank; *Phase 15*: the target has no node-local disk — a Lustre directory, 0.6–0.8 GB/s per node single-stream) | leaf sets `n<rank>_level_LLL.*` and tree sets `n<rank>_tree_LLL.*`; a leaf set is ≈ 35 GB / 4 × 10¹⁰ per node, a tree set the same; at ≈ 1 GB/s per node each set costs ≈ 30–60 s of the writer thread (hidden or not by the file system — measure at 10¹⁰, §5) |
 | `BS_CKPT_MIN_LEVEL` | 16 (default), `BS_CKPT_EVERY` 4 | the leaf sets from the top levels only (a snapshot is a full pass of the pools) |
 | `BS_CKPT_TREE` | 1 (default with `BS_CKPT_DIR`), `BS_CKPT_TREE_EVERY` 1 → **3** at 576 | a tree set after every level costs 10 writes; every third level plus the top (always written) is enough for a restart above the leaves |
 | `BS_RESTART=1` | on a restart, with the same `BS_CKPT_DIR`, digits and base on every node | the nodes agree on the lowest complete tree level and resume above it, or each inside its leaf tree; bit-identical |
-| `ECALC_CKPT_TOP=1` | size 1 only (a single-node run of the same digits) | writes the top-level P, Q as a level-0 tree set so `ECALC_RECHECK` can run without a rerun; at size > 1 the top tree set is written by `BS_CKPT_TREE` anyway |
-| `ECALC_RECHECK=1` | after every large run, from the same launch line (`srun … ./ecalc <digits> <outfile>` with `ECALC_RECHECK=1`) | recomputes the digit residues from the part files, X mod q from them, P and Q mod q from the checkpointed top-level shares, the term recurrence and the T2 windows, and re-runs T1 with the run's residues (`<outfile>.t1`): RECHECK OK / FAILED per node. No pools, no computation; minutes |
+| `ECALC_CKPT_TOP` | **unset (off: the default) for the headline and every timed run** (the user's decision 11, 2026-09-27) | writes the top-level P, Q (≈ 35 GB per node at the target) so `ECALC_RECHECK` can run in its full form; without it RECHECK runs in its residue form, which checks the digits as fully (results/IO15.md W6); at size > 1 the top tree set is also written by `BS_CKPT_TREE` with `BS_CKPT_DIR` |
+| `ECALC_CHECKPOINT=1` | **the development and bring-up steps** (§5 steps 1–5, 7), never the headline | the budgeted top set (`ECALC_CKPT_TOP=2`: dropped, never waited for, when the disk cannot finish it); `ECALC_CKPT_TOP` set overrides it |
+| `ECALC_RECHECK=1` | after every large run, from the same launch line (`srun … ./ecalc <digits> <outfile>` with `ECALC_RECHECK=1`) | recomputes the digit residues from the part files (packed or ASCII), X mod q from them, P and Q mod q from the checkpointed top-level shares (or, without the top set, from `<outfile>.t1`: the residue form), the term recurrence and the T2 windows, and re-runs T1 with the run's residues: RECHECK OK / FAILED per node. No pools, no computation; ≈ 1 min per node packed (§7) |
 | `ECALC_RES_LOG=1`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP=<dir>` | only when a VERIFY fails | the per-level residue log and the leaf dump of the first wrong node (results/V.md) |
 | `MEM_DPOOL_FILL`, `RNS_POOL_GROW` | tests only | the zero-memory probe; the forced growth of the stress step (agent R) |
 | `BS_CKPT_ABORT*` | tests only | die after a set is written |
@@ -176,15 +215,46 @@ One process per node, four APUs per process (the process drives its APUs with fo
 
 ```
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
-export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity
-export COMM_SHMEM_ROUND_MB=1024               # the user's decision D2 (PLAN §36, 2026-09-26): exchanges staged in rounds; pool 45.0 -> 9.8 GB, node 434 -> 399 GB (modelled)
-export COMM_SHMEM_POOL_MB=9472                # the measured law at 4.25e13 / 576 with both of the above (MN_PLAN_ONLY prints it: `plan pool`)
+export ECALC_NP=4                             # the user's decision 1 (2026-09-27): three primes cannot hold the target's pieces (MN_PLAN_ONLY refuses them, results/P15.md)
+export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity (0 against 1024: §6 item 4)
+export COMM_SHMEM_ROUND_MB=1024               # the user's decision D2 (PLAN §36, 2026-09-26): exchanges staged in rounds; pool 45.0 -> 9.8 GB
+export COMM_SHMEM_POOL_MB=9472                # the measured law at 4.25e13 / 576 with all of the above (`plan pool`; the same with ECALC_NP=4)
 export SHMEM_SYMMETRIC_HEAP_SIZE=9984M XT_SYMMETRIC_HEAP_SIZE=9984M  # the pool + 512 MiB
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
-export BS_CKPT_DIR=/local/ckpt BS_CKPT_TREE_EVERY=3 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
+export ECALC_MEM_GUARD_GB=6                   # the user's decision 10 (2026-09-27): a named stop (rc 9) instead of the OOM killer
+export ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
+unset ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR   # the record run: no top set, no checkpoint sets (the user's decision 11)
+OUT=/ssd0/<dir>/e425                          # Lustre (no /tmp: §6 item 10); its stripe layout from §6 item 5(c) if measured to help
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
-     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 42500000000000 /out/e.txt'
+     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 42500000000000 '$OUT'/e.out'
 ```
+
+The run writes **packed part files** (`ECALC_OUT_PACKED=1`, the default since 2026-09-27): `$OUT/e.out.part0000` …
+`e.out.part0575`, each a 4096-byte `ECPACK18` header (the part's limb and digit ranges and its digit residues) and the node's
+base-10¹⁸ limbs, 32.8 GB per node, 18.9 TB in all; `$OUT/e.out.t1` (node 0) holds the residues RECHECK needs. The wall of
+the record is the run's (D3: `total` and the process's exit, without and with the write); what follows is **off the clock**.
+
+**Off the clock: verify, convert, verify the converted output** (the user's decision 7):
+1. **RECHECK the packed parts**, the same launch line with `ECALC_RECHECK=1` (no pools; the nodes in parallel): each node
+   reads its 32.8 GB part (38–42 s at Lustre's 0.78–0.86 GB/s single-stream read, **modelled**) and re-runs the residues, the
+   windows and T1 in the residue form (no top set) → `RECHECK OK` on every node, `mn: all 576 nodes: RECHECK OK`.
+2. **Convert to ASCII** with `tools/unpack_digits` (built by `make` in `ecalc/`). Each part's formatted digits are checked
+   mod the eight T1 primes against the residues its header stores, as it converts. Time per part (**modelled** from
+   results/IO15.md §2.2: 100 GB of ASCII written in 179 s, 0.56 GB/s, on aac6's NVMe; the read at 1.66 GB/s and the
+   formatting, 2.6 s per 10¹¹ digits, hide under the write): 73.8 GB of ASCII per node at 0.6–0.8 GB/s = **≈ 1.5–2.1 min
+   per node, the nodes in parallel** — if the file system's aggregate carries 576 writers (§6 item 5(b)); 42.5 TB at the
+   aggregate otherwise. **As built at c2aedc2 the tool converts only the complete set of parts in one process** (it checks
+   that the parts join from part 0 to limb 0): `tools/unpack_digits -o $OUT/e.txt $OUT/e.out.part*` is one stream, 42.5 TB
+   at one node's ≈ 0.6 GB/s ≈ 20 h (modelled). The per-node form needs a one-part mode in the tool — each node writes
+   `e.txt.part<k>` from its own `e.out.part<k>` ("2." on part 0000, the newline on the last; the concatenation is the
+   single file) — **not built: an open item** (results/DOC15.md §4). With it:
+   `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits <one-part flag> -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`.
+3. **Verify the converted output**: (a) every conversion exits 0 (its residue check); (b) `ECALC_RECHECK=1` on the ASCII
+   parts (`<outfile>` = `$OUT/e.txt`, the same launch line: 73.8 GB read per node, 86–95 s, modelled) → `RECHECK OK` on every
+   node; (c) the leading 10¹¹ digits against the 10¹¹ reference (`results/e_1e11.out`, sha1 578f5efb…): `cat
+   $OUT/e.txt.part0000 $OUT/e.txt.part0001 | head -c 100000000002 | cmp - <(head -c 100000000002 e_1e11.out)` — or before
+   converting, from the packed parts with the tool as it is: `tools/unpack_digits -q $OUT/e.out.part* | head -c 100000000002 |
+   cmp - <(head -c 100000000002 e_1e11.out)` (it stops after ≈ 1.4 parts). Keep the packed parts until (a)–(c) pass.
 
 **The pool and the heap (Phase 14 V1).** The pool is carved from the SHMEM library's heap unless the heap is SOS's external
 heap (`COMM_SHMEM_DEVHEAP=1` on SOS with the patch: a HIP buffer of exactly the pool). So, on the target:
@@ -208,6 +278,11 @@ The argument is the **total** digit count, not the per-node share (the pre-13c t
 share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.25 × 10¹³ is the target since Phase 13d (§5 step 6; RESULTS §82): the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
 The defaults (Phase 13c, extended in Phase 14: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DM_TIGHT` + `DB_POOL_VMM`, `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024`, `ECALC_BUDGET_CHECK`; RESULTS §85) are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
 `COMM_ALLTOALLV_DEPTH=2`, with K's kernels `NTT_B1R=3 NTT_PLAN=1` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
+**The user's decisions of 2026-09-27** added to the defaults (nothing to set): `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_PATCH=2`,
+`NEWTON_RECIP_MID=1`, `BS_SEED_FILL=128`, `BI_MUL1_FAST=1`, `DIST_TWREC=1`, `ECALC_OUT_PACKED=1`, `MN_OUT_EARLY=1`,
+`ECALC_ODIRECT=auto`; the top set off (`ECALC_CHECKPOINT=1` for development). On the launch line, not defaults:
+`ECALC_NP=4`, `ECALC_MEM_GUARD_GB=6`, `COMM_SHMEM_ROUND_MB=1024`. Not set on the target: `MN_OUT_STRIPE` and `MN_OUT_WAVES`
+until measured (§6 item 5), `DB_POOL_VMM_PAR` / `DB_POOL_VMM_EXTEND` (not merged).
 
 `COMM_RANK`/`COMM_SIZE` are what `mn_init` reads for the rank and the size (under SHMEM the PE number is checked
 against them); `--mpi=pmix` where the SHMEM library is launched by PMIx (OSHMEM; Cray SHMEM uses the ALPS/PMI of
@@ -224,21 +299,27 @@ one-rank engine) and `srun -N9 -n9 ./tests/t_mn_grid 0.5 27` (the any-size map a
 
 ## 5. The sizes to run, in order
 
-Every run: `cat <outfile>.part* | cmp - <reference>` where a reference exists (`ref/e_10^8`, `ref/e_10^9` in the
-tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which is bit-identical to any size), else the
-`VERIFY OK` on every node and node 0's `mn: all n nodes: VERIFY OK`, then `ECALC_RECHECK=1` (§3).
+Every run: `ecalc/digcmp.sh <outfile> <reference>` where a reference exists (`ref/e_10^8`, `ref/e_10^9` in the
+tree; 10¹⁰ and 4 × 10¹⁰ from a single-node run of the same digits, which is bit-identical to any size — convert its packed
+file with `tools/unpack_digits -o`, or run it with `ECALC_OUT_PACKED=0`; `results/e_1e11.out` for 10¹¹) — it compares the packed
+parts through `unpack_digits --cmp` without an ASCII copy and prints `identical`; else the `VERIFY OK` on every node and node 0's
+`mn: all n nodes: VERIFY OK`, then `ECALC_RECHECK=1` (§3). *2026-09-27*: **the development and bring-up steps (1–5, 7) run with
+`ECALC_CHECKPOINT=1`** (the budgeted top set: RECHECK in its full form, a restart point for the division); **the headline (6)
+does not** (a record timing run: no top set, no `BS_CKPT_DIR`). Every step reports two walls (D3). The estimates are
+`estimate.py` on the launch line of §4 (four primes, packed, the early writer; **modelled**, the part file at 0.6 GB/s).
 
 | step | nodes | digits (total) | per node | expect | what it checks |
 |---|---|---|---|---|---|
 | 1 smoke | 2, 3, 4, 9 | 10⁸ | 2.5–5 × 10⁷ | ≈ 10 s each, identical to `ref/e_100000000.txt` | the transport, the general map (3, 9), the part files |
 | 2 | 2, 4, 64 | 10⁹ | 1.6 × 10⁷ – 5 × 10⁸ | ≈ 15–20 s, identical to `ref/e_1000000000.txt` | the pipelined exchange over real NICs (2, 4), the dragonfly group (64), `DIST_STATS=1` on: **the first calibration number** (§6) |
-| 3 | 64 | 6.4 × 10¹¹ | 10¹⁰ | ≈ 1.3 min (modelled); `cmp` against a single-node 10¹⁰ run | the tree at 6 levels, the checkpoints' cost (`BS_CKPT_DIR` on), the recheck |
-| 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 1 min; VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
-| 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 1.8 min** modelled (just below the 2.24 × 10¹³ grid step) | the first large run, 150 GB of margin. The recheck after it |
-| 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | **≈ 3.9 min** modelled (234 s, the Phase 13d model recalibrated to the C code; fabric assumed), 452 GB per node with the old flat 8 GiB pool; **with the measured pool (Phase 14 P2) 525 GB with the defaults — over the 480 GB budget — and 460 GB with `MN_T_CHUNK_MB=1024`** (pool 45 GB, 244.9 s modelled; TARGET_TASKS T0) | the headline run (Phase 13d, RESULTS §82): 185 pieces on the critical path, 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (275 s at 4.4 × 10¹³). Check before the run: `MN_PLAN_ONLY=4.25e13:576 MN_PLAN_QUIET=1 ./ecalc` (185 pieces) |
-| 7 the 480 GB ceiling | 576 | 4.66 × 10¹³ | 8.09 × 10¹⁰ | 4.5 min modelled, 480 GB | **not recommended**: past the grid step, 13 % more time for 6 % more digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
+| 3 | 64 | 6.4 × 10¹¹ | 10¹⁰ | ≈ 40 s without the write, 44 s with it (modelled; was ≈ 1.3 min on the Phase 13 model); `digcmp.sh` against a single-node 10¹⁰ run | the tree at 6 levels, the checkpoints' cost (`ECALC_CHECKPOINT=1`, `BS_CKPT_DIR` on), the recheck; §6 items 4 (`MN_T_CHUNK_MB` 0 vs 1024) and 5 (b)–(d) (the aggregate write, stripes, waves, `MN_OUT_EARLY=0` vs 1) |
+| 4 | 576 | 10¹² | 1.7 × 10⁹ | ≈ 18 s without the write, 19 s with it (modelled); VERIFY OK everywhere | the whole machine at a size where everything is small: the 9-way / 3·3 level, the PE sets at 576, the collectives. Run it with each `MN_GROUPS` of §3 and keep the faster |
+| 5 | 576 | 2.2 × 10¹³ | 3.8 × 10¹⁰ | **≈ 2.2 min without the write, 2.5 min with it** (131.6 / 149.7 s modelled; was ≈ 1.8 min on three primes) | the first large run (327 GB per node, modelled). The recheck after it; the off-the-clock conversion of §4 rehearsed here (0.3 of the target's bytes) |
+| 6 **the target** | 576 | **4.25 × 10¹³** | **7.38 × 10¹⁰** (average; the top node 7.64 × 10¹⁰) | *2026-09-27* (the launch line of §4: four primes, packed, the early writer; §1): **256.0 s (4.27 min) without the write; 285.7 s (4.76 min) with it at 0.6 GB/s, 272.0 s at 0.8, 251.5 s at 2.0**; **416.0 GB per node** (modelled; the fabric and the write rate with 576 writers assumed). *History*: 3.9 min / 452 GB (Phase 13d, the flat 8 GiB pool), 525 / 460 GB with the measured pool (Phase 14 P2), 231.1 s / 398.8 GB on three primes (2026-09-26, not runnable: the plan check refuses three primes) | the headline run (Phase 13d, RESULTS §82): **182 pieces** on the critical path (88 + 66 + 28; `NEWTON_RECIP_MID` 67 → 66), 1.2 % below the step at 4.29 → 4.30 × 10¹³ (the top groups; the code gives each node the same number of terms, so the top node holds 1.036 × the average digits) and below the one at 4.39 → 4.40 × 10¹³ (309.5 s without the write at 4.4 × 10¹³). **No `ECALC_CHECKPOINT`, no top set.** Check before the run, with the launch line's environment: `MN_PLAN_ONLY=4.25e13:576 ./ecalc` — the last line must read **`plan check … OK`** (`ECALC_NP=4`; with three primes it reads `plan REFUSED …` and exits 3) and `plan summary` 182 pieces with the largest groups |
+| 6b off the clock | 576 | — | — | RECHECK ≈ 1 min per node; the conversion ≈ 1.5–2.1 min per node in parallel (needs the tool's one-part mode; ≈ 20 h in one stream as built); the ASCII RECHECK ≈ 1.5 min per node (modelled) | §4 "Off the clock": RECHECK of the packed parts, `tools/unpack_digits`, the converted output verified (its residue check, RECHECK on the ASCII parts, the leading 10¹¹ digits against `e_1e11.out`) |
+| 7 the 480 GB ceiling | 576 | 5.57 × 10¹³ (*2026-09-27*, four primes with the rounds; was 4.66 × 10¹³ on the Phase 13d model) | 9.67 × 10¹⁰ | 6.9 min without the write, 7.4 min with it (modelled), 480 GB | **not recommended**: past several grid steps, +61 % time for +31 % digits; only if the digits themselves matter, and only after step 6's `mem[rank]` tables agree with the model on every node |
 
-Between 6 and 7, `estimate.py --g 576 --D <D>` gives the peak per D in 10⁹ steps; take the largest whose modelled
+Between 6 and 7, `estimate.py --g 576 --D <D>` (the launch line's design by default since 2026-09-27) gives the peak per D in 10⁹ steps; take the largest whose modelled
 peak stays below 502 GB minus the measured error of step 6. Evict the reference file from the page cache before a
 timed run (`posix_fadvise DONTNEED`, RESULTS §68) if the reference lives on the node; the target's part files go to
 the parallel file system (`/out`), the checkpoints to node-local disk. *Phase 15 IO*: the target node has no node-local
@@ -277,17 +358,25 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
    both switches at 1024. The difference in `dm`, over the extra rounds the model counts, is the cost. Feed: the three
    runs as an M-run-format log (`design_table.py --mrun` refits `T_ROUND` from any runs of one size that differ only in
    chunking), or `T_ROUND` in `mn_model.py`.
+   **Then `MN_T_CHUNK_MB` 0 against 1024** (the user's decision 13, 2026-09-27: 1024 stays the default until this is
+   measured): with the per-round cost known, `estimate.py --chunk shift` (= `MN_T_CHUNK_MB=0`) against the default at the
+   target's size, and `mem_model.py --p15` for the node (0 costs +28.5 GB per node at the target, 444.5 GB against 416.0,
+   modelled); if the model says 0 pays and fits, confirm it at step 5 with both values, the same nodes, and keep the faster.
 5. **The part-file bandwidth** (assumed 2 GB/s per node until Phase 15; *Phase 15 IO, 2026-09-26*: **the prior is now
    0.6–0.8 GB/s single-stream** — the target node's `/ssd0` is **Lustre over Slingshot, 122 TB shared**, measured there at
    0.58–0.64 GB/s single-stream write and 0.78–0.86 GB/s read (`apucode/apumult-ntt-reverse-port-catalog.md`), not
    node-local NVMe). At 0.6–0.8 GB/s the 576-node wall grows 260 → 316–347 s (modelled, `mn_model.py --D 7.38e10 --g 576
    --write-bw <x>`); with the packed part file (`ECALC_OUT_PACKED=1`, 0.444 B/digit: 32.8 instead of 73.8 GB per node) the
-   same disk is worth 2.25× the rate, 264–278 s (modelled, `--write-bw 1.8` / `1.35`). Measure, in this order:
+   same disk is worth 2.25× the rate, 264–278 s (modelled on three primes, 2026-09-26). *2026-09-27*: packed and early are the
+   defaults and the target runs on four primes: 272.0 / 285.7 s at 0.8 / 0.6 GB/s against 256.0 s without the write (§1;
+   `estimate.py --target`, which takes the packed bytes itself: pass the measured GB/s as it is). Measure, in this order:
    - **(a) one node, one stream**: `dd if=/dev/zero of=<dir>/dd.bin bs=64M count=64 oflag=direct` and the same with
      `conv=fsync` (buffered), then a 10¹⁰ one-node run into the same directory with `ECALC_VERBOSE=2`: the `wrote … (x GB;
      write y s in the writer thread …)` line gives the writer's GB/s. Repeat with `ECALC_OUT_MODE=direct|sync|drop` and
      `MN_OUT_THREADS=8|32` (results/IO15.md W1: on aac6's NFS O_DIRECT was the fastest form, 1.5–2× buffered + fsync at 10 GbE, and threads and chunk did not matter; on Lustre it is **unmeasured**; `tools/wbench` repeats the writer's pattern without a GPU);
-   - **(b) 64 nodes writing at once** (step 3 with the digit file): each node's `wrote` line and `dc`. The aggregate
+   - **(b) 64 nodes writing at once** (step 3 with the digit file): each node's `wrote` line and `dc`. **Waves: the user's
+     decision 12 (2026-09-27) sets no default — measure `MN_OUT_WAVES` here** (e.g. unset, 2, 4 at 64 nodes, with
+     `MN_OUT_EARLY=0`, which waves need) and again at 576 at step 4 or 5 if the aggregate saturates. The aggregate
      (64 × the per-node rate) against (a) says whether the file system, not the node, is the limit; the 576-node write is
      then 42.5 TB (ASCII) or 18.9 TB (packed) at the **aggregate** rate, which at 576 nodes will be far below
      576 × 0.6 GB/s = 346 GB/s if the file system has few storage targets;
@@ -295,10 +384,13 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
      default stripe count and size of the output directory). With few OSTs and stripe count 1, 576 files land on the same
      few targets: set a layout per part file (`MN_OUT_STRIPE=<count>:<MB>:<OSTs>`, or `lfs setstripe -c <count> -S <MB>M
      <dir>` on the directory before the run) and, if (b) shows the aggregate saturating, cap the concurrent writers with
-     `MN_OUT_WAVES=<n>` (at most ⌈576/n⌉ nodes write at once; the others hold their digits on the device);
-   - **(d) the exposed write**: with `MN_OUT_EARLY=1` the part file streams during the division's low product, as on one
-     node (Phase 15 IO W5d; without it, at size > 1 the whole write comes after T1 and is exposed: MD15). Compare `total`
-     and the `wrote` line with and without it at step 3.
+     `MN_OUT_WAVES=<n>` (at most ⌈576/n⌉ nodes write at once; the others hold their digits on the device). **Striping: no
+     default either (the user's decision 12) — measure `MN_OUT_STRIPE` (or the directory's `lfs setstripe`) at 64 nodes
+     against the default layout**, and keep what the aggregate says;
+   - **(d) the exposed write**: with `MN_OUT_EARLY=1` (the default since 2026-09-27) the part file streams during the
+     division's low product, as on one node (Phase 15 IO W5d; with `=0`, at size > 1 the whole write comes after T1 and is
+     exposed: MD15). Compare `total`, the division's `X Q` line and the `wrote` line with `=1` and `=0` at step 3: on aac6 the
+     writer and the division's exchange shared one link and the low product slowed by 12.9 s (results/IO15.md §2.6).
    Feed: `--write-bw` = min(the per-node rate of (a), the aggregate of (b) / nodes), divided by 0.444 for a packed run.
    Report both walls (PLAN §36.2 D3): without the write and with it.
 6. **The mapping rate of device memory** (measured 0.057–0.072 s/GB on aac6; `MAP_RATE` 0.065 in `mn_model.py`). It
@@ -307,8 +399,9 @@ It takes two minutes on a login node. If a one-node run was taken on the target,
    checkpoints go to the same Lustre as the part files, 0.6–0.8 GB/s single-stream at best). The `mn: node r: checkpoint
    tree level l` lines print GB and GB/s. `BS_CKPT_TREE_EVERY` and `BS_CKPT_MIN_LEVEL` are the knobs if it does not hide.
    The top set (`ECALC_CKPT_TOP`, ≈ 35 GB per node at the target, written during the division) competes with the part
-   file for the same bandwidth: 58 s at 0.6 GB/s (modelled). `ECALC_CKPT_TOP=2` drops it when the disk cannot finish it in
-   time; RECHECK then runs in its residue form (results/IO15.md W6: the digits are checked as fully; only the stored P, Q
+   file for the same bandwidth: 58 s at 0.6 GB/s (modelled). *2026-09-27*: it is off by default and off for the headline
+   (the user's decision 11); the development steps take it with `ECALC_CHECKPOINT=1`, which is `ECALC_CKPT_TOP=2`: it drops
+   the set when the disk cannot finish it in time; RECHECK then runs in its residue form (results/IO15.md W6: the digits are checked as fully; only the stored P, Q
    limbs are not re-read). `ECALC_ODIRECT=auto` picks O_DIRECT by file-system type (Lustre: O_DIRECT, **assumed**; check
    with (a) above whether buffered + `fsync` is faster there and set `ECALC_ODIRECT_LUSTRE=0` if it is).
 10. **`/tmp` on the compute node** (Phase 15 IO): `df -h /tmp; findmnt -T /tmp`. If it is `tmpfs` it is memory — on the
@@ -362,9 +455,11 @@ it comes from.
   top set, its 35 GB (41–45 s): **≈ 2–2.5 min per node for ASCII, ≈ 1.5 min packed, all nodes in parallel** — if the file
   system's aggregate read rate carries 576 streams; else 42.5 TB (ASCII) / 18.9 TB (packed) at the aggregate. A compare
   against a reference reads two files (twice that). Converting a packed file to ASCII (`tools/unpack_digits`) reads
-  0.444 B and writes 1 B per digit: at Lustre rates the write dominates (73.8 GB at 0.6 GB/s ≈ 2 min per part, on the nodes
-  in parallel); to check without converting, `tools/unpack_digits --cmp <reference> <parts…>`, or `unpack_digits <parts…> |
-  sha1sum`.
+  0.444 B and writes 1 B per digit: at Lustre rates the write dominates (73.8 GB at 0.6–0.8 GB/s ≈ 1.5–2.1 min per part,
+  on the nodes in parallel — *2026-09-27*: that needs a one-part mode the tool does not have yet; as built it converts the
+  whole set in one process, §4); to check without converting, `tools/unpack_digits --cmp <reference> <parts…>`, or
+  `unpack_digits <parts…> | sha1sum` (one stream too). *2026-09-27*: the headline writes no top set, so its RECHECK is the
+  residue form: ≈ 40 s of reading per node packed.
 
 ## 8. Known traps
 
@@ -412,6 +507,13 @@ it comes from.
     pool (`rns_dist.c` stages every exchange; TASKS 2.4's resident slabs measured and rejected: +3 q per APU of pool, the peak
     unchanged). The pool's peak is 4 × the largest exchange's send + receive: 81.6 GB per node at the target with the
     defaults, 45.0 GB with `MN_T_CHUNK_MB=1024` (results/P214.md; `estimate.py`'s `pool` column follows the law).
+
+12. **(2026-09-27) `tools/unpack_digits` takes the whole set of parts.** Given one part it stops ("is part k of 576; 1 files
+    given"); the parallel off-the-clock conversion of §4 needs a one-part mode (not built). Until then convert in one stream
+    (≈ 20 h at 0.6 GB/s for 42.5 TB) or only verify (RECHECK, and the leading 10¹¹ digits streamed through `head`).
+13. **(2026-09-27) Three primes are refused at the target.** `ECALC_NP` unset means three primes for decimal limbs; at 4.25 ×
+    10¹³ on 576 the plan check stops the run (rc 3) at tree level 5. The launch line sets `ECALC_NP=4`; `MN_PLAN_ONLY` with the
+    launch line's environment must end with `plan check … OK`.
 
 ## 9. The variables named here exist in the code (checked 2026-09-21 on the q12 branch)
 

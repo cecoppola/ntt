@@ -15,6 +15,14 @@ possible**. The apumult source was not available; each technique was reconstruct
 > the wall 260 → 316–347 s (modelled; 264–278 s with the packed file, results/IO15.md). `/tmp` on the target is probably
 > tmpfs, i.e. HBM (check with `df`). The measured aac6 numbers below stay valid for aac6.
 
+> **Dated note, 2026-09-27 (Phase 15, agent DOC: the user's decisions of that day; the text above and below is kept).** The
+> target runs on four primes (`ECALC_NP=4`: three cannot hold its pieces), and the part file is packed and written from the
+> division's hook by default (`ECALC_OUT_PACKED=1`, `MN_OUT_EARLY=1`), with the other defaults of 2026-09-27 (`ecalc/README.md`).
+> The standing estimate is now **4.25 × 10¹³ digits in 256.0 s (4.27 min) without the disk write and 272–286 s (4.53–4.76
+> min) with it at 0.8–0.6 GB/s, 416 GB per node** (modelled; `estimate.py --target`, docs/TARGET.md §1). The 260 → 316–347 s
+> and 264–278 s above were three-prime figures of 2026-09-26. The study's memory figures for the target (434 GB and the like)
+> are on three primes: the fourth prime adds 17.2 GB per node (pool 0 at 16 instead of 12 GiB per APU).
+
 Four agents did the work: F1 and F2 (Fable) decoded the six categories against our source; R did online research on
 MI300A memory and storage; M measured the disk and memory behavior on an aac6 node (job 21121). Their reports are
 `results/apumult/apumult_{F1,F2,R,M}.md` (the benchmark sources in `results/apumult/diskbench/`, the summary itself as `apumult_summary.md`); the numbers below cite them. Every number is labeled
