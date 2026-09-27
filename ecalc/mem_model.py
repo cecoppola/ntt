@@ -518,6 +518,9 @@ MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TES
     (1e10, 2, 31, 1024, 8192.0, 'V114 b2 (job 21439), 2 real nodes, SOS host heap, pool 8704 from the plan'),
     (1e9, 2, 31, 1024, 423.9, 'V114 b3 (job 21442), 2 real nodes, COMM_SHMEM_ROUND_MB=64 (the self slab left out)', 64),
     (1e10, 2, 31, 1024, 2048.0, 'V114 b3 (job 21442), 2 real nodes, COMM_SHMEM_ROUND_MB=256: 84 exchanges in 176 rounds', 256),
+    (1e9, 4, 29, 1024, 423.9, 'V114 b5 (job 21452), 4 processes on one node, SOS host heap, the staging regions (8f3b136)'),
+    (1e10, 4, 29, 1024, 4238.6, 'V114 b5 (job 21452), 4 processes, the pool 4608 from the plan in regions (b4 without them: fragmented)'),
+    (1e10, 4, 29, 1024, 2048.0, 'V114 b4 / b5 (jobs 21448, 21452), 4 processes, COMM_SHMEM_ROUND_MB=256', 256),
 ]
 
 def pool_target():
