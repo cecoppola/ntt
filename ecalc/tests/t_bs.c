@@ -8,6 +8,7 @@
  *
  * Usage: t_bs [long]
  */
+#include <stdlib.h>
 #include "harness.h"
 #include "sha256.h"
 #include "../binsplit.h"
@@ -36,6 +37,7 @@ int main(int argc, char **argv)
     int lng = argc > 1 && !strcmp(argv[1], "long");
     printf("== t_bs ==\n");
     harness_meta("t_bs");
+    setenv("DB_POOL_VMM", "0", 0);   /* this test reads P and Q on the host; a VMM range is device-only (the VMM pool, the default since Phase 14, is covered by mnaccept's e9 and full steps) */
     rns_init(31);
     printf("-- 1. P, Q vs the GMP-free reference recursion\n");
     check_pq(1000, 8, 4); check_pq(1000, 512, 160);
