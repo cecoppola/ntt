@@ -66,6 +66,7 @@ e11() { local tag=$1; shift; local F=/tmp/np15_e1e11.out
     R "S=\$(../tools/unpack_digits -q $F | sha1sum | cut -d' ' -f1); R=\$(cut -d' ' -f1 ~/V214/e_1e11.sha1); echo \"sha1 \$S ref \$R\"; [ \"\$S\" = \"\$R\" ] && echo SHA1 IDENTICAL || echo SHA1 DIFFERS; rm -rf $F*" > "$OUT/$tag.hash" 2>&1; cat "$OUT/$tag.hash"
 }
 b3() { e11 e1e11_auto ECALC_NP=auto; e11 e1e11_def; }
+b6() { e11 e1e11_def_r; e11 e1e11_auto_r ECALC_NP=auto; }   # the pair in the reverse order (the init: an order effect or a cost)
 b4() {
     for p in 1 2; do for k in real 1; do
         tag=e10_s${p}_k$k; ex=""; [ $k = 1 ] && ex="ECALC_NP_AUTO_TERMS=1"

@@ -1,0 +1,22 @@
+np15_job 53 at a15c79c  Sun Sep 27 06:26:54 PM CDT 2026
+batch 5: job 21630 submitted Sun Sep 27 06:26:54 PM CDT 2026
+batch 5: job 21630 running on ppac-pl1-s24-30 Sun Sep 27 06:27:14 PM CDT 2026
+t_dbig 0 x (decimal, bound 4e6) rc 0 t_dbig: VERIFY OK (565 checks); lines at 4 primes 4, at 3 6
+t_newton 20 (decimal, bound 3e5) rc 0 t_newton: VERIFY OK (620 checks); lines at 4 primes 0, at 3 0
+t_newton 20 (decimal, bound 3e5, RNS_STRATEGY=C) rc 0 t_newton: VERIFY OK (620 checks); lines at 4 primes 0, at 3 0
+e9_k8e6_1b: size 1 d 1000000000 ECALC_NP=auto ECALC_NP_AUTO_TERMS=8000000 RNS_VERBOSE=1: rc 0, identical, 1 VERIFY OK, product lines at 4 primes 9, at 3 43; total 16.27 s (bs 1.3 + 10dP 0.1 + dm 1.8 + T1 0.0 + dc 0.0 
+e9_k8e6_1c: size 1 d 1000000000 ECALC_NP=auto ECALC_NP_AUTO_TERMS=8000000 RNS_VERBOSE=1 RNS_STRATEGY=C: rc 0, identical, 1 VERIFY OK, product lines at 4 primes 9, at 3 43; total 14.03 s (bs 1.3 + 10dP 0.2 + dm 2.4 + T1 0.0 + dc 0.0 
+e8_k2e6_1b: size 1 d 100000000 ECALC_NP=auto ECALC_NP_AUTO_TERMS=2000000 RNS_VERBOSE=1: rc 0, identical, 1 VERIFY OK, product lines at 4 primes 7, at 3 39; total 13.32 s (bs 0.6 + 10dP 0.1 + dm 2.0 + T1 0.0 + dc 0.0 
+batch 5 done Sun Sep 27 06:31:29 PM CDT 2026
+batch 3: job 21631 submitted Sun Sep 27 06:31:29 PM CDT 2026
+batch 3: job 21631 running on ppac-pl1-s24-30 Sun Sep 27 06:31:49 PM CDT 2026
+e1e11_auto (ECALC_NP=auto): rc 0 VERIFY OK | total   201.16 s   (bs 75.1 + 10dP 0.1 + dm 105.0 + T1 0.0 + dc 0.0 + T2 0.0 = 180.3; init 20.6; other 0.3); VmHWM 27.5 GB
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 58424467928 terms; plane pool 0 for 3 primes
+sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 ref 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+SHA1 IDENTICAL
+e1e11_def (): rc 0 VERIFY OK | total   199.82 s   (bs 75.7 + 10dP 0.1 + dm 104.8 + T1 0.0 + dc 0.0 + T2 0.0 = 180.7; init 19.0; other 0.2); VmHWM 27.5 GB
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 ref 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+SHA1 IDENTICAL
+batch 3 done Sun Sep 27 06:41:00 PM CDT 2026
+np15_job 53 done Sun Sep 27 06:41:00 PM CDT 2026
