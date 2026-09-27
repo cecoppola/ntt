@@ -2016,3 +2016,38 @@ string, and published digits of e end near 3.5 × 10¹³).
 **4.25 × 10¹³ digits in ≈ 4.1 min** (modelled) with the part file at an assumed 2 GB/s per node; **5.3–5.8 min** at the
 measured single-stream Lustre rate (0.6–0.8 GB/s) until W lands. Memory **434 GB per node** on the defaults, **399 GB** with
 D2's rounds (modelled), against 480.
+
+**Status (2026-09-27)**: Stage 0 done (B0 = main 7367e25). Batch 1 and Batch 3 done (RESULTS §86). The user's decisions of
+2026-09-27 (applied in `int15b` c2aedc2, merged into main after its regression):
+1. **Four primes at the target** (`ECALC_NP=4` on the launch line; the plan check refuses three); four primes only where
+   needed is built in Batch 2 (−20 s modelled).
+2. `ECALC_CORR_PATCH=2`, 3. `NEWTON_RECIP_MID=1`, 4. `BS_SEED_FILL=128`, 5. `BI_MUL1_FAST=1`, 6. `DIST_TWREC=1`,
+   7. **`ECALC_OUT_PACKED=1`** (converted off the clock by `tools/unpack_digits`), 8. `MN_OUT_EARLY=1`,
+   9. `ECALC_ODIRECT=auto` — all defaults; C2 `RNS_AUTO_PIECE_COST=1` default (D1).
+10. `ECALC_MEM_GUARD_GB=6` on the target's launch line.
+11. The top set off by default (record timing runs); `ECALC_CHECKPOINT=1` (development and testing) = the budgeted set.
+12. `MN_OUT_STRIPE`, `MN_OUT_WAVES`: no default — **measure on the target** (TARGET_TASKS).
+13. `MN_T_CHUNK_MB=1024` stays; **test 0 vs 1024 on the target** (TARGET_TASKS).
+14. RL's `DB_POOL_VMM_PAR` / `DB_POOL_VMM_EXTEND`: not adopted. 15. `int15b` into main. 16. Batch 2 in the recommended order.
+
+## 37. Phase 15 Batch 2 — in the user's order (written 2026-09-27)
+
+Order of priority (node time and merge order): **(b) four primes where needed → arena sizing for the seed fill → N2 →
+item 3 → item 5 → item 6**. Item 7 only if its feasibility note shows > 0.3 s at the target; the length families are dropped
+(L8). Base: `main` after the decisions' merge (B1). Every new behavior behind a switch, off by default; the user decides.
+Agents work in parallel where their files do not overlap; node time follows the order.
+
+| # | agent | item | files (own) | expected (labelled) | start |
+|---|---|---|---|---|---|
+| 1 | **NP** | (b) four primes only for the products over the three-prime bound (P15 option b): per-product prime count in `mn_core` / `dist_core`, the pools and CRT paths for 3 and 4 in one run, the plan check and the models | `rns_dist.c` (mn/dist cores), `rns_mul.c` (pools), `crt.c`, `mn_plan.c`, models | −20 s at the target (257.8 vs 277.9 s, modelled); memory unchanged | wave 1 |
+| 2 | **AS** | arena sizing for `BS_SEED_FILL=128`: the division's two large blocks placed without the VMM remaps the fill causes (+6…+12 s in dm, RESULTS §86); T2's idea (APUs 1–3 one chunk larger) or a layout that reserves the blocks, with `mem_model.py --check-c` exact | `binsplit.c` (`dm_layout`), `mem_model.py` | −6…−12 s at 10¹¹ (measured cost to win back); target: modelled | wave 1 |
+| 3 | **N3x** | item 3: the radix-3 pass of 3·2ᵏ fused into the first 2ᵏ pass; 2ᵏ⁺² for k ≤ 12; `t_ntt` over every length, bitwise identical | `ntt3.c`, `ntt.c`, `rns_mul.c pick_len` (one function; coordinate with NP) | −6…−8 s at 10¹¹; −3…−4 s at the target | wave 1 |
+| 4 | **M6** | item 6 (E11): the band-sized t1 and the chunked division window; with the Q/S margin trim | `newton_db.c`, `mem_model.py` (after AS) | −17 GB per node at the target; one-node ceiling 1.41 → 1.52 × 10¹¹; no time | wave 1 (desk + note first) |
+| 5 | **MAP** | N2: the arena's second half mapped in the background while the seeds and the batch tier run (the planes still first); and S1's idea, the seeds on 96 threads | `dbig.c` (mapping), `rns_mul.c` init (after NP merges), `binsplit.c` seed thread (after AS) | −5…−10 s (assumed) | wave 2 |
+| 6 | **G5** | item 5: faster twiddle packs for the 576 map (`k_twpack_g`, `k_unpacktw_g`); timing on 2–3 nodes, one exclusive window | `rns_dist.c` (after NP merges) | −2…−3 s at the target (assumed) | wave 2 |
+
+- **Gates** per `docs/AGENT_PROTOCOL.md`; the standard size 10¹¹ against `results/e_1e11.out` through `ecalc/digcmp.sh`
+  (packed output is the default); two walls in every timing (D3).
+- **Integration**: the regression, a paired 10¹¹ series (B1 vs B1 + Batch 2), RESULTS §88, the models, then the user's
+  decisions in one list (as in Batch 1).
+- **Nodes**: three; the order above sets priority; timing series alone on a node; the admin's nightly CI 00:00–03:30 EDT.
