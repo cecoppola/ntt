@@ -1,0 +1,25 @@
+# T2 step 2: the sweep (on the branch with S1 merged).  Both walls (nw: no digit file; w: written and hashed against the reference).
+# S per size (tests/t2_seed_model.py): fill 96 -> 179 / 172, fill 128 -> 239 / 229, fill 192 -> 358 / 344, fill 256 -> 478 / 459;
+# the control "fill 128 + 3 terms" (242 / 232) spills every batch length (predicted as slow as the default).
+# 4 x 10^10 (one job)
+a256n  40000000000 nw
+a128n  40000000000 nw BS_SEED_FILL=128
+a96n   40000000000 nw BS_SEED_FILL=96
+a192n  40000000000 nw BS_SEED_FILL=192
+a256fn 40000000000 nw BS_SEED_FILL=256
+a242n  40000000000 nw BS_SEED_TERMS=242
+a256w  40000000000 w
+a128w  40000000000 w BS_SEED_FILL=128
+a192w  40000000000 w BS_SEED_FILL=192
+a256fw 40000000000 w BS_SEED_FILL=256
+# 10^11 (two to three jobs)
+b256n  100000000000 nw
+b128n  100000000000 nw BS_SEED_FILL=128
+b96n   100000000000 nw BS_SEED_FILL=96
+b192n  100000000000 nw BS_SEED_FILL=192
+b256fn 100000000000 nw BS_SEED_FILL=256
+b232n  100000000000 nw BS_SEED_TERMS=232
+b256w  100000000000 w
+b128w  100000000000 w BS_SEED_FILL=128
+b192w  100000000000 w BS_SEED_FILL=192
+b256fw 100000000000 w BS_SEED_FILL=256

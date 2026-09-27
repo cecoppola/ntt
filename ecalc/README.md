@@ -262,6 +262,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | switch | meaning (default) |
 |---|---|
 | `BS_SEED_TERMS` | the seed span in terms (256) |
+| `BS_SEED_FILL` | *Phase 15 (T2)*: the seed span chosen per run as the largest S whose last span has at most this many limbs, so the batch tier's products fill their lengths: 128 fills 2ᵏ (S = 239 at 4 × 10¹⁰, 229 at 10¹¹), 96 / 192 fill 3·2ᵏ; per node from its own last term; overrides `BS_SEED_TERMS` (`tests/t2_seed_model.py`); 0 = off (0) |
 | `BS_SEED_THREADS` | threads of the seed pass; fewer than all leaves cores to init's allocations (all) |
 | `BS_SEED_CHUNK_MB` | the seed stream's buffered chunk per region (2048) |
 | `BI_MUL1_FAST` | *Phase 15 (S1), results/S115.md*: 1 = the decimal `mul_1` (`bigint.c mul1_serial`, every caller) by a precomputed reciprocal of 10¹⁸ — one high multiply per limb for **any** multiplier < 10¹⁸, no 128-bit division above 2³³ — and the seed span's Horner step fused (`bi_span_step`: P += Q and Q ·= k in one pass); exact, bit-identical (`tests/t_seed`: 0 mismatches over every k range up to 2⁴⁴) (0) |
