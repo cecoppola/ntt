@@ -1,0 +1,215 @@
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-30 date=2026-09-27T18:19:26 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 58424467928 terms; plane pool 0 for 3 primes
+rns_init: APU1 staging 1.0 GiB touch 0.06 s register 0.12 s, 48 cpus; device open 0.00 s, contexts 0.71 s, stream+staging 0.19 s
+rns_init: APU3 staging 1.0 GiB touch 0.03 s register 0.08 s, 48 cpus; device open 0.00 s, contexts 0.82 s, stream+staging 0.23 s
+rns_init: APU0 staging 1.0 GiB touch 0.03 s register 0.11 s, 48 cpus; device open 0.00 s, contexts 1.17 s, stream+staging 0.16 s
+rns_init: APU2 staging 1.0 GiB touch 0.04 s register 0.09 s, 48 cpus; device open 0.00 s, contexts 1.24 s, stream+staging 0.24 s
+dbig pool: APU1 VMM arena 10.74 GB = 5 chunks of 2.00 GiB, the first 3 mapped in 1.22 s (0.189 s/GB), the rest in the background, VA 34.4 GB reserved at 0x78c271000000
+dbig pool: APU2 VMM arena 10.74 GB = 5 chunks of 2.00 GiB, the first 2 mapped in 1.79 s (0.416 s/GB), the rest in the background, VA 34.4 GB reserved at 0x78dc06800000
+dbig pool: APU3 VMM arena 10.74 GB = 5 chunks of 2.00 GiB, the first 2 mapped in 2.12 s (0.495 s/GB), the rest in the background, VA 34.4 GB reserved at 0x78e406a00000
+dbig pool: APU0 VMM arena 23.62 GB = 11 chunks of 2.00 GiB, the first 6 mapped in 2.54 s (0.197 s/GB), the rest in the background, VA 73.0 GB reserved at 0x78cb06600000
+rns_init: plane pools per APU 18.00 + 18.00 GiB (3*2^k planes, B3) (hipmalloc), staging 1.00 GiB, tables 0.153 GB; staging+contexts 1.51 s, pools 9.46 s, peer access 0.41 s
+RESULT ecalc init s 11.6885
+      VmRSS 12.1 GB after init (staging 4.3 GB pinned + device regions 51 GB); init 11.7 s
+mem [init] device 206.2 GB in use (per APU 47.9..61.3): planes 154.6, regions 23.0, block pool 27.9 (donated 0.0, borrowed 27.9, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0
+mem [init] host 12.1 GB RSS (HWM 12.1): staging 9.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 2.8
+budget: ECALC_BUDGET_CHECK ok: 1 rank, largest rank peak 221.8 GB, node budget 480 GB
+dbig pool: APU0 VMM arena: the background thread mapped chunks 0..10 in 1.80 s
+dbig pool: APU1 VMM arena: the background thread mapped chunks 0..4 in 1.19 s
+batch-local N=4562156 (1140540/1140538/1140540/1140538) L=2^10 tile 406900 pair: scatter 0.054 ntt 0.192 crt 0.027 merge 0.023
+batch-local N=2281078 (570270/570270/570270/570268) L=2^10 tile 406900 pair: scatter 0.014 ntt 0.069 crt 0.019 merge 0.004
+batch-local N=1140538 (285136/285134/285136/285132) L=2^10 tile 406900 pair: scatter 0.007 ntt 0.035 crt 0.018 merge 0.002
+batch-local N=570270 (142568/142568/142568/142566) L=2^11 tile 203450 pair: scatter 0.007 ntt 0.037 crt 0.018 merge 0.003
+batch-local N=285134 (71284/71284/71284/71282) L=2^12 tile 101724 pair: scatter 0.007 ntt 0.039 crt 0.018 merge 0.001
+batch-local N=142568 (35642/35642/35642/35642) L=2^13 tile 50862 pair: scatter 0.007 ntt 0.055 crt 0.017 merge 0.030
+batch-local N=71284 (17822/17820/17822/17820) L=2^14 tile 25430 pair: scatter 0.006 ntt 0.050 crt 0.017 merge 0.000
+batch-local N=35642 (8912/8910/8910/8910) L=2^15 tile 12714 pair: scatter 0.006 ntt 0.053 crt 0.017 merge 0.000
+batch-local N=17820 (4456/4456/4456/4452) L=2^16 tile 6356 pair: scatter 0.006 ntt 0.052 crt 0.018 merge 0.000
+batch-local N=8910 (2228/2228/2228/2226) L=2^17 tile 3178 pair: scatter 0.006 ntt 0.049 crt 0.020 merge 0.000
+batch-local N=4456 (1114/1114/1114/1114) L=2^18 tile 1588 pair: scatter 0.006 ntt 0.051 crt 0.020 merge 0.000
+batch-local N=2228 (558/556/558/556) L=2^19 tile 794 pair: scatter 0.006 ntt 0.053 crt 0.020 merge 0.000
+batch-local N=1114 (280/278/278/278) L=2^20 tile 396 pair: scatter 0.006 ntt 0.070 crt 0.020 merge 0.000
+batch-local N=556 (140/140/140/136) L=2^21 tile 198 pair: scatter 0.006 ntt 0.074 crt 0.022 merge 0.000
+batch-local N=278 (70/70/70/68) L=2^22 tile 98 pair: scatter 0.006 ntt 0.076 crt 0.022 merge 0.000
+batch-local N=140 (36/34/36/34) L=2^23 tile 48 pair: scatter 0.006 ntt 0.078 crt 0.023 merge 0.000
+batch-local N=70 (18/18/18/16) L=2^24 tile 24 pair: scatter 0.006 ntt 0.081 crt 0.023 merge 0.000
+batch-local N=34 (10/8/10/6) L=2^25 tile 12 pair: scatter 0.007 ntt 0.086 crt 0.026 merge 0.000
+batch-local N=18 (6/4/4/4) L=2^26 tile 6 pair: scatter 0.018 ntt 0.107 crt 0.024 merge 0.000
+batch N=8 L=2^27 tile 8 pair: 0.243 s (scatter 0.052 ntt 0.181 crt 0.050 merge 0.000)
+batch N=4 L=2^28 tile 4 pair: 0.241 s (scatter 0.056 ntt 0.172 crt 0.068 merge 0.001)
+batch N=2 L=2^29 tile 1 grpB: 0.289 s (scatter 0.056 ntt 0.154 crt 0.071 merge 0.003)
+batch N=2 L=3*2^28 tile 1 grpB: 0.400 s (scatter 0.114 ntt 0.279 crt 0.068 merge 0.003)
+bs        7.82 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 2.8 school 0.0 batch 4.0 mdev 0.0; pool 10.0 GB; dev pools 50.9 GB)   VmRSS 17.7 GB, VmHWM 17.7 GB
+RESULT ecalc bs s 7.81769
+mem [bs] device 211.1 GB in use (per APU 49.5..62.4): planes 154.6, regions 0.0, block pool 55.8 (donated 0.0, borrowed 55.8, hipMalloc 0.0; live 0.0, peak live 0.0, free 4.9), tables 0.61, other 0.0
+mem [bs] host 17.7 GB RSS (HWM 17.7): staging 4.3 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 13.3
+dbig pool: APU2 VMM arena: the background thread mapped chunks 0..4 in 2.99 s
+dbig pool: APU3 VMM arena: the background thread mapped chunks 0..4 in 2.51 s
+dist 2^20 = 2^10 x 2^10 (9 limbs, 3 primes): load 0.021 ntt 0.080 crt 0.001 spills 0.018 total 0.146 s
+   dist_db 9 limbs: 0.146 s (dbig: shift 0.000 addsub 0.018 maxidx 0.011 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (5 limbs, 3 primes): load 0.000 ntt 0.009 crt 0.000 spills 0.000 total 0.009 s
+   dist_db 5 limbs: 0.009 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (12 limbs, 3 primes): load 0.000 ntt 0.009 crt 0.000 spills 0.000 total 0.009 s
+   dist_db 12 limbs: 0.009 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (6 limbs, 3 primes): load 0.000 ntt 0.008 crt 0.000 spills 0.000 total 0.008 s
+   dist_db 6 limbs: 0.008 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (18 limbs, 3 primes): load 0.000 ntt 0.008 crt 0.000 spills 0.000 total 0.008 s
+   dist_db 18 limbs: 0.008 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (11 limbs, 3 primes): load 0.000 ntt 0.008 crt 0.000 spills 0.000 total 0.008 s
+   dist_db 11 limbs: 0.008 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (30 limbs, 3 primes): load 0.000 ntt 0.008 crt 0.000 spills 0.000 total 0.008 s
+   dist_db 30 limbs: 0.008 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (19 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.006 s
+   dist_db 19 limbs: 0.006 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (54 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 54 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (35 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 35 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (105 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 105 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (69 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 69 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (204 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 204 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (134 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 134 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (402 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 402 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (267 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 267 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (798 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 798 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (531 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 531 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (1593 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 1593 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (1061 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 1061 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (3183 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 3183 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (2121 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 2121 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (6363 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.001 total 0.006 s
+   dist_db 6363 limbs: 0.006 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (4241 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 4241 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (12720 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.001 total 0.006 s
+   dist_db 12720 limbs: 0.006 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (8479 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 8479 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (25437 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.002 total 0.007 s
+   dist_db 25437 limbs: 0.007 s (dbig: shift 0.000 addsub 0.002 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (16957 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 16957 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (50868 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.001 total 0.006 s
+   dist_db 50868 limbs: 0.006 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (33911 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 33911 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (101730 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.001 total 0.006 s
+   dist_db 101730 limbs: 0.006 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (67819 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 67819 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (203454 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.001 total 0.006 s
+   dist_db 203454 limbs: 0.006 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (135635 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 135635 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (406905 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.002 total 0.007 s
+   dist_db 406905 limbs: 0.007 s (dbig: shift 0.000 addsub 0.002 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (271269 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 271269 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (813807 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.002 total 0.007 s
+   dist_db 813807 limbs: 0.007 s (dbig: shift 0.000 addsub 0.002 maxidx 0.000 reserve 0.000)
+dist 2^20 = 2^10 x 2^10 (542537 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 542537 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^21 = 2^10 x 2^11 (1627608 limbs, 3 primes): load 0.000 ntt 0.007 crt 0.000 spills 0.001 total 0.039 s
+   dist_db 1627608 limbs: 0.039 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^21 = 2^10 x 2^11 (1085071 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.005 s
+   dist_db 1085071 limbs: 0.005 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^22 = 2^11 x 2^11 (3255213 limbs, 3 primes): load 0.000 ntt 0.006 crt 0.000 spills 0.002 total 0.030 s
+   dist_db 3255213 limbs: 0.030 s (dbig: shift 0.000 addsub 0.002 maxidx 0.000 reserve 0.000)
+dist 2^22 = 2^11 x 2^11 (2170141 limbs, 3 primes): load 0.000 ntt 0.005 crt 0.000 spills 0.000 total 0.006 s
+   dist_db 2170141 limbs: 0.006 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^23 = 2^11 x 2^12 (6510420 limbs, 3 primes): load 0.001 ntt 0.007 crt 0.000 spills 0.001 total 0.029 s
+   dist_db 6510420 limbs: 0.029 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^23 = 2^11 x 2^12 (4340279 limbs, 3 primes): load 0.001 ntt 0.005 crt 0.000 spills 0.000 total 0.006 s
+   dist_db 4340279 limbs: 0.006 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist 2^24 = 2^12 x 2^12 (13020837 limbs, 3 primes): load 0.001 ntt 0.007 crt 0.001 spills 0.003 total 0.032 s
+   dist_db 13020837 limbs: 0.032 s (dbig: shift 0.000 addsub 0.003 maxidx 0.000 reserve 0.000)
+dist 2^24 = 2^12 x 2^12 (8680557 limbs, 3 primes): load 0.001 ntt 0.006 crt 0.001 spills 0.001 total 0.008 s
+   dist_db 8680557 limbs: 0.008 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist 2^25 = 2^12 x 2^13 (26041671 limbs, 3 primes): load 0.003 ntt 0.011 crt 0.001 spills 0.003 total 0.038 s
+   dist_db 26041671 limbs: 0.038 s (dbig: shift 0.000 addsub 0.003 maxidx 0.001 reserve 0.000)
+dist 2^25 = 2^12 x 2^13 (17361113 limbs, 3 primes): load 0.002 ntt 0.009 crt 0.001 spills 0.001 total 0.013 s
+   dist_db 17361113 limbs: 0.013 s (dbig: shift 0.000 addsub 0.001 maxidx 0.001 reserve 0.000)
+dist 2^26 = 2^13 x 2^13 (52083339 limbs, 3 primes): load 0.005 ntt 0.017 crt 0.003 spills 0.007 total 0.052 s
+   dist_db 52083339 limbs: 0.053 s (dbig: shift 0.000 addsub 0.007 maxidx 0.002 reserve 0.000)
+dist 2^26 = 2^13 x 2^13 (34722225 limbs, 3 primes): load 0.004 ntt 0.015 crt 0.002 spills 0.002 total 0.023 s
+   dist_db 34722225 limbs: 0.023 s (dbig: shift 0.000 addsub 0.002 maxidx 0.001 reserve 0.000)
+dist 2^27 = 2^13 x 2^14 (104166672 limbs, 3 primes): load 0.012 ntt 0.030 crt 0.006 spills 0.007 total 0.074 s
+   dist_db 104166672 limbs: 0.076 s (dbig: shift 0.000 addsub 0.007 maxidx 0.004 reserve 0.000)
+dist 2^27 = 2^13 x 2^14 (69444447 limbs, 3 primes): load 0.008 ntt 0.027 crt 0.005 spills 0.004 total 0.042 s
+   dist_db 69444447 limbs: 0.043 s (dbig: shift 0.000 addsub 0.004 maxidx 0.002 reserve 0.000)
+dist 2^28 = 2^14 x 2^14 (208333338 limbs, 3 primes): load 0.022 ntt 0.058 crt 0.011 spills 0.013 total 0.123 s
+   dist_db 208333338 limbs: 0.126 s (dbig: shift 0.000 addsub 0.013 maxidx 0.007 reserve 0.000)
+dist 2^28 = 2^14 x 2^14 (138888891 limbs, 3 primes): load 0.014 ntt 0.055 crt 0.010 spills 0.008 total 0.085 s
+   dist_db 138888891 limbs: 0.087 s (dbig: shift 0.000 addsub 0.008 maxidx 0.005 reserve 0.000)
+dist 2^29 = 2^14 x 2^15 (416666673 limbs, 3 primes): load 0.035 ntt 0.107 crt 0.020 spills 0.024 total 0.207 s
+   dist_db 416666673 limbs: 0.211 s (dbig: shift 0.000 addsub 0.024 maxidx 0.008 reserve 0.000)
+dist 2^29 = 2^14 x 2^15 (277777781 limbs, 3 primes): load 0.030 ntt 0.106 crt 0.018 spills 0.012 total 0.164 s
+   dist_db 277777781 limbs: 0.168 s (dbig: shift 0.000 addsub 0.012 maxidx 0.007 reserve 0.000)
+dist 2^30 = 2^15 x 2^15 (833333341 limbs, 3 primes): load 0.070 ntt 0.211 crt 0.035 spills 0.032 total 0.366 s
+   dist_db 833333341 limbs: 0.370 s (dbig: shift 0.000 addsub 0.032 maxidx 0.008 reserve 0.000)
+dist 3*2^28 = 2^14 x 3*2^14 (555555561 limbs, 3 primes): load 0.070 ntt 0.198 crt 0.026 spills 0.012 total 0.306 s
+   dist_db 555555561 limbs: 0.310 s (dbig: shift 0.000 addsub 0.012 maxidx 0.008 reserve 0.000)
+recip(db) 2.38 s: dist 58 calls 2.01 s (load 0.30 ntt 1.17 crt 0.15 spills 0.16); dbig shift 71/0.17 addsub 105/0.31 maxidx 337/0.17 reserve 5/0.00; pools 0.0 GB
+recip     4.01 s   mu 555555560 limbs (29 iterations, 0 mdev)   VmRSS 26.7 GB, VmHWM 26.7 GB
+mem [recip] device 211.1 GB in use (per APU 49.5..62.4): planes 154.6, regions 0.0, block pool 55.8 (donated 0.0, borrowed 55.8, hipMalloc 0.0; live 4.4, peak live 17.8, free 51.4), tables 0.61, other 0.0
+mem [recip] host 26.7 GB RSS (HWM 26.7): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 26.6
+10dP      0.60 s   T 555555556 limbs, A 1111111116 limbs (0 mdev, 0 splits)   VmRSS 35.6 GB, VmHWM 35.6 GB
+RESULT ecalc 10dP s 0.599681
+dist 3*2^29 = 2^14 x 3*2^15 (1111111115 limbs, 3 primes): load 0.214 ntt 0.410 crt 0.051 spills 0.022 total 0.699 s
+   dist_db 1111111115 limbs: 0.704 s (dbig: shift 0.000 addsub 0.022 maxidx 0.010 reserve 0.000)
+mn_out: /tmp/np15_e10_s1_kreal.txt: O_DIRECT, packed form, 8 write threads, file system local
+dist 3*2^29 = 2^14 x 3*2^15 (1111111117 limbs, 3 primes): load 0.230 ntt 0.438 crt 0.052 spills 0.017 total 0.720 s
+   dist_db 1111111117 limbs: 0.726 s (dbig: shift 0.000 addsub 0.017 maxidx 0.011 reserve 0.000)
+divmod(db) 2.16 s: Q in + mu 0.16, A mu + shift 0.91, low product 0.87, copies out 0.12, window + corrections 0.10; pools 0.0 GB
+dbig pool: APU0 tail 2.26 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU1 tail 2.26 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU2 tail 2.26 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU3 tail 2.26 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dm        6.19 s   X 555555557 limbs, R 555555560 limbs (recip 4.0 s; corrections 0/0; 0 mdev)   VmRSS 31.3 GB, VmHWM 40.2 GB
+mem [dm] device 155.2 GB in use (per APU 38.8..38.8): planes 154.6, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 22.2, free 0.0), tables 0.61, other 0.0
+mem [dm] host 31.3 GB RSS (HWM 40.2): staging 0.0 pinned, registered 0.1, X 4.4, digits 0.0, named 0.0, other 26.8
+RESULT ecalc dm s 6.19494
+T1        0.00 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence overlapped with bs)
+      overlapped with bs: P, Q mod q recurrence 1.32 s, block pool pregrown by 0 GB in 0.00 s
+RESULT ecalc T1 s 1.113e-05
+      VmRSS 18.2 GB before dc
+total    27.91 s   (bs 7.8 + 10dP 0.6 + dm 6.2 + T1 0.0 + dc 0.0 + T2 0.0 = 14.6; init 11.7; other 1.6); VmHWM 40.2 GB
+RESULT ecalc total s 27.9085
+RESULT ecalc phases s 14.6123
+RESULT ecalc other s 1.60771
+RESULT ecalc vmhwm GB 40.2124
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+      patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.001 s
+dc        1.21 s   digits [0, 10000000009) of 10000000009 formatted from 555555557 decimal limbs in 38 chunks (streamed with the low product; joined after total) (residues 0.67, format 0.21, digit residue 0.69, T2 0.52, fetch 0.00, waiting for the writer 0.85)
+RESULT ecalc dc s 1.21441
+T2        0.00 s   windows ok (4 checked), digits == X mod q ok (overlapped)
+RESULT ecalc T2 s 0
+digits: 27182818284590452353602874713526624977572470936999595749669676...56994816931502679526
+wrote /tmp/np15_e10_s1_kreal.txt (4.44 GB; write 1.76 s in the writer thread, 0.00 s after the checks)
+VERIFY OK
+mem [end] device 155.2 GB in use (per APU 38.8..38.8): planes 154.6, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 22.2, free 0.0), tables 0.61, other 0.0
+mem [end] host 13.4 GB RSS (HWM 40.2): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 13.3
+mem summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem init             206.2    61.3 |   154.6    23.0     0.0    27.9     0.0     0.0     0.0   0.61 |    12.1     9.3     0.0     0.0     0.0     2.8    12.1
+mem bs               211.1    62.4 |   154.6     0.0     0.0    55.8     0.0     0.0     0.0   0.61 |    17.7     4.3     0.1     0.0     0.0    13.3    17.7
+mem recip            211.1    62.4 |   154.6     0.0     0.0    55.8     0.0     4.4    17.8   0.61 |    26.7     0.0     0.1     0.0     0.0    26.6    26.7
+mem dm               155.2    38.8 |   154.6     0.0     0.0     0.0     0.0     0.0    22.2   0.61 |    31.3     0.0     0.1     4.4     0.0    26.8    40.2
+mem end              155.2    38.8 |   154.6     0.0     0.0     0.0     0.0     0.0    22.2   0.61 |    13.4     0.0     0.1     0.0     0.0    13.3    40.2
+dbig pool: APU0 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU1 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU2 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU3 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
