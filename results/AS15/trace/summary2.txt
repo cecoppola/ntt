@@ -1,0 +1,7 @@
+# tag digits mode | total | init | bs | recip | dm | T1 | remaps (count, s) | dm-remaps | growth | verify | digits | elapsed | node | env
+t2 20000000000 nw | total 33.45 | init 12.063 | bs 12.99 | recip 3.72 | dm 8.32 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 35s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
+t6 60000000000 nw | total 96.45 | init 14.9471 | bs 39.46 | recip 17.75 | dm 41.83 | T1 0.00 | remaps 4 1.00 s | after recip 3 0.91 s | growth 1 | VERIFY OK | - | 99s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
+t8 80000000000 nw | total 138.00 | init 14.6637 | bs 57.76 | recip 26.59 | dm 65.28 | T1 0.00 | remaps 3 1.14 s | after recip 3 1.14 s | growth 1 | VERIFY OK | - | 140s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
+t116 116000000000 nw | total 244.39 | init 20.3411 | bs 96.51 | recip 51.83 | dm 127.12 | T1 0.00 | remaps 4 2.33 s | after recip 4 2.33 s | growth 0 | VERIFY OK | - | 247s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
+t12 120000000000 nw | total 246.74 | init 18.522 | bs 97.88 | recip 51.72 | dm 129.91 | T1 0.00 | remaps 4 2.17 s | after recip 4 2.17 s | growth 0 | VERIFY OK | - | 249s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
+t9 90000000000 nw | total 167.33 | init 17.6934 | bs 66.02 | recip 30.77 | dm 83.29 | T1 0.00 | remaps 9 3.35 s | after recip 9 3.35 s | growth 3 | VERIFY OK | - | 169s | ppac-pl1-s24-30 | DB_POOL_TRACE=1
