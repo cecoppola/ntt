@@ -172,16 +172,18 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
  * So rem = x m - qe B (mod 2^64; the true value is in [0, 2B) < 2^64) needs one correction.  The quotient does not depend
  * on the incoming carry: the only loop-carried chain is s = rem + c, c = qe + (s >= B) (Q <= m - 1 since x < B, so
  * c <= m <= B - 1 and s < 2B).  The limbs are those of the exact product, hence identical to the serial form's. */
+/* floor(m 2^64 / 10^18) for m < 10^18 (a 64-bit value: kept out of line so that the loops see a 64-bit multiplier) */
+__attribute__((noinline)) static uint64_t recip_b10(uint64_t m) { return (uint64_t)(((u128)m << 64) / B10); }
 static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t c)
 {
-    const uint64_t mh = (uint64_t)(((u128)m << 64) / B10);
+    const uint64_t mh = recip_b10(m);
     for (size_t i = 0; i < na; i++) {
         uint64_t x = a[i];
         uint64_t qe = (uint64_t)(((u128)x * mh) >> 64);
         uint64_t rem = x * m - qe * B10;
-        uint64_t f = rem >= B10; rem -= f ? B10 : 0; qe += f;
+        uint64_t f = rem >= B10; rem -= B10 & (0 - f); qe += f;
         uint64_t s = rem + c, g = s >= B10;
-        r[i] = s - (g ? B10 : 0); c = qe + g;
+        r[i] = s - (B10 & (0 - g)); c = qe + g;
     }
     return c;
 }
@@ -195,21 +197,21 @@ void bi_span_step(bigint *P, bigint *Q, uint64_t k)
     if (!bi_decimal || k >= B10) { bi_add(P, P, Q); bi_mul_u64(Q, Q, k); return; }
     bi_reserve(P, (pn > n ? pn : n) + 1); bi_reserve(Q, n + 1);
     uint64_t *p = P->l, *q = Q->l, ca = 0, c = 0;
-    const uint64_t mh = (uint64_t)(((u128)k << 64) / B10);
+    const uint64_t mh = recip_b10(k);
     size_t lo = pn < n ? pn : n;
 #define SPAN_MUL(x) do { uint64_t qe = (uint64_t)(((u128)(x) * mh) >> 64), rem = (x) * k - qe * B10; \
-                         uint64_t f = rem >= B10; rem -= f ? B10 : 0; qe += f; \
-                         uint64_t s = rem + c, g = s >= B10; q[i] = s - (g ? B10 : 0); c = qe + g; } while (0)
+                         uint64_t f = rem >= B10; rem -= B10 & (0 - f); qe += f; \
+                         uint64_t s = rem + c, g = s >= B10; q[i] = s - (B10 & (0 - g)); c = qe + g; } while (0)
     for (i = 0; i < lo; i++) {
-        uint64_t x = q[i], t = p[i] + x + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0);
+        uint64_t x = q[i], t = p[i] + x + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca));
         SPAN_MUL(x);
     }
     for (; i < n; i++) {                               /* Q longer than P (the usual case: by one limb at most) */
-        uint64_t x = q[i], t = x + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0);
+        uint64_t x = q[i], t = x + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca));
         SPAN_MUL(x);
     }
 #undef SPAN_MUL
-    for (; i < pn; i++) { uint64_t t = p[i] + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0); }
+    for (; i < pn; i++) { uint64_t t = p[i] + ca; ca = t >= B10; p[i] = t - (B10 & (0 - ca)); }
     P->n = i; if (ca) P->l[P->n++] = ca;
     if (!k || !n) { Q->n = 0; return; }
     Q->n = n; if (c) Q->l[Q->n++] = c;                 /* c <= k < B: one limb */
