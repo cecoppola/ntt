@@ -13,6 +13,7 @@
 #include "mn_out.h"
 #include "mem.h"
 #include "spill.h"                                    /* Phase 14 S1 (E3): ECALC_ODIRECT */
+#include <sys/stat.h>                                 /* Phase 15 K: the patch (fstat) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 /* ---- small collectives on host vectors, through comm_allgather (device buffers on APU 0) ---- */
@@ -255,7 +256,7 @@ int mn_out_run(mn_out *o, const mn_out_src *src)
         for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
         o->ndig += len;
         double t4 = mem_now(); o->t_res += t4 - t3;
-        o->bad2 += tier2_range(s, ck0, ck1, head, nhead, o->d_out + 1, o->verbose, &o->nwin);
+        o->bad2 += tier2_range(s, ck0, ck1, head, nhead, o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), o->verbose, &o->nwin);   /* (Phase 15 K: the last t2_defer digits' windows are mn_out_tail_fix's) */
         { size_t t = len < 49 ? len : 49; if (t < 49 && nhead) { size_t keep = 49 - t < nhead ? 49 - t : nhead; memmove(head, head + nhead - keep, keep); memcpy(head + keep, s, t); nhead = keep + t; } else { memcpy(head, s + len - t, t); nhead = t; } }
         o->t_t2 += mem_now() - t4;
         if (bb == hi) { size_t f = len < 62 ? len : 62; memcpy(o->first, s, f); o->first[f] = 0; }
@@ -304,6 +305,121 @@ void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
     mn_out_allgather_u64(c, v, T1_NQ + 1, all);
     for (int i = 0; i < T1_NQ; i++) { uint64_t D = 0; for (int r = n; r-- > 0;) D = vf_digits_join(D, (size_t)all[(size_t)r * (T1_NQ + 1) + T1_NQ], all[(size_t)r * (T1_NQ + 1) + i], t1_q[i]); Dres[i] = D; }
     free(all);
+}
+
+/* ---- Phase 15 K (ECALC_CORR_PATCH): the correction as a patch of the written tail (mn_out.h) ---- */
+static uint64_t sub_mod(uint64_t a, uint64_t b, uint64_t q) { return vf_add_mod(a, b ? q - b : 0, q); }
+/* the bytes [off, off + len) of a part file: must hold old (else 1); become new, read back (else 1).  O_DIRECT (as the writer):
+ * whole 4 KiB blocks read, changed and written, the file cut back to its size if the last block went past it */
+static int patch_bytes(const char *name, size_t off, const char *old, const char *nw, size_t len, int verbose)
+{
+    int direct = sp_odirect() && (!getenv("ECALC_OUT_ODIRECT") || atoi(getenv("ECALC_OUT_ODIRECT"))), fd = -1, bad = 0;
+    if (direct) fd = open(name, O_RDWR | O_DIRECT);
+    if (fd < 0) { direct = 0; fd = open(name, O_RDWR); }
+    if (fd < 0) { printf("mn_out: patch: cannot open %s: %s\n", name, strerror(errno)); return 1; }
+    struct stat st; if (fstat(fd, &st) != 0 || (size_t)st.st_size < off + len) { printf("mn_out: patch: %s holds %lld bytes, the patch ends at %zu\n", name, (long long)st.st_size, off + len); close(fd); return 1; }
+    size_t a0 = direct ? off & ~(size_t)(SP_ALIGN - 1) : off, a1 = direct ? (off + len + SP_ALIGN - 1) & ~(size_t)(SP_ALIGN - 1) : off + len, n = a1 - a0;
+    char *buf = 0; if (posix_memalign((void **)&buf, SP_ALIGN, n + SP_ALIGN)) { close(fd); return 1; }
+    for (int pass = 0; pass < 2 && !bad; pass++) {     /* 0: read, check old, write new; 1: read back, check new */
+        memset(buf, 0, n); ssize_t r = pread(fd, buf, n, (off_t)a0);
+        if (r < 0 || (size_t)r < off + len - a0) { printf("mn_out: patch: read %s at %zu: %s\n", name, a0, r < 0 ? strerror(errno) : "short"); bad = 1; break; }
+        if (memcmp(buf + (off - a0), pass ? nw : old, len)) {
+            printf("mn_out: patch: %s at %zu: the file does not hold the %s digits\n", name, off, pass ? "patched (read back)" : "uncorrected"); bad = 1; break; }
+        if (pass) break;
+        memcpy(buf + (off - a0), nw, len);
+        size_t done = 0; while (done < n) { ssize_t w = pwrite(fd, buf + done, n - done, (off_t)(a0 + done)); if (w < 0) { if (errno == EINTR) continue; printf("mn_out: patch: write %s: %s\n", name, strerror(errno)); bad = 1; break; } done += (size_t)w; }
+        if (!bad && direct && a1 > (size_t)st.st_size && ftruncate(fd, st.st_size) != 0) { printf("mn_out: patch: truncate %s: %s\n", name, strerror(errno)); bad = 1; }
+        if (!bad && fsync(fd) != 0) { printf("mn_out: patch: fsync %s: %s\n", name, strerror(errno)); bad = 1; }
+    }
+    if (!direct && sp_odirect()) posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    close(fd); free(buf);
+    if (verbose) printf("      patch: %s bytes [%zu, %zu) (%s, blocks [%zu, %zu))%s\n", name, off, off + len, direct ? "O_DIRECT" : "buffered", a0, a1, bad ? " FAILED" : "");
+    return bad;
+}
+int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_fix *f)
+{
+    const uint64_t B = 1000000000000000000ULL;
+    size_t nl = (o->d + 1 + 17) / 18, pad = nl * 18 - (o->d + 1), dend = o->d_out + 1;   /* digits [0, dend) are in the files */
+    if (w > nl) w = nl;
+    size_t zone = o->t2_defer < dend ? o->t2_defer : dend, zs = dend - zone;
+    uint64_t *nw = (uint64_t *)malloc((w + 1) * 8); memcpy(nw, low, w * 8);
+    uint64_t c = (uint64_t)(dx < 0 ? -dx : dx); size_t m = 0;          /* limbs [0, m) change */
+    for (size_t i = 0; c && i < w; i++) {
+        if (dx > 0) { uint64_t v = nw[i] + c; if (v >= B) { nw[i] = v - B; c = 1; } else { nw[i] = v; c = 0; } }
+        else { if (nw[i] >= c) { nw[i] -= c; c = 0; } else { nw[i] = nw[i] + B - c; c = 1; } }
+        m = i + 1;
+    }
+    if (c && w < nl) { free(nw); return -1; }                          /* the carry goes on above the gathered limbs */
+    if (c) { free(nw); printf("mn_out: patch: the correction %+ld %s past X's top digit\n", dx, dx > 0 ? "carries" : "borrows"); return 1; }
+    long sd = (long)((nl - w) * 18) - (long)pad;                       /* the digit of the strings' first char (< 0: leading pad chars) */
+    size_t n = w * 18; char *so = (char *)malloc(n + 1), *sn = (char *)malloc(n + 1); fmt_limbs(so, low, w); fmt_limbs(sn, nw, w); free(nw);
+    size_t j = 0; while (j < n && so[j] == sn[j]) j++;
+    size_t kp = (long)j + sd < 0 ? 0 : (size_t)((long)j + sd);          /* the first digit that changes (d + 1: none) */
+    if (j == n) kp = o->d + 1;
+    size_t need = (kp < zs ? kp : zs); need = need > 62 ? need - 62 : 0;   /* the context: the windows' 49 digits and a node's first 62 before the first changed or deferred digit (global: every node decides alike) */
+    if (sd > 0 && (size_t)sd > need && w < nl) { free(so); free(sn); return -1; }
+    #define SO(k) (so + ((long)(k) - sd))
+    #define SN(k) (sn + ((long)(k) - sd))
+    f->kp = kp; f->w = w;
+    if (kp <= o->d) { uint64_t vo[T1_NQ], vn[T1_NQ]; vf_digits_mods(SO(kp), o->d + 1 - kp, t1_q, T1_NQ, vo); vf_digits_mods(SN(kp), o->d + 1 - kp, t1_q, T1_NQ, vn);
+                      for (int i = 0; i < T1_NQ; i++) f->dres_adj[i] = sub_mod(vn[i], vo[i], t1_q[i]); }
+    else for (int i = 0; i < T1_NQ; i++) f->dres_adj[i] = 0;
+    int bad = 0;
+    /* this node's part: digits [a, b) of the patch */
+    size_t a = kp > o->k0 ? kp : o->k0, b = o->k1 < dend ? o->k1 : dend;
+    if (o->outfile && a < b) {
+        char name[4096]; if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
+        size_t fbase = o->k0 == 0 ? 0 : o->k0 + 1, p0 = (a ? a + 1 : 0) - fbase, len = ((b - 1 ? b : 0) - fbase) - p0 + 1;   /* the bytes [pos(a), pos(b - 1)], pos(k) = (k ? k + 1 : 0) - fbase */
+        char *io = (char *)malloc(len), *in = (char *)malloc(len);
+        for (size_t k = a; k < b; k++) { size_t p = (k ? k + 1 : 0) - fbase - p0; io[p] = *SO(k); in[p] = *SN(k); }
+        if (a == 0 && b > 1) io[1] = in[1] = '.';
+        bad += patch_bytes(name, p0, io, in, len, o->verbose);
+        f->bytes += len; f->parts++;
+        free(io); free(in);
+    }
+    /* T2: the deferred windows (ending in [zs, dend)) on the new digits; windows ending in [kp, zs) were checked on the old ones:
+     * their verdicts replaced (this node: the windows ending in its range, as the writer counts them) */
+    int nwin0 = o->nwin;
+    { size_t e0 = zs > o->k0 ? zs : o->k0, e1 = b; if (e0 < e1) { size_t s0 = e0 > 49 ? e0 - 49 : 0; o->bad2 += tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &o->nwin); } }
+    if (kp < zs) { size_t e0 = kp > o->k0 ? kp : o->k0, e1 = zs < b ? zs : b;
+                   if (e0 < e1) { size_t s0 = e0 > 49 ? e0 - 49 : 0; int nold = 0, nnew = 0;
+                                  printf("      patch: re-checking the windows over the patched digits [%zu, %zu) (an uncorrected-digit BAD below is replaced)\n", e0, e1);
+                                  o->bad2 -= tier2_range(SO(s0), s0, e1, 0, 0, dend, 0, &nold); o->bad2 += tier2_range(SN(s0), s0, e1, 0, 0, dend, o->verbose, &nnew); } }
+    f->nwin += o->nwin - nwin0;
+    if (o->k0 <= o->d_out && o->d_out < o->k1 && kp <= o->d_out) { size_t t = strlen(o->last); memcpy(o->last, SN(o->d_out + 1 - t), t); }
+    if (o->ntail && kp <= o->d) memcpy(o->tail, SN(o->d_out + 1), o->ntail);
+    if (o->k1 > o->k0 && kp < o->k0 + 62 && (long)o->k0 >= sd) { size_t t = strlen(o->first); memcpy(o->first, SN(o->k0), t); }
+    #undef SO
+    #undef SN
+    free(so); free(sn);
+    return bad;
+}
+int mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_fix *f)
+{
+    double t0 = mem_now(); memset(f, 0, sizeof *f);
+    int n = c ? comm_size(c) : 1;
+    size_t nl = (o->d + 1 + 17) / 18, w = (o->t2_defer + 49 + (o->d - o->d_out)) / 18 + 8, wmax = n > 1 ? ((size_t)1 << 27) / (size_t)n : (size_t)1 << 30;
+    if (w > nl) w = nl;
+    int r = -1;
+    for (;;) {
+        uint64_t *low = (uint64_t *)calloc(w, 8), *pin = 0;
+        size_t s0 = src->lo < w ? src->lo : w, s1 = src->lo + src->cnt < w ? src->lo + src->cnt : w;   /* the global limbs [s0, s1) are this node's */
+        if (s1 > s0) {
+            if (src->dev) { HIP_CHECK(hipHostMalloc((void **)&pin, (s1 - s0) * 8, 0)); dev_fetch(src->dev, s0 - src->lo, s1 - s0, pin); memcpy(low + s0, pin, (s1 - s0) * 8); HIP_CHECK(hipHostFree(pin)); }
+            else memcpy(low + s0, src->host + (s0 - src->lo), (s1 - s0) * 8);
+        }
+        if (n > 1) {                                   /* the shares are disjoint: the sum over the nodes is the global limbs */
+            uint64_t *all = (uint64_t *)malloc((size_t)n * w * 8); mn_out_allgather_u64(c, low, (int)w, all);
+            for (size_t i = 0; i < w; i++) { uint64_t v = 0; for (int q = 0; q < n; q++) v += all[(size_t)q * w + i]; low[i] = v; }
+            free(all);
+        }
+        r = mn_out_tail_core(o, low, w, dx, f); free(low);
+        if (r >= 0) break;
+        if (w >= nl || w >= wmax) { printf("mn_out: patch: the carry of %+ld reaches past %zu limbs: not patched\n", dx, w); r = 1; break; }
+        w = w * 4 < nl ? w * 4 : nl; if (w > wmax) w = wmax;
+    }
+    f->t = mem_now() - t0;
+    return r;
 }
 
 /* ---- Phase 11 V: the sidecar and the recheck mode (mn_out.h) ---- */
