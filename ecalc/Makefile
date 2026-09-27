@@ -138,6 +138,10 @@ tests/t_ntt3: tests/t_ntt3.c $(OBJS) ntt.h tests/harness.h
 tests/t_dist: tests/t_dist.c $(OBJS) ntt_dist.h tests/harness.h
 	$(HIPC) -fopenmp $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 
+# Phase 15 S1: the fast decimal mul_1 and the fused seed span against the serial path
+tests/t_seed: tests/t_seed.c $(OBJS) bigint.h tests/harness.h
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)
+
 tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp -lm $(SHMEM_LIBS)
 
