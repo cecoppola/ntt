@@ -37,6 +37,10 @@ size_t newton_recip_cut(size_t v);      /* Phase 14 R1 (E7): the low cut of a re
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs);   /* L: the step runs on [0, 2^L) (0: the full group of g nodes) */
 /* mn_plan.c: print the plan of a run of d digits (N terms) on `size` node-processes and return the exit status */
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log);
+/* Phase 15 P: every planned product against the prime set (the term bound of ECALC_NP, the roots' 2-adic limit): mn_plan_run
+ * prints `plan check ... OK` or `plan REFUSED ...` (the first failing product) last and returns EC_RC_FATAL (3) on a refusal;
+ * mn_plan_check runs the same plan silently (BS_LAYOUT_ONLY) and prints only that line */
+int mn_plan_check(unsigned long d, unsigned long N, int size, int pool_log);
 #ifdef __cplusplus
 }
 #endif
