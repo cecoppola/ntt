@@ -1,0 +1,15 @@
+t_roots: EC_PRIMES 1, EC_LOGN_MAX 33 (the table order), ec_logn_limit(3) 44, ec_logn_limit(4) 44
+prime 0: p = 4222124650659841 = 15 * 2^48 + 1, g = 19
+  old formula at logn 34: w = 1, w^(2^33) = 1 (NOT a root of order 2^34); new root(34) = 1026100638834590
+  identical to the old roots for logn 0..33 (34, radix-3 too); order + GMP + chain checked for logn 0..48 (2^k) and 49 radix-3 orders
+prime 1: p = 3799912185593857 = 27 * 2^47 + 1, g = 5
+  old formula at logn 34: w = 1, w^(2^33) = 1 (NOT a root of order 2^34); new root(34) = 3793783879483527
+  identical to the old roots for logn 0..33 (34, radix-3 too); order + GMP + chain checked for logn 0..47 (2^k) and 48 radix-3 orders
+prime 2: p = 3641582511194113 = 207 * 2^44 + 1, g = 5
+  old formula at logn 34: w = 1, w^(2^33) = 1 (NOT a root of order 2^34); new root(34) = 2160654987723901
+  identical to the old roots for logn 0..33 (34, radix-3 too); order + GMP + chain checked for logn 0..44 (2^k) and 45 radix-3 orders
+prime 3: p = 2586051348529153 = 147 * 2^44 + 1, g = 10
+  old formula at logn 34: w = 1, w^(2^33) = 1 (NOT a root of order 2^34); new root(34) = 1145492311746770
+  identical to the old roots for logn 0..33 (34, radix-3 too); order + GMP + chain checked for logn 0..44 (2^k) and 45 radix-3 orders
+
+t_roots: VERIFY OK (2789 checks)
