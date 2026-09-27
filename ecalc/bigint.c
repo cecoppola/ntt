@@ -166,10 +166,59 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     }
     free(w1);
 }
+/* Phase 15 S1 (BI_MUL1_FAST): the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
+ * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
+ * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
+ * So rem = x m - qe B (mod 2^64; the true value is in [0, 2B) < 2^64) needs one correction.  The quotient does not depend
+ * on the incoming carry: the only loop-carried chain is s = rem + c, c = qe + (s >= B) (Q <= m - 1 since x < B, so
+ * c <= m <= B - 1 and s < 2B).  The limbs are those of the exact product, hence identical to the serial form's. */
+static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t c)
+{
+    const uint64_t mh = (uint64_t)(((u128)m << 64) / B10);
+    for (size_t i = 0; i < na; i++) {
+        uint64_t x = a[i];
+        uint64_t qe = (uint64_t)(((u128)x * mh) >> 64);
+        uint64_t rem = x * m - qe * B10;
+        uint64_t f = rem >= B10; rem -= f ? B10 : 0; qe += f;
+        uint64_t s = rem + c, g = s >= B10;
+        r[i] = s - (g ? B10 : 0); c = qe + g;
+    }
+    return c;
+}
+int bi_mul1_fast = -1;
+int bi_mul1_fast_on(void) { if (bi_mul1_fast < 0) { const char *e = getenv("BI_MUL1_FAST"); bi_mul1_fast = e ? atoi(e) != 0 : 0; } return bi_mul1_fast; }
+/* P += Q; Q *= k in one pass over the limbs (the seed span's Horner step; decimal, k < B, P and Q canonical; else the two
+ * calls).  Q's limb is read once for both; the multiply is mul1_dec_fast's */
+void bi_span_step(bigint *P, bigint *Q, uint64_t k)
+{
+    size_t n = Q->n, pn = P->n, i;
+    if (!bi_decimal || k >= B10) { bi_add(P, P, Q); bi_mul_u64(Q, Q, k); return; }
+    bi_reserve(P, (pn > n ? pn : n) + 1); bi_reserve(Q, n + 1);
+    uint64_t *p = P->l, *q = Q->l, ca = 0, c = 0;
+    const uint64_t mh = (uint64_t)(((u128)k << 64) / B10);
+    size_t lo = pn < n ? pn : n;
+#define SPAN_MUL(x) do { uint64_t qe = (uint64_t)(((u128)(x) * mh) >> 64), rem = (x) * k - qe * B10; \
+                         uint64_t f = rem >= B10; rem -= f ? B10 : 0; qe += f; \
+                         uint64_t s = rem + c, g = s >= B10; q[i] = s - (g ? B10 : 0); c = qe + g; } while (0)
+    for (i = 0; i < lo; i++) {
+        uint64_t x = q[i], t = p[i] + x + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0);
+        SPAN_MUL(x);
+    }
+    for (; i < n; i++) {                               /* Q longer than P (the usual case: by one limb at most) */
+        uint64_t x = q[i], t = x + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0);
+        SPAN_MUL(x);
+    }
+#undef SPAN_MUL
+    for (; i < pn; i++) { uint64_t t = p[i] + ca; ca = t >= B10; p[i] = t - (ca ? B10 : 0); }
+    P->n = i; if (ca) P->l[P->n++] = ca;
+    if (!k || !n) { Q->n = 0; return; }
+    Q->n = n; if (c) Q->l[Q->n++] = c;                 /* c <= k < B: one limb */
+}
 static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
-    if (bi_decimal) {                                /* m < B: a[i] m + c < B^2 + B */
+    if (bi_decimal && m < B10 && add <= B10 && bi_mul1_fast_on()) return mul1_dec_fast(r, a, na, m, add);
+    if (bi_decimal) {                              /* m < B: a[i] m + c < B^2 + B */
         if (m < ((uint64_t)1 << 33)) {
             /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
              * with mu = floor(2^94 / 10^18) < 2^35, then at most two corrections (WP4, RESULTS.md 58) */

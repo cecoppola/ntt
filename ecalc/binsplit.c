@@ -54,11 +54,16 @@ unsigned long e_terms(unsigned long d)
 static void span(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 {
     bi_set_u64(P, 1); bi_set_u64(Q, b - 1);
+    if (bi_decimal && bi_mul1_fast_on()) {            /* Phase 15 S1 (BI_MUL1_FAST=1): P += Q; Q *= k fused, the quotient by a precomputed reciprocal */
+        for (unsigned long k = b - 1; k-- > a;) bi_span_step(P, Q, k);
+        return;
+    }
     for (unsigned long k = b - 1; k-- > a;) {
         bi_add(P, P, Q);
         bi_mul_u64(Q, Q, k);
     }
 }
+void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b) { span(P, Q, a, b); }   /* Phase 15 S1: for tests/t_seed (declared there) */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 {
     if (b - a <= 64) { span(P, Q, a, b); return; }
