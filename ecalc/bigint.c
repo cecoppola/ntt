@@ -188,7 +188,7 @@ static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, 
     return c;
 }
 int bi_mul1_fast = -1;
-int bi_mul1_fast_on(void) { if (bi_mul1_fast < 0) { const char *e = getenv("BI_MUL1_FAST"); bi_mul1_fast = e ? atoi(e) != 0 : 0; } return bi_mul1_fast; }
+int bi_mul1_fast_on(void) { if (bi_mul1_fast < 0) { const char *e = getenv("BI_MUL1_FAST"); bi_mul1_fast = e ? atoi(e) != 0 : 1; } return bi_mul1_fast; }   /* default 1 since Phase 15 (the user's decision) */
 /* P += Q; Q *= k in one pass over the limbs (the seed span's Horner step; decimal, k < B, P and Q canonical; else the two
  * calls).  Q's limb is read once for both; the multiply is mul1_dec_fast's */
 void bi_span_step(bigint *P, bigint *Q, uint64_t k)

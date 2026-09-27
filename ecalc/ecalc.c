@@ -444,7 +444,7 @@ int main(int argc, char **argv)
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
-    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 0;   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
+    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 since Phase 15 (the user's decision, 2026-09-27) */   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
       newton_x_defer = bi_decimal && ((mn_size_ == 1 && ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2));
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
@@ -464,7 +464,8 @@ int main(int argc, char **argv)
      * writing at 1.13-1.59 GB/s, but on aac6's slower path it runs at 0.31 GB/s: 113 s of background write that the
      * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
      * ECALC_RECHECK possible for a finished run, so it stays one switch away: ECALC_CKPT_TOP=1. */
-    int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP")) : 0;
+    int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP"))
+                 : (getenv("ECALC_CHECKPOINT") && atoi(getenv("ECALC_CHECKPOINT")) ? 2 : 0);   /* Phase 15 (the user's decision): off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
     double ckpt_slack = getenv("ECALC_CKPT_TOP_SLACK") ? atof(getenv("ECALC_CKPT_TOP_SLACK")) : 1.0;   /* Phase 13 N: ECALC_CKPT_TOP=2's budget per release */
     bs_ckpt_bg *topbg = 0; int topq_held = 0;       /* Phase 13 N: the size-1 top set's writer; Q held past the division for it */
     /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
@@ -503,7 +504,7 @@ int main(int argc, char **argv)
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
             double td = mem_now();
-            if (outfile && getenv("MN_OUT_EARLY") && atoi(getenv("MN_OUT_EARLY"))) { newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
+            if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             newton_mn_x_hook = 0;
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;

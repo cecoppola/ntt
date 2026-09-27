@@ -29,7 +29,7 @@ int sp_odirect(void)
 int sp_odirect_auto(void)
 {
     static int v = -1;
-    if (v < 0) { const char *e = getenv("ECALC_ODIRECT"); v = e && !strcmp(e, "auto"); }
+    if (v < 0) { const char *e = getenv("ECALC_ODIRECT"); v = !e || !strcmp(e, "auto"); }   /* default auto since Phase 15 (the user's decision) */
     return v;
 }
 int sp_fs_kind(const char *path)

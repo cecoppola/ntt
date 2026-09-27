@@ -60,7 +60,7 @@ size_t newton_recip_cut(size_t v) { cut_init(); return recip_cut && v > (size_t)
  * product.  0 (the default): as before */
 #define MID_HI 4
 static int recip_mid = -1;
-static void mid_init(void) { if (recip_mid < 0) { const char *e = getenv("NEWTON_RECIP_MID"); recip_mid = e ? atoi(e) != 0 : 0; } }
+static void mid_init(void) { if (recip_mid < 0) { const char *e = getenv("NEWTON_RECIP_MID"); recip_mid = e ? atoi(e) != 0 : 1; } }   /* default 1 since Phase 15 (the user's decision) */
 size_t newton_recip_mid(size_t j, size_t take) { mid_init(); return recip_mid && j <= take && j >= MID_HI ? take + MID_HI : (size_t)-1; }   /* Q_t r's high cut ((size_t)-1: none; j >= MID_HI: w < take + j + 1, the top has something to skip) */
 void newton_recip_set(int cut, int mid) { cut_init(); mid_init(); if (cut >= 0) recip_cut = cut != 0; if (mid >= 0) recip_mid = mid != 0; }   /* tests: override the switches (-1: keep) */
 struct newton_mid_stats newton_mid_st;

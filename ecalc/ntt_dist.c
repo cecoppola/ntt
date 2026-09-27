@@ -243,7 +243,7 @@ template <int BY> __global__ void k_unpacktw_r(const uint64_t *rb, uint64_t *x, 
         if (k < 32 - BY) w = ec_mm(w, st, m.p, m.pinv);
     }
 }
-static int twrec_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC"); v = e ? atoi(e) : 0; } return v; }
+static int twrec_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC"); v = e ? atoi(e) : 1; } return v; }   /* default 1 since Phase 15 (the user's decision) */
 /* tiled unpack: slab r (my cols x rank r's rows, column-major per column) -> my columns of R points: reads
  * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
 /* ---- the chunk pipeline (M7) ---- */
