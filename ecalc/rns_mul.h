@@ -97,6 +97,7 @@ void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_
  * cache of the grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products -- the reciprocal's last
  * doubling for the division's X Q -- and returns whether it holds; hold(0) empties them; release frees the planes) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
+void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* Phase 15 R4: both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
 int rns_dist_cache_hold(int on);
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
