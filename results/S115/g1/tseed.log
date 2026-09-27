@@ -1,0 +1,22 @@
+META limb_base=10^18
+META bench=t_seed host=ppac-pl1-s24-30 date=2026-09-26T22:09:20
+A. limb_mul_1: 10536 comparisons fast vs serial (+ 1485 against GMP), mismatches so far 0
+B. bi_span_step: 3000 comparisons against bi_add + bi_mul_u64, mismatches 0
+C. span, k a < 10^4 (a = 0, 1 included)               2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k 4 x 10^9 (< 2^33: the serial Barrett)      2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k across 2^33                                2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k 10^10 (> 2^33: the 10^11 run's top)        2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k 3.5 x 10^12 (the target's top node)        2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k 4 x 10^12                                  2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. span, k up to 2^44                                 2800 spans off vs on: 0 mismatches; 56 against GMP: 0 mismatches
+C. spans: 19600 comparisons (+ 392 against GMP), mismatches 0
+tests: 0.4 s
+D. timing (measured, 96 threads, S = 256, 400000 spans per range): ns per term, all threads together
+   k 4 x 10^9 (< 2^33: the serial Barrett)    off 3.141 ns/term  on 1.819 ns/term  x1.73
+   k across 2^33                              off 3.982 ns/term  on 1.877 ns/term  x2.12
+   k 10^10 (> 2^33: the 10^11 run's top)      off 4.255 ns/term  on 1.881 ns/term  x2.26
+   k 3.5 x 10^12 (the target's top node)      off 5.640 ns/term  on 2.351 ns/term  x2.40
+   k 4 x 10^12                                off 5.671 ns/term  on 2.358 ns/term  x2.41
+   k up to 2^44                               off 6.002 ns/term  on 2.494 ns/term  x2.41
+
+t_seed: VERIFY OK (3 checks)

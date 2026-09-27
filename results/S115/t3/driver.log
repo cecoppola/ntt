@@ -1,0 +1,26 @@
+job 21490 node ppac-pl1-s24-16 Sun Sep 27 12:44:39 AM CDT 2026
+running on ppac-pl1-s24-16 Sun Sep 27 01:10:23 AM CDT 2026
+commit 65d463f S1: report skeleton with RESUME
+== gsh tseed192 env OMP_NUM_THREADS=192 ./tests/t_seed 50 400000  01:10:26
+   rc 0
+   k up to 2^44                               off 3.476 ns/term  on 2.369 ns/term  x1.47
+
+t_seed: VERIFY OK (3 checks)
+   5 s elapsed; 
+== runw w_off2 100000000000   01:10:31
+   rc 0
+   292 s elapsed; total   233.81 s   (bs 94.8 + 10dP 0.1 + dm 100.1 + T1 21.4 + dc 0.0 + T2 0.0 = 216.5; init 17.1; other 0.2); VmHWM 27.1 GB
+   bs: seeds were computed during init (31.96 s: buffers 1.71 + 0.10, spans 22.05, waited 5.66 for the regions, 0.67 for the DMA, 1.78 issuing it (max 0.83); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions)|bs: 10433891470 terms, 40757389 spans of 256, seeds 20.87 s (waiting for the init thread)|VERIFY OK|
+== runw w_on2 100000000000 BI_MUL1_FAST=1  01:15:24
+   rc 0
+   289 s elapsed; total   229.67 s   (bs 91.5 + 10dP 0.1 + dm 100.2 + T1 20.3 + dc 0.0 + T2 0.0 = 212.1; init 17.4; other 0.2); VmHWM 27.1 GB
+   bs: seeds were computed during init (28.50 s: buffers 1.57 + 0.10, spans 18.68, waited 5.24 for the regions, 0.97 for the DMA, 1.94 issuing it (max 0.87); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions; BI_MUL1_|bs: 10433891470 terms, 40757389 spans of 256, seeds 17.47 s (waiting for the init thread)|VERIFY OK|
+== runn n_off3 100000000000   01:20:13
+   rc 0
+   222 s elapsed; total   213.71 s   (bs 95.8 + 10dP 0.1 + dm 100.0 + T1 0.6 + dc 0.0 + T2 0.0 = 196.6; init 16.9; other 0.2); VmHWM 27.1 GB
+   bs: seeds were computed during init (31.74 s: buffers 1.62 + 0.14, spans 22.24, waited 5.18 for the regions, 0.67 for the DMA, 1.91 issuing it (max 0.89); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions)|bs: 10433891470 terms, 40757389 spans of 256, seeds 21.16 s (waiting for the init thread)|VERIFY OK|
+== runn n_on3 100000000000 BI_MUL1_FAST=1  01:23:55
+   rc 0
+   226 s elapsed; total   217.03 s   (bs 99.0 + 10dP 0.1 + dm 100.0 + T1 0.6 + dc 0.0 + T2 0.0 = 199.7; init 17.1; other 0.2); VmHWM 27.1 GB
+   bs: seeds were computed during init (29.33 s: buffers 1.63 + 0.10, spans 18.05, waited 5.80 for the regions, 1.12 for the DMA, 2.63 issuing it (max 1.10); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions; BI_MUL1_|bs: 10433891470 terms, 40757389 spans of 256, seeds 18.39 s (waiting for the init thread)|VERIFY OK|
+done Sun Sep 27 01:27:41 AM CDT 2026, 1038 s

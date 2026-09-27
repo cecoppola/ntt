@@ -1,0 +1,7 @@
+ppac-pl1-s24-30
+CPU(s):                                  192
+Model name:                              AMD Instinct MI300A Accelerator
+CPU(s) scaling MHz:                      45%
+/dev/nvme0n1p2  1.8T  312G  1.4T  18% /
+               total        used        free      shared  buff/cache   available
+Mem:             502           8         495           0           0         494
