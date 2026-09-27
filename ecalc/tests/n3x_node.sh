@@ -1,7 +1,7 @@
 #!/bin/bash
 # Phase 15 N3x: one unattended node batch.  Usage: bash tests/n3x_node.sh <step list> [node]
-#   steps: hash (t_ntt hash: the old tree, the new one off and on, diffed; plus NTT_MODMUL=0, NTT_PLAN=0, NTT_B16_BODY=0
-#          old vs new-on), bench (t_ntt r3bench), units (t_ntt3, t_mul, t_newton, t_dist, t_ntt 4c at 2^24)
+#   steps: hash (t_ntt hash: the old tree, the new one off and on, diffed), hashcfg (NTT_MODMUL=0, NTT_PLAN=0,
+#          NTT_B16_BODY=0, NTT_B1R=0: old vs new-on), bench (t_ntt r3bench), units (t_ntt3, t_mul, t_newton, t_dist, t_ntt 4c at 2^24)
 # Allocates its own job (-J N3x, <= 45 min), runs the steps with srun, cancels the job at the end.
 # Logs in ~/N3x15/<step>.log.
 set -u
@@ -21,12 +21,14 @@ for s in ${STEPS//,/ }; do
     run "cd $OLD && tests/t_ntt_old hash" > $D/hash_old.log 2>&1
     run "cd $NEW && NTT_R3_FUSE=0 tests/t_ntt hash" > $D/hash_off.log 2>&1
     run "cd $NEW && NTT_R3_FUSE=1 tests/t_ntt hash" > $D/hash_on.log 2>&1
+    for f in off on; do echo "old vs $f: $(grep -c '^H ' $D/hash_old.log) / $(grep -c '^H ' $D/hash_$f.log) lines, $(diff <(grep '^H ' $D/hash_old.log) <(grep '^H ' $D/hash_$f.log) | grep -c '^>') differ"; done | tee $D/hash_summary.log ;;
+  hashcfg)
     for cfg in NTT_MODMUL=0 NTT_PLAN=0 NTT_B16_BODY=0 NTT_B1R=0; do
       run "cd $OLD && $cfg tests/t_ntt_old hash 31 29" > $D/hash_old_$cfg.log 2>&1
       run "cd $NEW && $cfg NTT_R3_FUSE=1 tests/t_ntt hash 31 29" > $D/hash_on_$cfg.log 2>&1
     done
-    { for f in off on; do echo "old vs $f: $(grep -c '^H ' $D/hash_old.log) / $(grep -c '^H ' $D/hash_$f.log) lines, $(diff <(grep '^H ' $D/hash_old.log) <(grep '^H ' $D/hash_$f.log) | grep -c '^>') differ"; done
-      for cfg in NTT_MODMUL=0 NTT_PLAN=0 NTT_B16_BODY=0 NTT_B1R=0; do echo "$cfg old vs on: $(grep -c '^H ' $D/hash_old_$cfg.log) / $(grep -c '^H ' $D/hash_on_$cfg.log) lines, $(diff <(grep '^H ' $D/hash_old_$cfg.log) <(grep '^H ' $D/hash_on_$cfg.log) | grep -c '^>') differ"; done; } | tee $D/hash_summary.log ;;
+    {
+      for cfg in NTT_MODMUL=0 NTT_PLAN=0 NTT_B16_BODY=0 NTT_B1R=0; do echo "$cfg old vs on: $(grep -c '^H ' $D/hash_old_$cfg.log) / $(grep -c '^H ' $D/hash_on_$cfg.log) lines, $(diff <(grep '^H ' $D/hash_old_$cfg.log) <(grep '^H ' $D/hash_on_$cfg.log) | grep -c '^>') differ"; done; } | tee $D/hashcfg_summary.log ;;
   bench) run "cd $NEW && tests/t_ntt r3bench 10 29" > $D/bench.log 2>&1 ;;
   units)
     run "cd $NEW && NTT_R3_FUSE=1 tests/t_ntt3" > $D/t_ntt3.log 2>&1
