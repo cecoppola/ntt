@@ -1,0 +1,79 @@
+2026-09-27 10:00:30 CDT T2 sweep: /shared/prerelease/home/mpo_2026/chcoppola/ntt-T215 at 4e0edd4, 40 runs from /shared/prerelease/home/mpo_2026/chcoppola/T215/t2_plan_sweep2.txt, sbatch 
+2026-09-27 10:00:30 CDT job 21519 submitted
+2026-09-27 10:00:51 CDT job 21519 running on ppac-pl1-s24-16
+  node /tmp: /dev/nvme0n1p2  1.8T  584G  1.2T  34% /
+2026-09-27 10:02:00 CDT a256n0 40000000000 nw S=256 | total 67.40 | init 12.0481 | bs 32.54 (9.0 15.7 7.8) | recip 9.50 | dm 22.67 | T1 0.00 | VERIFY OK | - | 4 remaps 0.88 s | 69s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0
+2026-09-27 10:03:06 CDT a256n1 40000000000 nw S=256 | total 64.74 | init 11.2402 | bs 30.71 (7.3 15.5 7.8) | recip 9.44 | dm 22.65 | T1 0.00 | VERIFY OK | - | 4 remaps 0.85 s | 66s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1
+2026-09-27 10:04:07 CDT a96n0 40000000000 nw S=179 | total 59.26 | init 11.7852 | bs 25.34 (6.6 14.7 3.9) | recip 9.51 | dm 21.96 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 61s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=96
+2026-09-27 10:05:08 CDT a96n1 40000000000 nw S=179 | total 59.40 | init 11.7013 | bs 25.44 (6.5 14.9 4.0) | recip 9.51 | dm 22.08 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 61s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=96
+2026-09-27 10:06:11 CDT a128n0 40000000000 nw S=239 | total 60.53 | init 12.3958 | bs 25.48 (8.1 12.7 4.6) | recip 9.62 | dm 22.51 | T1 0.00 | VERIFY OK | - | 2 remaps 0.44 s | 63s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=128
+2026-09-27 10:07:11 CDT a128n1 40000000000 nw S=239 | total 58.19 | init 11.8947 | bs 23.76 (6.6 12.5 4.6) | recip 9.54 | dm 22.39 | T1 0.00 | VERIFY OK | - | 2 remaps 0.44 s | 60s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=128
+2026-09-27 10:08:13 CDT a192n0 40000000000 nw S=358 | total 60.68 | init 11.8267 | bs 26.60 (9.7 12.7 4.1) | recip 9.62 | dm 22.14 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 62s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=192
+2026-09-27 10:09:14 CDT a192n1 40000000000 nw S=358 | total 58.87 | init 11.1082 | bs 25.62 (9.2 12.5 3.9) | recip 9.54 | dm 22.03 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 61s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=192
+2026-09-27 10:10:18 CDT a256fn0 40000000000 nw S=478 | total 62.47 | init 11.894 | bs 28.39 (12.5 11.2 4.6) | recip 9.55 | dm 22.08 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 64s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=256
+2026-09-27 10:11:21 CDT a256fn1 40000000000 nw S=478 | total 61.78 | init 12.1488 | bs 27.27 (11.9 10.8 4.5) | recip 9.76 | dm 22.25 | T1 0.00 | VERIFY OK | - | 0 remaps 0.00 s | 63s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=256
+2026-09-27 10:12:28 CDT a242n0 40000000000 nw S=242 | total 65.14 | init 11.3219 | bs 31.03 (8.1 16.6 6.2) | recip 9.60 | dm 22.64 | T1 0.00 | VERIFY OK | - | 2 remaps 0.41 s | 67s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_TERMS=242
+2026-09-27 10:13:35 CDT a242n1 40000000000 nw S=242 | total 64.70 | init 11.7567 | bs 30.31 (7.7 16.2 6.3) | recip 9.62 | dm 22.48 | T1 0.00 | VERIFY OK | - | 2 remaps 0.43 s | 67s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_TERMS=242
+2026-09-27 10:15:30 CDT a256w0 40000000000 w S=256 | total 66.34 | init 11.6634 | bs 31.71 (8.1 15.8 7.8) | recip 9.56 | dm 22.82 | T1 0.00 | VERIFY OK | identical | 4 remaps 0.86 s | 81s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0
+2026-09-27 10:17:25 CDT a256w1 40000000000 w S=256 | total 65.85 | init 11.7678 | bs 30.73 (7.6 15.3 7.7) | recip 9.66 | dm 23.21 | T1 0.00 | VERIFY OK | identical | 4 remaps 0.84 s | 81s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1
+2026-09-27 10:19:17 CDT a128w0 40000000000 w S=239 | total 61.69 | init 13.8916 | bs 25.35 (8.0 12.7 4.6) | recip 9.45 | dm 22.30 | T1 0.00 | VERIFY OK | identical | 2 remaps 0.44 s | 78s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=128
+2026-09-27 10:21:07 CDT a128w1 40000000000 w S=239 | total 59.12 | init 12.1034 | bs 24.70 (7.6 12.5 4.5) | recip 9.43 | dm 22.18 | T1 0.00 | VERIFY OK | identical | 2 remaps 0.43 s | 75s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=128
+2026-09-27 10:22:59 CDT a192w0 40000000000 w S=358 | total 61.49 | init 12.645 | bs 26.68 (10.0 12.7 3.9) | recip 9.55 | dm 22.05 | T1 0.00 | VERIFY OK | identical | 0 remaps 0.00 s | 77s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=192
+2026-09-27 10:24:50 CDT a192w1 40000000000 w S=358 | total 61.68 | init 13.8998 | bs 25.67 (9.4 12.3 3.9) | recip 9.53 | dm 21.99 | T1 0.00 | VERIFY OK | identical | 0 remaps 0.00 s | 77s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=192
+2026-09-27 10:26:43 CDT a256fw0 40000000000 w S=478 | total 62.78 | init 12.0987 | bs 28.59 (13.1 10.8 4.6) | recip 9.46 | dm 21.99 | T1 0.00 | VERIFY OK | identical | 0 remaps 0.00 s | 79s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=256
+2026-09-27 10:28:35 CDT a256fw1 40000000000 w S=478 | total 61.33 | init 12.0909 | bs 27.13 (11.7 10.9 4.5) | recip 9.59 | dm 22.01 | T1 0.00 | VERIFY OK | identical | 0 remaps 0.00 s | 77s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=256
+2026-09-27 10:32:16 CDT b256n0 100000000000 nw S=256 | total 213.13 | init 16.0875 | bs 95.63 (21.0 36.6 37.9) | recip 41.69 | dm 100.42 | T1 0.65 | VERIFY OK | - | 3 remaps 1.46 s | 221s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0
+2026-09-27 10:35:52 CDT b256n1 100000000000 nw S=256 | total 208.91 | init 16.382 | bs 92.27 (17.3 37.2 37.7) | recip 41.67 | dm 99.27 | T1 0.65 | VERIFY OK | - | 3 remaps 1.42 s | 216s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1
+2026-09-27 10:39:34 CDT b128n0 100000000000 nw S=229 | total 213.41 | init 19.1782 | bs 90.06 (23.7 35.7 30.3) | recip 43.16 | dm 103.16 | T1 0.65 | VERIFY OK | - | 12 remaps 3.96 s | 221s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=128
+2026-09-27 10:43:04 CDT b128n1 100000000000 nw S=229 | total 203.31 | init 18.8062 | bs 79.82 (15.9 33.5 30.1) | recip 43.31 | dm 103.67 | T1 0.65 | VERIFY OK | - | 12 remaps 3.94 s | 210s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=128
+2026-09-27 10:43:04 CDT run b96n0 needs ~250 s, 46 s left in job 21519: next job
+2026-09-27 10:43:05 CDT job 21519 cancelled (2535 s used)
+2026-09-27 10:43:05 CDT job 21529 submitted
+2026-09-27 10:51:25 CDT job 21529 running on ppac-pl1-s24-26
+  node /tmp: /dev/nvme0n1p2  1.8T  549G  1.2T  32% /
+2026-09-27 10:55:01 CDT b96n0 100000000000 nw S=172 | total 205.71 | init 18.7925 | bs 84.06 (15.3 35.3 33.4) | recip 41.60 | dm 101.66 | T1 0.65 | VERIFY OK | - | 8 remaps 3.77 s | 215s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=96
+2026-09-27 10:58:30 CDT b96n1 100000000000 nw S=172 | total 200.75 | init 16.8883 | bs 81.54 (13.0 35.0 33.3) | recip 41.37 | dm 101.23 | T1 0.65 | VERIFY OK | - | 8 remaps 3.69 s | 209s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=96
+2026-09-27 11:02:05 CDT b192n0 100000000000 nw S=344 | total 207.37 | init 16.6013 | bs 88.73 (26.8 28.4 33.4) | recip 41.43 | dm 101.11 | T1 0.65 | VERIFY OK | - | 8 remaps 3.69 s | 215s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=192
+2026-09-27 11:05:38 CDT b192n1 100000000000 nw S=344 | total 205.17 | init 17.0642 | bs 85.67 (22.6 29.5 33.5) | recip 41.50 | dm 101.50 | T1 0.65 | VERIFY OK | - | 8 remaps 3.68 s | 213s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=192
+2026-09-27 11:09:15 CDT b256fn0 100000000000 nw S=459 | total 208.87 | init 17.7182 | bs 88.70 (34.8 24.7 29.2) | recip 41.66 | dm 101.55 | T1 0.65 | VERIFY OK | - | 9 remaps 3.39 s | 217s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=256
+2026-09-27 11:12:48 CDT b256fn1 100000000000 nw S=459 | total 203.97 | init 18.1313 | bs 83.60 (28.6 25.7 29.3) | recip 41.30 | dm 101.34 | T1 0.65 | VERIFY OK | - | 9 remaps 3.38 s | 213s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=256
+2026-09-27 11:16:29 CDT b232n0 100000000000 nw S=232 | total 211.20 | init 16.8707 | bs 92.36 (19.5 39.4 33.4) | recip 42.09 | dm 100.96 | T1 0.65 | VERIFY OK | - | 12 remaps 3.90 s | 221s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_TERMS=232
+2026-09-27 11:20:07 CDT b232n1 100000000000 nw S=232 | total 209.19 | init 17.4989 | bs 89.21 (16.7 38.9 33.5) | recip 42.31 | dm 101.46 | T1 0.66 | VERIFY OK | - | 12 remaps 3.84 s | 218s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_TERMS=232
+2026-09-27 11:26:49 CDT b256w0 100000000000 w S=256 | total 236.64 | init 18.0713 | bs 94.52 (20.8 36.0 37.6) | recip 41.57 | dm 99.95 | T1 23.76 | VERIFY OK | identical | 3 remaps 1.42 s | 300s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0
+2026-09-27 11:33:26 CDT b256w1 100000000000 w S=256 | total 232.33 | init 15.9043 | bs 90.60 (17.0 36.0 37.5) | recip 41.40 | dm 99.48 | T1 26.01 | VERIFY OK | identical | 3 remaps 1.37 s | 295s | ppac-pl1-s24-26 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1
+2026-09-27 11:33:26 CDT run b128w0 needs ~420 s, 59 s left in job 21529: next job
+2026-09-27 11:33:26 CDT job 21529 cancelled (2521 s used)
+2026-09-27 11:33:26 CDT job 21541 submitted
+2026-09-27 11:34:26 CDT job 21541 running on ppac-pl1-s24-16
+  node /tmp: /dev/nvme0n1p2  1.8T  584G  1.2T  34% /
+2026-09-27 11:40:36 CDT b128w0 100000000000 w S=229 | total 224.30 | init 17.0935 | bs 82.30 (20.4 31.9 29.8) | recip 42.89 | dm 103.78 | T1 20.71 | VERIFY OK | identical | 12 remaps 3.84 s | 283s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=128
+2026-09-27 11:46:38 CDT b128w1 100000000000 w S=229 | total 216.62 | init 17.215 | bs 74.80 (15.6 29.5 29.5) | recip 42.86 | dm 103.49 | T1 20.77 | VERIFY OK | identical | 12 remaps 3.95 s | 276s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=128
+2026-09-27 11:52:55 CDT b192w0 100000000000 w S=344 | total 231.99 | init 18.849 | bs 89.32 (26.5 28.6 34.1) | recip 42.18 | dm 103.10 | T1 20.44 | VERIFY OK | identical | 8 remaps 3.77 s | 291s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=192
+2026-09-27 11:59:06 CDT b192w1 100000000000 w S=344 | total 226.15 | init 17.7247 | bs 84.03 (21.7 28.9 33.4) | recip 42.14 | dm 103.19 | T1 20.92 | VERIFY OK | identical | 8 remaps 3.75 s | 285s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=192
+2026-09-27 12:05:21 CDT b256fw0 100000000000 w S=459 | total 228.84 | init 16.2417 | bs 89.33 (34.5 25.5 29.2) | recip 41.74 | dm 103.14 | T1 19.87 | VERIFY OK | identical | 9 remaps 3.49 s | 289s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=0 BS_SEED_FILL=256
+2026-09-27 12:11:36 CDT b256fw1 100000000000 w S=459 | total 228.57 | init 17.8206 | bs 88.09 (29.2 29.1 29.5) | recip 41.61 | dm 102.95 | T1 19.46 | VERIFY OK | identical | 9 remaps 3.45 s | 288s | ppac-pl1-s24-16 | DB_POOL_VERBOSE=1 BI_MUL1_FAST=1 BS_SEED_FILL=256
+2026-09-27 12:11:36 CDT job 21541 cancelled (2230 s used)
+2026-09-27 12:11:36 CDT done
+2026-09-27 12:11:40 CDT job 21545 submitted
+2026-09-27 12:12:00 CDT job 21545 running on ppac-pl1-s24-16
+2026-09-27 12:32:22 CDT defaults: rc 0 (10 PASS, 0 FAIL)
+2026-09-27 12:34:20 CDT BS_SEED_FILL=128: rc 0 (7 PASS, 0 FAIL)
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS e9 size 1 LIMB_BASE=10: identical; total 10.53 s (bs 1.3 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.59 s (bs 1.1 + 10dP 0.4 + dm 1.
+PASS e9 size 1 LIMB_BASE=10: identical; total 9.67 s (bs 1.4 + 10dP 0.1 + dm 1.8
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.13 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 8.24 s (bs 0.8 + 10dP 0.0 + dm 3.9
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.10 s (bs 1.2 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 7.90 s (bs 0.9 + 10dP 0.0 + dm 3.3
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 21.02 s (bs 2.8 + 10dP 0.0 + dm 13
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.38 s (bs 3.0 + 10dP 0.0 + dm 7.
+2026-09-27 12:34:20 CDT job 21545 cancelled
+2026-09-27 12:34:20 CDT done
