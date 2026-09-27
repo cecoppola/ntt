@@ -41,7 +41,7 @@ for s in ${STEPS//,/ }; do
     REF=~/ntt/ecalc/results/e_1e11.out; WANT=$(cut -c1-40 ~/V214/e_1e11.sha1)
     one() {   # one <tag> <env> [outfile]: a run, its total and process wall
       local tag=$1 env=$2 f=${3:-}
-      run "cd $NEW; python3 -c \"import os; fd=os.open('$REF', os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\"; rm -rf /tmp/n3x_e11*; t0=\$(date +%s.%N); env $env ./ecalc 100000000000 $f; t1=\$(date +%s.%N); echo \"PROCESS WALL \$(echo \"\$t1 - \$t0\" | bc) s\"" > $D/e11_$tag.log 2>&1
+      run "cd $NEW; python3 -c \"import os; fd=os.open('$REF', os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\"; rm -rf /tmp/n3x_e11*; t0=\$(date +%s.%N); env $env ./ecalc 100000000000 $f; t1=\$(date +%s.%N); echo \"PROCESS WALL \$(echo \$t1 \$t0 | awk '{printf \"%.2f\", \$1 - \$2}') s\"" > $D/e11_$tag.log 2>&1
       echo "$tag ($env${f:+, file}): $(grep -a '^total' $D/e11_$tag.log | head -1 | cut -c1-60); $(grep -a 'PROCESS WALL' $D/e11_$tag.log); $(grep -a 'VERIFY\|T2 ' $D/e11_$tag.log | head -1 | cut -c1-80); $(grep -ac 'NTT_R3_FUSE=1' $D/e11_$tag.log) fuse notices" | tee -a $D/timing_summary.log
     }
     for i in 1 2 3; do one off$i NTT_R3_FUSE=0; one on$i NTT_R3_FUSE=1; done
