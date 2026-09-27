@@ -3649,3 +3649,68 @@ Also: a Makefile race is fixed (`tests/t_verify` linked `$(OBJS)` without depend
 
 **576-node estimate (standing rule)**: 4.25 × 10¹³ digits in ≈ 4.1 min at 460 GB per node with `MN_T_CHUNK_MB=1024`
 (modelled with the measured pool law; the fabric assumed). The defaults do not fit 480 GB at that size.
+
+## 85. Phase 14 close — the nine defaults, the 10¹¹ standard and reference, V1–V3 (2026-09-26; results/{V114,V214,V314}.md)
+
+**The user's decisions (PLAN §35)**: nine switches became defaults (`RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`,
+`DB_POOL_VMM` with `DM_TIGHT` following it, `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024`, `ECALC_BUDGET_CHECK`,
+`COMM_LAYER_TKERNEL`, `COMM_SHMEM_POOL_AUTO`), and the standard full-size test is now **10¹¹ digits**.
+
+**The 10¹¹ reference** `results/e_1e11.out` (100 000 000 003 bytes; sha1 in `~/V214/e_1e11.sha1` on aac6), built on
+the defaults (2085d1e, jobs 21432, 21437), all measured:
+- RECHECK OK;
+- three runs identical byte for byte: the defaults writing to NFS `/shared`, the defaults writing to local `/tmp`, and
+  all nine switches off;
+- its first 4 × 10¹⁰ digits equal `e_4e10.out`;
+- the ten Phase 11 windows and the four built-in windows pass (the first window file had nine offsets one digit late,
+  the paper's "position p" being the index of the first digit; fixed).
+
+Two fixes on the way:
+- **Budget double count** (2085d1e): the memory report counted the VMM arena's bytes twice when the pool borrowed them
+  (488 GB reported against ≈ 363 real at 10¹¹), and the budget check stopped a valid run with rc 8. The corrected peak
+  at 10¹¹ is 388.8 GB (device 363.6 + host 25.3) against 480.
+- **`t_bs`** (3e0cacf): the test read P and Q on the host, and with `DB_POOL_VMM=1` they live in a device-only VMM
+  range (rc 139). The test now runs with the VMM pool off; the pool itself is covered by the e9, full and stress
+  steps. VERIFY OK on a node (job 21453).
+
+**Writing to NFS**: the first reference run wrote its 100 GB to `/shared` (NFS) with O_DIRECT at ≈ 112 MB/s; `T1`
+waited 841 s for the writer. The same run writing to local `/tmp` had `T1` 20.9 s (measured). O_DIRECT is right on a
+local disk and unproven on a network file system (PLAN §36 W1).
+
+**Regression on the defaults** (2085d1e; jobs 21445, 21444, 21449, 21446), measured:
+
+| part | result |
+|---|---|
+| A: unit … ckpt | 15/16; `t_bs` failed (fixed in 3e0cacf, above) |
+| B: recheck, full 10¹¹, stress | 5/5: 10¹¹ identical, `total` 233.8 s (293 s with the write); RECHECK OK; 10/10 stress runs identical |
+| C: all nine switches off | 9/9: 10¹¹ identical, `total` 378.0 s (`T1` 161.6: buffered write) |
+| D: five 10¹¹ runs (`closing.sh`) | **240.3 s mean** (239.6, 239.6, 241.0, 241.0, 240.4; σ ≈ 0.6 s), all identical |
+
+Of every 10¹¹ run, ≈ 21–24 s is `T1` waiting for the writer after the division's **two corrections**, and each
+correction rewrites the whole digit file (V2, below; PLAN §36 task K).
+
+**V1** (branch `p14-V1`, results/V114.md): `COMM_SHMEM_POOL_AUTO` by default. `mnrun.sh` takes the pool from
+`MN_PLAN_ONLY` and sets the heap to pool + 512 MiB; a heap too small stops every rank with rc 8. Per-APU staging regions
+(8f3b136) fix a fragmentation failure at 4 processes. **C1, `COMM_SHMEM_ROUND_MB`** (off by default): exchanges in rounds.
+Measured: pool peak 8194 → 2050 MiB at 10¹⁰ on 2 nodes, 4244 → 2054 MiB at 4 processes, no time cost, digits identical.
+The pool law matches all 14 measured points to 0.01 %. Target, modelled: pool 45.0 → 9.8 GB, node 434 → 399 GB.
+
+**V2** (branch `p14-V2`, results/V214.md): **C2, `RNS_AUTO_PIECE_COST`** (off by default), `auto` with the per-piece cost.
+Measured, same node, off → on: 10¹¹ 234.6 → 206.0 s (−12.2 %; dm 99.9 → 94.6, corrections 2 → 0); 1.16 × 10¹¹ −10.1 %;
+1.3 × 10¹¹ −6.4 %; all identical or VERIFY OK. Not measured: `DIST_TWREC` at 10¹¹ and checkpoints with O_DIRECT (PLAN §36 1e, 1f).
+
+**V3** (branch `p14-V3`, results/V314.md): a ranked investigation, no pipeline code. 10¹¹ without the digit file: 215.9 /
+217.1 s (measured). The seeds hold level 1 back by ≈ 20 s. Items 1–8 with their gains are in PLAN §36; the model's seed
+wait is ≈ 8 s optimistic.
+
+**The target's file system**: the apumult reverse-port catalog measured the target node's `/ssd0` as **Lustre over
+Slingshot, 122 TB, 0.58–0.64 GB/s single-stream write** (0.78–0.86 read). Our model assumed 2 GB/s node-local NVMe. At
+0.6–0.8 GB/s the 576-node wall grows 260 → 316–347 s (modelled, `mn_model.py --write-bw`). PLAN §36 W1–W9 address it.
+
+**The user's decisions for Phase 15** (PLAN §36.2): D1 C2 becomes a default after a paired five-run series; D2
+`COMM_SHMEM_ROUND_MB=1024` on the target's launch line after the 2-node rerun; D3 every report gives two walls (without
+and with the disk write); D4 the packed digit output deferred until measured.
+
+**576-node estimate (standing rule)**: 4.25 × 10¹³ digits in ≈ 4.1 min (modelled) with the part file at an assumed
+2 GB/s per node; 5.3–5.8 min at the measured single-stream Lustre rate until the output work lands. Node memory
+434 GB on the defaults, 399 GB with D2's rounds (modelled), against 480.
