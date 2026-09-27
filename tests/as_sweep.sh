@@ -20,7 +20,7 @@ bash -lc "module load rocm; cd $E && make -s -j16" > "$OUT/build.log" 2>&1 || { 
 SHA4=$(cut -c1-40 ~/ntt/ecalc/results/e_4e10.out.sha1); SHA11=$(cut -c1-40 ~/V214/e_1e11.sha1)
 sha_of() { case $1 in 40000000000) echo $SHA4;; 100000000000) echo $SHA11;; *) echo none;; esac; }
 ref_of() { case $1 in 40000000000) echo ~/ntt/ecalc/results/e_4e10.out;; 100000000000) echo ~/ntt/ecalc/results/e_1e11.out;; *) echo none;; esac; }
-est() { case $1 in 40000000000) [ $2 = nw ] && echo 100 || echo 200;; 100000000000) [ $2 = nw ] && echo 250 || { [ $2 = wc ] && echo 1500 || echo 450; };; 130000000000) [ $2 = nw ] && echo 330 || echo 600;; *) echo 900;; esac; }
+est() { case $1 in 40000000000) [ $2 = nw ] && echo 100 || echo 200;; 100000000000) [ $2 = nw ] && echo 250 || { [ $2 = wc ] && echo 1500 || echo 450; };; 130000000000) [ $2 = nw ] && echo 330 || echo 600;; 1[12]?000000000) echo 320;; [2-9]0000000000) echo 200;; *) echo 900;; esac; }
 mapfile -t RUNS < <(grep -v '^\s*#' "$PLAN" | grep -v '^\s*$')
 log "AS sweep: $CLONE at $HEAD, ${#RUNS[@]} runs from $PLAN, sbatch ${SBOPT[*]:-}"
 [ -f "$SUM" ] || echo "# tag digits mode | total | init | bs | recip | dm | T1 | remaps (count, s) | dm-remaps | growth | verify | digits | elapsed | node | env" > "$SUM"

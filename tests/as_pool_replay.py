@@ -137,6 +137,8 @@ class Pool:
 
 DUMP = None
 ROUND = False
+CHUNK = 0
+THRESH = 0.0
 def dump(pl, d, what):
     G = 1e9; C = pl.vmm['C'] if pl.vmm else 1
     lv = sorted((p, n) for (p, n, r) in pl.live.values() if p < (1 << 58))
@@ -158,6 +160,7 @@ def replay(path, arena_add=None, tail_add=0, check=True, quiet=False, until=None
             by, C, m0, nslot, reg = int(f[2]), int(f[3]), int(f[4]), int(f[5]), int(f[6])
             add = int(arena_add[d] * GBb) if arena_add else 0
             add = (add + (2 << 20) - 1) // (2 << 20) * (2 << 20)
+            if CHUNK: C = CHUNK
             nb = by + add
             if ROUND: nb = -(-nb // C) * C                              # the arena in whole chunks (the tail ends at the last chunk's end)
             m0n = -(-nb // C); ns = int(m0n * 3.0) + 1
@@ -175,6 +178,7 @@ def replay(path, arena_add=None, tail_add=0, check=True, quiet=False, until=None
             p, b, th = int(f[2]), int(f[3]), int(f[4])
             if pl.vmm and arena_new.get(d) is not None and p < (1 << 59):
                 end = arena_new[d]; b += int(tail_add * GBb); p = end - b
+                if THRESH: th = int(b * THRESH)
             pl.tail = (p, p + b, b, th); pl.n_tail = pl.n_spill = 0
         elif op == 'A':
             need, p_code = int(f[2]), int(f[3]); nA += 1
@@ -201,8 +205,8 @@ def replay(path, arena_add=None, tail_add=0, check=True, quiet=False, until=None
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('trace'); ap.add_argument('--arena-add', default=None); ap.add_argument('--tail-add', type=float, default=0.0)
-    ap.add_argument('--quiet', action='store_true'); ap.add_argument('--dump', type=int, default=None); ap.add_argument('--round-chunks', action='store_true'); a = ap.parse_args()
-    global DUMP, ROUND; DUMP = a.dump; ROUND = a.round_chunks
+    ap.add_argument('--quiet', action='store_true'); ap.add_argument('--dump', type=int, default=None); ap.add_argument('--round-chunks', action='store_true'); ap.add_argument('--chunk-mb', type=float, default=0); ap.add_argument('--thresh', type=float, default=0.0); a = ap.parse_args()
+    global DUMP, ROUND, CHUNK, THRESH; THRESH = a.thresh; DUMP = a.dump; ROUND = a.round_chunks; CHUNK = int(a.chunk_mb * 1048576) if a.chunk_mb else 0
     add = None
     if a.arena_add is not None:
         v = [float(x) for x in a.arena_add.split(',')]; add = v * 4 if len(v) == 1 else v
