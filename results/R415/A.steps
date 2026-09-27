@@ -1,0 +1,13 @@
+gsh tnew_b2_cap20 NEWTON_DEVICE=1 NEWTON_RECIP_MID=1 DIST_LOGN_TEST=20 tests/t_newton 20
+gsh tnew_b10_cap20 LIMB_BASE=10 NEWTON_DEVICE=1 NEWTON_RECIP_MID=1 DIST_LOGN_TEST=20 tests/t_newton 20
+gsh tnew_b10_cap20_cut0 LIMB_BASE=10 NEWTON_DEVICE=1 NEWTON_RECIP_CUT=0 NEWTON_RECIP_MID=1 DIST_LOGN_TEST=20 tests/t_newton 20
+gsh tnew_b10_real LIMB_BASE=10 NEWTON_DEVICE=1 NEWTON_RECIP_MID=1 tests/t_newton 20
+gsh tnew_b2_off NEWTON_DEVICE=1 tests/t_newton 20
+gsh tmul tests/t_mul 20
+cmp e9_dec 1000000000 ref/e_1000000000.txt NEWTON_RECIP_MID=1
+cmp e9_bin 1000000000 ref/e_1000000000.txt NEWTON_RECIP_MID=1 LIMB_BASE=2
+cmp e9_dec_c24 1000000000 ref/e_1000000000.txt NEWTON_RECIP_MID=1 DIST_LOGN_TEST=24
+cmp e9_bin_c24 1000000000 ref/e_1000000000.txt NEWTON_RECIP_MID=1 LIMB_BASE=2 DIST_LOGN_TEST=24
+cmp e10 10000000000 /shared/prerelease/home/mpo_2026/chcoppola/ntt/ecalc/results/e_1e10.out NEWTON_RECIP_MID=1
+cmp e10_c28 10000000000 /shared/prerelease/home/mpo_2026/chcoppola/ntt/ecalc/results/e_1e10.out NEWTON_RECIP_MID=1 DIST_LOGN_TEST=28
+run e11_mid 100000000000 NEWTON_RECIP_MID=1
