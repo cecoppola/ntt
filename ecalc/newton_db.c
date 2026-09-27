@@ -168,6 +168,13 @@ static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, 
     if (co) { ec_fatal(EC_RC_FATAL, "newton_db: X %s out of its top limb\n", dx < 0 ? "borrows" : "carries"); }
     if (dx < 0) db_norm(x);
 }
+int newton_x_defer = 0; long newton_x_dx = 0;          /* Phase 15 K (ECALC_CORR_PATCH): newton.h */
+long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_CORR=<k>, the forced-correction test hook (0: off) */
+{
+    const char *e = getenv("ECALC_TEST_CORR"); long k = e ? atol(e) : 0;
+    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld: |k| <= 60 (the division stops at 64 corrections)\n", k); }
+    return k;
+}
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
@@ -209,6 +216,8 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
       db_free(&Ah); }
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);                                                 /* its blocks serve the low product below */
+    { long tk = newton_test_corr(); if (tk) db_add_small(&Xd, -tk); }   /* Phase 15 K: ECALC_TEST_CORR */
+    int defer = newton_x_defer && newton_db_x_hook; long dxd = 0; newton_x_dx = 0;   /* Phase 15 K: the corrections deferred to the output's tail patch */
     double tc = mem_now();
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path).  The low
      * product: the grid with the pieces above w skipped (NEWTON_LOWPROD=0: the full X Q truncated) */
@@ -231,19 +240,20 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     size_t nc = 0;
     for (;;) {
         if (bi_limb_negative(R->l[w - 1])) {
-            bigint o; bi_init(&o); bi_set_u64(&o, 1); bi_sub(X, X, &o); bi_free(&o);
+            if (defer) dxd--; else { bigint o; bi_init(&o); bi_set_u64(&o, 1); bi_sub(X, X, &o); bi_free(&o); }   /* (Phase 15 K: deferred) */
             uint64_t c = limb_add(R->l, R->l, w, Q->l, Q->n); (void)c;
             newton_st.down_corr++;
         } else {
             R->n = w; bi_norm(R);
             if (bi_cmp(R, Q) < 0) break;
             limb_sub(R->l, R->l, w, Q->l, Q->n);
-            bi_add_u64(X, 1);
+            if (defer) dxd++; else bi_add_u64(X, 1);           /* (Phase 15 K: deferred) */
             newton_st.up_corr++;
         }
         if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db_divmod: %zu corrections, mu is wrong\n", nc); }
     }
     R->n = w; bi_norm(R);
+    newton_x_dx = dxd;                                           /* Phase 15 K: X is the hook's; the output stage patches the digits by dxd */
     bi_free(&hxq);
     g_mu = mu; g_t = t; g_xq = xq;
     if (!newton_db_Qd) db_free(&Qd);
@@ -282,6 +292,8 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     db_free(&mu);                                                     /* the reciprocal's last use */
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
+    { long tk = newton_test_corr(); if (tk) db_add_small(&Xd, -tk); }   /* Phase 15 K: ECALC_TEST_CORR */
+    int defer = newton_x_defer && newton_db_x_hook; newton_x_dx = 0;   /* Phase 15 K: the corrections deferred to the output's tail patch */
     double tc = mem_now();
     const dbig *Xp = &Xd;
     if (newton_db_x_dev) { *newton_db_x_dev = Xd; db_init(&Xd); Xp = newton_db_x_dev; if (newton_db_x_hook) newton_db_x_hook(X, newton_db_x_arg); }   /* H B1: X stays on the device; the hook starts the writer on it */
@@ -310,7 +322,8 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
     if (dx > 0) newton_st.up_corr += (size_t)dx;
     double te = mem_now();
     if (!newton_db_x_hook && !newton_db_x_dev) { db_to_bi(X, &Xd); db_free(&Xd); }
-    if (dx && newton_db_x_dev) db_add_small(newton_db_x_dev, dx);     /* H B1: the correction on the device X (the writer redoes the digits) */
+    if (dx && defer) newton_x_dx = dx;                                /* Phase 15 K: X stays the hook's (the writer reads it); the output patches the tail */
+    else if (dx && newton_db_x_dev) db_add_small(newton_db_x_dev, dx);     /* H B1: the correction on the device X (the writer redoes the digits) */
     else if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
     db_mod_qs(&Rd, qs, nres, rres);
     double tf = mem_now();
@@ -782,6 +795,8 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     else mn_prod(&t, &Ah, &mu, G);
     mfree(&Ah); mfree(&mu);
     mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
+    { long tk = newton_test_corr(); if (tk) mdb_add_val(&Xn, 0, (uint64_t)(tk < 0 ? -tk : tk), tk > 0, G); }   /* Phase 15 K: ECALC_TEST_CORR (X - k) */
+    newton_x_dx = 0;
     double tc = mem_now();
     /* the low product X Q mod B^w (A5: the grid with the pieces above w skipped, delivered in basis w), the window
      * A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
@@ -805,7 +820,8 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
         newton_st.down_corr += (size_t)(-dx);
     }
     if (dx > 0) newton_st.up_corr += (size_t)dx;
-    if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
+    if (dx && newton_x_defer) newton_x_dx = dx;                       /* Phase 15 K (ECALC_CORR_PATCH=2): the output patches the part files' tail */
+    else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
     mfree(&Qw);
     double te = mem_now();
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn) end");   /* Phase 14 S1 (E1) */
