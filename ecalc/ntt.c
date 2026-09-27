@@ -31,7 +31,9 @@ static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); retur
 int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
 int ntt_mall_get(void) { if (ntt_mall < 0) ntt_mall = env_int("NTT_MALL", 0); return ntt_mall; }
 int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 3); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 3; return ntt_b1r; }   /* default 3 since Phase 13c (K13b: the b1 pass 1.20-1.33x); 0 = the original b1 pass; any other nonzero value: 3 */
-int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 1); return ntt_plan; }   /* default 1 since Phase 13c (K13b: pass boundaries off the slow strides); 0 = the original plan */
+int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 1); return ntt_plan; }
+int ntt_r3_fuse = -1;      /* NTT_R3_FUSE (Phase 15 N3x): 1 = the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass; 0 default */
+int ntt_r3_fuse_get(void) { if (ntt_r3_fuse < 0) ntt_r3_fuse = env_int("NTT_R3_FUSE", 0); return ntt_r3_fuse; }   /* default 1 since Phase 13c (K13b: pass boundaries off the slow strides); 0 = the original plan */
 
 /* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
  * hi + lo against the two-term reciprocal pinv + pinvl (pinvl = (1 - p pinv) / p, computed per thread):
@@ -85,6 +87,27 @@ __device__ static inline size_t y_base(size_t base, size_t Lt, int ymode)
     return (ymode == NTT_Y_BCAST ? 0 : (t >> 1)) * Lt + k;
 }
 
+/* Phase 15 N3x (NTT_R3_FUSE): the radix-3 stage of ntt3.c (k_r3_fwd / k_r3_inv) on one point triple (a0, a1, a2) =
+ * third 0, 1, 2 at position j < m; the same operations in the same order, so the values are those of the separate pass */
+__device__ static inline uint64_t r3_add3(uint64_t a, uint64_t b, uint64_t c, uint64_t p) { uint64_t s = ec_fold(a + b, p); return ec_fold(s + c, p); }
+__device__ static inline void r3_fwd_pt(uint64_t &a0, uint64_t &a1, uint64_t &a2, size_t j, const ntt_r3arg &ra, const ec_mod md)
+{
+    const uint64_t p = md.pu;
+    uint64_t w3a1 = ec_mmu(a1, ra.w3, md), w3sa1 = ec_mmu(a1, ra.w3s, md), w3a2 = ec_mmu(a2, ra.w3, md), w3sa2 = ec_mmu(a2, ra.w3s, md);
+    uint64_t y0 = r3_add3(a0, a1, a2, p), y1 = r3_add3(a0, w3a1, w3sa2, p), y2 = r3_add3(a0, w3sa1, w3a2, p);
+    uint64_t w = ec_mmu(ra.t2[j & 0xffff], ra.t1[j >> 16], md), w2 = ec_mmu(w, w, md);
+    a0 = y0; a1 = ec_mmu(y1, w, md); a2 = ec_mmu(y2, w2, md);
+}
+__device__ static inline void r3_inv_pt(uint64_t &v0, uint64_t &v1, uint64_t &v2, size_t j, const ntt_r3arg &ra, const ec_mod md)
+{
+    const uint64_t p = md.pu;
+    uint64_t wi = ec_mmu(ra.t2[j & 0xffff], ra.t1[j >> 16], md), wi2 = ec_mmu(wi, wi, md);
+    uint64_t a0 = ec_fold(v0, p), a1 = ec_mmu(ec_fold(v1, p), wi, md), a2 = ec_mmu(ec_fold(v2, p), wi2, md);
+    uint64_t w3a1 = ec_mmu(a1, ra.w3, md), w3sa1 = ec_mmu(a1, ra.w3s, md), w3a2 = ec_mmu(a2, ra.w3, md), w3sa2 = ec_mmu(a2, ra.w3s, md);
+    uint64_t x0 = r3_add3(a0, a1, a2, p), x1 = r3_add3(a0, w3sa1, w3a2, p), x2 = r3_add3(a0, w3a1, w3sa2, p);
+    v0 = ec_mmu(x0, ra.inv3, md); v1 = ec_mmu(x1, ra.inv3, md); v2 = ec_mmu(x2, ra.inv3, md);
+}
+
 /* ------------------------------------------------------------------------ */
 /* b16 pass: STG stages over tiles of 2^STG elements spaced hmin = 2^s_lo
  * apart; a block holds 16 adjacent columns of 128 rows (2048 elements) in
@@ -97,10 +120,13 @@ __device__ static inline size_t y_base(size_t base, size_t Lt, int ymode)
  *   w = tabT[r * tile/(2H)] * T_H,  T_H = w_n^(c n / (2 H hmin)),
  * T for the top stage from the two-level table (tlo, thi), lower stages by
  * squaring. */
-template <int STG, int INV>
+/* Phase 15 N3x, R3 = 1: x holds transforms of 3 2^logn points; the block runs the same tile position in the three thirds:
+ * forward, the radix-3 stage (r3_fwd_pt) on the loaded triples, then the pass on each third in turn (one LDS buffer);
+ * inverse (the last pass, with the scale), the pass on each third kept in registers, then r3_inv_pt and one store. */
+template <int STG, int INV, int R3 = 0>
 __global__ __launch_bounds__(THREADS)
 void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
-           const double *tabT, double scale)
+           const double *tabT, double scale, ntt_r3arg ra = ntt_r3arg())
 {
     constexpr int tile = 1 << STG, NS = 128 / tile;
     constexpr int NT = tile == 128 ? 1 : tile == 64 ? 2 : 4;
@@ -110,65 +136,111 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
     const size_t n = (size_t)1 << logn, hmin = (size_t)1 << s_lo, slabs = hmin / 16;
     const size_t bpt = n / 2048, b = blockIdx.x % bpt, t = blockIdx.x / bpt;
     const size_t groups = slabs / NS, blk_hi = b / groups, slab0 = (b % groups) * NS;
-    const size_t base = t * n + blk_hi * (size_t)tile * hmin + slab0 * 16;
+    constexpr int NR = R3 ? 3 : 1;
+    const size_t base = t * (NR * n) + blk_hi * (size_t)tile * hmin + slab0 * 16, off0 = base - t * (NR * n);
     const double p = m.p, pinv = m.pinv;
     const uint64_t pu = m.pu, p2 = 2 * pu;
     double T[NT][INV ? STG : 1];
+    double T0[NT];
+    uint64_t rv[R3 ? 3 : 1][R3 ? 8 : 1];               /* R3: the thread's 8 rows of each third */
     int j, k, mm_;
+#define EOFF(j_) ((size_t)((j_) >> STG) * 16 + (size_t)((j_) & (tile - 1)) * hmin + bb)
 
     for (k = threadIdx.x; k < tile; k += THREADS) tab[k] = tabT[k];
+    if (R3 && !INV) {
 #pragma unroll
-    for (j = tt; j < 128; j += 16)
-        sh[j * BP + bb] = x[base + (size_t)(j >> STG) * 16 + (size_t)(j & (tile - 1)) * hmin + bb];
+        for (int i = 0; i < 8; i++) {
+            const int jr = tt + 16 * i;
+            rv[0][R3 ? i : 0] = x[base + EOFF(jr)]; rv[R3 ? 1 : 0][R3 ? i : 0] = x[base + n + EOFF(jr)]; rv[R3 ? 2 : 0][R3 ? i : 0] = x[base + 2 * n + EOFF(jr)];
+            r3_fwd_pt(rv[0][R3 ? i : 0], rv[R3 ? 1 : 0][R3 ? i : 0], rv[R3 ? 2 : 0][R3 ? i : 0], off0 + EOFF(jr), ra, m);
+        }
+    }
 #pragma unroll
     for (mm_ = 0; mm_ < NT; mm_++) {
         int ti = NT == 1 ? 0 : NT == 2 ? mm_ : ((tt + 16 * mm_) >> (STG - 1));
         size_t c = (slab0 + ti) * 16 + bb;
         T[mm_][INV ? STG - 1 : 0] = ec_mm(tlo[c & 4095], thi[c >> 12], p, pinv);
+        T0[mm_] = T[mm_][0];
         if (INV) {
 #pragma unroll
             for (int l = STG - 1; l > 0; l--) T[mm_][l - 1] = ec_mm(T[mm_][l], T[mm_][l], p, pinv);
         }
     }
-    __syncthreads();
 #pragma unroll
-    for (int st = 0; st < STG; st++) {
-        const int lgH = INV ? st : STG - 1 - st;
-        const int H = 1 << lgH, lgstep = STG - 1 - lgH;
+    for (int r_ = 0; r_ < NR; r_++) {
+        const size_t xo = base + (size_t)r_ * n;
+        if (r_) {
+            __syncthreads();                           /* the previous third's reads of sh are done */
+            if (!INV) {
 #pragma unroll
-        for (mm_ = 0; mm_ < 4; mm_++) {
-            int kk = tt + 16 * mm_, ti = kk >> (STG - 1), kl = kk & (tile / 2 - 1);
-            int r = kl & (H - 1), q = kl >> lgH, j0 = ti * tile + (q << (lgH + 1)) + r, j1 = j0 + H;
-            int tm = NT == 1 ? 0 : NT == 2 ? (mm_ >> 1) : mm_;
-            uint64_t u = sh[j0 * BP + bb], v = sh[j1 * BP + bb];
-            double w = ec_mm(tab[r << lgstep], T[tm][INV ? lgH : 0], p, pinv);
-            if (INV) {
-                uint64_t vw = (uint64_t)ec_mm((double)v, w, p, pinv);      /* [0,p) */
-                uint64_t sum = u + vw, d = u + pu - vw;                     /* < 3p */
-                if (sum >= p2) sum -= p2;
-                if (d >= p2) d -= p2;
-                sh[j0 * BP + bb] = sum;
-                sh[j1 * BP + bb] = d;
-            } else {
-                uint64_t sum = u + v, d = u - v + p2;                       /* < 4p */
-                if (sum >= p2) sum -= p2;
-                if (d >= p2) d -= p2;
-                sh[j0 * BP + bb] = sum;
-                sh[j1 * BP + bb] = (uint64_t)ec_mm((double)d, w, p, pinv);
+                for (mm_ = 0; mm_ < NT; mm_++) T[mm_][0] = T0[mm_];
             }
         }
-        if (!INV) {
+        if (R3 && !INV) {
 #pragma unroll
-            for (mm_ = 0; mm_ < NT; mm_++) T[mm_][0] = ec_mm(T[mm_][0], T[mm_][0], p, pinv);
+            for (int i = 0; i < 8; i++) sh[(tt + 16 * i) * BP + bb] = rv[R3 ? r_ : 0][R3 ? i : 0];
+        } else {
+#pragma unroll
+            for (j = tt; j < 128; j += 16) sh[j * BP + bb] = x[xo + EOFF(j)];
         }
         __syncthreads();
-    }
 #pragma unroll
-    for (j = tt; j < 128; j += 16) {
-        uint64_t v = sh[j * BP + bb];
-        if (scale != 0.0) v = (uint64_t)ec_mm((double)v, scale, p, pinv);
-        x[base + (size_t)(j >> STG) * 16 + (size_t)(j & (tile - 1)) * hmin + bb] = v;
+        for (int st = 0; st < STG; st++) {
+            const int lgH = INV ? st : STG - 1 - st;
+            const int H = 1 << lgH, lgstep = STG - 1 - lgH;
+#pragma unroll
+            for (mm_ = 0; mm_ < 4; mm_++) {
+                int kk = tt + 16 * mm_, ti = kk >> (STG - 1), kl = kk & (tile / 2 - 1);
+                int r = kl & (H - 1), q = kl >> lgH, j0 = ti * tile + (q << (lgH + 1)) + r, j1 = j0 + H;
+                int tm = NT == 1 ? 0 : NT == 2 ? (mm_ >> 1) : mm_;
+                uint64_t u = sh[j0 * BP + bb], v = sh[j1 * BP + bb];
+                double w = ec_mm(tab[r << lgstep], T[tm][INV ? lgH : 0], p, pinv);
+                if (INV) {
+                    uint64_t vw = (uint64_t)ec_mm((double)v, w, p, pinv);      /* [0,p) */
+                    uint64_t sum = u + vw, d = u + pu - vw;                     /* < 3p */
+                    if (sum >= p2) sum -= p2;
+                    if (d >= p2) d -= p2;
+                    sh[j0 * BP + bb] = sum;
+                    sh[j1 * BP + bb] = d;
+                } else {
+                    uint64_t sum = u + v, d = u - v + p2;                       /* < 4p */
+                    if (sum >= p2) sum -= p2;
+                    if (d >= p2) d -= p2;
+                    sh[j0 * BP + bb] = sum;
+                    sh[j1 * BP + bb] = (uint64_t)ec_mm((double)d, w, p, pinv);
+                }
+            }
+            if (!INV) {
+#pragma unroll
+                for (mm_ = 0; mm_ < NT; mm_++) T[mm_][0] = ec_mm(T[mm_][0], T[mm_][0], p, pinv);
+            }
+            __syncthreads();
+        }
+        if (R3 && INV) {
+#pragma unroll
+            for (int i = 0; i < 8; i++) {
+                uint64_t v = sh[(tt + 16 * i) * BP + bb];
+                if (scale != 0.0) v = (uint64_t)ec_mm((double)v, scale, p, pinv);
+                rv[R3 ? r_ : 0][R3 ? i : 0] = v;
+            }
+        } else {
+#pragma unroll
+            for (j = tt; j < 128; j += 16) {
+                uint64_t v = sh[j * BP + bb];
+                if (scale != 0.0) v = (uint64_t)ec_mm((double)v, scale, p, pinv);
+                x[xo + EOFF(j)] = v;
+            }
+        }
     }
+    if (R3 && INV) {
+#pragma unroll
+        for (int i = 0; i < 8; i++) {
+            const int jr = tt + 16 * i;
+            r3_inv_pt(rv[0][R3 ? i : 0], rv[R3 ? 1 : 0][R3 ? i : 0], rv[R3 ? 2 : 0][R3 ? i : 0], off0 + EOFF(jr), ra, m);
+            x[base + EOFF(jr)] = rv[0][R3 ? i : 0]; x[base + n + EOFF(jr)] = rv[R3 ? 1 : 0][R3 ? i : 0]; x[base + 2 * n + EOFF(jr)] = rv[R3 ? 2 : 0][R3 ? i : 0];
+        }
+    }
+#undef EOFF
 }
 
 
@@ -207,10 +279,13 @@ __device__ static inline uint64_t xchg16(uint64_t v)
  * instead of 3 (the default's 18.4 KB caps occupancy at 3 waves/SIMD; VGPRs would allow 8+).  bit 1 (ORD) the
  * blocks ordered tile-row-group fastest (blk_hi = b mod nhi) instead of slab fastest, for the wide-stride passes
  * (s_lo 17 and 24 measured at 0.8x).  Same arithmetic: bit-identical. */
-template <int INV, int R4, int SW, int MM, int VAR = 0>
+/* Phase 15 N3x, R3 = 1 (with R4 = SW = VAR = 0, MM 0 / 1): transforms of 3 2^logn points, the same tile position in the
+ * three thirds per block, as k_b16's R3 form: forward, the radix-3 stage on the loaded triples then the body per third;
+ * inverse (the last pass), the body per third kept in registers, then the radix-3 stage and one store. */
+template <int INV, int R4, int SW, int MM, int VAR = 0, int R3 = 0>
 __global__ __launch_bounds__(THREADS)
 void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
-            const double *tabT, double scale, const uint64_t *tabS, const uint64_t *tabSq)
+            const double *tabT, double scale, const uint64_t *tabS, const uint64_t *tabSq, ntt_r3arg ra = ntt_r3arg())
 {
     constexpr int STG = 7, tile = 128, BPX = (VAR & 1) ? 16 : BP;
     __shared__ uint64_t sh[128 * BPX + ((VAR & 1) ? 0 : 1)];
@@ -222,11 +297,12 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
     const size_t bpt = n / 2048, b = blockIdx.x % bpt, t = blockIdx.x / bpt;
     const size_t nhi = n / ((size_t)tile * hmin);
     const size_t blk_hi = (VAR & 2) ? b % nhi : b / slabs, slab0 = (VAR & 2) ? b / nhi : b % slabs;
-    const size_t base = t * n + blk_hi * (size_t)tile * hmin + slab0 * 16;
+    constexpr int NR = R3 ? 3 : 1;
+    const size_t base = t * (NR * n) + blk_hi * (size_t)tile * hmin + slab0 * 16, off0 = base - t * (NR * n);
     const double p = m.p, pinv = m.pinv;
     const double pinvl = MM == 1 ? fma(-p, pinv, 1.0) * pinv : 0.0;
     const uint64_t pu = m.pu, p2 = 2 * pu;
-    uint64_t v[8];
+    uint64_t vv[NR][8];
     double T[INV ? STG : 1];
     uint64_t Tu[MM == 2 ? (INV ? STG : 1) : 1], Tq[MM == 2 ? (INV ? STG : 1) : 1];
     int i;
@@ -243,6 +319,15 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         if (MM == 2) {
 #pragma unroll
             for (int l = 0; l < (INV ? STG : 1); l++) { Tu[l] = (uint64_t)T[l]; Tq[l] = shoup_q(Tu[l], pu, pinv); }
+        }
+    }
+    const double T0 = T[0];
+    if (R3 && !INV) {                                  /* N3x: the radix-3 stage on the triples of rows ROW_A */
+#pragma unroll
+        for (i = 0; i < 8; i++) {
+            const size_t e = (size_t)(tt + 16 * i) * hmin + bb;
+            vv[0][i] = x[base + e]; vv[R3 ? 1 : 0][i] = x[base + n + e]; vv[R3 ? 2 : 0][i] = x[base + 2 * n + e];
+            r3_fwd_pt(vv[0][i], vv[R3 ? 1 : 0][i], vv[R3 ? 2 : 0][i], off0 + e, ra, m);
         }
     }
     __syncthreads();
@@ -308,16 +393,21 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         }                                                                             \
         if (!INV) { T[0] = ec_mm(T[0], T[0], p, pinv); T[0] = ec_mm(T[0], T[0], p, pinv); } \
     } while (0)
-#define LOAD_G(ROWF)  _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = x[base + (size_t)ROWF(i) * hmin + bb]
+#define LOAD_G(ROWF)  _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = x[xo + (size_t)ROWF(i) * hmin + bb]
 #define STORE_G(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) { uint64_t o = v[i];                        \
                           if (scale != 0.0) o = (uint64_t)ec_mm((double)o, scale, p, pinv);                 \
-                          x[base + (size_t)ROWF(i) * hmin + bb] = o; }
+                          if (R3 && INV) v[i] = o; else x[xo + (size_t)ROWF(i) * hmin + bb] = o; }
 #define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BPX + bb] = v[i]
 #define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BPX + bb]
 
     const int odd = tt & 1;
+#pragma unroll
+    for (int r_ = 0; r_ < NR; r_++) {
+    uint64_t (&v)[8] = vv[r_];
+    const size_t xo = base + (size_t)r_ * n;
+    if (r_) { __syncthreads(); if (!INV) T[0] = T0; }  /* N3x: the previous third's LDS reads are done; its T */
     if (!INV) {
-        LOAD_G(ROW_A);
+        if (!R3) LOAD_G(ROW_A);
         if (R4) { STAGE4(6, 2, ROW_A); STAGE(4, 0, ROW_A); } else { STAGE(6, 2, ROW_A); STAGE(5, 1, ROW_A); STAGE(4, 0, ROW_A); }
         TO_SH(ROW_A); __syncthreads(); FROM_SH(ROW_B);
         if (R4) { STAGE4(3, 2, ROW_B); STAGE(1, 0, ROW_B); } else { STAGE(3, 2, ROW_B); STAGE(2, 1, ROW_B); STAGE(1, 0, ROW_B); }
@@ -349,6 +439,15 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
         if (R4) { STAGE(4, 0, ROW_A); STAGE4(6, 2, ROW_A); } else { STAGE(4, 0, ROW_A); STAGE(5, 1, ROW_A); STAGE(6, 2, ROW_A); }
         STORE_G(ROW_A);
+    }
+    }
+    if (R3 && INV) {                                   /* N3x: the radix-3 stage on the scaled triples, one store */
+#pragma unroll
+        for (i = 0; i < 8; i++) {
+            const size_t e = (size_t)ROW_A(i) * hmin + bb;
+            r3_inv_pt(vv[0][i], vv[R3 ? 1 : 0][i], vv[R3 ? 2 : 0][i], off0 + e, ra, m);
+            x[base + e] = vv[0][i]; x[base + n + e] = vv[R3 ? 1 : 0][i]; x[base + 2 * n + e] = vv[R3 ? 2 : 0][i];
+        }
     }
 #undef ROW_A
 #undef ROW_B
@@ -894,6 +993,60 @@ static int mall_split(const struct plan *pl, int logn, size_t batch)
     return i0;
 }
 
+/* Phase 15 N3x: the fused radix-3 form of pass 0 (the top b16 pass): the register-blocked body for a 7-stage pass in the
+ * default configuration (body 1, LDS exchange, no H6 variant, NTT_MODMUL 0 / 1), the tile kernel for a shorter pass or
+ * body 0.  Other configurations and NTT_MALL have no fused form (ntt_r3_fusable = 0: ntt3.c keeps the separate pass). */
+static int r3_kernel(int stg)
+{
+    if (stg < 1 || stg > 7) return 0;
+    if (stg < 7 || ntt_b16_body == 0) return 2;                               /* k_b16<stg, INV, 1> */
+    if (ntt_b16_xchg < 0) ntt_b16_xchg = getenv("NTT_B16_XCHG") ? atoi(getenv("NTT_B16_XCHG")) : 0;
+    if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
+    int mm = ntt_modmul_get();
+    if (ntt_b16_body == 1 && !ntt_b16_xchg && !(ntt_b16_var > 0 && mm < 2) && mm < 2) return 1;   /* k_b16r<INV, 0, 0, mm, 0, 1> */
+    return 0;
+}
+int ntt_r3_fusable(int logk)
+{
+    if (!ntt_r3_fuse_get() || logk < NTT_LOGN_MIN || logk > NTT_LOGN_MAX || ntt_mall_get()) return 0;
+    struct plan pl; make_plan(&pl, logk);
+    return pl.npass >= 1 && r3_kernel(pl.s_hi[0] - pl.s_lo[0] + 1) != 0;
+}
+#define LAUNCH_B16R3(S, INV) case S: k_b16<S, INV, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, INV ? c->tabT_i[S] : c->tabT_f[S], scale, *ra); break;
+static void launch_b16_r3(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, const struct pass_tw *tw, int inv, double scale,
+                          unsigned blocks, const ntt_r3arg *ra, hipStream_t s)
+{
+    int kind = r3_kernel(stg), mm = ntt_modmul_get();
+    if (kind == 1) {
+        const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
+        switch ((inv ? 2 : 0) | (mm == 1)) {
+        case 0: k_b16r<0, 0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 1: k_b16r<0, 0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 2: k_b16r<1, 0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        default: k_b16r<1, 0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        }
+        return;
+    }
+    if (kind != 2) { ec_fatal(EC_RC_FATAL, "ntt: no fused radix-3 form for a %d-stage pass in this configuration\n", stg); }
+    if (inv) switch (stg) { LAUNCH_B16R3(1, 1) LAUNCH_B16R3(2, 1) LAUNCH_B16R3(3, 1) LAUNCH_B16R3(4, 1) LAUNCH_B16R3(5, 1) LAUNCH_B16R3(6, 1) LAUNCH_B16R3(7, 1) }
+    else     switch (stg) { LAUNCH_B16R3(1, 0) LAUNCH_B16R3(2, 0) LAUNCH_B16R3(3, 0) LAUNCH_B16R3(4, 0) LAUNCH_B16R3(5, 0) LAUNCH_B16R3(6, 0) LAUNCH_B16R3(7, 0) }
+}
+#undef LAUNCH_B16R3
+/* the forward of batch 3 2^logk transforms: pass 0 fused with the radix-3 stage, then the other passes on the 3 batch thirds */
+void ntt_fwd_r3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s)
+{
+    struct plan pl;
+    check_logn(logk);
+    make_plan(&pl, logk);
+    if (!ntt_r3_fusable(logk)) { ec_fatal(EC_RC_FATAL, "ntt_fwd_r3: 3 2^%d has no fused form\n", logk); }
+    struct plan_tw *pt = get_plan_tw(c, logk, &pl);
+    const size_t b3 = 3 * batch;
+    launch_b16_r3(c, x, logk, pl.s_lo[0], pl.s_hi[0] - pl.s_lo[0] + 1, &pt->f[0], 0, 0.0, (unsigned)(batch << (logk - 11)), ra, s);
+    for (int i = 1; i < pl.npass; i++)
+        launch_b16(c, x, logk, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->f[i], 0, 0.0, (unsigned)(b3 << (logk - 11)), s);
+    launch_b1(c, x, 0, 0, 0, 0, 0.0, 0, pl.lb, (unsigned)(b3 << (logk - pl.lb)), s);
+}
+
 void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
 {
     struct plan pl;
@@ -922,7 +1075,9 @@ void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
 
 /* the inverse with the pointwise product fused into the b1 pass; Lt = points per transform of the y layout
  * (2^logn, or 3 2^logn for the thirds of a radix-3 transform, where batch counts the thirds) */
-static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int logn, size_t batch, hipStream_t s)
+/* ra != 0 (Phase 15 N3x): batch counts the 3 thirds of batch / 3 transforms of 3 2^logn points and the last pass is the
+ * fused radix-3 form (ntt_r3_fusable(logn) holds: no NTT_MALL chunks) */
+static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int logn, size_t batch, hipStream_t s, const ntt_r3arg *ra = 0)
 {
     struct plan pl;
     check_logn(logn);
@@ -930,11 +1085,13 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
     struct plan_tw *pt = get_plan_tw(c, logn, &pl);
     unsigned blocks = logn >= 11 ? (unsigned)(batch << (logn - 11)) : 0;
     double sc = c->ninv[logn];
-    int i0 = mall_split(&pl, logn, batch);
+    int i0 = ra ? -1 : mall_split(&pl, logn, batch);
     if (i0 < 0) {
         launch_b1(c, x, y, Lt, ymode, y ? 2 : 1, pl.npass ? 0.0 : sc, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
-        for (int i = pl.npass - 1; i >= 0; i--)
-            launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
+        for (int i = pl.npass - 1; i >= 0; i--) {
+            if (ra && i == 0) launch_b16_r3(c, x, logn, pl.s_lo[0], pl.s_hi[0] - pl.s_lo[0] + 1, &pt->i[0], 1, sc, (unsigned)((batch / 3) << (logn - 11)), ra, s);
+            else launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
+        }
         return;
     }
     int lc = ntt_mall_get(), lg = lc < logn ? lc : logn;
@@ -984,6 +1141,13 @@ void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
     inv_common(c, x, y, (size_t)3 << logk, ymode, logk, 3 * batch, s);
+}
+/* Phase 15 N3x: the inverse of batch 3 2^logk transforms with the radix-3 stage fused into the last pass; y != 0: the
+ * pointwise product (layout ymode, over 3 2^logk points) fused into the b1 pass */
+void ntt_inv_r3(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s)
+{
+    if (!ntt_r3_fusable(logk)) { ec_fatal(EC_RC_FATAL, "ntt_inv_r3: 3 2^%d has no fused form\n", logk); }
+    inv_common(c, x, y, (size_t)3 << logk, ymode, logk, 3 * batch, s, ra);
 }
 void ntt_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t count, hipStream_t s)
 {
