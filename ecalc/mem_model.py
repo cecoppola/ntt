@@ -311,6 +311,16 @@ def planes_3q30(pool_log=31, digits=0):
     return pool_log >= 31 and digits < 5e10
 
 EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
+NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 p2 - 1) / (10^18 - 1)^2), the largest nc = pa + pb three primes hold
+
+def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS):
+    """Phase 15 NP (crt.c ec_np_planes, rns_mul.c rns_pool0_np): the planes plane pool 0 is made for under ECALC_NP=np -- np itself, or for
+    'auto' (the prime count per product) 4 when the largest plane a run of g node-processes forms, 2^(min(31, pool_log) + floor(log2 g)) points,
+    exceeds the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3: at the target 4 (pool 0 as ECALC_NP=4), at size 1 3"""
+    if np != 'auto': return np
+    c = pool_log if 0 < pool_log < 31 else 31
+    lg = g.bit_length() - 1 if g > 1 else 0
+    return 4 if (1 << (c + lg)) > auto_terms else 3
 
 # ---------------------------------------------------------------- Phase 13b agent D: the plane cap and the product strategy
 CAPS = {'2^30': 1 << 30, '3*2^29': 3 << 29, '2^31': 1 << 31, '3*2^30': 3 << 30}   # the four plane caps of PLAN 31 (points)
@@ -667,9 +677,10 @@ def mem_per_node(D, g=1, opts=None):
         xchg += NR * (o['depth'] - 1) * (sc[1] // K_CHUNKS_MEM) * 8       # from 3 S to 4 S per APU thread (measured +33 %: 12.6 -> 16.8 MB at
                                                                           # size 2, 8.5 -> 11.2 at 3), S = one chunk of the plane (q / K):
                                                                           # one more quarter-plane per APU on the general-map levels
-    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], o['np'], o['strategy'])
+    npp = np_planes(o['np'], g, o['pool_log'])                          # Phase 15 NP: ECALC_NP=auto -- pool 0's planes by the run's largest group
+    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'])
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
-        planes = NR * (o['np'] * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
+        planes = NR * (npp * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
     dev_init = planes + (sum(arena) if o["tail"] else bs_total)          # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak)
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
