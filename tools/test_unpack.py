@@ -77,6 +77,19 @@ def main():
         open(ref + ".long", "wb").write(want + b"7")
         r5 = subprocess.run([exe, "-q", "--cmp", ref + ".long"] + names, stdout=subprocess.PIPE)
         ok5 = r5.returncode == 1
+        # Phase 15 IO2: each part alone (-o), the outputs concatenated in part order == the file; each part --cmp'd against its
+        # byte range of the reference; the part holding the changed byte (and only it) differs; a pair of consecutive parts
+        cat = b""; okp = True; nbad = 0
+        for n in names:                                                        # names sorted: part0000 first
+            r = subprocess.run([exe, "-q", "-o", out, n]); okp = okp and r.returncode == 0; cat += open(out, "rb").read()
+            r = subprocess.run([exe, "-q", "--cmp", ref, n], stdout=subprocess.PIPE); okp = okp and r.returncode == 0
+            r = subprocess.run([exe, "-q", "--cmp", ref + ".bad", n], stdout=subprocess.PIPE); nbad += r.returncode == 1
+        okp = okp and cat == want and nbad == (1 if bytes(bad) != want else 0)
+        if len(names) >= 3:
+            r = subprocess.run([exe, "-q", "--cmp", ref, names[1], names[2]], stdout=subprocess.PIPE); okp = okp and r.returncode == 0
+            r = subprocess.run([exe, "-q", "--cmp", ref, names[0], names[2]], stdout=subprocess.PIPE, stderr=subprocess.PIPE); okp = okp and r.returncode == 2   # not consecutive
+        ok5 = ok5 and okp
+        if not okp: print("   per-part: concatenation %s, differing parts %d" % (cat == want, nbad))
         # a corrupted limb in the last part (not the header): the residue check must fail
         with open(names[-1], "r+b") as f:
             f.seek(4096); v = f.read(8); f.seek(4096); f.write(bytes([v[0] ^ 1]) + v[1:])
@@ -84,7 +97,7 @@ def main():
         ok6 = r6.returncode == 1
         good = ok1 and ok2 and ok3 and ok4 and ok5 and ok6
         fails += not good
-        print("d %8d d_out %8d parts %d: -o %s, stdout %s, --cmp %s, changed byte %s, longer ref %s, corrupt limb %s -> %s"
+        print("d %8d d_out %8d parts %d: -o %s, stdout %s, --cmp %s, changed byte %s, longer ref + per part %s, corrupt limb %s -> %s"
               % (d, d_out, nparts, ok1, ok2, ok3, ok4, ok5, ok6, "ok" if good else "FAIL"))
         for n in names + [ref, ref + ".bad", ref + ".long", out]:
             os.remove(n)
