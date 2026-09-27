@@ -52,6 +52,10 @@ for s in ${STEPS//,/ }; do
       run "S=\$(~/ntt-N3x15/tools/unpack_digits /tmp/n3x_e11.out | sha1sum | cut -c1-40); echo \"sha1 \$S ref $WANT\"; [ \"\$S\" = \"$WANT\" ] && echo SHA1 IDENTICAL || echo SHA1 DIFFERS; rm -rf /tmp/n3x_e11*" > $D/e11_file_${c}_sha1.log 2>&1
       echo "file_$c digits: $(tail -1 $D/e11_file_${c}_sha1.log)" | tee -a $D/timing_summary.log
     done ;;
+  verbose)  # 10^11 with RNS_VERBOSE=1, off and on: the transform time by tier and length (tests/n3x_lengths.py)
+    for c in 0 1; do run "cd $NEW; RNS_VERBOSE=1 NTT_R3_FUSE=$c ./ecalc 100000000000" > $D/e11_verbose$c.log 2>&1; done
+    python3 $NEW/tests/n3x_lengths.py $D/e11_verbose0.log $D/e11_verbose1.log > $D/lengths.log 2>&1
+    grep -a '^total' $D/e11_verbose0.log $D/e11_verbose1.log >> $D/lengths.log ;;
   gates)    # NTT_R3_FUSE=1 (and RNS_R3_MINK=11): mnaccept unit,e9,mn; 10^11 compared by digcmp.sh
     (cd $NEW && NTT_R3_FUSE=1 RNS_R3_MINK=11 ./mnaccept.sh $J --only unit,e9,mn) > $D/mnaccept.log 2>&1
     grep -E "^(PASS|FAIL)" $D/mnaccept.log | tee $D/gates_summary.log
