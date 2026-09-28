@@ -1,0 +1,18 @@
+products (node 0, the timed repetitions; mean s [runs]; hits/misses of the last run; the share hashes all agree):
+  shape           | slots 0               | slots 1               | slots 2               | saved at 1, 2
+  2x3_full        |   15.00 [2]   0h   0m |   12.70 [2]   3h   3m |   11.12 [2]   5h   4m | -2.30 (-15 %), -3.87 (-26 %)
+  2x6_full        |   30.74 [2]   0h   0m |   25.49 [2]   6h   6m |   22.11 [2]  11h   7m | -5.25 (-17 %), -8.63 (-28 %)
+  2x2_full        |   10.48 [2]   0h   0m |    8.46 [2]   2h   2m |    7.46 [2]   3h   3m | -2.02 (-19 %), -3.02 (-29 %)
+  2x2_lowhighcut  |    9.95 [2]   0h   0m |    8.54 [2]   2h   2m |    7.89 [2]   3h   3m | -1.40 (-14 %), -2.05 (-21 %)
+  1x2_lowcut      |    5.29 [2]   0h   0m |    5.46 [2]   0h   2m |    4.49 [2]   1h   3m | +0.18 (+3 %), -0.80 (-15 %)
+  5x3_lowhighcut  |   34.00 [2]   0h   0m |   26.32 [2]  10h   3m |   25.27 [2]  11h   4m | -7.67 (-23 %), -8.72 (-26 %)
+  2x4_lowcut      |   17.57 [2]   0h   0m |   15.50 [2]   3h   4m |   13.54 [2]   5h   5m | -2.07 (-12 %), -4.03 (-23 %)
+  5x6_lowcut      |   57.18 [2]   0h   0m |   41.11 [2]  14h   6m |   38.79 [2]  15h   7m | -16.07 (-28 %), -18.39 (-32 %)
+  5x6_highcut     |   51.05 [2]   0h   0m |   43.24 [2]  14h   6m |   35.84 [2]  19h   7m | -7.81 (-15 %), -15.22 (-30 %)
+  all             |  231.25                |  186.83                |  166.51                | -44.42 (-19.2 %), -64.74 (-28.0 %)
+pieces (node 0): a piece against itself at 0 slots in the same repetition (mean s, n)
+  slots 1, hit    n 108: t 2.641 -> 1.783  red 0.106 -> 0.063  ntt 2.423 -> 1.605  crt 0.004 -> 0.004  out 0.080 -> 0.079  carry 0.053 -> 0.053
+  slots 1, cached n  68: t 2.605 -> 2.657  red 0.102 -> 0.101  ntt 2.383 -> 2.437  crt 0.004 -> 0.004  out 0.092 -> 0.094  carry 0.045 -> 0.045
+  slots 2, hit    n 146: t 2.635 -> 1.743  red 0.105 -> 0.059  ntt 2.413 -> 1.565  crt 0.004 -> 0.004  out 0.083 -> 0.082  carry 0.054 -> 0.053
+  slots 2, cached n  30: t 2.587 -> 2.612  red 0.101 -> 0.097  ntt 2.379 -> 2.407  crt 0.004 -> 0.004  out 0.092 -> 0.091  carry 0.033 -> 0.033
+the fit: a hit saves 0.878 s per piece measured (median 0.813, n 254) against 0.792 modelled on aac6 loopback TCP, 2 node-processes -> 1.108 in seconds; as a fraction of the piece: 33.3 % measured, 31.9 % modelled -> CACHE_HIT_F 1.043
