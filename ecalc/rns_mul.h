@@ -49,6 +49,7 @@ int rns_planes_3q30_default(int pool_log, double digits);
 size_t rns_plane_limbs(void);
 int rns_pool0_np(void);                                              /* Phase 15 NP: the planes plane pool 0 is made for (ec_np; ECALC_NP=auto: 3 or 4 by the run's largest group, ec_np_planes) */
 size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1);   /* Phase 13b P: pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
+int rns_pool1_4q(void);                                             /* Phase 15 PS: RNS_POOL1_4Q (default 1): pool 1 at 4 q with four one-node primes */
 void rns_preinit_pool_log(int pool_log);                                                /* Phase 13b P: rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
 size_t rns_dpool_cap(int dev, int which);   /* the pool's current bytes (0 before rns_init) */
 extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */
