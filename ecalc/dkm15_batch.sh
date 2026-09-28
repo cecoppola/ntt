@@ -61,6 +61,14 @@ A)
 B)
     R "NEWTON_DEVICE=1 DIST_LOGN_TEST=20 ./tests/t_newton 20" > "$L/t_newton_dev20.log" 2>&1; echo "t_newton 20 NEWTON_DEVICE=1 DIST_LOGN_TEST=20: rc $? $(grep -a VERIFY "$L/t_newton_dev20.log" | tail -1)"
     grep -a 'FAILED' "$L/t_newton_dev20.log" | head
+    # size 1 takes newton_db_divmod_shifted only when the top levels ran on the device tier (> 2^30 limbs: 4e10 and up); BS_MDEV_LOGL=24 at 1e9
+    for sw in 0 1; do one e9_dev_$sw 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=$sw; done
+    one e9_dev_p7_c1 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=7
+    one e9_dev_m7_c2 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_TEST_CORR=-7
+    one e9_dev_p7_c0 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=0 ECALC_TEST_CORR=7
+    one e9_dev_hi7 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=1 NEWTON_DKM_TEST_HI=7
+    one c511_dev 1 511461828 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14
+    one c820_dev 1 820719000 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=-44
     ./mnaccept.sh "$J" --only unit,e9 2>&1 | grep -a '^PASS\|^FAIL\|passed'
     E4=~/ntt/ecalc/results/e_4e10.out
     R "env ECALC_VERBOSE=1 ./ecalc 40000000000 $T/e4.txt" > "$L/e4_off.log" 2>&1; rc=$?
