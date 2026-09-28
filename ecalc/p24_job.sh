@@ -7,7 +7,7 @@
 #      ECALC_NP_AUTO_TERMS=1000000 (both prime counts in one run) at 2
 #   2  mnaccept --only unit,mn with MN_P24=1 ECALC_NP=4 (10^8 at sizes 2, 3, 4 and 10^9 at 2, 4: identical digits)
 #   3  mnaccept --only mn with MN_P24=2 ECALC_NP=auto ECALC_NP_AUTO_TERMS=100000000
-#   4  the gates with the switch off: mnaccept --only unit,e9 (t_newton, t_mul, ..., 10^9 both bases), 4e10 at size 1 against
+#   4  the gates with the switch off: mnaccept --only unit,e9,mn (t_newton, t_mul, ..., 10^9 both bases, the mn step), 4e10 at size 1 against
 #      results/e_4e10.out (the reference evicted first)
 #   5  a timing pair at size 2 (10^10, ECALC_NP=4, RNS_VERBOSE=1): MN_P24 0 and 1, twice each, the dist_mn lines kept
 B=${1:-1}
@@ -35,7 +35,7 @@ b2() {
     MN_P24=1 ECALC_NP=4 ./mnaccept.sh "$J" --only unit,mn > "$OUT/mnaccept_p24_np4.log" 2>&1; echo "mnaccept MN_P24=1 ECALC_NP=4 rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_p24_np4.log"; }
 b3() { MN_P24=2 ECALC_NP=auto ECALC_NP_AUTO_TERMS=100000000 ./mnaccept.sh "$J" --only mn > "$OUT/mnaccept_p24_auto2.log" 2>&1; echo "mnaccept MN_P24=2 auto rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_p24_auto2.log"; }
 b4() {
-    ./mnaccept.sh "$J" --only unit,e9 > "$OUT/mnaccept_off.log" 2>&1; echo "mnaccept (switch off) rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_off.log"
+    ./mnaccept.sh "$J" --only unit,e9,mn > "$OUT/mnaccept_off.log" 2>&1; echo "mnaccept (switch off) rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_off.log"
     F=/tmp/p24_e4e10.out
     R "python3 -c \"import os; fd=os.open('$HOME/ntt/ecalc/results/e_4e10.out', os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\"; rm -rf $F*; ./ecalc 40000000000 $F" > "$OUT/e4e10.log" 2>&1; echo "e4e10 rc $? $(grep -a '^total' "$OUT/e4e10.log" | tail -1)"
     R "./digcmp.sh $F $HOME/ntt/ecalc/results/e_4e10.out; rm -rf $F*" > "$OUT/e4e10_cmp.log" 2>&1; echo "e4e10 against results/e_4e10.out: $(cat "$OUT/e4e10_cmp.log")"
