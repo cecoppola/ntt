@@ -383,7 +383,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
  * where the arena's last extent ends (a remainder after it made the pool carve spills from the tail's front: the reciprocal's two
  * remaps); (2) the dm need gains f x the hole (the division's largest block), so the blocks that spill around the tail leave it
  * whole.  f from the pool replays of measured traces (tests/as_pool_replay.py). */
-static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.0; if (f < 0) f = 0; } return f; }
+static double bs_arena_room(void) { static double f = -1; if (f < 0) { const char *e = getenv("BS_ARENA_ROOM"); f = e ? atof(e) : 0.16; if (f < 0) f = 0; } return f; }   /* default 0.16 since Phase 15 Batch 2 (the user's decision, 2026-09-28) */
 static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_ARENA_ROOM lays it out: whole VMM chunks */
 {
     if (!(bs_arena_room() > 0) || !db_pool_vmm_on()) return bytes;
