@@ -22,6 +22,7 @@ job() {
     while [ "$(squeue -j "$J" -h -o %T)" != "RUNNING" ]; do sleep 20; [ -z "$(squeue -j "$J" -h -o %T)" ] && { echo "job $J gone"; exit 2; }; done
     NODE=$(squeue -j "$J" -h -o %N); echo "batch $B: job $J running on $NODE $(date)"
     b$B
+    [ "$(squeue -j "$J" -h -o %T)" = "RUNNING" ] || echo "batch $B: JOB $J ENDED BEFORE THE BATCH DID (cancelled from outside?): the batch's results are void $(sacct -j "$J" -X -n -o State,End)"
     scancel "$J"; trap - EXIT
     echo "batch $B done $(date)"
 }
