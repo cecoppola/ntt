@@ -59,10 +59,10 @@ registered range (unchanged); the remap path already waits for the whole arena. 
 
 ## RESUME
 
-- 5162a8f: `ECALC_INIT_TL=1` (print only: `dbig.c` VMM mapping split by HIP call, `rns_init` steps, the seed thread, level 1–3),
-  README row. 2add00f: `tests/map_sweep.sh` (from `as_sweep.sh`; summary adds the seed wait, the seed thread and the `tl` marks),
-  `tests/map_plan_f1.txt`.
-- Running: `~/MAP15/f1` (job 21659, s24-30), launched 22:21 EDT by
-  `setsid nohup bash ~/ntt-MAP15/tests/map_sweep.sh 2add00f ~/MAP15/f1 ~/ntt-MAP15/tests/map_plan_f1.txt > ~/MAP15/f1.out`.
-  The script cancels its own job. §1 written from its first four runs (t48, r0b, d0b still running). Next: the streaming mapper
-  (`DB_POOL_VMM_STREAM`, dbig.c) and the seeds' per-chunk wait (binsplit.c seed code).
+- 5162a8f: `ECALC_INIT_TL=1` (print only), README row. 2add00f: `tests/map_sweep.sh`, `tests/map_plan_f1.txt`. d67bc66: §1.
+- 18af9e9 + 2880e30 + 9dfe39d: **`DB_POOL_VMM_STREAM=<W>`** (dbig.c: `vmm_stream_worker`, `stream_pick`, `db_vmm_wait_range`;
+  binsplit.c seed code: `seed_wait_map` before each seed DMA, the seeds' own `pool_get(0)` without waiting; binsplit.c `pool_get`:
+  parity 0 waits for its half outside pregrow — a one-line edit outside the seed code, named). Builds on aac6. README row: to do.
+- f1 done (job 21659, s24-30; `~/MAP15/f1/summary.txt`). s1 chained: `~/MAP15/chain_s1.sh` waits for f1's "done", then runs
+  `map_sweep.sh 9dfe39d ~/MAP15/s1 ~/MAP15/map_plan_s1.txt` from the scratch clone `~/MAP15/build/w` (MAP_CLONE; detached at
+  9dfe39d). Log `~/MAP15/s1.out`. Next: read s1, decide W and the seed threads, then the gates and the timing series.
