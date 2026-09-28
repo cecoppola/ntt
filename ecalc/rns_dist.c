@@ -1288,7 +1288,7 @@ __global__ void k_unpacktw_gr(const uint64_t *rb, uint64_t *x, size_t rk, size_t
         if (k < 24) w = ec_mm(w, st, m.p, m.pinv);
     }
 }
-static int twrec_g(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC_G"); v = e ? atoi(e) != 0 : 0; } return v; }   /* Phase 15 G5 (default 0) */
+static int twrec_g(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC_G"); v = e ? atoi(e) != 0 : 1; } return v; }   /* Phase 15 G5 (default 1 since Batch 2, the user's decision 2026-09-28) */
 /* slab rho of a chunk (my cols x rho's chunk rows, column-major) <-> my columns of R points; block y = rho */
 __global__ void k_unpack_g(const uint64_t *rb, uint64_t *x, const struct rkt *T, size_t cols, size_t R)
 {
