@@ -1,0 +1,7 @@
+== Phase 15 TC: the mn transform cache (RNS_DIST_CACHE_MN=2; GB per node, modelled)
+  5.1e13 on 576, ECALC_NP=auto: node 471.9 (no cache) | the default's 2 slots 137.4 -> node 609.4 (1 slot: 540.7) | RNS_DIST_CACHE_FIT: 0 slots (the code's room: 480 - the layout node 443.1 - the reserve 32 = 4.9 < one slot 68.7; against this model's node 8.1) -> node 471.9
+  4.74e13 on 576, ECALC_NP=auto: node 454.8 (no cache) | the default's 2 slots 137.4 -> node 592.2 (1 slot: 523.5) | RNS_DIST_CACHE_FIT: 0 slots (the code's room: 480 - the layout node 425.9 - the reserve 32 = 22.1 < one slot 68.7; against this model's node 25.2) -> node 454.8
+  1e+09 digits at 2 node-processes, POOL_LOG=25 (3 primes): the default 103.08 per process (12 GiB slots), FIT 1.61 per process
+  1e+09 digits at 4 node-processes, POOL_LOG=24 (3 primes): the default 103.08 per process (12 GiB slots), FIT 0.81 per process
+  1e+10 digits at 2 node-processes, POOL_LOG=29 (3 primes): the default 103.08 per process (12 GiB slots), FIT 25.77 per process
+  1e+10 digits at 4 node-processes, POOL_LOG=28 (3 primes): the default 103.08 per process (12 GiB slots), FIT 12.88 per process
