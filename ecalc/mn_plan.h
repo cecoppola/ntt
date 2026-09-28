@@ -22,6 +22,7 @@ struct rns_grid_plan {
     int np;              /* Phase 15 NP: the largest piece's primes (ec_np_for: ECALC_NP=auto -- 4 over the three-prime bound) */
     int formed4;         /* Phase 15 NP: of the formed pieces, those at four primes (every one when ec_np = 4; under auto la + lb > ec_np_auto_terms) */
     double plane_bytes;  /* the transform planes one node holds for the largest piece (all primes, four APUs) */
+    int p24;             /* Phase 15 Batch 3 P24 (MN_P24): the product runs at 24 digits per point (cap and pts in points, pa and pb in limbs, four primes) */
 };
 /* the dist tier (one node; rns_mul_dist_db / rns_mul_high_db / rns_mul_low_db): mul_grid's decision for na x nb limbs with the
  * cuts (lowcut 0: none; w = (size_t)-1: none) */

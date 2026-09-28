@@ -10,6 +10,7 @@
 #include "mem.h"
 #include <time.h>
 #include <stdarg.h>
+#include "p24.h"                                       /* Phase 15 Batch 3 P24: a P24 product's spill decode (sparse_get) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
@@ -689,12 +690,18 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; };   /* tab[d] (Phase 12 G, agent G: the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (Phase 15 Batch 3 P24, results/P2415.md): the blocks at L(R j + a') of p24.h */   /* tab[d] (Phase 12 G, agent G: the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
                                          * (Phase 11 L: gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
     if (s.single) return i == s.pos ? s.val : 0;
+    if (s.gt && s.p24) {                                      /* P24: the block meeting limb i + lo (p24_spill_at: at most one), then the lookup below */
+        int rho; size_t j, t; if (!p24_spill_at(i + s.lo, s.R, s.C, 4 * s.gt, &rho, &j, &t)) return 0;
+        int d = rho / s.gt, r = rho - d * s.gt;
+        if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }
+        return s.sp[d][((size_t)r * s.C + j) * 4 + t];
+    }
     if (s.gt) {
         size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q, t; int nr = 4 * s.gt, rho;
         if (s.rows * (size_t)nr == s.R) { q = rem / s.rows; t = rem - q * s.rows; }
@@ -877,6 +884,13 @@ void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
 {
     struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
+    addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
+}
+/* Phase 15 Batch 3 P24 (results/P2415.md): the same for a P24 product -- the spill of (rank rho, column j) at limb L(R j + a'), a' the
+ * next rank's first row (p24.h) */
+void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop)
+{
+    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = R / (4 * (size_t)gt); s.C = C; s.lo = lo; s.gt = gt; s.p24 = 1;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* M3: r (n limbs, in place) += 1 at limb 0; the carry out reported */

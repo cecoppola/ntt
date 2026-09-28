@@ -45,7 +45,7 @@ ntt2.o: ntt2.c ntt2.h modarith2.h
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h
+rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
 	$(HIPC) -c -o $@ $<
 # Phase 15 Batch 3 P24 (results/P2415.md): the 24-digit CRT of the mn tier (MN_P24)
 p24_crt.o: p24_crt.c p24.h rns_int.h modarith.h
@@ -56,7 +56,7 @@ tests/t_p24: tests/t_p24.c $(OBJS) p24.h
 mn_plan.o: mn_plan.c mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-dbig.o: dbig.c dbig.h bigint.h mem.h
+dbig.o: dbig.c dbig.h bigint.h mem.h p24.h
 	$(HIPC) -c -o $@ $<
 # Phase 14 S1: O_DIRECT file I/O and the spill primitive (E3, E4); the memory sampler and the live-bytes lines (E12, E1)
 spill.o: spill.c spill.h dbig.h mem.h
