@@ -188,8 +188,14 @@ P24, at about a week. At size 1 it can be measured at 10¹¹: the reciprocal is 
 
 ## RESUME
 
-- Stage 1 (this note) is committed. Next is stage 2: implement `NEWTON_DKM` in `newton_db.c` (`newton_db_recip`'s length,
-  `newton_db_divmod_shifted` → `divmod_shifted_dkm`), t_newton section 6, and the README row. Then build on aac6 (`~/ntt-DKM15`, bundle
-  from f184d51, which `~/ntt` has), then the node batch.
-- Nodes at 17:47 EDT: s24-16 is held by another user (gcapodag). s24-26/30 are running the integrator's B2a/B2b, which started
-  ≈ 17:41 EDT (later than planned).
+- **Committed:**
+  - c00efbd: the note.
+  - 0edd856: size 1 (`newton_db_divmod_shifted` → `divmod_shifted_dkm`, `newton_db_recip`'s length, `NEWTON_DKM_TEST_HI`, t_newton
+    section 6).
+  - 66d632c: size > 1 (`mn_divmod_dkm`) and the README row.
+  - 3fc51d6: `ecalc/dkm15_batch.sh` (stages A, B, C).
+  - 156ff25: the models (`MN_MODEL_DKM`, `mem_model.dm_layout(dkm)`, `tests/dkm15_model.py`, `results/DKM15/model.txt`).
+- **aac6:** `~/ntt-DKM15` is at 3fc51d6. It builds clean, and the models do not need the node.
+- **Stage A** (`dkm15_batch.sh A 3fc51d6`, the log in `~/dkm15tmp/A/batch.log`) was launched at 17:58 EDT. Job 21760 is pending
+  behind the integrator's B2a/B2b and another user's job on s24-16.
+- **Next:** read A's log. Then launch B (`… B <sha>`) and C, one at a time, each after the previous job has ended. Then fill §2–§4.
