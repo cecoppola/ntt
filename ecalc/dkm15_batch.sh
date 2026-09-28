@@ -65,6 +65,8 @@ B)
     one c511_base_ascii 1 511461828 ECALC_OUT_PACKED=0 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14
     one c820_base 1 820719000 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=-44
     one c511_base_p1 1 511461828 ECALC_TEST_CORR=1
+    one c108u_base_2 2 108388422 POOL_LOG=27 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=36
+    one c108u_base_ascii_2 2 108388422 POOL_LOG=27 ECALC_OUT_PACKED=0 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=36
     R "NEWTON_DEVICE=1 DIST_LOGN_TEST=20 ./tests/t_newton 20" > "$L/t_newton_dev20.log" 2>&1; echo "t_newton 20 NEWTON_DEVICE=1 DIST_LOGN_TEST=20: rc $? $(grep -a VERIFY "$L/t_newton_dev20.log" | tail -1)"
     grep -a 'FAILED' "$L/t_newton_dev20.log" | head
     # size 1 takes newton_db_divmod_shifted only when the top levels ran on the device tier (> 2^30 limbs: 4e10 and up); BS_MDEV_LOGL=24 at 1e9
