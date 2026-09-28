@@ -61,7 +61,7 @@ while [ $i -lt ${#RUNS[@]} ] && [ $njobs -lt $MAXJOBS ]; do
     sw=$(grep -a -m1 "waiting for the init thread" "$lg" | sed 's/.*seeds \([0-9.]*\) s.*/\1/')
     st=$(grep -a -m1 "seeds were computed during init" "$lg" | sed 's/.*init (\([0-9.]*\) s:.*spans \([0-9.]*\), waited \([0-9.]*\) for the regions.*/\1 (\2, \3)/')
     tlt() { grep -a -m1 "^tl .*$1" "$lg" | awk '{print $2}'; }
-    tlb=$(grep -a "^tl .*background mapping done" "$lg" | awk '{print $2}' | sort -n | tail -1)
+    tlb=$(grep -a "^tl .*background mapping done\|^tl .*stream: the parity-1 half is mapped" "$lg" | awk '{print $2}' | sort -n | tail -1)
     tls="$(tlt 'seed thread ends') $tlb $(tlt 'level 1 starts') $(tlt 'level 1 done')"
     line="$tag $D $mode | total $tot | init $ini | bs $bst | recip $rec | dm $dm | T1 $t1s | seedwait $sw | seedthr $st | tl $tls | remaps $rem | after recip $dmr | growth $gro | $ver | $dig | ${el}s | $NODE | $envs"
     echo "$line" >> "$SUM"; log "$line"
