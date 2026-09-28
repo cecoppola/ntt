@@ -2051,3 +2051,13 @@ Agents work in parallel where their files do not overlap; node time follows the 
 - **Integration**: the regression, a paired 10¹¹ series (B1 vs B1 + Batch 2), RESULTS §88, the models, then the user's
   decisions in one list (as in Batch 1).
 - **Nodes**: three; the order above sets priority; timing series alone on a node; the admin's nightly CI 00:00–03:30 EDT.
+
+### 37.1 The target moves to 5.1 × 10¹³ digits (the user's decision, 2026-09-27 23:50 EDT)
+
+Memory no longer binds at the target (416 GB of 480 at 4.25 × 10¹³ on B1); the grid steps do. The code's own plan
+(`MN_PLAN_ONLY`, `ECALC_NP=auto`): 5.05–5.10 × 10¹³ at 222 pieces (242 on the critical path), the step at 5.11 × 10¹³;
+the plan check passes with four primes and with `auto`; node ≈ 455 GB modelled (≈ 466 with `BS_ARENA_ROOM`); SHMEM pool
+9472 MiB. Modelled on B1 + `ECALC_NP=auto`: **322.6 s without the write, 354.1 s with the packed write at 0.6 GB/s**
+(+20 % digits for +35 % time against 4.25 × 10¹³). **Optimize for 5.1 × 10¹³**; later, **test the runtime one step below,
+4.74 × 10¹³** (202 pieces; the step at 4.75). Agent TGT moves the documents and the models' target constants; Batch 2's
+agents model their gains at 5.1 × 10¹³.
