@@ -245,6 +245,31 @@ affected). **This corrects §1.4 and SC's ≤ −20 GB.**
 - **With the code as it is, there is no memory change.** The arena is carved to today's layout; DKM's blocks are smaller and fit
   in it.
 
+## 4. Measurements (aac6)
+
+### 4.1 Stage A: `NEWTON_DKM=1` correctness
+
+Job 21766 ran on s24-26, 18:29–18:46 EDT, on commit 3fc51d6. The command was `ecalc/dkm15_batch.sh A 3fc51d6`, and the logs are in
+aac6 `~/dkm15tmp/A/` and `~/ntt-DKM15/ecalc/results/mnaccept/21766/`. The first attempt, job 21760, was cancelled by the scheduler
+after 50 s on s24-16 and ran nothing.
+
+| test | result (measured) |
+|---|---|
+| `NEWTON_DEVICE=1 ./tests/t_newton 20` | **section 6: every case identical** (X exact, R's residues). This covers 4 sizes × 7 shapes, off / on, forced ±7 on both hooks. The final count moved by exactly k under `ECALC_TEST_CORR`. Under `NEWTON_DKM_TEST_HI` the final count stayed put and step 1 made the 7. The s = dl shape took the fresh reciprocal, as designed. **4 failures in section 5** (R4's "the high cut skipped nothing" at n_q 3·2²⁰, 2²²): that section needs `DIST_LOGN_TEST=20` (R415.md); stage B re-runs it so |
+| e9 `NEWTON_DKM=1`, LIMB_BASE 10 / 2 | identical, VERIFY OK (`total` 10.81 / 22.78 s). **But at 10⁹ ecalc takes the host flow** (`newton_db_divmod`, below the device tier's 2³⁰), so DKM is not exercised at size 1 there. Stage B repeats these with `BS_MDEV_LOGL=24` |
+| e9 forced (`ECALC_TEST_CORR` +7 / −7 / +7 with `ECALC_CORR_PATCH` 1 / 2 / 0; `NEWTON_DKM_TEST_HI=7`) | identical, VERIFY OK (host flow, as above) |
+| c511 (511461828, +14) / c820 (820719000, −44), `ECALC_CORR_PATCH=1` | **VERIFY FAILED, digits differ.** Host flow, so not DKM. The output patch fails on the packed file (`patch … FAILED`, `digits == X mod q FAILED`). See §4.3 |
+| **4 × 10¹⁰ `NEWTON_DKM=1`** | **identical** (digcmp, packed). DKM taken: `divmod(dev, DKM) 12.13 s: k 2222222224 = 1111111112 + 1111111112, h 1111111113 (kept); step 1 A mu 2.14, X_hi Q + corrections 3.48 (0), step 2 A mu + assembly 2.15, X_lo Q 3.64, corrections 0.45 (0)`. recip 3.94 s, dm 16.07 s, `total` 54.28 s |
+| `NEWTON_DKM=1 ./mnaccept.sh 21766 --only mn` | **5 passed, 0 failed** (e8 sizes 2, 3, 4; e9 sizes 2, 4; DKM taken: `divmod(mn, DKM) … k 55555557 = 27777779 + 27777778`) |
+| `NEWTON_DKM=1 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7 ./mnaccept.sh 21766 --only mn,recheck` | **7 passed, 0 failed** (at 10⁸ / 10⁹ the changed digits lie past d_out) |
+| c108d (−39) at sizes 2 and 4, `ECALC_CORR_PATCH=0` (in place) | **identical**, all nodes VERIFY OK |
+| `NEWTON_DKM_TEST_HI=−9` at sizes 2 and 4; +9 with `ECALC_TEST_CORR=−5` at size 3 | **identical**. Step 1 made the 9 corrections; the final count was 0 or 5 |
+| c108u (+36) / c108d (−39) at sizes 2 and 4, `ECALC_CORR_PATCH=2` | **VERIFY FAILED on node 0, digits differ.** Same signature as c511: the patch on node 0's packed part file. See §4.3 |
+
+**Reading.** In every run where the division took the DKM path (t_newton section 6, 4 × 10¹⁰, mn at sizes 2–4 including the forced
+corrections), the digits are identical. The failures are all in `mn_out`'s tail patch on a packed file. They occur with
+`ECALC_CORR_PATCH` ≥ 1 when the changed digits lie inside the file, and they appear in the host flow too, where DKM does not run.
+
 ## RESUME
 
 - **Committed:**
