@@ -1,0 +1,3 @@
+unpack_digits: 1 part, 100000000001 digits (d_out 100000000000): read 44.44 GB in 27.2 s (1.63 GB/s in the reader), wrote 100.00 GB (74.1 s in the writer); format 2.7 s, residues ok 4.4 s; 74.4 s wall, 1.34 GB/s of ASCII
+sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 ref 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+SHA1 IDENTICAL

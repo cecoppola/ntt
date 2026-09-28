@@ -1,0 +1,11 @@
+off1 (NTT_R3_FUSE=0): total   205.76 s   (bs 80.8 + 10dP 0.1 + dm 104.8 + T1 0.0 +; PROCESS WALL 207.92 s; total   205.76 s   (bs 80.8 + 10dP 0.1 + dm 104.8 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 0 fuse notices
+on1 (NTT_R3_FUSE=1): total   196.84 s   (bs 77.9 + 10dP 0.1 + dm 102.1 + T1 0.0 +; PROCESS WALL 199.01 s; total   196.84 s   (bs 77.9 + 10dP 0.1 + dm 102.1 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 1 fuse notices
+off2 (NTT_R3_FUSE=0): total   194.50 s   (bs 73.3 + 10dP 0.1 + dm 104.1 + T1 0.0 +; PROCESS WALL 196.58 s; total   194.50 s   (bs 73.3 + 10dP 0.1 + dm 104.1 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 0 fuse notices
+on2 (NTT_R3_FUSE=1): total   200.05 s   (bs 78.0 + 10dP 0.1 + dm 102.2 + T1 0.0 +; PROCESS WALL 202.15 s; total   200.05 s   (bs 78.0 + 10dP 0.1 + dm 102.2 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 1 fuse notices
+off3 (NTT_R3_FUSE=0): total   198.53 s   (bs 78.6 + 10dP 0.1 + dm 101.1 + T1 0.0 +; PROCESS WALL 200.67 s; total   198.53 s   (bs 78.6 + 10dP 0.1 + dm 101.1 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 0 fuse notices
+on3 (NTT_R3_FUSE=1): total   197.61 s   (bs 76.2 + 10dP 0.1 + dm 103.5 + T1 0.0 +; PROCESS WALL 199.73 s; total   197.61 s   (bs 76.2 + 10dP 0.1 + dm 103.5 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 1 fuse notices
+mink (NTT_R3_FUSE=1 RNS_R3_MINK=11): total   190.38 s   (bs 73.1 + 10dP 0.1 + dm 101.3 + T1 0.0 +; PROCESS WALL 192.36 s; total   190.38 s   (bs 73.1 + 10dP 0.1 + dm 101.3 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 1 fuse notices
+file_off (NTT_R3_FUSE=0, file): total   197.02 s   (bs 77.2 + 10dP 0.1 + dm 101.4 + T1 0.0 +; PROCESS WALL 199.16 s; total   197.02 s   (bs 77.2 + 10dP 0.1 + dm 101.4 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 0 fuse notices
+file_off digits: SHA1 IDENTICAL
+file_on (NTT_R3_FUSE=1, file): total   199.90 s   (bs 78.1 + 10dP 0.1 + dm 102.2 + T1 0.0 +; PROCESS WALL 201.97 s; total   199.90 s   (bs 78.1 + 10dP 0.1 + dm 102.2 + T1 0.0 + dc 0.0 + T2 0.0 = 1; 1 fuse notices
+file_on digits: SHA1 IDENTICAL

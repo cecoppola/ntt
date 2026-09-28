@@ -94,6 +94,16 @@ void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int lo
 void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s);
 /* ntt3.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
+/* Phase 15 N3x (NTT_R3_FUSE, default 0): the radix-3 stage of a 3 2^logk transform fused into the first forward pass and
+ * the last inverse pass of the 2^logk engine (ntt3.c builds the argument: its twiddle tables and constants; t1/t2 are the
+ * inverse tables for the inverse).  Same arithmetic as ntt3.c's k_r3_fwd / k_r3_inv, so bit-identical. */
+typedef struct ntt_r3arg { const uint64_t *t1, *t2; uint64_t w3, w3s, inv3; } ntt_r3arg;
+extern int ntt_r3_fuse;
+int  ntt_r3_fuse_get(void);
+int  ntt_r3_fusable(int logk);                 /* the switch is on and the plan / kernel configuration has a fused form */
+void ntt_fwd_r3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s);
+/* the inverse of batch 3 2^logk transforms, y = 0 (no pointwise product) or y in layout ymode fused into the b1 pass */
+void ntt_inv_r3(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
 void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 
