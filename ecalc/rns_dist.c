@@ -227,14 +227,19 @@ static struct { int n, nmn, navail, tried, hold, pin_next, init; struct dist_slo
  *   size   a slot is rns_pool0_np() x 2^(c - 2) limbs per APU, c = min(dist_logn_max, POOL_LOG): the largest rank plane of either tier
  *          (mn_logn_cap: q <= 2^(c - 2); the dist tier's planes live in pools of 2^POOL_LOG points); a product whose q exceeds the slot
  *          is not cached (a guard in cache_plan);
- *   count  min(the configured slots, (free - margin) / (slot x the node-processes on this node), the budget room / (4 x slot)), where
- *          the room = this rank's share of ECALC_NODE_GB less its peak as ECALC_BUDGET_CHECK models it (rns_dist_cache_budget, called
- *          by the check; without the check: no budget bound).  At the 5.1e13 target the room is below one slot's 68.7 GB per node, so
- *          the cache stays unallocated (0 slots) and the node stays at its modelled peak.
+ *   count  min(the configured slots, (free - margin) / (slot x the node-processes on this node), (room - reserve / ranks) / (4 x slot)),
+ *          where the room = this rank's share of ECALC_NODE_GB less its peak as ECALC_BUDGET_CHECK models it (rns_dist_cache_budget,
+ *          called by the check; without the check: no budget bound) and the reserve = RNS_DIST_CACHE_FIT_RESERVE_GB (32) per node.  At
+ *          the 5.1e13 target (and 4.74e13) the room less the reserve is below one slot's 68.7 GB per node, so the cache stays
+ *          unallocated (0 slots) and the node stays at its modelled peak.
  * The slots' bytes are in the memory report ("other") whether or not the switch is on. */
 static int cache_fit_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_FIT"); v = e ? atoi(e) != 0 : 0; } return v; }
-static double g_cache_room = -1.0; static int g_cache_ranks = 1;   /* this rank's budget room (bytes; < 0: unknown) and the node-processes on its node */
-void rns_dist_cache_budget(double room_bytes, int ranks_on_node) { g_cache_room = room_bytes; g_cache_ranks = ranks_on_node > 0 ? ranks_on_node : 1; }
+static double g_cache_room; static int g_cache_room_set, g_cache_ranks = 1;   /* this rank's budget room (bytes), whether the check gave one, the node-processes on its node */
+void rns_dist_cache_budget(double room_bytes, int ranks_on_node) { g_cache_room = room_bytes; g_cache_room_set = 1; g_cache_ranks = ranks_on_node > 0 ? ranks_on_node : 1; }
+/* FIT's reserve per node (RNS_DIST_CACHE_FIT_RESERVE_GB, 32): what the budget check's init peak does not hold and the run still takes
+ * -- at the target mem_model.py's node (455.4 GB: the SHMEM pool, the VMM seed buffers, the bs growth, the writer) is 28.8 GB above
+ * the layout's (426.6); shared by the node's ranks */
+static double cache_fit_reserve(void) { const char *e = getenv("RNS_DIST_CACHE_FIT_RESERVE_GB"); return (e ? atof(e) : 32.0) * 1e9; }
 static void cache_acct(int ndev, size_t b[][MEM_DEV_NCAT])   /* the memory report: the slots' planes as "other" */
 {
     for (int d = 0; d < ndev && d < NR; d++) for (int i = 0; i < DIST_CACHE_MAX; i++) if (g_cache.s[i].pl[d]) b[d][MEM_DEV_OTHER] += g_cache.slot_bytes;
@@ -269,7 +274,8 @@ static int cache_avail(void)
         int fit = fr > margin ? (int)((fr - margin) / (bytes * share)) : 0; if (fit < n) n = fit;
     }
     HIP_CHECK(hipSetDevice(cur));
-    if (fit_on && g_cache_room >= 0) { nbud = (int)(g_cache_room / ((double)NR * bytes)); if (nbud < n) n = nbud; }   /* Phase 15 TC (FIT): the budget room */
+    double room = g_cache_room - cache_fit_reserve() / g_cache_ranks;
+    if (fit_on && g_cache_room_set) { nbud = room > 0 ? (int)(room / ((double)NR * bytes)) : 0; if (nbud < n) n = nbud; }   /* Phase 15 TC (FIT): the budget room less the reserve */
     if (n < 0) n = 0;
     g_cache.slot_bytes = bytes; g_cache.slot_q = fit_on ? (size_t)1 << cache_slot_log() : 0;
     double t0 = mem_now();
@@ -285,9 +291,9 @@ static int cache_avail(void)
     if (n > 0) mem_acct_register(cache_acct);                  /* Phase 15 TC: the slots in the memory report */
     if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE")) {
         printf("   transform cache: %d of %d slots of %.1f GiB per APU allocated in %.2f s (margin %.0f GB)", n, cache_slots(), bytes / 1073741824.0, g_cache.t_alloc, margin / 1e9);
-        if (fit_on) printf(" [RNS_DIST_CACHE_FIT: slot 2^%d limbs x %d primes, %d node-process%s on the node, budget room %s%.1f GB -> %s%d slot%s]",
-                           cache_slot_log(), rns_pool0_np(), g_cache_ranks, g_cache_ranks > 1 ? "es" : "", g_cache_room < 0 ? "unknown " : "", g_cache_room < 0 ? 0.0 : g_cache_room / 1e9,
-                           nbud < 0 ? "no bound, " : "at most ", nbud < 0 ? n : nbud, (nbud < 0 ? n : nbud) == 1 ? "" : "s");
+        if (fit_on && g_cache_room_set) printf(" [RNS_DIST_CACHE_FIT: slot 2^%d limbs x %d primes, %d node-process%s on the node, budget room %.1f GB less the reserve %.1f -> at most %d slot%s]",
+                                               cache_slot_log(), rns_pool0_np(), g_cache_ranks, g_cache_ranks > 1 ? "es" : "", g_cache_room / 1e9, cache_fit_reserve() / g_cache_ranks / 1e9, nbud, nbud == 1 ? "" : "s");
+        else if (fit_on) printf(" [RNS_DIST_CACHE_FIT: slot 2^%d limbs x %d primes; no budget room (ECALC_BUDGET_CHECK=0): the free memory alone]", cache_slot_log(), rns_pool0_np());
         printf(" = %.2f GB per node-process\n", (double)g_cache.bytes / 1e9);
     }
     return n;
@@ -1778,14 +1784,14 @@ void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long 
     const char *first = grids_tree ? "the tree" : grids_recip ? "the reciprocal" : grids_div ? "the division" : hold ? "the reciprocal's last doubling (RNS_DIST_CACHE_HOLD)" : 0;
     int ld = dist_logn_max(), lf = pool_log > 0 && pool_log < ld ? pool_log : ld;
     double sd = (double)np0 * ((size_t)1 << (ld - 2)) * 8, sf = (double)np0 * ((size_t)1 << (lf - 2)) * 8;   /* one slot per APU: the default's, FIT's */
-    double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9, room = budget - node_bytes;
+    double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9, room = budget - node_bytes - cache_fit_reserve();
     int nf = room > 0 ? (int)(room / (NR * sf)) : 0; if (nf > w) nf = w;
     if (!w || !first) { printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d): %s -- nothing allocated; node %.2f GB\n", w, !w ? "off" : "not wanted (no mn grid product)", node_bytes / 1e9); return; }
     printf("plan cache  the mn transform cache (RNS_DIST_CACHE_MN=%d, RNS_DIST_CACHE_FIT=%d): wanted first in %s (mn grids: tree %ld, recip %ld, div %ld), held to the division's end"
            " | default: %d slot%s x %.2f GiB per APU (2^%d limbs x %d primes) = %.2f GB per node when hipMemGetInfo less RNS_DIST_CACHE_MARGIN_GB allows it, in no budget: node %.2f -> %.2f GB"
-           " | FIT: %.2f GiB per APU (2^%d x %d), room %.2f GB of ECALC_NODE_GB %.0f -> %d slot%s = %.2f GB, node %.2f GB\n",
+           " | FIT: %.2f GiB per APU (2^%d x %d), room %.2f GB (ECALC_NODE_GB %.0f less the node and the reserve %.0f) -> %d slot%s = %.2f GB, node %.2f GB\n",
            w, cache_fit_on(), first, grids_tree, grids_recip, grids_div, w, w > 1 ? "s" : "", sd / 1073741824.0, ld - 2, np0, w * NR * sd / 1e9, node_bytes / 1e9, (node_bytes + w * NR * sd) / 1e9,
-           sf / 1073741824.0, lf - 2, np0, room / 1e9, budget / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
+           sf / 1073741824.0, lf - 2, np0, room / 1e9, budget / 1e9, cache_fit_reserve() / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
 }
 static void plan_pieces(size_t na, size_t nb, int ka, int kb, size_t lowcut, size_t w, struct rns_grid_plan *p)
 {
