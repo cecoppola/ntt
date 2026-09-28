@@ -61,7 +61,12 @@ NODE_GB_MARGIN = 480.0          # the safe budget (DECISIONS2 7: 480 GB)
 LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
 K_CHUNKS = 4                    # the slab pipeline (M7; DIST_CHUNKS)
-CACHE_MN_SLOTS = 2              # RNS_DIST_CACHE_MN default over shares (results/G.md)
+CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (results/G.md); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
+                                # slots (0: the cache off -- what the 480 GB budget allows at the target, results/TC15.md, CX15.md)
+CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CX15.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
+                                # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
+                                # the first with one operand cached; nothing at 1 slot)
+CACHE_HIT_F = 1.0               # Phase 15 CX: a hit's saving against the model's (piece_cost fwd=2 - fwd=1), FITTED on aac6 (tests/cx_grid; set below)
 GEN_HIDE = 0.5                  # ASSUMED: the general map (g not a power of two) keeps one v-exchange in flight (L's open
                                 # issue), so only half of the xGMI stage hides the fabric stage (the equal path: all of it)
 
@@ -276,7 +281,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, CACHE_MN_SLOTS, CACHE_HIT_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -297,6 +302,9 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
     ka, kb, pts = split_grid(na, nb, cap, g)
     pa, pb = -(-na // ka), -(-nb // kb)
     first = True
+    hits = None
+    if CACHE_MODEL != 'old' and cache and CACHE_MN_SLOTS > 0:        # Phase 15 CX: the code's hits (the planes priced at the grid's pts as before)
+        hits = {(p[0], p[1]): p[5] == 'hit' or p[6] == 'hit' for p in cache_pieces(na, nb, g, cap, lowcut, highcut, CACHE_MN_SLOTS)[2]}
     for j in range(kb):
         for i in range(ka):
             oa, ob = i * pa, j * pb
@@ -305,11 +313,18 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
             if (highcut is not None and oa + ob >= highcut) or (lowcut and oa + ob + la + lb <= lowcut): continue
             # the transform cache over shares (2 slots): B's piece j held across i, A's piece 0 held across j
             fwd = 2
-            if cache and CACHE_MN_SLOTS >= 2:
-                if i > 0 and not first: fwd = 1                       # B piece j is in its slot: A only
-                if i == 0 and j > 0: fwd = 1                          # A piece 0 is in its slot: B only
-                if i > 0 and j > 0: fwd = 1
-            c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form, grid=True))
+            if CACHE_MODEL == 'old':
+                if cache and CACHE_MN_SLOTS >= 2:
+                    if i > 0 and not first: fwd = 1                   # B piece j is in its slot: A only
+                    if i == 0 and j > 0: fwd = 1                      # A piece 0 is in its slot: B only
+                    if i > 0 and j > 0: fwd = 1
+            elif hits is not None and hits.get((i, j)): fwd = 1       # Phase 15 CX: the code's hit (one operand at most per piece)
+            if fwd == 2 or CACHE_HIT_F == 1.0 or CACHE_MODEL == 'old':
+                c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form, grid=True))
+            else:                                                     # Phase 15 CX: the hit saves CACHE_HIT_F of the modelled saving
+                c2 = piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True); c1 = piece_cost(fab, pts, g, la, lb, la + lb, 1, False, form, grid=True)
+                d_t, d_e = (c2.t - c1.t) * CACHE_HIT_F, (c2.t_exposed - c1.t_exposed) * CACHE_HIT_F
+                c1.t = c2.t - d_t; c1.t_exposed = max(0.0, c2.t_exposed - d_e); c.add(c1)
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
