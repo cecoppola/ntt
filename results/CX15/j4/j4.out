@@ -1,0 +1,7 @@
+== j4: 75cdb2f7 CX: RNS_DIST_CACHE_TRACE (per-piece cache lines in mn_grid, instrumentation, off by default), rns_dist_cache_test_slots; tests/cx_grid (the target's grids, cache slots interleaved), cx_shapes.py, mn_model.cache_pieces (the code's hits) Mon Sep 28 10:55:34 AM CDT 2026
+job 21733 queued Mon Sep 28 10:55:34 AM CDT 2026
+job 21733 running Mon Sep 28 11:15:05 AM CDT 2026
+mnaccept unit,e9,mn rc 0: 15 PASS, 0 FAIL;  (1307 s)
+e4e10 (default) rc 0 identical wall 428 s | total 61.69 s (bs 24.7 + 10dP 0.1 + dm 21.6 + T1 0.0 + dc 0.0 + T2 0.0 = 46.4; i
+p4stats rc 0 345 s | 18 timed products on node 0 | 0 DIFFERS | cx_grid: VERIFY OK (1 checks) cx_grid: VERIFY OK (1 checks) 
+== j4 done Mon Sep 28 11:49:45 AM CDT 2026, 2080 s on the node
