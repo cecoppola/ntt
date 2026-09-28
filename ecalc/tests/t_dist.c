@@ -420,6 +420,14 @@ int main(int argc, char **argv)
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(dist_pack_bench(atoi(t), sz, reps) == 0, "pack-bench 2^%s: the tiled packs bit-identical", t);
         free(dup); return verify_done("t_dist");
     }
+    if (getenv("DIST_GBENCH")) {                        /* Phase 15 G5: the general map's pack kernels (rns_dist.c), one APU: DIST_GBENCH=logR:logC:g:rho,... [DIST_PREPS=5] */
+        extern int gen_pack_bench(int logR, int logC, int g, int rho, int reps);
+        int reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
+        char *dup = strdup(getenv("DIST_GBENCH")); HIP_CHECK(hipSetDevice(0));
+        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) { int a = 0, b = 0, g = 0, r = 0; sscanf(t, "%d:%d:%d:%d", &a, &b, &g, &r);
+            VERIFY(gen_pack_bench(a, b, g, r, reps) == 0, "gen-bench %s: the recurrence packs bit-identical", t); }
+        free(dup); return verify_done("t_dist");
+    }
     if (getenv("DIST_BIG")) {                           /* Phase 15 P: DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
         int lg = atoi(getenv("DIST_BIG")), K = getenv("DIST_BIG_K") ? atoi(getenv("DIST_BIG_K")) : 64;
         char *dup = strdup(getenv("DIST_BIG_PRIMES") ? getenv("DIST_BIG_PRIMES") : "0,2");
