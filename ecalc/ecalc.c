@@ -290,6 +290,7 @@ static void budget_check(unsigned long N, int verbose)
         double share = a[6] != (uint64_t)-1 ? (double)a[6] : node_gb * 1e9 / nr;
         int why = (double)sum > node_gb * 1e9 ? 1 : (avail && come > avail) ? 2 : (double)a[1] > share ? 3 : 0;
         over[r] = (char)why; if (why) { nover++; if (first < 0) first = r; }
+        if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* Phase 15 TC: this rank's room and its node's ranks for RNS_DIST_CACHE_FIT (rns_dist.c cache_avail) */
         if (why || (verbose >= 2 && me == 0))
             if (me == 0 || r == me)
                 printf("budget: rank %d%s: peak %.1f GB (device %.1f, host %.1f), still to take %.1f GB | node of %d rank%s: peaks %.1f of %.0f GB, to take %.1f of MemAvailable %.1f GB | rank share %.1f GB%s\n",

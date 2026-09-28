@@ -32,6 +32,8 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes);
 /* MN_TREE_LOGN_TEST's cap for the plan (rns_dist_cap_test without releasing the transform cache, which needs a device) */
 void rns_dist_plan_cap_test(int logn);
+/* Phase 15 TC: the plan's `plan cache` line (the mn transform cache: where first wanted, the default's slots, RNS_DIST_CACHE_FIT's) */
+void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes);
 /* newton_db.c: the reciprocal's anchored chain (NEWTON_ANCHOR) and the sharded part's start (NEWTON_MN_SPLIT), the X1 group */
 size_t newton_chain_next(size_t j, size_t k);
 size_t newton_mn_chain_start(size_t k);
