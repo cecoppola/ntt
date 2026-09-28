@@ -331,6 +331,7 @@ static int cache_lookup(const void *key, size_t lo, size_t n, size_t q, int mn, 
 static int cache_find(const struct acc *a, size_t q, int np) { return a->flat || !cache_slots() ? -1 : cache_lookup(a->q[0], a->lo, a->n, q, 0, np); }
 /* the slots of the two operands of one product: hits taken anywhere, misses filled in the designated slots (never the slot
  * the other operand hits in); the misses' keys set here (the planes are allocated by the ranks) */
+static int g_cache_last[2];                                   /* Phase 15 CX (RNS_DIST_CACHE_TRACE): the last product's operands A, B: 2 hit, 1 cached (a miss into a slot), 0 not cached */
 static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t la, size_t na, const void *kb, size_t lb, size_t nb, size_t q, int mn, int np)
 {
     if (np > rns_pool0_np()) *sa = *sb = -1;                  /* NP: the slots hold rns_pool0_np() planes (never fewer than a product of the run needs; a guard) */
@@ -347,7 +348,22 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
         g_cache.misses++;
         s->key = k ? kb : ka; s->lo = k ? lb : la; s->n = k ? nb : na; s->q = q; s->mn = mn; s->np = np;
     }
+    g_cache_last[0] = ha >= 0 ? 2 : *sa >= 0 ? 1 : 0; g_cache_last[1] = hb >= 0 ? 2 : *sb >= 0 ? 1 : 0;
 }
+/* Phase 15 CX (results/CX15.md; instrumentation, off by default): RNS_DIST_CACHE_TRACE=1 -- mn_grid prints one line per piece of a grid
+ * product (its (i, j), limbs, the operands' cache state, the piece's wall and mn_core's parts; with DIST_STATS=1 also the transforms'
+ * event-timed parts, summed over the four APU threads / 4).  rns_dist_cache_test_slots(n): tests (tests/cx_grid.c) set the mn tier's
+ * slot count in-process, 0..the slots already allocated (the first product that wants the cache allocates RNS_DIST_CACHE_MN of them) */
+static int cache_trace_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_TRACE"); v = e ? atoi(e) != 0 : 0; } return v; }
+extern "C" void rns_dist_cache_test_slots(int n);
+extern "C" double rns_dist_cache_alloc_s(void);
+void rns_dist_cache_test_slots(int n)
+{
+    cache_slots_of(1); if (n < 0) n = 0; if (n > DIST_CACHE_MAX) n = DIST_CACHE_MAX;
+    g_cache.nmn = n; cache_drop(1);
+    if (g_cache.tried) { int k = 0; while (k < DIST_CACHE_MAX && g_cache.s[k].pl[0]) k++; g_cache.navail = n < k ? n : k; }
+}
+double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
 /* ---- Phase 13b B (PLAN 29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
  * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
  * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:
@@ -1728,7 +1744,18 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (!av[i].len || !bv[j].len) continue;                                   /* nothing */
             if (grid_piece_skipped(oa, ob, av[i].len, bv[j].len, lowcut, w)) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
             int sa = pin ? (i < nA ? fs[nB + i] : -1) : (i < nA ? fs[i] : -1), sb = pin ? (j < nB ? fs[j] : -1) : (nB ? fs[nA + j % nB] : -1);
+            struct mn_times t_b = tm; double tp = mem_now(); g_cache_last[0] = g_cache_last[1] = 0;
+            if (cache_trace_on() && dist_st.on) dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0;
             mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm, sa, sb);   /* the first piece at shift 0 straight into the zero-filled C */
+            if (cache_trace_on()) {                                   /* Phase 15 CX: the per-piece line (instrumentation) */
+                static const char *st[3] = { "-", "cached", "HIT" };
+                printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
+                       node, i, j, ka, kb, av[i].len, bv[j].len, oa + ob, NS, st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
+                       tm.redistribute - t_b.redistribute, tm.ntt - t_b.ntt, tm.crt - t_b.crt, tm.out - t_b.out, tm.carry - t_b.carry);
+                if (dist_st.on) { printf(" | ntt parts rows %.3f cols %.3f pack %.3f xfer %.3f a2a %.3f", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4);
+                                  dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0; }
+                printf("\n");
+            }
             formed++;
         }
         free(av);

@@ -1,0 +1,539 @@
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T10:39:30 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T10:39:30 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T10:39:30 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T10:39:30 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+mn: node 1 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 25223): connected in 0.03 s
+mn: node 0 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 25223): connected in 0.40 s
+mn: node 2 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 25223): connected in 0.38 s
+mn: node 3 of 4, four meshes of 4 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 25223): connected in 0.35 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (1.68 s)
+mn: node 2: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (1.69 s)
+mn: node 3: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (1.70 s)
+mn: node 0: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: self-test, four meshes over 4 nodes at 2^22 points: ok (1.73 s)
+mn: node 1: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.35 s)
+mn: node 2 computes terms [579393793, 869090689) of 1158787585
+RESULT ecalc init s 5.82267
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.34 s)
+mn: node 3 computes terms [869090689, 1158787586) of 1158787585
+RESULT ecalc init s 5.82277
+      VmRSS 8.7 GB after init (staging 4.3 GB pinned + device regions 13 GB); init 5.8 s
+mem[2] [init] device 26.1 GB in use (per APU 6.0..8.1): planes 4.3, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 0.0, peak live 0.0, free 5.9), tables 2.46, other 0.0
+mem[2] [init] host 8.7 GB RSS (HWM 10.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+mem[2] [init]   APU0: in use 8.1 GB: planes 1.07 pool:borrowed 6.44 pool:free 0.80 tables 0.62  (driver: 30.8 of 137.4 GB used)
+mem[2] [init]   APU1: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.67 tables 0.62  (driver: 22.2 of 137.4 GB used)
+mem[2] [init]   APU2: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.61  (driver: 22.2 of 137.4 GB used)
+mem[2] [init]   APU3: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.61  (driver: 22.2 of 137.4 GB used)
+      VmRSS 8.7 GB after init (staging 4.3 GB pinned + device regions 13 GB); init 5.8 s
+mem[3] [init] device 26.1 GB in use (per APU 6.0..8.1): planes 4.3, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 0.0, peak live 0.0, free 5.9), tables 2.48, other 0.0
+mem[3] [init] host 8.7 GB RSS (HWM 10.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+mem[3] [init]   APU0: in use 8.1 GB: planes 1.07 pool:borrowed 6.44 pool:free 0.81 tables 0.61  (driver: 30.8 of 137.4 GB used)
+mem[3] [init]   APU1: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.62  (driver: 22.2 of 137.4 GB used)
+mem[3] [init]   APU2: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.62  (driver: 22.2 of 137.4 GB used)
+mem[3] [init]   APU3: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.63  (driver: 22.2 of 137.4 GB used)
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.35 s)
+mn: node 0 computes terms [1, 289696897) of 1158787585
+RESULT ecalc init s 5.8274
+      VmRSS 8.7 GB after init (staging 4.3 GB pinned + device regions 14 GB); init 5.8 s
+mem[0] [init] device 26.1 GB in use (per APU 6.0..8.1): planes 4.3, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 0.0, peak live 0.0, free 5.7), tables 2.47, other 0.0
+mem[0] [init] host 8.7 GB RSS (HWM 10.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+mem[0] [init]   APU0: in use 8.1 GB: planes 1.07 pool:borrowed 6.44 pool:free 0.81 tables 0.62  (driver: 30.8 of 137.4 GB used)
+mem[0] [init]   APU1: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.52 tables 0.61  (driver: 22.2 of 137.4 GB used)
+mem[0] [init]   APU2: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.62  (driver: 22.2 of 137.4 GB used)
+mem[0] [init]   APU3: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.62  (driver: 22.2 of 137.4 GB used)
+mn: layered self-test, 4 x 4 ranks at 2^22 points: ok (0.32 s)
+mn: node 1 computes terms [289696897, 579393793) of 1158787585
+RESULT ecalc init s 5.83341
+      VmRSS 10.0 GB after init (staging 4.3 GB pinned + device regions 13 GB); init 5.8 s
+mem[1] [init] device 26.1 GB in use (per APU 6.0..8.1): planes 4.3, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 0.0, peak live 0.0, free 5.9), tables 2.48, other 0.0
+mem[1] [init] host 10.0 GB RSS (HWM 10.4): staging 5.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+mem[1] [init]   APU0: in use 8.1 GB: planes 1.07 pool:borrowed 6.44 pool:free 0.83 tables 0.61  (driver: 30.8 of 137.4 GB used)
+mem[1] [init]   APU1: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.63 tables 0.63  (driver: 22.2 of 137.4 GB used)
+mem[1] [init]   APU2: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.63  (driver: 22.2 of 137.4 GB used)
+mem[1] [init]   APU3: in use 6.0 GB: planes 1.07 pool:borrowed 4.29 pool:free 1.70 tables 0.61  (driver: 22.2 of 137.4 GB used)
+budget: ECALC_BUDGET_CHECK ok: 4 ranks, largest rank peak 104.5 GB, node budget 480 GB
+mn: node 0 leaf P 129199173 limbs, Q 129199173 limbs (device)
+mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products
+mn: node 1 leaf P 138888890 limbs, Q 138888890 limbs (device)
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 1.40 s
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.04 s
+mn: node 2 leaf P 142546213 limbs, Q 142546213 limbs (device)
+mn: node 3 leaf P 144921284 limbs, Q 144921285 limbs (device)
+mn: node 2: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.10 s
+mn: node 3: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.09 s
+cache_trace node 0: piece (0, 0) of 2 x 2, 64599587 + 69444445 limbs at 0, slots 0: A - B - | 2.692 s: redistribute 0.487 ntt 1.881 crt 0.003 out 0.412 carry 0.007
+cache_trace node 1: piece (0, 0) of 2 x 2, 64599587 + 69444445 limbs at 0, slots 0: A - B - | 2.692 s: redistribute 0.414 ntt 1.849 crt 0.002 out 0.442 carry 0.007
+cache_trace node 2: piece (0, 0) of 2 x 3, 71273107 + 48307095 limbs at 0, slots 0: A - B - | 2.585 s: redistribute 0.374 ntt 1.879 crt 0.004 out 0.446 carry 0.006
+cache_trace node 3: piece (0, 0) of 2 x 3, 71273107 + 48307095 limbs at 0, slots 0: A - B - | 2.585 s: redistribute 0.325 ntt 1.882 crt 0.006 out 0.445 carry 0.006
+cache_trace node 0: piece (1, 0) of 2 x 2, 64599586 + 69444445 limbs at 64599587, slots 0: A - B - | 2.064 s: redistribute 0.089 ntt 1.752 crt 0.004 out 0.121 carry 0.106
+cache_trace node 1: piece (1, 0) of 2 x 2, 64599586 + 69444445 limbs at 64599587, slots 0: A - B - | 2.064 s: redistribute 0.087 ntt 1.758 crt 0.004 out 0.120 carry 0.106
+cache_trace node 2: piece (1, 0) of 2 x 3, 71273106 + 48307095 limbs at 71273107, slots 0: A - B - | 2.023 s: redistribute 0.101 ntt 1.758 crt 0.004 out 0.086 carry 0.106
+cache_trace node 3: piece (1, 0) of 2 x 3, 71273106 + 48307095 limbs at 71273107, slots 0: A - B - | 2.023 s: redistribute 0.099 ntt 1.760 crt 0.005 out 0.083 carry 0.106
+cache_trace node 2: piece (0, 1) of 2 x 3, 71273107 + 48307095 limbs at 48307095, slots 0: A - B - | 1.915 s: redistribute 0.099 ntt 1.678 crt 0.004 out 0.100 carry 0.048
+cache_trace node 3: piece (0, 1) of 2 x 3, 71273107 + 48307095 limbs at 48307095, slots 0: A - B - | 1.915 s: redistribute 0.098 ntt 1.679 crt 0.004 out 0.096 carry 0.047
+cache_trace node 0: piece (0, 1) of 2 x 2, 64599587 + 69444445 limbs at 69444445, slots 0: A - B - | 2.097 s: redistribute 0.108 ntt 1.761 crt 0.003 out 0.193 carry 0.058
+cache_trace node 1: piece (0, 1) of 2 x 2, 64599587 + 69444445 limbs at 69444445, slots 0: A - B - | 2.097 s: redistribute 0.107 ntt 1.825 crt 0.006 out 0.197 carry 0.058
+cache_trace node 2: piece (1, 1) of 2 x 3, 71273106 + 48307095 limbs at 119580202, slots 0: A - B - | 2.301 s: redistribute 0.087 ntt 1.861 crt 0.003 out 0.331 carry 0.053
+cache_trace node 3: piece (1, 1) of 2 x 3, 71273106 + 48307095 limbs at 119580202, slots 0: A - B - | 2.301 s: redistribute 0.086 ntt 1.872 crt 0.004 out 0.328 carry 0.053
+cache_trace node 0: piece (1, 1) of 2 x 2, 64599586 + 69444445 limbs at 134044032, slots 0: A - B - | 2.411 s: redistribute 0.106 ntt 1.851 crt 0.003 out 0.451 carry 0.005
+cache_trace node 1: piece (1, 1) of 2 x 2, 64599586 + 69444445 limbs at 134044032, slots 0: A - B - | 2.411 s: redistribute 0.104 ntt 1.902 crt 0.004 out 0.399 carry 0.005
+dist_mn node 0: 129199173 x 138888890 limbs over 2 x 4 ranks (cap 2^27): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 129199173 x 138888890 limbs over 2 x 4 ranks (cap 2^27): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (0, 2) of 2 x 3, 71273107 + 48307095 limbs at 96614190, slots 0: A - B - | 1.922 s: redistribute 0.100 ntt 1.708 crt 0.005 out 0.090 carry 0.045
+cache_trace node 3: piece (0, 2) of 2 x 3, 71273107 + 48307095 limbs at 96614190, slots 0: A - B - | 1.922 s: redistribute 0.099 ntt 1.706 crt 0.005 out 0.090 carry 0.045
+cache_trace node 0: piece (0, 0) of 2 x 2, 64599587 + 69444445 limbs at 0, slots 0: A - B - | 2.001 s: redistribute 0.134 ntt 1.799 crt 0.005 out 0.096 carry 0.002
+cache_trace node 1: piece (0, 0) of 2 x 2, 64599587 + 69444445 limbs at 0, slots 0: A - B - | 2.001 s: redistribute 0.133 ntt 1.801 crt 0.005 out 0.099 carry 0.002
+cache_trace node 2: piece (1, 2) of 2 x 3, 71273106 + 48307095 limbs at 167887297, slots 0: A - B - | 2.271 s: redistribute 0.119 ntt 1.740 crt 0.005 out 0.391 carry 0.040
+cache_trace node 3: piece (1, 2) of 2 x 3, 71273106 + 48307095 limbs at 167887297, slots 0: A - B - | 2.271 s: redistribute 0.116 ntt 1.792 crt 0.004 out 0.394 carry 0.040
+dist_mn node 2: 142546213 x 144921285 limbs over 2 x 4 ranks (cap 2^27): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 3: 142546213 x 144921285 limbs over 2 x 4 ranks (cap 2^27): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (1, 0) of 2 x 2, 64599586 + 69444445 limbs at 64599587, slots 0: A - B - | 2.102 s: redistribute 0.122 ntt 1.833 crt 0.005 out 0.097 carry 0.058
+cache_trace node 1: piece (1, 0) of 2 x 2, 64599586 + 69444445 limbs at 64599587, slots 0: A - B - | 2.102 s: redistribute 0.120 ntt 1.837 crt 0.005 out 0.093 carry 0.058
+cache_trace node 2: piece (0, 0) of 2 x 3, 71273107 + 48307095 limbs at 0, slots 0: A - B - | 2.013 s: redistribute 0.119 ntt 1.831 crt 0.005 out 0.093 carry 0.002
+cache_trace node 3: piece (0, 0) of 2 x 3, 71273107 + 48307095 limbs at 0, slots 0: A - B - | 2.013 s: redistribute 0.118 ntt 1.835 crt 0.005 out 0.089 carry 0.002
+cache_trace node 0: piece (0, 1) of 2 x 2, 64599587 + 69444445 limbs at 69444445, slots 0: A - B - | 2.106 s: redistribute 0.121 ntt 1.838 crt 0.005 out 0.105 carry 0.054
+cache_trace node 1: piece (0, 1) of 2 x 2, 64599587 + 69444445 limbs at 69444445, slots 0: A - B - | 2.106 s: redistribute 0.119 ntt 1.843 crt 0.005 out 0.102 carry 0.054
+cache_trace node 2: piece (1, 0) of 2 x 3, 71273106 + 48307095 limbs at 71273107, slots 0: A - B - | 2.122 s: redistribute 0.096 ntt 1.883 crt 0.005 out 0.091 carry 0.055
+cache_trace node 3: piece (1, 0) of 2 x 3, 71273106 + 48307095 limbs at 71273107, slots 0: A - B - | 2.122 s: redistribute 0.095 ntt 1.880 crt 0.005 out 0.100 carry 0.055
+cache_trace node 0: piece (1, 1) of 2 x 2, 64599586 + 69444445 limbs at 134044032, slots 0: A - B - | 2.129 s: redistribute 0.119 ntt 1.906 crt 0.002 out 0.123 carry 0.005
+dist_mn node 0: 129199173 x 138888890 limbs over 2 x 4 ranks (cap 2^27): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 64599586 + 69444445 limbs at 134044032, slots 0: A - B - | 2.129 s: redistribute 0.117 ntt 1.918 crt 0.002 out 0.130 carry 0.005
+dist_mn node 1: 129199173 x 138888890 limbs over 2 x 4 ranks (cap 2^27): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+mn: node 0 level 1 [0, 2): P 268088063 limbs, Q 268088063 limbs (my share of P [0, 134044032)) in 19.48 s
+mn: node 1 level 1 [0, 2): P 268088063 limbs, Q 268088063 limbs (my share of P [134044032, 268088064)) in 18.11 s
+cache_trace node 2: piece (0, 1) of 2 x 3, 71273107 + 48307095 limbs at 48307095, slots 0: A - B - | 2.430 s: redistribute 0.100 ntt 2.192 crt 0.002 out 0.115 carry 0.046
+cache_trace node 3: piece (0, 1) of 2 x 3, 71273107 + 48307095 limbs at 48307095, slots 0: A - B - | 2.430 s: redistribute 0.098 ntt 2.193 crt 0.003 out 0.111 carry 0.047
+cache_trace node 2: piece (1, 1) of 2 x 3, 71273106 + 48307095 limbs at 119580202, slots 0: A - B - | 2.364 s: redistribute 0.092 ntt 2.153 crt 0.003 out 0.104 carry 0.052
+cache_trace node 3: piece (1, 1) of 2 x 3, 71273106 + 48307095 limbs at 119580202, slots 0: A - B - | 2.364 s: redistribute 0.091 ntt 2.157 crt 0.002 out 0.098 carry 0.052
+cache_trace node 2: piece (0, 2) of 2 x 3, 71273107 + 48307095 limbs at 96614190, slots 0: A - B - | 2.797 s: redistribute 0.099 ntt 2.540 crt 0.002 out 0.124 carry 0.062
+cache_trace node 3: piece (0, 2) of 2 x 3, 71273107 + 48307095 limbs at 96614190, slots 0: A - B - | 2.797 s: redistribute 0.081 ntt 2.549 crt 0.003 out 0.118 carry 0.062
+cache_trace node 2: piece (1, 2) of 2 x 3, 71273106 + 48307095 limbs at 167887297, slots 0: A - B - | 2.559 s: redistribute 0.113 ntt 2.373 crt 0.005 out 0.071 carry 0.040
+dist_mn node 2: 142546213 x 144921285 limbs over 2 x 4 ranks (cap 2^27): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (1, 2) of 2 x 3, 71273106 + 48307095 limbs at 167887297, slots 0: A - B - | 2.559 s: redistribute 0.107 ntt 2.373 crt 0.005 out 0.071 carry 0.040
+dist_mn node 3: 142546213 x 144921285 limbs over 2 x 4 ranks (cap 2^27): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+mn: node 2 level 1 [2, 4): P 287467497 limbs, Q 287467497 limbs (my share of P [0, 143733749)) in 27.96 s
+mn: node 3 level 1 [2, 4): P 287467497 limbs, Q 287467497 limbs (my share of P [143733749, 287467499)) in 27.95 s
+cache_trace node 0: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 2.413 s: redistribute 0.467 ntt 1.514 crt 0.007 out 0.542 carry 0.007
+cache_trace node 1: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 2.413 s: redistribute 0.543 ntt 1.529 crt 0.007 out 0.542 carry 0.007
+cache_trace node 2: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 2.413 s: redistribute 0.564 ntt 1.520 crt 0.007 out 0.549 carry 0.008
+cache_trace node 3: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 2.413 s: redistribute 0.542 ntt 1.524 crt 0.007 out 0.543 carry 0.007
+cache_trace node 0: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 2.190 s: redistribute 0.483 ntt 1.505 crt 0.005 out 0.482 carry 0.049
+cache_trace node 1: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 2.190 s: redistribute 0.477 ntt 1.511 crt 0.005 out 0.458 carry 0.048
+cache_trace node 2: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 2.190 s: redistribute 0.478 ntt 1.501 crt 0.005 out 0.478 carry 0.048
+cache_trace node 3: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 2.190 s: redistribute 0.480 ntt 1.505 crt 0.005 out 0.485 carry 0.049
+cache_trace node 0: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.523 s: redistribute 0.106 ntt 1.170 crt 0.005 out 0.205 carry 0.047
+cache_trace node 1: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.523 s: redistribute 0.109 ntt 1.168 crt 0.005 out 0.208 carry 0.047
+cache_trace node 2: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.523 s: redistribute 0.115 ntt 1.155 crt 0.005 out 0.213 carry 0.047
+cache_trace node 3: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.523 s: redistribute 0.115 ntt 1.161 crt 0.005 out 0.210 carry 0.047
+cache_trace node 0: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.793 s: redistribute 0.118 ntt 1.218 crt 0.005 out 0.426 carry 0.043
+cache_trace node 1: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.793 s: redistribute 0.112 ntt 1.219 crt 0.006 out 0.425 carry 0.043
+cache_trace node 2: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.793 s: redistribute 0.114 ntt 1.243 crt 0.002 out 0.434 carry 0.042
+cache_trace node 3: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.793 s: redistribute 0.118 ntt 1.220 crt 0.005 out 0.428 carry 0.042
+cache_trace node 0: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.785 s: redistribute 0.363 ntt 1.409 crt 0.004 out 0.168 carry 0.045
+cache_trace node 1: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.785 s: redistribute 0.378 ntt 1.412 crt 0.005 out 0.170 carry 0.045
+cache_trace node 2: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.785 s: redistribute 0.377 ntt 1.403 crt 0.004 out 0.175 carry 0.045
+cache_trace node 3: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.785 s: redistribute 0.375 ntt 1.405 crt 0.005 out 0.173 carry 0.045
+cache_trace node 0: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.888 s: redistribute 0.116 ntt 1.298 crt 0.007 out 0.443 carry 0.049
+cache_trace node 1: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.889 s: redistribute 0.116 ntt 1.301 crt 0.006 out 0.435 carry 0.049
+cache_trace node 2: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.889 s: redistribute 0.113 ntt 1.309 crt 0.003 out 0.441 carry 0.049
+cache_trace node 3: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.888 s: redistribute 0.115 ntt 1.336 crt 0.006 out 0.436 carry 0.048
+dist_mn node 0: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 2: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 3: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 1.464 s: redistribute 0.111 ntt 1.207 crt 0.005 out 0.159 carry 0.004
+cache_trace node 1: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 1.464 s: redistribute 0.102 ntt 1.204 crt 0.005 out 0.165 carry 0.004
+cache_trace node 2: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 1.464 s: redistribute 0.110 ntt 1.203 crt 0.005 out 0.161 carry 0.004
+cache_trace node 3: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 0: A - B - | 1.464 s: redistribute 0.106 ntt 1.218 crt 0.005 out 0.162 carry 0.004
+cache_trace node 0: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 1.500 s: redistribute 0.119 ntt 1.206 crt 0.005 out 0.131 carry 0.048
+cache_trace node 1: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 1.500 s: redistribute 0.114 ntt 1.217 crt 0.005 out 0.132 carry 0.047
+cache_trace node 2: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 1.500 s: redistribute 0.117 ntt 1.204 crt 0.005 out 0.137 carry 0.047
+cache_trace node 3: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 0: A - B - | 1.500 s: redistribute 0.119 ntt 1.209 crt 0.003 out 0.129 carry 0.048
+cache_trace node 0: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.487 s: redistribute 0.107 ntt 1.214 crt 0.004 out 0.133 carry 0.047
+cache_trace node 1: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.487 s: redistribute 0.111 ntt 1.220 crt 0.005 out 0.128 carry 0.047
+cache_trace node 2: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.487 s: redistribute 0.111 ntt 1.215 crt 0.005 out 0.128 carry 0.047
+cache_trace node 3: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 0: A - B - | 1.487 s: redistribute 0.106 ntt 1.219 crt 0.003 out 0.130 carry 0.047
+cache_trace node 0: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.539 s: redistribute 0.111 ntt 1.273 crt 0.005 out 0.124 carry 0.042
+cache_trace node 1: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.539 s: redistribute 0.111 ntt 1.276 crt 0.007 out 0.121 carry 0.042
+cache_trace node 2: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.539 s: redistribute 0.109 ntt 1.277 crt 0.007 out 0.117 carry 0.042
+cache_trace node 3: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 0: A - B - | 1.539 s: redistribute 0.110 ntt 1.279 crt 0.007 out 0.119 carry 0.042
+cache_trace node 0: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.565 s: redistribute 0.106 ntt 1.277 crt 0.005 out 0.137 carry 0.048
+cache_trace node 1: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.565 s: redistribute 0.106 ntt 1.281 crt 0.005 out 0.140 carry 0.048
+cache_trace node 2: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.565 s: redistribute 0.104 ntt 1.290 crt 0.003 out 0.135 carry 0.048
+cache_trace node 3: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 0: A - B - | 1.565 s: redistribute 0.103 ntt 1.273 crt 0.005 out 0.142 carry 0.048
+cache_trace node 0: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.526 s: redistribute 0.109 ntt 1.244 crt 0.004 out 0.131 carry 0.049
+dist_mn node 0: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.526 s: redistribute 0.106 ntt 1.243 crt 0.005 out 0.142 carry 0.049
+dist_mn node 1: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.526 s: redistribute 0.108 ntt 1.248 crt 0.005 out 0.138 carry 0.048
+dist_mn node 2: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 0: A - B - | 1.526 s: redistribute 0.107 ntt 1.250 crt 0.003 out 0.136 carry 0.048
+dist_mn node 3: 268088063 x 287467497 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+mn: node 1 level 2 [0, 4): P 555555560 limbs, Q 555555560 limbs (my share of P [138888890, 277777780)) in 31.12 s
+mn: node 1: tree levels 49.23 s: P 555555560 limbs, Q 555555560 limbs
+mn: node 2 level 2 [0, 4): P 555555560 limbs, Q 555555560 limbs (my share of P [277777780, 416666670)) in 21.18 s
+mn: node 2: tree levels 49.13 s: P 555555560 limbs, Q 555555560 limbs
+mn: node 0 level 2 [0, 4): P 555555560 limbs, Q 555555560 limbs (my share of P [0, 138888890)) in 31.12 s
+mn: node 0: tree levels 50.59 s: P 555555560 limbs, Q 555555560 limbs
+mn: node 3 level 2 [0, 4): P 555555560 limbs, Q 555555560 limbs (my share of P [416666670, 555555561)) in 21.18 s
+mn: node 3: tree levels 49.13 s: P 555555560 limbs, Q 555555560 limbs
+mem[1] [tree] device 39.0 GB in use (per APU 9.2..11.4): planes 17.2, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 2.2, peak live 6.3, free 17.1), tables 2.48, other 0.0
+mem[1] [tree] host 13.2 GB RSS (HWM 13.2): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 8.9
+mem[2] [tree] device 39.0 GB in use (per APU 9.2..11.4): planes 17.2, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 2.2, peak live 6.2, free 17.1), tables 2.46, other 0.0
+mem[2] [tree] host 13.4 GB RSS (HWM 13.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 9.1
+mem[2] [tree]   APU0: in use 11.4 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 1.54 tables 0.62  (driver: 42.0 of 137.4 GB used)
+mem[3] [tree] device 39.0 GB in use (per APU 9.2..11.3): planes 17.2, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 2.2, peak live 6.3, free 17.1), tables 2.48, other 0.0
+mem[3] [tree] host 13.4 GB RSS (HWM 13.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 9.1
+mem[3] [tree]   APU0: in use 11.3 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 1.57 tables 0.61  (driver: 42.0 of 137.4 GB used)
+mem[3] [tree]   APU1: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.62  (driver: 33.4 of 137.4 GB used)
+mem[3] [tree]   APU2: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.62  (driver: 33.4 of 137.4 GB used)
+mem[1] [tree]   APU0: in use 11.4 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 1.57 tables 0.61  (driver: 42.0 of 137.4 GB used)
+mem[1] [tree]   APU1: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.63  (driver: 33.4 of 137.4 GB used)
+mem[1] [tree]   APU2: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.63  (driver: 33.4 of 137.4 GB used)
+mem[1] [tree]   APU3: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.61  (driver: 33.4 of 137.4 GB used)
+mem[2] [tree]   APU1: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.54 tables 0.62  (driver: 33.4 of 137.4 GB used)
+mem[2] [tree]   APU2: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.54 tables 0.61  (driver: 33.4 of 137.4 GB used)
+mem[2] [tree]   APU3: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.54 tables 0.61  (driver: 33.4 of 137.4 GB used)
+mem[3] [tree]   APU3: in use 9.2 GB: planes 4.29 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.57 tables 0.63  (driver: 33.4 of 137.4 GB used)
+mem[0] [tree] device 30.4 GB in use (per APU 7.1..9.2): planes 8.6, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 2.2, peak live 5.5, free 17.1), tables 2.47, other 0.0
+mem[0] [tree] host 13.1 GB RSS (HWM 13.1): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 8.8
+mem[0] [tree]   APU0: in use 9.2 GB: planes 2.15 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 1.38 tables 0.62  (driver: 42.0 of 137.4 GB used)
+mem[0] [tree]   APU1: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.38 tables 0.61  (driver: 33.4 of 137.4 GB used)
+mem[0] [tree]   APU2: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.38 tables 0.62  (driver: 33.4 of 137.4 GB used)
+mem[0] [tree]   APU3: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.56 pool:free 3.74 pool:peak-live 1.38 tables 0.62  (driver: 33.4 of 137.4 GB used)
+recip(mn): the single-node chain to 33909 limbs (1.63 s), then the sharded steps to 555555558 over 4 nodes
+cache_trace node 0: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 0: A - B - | 1.394 s: redistribute 0.086 ntt 1.221 crt 0.005 out 0.097 carry 0.003
+cache_trace node 1: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 0: A - B - | 1.394 s: redistribute 0.083 ntt 1.216 crt 0.005 out 0.099 carry 0.003
+cache_trace node 2: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 0: A - B - | 1.394 s: redistribute 0.091 ntt 1.212 crt 0.004 out 0.101 carry 0.003
+cache_trace node 3: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 0: A - B - | 1.394 s: redistribute 0.088 ntt 1.220 crt 0.005 out 0.102 carry 0.004
+cache_trace node 0: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 0: A - B - | 1.435 s: redistribute 0.083 ntt 1.247 crt 0.005 out 0.086 carry 0.027
+cache_trace node 1: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 0: A - B - | 1.435 s: redistribute 0.083 ntt 1.249 crt 0.005 out 0.080 carry 0.027
+cache_trace node 2: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 0: A - B - | 1.435 s: redistribute 0.082 ntt 1.246 crt 0.005 out 0.087 carry 0.027
+cache_trace node 3: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 0: A - B - | 1.435 s: redistribute 0.087 ntt 1.252 crt 0.005 out 0.085 carry 0.027
+cache_trace node 0: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 0: A - B - | 1.453 s: redistribute 0.089 ntt 1.285 crt 0.005 out 0.071 carry 0.017
+dist_mn node 0: 277777782 x 138888891 limbs over 4 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 0: A - B - | 1.453 s: redistribute 0.089 ntt 1.280 crt 0.005 out 0.067 carry 0.017
+dist_mn node 1: 277777782 x 138888891 limbs over 4 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 0: A - B - | 1.453 s: redistribute 0.084 ntt 1.296 crt 0.005 out 0.068 carry 0.017
+dist_mn node 2: 277777782 x 138888891 limbs over 4 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 0: A - B - | 1.453 s: redistribute 0.093 ntt 1.276 crt 0.005 out 0.075 carry 0.017
+dist_mn node 3: 277777782 x 138888891 limbs over 4 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 0: A - B - | 1.367 s: redistribute 0.083 ntt 1.191 crt 0.005 out 0.091 carry 0.003
+cache_trace node 1: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 0: A - B - | 1.367 s: redistribute 0.087 ntt 1.196 crt 0.005 out 0.096 carry 0.003
+cache_trace node 2: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 0: A - B - | 1.367 s: redistribute 0.081 ntt 1.187 crt 0.005 out 0.096 carry 0.003
+cache_trace node 3: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 0: A - B - | 1.367 s: redistribute 0.082 ntt 1.188 crt 0.005 out 0.099 carry 0.003
+cache_trace node 0: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 0: A - B - | 1.393 s: redistribute 0.084 ntt 1.222 crt 0.006 out 0.083 carry 0.010
+dist_mn node 0: 138888891 x 138888890 limbs over 4 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 0: A - B - | 1.393 s: redistribute 0.080 ntt 1.224 crt 0.007 out 0.081 carry 0.009
+dist_mn node 1: 138888891 x 138888890 limbs over 4 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 0: A - B - | 1.393 s: redistribute 0.080 ntt 1.223 crt 0.007 out 0.081 carry 0.009
+dist_mn node 2: 138888891 x 138888890 limbs over 4 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 0: A - B - | 1.393 s: redistribute 0.082 ntt 1.224 crt 0.008 out 0.087 carry 0.009
+dist_mn node 3: 138888891 x 138888890 limbs over 4 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 0: A - B - | 1.521 s: redistribute 0.106 ntt 1.153 crt 0.005 out 0.228 carry 0.049
+cache_trace node 1: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 0: A - B - | 1.521 s: redistribute 0.108 ntt 1.145 crt 0.006 out 0.223 carry 0.048
+cache_trace node 2: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 0: A - B - | 1.521 s: redistribute 0.109 ntt 1.161 crt 0.005 out 0.222 carry 0.049
+cache_trace node 3: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 0: A - B - | 1.521 s: redistribute 0.103 ntt 1.164 crt 0.006 out 0.220 carry 0.049
+cache_trace node 0: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 0: A - B - | 1.523 s: redistribute 0.113 ntt 1.203 crt 0.007 out 0.160 carry 0.054
+cache_trace node 1: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 0: A - B - | 1.523 s: redistribute 0.113 ntt 1.204 crt 0.004 out 0.159 carry 0.053
+cache_trace node 2: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 0: A - B - | 1.523 s: redistribute 0.113 ntt 1.203 crt 0.007 out 0.164 carry 0.053
+cache_trace node 3: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 0: A - B - | 1.523 s: redistribute 0.105 ntt 1.201 crt 0.007 out 0.167 carry 0.054
+cache_trace node 0: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 0: A - B - | 1.502 s: redistribute 0.106 ntt 1.221 crt 0.008 out 0.139 carry 0.044
+cache_trace node 1: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 0: A - B - | 1.502 s: redistribute 0.110 ntt 1.210 crt 0.008 out 0.147 carry 0.044
+cache_trace node 2: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 0: A - B - | 1.502 s: redistribute 0.108 ntt 1.217 crt 0.005 out 0.147 carry 0.044
+cache_trace node 3: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 0: A - B - | 1.502 s: redistribute 0.110 ntt 1.217 crt 0.007 out 0.145 carry 0.044
+cache_trace node 0: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 0: A - B - | 1.481 s: redistribute 0.111 ntt 1.232 crt 0.005 out 0.103 carry 0.045
+cache_trace node 1: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 0: A - B - | 1.481 s: redistribute 0.116 ntt 1.237 crt 0.005 out 0.104 carry 0.045
+cache_trace node 2: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 0: A - B - | 1.481 s: redistribute 0.116 ntt 1.239 crt 0.002 out 0.113 carry 0.045
+cache_trace node 3: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 0: A - B - | 1.481 s: redistribute 0.117 ntt 1.237 crt 0.005 out 0.108 carry 0.045
+cache_trace node 0: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 0: A - B - | 1.654 s: redistribute 0.115 ntt 1.293 crt 0.004 out 0.212 carry 0.039
+cache_trace node 1: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 0: A - B - | 1.654 s: redistribute 0.108 ntt 1.300 crt 0.004 out 0.208 carry 0.039
+cache_trace node 2: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 0: A - B - | 1.654 s: redistribute 0.113 ntt 1.300 crt 0.004 out 0.205 carry 0.039
+cache_trace node 3: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 0: A - B - | 1.654 s: redistribute 0.116 ntt 1.295 crt 0.005 out 0.207 carry 0.039
+cache_trace node 0: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 0: A - B - | 1.570 s: redistribute 0.115 ntt 1.199 crt 0.007 out 0.209 carry 0.052
+cache_trace node 1: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 0: A - B - | 1.570 s: redistribute 0.118 ntt 1.208 crt 0.007 out 0.207 carry 0.051
+cache_trace node 2: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 0: A - B - | 1.570 s: redistribute 0.122 ntt 1.200 crt 0.007 out 0.212 carry 0.051
+cache_trace node 3: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 0: A - B - | 1.570 s: redistribute 0.117 ntt 1.197 crt 0.004 out 0.214 carry 0.052
+cache_trace node 0: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 0: A - B - | 1.509 s: redistribute 0.110 ntt 1.242 crt 0.003 out 0.120 carry 0.035
+cache_trace node 1: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 0: A - B - | 1.509 s: redistribute 0.115 ntt 1.254 crt 0.003 out 0.128 carry 0.035
+cache_trace node 2: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 0: A - B - | 1.509 s: redistribute 0.110 ntt 1.252 crt 0.005 out 0.123 carry 0.034
+cache_trace node 3: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 0: A - B - | 1.509 s: redistribute 0.114 ntt 1.241 crt 0.005 out 0.123 carry 0.034
+cache_trace node 0: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 0: A - B - | 1.420 s: redistribute 0.120 ntt 1.187 crt 0.005 out 0.083 carry 0.049
+dist_mn node 0: 555555560 x 277777780 limbs over 4 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 0: A - B - | 1.420 s: redistribute 0.119 ntt 1.191 crt 0.007 out 0.082 carry 0.049
+dist_mn node 1: 555555560 x 277777780 limbs over 4 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 0: A - B - | 1.420 s: redistribute 0.112 ntt 1.185 crt 0.006 out 0.083 carry 0.049
+dist_mn node 2: 555555560 x 277777780 limbs over 4 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 0: A - B - | 1.420 s: redistribute 0.119 ntt 1.182 crt 0.006 out 0.086 carry 0.049
+dist_mn node 3: 555555560 x 277777780 limbs over 4 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 0: A - B - | 1.563 s: redistribute 0.105 ntt 1.258 crt 0.007 out 0.153 carry 0.050
+cache_trace node 1: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 0: A - B - | 1.563 s: redistribute 0.106 ntt 1.259 crt 0.007 out 0.151 carry 0.050
+cache_trace node 2: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 0: A - B - | 1.563 s: redistribute 0.108 ntt 1.258 crt 0.007 out 0.158 carry 0.050
+cache_trace node 3: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 0: A - B - | 1.563 s: redistribute 0.109 ntt 1.258 crt 0.002 out 0.144 carry 0.050
+cache_trace node 0: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 0: A - B - | 1.553 s: redistribute 0.108 ntt 1.274 crt 0.006 out 0.140 carry 0.044
+cache_trace node 1: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 0: A - B - | 1.553 s: redistribute 0.109 ntt 1.276 crt 0.006 out 0.133 carry 0.044
+cache_trace node 2: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 0: A - B - | 1.553 s: redistribute 0.102 ntt 1.273 crt 0.004 out 0.138 carry 0.044
+cache_trace node 3: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 0: A - B - | 1.553 s: redistribute 0.108 ntt 1.281 crt 0.006 out 0.133 carry 0.044
+cache_trace node 0: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 0: A - B - | 1.625 s: redistribute 0.105 ntt 1.274 crt 0.005 out 0.214 carry 0.045
+cache_trace node 1: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 0: A - B - | 1.625 s: redistribute 0.102 ntt 1.275 crt 0.005 out 0.209 carry 0.045
+cache_trace node 2: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 0: A - B - | 1.625 s: redistribute 0.119 ntt 1.270 crt 0.008 out 0.214 carry 0.045
+cache_trace node 3: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 0: A - B - | 1.625 s: redistribute 0.103 ntt 1.277 crt 0.005 out 0.209 carry 0.045
+cache_trace node 0: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 0: A - B - | 1.529 s: redistribute 0.104 ntt 1.253 crt 0.005 out 0.137 carry 0.055
+cache_trace node 1: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 0: A - B - | 1.529 s: redistribute 0.102 ntt 1.250 crt 0.003 out 0.142 carry 0.054
+cache_trace node 2: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 0: A - B - | 1.529 s: redistribute 0.100 ntt 1.246 crt 0.007 out 0.137 carry 0.054
+cache_trace node 3: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 0: A - B - | 1.529 s: redistribute 0.109 ntt 1.245 crt 0.007 out 0.144 carry 0.055
+cache_trace node 0: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 0: A - B - | 1.470 s: redistribute 0.108 ntt 1.185 crt 0.007 out 0.132 carry 0.051
+dist_mn node 0: 277777780 x 277777779 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 0: A - B - | 1.470 s: redistribute 0.112 ntt 1.183 crt 0.007 out 0.134 carry 0.051
+dist_mn node 1: 277777780 x 277777779 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 0: A - B - | 1.470 s: redistribute 0.099 ntt 1.191 crt 0.004 out 0.144 carry 0.051
+dist_mn node 2: 277777780 x 277777779 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 0: A - B - | 1.470 s: redistribute 0.114 ntt 1.183 crt 0.007 out 0.134 carry 0.051
+dist_mn node 3: 277777780 x 277777779 limbs over 4 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.619 s: redistribute 0.177 ntt 1.262 crt 0.005 out 0.149 carry 0.089
+cache_trace node 1: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.619 s: redistribute 0.176 ntt 1.279 crt 0.004 out 0.155 carry 0.089
+cache_trace node 2: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.619 s: redistribute 0.180 ntt 1.291 crt 0.002 out 0.158 carry 0.089
+cache_trace node 3: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.619 s: redistribute 0.169 ntt 1.268 crt 0.005 out 0.150 carry 0.089
+cache_trace node 0: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.908 s: redistribute 0.125 ntt 1.214 crt 0.005 out 0.509 carry 0.077
+cache_trace node 1: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.909 s: redistribute 0.142 ntt 1.212 crt 0.006 out 0.508 carry 0.076
+cache_trace node 2: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.908 s: redistribute 0.143 ntt 1.206 crt 0.002 out 0.512 carry 0.077
+cache_trace node 3: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.908 s: redistribute 0.123 ntt 1.229 crt 0.006 out 0.495 carry 0.077
+cache_trace node 0: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 2.180 s: redistribute 0.118 ntt 1.257 crt 0.005 out 0.733 carry 0.074
+cache_trace node 1: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 2.180 s: redistribute 0.122 ntt 1.257 crt 0.005 out 0.734 carry 0.074
+cache_trace node 2: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 2.180 s: redistribute 0.115 ntt 1.262 crt 0.005 out 0.728 carry 0.073
+cache_trace node 3: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 2.180 s: redistribute 0.118 ntt 1.269 crt 0.005 out 0.728 carry 0.074
+cache_trace node 0: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.967 s: redistribute 0.119 ntt 1.204 crt 0.005 out 0.580 carry 0.074
+cache_trace node 1: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.967 s: redistribute 0.118 ntt 1.199 crt 0.005 out 0.579 carry 0.074
+cache_trace node 2: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.967 s: redistribute 0.113 ntt 1.200 crt 0.003 out 0.584 carry 0.074
+cache_trace node 3: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.967 s: redistribute 0.121 ntt 1.204 crt 0.005 out 0.577 carry 0.074
+cache_trace node 0: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.557 s: redistribute 0.119 ntt 1.214 crt 0.007 out 0.156 carry 0.072
+cache_trace node 1: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.557 s: redistribute 0.117 ntt 1.212 crt 0.005 out 0.157 carry 0.072
+cache_trace node 2: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.557 s: redistribute 0.128 ntt 1.217 crt 0.007 out 0.166 carry 0.072
+cache_trace node 3: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.557 s: redistribute 0.124 ntt 1.219 crt 0.004 out 0.161 carry 0.072
+cache_trace node 0: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 0: A - B - | 1.631 s: redistribute 0.123 ntt 1.261 crt 0.007 out 0.174 carry 0.087
+cache_trace node 1: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 0: A - B - | 1.631 s: redistribute 0.125 ntt 1.265 crt 0.004 out 0.172 carry 0.087
+cache_trace node 2: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 0: A - B - | 1.632 s: redistribute 0.121 ntt 1.268 crt 0.007 out 0.176 carry 0.087
+cache_trace node 3: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 0: A - B - | 1.632 s: redistribute 0.123 ntt 1.260 crt 0.007 out 0.176 carry 0.087
+cache_trace node 0: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 2.084 s: redistribute 0.122 ntt 1.223 crt 0.007 out 0.693 carry 0.065
+cache_trace node 1: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 2.084 s: redistribute 0.117 ntt 1.281 crt 0.005 out 0.637 carry 0.064
+cache_trace node 2: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 2.084 s: redistribute 0.118 ntt 1.216 crt 0.004 out 0.692 carry 0.064
+cache_trace node 3: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 2.084 s: redistribute 0.115 ntt 1.223 crt 0.005 out 0.697 carry 0.065
+cache_trace node 0: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.525 s: redistribute 0.121 ntt 1.188 crt 0.005 out 0.144 carry 0.088
+cache_trace node 1: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.525 s: redistribute 0.125 ntt 1.191 crt 0.005 out 0.146 carry 0.088
+cache_trace node 2: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.525 s: redistribute 0.121 ntt 1.184 crt 0.003 out 0.152 carry 0.088
+cache_trace node 3: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.525 s: redistribute 0.115 ntt 1.199 crt 0.005 out 0.149 carry 0.088
+cache_trace node 0: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 0: A - B - | 1.826 s: redistribute 0.126 ntt 1.222 crt 0.006 out 0.403 carry 0.075
+cache_trace node 1: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 0: A - B - | 1.826 s: redistribute 0.125 ntt 1.224 crt 0.005 out 0.410 carry 0.075
+cache_trace node 2: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 0: A - B - | 1.826 s: redistribute 0.126 ntt 1.226 crt 0.006 out 0.403 carry 0.075
+cache_trace node 3: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 0: A - B - | 1.826 s: redistribute 0.121 ntt 1.236 crt 0.004 out 0.407 carry 0.075
+cache_trace node 0: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 0: A - B - | 1.966 s: redistribute 0.121 ntt 1.261 crt 0.005 out 0.513 carry 0.090
+cache_trace node 1: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 0: A - B - | 1.966 s: redistribute 0.121 ntt 1.266 crt 0.005 out 0.510 carry 0.090
+cache_trace node 2: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 0: A - B - | 1.966 s: redistribute 0.119 ntt 1.278 crt 0.005 out 0.515 carry 0.090
+cache_trace node 3: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 0: A - B - | 1.966 s: redistribute 0.115 ntt 1.265 crt 0.005 out 0.518 carry 0.089
+cache_trace node 0: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 0: A - B - | 1.514 s: redistribute 0.124 ntt 1.165 crt 0.006 out 0.141 carry 0.099
+cache_trace node 1: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 0: A - B - | 1.514 s: redistribute 0.121 ntt 1.168 crt 0.007 out 0.142 carry 0.098
+cache_trace node 2: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 0: A - B - | 1.514 s: redistribute 0.128 ntt 1.167 crt 0.006 out 0.147 carry 0.098
+cache_trace node 3: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 0: A - B - | 1.514 s: redistribute 0.123 ntt 1.168 crt 0.007 out 0.139 carry 0.099
+cache_trace node 0: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 0: A - B - | 2.120 s: redistribute 0.127 ntt 1.220 crt 0.007 out 0.718 carry 0.051
+cache_trace node 1: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 0: A - B - | 2.120 s: redistribute 0.127 ntt 1.227 crt 0.007 out 0.718 carry 0.051
+cache_trace node 2: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 0: A - B - | 2.120 s: redistribute 0.126 ntt 1.222 crt 0.007 out 0.719 carry 0.050
+cache_trace node 3: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 0: A - B - | 2.120 s: redistribute 0.126 ntt 1.227 crt 0.005 out 0.726 carry 0.051
+cache_trace node 0: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 0: A - B - | 1.525 s: redistribute 0.116 ntt 1.173 crt 0.005 out 0.150 carry 0.086
+cache_trace node 1: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 0: A - B - | 1.525 s: redistribute 0.118 ntt 1.179 crt 0.005 out 0.155 carry 0.086
+cache_trace node 2: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 0: A - B - | 1.525 s: redistribute 0.115 ntt 1.181 crt 0.005 out 0.158 carry 0.086
+cache_trace node 3: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 0: A - B - | 1.525 s: redistribute 0.114 ntt 1.177 crt 0.005 out 0.152 carry 0.086
+cache_trace node 1: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 0: A - B - | 2.059 s: redistribute 0.122 ntt 1.175 crt 0.006 out 0.715 carry 0.049
+dist_mn node 1: 555555557 x 555555558 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 0: A - B - | 2.060 s: redistribute 0.124 ntt 1.184 crt 0.003 out 0.717 carry 0.049
+dist_mn node 2: 555555557 x 555555558 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 0: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 0: A - B - | 2.060 s: redistribute 0.121 ntt 1.186 crt 0.006 out 0.720 carry 0.049
+dist_mn node 0: 555555557 x 555555558 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 0: A - B - | 2.060 s: redistribute 0.123 ntt 1.181 crt 0.006 out 0.710 carry 0.049
+dist_mn node 3: 555555557 x 555555558 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+mn_out: /tmp/cx15/c0_r1.txt.part0003: O_DIRECT, packed form, 8 write threads, file system local
+cache_trace node 0: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 0: A - B - | 1.809 s: redistribute 0.244 ntt 1.462 crt 0.006 out 0.158 carry 0.003
+cache_trace node 1: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 0: A - B - | 1.809 s: redistribute 0.212 ntt 1.495 crt 0.006 out 0.160 carry 0.003
+cache_trace node 2: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 0: A - B - | 1.809 s: redistribute 0.247 ntt 1.479 crt 0.006 out 0.162 carry 0.004
+cache_trace node 3: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 0: A - B - | 1.809 s: redistribute 0.211 ntt 1.478 crt 0.005 out 0.164 carry 0.003
+cache_trace node 0: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 0: A - B - | 1.474 s: redistribute 0.124 ntt 1.165 crt 0.005 out 0.148 carry 0.043
+cache_trace node 1: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 0: A - B - | 1.474 s: redistribute 0.125 ntt 1.170 crt 0.004 out 0.144 carry 0.043
+cache_trace node 2: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 0: A - B - | 1.474 s: redistribute 0.121 ntt 1.167 crt 0.005 out 0.151 carry 0.043
+cache_trace node 3: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 0: A - B - | 1.474 s: redistribute 0.122 ntt 1.173 crt 0.005 out 0.145 carry 0.043
+cache_trace node 0: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 0: A - B - | 1.496 s: redistribute 0.125 ntt 1.194 crt 0.003 out 0.144 carry 0.041
+cache_trace node 1: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 0: A - B - | 1.496 s: redistribute 0.126 ntt 1.192 crt 0.005 out 0.142 carry 0.041
+cache_trace node 2: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 0: A - B - | 1.496 s: redistribute 0.119 ntt 1.193 crt 0.002 out 0.148 carry 0.040
+cache_trace node 3: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 0: A - B - | 1.496 s: redistribute 0.119 ntt 1.191 crt 0.005 out 0.145 carry 0.041
+cache_trace node 0: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.469 s: redistribute 0.130 ntt 1.210 crt 0.005 out 0.123 carry 0.008
+cache_trace node 1: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.469 s: redistribute 0.128 ntt 1.221 crt 0.004 out 0.130 carry 0.008
+cache_trace node 2: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.469 s: redistribute 0.131 ntt 1.217 crt 0.005 out 0.128 carry 0.008
+cache_trace node 3: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 0: A - B - | 1.469 s: redistribute 0.132 ntt 1.219 crt 0.005 out 0.124 carry 0.007
+cache_trace node 0: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 0: A - B - | 1.495 s: redistribute 0.114 ntt 1.214 crt 0.005 out 0.128 carry 0.050
+cache_trace node 1: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 0: A - B - | 1.495 s: redistribute 0.117 ntt 1.211 crt 0.005 out 0.126 carry 0.050
+cache_trace node 2: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 0: A - B - | 1.495 s: redistribute 0.110 ntt 1.224 crt 0.005 out 0.114 carry 0.050
+cache_trace node 3: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 0: A - B - | 1.495 s: redistribute 0.117 ntt 1.211 crt 0.003 out 0.132 carry 0.051
+cache_trace node 0: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 0: A - B - | 1.551 s: redistribute 0.116 ntt 1.251 crt 0.007 out 0.137 carry 0.052
+cache_trace node 1: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 0: A - B - | 1.551 s: redistribute 0.119 ntt 1.244 crt 0.007 out 0.141 carry 0.051
+cache_trace node 2: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 0: A - B - | 1.551 s: redistribute 0.116 ntt 1.243 crt 0.007 out 0.149 carry 0.051
+cache_trace node 3: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 0: A - B - | 1.551 s: redistribute 0.114 ntt 1.251 crt 0.004 out 0.146 carry 0.051
+cache_trace node 0: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.524 s: redistribute 0.122 ntt 1.258 crt 0.007 out 0.125 carry 0.025
+cache_trace node 1: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.524 s: redistribute 0.125 ntt 1.267 crt 0.005 out 0.130 carry 0.025
+cache_trace node 2: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.524 s: redistribute 0.118 ntt 1.256 crt 0.006 out 0.126 carry 0.024
+cache_trace node 3: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 0: A - B - | 1.524 s: redistribute 0.118 ntt 1.266 crt 0.007 out 0.126 carry 0.024
+cache_trace node 0: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 1.416 s: redistribute 0.119 ntt 1.243 crt 0.002 out 0.041 carry 0.025
+cache_trace node 1: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 1.416 s: redistribute 0.123 ntt 1.239 crt 0.003 out 0.046 carry 0.024
+cache_trace node 2: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 1.416 s: redistribute 0.124 ntt 1.246 crt 0.004 out 0.040 carry 0.024
+cache_trace node 3: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 0: A - B - | 1.416 s: redistribute 0.118 ntt 1.242 crt 0.003 out 0.045 carry 0.024
+cache_trace node 0: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 0: A - B - | 1.444 s: redistribute 0.120 ntt 1.163 crt 0.005 out 0.124 carry 0.054
+cache_trace node 1: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 0: A - B - | 1.444 s: redistribute 0.119 ntt 1.155 crt 0.005 out 0.119 carry 0.054
+cache_trace node 2: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 0: A - B - | 1.444 s: redistribute 0.119 ntt 1.154 crt 0.005 out 0.122 carry 0.054
+cache_trace node 3: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 0: A - B - | 1.444 s: redistribute 0.114 ntt 1.162 crt 0.004 out 0.127 carry 0.054
+cache_trace node 0: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.450 s: redistribute 0.117 ntt 1.177 crt 0.007 out 0.126 carry 0.037
+cache_trace node 1: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.450 s: redistribute 0.115 ntt 1.173 crt 0.007 out 0.125 carry 0.037
+cache_trace node 2: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.450 s: redistribute 0.116 ntt 1.179 crt 0.007 out 0.125 carry 0.037
+cache_trace node 3: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 0: A - B - | 1.450 s: redistribute 0.118 ntt 1.182 crt 0.007 out 0.133 carry 0.036
+cache_trace node 0: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.403 s: redistribute 0.117 ntt 1.198 crt 0.005 out 0.062 carry 0.033
+cache_trace node 1: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.403 s: redistribute 0.117 ntt 1.196 crt 0.005 out 0.057 carry 0.033
+cache_trace node 2: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.403 s: redistribute 0.121 ntt 1.196 crt 0.005 out 0.060 carry 0.033
+cache_trace node 3: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 0: A - B - | 1.403 s: redistribute 0.117 ntt 1.200 crt 0.005 out 0.062 carry 0.033
+cache_trace node 0: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 1.547 s: redistribute 0.116 ntt 1.260 crt 0.007 out 0.124 carry 0.051
+cache_trace node 1: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 1.547 s: redistribute 0.121 ntt 1.256 crt 0.005 out 0.131 carry 0.051
+cache_trace node 2: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 1.547 s: redistribute 0.124 ntt 1.251 crt 0.007 out 0.124 carry 0.050
+cache_trace node 3: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 0: A - B - | 1.547 s: redistribute 0.121 ntt 1.266 crt 0.005 out 0.128 carry 0.050
+cache_trace node 0: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.454 s: redistribute 0.120 ntt 1.214 crt 0.005 out 0.086 carry 0.049
+cache_trace node 1: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.454 s: redistribute 0.113 ntt 1.227 crt 0.005 out 0.077 carry 0.049
+cache_trace node 2: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.454 s: redistribute 0.119 ntt 1.221 crt 0.005 out 0.077 carry 0.049
+cache_trace node 3: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 0: A - B - | 1.454 s: redistribute 0.115 ntt 1.224 crt 0.003 out 0.084 carry 0.049
+cache_trace node 0: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 0: A - B - | 1.467 s: redistribute 0.130 ntt 1.216 crt 0.005 out 0.099 carry 0.045
+dist_mn node 0: 555555557 x 555555560 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 0: A - B - | 1.467 s: redistribute 0.118 ntt 1.217 crt 0.002 out 0.106 carry 0.045
+dist_mn node 1: 555555557 x 555555560 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 2: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 0: A - B - | 1.467 s: redistribute 0.128 ntt 1.223 crt 0.005 out 0.102 carry 0.045
+dist_mn node 2: 555555557 x 555555560 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+cache_trace node 3: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 0: A - B - | 1.467 s: redistribute 0.129 ntt 1.215 crt 0.006 out 0.110 carry 0.045
+dist_mn node 3: 555555557 x 555555560 limbs over 4 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+divmod(mn) 86.37 s: reciprocal 38.69 (products 35.16), S = P + Q 0.03, A mu + shift 26.53, X Q + window 21.02, corrections 0.03 (0), R residues 0.07; division products 46.51 s; shifts 69/2.47 s, addsub 24/0.32 s
+scratch(mn): mdb_shift slabs 2.222 GB per node-process at most (MDB_SHIFT_CHUNK_MB=1024), window temporaries T + rbO 2.222 GB (MN_T_CHUNK_MB=1024)
+mn: node 0: dm over 4 nodes 86.37 s (reciprocal 38.69), X 555555557 limbs, sharded
+mn: node 1: dm over 4 nodes 86.37 s (reciprocal 38.69), X 555555557 limbs, sharded; to the output stage
+mn: node 2: dm over 4 nodes 86.37 s (reciprocal 38.69), X 555555557 limbs, sharded; to the output stage
+mn: node 3: dm over 4 nodes 86.37 s (reciprocal 38.69), X 555555557 limbs, sharded; to the output stage
+bs       54.36 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 3.7 mdev 0.0; pool 2.5 GB; dev pools 0.0 GB)   VmRSS 22.3 GB, VmHWM 22.3 GB
+RESULT ecalc bs s 54.3565
+mem[0] [bs] device 30.4 GB in use (per APU 7.1..9.2): planes 8.6, regions 0.0, block pool 19.3 (donated 0.0, borrowed 19.3, hipMalloc 0.0; live 1.1, peak live 8.6, free 18.2), tables 2.47, other 0.0
+mem[0] [bs] host 22.3 GB RSS (HWM 22.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 18.0
+mem[0] [bs]   APU0: in use 9.2 GB: planes 2.15 pool:borrowed 6.44 pool:live 0.28 pool:free 6.16 pool:peak-live 2.15 tables 0.62  (driver: 42.3 of 137.4 GB used)
+mem[0] [bs]   APU1: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.28 pool:free 4.02 pool:peak-live 2.15 tables 0.61  (driver: 33.7 of 137.4 GB used)
+mem[0] [bs]   APU2: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.28 pool:free 4.02 pool:peak-live 2.15 tables 0.62  (driver: 33.7 of 137.4 GB used)
+mem[0] [bs]   APU3: in use 7.1 GB: planes 2.15 pool:borrowed 4.29 pool:live 0.28 pool:free 4.02 pool:peak-live 2.15 tables 0.62  (driver: 33.7 of 137.4 GB used)
+recip    38.69 s   (over 4 nodes; 29 iterations)
+10dP      0.00 s   (S = P + Q over shares, inside dm)
+RESULT ecalc 10dP s 0
+dm       86.37 s   X 555555557 limbs (recip 38.7 s; corrections 0/0; over 4 nodes)   VmRSS 22.3 GB, VmHWM 22.3 GB
+RESULT ecalc dm s 86.3707
+mn: node 0: X share [0, 138888889) of 555555557 limbs on the device (the distributed division's)
+mn: node 1: X share [138888889, 277777778) of 555555557 limbs on the device (the distributed division's)
+mn: node 2: X share [277777778, 416666667) of 555555557 limbs on the device (the distributed division's)
+mn: node 3: X share [416666667, 555555557) of 555555557 limbs on the device (the distributed division's)
+mn: node 0: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 0:       overlapped with bs: P, Q mod q recurrence 0.79 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 2: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 2:       overlapped with bs: P, Q mod q recurrence 0.82 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 1: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 1:       overlapped with bs: P, Q mod q recurrence 0.77 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 3: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 3:       overlapped with bs: P, Q mod q recurrence 0.84 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 0:       VmRSS 22.3 GB before dc
+mn: node 2:       VmRSS 24.7 GB before dc
+mn: node 3:       VmRSS 24.8 GB before dc
+mn: node 1:       VmRSS 23.7 GB before dc
+mn: node 2:       the part file started in the division (MN_OUT_EARLY): its writer ran 0.81 s, joined after 0.00 s here
+mn: node 0:       the part file started in the division (MN_OUT_EARLY): its writer ran 0.84 s, joined after 0.00 s here
+mn: node 1:       the part file started in the division (MN_OUT_EARLY): its writer ran 0.77 s, joined after 0.00 s here
+mn: node 3:       the part file started in the division (MN_OUT_EARLY): its writer ran 1.04 s, joined after 0.00 s here
+mn: node 3:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.001 s
+mn: node 0:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+mn: node 1:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+mn: node 2:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+mn: node 1: dc        0.02 s   digits [5000000005, 7500000007) of 10000000009 formatted from 138888889 decimal limbs in 10 chunks (residues 0.00, format 0.04, digit residue 0.22, T2 0.00, fetch 0.03, waiting for the writer 0.45)
+mn: node 1: T2        0.00 s   windows ok (0 checked on this node), digits == X mod q ok
+mn: node 1: digits: 47329977426968671005186835658995918489734436742905921433796789... (this node's range)
+mn: node 1: wrote /tmp/cx15/c0_r1.txt.part0002 (1.11 GB; write 0.78 s in the writer thread, 0.00 s after the checks)
+mn: node 1: VERIFY OK
+mn: node 0: dc        0.02 s   digits [7500000007, 10000000009) of 10000000009 formatted from 138888889 decimal limbs in 10 chunks (residues 0.00, format 0.06, digit residue 0.31, T2 0.00, fetch 0.02, waiting for the writer 0.40)
+mn: node 0: T2        0.00 s   windows ok (0 checked on this node), digits == X mod q ok
+mn: node 0: digits: 27744030146664906058655122294693568747546354411952810257596683...56994816931502679526 (this node's range)
+total   146.66 s   (bs 54.4 + 10dP 0.0 + dm 86.4 + T1 0.1 + dc 0.0 + T2 0.0 = 140.8; init 5.8; other 0.0); VmHWM 22.2 GB
+RESULT ecalc total s 146.658
+RESULT ecalc phases s 140.817
+RESULT ecalc other s 0.0126791
+mn: node 2: dc        0.02 s   digits [2500000003, 5000000005) of 10000000009 formatted from 138888889 decimal limbs in 10 chunks (residues 0.00, format 0.06, digit residue 0.22, T2 0.00, fetch 0.03, waiting for the writer 0.47)
+mn: node 2: T2        0.00 s   windows ok (0 checked on this node), digits == X mod q ok
+mn: node 2: digits: 00760438624171832318328099156256651067551569519334784231807484... (this node's range)
+mn: node 2: wrote /tmp/cx15/c0_r1.txt.part0001 (1.11 GB; write 0.80 s in the writer thread, 0.00 s after the checks)
+mn: node 2: VERIFY OK
+mn: node 3: dc        0.02 s   digits [0, 2500000003) of 10000000009 formatted from 138888890 decimal limbs in 10 chunks (residues 0.00, format 0.07, digit residue 0.29, T2 0.40, fetch 0.03, waiting for the writer 0.21)
+mn: node 3: T2        0.00 s   windows ok (4 checked on this node), digits == X mod q ok
+mn: node 3: digits: 27182818284590452353602874713526624977572470936999595749669676... (this node's range)
+mn: node 3: wrote /tmp/cx15/c0_r1.txt.part0000 (1.11 GB; write 0.57 s in the writer thread, 0.00 s after the checks)
+mn: node 3: VERIFY OK
+RESULT ecalc vmhwm GB 22.2228
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+mn: node 0: wrote /tmp/cx15/c0_r1.txt.part0003 (1.11 GB; write 0.77 s in the writer thread, 0.00 s after the checks)
+mn: node 0: VERIFY OK
+mn: all 4 nodes: VERIFY OK
+mem[0] [end] device 11.1 GB in use (per APU 2.8..2.8): planes 8.6, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 8.6, free 0.0), tables 2.47, other 0.0
+mem[0] [end] host 21.8 GB RSS (HWM 22.2): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 17.5
+mem[0] [end]   APU0: in use 2.8 GB: planes 2.15 pool:peak-live 2.15 tables 0.62  (driver: 42.3 of 137.4 GB used)
+mem[0] [end]   APU1: in use 2.8 GB: planes 2.15 pool:peak-live 2.15 tables 0.61  (driver: 33.7 of 137.4 GB used)
+mem[0] [end]   APU2: in use 2.8 GB: planes 2.15 pool:peak-live 2.15 tables 0.62  (driver: 33.7 of 137.4 GB used)
+mem[0] [end]   APU3: in use 2.8 GB: planes 2.15 pool:peak-live 2.15 tables 0.62  (driver: 33.7 of 137.4 GB used)
+mem[0] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[0] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[0] init              26.1     8.1 |     4.3     0.0     0.0    19.3     0.0     0.0     0.0   2.47 |     8.7     4.3     0.0     0.0     0.0     4.4    10.3
+mem[0] tree              30.4     9.2 |     8.6     0.0     0.0    19.3     0.0     2.2     5.5   2.47 |    13.1     4.3     0.0     0.0     0.0     8.8    13.1
+mem[0] bs                30.4     9.2 |     8.6     0.0     0.0    19.3     0.0     1.1     8.6   2.47 |    22.3     4.3     0.0     0.0     0.0    18.0    22.3
+mem[0] end               11.1     2.8 |     8.6     0.0     0.0     0.0     0.0     0.0     8.6   2.47 |    21.8     4.3     0.0     0.0     0.0    17.5    22.2
+mem[2] [released] device 2.5 GB in use (per APU 0.6..0.6): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 11.2, free 0.0), tables 2.46, other 0.0
+mem[2] [released] host 19.9 GB RSS (HWM 24.6): staging 0.0 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 19.9
+mem[2] [released]   APU0: in use 0.6 GB: pool:peak-live 2.80 tables 0.62  (driver: 10.1 of 137.4 GB used)
+mem[2] [released]   APU1: in use 0.6 GB: pool:peak-live 2.80 tables 0.62  (driver: 7.9 of 137.4 GB used)
+mem[2] [released]   APU2: in use 0.6 GB: pool:peak-live 2.80 tables 0.61  (driver: 8.0 of 137.4 GB used)
+mem[2] [released]   APU3: in use 0.6 GB: pool:peak-live 2.80 tables 0.61  (driver: 12.3 of 137.4 GB used)
+mem[2] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[2] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[2] init              26.1     8.1 |     4.3     0.0     0.0    19.3     0.0     0.0     0.0   2.46 |     8.7     4.3     0.0     0.0     0.0     4.4    10.3
+mem[2] tree              39.0    11.4 |    17.2     0.0     0.0    19.3     0.0     2.2     6.2   2.46 |    13.4     4.3     0.0     0.0     0.0     9.1    13.4
+mem[2] released           2.5     0.6 |     0.0     0.0     0.0     0.0     0.0     0.0    11.2   2.46 |    19.9     0.0     0.0     0.0     0.0    19.9    24.6
+mem[3] [released] device 2.5 GB in use (per APU 0.6..0.6): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 11.2, free 0.0), tables 2.48, other 0.0
+mem[3] [released] host 20.0 GB RSS (HWM 24.8): staging 0.0 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 20.0
+mem[3] [released]   APU0: in use 0.6 GB: pool:peak-live 2.80 tables 0.61  (driver: 10.1 of 137.4 GB used)
+mem[3] [released]   APU1: in use 0.6 GB: pool:peak-live 2.80 tables 0.62  (driver: 7.9 of 137.4 GB used)
+mem[3] [released]   APU2: in use 0.6 GB: pool:peak-live 2.80 tables 0.62  (driver: 8.0 of 137.4 GB used)
+mem[3] [released]   APU3: in use 0.6 GB: pool:peak-live 2.80 tables 0.63  (driver: 12.3 of 137.4 GB used)
+mem[3] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[3] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[3] init              26.1     8.1 |     4.3     0.0     0.0    19.3     0.0     0.0     0.0   2.48 |     8.7     4.3     0.0     0.0     0.0     4.4    10.4
+mem[3] tree              39.0    11.3 |    17.2     0.0     0.0    19.3     0.0     2.2     6.3   2.48 |    13.4     4.3     0.0     0.0     0.0     9.1    13.4
+mem[3] released           2.5     0.6 |     0.0     0.0     0.0     0.0     0.0     0.0    11.2   2.48 |    20.0     0.0     0.0     0.0     0.0    20.0    24.8
+mem[1] [released] device 2.5 GB in use (per APU 0.6..0.6): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 10.8, free 0.0), tables 2.48, other 0.0
+mem[1] [released] host 18.9 GB RSS (HWM 23.6): staging 0.0 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 18.9
+mem[1] [released]   APU0: in use 0.6 GB: pool:peak-live 2.69 tables 0.61  (driver: 10.1 of 137.4 GB used)
+mem[1] [released]   APU1: in use 0.6 GB: pool:peak-live 2.69 tables 0.63  (driver: 7.9 of 137.4 GB used)
+mem[1] [released]   APU2: in use 0.6 GB: pool:peak-live 2.69 tables 0.63  (driver: 8.0 of 137.4 GB used)
+mem[1] [released]   APU3: in use 0.6 GB: pool:peak-live 2.69 tables 0.61  (driver: 8.0 of 137.4 GB used)
+mem[1] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[1] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[1] init              26.1     8.1 |     4.3     0.0     0.0    19.3     0.0     0.0     0.0   2.48 |    10.0     5.5     0.0     0.0     0.0     4.4    10.4
+mem[1] tree              39.0    11.4 |    17.2     0.0     0.0    19.3     0.0     2.2     6.3   2.48 |    13.2     4.3     0.0     0.0     0.0     8.9    13.2
+mem[1] released           2.5     0.6 |     0.0     0.0     0.0     0.0     0.0     0.0    10.8   2.48 |    18.9     0.0     0.0     0.0     0.0    18.9    23.6
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.04 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.04 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.03 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.04 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
