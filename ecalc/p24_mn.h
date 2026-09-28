@@ -41,7 +41,7 @@ __global__ void k_gather_mn24_np(uint64_t *x0p, uint64_t *x1p, uint64_t *x2p, ui
         size_t j = t / rows, il = t - j * rows, x0 = R * j + a, xp = x0 + il, u = p24_run_S(&mr, j) + (p24_L(xp) - p24_L(x0)), o = il * C + j;
         uint64_t lo = u < tend ? rb[u] : 0, hi = u + 1 < tend ? rb[u + 1] : 0, pl, ph; int s = p24_s(xp), si = s / 6;
         p24_parts(lo, hi, s, &pl, &ph);
-        #define P24_RES(m, p) ec_fold((uint64_t)ec_mm((double)ec_canon64(ph, (m).pu, (m).mu), (double)c18[3 * (p) + si], (m).p, (m).pinv) + ec_canon64(pl, (m).pu, (m).mu), (m).pu)
+        #define P24_RES(m, ip) ec_fold((uint64_t)ec_mm((double)ec_canon64(ph, (m).pu, (m).mu), (double)c18[3 * (ip) + si], (m).p, (m).pinv) + ec_canon64(pl, (m).pu, (m).mu), (m).pu)
         x0p[o] = P24_RES(m0, 0); x1p[o] = P24_RES(m1, 1); x2p[o] = P24_RES(m2, 2); if (np > 3) x3p[o] = P24_RES(m3, 3);
         #undef P24_RES
     }
