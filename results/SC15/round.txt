@@ -1,0 +1,9 @@
+T_ROUND 0.01 s, chunk 1024 MB: 308.9 / 342.2 s, node 455.4 GB
+T_ROUND 0.01 s, chunk 2048 MB: 303.4 / 337.6 s, node 459.7 GB
+T_ROUND 0.01 s, chunk 4096 MB: 300.6 / 335.2 s, node 477.0 GB
+T_ROUND 0.03 s, chunk 1024 MB: 324.3 / 355.4 s, node 455.4 GB
+T_ROUND 0.03 s, chunk 2048 MB: 309.4 / 342.7 s, node 459.7 GB
+T_ROUND 0.03 s, chunk 4096 MB: 301.5 / 335.9 s, node 477.0 GB
+T_ROUND 0.10 s, chunk 1024 MB: 378.3 / 401.7 s, node 455.4 GB
+T_ROUND 0.10 s, chunk 2048 MB: 330.1 / 360.4 s, node 459.7 GB
+T_ROUND 0.10 s, chunk 4096 MB: 304.6 / 338.4 s, node 477.0 GB
