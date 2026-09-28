@@ -212,11 +212,24 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
     if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld: |k| <= 60 (the division stops at 64 corrections)\n", k); }
     return k;
 }
+/* Phase 15 DKM (newton.h): the switch and the reciprocal's length */
+static int dkm_sw = -1;
+int newton_dkm_on(void) { if (dkm_sw < 0) { const char *e = getenv("NEWTON_DKM"); dkm_sw = e ? atoi(e) != 0 : 0; } return dkm_sw; }
+void newton_dkm_set(int on) { dkm_sw = on != 0; }
+size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
+static long dkm_test_hi(void)                               /* NEWTON_DKM_TEST_HI=<k>: X_hi - k before step 1's corrections (a test hook) */
+{
+    const char *e = getenv("NEWTON_DKM_TEST_HI"); long k = e ? atol(e) : 0;
+    if (k > 60 || k < -60) { ec_fatal(EC_RC_FATAL, "NEWTON_DKM_TEST_HI=%ld: |k| <= 60\n", k); }
+    return k;
+}
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k)
 {
     dbig Qd; db_init(&Qd);
     if (newton_db_Qd) Qd = *newton_db_Qd; else db_from_bi(&Qd, Q);
-    g_hold_q = newton_db_Qd != 0; recip_db(&g_mu_kept, &Qd, Q, k); g_hold_q = 0; g_mu_k = k;   /* (A1: the hold needs Q alive across both phases: the caller's device Q) */
+    size_t kr = newton_db_Qd && newton_dkm_on() && k >= 4 ? newton_dkm_h(k) : k;   /* DKM: the device flow's prewarm stops at h (the division needs no more) */
+    if (kr != k && getenv("NEWTON_VERBOSE")) printf("newton(db): DKM -- the reciprocal to %zu limbs for k %zu\n", kr, k);
+    g_hold_q = newton_db_Qd != 0; recip_db(&g_mu_kept, &Qd, Q, kr); g_hold_q = 0; g_mu_k = k;   /* (A1: the hold needs Q alive across both phases: the caller's device Q) */
     if (newton_db_Qd) { g_mu_ql = newton_db_Qd->q[0]; g_mu_qn = newton_db_Qd->n; g_mu_qtop = db_top(newton_db_Qd); }   /* tagged by the device Q */
     else { g_mu_ql = Q->l; g_mu_qn = Q->n; g_mu_qtop = Q->n ? Q->l[Q->n - 1] : 0; }
     if (newton_db_mu_host) db_to_bi(mu, &g_mu_kept);             /* the host copy too (tests, the host path's fallback) */
@@ -305,12 +318,109 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
  * remainder window A mod B^w (w = nq + 2) is S's low w - dl limbs shifted up by dl, and the corrections run
  * on device numbers.  X is copied out (through the hook, before the low product, when set); R stays on the
  * device: its residues mod the T1 primes come back in rres (nres of them), R itself is freed. */
+/* ---- Phase 15 DKM (results/DKM15.md 1.2): the shifted division in two quotient halves, size 1 -------------------------------- */
+/* X0 = ((S >> (nq - 1 - dl)) mu) >> (k + 1), mu (a view of) k + 1 limbs; X0 = 0 when S has nothing at or above nq - 1 - dl */
+static void dkm_est_db(dbig *Xd, const dbig *S, size_t dl, size_t nq, size_t k, const dbig *mu)
+{
+    size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
+    if (!Ah.n || !mu->n) { db_set_zero(Xd); return; }
+    dbig t; db_init(&t);
+    if (env_on("NEWTON_HIGHPROD")) rns_mul_high_db(&t, &Ah, mu, k + 1); else rns_mul_dist_db(&t, &Ah, mu);
+    db_shr_limbs(Xd, &t, k + 1); db_free(&t);
+}
+/* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift (db_set_shifted_low copies limb by limb: a few limbs only) */
+static void dkm_window_db(dbig *Aw, const dbig *S, size_t dl, size_t w)
+{
+    size_t m = w > dl ? w - dl : 0; if (m > S->n) m = S->n;
+    dbig lo = db_view(S, 0, m); db_norm(&lo);
+    if (!lo.n) { db_set_zero(Aw); return; }
+    db_shl_limbs(Aw, &lo, dl);
+}
+static void dkm_add_small(dbig *x, long dx) { if (!dx) return; if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx); else db_add_small(x, dx); }
+/* R = A - X Q from the window Aw and xq = X Q mod B^w (both consumed): the corrections of newton_db_divmod_shifted, R >= 0 < Q in *Rd;
+ * returns the change to X */
+static long dkm_corr_db(dbig *Rd, dbig *Aw, dbig *xq, const dbig *Qd, const char *who)
+{
+    size_t nc = 0; long dx = 0;
+    if (db_cmp(Aw, xq) >= 0) {                                        /* R = Aw - xq >= 0; while R >= Q: R -= Q, X += 1 */
+        if (xq->n) db_sub(Aw, Aw, xq);
+        db_free(xq); *Rd = *Aw; db_init(Aw);
+        while (db_cmp(Rd, Qd) >= 0) { db_sub(Rd, Rd, Qd); dx++; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db (DKM %s): %zu corrections\n", who, nc); } }
+    } else {                                                          /* D = xq - Aw > 0: X -= 1, R = Q - D; while D > Q: D -= Q, X -= 1 */
+        if (Aw->n) db_sub(xq, xq, Aw);
+        db_free(Aw); *Rd = *xq; db_init(xq);
+        for (;;) { dx--; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_db (DKM %s): %zu corrections\n", who, nc); }
+                   if (db_cmp(Rd, Qd) <= 0) { db_sub(Rd, Qd, Rd); break; } db_sub(Rd, Rd, Qd); }
+    }
+    return dx;
+}
+/* A = S B^dl; s = min(floor(k/2), dl) >= 1 (the caller checks).  Step 1: X_hi, R1 = floor / remainder of A >> s = S B^(dl - s) by Q, exact;
+ * step 2: X_lo, R of R1 B^s; X = X_hi B^s + X_lo.  The hook, x_dev, the deferral and ECALC_TEST_CORR at step 2 as in newton_db_divmod_shifted */
+static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *Qd, const uint64_t *qs, int nres, uint64_t *rres, size_t s)
+{
+    double t0 = mem_now();
+    size_t nq = Qd->n, na = S->n + dl, k = na - nq + 1, w = nq + 2, k1 = k - s, h = k1 > s + 1 ? k1 : s + 1;
+    dbig mu, Xh, Aw, xq, R1, Xl, Xd, Rd; db_init(&mu); db_init(&Xh); db_init(&Aw); db_init(&xq); db_init(&R1); db_init(&Xl); db_init(&Xd); db_init(&Rd);
+    int kept_ok = g_mu_kept.n >= h + 1 && g_mu_ql == Qd->q[0] && g_mu_qn == nq && g_mu_qtop == db_top(Qd);
+    if (g_mu_kept.n && !kept_ok) { printf("newton(db) DKM: the kept reciprocal (%zu limbs) does not serve h %zu: a fresh one\n", g_mu_kept.n, h); db_free(&g_mu_kept); }
+    if (kept_ok) { mu = g_mu_kept; db_init(&g_mu_kept); }
+    else recip_db(&mu, Qd, 0, h);
+    double ta = mem_now();
+    /* step 1: the high half.  mu's top k1 + 1 limbs as a view */
+    { dbig m1 = db_view(&mu, mu.n - (k1 + 1), k1 + 1); dkm_est_db(&Xh, S, dl - s, nq, k1, &m1); }
+    { long th = dkm_test_hi(); if (th) { if (th > 0 && (!Xh.n || (Xh.n == 1 && db_limb(&Xh, 0) < (uint64_t)th))) { ec_fatal(EC_RC_FATAL, "NEWTON_DKM_TEST_HI=%ld: X_hi is below it\n", th); } dkm_add_small(&Xh, -th); } }
+    dkm_window_db(&Aw, S, dl - s, w);
+    dm_switches(); if (dm_tight > 0) db_free((dbig *)S);              /* (as newton_db_divmod_shifted under DM_TIGHT: S's only reader was the window) */
+    double tb = mem_now();
+    if (Xh.n) rns_mul_low_db(&xq, &Xh, Qd, w); else db_set_zero(&xq);
+    long dx1 = dkm_corr_db(&R1, &Aw, &xq, Qd, "step 1");
+    dkm_add_small(&Xh, dx1);                                          /* X_hi exact: no one has seen it */
+    newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
+    double tc = mem_now();
+    /* step 2: the low half, A2 = R1 B^s (A mod B^s = 0: s <= dl) */
+    size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
+    if (na2 >= nq) { dbig m2 = db_view(&mu, mu.n - (k2 + 1), k2 + 1); dkm_est_db(&Xl, &R1, s, nq, k2, &m2); }
+    else db_set_zero(&Xl);                                            /* A2 < Q: X_lo = 0 */
+    db_free(&mu);
+    dkm_window_db(&Aw, &R1, s, w); db_free(&R1);
+    { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k) */
+      if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under NEWTON_DKM: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
+    db_add_shifted(&Xd, &Xh, s, &Xl); db_free(&Xh);                   /* X0 = X_hi B^s + X_lo0 */
+    int view = Xl.n <= s; if (view) db_free(&Xl);                     /* X_lo0 < B^s: it is X0's low s limbs */
+    double td = mem_now();
+    int defer = newton_x_defer && newton_db_x_hook; newton_x_dx = 0;
+    dbig *Xp = &Xd;
+    if (newton_db_x_dev) { *newton_db_x_dev = Xd; db_init(&Xd); Xp = newton_db_x_dev; if (newton_db_x_hook) newton_db_x_hook(X, newton_db_x_arg); }
+    else if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }
+    dbig Xlv = Xl; if (view) { Xlv = db_view(Xp, 0, Xp->n < s ? Xp->n : s); db_norm(&Xlv); }
+    if (Xlv.n) rns_mul_low_db(&xq, &Xlv, Qd, w); else db_set_zero(&xq);
+    if (!view) db_free(&Xl);
+    rns_dist_cache_hold(0); rns_dist_cache_release();
+    if (newton_db_x_hook && !newton_db_x_dev) db_free(&Xd);           /* X is on the host; corrections go to the host copy */
+    double te = mem_now();
+    long dx = dkm_corr_db(&Rd, &Aw, &xq, Qd, "step 2");
+    if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
+    if (!newton_db_x_hook && !newton_db_x_dev) { db_to_bi(X, &Xd); db_free(&Xd); }
+    if (dx && defer) newton_x_dx = dx;
+    else if (dx && newton_db_x_dev) db_add_small(newton_db_x_dev, dx);
+    else if (dx) { bigint o; bi_init(&o); bi_set_u64(&o, (uint64_t)(dx < 0 ? -dx : dx)); if (dx < 0) bi_sub(X, X, &o); else bi_add(X, X, &o); bi_free(&o); }
+    double tr = mem_now();
+    db_mod_qs(&Rd, qs, nres, rres);
+    double tf = mem_now();
+    if (mem_live_on()) mem_live_line("divmod(dev, DKM) end");
+    db_free(&Rd); db_free(&xq); db_free(&Aw);
+    if (getenv("RNS_VERBOSE") || getenv("NEWTON_VERBOSE"))
+        printf("divmod(dev, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu%s; mu %.2f, step 1 A mu %.2f, X_hi Q + corrections %.2f (%ld), step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; pools %.1f GB\n",
+               mem_now() - t0, k, k1, s, h, kept_ok ? " (kept)" : " (fresh)", ta - t0, tb - ta, tc - tb, dx1, td - tc, te - td, tr - te, dx, tf - tr, db_pool_bytes() / 1e9);
+    newton_st.t_div += mem_now() - t0;
+}
 void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Qd, const uint64_t *qs, int nres, uint64_t *rres)
 {
     double t0 = mem_now();
     size_t nq = Qd->n, na = S->n + dl, k = na - nq + 1, w = nq + 2;
     if (!nq || na < nq) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: A < Q not supported here\n"); }
     if (dl + 1 > nq) { ec_fatal(EC_RC_FATAL, "newton_db_divmod_shifted: dl >= nq\n"); }
+    if (newton_dkm_on() && k >= 4 && dl >= 1) { divmod_shifted_dkm(X, S, dl, Qd, qs, nres, rres, k / 2 < dl ? k / 2 : dl); return; }   /* Phase 15 DKM */
     dbig mu = g_mu, t = g_t, xq = g_xq, Xd, Aw, Rd; db_init(&Xd); db_init(&Aw); db_init(&Rd);
     double ta = mem_now();
     int kept_ok = g_mu_kept.n >= k + 1 && g_mu_ql == Qd->q[0] && g_mu_qn == nq && g_mu_qtop == db_top(Qd);
