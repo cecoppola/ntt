@@ -4,6 +4,7 @@
 #      under ECALC_CORR_PATCH=1 and 2, NEWTON_DKM_TEST_HI 7); 4e10 identical; mnaccept mn (sizes 2-4); forced at sizes 2-4 (mnaccept
 #      mn,recheck with ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7; K15's long chains c108u / c108d; NEWTON_DKM_TEST_HI)
 #   B  t_newton 20 with NEWTON_DEVICE=1 DIST_LOGN_TEST=20 (sections 5, 6 on grids); the gates with the switch off: mnaccept unit,e9; 4e10 identical
+#   D  10^11 continued: on / off / on / off, files cmp'd against the first, the first against the reference at the end
 #   C  10^11: off / on interleaved, 3 each, with the packed file (wall and `total`), the reference evicted first; every file compared
 # One 1-node job (-J DKM, 45 min, not on s24-16 unless NODE_OK=any), cancelled at the end. Logs in ~/dkm15tmp/<stage>/.
 ST=$1 SHA=$2
@@ -95,6 +96,22 @@ C)
         grep -a 'divmod(dev' "$log" | head -1 | cut -c1-400
     }
     for i in 1 2 3; do run11 off_$i; run11 on_$i NEWTON_DKM=1; done
+    ;;
+D)  # the 10^11 series continued: digcmp against the cold reference takes ~15 min, so every run's packed file is cmp'd against the first
+    # run's (the header has no run-dependent field: packed_fmt.h), and the first against the reference at the end, after the timings
+    E11=~/ntt/ecalc/results/e_1e11.out; K=$T/keep.txt
+    run11d() { # tag env...
+        local tag=$1; shift; local log=$L/$tag.log f=$T/e11.txt c
+        N "rm -rf $f $f.*"; evict $E11
+        local t0; t0=$(date +%s.%N)
+        R "env $* ECALC_VERBOSE=1 RNS_VERBOSE=1 ./ecalc 100000000000 $f" > "$log" 2>&1; local rc=$?
+        local wall; wall=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b - a}')
+        if N "test -e $K"; then c=$(N "cmp -s $f $K && echo 'same bytes as the first run' || echo 'DIFFERS from the first run'; rm -rf $f $f.*"); else N "mv $f $K; rm -rf $f.*"; c="kept (compared to the reference at the end)"; fi
+        echo "RUN11 $tag: rc $rc wall ${wall} s; $(grep -a '^total' "$log" | awk '{print "total", $2}'); $(grep -a '^recip ' "$log" | awk '{print "recip", $2}'); $(grep -a '^dm ' "$log" | awk '{print "dm", $2}'); $(grep -a '^dm ' "$log" | grep -o 'corrections [0-9/]*'); $(grep -ac 'VERIFY OK' "$log") VERIFY OK; $c"
+        grep -a 'divmod(dev' "$log" | head -1 | cut -c1-400
+    }
+    run11d on_2 NEWTON_DKM=1; run11d off_2; run11d on_3 NEWTON_DKM=1; run11d off_3
+    echo "RUN keep (on_2) against the reference: $(cmpref $K $E11)"
     ;;
 esac
 N "rm -rf $T"
