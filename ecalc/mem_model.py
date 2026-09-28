@@ -420,6 +420,11 @@ DEFAULTS15B = dict(DEFAULTS15, seed_fill=SEED_FILL, out_early=True)
 TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/V114.md): the target's launch line
 TARGET_NP = 4                                           # the user's decision 1 (2026-09-27): ECALC_NP=4 on the target's launch line (three primes cannot hold
                                                         # the target's mn pieces: MN_PLAN_ONLY refuses them, results/P15.md); the code's default stays 3 (decimal)
+TARGET_DIGITS = 5.1e13                                  # the target's total digits on TARGET_NODES: the user's decision of 2026-09-27 23:50 EDT (Phase 15 TGT);
+                                                        # history: 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
+                                                        # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
+TARGET_BELOW = 4.74e13                                  # the runtime one step below (the user: test it after the headline): 202 / 226 pieces, 4.75e13 steps to 209 / 233
+TARGET_NODES = 576
 VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's paired 1e11 series, s24-16 / s24-26, ten runs with BS_SEED_FILL=128, all the same):
                                                         # the device at the dm peak 393.6 GB against 377.3 at init -- the division grows the block pool by 12.9 GB
                                                         # (277.0 -> 289.9) where the fixed span grew 2.1; applied at size 1 with the fill (the arena is the bs
@@ -599,9 +604,9 @@ MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TES
 ]
 
 def pool_target():
-    """the pool the 4.25e13 target needs on 576 nodes (MN_GROUPS 2,4,8,16,32,64,192,576) and the node total with it"""
-    groups = '2,4,8,16,32,64,192,576'; D = 4.25e13 / 576
-    print('== Phase 14 P2: the 4.25e13 target on 576 nodes (D %.3e per node, MN_GROUPS %s): the SHMEM pool and the node total (GB, modelled)' % (D, groups))
+    """the pool the target (TARGET_DIGITS; 4.25e13 in Phase 14) needs on 576 nodes (MN_GROUPS 2,4,8,16,32,64,192,576) and the node total with it"""
+    groups = '2,4,8,16,32,64,192,576'; D = TARGET_DIGITS / TARGET_NODES
+    print('== Phase 14 P2: the %.3ge13 target on 576 nodes (D %.3e per node, MN_GROUPS %s): the SHMEM pool and the node total (GB, modelled)' % (TARGET_DIGITS / 1e13, D, groups))
     for name, o in [('the code (staged exchanges)', dict()), ('MN_T_CHUNK_MB=1024', dict(t_chunk_mb=1024)), ('DIST_MN_SYM_SLABS=1', dict(staging='sym')),
                     ('COMM_SHMEM_ROUND_MB=1024 (V1)', dict(round_mb=1024)), ('MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024', dict(t_chunk_mb=1024, round_mb=1024)),
                     ('the old model (resident, 8 GiB flat)', dict(staging='resident'))]:
@@ -884,8 +889,8 @@ def report15():
         print('  %.3g x %d: device init %s / %.1f, device max %s / %.1f, host HWM %.1f / %.1f, node %.1f / %.1f (%+.1f %%)  | %s' % (
             D, g, '%.1f' % di if di else '-', r['dev_init'] / GB, '%.1f' % dm if dm else '-', r['dev_max'] / GB, hw, r['host_hwm'] / GB, node_m, r['node_peak'] / GB,
             100 * (r['node_peak'] / GB / node_m - 1), src))
-    D = 4.25e13 / 576; groups = '2,4,8,16,32,64,192,576'
-    print('\n== the target: 4.25e13 digits on 576 nodes (D %.4e per node, MN_GROUPS %s, SHMEM, depth 2, ECALC_NP=%d: the launch line), GB per node (modelled)' % (D, groups, TARGET_NP))
+    D = TARGET_DIGITS / TARGET_NODES; groups = '2,4,8,16,32,64,192,576'   # Phase 15 TGT: the target constant (was 4.25e13)
+    print('\n== the target: %.3ge13 digits on 576 nodes (D %.4e per node, MN_GROUPS %s, SHMEM, depth 2, ECALC_NP=%d: the launch line), GB per node (modelled)' % (TARGET_DIGITS / 1e13, D, groups, TARGET_NP))
     for name, o in [('the defaults (COMM_SHMEM_ROUND_MB off)', {}), ('the defaults + COMM_SHMEM_ROUND_MB=1024 (D2: the launch line)', dict(TARGET_LAUNCH)),
                     ('  ... ECALC_NP=3 (refused by the plan check: shown for the memory only)', dict(TARGET_LAUNCH, np=3)),
                     ('  ... the Phase 14 defaults (B0: BS_SEED_FILL=0, MN_OUT_EARLY=0)', dict(TARGET_LAUNCH, seed_fill=0, out_early=False)),
