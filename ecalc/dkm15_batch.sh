@@ -3,7 +3,7 @@
 #   A  NEWTON_DKM=1 correctness: t_newton 20 with NEWTON_DEVICE=1 (section 6); e9 both bases; e9 forced corrections (ECALC_TEST_CORR +-7
 #      under ECALC_CORR_PATCH=1 and 2, NEWTON_DKM_TEST_HI 7); 4e10 identical; mnaccept mn (sizes 2-4); forced at sizes 2-4 (mnaccept
 #      mn,recheck with ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7; K15's long chains c108u / c108d; NEWTON_DKM_TEST_HI)
-#   B  the gates with the switch off: mnaccept unit,e9; 4e10 identical
+#   B  t_newton 20 with NEWTON_DEVICE=1 DIST_LOGN_TEST=20 (sections 5, 6 on grids); the gates with the switch off: mnaccept unit,e9; 4e10 identical
 #   C  10^11: off / on interleaved, 3 each, with the packed file (wall and `total`), the reference evicted first; every file compared
 # One 1-node job (-J DKM, 45 min, not on s24-16 unless NODE_OK=any), cancelled at the end. Logs in ~/dkm15tmp/<stage>/.
 ST=$1 SHA=$2
@@ -59,6 +59,8 @@ A)
     one e8_on_3 3 100000000 NEWTON_DKM=1 POOL_LOG=27 NEWTON_DKM_TEST_HI=9 ECALC_TEST_CORR=-5
     ;;
 B)
+    R "NEWTON_DEVICE=1 DIST_LOGN_TEST=20 ./tests/t_newton 20" > "$L/t_newton_dev20.log" 2>&1; echo "t_newton 20 NEWTON_DEVICE=1 DIST_LOGN_TEST=20: rc $? $(grep -a VERIFY "$L/t_newton_dev20.log" | tail -1)"
+    grep -a 'FAILED' "$L/t_newton_dev20.log" | head
     ./mnaccept.sh "$J" --only unit,e9 2>&1 | grep -a '^PASS\|^FAIL\|passed'
     E4=~/ntt/ecalc/results/e_4e10.out
     R "env ECALC_VERBOSE=1 ./ecalc 40000000000 $T/e4.txt" > "$L/e4_off.log" 2>&1; rc=$?
