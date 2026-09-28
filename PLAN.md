@@ -2061,3 +2061,24 @@ the plan check passes with four primes and with `auto`; node ≈ 455 GB modelled
 (+20 % digits for +35 % time against 4.25 × 10¹³). **Optimize for 5.1 × 10¹³**; later, **test the runtime one step below,
 4.74 × 10¹³** (202 pieces; the step at 4.75). Agent TGT moves the documents and the models' target constants; Batch 2's
 agents model their gains at 5.1 × 10¹³.
+
+## 38. Phase 15 Batch 2 decisions and Batch 3 (the user, 2026-09-28)
+
+**Batch 2 decisions** (all the integrator's recommendations accepted): the target's launch line `ECALC_NP=auto` and
+`RNS_DIST_CACHE_FIT=1`; defaults `BS_ARENA_ROOM=0.16`, `DIST_TWREC_G=1`, `RNS_POOL1_4Q=1`; `NTT_R3_FUSE` / `RNS_R3_MINK` off;
+E11 / `DM_BAND` dropped for now; MAP's stream dropped (its timeline kept); `int15g` into main as **B2** after its regression;
+the target stays 5.1 × 10¹³ (re-chosen after P24). Standing estimate (RESULTS §88, modelled): ≈ 6.8 / 7.1 min without / with
+the packed write, the cache at 0 slots.
+
+**Batch 3** (agents in parallel; node time in this order):
+
+| # | agent | item | expected (modelled, 5.1 × 10¹³) | effort |
+|---|---|---|---|---|
+| 1 | **P24** | 24 digits per transform point in the mn tier's four-prime products (SC15) | ≈ −95 s without the cache; the grid steps move ≈ 4/3 | 1.5–3 weeks, staged |
+| 2 | **DKM** | the division in two quotient halves with a half-length reciprocal (GMP mu_div) | ≈ −32 / −16 s (without / with the write) | ≈ 1 week, staged |
+| 3 | **MPB** | four primes by min(pa, pb) instead of pa + pb | ≈ −9 s | ≤ 1 day |
+| 4 | (after DKM) | a partial transform cache inside 480 GB (CX15's proposals) | up to −26.7 s | 2–4 days |
+| — | **DOC2** | the documents and models for B2 | — | — |
+
+Each staged item commits a design note first and stops if not safe or not worth it; every new behavior behind a switch,
+off by default; one combined decision list at the end of the batch.
