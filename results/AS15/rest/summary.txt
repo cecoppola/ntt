@@ -1,0 +1,10 @@
+# tag digits mode | total | init | bs | recip | dm | T1 | remaps (count, s) | dm-remaps | growth | verify | digits | elapsed | node | env
+h13off 130000000000 nw | total 271.36 | init 20.9062 | bs 108.48 | recip 55.64 | dm 141.51 | T1 0.00 | remaps 4 2.52 s | after recip 4 2.52 s | growth 0 | VERIFY OK | - | 274s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+h13on 130000000000 nw | total 267.79 | init 18.3098 | bs 108.43 | recip 55.27 | dm 140.59 | T1 0.00 | remaps 4 2.50 s | after recip 4 2.50 s | growth 0 | VERIFY OK | - | 270s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v3 30000000000 nw | total 43.52 | init 11.9112 | bs 17.96 | recip 6.02 | dm 13.54 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 45s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v5 50000000000 nw | total 70.60 | init 13.704 | bs 29.90 | recip 10.94 | dm 26.82 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 73s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v7 70000000000 nw | total 107.37 | init 14.2949 | bs 44.85 | recip 20.36 | dm 47.97 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 109s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v105 105000000000 nw | total 191.89 | init 18.756 | bs 79.25 | recip 40.62 | dm 93.51 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 194s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v11 110000000000 nw | total 203.97 | init 19.1789 | bs 81.04 | recip 42.60 | dm 103.35 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 206s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+v125 125000000000 nw | total 260.31 | init 19.7862 | bs 103.96 | recip 53.50 | dm 136.13 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 263s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+wc1 100000000000 wc | total 179.84 | init 17.5406 | bs 73.23 | recip 36.31 | dm 88.63 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | identical; digcmp identical | 182s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
