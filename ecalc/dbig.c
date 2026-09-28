@@ -228,6 +228,8 @@ static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
+static int g_stream, g_stream_batch;                 /* Phase 15 MAP: DB_POOL_VMM_STREAM (below) */
+static int vmm_stream_on(void);
 void db_vmm_bg_release(void) { if (vmm_stream_on()) db_tl("the stream is released (%d workers, %d chunks per call)", g_stream, g_stream_batch); else db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
 static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
@@ -391,14 +393,11 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     v->m1 = m1; v->st_on = 0; v->st_sched = 0; v->st_busy = 0; v->st_t0 = 0;
     if (vmm_stream_on()) {                                         /* Phase 15 MAP: nothing mapped here; the stream's workers map every chunk in need order from db_vmm_bg_release */
         pthread_mutex_lock(&g_pool_mx);
-        if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions
-"); }
+        if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions\n"); }
         v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;
         v->st_on = 1;
-        if (db_trace_on()) printf("dbtrace: V %d %zu %zu %d %d %d
-", dev, bytes, C, m0, nslot, v->reg);
-        while (g_stream_active < g_stream) { pthread_t th; g_stream_active++; if (pthread_create(&th, 0, vmm_stream_worker, 0)) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: pthread_create
-"); } pthread_detach(th); }
+        if (db_trace_on()) printf("dbtrace: V %d %zu %zu %d %d %d\n", dev, bytes, C, m0, nslot, v->reg);
+        while (g_stream_active < g_stream) { pthread_t th; g_stream_active++; if (pthread_create(&th, 0, vmm_stream_worker, 0)) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: pthread_create\n"); } pthread_detach(th); }
         pthread_cond_broadcast(&g_vmm_cv);
         pthread_mutex_unlock(&g_pool_mx);
         mem_acct_register(db_acct);
