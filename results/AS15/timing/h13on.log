@@ -1,0 +1,23 @@
+== AS run h13on: 130000000000 nw, env: BS_ARENA_ROOM=0.16; job 21634 on ppac-pl1-s24-26, clone at 1667150, 2026-09-27 18:52:08 CDT
+== ecalc: e to 130000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-26 date=2026-09-27T18:52:09 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+dbig pool: APU1 VMM arena 88.05 GB = 41 chunks of 2.00 GiB, the first 19 mapped in 7.21 s (0.177 s/GB), the rest in the background, VA 266.3 GB reserved at 0x7a3b63a00000
+dbig pool: APU2 VMM arena 88.05 GB = 41 chunks of 2.00 GiB, the first 19 mapped in 10.26 s (0.251 s/GB), the rest in the background, VA 266.3 GB reserved at 0x79bad3e00000
+dbig pool: APU3 VMM arena 88.05 GB = 41 chunks of 2.00 GiB, the first 17 mapped in 11.52 s (0.316 s/GB), the rest in the background, VA 266.3 GB reserved at 0x79fd63800000
+dbig pool: APU0 VMM arena 88.05 GB = 41 chunks of 2.00 GiB, the first 19 mapped in 13.07 s (0.320 s/GB), the rest in the background, VA 266.3 GB reserved at 0x7a7963c00000
+bs: arenas 352.2 GB allocated in 13.07 s (layout pass 0.28 s; dm extra 38.0 GB, tails 117.4 GB)
+      init: region pools 13.34 s (inside rns_init, before the plane pools: the seeds stream into them)
+      init: rns_init 20.05 s, region pools 0.00 s, the rest 0.00 s
+RESULT ecalc init s 20.0489
+      VmRSS 24.4 GB after init (staging 4.3 GB pinned + device regions 352 GB); init 20.0 s
+mem [init] device 455.9 GB in use (per APU 114.0..114.0): planes 103.1, regions 193.3, block pool 158.9 (donated 0.0, borrowed 158.9, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0
+mem [init] host 24.4 GB RSS (HWM 24.4): staging 21.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 2.9
+budget: rank 0 OVER: peak 480.8 GB (device 455.9, host 24.9), still to take 0.0 GB | node of 1 rank: peaks 480.8 of 480 GB, to take 0.0 of MemAvailable 238.2 GB | rank share 480.0 GB -- the node's peaks exceed ECALC_NODE_GB
+ecalc: BUDGET CHECK FAILED (ECALC_BUDGET_CHECK=1) on rank 0 of 1: 1 rank over, the first rank 0 (peak 480.8 GB: device 455.9 + host 24.9; its node's peaks exceed ECALC_NODE_GB); every rank stops before compute, rc 8
+srun: error: ppac-pl1-s24-26: task 0: Exited with exit code 8
+
+real	0m21.138s
+user	0m0.004s
+sys	0m0.014s
