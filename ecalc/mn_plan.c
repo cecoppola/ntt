@@ -308,6 +308,13 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
            (double)d, size, ec_np_auto_terms, g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
+    if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
+        unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
+        int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);
+        double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
+        bs_a0 = a0; bs_b1 = b1; rns_preinit_pool_log(pool_log);
+        rns_dist_cache_plan(size, pool_log, ec_np_planes(pool_log, size), g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], nb);
+    }
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");
     return chk_report((double)d, size);                          /* Phase 15 P: the verdict line; EC_RC_FATAL when a product exceeds the primes */

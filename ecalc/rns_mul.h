@@ -102,6 +102,7 @@ void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig
 int rns_dist_cache_hold(int on);
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
+void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* Phase 15 TC: ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
 void *rns_dpool(int dev, int which, size_t bytes);
 extern int rns_pool_grow; size_t rns_pool_n_grow(void);   /* Phase 12 R: RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort); the count of such growths */
 void rns_copy_probe_issue(int dev, size_t bytes, int level); void rns_copy_probe_report(int level_next); void rns_copy_probe_pair(int i, const uint64_t *dst, const uint64_t *src, size_t limbs);   /* Phase 12 R (D5): ECALC_COPY_PROBE, the odd-node copy against the next level's launch */
