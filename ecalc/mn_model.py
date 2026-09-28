@@ -123,6 +123,9 @@ TARGET_WRITE_BW = 0.6                  # Phase 15: the target's /ssd0 (Lustre ov
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
 TARGET_WRITE_BWS = (2.0, 0.8, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
 TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
+TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
+TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 4.74e13
+TARGET_NODES = mem_model.TARGET_NODES
 TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=2.0)   # the historical reports (e10) at the old 2 GB/s
 
 # aac6: g node-processes on ONE node over a loopback transport (correctness transports; every product's local passes

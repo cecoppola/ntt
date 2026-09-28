@@ -22,6 +22,15 @@ possible**. The apumult source was not available; each technique was reconstruct
 > min) with it at 0.8–0.6 GB/s, 416 GB per node** (modelled; `estimate.py --target`, docs/TARGET.md §1). The 260 → 316–347 s
 > and 264–278 s above were three-prime figures of 2026-09-26. The study's memory figures for the target (434 GB and the like)
 > are on three primes: the fourth prime adds 17.2 GB per node (pool 0 at 16 instead of 12 GiB per APU).
+>
+> **Dated note, 2026-09-28 (Phase 15, agent TGT; the text above and below is kept).** The user's decision of 2026-09-27, 23:50
+> EDT: **the target is 5.1 × 10¹³ digits on 576 nodes** (it was 4.25 × 10¹³). On the same launch line (`ECALC_NP=4`) the standing
+> estimate is **344.7 s (5.75 min) without the disk write and 360–376 s (6.00–6.27 min) with it at 0.8–0.6 GB/s, 455.4 GB per
+> node** (modelled; `estimate.py --target`; 242 pieces on the critical path by the code's own plan, 0 margin to the step at
+> 5.11–5.12 × 10¹³). The part file is 39.35 GB per node packed (22.7 TB in all; ASCII 51.0 TB), the top node's share 9.169 × 10¹⁰
+> digits. The node is now 24.6 GB below 480 GB, so this study's memory items matter more than they did at 4.25 × 10¹³: every
+> saving of the arena is margin at the target, and E-items that cost memory at 576 do not fit (e.g. `MN_T_CHUNK_MB=0`: 490.5 GB).
+> The 4.25 × 10¹³ figures above are history.
 
 Four agents did the work: F1 and F2 (Fable) decoded the six categories against our source; R did online research on
 MI300A memory and storage; M measured the disk and memory behavior on an aac6 node (job 21121). Their reports are
