@@ -69,6 +69,8 @@ B)
     one e9_dev_hi7 1 1000000000 BS_MDEV_LOGL=24 NEWTON_DKM=1 NEWTON_DKM_TEST_HI=7
     one c511_dev 1 511461828 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14
     one c820_dev 1 820719000 BS_MDEV_LOGL=24 NEWTON_DKM=1 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=-44
+    one c511_base 1 511461828 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14                       # control: the switch off, the host flow (stage A's c511_on failed in the patch)
+    one c511_base_ascii 1 511461828 ECALC_OUT_PACKED=0 ECALC_CORR_PATCH=1 ECALC_TEST_CORR=14
     ./mnaccept.sh "$J" --only unit,e9 2>&1 | grep -a '^PASS\|^FAIL\|passed'
     E4=~/ntt/ecalc/results/e_4e10.out
     R "env ECALC_VERBOSE=1 ./ecalc 40000000000 $T/e4.txt" > "$L/e4_off.log" 2>&1; rc=$?
