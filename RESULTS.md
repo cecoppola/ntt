@@ -3775,3 +3775,40 @@ Phase 14 defaults (RESULTS §85) and ≈ 297 s wall on B0 with its ASCII file (�
 182 pieces, 1.2 % below the grid step at 4.29 → 4.30 × 10¹³. Assumed: the fabric, 576 simultaneous writers each at the
 single-stream Lustre rate, the early writer's overlap on the target. Off the clock: the per-node conversion ≈ 92–123 s at
 0.6–0.8 GB/s (modelled, IO215).
+
+## 88. Phase 15 Batch 2, the 5.1 × 10¹³ target, and the transform cache (2026-09-27/28; results/{NP15,AS15,N3x15,M615,MAP15,G515,TGT15,TC15,SC15,PS15,CX15}.md)
+
+Branch `int15g` (1b77b5a) = B1 + NP, AS, N3x, G5, MAP's timeline, TC, PS, CX, SC — every new behavior off by default except
+PS's pool fix (`RNS_POOL1_4Q=1`, which changes only `ECALC_NP=4` runs). Not merged: MAP's `DB_POOL_VMM_STREAM` (both runs
+with it ended in a node reboot), RL (no gain).
+
+**The target** is 5.1 × 10¹³ digits on 576 nodes (the user, 2026-09-27; PLAN §37.1): the code's plan passes (222 pieces,
+242 on the critical path; the step that costs time at 5.12 × 10¹³); later, 4.74 × 10¹³ one step below.
+
+**Measured** (aac6, s24-16 unless noted; digits identical in every run that wrote them):
+- Batch 2 regression with `ECALC_NP=auto BS_ARENA_ROOM=0.16 DIST_TWREC_G=1`: **21/21**; forced three/four-prime mix **7/7**.
+- Paired 10¹¹ series, B1 vs those three switches: `total` 200.9 → 185.1 s without the digit file (4 each), wall 205.3 →
+  191.3 s with it (2 each); dm ≈ 106.5 → 91.4 s (the arena room: 0 remaps).
+- The target's top-node share on one node, 9.169 × 10¹⁰ digits: `ECALC_NP=auto` 159.6 / 163.0 s (388 GB), + the room 156.5 /
+  162.4 s (397 GB); `ECALC_NP=4` failed (a plane pool grew in a phase, rc 6) until PS's fix: 172.4 / 174.0 s, 429.4 GB.
+- `DB_POOL_VMM=0` with the room: slower (init +8 s), more memory (434 vs 418 GB).
+- `DIST_TWREC_G` on 2 real nodes at 10⁹: g = 3 no change (±0.6 s, three pairs); g = 6 224.7 → 211.8 s (one pair).
+- The division's memory at 2 and 4 processes (10¹⁰, `ECALC_LIVE`): peak 55.5 % of its pool, no in-phase growth.
+- **The transform cache (TC, CX):** at the target the code would take 2 × 16 GiB per APU = 137.4 GB per node at tree
+  level 1, counted nowhere (the 455 GB node figure, the budget check, the layout) — the node would be ≈ 593 GB. No memory
+  inside 480 GB holds one full slot. A cache hit saves 24–33 % of a grid piece (measured, `tests/cx_grid`, target-like
+  shapes); `mn_model` refitted (`CACHE_HIT_F` 0.96, the code's own hit counts): 2 slots −80.8 s, 1 slot −53.8 s at 5.1e13.
+  `RNS_DIST_CACHE_FIT=1` (TC) bounds the cache by the budget: 0 slots at the target; gates 15/15.
+
+**576-node estimate (standing rule; modelled, int15g; the fabric assumed)** at 5.1 × 10¹³, the packed write at 0.6 GB/s:
+
+| cache slots | `ECALC_NP=auto`: without / with the write | `ECALC_NP=4` |
+|---|---|---|
+| 2 (does not fit) | 331.0 / 360.4 s | 349.6 / 379.1 s |
+| 1 (does not fit) | 356.1 / 383.8 s | 376.6 / 404.3 s |
+| **0 (what fits)** | **407.1 / 426.2 s (6.8 / 7.1 min)** | 430.4 / 449.6 s |
+
+Node memory ≈ 455 GB (`auto`); `ECALC_NP=4` + PS's fix ≈ 472.6 GB; `BS_ARENA_ROOM` adds ≈ 8.6 GB. CX's proposals (not built)
+hold a partial slot inside 480 GB: up to −26.7 s. SC's Batch 3 ranking (results/SC15.md): P24 (24 digits per point in the
+mn tier, ≈ −95 s without the cache, 1.5–3 weeks), DKM (≈ −32 s), `MN_GROUPS=4,16,64,576` (≈ −30 s, +8.6 GB), min(pa, pb)
+four-prime rule (≈ −9 s).
