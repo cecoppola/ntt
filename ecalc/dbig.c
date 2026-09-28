@@ -302,6 +302,11 @@ static int vmm_stream_on(void)
         const char *e = getenv("DB_POOL_VMM_STREAM"); g_stream = e ? atoi(e) : 0; if (g_stream < 0) g_stream = 0; if (g_stream > DB_NQ) g_stream = DB_NQ;
         e = getenv("DB_POOL_VMM_STREAM_BATCH"); g_stream_batch = e && atoi(e) > 0 ? atoi(e) : 2; if (g_stream_batch > 64) g_stream_batch = 64;
         e = getenv("DB_POOL_VMM_STREAM_REST"); if (e && !atoi(e)) g_stream_rest = 0;
+        /* Phase 15 MAP: both W = 1 runs at 10^11 ended in a node reboot (jobs 21661, 21662, results/MAP15.md 2.3): the stream refuses to run
+         * without DB_POOL_VMM_STREAM_ACK=1, which only a deliberate test on a node the admin can spare should set */
+        if (g_stream && !(getenv("DB_POOL_VMM_STREAM_ACK") && atoi(getenv("DB_POOL_VMM_STREAM_ACK")))) {
+            fprintf(stderr, "DB_POOL_VMM_STREAM=%d: refused -- two test runs with it ended in a node reboot (results/MAP15.md 2.3); DB_POOL_VMM_STREAM_ACK=1 overrides\n", g_stream); exit(2);
+        }
     }
     return g_stream;
 }
