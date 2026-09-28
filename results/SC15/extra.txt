@@ -1,0 +1,14 @@
+# extra variants at 5.1e13, auto unless named (modelled; the fabric assumed)
+auto (B1 + NP)                               |  324.3 |  355.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 138.8 recip 43.8 div 50.3 out 38.9 | node 455.4 GB
+equal digits per node (SHARES=even)          |  325.5 |  356.6 | init 18.7 seed 12.6 batch 23.3 top 25.6 levels 143.2 recip 43.8 div 50.3 out 38.9 | node 455.4 GB
+P24, local passes x 1.05                     |  265.7 |  305.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 108.1 recip 30.6 div 35.6 out 47.5 | node 455.4 GB
+P24, local passes x 1.10                     |  271.2 |  310.2 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 111.7 recip 31.5 div 36.6 out 46.9 | node 455.4 GB
+P24, local passes x 1.20                     |  281.9 |  319.8 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 118.8 recip 33.2 div 38.6 out 45.7 | node 455.4 GB
+P24                                          |  260.3 |  300.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 104.6 recip 29.8 div 34.6 out 48.0 | node 455.4 GB
+MN_GROUPS 2,4,8,16,32,64,576                 |  319.2 |  350.3 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 133.7 recip 43.8 div 50.3 out 38.9 | node 456.1 GB
+P24 + MN_GROUPS 2,4,8,16,32,64,576           |  261.7 |  301.9 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 105.9 recip 29.8 div 34.6 out 48.0 | node 456.1 GB | pieces 76+63+26
+min(pa,pb) + MN_GROUPS 2,4,8,16,32,64,576    |  312.5 |  343.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 127.2 recip 43.6 div 50.3 out 38.9 | node 456.1 GB
+MN_GROUPS 4,16,64,576                        |  311.3 |  342.5 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 125.9 recip 43.8 div 50.3 out 38.9 | node 464.0 GB
+P24 + MN_GROUPS 4,16,64,576                  |  252.3 |  292.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels  96.6 recip 29.8 div 34.6 out 48.0 | node 464.0 GB | pieces 64+63+26
+min(pa,pb) + MN_GROUPS 4,16,64,576           |  305.4 |  336.5 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 120.1 recip 43.6 div 50.3 out 38.9 | node 464.0 GB
+min(pa,pb)                                   |  317.6 |  348.8 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 132.3 recip 43.6 div 50.3 out 38.9 | node 455.4 GB

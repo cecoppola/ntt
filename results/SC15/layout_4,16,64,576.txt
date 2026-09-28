@@ -1,0 +1,7 @@
+== ecalc: e to 51000000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=aac6-fe1 date=2026-09-27T23:26:31 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+plan check  5.1e+13 digits g 576, ECALC_NP=auto: OK -- 1240 products; the largest piece 1062500000004 limbs (dist_mn j 354166666667 -> 708333333334 Q_t r (g 576): piece 708333333336 + 354166666668 = 1062500000004 limbs), bound per product (four primes over 58424467928 terms: 131 of 240 pieces); the longest transform 2^40 of 2^44 (the roots' limit)
+layout: D 8.854e+10 g 576 d 51000000000012 N 4184661447309 nq 2833333333340 k 2833333333340 tcap 5666666666688 | hole 19983408640 dm_need 71035509920 (top scratch 14201863840) tree_need 73256921934 want 73256921934 | bs regions 201804742656 arena 293030854656 (node, bytes) | tight 1 tail_dead 0 jl 1416666666670 v2 56833646080 v3 56506859008 div 55452434432 early_free 1 room 0 chunk 0 room_planes 0
+planes: D 8.854e+10 g 576 np 3 | cap 2^30: planes 69.33 arena 279.16 device 348.49 node 370.08 | cap 3*2^29: planes 90.81 arena 279.16 device 369.98 node 391.57 | cap 2^31*: planes 120.88 arena 293.03 device 413.91 node 435.50 | cap 3*2^30: planes 181.01 arena 293.03 device 474.04 node 495.63 | (GB; device = plane pools + arena + 0.61 tables, node = + host init 21.6)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 0 products 0.00 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
