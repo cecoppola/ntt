@@ -1,0 +1,16 @@
+# tag digits mode | total | init | bs | recip | dm | T1 | remaps (count, s) | dm-remaps | growth | verify | digits | elapsed | node | env
+c1 100000000000 nw | total 177.73 | init 17.5587 | bs 71.33 | recip 36.58 | dm 88.48 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 180s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16 DB_POOL_TRACE=1
+q4off 40000000000 nw | total 57.14 | init 11.497 | bs 24.04 | recip 9.33 | dm 21.45 | T1 0.00 | remaps 2 0.44 s | after recip 2 0.44 s | growth 0 | VERIFY OK | - | 59s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+q4on 40000000000 nw | total 56.98 | init 11.4823 | bs 24.48 | recip 9.30 | dm 20.87 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 59s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+n1a 100000000000 nw | total 180.59 | init 19.2609 | bs 72.36 | recip 36.66 | dm 88.62 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 183s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+n0a 100000000000 nw | total 195.82 | init 19.5212 | bs 72.77 | recip 37.63 | dm 103.17 | T1 0.00 | remaps 15 9.36 s | after recip 9 8.31 s | growth 3 | VERIFY OK | - | 198s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+n1b 100000000000 nw | total 179.87 | init 18.2978 | bs 72.90 | recip 36.57 | dm 88.32 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 182s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+n0b 100000000000 nw | total 189.22 | init 16.9898 | bs 72.14 | recip 37.58 | dm 99.74 | T1 0.00 | remaps 15 5.83 s | after recip 9 4.79 s | growth 3 | VERIFY OK | - | 192s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+n1c 100000000000 nw | total 178.56 | init 18.0073 | bs 71.69 | recip 36.57 | dm 88.51 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 181s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+n0c 100000000000 nw | total 190.60 | init 18.4265 | bs 72.12 | recip 37.73 | dm 99.69 | T1 0.00 | remaps 15 5.55 s | after recip 9 4.52 s | growth 3 | VERIFY OK | - | 193s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+w1a 100000000000 w | total 180.06 | init 17.2521 | bs 73.27 | recip 36.83 | dm 89.19 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | identical | 183s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+w0a 100000000000 w | total 194.24 | init 17.4329 | bs 72.44 | recip 37.91 | dm 104.01 | T1 0.00 | remaps 15 9.20 s | after recip 9 8.13 s | growth 3 | VERIFY OK | identical | 197s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+w1b 100000000000 w | total 179.16 | init 16.8958 | bs 72.38 | recip 36.74 | dm 89.52 | T1 0.00 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | identical | 181s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
+w0b 100000000000 w | total 195.70 | init 18.965 | bs 72.60 | recip 37.60 | dm 103.78 | T1 0.00 | remaps 15 9.43 s | after recip 9 8.40 s | growth 3 | VERIFY OK | identical | 198s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+h13off 130000000000 nw | total 268.73 | init 20.4112 | bs 108.35 | recip 54.83 | dm 139.51 | T1 0.00 | remaps 4 2.45 s | after recip 4 2.45 s | growth 0 | VERIFY OK | - | 271s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0
+h13on 130000000000 nw | total  | init 20.0489 | bs  | recip  | dm  | T1  | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 8 | - | 21s | ppac-pl1-s24-26 | BS_ARENA_ROOM=0.16
