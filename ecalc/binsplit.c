@@ -228,7 +228,8 @@ uint64_t *binsplit_take_hpool(size_t *cap_limbs)
 static int g_in_pregrow;                            /* Phase 14 R1 (DB_POOL_VMM): pool_get inside binsplit_pregrow (the sizing pass) */
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
-    if (which == 1 && g_arena[r].vmm && !g_in_pregrow && in_arena(r, g_pool[1][r])) db_vmm_arena_wait(g_arena[r].dev, 2 * g_arena[r].half);   /* Phase 14 R1: the parity-1 half is mapped in the background during the seeds (its first use is level 1's outputs; pregrow's own pool_get must not wait, or the mapping runs inside init) */
+    if (which == 1 && g_arena[r].vmm && !g_in_pregrow && in_arena(r, g_pool[1][r])) db_vmm_arena_wait(g_arena[r].dev, 2 * g_arena[r].half);
+    if (which == 0 && g_arena[r].vmm && !g_in_pregrow && in_arena(r, g_pool[0][r])) db_vmm_arena_wait(g_arena[r].dev, g_arena[r].half);   /* Phase 15 MAP (DB_POOL_VMM_STREAM): the parity-0 half is streamed too (a no-op otherwise: it is mapped inside pregrow); the seed thread waits per DMA instead */   /* Phase 14 R1: the parity-1 half is mapped in the background during the seeds (its first use is level 1's outputs; pregrow's own pool_get must not wait, or the mapping runs inside init) */
     if (g_cap[which][r] < limbs) {
         if (mem_pool_guard && g_pool[which][r]) {         /* Phase 12 R (D5): a region pool growing inside bs -- the layout (binsplit_pregrow) sized it; abort with the accounting unless RNS_POOL_GROW=1 */
             if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
@@ -1242,6 +1243,10 @@ static void seed_stream_pools(struct seed_stream *ss, uint64_t **pool)   /* the 
 {
     pthread_mutex_lock(&ss->mx); for (int r = 0; r < NR; r++) ss->pool[r] = pool[r]; ss->pools_ready = 1; pthread_cond_broadcast(&ss->cv); pthread_mutex_unlock(&ss->mx);
 }
+static void seed_wait_map(struct seed_stream *ss, int dev, const uint64_t *dst, size_t bytes)   /* Phase 15 MAP (DB_POOL_VMM_STREAM): the DMA's target chunks are mapped (counted as waiting for the regions) */
+{
+    double tw = mem_now(); db_vmm_wait_range(dev, dst, bytes); ss->t_wait_pool += mem_now() - tw;
+}
 static int seed_pools_ready(struct seed_stream *ss) { pthread_mutex_lock(&ss->mx); int r = ss->pools_ready; pthread_mutex_unlock(&ss->mx); return r; }
 /* the spans [c0, c1) of region r (first span lo) computed by all threads into dst (dst_c0 = the address of span c0; pad: zero the
  * slack after p and q -- the device regions are zeroed at their allocation, a buffer is not) */
@@ -1288,7 +1293,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
                 pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
                 if (wl) db_tl("seed thread: the region pools are there (waited %.2f s)", mem_now() - tw);
                 tw = mem_now();
-                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; double ti = mem_now(); cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
+                for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; seed_wait_map(ss, dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); double ti = mem_now(); cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
                 ss->t_issue += mem_now() - tw; tw = mem_now();
                 for (int bb = 0; bb < 2; bb++) if (ss->buf_dev[bb] >= 0) { cwait(ss->buf_dev[bb]); ss->buf_dev[bb] = -1; } ss->t_wait_dma += mem_now() - tw;
                 ss->npend = 0;
@@ -1309,7 +1314,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     db_tl("seed thread: every span computed (%d chunks, spans %.2f s)", ss->nchunks, ss->t_span);
     double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
     tw = mem_now();
-    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; double ti = mem_now(); cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
+    for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; seed_wait_map(ss, dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); double ti = mem_now(); cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
     ss->t_issue += mem_now() - tw; tw = mem_now();
     for (int b = 0; b < 2; b++) if (ss->buf_dev[b] >= 0) { cwait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
@@ -1350,7 +1355,7 @@ void binsplit_seeds_begin(unsigned long N)
     pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
     /* B2: the region pools now (the main thread, inside rns_init: the arenas before the plane pools), then the DMAs may start */
     double tp = mem_now(); binsplit_pregrow(N);
-    uint64_t *pool[NR]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
+    uint64_t *pool[NR]; g_in_pregrow = 1; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r)); g_in_pregrow = 0;   /* (Phase 15 MAP: no wait for the chunks here, inside rns_init; the seed thread's DMAs wait for theirs) */
     seed_stream_pools(&g_pre.ss, pool);
     if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init, before the plane pools: the seeds stream into them)\n", mem_now() - tp);
     if (order == 1) { double tj = mem_now(); pthread_join(g_pre.th, 0); g_pre.joined = 1; printf("      init: seeds joined before the plane pools (ECALC_SEED_ORDER=first): %.2f s of waiting, the seeds took %.2f s\n", mem_now() - tj, g_pre.t); }

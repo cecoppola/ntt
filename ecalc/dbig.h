@@ -41,6 +41,7 @@ size_t db_pool_vmm_chunk(void);                      /* Phase 15 AS: the VMM are
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
 void db_vmm_arena_wait(int dev, size_t bytes);
 void db_vmm_bg_release(void);
+void db_vmm_wait_range(int dev, const void *p, size_t bytes);   /* Phase 15 MAP (DB_POOL_VMM_STREAM): [p, p + bytes) of the VMM arena is mapped (no-op elsewhere) */
 int db_tl_on(void);                                   /* Phase 15 MAP: ECALC_INIT_TL=1 -- init's timeline (print only) */
 void db_tl_start(void);
 double db_tl_now(void);
