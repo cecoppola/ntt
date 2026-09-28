@@ -1247,6 +1247,20 @@ __global__ void k_pack_cols_g(const uint64_t *x, uint64_t *sb, const struct rkt 
 }
 static size_t gp_rk(const struct gplan *p, int k) { return p->rows * (k + 1) / p->K - p->rows * k / p->K; }
 static size_t gp_nmax(const struct gplan *p, int k) { size_t mx = 0; for (int r = 0; r < p->nr; r++) if (p->hT[(size_t)k * p->nr + r].n > mx) mx = p->hT[(size_t)k * p->nr + r].n; return mx; }
+/* Phase 15 G5: DIST_STATS=1 -- the general map's twiddled packs timed by events per APU (the host waits for each: a stats-mode
+ * perturbation); g_gpk[d][0] the forward packs, [1] the inverse unpacks, seconds summed over the run; mn_core prints them */
+static double g_gpk[NR][2]; static hipEvent_t g_gev[NR][2];
+static int gpk_begin(hipStream_t s, int *dev)
+{
+    if (!dist_st.on) return 0;
+    HIP_CHECK(hipGetDevice(dev)); if (!g_gev[*dev][0]) { HIP_CHECK(hipEventCreate(&g_gev[*dev][0])); HIP_CHECK(hipEventCreate(&g_gev[*dev][1])); }
+    HIP_CHECK(hipEventRecord(g_gev[*dev][0], s)); return 1;
+}
+static void gpk_end(hipStream_t s, int dev, int which)
+{
+    float ms; HIP_CHECK(hipEventRecord(g_gev[dev][1], s)); HIP_CHECK(hipEventSynchronize(g_gev[dev][1]));
+    HIP_CHECK(hipEventElapsedTime(&ms, g_gev[dev][0], g_gev[dev][1])); g_gpk[dev][which] += ms * 1e-3;
+}
 static void gen_fwd(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx, int prime, comm *cl, uint64_t *x, uint64_t *sb, uint64_t *rb, hipStream_t s)
 {
     ec_mod m = ec_mod_get(prime); int nr = p->nr;
@@ -1254,7 +1268,10 @@ static void gen_fwd(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx, in
     for (int k = 0; k < p->K; k++) {
         size_t i0l = p->rows * k / p->K, rk = gp_rk(p, k);
         dim3 grid((unsigned)(p->C / 32), (unsigned)((rk + 31) / 32)), blk(32, 8);
-        k_twpack_g<<<grid, blk, 0, s>>>(x + i0l * p->C, sb + p->regs[k], rk, p->row0 + i0l, p->logC, nr, pl->twr, pl->twc, m);
+        int dv, st = gpk_begin(s, &dv);
+        if (twrec_g()) k_twpack_gr<<<grid, blk, 0, s>>>(x + i0l * p->C, sb + p->regs[k], rk, p->row0 + i0l, p->logC, pl->twr, pl->twc, m);   /* Phase 15 G5 */
+        else k_twpack_g<<<grid, blk, 0, s>>>(x + i0l * p->C, sb + p->regs[k], rk, p->row0 + i0l, p->logC, nr, pl->twr, pl->twc, m);
+        if (st) gpk_end(s, dv, 0);
         comm_alltoallv(cl, sb, p->fsc + (size_t)k * nr, p->fsd + (size_t)k * nr, rb, p->frc + (size_t)k * nr, p->frd + (size_t)k * nr, s);   /* (posting k completes k - 1) */
     }
     for (int k = 0; k < p->K; k++) comm_wait(cl);                                          /* one wait per post (the last completes the last chunk) */
@@ -1273,7 +1290,10 @@ static void gen_inv_pw(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx,
         if (k == 0) continue;
         int kk = k - 1; size_t i0l = p->rows * kk / K, rk = gp_rk(p, kk);                  /* chunk k - 1 has arrived: unpack, twiddle, row inverse under the wire of chunk k */
         dim3 grid((unsigned)(p->C / 32), (unsigned)((rk + 31) / 32)), blk(32, 8);
-        k_unpacktw_g<<<grid, blk, 0, s>>>(rb + p->regs[kk], x + i0l * p->C, rk, p->row0 + i0l, p->logC, nr, pl->twr_i, pl->twc_i, m);
+        int dv, st = gpk_begin(s, &dv);
+        if (twrec_g()) k_unpacktw_gr<<<grid, blk, 0, s>>>(rb + p->regs[kk], x + i0l * p->C, rk, p->row0 + i0l, p->logC, pl->twr_i, pl->twc_i, m);   /* Phase 15 G5 */
+        else k_unpacktw_g<<<grid, blk, 0, s>>>(rb + p->regs[kk], x + i0l * p->C, rk, p->row0 + i0l, p->logC, nr, pl->twr_i, pl->twc_i, m);
+        if (st) gpk_end(s, dv, 1);
         ntt_inv(ctx, x + i0l * p->C, p->logC, rk, s);                                     /* rows: length-C inverse, x C^-1 */
     }
 }
@@ -1594,6 +1614,10 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     tm->redistribute += mr; tm->ntt += mf; tm->crt += mc; tm->out += mo; tm->carry += tcar; tm->total += tt;
     if (verbose) printf("dist_mn node %d: 2^%d = 2^%d x 2^%d over %d x 4 ranks%s%s (rows %zu..%zu; %zu + %zu%s limbs at %zu, window [%zu, %zu) of share [%zu, %zu)%s): redistribute %.3f ntt %.3f crt %.3f out %.3f spills+carry %.3f total %.3f s%s%s\n",
                         node, logn, logR, logC, g, gen ? " (general map)" : "", ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", R / nr, (R + nr - 1) / nr, na, nb, X ? " + x" : "", shift, tlo, thi, clo, chi, direct ? "" : ", accumulated", mr, mf, mc, mo, tcar, tt, ha >= 0 ? " [A hit]" : slA >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : slB >= 0 ? " [B cached]" : "");
+    if (gen && dist_st.on) {                                  /* Phase 15 G5: the general map's twiddled packs, the run so far (max over the APUs) */
+        double f = 0, u = 0; for (int d = 0; d < NR; d++) { if (g_gpk[d][0] > f) f = g_gpk[d][0]; if (g_gpk[d][1] > u) u = g_gpk[d][1]; }
+        printf("dist_mn node %d: general-map packs so far (%s, max over APUs): twpack %.3f unpacktw %.3f s\n", node, twrec_g() ? "DIST_TWREC_G=1" : "plain", f, u);
+    }
 }
 mdbv mdb_view(const mdb *m, size_t off, size_t len, mn_group *G)
 {
