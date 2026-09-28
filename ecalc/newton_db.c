@@ -926,8 +926,121 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
  * t_recip: the reciprocal's seconds.  Mirrors newton_db_divmod_shifted with S = P + Q. */
 void (*newton_mn_pq_hook)(int stage, mdb *x) = 0;   /* Phase 13 N (mn.c): 0 = before S = P + Q overwrites P, 1 = before Q is freed */
 void (*newton_mn_x_hook)(mdb *X, void *arg) = 0; void *newton_mn_x_arg = 0;   /* Phase 15 IO (W5d): the part file streamed during the low product (ecalc.c, MN_OUT_EARLY) */
+/* ---- Phase 15 DKM (results/DKM15.md 1.2): newton_mn_divmod in two quotient halves ------------------------------------------- */
+/* Xo = ((Sx >> (nq - 1 - dl)) mu) >> (k + 1) in basis (its length + 1: room for the +1 corrections); mu has exactly k + 1 limbs */
+static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, const mdb *mu, mn_group *G)
+{
+    mdb Ah, t; memset(&Ah, 0, sizeof Ah); memset(&t, 0, sizeof t);
+    size_t sh = nq - 1 - dl;
+    mdb_shift(&Ah, Sx, (long)sh, Sx->n > sh ? Sx->n - sh : 1, G);
+    if (!Ah.n) { mdb_shift(Xo, &Ah, 0, 2, G); mfree(&Ah); return; }   /* X = 0 (the shift of a zero is a zero, collectively) */
+    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut_x1(&t, &Ah, mu, G, k + 1, (size_t)-1); else mn_prod(&t, &Ah, mu, G);
+    mfree(&Ah);
+    mdb_shift(Xo, &t, (long)(k + 1), (t.n > k + 1 ? t.n - (k + 1) : 1) + 1, G); mfree(&t);
+}
+/* mu's top m limbs (a copy in basis m; mu itself when it has exactly m) */
+static void mn_dkm_top(mdb *Y, const mdb *mu, size_t m, mn_group *G) { mdb_shift(Y, mu, (long)(mu->n - m), m, G); }
+/* the low product X Q mod B^w in basis w (as newton_mn_divmod: A5's cut, NEWTON_LOWPROD=0 the full product); X = 0: a zero */
+static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
+{
+    mdb xq; memset(&xq, 0, sizeof xq);
+    if (!Xn->n) { mdb_shift(xql, Xn, 0, w, G); return; }
+    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut_x1(xql, Xn, Q, G, 0, w); if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; } }
+    else { mn_prod(&xq, Xn, Q, G); mdb_shift(xql, &xq, 0, w, G); mfree(&xq); }
+}
+/* R from the window and xq (both basis w, consumed): newton_mn_divmod's corrections; returns the change to X */
+static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, const char *who)
+{
+    size_t nc = 0; long dx = 0;
+    if (mdb_cmp(Aw, xql, G) >= 0) {
+        mdb_addsub(Aw, Aw, xql, 1, G); mfree(xql); *Rd = *Aw; memset(Aw, 0, sizeof *Aw);
+        while (mdb_cmp(Rd, Qw, G) >= 0) { mdb_addsub(Rd, Rd, Qw, 1, G); dx++; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod (DKM %s): %zu corrections\n", who, nc); } }
+    } else {
+        mdb_addsub(xql, xql, Aw, 1, G); mfree(Aw); *Rd = *xql; memset(xql, 0, sizeof *xql);
+        for (;;) { dx--; if (++nc > 64) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod (DKM %s): %zu corrections\n", who, nc); }
+                   if (mdb_cmp(Rd, Qw, G) <= 0) { mdb_addsub(Rd, Qw, Rd, 1, G); break; } mdb_addsub(Rd, Rd, Qw, 1, G); }
+    }
+    return dx;
+}
+static void mn_dkm_add(mdb *Y, long dx, mn_group *G) { if (dx) mdb_add_val(Y, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G); }
+static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
+{
+    double t0 = mem_now(); int me = G->me;
+    memset(&mn_st, 0, sizeof mn_st);
+    size_t nq = Q->n;
+    mdb_mod_qs(P, qs, nres, pres, G); mdb_mod_qs(Q, qs, nres, qres, G);
+    size_t na_est = P->n + 1 + dl, k_mu = na_est - nq + 1, h_mu = newton_dkm_h(k_mu);
+    mdb mu; memset(&mu, 0, sizeof mu);
+    recip_mn(&mu, Q, h_mu, G);                                         /* the chain to h: one doubling fewer */
+    double ta = mem_now(); *t_recip = ta - t0;
+    double p_rec = mn_st.t_prod;
+    mdb Qp, S; memset(&Qp, 0, sizeof Qp); memset(&S, 0, sizeof S);
+    mdb_shift(&Qp, Q, 0, P->N, G);
+    if (newton_mn_pq_hook) newton_mn_pq_hook(0, P);
+    mdb_addsub(P, P, &Qp, 0, G); mfree(&Qp); S = *P; memset(P, 0, sizeof *P);
+    size_t na = S.n + dl, k = na - nq + 1, w = nq + 2;
+    if (!nq || na < nq) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: A < Q not supported\n"); }
+    if (dl + 1 > nq) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod: dl >= nq\n"); }
+    size_t s = k / 2 < dl ? k / 2 : dl, k1 = k - s, h = k1 > s + 1 ? k1 : s + 1;
+    if (!s) { ec_fatal(EC_RC_FATAL, "newton_mn_divmod (DKM): k %zu dl %zu leave no low half\n", k, dl); }
+    if (mu.n < h + 1) { if (me == 0) printf("divmod(mn) DKM: mu has %zu limbs, h %zu: a fresh reciprocal\n", mu.n, h); mfree(&mu); recip_mn(&mu, Q, h, G); }
+    double tb = mem_now();
+    /* step 1: X_hi, R1 of A >> s = S B^(dl - s) */
+    mdb m1, Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
+    memset(&m1, 0, sizeof m1); memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
+    memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
+    mn_dkm_top(&m1, &mu, k1 + 1, G);
+    mn_dkm_est(&Xh, &S, dl - s, nq, k1, &m1, G); mfree(&m1);
+    { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
+    mdb_shift(&Aw, &S, -(long)(dl - s), w, G); mfree(&S);              /* the window (S's last use) */
+    mdb_shift(&Qw, Q, 0, w, G);
+    mn_dkm_low(&xql, &Xh, Q, w, G);
+    long dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
+    mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
+    newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
+    double tc = mem_now();
+    /* step 2: X_lo, R of A2 = R1 B^s */
+    size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
+    if (na2 >= nq) { mdb m2; memset(&m2, 0, sizeof m2); if (mu.n == k2 + 1) { m2 = mu; memset(&mu, 0, sizeof mu); } else { mn_dkm_top(&m2, &mu, k2 + 1, G); mfree(&mu); }
+                     mn_dkm_est(&Xl, &R1, s, nq, k2, &m2, G); mfree(&m2); }
+    else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
+    mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1);
+    { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k; a borrow out of X_lo is fatal) */
+    {   /* X0 = X_hi B^s + X_lo0, then in the basis of its length (as today's X) */
+        size_t NX = (Xh.n + s > Xl.n ? Xh.n + s : Xl.n) + 1;
+        mdb_shift(&Xs, &Xh, -(long)s, NX, G); mfree(&Xh);
+        mdb_shift(&Xl2, &Xl, 0, NX, G);
+        mdb_addsub(&Xs, &Xs, &Xl2, 0, G); mfree(&Xl2);
+        mdb_shift(&Xn, &Xs, 0, Xs.n ? Xs.n : 1, G); mfree(&Xs);
+    }
+    newton_x_dx = 0;
+    if (newton_mn_x_hook) newton_mn_x_hook(&Xn, newton_mn_x_arg);     /* Phase 15 IO (W5d): the writer starts on X0, before step 2's low product */
+    double td = mem_now();
+    mn_dkm_low(&xql, &Xl, Q, w, G); mfree(&Xl);
+    rns_dist_cache_hold(0); rns_dist_cache_release();
+    if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
+    mfree(Q);
+    double te = mem_now();
+    long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
+    if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
+    if (dx && newton_x_defer) newton_x_dx = dx;                       /* Phase 15 K (ECALC_CORR_PATCH=2) */
+    else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
+    mfree(&Qw);
+    double tf = mem_now();
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) end");
+    mdb_mod_qs(&Rd, qs, nres, rres, G);
+    mfree(&Rd);
+    if (X->sh.cap) db_free(&X->sh);
+    *X = Xn;
+    newton_st.t_div += mem_now() - ta;
+    if (me == 0) printf("divmod(mn, DKM) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu + assembly %.2f, X_lo Q %.2f, corrections %.2f (%ld), R residues %.2f; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
+                        mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, mem_now() - tf, mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
+    if (me == 0) printf("scratch(mn): mdb_shift slabs %.3f GB per node-process at most (MDB_SHIFT_CHUNK_MB=%s), window temporaries T + rbO %.3f GB (MN_T_CHUNK_MB=%s)\n",
+                        mn_st.shift_max * 1e-9, getenv("MDB_SHIFT_CHUNK_MB") ? getenv("MDB_SHIFT_CHUNK_MB") : "1024", rns_dist_tscratch_max * 1e-9, getenv("MN_T_CHUNK_MB") ? getenv("MN_T_CHUNK_MB") : "1024");
+}
 void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
 {
+    if (newton_dkm_on() && dl >= 1 && P->n + 1 + dl >= Q->n + 4) { mn_divmod_dkm(X, P, Q, dl, G, qs, nres, pres, qres, rres, t_recip); return; }   /* Phase 15 DKM (k_mu >= 5) */
     double t0 = mem_now(); int me = G->me;
     memset(&mn_st, 0, sizeof mn_st);
     size_t nq = Q->n;
