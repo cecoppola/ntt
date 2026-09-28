@@ -1,0 +1,87 @@
+== t_mul ==
+META bench=t_mul host=ppac-pl1-s24-16 date=2026-09-27T18:24:23
+-- 1. pool 2^20: tiers and boundaries
+   tiny 3x5 uniform                             mdev 0 split 0 school 1  0.000 s
+   school below 2^10 511x512 uniform            mdev 0 split 0 school 1  0.000 s
+   exactly 2^10 -> mdev 512x512 uniform         mdev 0 split 0 school 1  0.000 s
+   just over 2^10 513x512 uniform               mdev 1 split 0 school 0  0.100 s
+   unbalanced small 1000x30 uniform             mdev 1 split 0 school 0  0.000 s
+   exactly the pool 524288x524288 uniform       mdev 1 split 0 school 0  0.012 s
+      NTT_R3_FUSE=1: the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass (k >= 13)
+   one over the pool -> karatsuba 524289x524288 uniform mdev 3 split 1 school 0  0.008 s
+   over, uneven 524295x524285 uniform           mdev 3 split 1 school 0  0.007 s
+   2x pool -> karatsuba 1048576x1048576 uniform mdev 5 split 2 school 0  0.011 s
+   chunked 24:1 3145728x131072 uniform          mdev 4 split 0 school 0  0.011 s
+   chunked 1:24 (swapped) 131072x3145728 uniform mdev 4 split 0 school 0  0.010 s
+   ratio 4: karatsuba 2-piece 2097157x524291 uniform mdev 14 split 7 school 0  0.022 s
+   10x pool, two levels 5242880x5242880 uniform mdev 81 split 40 school 0  0.146 s
+-- 2. pool 2^31: paper's boundaries and the 2^31-point mdev
+   2^31 pool 65536 x 65536 limbs        0.002 s: repack 0.000 h2d 0.000 fwd 0.001 inv 0.000 d2h 0.000 crt 0.000
+   2^31 pool 131071 x 131071 limbs      0.001 s: repack 0.000 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.000 crt 0.000
+   2^31 pool 131072 x 131072 limbs      0.001 s: repack 0.000 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.000 crt 0.000
+   2^31 pool 262143 x 262143 limbs      0.002 s: repack 0.001 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.001 crt 0.001
+   2^31 pool 262144 x 262144 limbs      0.002 s: repack 0.001 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.001 crt 0.001
+   2^31 pool 1048576 x 1048576 limbs    0.021 s: repack 0.017 h2d 0.000 fwd 0.001 inv 0.000 d2h 0.002 crt 0.003
+   2^31 pool 16777216 x 16777216 limbs  0.064 s: repack 0.020 h2d 0.001 fwd 0.003 inv 0.001 d2h 0.036 crt 0.003
+   2^31 pool 67108864 x 67108864 limbs  0.195 s: repack 0.072 h2d 0.002 fwd 0.012 inv 0.006 d2h 0.091 crt 0.058
+   2^31 pool 134217728 x 134217728 limbs 0.360 s: repack 0.120 h2d 0.003 fwd 0.024 inv 0.013 d2h 0.176 crt 0.084
+   2^31 pool 268435456 x 268435456 limbs 0.490 s: repack 0.197 h2d 0.009 fwd 0.048 inv 0.027 d2h 0.164 crt 0.114
+   2^31 pool 1073741824 x 1073741824 limbs 1.737 s: repack 0.793 h2d 0.026 fwd 0.195 inv 0.099 d2h 0.445 crt 0.769
+RESULT t_mul mdev_2e31_total s 1.7373
+RESULT t_mul mdev_2e31_crt s 0.769347
+RESULT t_mul mdev_2e31_ntt s 0.294541
+   2^31 pool 1073741824 x 1073741824 limbs 1.454 s (layout 1): repack 0.758 h2d 0.026 fwd 0.197 inv 0.099 d2h 0.192 crt 0.454
+RESULT t_mul mdev_2e31_total_layout1 s 1.45398
+RESULT t_mul mdev_2e31_crt_layout1 s 0.453734
+   2^31 pool 1073741824 x 1073741824 limbs 1.847 s (layout 0): repack 0.865 h2d 0.024 fwd 0.199 inv 0.099 d2h 0.483 crt 0.690
+RESULT t_mul mdev_2e31_total_layout0 s 1.84716
+RESULT t_mul mdev_2e31_crt_layout0 s 0.689551
+   pair 4096 limbs: 0.002 s, 2 mdev (fwd 0.001)
+   pair 1048576 limbs: 0.020 s, 2 mdev (fwd 0.003)
+   pair 134217733 limbs: 0.444 s, 2 mdev (fwd 0.055)
+-- 4. batch: N products of <= 2^logL points, GPU and CPU CRT, registered and staged operands
+   running grpB: 200 A x one B, 2^14 (need 3942892 limbs, pool 0x2d000000)
+   grpB: 200 A x one B, 2^14          N=200    0.007 s  0.47 Gpoint/s
+   running grpB: CPU CRT (need 6448 limbs, pool 0x27800000)
+   grpB: CPU CRT                      N=5      0.001 s  0.00 Gpoint/s
+   running grpB staged (need 1451460 limbs, pool 0x29cd4570)
+   grpB staged                        N=300    0.024 s  0.05 Gpoint/s
+   running grpB: 3000 x 2^17, tiles (need 457871720 limbs, pool 0x75c708800000)
+   grpB: 3000 x 2^17, tiles           N=3000   0.064 s  6.15 Gpoint/s
+   running 2^22 (max) (need 85072304 limbs, pool 0x75c7ba400000)
+   2^22 (max)                         N=12     0.394 s  0.13 Gpoint/s
+   running 2^20 CPU CRT (need 9766242 limbs, pool 0x75f7e7200000)
+   2^20 CPU CRT                       N=6      0.034 s  0.18 Gpoint/s
+   running N < 8: CPU CRT (need 8138 limbs, pool 0x31a00000)
+   N < 8: CPU CRT                     N=5      0.002 s  0.00 Gpoint/s
+   running N = 8: GPU CRT (need 14408 limbs, pool 0x31a00000)
+   N = 8: GPU CRT                     N=8      0.001 s  0.01 Gpoint/s
+   running many tiny (need 1536624 limbs, pool 0x29e00000)
+   many tiny                          N=1000   0.109 s  0.01 Gpoint/s
+   running 2^12 (need 1896914 limbs, pool 0x37600000)
+   2^12                               N=300    0.002 s  0.73 Gpoint/s
+   running 2^14 (need 4980770 limbs, pool 0x75f7e9600000)
+   2^14                               N=200    0.004 s  0.89 Gpoint/s
+   running 2^17 (need 19461596 limbs, pool 0x75c7c0600000)
+   2^17                               N=100    0.016 s  0.81 Gpoint/s
+   running 2^18 (need 15586186 limbs, pool 0x75c7c2400000)
+   2^18                               N=40     0.029 s  0.36 Gpoint/s
+   running 2^14 staged (unregistered) (need 4988434 limbs, pool 0x75f8001d9010)
+   2^14 staged (unregistered)         N=200    0.015 s  0.21 Gpoint/s
+   running tiny staged, CPU CRT (need 8448 limbs, pool 0x28224b30)
+   tiny staged, CPU CRT               N=5      0.003 s  0.00 Gpoint/s
+   running 2^14 x 40000: several tiles (need 982577818 limbs, pool 0x75c5f5200000)
+   2^14 x 40000: several tiles        N=40000  0.140 s  4.67 Gpoint/s
+RESULT t_mul batch_2e14_Gpoints_per_s Gpoint/s 4.67311
+-- 4b. batch-local: device-pool products in pairs sharing B (RNS_BATCH_PAIR 1 / 0)
+   2^12, 40 pairs                                   N=80    pair 0.085 s  unpaired 0.001 s
+   2^14, 300 pairs (fused pointwise)                N=600   pair 0.017 s  unpaired 0.006 s
+   3*2^15, 120 pairs                                N=240   pair 0.036 s  unpaired 0.031 s
+   3*2^18, 8 pairs                                  N=16    pair 0.065 s  unpaired 0.060 s
+   3*2^11, 8 pairs (local min)                      N=16    pair 0.003 s  unpaired 0.001 s
+   2^16, 90 pairs, 60 MB tiles                      N=180   pair 0.025 s  unpaired 0.033 s
+   3*2^16, 30 pairs, 30 MB tiles (one pair per tile) N=60    pair 0.054 s  unpaired 0.059 s
+   3*2^13, 33 pairs (odd count per device)          N=66    pair 0.009 s  unpaired 0.004 s
+VmHWM 114.2 GB
+
+t_mul: VERIFY OK (189 checks)

@@ -1,0 +1,5 @@
+/shared/prerelease/home/mpo_2026/chcoppola/N3x15/t_ntt3.log:t_ntt3: VERIFY OK (88 checks)
+/shared/prerelease/home/mpo_2026/chcoppola/N3x15/t_ntt4c.log:t_ntt 4c: VERIFY OK (2650 checks)
+/shared/prerelease/home/mpo_2026/chcoppola/N3x15/t_mul.log:t_mul: VERIFY OK (189 checks)
+/shared/prerelease/home/mpo_2026/chcoppola/N3x15/t_newton.log:t_newton: VERIFY OK (620 checks)
+/shared/prerelease/home/mpo_2026/chcoppola/N3x15/t_dist.log:t_dist: VERIFY OK (55 checks)

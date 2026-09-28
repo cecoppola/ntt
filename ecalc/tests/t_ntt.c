@@ -15,6 +15,8 @@
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
  * Usage: t_ntt [LOGMAX (31)] [4c: section 4c only]
+ *        t_ntt hash [KMAX2 KMAX3]   (Phase 15 N3x: output hashes of every transform, for old / new diffs)
+ *        t_ntt r3bench [KMIN KMAX]  (Phase 15 N3x: the fused radix-3 pass against the separate one, and 2^(k+2))
  */
 #include "harness.h"
 #include "../ntt.h"
@@ -445,8 +447,131 @@ static int bench(int LOGMAX, const char *what)
     return verify_done("t_ntt bench");
 }
 
+/* ---- Phase 15 N3x: `t_ntt hash [KMAX2 (31)] [KMAX3 (29)]` and `t_ntt r3bench [KMIN (10)] [KMAX (29)]`.
+ * hash: every transform the code uses -- 2^k (k = 10 .. KMAX2) and 3 2^k (k = 10 .. KMAX3), every prime, batch 1 and 3 (3
+ * while the batch fits 3 2^29 points), forward, inverse and the inverse with the pointwise product in the three y layouts,
+ * fused into the b1 pass (PW_FUSE 10) and not (99) -- on deterministic canonical inputs; one line per case with a
+ * position-dependent device hash of the output.  Run it with the old build and the new one (NTT_R3_FUSE=0 and =1) and diff
+ * the lines: the transforms must be bitwise identical.  T_NTT_OLD builds the mode against a tree without ntt_r3_fuse.
+ * r3bench: ms per call of the 3 2^k forward, inverse and inverse with the pointwise product, NTT_R3_FUSE off and on, and of
+ * the 2^(k+2) transforms of the same products (the pick_len alternative), about 3 2^28 points per call. */
+__device__ static inline uint64_t n3x_mix(uint64_t z)
+{
+    z ^= z >> 30; z *= 0xBF58476D1CE4E5B9ULL; z ^= z >> 27; z *= 0x94D049BB133111EBULL; z ^= z >> 31; return z;
+}
+__global__ void k_n3x_hash(const uint64_t *x, size_t n, unsigned long long *h)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
+    unsigned long long a = 0;
+    for (; i < n; i += st) a += n3x_mix(x[i] + (i + 1) * 0x9E3779B97F4A7C15ULL);
+    atomicAdd(h, a);
+}
+static uint64_t n3x_hash(const uint64_t *x, size_t n)
+{
+    unsigned long long *d, h = 0;
+    HIP_CHECK(hipMalloc(&d, 8)); HIP_CHECK(hipMemset(d, 0, 8));
+    k_n3x_hash<<<228 * 8, 256>>>(x, n, d);
+    HIP_CHECK(hipMemcpy(&h, d, 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipFree(d));
+    return (uint64_t)h;
+}
+static int n3x_hash_mode(int kmax2, int kmax3)
+{
+    if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));   /* as ecalc.c reads it */
+#ifndef T_NTT_OLD
+    printf("== t_ntt hash: NTT_R3_FUSE %d, NTT_MODMUL %d, NTT_PLAN %d, NTT_B1R %d, NTT_B16_BODY %d ==\n", ntt_r3_fuse_get(), ntt_modmul_get(), ntt_plan_get(), ntt_b1r_get(), ntt_b16_body);
+#else
+    printf("== t_ntt hash (old tree): NTT_MODMUL %d, NTT_PLAN %d, NTT_B1R %d, NTT_B16_BODY %d ==\n", ntt_modmul_get(), ntt_plan_get(), ntt_b1r_get(), ntt_b16_body);
+#endif
+    HIP_CHECK(hipSetDevice(0));
+    ntt_ctx *ctx[EC_NP];
+    for (int pr = 0; pr < EC_NP; pr++) ctx[pr] = ntt_ctx_create(pr);
+    const size_t cap = (size_t)1 << 31;                     /* points per buffer */
+    uint64_t *dx, *dy;
+    HIP_CHECK(hipMalloc(&dx, cap * 8)); HIP_CHECK(hipMalloc(&dy, cap * 8));
+    long ncase = 0;
+    double t0 = omp_get_wtime();
+    for (int r3 = 0; r3 < 2; r3++) {
+        if (r3 && !ec_has_radix3()) break;
+        for (int logk = 10; logk <= (r3 ? kmax3 : kmax2); logk++) {
+            const size_t len = (size_t)(r3 ? 3 : 1) << logk;
+            for (int batch = 1; batch <= 3; batch += 2) {
+                if (batch * len > cap || (batch > 1 && batch * len > ((size_t)3 << 29))) continue;
+                const size_t n = batch * len;
+                for (int pr = 0; pr < EC_NP; pr++) {
+                    ntt_ctx *c = ctx[pr];
+                    for (int op = 0; op < 8; op++) {
+                        const uint64_t seed = 0xA5A5ULL + (uint64_t)r3 * 1000003 + (uint64_t)logk * 7919 + (uint64_t)batch * 131 + (uint64_t)pr * 17 + (uint64_t)op;
+                        dev_fill(dx, n, ec_P[pr], seed);
+                        if (op >= 2) dev_fill(dy, n, ec_P[pr], seed ^ 0x5A5A5A5AULL);
+                        int save = ntt_pw_fuse, ym = (op - 2) % 3;
+                        if (op >= 2) ntt_pw_fuse = op < 5 ? 10 : 99;
+                        if (op == 0) { if (r3) ntt_fwd3(c, dx, logk, batch, 0); else ntt_fwd(c, dx, logk, batch, 0); }
+                        else if (op == 1) { if (r3) ntt_inv3(c, dx, logk, batch, 0); else ntt_inv(c, dx, logk, batch, 0); }
+                        else { if (r3) ntt_inv3_pw_y(c, dx, dy, ym, logk, batch, 0); else ntt_inv_pw_y(c, dx, dy, ym, logk, batch, 0); }
+                        ntt_pw_fuse = save;
+                        HIP_CHECK(hipDeviceSynchronize());
+                        static const char *opn[] = {"fwd", "inv", "invpw_full_f", "invpw_bcast_f", "invpw_pair_f", "invpw_full_u", "invpw_bcast_u", "invpw_pair_u"};
+                        printf("H %s2^%d b%d P%d %-14s %016llx\n", r3 ? "3*" : "", logk, batch, pr, opn[op], (unsigned long long)n3x_hash(dx, n));
+                        ncase++;
+                    }
+                }
+            }
+            fflush(stdout);
+        }
+    }
+    printf("t_ntt hash: %ld cases in %.1f s\n", ncase, omp_get_wtime() - t0);
+    for (int pr = 0; pr < EC_NP; pr++) ntt_ctx_free(ctx[pr]);
+    HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
+    return 0;
+}
+#ifndef T_NTT_OLD
+static int n3x_bench(int kmin, int kmax)
+{
+    if (!ec_has_radix3()) { printf("r3bench: no radix-3 primes\n"); return 0; }
+    HIP_CHECK(hipSetDevice(0));
+    const int pr = 0;
+    ntt_ctx *c = ntt_ctx_create(pr);
+    const size_t cap = (size_t)1 << 31;
+    uint64_t *dx, *dy;
+    HIP_CHECK(hipMalloc(&dx, cap * 8)); HIP_CHECK(hipMalloc(&dy, cap * 8));
+    dev_fill(dx, cap, ec_P[pr], 1); dev_fill(dy, cap, ec_P[pr], 2);
+    printf("== t_ntt r3bench: APU0, prime %d, ms per call (median of 5), about 3 2^28 points per call; fused = NTT_R3_FUSE=1 ==\n", pr);
+    printf("%-6s %6s | %8s %8s %6s %8s | %8s %8s %6s %8s | %8s %8s %6s | %8s %8s | %9s %9s %9s %6s %6s\n", "3*2^k", "batch",
+           "fwd3", "fused", "gain", "floor", "inv3", "fused", "gain", "floor", "invpw3", "fused", "gain", "fwd2^k+2", "invpw", "prod3", "prod3f", "prod2^k+2", "3/4", "3f/4");
+    for (int logk = kmin; logk <= kmax; logk++) {
+        int lb = 28 - logk; size_t batch = lb > 0 ? (size_t)1 << lb : 1;
+        float f0, f1, i0, i1, p0, p1, f4, p4, ff, fi;
+        ntt_r3_fuse = 0;
+        TIME_MS(f0, 3, ntt_fwd3(c, dx, logk, batch, 0));
+        TIME_MS(i0, 3, ntt_inv3(c, dx, logk, batch, 0));
+        TIME_MS(p0, 3, ntt_inv3_pw(c, dx, dy, logk, batch, 0));
+        ntt_r3_fuse = 1;
+        int fz = ntt_r3_fusable(logk);
+        TIME_MS(f1, 3, ntt_fwd3(c, dx, logk, batch, 0));
+        TIME_MS(i1, 3, ntt_inv3(c, dx, logk, batch, 0));
+        TIME_MS(p1, 3, ntt_inv3_pw(c, dx, dy, logk, batch, 0));
+        ntt_r3_fuse = 0;
+        TIME_MS(f4, 3, ntt_fwd(c, dx, logk + 2, batch, 0));
+        TIME_MS(p4, 3, ntt_inv_pw(c, dx, dy, logk + 2, batch, 0));
+        TIME_MS(ff, 3, ntt_fwd(c, dx, logk, 3 * batch, 0));          /* the floor: the 2^k transforms of the thirds alone */
+        TIME_MS(fi, 3, ntt_inv(c, dx, logk, 3 * batch, 0));
+        float pr3 = 2 * f0 + p0, pr3f = 2 * f1 + p1, pr4 = 2 * f4 + p4;
+        printf("%-6d %6zu | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% | %8.3f %8.3f | %9.3f %9.3f %9.3f %6.3f %6.3f%s\n", logk, batch,
+               f0, f1, 100 * (1 - f1 / f0), ff, i0, i1, 100 * (1 - i1 / i0), fi, p0, p1, 100 * (1 - p1 / p0), f4, p4, pr3, pr3f, pr4, pr3 / pr4, pr3f / pr4, fz ? "" : "  (no fused form)");
+        fflush(stdout);
+    }
+    ntt_ctx_free(c);
+    HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
+    return 0;
+}
+#endif
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);   /* Phase 15 N3x */
+#ifndef T_NTT_OLD
+    if (argc > 1 && !strcmp(argv[1], "r3bench")) return n3x_bench(argc > 2 ? atoi(argv[2]) : 10, argc > 3 ? atoi(argv[3]) : 29);
+#endif
     if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,mall,h3,h7");   /* Phase 13b K: stride, slo, b1, whole, pass */
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 31;
     int nd = 0, pr, logn;

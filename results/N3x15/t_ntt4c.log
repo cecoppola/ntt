@@ -1,0 +1,31 @@
+== t_ntt: LOGMAX 24, 4 devices, NTT_B16_STG 7 ==
+META bench=t_ntt host=ppac-pl1-s24-16 date=2026-09-27T18:24:21
+-- 4c. NTT_MODMUL / NTT_MALL variants bit-identical to the default
+      NTT_R3_FUSE=1: the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass (k >= 13)
+   MM1                   ok to 2^24
+   MM2                   ok to 2^24
+   MALL16                ok to 2^24
+   MM1+MALL20            ok to 2^24
+   MM2+MALL24            ok to 2^24
+   MALL22                ok to 2^24
+   VAR1                  ok to 2^24
+   VAR2                  ok to 2^24
+   MM1+VAR3              ok to 2^24
+   B1R3                  ok to 2^24
+   MM1+B1R3              ok to 2^24
+   B1R4                  ok to 2^24
+   MM1+B1R4              ok to 2^24
+   MM2+B1R4              ok to 2^24
+   P101                  ok to 2^24
+   MM1+B1R4+P110         ok to 2^24
+   MM1+B1R4+P111         ok to 2^24
+   B1R3+P111             ok to 2^24
+   MM1+B1R4+P120         ok to 2^24
+   MM1+B1R3+P121         ok to 2^24
+   MM1+B1R4+P121         ok to 2^24
+   MM1+MALL20+B1R4+P111  ok to 2^24
+   MM1+B1R4+P1           ok to 2^24
+   MM1+B1R3+P1           ok to 2^24
+   B1R3+P1               ok to 2^24
+
+t_ntt 4c: VERIFY OK (2650 checks)
