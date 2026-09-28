@@ -228,7 +228,7 @@ static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
-static int g_stream, g_stream_batch;                 /* Phase 15 MAP: DB_POOL_VMM_STREAM (below) */
+static int g_stream = -1, g_stream_batch = 2, g_stream_active;   /* Phase 15 MAP: DB_POOL_VMM_STREAM (below); g_stream_active: live workers (under g_pool_mx) */
 static int vmm_stream_on(void);
 void db_vmm_bg_release(void) { if (vmm_stream_on()) db_tl("the stream is released (%d workers, %d chunks per call)", g_stream, g_stream_batch); else db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -292,7 +292,7 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
  * (db_vmm_arena_wait, db_vmm_wait_range, db_donate_adjacent, vmm_make_room) reads it.  The seed thread's DMAs wait for the chunks
  * they write (db_vmm_wait_range), level 1 for its parity-1 half as before.  Each unit is zeroed on the device before it counts as
  * mapped (as the background thread did). ---- */
-static int g_stream = -1, g_stream_batch = 2, g_stream_active;   /* g_stream_active: live workers (under g_pool_mx) */
+/* (g_stream, g_stream_batch, g_stream_active: defined above db_vmm_bg_release) */
 static int vmm_stream_on(void)
 {
     if (g_stream < 0) {
