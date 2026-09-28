@@ -1181,6 +1181,59 @@ __global__ void k_unpacktw_g(const uint64_t *rb, uint64_t *x, size_t rk, size_t 
         x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
     }
 }
+/* ---- Phase 15 G5: DIST_TWREC_G=1 (default 0) -- the general map's twiddled pack / unpack with the twiddle by a row recurrence
+ * (ntt_dist.c k_twpack_r's form): a thread's four rows il, il + 8, il + 16, il + 24 of column j take w_n^(i j) from the tables
+ * once and step by w_n^(8 j) (one per column, in LDS) -- two table gathers per four points instead of eight.  ec_mm returns
+ * canonical residues, so the chain gives exactly w_n^((i + 8) j): bit-identical (gen_pack_bench checks it).  The slab address
+ * part0(C, nr, sg) rk + jl rk + il of k_twpack_g is jb rk + il for any owner sg (jl = jb - part0(C, nr, sg)): written so, with no
+ * per-point owner search.  rk need not be a multiple of 32: a thread whose first row is past rk reads no table (its rows are all
+ * past rk); the others step through rows past rk without reading or writing them. */
+__global__ void k_twpack_gr(const uint64_t *x, uint64_t *sb, size_t rk, size_t i0g, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    __shared__ double stp[32];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    size_t jb = bj + tx, j = brev3((unsigned)jb, logC);
+    if (ty == 0) { size_t e = 8 * j; stp[tx] = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv); }
+    double w = 0;
+    if (bi + ty < rk) { size_t e = (i0g + bi + ty) * j; w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv); }
+    __syncthreads();
+    double st = stp[tx];
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k;
+        if (il < rk) tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
+        if (k < 24) w = ec_mm(w, st, m.p, m.pinv);
+    }
+    __syncthreads();
+    for (int k = 0; k < 32; k += 8) {
+        size_t jw = bj + ty + k, il = bi + tx; if (il >= rk) continue;
+        sb[jw * rk + il] = tile[tx][ty + k];
+    }
+}
+__global__ void k_unpacktw_gr(const uint64_t *rb, uint64_t *x, size_t rk, size_t i0g, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
+{
+    __shared__ uint64_t tile[32][33];
+    __shared__ double stp[32];
+    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
+    int tx = threadIdx.x, ty = threadIdx.y;
+    for (int k = 0; k < 32; k += 8) {
+        size_t jr = bj + ty + k, il = bi + tx; if (il >= rk) continue;
+        tile[ty + k][tx] = rb[jr * rk + il];
+    }
+    size_t jb = bj + tx, j = brev3((unsigned)jb, logC);
+    if (ty == 0) { size_t e = 8 * j; stp[tx] = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv); }
+    double w = 0;
+    if (bi + ty < rk) { size_t e = (i0g + bi + ty) * j; w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv); }
+    __syncthreads();
+    double st = stp[tx];
+    for (int k = 0; k < 32; k += 8) {
+        size_t il = bi + ty + k;
+        if (il < rk) x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
+        if (k < 24) w = ec_mm(w, st, m.p, m.pinv);
+    }
+}
+static int twrec_g(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC_G"); v = e ? atoi(e) != 0 : 0; } return v; }   /* Phase 15 G5 (default 0) */
 /* slab rho of a chunk (my cols x rho's chunk rows, column-major) <-> my columns of R points; block y = rho */
 __global__ void k_unpack_g(const uint64_t *rb, uint64_t *x, const struct rkt *T, size_t cols, size_t R)
 {
@@ -1223,6 +1276,68 @@ static void gen_inv_pw(const struct gplan *p, const dist_plan *pl, ntt_ctx *ctx,
         k_unpacktw_g<<<grid, blk, 0, s>>>(rb + p->regs[kk], x + i0l * p->C, rk, p->row0 + i0l, p->logC, nr, pl->twr_i, pl->twc_i, m);
         ntt_inv(ctx, x + i0l * p->C, p->logC, rk, s);                                     /* rows: length-C inverse, x C^-1 */
     }
+}
+/* Phase 15 G5: the general map's pack / unpack kernels on one APU (prime 0) for rank rho of nr = 4 g ranks, the plane 2^logR x
+ * 2^logC, chunk 0 of K (the production chunking, gplan_build's K); median of reps; rate = 16 B x points / t.  The recurrence
+ * forms are checked bit-identical against the plain ones.  Returns the number of mismatches.  (tests/t_dist: DIST_GBENCH) */
+static int gb_cmp(const uint64_t *a, const uint64_t *b, size_t n)
+{
+    uint64_t *h = (uint64_t *)malloc(2 * n * 8); HIP_CHECK(hipMemcpy(h, a, n * 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipMemcpy(h + n, b, n * 8, hipMemcpyDeviceToHost));
+    int bad = memcmp(h, h + n, n * 8) != 0; free(h); return bad;
+}
+static int gb_dcmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+int gen_pack_bench(int logR, int logC, int g, int rho, int reps)
+{
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = partn(R, nr, rho), row0 = part0(R, nr, rho), cols = partn(C, nr, rho);
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 4; if (K < 1) K = 1; if (K > 16) K = 16;
+    while (K > 1 && (R / nr) / K < 32) K--;
+    size_t rk = rows / K, n = rk * C;                         /* chunk 0 (rows * 1 / K - 0) */
+    size_t ncol = 0; struct rkt *hT = (struct rkt *)malloc(nr * sizeof *hT);
+    for (int r = 0; r < nr; r++) { size_t rr = partn(R, nr, r), nn = rr / K; hT[r].off = ncol; hT[r].i0 = part0(R, nr, r); hT[r].n = nn; ncol += cols * nn; }
+    size_t nmax = 0; for (int r = 0; r < nr; r++) if (hT[r].n > nmax) nmax = hT[r].n;
+    size_t nx = n > cols * R ? n : cols * R, nb = n > ncol ? n : ncol;
+    uint64_t *x, *x2, *sb, *sb2; struct rkt *dT;
+    HIP_CHECK(hipMalloc(&x, nx * 8)); HIP_CHECK(hipMalloc(&x2, nx * 8)); HIP_CHECK(hipMalloc(&sb, nb * 8)); HIP_CHECK(hipMalloc(&sb2, nb * 8)); HIP_CHECK(hipMalloc(&dT, nr * sizeof *hT));
+    HIP_CHECK(hipMemcpy(dT, hT, nr * sizeof *hT, hipMemcpyHostToDevice));
+    { uint64_t *h = (uint64_t *)malloc(nx * 8), z = 88172645463325252ull, p0 = ec_P[0]; for (size_t i = 0; i < nx; i++) { z ^= z << 13; z ^= z >> 7; z ^= z << 17; h[i] = z % p0; }
+      HIP_CHECK(hipMemcpy(x, h, nx * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(sb, h, nb * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(sb2, h, nb * 8, hipMemcpyHostToDevice)); free(h); }
+    ec_mod m = ec_mod_get(0);
+    uint64_t *twr = pow_table(0, ec_root(0, logR), R), *twc = pow_table(0, ec_root(0, logR + logC), C);
+    uint64_t *ref; HIP_CHECK(hipMalloc(&ref, nb * 8));
+    uint64_t *rin; HIP_CHECK(hipMalloc(&rin, nb * 8)); HIP_CHECK(hipMemcpy(rin, sb, nb * 8, hipMemcpyDeviceToDevice));   /* the unpack's input slabs */
+    hipEvent_t e0, e1; HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1));
+    double *t = (double *)malloc(reps * sizeof(double)); int bad = 0;
+    dim3 blk(32, 8), gr((unsigned)(C / 32), (unsigned)((rk + 31) / 32));
+    printf("gen-bench 2^%d x 2^%d over %d ranks (g %d), rank %d: rows %zu, chunk 0 of %d = %zu rows x %zu (%.1f MB), cols %zu\n", logR, logC, nr, g, rho, rows, K, rk, C, n * 8e-6, cols);
+    const char *nm[] = { "device copy (hipMemcpyAsync D2D)", "k_twpack_g (fwd pack, twiddled: production)", "k_twpack_gr (G5, DIST_TWREC_G=1)",
+                         "k_unpacktw_g (inv unpack, twiddled: production)", "k_unpacktw_gr (G5, DIST_TWREC_G=1)",
+                         "k_unpack_g (fwd unpack, one chunk)", "k_pack_cols_g (inv pack, one chunk)" };
+    for (int kind = 0; kind < 7; kind++) {
+        size_t pts = kind >= 5 ? ncol : n;
+        for (int r = 0; r <= reps; r++) {
+            HIP_CHECK(hipEventRecord(e0, 0));
+            switch (kind) {
+            case 0: HIP_CHECK(hipMemcpyAsync(sb, x, n * 8, hipMemcpyDeviceToDevice, 0)); break;
+            case 1: k_twpack_g<<<gr, blk>>>(x, sb, rk, row0, logC, nr, twr, twc, m); break;
+            case 2: k_twpack_gr<<<gr, blk>>>(x, sb2, rk, row0, logC, twr, twc, m); break;
+            case 3: k_unpacktw_g<<<gr, blk>>>(rin, x2, rk, row0, logC, nr, twr, twc, m); break;
+            case 4: k_unpacktw_gr<<<gr, blk>>>(rin, x, rk, row0, logC, twr, twc, m); break;
+            case 5: k_unpack_g<<<dim3(nblk(cols * nmax), nr), 256>>>(rin, x2, dT, cols, R); break;
+            case 6: k_pack_cols_g<<<dim3(nblk(cols * nmax), nr), 256>>>(x2, sb2, dT, cols, R); break;
+            }
+            HIP_CHECK(hipEventRecord(e1, 0)); HIP_CHECK(hipEventSynchronize(e1));
+            float ms; HIP_CHECK(hipEventElapsedTime(&ms, e0, e1)); if (r) t[r - 1] = ms * 1e-3;
+        }
+        qsort(t, reps, sizeof(double), gb_dcmp);
+        double md = t[reps / 2]; const char *chk = "";
+        if (kind == 2) { int b = gb_cmp(sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
+        if (kind == 4) { int b = gb_cmp(x, x2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
+        printf("gen-bench 2^%d x 2^%d g %d  %-50s %9.3f ms  %7.1f GB/s%s\n", logR, logC, g, nm[kind], md * 1e3, 16.0 * pts / md * 1e-9, chk);
+    }
+    fflush(stdout);
+    HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(x2)); HIP_CHECK(hipFree(sb)); HIP_CHECK(hipFree(sb2)); HIP_CHECK(hipFree(ref)); HIP_CHECK(hipFree(rin)); HIP_CHECK(hipFree(dT));
+    HIP_CHECK(hipFree(twr)); HIP_CHECK(hipFree(twc)); HIP_CHECK(hipEventDestroy(e0)); HIP_CHECK(hipEventDestroy(e1)); free(t); free(hT);
+    return bad;
 }
 /* the plane's shape for nc limbs over g nodes: logn, logR, logC, and the largest per-rank plane (limbs) */
 static void mn_shape(size_t nc, int g, int *logn_, int *logR_, int *logC_, size_t *qmax)
