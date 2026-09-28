@@ -296,6 +296,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DB_POOL_VMM_CHUNK_GB`, `DB_POOL_VMM_RESERVE` | with `DB_POOL_VMM`: the chunk size in GiB (2) and the VA reserved as a multiple of the arena (3) |
 | `DB_POOL_VERBOSE` | *debug*: the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) |
 | `DB_POOL_TRACE` | *debug, Phase 15 (AS)*: 1 = every block-pool event as a `dbtrace:` line (donations, blocks taken and freed, the tail, the pack / pin flags, VMM remaps; offsets from the APU's VMM base) for `tests/as_pool_replay.py`, which replays the pool exactly and tries other arena layouts offline (0) |
+| `ECALC_INIT_TL` | *debug, Phase 15 (MAP), results/MAP15.md*: 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, the parity-1 half, done, time queued for the mapper lock), every wait for arena chunks, the seed thread (start, the region-pool wait, spans done, end), the join and bs levels 1–3; 2 adds a line per background chunk. Print only (0) |
 | `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
 
