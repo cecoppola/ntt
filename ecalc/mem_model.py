@@ -651,6 +651,30 @@ def pool_check():
         print('  %.0e g %d cap log %d T chunk %4d rounds %4d: measured %8.1f  law %8.1f (%+.2f %%) = 4 x %.1f MiB by %-26s control %.1f MiB | %s' % (
             D, g, pl, tmb, rmb, meas, m, 100 * (m / meas - 1), det['per_apu'] / 1048576.0, det['by'], det['control'] / 1048576.0, src))
 
+# ---------------------------------------------------------------- Phase 15 TC: the mn transform cache (rns_dist.c cache_avail)
+CACHE_MN_SLOTS_CODE = 2                  # RNS_DIST_CACHE_MN's default
+DIST_LOGN_MAX = 31                       # rns_dist.c: the single-node tier's cap, which sizes the default's slots
+def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
+    """bytes per node of the mn transform cache: slots x 4 APUs x np x 2^(c - 2) limbs x 8, c = 31 (the default: whatever POOL_LOG) or
+    min(31, POOL_LOG) (RNS_DIST_CACHE_FIT: the mn tier's cap, mn_logn_cap: q <= 2^(c - 2)); the planes pool 0 is made for (np).  Only a
+    run with an mn grid product takes it (MN_PLAN_ONLY's `plan cache` line says where; at the target: tree level 1)"""
+    c = min(DIST_LOGN_MAX, pool_log) if fit else DIST_LOGN_MAX
+    return slots * NR * np * (1 << (c - 2)) * 8 if g > 1 else 0
+
+def cache_report():
+    """the cache at the target and one step below (TARGET_LAUNCH), and at the single-node test points of results/TC15.md"""
+    groups = '2,4,8,16,32,64,192,576'
+    print('== Phase 15 TC: the mn transform cache (RNS_DIST_CACHE_MN=%d; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
+    for T in (TARGET_DIGITS, TARGET_BELOW):
+        oo = dict(TARGET_LAUNCH, transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP); r = mem_per_node(int(T / TARGET_NODES), TARGET_NODES, oo)
+        one = cache_mn_bytes(TARGET_NODES, 31, TARGET_NP, 1)
+        print('  %.3ge13 on %d: node %.1f (no cache) | the default\'s 2 slots %.1f -> node %.1f (1 slot: %.1f) | RNS_DIST_CACHE_FIT: %d slot%s (room %.1f < one slot %.1f) -> node %.1f' % (
+            T / 1e13, TARGET_NODES, r['node_peak'] / GB, r['cache_mn'] / GB, r['node_peak_cache'] / GB, (r['node_peak'] + one) / GB,
+            r['cache_fit_slots'], '' if r['cache_fit_slots'] == 1 else 's', 480 - r['node_peak'] / GB, one / GB, (r['node_peak'] + r['cache_fit']) / GB))
+    for D, g, pl in ((5e8, 2, 25), (2.5e8, 4, 24), (5e9, 2, 29), (2.5e9, 4, 28)):
+        print('  %.0e digits at %d node-processes, POOL_LOG=%d (3 primes): the default %.2f per process (12 GiB slots), FIT %.2f per process' % (
+            D * g, g, pl, cache_mn_bytes(g, pl, 3) / GB, cache_mn_bytes(g, pl, 3, fit=True) / GB))
+
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
@@ -724,7 +748,15 @@ def mem_per_node(D, g=1, opts=None):
     if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
+    # Phase 15 TC (results/TC15.md): the mn transform cache -- not in node_peak (the numbers the docs cite); the default code's slots
+    # (RNS_DIST_CACHE_MN=2 x 16 GiB per APU at four primes) live from the first mn grid product (the tree at the target) to the division's end,
+    # so they add to the bs and dm peaks: node_peak_cache.  cache_fit_slots: what RNS_DIST_CACHE_FIT would take against this model's peak.
+    cmn = cache_mn_bytes(g, o['pool_log'], npp, CACHE_MN_SLOTS_CODE) if g > 1 else 0
+    peak_c = max(dev_init + host_init, dev_bs + cmn + max(host_init, host_dm), dev_dm + cmn + host_dm) * (1 + o['margin'])
+    slot_fit = cache_mn_bytes(g, o['pool_log'], npp, 1, fit=True) if g > 1 else 0
+    fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int((o.get('node_gb', 480) * GB - peak) // slot_fit))) if slot_fit else 0
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
+                cache_mn=cmn, node_peak_cache=peak_c, cache_fit_slots=fit_slots, cache_fit=fit_slots * slot_fit,
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
                 pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''),
                 dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
@@ -943,6 +975,8 @@ def report15():
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--p15':
         report15(); sys.exit(0)
+    if len(sys.argv) > 1 and sys.argv[1] == '--cache':                  # Phase 15 TC
+        cache_report(); sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == '--e10a':
         early_free_ceilings(); sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == '--check-c':
