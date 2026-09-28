@@ -13,7 +13,26 @@
 #include <string.h>
 #include <unistd.h>
 #include "../mn_out.h"
+#include "../packed_fmt.h"
 #include "harness.h"
+/* Phase 15 KP: the packed form (ECALC_OUT_PACKED=1, the default).  Both forms are run: without ECALC_OUT_PACKED in the
+ * environment t_patch runs itself twice, =0 (ASCII: K's checks) and =1 (packed: every part's limbs == the corrected X's limbs
+ * [lo, hi) in file order, its header complete with residues == those limbs mod q, tools/unpack_digits --cmp against the corrected
+ * ASCII file with its residue check; T_PATCH_UNPACK = the binary, default ../tools/unpack_digits).  Both forms: a second patch of
+ * a patched part must fail (the bytes are no longer the uncorrected ones) exactly when the first one changed bytes. */
+static int packed_part_check(const char *pn, const uint64_t *X1, size_t nl, const mn_out *o, int it, int size)
+{
+    FILE *f = fopen(pn, "rb"); if (!f) { printf("it %d size %d node %d: cannot open %s\n", it, size, o->rank, pn); return 1; }
+    ecp_hdr h; int bad = 0;
+    if (fread(&h, sizeof h, 1, f) != 1 || memcmp(h.magic, ECP_MAGIC, 8)) { printf("it %d size %d node %d: no packed header\n", it, size, o->rank); fclose(f); return 1; }
+    if (!h.complete || h.k0 != o->k0 || h.k1 != o->k1 || h.hi > nl || h.lo > h.hi) { printf("it %d size %d node %d: header fields\n", it, size, o->rank); fclose(f); return 1; }
+    size_t n = h.hi - h.lo; uint64_t *l = (uint64_t *)malloc(n * 8 + 8);
+    if (fseek(f, ECP_HDR_BYTES, SEEK_SET) || fread(l, 8, n, f) != n || fgetc(f) != EOF) { printf("it %d size %d node %d: the part does not hold %zu limbs\n", it, size, o->rank, n); bad = 1; }
+    for (size_t j = 0; !bad && j < n; j++) if (l[j] != X1[h.hi - 1 - j]) { printf("it %d size %d node %d: limb %zu is not the corrected X's\n", it, size, o->rank, (size_t)(h.hi - 1 - j)); bad = 1; }
+    for (int i = 0; !bad && i < T1_NQ; i++) if (h.dres[i] != vf_limbs_mod(X1 + h.lo, n, t1_q[i])) { printf("it %d size %d node %d: header residue %d is not the corrected part's\n", it, size, o->rank, i); bad = 1; }
+    free(l); fclose(f);
+    return bad;
+}
 static const uint64_t B = 1000000000000000000ULL;
 static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned long d)
 {
@@ -28,9 +47,18 @@ static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned lo
 }
 static uint64_t rnd(void) { static uint64_t s = 0x2545F4914F6CDD1Dull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
 static char *slurp(const char *fn, long *len) { FILE *f = fopen(fn, "r"); if (!f) { *len = -1; return 0; } fseek(f, 0, SEEK_END); *len = ftell(f); fseek(f, 0, SEEK_SET); char *b = (char *)malloc(*len + 1); if (fread(b, 1, *len, f) != (size_t)*len) *len = -1; fclose(f); return b; }
-int main(void)
+int main(int argc, char **argv)
 {
-    printf("== t_patch ==\n"); harness_meta("t_patch");
+    (void)argc;
+    if (!getenv("ECALC_OUT_PACKED")) {                       /* Phase 15 KP: both forms, each in its own process (the form is read once) */
+        int rc = 0; char cmd[4200];
+        for (int pk = 0; pk <= 1; pk++) { snprintf(cmd, sizeof cmd, "ECALC_OUT_PACKED=%d %s", pk, argv[0]); fflush(stdout); int r = system(cmd); printf("t_patch: ECALC_OUT_PACKED=%d: %s\n", pk, r == 0 ? "ok" : "FAILED"); fflush(stdout); rc |= r != 0; }
+        printf("t_patch: %s\n", rc ? "VERIFY FAILED (both forms)" : "VERIFY OK (both forms)");
+        return rc;
+    }
+    printf("== t_patch (ECALC_OUT_PACKED=%s) ==\n", getenv("ECALC_OUT_PACKED")); harness_meta("t_patch");
+    const char *unpack = getenv("T_PATCH_UNPACK") ? getenv("T_PATCH_UNPACK") : "../tools/unpack_digits";
+    int npk = 0, nneg = 0;
     bi_set_decimal(1);
     const char *dir = getenv("T_PATCH_DIR") ? getenv("T_PATCH_DIR") : "/tmp";
     int fails = 0, checks = 0; size_t maxchain = 0; int nlong = 0;
@@ -85,16 +113,21 @@ int main(void)
                 if (size == 1) { mn_out_src src = { X0, 0, 0, nl }; rc = mn_out_tail_fix(o, &src, 0, dx, &fx); }
                 else { size_t wl = 4; for (;;) { rc = mn_out_tail_core(o, X0, wl, dx, &fx); if (rc >= 0 || wl >= nl) break; wl = wl * 2 < nl ? wl * 2 : nl; } }
                 badp += rc != 0;
+                { mn_out o2 = *o; mn_out_fix f2; memset(&f2, 0, sizeof f2); int r2 = mn_out_tail_core(&o2, X0, nl, dx, &f2);   /* Phase 15 KP: patching again must fail where bytes changed */
+                  checks++; nneg += fx.parts > 0; if ((r2 != 0) != (fx.parts > 0)) { fails++; printf("it %d size %d node %d: a second patch returned %d (the first changed %d parts)\n", it, size, r, r2, fx.parts); } }
                 if (!gotadj) { memcpy(adj, fx.dres_adj, sizeof adj); gotadj = 1; } else if (memcmp(adj, fx.dres_adj, sizeof adj)) { fails++; printf("it %d size %d: the nodes' adjustments differ\n", it, size); }
                 checks++; if (fx.kp != kp) { fails++; printf("it %d size %d node %d: kp %zu, expected %zu\n", it, size, r, fx.kp, kp); }
                 nwin += o->nwin; bad2 += o->bad2;
                 char pn[600]; if (size > 1) snprintf(pn, sizeof pn, "%s.part%04d", out, size - 1 - r); else snprintf(pn, sizeof pn, "%s", out);
+                if (o->packed) { checks++; npk++; if (o->k1 > o->k0 && packed_part_check(pn, X1, nl, o, it, size)) fails++; }
+                else {
                 long pl, rl; char *pb = slurp(pn, &pl), *rb = slurp(fn, &rl);
                 size_t fb = o->k0 == 0 ? 0 : o->k0 + 1, fe = (o->k1 < d_out + 1 ? o->k1 : d_out + 1) + 1 + (o->k0 <= d_out && d_out < o->k1 ? 1 : 0);
                 if (o->k0 >= d_out + 1) fe = fb;
                 checks++;
                 if (pl < 0 || (size_t)pl != fe - fb || memcmp(pb, rb + fb, pl)) { fails++; int q = 0; while (q < pl && pb[q] == rb[fb + q]) q++; printf("it %d size %d node %d: part (%ld bytes) differs from [%zu, %zu) of the corrected file at %d (dx %+ld, kp %zu, d_out %lu)\n", it, size, r, pl, fb, fe, q, dx, kp, d_out); }
                 free(pb); free(rb);
+                }
                 if (o->k1 > o->k0 && r == size - 1) { checks++; if (strncmp(o->first, ref, strlen(o->first))) { fails++; printf("it %d: first mismatch\n", it); } }
                 if (o->k0 <= d_out && d_out < o->k1) { checks++; size_t t = strlen(o->last); if (memcmp(o->last, ref + d_out + 1 - t, t)) { fails++; printf("it %d size %d: last mismatch\n", it, size); } }
                 if (o->ntail) { checks++; if (memcmp(o->tail, ref + d_out + 1, o->ntail)) { fails++; printf("it %d: tail mismatch\n", it); } }
@@ -104,7 +137,11 @@ int main(void)
             checks++; if (memcmp(D, Dref, sizeof D)) { fails++; printf("it %d size %d: digit residue + adjustment != the corrected string's\n", it, size); }
             int exp = nw + (100 <= d_out + 1 ? 1 : 0), expbad = 100 <= d_out + 1 ? 1 : 0;   /* + the built-in window at 50 (not e here) */
             checks++; if (nwin != exp || bad2 != expbad) { fails++; printf("it %d size %d: %d windows checked (expected %d), %d bad (expected %d; zone %zu, kp %zu, d_out %lu)\n", it, size, nwin, exp, bad2, expbad, zone, kp, d_out); }
-            if (size > 1) {
+            if (os[0].packed) {                               /* Phase 15 KP: the converter on the patched parts: its residue check and the ASCII */
+                char cmd[2400]; if (size > 1) snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s.part* > /dev/null", unpack, fn, out); else snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s > /dev/null", unpack, fn, out);
+                checks++; if (system(cmd)) { fails++; printf("it %d size %d: %s on the patched packed parts: residue check or ASCII differs\n", it, size, unpack); }
+                if (size > 1) { snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); if (system(cmd)) {} } else unlink(out);
+            } else if (size > 1) {
                 char cmd[1400]; snprintf(cmd, sizeof cmd, "cat %s.part* | cmp -s - %s", out, fn);
                 checks++; if (system(cmd)) { fails++; printf("it %d size %d: cat of the parts differs\n", it, size); }
                 snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); if (system(cmd)) {}
@@ -112,7 +149,7 @@ int main(void)
         }
         unlink(fn); unlink(wf); free(X0); free(X1); free(r0); free(ref); tier2_windows_reset();
     }
-    printf("%d checks, %d failures; longest chain %zu digits, %d chains over one limb\n", checks, fails, maxchain, nlong);
+    printf("%d checks, %d failures; longest chain %zu digits, %d chains over one limb; %d packed parts checked; %d second patches refused\n", checks, fails, maxchain, nlong, npk, nneg);
     VERIFY(fails == 0, "t_patch: %d of %d checks failed", fails, checks);
     return verify_done("t_patch");
 }
