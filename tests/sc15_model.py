@@ -48,10 +48,10 @@ _orig_piece_np = M.piece_np
 _orig_piece_cost = M.piece_cost
 _orig__product_cost = M._product_cost
 _orig_plane_pts = M.plane_pts
-VAR = dict(minnp=False, bound=None, pack=None, r3=False, r3f=1.03)
+VAR = dict(minnp=False, bound=None, pack=None, r3=False, r3f=1.03, slot1=False)
 
 def set_var(**kw):
-    VAR.update(minnp=False, bound=None, pack=None, r3=False, r3f=1.03); VAR.update(kw)
+    VAR.update(minnp=False, bound=None, pack=None, r3=False, r3f=1.03, slot1=False); VAR.update(kw)
     M.NP_AUTO_TERMS = VAR['bound'] or mem_model.NP3_MAX_TERMS
     clear()
 
@@ -123,8 +123,15 @@ def cap_points(g, pool_log=31):
 _src2 = inspect.getsource(_orig__product_cost).replace('def _product_cost(', 'def _product_cost_r3(', 1)
 _src2 = _src2.replace('cap = 1 << mem_model.mn_cap_log(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())',
                       'cap = SC_CAP(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())')
-assert 'SC_CAP' in _src2
+_src2 = _src2.replace('                if i > 0 and j > 0: fwd = 1\n',
+                      '                if i > 0 and j > 0: fwd = 1\n            elif cache and SC_SLOT1(la + lb) and i > 0 and not first: fwd = 1\n')
+assert 'SC_CAP' in _src2 and 'SC_SLOT1' in _src2
 M.__dict__['SC_CAP'] = cap_points
+# (4) one slot, for the three-prime pieces only (the hypothesis: plane pool 1, 12 GiB per APU = 3 x 2^29 x 8 B, idle in the mn phases):
+# B's piece j held across i
+def slot1(nc):
+    return VAR.get('slot1') and not VAR['pack'] and nc <= M.NP_AUTO_TERMS
+M.__dict__['SC_SLOT1'] = slot1
 exec(compile(_src2, 'sc15_pc2', 'exec'), M.__dict__)
 _orig__product_cost = M._product_cost_r3                 # (identical to the original while VAR['r3'] is off)
 

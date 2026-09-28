@@ -62,10 +62,11 @@ def run(tag, kw, km):
     print(S.line(tag, e, extra))
     M.division_cost = _orig_div
 
-print('# DKM at 5.1e13 on 576 (modelled; the fabric assumed; write 0.6 GB/s)%s' % ((' MN_GROUPS ' + groups) if groups else ''))
-run('auto (B1 + NP)', {}, False)
-run('auto + DKM', {}, True)
-run('min(pa,pb) + DKM', dict(minnp=True), True)
-if pack:
-    run('P24', dict(pack=0.75), False)
-    run('P24 + DKM', dict(pack=0.75), True)
+if __name__ == "__main__":
+    print('# DKM at 5.1e13 on 576 (modelled; the fabric assumed; write 0.6 GB/s)%s' % ((' MN_GROUPS ' + groups) if groups else ''))
+    run('auto (B1 + NP)', {}, False)
+    run('auto + DKM', {}, True)
+    run('min(pa,pb) + DKM', dict(minnp=True), True)
+    if pack:
+        run('P24', dict(pack=0.75), False)
+        run('P24 + DKM', dict(pack=0.75), True)
