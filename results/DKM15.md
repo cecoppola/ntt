@@ -258,7 +258,7 @@ after 50 s on s24-16 and ran nothing.
 | `NEWTON_DEVICE=1 ./tests/t_newton 20` | **section 6: every case identical** (X exact, R's residues). This covers 4 sizes × 7 shapes, off / on, forced ±7 on both hooks. The final count moved by exactly k under `ECALC_TEST_CORR`. Under `NEWTON_DKM_TEST_HI` the final count stayed put and step 1 made the 7. The s = dl shape took the fresh reciprocal, as designed. **4 failures in section 5** (R4's "the high cut skipped nothing" at n_q 3·2²⁰, 2²²): that section needs `DIST_LOGN_TEST=20` (R415.md); stage B re-runs it so |
 | e9 `NEWTON_DKM=1`, LIMB_BASE 10 / 2 | identical, VERIFY OK (`total` 10.81 / 22.78 s). **But at 10⁹ ecalc takes the host flow** (`newton_db_divmod`, below the device tier's 2³⁰), so DKM is not exercised at size 1 there. Stage B repeats these with `BS_MDEV_LOGL=24` |
 | e9 forced (`ECALC_TEST_CORR` +7 / −7 / +7 with `ECALC_CORR_PATCH` 1 / 2 / 0; `NEWTON_DKM_TEST_HI=7`) | identical, VERIFY OK (host flow, as above) |
-| c511 (511461828, +14) / c820 (820719000, −44), `ECALC_CORR_PATCH=1` | **VERIFY FAILED, digits differ.** Host flow, so not DKM. The output patch fails on the packed file (`patch … FAILED`, `digits == X mod q FAILED`). See §4.3 |
+| c511 (511461828, +14) / c820 (820719000, −44), `ECALC_CORR_PATCH=1` | **VERIFY FAILED, digits differ.** Host flow, so not DKM: the §4.3 defect on main |
 | **4 × 10¹⁰ `NEWTON_DKM=1`** | **identical** (digcmp, packed). DKM taken: `divmod(dev, DKM) 12.13 s: k 2222222224 = 1111111112 + 1111111112, h 1111111113 (kept); step 1 A mu 2.14, X_hi Q + corrections 3.48 (0), step 2 A mu + assembly 2.15, X_lo Q 3.64, corrections 0.45 (0)`. recip 3.94 s, dm 16.07 s, `total` 54.28 s |
 | `NEWTON_DKM=1 ./mnaccept.sh 21766 --only mn` | **5 passed, 0 failed** (e8 sizes 2, 3, 4; e9 sizes 2, 4; DKM taken: `divmod(mn, DKM) … k 55555557 = 27777779 + 27777778`) |
 | `NEWTON_DKM=1 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=7 ./mnaccept.sh 21766 --only mn,recheck` | **7 passed, 0 failed** (at 10⁸ / 10⁹ the changed digits lie past d_out) |
@@ -269,6 +269,37 @@ after 50 s on s24-16 and ran nothing.
 **Reading.** In every run where the division took the DKM path (t_newton section 6, 4 × 10¹⁰, mn at sizes 2–4 including the forced
 corrections), the digits are identical. The failures are all in `mn_out`'s tail patch on a packed file. They occur with
 `ECALC_CORR_PATCH` ≥ 1 when the changed digits lie inside the file, and they appear in the host flow too, where DKM does not run.
+
+### 4.2 Stage B: the gates with the switch off, the size-1 device flow at 10⁹, the patch controls
+
+Job 21768 ran on s24-26, 18:46–19:19 EDT, on commit 5eb35dc. The command was `ecalc/dkm15_batch.sh B 5eb35dc`, and the logs are in
+aac6 `~/dkm15tmp/B/` and `results/mnaccept/21768/`.
+
+| test | result (measured) |
+|---|---|
+| `NEWTON_DEVICE=1 DIST_LOGN_TEST=20 ./tests/t_newton 20` | **VERIFY OK (1187 checks)**: sections 5 and 6 on grids |
+| `./mnaccept.sh 21768 --only unit,e9` (switch off) | **10 passed, 0 failed**: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_mn_grid (2 procs); e9 in both bases identical |
+| 4 × 10¹⁰, switch off | **identical**. recip 9.23 s, dm 20.90 s, `total` 57.50 s (A's on run: recip 3.94, dm 16.07, `total` 54.28; one run each, same node) |
+| e9 through the device flow (`BS_MDEV_LOGL=24`), off / on | **identical**, VERIFY OK. The on run took DKM: `divmod(dev, DKM) … k 55555557 = 27777779 + 27777778, h 27777779 (kept)` |
+| the same, forced: `ECALC_TEST_CORR` +7 (`ECALC_CORR_PATCH=1`), −7 (default), +7 (`=0`); `NEWTON_DKM_TEST_HI=7` | **identical**, VERIFY OK. The corrections were 0/7, 7/0, 0/7 and 0/0 |
+| c511 / c820 through the device flow with DKM, `ECALC_CORR_PATCH=1` | VERIFY FAILED: the §4.3 defect |
+
+### 4.3 A defect on main, independent of DKM: the tail patch on the packed output
+
+Sent to the integrator on 2026-09-28. With `NEWTON_DKM` unset, on B2's code (job 21768):
+- `./ecalc 511461828` with `ECALC_TEST_CORR=14`, under `ECALC_CORR_PATCH=1` and under the default (2): **VERIFY FAILED, digits
+  differ**. With `ECALC_OUT_PACKED=0` the same run is **identical**.
+- With `ECALC_TEST_CORR=1`, **a single correction**: **VERIFY FAILED**.
+- `./ecalc 820719000` with −44: VERIFY FAILED.
+- mnrun 2 at 108388422 (`POOL_LOG=27 ECALC_CORR_PATCH=2 ECALC_TEST_CORR=36`): node 0 VERIFY FAILED. The ASCII form is identical.
+
+The log says "patch: … holds 227320472 bytes, the patch ends at 511461830", then "patch … FAILED" and
+"digits == X mod q FAILED". `mn_out_tail_fix` / `patch_bytes` (`mn_out.c`, not my file) write ASCII digits at ASCII offsets. A packed
+part holds 8 bytes per 18-digit limb, so the offset lies past the end of the file.
+- **Why the regression missed it:** its forced runs change only digits past d_out.
+- **When it strikes:** any run whose division corrects X, with the changed digits inside the file (d_out near d), fails its VERIFY
+  under the defaults.
+- **What it means for DKM:** it does not bear on DKM. The same runs pass with `ECALC_CORR_PATCH=0`.
 
 ## RESUME
 
