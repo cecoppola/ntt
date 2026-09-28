@@ -10,8 +10,8 @@ results/M.md, results/M11.md (4, 7, 8 x 10^10 at size 1; 10^10 at size 4).
     mem_per_node(D, g, opts) -> dict      (bytes; opts: pool_log, tail, alltoallv, margin, form, groups, transport ...)
     python3 mem_model.py                  prints the calibration table, the ceilings per node and the 576-node digits
     python3 mem_model.py --p15            Phase 15: the defaults against the measured runs, the target, the ceilings
-    python3 mem_model.py --check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL [BS_ARENA_ROOM [ECALC_NP [RNS_POOL1_4Q]]]]]]   the C layout (BS_LAYOUT_ONLY) against this port (MN_T_CHUNK_MB 1024, BS_SEED_FILL 128, BS_ARENA_ROOM 0,
-                                          ECALC_NP 3 / 4 / auto as the run's (the `planes:` lines: the plane pools at every cap, Phase 15 PS), RNS_POOL1_4Q 1)
+    python3 mem_model.py --check-c FILE [POOL_LOG [MN_T_CHUNK_MB [BS_SEED_FILL [BS_ARENA_ROOM [ECALC_NP [RNS_POOL1_4Q]]]]]]   the C layout (BS_LAYOUT_ONLY) against this port (MN_T_CHUNK_MB 1024, BS_SEED_FILL 128, BS_ARENA_ROOM 0.16 (the default since 2026-09-28),
+                                          ECALC_NP 3 / 4 / auto as the run's (auto read from the file's plan lines) (the `planes:` lines: the plane pools at every cap, Phase 15 PS), RNS_POOL1_4Q 1)
 
 Phase 15 (agent MD): mem_per_node's defaults are the code's since Phase 14 (DEFAULTS15: DM_TIGHT, MN_TREE_EARLY_FREE, MN_T_CHUNK_MB and
 MDB_SHIFT_CHUNK_MB 1024, the SHMEM pool from the plan, DB_POOL_VMM's host and bs terms, ECALC_PLANE_CAP 2^31); OLD13 gives the forms before,
@@ -19,6 +19,12 @@ TARGET_LAUNCH the target's launch line (COMM_SHMEM_ROUND_MB=1024, the user's D2)
 Phase 15 (agent DOC, 2026-09-27): the base is DEFAULTS15B -- + BS_SEED_FILL=128 (the seed span per run, seed_terms_for: the bs regions hold one
 more batch level; --check-c exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share) and MN_OUT_EARLY (HOST_EARLY at size > 1);
 DEFAULTS15 is B0.  TARGET_NP = 4: the target's launch line (ECALC_NP=4).
+Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the base is DEFAULTS15C = DEFAULTS15B + BS_ARENA_ROOM=0.16 (ARENA_ROOM, the code's
+default since be2eec3); DEFAULTS15B / DEFAULTS15 / OLD13 carry arena_room 0 (B1, B0 and before).  TARGET_NP = 'auto' (the launch line's
+ECALC_NP=auto, decision 1).  The mn transform cache: cache_fit_slots follows the code's RNS_DIST_CACHE_FIT rule (rns_dist.c
+rns_dist_cache_plan: ECALC_NODE_GB less the layout's node -- binsplit_node_bytes: planes + arena + the init host -- less the 32 GB reserve,
+over one slot per node): 0 at the target, as the `plan cache` line prints.  --check-c defaults to BS_ARENA_ROOM 0.16 and reads ECALC_NP=auto
+from the file's `plan` lines.
 
 Agent X's mn_model.py and Q's estimate.py import mem_per_node for their memory rows.  Every number is "modelled"
 unless the calibration table says "measured"; the tables' sources are named in results/M11.md.  Phase 12 (agent Q):
@@ -436,15 +442,22 @@ def host_size1(D):
 # COMM_SHMEM_POOL_AUTO=1 with the pool taken from MN_PLAN_ONLY's `plan pool` line (mnrun.sh, docs/TARGET.md 4: the pool = the need rounded up
 # to 256 MiB, the device heap exactly the pool).  COMM_SHMEM_ROUND_MB is off in the code; the target's launch line adds 1024 (the user's D2):
 # TARGET_LAUNCH.  OLD13 = the forms before Phase 14, for the historical tables (their numbers are unchanged with it).
-DEFAULTS15 = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=0, out_early=False)   # cap: ECALC_PLANE_CAP 2^31 (13c)
-OLD13 = dict(tight=False, early_free=False, t_chunk_mb=0, shift_chunk_mb=0, pool='max', vmm=False, round_mb=0, cap=None, seed_fill=0, out_early=False, pool1_np=3)   # pool1_np 3: pool 1 at 3 q + 16 whatever the primes (the code before Phase 15 PS)
+DEFAULTS15 = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=0, out_early=False, arena_room=0.0)   # cap: ECALC_PLANE_CAP 2^31 (13c)
+OLD13 = dict(tight=False, early_free=False, t_chunk_mb=0, shift_chunk_mb=0, pool='max', vmm=False, round_mb=0, cap=None, seed_fill=0, out_early=False, pool1_np=3, arena_room=0.0)   # pool1_np 3: pool 1 at 3 q + 16 whatever the primes (the code before Phase 15 PS)
 # Phase 15 (agent DOC, the user's decisions of 2026-09-27): DEFAULTS15B = the code's defaults now -- DEFAULTS15 + BS_SEED_FILL=128 (the seed span per run:
 # the bs regions hold one more batch level; at size 1 the division then grows the arena, VMM_DM_GROW_FILL) + MN_OUT_EARLY=1 (the part file's host
 # buffers held during the division, HOST_EARLY).  DEFAULTS15 stays B0 (the Phase 14 defaults) for the measured Phase 14 rows.
 DEFAULTS15B = dict(DEFAULTS15, seed_fill=SEED_FILL, out_early=True)
+# Phase 15 (agent DOC2, the user's decisions of 2026-09-28): DEFAULTS15C = the code's defaults now (main B2) -- DEFAULTS15B + BS_ARENA_ROOM=0.16 (binsplit.c
+# bs_arena_room: the arenas in whole VMM chunks + 0.16 x the hole in the dm need; at size 1 the division no longer grows the pool: VMM_DM_GROW_FILL not
+# applied).  DEFAULTS15B stays B1 (the defaults of 2026-09-27) for RESULTS 86's rows.
+ARENA_ROOM = 0.16                                       # BS_ARENA_ROOM's code default since 2026-09-28 (be2eec3; was 0)
+DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/V114.md): the target's launch line
-TARGET_NP = 4                                           # the user's decision 1 (2026-09-27): ECALC_NP=4 on the target's launch line (three primes cannot hold
-                                                        # the target's mn pieces: MN_PLAN_ONLY refuses them, results/P15.md); the code's default stays 3 (decimal)
+TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
+                                                        # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
+                                                        # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/P15.md;
+                                                        # ECALC_NP=4 is +17.2 GB per node over auto with RNS_POOL1_4Q); the code's default stays 3 (decimal)
 TARGET_DIGITS = 5.1e13                                  # the target's total digits on TARGET_NODES: the user's decision of 2026-09-27 23:50 EDT (Phase 15 TGT);
                                                         # history: 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
                                                         # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
@@ -658,6 +671,7 @@ def pool_check():
 
 # ---------------------------------------------------------------- Phase 15 TC: the mn transform cache (rns_dist.c cache_avail)
 CACHE_MN_SLOTS_CODE = 2                  # RNS_DIST_CACHE_MN's default
+CACHE_FIT_RESERVE = 32e9                 # RNS_DIST_CACHE_FIT_RESERVE_GB's default (32 GB per node)
 DIST_LOGN_MAX = 31                       # rns_dist.c: the single-node tier's cap, which sizes the default's slots
 def cache_mn_bytes(g, pool_log=31, np=4, slots=CACHE_MN_SLOTS_CODE, fit=False):
     """bytes per node of the mn transform cache: slots x 4 APUs x np x 2^(c - 2) limbs x 8, c = 31 (the default: whatever POOL_LOG) or
@@ -672,10 +686,10 @@ def cache_report():
     print('== Phase 15 TC: the mn transform cache (RNS_DIST_CACHE_MN=%d; GB per node, modelled)' % CACHE_MN_SLOTS_CODE)
     for T in (TARGET_DIGITS, TARGET_BELOW):
         oo = dict(TARGET_LAUNCH, transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP); r = mem_per_node(int(T / TARGET_NODES), TARGET_NODES, oo)
-        one = cache_mn_bytes(TARGET_NODES, 31, TARGET_NP, 1)
-        print('  %.3ge13 on %d: node %.1f (no cache) | the default\'s 2 slots %.1f -> node %.1f (1 slot: %.1f) | RNS_DIST_CACHE_FIT: %d slot%s (room %.1f < one slot %.1f) -> node %.1f' % (
-            T / 1e13, TARGET_NODES, r['node_peak'] / GB, r['cache_mn'] / GB, r['node_peak_cache'] / GB, (r['node_peak'] + one) / GB,
-            r['cache_fit_slots'], '' if r['cache_fit_slots'] == 1 else 's', 480 - r['node_peak'] / GB, one / GB, (r['node_peak'] + r['cache_fit']) / GB))
+        one = r['cache_slot']                                           # (Phase 15 DOC2: the slot at pool 0's planes -- four at the target under auto)
+        print('  %.3ge13 on %d, ECALC_NP=%s: node %.1f (no cache) | the default\'s 2 slots %.1f -> node %.1f (1 slot: %.1f) | RNS_DIST_CACHE_FIT: %d slot%s (the code\'s room: 480 - the layout node %.1f - the reserve %.0f = %.1f < one slot %.1f; against this model\'s node %.1f) -> node %.1f' % (
+            T / 1e13, TARGET_NODES, TARGET_NP, r['node_peak'] / GB, r['cache_mn'] / GB, r['node_peak_cache'] / GB, (r['node_peak'] + one) / GB,
+            r['cache_fit_slots'], '' if r['cache_fit_slots'] == 1 else 's', r['layout_node'] / GB, CACHE_FIT_RESERVE / GB, r['cache_fit_room'] / GB, one / GB, 480 - r['node_peak'] / GB, (r['node_peak'] + r['cache_fit']) / GB))
     for D, g, pl in ((5e8, 2, 25), (2.5e8, 4, 24), (5e9, 2, 29), (2.5e9, 4, 28)):
         print('  %.0e digits at %d node-processes, POOL_LOG=%d (3 primes): the default %.2f per process (12 GiB slots), FIT %.2f per process' % (
             D * g, g, pl, cache_mn_bytes(g, pl, 3) / GB, cache_mn_bytes(g, pl, 3, fit=True) / GB))
@@ -691,7 +705,7 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0); o.update(DEFAULTS15B); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0); o.update(DEFAULTS15C); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS15: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); pass OLD13 for the forms before.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
@@ -760,9 +774,15 @@ def mem_per_node(D, g=1, opts=None):
     cmn = cache_mn_bytes(g, o['pool_log'], npp, CACHE_MN_SLOTS_CODE) if g > 1 else 0
     peak_c = max(dev_init + host_init, dev_bs + cmn + max(host_init, host_dm), dev_dm + cmn + host_dm) * (1 + o['margin'])
     slot_fit = cache_mn_bytes(g, o['pool_log'], npp, 1, fit=True) if g > 1 else 0
-    fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int((o.get('node_gb', 480) * GB - peak) // slot_fit))) if slot_fit else 0
+    # Phase 15 DOC2: RNS_DIST_CACHE_FIT's bound as the code computes it (rns_dist.c rns_dist_cache_plan / cache_avail): ECALC_NODE_GB less the layout's
+    # node (binsplit_node_bytes: the plane pools + the arena + the tables + BS_HOST_INIT_BYTES + 6 GB at size > 1) less the reserve (32 GB per node),
+    # over one slot per node; the run's own check takes its measured init peak where larger (not modelled).  cache_fit_room_model: against this model's peak
+    layout_node = planes + sum(arena) + AS_HOST + (6000000000 if g > 1 else 0)
+    fit_room = o.get('node_gb', 480) * GB - layout_node - CACHE_FIT_RESERVE
+    fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int(fit_room // slot_fit))) if slot_fit and fit_room > 0 else 0
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
-                cache_mn=cmn, node_peak_cache=peak_c, cache_fit_slots=fit_slots, cache_fit=fit_slots * slot_fit,
+                cache_mn=cmn, node_peak_cache=peak_c, cache_fit_slots=fit_slots, cache_fit=fit_slots * slot_fit, cache_slot=slot_fit, cache_fit_room=fit_room, layout_node=layout_node,
+                arena_room=aroom,
                 planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
                 pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''),
                 dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
@@ -841,11 +861,12 @@ def main():
         print('  form %-4s MN_GROUPS %-28s: D per node %.1e -> %.2e digits over 576 nodes' % (form, groups or '(default)', Dm, 576 * Dm))
 
 # ---------------------------------------------------------------- Phase 13a M (TASKS 1.1): the C request against this port, and the one ceiling
-def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, arena_room=0.0, np_mode=None, pool1_4q=1):   # Phase 15 AS: arena_room = the run's BS_ARENA_ROOM   # Phase 15: MN_T_CHUNK_MB=1024 is the code's default (the layout line does not print it); BS_SEED_FILL 128 (2026-09-27; 0 for a log run with BS_SEED_FILL=0)
+def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, arena_room=ARENA_ROOM, np_mode=None, pool1_4q=1):   # Phase 15 DOC2: BS_ARENA_ROOM 0.16 (the default since 2026-09-28); np_mode None: 'auto' when the file's plan lines say ECALC_NP=auto, else each planes: line's np   # Phase 15 AS: arena_room = the run's BS_ARENA_ROOM   # Phase 15: MN_T_CHUNK_MB=1024 is the code's default (the layout line does not print it); BS_SEED_FILL 128 (2026-09-27; 0 for a log run with BS_SEED_FILL=0)
     """compare the `layout:` lines of `BS_LAYOUT_ONLY=D:g,... ./ecalc 1e6 x` (binsplit.c binsplit_layout_only: the arena request
     of binsplit_pregrow, not allocated) with this file's port, term by term; returns the largest relative difference of the arena"""
     import re
     worst = 0.0; nplanes = 0
+    if np_mode is None and 'ECALC_NP=auto' in open(path, errors='replace').read(): np_mode = 'auto'   # Phase 15 DOC2: the launch line's auto (its planes: lines print np 3)
     for line in open(path, errors='replace'):
         if line.startswith('planes:'):                                    # Phase 15 PS: the plane pools per cap (binsplit_node_bytes), GB at 2 decimals
             m = re.match(r'planes: D (\S+) g (\d+) np (\d)', line); g = int(m.group(2)); npl = int(m.group(3))
@@ -962,16 +983,19 @@ MEASURED15B = [  # Phase 15 (agent DOC): the defaults of 2026-09-27 (BS_SEED_FIL
 ]
 
 def report15():
-    print('== Phase 15: the memory model on the defaults (%s) against the measured runs (GB; measured / model)' % ', '.join('%s=%s' % kv for kv in DEFAULTS15B.items()))
-    for D, g, di, dm, hw, used, o, src in [(D, g, di, dm, hw, used, dict(DEFAULTS15, **o), '[B0] ' + src) for D, g, di, dm, hw, used, o, src in MEASURED15] + MEASURED15B:
+    print('== Phase 15: the memory model on the defaults (%s) against the measured runs (GB; measured / model; each row on the defaults of its run: [B0], [B1])' % ', '.join('%s=%s' % kv for kv in DEFAULTS15C.items()))
+    for D, g, di, dm, hw, used, o, src in [(D, g, di, dm, hw, used, dict(DEFAULTS15, **o), '[B0] ' + src) for D, g, di, dm, hw, used, o, src in MEASURED15] + [(D, g, di, dm, hw, used, dict(DEFAULTS15B, **o), '[B1] ' + src) for D, g, di, dm, hw, used, o, src in MEASURED15B]:
         r = mem_per_node(int(D), g, o)
         node_m = used if used is not None else dm + hw
         print('  %.3g x %d: device init %s / %.1f, device max %s / %.1f, host HWM %.1f / %.1f, node %.1f / %.1f (%+.1f %%)  | %s' % (
             D, g, '%.1f' % di if di else '-', r['dev_init'] / GB, '%.1f' % dm if dm else '-', r['dev_max'] / GB, hw, r['host_hwm'] / GB, node_m, r['node_peak'] / GB,
             100 * (r['node_peak'] / GB / node_m - 1), src))
     D = TARGET_DIGITS / TARGET_NODES; groups = '2,4,8,16,32,64,192,576'   # Phase 15 TGT: the target constant (was 4.25e13)
-    print('\n== the target: %.3ge13 digits on 576 nodes (D %.4e per node, MN_GROUPS %s, SHMEM, depth 2, ECALC_NP=%d: the launch line), GB per node (modelled)' % (TARGET_DIGITS / 1e13, D, groups, TARGET_NP))
+    print('\n== the target: %.3ge13 digits on 576 nodes (D %.4e per node, MN_GROUPS %s, SHMEM, depth 2, ECALC_NP=%s: the launch line; BS_ARENA_ROOM %.2f: the default), GB per node (modelled)' % (TARGET_DIGITS / 1e13, D, groups, TARGET_NP, ARENA_ROOM))
     for name, o in [('the defaults (COMM_SHMEM_ROUND_MB off)', {}), ('the defaults + COMM_SHMEM_ROUND_MB=1024 (D2: the launch line)', dict(TARGET_LAUNCH)),
+                    ('  ... BS_ARENA_ROOM=0 (B1)', dict(TARGET_LAUNCH, arena_room=0.0)),
+                    ('  ... ECALC_NP=4 (the launch line of 2026-09-27; RNS_POOL1_4Q)', dict(TARGET_LAUNCH, np=4)),
+                    ('  ... ECALC_NP=4 BS_ARENA_ROOM=0 (B1 on its launch line)', dict(TARGET_LAUNCH, np=4, arena_room=0.0)),
                     ('  ... ECALC_NP=3 (refused by the plan check: shown for the memory only)', dict(TARGET_LAUNCH, np=3)),
                     ('  ... the Phase 14 defaults (B0: BS_SEED_FILL=0, MN_OUT_EARLY=0)', dict(TARGET_LAUNCH, seed_fill=0, out_early=False)),
                     ('  ... the pre-Phase-15 host (no VMM seed buffers, no bs growth)', dict(TARGET_LAUNCH, vmm=False)),
@@ -982,8 +1006,8 @@ def report15():
             name, r['node_peak'] / GB, r['dev_init'] / GB, r['host_init'] / GB, r['dev_bs'] / GB, max(r['host_init'], r['host_dm']) / GB, r['dev_dm'] / GB, r['host_dm'] / GB,
             r['arena'] / GB, r['regions_bs'] / GB, r['dm_need'] / GB, r['tree_need'] / GB, r['shmem_pool'] / 2 ** 20, r['shmem_need'] / 2 ** 20))
     print('\n== ceilings (the largest D per node whose node peak fits; digits in all = D x g)')
-    for name, g, o in [('one node, the defaults (three primes)', 1, {}), ('576, the defaults, ECALC_NP=4', 576, dict(transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP)),
-                       ('576, the launch line (+ COMM_SHMEM_ROUND_MB=1024, ECALC_NP=4)', 576, dict(TARGET_LAUNCH, transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP))]:
+    for name, g, o in [('one node, the defaults (three primes)', 1, {}), ('576, the defaults, ECALC_NP=%s' % TARGET_NP, 576, dict(transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP)),
+                       ('576, the launch line (+ COMM_SHMEM_ROUND_MB=1024, ECALC_NP=%s)' % TARGET_NP, 576, dict(TARGET_LAUNCH, transport='shmem', staging='code', depth=2, groups=groups, np=TARGET_NP))]:
         cs = []
         for nb in (480, 502):
             Dm = max_digits_per_node(nb * GB, g, o, hi=4e11); cs.append('%.0f GB: %.2e per node = %.3e digits' % (nb, Dm, Dm * g))
@@ -998,7 +1022,7 @@ if __name__ == '__main__':
         early_free_ceilings(); sys.exit(0)
     if len(sys.argv) > 2 and sys.argv[1] == '--check-c':
         c_layout_check(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 31, float(sys.argv[4]) if len(sys.argv) > 4 else 1024, int(sys.argv[5]) if len(sys.argv) > 5 else SEED_FILL,
-                       float(sys.argv[6]) if len(sys.argv) > 6 else 0.0, (sys.argv[7] if sys.argv[7] == 'auto' else int(sys.argv[7])) if len(sys.argv) > 7 else None,
+                       float(sys.argv[6]) if len(sys.argv) > 6 else ARENA_ROOM, (sys.argv[7] if sys.argv[7] == 'auto' else int(sys.argv[7])) if len(sys.argv) > 7 else None,
                        int(sys.argv[8]) if len(sys.argv) > 8 else 1)
     elif len(sys.argv) > 1 and sys.argv[1] == '--ceiling':
         ceilings()

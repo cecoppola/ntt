@@ -1,0 +1,26 @@
+ecalc estimate -- design auto 2^31 both d2 p15c np-auto cache-fit, ECALC_NP=3 (auto at size > 1), NTT_MODMUL=1, COMM_SHMEM_ROUND_MB=1024, the part file packed, from the division's hook (MN_OUT_EARLY); tree form grid, SHMEM staging code, MN_GROUPS (default), fabric 100 GB/s per APU, 2.0 us per message, dragonfly group 64, 2 layers, taper 1.00, part files 0.60 GB/s per node; BS_ARENA_ROOM 0.16, DIST_TWREC_G=1, the mn cache as RNS_DIST_CACHE_FIT=1 allows
+the standing estimate, 576 nodes, MN_GROUPS 2,4,8,16,32,64,192,576 (modelled; the fabric assumed: 100 GB/s per APU, 2.0 us per message; the part file at 2 / 0.8 / 0.6 GB/s per node -- 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):
+  digits                                                  |  no write | write @2.0 | write @0.8 | write @0.6 | pieces tree_max + recip + div | node GB (device + host; pool) [mn cache slots]
+  5.100e+13 the target (the last size below the step)    | 400.0 s (6.67 min) | 394.6 s (6.58 min) | 404.1 s (6.73 min) | 420.5 s (7.01 min) | 128 + 74 + 40 = 242 | 471.9 (429.8 + 44.4; 9.9) [0 slots]
+  5.110e+13 node 0 steps (222 -> 226), critical path same | 400.5 s (6.68 min) | 395.1 s (6.59 min) | 404.7 s (6.75 min) | 421.1 s (7.02 min) | 128 + 74 + 40 = 242 | 471.9 (430.3 + 44.4; 9.9) [0 slots]
+  5.120e+13 the step (critical path 242 -> 246)          | 407.1 s (6.78 min) | 401.6 s (6.69 min) | 411.3 s (6.86 min) | 427.8 s (7.13 min) | 132 + 74 + 40 = 246 | 471.9 (430.9 + 44.4; 9.9) [0 slots]
+  5.170e+13 the next step (critical path 266)            | 436.1 s (7.27 min) | 430.6 s (7.18 min) | 440.8 s (7.35 min) | 457.4 s (7.62 min) | 152 + 74 + 40 = 266 | 480.5 (436.1 + 44.4; 9.9)  (over 480 GB) [0 slots]
+  4.740e+13 one step below (test after the headline)     | 368.7 s (6.14 min) | 363.7 s (6.06 min) | 375.4 s (6.26 min) | 390.7 s (6.51 min) | 124 + 68 + 34 = 226 | 454.8 (412.9 + 44.4; 9.9) [0 slots]
+  4.750e+13 its step (4.74 -> 4.75e13)                   | 380.5 s (6.34 min) | 375.5 s (6.26 min) | 385.5 s (6.43 min) | 400.8 s (6.68 min) | 124 + 73 + 36 = 233 | 454.8 (413.5 + 44.4; 9.9) [0 slots]
+  4.250e+13 the target until 2026-09-27 23:50 EDT        | 288.6 s (4.81 min) | 284.1 s (4.74 min) | 297.1 s (4.95 min) | 310.8 s (5.18 min) |  88 + 66 + 28 = 182 | 429.0 (388.6 + 44.4; 9.9) [0 slots]
+  5.1e13 by phase (modelled): init 20.1 + seed wait 12.1 + batch 24.2 + top 27.0 + distributed levels 185.9 + reciprocal 54.0 + division 68.8 + other 0.2 + the digits' formatting and residues 5.4 + the exit 2.4 = 400.0 s without the write; the part file 39.4 GB per node (packed, 0.444 B/digit), started at the division's hook, 39.7 s of it hidden under the division (MN_OUT_EARLY): 19.7 @2.0 / 49.2 @0.8 / 65.6 @0.6 s of writing
+  4.74e13 by phase (modelled): init 19.0 + seed wait 11.4 + batch 22.6 + top 25.4 + distributed levels 179.9 + reciprocal 44.0 + division 58.8 + other 0.1 + the digits' formatting and residues 5.0 + the exit 2.4 = 368.7 s without the write; the part file 36.6 GB per node (packed, 0.444 B/digit), started at the division's hook, 33.9 s of it hidden under the division (MN_OUT_EARLY): 18.3 @2.0 / 45.7 @0.8 / 61.0 @0.6 s of writing
+  the mn transform cache and the prime count (modelled; a slot = 4 APUs x 4 primes x 2^29 limbs x 8 B = 68.7 GB per node; FIT's room = 480 - the layout node - 32 GB):
+    digits                                                                |  no write | write @2.0 | write @0.8 | write @0.6 | node GB (with the slots)
+    (FIT at 5.1e13: room 4.88 GB = 480 - the layout node 443.12 - 32 -> 0 slots)
+    5.100e+13 0 slots: what RNS_DIST_CACHE_FIT=1 allows (the launch line) | 400.0 s (6.67 min) | 394.6 s | 404.1 s | 420.5 s | 471.9
+    5.100e+13 1 slot (forced; does not fit)                              | 350.3 s (5.84 min) | 344.9 s | 362.6 s | 379.0 s | 540.7  (over 480 GB)
+    5.100e+13 2 slots (forced; does not fit)                             | 325.7 s (5.43 min) | 320.3 s | 339.8 s | 356.2 s | 609.4  (over 480 GB)
+    5.100e+13 ECALC_NP=4 instead of auto (0 slots)                       | 423.3 s (7.06 min) | 417.9 s | 427.4 s | 443.8 s | 489.1  (over 480 GB)
+    4.740e+13 0 slots: what RNS_DIST_CACHE_FIT=1 allows (the launch line) | 368.7 s (6.14 min) | 363.7 s | 375.4 s | 390.7 s | 454.8
+    4.740e+13 1 slot (forced; does not fit)                              | 324.9 s (5.41 min) | 319.8 s | 338.0 s | 353.3 s | 523.5  (over 480 GB)
+    4.740e+13 2 slots (forced; does not fit)                             | 302.1 s (5.03 min) | 297.0 s | 317.0 s | 332.2 s | 592.2  (over 480 GB)
+    4.740e+13 ECALC_NP=4 instead of auto (0 slots)                       | 392.1 s (6.54 min) | 387.1 s | 398.9 s | 414.1 s | 471.9
+  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps):
+    480 GB: D 8.97e+10 per node -> 5.167e+13 digits: 435.7 s without the write; 430.2 s @2.0 / 440.4 s @0.8 / 457.0 s @0.6 with it; pieces 152 + 74 + 40; node 471.9 GB
+    502 GB: D 1.02e+11 per node -> 5.892e+13 digits: 525.0 s without the write; 518.7 s @2.0 / 528.9 s @0.8 / 547.8 s @0.6 with it; pieces 184 + 82 + 47; node 497.7 GB

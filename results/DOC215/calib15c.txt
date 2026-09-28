@@ -1,0 +1,6 @@
+arm  file   n |    total    model    err |     wall    model    err | dm model (measured: B1 106.4, B2 91.3)
+B1   no     4 |    200.9    195.1  -2.9% |    207.7    197.5  -4.9% | 102.2
+B2   no     4 |    185.1    181.4  -2.0% |    187.8    183.8  -2.1% | 88.6
+B1   yes    2 |    202.5    195.1  -3.7% |    205.2    197.5  -3.8% | 102.2
+B2   yes    2 |    188.6    181.4  -3.8% |    191.3    183.8  -3.9% | 88.6
+worst wall error 4.9 % (modelled against measured means, s24-16; B1's first no-file run 230.3 s elapsed is in the mean)

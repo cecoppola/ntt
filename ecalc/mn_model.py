@@ -27,6 +27,13 @@ BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATC
 target's launch line (ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); --model p15 is B0 (DEFAULT15, the Phase 14 defaults).  The terms and their
 labels are in the block above CAL15_RUNS (FILL_BS, SEED15B, P15B_RECIP1, P15B_DIV1, TWREC_F, PACKED_BPD, EXIT_S); --calib15b compares the model with
 RESULTS 86's paired 1e11 series.
+
+Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the default design is DEFAULT15C() -- main B2 = B1 + BS_ARENA_ROOM=0.16 (the arena room: the
+node's arena in whole VMM chunks + 0.16 x the hole; at size 1 the division without remaps, P15C_DIV1) + DIST_TWREC_G=1 (TWREC_G True) + RNS_POOL1_4Q=1, on
+the target's launch line with ECALC_NP=auto (np_mn 'auto') and RNS_DIST_CACHE_FIT=1 (cache_fit: the mn transform cache's slots are what FIT allows --
+mem_model's cache_fit_slots, the code's rule: 0 at 5.1e13 and 4.74e13; CACHE_FORCE / --cache-slots n prices n slots whether or not they fit, with their
+bytes added to the node).  --model p15b is B1 (DEFAULT15B: ECALC_NP=4, no room, the code's default 2 cache slots as the time assumed before TC / CX).
+--calib15c compares the model with the paired 1e11 series B1 / B2 (fin15e).
 """
 import argparse, math, sys, os, functools
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -78,8 +85,15 @@ CACHE_PRIMES = None
 CACHE_LOOP = 'code'
 CACHE_SLOTS_PHASE = None
 CACHE_PHASE_NOW = None
+# Phase 15 DOC2 (the user's decision 2 of 2026-09-28: RNS_DIST_CACHE_FIT=1 on the launch line): a design with cache_fit prices the slots FIT allows
+# (run() sets CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model's cache_fit_slots) for the run: 0 at the target); CACHE_FORCE = n prices n slots
+# whatever FIT allows (estimate.py --cache-slots n: what a slot would be worth; its bytes are added to the node and it is labelled "does not fit")
+CACHE_RUN_SLOTS = None
+CACHE_FORCE = None
 def cache_slots_now():
     if CACHE_SLOTS_PHASE is not None and CACHE_PHASE_NOW in CACHE_SLOTS_PHASE: return CACHE_SLOTS_PHASE[CACHE_PHASE_NOW]
+    if CACHE_FORCE is not None: return CACHE_FORCE
+    if CACHE_RUN_SLOTS is not None: return CACHE_RUN_SLOTS
     return CACHE_MN_SLOTS
 GEN_HIDE = 0.5                  # ASSUMED: the general map (g not a power of two) keeps one v-exchange in flight (L's open
                                 # issue), so only half of the xGMI stage hides the fabric stage (the equal path: all of it)
@@ -597,7 +611,8 @@ class Design:
     (MDB_SHIFT_CHUNK_MB) | 'both' (+ MN_T_CHUNK_MB), at chunk_mb; depth: the uneven (alltoallv) exchange's depth 1 | 2;
     modmul: NTT_MODMUL (1 = the default since step 0); legacy: the pre-13b constants (four primes, Phase 10/11 phases)"""
     def __init__(self, np=3, strategy='C', cap=None, chunk='off', depth=1, modmul=1, chunk_mb=CHUNK_MB, legacy=False, p15=False, tight=True, early_free=True,
-                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False):
+                 round_mb=1024, pool='plan', vmm=True, recip_cut=True, out_overlap=None, p15b=False, np_mn=None, packed=None, early=None, np_auto=False,
+                 p15c=False, arena_room=None, cache_fit=None):
         self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy = np, strategy, cap, chunk, depth, modmul, chunk_mb, legacy
         self.gen_hide = None; self.force_gen = False                      # the aac6 loopback depth check (design_table --calibrate)
         self.shift_mb = chunk_mb if chunk in ('shift', 'both') else 0
@@ -622,13 +637,20 @@ class Design:
         self.np_auto = np_auto
         self.packed = p15b if packed is None else packed
         self.early = p15b if early is None else early
+        # Phase 15 (agent DOC2): p15c = the user's decisions of 2026-09-28 on top of p15b (main B2) -- BS_ARENA_ROOM (arena_room, default 0.16 with p15c:
+        # mem_model's arena term; at size 1 the division without the fill's remaps, P15C_DIV1), DIST_TWREC_G=1 (the global TWREC_G), RNS_POOL1_4Q=1 (mem_model);
+        # cache_fit = RNS_DIST_CACHE_FIT=1 on the launch line (the mn cache's slots as FIT allows them; default with p15c)
+        self.p15c = p15c
+        self.arena_room = (mem_model.ARENA_ROOM if p15c else 0.0) if arena_room is None else arena_room
+        self.cache_fit = p15c if cache_fit is None else cache_fit
     def at_g(self, g):
         """the design as a run of g node-processes uses it: np_mn at size > 1 (ECALC_NP=4 on the target's launch line)"""
         if g > 1 and self.np_mn and self.np_mn != self.np:
             auto = self.np_mn == 'auto'
             d = Design(np=3 if auto else self.np_mn, np_auto=auto, strategy=self.strategy, cap=self.cap, chunk=self.chunk, depth=self.depth, modmul=self.modmul, chunk_mb=self.chunk_mb, legacy=self.legacy,
                        p15=self.p15, tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm, recip_cut=self.recip_cut,
-                       out_overlap=self.out_overlap, p15b=self.p15b, np_mn=None, packed=self.packed, early=self.early)
+                       out_overlap=self.out_overlap, p15b=self.p15b, np_mn=None, packed=self.packed, early=self.early,
+                       p15c=self.p15c, arena_room=self.arena_room, cache_fit=self.cache_fit)
             d.gen_hide, d.force_gen = self.gen_hide, self.force_gen
             return d
         return self
@@ -638,14 +660,16 @@ class Design:
     def mem_opts(self, digits):
         o = dict(mem_model.DEFAULTS15 if self.p15 else mem_model.OLD13)
         if self.p15: o.update(tight=self.tight, early_free=self.early_free, round_mb=self.round_mb, pool=self.pool, vmm=self.vmm,
-                              seed_fill=mem_model.SEED_FILL if self.p15b else 0, out_early=bool(self.early))   # Phase 15 (2026-09-27): BS_SEED_FILL, MN_OUT_EARLY
+                              seed_fill=mem_model.SEED_FILL if self.p15b else 0, out_early=bool(self.early), arena_room=self.arena_room)   # Phase 15 (2026-09-27): BS_SEED_FILL, MN_OUT_EARLY; (2026-09-28) BS_ARENA_ROOM
+        if self.p15c: o['pool1_np'] = None                          # Phase 15 DOC2: RNS_POOL1_4Q=1 (PS, B2's default): pool 1 at the one-node primes (4 q under ECALC_NP=4); B1 and before: 3 q + 16 (OLD13's pool1_np 3)
         o.update(np='auto' if self.np_auto else self.np, strategy=self.strategy, cap=self.cap_at(digits), shift_chunk_mb=self.shift_mb, t_chunk_mb=self.t_mb, depth=self.depth)
         return o
     def key(self): return (self.np, self.strategy, self.cap, self.chunk, self.depth, self.modmul, self.chunk_mb, self.legacy,
-                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early, self.np_auto)
+                           self.p15, self.tight, self.early_free, self.round_mb, self.pool, self.vmm, self.recip_cut, self.out_overlap, self.p15b, self.np_mn, self.packed, self.early, self.np_auto,
+                           self.p15c, self.arena_room, self.cache_fit)
     def name(self):
-        return '%s %s %s d%d%s%s%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '', 'b' if self.p15b else '',
-                                       ' np-auto' if (self.np_auto or self.np_mn == 'auto') else '')
+        return '%s %s %s d%d%s%s%s%s' % (self.strategy, mem_model.cap_name(self.cap) if self.cap else 'rule', self.chunk, self.depth, ' p15' if self.p15 else '', ('c' if self.p15c else 'b') if self.p15b else '',
+                                       ' np-auto' if (self.np_auto or self.np_mn == 'auto') else '', ' cache-fit' if self.cache_fit else '')
     def env(self):
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
@@ -655,6 +679,8 @@ class Design:
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
         e['COMM_ALLTOALLV_DEPTH'] = self.depth
         if self.p15 and self.round_mb: e['COMM_SHMEM_ROUND_MB'] = int(self.round_mb)   # the target's launch line (D2); the rest are the code's defaults
+        if self.cache_fit: e['RNS_DIST_CACHE_FIT'] = 1                    # Phase 15 DOC2: the launch line (the user's decision 2 of 2026-09-28)
+        if self.p15b and not self.p15c: e['BS_ARENA_ROOM'] = 0; e['DIST_TWREC_G'] = 0   # B1 on today's code
         return e
 
 def DEFAULT15(**kw):
@@ -666,9 +692,14 @@ def DEFAULT15B(**kw):
     """Phase 15 (agent DOC): the code's defaults of 2026-09-27 (the user's decisions: BS_SEED_FILL=128, BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC,
     RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's launch line (COMM_SHMEM_ROUND_MB=1024,
     ECALC_NP=4 at size > 1; three primes, the code's default, at size 1)"""
-    o = dict(np=3, np_mn=mem_model.TARGET_NP, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True); o.update(kw)
+    o = dict(np=3, np_mn=4, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True); o.update(kw)   # (np_mn 4: B1's launch line; TARGET_NP is 'auto' since 2026-09-28)
     return Design(**o)
-DEFAULT = DEFAULT15B()                 # Phase 15 (2026-09-27): the estimate's design (was DEFAULT15(): the Phase 14 defaults, three primes at 576)
+def DEFAULT15C(**kw):
+    """Phase 15 (agent DOC2): the code's defaults of 2026-09-28 (main B2: + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1, RNS_POOL1_4Q=1) on the target's launch line
+    (ECALC_NP=auto at size > 1, RNS_DIST_CACHE_FIT=1, COMM_SHMEM_ROUND_MB=1024; three primes at size 1)"""
+    o = dict(np=3, np_mn=mem_model.TARGET_NP, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1, p15=True, p15b=True, p15c=True); o.update(kw)
+    return Design(**o)
+DEFAULT = DEFAULT15C()                 # Phase 15 (2026-09-28): the estimate's design (DEFAULT15B() on 2026-09-27; DEFAULT15() before)
 DZ = None                              # the design of the run in progress (run() sets it; the cost functions read it)
 
 def round_cost(fab, g):
@@ -1366,7 +1397,17 @@ P15B_DIV1 = 1.0851                     # MEASURED ratio at size 1, cand / B0: th
 # target's general-map pieces), ASSUMED on the critical path (the model adds local time and exposed fabric; the chunk pipeline may hide
 # the packs of chunks 1..K-1 under the wire: then about a quarter of it).  GEN_TWPACK_F[0] = 1: the plain kernels as the measured piece.
 GEN_TWPACK_F = {0: 1.0, 1: 0.95}
-TWREC_G = False                        # DIST_TWREC_G (default 0 in the code); --twrec-g
+TWREC_G = True                         # DIST_TWREC_G: default 1 in the code since 2026-09-28 (the user's decision 4; be2eec3; was 0); --no-twrec-g
+P15C_DIV1 = 53.50 / 68.15              # MEASURED ratio at size 1, B2 / B1: the division (dm - recip) at 1e11, BS_ARENA_ROOM=0.16 (+ NP auto, TWREC_G: no size-1 effect)
+                                       # against B1 -- the fill's remaps gone (the arena mapped whole at init: device 393.6 GB from init, as B1's dm peak); fin15e
+                                       # (job 21670, s24-16, 2026-09-28 04:59-05:44 EDT), 6 + 6 runs: 53.12-54.12 against 67.14-69.19 s; the reciprocal unchanged
+                                       # (37.80 vs 38.27 s: not applied).  Size 1 only (ASSUMED at other D); at size > 1 no remap term exists to remove
+CAL15C_RUNS = [   # fin15e (job 21670, s24-16): B1 (main f184d51's defaults) against B2's switches (ECALC_NP=auto BS_ARENA_ROOM=0.16 DIST_TWREC_G=1); `total` and elapsed
+    dict(arm='B1', file=False, total=(210.36, 198.65, 196.95, 197.45), wall=(230.28, 201.22, 199.49, 199.90)),
+    dict(arm='B2', file=False, total=(183.69, 190.08, 184.56, 182.22), wall=(186.31, 192.99, 187.10, 184.70)),
+    dict(arm='B1', file=True, total=(202.89, 202.19), wall=(205.54, 204.96)),
+    dict(arm='B2', file=True, total=(190.47, 186.79), wall=(193.05, 189.47)),
+]
 TWREC_F = 0.98                         # the pieces' local passes x this with DIST_TWREC=1: MODELLED from the measured -1.8 s of dm at 1e11 on ~90 s of four-step products
                                        # (results/C215.md 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
 PACKED_BPD = 8.0 / 18.0                # ECALC_OUT_PACKED=1: 8 bytes per 18 digits (0.444 B/digit; 1.0 for ASCII) -- exact (results/IO15.md W2)
@@ -1493,6 +1534,22 @@ def calib15b(verbose=True):
     if verbose: print('worst wall error %.1f %% (modelled against measured means; the part file at %.2f GB/s, the aac6 /tmp rate fitted by fit15)' % (100 * worst, WRITE_BW_AAC6))
     return worst
 
+def calib15c(verbose=True):
+    """Phase 15 (agent DOC2): the model at 1e11 on one node against the fin15e paired series (job 21670, s24-16): B1 (DEFAULT15B) and B2 (DEFAULT15C:
+    + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1, ECALC_NP=auto -- at size 1 only the room acts: P15C_DIV1).  Returns the worst wall error"""
+    fab = Fabric(TARGET.name, TARGET.bw, TARGET.lat, write_bw=WRITE_BW_AAC6); worst = 0.0
+    designs = {'B1': DEFAULT15B(), 'B2': DEFAULT15C()}
+    if verbose: print('%-4s %-5s %2s | %8s %8s %6s | %8s %8s %6s | %s' % ('arm', 'file', 'n', 'total', 'model', 'err', 'wall', 'model', 'err', 'dm model (measured: B1 106.4, B2 91.3)'))
+    for r in CAL15C_RUNS:
+        mt = sum(r['total']) / len(r['total']); mw = sum(r['wall']) / len(r['wall'])
+        x = run(fab, 1e11, 1, verbose=False, design=designs[r['arm']])
+        tot = x['total_line'] if r['file'] else x['compute']
+        w = x['wall_write'] if r['file'] else x['wall_nowrite']
+        et, ew = tot / mt - 1, w / mw - 1; worst = max(worst, abs(ew))
+        if verbose: print('%-4s %-5s %2d | %8.1f %8.1f %+5.1f%% | %8.1f %8.1f %+5.1f%% | %.1f' % (r['arm'], 'yes' if r['file'] else 'no', len(r['total']), mt, tot, 100 * et, mw, w, 100 * ew, x['recip'] + x['div']))
+    if verbose: print('worst wall error %.1f %% (modelled against measured means, s24-16; B1\'s first no-file run 230.3 s elapsed is in the mean)' % (100 * worst))
+    return worst
+
 def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, staging="code", design=None):
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
@@ -1503,19 +1560,28 @@ def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, stagi
     gb = lambda k: r[k] / 1e9
     return dict(device=gb("dev_max"), host=gb("host_hwm"), node=gb("node_peak"), planes=gb("planes"), arena=gb("arena"),
                 dm_need=gb("dm_need"), tree_need=gb("tree_need"), top_scratch=gb("top_scratch"), exchange=gb("exchange"), regions=gb("regions_bs"),
-                shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"))
+                shmem_pool=gb("shmem_pool"), shmem_staging=gb("shmem_staging"),
+                cache_slot=gb("cache_slot"), cache_fit_slots=r["cache_fit_slots"], cache_fit_room=gb("cache_fit_room"), layout_node=gb("layout_node"))   # Phase 15 DOC2
 
 # ------------------------------------------------------------------------------------------------------------
 def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=None, dc_exposed=None, groups=None, form="grid", transport="shmem", pool_log=31, staging="code", design=None, corrections=0):
     """one run of g nodes at D digits per node.  design None: the legacy constants (four primes, the Phase 10/11 phase table;
     --calib and the Phase 12 tables); a Design: the code after Phase 13b step 0 and the row's options (Phase 13b D)"""
-    global DZ
+    global DZ, CACHE_RUN_SLOTS
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
-    saved = DZ; DZ = design
+    saved = DZ; DZ = design; saved_c = CACHE_RUN_SLOTS
+    if design is not None and getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
+        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g))
+        CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model.mem_per_node(int(D), g, o)['cache_fit_slots'])
+    else: CACHE_RUN_SLOTS = None
     try:
-        return _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections)
+        r = _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections)
+        r['cache_slots'] = cache_slots_now() if g > 1 else 0
+        m = r['mem']; m['cache'] = r['cache_slots'] * m['cache_slot'] if g > 1 else 0.0   # Phase 15 DOC2: the slots' bytes (GB per node; 0 under FIT at the target)
+        m['node_cache'] = m['node'] + m['cache']; m['cache_fits'] = m['node_cache'] <= NODE_GB_MARGIN
+        return r
     finally:
-        DZ = saved
+        DZ = saved; CACHE_RUN_SLOTS = saved_c
 
 def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups, form, transport, pool_log, staging, design, corrections=0):
     nq = int(D / LIMB_DIGITS)                          # limbs of Q per node (the leaf's share)
@@ -1553,6 +1619,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         seed_wait = seed_wait15(Dt, g, D * g, ph["init"], fast=p15b) * (leaf_scale if leaf_scale > 0 else 0.0)
         if g == 1:
             rc.t *= cal15(D, 'recip') * (P15B_RECIP1 if p15b else 1.0); dc.t *= cal15(D, 'div') * (P15B_DIV1 if p15b else 1.0)   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
+            if p15b and design.p15c and design.arena_room > 0: dc.t *= P15C_DIV1   # Phase 15 DOC2: BS_ARENA_ROOM -- no remaps in the division (measured at 1e11)
     t_compute = ph["init"] + seed_wait + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + ph["other"]
     out_write = D * (PACKED_BPD if (p15 and design.packed) else 1.0) / 1e9 / fab.write_bw   # the node's part file at the write bandwidth (packed: 0.444 B/digit)
     t_lowprod = dc.t * 0.5
@@ -1752,8 +1819,8 @@ def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', m
 
 def cache_rooms(T=None, g=None, design=None):
     """(tree room, division room) per node in bytes (modelled): 480 GB less the phase's node figure, + the arena's slack in the tree"""
-    T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15B()).at_g(g)
-    r = mem_model.mem_per_node(T / g, g, design.mem_opts(T)); host_x = _run_cache(T, g, DEFAULT15B(), slots=0)['mem']['host'] * 1e9 - r['host_hwm']   # (the run's mem is in GB: + the SHMEM pool)
+    T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15C(cache_fit=False)).at_g(g)   # (Phase 15 DOC2: today's memory -- the arena room)
+    r = mem_model.mem_per_node(T / g, g, design.mem_opts(T)); host_x = _run_cache(T, g, DEFAULT15C(cache_fit=False), slots=0)['mem']['host'] * 1e9 - r['host_hwm']   # (the run's mem is in GB: + the SHMEM pool)
     GB = 1e9; bud = NODE_GB_MARGIN * GB
     tree = bud - (r['dev_bs'] + r['host_hwm'] + host_x) + (r['arena'] - r['tree_need'])
     dm = bud - (r['dev_dm'] + r['host_dm'] + host_x)
@@ -1763,7 +1830,7 @@ def cache_proposals(T=None, g=None):
     T = T or TARGET_DIGITS; g = g or TARGET_NODES
     GB = 1e9; prime_slot = (1 << 29) * 8 * 4                         # one prime's plane per APU at the cap (q = 2^29 at every target grid), x 4 APUs
     for npm in (4, 'auto'):
-        d = DEFAULT15B(np_mn=npm)
+        d = DEFAULT15C(np_mn=npm, cache_fit=False)                     # (Phase 15 DOC2: B2's defaults; the slots forced per row)
         tree_room, dm_room, x = cache_rooms(T, g, d)
         base = _run_cache(T, g, d, slots=0)
         print('== %.3g digits on %d nodes, ECALC_NP=%s (modelled; the fabric assumed as in TARGET.md): 0 slots %.1f s without the write, %.1f s with it (@%.1f GB/s)'
@@ -1805,9 +1872,12 @@ def main():
     ap.add_argument("--bw", type=float, default=100.0, help="GB/s per APU injection")
     ap.add_argument("--lat", type=float, default=2e-6, help="seconds per message")
     ap.add_argument("--write-bw", type=float, default=TARGET_WRITE_BW, help="GB/s per node for the part file (Phase 15: 0.6, the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
-    ap.add_argument("--model", default="p15b", choices=("p15b", "p15", "p13", "legacy"), help="Phase 15: p15b = DEFAULT15B() (the code's defaults of 2026-09-27 + the target's launch line: ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); p15 = DEFAULT15() (the Phase 14 defaults, B0; three primes); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
+    ap.add_argument("--model", default="p15c", choices=("p15c", "p15b", "p15", "p13", "legacy"), help="Phase 15 (2026-09-28): p15c = DEFAULT15C() (main B2 on the launch line: ECALC_NP=auto, RNS_DIST_CACHE_FIT=1, BS_ARENA_ROOM=0.16, DIST_TWREC_G=1); p15b = DEFAULT15B() (B1) (the code's defaults of 2026-09-27 + the target's launch line: ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); p15 = DEFAULT15() (the Phase 14 defaults, B0; three primes); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
     ap.add_argument("--ascii", action="store_true", help="p15b: ECALC_OUT_PACKED=0 (the ASCII part file, 1 B/digit)")
-    ap.add_argument("--twrec-g", action="store_true", help="Phase 15 G5: DIST_TWREC_G=1 (the general map's recurrence packs, GEN_TWPACK_F)")
+    ap.add_argument("--twrec-g", action="store_true", help="Phase 15 G5: DIST_TWREC_G=1 (the general map's recurrence packs, GEN_TWPACK_F) -- the default since 2026-09-28")
+    ap.add_argument("--no-twrec-g", action="store_true", help="Phase 15 DOC2: DIST_TWREC_G=0 (B1)")
+    ap.add_argument("--cache-slots", type=int, default=None, help="Phase 15 DOC2: price n mn cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows under p15c -- 0 at the target; the code's 2 otherwise)")
+    ap.add_argument("--calib15c", action="store_true", help="Phase 15 DOC2: the model at 1e11 against the fin15e paired series (B1 / B2)")
     ap.add_argument("--cache-proposals", action="store_true", help="Phase 15 CX: the mn transform cache at the target -- 0 / 1 / 2 slots, the old term, and the ways to hold a slot inside 480 GB (results/CX15.md section 3)")
     ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
@@ -1827,7 +1897,10 @@ def main():
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
-    global TWREC_G; TWREC_G = a.twrec_g                                  # Phase 15 G5
+    global TWREC_G, CACHE_FORCE; TWREC_G = not a.no_twrec_g              # Phase 15 G5; DOC2: on by default (the code's default since 2026-09-28)
+    CACHE_FORCE = a.cache_slots
+    if a.calib15c:
+        calib15c(); return
     if a.calib:
         sys.exit(0 if calibrate(a.rule) else 1)
     if a.calib13:
@@ -1843,7 +1916,7 @@ def main():
         calib15b(); return
     if a.cache_proposals:
         cache_proposals(); return
-    design = {'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
+    design = {'p15c': lambda: DEFAULT15C(round_mb=a.round_mb, packed=not a.ascii), 'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
               'legacy': lambda: None}[a.model]()
     if a.plan:
         plan_sweep(int(a.plan[0]), a.plan[1], a.plan[2], a.plan[3], design=design if design is not None else None); return
