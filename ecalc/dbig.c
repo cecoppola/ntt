@@ -9,6 +9,7 @@
 #include "dbig.h"
 #include "mem.h"
 #include <time.h>
+#include <stdarg.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
@@ -68,6 +69,18 @@ static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): 
 static int g_trace = -1;
 static int db_trace_on(void) { if (g_trace < 0) g_trace = getenv("DB_POOL_TRACE") ? atoi(getenv("DB_POOL_TRACE")) : 0; return g_trace; }
 static long long db_trace_off(int d, const void *p);
+/* Phase 15 MAP: ECALC_INIT_TL=1 prints init's timeline (`tl` lines on stdout: seconds since rns_init began; the arenas' mapping with
+ * its HIP calls split, the seed thread, level 1's waits).  Print only; off by default.  =2 adds a line per background chunk */
+static int g_tl = -1; static double g_tl_t0;
+int db_tl_on(void) { if (g_tl < 0) g_tl = getenv("ECALC_INIT_TL") ? atoi(getenv("ECALC_INIT_TL")) : 0; return g_tl; }
+void db_tl_start(void) { if (!g_tl_t0) g_tl_t0 = mem_now(); }
+double db_tl_now(void) { return g_tl_t0 ? mem_now() - g_tl_t0 : 0.0; }
+void db_tl(const char *fmt, ...)
+{
+    if (!db_tl_on()) return;
+    char b[640]; va_list ap; va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap);
+    printf("tl %7.2f  %s\n", db_tl_now(), b);
+}
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { ec_fatal(EC_RC_FATAL, "dbig: live table full\n"); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
@@ -208,25 +221,31 @@ int db_pool_vmm_on(void)
 }
 static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
-                    int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg; } g_vmm[DB_NQ];   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
+                    int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg;
+                    double t_cr, t_mp, t_ac, t_ms; int mark_m; } g_vmm[DB_NQ];   /* Phase 15 MAP: seconds in hipMemCreate / hipMemMap / hipMemSetAccess / the zeroing, summed (ECALC_INIT_TL); mark_m: the chunk count of the parity-1 half's end */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
-void db_vmm_bg_release(void) { pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
+void db_vmm_bg_release(void) { db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
 static int vmm_map_run(int d, int slot0, int m, hipMemGenericAllocationHandle_t *hs)   /* hs[i] (0: create one) mapped at slot0 + i, access for every APU */
 {
     struct vmm *v = &g_vmm[d]; hipMemAllocationProp prop; memset(&prop, 0, sizeof prop);
     prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
     for (int i = 0; i < m; i++) {
+        double t0 = mem_now();
         if (!hs[i]) { if (hipMemCreate(&hs[i], v->chunk, &prop, 0) != hipSuccess) return 0; v->n_grow++; v->grow_chunks++; }
+        double t1 = mem_now();
         if (hipMemMap(v->base + (size_t)(slot0 + i) * v->chunk, v->chunk, 0, hs[i], 0) != hipSuccess) return 0;
+        v->t_cr += t1 - t0; v->t_mp += mem_now() - t1;
         v->h[slot0 + i] = hs[i];
     }
     hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
     for (int c = 0; c < v->nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
+    double ta = mem_now();
     if (hipMemSetAccess(v->base + (size_t)slot0 * v->chunk, (size_t)m * v->chunk, ad, v->nd) != hipSuccess) return 0;
+    v->t_ac += mem_now() - ta;
     return 1;
 }
 static void *vmm_bg_map(void *arg)                       /* the arena's chunks after the first `first` bytes, one at a time, while init and the seeds go on (the driver serialises the page work anyway) */
@@ -234,15 +253,24 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
     int dev = (int)(intptr_t)arg; struct vmm *v = &g_vmm[dev];
     pthread_mutex_lock(&g_pool_mx); while (!g_vmm_go) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     double t0 = mem_now();
+    double c0 = v->t_cr, p0 = v->t_mp, a0 = v->t_ac, s0 = v->t_ms, tlk = 0; int k0 = v->mapped;
+    db_tl("APU%d background mapping starts at chunk %d of %d (the parity-1 half ends at chunk %d)", dev, v->mapped, v->m0, v->mark_m - 1);
     hipStream_t st; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipStreamCreateWithFlags(&st, hipStreamNonBlocking));
     for (int k = v->mapped; k < v->m0; k++) {
         hipMemGenericAllocationHandle_t h[1] = { 0 };
+        double tq = mem_now();
         pthread_mutex_lock(&g_vmm_map_mx);
+        double tg = mem_now(); tlk += tg - tq;
         if (!vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (background chunk)", dev, v->chunk);
+        double tz = mem_now();
         HIP_CHECK(hipMemsetAsync(v->base + (size_t)k * v->chunk, 0, v->chunk, st)); HIP_CHECK(hipStreamSynchronize(st));
+        v->t_ms += mem_now() - tz;
         pthread_mutex_unlock(&g_vmm_map_mx);
+        if (db_tl_on() >= 2) db_tl("APU%d chunk %d mapped (%.3f s held, %.3f s queued)", dev, k, mem_now() - tg, tg - tq);
+        if (k + 1 == v->mark_m) db_tl("APU%d background: the parity-1 half is mapped (chunk %d)", dev, k);
         pthread_mutex_lock(&g_pool_mx); v->mapped = k + 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx);
     }
+    db_tl("APU%d background mapping done: %d chunks in %.2f s (create %.2f, map %.2f, access %.2f, zero %.2f, queued for the mapper lock %.2f)", dev, v->m0 - k0, mem_now() - t0, v->t_cr - c0, v->t_mp - p0, v->t_ac - a0, v->t_ms - s0, tlk);
     HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx);
     if ((size_t)v->m0 * v->chunk > v->bytes) { ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); }   /* the last chunk's remainder: free at once */
@@ -254,8 +282,11 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
 {
     struct vmm *v = &g_vmm[dev]; if (!v->base) return;
     size_t need = bytes < (size_t)v->m0 * v->chunk ? bytes : (size_t)v->m0 * v->chunk; int m = (int)((need + v->chunk - 1) / v->chunk);
+    double tw = mem_now(); int blocked;
     pthread_mutex_lock(&g_pool_mx); if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }   /* (a waiter before rns_init released it: tests, init-only) */
+    blocked = v->mapped < m ? v->mapped : -1;
     while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
+    if (blocked >= 0) db_tl("APU%d waited %.2f s for chunks %d..%d of the arena", dev, mem_now() - tw, blocked, m - 1);
     if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
 size_t db_pool_vmm_chunk(void)                      /* Phase 15 AS: the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
@@ -278,8 +309,13 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
+    v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
+    double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
+    double tz = mem_now();
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m1 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
+    v->t_ms += mem_now() - tz;
+    db_tl("APU%d arena: %d chunks mapped in %.2f s (create %.2f, map %.2f, access %.2f, zero %.2f)", dev, m1, mem_now() - tm, v->t_cr, v->t_mp, v->t_ac, v->t_ms);
     pthread_mutex_lock(&g_pool_mx);
     if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions\n"); }
     v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;

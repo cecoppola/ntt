@@ -1273,6 +1273,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     ss->chunk_spans = bytes / span_bytes; ss->bytes = ss->chunk_spans * span_bytes;
     for (int b = 0; b < 2; b++) { ss->buf[b] = (uint64_t *)mem_hstage_alloc(b % (nd > 1 ? 2 : 1), ss->bytes, 0, 0); ss->buf_dev[b] = -1; }
     ss->t_alloc = mem_now() - t0;
+    db_tl("seed thread: buffers allocated (%.2f s)", ss->t_alloc);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* Phase 14 R1 (E8): the host cannot store into a VMM range */
@@ -1283,7 +1284,9 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
         for (size_t c0 = lo; c0 < hi; c0 += ss->chunk_spans) {
             size_t c1 = c0 + ss->chunk_spans < hi ? c0 + ss->chunk_spans : hi; int b = ss->nchunks & 1;
             if (!direct && ss->npend == 2) {                       /* Phase 14 R1 (E8): a VMM arena takes no CPU stores -- the two buffered chunks are DMA'd (the regions must exist) and the buffers reused */
-                double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
+                double tw = mem_now(); int wl = !seed_pools_ready(ss); if (wl) db_tl("seed thread: %d chunks computed, waiting for the region pools", ss->nchunks);
+                pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
+                if (wl) db_tl("seed thread: the region pools are there (waited %.2f s)", mem_now() - tw);
                 tw = mem_now();
                 for (int k = 0; k < ss->npend; k++) { int rr = ss->pend[k].r, dev = rr % nd; double ti = mem_now(); cpy(dev, ss->pool[rr] + 2 * per * (ss->pend[k].c0 - r0[rr]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
                 ss->t_issue += mem_now() - tw; tw = mem_now();
@@ -1303,6 +1306,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
             ss->pend[ss->npend].r = r; ss->pend[ss->npend].b = b; ss->pend[ss->npend].c0 = c0; ss->pend[ss->npend].c1 = c1; ss->npend++; ss->nchunks++;
         }
     }
+    db_tl("seed thread: every span computed (%d chunks, spans %.2f s)", ss->nchunks, ss->t_span);
     double tw = mem_now(); pthread_mutex_lock(&ss->mx); while (!ss->pools_ready) pthread_cond_wait(&ss->cv, &ss->mx); pthread_mutex_unlock(&ss->mx); ss->t_wait_pool += mem_now() - tw;
     tw = mem_now();
     for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; double ti = mem_now(); cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
@@ -1317,8 +1321,9 @@ static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t
 static void *pre_seeds_run(void *a)
 {
     (void)a; double t0 = mem_now(); struct level cur; memset(&cur, 0, sizeof cur); cur.n = g_pre.nspan; cur.nd = g_pre.nd;
+    db_tl("seed thread starts (%s threads)", getenv("BS_SEED_THREADS") ? getenv("BS_SEED_THREADS") : "all");
     seeds_stream(&g_pre.ss, &cur, g_pre.per, bs_seed_terms, g_pre.N, g_pre.r0);
-    g_pre.t = mem_now() - t0; return 0;
+    g_pre.t = mem_now() - t0; db_tl("seed thread ends (%.2f s)", g_pre.t); return 0;
 }
 /* the pinned staging a region's seeds need (bytes, the largest region) -- the pre-B2 sizing of rns_init's staging; no longer the seeds' need */
 size_t binsplit_seed_stage_bytes(unsigned long N)
@@ -1398,7 +1403,9 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
      * RESULTS.md 56), then one copy per region */
     int own_stage = mem_dev_of(cur.pool[0]) < 0;
     if (g_pre.active && !own_stage && g_pre.N == N) {                      /* I2: computed (and streamed) during init; take the table */
+        db_tl("bs: joining the seed thread");
         if (!g_pre.joined) pthread_join(g_pre.th, 0); g_pre.active = g_pre.joined = 0;
+        db_tl("bs: the seeds are joined");
         free(cur.nd); cur.nd = g_pre.nd; g_pre.nd = 0;
         for (int r = 0; r < NR; r++) if (g_pre.ss.pool[r] != cur.pool[r]) { ec_fatal(EC_RC_FATAL, "bs: region %d's pool moved after the seeds were streamed into it\n", r); }
         if (bs_verbose) printf("bs: seeds were computed during init (%.2f s: buffers %.2f + %.2f, spans %.2f, waited %.2f for the regions, %.2f for the DMA, %.2f issuing it (max %.2f); %d chunks of %zu MB, %d through a buffer%s)\n",
@@ -1457,6 +1464,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             for (int r = 0; r < NR; r++) { nxt.pool[r] = p; p += offr[r] + 2; }
         } else for (int r = 0; r < NR; r++) nxt.pool[r] = pool_get(which, r, offr[r] + 2);
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
+        if (bs_st.levels < 3) db_tl("bs: level %d starts (its pools are there)", bs_st.levels + 1);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
         const char *tier; int normed = 0, finished = 0;
         if (max_nl <= (size_t)bs_school_nl) {
@@ -1574,6 +1582,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
         if (!strcmp(tier, "school")) bs_st.t_school += dt; else if (!strcmp(tier, "batch")) bs_st.t_batch += dt; else bs_st.t_mdev += dt;
         bs_st.levels++;
+        if (bs_st.levels <= 3) db_tl("bs: level %d done (%s, %.2f s)", bs_st.levels, tier, dt);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
         memset(&rns_st, 0, sizeof rns_st);
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "bs level %d %s", bs_st.levels, tier); mem_live_line(w); }   /* Phase 14 S1 (E1) */
