@@ -186,6 +186,65 @@ P24, at about a week. At size 1 it can be measured at 10¹¹: the reciprocal is 
 - The plan printer (`mn_plan.c`, P24's file) does not know the switch. Its piece counts under `NEWTON_DKM=1` would be today's, and
   its prime-bound check only gets safer, because DKM's products are smaller.
 
+## 2. Stage 2: the size-1 form (the measurements follow in §4)
+
+**Code** (`ecalc/newton_db.c`, `newton.h`, `tests/t_newton.c`; the README row):
+- `newton_dkm_on()` / `newton_dkm_set()`: the switch.
+- `newton_dkm_h(k) = ⌊k/2⌋ + 1`.
+- `newton_db_recip` stops at h when `newton_db_Qd` is set, which is only ecalc's device-flow prewarm; t_newton's direct calls keep
+  their k.
+- `newton_db_divmod_shifted` dispatches to `divmod_shifted_dkm` when k ≥ 4 and dl ≥ 1. Its helpers:
+  - `dkm_est_db`: today's estimate with mu's top as a view.
+  - `dkm_window_db`: the window by a device shift. `db_set_shifted_low` copies limb by limb and is meant for a few limbs, but
+    DKM's windows are ≈ n/2 limbs.
+  - `dkm_corr_db`: today's correction loop.
+- The assembly is `db_add_shifted`. X_lo₀ is read as a view of X's low s limbs whenever X_lo₀ < B^s.
+- New fields and hooks: `newton_st.dkm_corr` (step 1's corrections) and `NEWTON_DKM_TEST_HI`.
+- With the switch off, the only change in the default path is the one `if` of the dispatch.
+
+**t_newton section 6** (run with `NEWTON_DEVICE=1`):
+- 4 sizes (n_q = 1500, 2¹⁴ + 3, 2¹⁸ + 5, 2²⁰ + 1) × 7 shapes, off and on, against GMP: X exactly, and R's residues mod three primes.
+- Forced corrections: `ECALC_TEST_CORR` ±7, where the final signed count must move by exactly k. `NEWTON_DKM_TEST_HI` ±7, where
+  the final count must not move and step 1 must make them.
+
+## 3. Stage 3: the multi-node form and the models
+
+**Code.** `mn_divmod_dkm` (newton_db.c) is dispatched from `newton_mn_divmod` when dl ≥ 1 and k_mu ≥ 5.
+- `recip_mn` runs to h(k_mu); a fresh reciprocal is taken if the actual h needs more.
+- Step 1 is on S with dl − s. The window is `mdb_shift(S, −(dl − s), w)`. X_hi is in the basis of its length + 1, which leaves
+  room for +1.
+- Step 2 is on R₁ with s.
+- The assembly is `mdb_shift` × 3 + `mdb_addsub`. X ends in the basis of its length, as today's X.
+- `newton_mn_x_hook` is called there. X_lo's low product follows, then `newton_mn_pq_hook(1)` / `mfree(Q)` after it (they moved from
+  after today's single low product), then today's corrections and deferral.
+
+**Model** (`mn_model.py`: `division_cost_dkm` under `MN_MODEL_DKM=1`; `ovl_div`, the early writer's overlap, at size > 1). The
+command is `python3 ../tests/dkm15_model.py` in `ecalc/`, and the output is `results/DKM15/model.txt`. All figures are modelled at
+5.1 × 10¹³ on 576 nodes, with the fabric assumed, the write at 0.6 GB/s, and `ECALC_NP=auto`, on int15g:
+
+| cache slots | today: no write / write | NEWTON_DKM=1 | gain | + an X_hi writer (not built) | gain |
+|---|---|---|---|---|---|
+| 2 | 330.7 / 360.2 s | 307.6 / 350.7 s | **−23.1 / −9.5 s** | 307.6 / 339.3 s | −23.1 / −20.9 s |
+| 0 (what fits) | 406.8 / 426.0 s | 376.4 / 412.7 s | **−30.4 / −13.3 s** | 376.4 / 398.7 s | −30.4 / −27.3 s |
+
+- The reciprocal goes 45.3 → 18.5 s and the division 53.3 → 57.0 s (cache 2). The pieces are recip 74 → 54 and div 40 → 42.
+- DKM's four products are X_hi 9.4 s, X_hi·Q 17.1, X_lo 9.4 and X_lo·Q 17.1, with 7 / 14 / 7 / 14 pieces.
+- These agree with SC's −22.1 / −31.9 s. SC's base was older, 324.3 s.
+- The with-write gain is smaller than SC's estimate. The writer hides only under X_lo·Q and the rest, 17.1–23.9 s, against today's
+  0.577 × the division. It is assumed fully overlapped.
+- **A follow-up would recover it:** a writer hook after step 1 that writes X_hi's digits, which are final there, under step 2
+  (`MN_MODEL_DKM_HI=1` prices it). It needs `mn_out.c` / `ecalc.c`: part files written in two ranges.
+
+**Memory** (`mem_model.dm_layout(…, dkm=True)` / `mem_per_node(opts dkm=True)`; the default is unchanged, so `--check-c` is not
+affected). **This corrects §1.4 and SC's ≤ −20 GB.**
+- With a `dm_layout` that follows DKM (not built: binsplit.c), the node falls 455.4 → 450.3 GB at the target (**−5.1 GB**,
+  modelled). At 10¹¹ it falls 410.4 → 405.0 GB.
+- The hole halves (19.98 → 9.99 GB per device) and v3 falls 56.5 → 46.5. But the dm need is then bound by the division's
+  low-product set, Q + X + Aw + X_lo·Q + X_lo ≈ 5.1 n per device, which is the same as today's.
+- The −20 GB bound needs that set smaller as well: M6's chunked division window.
+- **With the code as it is, there is no memory change.** The arena is carved to today's layout; DKM's blocks are smaller and fit
+  in it.
+
 ## RESUME
 
 - **Committed:**
