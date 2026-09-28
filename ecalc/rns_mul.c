@@ -135,6 +135,7 @@ static size_t dev_used(int d) { size_t f = 0, t = 0; int cur; HIP_CHECK(hipGetDe
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
+    db_tl_start(); db_tl("rns_init begins");   /* Phase 15 MAP: ECALC_INIT_TL=1 (print only) */
     HIP_CHECK(hipGetDeviceCount(&g_nd));
     if (g_nd > EC_NP) g_nd = EC_NP;
     if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
@@ -167,6 +168,7 @@ int rns_init(int pool_log)
         if (getenv("RNS_VERBOSE")) printf("rns_init: APU%d staging %.1f GiB touch %.2f s register %.2f s, %d cpus; device open %.2f s, contexts %.2f s, stream+staging %.2f s\n", d, sbytes / 1073741824.0, tt, tr, D[d].ncpu, x1 - x0, x2 - x1, x3 - x2);
     }
     double ti1 = mem_now();
+    db_tl("staging and contexts done (%.2f s)", ti1 - ti0);
     /* Phase 14 N4 (A5): RNS_PLANES_FIRST=1 maps the plane pools before the hook's region arenas.  Near the node's memory
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
@@ -184,7 +186,8 @@ int rns_init(int pool_log)
         else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log (paper) */
         dpool_get_exact(&D[d].db, d, b1);
     }
-    if (rns_after_staging_hook && planes_first) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); }   /* N4: the region arenas and the seeds after the plane pools */
+    db_tl("plane pools done (%.2f s)", mem_now() - ti1);
+    if (rns_after_staging_hook && planes_first) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
     mem_par_init = 0;
     if (g_snap_on < 0) g_snap_on = getenv("ECALC_B_SNAPSHOT") ? atoi(getenv("ECALC_B_SNAPSHOT")) : 0;
     if (g_snap_on) { g_snap_cap = (size_t)1 << 30; for (int d = 0; d < g_nd; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMalloc(&g_snap[d], g_snap_cap)); } }   /* Phase 12 R witness buffers */
@@ -199,6 +202,7 @@ int rns_init(int pool_log)
         }
     }
     HIP_CHECK(hipSetDevice(0));
+    db_tl("peer access done (%.2f s)", mem_now() - ti2);
     db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* Phase 14 R1 (DB_POOL_VMM): the arenas' second halves map from here, after the plane pools */
     if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", mem_alloc_form_name(), sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
