@@ -229,6 +229,9 @@ static long long db_trace_off(int d, const void *p) { const char *c = (const cha
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 static int g_stream = -1, g_stream_batch = 2, g_stream_active;   /* Phase 15 MAP: DB_POOL_VMM_STREAM (below); g_stream_active: live workers (under g_pool_mx) */
+static int g_stream_rest = 1;                          /* Phase 15 MAP: 1 = the stream's phase 2 (the rest past the parity-1 halves) waits for db_vmm_stream_rest or a waiter that needs it (DB_POOL_VMM_STREAM_REST=0: at once) */
+static void stream_rest_locked(void) { if (g_stream_rest) { g_stream_rest = 0; db_tl("the stream's phase 2 (the rest of the arenas) is released"); pthread_cond_broadcast(&g_vmm_cv); } }   /* (g_pool_mx held) */
+void db_vmm_stream_rest(void) { pthread_mutex_lock(&g_pool_mx); stream_rest_locked(); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_stream_on(void);
 void db_vmm_bg_release(void) { if (vmm_stream_on()) db_tl("the stream is released (%d workers, %d chunks per call)", g_stream, g_stream_batch); else db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -298,6 +301,7 @@ static int vmm_stream_on(void)
     if (g_stream < 0) {
         const char *e = getenv("DB_POOL_VMM_STREAM"); g_stream = e ? atoi(e) : 0; if (g_stream < 0) g_stream = 0; if (g_stream > DB_NQ) g_stream = DB_NQ;
         e = getenv("DB_POOL_VMM_STREAM_BATCH"); g_stream_batch = e && atoi(e) > 0 ? atoi(e) : 2; if (g_stream_batch > 64) g_stream_batch = 64;
+        e = getenv("DB_POOL_VMM_STREAM_REST"); if (e && !atoi(e)) g_stream_rest = 0;
     }
     return g_stream;
 }
@@ -306,7 +310,8 @@ static int stream_pick(int *k0, int *n)                /* (g_pool_mx held) the n
     int best = -1, bph = 3, bkey = 0;
     for (int d = 0; d < DB_NQ; d++) {
         struct vmm *v = &g_vmm[d]; if (!v->base || !v->st_on || v->st_busy || v->st_sched >= v->m0) continue;
-        int ph = v->st_sched < v->m1 ? 0 : v->st_sched < v->mark_m ? 1 : 2, key = ph == 0 ? d : ph == 1 ? v->st_sched - v->m1 : v->st_sched - v->mark_m;
+        int ph = v->st_sched < v->m1 ? 0 : v->st_sched < v->mark_m ? 1 : 2; if (ph == 2 && g_stream_rest) continue;   /* phase 2 not released yet */
+        int key = ph == 0 ? d : ph == 1 ? v->st_sched - v->m1 : v->st_sched - v->mark_m;
         if (ph < bph || (ph == bph && key < bkey)) { best = d; bph = ph; bkey = key; }
     }
     if (best < 0) return -1;
@@ -364,6 +369,7 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
     size_t need = bytes < (size_t)v->m0 * v->chunk ? bytes : (size_t)v->m0 * v->chunk; int m = (int)((need + v->chunk - 1) / v->chunk);
     double tw = mem_now(); int blocked;
     pthread_mutex_lock(&g_pool_mx); if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }   /* (a waiter before rns_init released it: tests, init-only) */
+    if (v->st_on && m > v->mark_m && v->mapped < m) stream_rest_locked();   /* Phase 15 MAP: a waiter past the parity-1 half releases the stream's phase 2 */
     blocked = v->mapped < m ? v->mapped : -1;
     while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     if (blocked >= 0) db_tl("APU%d waited %.2f s for chunks %d..%d of the arena", dev, mem_now() - tw, blocked, m - 1);
@@ -452,6 +458,7 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
 {
     struct vmm *v = &g_vmm[d]; if (!v->base) return 0;
     if (v->mapped < v->m0 && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
+    if (v->st_on && v->mapped < v->m0) stream_rest_locked();             /* Phase 15 MAP */
     while (v->mapped < v->m0) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);   /* (the lock is held) the background mapping first: the slot table must be complete */
     double t0 = mem_now(); size_t C = v->chunk; int m = (int)((need + C - 1) / C);
     int *fr = (int *)malloc(v->nslot * sizeof *fr), nf = 0;      /* the wholly free mapped slots */
@@ -556,6 +563,7 @@ void db_donate_adjacent(int dev, void *p, size_t bytes)
     { int reg; if (vmm_region_has(dev, (const char *)p, bytes, &reg)) {                                   /* Phase 14 R1 (E8): a range of the VMM arena joins its record (mapped first) */
         struct vmm *v = &g_vmm[dev]; int m = (int)(((char *)p + bytes - v->base + v->chunk - 1) / v->chunk); if (m > v->m0) m = v->m0;
         if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
+        if (v->st_on && m > v->mark_m && v->mapped < m) stream_rest_locked();   /* Phase 15 MAP */
         while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
         ext_insert(dev, (char *)p, bytes, reg); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
     for (int i = 0; i < g_ndonated; i++) {
