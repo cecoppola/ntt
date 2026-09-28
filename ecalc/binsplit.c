@@ -1459,6 +1459,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         which ^= 1;
         int mdev_level = max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);
         int dev_mdev = mdev_level && bs_regions_on_device && bs_dev_mdev;
+        if (dev_mdev) db_vmm_stream_rest();   /* Phase 15 MAP (DB_POOL_VMM_STREAM): the arenas' rest maps during the device top tier (few, long launches), not beside level 1's batch */
         int top_direct = nxt.n == 1 && mdev_level;                     /* mdev top level: straight to P, Q */
         for (int r = 0; r < NR; r++) off += offr[r];
         if (top_direct || dev_mdev) for (int r = 0; r < NR; r++) nxt.pool[r] = 0;
