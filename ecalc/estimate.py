@@ -99,10 +99,10 @@ def main():
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
     ap.add_argument("--p13", action="store_true", help="the Phase 13/14 model (no Phase 15 terms: the old memory forms, no recip cut, no CAL15, the part file under half the division)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
-    ap.add_argument("--target", action="store_true", help="Phase 13d D2: the standing estimate at 576 nodes -- 4.25e13 (the target since Phase 13d; 4.4e13 was the Phase 13c target), the proposed 4.25e13, and the step")
+    ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 5.1e13 since the user's decision of 2026-09-27 23:50 EDT; 4.25e13 from Phase 13d, 4.4e13 in Phase 13c), its steps, the runtime one step below (4.74e13) and its step, the previous target")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
-    ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default=4, choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 on 576; auto = Phase 15 NP's per-product count: four only over the three-prime bound)")
+    ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default=4, choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576; auto = Phase 15 NP's per-product count: four only over the three-prime bound)")
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
     ap.add_argument("--b0", action="store_true", help="the Phase 14 defaults (B0, mn_model.DEFAULT15: three primes, the ASCII part file after T1, no fill / fast mul_1 / middle product / TWREC)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
@@ -153,28 +153,35 @@ def target(a, design):
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool)"))
-    for T, what in ((4.25e13, "the target (1.2 % below the step)"), (4.29e13, "the last size below the step"), (4.30e13, "the step's first size (4.29 -> 4.30e13)"),
-                    (4.4e13, "the Phase 13c target, past two steps")):
+    for T, what in ((M.TARGET_DIGITS, "the target (the last size below the step)"), (5.11e13, "node 0 steps (222 -> 226), critical path same"),
+                    (5.12e13, "the step (critical path 242 -> 246)"), (5.17e13, "the next step (critical path 266)"),
+                    (M.TARGET_BELOW, "one step below (test after the headline)"), (4.75e13, "its step (4.74 -> 4.75e13)"),
+                    (4.25e13, "the target until 2026-09-27 23:50 EDT")):
         es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
         p = M.plan(576, T, design); e = es[0]
         print("  %.3e %-44s | %5.1f s %s | %s | %3d + %2d + %2d = %3d | %5.1f (%5.1f + %4.1f; %.1f)%s" % (
             T, what, e["nowrite_s"], "(%.2f min)" % e["nowrite_min"], " | ".join("%5.1f s (%.2f min)" % (x["wall_s"], x["minutes"]) for x in es), p["tree_max"], p["recip"], p["div"],
             p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], "" if e["fits_margin"] else "  (over 480 GB)"))
-    e = estimate(576, 4.25e13 / 576, a.tree, groups, fabs[-1][1], a.rule, staging=a.staging, design=design)
-    fm = M.DC_FMT_MN * 4.25e13 / 576 / 1e9
-    b15 = design is not None and design.p15b; bpd = M.PACKED_BPD if (b15 and design.packed) else 1.0; gbn = 4.25e13 / 576 * bpd / 1e9
-    print("  4.25e13 by phase (modelled): init %.1f + seed wait %.1f + batch %.1f + top %.1f + distributed levels %.1f + reciprocal %.1f + division %.1f + other %.1f + the digits' formatting"
-          " and residues %.1f%s = %.1f s without the write; the part file %.1f GB per node (%s), %s: %s s of writing" % (e["init"], e["seed_wait"], e["batch"],
-          e["top"], e["levels"], e["recip"], e["div"], e["other"], fm, " + the exit %.1f" % M.EXIT_S if b15 else "", e["nowrite_s"], gbn, "packed, 0.444 B/digit" if bpd < 1 else "ASCII",
-          "started at the division's hook, %.1f s of it hidden under the division (MN_OUT_EARLY)" % (M.OVL1 * e["div"]) if b15 and design.early else "written after T1 with the formatting in a pipeline",
-          " / ".join("%.1f @%.1f" % (gbn / b, b) for b, f in fabs)))
-    print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps at 4.30 / 4.40e13):")
+    for TT in (M.TARGET_DIGITS, M.TARGET_BELOW):
+        by_phase(a, design, groups, fabs, TT)
+    print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps):")
     for budget in (M.NODE_GB_MARGIN, M.NODE_GB):
         D = M.max_digits(576, budget, a.tree, groups, staging=a.staging, design=design)
         es = [estimate(576, D, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
         p = M.plan(576, D * 576, design)
         print("    %.0f GB: D %.2e per node -> %.3e digits: %.1f s without the write; %s with it; pieces %d + %d + %d; node %.1f GB" % (
             budget, D, D * 576, es[0]["nowrite_s"], " / ".join("%.1f s @%.1f" % (x["wall_s"], b) for x, (b, f) in zip(es, fabs)), p["tree_max"], p["recip"], p["div"], es[0]["node_gb"]))
+
+def by_phase(a, design, groups, fabs, T):
+    """the by-phase line at T total digits on 576 nodes (Phase 15 TGT: the target and the size one step below)"""
+    e = estimate(576, T / 576, a.tree, groups, fabs[-1][1], a.rule, staging=a.staging, design=design)
+    fm = M.DC_FMT_MN * T / 576 / 1e9
+    b15 = design is not None and design.p15b; bpd = M.PACKED_BPD if (b15 and design.packed) else 1.0; gbn = T / 576 * bpd / 1e9
+    print("  %.3ge13 by phase (modelled): init %.1f + seed wait %.1f + batch %.1f + top %.1f + distributed levels %.1f + reciprocal %.1f + division %.1f + other %.1f + the digits' formatting"
+          " and residues %.1f%s = %.1f s without the write; the part file %.1f GB per node (%s), %s: %s s of writing" % (T / 1e13, e["init"], e["seed_wait"], e["batch"],
+          e["top"], e["levels"], e["recip"], e["div"], e["other"], fm, " + the exit %.1f" % M.EXIT_S if b15 else "", e["nowrite_s"], gbn, "packed, 0.444 B/digit" if bpd < 1 else "ASCII",
+          "started at the division's hook, %.1f s of it hidden under the division (MN_OUT_EARLY)" % (M.OVL1 * e["div"]) if b15 and design.early else "written after T1 with the formatting in a pipeline",
+          " / ".join("%.1f @%.1f" % (gbn / b, b) for b, f in fabs)))
 
 if __name__ == "__main__":
     main()
