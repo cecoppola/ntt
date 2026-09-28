@@ -91,7 +91,54 @@ plus `ECALC_NP_AUTO_MIN=0` / `1`. Every run returned rc 0, `plan check … OK`, 
 
 ### 3.2 The node tests (measured)
 
-(pending: `mpb15_job.sh 12` on s24-16, job 21759 submitted 17:52 EDT)
+**Batch 2: the standing regression with the switch on** (job 21763, s24-16, 18:31–18:55 EDT; `results/MPB15/mnaccept_min*.log`)
+
+| command | result |
+|---|---|
+| `ECALC_NP=auto ECALC_NP_AUTO_MIN=1 ./mnaccept.sh 21763 --only unit,e9,mn` (the real bound) | **15 passed, 0 failed**: t_ntt 24 (3215 checks), t_mul 20 (189), t_bs (10), t_dbig 0 (555), t_newton 20 (620), t_verify (334), t_out (1), t_mn_grid 2 procs (200); e9 decimal **identical** (11.94 s), e9 binary **identical** (20.96 s); mn e8 at sizes 2/3/4 and e9 at 2/4 **identical**, every node VERIFY OK (7.90 / 8.07 / 7.73 / 20.33 / 15.59 s) |
+| the same plus `ECALC_NP_AUTO_TERMS=2000000`, `--only e9,mn` (so the switch acts: §3.1-style planning gives both counts and moved products at sizes 1–4, e.g. 10⁸ size 3: tree 4 → 0 of 4 at four primes) | **7 passed, 0 failed**: e9 decimal / binary **identical** (11.99 / 21.41 s); mn e8 at 2/3/4 and e9 at 2/4 **identical**, all nodes VERIFY OK (8.26 / 8.50 / 8.15 / 24.00 / 18.10 s) |
+
+**Batch 1 (the forced tests), first attempt void**: job 21759 (s24-16) was cancelled from outside 75 s after it started (18:15–18:16 EDT;
+`sacct`: CANCELLED, not by my script). Only the four t_crt runs had finished: all VERIFY OK (105 / 105 / 103 / 24 checks). Everything
+after that failed with an expired job and is not a result. The script now flags a batch whose job ended early (e8d1a67). Rerun as job 21769 (below).
+
+**Batch 1: the forced tests** (job 21769, s24-16, 18:56–19:12 EDT; the job ran to the end; `results/MPB15/job1.log` and the per-test logs).
+Every run below has `ECALC_NP=auto ECALC_NP_AUTO_MIN=1`.
+- "Lines" are the `RNS_VERBOSE` product lines of every node, checked by `tests/mpb15_lines.py k`. "Moved" = lines at three primes with
+  min ≤ k < na + nb: these are the products the old rule ran at four.
+- **Against the rule: 0 in every run.**
+- The runs of `ecalc` are checked by `digcmp.sh` against `ref/e_<d>.txt`.
+
+| test | result | lines 4 / 3 | moved | `total` |
+|---|---|---|---|---|
+| `LIMB_BASE=10 … ./tests/t_crt 24` (the real bound) | VERIFY OK (105 checks) | | | |
+| the same, `ECALC_NP_AUTO_TERMS=1000000` | VERIFY OK (105) | | | |
+| `LIMB_BASE=10 ECALC_NP=auto ./tests/t_crt 24` (switch off) | VERIFY OK (103) | | | |
+| `… ./tests/t_crt 24` (binary: four everywhere) | VERIFY OK (24) | | | |
+| `LIMB_BASE=10 … ECALC_NP_AUTO_TERMS=4000000 ./tests/t_dbig 0 x` | VERIFY OK (565) | 4 / 6 | 0 | |
+| `LIMB_BASE=10 … ECALC_NP_AUTO_TERMS=300000 ./tests/t_newton 20` | VERIFY OK (620) (its size-1 products print no line, as NP found) | 0 / 0 | – | |
+| `t_mn_grid 1 28`, size 2, decimal, k 23 488 102 | 2 VERIFY OK | 0 / 772 | **712** (e.g. 20 132 659 × 8 388 608) | |
+| the same, size 3 | 3 VERIFY OK | 0 / 1158 | **1068** | |
+| the same, size 4, k 46 976 204 | 4 VERIFY OK | 0 / 1776 | **1440** | |
+| 10⁹ size 1, k 8 × 10⁶ | **identical**, VERIFY OK | 6 / 46 | 3 (6 944 448 × 3 472 224) | 14.26 s |
+| 10⁹ size 2, k 8 × 10⁶ | **identical**, all VERIFY OK | 16 / 92 | 6 | 24.04 s |
+| 10⁹ size 4, k 8 × 10⁶ | **identical** | 40 / 172 | 12 | 17.36 s |
+| 10⁸ size 1, k 2 × 10⁶ | **identical** | 4 / 42 | 3 | 14.68 s |
+| 10⁸ size 2 | **identical** | 12 / 84 | 6 | 8.19 s |
+| 10⁸ size 3 | **identical** | 12 / 130 | 21 (a tree level: 1 886 195 × 1 948 658) | 8.46 s |
+| 10⁸ size 4 | **identical** | 24 / 160 | 20 | 7.90 s |
+| 10⁹ size 3, k 2 × 10⁷ | **identical** | 12 / 150 | 21 (18 819 768 × 19 367 690) | 19.08 s |
+| 10⁹ size 4, k 2 × 10⁷ | **identical** | 24 / 188 | 20 | 17.44 s |
+
+What the batch shows:
+- Both counts occur in one run at sizes 1–4, in the C form, the B form and the mn tier.
+- Every product with min ≤ k < na + nb ran at **three** primes, and every digit file is identical to the reference. That holds for the
+  equal-halves tree products too (e.g. 1 886 195 × 1 948 658 at k 2 × 10⁶: pa + pb is 1.9× k).
+- In t_mn_grid every product now fits three primes. Under NP's rule 712 / 1068 / 1440 of them were at four (NP15 §3.2).
+
+The switch only lowers each product's prime count, so it can only reduce time. The node timings above are single runs at small
+sizes with a lowered bound, where the two rules differ in a few products. I did not run a timing pair; the target's gain is §3.3's
+model, on NP's measured 1.29–1.31 per-product ratio.
 
 ### 3.3 The estimate at 5.1 × 10¹³ on 576 (modelled; `results/MPB15/estimate_min{0,1}.txt`)
 
@@ -116,9 +163,30 @@ plus `ECALC_NP_AUTO_MIN=0` / `1`. Every run returned rc 0, `plan check … OK`, 
 - The switch is not applied to `ECALC_NP=3`'s refusal: the plan check and `ec_np_check` still take pa + pb there.
 - Pool 0's four planes could be tied to 2 × the bound under min (§1). At the target this does not matter.
 
+## 5. Files
+
+- **Own**:
+  - `ecalc/rns_dist.c`: the seven lines named in §1 (`dist_core`, `mn_core`, `plan_pieces`, `rns_dist_db_plan` ×2, `rns_dist_mn_plan` ×2).
+  - `ecalc/mn_plan.c`: `np_by` and three print lines.
+  - `ecalc/mn_model.py`: `NP_AUTO_MIN`, `piece_np`, two callers, the memo key, `env()`.
+  - `ecalc/README.md`: one row.
+  - `results/MPB15.md` and `results/MPB15/*`.
+- **Outside the list, minimal and commented**:
+  - `ecalc/crt.c`: the switch in `ec_np_init`, and `ec_np_terms`.
+  - `ecalc/modarith.h`: the declarations and the exactness comment.
+  - `ecalc/tests/t_crt.c`: part 0, five check lines.
+- **New**: `ecalc/mpb15_job.sh`, `tests/mpb15_lines.py`.
+- **Not touched**: `estimate.py` (the model reads the same environment variable), `mem_model.py`, `binsplit.c`, `b_fits`, the grids,
+  pool 0.
+
 ## RESUME
 
-- Steps 1–2 done (199ff38, 256b0f9): the code, the model, t_crt, the README row, the estimate, the plans at 5.1 / 4.74 / 4.25 × 10¹³.
-- **Running**: `~/ntt-MPB15/ecalc/mpb15_job.sh 12 ppac-pl1-s24-16` (log `~/mpb15/job12.log`; batch logs in
-  `~/ntt-MPB15/results/MPB15/`). Batch 1 is the forced tests; batch 2 is the mnaccept runs. Jobs are `-J MPB` and cancel themselves.
-- Next: copy the logs back (`results/MPB15/`), fill §3.2, commit.
+- **Done; the report is final.** Everything is committed on `p15-MPB`. The aac6 clone `~/ntt-MPB15` is at e8d1a67 (built; later
+  commits are the report and logs only).
+- Node jobs (all `-J MPB`, one node, s24-16):
+  - 21759: batch 1, cancelled from outside after 75 s; void.
+  - 21763: batch 2, mnaccept, passed.
+  - 21769: batch 1 rerun, passed.
+  - Nothing is running or queued.
+- For the integrator: merge `p15-MPB`. Adoption (`ECALC_NP_AUTO_MIN=1` next to `ECALC_NP=auto` on the target's launch line) is the
+  user's decision. Estimate with `ECALC_NP_AUTO_MIN=1 python3 estimate.py --target --np-mn auto`.

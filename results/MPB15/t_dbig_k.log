@@ -1,0 +1,134 @@
+META limb_base=10^18
+META bench=t_dbig host=ppac-pl1-s24-16 date=2026-09-28T17:57:07
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 4000000 terms (ECALC_NP_AUTO_TERMS, a test bound); plane pool 0 for 4 primes
+rns_init: APU0 staging 16.0 GiB touch 0.26 s register 2.03 s, 48 cpus; device open 0.00 s, contexts 0.94 s, stream+staging 2.31 s
+rns_init: APU3 staging 16.0 GiB touch 0.24 s register 2.38 s, 48 cpus; device open 0.00 s, contexts 1.08 s, stream+staging 2.65 s
+rns_init: APU1 staging 16.0 GiB touch 0.36 s register 1.85 s, 48 cpus; device open 0.00 s, contexts 3.81 s, stream+staging 2.23 s
+rns_init: APU2 staging 16.0 GiB touch 0.30 s register 2.47 s, 48 cpus; device open 0.00 s, contexts 1.32 s, stream+staging 5.22 s
+rns_init: plane pools per APU 16.00 + 16.00 GiB (hipmalloc), staging 16.00 GiB, tables 0.153 GB; staging+contexts 6.56 s, pools 7.90 s, peer access 0.33 s
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 0 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 1 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 2 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 3 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 4 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 5 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 6 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 7 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 8 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 9 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 10 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 11 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 0 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 1 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 1 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 1 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 1 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 2 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 2 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 2 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 2 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 3 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 3 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 3 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 3 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 4 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 4 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 4 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 4 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 5 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 5 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 5 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 5 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 6 extents, largest 0.00; live 0.00 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 6 extents, largest 0.00; live 0.00 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 6 extents, largest 0.00; live 0.00 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 6 extents, largest 0.00; live 0.00 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 7 extents, largest 0.00; live 0.01 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 7 extents, largest 0.00; live 0.01 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 7 extents, largest 0.00; live 0.01 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.00 GB inside the phase (free 0.00 GB in 7 extents, largest 0.00; live 0.01 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.01 GB inside the phase (free 0.00 GB in 8 extents, largest 0.00; live 0.01 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.01 GB inside the phase (free 0.00 GB in 8 extents, largest 0.00; live 0.01 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.01 GB inside the phase (free 0.00 GB in 8 extents, largest 0.00; live 0.01 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.01 GB inside the phase (free 0.00 GB in 8 extents, largest 0.00; live 0.01 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 9 extents, largest 0.00; live 0.01 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 9 extents, largest 0.00; live 0.01 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 9 extents, largest 0.00; live 0.01 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 9 extents, largest 0.00; live 0.01 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 10 extents, largest 0.00; live 0.02 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 10 extents, largest 0.00; live 0.02 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 10 extents, largest 0.00; live 0.02 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 10 extents, largest 0.00; live 0.02 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 11 extents, largest 0.00; live 0.03 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 11 extents, largest 0.00; live 0.03 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 11 extents, largest 0.00; live 0.03 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.01 GB inside the phase (free 0.01 GB in 11 extents, largest 0.00; live 0.03 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.01 GB inside the phase (free 0.02 GB in 12 extents, largest 0.01; live 0.03 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.01 GB inside the phase (free 0.02 GB in 12 extents, largest 0.01; live 0.03 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.01 GB inside the phase (free 0.02 GB in 12 extents, largest 0.01; live 0.03 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.01 GB inside the phase (free 0.02 GB in 12 extents, largest 0.01; live 0.03 GB in 15 blocks)
+dist B 2^20 (2000 limbs = 1000 x 1000, 3 primes): load 0.045 ntt 0.078 crt 0.001 spills 0.000 total 0.091 s
+   dist_db 2000 limbs: 0.208 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+mdev 2^11 (2000 limbs): repack 0.000 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.000 crt 0.011 total 0.011 s
+   dist_db 1000x1000: 0.208 s
+dist B 2^20 (2000 limbs = 1000 x 1000, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.002 s
+   dist_db 2000 limbs: 0.002 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+mdev 2^11 (2000 limbs): repack 0.000 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.000 crt 0.000 total 0.001 s
+dist B 3*2^19 (1100000 limbs = 600000 x 500000, 3 primes): load 0.001 ntt 0.006 crt 0.004 spills 0.000 total 0.011 s
+   dist_db 1100000 limbs: 0.011 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+mdev 3*2^19 (1100000 limbs): repack 0.001 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.001 crt 0.004 total 0.006 s
+   dist_db 600000x500000: 0.011 s
+dist B 3*2^19 (1100000 limbs = 600000 x 500000, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.004 s
+   dist_db 1100000 limbs: 0.004 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+mdev 3*2^19 (1100000 limbs): repack 0.011 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.015 crt 0.001 total 0.027 s
+dist B 3*2^20 (2097159 limbs = 1048583 x 1048576, 3 primes): load 0.000 ntt 0.003 crt 0.001 spills 0.000 total 0.006 s
+   dist_db 2097159 limbs: 0.006 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+mdev 3*2^20 (2097159 limbs): repack 0.010 h2d 0.000 fwd 0.001 inv 0.000 d2h 0.011 crt 0.001 total 0.024 s
+   dist_db 1048576x1048583: 0.006 s
+dist B 3*2^20 (2097159 limbs = 1048583 x 1048576, 3 primes): load 0.000 ntt 0.001 crt 0.001 spills 0.001 total 0.004 s
+   dist_db 2097159 limbs: 0.004 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+mdev 3*2^20 (2097159 limbs): repack 0.008 h2d 0.000 fwd 0.000 inv 0.000 d2h 0.003 crt 0.002 total 0.013 s
+dbig pool: APU0 hipMalloc 0.03 GB inside the phase (free 0.03 GB in 13 extents, largest 0.01; live 0.03 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.03 GB inside the phase (free 0.03 GB in 13 extents, largest 0.01; live 0.03 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.03 GB inside the phase (free 0.03 GB in 13 extents, largest 0.01; live 0.03 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.03 GB inside the phase (free 0.03 GB in 13 extents, largest 0.01; live 0.03 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.02 GB inside the phase (free 0.04 GB in 14 extents, largest 0.01; live 0.05 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.02 GB inside the phase (free 0.04 GB in 14 extents, largest 0.01; live 0.05 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.02 GB inside the phase (free 0.04 GB in 14 extents, largest 0.01; live 0.05 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.02 GB inside the phase (free 0.04 GB in 14 extents, largest 0.01; live 0.05 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.05 GB inside the phase (free 0.05 GB in 15 extents, largest 0.01; live 0.06 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.05 GB inside the phase (free 0.05 GB in 15 extents, largest 0.01; live 0.06 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.05 GB inside the phase (free 0.05 GB in 15 extents, largest 0.01; live 0.06 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.05 GB inside the phase (free 0.05 GB in 15 extents, largest 0.01; live 0.06 GB in 15 blocks)
+dist B 2^25 (25165827 limbs = 16777219 x 8388608, 4 primes): load 0.008 ntt 0.021 crt 0.002 spills 0.007 total 0.044 s
+   dist_db 25165827 limbs: 0.044 s (dbig: shift 0.000 addsub 0.007 maxidx 0.001 reserve 0.000)
+mdev 2^25 (25165827 limbs): repack 0.020 h2d 0.001 fwd 0.003 inv 0.001 d2h 0.018 crt 0.006 total 0.045 s
+   dist_db 16777219x8388608: 0.063 s
+dist B 2^25 (25165827 limbs = 16777219 x 8388608, 4 primes): load 0.001 ntt 0.004 crt 0.003 spills 0.002 total 0.011 s
+   dist_db 25165827 limbs: 0.011 s (dbig: shift 0.000 addsub 0.002 maxidx 0.000 reserve 0.000)
+mdev 2^25 (25165827 limbs): repack 0.019 h2d 0.001 fwd 0.002 inv 0.001 d2h 0.025 crt 0.015 total 0.051 s
+dbig pool: APU0 hipMalloc 0.27 GB inside the phase (free 0.06 GB in 16 extents, largest 0.01; live 0.10 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.27 GB inside the phase (free 0.06 GB in 16 extents, largest 0.01; live 0.10 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.27 GB inside the phase (free 0.06 GB in 16 extents, largest 0.01; live 0.10 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.27 GB inside the phase (free 0.06 GB in 16 extents, largest 0.01; live 0.10 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.27 GB inside the phase (free 0.09 GB in 17 extents, largest 0.03; live 0.34 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.27 GB inside the phase (free 0.09 GB in 17 extents, largest 0.03; live 0.34 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.27 GB inside the phase (free 0.09 GB in 17 extents, largest 0.03; live 0.34 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.27 GB inside the phase (free 0.09 GB in 17 extents, largest 0.03; live 0.34 GB in 15 blocks)
+dbig pool: APU0 hipMalloc 0.54 GB inside the phase (free 0.11 GB in 18 extents, largest 0.03; live 0.59 GB in 12 blocks)
+dbig pool: APU1 hipMalloc 0.54 GB inside the phase (free 0.11 GB in 18 extents, largest 0.03; live 0.59 GB in 13 blocks)
+dbig pool: APU2 hipMalloc 0.54 GB inside the phase (free 0.11 GB in 18 extents, largest 0.03; live 0.59 GB in 14 blocks)
+dbig pool: APU3 hipMalloc 0.54 GB inside the phase (free 0.11 GB in 18 extents, largest 0.03; live 0.59 GB in 15 blocks)
+dist B 2^28 (268435456 limbs = 134217728 x 134217728, 4 primes): load 0.013 ntt 0.044 crt 0.017 spills 0.010 total 0.096 s
+   dist_db 268435456 limbs: 0.097 s (dbig: shift 0.000 addsub 0.009 maxidx 0.002 reserve 0.000)
+mdev 2^28 (268435456 limbs): repack 0.120 h2d 0.003 fwd 0.028 inv 0.016 d2h 0.064 crt 0.070 total 0.246 s
+   dist_db 134217728x134217728: 0.228 s
+dist B 2^28 (268435456 limbs = 134217728 x 134217728, 4 primes): load 0.014 ntt 0.033 crt 0.017 spills 0.011 total 0.076 s
+   dist_db 268435456 limbs: 0.077 s (dbig: shift 0.000 addsub 0.010 maxidx 0.003 reserve 0.000)
+mdev 2^28 (268435456 limbs): repack 0.104 h2d 0.003 fwd 0.024 inv 0.014 d2h 0.140 crt 0.156 total 0.300 s
+
+t_dbig: VERIFY OK (565 checks)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 10 products 0.34 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
