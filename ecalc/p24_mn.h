@@ -29,6 +29,23 @@ __global__ void k_gather_mn24(uint64_t *x, const uint64_t *rb, size_t tend, size
         x[il * C + j] = p24_point_mod(lo, hi, s, m, s == 0 ? c0 : s == 6 ? c6 : c12);
     }
 }
+/* k_gather_mn24 for the np planes at once (A's gathers: the two limbs and the parts read and split once, np residues written) */
+struct p24_c18s { uint64_t c[3 * EC_NP]; };                  /* c[3 p + s / 6] = 10^(18 - s) mod p (by value) */
+__global__ void k_gather_mn24_np(uint64_t *x0p, uint64_t *x1p, uint64_t *x2p, uint64_t *x3p, int np, const uint64_t *rb, size_t tend, size_t R, size_t C, size_t a, size_t rows,
+                                 ec_mod m0, ec_mod m1, ec_mod m2, ec_mod m3, struct p24_c18s cs)
+{
+    const uint64_t *c18 = cs.c;
+    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    struct p24_run mr = p24_run_make(R, C, a, rows, 1);
+    for (; t < total; t += stride) {
+        size_t j = t / rows, il = t - j * rows, x0 = R * j + a, xp = x0 + il, u = p24_run_S(&mr, j) + (p24_L(xp) - p24_L(x0)), o = il * C + j;
+        uint64_t lo = u < tend ? rb[u] : 0, hi = u + 1 < tend ? rb[u + 1] : 0, pl, ph; int s = p24_s(xp), si = s / 6;
+        p24_parts(lo, hi, s, &pl, &ph);
+        #define P24_RES(m, p) ec_fold((uint64_t)ec_mm((double)ec_canon64(ph, (m).pu, (m).mu), (double)c18[3 * (p) + si], (m).p, (m).pinv) + ec_canon64(pl, (m).pu, (m).mu), (m).pu)
+        x0p[o] = P24_RES(m0, 0); x1p[o] = P24_RES(m1, 1); x2p[o] = P24_RES(m2, 2); if (np > 3) x3p[o] = P24_RES(m3, 3);
+        #undef P24_RES
+    }
+}
 /* k_scatter_mn's P24 form: the received segments of the ranks (r, d), r < g (their out-run sequences) -> the window's limbs */
 __global__ void k_scatter_mn24(struct acc dst, size_t lo, const uint64_t *rb, const struct seg *sg, int g, size_t S, size_t R, size_t C, int nr, int d)
 {
