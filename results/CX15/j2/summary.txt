@@ -1,0 +1,82 @@
+== c0_r1.log: 58 traced pieces (node 0)
+  plain  n  58: sum 238.05 s, mean 4.104 (redistribute 0.162 ntt 3.735 crt 0.009 out 0.163 carry 0.074)
+  mn: node 0: tree levels 53.88 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 51.80 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 212.85 s: reciprocal 96.45 (products 92.21), S = P + Q 0.76, A mu + shift 56.98, X Q + window 58.57, corrections 0.03 (0), R residues 0.07; division products 113.98 s; shifts 68/5.01 s, add
+  bs       58.71 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.8 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      212.85 s   X 555555557 limbs (recip 96.5 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   278.89 s   (bs 58.7 + 10dP 0.0 + dm 212.9 + T1 0.1 + dc 0.0 + T2 0.0 = 271.7; init 7.2; other 0.0); VmHWM 22.4 GB
+== c0_r2.log: 58 traced pieces (node 0)
+  plain  n  58: sum 233.22 s, mean 4.021 (redistribute 0.163 ntt 3.647 crt 0.009 out 0.159 carry 0.075)
+  mn: node 0: tree levels 51.31 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 48.93 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 210.04 s: reciprocal 93.27 (products 89.26), S = P + Q 0.85, A mu + shift 56.44, X Q + window 59.39, corrections 0.03 (0), R residues 0.07; division products 114.27 s; shifts 68/4.90 s, add
+  bs       56.19 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.8 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      210.04 s   X 555555557 limbs (recip 93.3 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   274.28 s   (bs 56.2 + 10dP 0.0 + dm 210.0 + T1 0.1 + dc 0.0 + T2 0.0 = 266.3; init 7.9; other 0.0); VmHWM 22.4 GB
+== f1_r1.log: 58 traced pieces (node 0)
+  cached n  24: sum 97.77 s, mean 4.074 (redistribute 0.180 ntt 3.702 crt 0.009 out 0.165 carry 0.065)
+  hit    n  34: sum 92.80 s, mean 2.729 (redistribute 0.091 ntt 2.418 crt 0.010 out 0.155 carry 0.084)
+  transform cache: 1 of 1 slots of 1.0 GiB per APU allocated in 0.25 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 122.9 GB less the reserve
+  transform cache: 1 of 1 slots of 1.0 GiB per APU allocated in 0.29 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 123.0 GB less the reserve
+  mn: node 0: tree levels 43.12 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 40.82 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 176.26 s: reciprocal 83.35 (products 79.05), S = P + Q 0.79, A mu + shift 47.12, X Q + window 44.90, corrections 0.03 (0), R residues 0.07; division products 90.49 s; shifts 68/4.76 s, adds
+  bs       47.86 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.7 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      176.26 s   X 555555557 limbs (recip 83.3 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   232.26 s   (bs 47.9 + 10dP 0.0 + dm 176.3 + T1 0.1 + dc 0.0 + T2 0.0 = 224.2; init 8.0; other 0.0); VmHWM 22.3 GB
+== f1_r2.log: 58 traced pieces (node 0)
+  cached n  24: sum 99.91 s, mean 4.163 (redistribute 0.180 ntt 3.772 crt 0.009 out 0.184 carry 0.063)
+  hit    n  34: sum 97.28 s, mean 2.861 (redistribute 0.090 ntt 2.555 crt 0.009 out 0.148 carry 0.083)
+  transform cache: 1 of 1 slots of 1.0 GiB per APU allocated in 0.39 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 123.0 GB less the reserve
+  transform cache: 1 of 1 slots of 1.0 GiB per APU allocated in 0.42 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 122.9 GB less the reserve
+  mn: node 0: tree levels 47.95 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 45.33 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 180.54 s: reciprocal 84.26 (products 80.10), S = P + Q 0.83, A mu + shift 45.07, X Q + window 50.29, corrections 0.03 (0), R residues 0.07; division products 93.74 s; shifts 68/4.99 s, adds
+  bs       52.80 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.8 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      180.54 s   X 555555557 limbs (recip 84.3 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   241.11 s   (bs 52.8 + 10dP 0.0 + dm 180.5 + T1 0.1 + dc 0.0 + T2 0.0 = 233.4; init 7.7; other 0.0); VmHWM 22.4 GB
+== f2_r1.log: 58 traced pieces (node 0)
+  cached n  13: sum 50.72 s, mean 3.902 (redistribute 0.192 ntt 3.494 crt 0.009 out 0.194 carry 0.054)
+  hit    n  45: sum 127.92 s, mean 2.843 (redistribute 0.084 ntt 2.549 crt 0.009 out 0.151 carry 0.082)
+  transform cache: 2 of 2 slots of 1.0 GiB per APU allocated in 0.62 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 122.9 GB less the reserve
+  transform cache: 2 of 2 slots of 1.0 GiB per APU allocated in 0.64 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 123.0 GB less the reserve
+  mn: node 0: tree levels 38.88 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 36.47 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 170.32 s: reciprocal 84.80 (products 80.67), S = P + Q 0.86, A mu + shift 46.46, X Q + window 38.10, corrections 0.03 (0), R residues 0.07; division products 82.97 s; shifts 68/5.02 s, adds
+  bs       43.72 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.8 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      170.32 s   X 555555557 limbs (recip 84.8 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   221.24 s   (bs 43.7 + 10dP 0.0 + dm 170.3 + T1 0.1 + dc 0.0 + T2 0.0 = 214.1; init 7.1; other 0.0); VmHWM 22.4 GB
+== f2_r2.log: 58 traced pieces (node 0)
+  cached n  13: sum 53.45 s, mean 4.112 (redistribute 0.195 ntt 3.708 crt 0.009 out 0.194 carry 0.050)
+  hit    n  45: sum 121.80 s, mean 2.707 (redistribute 0.088 ntt 2.418 crt 0.010 out 0.139 carry 0.082)
+  transform cache: 2 of 2 slots of 1.0 GiB per APU allocated in 0.70 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 122.9 GB less the reserve
+  transform cache: 2 of 2 slots of 1.0 GiB per APU allocated in 0.90 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^25 limbs x 4 primes, 2 node-processes on the node, budget room 123.0 GB less the reserve
+  mn: node 0: tree levels 40.01 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 36.91 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 167.15 s: reciprocal 83.52 (products 79.29), S = P + Q 0.80, A mu + shift 44.12, X Q + window 38.62, corrections 0.03 (0), R residues 0.07; division products 80.98 s; shifts 68/5.10 s, adds
+  bs       44.51 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.4 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      167.15 s   X 555555557 limbs (recip 83.5 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   218.89 s   (bs 44.5 + 10dP 0.0 + dm 167.2 + T1 0.1 + dc 0.0 + T2 0.0 = 211.8; init 7.1; other 0.0); VmHWM 22.3 GB
+== c2_r1.log: 58 traced pieces (node 0)
+  cached n  13: sum 66.83 s, mean 5.141 (redistribute 0.875 ntt 3.680 crt 0.010 out 0.760 carry 0.051)
+  hit    n  45: sum 134.53 s, mean 2.989 (redistribute 0.084 ntt 2.400 crt 0.009 out 0.444 carry 0.082)
+  transform cache: 2 of 2 slots of 16.0 GiB per APU allocated in 16.47 s (margin 24 GB) = 137.44 GB per node-process
+  transform cache: 2 of 2 slots of 16.0 GiB per APU allocated in 16.85 s (margin 24 GB) = 137.44 GB per node-process
+  mn: node 0: tree levels 90.15 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 87.18 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 248.35 s: reciprocal 111.96 (products 76.15), S = P + Q 6.00, A mu + shift 90.00, X Q + window 40.29, corrections 0.03 (0), R residues 0.07; division products 81.75 s; shifts 68/59.98 s, ad
+  bs       94.70 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.5 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      248.35 s   X 555555557 limbs (recip 112.0 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   350.86 s   (bs 94.7 + 10dP 0.0 + dm 248.3 + T1 0.1 + dc 0.1 + T2 0.0 = 343.2; init 7.7; other 0.0); VmHWM 22.3 GB
+== c2_r2.log: 58 traced pieces (node 0)
+  cached n  13: sum 65.08 s, mean 5.006 (redistribute 0.561 ntt 3.744 crt 0.009 out 0.865 carry 0.052)
+  hit    n  45: sum 138.34 s, mean 3.074 (redistribute 0.094 ntt 2.415 crt 0.009 out 0.509 carry 0.083)
+  transform cache: 2 of 2 slots of 16.0 GiB per APU allocated in 10.42 s (margin 24 GB) = 137.44 GB per node-process
+  transform cache: 2 of 2 slots of 16.0 GiB per APU allocated in 10.93 s (margin 24 GB) = 137.44 GB per node-process
+  mn: node 0: tree levels 110.58 s: P 555555560 limbs, Q 555555560 limbs
+  mn: node 1: tree levels 107.86 s: P 555555560 limbs, Q 555555560 limbs
+  divmod(mn) 286.57 s: reciprocal 116.21 (products 75.46), S = P + Q 6.19, A mu + shift 122.60, X Q + window 41.48, corrections 0.03 (0), R residues 0.07; division products 83.20 s; shifts 68/95.70 s, a
+  bs      115.09 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.4 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  dm      286.57 s   X 555555557 limbs (recip 116.2 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+  total   409.69 s   (bs 115.1 + 10dP 0.0 + dm 286.6 + T1 0.1 + dc 0.1 + T2 0.0 = 401.8; init 7.9; other 0.0); VmHWM 22.3 GB
