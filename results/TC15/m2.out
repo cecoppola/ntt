@@ -1,0 +1,12 @@
+== m2: 7837ba5 TC: RNS_DIST_CACHE_FIT's reserve (RNS_DIST_CACHE_FIT_RESERVE_GB, 32); mem_model.py cache_mn_bytes, node_peak_cache, --cache; README rows Mon Sep 28 03:59:04 AM CDT 2026
+job 21687 queued Mon Sep 28 03:59:04 AM CDT 2026
+job 21687 running Mon Sep 28 04:44:35 AM CDT 2026
+dd: failed to open '/tmp/tc15/e9p2pl25_fit.txt': No such file or directory
+e9p2pl25_fit rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+dd: failed to open '/tmp/tc15/e9p4pl24_fit.txt': No such file or directory
+e9p4pl24_fit rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+e10p2pl29_fit rc 0 identical wall 205 s | total 111.67 s (bs 20.1 + 10dP 0.0 + dm 82.3 + T1 0.1 + dc 0 | 3 VERIFY OK | transform cache: 2 of 2 slots of 3.0 GiB per APU allocated in 2.04 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^27 limbs x 3 primes, 2 node-processes on the node, budget room 119.9 GB less the reserve 16.0 -> at most 8 slots] = 25.77 GB per node-process
+e10p4pl28_fit rc 0 identical wall 86 s | total 76.37 s (bs 20.8 + 10dP 0.0 + dm 48.3 + T1 0.1 + dc 0. | 5 VERIFY OK | transform cache: 1 of 2 slots of 1.5 GiB per APU allocated in 0.53 s (margin 24 GB) [RNS_DIST_CACHE_FIT: slot 2^26 limbs x 3 primes, 4 node-processes on the node, budget room 18.8 GB less the reserve 8.0 -> at most 1 slot] = 6.44 GB per node-process
+mnaccept (RNS_DIST_CACHE_FIT=1) rc 0: 15 PASS, 0 FAIL; 
+e4e10 (default) rc 0 identical wall 437 s | total 61.65 s (bs 24.3 + 10dP 0.1 + dm 21.8 + T1 0.0 + dc 0.
+== m2 done Mon Sep 28 05:18:39 AM CDT 2026, 2044 s on the node
