@@ -66,7 +66,20 @@ CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_C
 CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CX15.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
                                 # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
                                 # the first with one operand cached; nothing at 1 slot)
-CACHE_HIT_F = 1.0               # Phase 15 CX: a hit's saving against the model's (piece_cost fwd=2 - fwd=1), FITTED on aac6 (tests/cx_grid; set below)
+CACHE_HIT_F = 1.0               # Phase 15 CX: a hit's saving against the model's (piece_cost fwd=2 - fwd=1) -- FITTED on aac6 (tests/cx_grid, the target's 9 grid
+                                # shapes at cap 2^27, cache 0/1/2 slots interleaved, 489 hit pieces against themselves at 0 slots): 1.108 at 2 node-processes,
+                                # 0.903 at 4, mean 1.005 -> 1.0 (the model's per-hit structure holds: 1 of the 3 transforms per prime, one of the two
+                                # redistributions); ASSUMED to carry to the target's fabric
+# Phase 15 CX proposals (results/CX15.md section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
+# saving, no redistribution saved); CACHE_LOOP = 'long' -> mn_grid's loop along the grid's longer axis (the slots follow); CACHE_SLOTS_PHASE =
+# {'tree': n, 'dm': n} -> the slots per phase (the tree's arena slack, the division's room); cache_slots_now() is what _product_cost prices
+CACHE_PRIMES = None
+CACHE_LOOP = 'code'
+CACHE_SLOTS_PHASE = None
+CACHE_PHASE_NOW = None
+def cache_slots_now():
+    if CACHE_SLOTS_PHASE is not None and CACHE_PHASE_NOW in CACHE_SLOTS_PHASE: return CACHE_SLOTS_PHASE[CACHE_PHASE_NOW]
+    return CACHE_MN_SLOTS
 GEN_HIDE = 0.5                  # ASSUMED: the general map (g not a power of two) keeps one v-exchange in flight (L's open
                                 # issue), so only half of the xGMI stage hides the fabric stage (the equal path: all of it)
 
@@ -207,6 +220,35 @@ def cache_pieces(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
             out.append((i, j, la, lb, pts, 'hit' if ha >= 0 else 'miss', 'hit' if hb >= 0 else 'miss'))
     return ka, kb, out
 
+def cache_pieces_t(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
+    """Phase 15 CX (proposal): cache_pieces with the loop along the other axis (A's piece i reused across j): the transposed grid's pieces"""
+    ka, kb, _ = split_grid(na, nb, cap, g)
+    return [(i, j, la, lb, pts, a, b) for (j, i, lb, la, pts, b, a) in _cache_pieces_grid(nb, na, kb, ka, g, lowcut, highcut, slots)]   # (back to A's i, B's j)
+
+def _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots):
+    pa, pb = -(-na // ka), -(-nb // kb)
+    N = slots; nA = max(min(ka, N - 1), 0) if N > 0 else 0; nB = N - nA
+    slot = [None] * N; out = []
+    for j in range(kb):
+        for i in range(ka):
+            oa, ob = i * pa, j * pb
+            la, lb = min(pa, na - oa), min(pb, nb - ob)
+            if la <= 0 or lb <= 0: continue
+            if (highcut is not None and oa + ob >= highcut) or (oa + ob + la + lb <= lowcut): continue
+            q = mem_model.mn_shape(la + lb, g)[3]; pts = plane_pts(la + lb, g)
+            kA, kB = ('A', i, q), ('B', j, q)
+            ha = slot.index(kA) if kA in slot else -1; hb = slot.index(kB) if kB in slot else -1
+            sa = i if i < nA else -1; sb = nA + j % nB if nB > 0 else -1
+            if ha >= 0: sa = ha
+            elif sa >= 0 and sa == hb: sa = -1
+            if hb >= 0: sb = hb
+            elif sb >= 0 and sb == ha: sb = -1
+            if sa >= 0 and sa == sb and ha < 0: sb = -1
+            if ha < 0 and sa >= 0: slot[sa] = kA
+            if hb < 0 and sb >= 0: slot[sb] = kB
+            out.append((i, j, la, lb, pts, 'hit' if ha >= 0 else 'miss', 'hit' if hb >= 0 else 'miss'))
+    return out
+
 class Cost:
     def __init__(self): self.t = 0.0; self.t_exposed = 0.0; self.nic = 0.0; self.glob = 0.0; self.msgs = 0; self.pieces = 0; self.xfers = 0
     def add(self, o):
@@ -281,7 +323,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, CACHE_MN_SLOTS, CACHE_HIT_F)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -302,9 +344,12 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
     ka, kb, pts = split_grid(na, nb, cap, g)
     pa, pb = -(-na // ka), -(-nb // kb)
     first = True
-    hits = None
-    if CACHE_MODEL != 'old' and cache and CACHE_MN_SLOTS > 0:        # Phase 15 CX: the code's hits (the planes priced at the grid's pts as before)
-        hits = {(p[0], p[1]): p[5] == 'hit' or p[6] == 'hit' for p in cache_pieces(na, nb, g, cap, lowcut, highcut, CACHE_MN_SLOTS)[2]}
+    hits = None; nsl = cache_slots_now()
+    if CACHE_MODEL != 'old' and cache and nsl > 0:                   # Phase 15 CX: the code's hits (the planes priced at the grid's pts as before)
+        if CACHE_LOOP == 'long' and kb > ka:                          # (proposal: the grid's loop along the longer axis -- the pieces' roles swapped)
+            hits = {(p[0], p[1]): p[5] == 'hit' or p[6] == 'hit' for p in cache_pieces_t(na, nb, g, cap, lowcut, highcut, nsl)}
+        else:
+            hits = {(p[0], p[1]): p[5] == 'hit' or p[6] == 'hit' for p in cache_pieces(na, nb, g, cap, lowcut, highcut, nsl)[2]}
     for j in range(kb):
         for i in range(ka):
             oa, ob = i * pa, j * pb
@@ -319,11 +364,15 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
                     if i == 0 and j > 0: fwd = 1                      # A piece 0 is in its slot: B only
                     if i > 0 and j > 0: fwd = 1
             elif hits is not None and hits.get((i, j)): fwd = 1       # Phase 15 CX: the code's hit (one operand at most per piece)
-            if fwd == 2 or CACHE_HIT_F == 1.0 or CACHE_MODEL == 'old':
+            if fwd == 2 or CACHE_MODEL == 'old' or (CACHE_HIT_F == 1.0 and not CACHE_PRIMES):
                 c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form, grid=True))
             else:                                                     # Phase 15 CX: the hit saves CACHE_HIT_F of the modelled saving
                 c2 = piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True); c1 = piece_cost(fab, pts, g, la, lb, la + lb, 1, False, form, grid=True)
                 d_t, d_e = (c2.t - c1.t) * CACHE_HIT_F, (c2.t_exposed - c1.t_exposed) * CACHE_HIT_F
+                if CACHE_PRIMES:                                      # (proposal: a slot of k of the piece's primes -- k / np of the transforms' part; the
+                    npc = piece_np(DZ, la + lb); k = min(CACHE_PRIMES, npc)   # operand's redistribution and its other primes' gathers stay)
+                    t_r = fab.a2a(8 * lb / (4 * g), g, 1)[0]
+                    d_t = max(0.0, d_t - t_r) * k / npc; d_e = max(0.0, d_e - t_r) * k / npc
                 c1.t = c2.t - d_t; c1.t_exposed = max(0.0, c2.t_exposed - d_e); c.add(c1)
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
@@ -1672,6 +1721,79 @@ def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid", design=None):
     print("cheapest by the model (the sum over the three sizes): %s (MN_GROUPS=%s); the three are within the model's own error of each other" % (best[1], best[2] or "unset"))
     return best
 
+# ============================================================================================================
+# Phase 15 CX (results/CX15.md): the mn transform cache at the target -- what the slots are worth (the code's hits x CACHE_HIT_F) and
+# the ways to hold one inside 480 GB, each with its memory and its modelled gain.  The rooms per node (modelled, mem_model / the
+# standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
+# need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
+# ============================================================================================================
+def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code'):
+    """one modelled run with the cache configured (restored after); returns the run's dict"""
+    global CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PHASE_NOW, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost
+    saved = (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost)
+    tc0, dc0 = tree_cost, division_cost
+    def tc(*a, **k):
+        global CACHE_PHASE_NOW
+        CACHE_PHASE_NOW = 'tree'
+        try: return tc0(*a, **k)
+        finally: CACHE_PHASE_NOW = None
+    def dc(*a, **k):
+        global CACHE_PHASE_NOW
+        CACHE_PHASE_NOW = 'dm'
+        try: return dc0(*a, **k)
+        finally: CACHE_PHASE_NOW = None
+    try:
+        CACHE_MN_SLOTS = slots if slots is not None else CACHE_MN_SLOTS; CACHE_SLOTS_PHASE = phase; CACHE_PRIMES = primes; CACHE_LOOP = loop; CACHE_MODEL = model
+        tree_cost, division_cost = tc, dc; _PC.clear()
+        return run(TARGET, T / g, g, verbose=False, design=design)
+    finally:
+        (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost) = saved; _PC.clear()
+
+def cache_rooms(T=None, g=None, design=None):
+    """(tree room, division room) per node in bytes (modelled): 480 GB less the phase's node figure, + the arena's slack in the tree"""
+    T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15B()).at_g(g)
+    r = mem_model.mem_per_node(T / g, g, design.mem_opts(T)); host_x = _run_cache(T, g, DEFAULT15B(), slots=0)['mem']['host'] * 1e9 - r['host_hwm']   # (the run's mem is in GB: + the SHMEM pool)
+    GB = 1e9; bud = NODE_GB_MARGIN * GB
+    tree = bud - (r['dev_bs'] + r['host_hwm'] + host_x) + (r['arena'] - r['tree_need'])
+    dm = bud - (r['dev_dm'] + r['host_dm'] + host_x)
+    return tree, dm, dict(dev_bs=r['dev_bs'], dev_dm=r['dev_dm'], host=r['host_hwm'] + host_x, host_dm=r['host_dm'] + host_x, hole=r['arena'] - r['tree_need'])
+
+def cache_proposals(T=None, g=None):
+    T = T or TARGET_DIGITS; g = g or TARGET_NODES
+    GB = 1e9; prime_slot = (1 << 29) * 8 * 4                         # one prime's plane per APU at the cap (q = 2^29 at every target grid), x 4 APUs
+    for npm in (4, 'auto'):
+        d = DEFAULT15B(np_mn=npm)
+        tree_room, dm_room, x = cache_rooms(T, g, d)
+        base = _run_cache(T, g, d, slots=0)
+        print('== %.3g digits on %d nodes, ECALC_NP=%s (modelled; the fabric assumed as in TARGET.md): 0 slots %.1f s without the write, %.1f s with it (@%.1f GB/s)'
+              % (T, g, npm, base['wall_nowrite'], base['wall'], TARGET.write_bw))
+        print('   rooms per node: the tree levels %.1f GB (480 - bs %.1f - host %.1f + the arena\'s slack %.1f), the division %.1f GB (480 - dm %.1f - host %.1f); one prime of a slot %.1f GB, a four-prime slot %.1f GB'
+              % (tree_room / GB, x['dev_bs'] / GB, x['host'] / GB, x['hole'] / GB, dm_room / GB, x['dev_dm'] / GB, x['host_dm'] / GB, prime_slot / GB, 4 * prime_slot / GB))
+        rows = [('the old term, 2 slots (the standing 5.1e13 time)', dict(slots=2, model='old'), (2 * 4, 2 * 4)),
+                ('2 full slots (the code\'s default RNS_DIST_CACHE_MN=2)', dict(slots=2), (2 * 4, 2 * 4)),
+                ('1 full slot (B\'s piece j across i)', dict(slots=1), (4, 4)),
+                ('1 slot, loop along the longer axis', dict(slots=1, loop='long'), (4, 4)),
+                ('1 slot of 1 prime', dict(slots=1, primes=1), (1, 1)),
+                ('1 slot of 1 prime, the longer axis', dict(slots=1, primes=1, loop='long'), (1, 1)),
+                ('tree 1 slot of 2 primes, division 1 of 1', dict(phase={'tree': 1, 'dm': 1}, primes=None, split=(2, 1)), (2, 1)),
+                ('tree 1 slot of 2 primes, division 1 of 1, longer axis', dict(phase={'tree': 1, 'dm': 1}, primes=None, split=(2, 1), loop='long'), (2, 1)),
+                ('tree 2 slots of 1 prime, division 1 of 1', dict(phase={'tree': 2, 'dm': 1}, primes=1), (2, 1)),
+                ('1 slot of 2 primes (both phases)', dict(slots=1, primes=2), (2, 2)),
+                ('1 slot of 3 primes (both phases)', dict(slots=1, primes=3), (3, 3))]
+        print('   %-52s | slot GB per node tree / division | fits 480 | no write        | with the write  | gain' % 'configuration')
+        for name, kw, (pt, pd) in rows:
+            split = kw.pop('split', None)
+            if split:                                                     # tree k = split[0], division k = split[1]: two runs combined by phase
+                lp = kw.get('loop', 'code')
+                ra = _run_cache(T, g, d, slots=1, primes=split[0], loop=lp); rb = _run_cache(T, g, d, slots=1, primes=split[1], loop=lp)
+                r = dict(ra); dl = (ra['recip'] + ra['div']) - (rb['recip'] + rb['div'])
+                r['wall_nowrite'] = ra['wall_nowrite'] - dl; r['wall'] = ra['wall'] - dl
+            else: r = _run_cache(T, g, d, **kw)
+            mt, md = pt * prime_slot, pd * prime_slot
+            fits = mt <= tree_room and md <= dm_room
+            print('   %-52s | %5.1f / %5.1f                    | %-8s | %6.1f s (%.2f min) | %6.1f s | %+6.1f s'
+                  % (name, mt / GB, md / GB, 'yes' if fits else 'no', r['wall_nowrite'], r['wall_nowrite'] / 60, r['wall'], r['wall_nowrite'] - base['wall_nowrite']))
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--calib", action="store_true", help="the aac6 calibration against the recorded multi-process walls")
@@ -1685,6 +1807,7 @@ def main():
     ap.add_argument("--model", default="p15b", choices=("p15b", "p15", "p13", "legacy"), help="Phase 15: p15b = DEFAULT15B() (the code's defaults of 2026-09-27 + the target's launch line: ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); p15 = DEFAULT15() (the Phase 14 defaults, B0; three primes); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
     ap.add_argument("--ascii", action="store_true", help="p15b: ECALC_OUT_PACKED=0 (the ASCII part file, 1 B/digit)")
     ap.add_argument("--twrec-g", action="store_true", help="Phase 15 G5: DIST_TWREC_G=1 (the general map's recurrence packs, GEN_TWPACK_F)")
+    ap.add_argument("--cache-proposals", action="store_true", help="Phase 15 CX: the mn transform cache at the target -- 0 / 1 / 2 slots, the old term, and the ways to hold a slot inside 480 GB (results/CX15.md section 3)")
     ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: none = the part file after T1 (the code); half = hidden under half the division (the model before Phase 15)")
@@ -1717,6 +1840,8 @@ def main():
         calib15(); return
     if a.calib15b:
         calib15b(); return
+    if a.cache_proposals:
+        cache_proposals(); return
     design = {'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
               'legacy': lambda: None}[a.model]()
     if a.plan:
