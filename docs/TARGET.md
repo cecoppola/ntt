@@ -1,4 +1,4 @@
-# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21; Phase 13b agent D, 2026-09-23: §1, §3, §6; Phase 15 agent DOC, 2026-09-27: the user's decisions — §1, §3, §4, §5, §6, §7)
+# TARGET.md — the runbook for the 576-node target (PLAN.md §25; Phase 12 agent Q, 2026-09-21; Phase 13b agent D, 2026-09-23: §1, §3, §6; Phase 15 agent DOC, 2026-09-27: the user's decisions — §1, §3, §4, §5, §6, §7; Phase 15 agent TGT, 2026-09-28: **the target is 5.1 × 10¹³** — §1, §3, §4, §5, §6, §7, §8)
 
 The target: 576 MI300A nodes (4 APUs each, 2 304 APUs), HPE Slingshot-2 dragonfly (diameter 3, groups all-to-all
 inside and globally), two 400 Gb/s NICs per APU (100 GB/s per APU, 400 GB/s per node), SHMEM (Cray OpenSHMEMX
@@ -10,7 +10,64 @@ parameter no aac6 measurement can give).
 
 ## 1. What to expect (the standing estimate; Phase 13b: the design table)
 
-**Phase 15 (agent DOC, 2026-09-27 — the user's decisions; this block supersedes the figures below, which are kept as history).**
+**Phase 15 (agent TGT, 2026-09-28 — the user's decision of 2026-09-27, 23:50 EDT: the target is 5.1 × 10¹³ digits on 576 nodes;
+it was 4.25 × 10¹³. This block supersedes the figures below, which are kept as history.)** The same launch line (§4: the defaults of
+2026-09-27, `ECALC_NP=4`, `COMM_SHMEM_ROUND_MB=1024`, the packed part file started at the division's hook, no top set) with the
+argument `51000000000000`. `./estimate.py --target` (**modelled**; the fabric **assumed**: 100 GB/s per APU, 2 µs per message;
+576 nodes writing at once, each at its single-stream rate, **assumed**); the pieces are the C code's own plan (`MN_PLAN_ONLY`,
+**measured** on aac6's login node with the launch line's environment, results/TGT15/sweep576.txt):
+
+| total digits | without the disk write | with it @ 2.0 GB/s | @ 0.8 GB/s | @ 0.6 GB/s | pieces: node 0 / critical path (tree_max + recip + div) | node |
+|---|---|---|---|---|---|---|
+| **5.10 × 10¹³ (the target: the last size below the step)** | **344.7 s (5.75 min)** | 339.3 s (5.66 min) | 359.8 s (6.00 min) | **376.2 s (6.27 min)** | 222 / 242 (128 + 74 + 40) | **455.4 GB** |
+| 5.11 × 10¹³ (node 0 steps; the critical path does not) | 345.3 s | 339.9 s | 360.5 s | 376.9 s | 226 / 242 | 455.9 GB |
+| 5.12 × 10¹³ (the step: critical path 242 → 246) | 349.9 s | 344.4 s | 365.1 s | 381.6 s | 230 / 246 | 456.4 GB |
+| 5.17 × 10¹³ (the next step) | 374.1 s | 368.6 s | 389.7 s | 406.4 s | 230 / 266 | 459.0 GB |
+| **4.74 × 10¹³ (one step below: the runtime test after the headline)** | **320.3 s (5.34 min)** | 315.3 s | 336.3 s | **351.5 s (5.86 min)** | 202 / 226 (124 + 68 + 34) | 439.2 GB |
+| 4.75 × 10¹³ (its step) | 328.5 s | 323.5 s | 343.4 s | 358.6 s | 209 / 233 | 439.7 GB |
+| 4.25 × 10¹³ (the target until 2026-09-27, 23:50 EDT) | 256.0 s | 251.5 s | 272.0 s | 285.7 s | 180 / 182 | 416.0 GB |
+
+- **The step margin**: 5.10 × 10¹³ is the last size, in steps of 0.01 × 10¹³, at 222 / 242 pieces (the plan is flat from 5.05 × 10¹³).
+  At 5.11 × 10¹³ node 0's count steps to 226 while the critical path stays 242; at 5.12 × 10¹³ the critical path steps to 246
+  (+5.2 s, modelled). So the margin to the next step is **0** at the 0.01 × 10¹³ resolution (the node-0 step) and 0.02 × 10¹³ to the
+  step that costs time — a rounding of the digit count upward is not free. The plan check at 5.1 × 10¹³: **`plan check … OK`**,
+  1240 products, the largest piece 1.096 × 10¹² limbs (dist_mn level 8, the top combine's P), transforms up to 2⁴⁰ of the roots' 2⁴⁴.
+- By phase at 5.1 × 10¹³ (modelled): init 19.3 + seed wait 12.9 + batch 30.8 + top levels 30.5 + distributed levels 150.1 +
+  reciprocal 43.4 + division 49.7 + other 0.2 + the digits' residues 5.4 + the exit 2.4 = 344.7 s. The part file: **39.35 GB per
+  node packed** (8.854 × 10¹⁰ digits × 8/18 B), 22.67 TB in all; 19.7 / 49.2 / 65.6 s of writing at 2.0 / 0.8 / 0.6 GB/s, of which
+  28.7 s hide under the division (the early writer's overlap, fitted at size 1 and assumed at 576). With the ASCII file
+  (`ECALC_OUT_PACKED=0`: 88.5 GB per node, 51.0 TB) it would take 355.2 / 421.6 / 458.5 s (modelled).
+- Against 4.25 × 10¹³: +20 % digits for +88.7 s (+35 %) without the write; the pieces on the critical path 182 → 242, the
+  tree's levels 107.0 → 150.1 s. `ECALC_NP=auto` (agent NP, branch `p15-NP`: four primes only where the pieces need them) is
+  **pending the user's Batch 2 decision**; the integrator's model of it at 5.1 × 10¹³ (`estimate.py --np-mn auto` on that branch):
+  322.6 s without the write, 354.1 / 337.7 / 317.2 s at 0.6 / 0.8 / 2.0 GB/s, node 455 GB (modelled). Until adopted, the target runs
+  `ECALC_NP=4`.
+- **Node memory 455.4 GB** (modelled; = max(init 405.0 + host 44.4, bs 411.0 + 44.4, dm 417.0 + 28.8); arena 284.1, planes 120.9 at
+  2³¹; `mem_model.py --p15`), **24.6 GB below 480**. The C layout (`BS_LAYOUT_ONLY=8.854e10:576`, measured on the login node):
+  planes 120.88 + arena 284.14 = device 405.02 GB, node 426.61 GB with the layout's own host figure. The SHMEM pool stays **9472
+  MiB** (`plan pool`, measured on the login node; heap ≥ 9984 MiB). AS's `BS_ARENA_ROOM=0.16` (pending adoption) adds ≈ 9 GB per
+  node (≈ 464 GB). **Three defaults are now load-bearing at the target** (modelled): without `COMM_SHMEM_ROUND_MB=1024` the node is
+  496.0 GB, with `MN_T_CHUNK_MB=0` 490.5 GB, with `MN_TREE_EARLY_FREE=0` 482.5 GB, with `DM_TIGHT=0` 502.8 GB — each over 480.
+- **The top node's share**: the code gives each node the same number of terms, so at 5.1 × 10¹³ the top node holds
+  **9.169 × 10¹⁰ digits = 1.0356 × the average 8.854 × 10¹⁰** (node 0: 6.849 × 10¹⁰, 0.774 ×), from the plan's N = 4 184 661 447 309
+  terms (modelled, exact arithmetic on the code's term split: `mn_model.top_factor`). At 4.74 × 10¹³: 8.523 × 10¹⁰ (1.0357 × 8.229 × 10¹⁰).
+- **The one-node rehearsal of the top node** (the equivalent of Phase 13's 7.64 × 10¹⁰ share run): `./ecalc 91694091804` on one aac6
+  node **fits**: `BS_LAYOUT_ONLY=91694091804:1` (the defaults, three primes; measured on the login node) device 362.93 GB, node 378.52
+  GB; `mem_model` 396 GB with the host; `MN_PLAN_ONLY=91694091804:1` plan check OK, 113 pieces (a size-1 step lies between 9.2 and
+  9.3 × 10¹⁰: 114 → 123); modelled 174.2 s without the write. With `ECALC_NP=4` (the target's primes): layout node 395.70 GB, model
+  413 GB, 194.0 s (modelled). Both are well inside 480 GB and aac6's measured 524 GB edge.
+- **The disk** (Lustre `/ssd0`, 122 TB shared): the packed parts 22.67 TB (18.6 %); the ASCII parts after the conversion 51.0 TB; both
+  kept until the checks pass: **73.7 TB (60 %)**. A single concatenated ASCII file beside its parts and the packed parts would be
+  124.7 TB — **over the file system: do not concatenate** (the parts, in order, are the file; trap 14). The free space on the day is
+  unknown (**assumed** available: check `lfs df -h` first). At 4.74 × 10¹³: 21.07 TB packed, 47.4 TB ASCII.
+- **Off the clock, per node, the nodes in parallel** (modelled from results/IO215.md's measured conversion, which runs at the disk's
+  write rate, 0.58–0.59 GB/s per stream): RECHECK of the packed part reads 39.35 GB (46–50 s at Lustre's 0.78–0.86 GB/s read);
+  the conversion writes **88.5 GB of ASCII per node: 111–148 s (1.8–2.5 min) at 0.8–0.6 GB/s** (the 39.35 GB read, 24 s at 1.67 GB/s,
+  and the formatting hide under the write); RECHECK of the ASCII parts reads 88.5 GB (103–114 s). All of this assumes the file
+  system carries 576 streams at once (≈ 346 GB/s of aggregate writing); at an aggregate A GB/s it is 51.0 TB / A instead (e.g.
+  8.5 min at 100 GB/s, **assumed** for illustration).
+
+**Phase 15 (agent DOC, 2026-09-27 — history since 2026-09-28: the target was then 4.25 × 10¹³).**
 The code's defaults of 2026-09-27 (`ecalc/README.md`'s header list) on the launch line of §4 — **four primes** (`ECALC_NP=4`:
 three cannot hold the target's pieces, and `MN_PLAN_ONLY` refuses them), `COMM_SHMEM_ROUND_MB=1024`, the part file **packed**
 (0.444 B/digit: 32.8 GB per node, 18.9 TB in all) and started at the division's hook (`MN_OUT_EARLY=1`), no top set.
