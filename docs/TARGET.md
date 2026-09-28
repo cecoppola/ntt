@@ -53,8 +53,8 @@ argument `51000000000000`. `./estimate.py --target` (**modelled**; the fabric **
   terms (modelled, exact arithmetic on the code's term split: `mn_model.top_factor`). At 4.74 × 10¹³: 8.523 × 10¹⁰ (1.0357 × 8.229 × 10¹⁰).
 - **The one-node rehearsal of the top node** (the equivalent of Phase 13's 7.64 × 10¹⁰ share run): `./ecalc 91694091804` on one aac6
   node **fits**: `BS_LAYOUT_ONLY=91694091804:1` (the defaults, three primes; measured on the login node) device 362.93 GB, node 378.52
-  GB; `mem_model` 396 GB with the host; `MN_PLAN_ONLY=91694091804:1` plan check OK, 113 pieces (a size-1 step lies between 9.2 and
-  9.3 × 10¹⁰: 114 → 123); modelled 174.2 s without the write. With `ECALC_NP=4` (the target's primes): layout node 395.70 GB, model
+  GB; `mem_model` 396 GB with the host; `MN_PLAN_ONLY=91694091804:1` plan check OK, 113 pieces (113–114 from 8.8 to 9.2 × 10¹⁰;
+  the next size-1 step, 123 pieces, is at or below 9.3 × 10¹⁰); modelled 174.2 s without the write. With `ECALC_NP=4` (the target's primes): layout node 395.70 GB, model
   413 GB, 194.0 s (modelled). Both are well inside 480 GB and aac6's measured 524 GB edge.
 - **The disk** (Lustre `/ssd0`, 122 TB shared): the packed parts 22.67 TB (18.6 %); the ASCII parts after the conversion 51.0 TB; both
   kept until the checks pass: **73.7 TB (60 %)**. A single concatenated ASCII file beside its parts and the packed parts would be
@@ -191,7 +191,7 @@ Transport (`comm_shmem.c`, `mn.c`; results/S.md):
 | `COMM_TRANSPORT=shmem` | set | selects the SHMEM transport (default TCP: `COMM_HOSTS`/`COMM_PORT`, the aac6 correctness path) |
 | `COMM_SHMEM_SERIAL=0` | set (Cray / SOS) | one context per communicator and blocking `wait_until`; the default 1 is one process-wide lock around every library call (OSHMEM 4.1's `SHMEM_THREAD_MULTIPLE` is nominal). The code falls back to serial if `shmem_init_thread` does not provide MULTIPLE |
 | `COMM_SHMEM_DEVHEAP=1` | set where the symmetric heap is device memory (Cray on the APU, rocSHMEM); 0 with a host heap | skips the `hipHostRegister` of the pool; the staging copies become D2D. Untested on aac6 (no such implementation): run `t_comm` and `t_dist` first (§4) |
-| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it. *Phase 14 V1*: `COMM_SHMEM_POOL_AUTO=1` is the default (the pool raised to the need at init), and a heap set on the launch line below the pool + 512 MiB stops every rank before `shmem_init` with both sizes named (rc 8) — the launch-line rule is in §4. With `COMM_SHMEM_ROUND_MB=1024` (off by default; **on the target's launch line by the user's decision D2**, PLAN §36) the pool is **9472** MiB at the target (9.8 GB, node ≈ 424 GB modelled with the defaults; results/V114.md). *2026-09-27*: the same 9472 MiB with `ECALC_NP=4` (`plan pool`, login node); node 416.0 GB modelled |
+| `COMM_SHMEM_POOL_MB` | **from the measured law (Phase 14 P2, results/P214.md)**: `MN_PLAN_ONLY=<digits>:<g> ./ecalc` prints it (`plan pool`); at 4.25 × 10¹³ on 576 nodes **77824** with the defaults (81.6 GB: the node total 525 GB does not fit 480) or **43008** with `MN_T_CHUNK_MB=1024` (45.0 GB, node 460 GB); `COMM_SHMEM_POOL_AUTO=1` sets it at init | every exchange of `ecalc` is staged through the pool (per exchange, released after it): the pool holds 4 APU threads × the largest exchange's send + receive (the division's A_h mu result exchange: my rows of the piece + a quarter of my share of C inside it) + the control blocks (0.9 GB at 576) — measured to 0.1 MiB at 10⁸–10¹⁰ on 2 nodes and 4 processes. A pool too small stops the run with `comm_shmem: pe r: the symmetric pool … cannot hold …`, naming the model's need; below the need at init a warning names it. *Phase 14 V1*: `COMM_SHMEM_POOL_AUTO=1` is the default (the pool raised to the need at init), and a heap set on the launch line below the pool + 512 MiB stops every rank before `shmem_init` with both sizes named (rc 8) — the launch-line rule is in §4. With `COMM_SHMEM_ROUND_MB=1024` (off by default; **on the target's launch line by the user's decision D2**, PLAN §36) the pool is **9472** MiB at the target (9.8 GB, node ≈ 424 GB modelled with the defaults; results/V114.md). *2026-09-27*: the same 9472 MiB with `ECALC_NP=4` (`plan pool`, login node); node 416.0 GB modelled. *2026-09-28 (the target 5.1 × 10¹³)*: **9472 MiB, unchanged** (`plan pool` with the launch line's environment, measured on the login node: staging 8192 MiB = 4 × 2048 MiB, control 894.2 MiB); node 455.4 GB modelled; without the rounds the pool is 48128 MiB and the node 496.0 GB (over 480) |
 | `SHMEM_SYMMETRIC_HEAP_SIZE` | `COMM_SHMEM_POOL_MB` + 512 MiB (`mnrun.sh` sets it) | the library's heap must hold the pool; the name is OpenSHMEM's, Cray reads `XT_SYMMETRIC_HEAP_SIZE` too — set both |
 | `COMM_SHMEM_FENCE=1` | set on a conforming implementation | orders the data before its signal with `shmem_ctx_fence` (one call) instead of `quiet`; OSHMEM 4.1.6's fence does not order nbi puts (trap 2) — verify with `t_comm` before switching |
 | `COMM_SHMEM_RING_KB` | 256 (default) | the point-to-point ring per (source, dest); only small values flow through it |
@@ -220,11 +220,11 @@ after the merge:
 
 | variable | target | why |
 |---|---|---|
-| `ECALC_NP` | **4 on the target's launch line** (the user's decision 1, 2026-09-27; the code's default stays 3 for decimal limbs) | three primes (−17 % wall, −25.8 GB of planes per node, RESULTS §78) cannot hold the target's mn pieces: a piece of pa + pb > 58 424 467 928 terms needs four, and at 4.25 × 10¹³ on 576 nodes 84 products exceed it from tree level 5 on (`MN_PLAN_ONLY` refuses `ECALC_NP=3`, rc 3: results/P15.md). Four primes: +46.8 s and +17.2 GB per node against three (modelled); four only where needed (option (b), −20 s) is for Batch 2 |
+| `ECALC_NP` | **4 on the target's launch line** (the user's decision 1, 2026-09-27; the code's default stays 3 for decimal limbs) | three primes (−17 % wall, −25.8 GB of planes per node, RESULTS §78) cannot hold the target's mn pieces: a piece of pa + pb > 58 424 467 928 terms needs four, and at 4.25 × 10¹³ on 576 nodes 84 products exceed it from tree level 5 on (`MN_PLAN_ONLY` refuses `ECALC_NP=3`, rc 3: results/P15.md). Four primes: +46.8 s and +17.2 GB per node against three (modelled); four only where needed (option (b), −20 s) is for Batch 2. *2026-09-28*: at the target 5.1 × 10¹³ the plan check is OK with `ECALC_NP=4` (1240 products, the largest piece 1.096 × 10¹² limbs); `ECALC_NP=auto` (agent NP, `p15-NP`: the plan check also OK at 5.1 × 10¹³, measured by the integrator; 322.6 s against 344.7 s without the write, modelled) is **pending the user's Batch 2 decision** |
 | `NTT_MODMUL` | 1 (the default since step 0) | the reduced-correction Barrett: +5–12 % per transform, bit-identical |
 | `RNS_STRATEGY` | the recommended row of `results/DESIGN_TABLE.md` (auto as of the M-run) | the single-node product's form: C four-step, B prime-per-APU, B4 over all four APUs, or auto. At 576 it acts on the leaf's top levels (agent B, p13b-B) |
 | `ECALC_PLANE_CAP` | the recommended row (2^31 as of this writing) | the plane cap 2^30 / 3*2^29 / 2^31 / 3*2^30; it sets `POOL_LOG`, `RNS_PLANES_3Q30` and `DIST_LOGN_TEST`. `fit` takes the largest cap that fits (agent P, p13b-P) |
-| `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row (the defaults since Phase 13c / 14) | the sharded division's shift and the window temporary, in rounds: +1.4 × 10¹³ digits at 576, at one round's cost each (§6 item 4). *2026-09-27*: `MN_T_CHUNK_MB=1024` stays the default; **test 0 against 1024 on the target** once the per-round cost is measured (the user's decision 13; §6 item 4) |
+| `MDB_SHIFT_CHUNK_MB`, `MN_T_CHUNK_MB` | 1024 each in the recommended row (the defaults since Phase 13c / 14) | the sharded division's shift and the window temporary, in rounds: +1.4 × 10¹³ digits at 576, at one round's cost each (§6 item 4). *2026-09-27*: `MN_T_CHUNK_MB=1024` stays the default; **test 0 against 1024 on the target** once the per-round cost is measured (the user's decision 13; §6 item 4). *2026-09-28*: at 5.1 × 10¹³, 0 is modelled 19.6 s faster (325.1 s without the write) but the node is **490.5 GB, over 480** (fits 502 only) — keep 1024 at the target |
 | `COMM_ALLTOALLV_DEPTH` | 2 in the recommended row | the uneven exchange (the 192- and 576-node levels, the machine-wide products) pipelined two deep (agent X, p13b-X) |
 
 Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.c`):
@@ -242,7 +242,7 @@ Memory and the single-node pipeline (`binsplit.c`, `rns_mul.c`, `ecalc.c`, `mem.
 | `ECALC_ARENA_GB`, `ECALC_DM_POOL_K`, `ECALC_POOL_GROW_GB`, `BS_REGION_SLACK`, `BS_BALANCE_N`, `BS_MDEV_LOGL`, `BS_DEV_MDEV`, `BS_SEED_TERMS`, `BS_SEED_CHUNK_MB` | defaults | tuning knobs of the arena, the pool, the leaf layout; nothing on the target asks for them |
 | `MN_OUT_CHUNK_MB` | 256 (default) | the writer's chunk per node; the part file streams during the low product |
 | `MN_OUT_EARLY` | **1 (the default since 2026-09-27**, the user's decision 8) | at size > 1 the part file starts at the division's hook and streams during the low product as on one node (W5d; results/IO15.md); `=0` writes it after T1 (the comparison of §6 item 5(d)) |
-| `ECALC_OUT_PACKED` | **1 (the default since 2026-09-27**, the user's decision 7) | the part file as base-10¹⁸ limbs, 0.444 B/digit (32.8 instead of 73.8 GB per node); converted to ASCII **off the clock** by `tools/unpack_digits` (§4, after the launch line); `ecalc/digcmp.sh` compares packed or ASCII output with a reference |
+| `ECALC_OUT_PACKED` | **1 (the default since 2026-09-27**, the user's decision 7) | the part file as base-10¹⁸ limbs, 0.444 B/digit (32.8 instead of 73.8 GB per node at 4.25 × 10¹³; **39.35 instead of 88.5 GB at 5.1 × 10¹³**); converted to ASCII **off the clock** by `tools/unpack_digits` (§4, after the launch line); `ecalc/digcmp.sh` compares packed or ASCII output with a reference |
 | `ECALC_OUT_MODE`, `ECALC_ODIRECT` | `ECALC_ODIRECT=auto` (**the default since 2026-09-27**, the user's decision 9) | the write mode per file system: O_DIRECT on Lustre is **assumed** until §6 item 5(a) measures it; `ECALC_ODIRECT_LUSTRE=0` or `ECALC_OUT_MODE=sync` / `drop` if buffered writes are faster there (never plain `buffered`: the page cache is HBM) |
 | `MN_OUT_STRIPE`, `MN_OUT_WAVES` | **no default (the user's decision 12): measure striping and waves on the target** (§6 item 5(b)/(c)) | a Lustre layout per part file; at most ⌈576/n⌉ nodes writing at once (waves are ignored with `MN_OUT_EARLY=1`) |
 | `ECALC_MEM_GUARD_GB` | **6 on the launch line** (the user's decision 10, 2026-09-27; not a code default) | the sampler stops the run with rc 9 and one line naming rank, host and phase when MemAvailable falls below it — a named stop instead of the OOM killer |
@@ -272,40 +272,41 @@ One process per node, four APUs per process (the process drives its APUs with fo
 
 ```
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
-export ECALC_NP=4                             # the user's decision 1 (2026-09-27): three primes cannot hold the target's pieces (MN_PLAN_ONLY refuses them, results/P15.md)
+export ECALC_NP=4                             # the user's decision 1 (2026-09-27): three primes cannot hold the target's pieces (MN_PLAN_ONLY refuses them, results/P15.md); ECALC_NP=auto pending (Batch 2)
 export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity (0 against 1024: §6 item 4)
 export COMM_SHMEM_ROUND_MB=1024               # the user's decision D2 (PLAN §36, 2026-09-26): exchanges staged in rounds; pool 45.0 -> 9.8 GB
-export COMM_SHMEM_POOL_MB=9472                # the measured law at 4.25e13 / 576 with all of the above (`plan pool`; the same with ECALC_NP=4)
+export COMM_SHMEM_POOL_MB=9472                # the measured law at 5.1e13 / 576 with all of the above (`plan pool`, 2026-09-28; the same at 4.25e13)
 export SHMEM_SYMMETRIC_HEAP_SIZE=9984M XT_SYMMETRIC_HEAP_SIZE=9984M  # the pool + 512 MiB
 export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export ECALC_MEM_GUARD_GB=6                   # the user's decision 10 (2026-09-27): a named stop (rc 9) instead of the OOM killer
 export ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
 unset ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR   # the record run: no top set, no checkpoint sets (the user's decision 11)
-OUT=/ssd0/<dir>/e425                          # Lustre (no /tmp: §6 item 10); its stripe layout from §6 item 5(c) if measured to help
+OUT=/ssd0/<dir>/e51                           # Lustre (no /tmp: §6 item 10); its stripe layout from §6 item 5(c) if measured to help; 22.7 TB of parts
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
-     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 42500000000000 '$OUT'/e.out'
+     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 51000000000000 '$OUT'/e.out'     # the target since 2026-09-27 23:50 EDT (was 42500000000000)
 ```
 
 The run writes **packed part files** (`ECALC_OUT_PACKED=1`, the default since 2026-09-27): `$OUT/e.out.part0000` …
 `e.out.part0575`, each a 4096-byte `ECPACK18` header (the part's limb and digit ranges and its digit residues) and the node's
-base-10¹⁸ limbs, 32.8 GB per node, 18.9 TB in all; `$OUT/e.out.t1` (node 0) holds the residues RECHECK needs. The wall of
+base-10¹⁸ limbs, 39.35 GB per node, 22.67 TB in all (at 4.25 × 10¹³: 32.8 GB, 18.9 TB); `$OUT/e.out.t1` (node 0) holds the residues RECHECK needs. The wall of
 the record is the run's (D3: `total` and the process's exit, without and with the write); what follows is **off the clock**.
 
 **Off the clock: verify, convert, verify the converted output** (the user's decision 7):
 1. **RECHECK the packed parts**, the same launch line with `ECALC_RECHECK=1` (no pools; the nodes in parallel): each node
-   reads its 32.8 GB part (38–42 s at Lustre's 0.78–0.86 GB/s single-stream read, **modelled**) and re-runs the residues, the
+   reads its 39.35 GB part (46–50 s at Lustre's 0.78–0.86 GB/s single-stream read, **modelled**; 38–42 s at 4.25 × 10¹³) and re-runs the residues, the
    windows and T1 in the residue form (no top set) → `RECHECK OK` on every node, `mn: all 576 nodes: RECHECK OK`.
 2. **Convert to ASCII** with `tools/unpack_digits` (built by `make` in `ecalc/`). Each part's formatted digits are checked
    mod the eight T1 primes against the residues its header stores, as it converts. Time per part (**modelled** from
    results/IO15.md §2.2: 100 GB of ASCII written in 179 s, 0.56 GB/s, on aac6's NVMe; the read at 1.66 GB/s and the
-   formatting, 2.6 s per 10¹¹ digits, hide under the write): 73.8 GB of ASCII per node at 0.6–0.8 GB/s = **≈ 1.5–2.1 min
-   per node, the nodes in parallel** — if the file system's aggregate carries 576 writers (§6 item 5(b)); 42.5 TB at the
-   aggregate otherwise. *Phase 15 IO2 (eb3b29f)*: the tool converts any consecutive subset of parts, so every node converts
+   formatting, 2.6 s per 10¹¹ digits, hide under the write): 88.5 GB of ASCII per node at 0.6–0.8 GB/s = **≈ 1.8–2.5 min
+   per node (111–148 s), the nodes in parallel** (2026-09-28, at 5.1 × 10¹³; 1.5–2.1 min at 4.25 × 10¹³) — if the file system's
+   aggregate carries 576 writers (§6 item 5(b)); 51.0 TB at the aggregate otherwise. The ASCII parts need 51.0 TB of the 122 TB
+   beside the 22.7 TB of packed parts: **keep the parts, do not concatenate them into one file on the same file system** (trap 14). *Phase 15 IO2 (eb3b29f)*: the tool converts any consecutive subset of parts, so every node converts
    its own part (`e.txt.part<k>` from `e.out.part<k>`: "2." on part 0000, the newline on the last; the concatenation is the
    single file; measured on aac6 at 1e9 sizes 2 and 4, 1e10 size 2, results/IO215.md):
    `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits -q -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`.
 3. **Verify the converted output**: (a) every conversion exits 0 (its residue check); (b) `ECALC_RECHECK=1` on the ASCII
-   parts (`<outfile>` = `$OUT/e.txt`, the same launch line: 73.8 GB read per node, 86–95 s, modelled) → `RECHECK OK` on every
+   parts (`<outfile>` = `$OUT/e.txt`, the same launch line: 88.5 GB read per node, 103–114 s, modelled; 73.8 GB, 86–95 s at 4.25 × 10¹³) → `RECHECK OK` on every
    node; (c) the leading 10¹¹ digits against the 10¹¹ reference (`results/e_1e11.out`, sha1 578f5efb…): `cat
    $OUT/e.txt.part0000 $OUT/e.txt.part0001 | head -c 100000000002 | cmp - <(head -c 100000000002 e_1e11.out)` — or before
    converting, from the packed parts with the tool as it is: `tools/unpack_digits -q $OUT/e.out.part* | head -c 100000000002 |
@@ -314,7 +315,7 @@ the record is the run's (D3: `total` and the process's exit, without and with th
 **The pool and the heap (Phase 14 V1).** The pool is carved from the SHMEM library's heap unless the heap is SOS's external
 heap (`COMM_SHMEM_DEVHEAP=1` on SOS with the patch: a HIP buffer of exactly the pool). So, on the target:
 1. With the exact environment of the run, on the login node (no device is touched, < 0.1 s):
-   `MN_PLAN_ONLY=42500000000000:576 ./ecalc | grep 'plan pool'` — it prints `COMM_SHMEM_POOL_MB=<need>` and the heap
+   `MN_PLAN_ONLY=51000000000000:576 ./ecalc | grep 'plan pool'` — it prints `COMM_SHMEM_POOL_MB=<need>` and the heap
    (`>= <need + 512> MiB`). Every switch that shapes the exchanges must be the run's (`MN_GROUPS`, `MN_T_CHUNK_MB`,
    `MDB_SHIFT_CHUNK_MB`, `COMM_SHMEM_ROUND_MB`, `COMM_SHMEM_RING_KB`, `ECALC_PLANE_CAP` / `POOL_LOG`).
 2. Export `COMM_SHMEM_POOL_MB=<need>` and, **unless** the heap is the SOS external heap, the library's heap variable at
@@ -330,7 +331,7 @@ aac6's `mnrun.sh` does steps 1–2 itself when `COMM_SHMEM_POOL_MB` is not set (
 digit count; `MNRUN_PLAN_POOL=0` skips it). The launch line above has the values of step 1 for the defaults.
 
 The argument is the **total** digit count, not the per-node share (the pre-13c text had 61000000000, the per-node
-share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). 4.25 × 10¹³ is the target since Phase 13d (§5 step 6; RESULTS §82): the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
+share of the old safe size, which would have run 6.1 × 10¹⁰ digits in all). **5.1 × 10¹³ is the target since the user's decision of 2026-09-27, 23:50 EDT** (§1, §5 step 6): the last size at 222 / 242 pieces before the grid steps at 5.11 (node 0) and 5.12 × 10¹³ (the critical path); the runtime one step below, 4.74 × 10¹³ (below the step at 4.75), is tested after the headline (§5 step 6c). *History*: 4.25 × 10¹³ was the target from Phase 13d (RESULTS §82) to 2026-09-27: the last flat stretch below the grid steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³.
 The defaults (Phase 13c, extended in Phase 14: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DM_TIGHT` + `DB_POOL_VMM`, `MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024`, `ECALC_BUDGET_CHECK`; RESULTS §85) are the chosen design — `RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`, `MDB_SHIFT_CHUNK_MB=1024`,
 `COMM_ALLTOALLV_DEPTH=2`, with K's kernels `NTT_B1R=3 NTT_PLAN=1` (RESULTS §80) — so none of them needs setting; set one only to leave the design.
 **The user's decisions of 2026-09-27** added to the defaults (nothing to set): `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_PATCH=2`,
