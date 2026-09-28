@@ -273,6 +273,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `RNS_STRIPED_PAIR` | the paired, 3·2ᵏ form of the striped batch path as a unit (A2) (1) |
 | `RNS_BATCH_TILE_GB` | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) |
 | `RNS_POOL1_GB` | plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs) |
+| `RNS_POOL1_4Q` | *Phase 15 (PS)*: with four one-node primes (`ECALC_NP=4`, binary limbs) plane pool 1 is made **4 q** at init (16 GiB per APU at 2^31, +17.18 GB per node) so the batch-local tier's B planes (4 × 2^29 limbs at the 20-product level of 9.17 × 10¹⁰) never grow it inside bs (rc 6 before, `~/fin15f/t2_B1_1.log`). 0: pool 1 stays 3 q + 16 and that tier fits its tiles to pool 1, sending a batch whose B planes cannot fit to the striped tier (results/PS15.md). Three primes and `ECALC_NP=auto`: no change (1) |
 | `RNS_POOL_GROW` | *Phase 12 (R)*: a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) |
 | `RNS_PLANES_FIRST` | *Phase 14 (N4)*: map the plane pools before the region arenas (and the seeds after them), so that near the node's memory edge the planes get 2 MiB blocks and the arenas the remainder (results/N414.md, A5) (1 since Phase 14) |
 | `RNS_PLANES_3Q30` | 3·2³⁰-point planes for the top levels and the dm phase, sized at init: 1 / 0 / `auto` (on below 5 × 10¹⁰ at 2³¹ pools); the mapping costs more than the products gain (0) |
