@@ -1,0 +1,11 @@
+p24_job batches 1: job 21761 submitted Mon Sep 28 05:12:42 PM CDT 2026
+job 21761 running on ppac-pl1-s24-30 Mon Sep 28 05:22:23 PM CDT 2026
+== batch 1 Mon Sep 28 05:22:23 PM CDT 2026
+t_p24 rc 0 t_p24: VERIFY OK (78594 checks) (7 s)
+t_mn_grid MN_P24=1 ECALC_NP=4 size 2 rc 0: 2 VERIFY OK, 0 FAILED;  (180 s)
+t_mn_grid MN_P24=1 ECALC_NP=4 size 3 rc 0: 3 VERIFY OK, 0 FAILED;  (163 s)
+t_mn_grid MN_P24=1 ECALC_NP=4 size 4 rc 0: 4 VERIFY OK, 0 FAILED;  (246 s)
+t_mn_grid MN_P24=1 ECALC_NP=4 MN_T_CHUNK_MB=1 size 2 rc 0: 2 VERIFY OK, 0 FAILED;  (216 s)
+t_mn_grid MN_P24=1 ECALC_NP=auto TERMS=1e6 size 2 rc 0: 2 VERIFY OK, 0 FAILED;  (178 s)
+t_mn_grid MN_P24=2 ECALC_NP=auto TERMS=1e6 size 2 rc 0: 2 VERIFY OK, 0 FAILED;  (178 s)
+p24_job batches 1 done Mon Sep 28 05:41:51 PM CDT 2026
