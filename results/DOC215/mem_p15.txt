@@ -1,0 +1,26 @@
+== Phase 15: the memory model on the defaults (tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool=plan, vmm=True, round_mb=0, cap=2147483648, seed_fill=128, out_early=True, arena_room=0.16) against the measured runs (GB; measured / model; each row on the defaults of its run: [B0], [B1])
+  4e+10 x 1: device init 218.2 / 218.2, device max 224.0 / 224.2, host HWM 25.8 / 25.9, node 249.8 / 250.0 (+0.1 %)  | [B0] V314 e4_def (job 21436, s24-30): planes 103.1 + regions 114.5 + tables 0.61 (the report then counted the borrowed 53.7 twice)
+  1e+11 x 1: device init 363.6 / 363.6, device max 365.7 / 369.6, host HWM 27.1 / 27.1, node 392.8 / 396.7 (+1.0 %)  | [B0] V214 A3 c2_1e11_def (job 21443, s24-16) = V314 e11_def; the five-run series HWM 27.1-27.2
+  1.16e+11 x 1: device init 399.8 / 399.8, device max 404.3 / 405.8, host HWM 27.6 / 27.4, node 431.9 / 433.3 (+0.3 %)  | [B0] V214 B c2_116_def (job 21447, s24-26)
+  1.3e+11 x 1: device init 435.6 / 435.6, device max 438.7 / 441.6, host HWM 27.7 / 27.7, node 466.4 / 469.3 (+0.6 %)  | [B0] V214 B c2_130_def (job 21447, s24-26)
+  5e+09 x 2: device init - / 141.6, device max - / 147.6, host HWM 27.8 / 28.9, node 179.7 / 176.5 (-1.8 %)  | [B0] V114 b2 (job 21439), 1e10 on 2 real nodes, SOS, pool 8704 from the plan: MemAvailable 530.9 -> min 351.2
+  5e+09 x 2: device init - / 141.6, device max - / 147.6, host HWM 21.3 / 22.5, node 173.1 / 170.1 (-1.7 %)  | [B0] V114 b3 (job 21442), the same with COMM_SHMEM_ROUND_MB=256: pool 2560, MemAvailable min 357.8
+  1e+11 x 1: device init 377.3 / 377.3, device max 393.6 / 393.6, host HWM 27.4 / 27.1, node 421.0 / 410.4 (-2.5 %)  | [B1] RESULTS 86 series, every candidate on (= the defaults of 2026-09-27; jobs 21550 / 21563, ten runs, s24-16 / s24-26): planes 103.1 + regions 136.2 + pool 137.4 at init; dm 393.6 (pool 289.9); HWM 27.3-27.6
+
+== the target: 5.1e13 digits on 576 nodes (D 8.8542e+10 per node, MN_GROUPS 2,4,8,16,32,64,192,576, SHMEM, depth 2, ECALC_NP=auto: the launch line; BS_ARENA_ROOM 0.16: the default), GB per node (modelled)
+  the defaults (COMM_SHMEM_ROUND_MB off)                             node  512.5 = max(init 421.5 + 84.9, bs 427.5 + 84.9, dm 429.8 + 69.3); arena 300.6 (bs 201.8, dm 296.9, tree 264.2); pool 48128 MiB (need 48070)
+  the defaults + COMM_SHMEM_ROUND_MB=1024 (D2: the launch line)      node  471.9 = max(init 421.5 + 44.4, bs 427.5 + 44.4, dm 429.8 + 28.8); arena 300.6 (bs 201.8, dm 296.9, tree 264.2); pool 9472 MiB (need 9347)
+    ... BS_ARENA_ROOM=0 (B1)                                         node  455.4 = max(init 405.0 + 44.4, bs 411.0 + 44.4, dm 417.0 + 28.8); arena 284.1 (bs 201.8, dm 284.1, tree 264.2); pool 9472 MiB (need 9347)
+    ... ECALC_NP=4 (the launch line of 2026-09-27; RNS_POOL1_4Q)     node  489.1 = max(init 438.7 + 44.4, bs 444.7 + 44.4, dm 446.9 + 28.8); arena 300.6 (bs 201.8, dm 296.9, tree 264.2); pool 9472 MiB (need 9347)
+    ... ECALC_NP=4 BS_ARENA_ROOM=0 (B1 on its launch line)           node  472.6 = max(init 422.2 + 44.4, bs 428.2 + 44.4, dm 434.2 + 28.8); arena 284.1 (bs 201.8, dm 284.1, tree 264.2); pool 9472 MiB (need 9347)
+    ... ECALC_NP=3 (refused by the plan check: shown for the memory only) node  454.8 = max(init 404.3 + 44.4, bs 410.3 + 44.4, dm 412.6 + 28.8); arena 300.6 (bs 201.8, dm 296.9, tree 264.2); pool 9472 MiB (need 9347)
+    ... the Phase 14 defaults (B0: BS_SEED_FILL=0, MN_OUT_EARLY=0)   node  471.9 = max(init 421.5 + 44.4, bs 427.5 + 44.4, dm 429.8 + 27.9); arena 300.6 (bs 209.5, dm 296.9, tree 264.2); pool 9472 MiB (need 9347)
+    ... the pre-Phase-15 host (no VMM seed buffers, no bs growth)    node  445.8 = max(init 405.0 + 31.5, bs 405.0 + 31.5, dm 417.0 + 28.8); arena 284.1 (bs 201.8, dm 284.1, tree 264.2); pool 9472 MiB (need 9347)
+    ... MN_TREE_EARLY_FREE=0                                         node  489.1 = max(init 438.7 + 44.4, bs 444.7 + 44.4, dm 438.7 + 28.8); arena 317.8 (bs 201.8, dm 296.9, tree 311.2); pool 9472 MiB (need 9347)
+    ... DM_TIGHT=0                                                   node  506.3 = max(init 455.9 + 44.4, bs 461.9 + 44.4, dm 464.4 + 28.8); arena 335.0 (bs 201.8, dm 331.5, tree 264.2); pool 9472 MiB (need 9347)
+    ... MN_T_CHUNK_MB=0                                              node  497.7 = max(init 447.3 + 44.4, bs 453.3 + 44.4, dm 452.0 + 28.8); arena 326.4 (bs 201.8, dm 319.2, tree 301.4); pool 9472 MiB (need 9347)
+
+== ceilings (the largest D per node whose node peak fits; digits in all = D x g)
+  one node, the defaults (three primes)                480 GB: 1.24e+11 per node = 1.241e+11 digits; 502 GB: 1.41e+11 per node = 1.412e+11 digits
+  576, the defaults, ECALC_NP=auto                     480 GB: 7.78e+10 per node = 4.481e+13 digits; 502 GB: 8.52e+10 per node = 4.908e+13 digits
+  576, the launch line (+ COMM_SHMEM_ROUND_MB=1024, ECALC_NP=auto) 480 GB: 8.97e+10 per node = 5.167e+13 digits; 502 GB: 1.02e+11 per node = 5.892e+13 digits
