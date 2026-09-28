@@ -6,13 +6,19 @@
 # One pass/fail line per step as it completes, a summary at the end, exit status = number of failures.
 #
 # Steps (--only picks a subset; --full adds the last):
-#   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_mn_grid at 2 node-processes
+#   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_mn_grid at 2 node-processes
 #   e9     10^9 at size 1, decimal (the default) and binary limbs (LIMB_BASE=2), cmp'd against the reference
 #   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
 #   ckpt   10^8 at size 2: BS_CKPT_ABORT=6 on every node, then BS_RESTART=1 (restart identical to the reference)
 #   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
 #          ECALC_RECHECK=1 on their files (RECHECK OK on every node, P and Q from the checkpoint) and on a copy with one
 #          digit flipped (RECHECK FAILED)
+#   corr   Phase 15 KP: forced division corrections on the defaults (packed output, ECALC_CORR_PATCH=2, MN_OUT_EARLY=1), at sizes
+#          where e's digits end in a run of 0s / 9s, so the deferred correction's patch rewrites digits inside the file (not only
+#          past d_out): 511461828 at size 1 with ECALC_TEST_CORR=14 (digits [511461818, 511461828]), then ECALC_RECHECK=1 on the
+#          patched file; 108388422 at sizes 2 and 4 with ECALC_TEST_CORR=36 (digits [108388413, 108388422], node 0's part).
+#          Each: VERIFY OK on every node, a patch line with bytes rewritten and none FAILED, the digits identical to the first
+#          d + 2 bytes of the 10^9 reference + a newline
 #   full   the standard size at size 1 (--full only; ECALC_STD_DIGITS, default 10^11 since Phase 14, ~5 min; 4 x 10^10 before): the reference evicted from the page
 #          cache first, the wall printed, digits cmp'd against results/e_4e10.out; then ECALC_RECHECK=1 on its files
 #          (the top-level set the run wrote by default into <outfile>.top) -- a second PASS/FAIL line with its time
@@ -23,7 +29,7 @@
 #          every run must be identical with all 4 nodes VERIFY OK
 # References: ref/e_<digits>.txt of this clone or, when absent, ECALC_REF (default ~/ntt/ecalc/ref);
 # the 4e10 file ECALC_REF_4E10 (default ~/ntt/ecalc/results/e_4e10.out).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,recheck,full,stress]"; exit 2; }
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
@@ -59,7 +65,7 @@ N "mkdir -p $TMP; rm -f $TMP/*"
 
 # ---- unit tests -------------------------------------------------------------------------------------------
 if want unit; then
-  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out"; do
+  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- both output forms)
     n=${t// /_}; log=$OUT/unit_$n.log
     R 1200 "./tests/$t" > "$log" 2>&1; rc=$?
     v=$(grep -a 'VERIFY' "$log" | tail -1)
@@ -141,6 +147,31 @@ recheck_check() { local tag=$1 p=$2 d=$3 pl=$4; shift 4
 if want recheck; then
   recheck_check recheck_e9_1 1 1000000000 29
   recheck_check recheck_e8_2 2 100000000 27
+fi
+
+# ---- Phase 15 KP: forced corrections on the defaults, patching file bytes (results/KP15.md) ------------------------------------
+# corr_check <tag> <procs> <digits> <k> [recheck]: the run with ECALC_TEST_CORR=<k>, the patch lines, the digits against the reference prefix
+corr_check() { local tag=$1 p=$2 d=$3 k=$4 rk=$5 log=$OUT/$1.log f=$TMP/$1.txt rf=$TMP/ref_$3.txt name="corr d=$3 size $2 TEST_CORR=$4" rc c np nb nf
+  N "head -c $(( d + 2 )) $REF/e_1000000000.txt > $rf; echo >> $rf"
+  if [ "$p" = 1 ]; then R 600 "env POOL_LOG=29 ECALC_TEST_CORR=$k ./ecalc $d $f" > "$log" 2>&1; rc=$?
+  else M 600 "$p" POOL_LOG=27 ECALC_TEST_CORR=$k ./ecalc "$d" "$f" > "$log" 2>&1; rc=$?; fi
+  c=$(N "$PWD/digcmp.sh $f $rf")
+  np=$(grep -ac 'patch: X [+-]' "$log"); nf=$(grep -a 'patch: X [+-]\|mn_out: patch' "$log" | grep -ac 'FAILED\|holds\|does not\|cannot\|not this run')
+  nb=$(grep -a 'patch: digits' "$log" | grep -ao '[0-9]* bytes in [1-9]' | head -1)
+  local okrun=0; if [ "$p" = 1 ]; then grep -aq '^VERIFY OK' "$log" && okrun=1; else grep -aq "mn: all $p nodes: VERIFY OK" "$log" && okrun=1; fi
+  local rtxt=""
+  if [ -n "$rk" ] && [ $okrun = 1 ]; then
+    R 600 "env ECALC_RECHECK=1 ./ecalc $d $f" > "$OUT/${tag}_recheck.log" 2>&1
+    if grep -aq '^RECHECK OK' "$OUT/${tag}_recheck.log"; then rtxt="; ECALC_RECHECK=1 on the patched file: RECHECK OK"; else rtxt="; ECALC_RECHECK=1: FAILED"; okrun=0; fi
+  fi
+  if [ $rc -eq 0 ] && [ $okrun = 1 ] && [ "$c" = identical ] && [ "$np" -ge 1 ] && [ "$nf" -eq 0 ] && [ -n "$nb" ]; then pass "$name" "$c; patched ($nb part file); $(total_of "$log")$rtxt"
+  else fail "$name" "rc $rc; $c; $np patch lines, $nf failures, rewritten: ${nb:-none}$rtxt; $(grep -a 'VERIFY FAILED\|FAILED\|abort\|holds' "$log" | head -1 | cut -c1-120)"; fi
+  N "rm -rf $f $f.* $rf"
+}
+if want corr; then
+  corr_check corr_c511_1 1 511461828 14 recheck
+  corr_check corr_c108_2 2 108388422 36
+  corr_check corr_c108_4 4 108388422 36
 fi
 
 # ---- 4 x 10^10 at size 1 (--full) ------------------------------------------------------------------------------------

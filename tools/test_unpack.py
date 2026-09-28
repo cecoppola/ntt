@@ -8,6 +8,7 @@ that --cmp finds a changed byte and a length difference, and that a corrupted li
 
 usage: tools/test_unpack.py [unpack_digits binary] [workdir]"""
 import os, random, struct, subprocess, sys, tempfile
+if hasattr(sys, "set_int_max_str_digits"): sys.set_int_max_str_digits(0)   # (Phase 15 KP: the patched cases take the digits as one integer)
 
 Q = [4611686018427388039, 4611686018427388073, 4611686018427388081, 4611686018427388091,
      4611686018427388093, 4611686018427388097, 4611686018427388157, 4611686018427388181]
@@ -47,6 +48,60 @@ def write_parts(base, digits, d, d_out, nparts):
             f.write(b"".join(struct.pack("<Q", limbs[i]) for i in range(hi - 1, lo - 1, -1)))
         names.append(name)
     return sorted(names)
+
+
+def patch_parts(names, old_digits, new_digits, d, header_too=True):
+    """Phase 15 KP: the correction patch of ecalc/mn_out.c (packed_patch) on packed parts written from old_digits: every limb
+    that differs rewritten in place at 4096 + 8 (hi - 1 - i), the header's residues moved by (new - old) B^(i - lo).
+    header_too=False: the limbs only (the residue check must then fail).  Returns the number of limbs rewritten"""
+    nl = (d + 1 + 17) // 18
+    pad = nl * 18 - (d + 1)
+    lo_ = lambda s: [int(("0" * pad + s)[18 * (nl - 1 - i): 18 * (nl - i)]) for i in range(nl)]
+    lo_old, lo_new = lo_(old_digits), lo_(new_digits)
+    nchg = 0
+    for name in names:
+        with open(name, "r+b") as f:
+            hdr = bytearray(f.read(4096))
+            lo, hi = struct.unpack_from("<2Q", hdr, 48 + 32)
+            dres = list(struct.unpack_from("<8Q", hdr, 48 + 80 + 64))
+            for i in range(lo, hi):
+                if lo_old[i] != lo_new[i]:
+                    f.seek(4096 + 8 * (hi - 1 - i)); assert struct.unpack("<Q", f.read(8))[0] == lo_old[i]
+                    f.seek(4096 + 8 * (hi - 1 - i)); f.write(struct.pack("<Q", lo_new[i])); nchg += 1
+                    dres = [(r + (lo_new[i] - lo_old[i]) * pow(B, i - lo, q)) % q for r, q in zip(dres, Q)]
+            if header_too:
+                struct.pack_into("<8Q", hdr, 48 + 80 + 64, *dres); f.seek(0); f.write(bytes(hdr))
+    return nchg
+
+
+def patched_cases(exe, wd, rnd):
+    """Phase 15 KP: unpack_digits on patched parts -- X ending in a run of 9s / 0s over several limbs and parts, + / - dx: the
+    residue check passes and the ASCII is the corrected digits; with the limbs patched but not the header, the check fails"""
+    fails = 0
+    for d, d_out, nparts, run, dx in [(1800, 1790, 3, 400, 7), (1800, 1800, 5, 1500, -3), (18 * 2000, 18 * 2000 - 4, 4, 18 * 1200 + 5, 1),
+                                      (360, 355, 2, 10, -60), (36, 30, 1, 30, 9)]:
+        body = "".join(rnd.choice("0123456789") for _ in range(d - run))
+        old = "2" + body + ("9" if dx > 0 else "0") * run                  # X ends in a run: dx carries / borrows through it
+        v = int(old) + dx
+        new = str(v)
+        assert len(new) == d + 1 and len(old) == d + 1
+        base = os.path.join(wd, "p_%d_%d_%d" % (d, d_out, nparts))
+        want = ("2." + new[1:d_out + 1] + "\n").encode()
+        ref = base + ".ref"; open(ref, "wb").write(want)
+        ok = True; nchg = 0
+        for header_too in (True, False):
+            names = write_parts(base, old, d, d_out, nparts)
+            nchg = patch_parts(names, old, new, d, header_too)
+            r = subprocess.run([exe, "-q", "--cmp", ref] + names, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            r2 = subprocess.run([exe, "-q", "--no-res", "--cmp", ref] + names, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            ok = ok and (r.returncode == 0 if header_too else r.returncode == 1) and r2.returncode == 0
+            for n in names: os.remove(n)
+        chg = next((k for k in range(d + 1) if old[k] != new[k]), d + 1)
+        print("patched d %6d d_out %6d parts %d dx %+d: %d limbs rewritten, digits [%d, %d] changed: residue check + ASCII, and the header-not-patched failure -> %s"
+              % (d, d_out, nparts, dx, nchg, chg, d, "ok" if ok else "FAIL"))
+        fails += not ok
+        os.remove(ref)
+    return fails
 
 
 def main():
@@ -101,6 +156,7 @@ def main():
               % (d, d_out, nparts, ok1, ok2, ok3, ok4, ok5, ok6, "ok" if good else "FAIL"))
         for n in names + [ref, ref + ".bad", ref + ".long", out]:
             os.remove(n)
+    fails += patched_cases(exe, wd, rnd)
     print("test_unpack: %s" % ("PASS" if not fails else "%d FAILED" % fails))
     return 1 if fails else 0
 
