@@ -405,7 +405,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             o->ndig += len;
             double t4 = mem_now(); o->t_res += t4 - t3;
             /* T2: the windows that end in this chunk (as tier2_range picks them), from the digits they cover and the head */
-            size_t ndig = o->d_out + 1, x = (size_t)-1, y = 0;
+            size_t ndig = o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), x = (size_t)-1, y = 0;   /* (Phase 15 KP: K's deferred windows -- the last t2_defer digits' -- are mn_out_tail_fix's, as in the ASCII form) */
             for (int i = 0; i < nwo; i++) { size_t e = woff[i] + 50; if (e > ndig || e <= ck0 || e > ck1 || woff[i] + nhead < ck0) continue; if (woff[i] < x) x = woff[i]; if (e > y) y = e; }
             if (y) {
                 size_t x0 = x > ck0 + 49 ? x - 49 : ck0;   /* 49 digits before the first window (tier2_range's head), inside the chunk when they are */
@@ -552,7 +552,7 @@ static uint64_t sub_mod(uint64_t a, uint64_t b, uint64_t q) { return vf_add_mod(
  * whole 4 KiB blocks read, changed and written, the file cut back to its size if the last block went past it */
 static int patch_bytes(const char *name, size_t off, const char *old, const char *nw, size_t len, int verbose)
 {
-    int direct = sp_odirect() && (!getenv("ECALC_OUT_ODIRECT") || atoi(getenv("ECALC_OUT_ODIRECT"))), fd = -1, bad = 0;
+    int direct = out_mode(name) == OUT_DIRECT, fd = -1, bad = 0;   /* Phase 15 KP: the writer's own rule (out_mode: ECALC_OUT_MODE, else ECALC_ODIRECT / ECALC_OUT_ODIRECT as before) */
     if (direct) fd = open(name, O_RDWR | O_DIRECT);
     if (fd < 0) { direct = 0; fd = open(name, O_RDWR); }
     if (fd < 0) { printf("mn_out: patch: cannot open %s: %s\n", name, strerror(errno)); return 1; }
@@ -575,6 +575,38 @@ static int patch_bytes(const char *name, size_t off, const char *old, const char
     if (verbose) printf("      patch: %s bytes [%zu, %zu) (%s, blocks [%zu, %zu))%s\n", name, off, off + len, direct ? "O_DIRECT" : "buffered", a0, a1, bad ? " FAILED" : "");
     return bad;
 }
+/* Phase 15 KP: the patch of a packed part (packed_fmt.h; ECALC_OUT_PACKED=1, the default).  The correction changes the global
+ * limbs [0, m) of X (low: the uncorrected ones, nw: the corrected); this part holds the limbs [lo, hi) (its header's), limb i at
+ * the byte ECP_HDR_BYTES + 8 (hi - 1 - i) (the most significant first), so its changed limbs [lo, min(hi, m)) are one byte
+ * range: checked to hold the old limbs, rewritten, read back (patch_bytes: whole 4 KiB blocks with O_DIRECT as the writer).
+ * Then the header's residues (the part's digits [k0, k1) = its limbs as a number, mod q): checked to be the run's (o->dres,
+ * written by mn_out_finish), moved by sum over the changed limbs of (new - old) B^(i - lo), rewritten and read back -- so
+ * tools/unpack_digits's residue check holds on the patched part.  All the limbs, also those holding only digits past d_out
+ * (the packed file holds X's limbs whole).  Returns the failures (the header not the run's, the bytes not the old ones, I/O). */
+static int packed_patch(mn_out *o, const char *name, const uint64_t *low, const uint64_t *nw, size_t m, mn_out_fix *f)
+{
+    ecp_hdr h; int ok = 0;
+    { int fd = open(name, O_RDONLY); if (fd >= 0) { ok = pread(fd, &h, sizeof h, 0) == (ssize_t)sizeof h; posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); close(fd); } }
+    if (!ok || memcmp(h.magic, ECP_MAGIC, 8) || h.version != ECP_VERSION || h.limb_bytes != 8 || h.order != 1 || !h.complete || h.d != o->d || h.d_out != o->d_out
+        || h.k0 != o->k0 || h.k1 != o->k1 || h.lo > h.hi || h.hi > h.nl || h.nq != T1_NQ) {
+        printf("mn_out: patch: %s: not this run's complete packed part (header %s)\n", name, ok ? "fields differ" : "unreadable"); return 1; }
+    size_t lo = (size_t)h.lo, hi = (size_t)h.hi, ph = m < hi ? m : hi;
+    if (lo >= ph) return 0;                                             /* none of this part's limbs change */
+    size_t n = ph - lo; uint64_t *bo = (uint64_t *)malloc(n * 8), *bn = (uint64_t *)malloc(n * 8);
+    for (size_t j = 0; j < n; j++) { bo[j] = low[ph - 1 - j]; bn[j] = nw[ph - 1 - j]; }   /* file order: limb ph-1 first */
+    int bad = patch_bytes(name, ECP_HDR_BYTES + (hi - ph) * 8, (const char *)bo, (const char *)bn, n * 8, o->verbose);
+    free(bo); free(bn);
+    f->bytes += n * 8; f->parts++;
+    if (bad) return bad;
+    uint64_t ro[T1_NQ], rn[T1_NQ];                                      /* the header's residues: the run's, and moved */
+    for (int i = 0; i < T1_NQ; i++) {
+        uint64_t q = t1_q[i], Bq = 1000000000000000000ULL % q, s = 0, p = 1 % q;
+        for (size_t k = lo; k < ph; k++) { s = vf_add_mod(s, mulmod_u(sub_mod(nw[k] % q, low[k] % q, q), p, q), q); p = mulmod_u(p, Bq, q); }
+        ro[i] = o->dres[i]; rn[i] = vf_add_mod(o->dres[i], s, q);
+    }
+    bad += patch_bytes(name, offsetof(ecp_hdr, dres), (const char *)ro, (const char *)rn, sizeof ro, o->verbose);
+    return bad;
+}
 int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_fix *f)
 {
     const uint64_t B = 1000000000000000000ULL;
@@ -591,12 +623,12 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     if (c && w < nl) { free(nw); return -1; }                          /* the carry goes on above the gathered limbs */
     if (c) { free(nw); printf("mn_out: patch: the correction %+ld %s past X's top digit\n", dx, dx > 0 ? "carries" : "borrows"); return 1; }
     long sd = (long)((nl - w) * 18) - (long)pad;                       /* the digit of the strings' first char (< 0: leading pad chars) */
-    size_t n = w * 18; char *so = (char *)malloc(n + 1), *sn = (char *)malloc(n + 1); fmt_limbs(so, low, w); fmt_limbs(sn, nw, w); free(nw);
+    size_t n = w * 18; char *so = (char *)malloc(n + 1), *sn = (char *)malloc(n + 1); fmt_limbs(so, low, w); fmt_limbs(sn, nw, w);   /* (Phase 15 KP: nw kept for a packed part) */
     size_t j = 0; while (j < n && so[j] == sn[j]) j++;
     size_t kp = (long)j + sd < 0 ? 0 : (size_t)((long)j + sd);          /* the first digit that changes (d + 1: none) */
     if (j == n) kp = o->d + 1;
     size_t need = (kp < zs ? kp : zs); need = need > 62 ? need - 62 : 0;   /* the context: the windows' 49 digits and a node's first 62 before the first changed or deferred digit (global: every node decides alike) */
-    if (sd > 0 && (size_t)sd > need && w < nl) { free(so); free(sn); return -1; }
+    if (sd > 0 && (size_t)sd > need && w < nl) { free(so); free(sn); free(nw); return -1; }
     #define SO(k) (so + ((long)(k) - sd))
     #define SN(k) (sn + ((long)(k) - sd))
     f->kp = kp; f->w = w;
@@ -606,7 +638,10 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     int bad = 0;
     /* this node's part: digits [a, b) of the patch */
     size_t a = kp > o->k0 ? kp : o->k0, b = o->k1 < dend ? o->k1 : dend;
-    if (o->outfile && a < b) {
+    if (o->outfile && o->packed && o->k1 > o->k0) {                    /* Phase 15 KP: a packed part -- the changed limbs and the header's residues */
+        char name[4096]; if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
+        bad += packed_patch(o, name, low, nw, m, f);
+    } else if (o->outfile && a < b) {                                    /* the ASCII part (K's byte image) */
         char name[4096]; if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
         size_t fbase = o->k0 == 0 ? 0 : o->k0 + 1, p0 = (a ? a + 1 : 0) - fbase, len = ((b - 1 ? b : 0) - fbase) - p0 + 1;   /* the bytes [pos(a), pos(b - 1)], pos(k) = (k ? k + 1 : 0) - fbase */
         char *io = (char *)malloc(len), *in = (char *)malloc(len);
@@ -630,7 +665,7 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     if (o->k1 > o->k0 && kp < o->k0 + 62 && (long)o->k0 >= sd) { size_t t = strlen(o->first); memcpy(o->first, SN(o->k0), t); }
     #undef SO
     #undef SN
-    free(so); free(sn);
+    free(so); free(sn); free(nw);
     return bad;
 }
 int mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_fix *f)
