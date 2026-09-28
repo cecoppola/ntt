@@ -4,6 +4,7 @@ ecalc logs, and the fit of what one hit saves against mn_model's piece_cost on t
 
     tests/cx_fit.py grid <g> <cx_grid log> [...]     products by shape x slots (node 0, the timed repetitions), pieces by cache state, the fit
     tests/cx_fit.py ecalc <log> [...]                 an ecalc run's grid pieces by cache state (node 0) and its phase lines
+    tests/cx_fit.py e2e <procs> <cache-off log> <log> [...]   the hit pieces' saving against the cache-off run's same pieces, and the model's
 """
 import sys, os, re, statistics as st
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -67,7 +68,7 @@ def grid_report(g, paths):
             for p in ps: base[(r, sh, p['i'], p['j'])] = p
     print('pieces (node 0): a piece against itself at 0 slots in the same repetition (mean s, n)')
     keys = ('t', 'red', 'ntt', 'crt', 'out', 'carry') + (('rows', 'cols', 'pack', 'xfer', 'a2a') if any('rows' in p for x in timed for p in x[7]) else ())
-    fitd, fitm = [], []
+    fitd, fitm, fitb, fitmb = [], [], [], []
     for s in slots[1:]:
         for state in ('hit', 'cached', 'plain'):
             pairs = [(p, base.get((r, sh, p['i'], p['j']))) for r, sh, ss, t, h, mi, _, ps in timed if ss == s for p in ps if p['state'] == state]
@@ -77,12 +78,12 @@ def grid_report(g, paths):
             if state == 'hit':
                 for p, b in pairs:
                     pts = M.plane_pts(p['la'] + p['lb'], g); t2, t1 = model_saving(g, p['la'], p['lb'], pts, fab)
-                    fitd.append(b['t'] - p['t']); fitm.append(t2 - t1)
+                    fitd.append(b['t'] - p['t']); fitm.append(t2 - t1); fitb.append(b['t']); fitmb.append(t2)
     if fitd:
-        f = sum(fitd) / sum(fitm)
-        print('the fit: a hit saves %.3f s per piece measured (median %.3f, n %d) against %.3f modelled on %s -> CACHE_HIT_F %.3f'
-              % (st.mean(fitd), st.median(fitd), len(fitd), st.mean(fitm), fab.name, f))
-        return f
+        f = sum(fitd) / sum(fitm); ff = (sum(fitd) / sum(fitb)) / (sum(fitm) / sum(fitmb))
+        print('the fit: a hit saves %.3f s per piece measured (median %.3f, n %d) against %.3f modelled on %s -> %.3f in seconds; as a fraction of the piece: %.1f %% measured, %.1f %% modelled -> CACHE_HIT_F %.3f'
+              % (st.mean(fitd), st.median(fitd), len(fitd), st.mean(fitm), fab.name, f, 100 * sum(fitd) / sum(fitb), 100 * sum(fitm) / sum(fitmb), ff))
+        return ff
 
 def ecalc_report(paths):
     for p in paths:
@@ -96,6 +97,37 @@ def ecalc_report(paths):
         for l in lines:
             if l.startswith(('total', 'divmod', 'bs ', 'dm ')) or 'transform cache:' in l or ': tree levels' in l: print('  ' + l.strip()[:200])
 
+RD = re.compile(r'dist_mn node 0: (\d+) x (\d+) limbs over (\d+) x 4 ranks')
+def products_of(path):
+    """node 0's traced grid pieces grouped by product: [(g, na, nb, pieces)] (the dist_mn summary line closes a product)"""
+    out = []; cur = []
+    for l in open(path, errors='replace'):
+        if RP.search(l): cur += pieces_of([l]); continue
+        m = RD.search(l)
+        if m and cur: out.append((int(m.group(3)), int(m.group(1)), int(m.group(2)), cur)); cur = []
+    return out
+
+def e2e_report(procs, base_path, paths):
+    """ecalc runs against a cache-off run of the same size: the hit pieces' saving against themselves (measured) and mn_model's on the aac6
+    fabric of `procs` node-processes (the pieces of each product priced over its own group), and what the cached misses cost"""
+    fab = M.aac6_fabric('tcp', procs); base = products_of(base_path)
+    for pth in paths:
+        pr = products_of(pth); tm = tt = tc = tb = tmb = 0.0; rows = []
+        for (g, na, nb, ps), (g0, _, _, bs) in zip(pr, base):
+            M.DZ = M.DEFAULT15B().at_g(g)
+            dm = sum(b['t'] - p['t'] for p, b in zip(ps, bs) if p['state'] == 'hit')
+            dc = sum(p['t'] - b['t'] for p, b in zip(ps, bs) if p['state'] == 'cached')
+            m = 0.0
+            for p, b in zip(ps, bs):
+                if p['state'] == 'hit':
+                    t2, t1 = model_saving(g, p['la'], p['lb'], M.plane_pts(p['la'] + p['lb'], g), fab); m += t2 - t1; tmb += t2; tb += b['t']
+            rows.append('(g %d, %d pieces, %d hits: %.1f / %.1f s, cached %+.1f s)' % (g, len(ps), sum(p['state'] == 'hit' for p in ps), dm, m, dc))
+            tm += m; tt += dm; tc += dc
+        print('%s: the hits save %.1f s measured / %.1f s modelled = %.3f in seconds; as a fraction of the hit pieces: %.1f %% measured, %.1f %% modelled -> %.3f; the cached misses cost %+.1f s'
+              % (os.path.basename(pth), tt, tm, tt / tm if tm else 0, 100 * tt / tb, 100 * tm / tmb, (tt / tb) / (tm / tmb), tc))
+        print('   per product (measured / modelled): ' + ' '.join(rows))
+
 if __name__ == '__main__':
     if sys.argv[1] == 'grid': grid_report(int(sys.argv[2]), sys.argv[3:])
+    elif sys.argv[1] == 'e2e': e2e_report(int(sys.argv[2]), sys.argv[3], sys.argv[4:])
     else: ecalc_report(sys.argv[2:])
