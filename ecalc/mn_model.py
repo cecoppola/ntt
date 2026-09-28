@@ -190,7 +190,9 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     t_loc = t31 * scale + 0.005
     if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
-    if dz is not None and not dz.legacy and dz.p15b: t_loc *= TWREC_F   # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes
+    if dz is not None and not dz.legacy and dz.p15b:                    # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes -- the equal path only
+        gmap = not is_pow2(g) or dz.force_gen                           # (Phase 15 G5: the general map has its own kernels, GEN_TWPACK_F, DIST_TWREC_G)
+        t_loc *= GEN_TWPACK_F[1 if TWREC_G else 0] if gmap else TWREC_F
     t_loc *= fab.gpu_share
     # the transforms' exchanges: EC_NP x (fwd + 1) layered all-to-alls of 8 q bytes per APU; the xGMI stage of one
     # runs under the fabric stage of the other (inflight 2 on the equal path; 1 on the general map: GEN_HIDE), so the
@@ -240,7 +242,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -1257,6 +1259,15 @@ P15B_RECIP1 = 0.9097                   # MEASURED ratio at size 1, cand / B0: th
 P15B_DIV1 = 1.0851                     # MEASURED ratio at size 1, cand / B0: the division (dm - recip) 62.68 / 57.76 s -- the fill's pool remaps (+6..+12 s, RL showed the
                                        # HIP runtime serializes them) against C2 (no corrections) and DIST_TWREC; size 1 only (at size > 1 the division is the fabric
                                        # model's pieces; the remap penalty there is ASSUMED 0 -- the arena is the dm need's, which the fill leaves unchanged)
+# Phase 15 G5 (results/G515.md): the general map (g not a power of two) packs with k_twpack_g / k_unpacktw_g, which DIST_TWREC never
+# changed (TWREC_F was applied to every piece before G5: -1.4 s at the target that the code does not have).  DIST_TWREC_G=1: the recurrence
+# forms, MEASURED (gen_pack_bench, s24-26) x1.75-2.03 at the 576 plane shape (2^20 x 2^20 over 2304 ranks: 750-900 -> 1460-1620 GB/s) and
+# x1.5-1.7 at 192's (2^19 x 2^19 over 768); the saving per point is 5.7 % (576) / 3.8 % (192) of the piece's local time at T_PIECE_31_NP[4]
+# per 2^29 points (12 twiddled passes per piece: 4 primes x 2 forward packs + 1 inverse unpack) -- MODELLED 0.95 here (the average over the
+# target's general-map pieces), ASSUMED on the critical path (the model adds local time and exposed fabric; the chunk pipeline may hide
+# the packs of chunks 1..K-1 under the wire: then about a quarter of it).  GEN_TWPACK_F[0] = 1: the plain kernels as the measured piece.
+GEN_TWPACK_F = {0: 1.0, 1: 0.95}
+TWREC_G = False                        # DIST_TWREC_G (default 0 in the code); --twrec-g
 TWREC_F = 0.98                         # the pieces' local passes x this with DIST_TWREC=1: MODELLED from the measured -1.8 s of dm at 1e11 on ~90 s of four-step products
                                        # (results/C215.md 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
 PACKED_BPD = 8.0 / 18.0                # ECALC_OUT_PACKED=1: 8 bytes per 18 digits (0.444 B/digit; 1.0 for ASCII) -- exact (results/IO15.md W2)
@@ -1624,6 +1635,7 @@ def main():
     ap.add_argument("--write-bw", type=float, default=TARGET_WRITE_BW, help="GB/s per node for the part file (Phase 15: 0.6, the target's Lustre /ssd0 single-stream, measured there; 2.0 was assumed before)")
     ap.add_argument("--model", default="p15b", choices=("p15b", "p15", "p13", "legacy"), help="Phase 15: p15b = DEFAULT15B() (the code's defaults of 2026-09-27 + the target's launch line: ECALC_NP=4 at size > 1, COMM_SHMEM_ROUND_MB=1024); p15 = DEFAULT15() (the Phase 14 defaults, B0; three primes); p13 = the Phase 13/14 model (auto 2^31 both d2 without the Phase 15 terms); legacy = Phase 12")
     ap.add_argument("--ascii", action="store_true", help="p15b: ECALC_OUT_PACKED=0 (the ASCII part file, 1 B/digit)")
+    ap.add_argument("--twrec-g", action="store_true", help="Phase 15 G5: DIST_TWREC_G=1 (the general map's recurrence packs, GEN_TWPACK_F)")
     ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
     ap.add_argument("--out-overlap", default="none", choices=("none", "half"), help="size > 1: none = the part file after T1 (the code); half = hidden under half the division (the model before Phase 15)")
@@ -1642,6 +1654,7 @@ def main():
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 8e10, 1e11])
     ap.add_argument("--g", type=int, nargs="*", default=[4, 64, 576])
     a = ap.parse_args()
+    global TWREC_G; TWREC_G = a.twrec_g                                  # Phase 15 G5
     if a.calib:
         sys.exit(0 if calibrate(a.rule) else 1)
     if a.calib13:
