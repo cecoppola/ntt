@@ -9,7 +9,8 @@
 #   3  mnaccept --only mn with MN_P24=2 ECALC_NP=auto ECALC_NP_AUTO_TERMS=100000000
 #   4  the gates with the switch off: mnaccept --only unit,e9,mn (t_newton, t_mul, ..., 10^9 both bases, the mn step), 4e10 at size 1 against
 #      results/e_4e10.out (the reference evicted first)
-#   5  a timing pair at size 2 (10^10, ECALC_NP=4, RNS_VERBOSE=1): MN_P24 0 and 1, twice each, the dist_mn lines kept
+#   5  a timing pair at size 2 (10^10, ECALC_NP=4, RNS_VERBOSE=1): MN_P24 0 and 1, twice each, the dist_mn lines kept (tests/p24_timing.py)
+#   6  after a kernel change: t_mn_grid at 2 and 3 under MN_P24=1 ECALC_NP=4, mnaccept --only mn under it
 B=${1:-1}
 cd "$(dirname "$0")" || exit 2
 OUT=../results/P2415; mkdir -p "$OUT"
@@ -50,6 +51,10 @@ b5() {
         echo "   digits: $(R "./digcmp.sh $f $REF10; rm -rf $f $f.*" 2>&1 | tail -1)"
     done; done
     R "rm -f $REF10"
+}
+b6() {   # after a kernel change: t_mn_grid at 2 and 3 under P24, and the mn step
+    for p in 2 3; do t0=$(date +%s); M 900 $p MN_P24=1 ECALC_NP=4 ./tests/t_mn_grid 1 28 > "$OUT/grid6_np4_$p.log" 2>&1; echo "t_mn_grid MN_P24=1 ECALC_NP=4 size $p rc $?: $(v "$OUT/grid6_np4_$p.log") ($(( $(date +%s) - t0 )) s)"; done
+    MN_P24=1 ECALC_NP=4 ./mnaccept.sh "$J" --only mn > "$OUT/mnaccept6_p24_np4.log" 2>&1; echo "mnaccept mn MN_P24=1 ECALC_NP=4 rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept6_p24_np4.log"
 }
 for b in $(echo "$B" | grep -o .); do echo "== batch $b $(date)"; b$b; done
 echo "p24_job batches $B done $(date)"
