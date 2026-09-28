@@ -66,10 +66,11 @@ CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_C
 CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CX15.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
                                 # designation, the cuts' skips, the planes' q) x CACHE_HIT_F; 'old' = the term before CX (at >= 2 slots every piece after
                                 # the first with one operand cached; nothing at 1 slot)
-CACHE_HIT_F = 1.0               # Phase 15 CX: a hit's saving against the model's (piece_cost fwd=2 - fwd=1) -- FITTED on aac6 (tests/cx_grid, the target's 9 grid
-                                # shapes at cap 2^27, cache 0/1/2 slots interleaved, 489 hit pieces against themselves at 0 slots): 1.108 at 2 node-processes,
-                                # 0.903 at 4, mean 1.005 -> 1.0 (the model's per-hit structure holds: 1 of the 3 transforms per prime, one of the two
-                                # redistributions); ASSUMED to carry to the target's fabric
+CACHE_HIT_F = 0.96              # Phase 15 CX: a hit's saving as a fraction of its piece, measured over modelled (piece_cost fwd=2 - fwd=1 over fwd=2 on the aac6
+                                # fabric, the same pieces) -- FITTED on aac6, results/CX15.md: tests/cx_grid (the target's 9 grid shapes at cap 2^27, cache
+                                # 0/1/2 interleaved; 489 hit pieces) 1.043 at 2 node-processes, 0.976 at 4; ecalc 1e10 end to end (the hit pieces against
+                                # themselves in the cache-off run) 0.965 at 2 (4 runs), 0.840 at 4 (4 runs); mean 0.956.  The model's structure (1 of the 3
+                                # transforms per prime, one redistribution) holds within -16..+4 %; ASSUMED to carry to the target's fabric
 # Phase 15 CX proposals (results/CX15.md section 3; off unless set): CACHE_PRIMES = k -> a slot holds k of the piece's primes (k / np of a hit's transform
 # saving, no redistribution saved); CACHE_LOOP = 'long' -> mn_grid's loop along the grid's longer axis (the slots follow); CACHE_SLOTS_PHASE =
 # {'tree': n, 'dm': n} -> the slots per phase (the tree's arena slack, the division's room); cache_slots_now() is what _product_cost prices

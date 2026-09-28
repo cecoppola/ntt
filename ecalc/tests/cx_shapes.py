@@ -71,6 +71,6 @@ def main():
         for k in (1, 2): sv[k] += h[k] * d
         print('  %6.0f x %-6.0f %-5d 2^%-4d %-8s %dx%d   | %5d  | %5d        | %5d         | %5d               | %.3f / %.3f = %.3f (%.3f + %.3f + %.3f)' % (na / 1e9, nb / 1e9, g, cap.bit_length() - 1,
               ('low' if lo else '') + ('high' if hi is not None else '') or '-', ka, kb, len(pcs), h[1], h[2], o, c2.t, c1.t, d, d - dx - t_r, dx, t_r))
-    print('  total: %d pieces in %d grid products; operand hits: 1 slot %d, 2 slots %d; the old model credits %d; the hits x the saving per hit (summed over the critical path\'s grids): 1 slot %.1f s, 2 slots %.1f s' % (npieces, len(rec), tot[1], tot[2], told, sv[1], sv[2]))
+    print('  total: %d pieces in %d grid products; operand hits: 1 slot %d, 2 slots %d; the old model credits %d; the hits x the saving per hit x CACHE_HIT_F %.2f (summed over the critical path\'s grids): 1 slot %.1f s, 2 slots %.1f s' % (npieces, len(rec), tot[1], tot[2], told, M.CACHE_HIT_F, sv[1] * M.CACHE_HIT_F, sv[2] * M.CACHE_HIT_F))
 
 if __name__ == '__main__': main()

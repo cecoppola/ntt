@@ -15,4 +15,4 @@ pieces (node 0): a piece against itself at 0 slots in the same repetition (mean 
   slots 1, cached n  68: t 2.605 -> 2.657  red 0.102 -> 0.101  ntt 2.383 -> 2.437  crt 0.004 -> 0.004  out 0.092 -> 0.094  carry 0.045 -> 0.045
   slots 2, hit    n 146: t 2.635 -> 1.743  red 0.105 -> 0.059  ntt 2.413 -> 1.565  crt 0.004 -> 0.004  out 0.083 -> 0.082  carry 0.054 -> 0.053
   slots 2, cached n  30: t 2.587 -> 2.612  red 0.101 -> 0.097  ntt 2.379 -> 2.407  crt 0.004 -> 0.004  out 0.092 -> 0.091  carry 0.033 -> 0.033
-the fit: a hit saves 0.878 s per piece measured (median 0.813, n 254) against 0.792 modelled on aac6 loopback TCP, 2 node-processes -> CACHE_HIT_F 1.108
+the fit: a hit saves 0.878 s per piece measured (median 0.813, n 254) against 0.792 modelled on aac6 loopback TCP, 2 node-processes -> 1.108 in seconds; as a fraction of the piece: 33.3 % measured, 31.9 % modelled -> CACHE_HIT_F 1.043

@@ -26,4 +26,4 @@ the grid products of 5.1e+13 digits on 576 nodes (modelled: mn_model's product l
     1417 x 1417   576   2^40   low      2x4   |     7  |     3        |     5         |     6               | 1.710 / 1.167 = 0.542 (0.408 + 0.121 + 0.013)
     2833 x 2833   576   2^40   low      5x6   |    20  |    14        |    15         |    19               | 1.708 / 1.162 = 0.547 (0.408 + 0.121 + 0.018)
     2833 x 2833   576   2^40   high     5x6   |    20  |    14        |    19         |    19               | 1.708 / 1.162 = 0.547 (0.408 + 0.121 + 0.018)
-  total: 194 pieces in 26 grid products; operand hits: 1 slot 107, 2 slots 162; the old model credits 168; the hits x the saving per hit (summed over the critical path's grids): 1 slot 56.0 s, 2 slots 84.2 s
+  total: 194 pieces in 26 grid products; operand hits: 1 slot 107, 2 slots 162; the old model credits 168; the hits x the saving per hit x CACHE_HIT_F 0.96 (summed over the critical path's grids): 1 slot 53.8 s, 2 slots 80.8 s
