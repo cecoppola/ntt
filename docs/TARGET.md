@@ -593,8 +593,8 @@ it comes from.
 14. **(2026-09-28) The disk holds the target's digits once in each form, not twice.** At 5.1 × 10¹³ the packed parts are 22.7 TB
     and the ASCII parts 51.0 TB: 73.7 TB of the 122 TB Lustre (shared: check `lfs df -h` for the free space before the run). A
     concatenated `e.txt` beside its parts and the packed parts is 124.7 TB — more than the file system. The parts in order are
-    the file (§7); concatenate only on another file system, or after deleting the ASCII parts' packed sources *and* only if the
-    free space shows ≥ 51 TB. The 4.74 × 10¹³ run (§5 step 6c) adds 21.1 TB packed: delete it after its RECHECK.
+    the file (§7); concatenate on another file system, or on this one only after the packed parts are deleted (all checks
+    passed) and with ≥ 51 TB free (102 TB in use then). The 4.74 × 10¹³ run (§5 step 6c) adds 21.1 TB packed: delete it after its RECHECK.
 
 ## 9. The variables named here exist in the code (checked 2026-09-21 on the q12 branch)
 
