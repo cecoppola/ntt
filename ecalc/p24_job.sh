@@ -29,7 +29,10 @@ b1() {
     t0=$(date +%s); M 900 2 MN_P24=1 ECALC_NP=4 MN_T_CHUNK_MB=1 ./tests/t_mn_grid 1 28 > "$OUT/grid_np4_chunk.log" 2>&1; echo "t_mn_grid MN_P24=1 ECALC_NP=4 MN_T_CHUNK_MB=1 size 2 rc $?: $(v "$OUT/grid_np4_chunk.log") ($(( $(date +%s) - t0 )) s)"
     for m in 1 2; do t0=$(date +%s); M 900 2 MN_P24=$m ECALC_NP=auto ECALC_NP_AUTO_TERMS=1000000 ./tests/t_mn_grid 1 28 > "$OUT/grid_auto_$m.log" 2>&1; echo "t_mn_grid MN_P24=$m ECALC_NP=auto TERMS=1e6 size 2 rc $?: $(v "$OUT/grid_auto_$m.log") ($(( $(date +%s) - t0 )) s)"; done
 }
-b2() { MN_P24=1 ECALC_NP=4 ./mnaccept.sh "$J" --only unit,mn > "$OUT/mnaccept_p24_np4.log" 2>&1; echo "mnaccept MN_P24=1 ECALC_NP=4 rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_p24_np4.log"; }
+b2() {
+    local f=/tmp/p24_e8v; M 600 2 MN_P24=1 ECALC_NP=4 POOL_LOG=27 RNS_VERBOSE=1 ./ecalc 100000000 $f > "$OUT/e8_verbose.log" 2>&1
+    echo "10^8 size 2 MN_P24=1 RNS_VERBOSE=1 rc $?: $(grep -ac 'P24' "$OUT/e8_verbose.log") P24 lines, $(grep -ac '^dist_mn node 0: 2^' "$OUT/e8_verbose.log") piece lines on node 0; $(grep -a 'mn: all 2 nodes' "$OUT/e8_verbose.log" | head -1 | cut -c1-60); digits $(R "./digcmp.sh $f $HOME/ntt/ecalc/ref/e_100000000.txt; rm -rf $f $f.*" 2>&1 | tail -1)"
+    MN_P24=1 ECALC_NP=4 ./mnaccept.sh "$J" --only unit,mn > "$OUT/mnaccept_p24_np4.log" 2>&1; echo "mnaccept MN_P24=1 ECALC_NP=4 rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_p24_np4.log"; }
 b3() { MN_P24=2 ECALC_NP=auto ECALC_NP_AUTO_TERMS=100000000 ./mnaccept.sh "$J" --only mn > "$OUT/mnaccept_p24_auto2.log" 2>&1; echo "mnaccept MN_P24=2 auto rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_p24_auto2.log"; }
 b4() {
     ./mnaccept.sh "$J" --only unit,e9 > "$OUT/mnaccept_off.log" 2>&1; echo "mnaccept (switch off) rc $?"; grep -aE "^(PASS|FAIL|==)" "$OUT/mnaccept_off.log"
