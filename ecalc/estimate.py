@@ -27,6 +27,12 @@ Phase 15 (agent DOC, the user's decisions of 2026-09-27): the default is mn_mode
 BI_MUL1_FAST, NEWTON_RECIP_MID, DIST_TWREC, RNS_AUTO_PIECE_COST, ECALC_CORR_PATCH=2, ECALC_OUT_PACKED, MN_OUT_EARLY, ECALC_ODIRECT=auto) on the target's
 launch line (ECALC_NP=4 at size > 1: --np-mn; COMM_SHMEM_ROUND_MB=1024): the part file packed (0.444 B/digit; --ascii for 1 B/digit) and, at size > 1,
 started at the division's hook (MN_OUT_EARLY: it overlaps the low product as the size-1 writer does).  --b0 gives the Phase 14 defaults (DEFAULT15).
+
+Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the default is mn_model.DEFAULT15C -- main B2 (B1 + BS_ARENA_ROOM=0.16, DIST_TWREC_G=1,
+RNS_POOL1_4Q=1) on the target's launch line with ECALC_NP=auto (--np-mn auto) and RNS_DIST_CACHE_FIT=1: the mn transform cache priced at the slots FIT
+allows (0 at 5.1e13 and 4.74e13: the code's rule, mem_model.cache_fit_slots); --cache-slots n prices n slots whatever FIT allows (their bytes added to the
+node: "does not fit" over 480 GB); --room F (BS_ARENA_ROOM), --no-twrec-g; --b1 gives B1 (DEFAULT15B: ECALC_NP=4, no room, TWREC_G off, the code's
+default 2 cache slots as the time assumed before TC / CX).  --target prints the standing figures, the cache at 1 / 2 slots and ECALC_NP=4 beside them.
 """
 import argparse, math, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +52,7 @@ LABELS = {
     "fits": "modelled against 502 GB per node (the MI300A's usable HBM; 480 GB = the safe budget with a 5 % margin)",
     "output": "the part file at --write-bw GB/s per node: 0.6 = the target's Lustre single-stream rate, MEASURED there (the apumult catalog: 0.58-0.64 write, 0.78-0.86 read), ASSUMED to hold with 576 nodes writing at once; 2.0 = the node-local NVMe assumed before.  Phase 15 (2026-09-27): packed, 8 bytes per 18 digits (ECALC_OUT_PACKED=1: 32.8 GB per node at the target, exact), started at the division's hook (MN_OUT_EARLY=1) and hidden under 0.577 of the division (OVL1, FITTED at size 1 and ASSUMED at size > 1); the process's exit 2.4 s (MEASURED) on both walls.  --b0: the ASCII file after T1, exposed whole",
     "p15b": "modelled (Phase 15, the defaults of 2026-09-27, mn_model DEFAULT15B, calibrated on RESULTS 86's paired 1e11 series within -3.1..+2.0 %: `mn_model.py --calib15b`): bs without the seed wait x 0.769 (BS_SEED_FILL, MEASURED at 1e11, ASSUMED at the target's leaf); the seeds' end on SEED15B (BI_MUL1_FAST, FITTED on ten runs; no slow path above 2^33); NEWTON_RECIP_MID in the fabric's reciprocal (66 pieces = the C plan); DIST_TWREC x 0.98 on the pieces' local passes (MODELLED from C2's -2.8 s at 1e11); ECALC_NP=4 at size > 1 (the plan check refuses three primes at 4.25e13 on 576: results/P15.md)",
+    "p15c": "modelled (Phase 15 DOC2, main B2 of 2026-09-28): BS_ARENA_ROOM=0.16 -- the node's arena in whole VMM chunks + 0.16 x the hole (mem_model, exact against BS_LAYOUT_ONLY: +16.5 GB of arena at 5.1e13), at size 1 the division x 0.785 (P15C_DIV1, MEASURED at 1e11: no remaps); DIST_TWREC_G=1 (the general map's packs x 0.95, G5, MODELLED); ECALC_NP=auto (four primes only for pieces over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); RNS_DIST_CACHE_FIT=1: the mn cache at the slots the code's budget rule allows (0 at the target), each slot's hit x CACHE_HIT_F 0.96 (FITTED by CX on aac6); `mn_model.py --calib15c` against the fin15e 1e11 pairs (-2.1..-3.9 % on B2)",
     "host15": "modelled (Phase 15): + DB_POOL_VMM's two 8 GiB pinned seed buffers at init (measured 21.5 GB pinned on one node), the bs phase's +6 GB device (measured 2.1-5.8), the SHMEM pool = the plan's need (256 MiB steps) = the C plan exactly (43008 MiB; 9472 with COMM_SHMEM_ROUND_MB=1024)",
 }
 
@@ -62,7 +69,7 @@ def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transpor
                exposed_s=r["exposed"], exposed_pct=100 * r["exposed"] / r["wall"],
                nic_bytes=r["nic"], nic_per_nic=r["nic"] / 8, global_bytes=r["glob"], msgs_apu=r["msgs"], pieces=r["pieces"],
                device_gb=m["device"], host_gb=m["host"], node_gb=m["node"], shmem_pool_gb=m["shmem_pool"], fits=m["node"] <= M.NODE_GB, fits_margin=m["node"] <= M.NODE_GB_MARGIN,
-               tree=tree, staging=staging, schedule=r["schedule"], mem=m)
+               tree=tree, staging=staging, schedule=r["schedule"], mem=m, cache_slots=r.get("cache_slots", 0), cache_gb=m.get("cache", 0.0), node_cache_gb=m.get("node_cache", m["node"]))
     return out
 
 def fmt_b(b): return M.fmt_b(b)
@@ -102,7 +109,12 @@ def main():
     ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 5.1e13 since the user's decision of 2026-09-27 23:50 EDT; 4.25e13 from Phase 13d, 4.4e13 in Phase 13c), its steps, the runtime one step below (4.74e13) and its step, the previous target")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
-    ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default=4, choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision of 2026-09-27: 4 on the target's launch line; 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576; auto = Phase 15 NP's per-product count: four only over the three-prime bound)")
+    ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default='auto', choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision 1 of 2026-09-28: auto on the target's launch line -- Phase 15 NP's per-product count, four only over the three-prime bound; 4 was the launch line of 2026-09-27 (+17.2 GB per node: 489 GB at 5.1e13 with the room, over 480); 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576)")
+    ap.add_argument("--b1", action="store_true", help="Phase 15 DOC2: B1 (mn_model.DEFAULT15B: the defaults of 2026-09-27 on their launch line -- ECALC_NP=4, no arena room, DIST_TWREC_G=0, the code's 2 cache slots priced as before TC / CX)")
+    ap.add_argument("--room", type=float, default=None, help="BS_ARENA_ROOM (default 0.16: the code's default since 2026-09-28; 0 = off)")
+    ap.add_argument("--no-twrec-g", action="store_true", help="DIST_TWREC_G=0 (the default is 1 since 2026-09-28)")
+    ap.add_argument("--cache-slots", type=int, default=None, choices=(0, 1, 2), help="price n mn transform-cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows -- 0 at the target; the slots' bytes are added to the node)")
+    ap.add_argument("--no-cache-fit", action="store_true", help="without RNS_DIST_CACHE_FIT on the launch line: the code's default 2 slots priced (137.4 GB per node at the target that no budget holds: TC15)")
     ap.add_argument("--ascii", action="store_true", help="ECALC_OUT_PACKED=0: the ASCII part file (1 B/digit) instead of the packed default (0.444 B/digit)")
     ap.add_argument("--b0", action="store_true", help="the Phase 14 defaults (B0, mn_model.DEFAULT15: three primes, the ASCII part file after T1, no fill / fast mul_1 / middle product / TWREC)")
     ap.add_argument("--strategy", default="auto", choices=M.STRATEGIES, help="RNS_STRATEGY (agent B, Phase 13b)")
@@ -115,16 +127,23 @@ def main():
     a = ap.parse_args()
     if a.as_is: a.tree, a.staging = "flat", "cached"
     p15b = not (a.p13 or a.b0)
+    p15c = p15b and not a.b1                                              # Phase 15 DOC2: B2 on the launch line (the default)
+    if a.b1 and a.np_mn == 'auto': a.np_mn = 4                            # (B1's launch line)
+    M.TWREC_G = not (a.no_twrec_g or a.b1 or not p15b)                    # DIST_TWREC_G (a global of the model)
+    M.CACHE_FORCE = a.cache_slots
     design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb,
                                             p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None,
-                                            p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False)
+                                            p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False,
+                                            p15c=p15c, arena_room=a.room if p15c else None, cache_fit=p15c and not a.no_cache_fit)
     fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
-    print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node"
+    print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
              " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
              (", COMM_SHMEM_ROUND_MB=%g, the part file %s" % (design.round_mb, "%s, from the division's hook (MN_OUT_EARLY)" % ("packed" if design.packed else "ASCII") if design.p15b else
               ("after T1" if design.out_overlap == 'none' else "under half the division"))) if design.p15 else " (the Phase 13/14 model)"),
-             a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw))
+             a.tree, a.staging, a.groups or "(default)", a.bw, a.lat * 1e6, a.group, a.layers, a.taper, a.write_bw,
+             "" if design is None or not design.p15b else "; BS_ARENA_ROOM %.2f, DIST_TWREC_G=%d, the mn cache %s" % (design.arena_room, M.TWREC_G,
+                 ("%d slot(s) forced (--cache-slots)" % a.cache_slots) if a.cache_slots is not None else ("as RNS_DIST_CACHE_FIT=1 allows" if design.cache_fit else "the code's default 2 slots (no FIT)"))))
     if a.target:
         target(a, design); return
     if a.max:
@@ -152,7 +171,7 @@ def target(a, design):
     fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw)) for bw in M.TARGET_WRITE_BWS]
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
-    print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool)"))
+    print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
     for T, what in ((M.TARGET_DIGITS, "the target (the last size below the step)"), (5.11e13, "node 0 steps (222 -> 226), critical path same"),
                     (5.12e13, "the step (critical path 242 -> 246)"), (5.17e13, "the next step (critical path 266)"),
                     (M.TARGET_BELOW, "one step below (test after the headline)"), (4.75e13, "its step (4.74 -> 4.75e13)"),
@@ -161,9 +180,12 @@ def target(a, design):
         p = M.plan(576, T, design); e = es[0]
         print("  %.3e %-44s | %5.1f s %s | %s | %3d + %2d + %2d = %3d | %5.1f (%5.1f + %4.1f; %.1f)%s" % (
             T, what, e["nowrite_s"], "(%.2f min)" % e["nowrite_min"], " | ".join("%5.1f s (%.2f min)" % (x["wall_s"], x["minutes"]) for x in es), p["tree_max"], p["recip"], p["div"],
-            p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], "" if e["fits_margin"] else "  (over 480 GB)"))
+            p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], "" if e["fits_margin"] else "  (over 480 GB)")
+            + (" [%d slot%s%s]" % (e["cache_slots"], "" if e["cache_slots"] == 1 else "s", ", + %.1f GB -> node %.1f GB%s" % (e["cache_gb"], e["node_cache_gb"], "" if e["node_cache_gb"] <= M.NODE_GB_MARGIN else ": does not fit 480") if e["cache_gb"] else "") if design is not None and design.p15b else ""))
     for TT in (M.TARGET_DIGITS, M.TARGET_BELOW):
         by_phase(a, design, groups, fabs, TT)
+    if design is not None and design.p15c and a.cache_slots is None:
+        cache_rows(a, design, groups, fabs)
     print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps):")
     for budget in (M.NODE_GB_MARGIN, M.NODE_GB):
         D = M.max_digits(576, budget, a.tree, groups, staging=a.staging, design=design)
@@ -171,6 +193,27 @@ def target(a, design):
         p = M.plan(576, D * 576, design)
         print("    %.0f GB: D %.2e per node -> %.3e digits: %.1f s without the write; %s with it; pieces %d + %d + %d; node %.1f GB" % (
             budget, D, D * 576, es[0]["nowrite_s"], " / ".join("%.1f s @%.1f" % (x["wall_s"], b) for x, (b, f) in zip(es, fabs)), p["tree_max"], p["recip"], p["div"], es[0]["node_gb"]))
+
+def cache_rows(a, design, groups, fabs):
+    """Phase 15 DOC2: at the target and one step below -- the mn transform cache at 0 (what RNS_DIST_CACHE_FIT allows), 1 and 2 slots (forced: their bytes on
+    the node), the launch line without FIT (the code's default 2 slots, in no budget: TC15), and ECALC_NP=4 in place of auto"""
+    print("  the mn transform cache and the prime count (modelled; a slot = 4 APUs x 4 primes x 2^29 limbs x 8 B = 68.7 GB per node; FIT's room = 480 - the layout node - 32 GB):")
+    print("    %-10s %-58s | %9s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "node GB (with the slots)"))
+    import copy
+    np4 = copy.copy(design); np4.np_mn = 4
+    for T in (M.TARGET_DIGITS, M.TARGET_BELOW):
+        rows = []
+        for name, force, dz in (("0 slots: what RNS_DIST_CACHE_FIT=1 allows (the launch line)", None, design),
+                                ("1 slot (forced; does not fit)", 1, design), ("2 slots (forced; does not fit)", 2, design),
+                                ("ECALC_NP=4 instead of auto (0 slots)", None, np4)):
+            M.CACHE_FORCE = force; M._PC.clear()
+            try: es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=dz) for b, f in fabs]
+            finally: M.CACHE_FORCE = None; M._PC.clear()
+            e = es[0]; nc = e["node_cache_gb"]
+            if T == M.TARGET_DIGITS and force is None and dz is design:
+                print("    (FIT at %.3ge13: room %.2f GB = 480 - the layout node %.2f - 32 -> %d slots)" % (T / 1e13, e["mem"]["cache_fit_room"], e["mem"]["layout_node"], e["mem"]["cache_fit_slots"]))
+            print("    %.3e %-58s | %5.1f s (%.2f min) | %s | %5.1f%s" % (T, name, e["nowrite_s"], e["nowrite_min"], " | ".join("%5.1f s" % x["wall_s"] for x in es), nc,
+                  "" if nc <= M.NODE_GB_MARGIN else "  (over 480 GB)"))
 
 def by_phase(a, design, groups, fabs, T):
     """the by-phase line at T total digits on 576 nodes (Phase 15 TGT: the target and the size one step below)"""
