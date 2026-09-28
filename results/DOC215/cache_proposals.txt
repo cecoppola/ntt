@@ -1,0 +1,28 @@
+== 5.1e+13 digits on 576 nodes, ECALC_NP=4 (modelled; the fabric assumed as in TARGET.md): 0 slots 423.3 s without the write, 443.8 s with it (@0.6 GB/s)
+   rooms per node: the tree levels 27.4 GB (480 - bs 444.7 - host 44.4 + the arena's slack 36.5), the division 4.3 GB (480 - dm 446.9 - host 28.8); one prime of a slot 17.2 GB, a four-prime slot 68.7 GB
+   configuration                                        | slot GB per node tree / division | fits 480 | no write        | with the write  | gain
+   the old term, 2 slots (the standing 5.1e13 time)     | 137.4 / 137.4                    | no       |  337.9 s (5.63 min) |  370.0 s |  -85.4 s
+   2 full slots (the code's default RNS_DIST_CACHE_MN=2) | 137.4 / 137.4                    | no       |  344.4 s (5.74 min) |  374.8 s |  -79.0 s
+   1 full slot (B's piece j across i)                   |  68.7 /  68.7                    | no       |  370.8 s (6.18 min) |  399.5 s |  -52.5 s
+   1 slot, loop along the longer axis                   |  68.7 /  68.7                    | no       |  357.3 s (5.95 min) |  386.5 s |  -66.1 s
+   1 slot of 1 prime                                    |  17.2 /  17.2                    | no       |  410.6 s (6.84 min) |  433.1 s |  -12.7 s
+   1 slot of 1 prime, the longer axis                   |  17.2 /  17.2                    | no       |  407.3 s (6.79 min) |  429.9 s |  -16.0 s
+   tree 1 slot of 2 primes, division 1 of 1             |  34.4 /  17.2                    | no       |  403.2 s (6.72 min) |  427.6 s |  -20.2 s
+   tree 1 slot of 2 primes, division 1 of 1, longer axis |  34.4 /  17.2                    | no       |  397.2 s (6.62 min) |  421.9 s |  -26.2 s
+   tree 2 slots of 1 prime, division 1 of 1             |  34.4 /  17.2                    | no       |  405.6 s (6.76 min) |  428.0 s |  -17.8 s
+   1 slot of 2 primes (both phases)                     |  34.4 /  34.4                    | no       |  397.9 s (6.63 min) |  422.4 s |  -25.4 s
+   1 slot of 3 primes (both phases)                     |  51.5 /  51.5                    | no       |  385.2 s (6.42 min) |  411.6 s |  -38.1 s
+== 5.1e+13 digits on 576 nodes, ECALC_NP=auto (modelled; the fabric assumed as in TARGET.md): 0 slots 400.0 s without the write, 420.5 s with it (@0.6 GB/s)
+   rooms per node: the tree levels 44.5 GB (480 - bs 427.5 - host 44.4 + the arena's slack 36.5), the division 21.5 GB (480 - dm 429.8 - host 28.8); one prime of a slot 17.2 GB, a four-prime slot 68.7 GB
+   configuration                                        | slot GB per node tree / division | fits 480 | no write        | with the write  | gain
+   the old term, 2 slots (the standing 5.1e13 time)     | 137.4 / 137.4                    | no       |  319.5 s (5.32 min) |  351.5 s |  -80.5 s
+   2 full slots (the code's default RNS_DIST_CACHE_MN=2) | 137.4 / 137.4                    | no       |  325.7 s (5.43 min) |  356.2 s |  -74.2 s
+   1 full slot (B's piece j across i)                   |  68.7 /  68.7                    | no       |  350.3 s (5.84 min) |  379.0 s |  -49.7 s
+   1 slot, loop along the longer axis                   |  68.7 /  68.7                    | no       |  337.7 s (5.63 min) |  366.9 s |  -62.3 s
+   1 slot of 1 prime                                    |  17.2 /  17.2                    | yes      |  387.2 s (6.45 min) |  409.7 s |  -12.8 s
+   1 slot of 1 prime, the longer axis                   |  17.2 /  17.2                    | yes      |  383.9 s (6.40 min) |  406.5 s |  -16.1 s
+   tree 1 slot of 2 primes, division 1 of 1             |  34.4 /  17.2                    | yes      |  379.7 s (6.33 min) |  404.1 s |  -20.3 s
+   tree 1 slot of 2 primes, division 1 of 1, longer axis |  34.4 /  17.2                    | yes      |  373.7 s (6.23 min) |  398.4 s |  -26.3 s
+   tree 2 slots of 1 prime, division 1 of 1             |  34.4 /  17.2                    | yes      |  382.1 s (6.37 min) |  404.6 s |  -17.9 s
+   1 slot of 2 primes (both phases)                     |  34.4 /  34.4                    | no       |  374.4 s (6.24 min) |  398.9 s |  -25.5 s
+   1 slot of 3 primes (both phases)                     |  51.5 /  51.5                    | no       |  361.7 s (6.03 min) |  388.1 s |  -38.3 s
