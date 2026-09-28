@@ -171,6 +171,37 @@ def split_grid(na, nb, cap, g):
     if best is None: raise ValueError("no grid for %d x %d at cap %d" % (na, nb, cap))
     return best[1], best[2], best[3]
 
+def cache_pieces(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
+    """Phase 15 CX (results/CX15.md): mn_grid's pieces and the transform cache's state per operand, as the code decides them (rns_dist.c
+    mn_grid + mn_core + cache_plan, not pinned): the grid (split_grid), the pieces in the code's order (j outer, i inner) with the cuts'
+    skips (grid_piece_skipped), each piece's plane (mn_shape of its own la + lb: a smaller last piece can have a smaller q, and a slot hits
+    only at the same q), the slots' designation (nA = min(ka, N - 1) for A's pieces i < nA, B's piece j in slot nA + j % nB) and the lookups.
+    Returns (ka, kb, pieces): pieces = [(i, j, la, lb, pts, a, b)], a / b = 'hit' | 'miss' (forwarded, cached or not)."""
+    ka, kb, _ = split_grid(na, nb, cap, g)
+    pa, pb = -(-na // ka), -(-nb // kb)
+    N = slots; nA = min(ka, N - 1) if N > 0 else 0; nA = max(nA, 0); nB = N - nA
+    slot = [None] * N                                                 # the slot's key: ('A', i, q) or ('B', j, q)
+    out = []
+    for j in range(kb):
+        for i in range(ka):
+            oa, ob = i * pa, j * pb
+            la, lb = min(pa, na - oa), min(pb, nb - ob)
+            if la <= 0 or lb <= 0: continue
+            if (highcut is not None and oa + ob >= highcut) or (oa + ob + la + lb <= lowcut): continue
+            q = mem_model.mn_shape(la + lb, g)[3]; pts = plane_pts(la + lb, g)
+            kA, kB = ('A', i, q), ('B', j, q)
+            ha = slot.index(kA) if kA in slot else -1; hb = slot.index(kB) if kB in slot else -1
+            sa = i if i < nA else -1; sb = nA + j % nB if nB > 0 else -1
+            if ha >= 0: sa = ha
+            elif sa >= 0 and sa == hb: sa = -1
+            if hb >= 0: sb = hb
+            elif sb >= 0 and sb == ha: sb = -1
+            if sa >= 0 and sa == sb and ha < 0: sb = -1
+            if ha < 0 and sa >= 0: slot[sa] = kA
+            if hb < 0 and sb >= 0: slot[sb] = kB
+            out.append((i, j, la, lb, pts, 'hit' if ha >= 0 else 'miss', 'hit' if hb >= 0 else 'miss'))
+    return ka, kb, out
+
 class Cost:
     def __init__(self): self.t = 0.0; self.t_exposed = 0.0; self.nic = 0.0; self.glob = 0.0; self.msgs = 0; self.pieces = 0; self.xfers = 0
     def add(self, o):
