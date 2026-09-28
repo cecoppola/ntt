@@ -63,6 +63,11 @@ static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a ba
 static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
 static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
 static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
+/* Phase 15 AS: DB_POOL_TRACE=1 prints every pool event (`dbtrace:` lines on stdout: donations, blocks taken and freed, the tail, the
+ * pack / pin flags, VMM remaps) with offsets from the device's VMM base, for tests/as_pool_replay.py (print only; off by default) */
+static int g_trace = -1;
+static int db_trace_on(void) { if (g_trace < 0) g_trace = getenv("DB_POOL_TRACE") ? atoi(getenv("DB_POOL_TRACE")) : 0; return g_trace; }
+static long long db_trace_off(int d, const void *p);
 static void live_add(uint64_t *p, int d, size_t bytes, int reg) { if (g_nlive < 8192) { g_live[g_nlive].p = p; g_live[g_nlive].dev = d; g_live[g_nlive].bytes = bytes; g_live[g_nlive].reg = reg; g_nlive++; g_live_bytes[d] += bytes; if (g_live_bytes[d] > g_peak_live[d]) g_peak_live[d] = g_live_bytes[d]; if (g_live_bytes[d] > g_win_peak[d]) g_win_peak[d] = g_live_bytes[d]; } else { ec_fatal(EC_RC_FATAL, "dbig: live table full\n"); } }
 static size_t live_take(uint64_t *p, int *reg) { for (int i = 0; i < g_nlive; i++) if (g_live[i].p == p) { size_t b = g_live[i].bytes; *reg = g_live[i].reg; g_live_bytes[g_live[i].dev] -= b; g_live[i] = g_live[--g_nlive]; return b; } return 0; }
 static void ext_insert(int d, char *p, size_t bytes, int reg)
@@ -87,6 +92,7 @@ void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh)
     if (dev < 0 || dev >= DB_NQ) return;
     pthread_mutex_lock(&g_pool_mx);
     g_tail[dev].p = (char *)p; g_tail[dev].bytes = bytes; g_tail[dev].end = (char *)p + bytes; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
+    if (db_trace_on()) printf("dbtrace: T %d %lld %zu %zu\n", dev, db_trace_off(dev, p), bytes, thresh);
     pthread_mutex_unlock(&g_pool_mx);
 }
 /* Phase 14 L1 (E5's layout half, DM_TAIL_DEAD): after the bs top level its dead inputs' blocks are free again -- the largest free extent
@@ -99,7 +105,8 @@ void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh)
     pthread_mutex_lock(&g_pool_mx);
     int best = -1; size_t fr = 0; for (int i = 0; i < g_ext[dev].n; i++) { fr += g_ext[dev].e[i].bytes; if (best < 0 || g_ext[dev].e[i].bytes > g_ext[dev].e[best].bytes) best = i; }
     size_t lg = best >= 0 ? g_ext[dev].e[best].bytes : 0, tb = lg < bytes ? lg : bytes;
-    if (best >= 0) { g_tail[dev].end = g_ext[dev].e[best].p + lg; g_tail[dev].p = g_tail[dev].end - tb; g_tail[dev].bytes = tb; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0; }
+    if (best >= 0) { g_tail[dev].end = g_ext[dev].e[best].p + lg; g_tail[dev].p = g_tail[dev].end - tb; g_tail[dev].bytes = tb; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
+                     if (db_trace_on()) printf("dbtrace: T %d %lld %zu %zu\n", dev, db_trace_off(dev, g_tail[dev].p), tb, thresh); }
     pthread_mutex_unlock(&g_pool_mx);
     if (vb || lg < bytes) printf("dbig pool: APU%d tail moved to the top level's dead inputs: %.2f GB at the back of the largest free extent (%.2f GB; free %.2f GB in %d extents, live %.2f GB)%s\n",
                                  dev, tb / 1e9, lg / 1e9, fr / 1e9, g_ext[dev].n, g_live_bytes[dev] / 1e9, lg < bytes ? "  SHORT: t1's quarter will not fit it whole" : "");
@@ -120,9 +127,9 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
  * more, and the reciprocal's r2 (1.0 n_Q) was best-fit into the middle: at 4e10 it found 10.8 GB free in 3 extents, largest 4.39 (job
  * 21131).  Small requests keep the best fit from the front, outside the tail. */
 static int g_pack_large;                              /* 1: bs (the top level's P, Q stay below the tail: t1 finds it whole); 2: the dm phase (the tail first, then the highest end) */
-void db_pool_pack_large(int on) { g_pack_large = on; }
+void db_pool_pack_large(int on) { g_pack_large = on; if (db_trace_on()) printf("dbtrace: P %d\n", on); }
 static int g_pin_tail;                                /* Phase 14 L1: while set, every request is carved from the back of the tail's free part (r right below t1: the tail is then full, nothing small can spill into it, and it is whole again once both are freed) */
-void db_pool_pin_tail(int on) { g_pin_tail = on; }
+void db_pool_pin_tail(int on) { g_pin_tail = on; if (db_trace_on()) printf("dbtrace: N %d\n", on); }
 static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p + need) out of extent i (front, back or middle: the remainder above becomes a new extent) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n; char *a = e[i].p, *b = e[i].p + e[i].bytes; int reg = e[i].reg;
@@ -203,6 +210,7 @@ static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipM
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg; } g_vmm[DB_NQ];   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
+static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
@@ -237,7 +245,7 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
     }
     HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx);
-    if ((size_t)v->m0 * v->chunk > v->bytes) ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg);   /* the last chunk's remainder: free at once */
+    if ((size_t)v->m0 * v->chunk > v->bytes) { ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); }   /* the last chunk's remainder: free at once */
     v->n_grow = 0; v->grow_chunks = 0; v->t_bg = mem_now() - t0;
     pthread_mutex_unlock(&g_pool_mx);
     return 0;
@@ -250,13 +258,18 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
     while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
+size_t db_pool_vmm_chunk(void)                      /* Phase 15 AS: the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
+{
+    const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20;
+    return C / ((size_t)2 << 20) * ((size_t)2 << 20);
+}
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of `bytes` (rounded up to whole chunks: the rest is free pool space) as a VMM range; a borrowed region
                                                                  * record.  The first `first` bytes (the parity-0 half: the seeds' target) are mapped before returning, the rest by a thread
                                                                  * (db_vmm_arena_wait before their first use: Phase 14 R1, the +8 s of init) */
 {
     struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
-    const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20; C = C / ((size_t)2 << 20) * ((size_t)2 << 20);
-    e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
+    size_t C = db_pool_vmm_chunk();
+    const char *e = getenv("DB_POOL_VMM_RESERVE"); double rf = e ? atof(e) : 3.0; if (rf < 1.0) rf = 1.0;
     int m0 = (int)((bytes + C - 1) / C), nslot = (int)(m0 * rf) + 1; if (nslot < m0 + 1) nslot = m0 + 1;
     int nd; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd > DB_NQ) nd = DB_NQ;
     v->chunk = C; v->nslot = nslot; v->nd = nd; v->reserved = (size_t)nslot * C; v->h = (hipMemGenericAllocationHandle_t *)calloc(nslot, sizeof *v->h);
@@ -271,11 +284,12 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions\n"); }
     v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;
     v->mapped = m1;
+    if (db_trace_on()) printf("dbtrace: V %d %zu %zu %d %d %d\n", dev, bytes, C, m0, nslot, v->reg);
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
     if (vmm_vb() || getenv("RNS_VERBOSE")) printf("dbig pool: APU%d VMM arena %.2f GB = %d chunks of %.2f GiB, the first %d mapped in %.2f s (%.3f s/GB)%s, VA %.1f GB reserved at %p\n", dev, (double)m0 * C / 1e9, m0, C / 1073741824.0, m1, mem_now() - t0, (mem_now() - t0) / ((double)m1 * C / 1e9), m1 < m0 ? ", the rest in the background" : "", v->reserved / 1e9, (void *)v->base);
     if (m1 < m0) { v->bg_on = 1; if (pthread_create(&v->bg, 0, vmm_bg_map, (void *)(intptr_t)dev)) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: pthread_create\n"); } }
-    else { v->n_grow = 0; v->grow_chunks = 0; if ((size_t)m0 * C > bytes) { pthread_mutex_lock(&g_pool_mx); ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg); pthread_mutex_unlock(&g_pool_mx); } }
+    else { v->n_grow = 0; v->grow_chunks = 0; if ((size_t)m0 * C > bytes) { pthread_mutex_lock(&g_pool_mx); ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, bytes, (size_t)m0 * C - bytes, v->reg); pthread_mutex_unlock(&g_pool_mx); } }
     return v->base;
 }
 void db_vmm_arena_release(int dev)                     /* after the pool is done with it (rns_shutdown): every chunk unmapped and released, the VA freed */
@@ -326,6 +340,7 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
     if (!vmm_map_run(d, slot0, m, hs)) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
     ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
     v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0;
+    if (db_trace_on()) printf("dbtrace: R %d %zu %d %d %d %.3f\n", d, need, slot0, nf, m, mem_now() - t0);
     if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
                     printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s; free %.2f GB in %d extents, live %.2f GB\n",
                            d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
@@ -351,7 +366,9 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
         if (g_ndonated < 256) { reg = g_ndonated; g_donated[g_ndonated].p = m; g_donated[g_ndonated].dev = d; g_donated[g_ndonated].bytes = need; g_donated[g_ndonated].own = 1; g_donated[g_ndonated].kind = 2; g_ndonated++; } else { ec_fatal(EC_RC_FATAL, "dbig: region table full\n"); }
         p = (char *)m;
     }
-    live_add((uint64_t *)p, d, need, reg); return (uint64_t *)p;
+    live_add((uint64_t *)p, d, need, reg);
+    if (db_trace_on()) printf("dbtrace: A %d %zu %lld %d\n", d, need, db_trace_off(d, p), reg);
+    return (uint64_t *)p;
 }
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
 static void q_free(int d, uint64_t *p)
@@ -359,6 +376,7 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     ext_insert(d, (char *)p, bytes, reg);
+    if (db_trace_on()) printf("dbtrace: F %d %lld %zu\n", d, db_trace_off(d, p), bytes);
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
@@ -393,6 +411,7 @@ void db_donate_ext(int dev, void *p, size_t bytes, int own)
     if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_donate: too many regions\n"); }
     g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_donated[g_ndonated].kind = own ? 0 : 1; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
+    if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, g_ndonated - 1);
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
 }
@@ -407,12 +426,12 @@ void db_donate_adjacent(int dev, void *p, size_t bytes)
         struct vmm *v = &g_vmm[dev]; int m = (int)(((char *)p + bytes - v->base + v->chunk - 1) / v->chunk); if (m > v->m0) m = v->m0;
         if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
         while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
-        ext_insert(dev, (char *)p, bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
+        ext_insert(dev, (char *)p, bytes, reg); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
     for (int i = 0; i < g_ndonated; i++) {
         if (g_donated[i].dev != dev || g_donated[i].own) continue;
         char *rp = (char *)g_donated[i].p; size_t rb = g_donated[i].bytes;
-        if ((char *)p == rp + rb) { g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
-        if ((char *)p + bytes == rp) { g_donated[i].p = p; g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+        if ((char *)p == rp + rb) { g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+        if ((char *)p + bytes == rp) { g_donated[i].p = p; g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
     }
     pthread_mutex_unlock(&g_pool_mx);
     db_donate_ext(dev, p, bytes, 0);
