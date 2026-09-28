@@ -1,0 +1,21 @@
+# at 5.1e13 on 576 (modelled; the fabric assumed; write 0.6 GB/s); CACHE_MN_SLOTS as named
+cache 2: ECALC_NP=4                          |  346.6 |  377.8 | init 19.3 seed 12.9 batch 30.8 top 30.5 levels 150.9 recip 44.0 div 50.3 out 38.9 | node 455.4 GB
+cache 2: auto                                |  324.3 |  355.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 138.8 recip 43.8 div 50.3 out 38.9 | node 455.4 GB
+cache 2: auto, min(pa,pb)                    |  317.6 |  348.8 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 132.3 recip 43.6 div 50.3 out 38.9 | node 455.4 GB
+cache 2: auto, one 3-prime slot in pool 1    |  324.3 |  355.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 138.8 recip 43.8 div 50.3 out 38.9 | node 455.4 GB
+cache 2: MN_GROUPS 4,16,64,576               |  311.3 |  342.5 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 125.9 recip 43.8 div 50.3 out 38.9 | node 464.0 GB
+cache 2: MN_GROUPS 2,4,8,16,32,64,576        |  319.2 |  350.3 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 133.7 recip 43.8 div 50.3 out 38.9 | node 456.1 GB
+cache 2: DKM                                 |  302.2 |  331.3 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 138.8 recip 18.2 div 53.7 out 37.0 | node 455.4 GB | with the write (DKM overlap) 344.2 s
+cache 2: P24                                 |  260.3 |  300.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 104.6 recip 29.8 div 34.6 out 48.0 | node 455.4 GB
+cache 2: P24 + DKM                           |  240.3 |  282.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 104.6 recip 13.4 div 31.0 out 50.1 | node 455.4 GB | with the write (DKM overlap) 290.3 s
+cache 2: P24 + DKM + MN_GROUPS 4,16,64,576   |  232.3 |  274.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels  96.6 recip 13.4 div 31.0 out 50.1 | node 464.0 GB | with the write (DKM overlap) 282.3 s
+cache 0: ECALC_NP=4                          |  434.1 |  453.3 | init 19.3 seed 12.9 batch 30.8 top 30.5 levels 205.6 recip 56.0 div 71.1 out 27.0 | node 455.4 GB
+cache 0: auto                                |  406.8 |  426.0 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 188.6 recip 55.7 div 71.1 out 27.0 | node 455.4 GB
+cache 0: auto, min(pa,pb)                    |  397.5 |  416.6 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 179.4 recip 55.6 div 71.1 out 27.0 | node 455.4 GB
+cache 0: auto, one 3-prime slot in pool 1    |  396.9 |  416.0 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 178.7 recip 55.7 div 71.1 out 27.0 | node 455.4 GB
+cache 0: MN_GROUPS 4,16,64,576               |  376.2 |  395.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 158.0 recip 55.7 div 71.1 out 27.0 | node 464.0 GB
+cache 0: MN_GROUPS 2,4,8,16,32,64,576        |  392.2 |  411.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 174.0 recip 55.7 div 71.1 out 27.0 | node 456.1 GB
+cache 0: DKM                                 |  374.9 |  392.1 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 188.6 recip 20.4 div 74.5 out 25.0 | node 455.4 GB | with the write (DKM overlap) 409.8 s
+cache 0: P24                                 |  312.3 |  344.9 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 137.2 recip 35.9 div 47.9 out 40.4 | node 455.4 GB
+cache 0: P24 + DKM                           |  283.4 |  320.0 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 137.2 recip 13.9 div 40.9 out 44.4 | node 455.4 GB | with the write (DKM overlap) 330.1 s
+cache 0: P24 + DKM + MN_GROUPS 4,16,64,576   |  259.8 |  296.4 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 113.6 recip 13.9 div 40.9 out 44.4 | node 464.0 GB | with the write (DKM overlap) 306.5 s
