@@ -1,0 +1,17 @@
+== mnaccept: job 21687 on ppac-pl1-s24-16, 2026-09-28T04:49:39-05:00, 7837ba5 TC: RNS_DIST_CACHE_FIT's reserve (RNS_DIST_CACHE_FIT_RESERVE_GB, 32); mem_model.py cache_mn_bytes, node_peak_cache, --cache; README rows; ref /shared/prerelease/home/mpo_2026/chcoppola/ntt/ecalc/ref ==
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.70 s (bs 1.4 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.39 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.90 s (bs 0.8 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.17 s (bs 1.2 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 7.99 s (bs 0.9 + 10dP 0.0 + dm 3.2
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.86 s (bs 2.8 + 10dP 0.0 + dm 12
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 15.54 s (bs 3.0 + 10dP 0.0 + dm 7.
+== 15 passed, 0 failed; 1303 s; 7837ba5; logs in results/mnaccept/21687 ==
