@@ -359,11 +359,13 @@ def plane_bytes_apu(strategy, n, np=EC_NP):
     if strategy == 'B4': return 12 * n
     return (np + 3) * n * 2
 
-def pool_limbs(pool_log=31, p3q30=False, np=EC_NP):
-    """(pool 0, pool 1) per APU in limbs: rns_plane_pool_bytes (agent P's one formula), 2 MiB-aligned"""
+def pool_limbs(pool_log=31, p3q30=False, np=EC_NP, pool1_np=None):
+    """(pool 0, pool 1) per APU in limbs: rns_plane_pool_bytes (agent P's one formula), 2 MiB-aligned.  Phase 15 PS: pool1_np = the
+    one-node tiers' prime count (default np; 3 under ECALC_NP=auto): at four, pool 1 >= 4 q (the batch-local tier's B planes)"""
     q = (3 << (pool_log - 3)) if p3q30 else (1 << pool_log) // 4
     al = (2 << 20) // 8
     a = np * q; b = max(3 * q + 16, 1 << min(pool_log, 30))
+    if (np if pool1_np is None else pool1_np) >= 4: b = max(b, 4 * q)
     return (a + al - 1) // al * al, (b + al - 1) // al * al
 
 def b_planes(form, d, n, np=EC_NP):
@@ -371,11 +373,11 @@ def b_planes(form, d, n, np=EC_NP):
     if form == 'B': return [n, n] if d < np else []
     return [n, n // 2] if d < 3 else [n // 2, n // 2, n // 2]
 
-def b_extra_limbs(form, n, pool_log=31, p3q30=False, np=EC_NP):
+def b_extra_limbs(form, n, pool_log=31, p3q30=False, np=EC_NP, pool1_np=None):
     """rns_dist.c b_place: the planes that fit neither pool (first fit, whole planes) come from one grow-only hipMalloc buffer
     per APU; returns [extra limbs per APU] (0 everywhere = the form fits the pools: what `auto` requires)"""
     if form == 'B4' and np != 3: form = 'B'
-    c0, c1 = pool_limbs(pool_log, p3q30, np); out = []
+    c0, c1 = pool_limbs(pool_log, p3q30, np, pool1_np); out = []
     for d in range(NR):
         cap = [c0, c1]; used = [0, 0]; ex = 0
         for sz in b_planes(form, d, n, np):
@@ -385,7 +387,7 @@ def b_extra_limbs(form, n, pool_log=31, p3q30=False, np=EC_NP):
         out.append(ex)
     return out
 
-def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None):
+def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=None, pool1_np=None):
     """rns_mul.c: pool 0 = EC_NP x q limbs with q = 2^pool_log / 4, pool 1 = 3 q + 16 limbs (C4, 2 MiB-aligned), per APU; + the
     contexts.  Phase 13a M (TASKS 1.1): with the 3 2^k planes (the default below 5e10 digits at 2^31 pools, Phase 12 I) pool 0 is
     3 2^(pool_log-1) limbs (24 GiB) and pool 1 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB): 180.4 GB per node instead of 120.3 --
@@ -403,11 +405,13 @@ def planes_bytes(pool_log=31, digits=0, p3q30=None, np=None, strategy='C', cap=N
         q = (1 << pool_log) // 4
     p0 = np * q * 8
     p1 = (3 * q + 16) * 8 if pool_log > 30 else max((3 * q + 16) * 8, 8 << min(pool_log, 30))   # pool 1 is the full pool at POOL_LOG <= 30 (results/A-mem.md, open issue 1)
+    if (np if pool1_np is None else pool1_np) >= 4: p1 = max(p1, 4 * q * 8)   # Phase 15 PS (rns_plane_pool_bytes): four one-node primes -- the batch-local tier's
+                                                                      # np Mmax L B limbs reach its plane cap 4 q (L = q, Mmax = 1); 3 q + 16 grew inside the bs phase (rc 6)
     p1 = (p1 + al - 1) // al * al
     per = p0 + p1
     extra = 0
     if strategy in ('B', 'B4'):                                       # rns_dist.c (agent B): what the pools lack for the largest product
-        extra = 8 * sum(b_extra_limbs(strategy, 4 * q, pool_log, on, np))   # (the plane of the cap, 4 q points) comes from one grow-only
+        extra = 8 * sum(b_extra_limbs(strategy, 4 * q, pool_log, on, np, pool1_np))   # (the plane of the cap, 4 q points) comes from one grow-only
                                                                       # hipMalloc buffer per APU, kept to the end of the dm phase (at the dm peak)
     return NR * per + extra + int((0.61 if pool_log >= 30 else 2.16) * GB)   # + the transform contexts: 0.61 GB at 2^31, 2.16 at 2^29 (measured; 2^30 assumed = 2^31)
 
@@ -432,7 +436,7 @@ def host_size1(D):
 # to 256 MiB, the device heap exactly the pool).  COMM_SHMEM_ROUND_MB is off in the code; the target's launch line adds 1024 (the user's D2):
 # TARGET_LAUNCH.  OLD13 = the forms before Phase 14, for the historical tables (their numbers are unchanged with it).
 DEFAULTS15 = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=0, out_early=False)   # cap: ECALC_PLANE_CAP 2^31 (13c)
-OLD13 = dict(tight=False, early_free=False, t_chunk_mb=0, shift_chunk_mb=0, pool='max', vmm=False, round_mb=0, cap=None, seed_fill=0, out_early=False)
+OLD13 = dict(tight=False, early_free=False, t_chunk_mb=0, shift_chunk_mb=0, pool='max', vmm=False, round_mb=0, cap=None, seed_fill=0, out_early=False, pool1_np=3)   # pool1_np 3: pool 1 at 3 q + 16 whatever the primes (the code before Phase 15 PS)
 # Phase 15 (agent DOC, the user's decisions of 2026-09-27): DEFAULTS15B = the code's defaults now -- DEFAULTS15 + BS_SEED_FILL=128 (the seed span per run:
 # the bs regions hold one more batch level; at size 1 the division then grows the arena, VMM_DM_GROW_FILL) + MN_OUT_EARLY=1 (the part file's host
 # buffers held during the division, HOST_EARLY).  DEFAULTS15 stays B0 (the Phase 14 defaults) for the measured Phase 14 rows.
@@ -718,7 +722,8 @@ def mem_per_node(D, g=1, opts=None):
                                                                           # size 2, 8.5 -> 11.2 at 3), S = one chunk of the plane (q / K):
                                                                           # one more quarter-plane per APU on the general-map levels
     npp = np_planes(o['np'], g, o['pool_log'])                          # Phase 15 NP: ECALC_NP=auto -- pool 0's planes by the run's largest group
-    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'])
+    p1np = o.get('pool1_np') or (3 if o['np'] == 'auto' else o['np'])  # Phase 15 PS: pool 1 at the one-node tiers' prime count (auto: three)
+    planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np)
     if aroom > 0 and o['tail'] and not as_room_fits(planes, sum(arena), g):   # Phase 15 AS: the room dropped over the budget (the arenas stay in whole chunks)
         aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0)
         if g > 1: L['need_dev'] += sc[0]

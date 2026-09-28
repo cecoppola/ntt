@@ -98,6 +98,7 @@ int rns_pool0_np(void)
  * (the plane cap n = 4 q: 2^pool_log or 3 2^(pool_log-1)).  Pool 0 = np q limbs (the np planes xa[]; four primes without the
  * 3 2^k planes: the power of two 2^pool_log = 4 q, the same bytes), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
  * 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30), 2 MiB-aligned.
+ * Phase 15 PS: four one-node primes (not auto) make pool 1 max(that, 4 q): the batch-local tier's B planes (see below).
  * Returns p0 + p1. */
 size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1)
 {
@@ -105,6 +106,12 @@ size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1
     size_t q = b3 ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2), al = (size_t)2 << 20;
     size_t a = (size_t)np * q * 8, b = (3 * q + 16) * 8, full = (size_t)8 << (pl < 30 ? pl : 30);
     if (b < full) b = full;
+    /* Phase 15 PS: the batch-local tier (rns_mul_batch_local) takes np Mmax L B limbs from pool 1 with np Mmax L <= its plane
+     * cap (rns_plane_limbs: np q) -- at L = q, Mmax = 1 (2^29 points at 2^31 pools, non-paired: the level of 10 pairs at
+     * 9.17e10 digits) that is np q.  Three primes: 3 q < 3 q + 16, nothing changes.  Four one-node primes (ECALC_NP=4, binary
+     * limbs): 4 q, which 3 q + 16 lacked (the pool grew inside the bs phase: rc 6, ~/fin15f/t2_B1_1.log).  Under ECALC_NP=auto
+     * the one-node tiers run three primes whatever np pool 0 is made for (rns_plane_limbs caps them at 3 q): pool 1 stays. */
+    if (np >= 4 && !ec_np_auto) { size_t c = (size_t)np * q * 8; if (b < c) b = c; }
     a = (a + al - 1) / al * al; b = (b + al - 1) / al * al;
     if (p0) *p0 = a; if (p1) *p1 = b;
     return a + b;
@@ -123,7 +130,7 @@ size_t rns_pool1_default_bytes(int pool_log)                       /* what the d
                                                                     * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
                                                                     * B3: q = 3 2^(pool_log-3) with the 3 2^k planes */
 {
-    size_t b; rns_plane_pool_bytes(pool_log, planes_3q30(), 4, 0, &b); return b;   /* Phase 13b P: the one formula (pool 1 does not depend on the prime count) */
+    size_t b; rns_plane_pool_bytes(pool_log, planes_3q30(), ec_np_init(), 0, &b); return b;   /* Phase 13b P: the one formula.  Phase 15 PS: at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16 as before) */
 }
 static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
 void (*rns_shutdown_hook)(void) = 0;                               /* Phase 9 C4: binsplit releases its region arenas here (they outlive the block pool's use of them) */
