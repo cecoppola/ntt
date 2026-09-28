@@ -54,9 +54,10 @@ def main():
             print('%d %d %d %d %dx%d_%s' % (int(na * f), int(nb * f), int(lo * f), int(hi * f) if hi is not None else -1, ka, kb,
                                            ('low' if lo else '') + ('high' if hi is not None else '') + ('cut' if (lo or hi is not None) else 'full')))
         return
+    M.DZ = M.DEFAULT15B(np_mn=npm).at_g(a.g); sv = {1: 0.0, 2: 0.0}
     tot = {1: 0, 2: 0}; told = 0; npieces = 0
     print("the grid products of %.3g digits on %d nodes (modelled: mn_model's product list = the code's plan); the cache hits as the code takes them" % (a.T, a.g))
-    print('  %-15s %-5s %-6s %-8s %-5s | pieces | hits, 1 slot | hits, 2 slots | old model (2 slots)' % ('na x nb (1e9)', 'g', 'cap', 'cuts', 'grid'))
+    print('  %-15s %-5s %-6s %-8s %-5s | pieces | hits, 1 slot | hits, 2 slots | old model (2 slots) | piece s (modelled): no hit / hit = saved (local + fabric + redistribution)' % ('na x nb (1e9)', 'g', 'cap', 'cuts', 'grid'))
     for na, nb, g, cap, lo, hi, x in rec:
         h = {}
         for s in (1, 2):
@@ -64,8 +65,12 @@ def main():
             h[s] = sum((p[5] == 'hit') + (p[6] == 'hit') for p in pcs)
             tot[s] += h[s]
         o = max(0, len(pcs) - 1); told += o; npieces += len(pcs)
-        print('  %6.0f x %-6.0f %-5d 2^%-4d %-8s %dx%d   | %5d  | %5d        | %5d         | %5d' % (na / 1e9, nb / 1e9, g, cap.bit_length() - 1,
-              ('low' if lo else '') + ('high' if hi is not None else '') or '-', ka, kb, len(pcs), h[1], h[2], o))
-    print('  total: %d pieces in %d grid products; operand hits: 1 slot %d, 2 slots %d; the old model credits %d' % (npieces, len(rec), tot[1], tot[2], told))
+        i0, j0, la, lb, _, _, _ = pcs[0]; pts = M.split_grid(na, nb, cap, g)[2]
+        c2 = M.piece_cost(M.TARGET, pts, g, la, lb, la + lb, 2, False, 'grid', grid=True); c1 = M.piece_cost(M.TARGET, pts, g, la, lb, la + lb, 1, False, 'grid', grid=True)
+        t_r = M.TARGET.a2a(8 * lb / (4 * g), g, 1)[0]; d = c2.t - c1.t; dx = (c2.t_exposed - c1.t_exposed) - t_r
+        for k in (1, 2): sv[k] += h[k] * d
+        print('  %6.0f x %-6.0f %-5d 2^%-4d %-8s %dx%d   | %5d  | %5d        | %5d         | %5d               | %.3f / %.3f = %.3f (%.3f + %.3f + %.3f)' % (na / 1e9, nb / 1e9, g, cap.bit_length() - 1,
+              ('low' if lo else '') + ('high' if hi is not None else '') or '-', ka, kb, len(pcs), h[1], h[2], o, c2.t, c1.t, d, d - dx - t_r, dx, t_r))
+    print('  total: %d pieces in %d grid products; operand hits: 1 slot %d, 2 slots %d; the old model credits %d; the hits x the saving per hit (summed over the critical path\'s grids): 1 slot %.1f s, 2 slots %.1f s' % (npieces, len(rec), tot[1], tot[2], told, sv[1], sv[2]))
 
 if __name__ == '__main__': main()
