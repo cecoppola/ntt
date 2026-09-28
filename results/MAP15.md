@@ -57,12 +57,53 @@ registered range (unchanged); the remap path already waits for the whole arena. 
 
 **Verdict: worth it.** Build 1 + 2 (+ the thread count as a measured option), then decide on 4.
 
+## 2. The stream (`DB_POOL_VMM_STREAM=<W>`)
+
+### 2.1 Design (18af9e9, 2880e30, 9dfe39d, 47ccca1)
+
+- `dbig.c`: under the switch `db_vmm_arena_alloc` only reserves the VA and registers the arena (no mapping in
+  `binsplit_pregrow`: `rns_init` returns at ≈ 8 s instead of ≈ 18 s). From `db_vmm_bg_release` (after the plane pools:
+  `RNS_PLANES_FIRST` kept) W worker threads (1–4, detached) map units of `DB_POOL_VMM_STREAM_BATCH` (2) chunks in need order:
+  phase 0 the parity-0 halves by APU (the seeds' region order), phase 1 the parity-1 halves round robin, phase 2 the rest (the
+  dm extra) — released at bs's first device top-tier level (`db_vmm_stream_rest`, one call in the level loop) or by any waiter
+  that needs chunks past the parity-1 half (donation, `vmm_make_room`, release); `DB_POOL_VMM_STREAM_REST=0` maps it at once.
+  At most one worker per APU, so each APU's chunks map in increasing order and `mapped` keeps its meaning for every existing waiter.
+  Each unit is zeroed (`hipMemsetAsync` on the worker's stream + sync) before it counts, as the background thread did.
+- `binsplit.c` seed code: every seed DMA first waits for its own chunks (`seed_wait_map` → `db_vmm_wait_range`, counted in "waited
+  for the regions"); the seeds' own `pool_get(0)` inside `rns_init` does not wait.
+- `binsplit.c` outside the seed code (named): `pool_get` for parity 0 outside pregrow waits for the parity-0 half (a no-op without
+  the stream: it is mapped inside pregrow), so any other first use of the regions (a checkpoint restart) is safe; the
+  `db_vmm_stream_rest()` call at the first device top-tier level.
+
+### 2.2 First runs (job 21661, s24-26, 9dfe39d, 22:44–22:54 EDT; all measured)
+
+| run | setting | seeds end | level 1's chunks mapped | level 1 starts | level 1 | total | note |
+|---|---|---|---|---|---|---|---|
+| e9s | 10⁹, W = 4 | — | — | — | — | 12.41 | VERIFY OK |
+| r0c | room, stream off | 34.26 | 35.06 (bg) | 34.68 | 4.2 s | 179.07 | VERIFY OK |
+| s4r | room, **W = 4** | 58.38 | 44.03 | 58.84 | 4.3 s | 216.91 | VERIFY OK; **one seed DMA launch blocked 32.9 s** behind the four workers; 0.27 s/chunk |
+| s1r | room, **W = 1** | **28.33** (no wait for the regions; issue 2.2 s as before) | 34.93 (0.216 s/chunk) | 34.93 | 12.9 s (6.1 s waiting for APU0's p1; batch 4.45 s while the rest mapped) | — | **the node rebooted** during the run (after bs level 4, ≥ 12 s after the last mapping call; Slurm NODE_FAIL, "Node unexpectedly rebooted") |
+
+Findings: (1) four concurrent workers starve the seed thread's kernel launches (the reason for the old mapper lock) and map
+slower, 0.27 s/chunk: **W = 1** is the form. (2) With W = 1 the seeds are done 6.6 s before level 1's chunks: the mapping rate
+(0.216 s/chunk with 192 seed threads computing; 0.131 with the CPU free, run `aft`) is now the floor, so the seeds can give up
+threads to it (b). (3) The rest mapped beside level 1's batch cost ≈ 1.5 s of it: deferred to the device top tier in 47ccca1.
+
+**The node failure** (s24-26, BootTime 22:53:14 EDT; job 21661 NODE_FAIL). The run had passed bs level 4 at ≈ 47 s; the stream had
+finished every chunk at 37.6 s and its worker had exited. The project has two earlier NODE_FAILs on unchanged code (job 20629
+s24-16 2026-09-17, job 20945 s24-30 2026-09-22; RESULTS.md), so a coincidence is plausible, but it is **not proven**. Rule adopted:
+the next series repeats W = 1 first on s24-30; a second failure stops all node work with the switch. s24-26 stays down (needs the
+admin).
+
 ## RESUME
 
 - 5162a8f: `ECALC_INIT_TL=1` (print only), README row. 2add00f: `tests/map_sweep.sh`, `tests/map_plan_f1.txt`. d67bc66: §1.
 - 18af9e9 + 2880e30 + 9dfe39d: **`DB_POOL_VMM_STREAM=<W>`** (dbig.c: `vmm_stream_worker`, `stream_pick`, `db_vmm_wait_range`;
   binsplit.c seed code: `seed_wait_map` before each seed DMA, the seeds' own `pool_get(0)` without waiting; binsplit.c `pool_get`:
   parity 0 waits for its half outside pregrow — a one-line edit outside the seed code, named). Builds on aac6. README row: to do.
+- 47ccca1: the rest deferred (`DB_POOL_VMM_STREAM_REST`), plan s2. s1 (job 21661) ended by the node failure (§2.2).
+- **s2 running**: job 21662 on s24-30 (`-w`), launched 22:57 EDT: `MAP_CLONE=~/MAP15/build/w map_sweep.sh 47ccca1 ~/MAP15/s2
+  ~/MAP15/map_plan_s2.txt -w ppac-pl1-s24-30`, log `~/MAP15/s2.out`. If s24-30 fails during s1r: stop, report.
 - f1 done (job 21659, s24-30; `~/MAP15/f1/summary.txt`). s1 chained: `~/MAP15/chain_s1.sh` waits for f1's "done", then runs
   `map_sweep.sh 9dfe39d ~/MAP15/s1 ~/MAP15/map_plan_s1.txt` from the scratch clone `~/MAP15/build/w` (MAP_CLONE; detached at
   9dfe39d). Log `~/MAP15/s1.out`. Next: read s1, decide W and the seed threads, then the gates and the timing series.
