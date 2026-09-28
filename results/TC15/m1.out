@@ -1,0 +1,21 @@
+== m1: 69907789 Merge branch 'main' into int15e Sun Sep 27 11:19:21 PM CDT 2026
+job 21669 queued Sun Sep 27 11:19:21 PM CDT 2026
+job 21669 running Mon Sep 28 03:46:30 AM CDT 2026
+dd: failed to open '/tmp/tc15/e9p2pl25_on.txt': No such file or directory
+e9p2pl25_on rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+dd: failed to open '/tmp/tc15/e9p2pl25_off.txt': No such file or directory
+e9p2pl25_off rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+dd: failed to open '/tmp/tc15/e9p4pl24_off.txt': No such file or directory
+e9p4pl24_off rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+dd: failed to open '/tmp/tc15/e9p4pl24_on.txt': No such file or directory
+e9p4pl24_on rc 6 DIFFERS wall 6 s |  | 0 VERIFY OK | 
+e10p2pl29_off rc 0 identical wall 207 s | total 113.78 s (bs 21.0 + 10dP 0.0 + dm 83.6 + T1 0.1 + dc 0 | 3 VERIFY OK | 
+e10p2pl29_on rc 0 identical wall 154 s | total 139.58 s (bs 21.5 + 10dP 0.0 + dm 109.8 + T1 0.1 + dc  | 3 VERIFY OK | transform cache: 2 of 2 slots of 12.0 GiB per APU allocated in 8.89 s (margin 24 GB)
+dd: failed to open '/tmp/tc15/e10p4pl31_def.txt': No such file or directory
+e10p4pl31_def rc 137 DIFFERS wall 48 s |  | 0 VERIFY OK | 
+e10p4pl28_off rc 0 identical wall 176 s | total 82.41 s (bs 26.8 + 10dP 0.0 + dm 48.9 + T1 0.1 + dc 0. | 5 VERIFY OK | 
+dd: failed to open '/tmp/tc15/e10p4pl28_on.txt': No such file or directory
+e10p4pl28_on rc 6 DIFFERS wall 92 s |  | 0 VERIFY OK | transform cache: 2 of 2 slots of 12.0 GiB per APU allocated in 12.03 s (margin 24 GB)
+init_1e11 rc 0 | mem [init] device 377.3 GB in use (per APU 89.7..108.1): planes 103.1, regions 136.2, block pool 137.4 (donated 0.0, borrowed 137.4, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0 mem [init] host 24.5 GB RSS (HWM 24.5): staging 21.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 3.0 mem [init]   APU0: in use 108.1 GB: planes 25.77 regions 39.20 pool:borrowed 42.95 tables 0.15  (driver: 68.9 of 137.4 GB used) mem [init]   APU1: in use 89.7 GB: planes 25.77 regions 31.61 pool:borrowed 32.21 tables 0.15  (driver: 58.2 of 137.4 GB used) mem [init]   APU2: in
+init_917e10_np4 rc 0 | mem [init] device 379.7 GB in use (per APU 88.7..111.3): planes 120.3, regions 134.7, block pool 124.6 (donated 0.0, borrowed 124.6, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.15, other 0.0 mem [init] host 24.5 GB RSS (HWM 24.5): staging 21.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 3.0 mem [init]   APU0: in use 111.3 GB: planes 30.07 regions 40.42 pool:borrowed 40.80  (driver: 71.1 of 137.4 GB used) mem [init]   APU1: in use 90.8 GB: planes 30.07 regions 28.47 pool:borrowed 32.21  (driver: 62.5 of 137.4 GB used) mem [init]   APU2: in use 88.9 GB: planes 30.
+== m1 done Mon Sep 28 03:58:53 AM CDT 2026, 743 s on the node
