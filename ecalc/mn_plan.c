@@ -78,6 +78,7 @@ static void chk_init(int np)
     g_chk.bound = np == 3 && !ec_np_auto ? ec_np3_max_terms : 0;   /* Phase 15 NP: under ECALC_NP=auto a piece over the bound runs four primes (no refusal) */
 }
 static const char *np_name(void) { static char b[48]; if (ec_np_auto) snprintf(b, sizeof b, "auto"); else snprintf(b, sizeof b, "%d", ec_np); return b; }
+static const char *np_by(void) { return ec_np_auto && ec_np_auto_min ? " by min(pa, pb) (ECALC_NP_AUTO_MIN=1)" : ""; }   /* Phase 15 MPB: the switch-over's term count ("": pa + pb) */
 static const char *np_tag(int np) { return !ec_np_auto ? "" : np == 4 ? ", 4 primes" : ", 3 primes"; }   /* NP: the printed lines under auto */
 /* one product's largest piece: nc = pa + pb limbs (what mn_core / dist_core pass to ec_np_check), a transform of 2^logk (r3 = 0)
  * or 3 2^logk points (r3 = 1: ec_root3(prime, logk)) */
@@ -100,7 +101,7 @@ static int chk_report(double d, int size)
     char bound[192]; if (g_chk.bound) snprintf(bound, sizeof bound, "%zu terms (three primes)", g_chk.bound); else snprintf(bound, sizeof bound, "none (%d primes)", g_chk.np);
     if (!g_chk.nbound && !g_chk.nroot) {
         if (ec_np_auto) { long p4 = 0, pt = 0; for (int i = 0; i < PH_N; i++) { p4 += g_pieces4[i]; pt += g_pieces[i]; }
-                          snprintf(bound, sizeof bound, "per product (four primes over %zu terms: %ld of %ld pieces)", ec_np_auto_terms, p4, pt); }
+                          snprintf(bound, sizeof bound, "per product (four primes over %zu terms%s: %ld of %ld pieces)", ec_np_auto_terms, np_by(), p4, pt); }
         printf("plan check  %.4g digits g %d, ECALC_NP=%s: OK -- %ld products; the largest piece %zu limbs (%s), bound %s; the longest transform 2^%d of 2^%d (the roots' limit)\n",
                d, size, np_name(), g_chk.nprod, g_chk.worst_nt, g_chk.worst, bound, g_chk.worst_logn, g_chk.lim);
         return 0;
@@ -272,7 +273,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     size_t nq = all.qn, pn = all.pn, dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
     if (!silent) {
-    char npd[96]; if (ec_np_auto) snprintf(npd, sizeof npd, "primes per product (ECALC_NP=auto: 4 over %zu terms, pool 0 for %d)", ec_np_auto_terms, ec_np_planes(pool_log, size)); else snprintf(npd, sizeof npd, "%d primes", np);
+    char npd[160]; if (ec_np_auto) snprintf(npd, sizeof npd, "primes per product (ECALC_NP=auto: 4 over %zu terms%s, pool 0 for %d)", ec_np_auto_terms, np_by(), ec_np_planes(pool_log, size)); else snprintf(npd, sizeof npd, "%d primes", np);
     printf("== MN_PLAN_ONLY: e to %lu digits on %d node-process%s: N %lu terms, P %zu limbs, Q %zu limbs (predicted), dl %zu; pool_log %d, %s, pools %.2f + %.2f GiB per APU; MN_GROUPS",
            d, size, size > 1 ? "es" : "", N, pn, nq, dl, pool_log, npd, p0 / 1073741824.0, p1 / 1073741824.0);
     for (int l = 0; l < L; l++) printf("%c%d", l ? ',' : ' ', gs[l]);
@@ -306,8 +307,8 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     if (!silent) printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
            (double)d, size, g_pieces[PH_TREE], g_pieces[PH_RECIP], g_pieces[PH_DIV], tot, size > 1 ? tree_max : 0, (size > 1 ? tree_max : 0) + g_pieces[PH_RECIP] + g_pieces[PH_DIV],
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
-    if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
-           (double)d, size, ec_np_auto_terms, g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
+    if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms%s): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
+           (double)d, size, ec_np_auto_terms, np_by(), g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
     if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);
