@@ -694,7 +694,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
     if (r3) logn--;                                            /* the 2^k length whose pool this replaces: n = 3 2^(logn-1) */
     if (logn > dist_logn_max()) { ec_fatal(EC_RC_FATAL, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); }
-    const int np = ec_np_prod(nc, bi_decimal, "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound */
+    const int np = ec_np_prod(ec_np_terms(nc, A.n, B.n), bi_decimal, "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: the terms min(A.n, B.n) under ECALC_NP_AUTO_MIN=1 (modarith.h), else nc */
     int logR = r3 ? (logn - 1) / 2 : logn / 2 + dist_logr_delta(), logk, logC;
     if (!r3) { if (logR < 10) logR = 10; if (logR > logn - 10) logR = logn - 10; }   /* (A6: DIST_LOGR_DELTA; R, C >= 2^10) */
     logk = logn - 1 - logR; logC = r3 ? 0 : logn - logR;
@@ -1489,7 +1489,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     if (X && X->n > nc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); }
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
     if (logn > mn_logn_cap(g)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %zu limbs > 2^%d points over %d nodes\n", nc, mn_logn_cap(g), g); }
-    const int np = ec_np_prod(nc, bi_decimal, "mn_core");      /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound */
+    const int np = ec_np_prod(ec_np_terms(nc, na, nb), bi_decimal, "mn_core");      /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -1828,7 +1828,7 @@ static void plan_pieces(size_t na, size_t nb, int ka, int kb, size_t lowcut, siz
         size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
         if (oa >= na || ob >= nb) continue;                                            /* an empty piece (mul_grid: !ai.n) */
         size_t la = na - oa < pa ? na - oa : pa, lb = nb - ob < pb ? nb - ob : pb;
-        if (grid_piece_skipped(oa, ob, la, lb, lowcut, w)) p->skipped++; else { p->formed++; p->formed4 += ec_np_for(la + lb) == 4; }   /* NP: the piece's primes */
+        if (grid_piece_skipped(oa, ob, la, lb, lowcut, w)) p->skipped++; else { p->formed++; p->formed4 += ec_np_for(ec_np_terms(la + lb, la, lb)) == 4; }   /* NP: the piece's primes (MPB: its terms as mn_core / dist_core count them) */
     }
 }
 void rns_dist_db_plan(size_t na, size_t nb, size_t lowcut, size_t w, struct rns_grid_plan *p)
@@ -1837,11 +1837,11 @@ void rns_dist_db_plan(size_t na, size_t nb, size_t lowcut, size_t w, struct rns_
     g_cache_mn = 0;                                                                    /* as mul_grid sets it before deciding */
     p->logcap = dist_logn_max(); p->cap = dist_cap();
     p->one = db_grid_shape(na, nb, &p->ka, &p->kb);
-    if (p->one) { p->pa = na; p->pb = nb; p->formed = 1; p->formed4 = ec_np_for(na + nb) == 4; }   /* one plane: formed whole, whatever the cuts (mul_grid) */
+    if (p->one) { p->pa = na; p->pb = nb; p->formed = 1; p->formed4 = ec_np_for(ec_np_terms(na + nb, na, nb)) == 4; }   /* one plane: formed whole, whatever the cuts (mul_grid) */
     else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
     size_t pc = p->pa + p->pb; int T, lk;
     p->form_b = b_grid_on() && b_fits(pc);
-    p->np = ec_np_for(pc);                                                             /* Phase 15 NP: the piece's primes (ECALC_NP=auto) */
+    p->np = ec_np_for(ec_np_terms(pc, p->pa, p->pb));                                  /* Phase 15 NP: the piece's primes (ECALC_NP=auto; MPB: min under ECALC_NP_AUTO_MIN=1) */
     if (p->form_b) { p->pts = b_len(pc, &T, &lk); p->plane_bytes = 2.0 * p->np * p->pts * 8; }   /* B: two planes of n on each prime's APU */
     else { p->pts = plane_pts(pc, dist_r3()); p->plane_bytes = (double)p->np * p->pts * 8; }       /* C: n / 4 points per prime on each of the four APUs */
 }
@@ -1851,12 +1851,12 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
     p->logcap = mn_logn_cap(g); p->cap = (size_t)1 << p->logcap;
     size_t nc = na + nb;
     p->one = mn_grid_shape(na, nb, g, &p->ka, &p->kb);
-    if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) { p->formed = 1; p->formed4 = ec_np_for(nc) == 4; } else p->skipped = 1; }   /* mn_grid: one plane, skipped when all of it is below the low cut */
+    if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) { p->formed = 1; p->formed4 = ec_np_for(ec_np_terms(nc, na, nb)) == 4; } else p->skipped = 1; }   /* mn_grid: one plane, skipped when all of it is below the low cut */
     else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
     (void)has_x;
     int logn, logR, logC; size_t q; mn_shape(p->pa + p->pb, g, &logn, &logR, &logC, &q);
     p->pts = (size_t)1 << logn; p->logR = logR; p->logC = logC;
-    p->np = ec_np_for(p->pa + p->pb);                                                  /* Phase 15 NP: the piece's primes (ECALC_NP=auto) */
+    p->np = ec_np_for(ec_np_terms(p->pa + p->pb, p->pa, p->pb));                      /* Phase 15 NP: the piece's primes (ECALC_NP=auto; MPB: min under ECALC_NP_AUTO_MIN=1) */
     p->plane_bytes = 4.0 * p->np * q * 8;                                              /* per node: q limbs per prime on each of its four APUs (mn_core's xa[]) */
 }
 /* Phase 12 G: the block-pool bytes per device at the peak of the product C = A B (+ X) of na x nb limbs over g nodes, on a

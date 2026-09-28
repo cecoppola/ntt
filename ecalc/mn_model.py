@@ -266,7 +266,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     scale = q / (1 << 29)
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
     dz = DZ
-    npc = piece_np(dz, nc)                              # Phase 15 NP: the piece's primes (ECALC_NP=auto: 4 over the three-prime bound)
+    npc = piece_np(dz, nc, na, nb)                      # Phase 15 NP (MPB: min(na, nb) under NP_AUTO_MIN): the piece's primes (ECALC_NP=auto: 4 over the three-prime bound)
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
     else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
     t_loc = t31 * scale + 0.005
@@ -310,13 +310,17 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     return c
 
 NP_AUTO_TERMS = mem_model.NP3_MAX_TERMS   # Phase 15 NP: ECALC_NP=auto's switch-over (ECALC_NP_AUTO_TERMS; the three-prime bound)
+NP_AUTO_MIN = os.environ.get('ECALC_NP_AUTO_MIN', '0').strip() not in ('', '0')   # Phase 15 MPB: the C switch (crt.c ec_np_terms): the switch-over
+                                                                                    # on min(pa, pb), the coefficients' real term count, instead of pa + pb
 NP_STATS = dict(n3=0, n4=0)                # the pieces priced at three / four primes under auto (the memo counts a product once)
-def piece_np(dz, nc):
+def piece_np(dz, nc, na=None, nb=None):
     """Phase 15 NP (crt.c ec_np_for): a piece's prime count -- the design's np, or under np_auto four when nc = pa + pb exceeds the
-    switch-over (mn_core / dist_core decide per product; the one-node tiers keep three)"""
+    switch-over (mn_core / dist_core decide per product; the one-node tiers keep three).  Phase 15 MPB: with NP_AUTO_MIN
+    (ECALC_NP_AUTO_MIN=1) the term count is min(na, nb) (crt.c ec_np_terms)"""
     if dz is None or dz.legacy: return EC_NP
     if getattr(dz, 'np_auto', False):
-        k = 4 if nc > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
+        t = min(na, nb) if NP_AUTO_MIN and na is not None and nb is not None else nc
+        k = 4 if t > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
     return dz.np
 
 _PC = {}
@@ -324,7 +328,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -371,7 +375,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
                 c2 = piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True); c1 = piece_cost(fab, pts, g, la, lb, la + lb, 1, False, form, grid=True)
                 d_t, d_e = (c2.t - c1.t) * CACHE_HIT_F, (c2.t_exposed - c1.t_exposed) * CACHE_HIT_F
                 if CACHE_PRIMES:                                      # (proposal: a slot of k of the piece's primes -- k / np of the transforms' part; the
-                    npc = piece_np(DZ, la + lb); k = min(CACHE_PRIMES, npc)   # operand's redistribution and its other primes' gathers stay)
+                    npc = piece_np(DZ, la + lb, la, lb); k = min(CACHE_PRIMES, npc)   # operand's redistribution and its other primes' gathers stay)
                     t_r = fab.a2a(8 * lb / (4 * g), g, 1)[0]
                     d_t = max(0.0, d_t - t_r) * k / npc; d_e = max(0.0, d_e - t_r) * k / npc
                 c1.t = c2.t - d_t; c1.t_exposed = max(0.0, c2.t_exposed - d_e); c.add(c1)
@@ -650,6 +654,7 @@ class Design:
         """the environment that selects this row: RNS_STRATEGY (agent B), ECALC_PLANE_CAP (agent P: sets POOL_LOG,
         RNS_PLANES_3Q30 and DIST_LOGN_TEST), MDB_SHIFT_CHUNK_MB / MN_T_CHUNK_MB (Phase 13a M), COMM_ALLTOALLV_DEPTH (agent X)"""
         e = dict(ECALC_NP='auto' if (self.np_auto or self.np_mn == 'auto') else (self.np_mn or self.np), NTT_MODMUL=self.modmul, RNS_STRATEGY=self.strategy)   # (np_mn: the target's launch line, ECALC_NP=4)
+        if e['ECALC_NP'] == 'auto' and NP_AUTO_MIN: e['ECALC_NP_AUTO_MIN'] = 1              # Phase 15 MPB
         if self.cap is not None: e['ECALC_PLANE_CAP'] = mem_model.cap_name(self.cap)
         if self.shift_mb: e['MDB_SHIFT_CHUNK_MB'] = int(self.shift_mb)
         if self.t_mb: e['MN_T_CHUNK_MB'] = int(self.t_mb)
