@@ -1,0 +1,60 @@
+== ecalc: e to 100000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-27T17:44:23 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+RESULT ecalc init s 19.7938
+      VmRSS 24.5 GB after init (staging 4.3 GB pinned + device regions 274 GB); init 19.8 s
+mem [init] device 377.3 GB in use (per APU 89.7..108.1): planes 103.1, regions 136.2, block pool 137.4 (donated 0.0, borrowed 137.4, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0
+mem [init] host 24.5 GB RSS (HWM 24.5): staging 21.5 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 3.1
+budget: ECALC_BUDGET_CHECK ok: 1 rank, largest rank peak 402.4 GB, node budget 480 GB
+bs       80.77 s   N 10433891470, P 5555555560 limbs, Q 5555555560 limbs (seeds 18.4 school 0.0 batch 33.7 mdev 28.5; pool 99.1 GB; dev pools 0.0 GB)   VmRSS 9.1 GB, VmHWM 27.5 GB
+RESULT ecalc bs s 80.7692
+mem [bs] device 380.7 GB in use (per APU 90.3..109.7): planes 103.1, regions 0.0, block pool 277.0 (donated 0.0, borrowed 277.0, hipMalloc 0.0; live 88.9, peak live 150.2, free 188.1), tables 0.61, other 0.0
+mem [bs] host 9.1 GB RSS (HWM 27.5): staging 4.3 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 4.7
+newton(db) j 1388888890 (k 5555555558): recip cut 0 pieces skipped, 6 formed in the step's two products
+   dist_db 5555555560 x 2777777780 limbs: 5 x 3 pieces of 1111111112 + 925925927, 13 formed, 2 skipped (low cut) (low product): 15.584 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 2777777780 x 2777777779 limbs: 2 x 4 pieces of 1388888890 + 694444445, 7 formed, 1 skipped (low cut): 8.227 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 2777777779 (k 5555555558): recip cut 3 pieces skipped, 20 formed in the step's two products
+recip    38.26 s   mu 5555555559 limbs (32 iterations, 0 mdev)   VmRSS 6.9 GB, VmHWM 27.5 GB
+mem [recip] device 380.7 GB in use (per APU 90.3..109.7): planes 103.1, regions 0.0, block pool 277.0 (donated 0.0, borrowed 277.0, hipMalloc 0.0; live 133.3, peak live 238.9, free 143.7), tables 0.61, other 0.0
+mem [recip] host 6.9 GB RSS (HWM 27.5): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 6.9
+      I3: P, Q residues by kernel 1.30 s (before the reciprocal), S = P + Q on device 0.14 s; no host A
+10dP      0.14 s   T 5555555556 limbs, A 11111111116 limbs (0 mdev, 0 splits)   VmRSS 6.9 GB, VmHWM 27.5 GB
+RESULT ecalc 10dP s 0.144708
+   dist_db 5555555557 x 5555555558 limbs: 5 x 6 pieces of 1111111112 + 925925927, 20 formed, 10 skipped (low cut): 33.917 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 5555555557 x 5555555560 limbs: 5 x 6 pieces of 1111111112 + 925925927, 20 formed, 10 skipped (low product): 26.724 s (cache 0 slots: 0 hits, 0 misses)
+mem [division] device 393.6 GB in use (per APU 94.6..109.7): planes 103.1, regions 0.0, block pool 289.9 (donated 0.0, borrowed 289.9, hipMalloc 0.0; live 44.4, peak live 238.9, free 245.5), tables 0.61, other 0.0
+mem [division] host 7.4 GB RSS (HWM 27.5): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 7.3
+dm      104.84 s   X 5555555557 limbs, R 0 limbs (recip 38.3 s; corrections 0/0; 0 mdev); X on the device   VmRSS 7.4 GB, VmHWM 27.5 GB
+mem [dm] device 393.6 GB in use (per APU 94.6..109.7): planes 103.1, regions 0.0, block pool 289.9 (donated 0.0, borrowed 289.9, hipMalloc 0.0; live 44.4, peak live 238.9, free 245.5), tables 0.61, other 0.0
+mem [dm] host 7.4 GB RSS (HWM 27.5): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 7.3
+RESULT ecalc dm s 104.837
+T1        0.00 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence overlapped with bs)
+      overlapped with bs: P, Q mod q recurrence 11.27 s, block pool pregrown by 0 GB in 0.00 s
+RESULT ecalc T1 s 7.91007e-06
+      VmRSS 7.4 GB before dc
+total   205.76 s   (bs 80.8 + 10dP 0.1 + dm 104.8 + T1 0.0 + dc 0.0 + T2 0.0 = 185.8; init 19.8; other 0.2); VmHWM 27.5 GB
+RESULT ecalc total s 205.758
+RESULT ecalc phases s 185.751
+RESULT ecalc other s 0.213913
+RESULT ecalc vmhwm GB 27.4614
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+      patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+dc        0.01 s   digits [0, 100000000009) of 100000000009 formatted from 5555555557 decimal limbs in 373 chunks (streamed with the low product; joined after total) (residues 0.73, format 0.47, digit residue 3.26, T2 0.28, fetch 1.78, waiting for the writer 0.00)
+RESULT ecalc dc s 0.0140403
+T2        0.00 s   windows ok (4 checked), digits == X mod q ok (overlapped)
+RESULT ecalc T2 s 0
+digits: 27182818284590452353602874713526624977572470936999595749669676...37703810896884928977
+VERIFY OK
+mem [end] device 103.7 GB in use (per APU 25.9..25.9): planes 103.1, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 238.9, free 0.0), tables 0.61, other 0.0
+mem [end] host 7.0 GB RSS (HWM 27.5): staging 0.0 pinned, registered 0.1, X 0.0, digits 0.0, named 0.0, other 6.9
+mem summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem init             377.3   108.1 |   103.1   136.2     0.0   137.4     0.0     0.0     0.0   0.61 |    24.5    21.5     0.0     0.0     0.0     3.1    24.5
+mem bs               380.7   109.7 |   103.1     0.0     0.0   277.0     0.0    88.9   150.2   0.61 |     9.1     4.3     0.1     0.0     0.0     4.7    27.5
+mem recip            380.7   109.7 |   103.1     0.0     0.0   277.0     0.0   133.3   238.9   0.61 |     6.9     0.0     0.1     0.0     0.0     6.9    27.5
+mem division         393.6   109.7 |   103.1     0.0     0.0   289.9     0.0    44.4   238.9   0.61 |     7.4     0.0     0.1     0.0     0.0     7.3    27.5
+mem dm               393.6   109.7 |   103.1     0.0     0.0   289.9     0.0    44.4   238.9   0.61 |     7.4     0.0     0.1     0.0     0.0     7.3    27.5
+mem end              103.7    25.9 |   103.1     0.0     0.0     0.0     0.0     0.0   238.9   0.61 |     7.0     0.0     0.1     0.0     0.0     6.9    27.5
+rns_dist: RNS_STRATEGY=auto form B: C 91 products 76.67 s, B 61 products 3.74 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+PROCESS WALL 207.92 s

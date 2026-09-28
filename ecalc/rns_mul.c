@@ -319,9 +319,11 @@ static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; re
 int rns_r3 = -1;                                     /* RNS_R3: 1 (default when the prime set allows) */
 static int pick_len(size_t nc, int *logk)
 {
+    static int r3_mink = -1;                         /* Phase 15 N3x: RNS_R3_MINK (10..13), the smallest k taking 3 2^k (below it 2^(k+2), cheaper per product at k = 10: t_ntt r3bench); default NTT_LOGN_MIN = today */
+    if (r3_mink < 0) { r3_mink = getenv("RNS_R3_MINK") ? atoi(getenv("RNS_R3_MINK")) : NTT_LOGN_MIN; if (r3_mink < NTT_LOGN_MIN) r3_mink = NTT_LOGN_MIN; if (r3_mink > 13) r3_mink = 13; }   /* small products only: never a pool-sized one */
     int logn = ceil_log2(nc); if (logn < NTT_LOGN_MIN) logn = NTT_LOGN_MIN;
     if (rns_r3 < 0) rns_r3 = getenv("RNS_R3") ? atoi(getenv("RNS_R3")) : ec_has_radix3();
-    if (rns_r3 && ec_has_radix3() && logn - 2 >= NTT_LOGN_MIN && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
+    if (rns_r3 && ec_has_radix3() && logn - 2 >= r3_mink && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
     *logk = logn; return 0;
 }
 static size_t len_of(int r3, int logk) { return (size_t)(r3 ? 3 : 1) << logk; }

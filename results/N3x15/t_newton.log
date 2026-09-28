@@ -1,0 +1,23 @@
+== t_newton ==
+META bench=t_newton host=ppac-pl1-s24-16 date=2026-09-27T18:29:12
+-- 1. schoolbook division
+-- 2. reciprocal error
+   nq 5        k 5        error +0  (3 iterations)
+   nq 33       k 33       error +0  (33 iterations)
+   nq 257      k 257      error +0  (99 iterations)
+      NTT_R3_FUSE=1: the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass (k >= 13)
+   nq 2049     k 2049     error +0  (201 iterations)
+   nq 16385    k 16385    error +0  (339 iterations)
+   nq 131073   k 131073   error +0  (513 iterations)
+   nq 1048577  k 1048577  error +0  (723 iterations)
+-- 3. divmod vs mpz_tdiv_qr
+   2^10 limbs ok  (down 0, up 0 corrections, 0 overshoots, 0 repeats so far)
+   2^14 limbs ok  (down 0, up 2 corrections, 4 overshoots, 16 repeats so far)
+   2^18 limbs ok  (down 0, up 4 corrections, 8 overshoots, 32 repeats so far)
+-- 4. time at 2^20 limbs
+   divmod 2097152 / 1048576 limbs: 0.11 s (recip 0.08, 20 iters; 24 mdev, 0 splits; corrections 0/0)
+RESULT t_newton divmod_time s 0.107934
+RESULT t_newton recip_time s 0.0773849
+VmHWM 71.5 GB
+
+t_newton: VERIFY OK (620 checks)
