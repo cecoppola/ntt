@@ -3812,3 +3812,20 @@ Node memory ≈ 455 GB (`auto`); `ECALC_NP=4` + PS's fix ≈ 472.6 GB; `BS_ARENA
 hold a partial slot inside 480 GB: up to −26.7 s. SC's Batch 3 ranking (results/SC15.md): P24 (24 digits per point in the
 mn tier, ≈ −95 s without the cache, 1.5–3 weeks), DKM (≈ −32 s), `MN_GROUPS=4,16,64,576` (≈ −30 s, +8.6 GB), min(pa, pb)
 four-prime rule (≈ −9 s).
+
+## 89. B2 merged into main (2026-09-28; the user's Batch 2 decisions, PLAN §38)
+
+`main` = **B2** (int15g 21f788c + this note): the defaults of B1 plus `BS_ARENA_ROOM=0.16`, `DIST_TWREC_G=1`,
+`RNS_POOL1_4Q=1`; the target's launch line `ECALC_NP=auto`, `RNS_DIST_CACHE_FIT=1` (docs/TARGET.md §4, agent DOC2).
+**Verification** (measured, aac6 s24-26 / s24-30, be2eec3): regression on the defaults **21/21**; the launch-line settings
+through the e9 and mn steps **7/7**; paired 10¹¹ series B1 → B2: wall without the digit file 198.6 → 187.9 s (3 each),
+with it 198.4 → 189.4 s (2 each), dm 102.4 → 92.5 s; every digit file identical. The target's top-node share
+(9.169 × 10¹⁰) on B2 with `ECALC_NP=auto`: 157.1 s, VERIFY OK.
+
+**Correction to §88**: the arena room costs **+16.5 GB per node at the target share** (C layout 284.15 → 300.65 GB of arena),
+not ≈ 8.6; the modelled node at 5.1 × 10¹³ is **471.9 GB** of 480 (DOC215). The room is dropped by the code when the node
+would exceed `ECALC_NODE_GB`. `ECALC_NP=4` would be 489.1 GB (over 480) — the launch line uses `auto`.
+
+**576-node estimate (standing rule; modelled, DOC215; the fabric assumed; the cache at 0 slots under FIT)**:
+**5.1 × 10¹³ digits in 400.0 s (6.67 min) without the write, 420.5 s (7.01 min) with the packed write at 0.6 GB/s**;
+4.74 × 10¹³ in 368.7 / 390.7 s. Node 471.9 GB.
