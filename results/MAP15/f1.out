@@ -1,0 +1,13 @@
+2026-09-27 21:21:05 CDT MAP sweep: /shared/prerelease/home/mpo_2026/chcoppola/ntt-MAP15 at 2add00f, 7 runs from /shared/prerelease/home/mpo_2026/chcoppola/ntt-MAP15/tests/map_plan_f1.txt, sbatch 
+2026-09-27 21:21:05 CDT job 21659 submitted
+2026-09-27 21:21:25 CDT job 21659 running on ppac-pl1-s24-30
+  node /tmp: /dev/nvme0n1p2  1.8T  314G  1.4T  19% /
+2026-09-27 21:24:47 CDT d0 100000000000 nw | total 199.51 | init 19.4185 | bs 75.39 | recip 39.77 | dm 104.34 | T1 0.00 | seedwait 15.78 | seedthr 28.52 (17.05, 6.92) | tl 35.49 33.62 35.96 40.74 | remaps 15 5.03 s | after recip 9 3.98 s | growth 3 | VERIFY OK | - | 202s | ppac-pl1-s24-30 | ECALC_INIT_TL=1
+2026-09-27 21:27:57 CDT r0 100000000000 nw | total 187.26 | init 18.6171 | bs 75.05 | recip 38.47 | dm 93.23 | T1 0.00 | seedwait 15.71 | seedthr 27.07 (16.63, 6.30) | tl 34.62 34.67 35.07 39.50 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 190s | ppac-pl1-s24-30 | ECALC_INIT_TL=2 BS_ARENA_ROOM=0.16
+2026-09-27 21:31:09 CDT t96 100000000000 nw | total 189.29 | init 17.1053 | bs 78.24 | recip 38.64 | dm 93.58 | T1 0.00 | seedwait 18.62 | seedthr 29.37 (19.94, 4.90) | tl 36.01 31.28 36.46 41.22 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 192s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 BS_SEED_THREADS=96
+2026-09-27 21:34:20 CDT aft 100000000000 nw | total 189.45 | init 15.9026 | bs 80.32 | recip 38.43 | dm 92.86 | T1 0.00 | seedwait 21.25 | seedthr  | tl  32.19 37.90 42.49 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 191s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 ECALC_SEED_ORDER=after
+2026-09-27 21:37:41 CDT t48 100000000000 nw | total 197.97 | init 16.7931 | bs 88.61 | recip 37.93 | dm 92.21 | T1 0.00 | seedwait 30.11 | seedthr 40.90 (35.74, 1.65) | tl 47.20 29.35 47.63 52.11 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 201s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 BS_SEED_THREADS=48
+2026-09-27 21:40:50 CDT r0b 100000000000 nw | total 187.05 | init 17.9371 | bs 75.44 | recip 38.41 | dm 93.31 | T1 0.00 | seedwait 16.66 | seedthr 28.22 (17.12, 5.80) | tl 34.88 33.74 35.40 39.78 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | VERIFY OK | - | 189s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16
+2026-09-27 21:44:11 CDT d0b 100000000000 nw | total 198.58 | init 16.6251 | bs 76.95 | recip 39.79 | dm 104.65 | T1 0.00 | seedwait 16.82 | seedthr 28.63 (16.82, 6.44) | tl 33.74 30.67 34.25 39.00 | remaps 15 4.78 s | after recip 9 3.74 s | growth 3 | VERIFY OK | - | 201s | ppac-pl1-s24-30 | ECALC_INIT_TL=1
+2026-09-27 21:44:12 CDT job 21659 cancelled (1367 s used)
+2026-09-27 21:44:12 CDT done

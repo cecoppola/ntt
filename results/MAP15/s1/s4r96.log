@@ -1,0 +1,7 @@
+== MAP run s4r96: 100000000000 nw, env: ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=4 BS_SEED_THREADS=96; job 21661 on ppac-pl1-s24-26, clone at 9dfe39d, 2026-09-27 21:53:53 CDT
+srun: error: Slurm job 21661 has expired
+srun: Check SLURM_JOB_ID environment variable. Expired or invalid job 21661
+
+real	0m0.009s
+user	0m0.004s
+sys	0m0.004s

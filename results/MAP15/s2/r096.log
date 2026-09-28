@@ -1,0 +1,8 @@
+== MAP run r096: 100000000000 nw, env: ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 BS_SEED_THREADS=128; job 21662 on ppac-pl1-s24-30, clone at 47ccca1, 2026-09-27 22:02:41 CDT
+srun: error: Task launch for StepId=21662.6 failed on node ppac-pl1-s24-30: Communication connection failure
+srun: error: Application launch failed: Communication connection failure
+srun: Job step aborted
+
+real	0m3.101s
+user	0m0.008s
+sys	0m0.008s

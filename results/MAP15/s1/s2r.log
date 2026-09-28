@@ -1,0 +1,9 @@
+== MAP run s2r: 100000000000 nw, env: ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=2; job 21661 on ppac-pl1-s24-26, clone at 9dfe39d, 2026-09-27 21:53:48 CDT
+srun: error: Node failure on ppac-pl1-s24-26
+srun: error: Task launch for StepId=21661.5 failed on node ppac-pl1-s24-26: Invalid job credential
+srun: error: Application launch failed: Invalid job credential
+srun: Job step aborted
+
+real	0m5.060s
+user	0m0.004s
+sys	0m0.014s

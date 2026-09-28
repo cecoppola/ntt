@@ -1,0 +1,16 @@
+2026-09-27 21:57:14 CDT MAP sweep: /shared/prerelease/home/mpo_2026/chcoppola/MAP15/build/w at 47ccca1, 6 runs from /shared/prerelease/home/mpo_2026/chcoppola/MAP15/map_plan_s2.txt, sbatch -w ppac-pl1-s24-30
+2026-09-27 21:57:14 CDT job 21662 submitted
+2026-09-27 21:57:34 CDT job 21662 running on ppac-pl1-s24-30
+  node /tmp: /dev/nvme0n1p2  1.8T  314G  1.4T  19% /
+2026-09-27 22:02:29 CDT s1r 100000000000 nw | total  | init 8.56153 | bs 101.35 | recip 59.68 | dm  | T1  | seedwait 6.25 | seedthr 21.69 (16.41, 0.00) | tl 29.23  35.90 40.69 | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY | - | 294s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=1
+2026-09-27 22:02:32 CDT r0d 100000000000 nw | total  | init  | bs  | recip  | dm  | T1  | seedwait  | seedthr  | tl     | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 233 | - | 3s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16
+2026-09-27 22:02:35 CDT s1r96 100000000000 nw | total  | init  | bs  | recip  | dm  | T1  | seedwait  | seedthr  | tl     | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 233 | - | 3s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=1 BS_SEED_THREADS=96
+2026-09-27 22:02:38 CDT s1r128 100000000000 nw | total  | init  | bs  | recip  | dm  | T1  | seedwait  | seedthr  | tl     | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 233 | - | 3s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=1 BS_SEED_THREADS=128
+2026-09-27 22:02:41 CDT s1b8 100000000000 nw | total  | init  | bs  | recip  | dm  | T1  | seedwait  | seedthr  | tl     | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 233 | - | 3s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=1 DB_POOL_VMM_STREAM_BATCH=8 BS_SEED_THREADS=128
+2026-09-27 22:02:45 CDT r096 100000000000 nw | total  | init  | bs  | recip  | dm  | T1  | seedwait  | seedthr  | tl     | remaps 0 0.00 s | after recip 0 0.00 s | growth 0 | no VERIFY rc 233 | - | 4s | ppac-pl1-s24-30 | ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 BS_SEED_THREADS=128
+srun: error: Node failure on ppac-pl1-s24-30
+srun: error: Task launch for StepId=21662.7 failed on node ppac-pl1-s24-30: Invalid job credential
+srun: error: Application launch failed: Invalid job credential
+srun: Job step aborted
+2026-09-27 22:02:52 CDT job 21662 cancelled (318 s used)
+2026-09-27 22:02:52 CDT done

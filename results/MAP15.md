@@ -95,15 +95,101 @@ s24-16 2026-09-17, job 20945 s24-30 2026-09-22; RESULTS.md), so a coincidence is
 the next series repeats W = 1 first on s24-30; a second failure stops all node work with the switch. s24-26 stays down (needs the
 admin).
 
+### 2.3 The repeat on s24-30, and the second node failure (job 21662, 47ccca1, 22:57–23:03 EDT; measured)
+
+`s1r` again (room, W = 1, the rest now deferred to the device top tier): the seeds ended at 29.23 s (no wait for the regions),
+level 1's chunks at 35.90 s, level 1 started 35.90 (11.4 s: 6.2 s waiting for APU0's parity-1 half). The rest (3 chunks on APUs 1–3)
+was released at 70.5 s by the first device top-tier level and mapped by 72.7 s while the GPUs ran it. From there the run
+degraded: **the mdev tier 39.6 s (≈ 27 s normally), the reciprocal 59.7 s (≈ 38 s)**, and the node rebooted in dm (Slurm
+NODE_FAIL "Node unexpectedly rebooted", 23:02:51 EDT); the five runs after it failed at launch (rc 233). **No further node work
+with the switch.**
+
+| | W = 4 (s4r) | W = 1 (s1r, job 21661) | W = 1 (s1r, job 21662) |
+|---|---|---|---|
+| mapping while GPU kernels ran (beyond the seed DMAs) | none: every chunk mapped by 44.0 s, level 1 at 58.8 s | the rest (11 chunks) during level 1 (34.9–37.6 s) | the rest (9 chunks) during bs's device top tier (70.5–72.7 s) |
+| outcome | VERIFY OK | node reboot after bs level 4 | slow mdev tier and reciprocal, then node reboot in dm |
+
+Every other run of this report (15, stream off or W = 4, 2add00f–9dfe39d) finished with VERIFY OK. The common factor of the two
+failures is **VMM chunks created, mapped and given access while the GPUs run the bs products** (the old code maps the arena's rest
+while only the seed DMAs run; its dm remaps and growths happen between products). The mechanism is not known (driver or firmware;
+no node-side log is available to me). 47ccca1's `DB_POOL_VMM_STREAM` therefore refuses to run without `DB_POOL_VMM_STREAM_ACK=1`
+(b94072c).
+
+## 3. Conclusions
+
+**(a) The arena's second half in the background, in chunks — not worth it as built, and not safe.**
+- The seeds were the obvious waste (idle 4.9–6.9 s for all four parity-0 halves); the stream removes that wait exactly as
+  modelled: **seeds end 28.3 / 29.2 s instead of 34.3–35.5 s** (measured, W = 1).
+- But level 1 does not move (34.9 / 35.9 s against 34.7–35.4 s on the old path, measured), because **the mapping itself is the
+  floor**: level 1 needs 124 chunks (266 GB), and the mapping runs at ≈ 0.2 s per 2 GiB chunk whoever calls it (one worker:
+  0.216 s/chunk; the old four pregrow threads 0.16–0.19 and the old background mappers 0.20–0.23 with the seeds computing;
+  0.131 only with the CPU idle). `hipMemCreate` is ≈ 70 % of it, `hipMemSetAccess` ≈ 30 %, `hipMemMap` and the zeroing ≈ 0.
+- The runtime serializes the calls (RL); four workers at once map slower (0.27 s/chunk) and starve other threads' launches
+  (32.9 s for one seed DMA): there is no concurrency to buy.
+- Letting the bs levels wait only for their own chunks (item 4 of §1) would overlap level 1 with the mapping — exactly the
+  regime that preceded both node failures. Not built.
+- With `BS_ARENA_ROOM=0.16` the same (its extra chunks are in the rest, not on level 1's path).
+
+**(b) The seed threads.** On the old path (f1, measured): 192 threads (the default): level 1 at 35.07 / 35.40 s; 96: 36.46 s (spans
+16.6 → 19.9 s; the mapping ×1.1 faster does not make up for it); 48: 47.63 s (spans 35.7 s). **Keep all threads.** The freed threads
+would only help the mapping, which the seeds then wait for; with the stream (seeds 6 s early) 96 / 128 threads were in the plan but
+not run (the node failure).
+
+**(c) What else the timeline shows** (measured, `ECALC_INIT_TL=1`, 5162a8f — the only part of this branch recommended for merging):
+- rns_init: staging and contexts 1.5–2.5 s, the plane pools 4.2–5.6 s (hipMalloc, ≈ 0.045 s/GB), then the arenas.
+- The old background mapper lock (`g_vmm_map_mx`) is not fair: one APU maps 4–7 chunks in a row while the other three queue
+  (9–12 s each); harmless for level 1 (it needs every APU's half) but it is why the per-APU "done" times spread 4–15 s.
+- The seed thread's pinned buffers (2 × 8 GiB) cost 1.4–1.6 s at its start, on its path.
+- **The lever that remains is the mapping rate, and it is outside the VMM path**: hipMalloc maps at 0.036–0.05 s/GB against
+  hipMemCreate's 0.077–0.1 (R114 §6b, measured there). R114 measured the VMM arena at **+8 s of init at 10¹¹** against the
+  hipMalloc arena; it was adopted for the memory ceiling (no in-phase hipMalloc fallback, 1.4 × 10¹¹ at cap 2³¹). With
+  `BS_ARENA_ROOM=0.16` the division at 10¹¹ remaps 0 times (AS15), so **`DB_POOL_VMM=0` at the sizes where memory allows** may be
+  worth one paired series (existing switches, no code; untested here — the nodes went down). Under `DB_POOL_VMM=0` the seeds also
+  store directly into the regions (no buffers, no DMA: R114's other +8 s of bs).
+
+**Expected gain of this branch at 10¹¹ and at the target: 0** (the stream is refused; the timeline switch is print only).
+
+## 4. Tests
+
+| test | command | size | result | when |
+|---|---|---|---|---|
+| timeline, stream off | `map_sweep.sh 2add00f ~/MAP15/f1 map_plan_f1.txt` (job 21659, s24-30) | 10¹¹ × 7 (defaults, room, 96 / 48 seed threads, `ECALC_SEED_ORDER=after`) | **7 × VERIFY OK**; totals 187.1–199.5 s (`results/MAP15/f1/summary.txt`) | 22:21–22:44 EDT |
+| stream, e9 | `DB_POOL_VMM_STREAM=4 ./ecalc 1e9` (job 21661, s24-26) | 10⁹ | VERIFY OK, 12.41 s | 22:44 |
+| stream off, room | r0c (job 21661) | 10¹¹ | VERIFY OK, 179.07 s | 22:47 |
+| stream W = 4, room | s4r (job 21661) | 10¹¹ | VERIFY OK, 216.91 s (seed launch starved) | 22:51 |
+| stream W = 1, room | s1r (job 21661, s24-26) | 10¹¹ | **node reboot** | 22:53 |
+| stream W = 1, room, rest deferred | s1r (job 21662, s24-30) | 10¹¹ | **node reboot** | 23:02 |
+| build | `make` on the aac6 login node, b94072c | — | builds; `DB_POOL_VMM_STREAM=1` refused at the first arena | 23:05 |
+
+**Not run** (stopped after the second node failure; two of the three nodes down, the third G5's): `t_dbig 0`,
+`mnaccept --stress --only unit,e9,mn,stress`, 10¹¹ via `digcmp.sh`, the timing series. With the stream off every new code path is
+print only or a wait that returns at once (`pool_get` parity 0, `seed_wait_map`, `db_vmm_stream_rest`), and the f1 / r0c runs on
+this branch (10¹¹ × 8, VERIFY OK) exercised them; the gates are still owed before anything here merges:
+`./mnaccept.sh $J --stress --only unit,e9,mn,stress` and `./tests/t_dbig 0` at b94072c, stream off.
+
+## 5. Open issues
+
+- **Two nodes down** (s24-26, s24-30: "Node unexpectedly rebooted", 22:53 and 23:02 EDT) — they need the admin to resume them. The
+  cause is not established; the correlation with VMM mapping during GPU compute is strong (2 of 2 against 0 of 15).
+- If the stream is ever tried again: a unit test that maps chunks on one APU while kernels run on all four, on a node the admin can
+  spare, before any full run.
+- The old path also maps during compute at some sizes (the background rest when the seeds end before it, and the dm growths): no
+  failure is known there, but the same question applies.
+- `DB_POOL_VMM=0` with `BS_ARENA_ROOM=0.16` at 10¹¹ (§3 c): an untested idea for the init floor.
+
+**Outside my files** (named): `binsplit.c` outside the seed code — `pool_get`'s parity-0 wait (one line) and the
+`db_vmm_stream_rest()` call in the level loop (one line), plus `ECALC_INIT_TL` marks at level 1–3 (print only); `dbig.h` prototypes.
+`tests/map_sweep.sh`, `tests/map_plan_*.txt` are new.
+
+## 576-node estimate (standing rule)
+
+Unchanged by this work (nothing here is on by default or recommended): **4.25 × 10¹³ digits in ≈ 256 s (4.3 min) without the write,
+≈ 286 s (4.8 min) with the packed write at 0.6 GB/s per node** (modelled, RESULTS §87 / DOC15, as AS15 quotes); node memory 416 GB of
+480 on the defaults (modelled).
+
 ## RESUME
 
-- 5162a8f: `ECALC_INIT_TL=1` (print only), README row. 2add00f: `tests/map_sweep.sh`, `tests/map_plan_f1.txt`. d67bc66: §1.
-- 18af9e9 + 2880e30 + 9dfe39d: **`DB_POOL_VMM_STREAM=<W>`** (dbig.c: `vmm_stream_worker`, `stream_pick`, `db_vmm_wait_range`;
-  binsplit.c seed code: `seed_wait_map` before each seed DMA, the seeds' own `pool_get(0)` without waiting; binsplit.c `pool_get`:
-  parity 0 waits for its half outside pregrow — a one-line edit outside the seed code, named). Builds on aac6. README row: to do.
-- 47ccca1: the rest deferred (`DB_POOL_VMM_STREAM_REST`), plan s2. s1 (job 21661) ended by the node failure (§2.2).
-- **s2 running**: job 21662 on s24-30 (`-w`), launched 22:57 EDT: `MAP_CLONE=~/MAP15/build/w map_sweep.sh 47ccca1 ~/MAP15/s2
-  ~/MAP15/map_plan_s2.txt -w ppac-pl1-s24-30`, log `~/MAP15/s2.out`. If s24-30 fails during s1r: stop, report.
-- f1 done (job 21659, s24-30; `~/MAP15/f1/summary.txt`). s1 chained: `~/MAP15/chain_s1.sh` waits for f1's "done", then runs
-  `map_sweep.sh 9dfe39d ~/MAP15/s1 ~/MAP15/map_plan_s1.txt` from the scratch clone `~/MAP15/build/w` (MAP_CLONE; detached at
-  9dfe39d). Log `~/MAP15/s1.out`. Next: read s1, decide W and the seed threads, then the gates and the timing series.
+- **Stopped** after the second node failure (§2.3). Branch `p15-MAP` at b94072c + this report; aac6 clone `~/ntt-MAP15` at b94072c
+  (built); scratch clone `~/MAP15/build/w` (47ccca1). Logs in `results/MAP15/{f1,s1,s2}`. No job of mine running or pending.
+- Recommended for merging: `ECALC_INIT_TL` only (5162a8f; print only). `DB_POOL_VMM_STREAM` stays behind its ACK guard; do not adopt.
+- Owed before any merge: the gates of §4 at b94072c with the stream off. For the user: the two nodes need the admin.

@@ -1,0 +1,79 @@
+== MAP run s1r: 100000000000 nw, env: ECALC_INIT_TL=1 BS_ARENA_ROOM=0.16 DB_POOL_VMM_STREAM=1; job 21661 on ppac-pl1-s24-26, clone at 9dfe39d, 2026-09-27 21:51:29 CDT
+== ecalc: e to 100000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-26 date=2026-09-27T21:51:29 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+ECALC_PLANE_CAP: 2^31 points (POOL_LOG=31 RNS_PLANES_3Q30=0 DIST_LOGN_TEST=31)
+tl    0.00  rns_init begins
+rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most 58424467928 terms per product
+tl    2.30  staging and contexts done (2.08 s)
+tl    7.18  plane pools done (4.89 s)
+tl    7.28  seed thread starts (all threads)
+tl    7.78  APU0 arena: 39 chunks (parity-0 half 0..19, parity-1 half ..38) to the stream
+dbig pool: APU0 VMM arena 83.75 GB = 39 chunks of 2.00 GiB, mapped by the stream (DB_POOL_VMM_STREAM=1, 2 chunks per call), VA 253.4 GB reserved at 0x7ccb2bc00000
+tl    7.78  APU1 arena: 32 chunks (parity-0 half 0..14, parity-1 half ..28) to the stream
+dbig pool: APU1 VMM arena 68.72 GB = 32 chunks of 2.00 GiB, mapped by the stream (DB_POOL_VMM_STREAM=1, 2 chunks per call), VA 208.3 GB reserved at 0x7c9aaba00000
+tl    8.02  APU3 arena: 32 chunks (parity-0 half 0..13, parity-1 half ..26) to the stream
+dbig pool: APU3 VMM arena 68.72 GB = 32 chunks of 2.00 GiB, mapped by the stream (DB_POOL_VMM_STREAM=1, 2 chunks per call), VA 208.3 GB reserved at 0x7c6a2b800000
+tl    8.02  APU2 arena: 32 chunks (parity-0 half 0..14, parity-1 half ..28) to the stream
+dbig pool: APU2 VMM arena 68.72 GB = 32 chunks of 2.00 GiB, mapped by the stream (DB_POOL_VMM_STREAM=1, 2 chunks per call), VA 208.3 GB reserved at 0x7c37a3e00000
+bs: arenas 289.9 GB allocated in 0.52 s (layout pass 0.22 s; dm extra 28.7 GB, tails 90.3 GB)
+      init: region pools 0.74 s (inside rns_init, before the plane pools: the seeds stream into them)
+tl    8.03  the hook (region arenas, the seed thread started) done
+tl    8.14  peer access done (0.11 s)
+tl    8.14  the stream is released (1 workers, 2 chunks per call)
+      init: rns_init 8.14 s, region pools 0.00 s, the rest 0.00 s
+RESULT ecalc init s 8.1385
+      VmRSS 19.9 GB after init (staging 4.3 GB pinned + device regions 290 GB); init 8.1 s
+mem [init] device 393.6 GB in use (per APU 94.6..109.7): planes 103.1, regions 289.9, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.61, other 0.0
+mem [init] host 19.9 GB RSS (HWM 19.9): staging 12.9 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 7.0
+budget: rank 0: peak 417.5 GB (device 393.6, host 23.9), still to take 0.0 GB | node of 1 rank: peaks 417.5 of 480 GB, to take 0.0 of MemAvailable 397.3 GB | rank share 480.0 GB
+budget: ECALC_BUDGET_CHECK ok: 1 rank, largest rank peak 417.5 GB, node budget 480 GB
+tl    8.90  seed thread: buffers allocated (1.62 s)
+tl   12.06  APU0 stream: the parity-0 half is mapped (chunks 0..19)
+tl   12.06  APU0 waited 3.32 s for chunks 0..19 of the arena
+tl   15.24  APU1 stream: the parity-0 half is mapped (chunks 0..14)
+tl   15.24  APU1 waited 3.18 s for chunks 0..14 of the arena
+tl   18.83  APU2 stream: the parity-0 half is mapped (chunks 0..14)
+tl   18.83  APU2 waited 3.59 s for chunks 0..14 of the arena
+tl   22.17  APU3 stream: the parity-0 half is mapped (chunks 0..13)
+tl   22.17  APU3 waited 3.34 s for chunks 0..13 of the arena
+tl   22.17  bs: joining the seed thread
+tl   28.03  seed thread: every span computed (12 chunks, spans 16.36 s)
+tl   28.33  seed thread ends (21.05 s)
+tl   28.35  bs: the seeds are joined
+bs: seeds were computed during init (21.05 s: buffers 1.62 + 0.10, spans 16.36, waited 0.00 for the regions, 0.75 for the DMA, 2.21 issuing it (max 0.87); 12 chunks of 8191 MB, 12 through a buffer, the rest stored into the regions; BI_MUL1_FAST=1)
+bs: 10433891470 terms, 45562845 spans of 229, seeds 6.18 s (waiting for the init thread)
+tl   33.42  APU1 stream: the parity-1 half is mapped (chunks ..28)
+tl   33.80  APU2 stream: the parity-1 half is mapped (chunks ..28)
+tl   34.04  APU3 stream: the parity-1 half is mapped (chunks ..26)
+tl   34.93  APU0 stream: the parity-1 half is mapped (chunks ..38)
+tl   34.93  APU0 stream: all 39 chunks mapped, 26.79 s after its first (create 5.40, map 0.14, access 2.42, zero 0.43)
+tl   34.93  APU0 waited 6.11 s for chunks 28..38 of the arena
+tl   34.93  bs: level 1 starts (its pools are there)
+tl   36.52  APU1 stream: all 32 chunks mapped, 24.46 s after its first (create 3.84, map 0.06, access 1.64, zero 0.51)
+tl   36.72  APU2 stream: all 32 chunks mapped, 21.48 s after its first (create 4.91, map 0.01, access 1.60, zero 0.47)
+tl   37.63  APU3 stream: all 32 chunks mapped, 18.80 s after its first (create 5.99, map 0.01, access 1.60, zero 0.46)
+bs:   layout 8.045  batch 4.448  add+norm 0.422
+tl   41.27  bs: level 1 done (batch, 12.91 s)
+bs: level  1 batch  22781422 pairs  max_nl        128  pool  89.34 GB  12.91 s  (batch 3.49: scatter 0.30 ntt 1.50 crt 0.31 merge 0.19)
+live: bs level 1 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.00 0.00 0.00 0.00 GB per APU; peak/pool 0.0 %; MemAvailable 120.7 GB, Cached 0.5 GB
+tl   41.50  bs: level 2 starts (its pools are there)
+bs:   layout 0.463  batch 1.900  add+norm 0.066
+tl   43.71  bs: level 2 done (batch, 2.43 s)
+bs: level  2 batch  11390711 pairs  max_nl        255  pool  89.11 GB  2.43 s  (batch 1.52: scatter 0.23 ntt 0.71 crt 0.20 merge 0.07)
+live: bs level 2 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.00 0.00 0.00 0.00 GB per APU; peak/pool 0.0 %; MemAvailable 122.4 GB, Cached 0.5 GB
+tl   43.80  bs: level 3 starts (its pools are there)
+bs:   layout 0.251  batch 1.122  add+norm 0.031
+tl   45.12  bs: level 3 done (batch, 1.40 s)
+bs: level  3 batch   5695356 pairs  max_nl        510  pool  89.00 GB  1.40 s  (batch 0.93: scatter 0.10 ntt 0.33 crt 0.29 merge 0.03)
+live: bs level 3 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.00 0.00 0.00 0.00 GB per APU; peak/pool 0.0 %; MemAvailable 123.3 GB, Cached 0.5 GB
+bs:   layout 0.069  batch 1.009  add+norm 0.015
+bs: level  4 batch   2847678 pairs  max_nl       1020  pool  88.95 GB  1.09 s  (batch 0.92: scatter 0.25 ntt 0.48 crt 0.24 merge 0.02)
+live: bs level 4 batch               pool live 0.00 0.00 0.00 0.00 | window peak 0.00 0.00 0.00 0.00 | pool 0.00 0.00 0.00 0.00 GB per APU; peak/pool 0.0 %; MemAvailable 123.8 GB, Cached 0.5 GB
+srun: error: _server_read: fd 11 error reading header: Connection timed out
+srun: error: step_launch_notify_io_failure: aborting, io error with slurmstepd on node 0
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+srun: error: Timed out waiting for job step to complete
+
+real	2m18.817s
+user	0m0.010s
+sys	0m0.011s
