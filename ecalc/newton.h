@@ -30,7 +30,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; } newton_stats;
+typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: NEWTON_DKM's step-1 corrections (not in down/up) */
+/* Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 (off by default) -- the division in two quotient halves with a half-length reciprocal
+ * (GMP mu_div): mu to h = floor(k/2) + 1 limbs; step 1 = the shifted division of A >> s (s = min(floor(k/2), dl)) by Q, exact (its own
+ * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST_CORR and the
+ * deferred corrections act at step 2 as they do today.  NEWTON_DKM_TEST_HI=<k> (a test hook, |k| <= 60) moves X_hi by -k before
+ * step 1's corrections.  Size 1: newton_db_divmod_shifted (and newton_db_recip when newton_db_Qd is set: the device flow's prewarm);
+ * size > 1: newton_mn_divmod */
+int newton_dkm_on(void);
+void newton_dkm_set(int on);                          /* tests: override NEWTON_DKM */
+size_t newton_dkm_h(size_t k);                        /* the reciprocal's length under DKM for a quotient of k limbs */
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
