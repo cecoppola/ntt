@@ -1,0 +1,37 @@
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:28:14
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:28:14
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:28:14
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:28:14
+mn: node 1 of 4, four meshes of 4 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 21520): connected in 0.05 s
+mn: node 1: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+t_mn_grid: node 1 of 4, group [0, 4) (4 x 4 ranks), plane cap 2^26, unit 67108864 limbs
+mn: node 0 of 4, four meshes of 4 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 21520): connected in 0.00 s
+mn: node 0: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+t_mn_grid: node 0 of 4, group [0, 4) (4 x 4 ranks), plane cap 2^26, unit 67108864 limbs
+mn: node 2 of 4, four meshes of 4 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 21520): connected in 0.17 s
+mn: node 3 of 4, four meshes of 4 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 21520): connected in 0.09 s
+mn: node 2: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+mn: node 3: level 2 group [0, 4) (transform nodes 4): meshes connected in 0.00 s
+t_mn_grid: node 2 of 4, group [0, 4) (4 x 4 ranks), plane cap 2^26, unit 67108864 limbs
+t_mn_grid: node 3 of 4, group [0, 4) (4 x 4 ranks), plane cap 2^26, unit 67108864 limbs
+   one plane 20132659 x 16777216: 1.62 s
+   2 pieces 40265318 x 33554432: 1.64 s
+   2x3 69122129 x 69122129: 3.25 s
+   3x1 100663296 x 26843545: 1.63 s
+   subgroups 60397977 x 60397977: 2.05 s
+mn: node 3: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.03 s
+t_mn_grid: node 3: level-1 group [2, 4), cap 2^25, unit 33554432 limbs
+mn: node 2: level 1 group [2, 4) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 2: level-1 group [2, 4), cap 2^25, unit 33554432 limbs
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.10 s
+t_mn_grid: node 0: level-1 group [0, 2), cap 2^25, unit 33554432 limbs
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 1: level-1 group [0, 2), cap 2^25, unit 33554432 limbs
+
+t_mn_grid: VERIFY OK (224 checks)
+
+t_mn_grid: VERIFY OK (224 checks)
+
+t_mn_grid: VERIFY OK (224 checks)
+
+t_mn_grid: VERIFY OK (224 checks)

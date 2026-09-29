@@ -1,0 +1,17 @@
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:22:30
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T17:22:30
+mn: node 0 of 2, four meshes of 2 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 23571): connected in 0.00 s
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 0 of 2, group [0, 2) (2 x 4 ranks), plane cap 2^25, unit 33554432 limbs
+mn: node 1 of 2, four meshes of 2 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 23571): connected in 0.08 s
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 1 of 2, group [0, 2) (2 x 4 ranks), plane cap 2^25, unit 33554432 limbs
+   one plane 10066329 x 8388608: 1.33 s
+   2 pieces 20132659 x 16777216: 1.41 s
+   2x3 34561064 x 34561064: 2.68 s
+   3x1 50331648 x 13421772: 1.17 s
+   subgroups 30198988 x 30198988: 1.37 s
+
+t_mn_grid: VERIFY OK (200 checks)
+
+t_mn_grid: VERIFY OK (200 checks)
