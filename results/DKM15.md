@@ -316,16 +316,69 @@ Stage C was job 21773, 19:20–20:05 EDT, on commit 5eb35dc (`dkm15_batch.sh C`)
 | on_1 | `NEWTON_DKM=1` | **162.7 s** | **154.08 s** | **11.76** | **63.07** | 51.31 s: step 1 A mu 7.15, X_hi Q 17.20, step 2 A mu + assembly 7.38, X_lo Q 18.17, corrections 0.74 | identical |
 | off_2 | off | 183.7 s | 181.54 s | 36.48 | 88.82 | 52.34 s | VERIFY OK (not compared: the limit) |
 
+Stage D ran as job 21778, 20:06–20:35 EDT, on commit a55a14c:
+
+| run | switch | wall with the file | `total` | recip | dm | init / bs | digits |
+|---|---|---|---|---|---|---|---|
+| on_2 | on | 156.3 | 154.01 | 11.92 | 62.93 | 18.6 / 72.0 | **identical** (digcmp against `e_1e11.out`, 20:35 EDT) |
+| off_2′ | off | 184.2 | 181.96 | 36.56 | 88.80 | 19.6 / 73.2 | the same bytes as on_2's |
+| on_3 | on | 191.7 | 188.74 | 11.87 | 63.32 | **31.1 / 93.9** | the same bytes as on_2's |
+| off_3 | off | 188.0 | 184.70 | 36.64 | 88.83 | — | the same bytes as on_2's |
+
+**Summary (measured, s24-26; 4 off runs, 3 on runs):**
+- **dm: 88.79 → 63.11 s (−25.7 s, −28.9 %).** The spread is ≤ 0.4 s per side.
+  - The reciprocal accounts for **−24.7 s** (36.54 → 11.85).
+  - The division itself goes 52.25 → 51.26 s (−1.0). The model's 1.0 → 1.0 n² area holds.
+- **`total`: 182.4 → 154.0 s (−28.4 s), and the wall with the file: 184.9 → 159.5 s (−25.4 s)**, both over on_1 / on_2 against the
+  four off runs.
+  - on_3 is excluded as an outlier in phases that end before the division: init 31.1 against 18.6–19.6 s, and bs 93.9 against
+    72.0–73.2 s. Its dm was 63.3 s.
+  - Including on_3, the means are 165.6 / 170.2 s (−16.8 / −14.7 s).
+- **The writer is less hidden, as modelled.** The file's exposed tail (wall − `total`) is 2.1–3.3 s off against 2.3–8.6 s on. The
+  hook now comes before only step 2's low product, 18.2 s, against today's 25.7 s low product.
+- **The digits are identical in every run** (§4.1–§4.4).
+
+## 5. Summary, open issues, what is outside my files
+
+**Result.** `NEWTON_DKM=1` gives identical digits at every size tested:
+- t_newton section 6;
+- e9 through the device flow (off, on, forced);
+- 4 × 10¹⁰;
+- 10¹¹ (7 runs);
+- mn e8 at sizes 2, 3, 4 and e9 at sizes 2, 4, including forced corrections (`ECALC_TEST_CORR`, `NEWTON_DKM_TEST_HI`) under
+  `ECALC_CORR_PATCH` 0 and 2.
+
+**Size 1** (measured, 10¹¹, one node): dm −25.7 s (−29 %), `total` −28.4 s, and the wall with the file −25.4 s.
+
+**Size > 1** (modelled, 5.1 × 10¹³ on 576 nodes): −23.1 / −9.5 s at cache 2, and −30.4 / −13.3 s at cache 0 (no write / with the
+write). With an X_hi writer (not built), the with-write figures would be −20.9 / −27.3 s.
+
+**Memory:** no change as built, and −5.1 GB per node modelled with a `dm_layout` that follows it (not −20 GB: §3).
+
+**Open issues:**
+1. **The §4.3 defect on main (not DKM):** `mn_out_tail_fix` patches ASCII offsets into packed files. It has been reported to the
+   integrator. Any correction whose digits lie in the file fails VERIFY under the defaults. The long-chain cases here pass only with
+   `ECALC_CORR_PATCH=0` or `ECALC_OUT_PACKED=0`, and I have not re-run them with DKM after a fix.
+2. **The plan printer does not follow the switch.** `mn_plan.c` is P24's file, so `MN_PLAN_ONLY` under `NEWTON_DKM=1` prints
+   today's reciprocal and division pieces. It needs one `if` around `plan_recip_mn` / `show_mn` with the lengths of §1.2. The
+   model's plan does follow the switch.
+3. **`dm_layout`** (binsplit.c) does not know DKM. The −5.1 GB needs the hole sized to k + 8 and the reciprocal's jl at h.
+4. **The X_hi writer** (§1.3), in `mn_out.c` / `ecalc.c`, would recover about half of the with-write gain at the target.
+5. **The host flow** (`newton_db_divmod`, below the device tier, and binary limbs) has no DKM form. It is not a production path.
+6. **Size > 1 was tested only on one node** (loopback, sizes 2–4, 10⁸–10⁹). The fabric terms of the model are assumed.
+7. **One 10¹¹ on run (on_3) was an outlier in init / bs.** A clean paired series of ≥ 3 on runs without outliers would firm up the
+   `total` figure. The dm figure is firm.
+
+**Outside my files:**
+- `ecalc/dkm15_batch.sh` and `tests/dkm15_model.py` are new files.
+- The README row.
+- Nothing in `mn_out.c`, `binsplit.c`, `mn_plan.c`, `rns_dist.c` or `ecalc.c` was changed.
+
 ## RESUME
 
-- **Committed:**
-  - c00efbd: the note.
-  - 0edd856: size 1 (`newton_db_divmod_shifted` → `divmod_shifted_dkm`, `newton_db_recip`'s length, `NEWTON_DKM_TEST_HI`, t_newton
-    section 6).
-  - 66d632c: size > 1 (`mn_divmod_dkm`) and the README row.
-  - 3fc51d6: `ecalc/dkm15_batch.sh` (stages A, B, C).
-  - 156ff25: the models (`MN_MODEL_DKM`, `mem_model.dm_layout(dkm)`, `tests/dkm15_model.py`, `results/DKM15/model.txt`).
-- **aac6:** `~/ntt-DKM15` is at 3fc51d6. It builds clean, and the models do not need the node.
-- **Stage A** (`dkm15_batch.sh A 3fc51d6`, the log in `~/dkm15tmp/A/batch.log`) was launched at 17:58 EDT. Job 21760 is pending
-  behind the integrator's B2a/B2b and another user's job on s24-16.
-- **Next:** read A's log. Then launch B (`… B <sha>`) and C, one at a time, each after the previous job has ended. Then fill §2–§4.
+**The work is complete** (stages 1–3 done). The branch is `p15-DKM`, and aac6 `~/ntt-DKM15` is at a55a14c. No jobs of mine are
+running or pending, and the logs are in aac6 `~/dkm15tmp/{A,B,C,D}/`.
+
+What remains is for the integrator or a successor:
+- **Before any adoption:** the §4.3 fix on main (not DKM's), then DKM's long-chain cases re-run with the patch at sizes 1, 2 and 4.
+- **Then:** the follow-ups in §5 (2–4), and the user's decision on `NEWTON_DKM`.
