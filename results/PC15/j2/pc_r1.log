@@ -1,0 +1,273 @@
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-26 date=2026-09-28T22:27:34 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 10000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-26 date=2026-09-28T22:27:34 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+mn: node 0 of 2, four meshes of 2 ranks on ppac-pl1-s24-26,ppac-pl1-s24-26 (port base 20785): connected in 0.10 s
+mn: node 1 of 2, four meshes of 2 ranks on ppac-pl1-s24-26,ppac-pl1-s24-26 (port base 20785): connected in 0.04 s
+mn: self-test, four meshes over 2 nodes at 2^22 points: ok (3.24 s)
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+mn: self-test, four meshes over 2 nodes at 2^22 points: ok (3.26 s)
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+mn: layered self-test, 2 x 4 ranks at 2^22 points: ok (0.22 s)
+mn: node 0 computes terms [1, 579393793) of 1158787585
+RESULT ecalc init s 7.70902
+      VmRSS 8.8 GB after init (staging 4.3 GB pinned + device regions 32 GB); init 7.7 s
+mem[0] [init] device 42.0 GB in use (per APU 8.9..15.3): planes 8.6, regions 0.0, block pool 32.2 (donated 0.0, borrowed 32.2, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 1.23, other 0.0
+mem[0] [init] host 8.8 GB RSS (HWM 11.7): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.5
+mem[0] [init]   APU0: in use 15.3 GB: planes 2.15 pool:borrowed 12.88 tables 0.31  (driver: 30.5 of 137.4 GB used)
+mem[0] [init]   APU1: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.31  (driver: 17.6 of 137.4 GB used)
+mem[0] [init]   APU2: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.31  (driver: 17.6 of 137.4 GB used)
+mem[0] [init]   APU3: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.31  (driver: 17.6 of 137.4 GB used)
+mn: layered self-test, 2 x 4 ranks at 2^22 points: ok (0.24 s)
+mn: node 1 computes terms [579393793, 1158787586) of 1158787585
+RESULT ecalc init s 7.71697
+      VmRSS 8.8 GB after init (staging 4.3 GB pinned + device regions 32 GB); init 7.7 s
+mem[1] [init] device 42.0 GB in use (per APU 8.9..15.3): planes 8.6, regions 0.0, block pool 32.2 (donated 0.0, borrowed 32.2, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 1.22, other 0.0
+mem[1] [init] host 8.8 GB RSS (HWM 11.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.5
+mem[1] [init]   APU0: in use 15.3 GB: planes 2.15 pool:borrowed 12.88 tables 0.30  (driver: 30.5 of 137.4 GB used)
+mem[1] [init]   APU1: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.30  (driver: 17.6 of 137.4 GB used)
+mem[1] [init]   APU2: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.30  (driver: 17.6 of 137.4 GB used)
+mem[1] [init]   APU3: in use 8.9 GB: planes 2.15 pool:borrowed 6.44 tables 0.31  (driver: 17.6 of 137.4 GB used)
+budget: ECALC_BUDGET_CHECK ok: 2 ranks, largest rank peak 123.1 GB, node budget 480 GB
+mn: node 0 leaf P 268088063 limbs, Q 268088063 limbs (device)
+mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products
+mn: node 1 leaf P 287467497 limbs, Q 287467497 limbs (device)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.81 GB per APU (the smallest), the product's need 1.23, margin 0.50 -> 11 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.74 GB per APU (the smallest), the product's need 1.19, margin 0.50 -> 11 planes
+cache_trace node 0: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 2: A cached B cached | 4.657 s: redistribute 0.554 ntt 3.496 crt 0.005 out 0.735 carry 0.038 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 2: A cached B cached | 4.657 s: redistribute 0.704 ntt 3.443 crt 0.006 out 0.739 carry 0.038 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 2: A HIT B - | 2.361 s: redistribute 0.061 ntt 2.038 crt 0.006 out 0.153 carry 0.135 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 2: A HIT B - | 2.361 s: redistribute 0.059 ntt 2.041 crt 0.008 out 0.150 carry 0.136 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 2: A HIT B - | 2.998 s: redistribute 0.064 ntt 2.496 crt 0.006 out 0.454 carry 0.119 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 2: A HIT B - | 2.998 s: redistribute 0.062 ntt 2.517 crt 0.009 out 0.412 carry 0.119 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 2: A cached B HIT | 2.691 s: redistribute 0.080 ntt 2.388 crt 0.008 out 0.150 carry 0.117 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 2: A cached B HIT | 2.691 s: redistribute 0.092 ntt 2.379 crt 0.005 out 0.146 carry 0.117 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 2: A HIT B - | 3.121 s: redistribute 0.068 ntt 2.360 crt 0.009 out 0.629 carry 0.105 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 2: A HIT B - | 3.121 s: redistribute 0.064 ntt 2.405 crt 0.010 out 0.629 carry 0.105 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 2: A HIT B - | 3.349 s: redistribute 0.080 ntt 2.642 crt 0.010 out 0.560 carry 0.080 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 2: A HIT B - | 3.349 s: redistribute 0.063 ntt 2.639 crt 0.009 out 0.566 carry 0.080 | partial: 4 primes per slot
+dist_mn node 0: 268088063 x 287467497 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 2 slots of 4 primes, partial: 5 hits, 3 misses)
+dist_mn node 1: 268088063 x 287467497 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 2 slots of 4 primes, partial: 5 hits, 3 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.80 GB per APU (the smallest), the product's need 1.23, margin 0.50 -> 11 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.76 GB per APU (the smallest), the product's need 1.19, margin 0.50 -> 11 planes
+cache_trace node 0: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 2: A cached B cached | 4.369 s: redistribute 0.128 ntt 4.130 crt 0.005 out 0.112 carry 0.004 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 0) of 2 x 3, 134044032 + 95822499 limbs at 0, slots 2: A cached B cached | 4.369 s: redistribute 0.126 ntt 4.137 crt 0.005 out 0.113 carry 0.004 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 2: A HIT B - | 2.763 s: redistribute 0.082 ntt 2.467 crt 0.008 out 0.140 carry 0.103 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 1) of 2 x 3, 134044032 + 95822499 limbs at 95822499, slots 2: A HIT B - | 2.763 s: redistribute 0.081 ntt 2.453 crt 0.006 out 0.143 carry 0.103 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 2: A HIT B - | 2.438 s: redistribute 0.073 ntt 2.121 crt 0.009 out 0.141 carry 0.120 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 2) of 2 x 3, 134044032 + 95822499 limbs at 191644998, slots 2: A HIT B - | 2.438 s: redistribute 0.070 ntt 2.118 crt 0.009 out 0.146 carry 0.120 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 2: A cached B HIT | 2.531 s: redistribute 0.084 ntt 2.217 crt 0.009 out 0.132 carry 0.119 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 2 x 3, 134044031 + 95822499 limbs at 134044032, slots 2: A cached B HIT | 2.531 s: redistribute 0.088 ntt 2.213 crt 0.009 out 0.135 carry 0.119 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 2: A HIT B - | 2.529 s: redistribute 0.069 ntt 2.209 crt 0.010 out 0.145 carry 0.102 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 1) of 2 x 3, 134044031 + 95822499 limbs at 229866531, slots 2: A HIT B - | 2.529 s: redistribute 0.066 ntt 2.215 crt 0.010 out 0.140 carry 0.102 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 2: A HIT B - | 2.505 s: redistribute 0.070 ntt 2.270 crt 0.009 out 0.113 carry 0.079 | partial: 4 primes per slot
+dist_mn node 0: 268088063 x 287467497 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 2 slots of 4 primes, partial: 10 hits, 6 misses)
+cache_trace node 1: piece (1, 2) of 2 x 3, 134044031 + 95822499 limbs at 325689030, slots 2: A HIT B - | 2.505 s: redistribute 0.065 ntt 2.272 crt 0.010 out 0.118 carry 0.079 | partial: 4 primes per slot
+dist_mn node 1: 268088063 x 287467497 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 6 formed, 0 skipped (cache 2 slots of 4 primes, partial: 10 hits, 6 misses)
+mn: node 0 level 1 [0, 2): P 555555560 limbs, Q 555555560 limbs (my share of P [0, 277777780)) in 39.89 s
+mn: node 0: tree levels 39.89 s: P 555555560 limbs, Q 555555560 limbs
+mn: node 1 level 1 [0, 2): P 555555560 limbs, Q 555555560 limbs (my share of P [277777780, 555555561)) in 37.68 s
+mn: node 1: tree levels 37.68 s: P 555555560 limbs, Q 555555560 limbs
+mem[1] [tree] device 67.8 GB in use (per APU 15.3..21.8): planes 34.4, regions 0.0, block pool 32.2 (donated 0.0, borrowed 32.2, hipMalloc 0.0; live 4.4, peak live 20.2, free 27.8), tables 1.22, other 0.0
+mem[1] [tree] host 13.3 GB RSS (HWM 13.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 9.0
+mem[0] [tree] device 50.6 GB in use (per APU 11.0..17.5): planes 17.2, regions 0.0, block pool 32.2 (donated 0.0, borrowed 32.2, hipMalloc 0.0; live 4.4, peak live 19.2, free 27.8), tables 1.23, other 0.0
+mem[0] [tree] host 13.1 GB RSS (HWM 13.1): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 8.8
+mem[0] [tree]   APU0: in use 17.5 GB: planes 4.29 pool:borrowed 12.88 pool:live 1.11 pool:free 11.77 pool:peak-live 4.79 tables 0.31  (driver: 39.4 of 137.4 GB used)
+mem[0] [tree]   APU1: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 4.79 tables 0.31  (driver: 26.5 of 137.4 GB used)
+mem[1] [tree]   APU0: in use 21.8 GB: planes 8.59 pool:borrowed 12.88 pool:live 1.11 pool:free 11.77 pool:peak-live 5.04 tables 0.30  (driver: 39.4 of 137.4 GB used)
+mem[1] [tree]   APU1: in use 15.3 GB: planes 8.59 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 5.04 tables 0.30  (driver: 26.5 of 137.4 GB used)
+mem[1] [tree]   APU2: in use 15.3 GB: planes 8.59 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 5.04 tables 0.30  (driver: 26.5 of 137.4 GB used)
+mem[0] [tree]   APU2: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 4.79 tables 0.31  (driver: 26.5 of 137.4 GB used)
+mem[0] [tree]   APU3: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 4.79 tables 0.31  (driver: 26.5 of 137.4 GB used)
+mem[1] [tree]   APU3: in use 15.3 GB: planes 8.59 pool:borrowed 6.44 pool:live 1.11 pool:free 5.33 pool:peak-live 5.04 tables 0.31  (driver: 26.5 of 137.4 GB used)
+recip(mn): the single-node chain to 33909 limbs (1.43 s), then the sharded steps to 555555558 over 2 nodes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.50 GB per APU (the smallest), the product's need 0.96, margin 0.50 -> 11 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.50 GB per APU (the smallest), the product's need 0.96, margin 0.50 -> 11 planes
+cache_trace node 0: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 2: A cached B cached | 3.662 s: redistribute 0.323 ntt 3.393 crt 0.010 out 0.137 carry 0.004 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 0) of 3 x 1, 92592594 + 138888891 limbs at 0, slots 2: A cached B cached | 3.662 s: redistribute 0.323 ntt 3.393 crt 0.010 out 0.136 carry 0.004 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 2: A - B HIT | 2.419 s: redistribute 0.091 ntt 2.201 crt 0.007 out 0.120 carry 0.035 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 3 x 1, 92592594 + 138888891 limbs at 92592594, slots 2: A - B HIT | 2.419 s: redistribute 0.091 ntt 2.196 crt 0.009 out 0.125 carry 0.035 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 2: A - B HIT | 2.259 s: redistribute 0.083 ntt 2.088 crt 0.009 out 0.059 carry 0.056 | partial: 4 primes per slot
+dist_mn node 0: 277777782 x 138888891 limbs over 2 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 2 slots of 4 primes, partial: 12 hits, 8 misses)
+cache_trace node 1: piece (2, 0) of 3 x 1, 92592594 + 138888891 limbs at 185185188, slots 2: A - B HIT | 2.259 s: redistribute 0.080 ntt 2.070 crt 0.010 out 0.081 carry 0.056 | partial: 4 primes per slot
+dist_mn node 1: 277777782 x 138888891 limbs over 2 x 4 ranks (cap 2^28): 3 x 1 pieces, 3 formed, 0 skipped (low product) (low cut) (cache 2 slots of 4 primes, partial: 12 hits, 8 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.22 GB per APU (the smallest), the product's need 0.89, margin 0.50 -> 10 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.22 GB per APU (the smallest), the product's need 0.89, margin 0.50 -> 10 planes
+cache_trace node 0: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 2: A cached B cached | 4.258 s: redistribute 0.157 ntt 3.878 crt 0.009 out 0.266 carry 0.005 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 0) of 1 x 2, 138888891 + 69444445 limbs at 0, slots 2: A cached B cached | 4.258 s: redistribute 0.160 ntt 3.876 crt 0.009 out 0.266 carry 0.005 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 2: A HIT B - | 2.588 s: redistribute 0.056 ntt 2.366 crt 0.005 out 0.155 carry 0.054 | partial: 4 primes per slot
+dist_mn node 0: 138888891 x 138888890 limbs over 2 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 2 slots of 4 primes, partial: 13 hits, 10 misses)
+cache_trace node 1: piece (0, 1) of 1 x 2, 138888891 + 69444445 limbs at 69444445, slots 2: A HIT B - | 2.588 s: redistribute 0.054 ntt 2.373 crt 0.005 out 0.145 carry 0.054 | partial: 4 primes per slot
+dist_mn node 1: 138888891 x 138888890 limbs over 2 x 4 ranks (cap 2^28): 1 x 2 pieces, 2 formed, 0 skipped (low cut) (cache 2 slots of 4 primes, partial: 13 hits, 10 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.94 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 7 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.94 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 7 planes
+cache_trace node 0: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 1: A - B cached | 4.305 s: redistribute 0.148 ntt 3.910 crt 0.010 out 0.166 carry 0.117 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 5 x 2, 111111112 + 138888890 limbs at 111111112, slots 1: A - B cached | 4.305 s: redistribute 0.167 ntt 3.898 crt 0.009 out 0.158 carry 0.117 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 1: A - B HIT | 3.402 s: redistribute 0.087 ntt 3.069 crt 0.007 out 0.163 carry 0.106 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 0) of 5 x 2, 111111112 + 138888890 limbs at 222222224, slots 1: A - B HIT | 3.402 s: redistribute 0.087 ntt 3.070 crt 0.009 out 0.158 carry 0.106 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 1: A - B HIT | 2.443 s: redistribute 0.107 ntt 2.185 crt 0.010 out 0.103 carry 0.091 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 0) of 5 x 2, 111111112 + 138888890 limbs at 333333336, slots 1: A - B HIT | 2.443 s: redistribute 0.088 ntt 2.188 crt 0.009 out 0.108 carry 0.091 | partial: 4 primes per slot
+cache_trace node 0: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 1: A - B HIT | 2.526 s: redistribute 0.079 ntt 2.305 crt 0.010 out 0.069 carry 0.071 | partial: 4 primes per slot
+cache_trace node 1: piece (4, 0) of 5 x 2, 111111112 + 138888890 limbs at 444444448, slots 1: A - B HIT | 2.526 s: redistribute 0.076 ntt 2.307 crt 0.010 out 0.071 carry 0.071 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 1: A - B cached | 3.813 s: redistribute 0.172 ntt 3.431 crt 0.009 out 0.129 carry 0.121 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 1) of 5 x 2, 111111112 + 138888890 limbs at 138888890, slots 1: A - B cached | 3.813 s: redistribute 0.170 ntt 3.428 crt 0.009 out 0.141 carry 0.121 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 1: A - B HIT | 2.546 s: redistribute 0.078 ntt 2.264 crt 0.009 out 0.138 carry 0.093 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 1) of 5 x 2, 111111112 + 138888890 limbs at 250000002, slots 1: A - B HIT | 2.546 s: redistribute 0.081 ntt 2.256 crt 0.010 out 0.136 carry 0.092 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 1: A - B HIT | 2.563 s: redistribute 0.095 ntt 2.266 crt 0.010 out 0.101 carry 0.109 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 1) of 5 x 2, 111111112 + 138888890 limbs at 361111114, slots 1: A - B HIT | 2.563 s: redistribute 0.093 ntt 2.273 crt 0.009 out 0.101 carry 0.108 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 1: A - B HIT | 2.667 s: redistribute 0.082 ntt 2.472 crt 0.010 out 0.049 carry 0.063 | partial: 4 primes per slot
+dist_mn node 0: 555555560 x 277777780 limbs over 2 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 1 slots of 4 primes, partial: 19 hits, 12 misses)
+cache_trace node 1: piece (3, 1) of 5 x 2, 111111112 + 138888890 limbs at 472222226, slots 1: A - B HIT | 2.667 s: redistribute 0.078 ntt 2.475 crt 0.010 out 0.049 carry 0.063 | partial: 4 primes per slot
+dist_mn node 1: 555555560 x 277777780 limbs over 2 x 4 ranks (cap 2^28): 5 x 2 pieces, 8 formed, 2 skipped (low product) (low cut) (cache 1 slots of 4 primes, partial: 19 hits, 12 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.39 GB per APU (the smallest), the product's need 1.24, margin 0.50 -> 6 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.39 GB per APU (the smallest), the product's need 1.24, margin 0.50 -> 6 planes
+cache_trace node 0: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 1: A cached B - | 3.638 s: redistribute 0.151 ntt 3.251 crt 0.009 out 0.148 carry 0.104 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 1) of 2 x 3, 138888890 + 92592593 limbs at 92592593, slots 1: A cached B - | 3.638 s: redistribute 0.148 ntt 3.251 crt 0.009 out 0.143 carry 0.104 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 1: A HIT B - | 3.053 s: redistribute 0.059 ntt 2.726 crt 0.010 out 0.144 carry 0.137 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 2) of 2 x 3, 138888890 + 92592593 limbs at 185185186, slots 1: A HIT B - | 3.053 s: redistribute 0.058 ntt 2.728 crt 0.010 out 0.145 carry 0.136 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 1: A cached B - | 4.888 s: redistribute 0.151 ntt 4.453 crt 0.010 out 0.159 carry 0.125 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 2 x 3, 138888890 + 92592593 limbs at 138888890, slots 1: A cached B - | 4.888 s: redistribute 0.153 ntt 4.456 crt 0.009 out 0.163 carry 0.125 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 1: A HIT B - | 3.514 s: redistribute 0.072 ntt 3.094 crt 0.009 out 0.237 carry 0.111 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 1) of 2 x 3, 138888890 + 92592593 limbs at 231481483, slots 1: A HIT B - | 3.513 s: redistribute 0.072 ntt 3.089 crt 0.010 out 0.242 carry 0.111 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 1: A HIT B - | 2.987 s: redistribute 0.074 ntt 2.742 crt 0.009 out 0.128 carry 0.077 | partial: 4 primes per slot
+dist_mn node 0: 277777780 x 277777779 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 1 slots of 4 primes, partial: 22 hits, 14 misses)
+cache_trace node 1: piece (1, 2) of 2 x 3, 138888890 + 92592593 limbs at 324074076, slots 1: A HIT B - | 2.987 s: redistribute 0.063 ntt 2.745 crt 0.007 out 0.132 carry 0.077 | partial: 4 primes per slot
+dist_mn node 1: 277777780 x 277777779 limbs over 2 x 4 ranks (cap 2^28): 2 x 3 pieces, 5 formed, 1 skipped (low cut) (cache 1 slots of 4 primes, partial: 22 hits, 14 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.11 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 4 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 4 of 4 primes, q 2^25.00, from the block pool: 1.07 GB per APU (4.29 per node) | pool free 3.11 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 4 planes
+cache_trace node 0: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 1: A cached B - | 3.454 s: redistribute 0.127 ntt 3.031 crt 0.010 out 0.148 carry 0.144 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 1: A cached B - | 3.454 s: redistribute 0.125 ntt 3.034 crt 0.009 out 0.147 carry 0.144 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 1: A HIT B - | 2.492 s: redistribute 0.064 ntt 2.158 crt 0.009 out 0.148 carry 0.131 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 4) of 4 x 5, 138888890 + 111111110 limbs at 444444448, slots 1: A HIT B - | 2.492 s: redistribute 0.061 ntt 2.155 crt 0.009 out 0.144 carry 0.131 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 1: A cached B - | 4.169 s: redistribute 0.146 ntt 3.750 crt 0.009 out 0.178 carry 0.147 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 1: A cached B - | 4.169 s: redistribute 0.146 ntt 3.750 crt 0.010 out 0.173 carry 0.146 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 1: A HIT B - | 2.519 s: redistribute 0.081 ntt 2.211 crt 0.010 out 0.143 carry 0.130 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 1: A HIT B - | 2.519 s: redistribute 0.079 ntt 2.220 crt 0.010 out 0.143 carry 0.130 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 1: A HIT B - | 3.324 s: redistribute 0.091 ntt 2.931 crt 0.009 out 0.118 carry 0.195 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 4) of 4 x 5, 138888890 + 111111110 limbs at 583333338, slots 1: A HIT B - | 3.324 s: redistribute 0.089 ntt 2.933 crt 0.010 out 0.123 carry 0.195 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 1: A cached B - | 3.792 s: redistribute 0.132 ntt 3.384 crt 0.006 out 0.160 carry 0.127 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 1: A cached B - | 3.792 s: redistribute 0.136 ntt 3.383 crt 0.008 out 0.155 carry 0.127 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 1: A HIT B - | 2.408 s: redistribute 0.096 ntt 2.030 crt 0.009 out 0.156 carry 0.137 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 1: A HIT B - | 2.408 s: redistribute 0.096 ntt 2.027 crt 0.010 out 0.161 carry 0.137 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 1: A HIT B - | 2.722 s: redistribute 0.076 ntt 2.398 crt 0.009 out 0.125 carry 0.142 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 3) of 4 x 5, 138888890 + 111111112 limbs at 611111116, slots 1: A HIT B - | 2.722 s: redistribute 0.069 ntt 2.408 crt 0.009 out 0.125 carry 0.141 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 1: A HIT B - | 2.948 s: redistribute 0.074 ntt 2.652 crt 0.005 out 0.113 carry 0.117 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 4) of 4 x 5, 138888890 + 111111110 limbs at 722222228, slots 1: A HIT B - | 2.948 s: redistribute 0.072 ntt 2.659 crt 0.005 out 0.109 carry 0.116 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 1: A cached B - | 3.804 s: redistribute 0.143 ntt 3.439 crt 0.005 out 0.159 carry 0.131 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 1: A cached B - | 3.804 s: redistribute 0.146 ntt 3.431 crt 0.005 out 0.164 carry 0.131 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 1: A HIT B - | 2.670 s: redistribute 0.063 ntt 2.330 crt 0.009 out 0.136 carry 0.149 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 1: A HIT B - | 2.670 s: redistribute 0.079 ntt 2.321 crt 0.009 out 0.141 carry 0.149 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 1: A HIT B - | 2.462 s: redistribute 0.107 ntt 2.113 crt 0.010 out 0.123 carry 0.132 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 2) of 4 x 5, 138888887 + 111111112 limbs at 638888894, slots 1: A HIT B - | 2.462 s: redistribute 0.106 ntt 2.111 crt 0.009 out 0.123 carry 0.132 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 1: A HIT B - | 2.813 s: redistribute 0.062 ntt 2.512 crt 0.009 out 0.150 carry 0.137 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 3) of 4 x 5, 138888887 + 111111112 limbs at 750000006, slots 1: A HIT B - | 2.813 s: redistribute 0.059 ntt 2.515 crt 0.010 out 0.151 carry 0.137 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 1: A HIT B - | 3.135 s: redistribute 0.068 ntt 2.772 crt 0.009 out 0.143 carry 0.163 | partial: 4 primes per slot
+dist_mn node 0: 555555557 x 555555558 limbs over 2 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 1 slots of 4 primes, partial: 32 hits, 18 misses)
+cache_trace node 1: piece (3, 4) of 4 x 5, 138888887 + 111111110 limbs at 861111118, slots 1: A HIT B - | 3.135 s: redistribute 0.066 ntt 2.779 crt 0.009 out 0.142 carry 0.163 | partial: 4 primes per slot
+dist_mn node 1: 555555557 x 555555558 limbs over 2 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low cut) (cache 1 slots of 4 primes, partial: 32 hits, 18 misses)
+mn_out: /tmp/pc15/pc_r1.txt.part0001: O_DIRECT, packed form, 8 write threads, file system local
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.22 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 9 planes
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 2 slots of 4 of 4 primes, q 2^25.00, from the block pool: 2.15 GB per APU (8.59 per node) | pool free 4.22 GB per APU (the smallest), the product's need 1.30, margin 0.50 -> 9 planes
+cache_trace node 0: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 2: A cached B cached | 2.788 s: redistribute 0.191 ntt 2.516 crt 0.005 out 0.132 carry 0.004 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 0) of 4 x 5, 138888890 + 111111112 limbs at 0, slots 2: A cached B cached | 2.788 s: redistribute 0.193 ntt 2.507 crt 0.005 out 0.122 carry 0.005 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 2: A HIT B - | 3.274 s: redistribute 0.091 ntt 2.786 crt 0.009 out 0.277 carry 0.116 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 1) of 4 x 5, 138888890 + 111111112 limbs at 111111112, slots 2: A HIT B - | 3.274 s: redistribute 0.093 ntt 2.789 crt 0.009 out 0.271 carry 0.116 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 2: A HIT B - | 2.587 s: redistribute 0.081 ntt 2.252 crt 0.009 out 0.140 carry 0.110 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 2) of 4 x 5, 138888890 + 111111112 limbs at 222222224, slots 2: A HIT B - | 2.587 s: redistribute 0.081 ntt 2.247 crt 0.010 out 0.145 carry 0.110 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 2: A HIT B - | 2.340 s: redistribute 0.073 ntt 2.072 crt 0.009 out 0.107 carry 0.092 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 3) of 4 x 5, 138888890 + 111111112 limbs at 333333336, slots 2: A HIT B - | 2.340 s: redistribute 0.070 ntt 2.080 crt 0.009 out 0.106 carry 0.091 | partial: 4 primes per slot
+cache_trace node 0: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 2: A HIT B - | 2.429 s: redistribute 0.078 ntt 2.213 crt 0.010 out 0.071 carry 0.070 | partial: 4 primes per slot
+cache_trace node 1: piece (0, 4) of 4 x 5, 138888890 + 111111112 limbs at 444444448, slots 2: A HIT B - | 2.429 s: redistribute 0.076 ntt 2.215 crt 0.010 out 0.071 carry 0.070 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 2: A cached B HIT | 3.340 s: redistribute 0.088 ntt 2.894 crt 0.010 out 0.262 carry 0.124 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 0) of 4 x 5, 138888890 + 111111112 limbs at 138888890, slots 2: A cached B HIT | 3.340 s: redistribute 0.092 ntt 2.891 crt 0.010 out 0.259 carry 0.124 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 2: A HIT B - | 3.141 s: redistribute 0.079 ntt 2.841 crt 0.010 out 0.131 carry 0.092 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 1) of 4 x 5, 138888890 + 111111112 limbs at 250000002, slots 2: A HIT B - | 3.141 s: redistribute 0.105 ntt 2.825 crt 0.010 out 0.127 carry 0.092 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 2: A HIT B - | 3.156 s: redistribute 0.077 ntt 2.874 crt 0.010 out 0.103 carry 0.108 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 2) of 4 x 5, 138888890 + 111111112 limbs at 361111114, slots 2: A HIT B - | 3.156 s: redistribute 0.087 ntt 2.869 crt 0.010 out 0.100 carry 0.108 | partial: 4 primes per slot
+cache_trace node 0: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 2: A HIT B - | 3.660 s: redistribute 0.072 ntt 3.464 crt 0.009 out 0.067 carry 0.062 | partial: 4 primes per slot
+cache_trace node 1: piece (1, 3) of 4 x 5, 138888890 + 111111112 limbs at 472222226, slots 2: A HIT B - | 3.660 s: redistribute 0.070 ntt 3.475 crt 0.009 out 0.060 carry 0.061 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 2: A cached B HIT | 2.946 s: redistribute 0.100 ntt 2.701 crt 0.009 out 0.114 carry 0.051 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 0) of 4 x 5, 138888890 + 111111112 limbs at 277777780, slots 2: A cached B HIT | 2.946 s: redistribute 0.097 ntt 2.709 crt 0.010 out 0.109 carry 0.051 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 2: A HIT B - | 2.636 s: redistribute 0.057 ntt 2.415 crt 0.009 out 0.078 carry 0.090 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 1) of 4 x 5, 138888890 + 111111112 limbs at 388888892, slots 2: A HIT B - | 2.636 s: redistribute 0.059 ntt 2.408 crt 0.009 out 0.078 carry 0.090 | partial: 4 primes per slot
+cache_trace node 0: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 2: A HIT B - | 3.234 s: redistribute 0.098 ntt 3.069 crt 0.010 out 0.041 carry 0.048 | partial: 4 primes per slot
+cache_trace node 1: piece (2, 2) of 4 x 5, 138888890 + 111111112 limbs at 500000004, slots 2: A HIT B - | 3.234 s: redistribute 0.098 ntt 3.076 crt 0.009 out 0.055 carry 0.047 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 2: A cached B HIT | 2.442 s: redistribute 0.083 ntt 2.172 crt 0.010 out 0.087 carry 0.111 | partial: 4 primes per slot
+cache_trace node 1: piece (3, 0) of 4 x 5, 138888887 + 111111112 limbs at 416666670, slots 2: A cached B HIT | 2.442 s: redistribute 0.080 ntt 2.175 crt 0.009 out 0.082 carry 0.111 | partial: 4 primes per slot
+cache_trace node 0: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 2: A HIT B - | 2.228 s: redistribute 0.061 ntt 2.114 crt 0.009 out 0.029 carry 0.027 | partial: 4 primes per slot
+dist_mn node 0: 555555557 x 555555560 limbs over 2 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 2 slots of 4 primes, partial: 45 hits, 23 misses)
+cache_trace node 1: piece (3, 1) of 4 x 5, 138888887 + 111111112 limbs at 527777782, slots 2: A HIT B - | 2.228 s: redistribute 0.063 ntt 2.112 crt 0.009 out 0.023 carry 0.027 | partial: 4 primes per slot
+dist_mn node 1: 555555557 x 555555560 limbs over 2 x 4 ranks (cap 2^28): 4 x 5 pieces, 14 formed, 6 skipped (low product) (cache 2 slots of 4 primes, partial: 45 hits, 23 misses)
+   transform cache (RNS_DIST_CACHE_PARTIAL): 8 grid products, 8 with slots (planes per product: max 8, mean 6.50), the largest 2.15 GB per APU from the block pool, no growth
+   transform cache (RNS_DIST_CACHE_PARTIAL): 8 grid products, 8 with slots (planes per product: max 8, mean 6.50), the largest 2.15 GB per APU from the block pool, no growth
+mn: node 1: dm over 2 nodes 165.77 s (reciprocal 80.43), X 555555557 limbs, sharded; to the output stage
+divmod(mn) 165.77 s: reciprocal 80.43 (products 76.36), S = P + Q 0.74, A mu + shift 44.28, X Q + window 40.23, corrections 0.03 (0), R residues 0.07; division products 82.95 s; shifts 68/4.68 s, addsub 24/0.16 s
+scratch(mn): mdb_shift slabs 4.444 GB per node-process at most (MDB_SHIFT_CHUNK_MB=1024), window temporaries T + rbO 4.370 GB (MN_T_CHUNK_MB=1024)
+mn: node 0: dm over 2 nodes 165.77 s (reciprocal 80.43), X 555555557 limbs, sharded
+bs       44.57 s   N 1158787585, P 555555560 limbs, Q 555555560 limbs (seeds 0.0 school 0.0 batch 4.6 mdev 0.0; pool 5.0 GB; dev pools 0.0 GB)   VmRSS 22.4 GB, VmHWM 22.4 GB
+RESULT ecalc bs s 44.5684
+mem[0] [bs] device 50.6 GB in use (per APU 11.0..17.5): planes 17.2, regions 0.0, block pool 32.2 (donated 0.0, borrowed 32.2, hipMalloc 0.0; live 2.2, peak live 22.3, free 30.0), tables 1.23, other 0.0
+mem[0] [bs] host 22.4 GB RSS (HWM 22.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 18.1
+mem[0] [bs]   APU0: in use 17.5 GB: planes 4.29 pool:borrowed 12.88 pool:live 0.56 pool:free 12.33 pool:peak-live 5.57 tables 0.31  (driver: 39.6 of 137.4 GB used)
+mem[0] [bs]   APU1: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+mem[0] [bs]   APU2: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+mem[0] [bs]   APU3: in use 11.0 GB: planes 4.29 pool:borrowed 6.44 pool:live 0.56 pool:free 5.89 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+recip    80.43 s   (over 2 nodes; 29 iterations)
+10dP      0.00 s   (S = P + Q over shares, inside dm)
+RESULT ecalc 10dP s 0
+dm      165.77 s   X 555555557 limbs (recip 80.4 s; corrections 0/0; over 2 nodes)   VmRSS 22.4 GB, VmHWM 22.4 GB
+RESULT ecalc dm s 165.769
+mn: node 0: X share [0, 277777778) of 555555557 limbs on the device (the distributed division's)
+mn: node 1: X share [277777778, 555555557) of 555555557 limbs on the device (the distributed division's)
+mn: node 0: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 0:       overlapped with bs: P, Q mod q recurrence 1.04 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 0:       VmRSS 22.4 GB before dc
+mn: node 1: T1        0.07 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 1:       overlapped with bs: P, Q mod q recurrence 1.04 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 0:       the part file started in the division (MN_OUT_EARLY): its writer ran 1.18 s, joined after 0.00 s here
+mn: node 1:       VmRSS 27.0 GB before dc
+mn: node 1:       the part file started in the division (MN_OUT_EARLY): its writer ran 1.46 s, joined after 0.00 s here
+mn: node 1:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+mn: node 0:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.008 s
+mn: node 0: dc        0.03 s   digits [5000000005, 10000000009) of 10000000009 formatted from 277777778 decimal limbs in 19 chunks (residues 0.00, format 0.13, digit residue 0.33, T2 0.00, fetch 0.05, waiting for the writer 0.60)
+mn: node 0: T2        0.00 s   windows ok (0 checked on this node), digits == X mod q ok
+mn: node 0: digits: 47329977426968671005186835658995918489734436742905921433796789...56994816931502679526 (this node's range)
+total   218.16 s   (bs 44.6 + 10dP 0.0 + dm 165.8 + T1 0.1 + dc 0.0 + T2 0.0 = 210.4; init 7.7; other 0.0); VmHWM 22.3 GB
+RESULT ecalc total s 218.161
+RESULT ecalc phases s 210.433
+RESULT ecalc other s 0.0191562
+RESULT ecalc vmhwm GB 22.3466
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+mn: node 0: wrote /tmp/pc15/pc_r1.txt.part0001 (2.22 GB; write 1.14 s in the writer thread, 0.00 s after the checks)
+mn: node 0: VERIFY OK
+mn: all 2 nodes: VERIFY OK
+mem[0] [end] device 18.4 GB in use (per APU 4.6..4.6): planes 17.2, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 22.3, free 0.0), tables 1.23, other 0.0
+mem[0] [end] host 21.9 GB RSS (HWM 22.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 17.6
+mem[0] [end]   APU0: in use 4.6 GB: planes 4.29 pool:peak-live 5.57 tables 0.31  (driver: 39.6 of 137.4 GB used)
+mem[0] [end]   APU1: in use 4.6 GB: planes 4.29 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+mem[0] [end]   APU2: in use 4.6 GB: planes 4.29 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+mem[0] [end]   APU3: in use 4.6 GB: planes 4.29 pool:peak-live 5.57 tables 0.31  (driver: 26.7 of 137.4 GB used)
+mem[0] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[0] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[0] init              42.0    15.3 |     8.6     0.0     0.0    32.2     0.0     0.0     0.0   1.23 |     8.8     4.3     0.0     0.0     0.0     4.5    11.7
+mem[0] tree              50.6    17.5 |    17.2     0.0     0.0    32.2     0.0     4.4    19.2   1.23 |    13.1     4.3     0.0     0.0     0.0     8.8    13.1
+mem[0] bs                50.6    17.5 |    17.2     0.0     0.0    32.2     0.0     2.2    22.3   1.23 |    22.4     4.3     0.0     0.0     0.0    18.1    22.4
+mem[0] end               18.4     4.6 |    17.2     0.0     0.0     0.0     0.0     0.0    22.3   1.23 |    21.9     4.3     0.0     0.0     0.0    17.6    22.3
+mn: node 1: dc        0.03 s   digits [0, 5000000005) of 10000000009 formatted from 277777779 decimal limbs in 19 chunks (residues 0.00, format 0.13, digit residue 0.31, T2 0.29, fetch 0.05, waiting for the writer 0.63)
+mn: node 1: T2        0.00 s   windows ok (4 checked on this node), digits == X mod q ok
+mn: node 1: digits: 27182818284590452353602874713526624977572470936999595749669676... (this node's range)
+mn: node 1: wrote /tmp/pc15/pc_r1.txt.part0000 (2.22 GB; write 1.13 s in the writer thread, 0.00 s after the checks)
+mn: node 1: VERIFY OK
+mem[1] [released] device 1.2 GB in use (per APU 0.3..0.3): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 22.7, free 0.0), tables 1.22, other 0.0
+mem[1] [released] host 22.2 GB RSS (HWM 26.9): staging 0.0 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 22.2
+mem[1] [released]   APU0: in use 0.3 GB: pool:peak-live 5.68 tables 0.30  (driver: 18.1 of 137.4 GB used)
+mem[1] [released]   APU1: in use 0.3 GB: pool:peak-live 5.68 tables 0.30  (driver: 11.7 of 137.4 GB used)
+mem[1] [released]   APU2: in use 0.3 GB: pool:peak-live 5.68 tables 0.30  (driver: 11.7 of 137.4 GB used)
+mem[1] [released]   APU3: in use 0.3 GB: pool:peak-live 5.68 tables 0.31  (driver: 11.6 of 137.4 GB used)
+mem[1] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[1] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[1] init              42.0    15.3 |     8.6     0.0     0.0    32.2     0.0     0.0     0.0   1.22 |     8.8     4.3     0.0     0.0     0.0     4.5    11.4
+mem[1] tree              67.8    21.8 |    34.4     0.0     0.0    32.2     0.0     4.4    20.2   1.22 |    13.3     4.3     0.0     0.0     0.0     9.0    13.3
+mem[1] released           1.2     0.3 |     0.0     0.0     0.0     0.0     0.0     0.0    22.7   1.22 |    22.2     0.0     0.0     0.0     0.0    22.2    26.9
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.04 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.05 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)

@@ -2,7 +2,8 @@
 """pc_hits.py (Phase 15 Batch 3 PC, results/PC15.md): the hits the code took per cx_grid product (node 0's lines) against mn_model's simulation
 of RNS_DIST_CACHE_PARTIAL's loop (the longer axis) and slot designation, 18-digit (cache_pieces / cache_pieces_t) and P24 (cache_hits_p24);
 and the hit pieces' saving (cache_trace lines: each piece against itself at 0 slots in the same repetition).
-   tests/pc_hits.py <cx_grid log> <shapes file> <cap_log> <g> [p24|18] [k: the slot's primes, 0 = full -> the per-piece fit]"""
+   tests/pc_hits.py <cx_grid log> <shapes file> <cap_log> <g> [p24|18] [k: the slot's primes, 0 = full -> the per-piece fit]
+   tests/pc_hits.py e2e <procs> <cache-off ecalc log> <log> [...] [p24|18]     (ecalc: the hit pieces against the cache-off run's)"""
 import sys, re, os, collections
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import mn_model
@@ -84,6 +85,35 @@ def fit(log, g, p24, k):
               % (len(meas), k or 'full', 'P24' if p24 else '18-digit', 100 * mm, 100 * md, mn_model.CACHE_HIT_F, mm / md if md else float('nan')))
     else: print('fit: no hit pieces')
 
+def e2e(procs, base_path, paths, p24=False):
+    """ecalc runs against a cache-off run of the same size (tests/cx_fit.py's e2e, the pieces matched by (product, i, j): the switch changes the
+    loop order): the hit pieces' saving against themselves measured, and mn_model's hit_cost (the slot's primes from the run's partial note)"""
+    import cx_fit
+    fab = mn_model.aac6_fabric('tcp', procs); base = cx_fit.products_of(base_path)
+    rk = re.compile(r'partial: (\d) primes? per slot')
+    for pth in paths:
+        ks = [int(m.group(1)) for m in (rk.search(l) for l in open(pth, errors='replace')) if m]   # the traced pieces' slot primes, in order
+        pr = cx_fit.products_of(pth); tt = tb = tm = tmb = 0.0; n = 0; kk = iter(ks)
+        for (g, na, nb, ps), (g0, _, _, bs) in zip(pr, base):
+            mn_model.DZ = mn_model.DEFAULT15B().at_g(g); bd = {(b['i'], b['j']): b for b in bs}
+            for p in ps:
+                k = next(kk, 0)
+                if p['state'] != 'hit': continue
+                b = bd.get((p['i'], p['j']))
+                if not b: continue
+                la, lb = (p['la'], p['lb']) if p['B'] == 'HIT' else (p['lb'], p['la'])
+                n_ = mn_model.p24_pts(la) + mn_model.p24_pts(lb) if p24 else la + lb
+                pts = mn_model.plane_pts(n_, g)
+                saved = mn_model.CACHE_PRIMES; mn_model.CACHE_PRIMES = k if k and k < 4 else None
+                try:
+                    c2 = mn_model.piece_cost(fab, pts, g, la, lb, la + lb, 2, False, 'grid', grid=True, p24=p24); c1 = mn_model.hit_cost(fab, pts, g, la, lb, 'grid', p24=p24, np_=4)
+                finally: mn_model.CACHE_PRIMES = saved
+                tt += b['t'] - p['t']; tb += b['t']; tm += c2.t - c1.t; tmb += c2.t; n += 1
+        if n: print('%s: %d hit pieces save %.1f s measured (%.1f %% of them) vs %.1f %% modelled (hit_cost x CACHE_HIT_F) -> measured / modelled %.3f'
+                    % (os.path.basename(pth), n, tt, 100 * tt / tb, 100 * tm / tmb, (tt / tb) / (tm / tmb)))
+        else: print('%s: no hit pieces matched' % os.path.basename(pth))
+
 if __name__ == '__main__':
+    if sys.argv[1] == 'e2e': e2e(int(sys.argv[2]), sys.argv[3], sys.argv[4:-1] if sys.argv[-1] in ('p24', '18') else sys.argv[4:], sys.argv[-1] == 'p24'); sys.exit(0)
     main()
     if len(sys.argv) > 6: fit(sys.argv[1], int(sys.argv[4]), len(sys.argv) > 5 and sys.argv[5] == 'p24', int(sys.argv[6]))
