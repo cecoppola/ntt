@@ -271,6 +271,7 @@ static int out_stage(struct out_ctx *c)
     mn_out owh, *oh = 0; memset(&owh, 0, sizeof owh);  /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): the X_hi part (finished in the early thread) */
     if (!multi && c->xb->started) {
         o = &c->xb->o; if (!joined) pthread_join(c->xb->th, 0);
+        if (g_xhi.on) printf("      MN_OUT_DKM_HI: X_hi's range formatted and handed to the writer in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", g_xhi.t_hi, g_xhi.t_gate);
         if (c->ncorr && !c->defer) {                  /* X changed after the hook: the digits from the final X, the file rewritten */
             printf("      X corrected after the formatting started: redoing the digits\n");
             mn_out_finish(o); x_bg_writer(c->xb);

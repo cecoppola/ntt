@@ -536,6 +536,7 @@ static void *early_run(void *a)
     if (e->two) {                                      /* Phase 15 EW: the X_hi part now (finished here), then the X_lo part once released */
         mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;
         double tg = mem_now(); sem_wait(&e->go); e->t_gate = mem_now() - tg;
+        printf("mn: node %d: MN_OUT_DKM_HI: X_hi's part (%.2f GB) written in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", e->o.rank, e->o_hi.bytes / 1e9, e->t_hi, e->t_gate);
     }
     mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
     return 0;
