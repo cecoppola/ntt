@@ -71,6 +71,16 @@ struct mdb_s; struct mn_group;
 extern void (*newton_mn_pq_hook)(int stage, struct mdb_s *x);   /* Phase 13 N: called before S = P + Q overwrites P (0) and before Q is freed (1; may take Q->sh) */
 extern void (*newton_mn_x_hook)(struct mdb_s *X, void *arg); extern void *newton_mn_x_arg;   /* Phase 15 IO (W5d, MN_OUT_EARLY): X over the group before the low product (corrections may still change it) */
 void newton_mn_divmod(struct mdb_s *X, struct mdb_s *P, struct mdb_s *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip);
+/* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): the writer on X_hi after DKM's step 1.  Set (by ecalc.c) with the corrections
+ * deferred (newton_x_defer) -- size 1 also with newton_db_x_dev -- the DKM division forms no X0: the xhi hook gets X_hi right after
+ * step 1's corrections (final: X's limbs >= s) and takes it (*Xh left empty); the xlo hook gets X_lo0 before step 2's low product
+ * (size 1: moved into newton_db_x_dev first), carry = X_lo0 >= B^s, and returns 1 when it released the writer onto X_lo0 -- then the
+ * step-2 corrections are deferred (newton_x_dx) as today, else they are added to X_lo0 in place (newton_x_dx = 0).  X = X_hi B^s +
+ * X_lo: the division returns X_lo (newton_db_x_dev / *X); X_hi is the hook's */
+extern void (*newton_db_xhi_hook)(struct dbig_s *Xh, size_t s, void *arg);
+extern int (*newton_db_xlo_hook)(struct dbig_s *Xl, size_t s, int carry, void *arg);
+extern void (*newton_mn_xhi_hook)(struct mdb_s *Xh, size_t s, void *arg);
+extern int (*newton_mn_xlo_hook)(struct mdb_s *Xl, size_t s, int carry, void *arg);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
 void newton_recip(bigint *mu, const bigint *Q, size_t k);
