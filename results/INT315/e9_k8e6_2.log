@@ -1,0 +1,436 @@
+== ecalc: e to 1000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T20:38:19 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+== ecalc: e to 1000000000 digits (decimal limbs, base 10^18) [computed to the next multiple of 18] ==
+META bench=ecalc host=ppac-pl1-s24-16 date=2026-09-28T20:38:19 pool_log=31 stg=7 pw_fuse=14 body=1 engine=1 base=10^18
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 8000000 terms (ECALC_NP_AUTO_TERMS, a test bound); plane pool 0 for 4 primes
+rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over 8000000 terms (ECALC_NP_AUTO_TERMS, a test bound); plane pool 0 for 4 primes
+rns_init: APU2 staging 1.0 GiB touch 0.05 s register 0.09 s, 48 cpus; device open 0.00 s, contexts 0.35 s, stream+staging 0.16 s
+rns_init: APU2 staging 1.0 GiB touch 0.04 s register 0.09 s, 48 cpus; device open 0.00 s, contexts 0.51 s, stream+staging 0.14 s
+rns_init: APU0 staging 1.0 GiB touch 0.03 s register 0.09 s, 48 cpus; device open 0.00 s, contexts 0.60 s, stream+staging 0.14 s
+rns_init: APU3 staging 1.0 GiB touch 0.04 s register 0.08 s, 48 cpus; device open 0.00 s, contexts 0.66 s, stream+staging 0.21 s
+rns_init: APU1 staging 1.0 GiB touch 0.04 s register 0.11 s, 48 cpus; device open 0.00 s, contexts 0.72 s, stream+staging 0.17 s
+rns_init: APU1 staging 1.0 GiB touch 0.03 s register 0.08 s, 48 cpus; device open 0.00 s, contexts 0.79 s, stream+staging 0.20 s
+rns_init: APU0 staging 1.0 GiB touch 0.06 s register 0.10 s, 48 cpus; device open 0.00 s, contexts 0.98 s, stream+staging 0.19 s
+rns_init: APU3 staging 1.0 GiB touch 0.02 s register 0.08 s, 48 cpus; device open 0.00 s, contexts 1.09 s, stream+staging 0.22 s
+dbig pool: APU1 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.28 s (0.131 s/GB), VA 8.6 GB reserved at 0x7ef42be00000
+dbig pool: APU0 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.46 s (0.216 s/GB), VA 8.6 GB reserved at 0x7efac8600000
+dbig pool: APU3 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.53 s (0.248 s/GB), VA 8.6 GB reserved at 0x7ef8c8400000
+dbig pool: APU2 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.70 s (0.326 s/GB), VA 8.6 GB reserved at 0x7ef22bc00000
+rns_init: plane pools per APU 4.00 + 4.00 GiB (hipmalloc), staging 1.00 GiB, tables 0.306 GB; staging+contexts 1.01 s, pools 2.29 s, peer access 0.05 s
+dbig pool: APU3 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.66 s (0.308 s/GB), VA 8.6 GB reserved at 0x7e6197e00000
+dbig pool: APU1 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.71 s (0.329 s/GB), VA 8.6 GB reserved at 0x7e6634400000
+dbig pool: APU0 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.75 s (0.349 s/GB), VA 8.6 GB reserved at 0x7e6834600000
+dbig pool: APU2 VMM arena 2.15 GB = 1 chunks of 2.00 GiB, the first 1 mapped in 0.79 s (0.367 s/GB), VA 8.6 GB reserved at 0x7e5f97c00000
+rns_init: plane pools per APU 4.00 + 4.00 GiB (hipmalloc), staging 1.00 GiB, tables 0.308 GB; staging+contexts 1.33 s, pools 2.63 s, peer access 0.04 s
+mn: node 0 of 2, four meshes of 2 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21655): connected in 0.00 s
+mn: node 1 of 2, four meshes of 2 ranks on ppac-pl1-s24-16,ppac-pl1-s24-16 (port base 21655): connected in 0.67 s
+mn: self-test, four meshes over 2 nodes at 2^22 points: ok (0.96 s)
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+mn: self-test, four meshes over 2 nodes at 2^22 points: ok (0.98 s)
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+mn: layered self-test, 2 x 4 ranks at 2^22 points: ok (0.25 s)
+mn: node 0 computes terms [1, 65101409) of 130202816
+RESULT ecalc init s 5.61821
+      VmRSS 8.7 GB after init (staging 4.3 GB pinned + device regions 9 GB); init 5.6 s
+mem[0] [init] device 48.5 GB in use (per APU 11.0..15.3): planes 34.4, regions 0.0, block pool 8.6 (donated 0.0, borrowed 8.6, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 5.52, other 0.0
+mem[0] [init] host 8.7 GB RSS (HWM 9.1): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+mn: layered self-test, 2 x 4 ranks at 2^22 points: ok (0.23 s)
+mn: node 1 computes terms [65101409, 130202817) of 130202816
+RESULT ecalc init s 5.62399
+      VmRSS 8.7 GB after init (staging 4.3 GB pinned + device regions 9 GB); init 5.6 s
+mem[1] [init] device 44.2 GB in use (per APU 11.0..11.0): planes 34.4, regions 0.0, block pool 8.6 (donated 0.0, borrowed 8.6, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 1.23, other 0.0
+mem[1] [init] host 8.7 GB RSS (HWM 9.1): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 4.4
+budget: ECALC_BUDGET_CHECK ok: 2 ranks, largest rank peak 99.5 GB, node budget 480 GB
+batch-local N=221434 (55360/55358/55358/55358) L=2^10 tile 131072 pair: scatter 0.008 ntt 0.015 crt 0.003 merge 0.002
+batch-local N=230040 (57512/57510/57510/57508) L=2^10 tile 131072 pair: scatter 0.026 ntt 0.015 crt 0.009 merge 0.006
+batch-local N=115020 (28756/28756/28756/28752) L=2^10 tile 131072 pair: scatter 0.001 ntt 0.007 crt 0.002 merge 0.001
+batch-local N=110716 (27680/27680/27680/27676) L=2^10 tile 131072 pair: scatter 0.001 ntt 0.006 crt 0.004 merge 0.002
+batch-local N=55358 (13840/13840/13840/13838) L=2^10 tile 131072 pair: scatter 0.000 ntt 0.002 crt 0.002 merge 0.001
+batch-local N=57510 (14378/14378/14378/14376) L=2^10 tile 131072 pair: scatter 0.000 ntt 0.003 crt 0.001 merge 0.000
+batch-local N=27680 (6920/6920/6920/6920) L=2^11 tile 65536 pair: scatter 0.000 ntt 0.005 crt 0.001 merge 0.001
+batch-local N=28756 (7190/7188/7190/7188) L=2^11 tile 65536 pair: scatter 0.000 ntt 0.004 crt 0.002 merge 0.000
+batch-local N=13840 (3460/3460/3460/3460) L=2^12 tile 32768 pair: scatter 0.000 ntt 0.003 crt 0.001 merge 0.013
+batch-local N=14378 (3596/3594/3594/3594) L=2^12 tile 32768 pair: scatter 0.000 ntt 0.003 crt 0.001 merge 0.000
+batch-local N=6920 (1730/1730/1730/1730) L=2^13 tile 16384 pair: scatter 0.000 ntt 0.009 crt 0.001 merge 0.000
+batch-local N=7188 (1798/1798/1798/1794) L=2^13 tile 16384 pair: scatter 0.000 ntt 0.009 crt 0.002 merge 0.000
+batch-local N=3460 (866/864/866/864) L=2^14 tile 8192 pair: scatter 0.000 ntt 0.011 crt 0.002 merge 0.000
+batch-local N=1730 (434/432/432/432) L=2^15 tile 4096 pair: scatter 0.000 ntt 0.012 crt 0.002 merge 0.000
+batch-local N=3594 (900/898/900/896) L=2^14 tile 8192 pair: scatter 0.001 ntt 0.042 crt 0.002 merge 0.000
+batch-local N=1798 (450/450/450/448) L=2^15 tile 4096 pair: scatter 0.001 ntt 0.006 crt 0.002 merge 0.000
+batch-local N=864 (218/216/216/214) L=2^16 tile 2048 pair: scatter 0.001 ntt 0.013 crt 0.002 merge 0.000
+batch-local N=898 (226/224/226/222) L=2^16 tile 2048 pair: scatter 0.000 ntt 0.005 crt 0.002 merge 0.000
+batch-local N=432 (110/108/108/106) L=2^17 tile 1024 pair: scatter 0.000 ntt 0.006 crt 0.002 merge 0.000
+batch-local N=450 (114/112/112/112) L=2^17 tile 1024 pair: scatter 0.000 ntt 0.005 crt 0.001 merge 0.000
+batch-local N=216 (56/54/54/52) L=2^18 tile 512 pair: scatter 0.000 ntt 0.006 crt 0.002 merge 0.000
+batch-local N=224 (58/56/56/54) L=2^18 tile 512 pair: scatter 0.000 ntt 0.006 crt 0.001 merge 0.000
+batch-local N=108 (28/28/28/24) L=2^19 tile 256 pair: scatter 0.000 ntt 0.006 crt 0.002 merge 0.000
+batch-local N=112 (30/28/28/26) L=2^19 tile 256 pair: scatter 0.000 ntt 0.006 crt 0.002 merge 0.000
+batch-local N=54 (14/14/14/12) L=2^20 tile 128 pair: scatter 0.000 ntt 0.009 crt 0.002 merge 0.000
+batch-local N=56 (16/14/14/12) L=2^20 tile 128 pair: scatter 0.000 ntt 0.009 crt 0.001 merge 0.001
+batch-local N=28 (8/8/6/6) L=2^21 tile 64 pair: scatter 0.001 ntt 0.009 crt 0.002 merge 0.001
+batch-local N=28 (8/8/6/6) L=2^21 tile 64 pair: scatter 0.001 ntt 0.009 crt 0.001 merge 0.000
+batch N=14 L=2^22 tile 64 pair: 0.026 s (scatter 0.003 ntt 0.015 crt 0.007 merge 0.000)
+batch N=14 L=2^22 tile 64 pair: 0.031 s (scatter 0.003 ntt 0.015 crt 0.007 merge 0.001)
+batch N=6 L=2^23 tile 32 pair: 0.017 s (scatter 0.003 ntt 0.009 crt 0.007 merge 0.001)
+batch N=8 L=2^23 tile 32 pair: 0.025 s (scatter 0.005 ntt 0.014 crt 0.008 merge 0.000)
+batch N=4 L=2^24 tile 16 pair: 0.021 s (scatter 0.003 ntt 0.011 crt 0.008 merge 0.002)
+batch N=4 L=2^24 tile 16 pair: 0.029 s (scatter 0.005 ntt 0.022 crt 0.007 merge 0.001)
+batch N=2 L=2^25 tile 8 grpB: 0.027 s (scatter 0.003 ntt 0.011 crt 0.006 merge 0.006)
+batch N=2 L=2^25 tile 8 grpB: 0.019 s (scatter 0.003 ntt 0.009 crt 0.005 merge 0.001)
+mn: node 0 leaf P 26689031 limbs, Q 26689031 limbs (device)
+mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products
+mn: node 1 leaf P 28866528 limbs, Q 28866529 limbs (device)
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 26689031 + 28866529 limbs at 0, window [0, 27777780) of share [0, 27777780)): redistribute 0.300 ntt 1.308 crt 0.045 out 0.148 spills+carry 0.032 total 1.697 s
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 26689031 + 28866529 limbs at 0, window [27777780, 55555560) of share [27777780, 55555561)): redistribute 0.301 ntt 1.258 crt 0.003 out 0.184 spills+carry 0.032 total 1.697 s
+mdb_add_shifted node 0: 28866528 limbs at 0 into a basis of 55555561 (my window [0, 27777780), 1 rounds of 6944448; slabs 0 + 6944445 limbs per APU 0): 0.119 s
+dist_mn node 0: 26689031 x 28866529 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+mdb_add_shifted node 1: 28866528 limbs at 0 into a basis of 55555561 (my window [27777780, 28866528), 1 rounds of 6944448; slabs 7216632 + 272187 limbs per APU 0): 0.119 s
+dist_mn node 1: 26689031 x 28866529 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 26689031 + 28866529 + x limbs -> 55555560 (share 27777780): redistribute 0.300 ntt 1.308 crt 0.045 out 0.148 spills+carry 0.032, total 1.816 s
+dist_mn node 1: 26689031 + 28866529 + x limbs -> 55555560 (share 27777781): redistribute 0.301 ntt 1.258 crt 0.003 out 0.184 spills+carry 0.032, total 1.816 s
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 26689031 + 28866529 limbs at 0, window [0, 27777780) of share [0, 27777780)): redistribute 0.045 ntt 1.172 crt 0.002 out 0.056 spills+carry 0.001 total 1.263 s
+dist_mn node 0: 26689031 x 28866529 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 26689031 + 28866529 limbs at 0, window [27777780, 55555560) of share [27777780, 55555560)): redistribute 0.044 ntt 1.177 crt 0.002 out 0.053 spills+carry 0.001 total 1.263 s
+dist_mn node 1: 26689031 x 28866529 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 26689031 + 28866529 limbs -> 55555560 (share 27777780): redistribute 0.045 ntt 1.172 crt 0.002 out 0.056 spills+carry 0.001, total 1.263 s
+mn: node 0 level 1 [0, 2): P 55555560 limbs, Q 55555560 limbs (my share of P [0, 27777780)) in 3.11 s
+mn: node 0: tree levels 3.11 s: P 55555560 limbs, Q 55555560 limbs
+dist_mn node 1: 26689031 + 28866529 limbs -> 55555560 (share 27777780): redistribute 0.044 ntt 1.177 crt 0.002 out 0.053 spills+carry 0.001, total 1.263 s
+mn: node 1 level 1 [0, 2): P 55555560 limbs, Q 55555560 limbs (my share of P [27777780, 55555561)) in 3.08 s
+mn: node 1: tree levels 3.08 s: P 55555560 limbs, Q 55555560 limbs
+mem[0] [tree] device 48.5 GB in use (per APU 11.0..15.3): planes 34.4, regions 0.0, block pool 8.6 (donated 0.0, borrowed 8.6, hipMalloc 0.0; live 0.4, peak live 1.2, free 8.1), tables 5.52, other 0.0
+mem[0] [tree] host 9.3 GB RSS (HWM 9.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 5.0
+mem[1] [tree] device 44.2 GB in use (per APU 11.0..11.0): planes 34.4, regions 0.0, block pool 8.6 (donated 0.0, borrowed 8.6, hipMalloc 0.0; live 0.4, peak live 1.3, free 8.1), tables 1.23, other 0.0
+mem[1] [tree] host 9.3 GB RSS (HWM 9.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 5.0
+dist B 2^20 (9 limbs = 6 x 3, 3 primes): load 0.017 ntt 0.001 crt 0.000 spills 0.000 total 0.020 s
+   dist_db 9 limbs: 0.020 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (5 limbs = 3 x 2, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 5 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (15 limbs = 10 x 5, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 15 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (9 limbs = 5 x 4, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 9 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (24 limbs = 16 x 8, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 24 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (15 limbs = 8 x 7, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 15 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (45 limbs = 30 x 15, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 45 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (29 limbs = 15 x 14, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 29 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (84 limbs = 56 x 28, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 84 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (55 limbs = 28 x 27, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 55 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (162 limbs = 108 x 54, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 162 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (9 limbs = 6 x 3, 3 primes): load 0.015 ntt 0.001 crt 0.000 spills 0.007 total 0.024 s
+   dist_db 9 limbs: 0.024 s (dbig: shift 0.000 addsub 0.006 maxidx 0.000 reserve 0.000)
+dist B 2^20 (107 limbs = 54 x 53, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 107 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (321 limbs = 214 x 107, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 321 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (5 limbs = 3 x 2, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+   dist_db 5 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (213 limbs = 107 x 106, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 213 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (15 limbs = 10 x 5, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+dist B 2^20 (639 limbs = 426 x 213, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 15 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+   dist_db 639 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (425 limbs = 213 x 212, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 425 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (9 limbs = 5 x 4, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 9 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (1275 limbs = 850 x 425, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 1275 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (24 limbs = 16 x 8, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+dist B 2^20 (849 limbs = 425 x 424, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 24 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+   dist_db 849 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (15 limbs = 8 x 7, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 15 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (2547 limbs = 1698 x 849, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 2547 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (45 limbs = 30 x 15, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+dist B 2^20 (1697 limbs = 849 x 848, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 1697 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+   dist_db 45 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (29 limbs = 15 x 14, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 29 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (5091 limbs = 3394 x 1697, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 5091 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (84 limbs = 56 x 28, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 84 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (3393 limbs = 1697 x 1696, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 3393 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (55 limbs = 28 x 27, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+   dist_db 55 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (10176 limbs = 6784 x 3392, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 10176 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (162 limbs = 108 x 54, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 162 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (6783 limbs = 3392 x 3391, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 6783 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (107 limbs = 54 x 53, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 107 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (321 limbs = 214 x 107, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 321 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (20349 limbs = 13566 x 6783, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 20349 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (213 limbs = 107 x 106, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 213 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (13565 limbs = 6783 x 6782, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 13565 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (639 limbs = 426 x 213, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 639 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (425 limbs = 213 x 212, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 425 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (1275 limbs = 850 x 425, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 1275 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (40695 limbs = 27130 x 13565, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.003 s
+   dist_db 40695 limbs: 0.003 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (849 limbs = 425 x 424, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 849 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (2547 limbs = 1698 x 849, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 2547 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (27129 limbs = 13565 x 13564, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 27129 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (1697 limbs = 849 x 848, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 1697 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (5091 limbs = 3394 x 1697, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 5091 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (81384 limbs = 54256 x 27128, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.002 s
+dist B 2^20 (3393 limbs = 1697 x 1696, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 3393 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+   dist_db 81384 limbs: 0.002 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (10176 limbs = 6784 x 3392, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+   dist_db 10176 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (54255 limbs = 27128 x 27127, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.002 s
+   dist_db 54255 limbs: 0.002 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (6783 limbs = 3392 x 3391, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 6783 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+recip(db) 0.06 s: dist 32 calls 3.01 s (load 0.36 ntt 2.49 crt 0.05 spills 0.24); dbig shift 35/0.04 addsub 54/0.04 maxidx 168/0.03 reserve 11/0.00; pools 0.0 GB
+recip(mn): the single-node chain to 54254 limbs (1.65 s), then the sharded steps to 27777780 over 2 nodes
+dist B 2^20 (20349 limbs = 13566 x 6783, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+   dist_db 20349 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (13565 limbs = 6783 x 6782, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 13565 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (40695 limbs = 27130 x 13565, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.002 s
+   dist_db 40695 limbs: 0.002 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (27129 limbs = 13565 x 13564, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 27129 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+dist B 2^20 (81384 limbs = 54256 x 27128, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.001 total 0.001 s
+   dist_db 81384 limbs: 0.001 s (dbig: shift 0.000 addsub 0.001 maxidx 0.000 reserve 0.000)
+dist B 2^20 (54255 limbs = 27128 x 27127, 3 primes): load 0.000 ntt 0.000 crt 0.000 spills 0.000 total 0.001 s
+   dist_db 54255 limbs: 0.001 s (dbig: shift 0.000 addsub 0.000 maxidx 0.000 reserve 0.000)
+recip(db) 0.06 s: dist 32 calls 3.01 s (load 0.36 ntt 2.44 crt 0.01 spills 0.29); dbig shift 35/0.06 addsub 55/0.05 maxidx 168/0.05 reserve 11/0.00; pools 0.0 GB
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 108510 + 54255 limbs at 0, window [0, 81382) of share [0, 81382)): redistribute 0.014 ntt 0.113 crt 0.000 out 0.002 spills+carry 0.001 total 0.148 s
+dist_mn node 0: 108510 x 54255 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 108510 + 54255 limbs at 0, window [81382, 162765) of share [81382, 162765)): redistribute 0.003 ntt 0.113 crt 0.000 out 0.001 spills+carry 0.002 total 0.148 s
+dist_mn node 1: 108510 x 54255 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 108510 + 54255 limbs -> 162765 (share 81382): redistribute 0.014 ntt 0.113 crt 0.000 out 0.002 spills+carry 0.001, total 0.148 s
+dist_mn node 1: 108510 + 54255 limbs -> 162765 (share 81383): redistribute 0.003 ntt 0.113 crt 0.000 out 0.001 spills+carry 0.002, total 0.149 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 54255 + 54254 limbs at 0, window [0, 54254) of share [0, 54254)): redistribute 0.002 ntt 0.039 crt 0.000 out 0.001 spills+carry 0.000 total 0.042 s
+dist_mn node 0: 54255 x 54254 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 54255 + 54254 limbs at 0, window [54254, 108509) of share [54254, 108509)): redistribute 0.002 ntt 0.039 crt 0.000 out 0.001 spills+carry 0.000 total 0.042 s
+dist_mn node 1: 54255 x 54254 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 54255 + 54254 limbs -> 108509 (share 54254): redistribute 0.002 ntt 0.039 crt 0.000 out 0.001 spills+carry 0.000, total 0.043 s
+dist_mn node 1: 54255 + 54254 limbs -> 108509 (share 54255): redistribute 0.002 ntt 0.039 crt 0.000 out 0.001 spills+carry 0.000, total 0.042 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 217016 + 108508 limbs at 0, window [0, 108510) of share [0, 108510)): redistribute 0.002 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000 total 0.039 s
+dist_mn node 0: 217016 x 108508 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 217016 + 108508 limbs at 0, window [108510, 217020) of share [108510, 217020)): redistribute 0.002 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000 total 0.039 s
+dist_mn node 1: 217016 x 108508 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 217016 + 108508 limbs -> 217020 (share 108510): redistribute 0.002 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000, total 0.039 s
+dist_mn node 1: 217016 + 108508 limbs -> 217020 (share 108510): redistribute 0.002 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000, total 0.039 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 108508 + 108507 limbs at 0, window [0, 108507) of share [0, 108507)): redistribute 0.002 ntt 0.035 crt 0.000 out 0.002 spills+carry 0.000 total 0.039 s
+dist_mn node 0: 108508 x 108507 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 108508 + 108507 limbs at 0, window [108507, 217015) of share [108507, 217015)): redistribute 0.002 ntt 0.036 crt 0.000 out 0.001 spills+carry 0.000 total 0.039 s
+dist_mn node 1: 108508 x 108507 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 108508 + 108507 limbs -> 217014 (share 108507): redistribute 0.002 ntt 0.035 crt 0.000 out 0.002 spills+carry 0.000, total 0.039 s
+dist_mn node 1: 108508 + 108507 limbs -> 217014 (share 108508): redistribute 0.002 ntt 0.036 crt 0.000 out 0.001 spills+carry 0.000, total 0.039 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 434030 + 217015 limbs at 0, window [0, 217017) of share [0, 217017)): redistribute 0.003 ntt 0.035 crt 0.000 out 0.002 spills+carry 0.000 total 0.039 s
+dist_mn node 0: 434030 x 217015 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 434030 + 217015 limbs at 0, window [217017, 434034) of share [217017, 434034)): redistribute 0.003 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000 total 0.039 s
+dist_mn node 1: 434030 x 217015 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 434030 + 217015 limbs -> 434030 (share 217017): redistribute 0.003 ntt 0.035 crt 0.000 out 0.002 spills+carry 0.000, total 0.039 s
+dist_mn node 1: 434030 + 217015 limbs -> 434030 (share 217017): redistribute 0.003 ntt 0.036 crt 0.000 out 0.002 spills+carry 0.000, total 0.039 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 217015 + 217014 limbs at 0, window [0, 217014) of share [0, 217014)): redistribute 0.002 ntt 0.034 crt 0.000 out 0.001 spills+carry 0.000 total 0.037 s
+dist_mn node 0: 217015 x 217014 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 217015 + 217014 limbs at 0, window [217014, 434029) of share [217014, 434029)): redistribute 0.002 ntt 0.034 crt 0.000 out 0.002 spills+carry 0.000 total 0.037 s
+dist_mn node 1: 217015 x 217014 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 217015 + 217014 limbs -> 434029 (share 217014): redistribute 0.002 ntt 0.034 crt 0.000 out 0.001 spills+carry 0.000, total 0.037 s
+dist_mn node 1: 217015 + 217014 limbs -> 434029 (share 217015): redistribute 0.002 ntt 0.034 crt 0.000 out 0.002 spills+carry 0.000, total 0.037 s
+dist_mn node 0: 2^21 = 2^10 x 2^11 over 2 x 4 ranks, 3 primes (rows 128..128; 868058 + 434029 limbs at 0, window [0, 434031) of share [0, 434031)): redistribute 0.007 ntt 0.050 crt 0.000 out 0.003 spills+carry 0.000 total 0.099 s
+dist_mn node 0: 868058 x 434029 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^21 = 2^10 x 2^11 over 2 x 4 ranks, 3 primes (rows 128..128; 868058 + 434029 limbs at 0, window [434031, 868062) of share [434031, 868062)): redistribute 0.016 ntt 0.050 crt 0.000 out 0.002 spills+carry 0.000 total 0.099 s
+dist_mn node 1: 868058 x 434029 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 868058 + 434029 limbs -> 868062 (share 434031): redistribute 0.016 ntt 0.050 crt 0.000 out 0.002 spills+carry 0.000, total 0.099 s
+dist_mn node 0: 868058 + 434029 limbs -> 868062 (share 434031): redistribute 0.007 ntt 0.050 crt 0.000 out 0.003 spills+carry 0.000, total 0.099 s
+dist_mn node 0: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 434029 + 434028 limbs at 0, window [0, 434028) of share [0, 434028)): redistribute 0.003 ntt 0.038 crt 0.000 out 0.002 spills+carry 0.000 total 0.065 s
+dist_mn node 0: 434029 x 434028 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^20 = 2^10 x 2^10 over 2 x 4 ranks, 3 primes (rows 128..128; 434029 + 434028 limbs at 0, window [434028, 868057) of share [434028, 868057)): redistribute 0.005 ntt 0.038 crt 0.000 out 0.002 spills+carry 0.000 total 0.065 s
+dist_mn node 1: 434029 x 434028 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 434029 + 434028 limbs -> 868057 (share 434029): redistribute 0.005 ntt 0.038 crt 0.000 out 0.002 spills+carry 0.000, total 0.065 s
+dist_mn node 0: 434029 + 434028 limbs -> 868057 (share 434028): redistribute 0.003 ntt 0.038 crt 0.000 out 0.002 spills+carry 0.000, total 0.065 s
+dist_mn node 0: 2^22 = 2^11 x 2^11 over 2 x 4 ranks, 3 primes (rows 256..256; 1736114 + 868057 limbs at 0, window [0, 868059) of share [0, 868059)): redistribute 0.006 ntt 0.081 crt 0.000 out 0.004 spills+carry 0.000 total 0.112 s
+dist_mn node 0: 1736114 x 868057 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^22 = 2^11 x 2^11 over 2 x 4 ranks, 3 primes (rows 256..256; 1736114 + 868057 limbs at 0, window [868059, 1736118) of share [868059, 1736118)): redistribute 0.006 ntt 0.081 crt 0.000 out 0.005 spills+carry 0.000 total 0.112 s
+dist_mn node 1: 1736114 x 868057 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 1736114 + 868057 limbs -> 1736114 (share 868059): redistribute 0.006 ntt 0.081 crt 0.000 out 0.004 spills+carry 0.000, total 0.112 s
+dist_mn node 1: 1736114 + 868057 limbs -> 1736114 (share 868059): redistribute 0.006 ntt 0.081 crt 0.000 out 0.005 spills+carry 0.000, total 0.112 s
+dist_mn node 0: 2^21 = 2^10 x 2^11 over 2 x 4 ranks, 3 primes (rows 128..128; 868057 + 868056 limbs at 0, window [0, 868056) of share [0, 868056)): redistribute 0.005 ntt 0.058 crt 0.000 out 0.004 spills+carry 0.000 total 0.091 s
+dist_mn node 0: 868057 x 868056 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^21 = 2^10 x 2^11 over 2 x 4 ranks, 3 primes (rows 128..128; 868057 + 868056 limbs at 0, window [868056, 1736113) of share [868056, 1736113)): redistribute 0.006 ntt 0.058 crt 0.000 out 0.004 spills+carry 0.000 total 0.091 s
+dist_mn node 1: 868057 x 868056 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 868057 + 868056 limbs -> 1736113 (share 868056): redistribute 0.005 ntt 0.058 crt 0.000 out 0.004 spills+carry 0.000, total 0.091 s
+dist_mn node 1: 868057 + 868056 limbs -> 1736113 (share 868057): redistribute 0.006 ntt 0.058 crt 0.000 out 0.004 spills+carry 0.000, total 0.091 s
+dist_mn node 0: 2^23 = 2^11 x 2^12 over 2 x 4 ranks, 3 primes (rows 256..256; 3472226 + 1736113 limbs at 0, window [0, 1736115) of share [0, 1736115)): redistribute 0.009 ntt 0.141 crt 0.000 out 0.007 spills+carry 0.000 total 0.175 s
+dist_mn node 0: 3472226 x 1736113 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^23 = 2^11 x 2^12 over 2 x 4 ranks, 3 primes (rows 256..256; 3472226 + 1736113 limbs at 0, window [1736115, 3472230) of share [1736115, 3472230)): redistribute 0.007 ntt 0.143 crt 0.000 out 0.007 spills+carry 0.000 total 0.175 s
+dist_mn node 1: 3472226 x 1736113 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 3472226 + 1736113 limbs -> 3472226 (share 1736115): redistribute 0.009 ntt 0.141 crt 0.000 out 0.007 spills+carry 0.000, total 0.175 s
+dist_mn node 1: 3472226 + 1736113 limbs -> 3472226 (share 1736115): redistribute 0.007 ntt 0.143 crt 0.000 out 0.007 spills+carry 0.000, total 0.176 s
+dist_mn node 0: 2^22 = 2^11 x 2^11 over 2 x 4 ranks, 3 primes (rows 256..256; 1736113 + 1736112 limbs at 0, window [0, 1736112) of share [0, 1736112)): redistribute 0.010 ntt 0.085 crt 0.000 out 0.007 spills+carry 0.000 total 0.122 s
+dist_mn node 0: 1736113 x 1736112 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^22 = 2^11 x 2^11 over 2 x 4 ranks, 3 primes (rows 256..256; 1736113 + 1736112 limbs at 0, window [1736112, 3472225) of share [1736112, 3472225)): redistribute 0.009 ntt 0.086 crt 0.000 out 0.006 spills+carry 0.000 total 0.122 s
+dist_mn node 1: 1736113 x 1736112 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 1736113 + 1736112 limbs -> 3472225 (share 1736112): redistribute 0.010 ntt 0.085 crt 0.000 out 0.007 spills+carry 0.000, total 0.122 s
+dist_mn node 1: 1736113 + 1736112 limbs -> 3472225 (share 1736113): redistribute 0.009 ntt 0.086 crt 0.000 out 0.006 spills+carry 0.000, total 0.122 s
+dist_mn node 0: 2^24 = 2^12 x 2^12 over 2 x 4 ranks, 3 primes (rows 512..512; 6944448 + 3472224 limbs at 0, window [0, 3472226) of share [0, 3472226)): redistribute 0.016 ntt 0.256 crt 0.000 out 0.017 spills+carry 0.000 total 0.313 s
+dist_mn node 0: 6944448 x 3472224 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^24 = 2^12 x 2^12 over 2 x 4 ranks, 3 primes (rows 512..512; 6944448 + 3472224 limbs at 0, window [3472226, 6944452) of share [3472226, 6944452)): redistribute 0.022 ntt 0.252 crt 0.000 out 0.018 spills+carry 0.000 total 0.313 s
+dist_mn node 1: 6944448 x 3472224 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 6944448 + 3472224 limbs -> 6944452 (share 3472226): redistribute 0.016 ntt 0.256 crt 0.000 out 0.017 spills+carry 0.000, total 0.313 s
+dist_mn node 1: 6944448 + 3472224 limbs -> 6944452 (share 3472226): redistribute 0.022 ntt 0.252 crt 0.000 out 0.018 spills+carry 0.000, total 0.313 s
+dist_mn node 0: 2^23 = 2^11 x 2^12 over 2 x 4 ranks, 3 primes (rows 256..256; 3472224 + 3472223 limbs at 0, window [0, 3472223) of share [0, 3472223)): redistribute 0.015 ntt 0.142 crt 0.000 out 0.014 spills+carry 0.000 total 0.196 s
+dist_mn node 0: 3472224 x 3472223 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^23 = 2^11 x 2^12 over 2 x 4 ranks, 3 primes (rows 256..256; 3472224 + 3472223 limbs at 0, window [3472223, 6944447) of share [3472223, 6944447)): redistribute 0.011 ntt 0.144 crt 0.000 out 0.013 spills+carry 0.000 total 0.196 s
+dist_mn node 1: 3472224 x 3472223 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 3472224 + 3472223 limbs -> 6944446 (share 3472224): redistribute 0.011 ntt 0.144 crt 0.000 out 0.013 spills+carry 0.000, total 0.197 s
+dist_mn node 0: 3472224 + 3472223 limbs -> 6944446 (share 3472223): redistribute 0.015 ntt 0.142 crt 0.000 out 0.014 spills+carry 0.000, total 0.197 s
+dist_mn node 0: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 3 primes (rows 512..512; 13888892 + 6944446 limbs at 0, window [0, 6944448) of share [0, 6944448)): redistribute 0.022 ntt 0.485 crt 0.000 out 0.022 spills+carry 0.000 total 0.555 s
+dist_mn node 0: 13888892 x 6944446 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 3 primes (rows 512..512; 13888892 + 6944446 limbs at 0, window [6944448, 13888896) of share [6944448, 13888896)): redistribute 0.027 ntt 0.481 crt 0.000 out 0.025 spills+carry 0.001 total 0.555 s
+dist_mn node 1: 13888892 x 6944446 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 13888892 + 6944446 limbs -> 13888896 (share 6944448): redistribute 0.022 ntt 0.485 crt 0.000 out 0.022 spills+carry 0.000, total 0.556 s
+dist_mn node 1: 13888892 + 6944446 limbs -> 13888896 (share 6944448): redistribute 0.027 ntt 0.481 crt 0.000 out 0.025 spills+carry 0.001, total 0.556 s
+dist_mn node 0: 2^24 = 2^12 x 2^12 over 2 x 4 ranks, 3 primes (rows 512..512; 6944446 + 6944445 limbs at 0, window [0, 6944445) of share [0, 6944445)): redistribute 0.022 ntt 0.262 crt 0.000 out 0.019 spills+carry 0.001 total 0.328 s
+dist_mn node 0: 6944446 x 6944445 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^24 = 2^12 x 2^12 over 2 x 4 ranks, 3 primes (rows 512..512; 6944446 + 6944445 limbs at 0, window [6944445, 13888891) of share [6944445, 13888891)): redistribute 0.023 ntt 0.260 crt 0.000 out 0.021 spills+carry 0.001 total 0.328 s
+dist_mn node 1: 6944446 x 6944445 limbs over 2 x 4 ranks (cap 2^30): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 6944446 + 6944445 limbs -> 13888890 (share 6944445): redistribute 0.022 ntt 0.262 crt 0.000 out 0.019 spills+carry 0.001, total 0.328 s
+dist_mn node 1: 6944446 + 6944445 limbs -> 13888890 (share 6944446): redistribute 0.023 ntt 0.260 crt 0.000 out 0.021 spills+carry 0.001, total 0.328 s
+dist_mn node 0: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 512..512; 27777782 + 13888891 limbs at 0, window [0, 13888893) of share [0, 13888893)): redistribute 0.046 ntt 0.622 crt 0.001 out 0.033 spills+carry 0.001 total 0.723 s
+dist_mn node 0: 27777782 x 13888891 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 512..512; 27777782 + 13888891 limbs at 0, window [13888893, 27777786) of share [13888893, 27777786)): redistribute 0.048 ntt 0.606 crt 0.001 out 0.039 spills+carry 0.001 total 0.723 s
+dist_mn node 1: 27777782 x 13888891 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 27777782 + 13888891 limbs -> 27777782 (share 13888893): redistribute 0.046 ntt 0.622 crt 0.001 out 0.033 spills+carry 0.001, total 0.723 s
+dist_mn node 1: 27777782 + 13888891 limbs -> 27777782 (share 13888893): redistribute 0.048 ntt 0.606 crt 0.001 out 0.039 spills+carry 0.001, total 0.723 s
+dist_mn node 0: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 512..512; 13888891 + 13888890 limbs at 0, window [0, 13888890) of share [0, 13888890)): redistribute 0.030 ntt 0.621 crt 0.002 out 0.030 spills+carry 0.001 total 0.677 s
+dist_mn node 0: 13888891 x 13888890 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^25 = 2^12 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 512..512; 13888891 + 13888890 limbs at 0, window [13888890, 27777781) of share [13888890, 27777781)): redistribute 0.032 ntt 0.618 crt 0.002 out 0.029 spills+carry 0.001 total 0.677 s
+dist_mn node 1: 13888891 x 13888890 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 13888891 + 13888890 limbs -> 27777781 (share 13888890): redistribute 0.030 ntt 0.621 crt 0.002 out 0.030 spills+carry 0.001, total 0.678 s
+dist_mn node 1: 13888891 + 13888890 limbs -> 27777781 (share 13888891): redistribute 0.032 ntt 0.618 crt 0.002 out 0.029 spills+carry 0.001, total 0.678 s
+recip(mn) 5.74 s: single-node part 1.65, products 3.81, shifts 40/0.28, addsub 14/0.02, small 0/0.00
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 27777780 limbs at 0, window [0, 27777779) of share [0, 27777779)): redistribute 0.059 ntt 1.164 crt 0.002 out 0.054 spills+carry 0.001 total 1.311 s
+dist_mn node 0: 27777779 x 27777780 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 27777780 limbs at 0, window [27777779, 55555559) of share [27777779, 55555559)): redistribute 0.065 ntt 1.149 crt 0.002 out 0.061 spills+carry 0.001 total 1.311 s
+dist_mn node 1: 27777779 x 27777780 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 27777779 + 27777780 limbs -> 55555559 (share 27777780): redistribute 0.065 ntt 1.149 crt 0.002 out 0.061 spills+carry 0.001, total 1.312 s
+dist_mn node 0: 27777779 + 27777780 limbs -> 55555559 (share 27777779): redistribute 0.059 ntt 1.164 crt 0.002 out 0.054 spills+carry 0.001, total 1.312 s
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 55555560 limbs at 0, window [0, 27777781) of share [0, 27777781)): redistribute 0.226 ntt 1.323 crt 0.002 out 0.063 spills+carry 0.001 total 1.485 s
+dist_mn node 0: 27777779 x 55555560 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 55555560 limbs at 0, window [27777781, 55555562) of share [27777781, 55555562)): redistribute 0.211 ntt 1.325 crt 0.002 out 0.057 spills+carry 0.001 total 1.485 s
+dist_mn node 1: 27777779 x 55555560 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 27777779 + 55555560 limbs -> 55555562 (share 27777781): redistribute 0.226 ntt 1.323 crt 0.002 out 0.063 spills+carry 0.001, total 1.486 s
+dist_mn node 1: 27777779 + 55555560 limbs -> 55555562 (share 27777781): redistribute 0.211 ntt 1.325 crt 0.002 out 0.057 spills+carry 0.001, total 1.486 s
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 27777780 limbs at 0, window [0, 27777779) of share [0, 27777779)): redistribute 0.057 ntt 1.182 crt 0.002 out 0.067 spills+carry 0.001 total 1.298 s
+dist_mn node 0: 27777779 x 27777780 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777779 + 27777780 limbs at 0, window [27777779, 55555559) of share [27777779, 55555559)): redistribute 0.062 ntt 1.186 crt 0.002 out 0.059 spills+carry 0.001 total 1.298 s
+dist_mn node 1: 27777779 x 27777780 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low cut) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 0: 27777779 + 27777780 limbs -> 55555558 (share 27777779): redistribute 0.057 ntt 1.182 crt 0.002 out 0.067 spills+carry 0.001, total 1.298 s
+dist_mn node 1: 27777779 + 27777780 limbs -> 55555558 (share 27777780): redistribute 0.062 ntt 1.186 crt 0.002 out 0.059 spills+carry 0.001, total 1.298 s
+mn_out: /tmp/int315_e9_k8e6_2.txt.part0001: O_DIRECT, packed form, 8 write threads, file system local
+dist_mn node 0: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777778 + 55555560 limbs at 0, window [0, 27777781) of share [0, 27777781)): redistribute 0.103 ntt 1.058 crt 0.002 out 0.058 spills+carry 0.001 total 1.189 s
+dist_mn node 0: 27777778 x 55555560 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 2^26 = 2^13 x 2^13 over 2 x 4 ranks, 4 primes, P24 (rows 1024..1024; 27777778 + 55555560 limbs at 0, window [27777781, 55555562) of share [27777781, 55555562)): redistribute 0.100 ntt 1.036 crt 0.002 out 0.057 spills+carry 0.001 total 1.189 s
+dist_mn node 1: 27777778 x 55555560 limbs over 2 x 4 ranks (cap 2^30 points, P24): 1 x 1 pieces, 1 formed, 0 skipped (low product) (cache 0 slots: 0 hits, 0 misses)
+dist_mn node 1: 27777778 + 55555560 limbs -> 55555562 (share 27777781): redistribute 0.100 ntt 1.036 crt 0.002 out 0.057 spills+carry 0.001, total 1.189 s
+dist_mn node 0: 27777778 + 55555560 limbs -> 55555562 (share 27777781): redistribute 0.103 ntt 1.058 crt 0.002 out 0.058 spills+carry 0.001, total 1.189 s
+divmod(mn, DKM) 11.40 s: k 55555557 = 27777779 + 27777778 (s), h 27777779; reciprocal 5.76 (products 3.81), S = P + Q 0.00, step 1 (A mu, X_hi Q, corrections 0) 2.96, step 2 A mu + assembly 1.48, X_lo Q 1.19, corrections 0.00 (0), R residues 0.01; division products 5.29 s; shifts 53/0.60 s, addsub 18/0.02 s
+scratch(mn): mdb_shift slabs 0.444 GB per node-process at most (MDB_SHIFT_CHUNK_MB=1024), window temporaries T + rbO 0.445 GB (MN_T_CHUNK_MB=1024)
+mn: node 0: dm over 2 nodes 11.40 s (reciprocal 5.76), X 55555557 limbs, sharded
+mn: node 1: dm over 2 nodes 11.40 s (reciprocal 5.76), X 55555557 limbs, sharded; to the output stage
+bs        3.67 s   N 130202816, P 55555560 limbs, Q 55555560 limbs (seeds 0.0 school 0.0 batch 0.5 mdev 0.0; pool 0.5 GB; dev pools 0.0 GB)   VmRSS 18.4 GB, VmHWM 18.4 GB
+RESULT ecalc bs s 3.66746
+mem[0] [bs] device 48.5 GB in use (per APU 11.0..15.3): planes 34.4, regions 0.0, block pool 8.6 (donated 0.0, borrowed 8.6, hipMalloc 0.0; live 0.2, peak live 1.9, free 8.4), tables 5.52, other 0.0
+mem[0] [bs] host 18.4 GB RSS (HWM 18.4): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 14.1
+recip     5.76 s   (over 2 nodes; 24 iterations)
+10dP      0.00 s   (S = P + Q over shares, inside dm)
+RESULT ecalc 10dP s 0
+dm       11.40 s   X 55555557 limbs (recip 5.8 s; corrections 0/0; over 2 nodes)   VmRSS 18.4 GB, VmHWM 18.4 GB
+RESULT ecalc dm s 11.4006
+mn: node 0: X share [0, 27777778) of 55555557 limbs on the device (the distributed division's)
+mn: node 1: X share [27777778, 55555557) of 55555557 limbs on the device (the distributed division's)
+mn: node 0: T1        0.01 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 0:       overlapped with bs: P, Q mod q recurrence 0.33 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 1: T1        0.01 s   ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)
+mn: node 1:       overlapped with bs: P, Q mod q recurrence 0.32 s, block pool pregrown by 0 GB in 0.00 s
+mn: node 0:       VmRSS 18.4 GB before dc
+mn: node 0:       the part file started in the division (MN_OUT_EARLY): its writer ran 0.12 s, joined after 0.00 s here
+mn: node 1:       VmRSS 18.4 GB before dc
+mn: node 1:       the part file started in the division (MN_OUT_EARLY): its writer ran 0.40 s, joined after 0.00 s here
+mn: node 1:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 0 deferred windows; 0.002 s
+mn: node 0:       patch: X +0 after the formatting started (ECALC_CORR_PATCH): nothing to patch; 1 deferred windows; 0.005 s
+mn: node 0: dc        0.03 s   digits [500000005, 1000000009) of 1000000009 formatted from 27777778 decimal limbs in 2 chunks (residues 0.00, format 0.01, digit residue 0.07, T2 0.00, fetch 0.01, waiting for the writer 0.00)
+mn: node 0: T2        0.00 s   windows ok (1 checked on this node), digits == X mod q ok
+mn: node 0: digits: 24912068863008927327592489898493657902004983529001492423277032...51035678710858200191 (this node's range)
+mn: node 1: dc        0.03 s   digits [0, 500000005) of 1000000009 formatted from 27777779 decimal limbs in 2 chunks (residues 0.00, format 0.01, digit residue 0.05, T2 0.28, fetch 0.01, waiting for the writer 0.02)
+mn: node 1: T2        0.00 s   windows ok (3 checked on this node), digits == X mod q ok
+mn: node 1: digits: 27182818284590452353602874713526624977572470936999595749669676... (this node's range)
+mn: node 1: wrote /tmp/int315_e9_k8e6_2.txt.part0000 (0.22 GB; write 0.08 s in the writer thread, 0.00 s after the checks)
+mn: node 1: VERIFY OK
+total    20.73 s   (bs 3.7 + 10dP 0.0 + dm 11.4 + T1 0.0 + dc 0.0 + T2 0.0 = 15.1; init 5.6; other 0.0); VmHWM 18.3 GB
+RESULT ecalc total s 20.73
+RESULT ecalc phases s 15.1043
+RESULT ecalc other s 0.00746712
+RESULT ecalc vmhwm GB 18.3085
+paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3
+mn: node 0: wrote /tmp/int315_e9_k8e6_2.txt.part0001 (0.22 GB; write 0.08 s in the writer thread, 0.00 s after the checks)
+mn: node 0: VERIFY OK
+mn: all 2 nodes: VERIFY OK
+dbig pool: APU0 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU1 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU2 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU3 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU0 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU1 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU2 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+dbig pool: APU3 tail 0.11 GB: 1 large blocks from its back, 0 small blocks spilled into it
+mem[0] [end] device 39.9 GB in use (per APU 8.9..13.2): planes 34.4, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 1.9, free 0.0), tables 5.52, other 0.0
+mem[0] [end] host 17.9 GB RSS (HWM 18.3): staging 4.3 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 13.6
+mem[0] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[0] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[0] init              48.5    15.3 |    34.4     0.0     0.0     8.6     0.0     0.0     0.0   5.52 |     8.7     4.3     0.0     0.0     0.0     4.4     9.1
+mem[0] tree              48.5    15.3 |    34.4     0.0     0.0     8.6     0.0     0.4     1.2   5.52 |     9.3     4.3     0.0     0.0     0.0     5.0     9.3
+mem[0] bs                48.5    15.3 |    34.4     0.0     0.0     8.6     0.0     0.2     1.9   5.52 |    18.4     4.3     0.0     0.0     0.0    14.1    18.4
+mem[0] end               39.9    13.2 |    34.4     0.0     0.0     0.0     0.0     0.0     1.9   5.52 |    17.9     4.3     0.0     0.0     0.0    13.6    18.3
+dbig pool: APU0 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU1 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU2 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU3 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+mem[1] [released] device 1.2 GB in use (per APU 0.3..0.3): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 1.9, free 0.0), tables 1.23, other 0.0
+mem[1] [released] host 13.6 GB RSS (HWM 18.3): staging 0.0 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 13.6
+mem[1] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[1] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[1] init              44.2    11.0 |    34.4     0.0     0.0     8.6     0.0     0.0     0.0   1.23 |     8.7     4.3     0.0     0.0     0.0     4.4     9.1
+mem[1] tree              44.2    11.0 |    34.4     0.0     0.0     8.6     0.0     0.4     1.3   1.23 |     9.3     4.3     0.0     0.0     0.0     5.0     9.3
+mem[1] released           1.2     0.3 |     0.0     0.0     0.0     0.0     0.0     0.0     1.9   1.23 |    13.6     0.0     0.0     0.0     0.0    13.6    18.3
+dbig pool: APU0 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.05 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
+dbig pool: APU1 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU2 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+dbig pool: APU3 VMM arena released (0 remaps of 0 chunks in 0.00 s, 0 growths of 0 chunks)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 30 products 0.05 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)

@@ -1,0 +1,26 @@
+== t_crt ==
+META bench=t_crt host=ppac-pl1-s24-16 date=2026-09-28T20:14:36
+   4 primes, binary limbs
+-- throughput, n = 2^24, best of 3 (s)
+   (a) stripe-local planes      T= 48  0.022 s  0.76 Gcoef/s
+   (a) stripe-local planes      T= 96  0.034 s  0.49 Gcoef/s
+   (a) stripe-local planes      T=192  0.017 s  0.97 Gcoef/s
+RESULT t_crt crt_2e30_stripe_local_T192 s 0.0172112
+   (b) one plane per node       T= 48  0.015 s  1.12 Gcoef/s
+   (b) one plane per node       T= 96  0.021 s  0.81 Gcoef/s
+   (b) one plane per node       T=192  0.015 s  1.15 Gcoef/s
+RESULT t_crt crt_2e30_plane_per_node_T192 s 0.0146434
+   (c) quartered node-local     T= 48  0.019 s  0.88 Gcoef/s
+   (c) quartered node-local     T= 96  0.019 s  0.87 Gcoef/s
+   (c) quartered node-local     T=192  0.024 s  0.69 Gcoef/s
+RESULT t_crt crt_2e30_quartered_T192 s 0.0241899
+   (d) registered hugepage, plane per node  T=192  run 0  0.043 s
+   (d) registered hugepage, plane per node  T=192  run 1  0.034 s
+   (d) registered hugepage, plane per node  T=192  run 2  0.030 s
+   (d) registered hugepage, plane per node  T=192  run 3  0.027 s
+   (d) registered hugepage, plane per node  T=192  run 4  0.024 s
+   (e) after nested 4x48 region             T=192  run 0  0.031 s
+   (e) after nested 4x48 region             T=192  run 1  0.024 s
+   (e) after nested 4x48 region             T=192  run 2  0.027 s
+
+t_crt: VERIFY OK (24 checks)

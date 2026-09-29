@@ -1,0 +1,17 @@
+== mnaccept: job 21763 on ppac-pl1-s24-16, 2026-09-28T17:31:06-05:00, 256b0f9b MPB: the node job script, the line checker; the plans at 5.1e13 / 4.74e13 / 4.25e13 on 576, switch off/on (login node); ref /shared/prerelease/home/mpo_2026/chcoppola/ntt/ecalc/ref ==
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.94 s (bs 1.3 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 20.96 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.90 s (bs 0.8 + 10dP 0.0 + dm 3.6
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.07 s (bs 1.1 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 7.73 s (bs 0.8 + 10dP 0.0 + dm 3.1
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.33 s (bs 2.9 + 10dP 0.0 + dm 12
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 15.59 s (bs 3.0 + 10dP 0.0 + dm 7.
+== 15 passed, 0 failed; 1306 s; 256b0f9b; logs in results/mnaccept/21763 ==

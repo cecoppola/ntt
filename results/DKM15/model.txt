@@ -1,0 +1,12 @@
+# NEWTON_DKM at 5.1e+13 digits on 576 (modelled; the fabric assumed; write 0.6 GB/s; ECALC_NP=auto)
+cache 2 today                                |  330.7 |  360.2 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 140.8 recip 45.3 div 53.3 out 37.3 | node 455.4 GB | pieces (model plan) recip 74 div 40
+cache 2 NEWTON_DKM=1                         |  307.6 |  350.7 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 140.8 recip 18.5 div 57.0 out 50.9 | node 455.4 GB | pieces (model plan) recip 54 div 42 | X_hi 9.4, X_hi Q 17.1, X_lo 9.4, X_lo Q 17.1 s (pieces 7/14/7/14); writer under 17.1 s; h 1416666666668, s 1416666666667
+cache 2 NEWTON_DKM=1 + X_hi writer (not built) |  307.6 |  339.3 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 140.8 recip 18.5 div 57.0 out 39.5 | node 455.4 GB | pieces (model plan) recip 54 div 42 | X_hi 9.4, X_hi Q 17.1, X_lo 9.4, X_lo Q 17.1 s (pieces 7/14/7/14); writer under 28.5 s; h 1416666666668, s 1416666666667
+cache 0 today                                |  406.8 |  426.0 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 188.6 recip 55.7 div 71.1 out 27.0 | node 455.4 GB | pieces (model plan) recip 74 div 40
+cache 0 NEWTON_DKM=1                         |  376.4 |  412.7 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 188.6 recip 20.6 div 75.9 out 44.0 | node 455.4 GB | pieces (model plan) recip 54 div 42 | X_hi 12.0, X_hi Q 23.9, X_lo 12.0, X_lo Q 23.9 s (pieces 7/14/7/14); writer under 23.9 s; h 1416666666668, s 1416666666667
+cache 0 NEWTON_DKM=1 + X_hi writer (not built) |  376.4 |  398.7 | init 19.3 seed 12.9 batch 24.2 top 27.0 levels 188.6 recip 20.6 div 75.9 out 30.0 | node 455.4 GB | pieces (model plan) recip 54 div 42 | X_hi 12.0, X_hi Q 23.9, X_lo 12.0, X_lo Q 23.9 s (pieces 7/14/7/14); writer under 37.9 s; h 1416666666668, s 1416666666667
+# memory (mem_model.mem_per_node; dkm = NEWTON_DKM with a dm_layout that follows it -- not built; MODELLED)
+5.1e+13 digits on 576, today: node 455.4 GB, arena 284.1 (bs 201.8, dm 284.1, tree 264.2); per device v2 56.83 v3 56.51 div 55.45 hole 19.98
+5.1e+13 digits on 576, dkm  : node 450.3 GB, arena 279.0 (bs 201.8, dm 279.0, tree 264.2); per device v2 55.54 v3 46.52 div 54.47 hole 9.99
+1e+11 digits on 1, today: node 410.4 GB, arena 273.6 (bs 261.2, dm 255.3, tree 0.0); per device v2 63.49 v3 63.82 div 62.07 hole 22.57
+1e+11 digits on 1, dkm  : node 405.0 GB, arena 268.3 (bs 261.2, dm 248.1, tree 0.0); per device v2 62.04 v3 52.53 div 60.96 hole 11.28

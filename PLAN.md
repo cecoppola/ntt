@@ -2092,3 +2092,10 @@ room's budget-check fix (agent **DL**) and DKM's early writer (agent **EW**); th
 reports; then `int15i` + DL + EW (+ PC if adopted) into main as **B3** after the regression, a paired series and a real 2-node DKM
 run. Added (candidates, pending the user): **0a** skip the X·Q low product with a guard-limb certificate (apumult A27; −25.7 s of
 92 s dm at 10¹¹ measured); **0b** a weak-memory (peer-write → CPU-read) audit. **0c** done: the target's write rate 1 GB/s.
+### 38.2 Batch 3 wrap-up (2026-09-29; the weekly token budget nearly spent)
+
+B3 = int15i: P24 (`MN_P24=2`) and DKM (`NEWTON_DKM=1`) by default; DL (DKM's arena layout, the room check fixed); WM (race H1 in
+the single-node dist exchange, fixed); EW `MN_OUT_DKM_HI` and PC `RNS_DIST_CACHE_PARTIAL` merged **off**; MPB off; SX (task 0a):
+the user chose **(c), keep the low product** (nothing built). **Target 5.276 × 10¹³.** Next session: decide EW and PC (EW's 10¹¹
+timing series owed; PC at 3–4 processes owed), a 2-node run at a tight size to measure the multi-node division's peak, the
+target-side list (TARGET_TASKS).

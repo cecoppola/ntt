@@ -1,0 +1,20 @@
+== j5: 844eb92 PC: tests/pc_j5.sh (t_mn_grid forced partial / P24 at 2, 3, 4 procs; cx_grid at 4 procs) Tue Sep 29 12:35:32 AM CDT 2026
+job 21804 queued Tue Sep 29 12:35:32 AM CDT 2026
+job 21804 running on ppac-pl1-s24-16 Tue Sep 29 01:05:54 AM CDT 2026
+tmg2_k1 rc 0 327 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 0 | hits: 3302
+tmg2_k2 rc 0 331 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 2 | hits: 3302
+tmg2_k4 rc 0 311 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 2 | hits: 3846
+tmg2_k1_24 rc 0 398 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 0 | hits: 3302
+tmg2_k2_24 rc 0 320 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 2 | hits: 3302
+tmg2_k4_24 rc 0 286 s | 2 VERIFY OK, 0 FAILED | 240 slot takes, grew 2 | hits: 3846
+tmg3_k2 rc 6 19 s | 0 VERIFY OK, 0 FAILED | 0 slot takes, grew 0 | hits: 
+tmg3_k2_24 rc 124 549 s | 0 VERIFY OK, 0 FAILED | 0 slot takes, grew 0 | hits: 
+SKIP tmg4_k1_24 (time: 59 s left)
+t_mn_grid done Tue Sep 29 01:48:15 AM CDT 2026, 2541 s
+SKIP cx4_off (time: 59 s left)
+SKIP cx4_k1 (time: 59 s left)
+SKIP cx4_k2 (time: 59 s left)
+SKIP cx4_off_24 (time: 59 s left)
+SKIP cx4_k1_24 (time: 59 s left)
+SKIP cx4_k2_24 (time: 59 s left)
+== j5 done Tue Sep 29 01:48:15 AM CDT 2026, 2541 s on the node

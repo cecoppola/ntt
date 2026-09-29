@@ -1,0 +1,7 @@
+== mnaccept: job 21777 on ppac-pl1-s24-30, 2026-09-28T18:56:25-05:00, 3404444 P24: k_gather_mn24_np's macro parameter (it shadowed ec_mod's .p); ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-P2415/ecalc/ref ==
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 9.10 s (bs 0.8 + 10dP 0.0 + dm 3.6
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.74 s (bs 1.3 + 10dP 0.0 + dm 3.8
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.46 s (bs 1.0 + 10dP 0.0 + dm 3.7
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 23.83 s (bs 3.7 + 10dP 0.0 + dm 14
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 17.49 s (bs 3.7 + 10dP 0.0 + dm 8.
+== 5 passed, 0 failed; 89 s; 3404444; logs in results/mnaccept/21777 ==

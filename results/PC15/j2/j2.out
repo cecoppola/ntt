@@ -1,0 +1,12 @@
+== j2: cd7188a PC: the trace line's partial note at its end (CX's parsers unchanged); tests/pc_hashes.py, pc_hits.py fit, pc_j3.sh (the gates) Mon Sep 28 10:21:08 PM CDT 2026; 2 procs, 10000000000 digits, POOL_LOG=27, 2 reps of c0,pc,c0_pd,pc_pd
+job 21788 queued Mon Sep 28 10:21:08 PM CDT 2026
+job 21788 running on ppac-pl1-s24-26 Mon Sep 28 10:21:28 PM CDT 2026
+c0_r1 rc 0 identical wall 272.916602609 s | total 271.23 s (bs 57.7 + 10dP 0.0 + dm 205.6 + T1 0.1 + dc 0.0 + T2 0.0 = 263.4; init 7.8 | 3 VERIFY OK |  | grew 0
+pc_r1 rc 0 identical wall 219.702485360 s | total 218.16 s (bs 44.6 + 10dP 0.0 + dm 165.8 + T1 0.1 + dc 0.0 + T2 0.0 = 210.4; init 7.7 | 3 VERIFY OK | transform cache (RNS_DIST_CACHE_PARTIAL): 8 grid products, 8 with slots (planes per product: max 8, mean 6.50), the largest 2.15 GB per APU from the block pool, no growth | grew 0
+c0_pd_r1 rc 0 identical wall 168.982141829 s | total 167.45 s (bs 41.7 + 10dP 0.0 + dm 118.2 + T1 0.1 + dc 0.0 + T2 0.0 = 160.0; init 7.4 | 3 VERIFY OK |  | grew 0
+pc_pd_r1 rc 0 identical wall 142.653041105 s | total 141.17 s (bs 37.9 + 10dP 0.0 + dm 95.5 + T1 0.1 + dc 0.0 + T2 0.0 = 133.4; init 7.7; | 3 VERIFY OK | transform cache (RNS_DIST_CACHE_PARTIAL): 7 grid products, 7 with slots (planes per product: max 8, mean 5.71), the largest 2.15 GB per APU from the block pool, no growth | grew 0
+c0_r2 rc 0 identical wall 283.370360567 s | total 281.79 s (bs 61.0 + 10dP 0.0 + dm 213.0 + T1 0.1 + dc 0.0 + T2 0.0 = 274.2; init 7.6 | 3 VERIFY OK |  | grew 0
+pc_r2 rc 0 identical wall 215.792087023 s | total 214.14 s (bs 46.6 + 10dP 0.0 + dm 159.5 + T1 0.1 + dc 0.0 + T2 0.0 = 206.2; init 7.9 | 3 VERIFY OK | transform cache (RNS_DIST_CACHE_PARTIAL): 8 grid products, 8 with slots (planes per product: max 8, mean 6.50), the largest 2.15 GB per APU from the block pool, no growth | grew 0
+c0_pd_r2 rc 0 identical wall 164.705066489 s | total 163.19 s (bs 40.3 + 10dP 0.0 + dm 115.3 + T1 0.1 + dc 0.0 + T2 0.0 = 155.7; init 7.5 | 3 VERIFY OK |  | grew 0
+pc_pd_r2 rc 0 identical wall 136.874446587 s | total 135.46 s (bs 36.1 + 10dP 0.0 + dm 91.8 + T1 0.1 + dc 0.0 + T2 0.0 = 128.0; init 7.5; | 3 VERIFY OK | transform cache (RNS_DIST_CACHE_PARTIAL): 7 grid products, 7 with slots (planes per product: max 8, mean 5.71), the largest 2.15 GB per APU from the block pool, no growth | grew 0
+== j2 done Mon Sep 28 10:50:41 PM CDT 2026, 1753 s on the node
