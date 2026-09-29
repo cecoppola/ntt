@@ -3861,3 +3861,5 @@ room's budget check (10¹¹ identical, time-neutral, 0 remaps; room kept up to 5
 `ECALC_NP_AUTO_MIN`. SX (skip X·Q): the user kept the low product. Each branch passed its own gates (identical digits); the merged
 regression is recorded below. **576-node estimate (standing rule; modelled, fabric assumed, cache 0 slots, write 1 GB/s):
 the target 5.276 × 10¹³ in 292.4 s (4.87 min) without the write, 313.8 s (5.23 min) with it; node ≈ 471.9 GB.**
+
+**Merged regression** (17604bb = the B3 code; job 21846, aac6 s24-26, 2026-09-29 09:00–09:48 EDT, measured): unit, e9, mn, recheck, corr, full, stress **24/24 passed**; 10¹¹ identical, `total` 168.8 s (172 s with the write), RECHECK OK. B3 merged into main.
