@@ -41,6 +41,8 @@ size_t newton_mn_chain_start(size_t k);
 size_t newton_recip_cut(size_t v);      /* Phase 14 R1 (E7): the low cut of a reciprocal product read as t1 >> v under NEWTON_RECIP_CUT (0 = none) */
 size_t newton_recip_mid(size_t j, size_t take);   /* Phase 15 R4: Q_t r's high cut under NEWTON_RECIP_MID ((size_t)-1 = none); the run takes it from the chain's second round on */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs);   /* L: the step runs on [0, 2^L) (0: the full group of g nodes) */
+int newton_dkm_on(void);                /* Phase 15 DKM (newton.h): NEWTON_DKM=1 -- the division in two quotient halves (INT3: the plan follows it) */
+size_t newton_dkm_h(size_t k);          /* DKM: the reciprocal's length for a quotient of k limbs (floor(k/2) + 1) */
 /* mn_plan.c: print the plan of a run of d digits (N terms) on `size` node-processes and return the exit status */
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log);
 /* Phase 15 P: every planned product against the prime set (the term bound of ECALC_NP, the roots' 2-adic limit): mn_plan_run
