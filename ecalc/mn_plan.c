@@ -270,6 +270,34 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
+/* INT3 (Phase 15 Batch 3): NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
+ * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
+ * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
+ * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).
+ * The assembly and the corrections are not products.  (A kept mu shorter than h + 1 -- a fresh reciprocal -- is not planned.) */
+static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int size)
+{
+    size_t h_mu = newton_dkm_h(k_mu), sn = limbs_of(lq + log10l(expl(1.0L)));
+    size_t na = sn + dl, k = na - nq + 1, w = nq + 2, s = k / 2 < dl ? k / 2 : dl, k1 = k - s;
+    size_t ahn1 = sn - (nq - 1 - (dl - s)), xh = k1, ahn2 = s + 1, k2 = s + 1, xl = s;
+    if (size > 1) plan_recip_mn(nq, h_mu, size); else plan_recip_db(nq, h_mu);
+    if (!g_quiet) printf("plan div    NEWTON_DKM=1: k %zu = %zu + %zu (s), the reciprocal to h %zu of k_mu %zu; step 1 A_h %zu x mu %zu, X_hi %zu x Q %zu; step 2 R1_h %zu x mu %zu, X_lo %zu x Q %zu (mod B^%zu)\n",
+                         k, k1, s, h_mu, k_mu, ahn1, k1 + 1, xh, nq, ahn2, k2 + 1, xl, nq, w);
+    if (size > 1) {
+        int L1 = newton_mn_x1_level(ahn1, k1 + 1, size, size, 2 * (ahn1 + k1 + 1)), L2 = newton_mn_x1_level(xh, nq, size, size, 2 * (xh + nq));
+        int L3 = newton_mn_x1_level(ahn2, k2 + 1, size, size, 2 * (ahn2 + k2 + 1)), L4 = newton_mn_x1_level(xl, nq, size, size, 2 * (xl + nq));
+        show_mn(PH_DIV, "DKM step 1 A_h mu", ahn1, k1 + 1, L1 ? 1 << L1 : size, 0, k1 + 1, (size_t)-1, 1, 0);
+        show_mn(PH_DIV, "DKM step 1 X_hi Q mod B^w", xh < w ? xh : w, nq < w ? nq : w, L2 ? 1 << L2 : size, 0, 0, w, 1, 0);
+        show_mn(PH_DIV, "DKM step 2 R1_h mu", ahn2, k2 + 1, L3 ? 1 << L3 : size, 0, k2 + 1, (size_t)-1, 1, 0);
+        show_mn(PH_DIV, "DKM step 2 X_lo Q mod B^w", xl < w ? xl : w, nq < w ? nq : w, L4 ? 1 << L4 : size, 0, 0, w, 1, 0);
+    } else {
+        show_db(PH_DIV, "DKM step 1 A_h mu", ahn1, k1 + 1, k1 + 1, (size_t)-1);
+        show_db(PH_DIV, "DKM step 1 X_hi Q mod B^w", xh < w ? xh : w, nq < w ? nq : w, 0, w);
+        show_db(PH_DIV, "DKM step 2 R1_h mu", ahn2, k2 + 1, k2 + 1, (size_t)-1);
+        show_db(PH_DIV, "DKM step 2 X_lo Q mod B^w", xl < w ? xl : w, nq < w ? nq : w, 0, w);
+    }
+}
+
 static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
     g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
@@ -297,22 +325,20 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     /* the leaf (node 0's range) */
     plan_leaf(1, size > 1 ? term0(N, 1, size) : N + 1);
     long tree_max = 0;
-    size_t k_mu, sn;
-    if (size > 1) {
-        plan_tree(N, size, &tree_max);
-        /* newton_mn_divmod: k from S's largest possible length, the reciprocal, S = P + Q, the two cut products (X1 groups) */
-        k_mu = pn + 1 + dl - nq + 1;
+    size_t k_mu = pn + 1 + dl - nq + 1, sn = limbs_of(all.lq + log10l(expl(1.0L)));   /* k from S's largest possible length; S = P + Q = Q e (P / Q = e - 1 over [1, N+1)) */
+    if (size > 1) plan_tree(N, size, &tree_max);
+    int dkm = newton_dkm_on() && dl >= 1 && (size > 1 ? k_mu >= 5 : sn + dl - nq + 1 >= 4);   /* INT3: NEWTON_DKM=1 -- newton_db.c's dispatch (mn_divmod_dkm / divmod_shifted_dkm) */
+    if (dkm) plan_div_dkm(nq, dl, k_mu, all.lq, size);
+    else if (size > 1) {
+        /* newton_mn_divmod: the reciprocal, S = P + Q, the two cut products (X1 groups) */
         plan_recip_mn(nq, k_mu, size);
-        sn = limbs_of(all.lq + log10l(expl(1.0L)));               /* S = P + Q = Q e (P / Q = e - 1 over [1, N+1)) */
         size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
         int La = newton_mn_x1_level(ahn, k + 1, size, size, 2 * (ahn + k + 1)), Lx = newton_mn_x1_level(xn, nq, size, size, 2 * (xn + nq));
         show_mn(PH_DIV, "A_h mu", ahn, k + 1, La ? 1 << La : size, 0, k + 1, (size_t)-1, 1, 0);
         show_mn(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, Lx ? 1 << Lx : size, 0, 0, w, 1, 0);
     } else {
         /* ecalc.c's device flow (ovl3): k_mu from P's device length, the prewarm reciprocal, S = P + Q, newton_db_divmod_shifted */
-        k_mu = pn + 1 + dl - nq + 1;
         plan_recip_db(nq, k_mu);
-        sn = limbs_of(all.lq + log10l(expl(1.0L)));
         size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
         show_db(PH_DIV, "A_h mu", ahn, k + 1, k + 1, (size_t)-1);
         show_db(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, 0, w);
