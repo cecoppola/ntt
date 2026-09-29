@@ -93,6 +93,57 @@ static void *x_bg_run(void *a)
     return 0;
 }
 static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
+/* ---- Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
+ * X's limbs >= s) comes to the X_hi hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from
+ * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
+ * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
+ * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
+static int g_dkm_hi = -1;
+static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e && atoi(e) != 0; } return g_dkm_hi; }
+static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
+struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
+static struct x_hi g_xhi;
+static void x_bg_gate(void *a, mn_out *o)             /* the writer at s: X_hi's range is formatted and handed off; X_lo's after the release */
+{
+    struct x_bg *b = (struct x_bg *)a; (void)o;
+    double t0 = mem_now(); g_xhi.t_hi = t0 - g_xhi.t_hi; sem_wait(&g_xhi.go); g_xhi.t_gate = mem_now() - t0;
+    t0 = mem_now();
+    uint64_t rl[T1_NQ]; mn_out_res_share(&g_xhi.src_lo, rl);   /* X mod q = X_hi B^s + X_lo */
+    for (int i = 0; i < T1_NQ; i++) b->Xres[i] = vf_add_mod(vf_shift_res(g_xhi.res_hi[i], g_xhi.s, t1_q[i]), rl[i], t1_q[i]);
+    b->t_res += mem_now() - t0; sem_post(&b->res_ready);
+}
+static void *x_bg_run_hi(void *a)
+{
+    struct x_bg *b = (struct x_bg *)a; omp_set_num_threads(g_bg_threads);
+    double t0 = mem_now(); g_xhi.t_hi = t0;
+    mn_out_res_share(&g_xhi.src_hi, g_xhi.res_hi);
+    b->t_res = mem_now() - t0;
+    memset(&b->o, 0, sizeof b->o); b->o.d = b->d; b->o.d_out = b->d_out; b->o.outfile = b->outfile; b->o.rank = 0; b->o.size = 1; b->o.verbose = b->verbose; b->o.t2_defer = b->t2_defer;
+    b->o.split = g_xhi.s; b->o.src_hi = &g_xhi.src_hi; b->o.at_split = x_bg_gate; b->o.split_arg = b;
+    mn_out_run(&b->o, &g_xhi.src_lo);
+    return 0;
+}
+static void x_hi_hook(dbig *Xh, size_t s, void *a)   /* newton_db_xhi_hook: take X_hi, start the writer on it */
+{
+    struct x_bg *b = (struct x_bg *)a;
+    g_xhi.on = 1; g_xhi.released = 0; g_xhi.s = s; g_xhi.Xh = *Xh; db_init(Xh); sem_init(&g_xhi.go, 0, 0);
+    memset(&g_xhi.src_hi, 0, sizeof g_xhi.src_hi); g_xhi.src_hi.dev = &g_xhi.Xh; g_xhi.src_hi.lo = s; g_xhi.src_hi.cnt = g_xhi.Xh.n;
+    memset(&g_xhi.src_lo, 0, sizeof g_xhi.src_lo); g_xhi.src_lo.dev = b->Xd; g_xhi.src_lo.lo = 0; g_xhi.src_lo.cnt = s;   /* (X_lo arrives in *b->Xd at the X_lo hook; cnt set at the release) */
+    sp_dev_sync_all();
+    sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run_hi, b); b->started = 1;
+    printf("      MN_OUT_DKM_HI: the writer started on X_hi's %zu limbs (the file's digits above limb %zu) after the division's step 1\n", g_xhi.Xh.n, s);
+}
+static void x_hi_release(struct x_bg *b)
+{
+    g_xhi.src_lo.cnt = b->Xd->n < g_xhi.s ? b->Xd->n : g_xhi.s;
+    sp_dev_sync_all(); g_xhi.released = 1; sem_post(&g_xhi.go);
+}
+static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_hook: X_lo0 in *b->Xd (= Xl); released unless X_lo0 >= B^s */
+{
+    struct x_bg *b = (struct x_bg *)a; (void)Xl; (void)s;
+    if (carry || dkm_hi_test_carry()) { printf("      MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its digits after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    x_hi_release(b); return 1;
+}
 
 /* ---- the output stage (Phase 9 A-out: PLAN.md 19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
  * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
@@ -111,6 +162,7 @@ struct out_ctx {
     int defer; long dx; size_t zone;                 /* Phase 15 K (ECALC_CORR_PATCH): X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
     mn_out_early *early; double t_early;             /* Phase 15 IO (W5d): MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
     double t00, t_init, t_bs, t_10dp, t_dm;
+    int hi, hi_rel; mdb Xh; size_t s;                 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: X_hi taken at the division's hook (Xm is then X_lo), the release done */
 };
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: node %d: ", c->rank); }
 /* Phase 15 IO (W5d): MN_OUT_EARLY=1 -- the division's hook (newton_mn_x_hook) starts this rank's part file on X before the low product */
@@ -119,6 +171,21 @@ static void mn_early_hook(mdb *X, void *a)
     struct out_ctx *c = (struct out_ctx *)a;
     if (getenv("MN_OUT_WAVES") && atoi(getenv("MN_OUT_WAVES")) > 1 && c->rank == 0) printf("mn: MN_OUT_EARLY: MN_OUT_WAVES is ignored (no barriers in the background)\n");
     c->early = mn_out_early_start(X, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), newton_x_defer ? c->zone : 0);   /* (K's deferred tail windows) */
+}
+/* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: the X_hi hook (every rank; collective) takes X_hi and starts its part file; the X_lo hook releases the
+ * writer onto X_lo0's share (collective) unless X_lo0 >= B^s (then main releases it after the division, on the corrected X_lo) */
+static void mn_early_hi_hook(mdb *Xh, size_t s, void *a)
+{
+    struct out_ctx *c = (struct out_ctx *)a;
+    c->hi = 1; c->hi_rel = 0; c->s = s; c->Xh = *Xh; memset(Xh, 0, sizeof *Xh);
+    c->early = mn_out_early_hi_start(&c->Xh, s, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), c->zone);
+    if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: the X_hi part files (parts 0..%d of %d) started after the division's step 1 (X_hi %zu limbs from limb %zu)\n", c->size - 1, 2 * c->size, c->Xh.n, s);
+}
+static int mn_early_lo_hook(mdb *Xl, size_t s, int carry, void *a)
+{
+    struct out_ctx *c = (struct out_ctx *)a; (void)s;
+    if (carry || dkm_hi_test_carry()) { if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_lo0 %s: the corrections go into X_lo first, its part files after the division\n", carry ? ">= B^s" : "treated as >= B^s (MN_OUT_DKM_HI_TEST_CARRY)"); return 0; }
+    mn_out_early_lo_release(c->early, Xl, mn_comm(0)); c->hi_rel = 1; return 1;
 }
 static int out_stage(struct out_ctx *c)
 {
@@ -144,7 +211,7 @@ static int out_stage(struct out_ctx *c)
     else if (c->Xm) {
         size_t lo, hi; mdb_share(c->Xm, c->rank, &lo, &hi);
         src.dev = &c->Xm->sh; src.lo = lo; src.cnt = hi - lo; if (src.cnt > c->Xm->sh.n) src.cnt = c->Xm->sh.n;   /* (the share's dbig is never normalised; shorter = zeros above) */
-        node_pfx(c); printf("X share [%zu, %zu) of %zu limbs on the device (the distributed division's)\n", lo, hi, xn);
+        node_pfx(c); printf("X%s share [%zu, %zu) of %zu limbs on the device (the distributed division's)\n", c->hi ? "_lo" : "", lo, hi, xn);
     } else {
         double ts = mem_now(); size_t lo, cnt;
         mn_out_scatter_standin(cm, c->X->l, c->X->n, &xsh, &lo, &cnt, &xn);
@@ -163,6 +230,13 @@ static int out_stage(struct out_ctx *c)
     if (c->defer && c->dx && src.lo == 0)             /* Phase 15 K: the uncorrected X's residues + dx (the node holding limb 0) */
         for (int i = 0; i < T1_NQ; i++) { uint64_t q = t1_q[i], a = (uint64_t)(c->dx < 0 ? -c->dx : c->dx) % q; xs[i] = vf_add_mod(xs[i], c->dx < 0 ? (a ? q - a : 0) : a, q); }
     mn_out_res_combine(cm, xs, src.lo, Xres);
+    mn_out_src shs; memset(&shs, 0, sizeof shs);     /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): X = X_hi B^s + X_lo -- X_hi's share at its offset added */
+    if (multi && c->hi) {
+        size_t lo, hi; mdb_share(&c->Xh, c->rank, &lo, &hi);
+        shs.dev = &c->Xh.sh; shs.lo = c->s + lo; shs.cnt = hi > lo ? hi - lo : 0; if (shs.cnt > c->Xh.sh.n) shs.cnt = c->Xh.sh.n;
+        uint64_t xh[T1_NQ], Xh[T1_NQ]; mn_out_res_share(&shs, xh); mn_out_res_combine(cm, xh, shs.lo, Xh);
+        for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_add_mod(Xres[i], Xh[i], t1_q[i]);
+    }
     if (rlog) { printf("RES node %d X share [%zu, +%zu) res", c->rank, src.lo, src.cnt); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)xs[i]);
                 printf(" | X"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Xres[i]);
                 printf(" | P"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Pres[i]);
@@ -190,6 +264,7 @@ static int out_stage(struct out_ctx *c)
     /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
     t = mem_now();
     mn_out ow, *o = &ow; memset(&ow, 0, sizeof ow);
+    mn_out owh, *oh = 0; memset(&owh, 0, sizeof owh);  /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): the X_hi part (finished in the early thread) */
     if (!multi && c->xb->started) {
         o = &c->xb->o; if (!joined) pthread_join(c->xb->th, 0);
         if (c->ncorr && !c->defer) {                  /* X changed after the hook: the digits from the final X, the file rewritten */
@@ -198,7 +273,8 @@ static int out_stage(struct out_ctx *c)
         }
     } else if (c->early) {                            /* Phase 15 IO (W5d): the part file streamed during the low product */
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
-        node_pfx(c); printf("      the part file started in the division (MN_OUT_EARLY): its writer ran %.2f s, joined after %.2f s here%s\n", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
+        node_pfx(c); printf("      the part file%s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->hi ? "s" : "", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
+        oh = mn_out_early_hi(c->early);
         if (c->ncorr && !c->defer) {   /* (Phase 15 integration: with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); o->c = 0; mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
@@ -213,13 +289,15 @@ static int out_stage(struct out_ctx *c)
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
         if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
     }
-    uint64_t Dres[T1_NQ]; mn_out_digit_res(o, cm, Dres);
+    uint64_t Dres[T1_NQ];
+    if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* Phase 15 EW: X_hi's parts, then X_lo's */
     if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* Phase 15 K: the patched tail's new - old (the bytes read back) */
     if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
                 printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
+    if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (Phase 15 EW: both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
-    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } }
+    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (Phase 15 EW: X_hi) */
     if (c->Xm) db_free(&c->Xm->sh);
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
@@ -227,7 +305,7 @@ static int out_stage(struct out_ctx *c)
     if (!multi) RESULT("dc", "s", t_dc);
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);
-    node_pfx(c); printf("digits: %s...%s%s\n", o->first, o->last, multi ? " (this node's range)" : "");
+    node_pfx(c); printf("digits: %s...%s%s\n", oh ? oh->first : o->first, o->last, multi ? (oh ? " (this node's two ranges: X_hi's, X_lo's)" : " (this node's range)") : "");
     if (multi && c->rank == 0) {
         total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
         printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
@@ -237,8 +315,11 @@ static int out_stage(struct out_ctx *c)
         printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
+    if (oh) { owh = *oh; oh = &owh; }                 /* (Phase 15 EW: kept before the early state goes) */
     if (c->early) { ow = *o; o = &ow; mn_out_early_free(c->early); c->early = 0; }   /* Phase 15 IO (W5d): the results kept, the early writer's state freed */
-    if (c->outfile) { node_pfx(c); if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
+    if (c->hi) { db_free(&c->Xh.sh); memset(&c->Xh, 0, sizeof c->Xh); c->hi = 0; }   /* Phase 15 EW: X_hi's share (the patch read it) */
+    if (c->outfile) { node_pfx(c); if (multi && oh) printf("wrote %s.part%04d and .part%04d (%.2f + %.2f GB; write %.2f + %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, 2 * c->size - 1 - c->rank, oh->bytes / 1e9, o->bytes / 1e9, oh->t_write, o->t_write, mem_now() - t);
+                      else if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
                       else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
     int fail = bad1 || bad2 || bad3;
     if (c->outfile && c->rank == 0) mn_out_sidecar_write(c->outfile, c->N, c->d, c->d_out, c->size, Xres, c->Rres, c->Pres, c->Qres, o->tail, o->ntail);   /* Phase 11 V: <outfile>.t1 for ECALC_RECHECK */
@@ -508,8 +589,13 @@ int main(int argc, char **argv)
             mn_group *G = mn_group_at(L);
             double td = mem_now();
             if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
+            if (dkm_hi_on()) {                          /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
+                if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
+                else if (mn_rank() == 0) printf("mn: MN_OUT_DKM_HI ignored: it needs MN_OUT_EARLY=1 with an output file and ECALC_CORR_PATCH=2\n");
+            }
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
-            newton_mn_x_hook = 0;
+            newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
+            if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
@@ -650,9 +736,14 @@ int main(int argc, char **argv)
     /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
     if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
     if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* Phase 10 H (B1): X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
+    if (dkm_hi_on()) {                                /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
+        if (ovl3 && newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
+        else printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
+    }
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
-    newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0;
+    newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0; newton_db_xhi_hook = 0; newton_db_xlo_hook = 0;
+    if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected in place */
     if (ovl3 && topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* Phase 13 N (4.1): the writer still reads Q: its block is held until after the output stage */
     else if (ovl3) db_free(&bs_Qd);
     if (ovl3) mem_report("division");                 /* Phase 10 B4 (agent M): the pool at the end of the division, before it is released (its growth inside the phase and the peak) */

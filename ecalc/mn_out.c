@@ -117,18 +117,27 @@ static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
     }
     HIP_CHECK(hipSetDevice(dev0));
 }
+/* Phase 15 EW: the part's index, the count, the file name (nparts > 1: <outfile>.part<index>) */
+static int part_idx(const mn_out *o) { return o->nparts ? o->part : o->size - 1 - o->rank; }
+static int part_cnt(const mn_out *o) { return o->nparts ? o->nparts : o->size; }
+static void part_name(const mn_out *o, char *name, size_t n) { if (part_cnt(o) > 1) snprintf(name, n, "%s.part%04d", o->outfile, part_idx(o)); else snprintf(name, n, "%s", o->outfile); }
 /* the node's limb range [lo, hi) and digit range [k0, k1) */
 static void ranges(const mn_out *o, const mn_out_src *src, size_t *nl, size_t *pad, size_t *lo, size_t *hi, size_t *k0, size_t *k1)
 {
     *nl = (o->d + 1 + 17) / 18; *pad = *nl * 18 - (o->d + 1);
-    *lo = src->lo; *hi = src->lo + src->cnt; if (*hi > *nl) *hi = *nl; if (*lo > *hi) *lo = *hi;
-    if (o->rank == o->size - 1 && *hi < *nl) *hi = *nl;              /* the top node covers the leading limbs even if X is shorter (zeros) */
+    size_t top = o->lim && o->lim < *nl ? o->lim : *nl;              /* Phase 15 EW: X_lo's layer ends at lim = s */
+    *lo = src->lo; *hi = src->lo + src->cnt; if (*hi > top) *hi = top; if (*lo > *hi) *lo = *hi;
+    if (o->rank == o->size - 1 && *hi < top) *hi = top;              /* the top node covers the leading limbs even if X is shorter (zeros) */
     if (*lo >= *hi) { *k0 = *k1 = 0; return; }
     size_t p0 = (*nl - *hi) * 18; *k0 = p0 > *pad ? p0 - *pad : 0; *k1 = (*nl - *lo) * 18 - *pad;
 }
 /* the T2 tails: every node's last min(49, its range) digits, all-gathered; this node's head = the tails of the
  * nodes above it (nearest first) cut to 49 */
-void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c)
+/* Phase 15 EW: the same with `above` (the digits before this layer's top part: X_hi's last digits for X_lo's layer) after the ranks'
+ * tails, and the layer's own last 49 digits out in bot (every rank the same; 0: not wanted) */
+static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char *above, size_t nabove, char *bot, size_t *nbot);
+void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c) { boundaries_ex(o, src, c, 0, 0, 0, 0); }
+static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char *above, size_t nabove, char *bot, size_t *nbot)
 {
     o->nhead = 0; o->c = c;                                       /* Phase 15 IO (W5b): the waves' barrier */
     if (!c || comm_size(c) == 1) return;
@@ -146,13 +155,17 @@ void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c)
     uint64_t v[8]; memset(v, 0, sizeof v); v[0] = nt; memcpy(v + 1, tail, nt);
     int n = comm_size(c), me = comm_rank(c); uint64_t *all = (uint64_t *)malloc((size_t)n * 8 * 8);
     mn_out_allgather_u64(c, v, 8, all);
-    char head[64 * 2]; size_t nh = 0;                             /* built from the nearest node above outwards */
-    for (int r = me + 1; r < n && nh < 49; r++) {
-        size_t t = (size_t)all[(size_t)r * 8]; if (!t) continue;
-        memmove(head + t, head, nh); memcpy(head, (const char *)(all + (size_t)r * 8 + 1), t); nh += t;
+    for (int pass = 0; pass < 2; pass++) {                        /* 0: this node's head; 1 (Phase 15 EW): the layer's last digits (the head below rank 0) */
+        if (pass && !bot) break;
+        char head[64 * 3]; size_t nh = 0;                         /* built from the nearest node above outwards */
+        for (int r = pass ? 0 : me + 1; r < n && nh < 49; r++) {
+            size_t t = (size_t)all[(size_t)r * 8]; if (!t) continue;
+            memmove(head + t, head, nh); memcpy(head, (const char *)(all + (size_t)r * 8 + 1), t); nh += t;
+        }
+        if (nh < 49 && nabove) { size_t t = nabove < 49 ? nabove : 49; memmove(head + t, head, nh); memcpy(head, above + nabove - t, t); nh += t; }
+        if (nh > 49) { memmove(head, head + nh - 49, 49); nh = 49; }
+        if (pass) { memcpy(bot, head, nh); *nbot = nh; } else { memcpy(o->head, head, nh); o->nhead = nh; }
     }
-    if (nh > 49) { memmove(head, head + nh - 49, 49); nh = 49; }
-    memcpy(o->head, head, nh); o->nhead = nh;
     free(all);
 }
 
@@ -331,7 +344,7 @@ static void packed_hdr_write(struct writer *w, const mn_out *o, size_t nl, size_
     char *h = w->hdr; memset(h, 0, ECP_HDR_BYTES);
     ecp_hdr *p = (ecp_hdr *)h;
     memcpy(p->magic, ECP_MAGIC, 8); p->version = ECP_VERSION; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
-    p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(o->size > 1 ? o->size - 1 - o->rank : 0); p->nparts = (uint32_t)(o->size > 1 ? o->size : 1);
+    p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(part_cnt(o) > 1 ? part_idx(o) : 0); p->nparts = (uint32_t)(part_cnt(o) > 1 ? part_cnt(o) : 1);   /* (Phase 15 EW: the explicit part) */
     p->d = o->d; p->d_out = o->d_out; p->nl = nl; p->pad = pad; p->lo = lo; p->hi = hi; p->k0 = o->k0; p->k1 = o->k1; p->complete = 0;
     p->nq = T1_NQ; for (int i = 0; i < T1_NQ; i++) p->q[i] = t1_q[i];
     snprintf(h + ECP_TEXT_OFF, ECP_HDR_BYTES - ECP_TEXT_OFF,
@@ -345,9 +358,8 @@ static void packed_hdr_write(struct writer *w, const mn_out *o, size_t nl, size_
 /* the file of this node's range: the name, the stripe layout, the mode (W1/W7) */
 static void out_open(struct writer *w, const mn_out *o)
 {
-    char name[4096];
-    if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
-    out_stripe(name, o->size > 1 ? o->size - 1 - o->rank : 0, o->verbose);
+    char name[4096]; part_name(o, name, sizeof name);
+    out_stripe(name, part_cnt(o) > 1 ? part_idx(o) : 0, o->verbose);
     w->mode = out_mode(name);
     if (w->mode == OUT_DIRECT) {                         /* Phase 14 S1 (E3) */
         w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC | O_DIRECT, 0644);
@@ -366,7 +378,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     for (int i = 0; i < T1_NQ; i++) o->dres[i] = 0;
     size_t L = o->chunk_limbs; if (!L) { size_t mb = getenv("MN_OUT_CHUNK_MB") ? (size_t)atoi(getenv("MN_OUT_CHUNK_MB")) : 256; L = (mb << 20) / 18; if (L < 64) L = 64; }
     if (L > hi - lo && hi > lo) L = hi - lo;
-    struct writer *w = (struct writer *)calloc(1, sizeof *w); o->priv = w; w->fd = -1; w->dev_src = src->dev != 0;
+    struct writer *w = (struct writer *)calloc(1, sizeof *w); o->priv = w; w->fd = -1; w->dev_src = src->dev != 0 || (o->split && o->src_hi && o->src_hi->dev);
     w->nt = getenv("MN_OUT_THREADS") ? atoi(getenv("MN_OUT_THREADS")) : 8; if (w->nt < 1) w->nt = 1; if (w->nt > 64) w->nt = 64;   /* Phase 15 IO (W1) */
     w->packed = out_packed(); o->packed = w->packed;
     if (o->outfile) out_open(w, o);
@@ -374,7 +386,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     w->bufsz = L * 18 + 64;
     if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
-    if (src->dev) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
+    if (w->dev_src) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
     if (w->packed) {                                   /* Phase 15 IO (W2): the header now (complete = 0), completed by mn_out_finish */
         if (posix_memalign((void **)&w->hdr, SP_ALIGN, ECP_HDR_BYTES)) ec_fatal(EC_RC_OOM, "mn_out: header\n");
         packed_hdr_write(w, o, nl, pad, lo, hi); w->apos = ECP_HDR_BYTES;
@@ -385,13 +397,21 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     char head[64]; size_t nhead = o->nhead; memcpy(head, o->head, nhead);
     unsigned long woff[256]; int nwo = 0;
     if (w->packed) { nwo = tier2_window_offsets(woff, 256); if (nwo > 256) nwo = 256; }
-    int b = 0;
-    for (size_t bb = hi; bb > lo; b ^= 1) {
-        size_t a = bb - lo > L ? bb - L : lo, cnt = bb - a;
+    int b = 0, gated = !(o->split && o->at_split);       /* Phase 15 EW: the gate at split (MN_OUT_DKM_HI, size 1) */
+    for (size_t bb = hi;; b ^= 1) {
+        if (!gated && (bb <= o->split || bb <= lo)) {       /* every limb >= split is formatted and handed to the writer thread */
+            gated = 1; o->at_split(o->split_arg, o);
+            if (!o->nchunks) { nhead = o->nhead; memcpy(head, o->head, nhead); }
+        }
+        if (bb <= lo) break;
+        size_t a = bb - lo > L ? bb - L : lo;
+        if (o->split && bb > o->split && a < o->split) a = o->split;     /* (no chunk crosses split) */
+        size_t cnt = bb - a;
+        const mn_out_src *cs = o->split && o->src_hi && a >= o->split ? o->src_hi : src;   /* Phase 15 EW: X_hi above split, X_lo below */
         double t0 = mem_now(); sem_wait(&w->buf_free[b]); double t1 = mem_now(); o->t_wait += t1 - t0;
-        const uint64_t *l; size_t avail = src->lo + src->cnt > a ? src->lo + src->cnt - a : 0; if (avail > cnt) avail = cnt;   /* limbs beyond the source are zero */
-        if (src->dev || avail < cnt) { if (avail) { if (src->dev) dev_fetch(src->dev, a - src->lo, avail, w->lbuf); else memcpy(w->lbuf, src->host + (a - src->lo), avail * 8); } memset(w->lbuf + avail, 0, (cnt - avail) * 8); l = w->lbuf; }
-        else l = src->host + (a - src->lo);
+        const uint64_t *l; size_t avail = cs->lo + cs->cnt > a ? cs->lo + cs->cnt - a : 0; if (avail > cnt) avail = cnt;   /* limbs beyond the source are zero */
+        if (cs->dev || avail < cnt) { if (avail) { if (cs->dev) dev_fetch(cs->dev, a - cs->lo, avail, w->lbuf); else memcpy(w->lbuf, cs->host + (a - cs->lo), avail * 8); } memset(w->lbuf + avail, 0, (cnt - avail) * 8); l = w->lbuf; }
+        else l = cs->host + (a - cs->lo);
         double t2 = mem_now(); o->t_fetch += t2 - t1;
         size_t p0 = (nl - bb) * 18, ck0 = p0 > pad ? p0 - pad : 0, ck1 = (nl - a) * 18 - pad;   /* the chunk's digits */
         size_t len = ck1 - ck0;
@@ -505,14 +525,51 @@ void mn_out_finish(mn_out *o)
 }
 /* ---- Phase 15 IO (W5d): MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
 #include "mdb.h"
-struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run; };
+struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
+                      /* Phase 15 EW (MN_OUT_DKM_HI): the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
+                      int two; mn_out o_hi; mn_out_src src_hi; dbig sh_hi; sem_t go; char above[64]; size_t nabove; double t_hi, t_gate; };
 static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
     omp_set_num_threads(getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's */
-    double t0 = mem_now(); mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
+    double t0 = mem_now();
+    if (e->two) {                                      /* Phase 15 EW: the X_hi part now (finished here), then the X_lo part once released */
+        mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;
+        double tg = mem_now(); sem_wait(&e->go); e->t_gate = mem_now() - tg;
+    }
+    mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
     return 0;
 }
+/* Phase 15 EW (mn_out.h): the two layers of MN_OUT_DKM_HI at size > 1 */
+mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
+{
+    struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
+    e->two = 1; sem_init(&e->go, 0, 0);
+    e->sh_hi = Xh->sh;                                 /* the share's descriptor by value (the caller keeps the blocks until mn_out_early_free) */
+    size_t lo, hi; mdb_share(Xh, rank, &lo, &hi);
+    e->src_hi.dev = &e->sh_hi; e->src_hi.lo = s + lo; e->src_hi.cnt = hi > lo ? hi - lo : 0; if (e->src_hi.cnt > e->sh_hi.n) e->src_hi.cnt = e->sh_hi.n;
+    mn_out *oh = &e->o_hi, *ol = &e->o;
+    oh->d = ol->d = d; oh->d_out = ol->d_out = d_out; oh->outfile = ol->outfile = outfile; oh->rank = ol->rank = rank; oh->size = ol->size = size; oh->verbose = ol->verbose = verbose;
+    oh->part = size - 1 - rank; ol->part = 2 * size - 1 - rank; oh->nparts = ol->nparts = 2 * size;
+    oh->t2_defer = 0;                                  /* X_hi's digits never change: all their windows now */
+    ol->t2_defer = t2_defer; ol->lim = s; ol->src_hi = &e->src_hi;   /* the low part's patch gathers X_hi's limbs too (mn_out_tail_fix) */
+    boundaries_ex(oh, &e->src_hi, c, 0, 0, e->above, &e->nabove);   /* collective: every rank is at the hook; X_hi's last 49 digits kept for the low layer */
+    oh->c = 0;
+    sp_dev_sync_all();
+    if (pthread_create(&e->th, 0, early_run, e) == 0) e->started = 1; else { fprintf(stderr, "mn_out: MN_OUT_DKM_HI: no writer thread\n"); exit(1); }
+    return e;
+}
+void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c)
+{
+    e->sh = Xl->sh;
+    size_t lo, hi; mdb_share(Xl, e->o.rank, &lo, &hi);
+    e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
+    boundaries_ex(&e->o, &e->src, c, e->above, e->nabove, 0, 0);   /* collective: the low layer's heads, the top one after X_hi's last digits */
+    e->o.c = 0;
+    sp_dev_sync_all();
+    sem_post(&e->go);
+}
+mn_out *mn_out_early_hi(mn_out_early *e) { return e && e->two ? &e->o_hi : 0; }
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
     struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
@@ -533,7 +590,7 @@ mn_out *mn_out_early_join(mn_out_early *e, double *t_run)
     if (t_run) *t_run = e->t_run;
     return &e->o;
 }
-void mn_out_early_free(mn_out_early *e) { if (e) { if (e->started) pthread_join(e->th, 0); free(e); } }
+void mn_out_early_free(mn_out_early *e) { if (e) { if (e->started) pthread_join(e->th, 0); if (e->two) sem_destroy(&e->go); free(e); } }
 
 /* the whole string's residue from the nodes' pieces, top node first: D = D 10^ndig_r + dres_r */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
@@ -544,6 +601,19 @@ void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
     mn_out_allgather_u64(c, v, T1_NQ + 1, all);
     for (int i = 0; i < T1_NQ; i++) { uint64_t D = 0; for (int r = n; r-- > 0;) D = vf_digits_join(D, (size_t)all[(size_t)r * (T1_NQ + 1) + T1_NQ], all[(size_t)r * (T1_NQ + 1) + i], t1_q[i]); Dres[i] = D; }
     free(all);
+}
+
+/* Phase 15 EW: J layers of parts (mn_out.h) -- the layer's own join (top node first) per layer, the layers joined in order */
+void mn_out_digit_res_layers(const mn_out *const *os, int J, comm *c, uint64_t *Dres)
+{
+    int n = c ? comm_size(c) : 1;
+    for (int i = 0; i < T1_NQ; i++) Dres[i] = 0;
+    for (int j = 0; j < J; j++) {
+        uint64_t D[T1_NQ], v = os[j]->ndig, nd = v;
+        mn_out_digit_res(os[j], c, D);
+        if (n > 1) { uint64_t *all = (uint64_t *)malloc((size_t)n * 8); mn_out_allgather_u64(c, &v, 1, all); nd = 0; for (int r = 0; r < n; r++) nd += all[r]; free(all); }
+        for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_digits_join(Dres[i], (size_t)nd, D[i], t1_q[i]);
+    }
 }
 
 /* ---- Phase 15 K (ECALC_CORR_PATCH): the correction as a patch of the written tail (mn_out.h) ---- */
@@ -639,10 +709,10 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     /* this node's part: digits [a, b) of the patch */
     size_t a = kp > o->k0 ? kp : o->k0, b = o->k1 < dend ? o->k1 : dend;
     if (o->outfile && o->packed && o->k1 > o->k0) {                    /* Phase 15 KP: a packed part -- the changed limbs and the header's residues */
-        char name[4096]; if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
+        char name[4096]; part_name(o, name, sizeof name);
         bad += packed_patch(o, name, low, nw, m, f);
     } else if (o->outfile && a < b) {                                    /* the ASCII part (K's byte image) */
-        char name[4096]; if (o->size > 1) snprintf(name, sizeof name, "%s.part%04d", o->outfile, o->size - 1 - o->rank); else snprintf(name, sizeof name, "%s", o->outfile);
+        char name[4096]; part_name(o, name, sizeof name);
         size_t fbase = o->k0 == 0 ? 0 : o->k0 + 1, p0 = (a ? a + 1 : 0) - fbase, len = ((b - 1 ? b : 0) - fbase) - p0 + 1;   /* the bytes [pos(a), pos(b - 1)], pos(k) = (k ? k + 1 : 0) - fbase */
         char *io = (char *)malloc(len), *in = (char *)malloc(len);
         for (size_t k = a; k < b; k++) { size_t p = (k ? k + 1 : 0) - fbase - p0; io[p] = *SO(k); in[p] = *SN(k); }
@@ -677,10 +747,13 @@ int mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_f
     int r = -1;
     for (;;) {
         uint64_t *low = (uint64_t *)calloc(w, 8), *pin = 0;
-        size_t s0 = src->lo < w ? src->lo : w, s1 = src->lo + src->cnt < w ? src->lo + src->cnt : w;   /* the global limbs [s0, s1) are this node's */
-        if (s1 > s0) {
-            if (src->dev) { HIP_CHECK(hipHostMalloc((void **)&pin, (s1 - s0) * 8, 0)); dev_fetch(src->dev, s0 - src->lo, s1 - s0, pin); memcpy(low + s0, pin, (s1 - s0) * 8); HIP_CHECK(hipHostFree(pin)); }
-            else memcpy(low + s0, src->host + (s0 - src->lo), (s1 - s0) * 8);
+        for (int k = 0; k < 2; k++) {                  /* Phase 15 EW: also X_hi's share (o->src_hi), when X is held as X_hi B^s + X_lo (disjoint limbs; X_lo's are zero at and above s) */
+            const mn_out_src *cs = k ? o->src_hi : src; if (!cs) continue;
+            size_t s0 = cs->lo < w ? cs->lo : w, s1 = cs->lo + cs->cnt < w ? cs->lo + cs->cnt : w;   /* the global limbs [s0, s1) are this node's */
+            if (s1 > s0) {
+                if (cs->dev) { HIP_CHECK(hipHostMalloc((void **)&pin, (s1 - s0) * 8, 0)); dev_fetch(cs->dev, s0 - cs->lo, s1 - s0, pin); for (size_t i = s0; i < s1; i++) low[i] += pin[i - s0]; HIP_CHECK(hipHostFree(pin)); }
+                else for (size_t i = s0; i < s1; i++) low[i] += cs->host[i - cs->lo];
+            }
         }
         if (n > 1) {                                   /* the shares are disjoint: the sum over the nodes is the global limbs */
             uint64_t *all = (uint64_t *)malloc((size_t)n * w * 8); mn_out_allgather_u64(c, low, (int)w, all);
@@ -862,27 +935,44 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     if (sc[4 * T1_NQ]) { printf("recheck: node %d: no usable sidecar\n", rank); return 1; }
     ntail = (size_t)sc[4 * T1_NQ + 1]; for (size_t i = 0; i < ntail; i++) tail[i] = (char)(sc[4 * T1_NQ + 2 + i / 8] >> (8 * (i % 8)));
     const uint64_t *sX = sc, *sR = sc + T1_NQ, *sP = sc + 2 * T1_NQ, *sQ = sc + 3 * T1_NQ;
-    /* 1. the digits: this node's file (part size-1-rank, the top node's part first in the file) */
-    char name[4096]; if (multi) snprintf(name, sizeof name, "%s.part%04d", outfile, size - 1 - rank); else snprintf(name, sizeof name, "%s", outfile);
-    int first_part = rank == size - 1;
-    mn_out o; memset(&o, 0, sizeof o); o.d = d; o.d_out = d_out; o.rank = rank; o.size = size;
-    char t49[64]; size_t nt49 = 0;
-    if (!recheck_stat(name, first_part, rank == 0, &o.ndig, t49, &nt49)) return 1;                /* the count and the tail from the file's size and end (no pass) */
-    /* the digit counts and the tails over the nodes: the global index of this node's first digit, the T2 head */
-    uint64_t v[8]; memset(v, 0, sizeof v); v[0] = o.ndig; v[1] = nt49; memcpy(v + 2, t49, nt49);
-    uint64_t *all = (uint64_t *)malloc((size_t)size * 8 * 8); mn_out_allgather_u64(c, v, 8, all);
-    size_t ndig_all = 0, k0 = 0; for (int r = 0; r < size; r++) { ndig_all += all[(size_t)r * 8]; if (r > rank) k0 += all[(size_t)r * 8]; }
-    char head[128]; size_t nhead = 0;
-    for (int r = rank + 1; r < size && nhead < 49; r++) { size_t t = all[(size_t)r * 8 + 1]; if (!t) continue; memmove(head + t, head, nhead); memcpy(head, (const char *)(all + (size_t)r * 8 + 2), t); nhead += t; }
-    if (nhead > 49) { memmove(head, head + nhead - 49, 49); nhead = 49; }
+    /* 1. the digits: this node's parts -- part j size + size-1-rank for the layers j < J (the top node's part first in the file); J = 2
+     * when the run wrote X_hi and X_lo apart (Phase 15 EW, MN_OUT_DKM_HI: part 2 size-1-rank exists), else 1 */
+    int J = 1;
+    if (multi) { char nm2[4096]; struct stat st2; snprintf(nm2, sizeof nm2, "%s.part%04d", outfile, 2 * size - 1 - rank); J = mn_out_allreduce_or(c, stat(nm2, &st2) == 0) ? 2 : 1; }
+    int NP = J * size;
+    char name[2][4096]; int pidx[2]; mn_out o[2]; memset(o, 0, sizeof o);
+    uint64_t v[2 * 10]; memset(v, 0, sizeof v);                      /* per part: ndig, the tail's length, the tail (<= 64 bytes) */
+    for (int j = 0; j < J; j++) {
+        pidx[j] = multi ? j * size + size - 1 - rank : 0;
+        if (multi) snprintf(name[j], sizeof name[j], "%s.part%04d", outfile, pidx[j]); else snprintf(name[j], sizeof name[j], "%s", outfile);
+        o[j].d = d; o[j].d_out = d_out; o[j].rank = rank; o[j].size = size;
+        char t49[64]; size_t nt49 = 0;
+        if (!recheck_stat(name[j], pidx[j] == 0, pidx[j] == NP - 1, &o[j].ndig, t49, &nt49)) return 1;   /* the count and the tail from the file's size and end (no pass) */
+        v[10 * j] = o[j].ndig; v[10 * j + 1] = nt49; memcpy(v + 10 * j + 2, t49, nt49);
+    }
+    /* the digit counts and the tails over the parts: the global index of each part's first digit, its T2 head (the parts before it, nearest first) */
+    uint64_t *all = (uint64_t *)malloc((size_t)size * 20 * 8); mn_out_allgather_u64(c, v, 20, all);
+    #define PSLOT(p) (all + (size_t)(multi ? (size - 1 - (p) % size) : 0) * 20 + 10 * (size_t)((p) / size))   /* part p's slot: node size-1-(p mod size), layer p / size */
+    size_t ndig_all = 0; for (int p = 0; p < NP; p++) ndig_all += PSLOT(p)[0];
+    size_t k0[2] = { 0, 0 }; char head[2][128]; size_t nhead[2] = { 0, 0 };
+    for (int j = 0; j < J; j++) {
+        for (int p = 0; p < pidx[j]; p++) k0[j] += PSLOT(p)[0];
+        for (int p = pidx[j] - 1; p >= 0 && nhead[j] < 49; p--) { size_t t = PSLOT(p)[1]; if (!t) continue; memmove(head[j] + t, head[j], nhead[j]); memcpy(head[j], (const char *)(PSLOT(p) + 2), t); nhead[j] += t; }
+        if (nhead[j] > 49) { memmove(head[j], head[j] + nhead[j] - 49, 49); nhead[j] = 49; }
+    }
+    #undef PSLOT
     free(all);
     if (ndig_all != d_out + 1) { printf("recheck: node %d: the file holds %zu digits, d_out + 1 = %lu expected\n", rank, ndig_all, d_out + 1); fail = 1; }
-    /* 1 + 2. one pass over the file: the residues and the T2 windows (Phase 12 W: one read, not two -- 40 GB at 4e10) */
-    int nwin = 0, bad2 = 0; size_t nread = 0;
-    if (!recheck_pass(name, first_part, o.dres, &nread, k0, head, nhead, ndig_all, verbose >= 2, &nwin, &bad2)) return 1;
-    if (nread != o.ndig) { printf("recheck: node %d: %s holds %zu digit chars, %zu by its size\n", rank, name, nread, o.ndig); fail = 1; }
+    /* 1 + 2. one pass over each part: the residues and the T2 windows (Phase 12 W: one read, not two -- 40 GB at 4e10) */
+    int nwin = 0, bad2 = 0; size_t ndig_me = 0;
+    for (int j = 0; j < J; j++) {
+        int nw = 0, b2 = 0; size_t nread = 0;
+        if (!recheck_pass(name[j], pidx[j] == 0, o[j].dres, &nread, k0[j], head[j], nhead[j], ndig_all, verbose >= 2, &nw, &b2)) return 1;
+        if (nread != o[j].ndig) { printf("recheck: node %d: %s holds %zu digit chars, %zu by its size\n", rank, name[j], nread, o[j].ndig); fail = 1; }
+        nwin += nw; bad2 += b2; ndig_me += o[j].ndig;
+    }
     double t1 = mem_now();
-    uint64_t Dres[T1_NQ]; mn_out_digit_res(&o, c, Dres);                                           /* the file's string "2" + fraction, joined top node first */
+    uint64_t Dres[T1_NQ]; { const mn_out *os[2] = { &o[0], &o[1] }; mn_out_digit_res_layers(os, J, c, Dres); }   /* the file's string "2" + fraction, joined in part order */
     /* X mod q from the file: X = (the written digits) 10^(d - d_out) + the tail */
     uint64_t Xf[T1_NQ]; { uint64_t tv[T1_NQ]; vf_digits_mods(tail, ntail, t1_q, T1_NQ, tv); for (int i = 0; i < T1_NQ; i++) Xf[i] = vf_digits_join(Dres[i], ntail, tv[i], t1_q[i]); }
     if (ntail != d - d_out) { printf("recheck: node %d: the sidecar holds %zu tail digits, d - d_out = %lu\n", rank, ntail, d - d_out); fail = 1; }
@@ -920,8 +1010,8 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     int bad3 = tier1_digits_cmp(Xf, sX, verbose >= 2);
     int badPQ = 0; for (int i = 0; i < T1_NQ; i++) if (Pc[i] != sP[i] || Qc[i] != sQ[i]) badPQ++;
     if (multi) printf("mn: node %d: ", rank);
-    printf("recheck: %zu digits read from %s in %.1f s (one pass: residues and windows); windows %s (%d checked); digits -> X mod q %s the run's X residues; P, Q %s: %s the recurrence (%.1f s), %s the run's; T1 identity with the run's R residues %s\n",
-           o.ndig, name, t1 - t0, bad2 ? "FAILED" : "ok", nwin, bad3 ? "DIFFER from" : "==", have_pq ? "from the checkpoint" : "from the sidecar", bad1 ? "BAD at some prime vs" : "==", t4 - t3, badPQ ? "DIFFER from" : "==", bad1 ? "FAILED" : "ok");
+    printf("recheck: %zu digits read from %s%s in %.1f s (one pass: residues and windows); windows %s (%d checked); digits -> X mod q %s the run's X residues; P, Q %s: %s the recurrence (%.1f s), %s the run's; T1 identity with the run's R residues %s\n",
+           ndig_me, name[0], J > 1 ? " and its X_lo part" : "", t1 - t0, bad2 ? "FAILED" : "ok", nwin, bad3 ? "DIFFER from" : "==", have_pq ? "from the checkpoint" : "from the sidecar", bad1 ? "BAD at some prime vs" : "==", t4 - t3, badPQ ? "DIFFER from" : "==", bad1 ? "FAILED" : "ok");
     if (verbose >= 2) { printf("      recheck: the file pass %.1f s, checkpoint residues %.1f s\n", t1 - t0, t3 - t2); }
     fail = fail || bad1 || bad2 || bad3 || badPQ;
     if (multi) printf("mn: node %d: ", rank); printf("%s\n", fail ? "RECHECK FAILED" : "RECHECK OK");
