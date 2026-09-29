@@ -70,6 +70,27 @@ A2)
     echo "RUN e4_on: rc $rc; $(cmpref $T/e4.txt $E4); $(grep -a '^total\|^dm ' "$L/e4_on.log" | tr -s ' ' | tr '\n' ' ' | cut -c1-200)"
     grep -a 'X_hi writer)\|MN_OUT_DKM_HI\|^wrote' "$L/e4_on.log" | head -4 | cut -c1-400
     ;;
+A3)
+    R "NEWTON_DEVICE=1 DIST_LOGN_TEST=20 ./tests/t_newton 20" > "$L/t_newton.log" 2>&1; echo "t_newton 20 NEWTON_DEVICE=1 DIST_LOGN_TEST=20: rc $? $(grep -a VERIFY "$L/t_newton.log" | tail -1)"
+    grep -a 'FAILED\|FATAL\|^   nq .*X mod B\|carry case' "$L/t_newton.log" | head -40
+    D=BS_MDEV_LOGL=24
+    one s1_ascii_p7 1 1000000000 $D MN_OUT_DKM_HI=1 ECALC_OUT_PACKED=0 ECALC_TEST_CORR=7
+    one s1_ascii_c511 1 511461828 $D MN_OUT_DKM_HI=1 ECALC_OUT_PACKED=0 ECALC_TEST_CORR=14
+    one s1_patch0 1 1000000000 $D MN_OUT_DKM_HI=1 ECALC_CORR_PATCH=0 ECALC_TEST_CORR=7
+    one ascii_c108u_2 2 108388422 POOL_LOG=27 MN_OUT_DKM_HI=1 ECALC_OUT_PACKED=0 ECALC_TEST_CORR=36
+    one ascii_carry_4 4 108388422 POOL_LOG=27 MN_OUT_DKM_HI=1 ECALC_OUT_PACKED=0 MN_OUT_DKM_HI_TEST_CARRY=1 ECALC_TEST_CORR=36
+    one patch0_2 2 100000000 POOL_LOG=27 MN_OUT_DKM_HI=1 ECALC_CORR_PATCH=0 ECALC_TEST_CORR=7
+    one early0_2 2 100000000 POOL_LOG=27 MN_OUT_DKM_HI=1 MN_OUT_EARLY=0
+    grep -a 'MN_OUT_DKM_HI ignored' "$L"/s1_patch0.log "$L"/patch0_2.log "$L"/early0_2.log | head -3
+    for pk in 1 0; do   # the recheck over two ASCII / packed layers at size 3, with a digit flipped in an X_hi part (the recheck must fail)
+        f=$T/rk$pk.txt; SLURM_JOB_ID=$J timeout 600 ./mnrun.sh 3 env POOL_LOG=27 ECALC_CKPT_TOP=1 MN_OUT_DKM_HI=1 ECALC_OUT_PACKED=$pk ./ecalc 100000000 "$f" > "$L/rk$pk.log" 2>&1
+        SLURM_JOB_ID=$J timeout 600 ./mnrun.sh 3 env ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$L/rk${pk}_recheck.log" 2>&1
+        N "python3 -c \"import sys; p=sys.argv[1]; f=open(p,'r+b'); pk=f.read(8)==b'ECPACK18'; o=4096+8*100 if pk else 1000; f.seek(o); c=f.read(1); f.seek(o); f.write(bytes([c[0]^1]) if pk else (b'0' if c != b'0' else b'1')); f.close()\" $f.part0001"
+        SLURM_JOB_ID=$J timeout 600 ./mnrun.sh 3 env ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$L/rk${pk}_bad.log" 2>&1
+        echo "RECHECK packed=$pk size 3: run $(grep -ac 'mn: all 3 nodes: VERIFY OK' "$L/rk$pk.log") all-OK, parts $(N "ls $f.part* | wc -l"); recheck $(grep -ac 'RECHECK OK' "$L/rk${pk}_recheck.log") RECHECK OK (4 wanted); flipped X_hi part: $(grep -ac 'RECHECK FAILED' "$L/rk${pk}_bad.log") RECHECK FAILED, $(grep -ac 'RECHECK OK' "$L/rk${pk}_bad.log") OK"
+        N "rm -rf $f $f.*"
+    done
+    ;;
 C)
     E11=~/ntt/ecalc/results/e_1e11.out; K=$T/keep.txt
     run11() { # tag env...

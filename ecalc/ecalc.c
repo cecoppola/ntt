@@ -756,7 +756,7 @@ int main(int argc, char **argv)
     if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_dm, ovl3 ? Xdev.n : X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, ovl3 ? "; X on the device" : "", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+           t_dm, ovl3 ? (g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n) : X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, ovl3 ? (g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device") : "", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report_host_item(MEM_HOST_DIGITS, digits ? d + 2 : 0); mem_report("dm");
     RESULT("dm", "s", t_dm);
     }
