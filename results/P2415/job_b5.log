@@ -1,0 +1,13 @@
+p24_job batches 5: job 21774 submitted Mon Sep 28 06:36:01 PM CDT 2026
+job 21774 running on ppac-pl1-s24-30 Mon Sep 28 06:36:21 PM CDT 2026
+== batch 5 Mon Sep 28 06:36:21 PM CDT 2026
+-rw-r--r-- 1 chcoppola mpo_2026 10000000003 Sep 28 18:37 /tmp/p24_ref_1e10.txt
+10^10 size 2 MN_P24=0 rep 1 rc 0: mn: all 2 nodes: VERIFY OK; total   154.25 s   (bs 24.6 + 10dP 0.0 + dm 119.9 + T1 0.1 + dc 0.0 + T2 0.0 = 144.6; init 9.6; other 0.0); VmHWM 26.7 GB (156 s)
+   digits: identical
+10^10 size 2 MN_P24=1 rep 1 rc 0: mn: all 2 nodes: VERIFY OK; total    99.69 s   (bs 19.3 + 10dP 0.0 + dm 72.0 + T1 0.1 + dc 0.0 + T2 0.0 = 91.4; init 8.3; other 0.0); VmHWM 26.7 GB (102 s)
+   digits: identical
+10^10 size 2 MN_P24=0 rep 2 rc 0: mn: all 2 nodes: VERIFY OK; total   158.96 s   (bs 25.6 + 10dP 0.0 + dm 124.8 + T1 0.1 + dc 0.0 + T2 0.0 = 150.5; init 8.4; other 0.0); VmHWM 26.7 GB (160 s)
+   digits: identical
+10^10 size 2 MN_P24=1 rep 2 rc 0: mn: all 2 nodes: VERIFY OK; total    97.02 s   (bs 18.9 + 10dP 0.0 + dm 69.2 + T1 0.1 + dc 0.0 + T2 0.0 = 88.3; init 8.7; other 0.0); VmHWM 26.7 GB (98 s)
+   digits: identical
+p24_job batches 5 done Mon Sep 28 06:46:59 PM CDT 2026
