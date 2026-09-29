@@ -65,6 +65,17 @@ B)
         echo "RUN e10 size $p: rc $rc; $(cmpref $f $T/ref_1e10.txt)"; summ "$log"; N "rm -rf $f $f.*"
     done
     ;;
+D)  # the timing series: new / base x 3 on the plain defaults (ECALC_VERBOSE=1 only), files cmp'd against the first run's
+    E11=~/ntt/ecalc/results/e_1e11.out; K=$T/keep.txt
+    run11p() { local tag=$1 d=$2; local log=$L/$tag.log f=$T/e11.txt c
+        N "rm -rf $f $f.*"; evict $E11
+        local t0; t0=$(date +%s.%N)
+        R "$d" "env ECALC_VERBOSE=1 ./ecalc 100000000000 $f" > "$log" 2>&1; local rc=$?
+        local wall; wall=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b - a}')
+        if N "test -e $K"; then c=$(N "cmp -s $f $K && echo 'same bytes as the first run' || echo 'DIFFERS from the first run'; rm -rf $f $f.*"); else N "mv $f $K; rm -rf $f.*"; c="kept"; fi
+        echo "RUN11 $tag: rc $rc wall ${wall} s; $c"; summ "$log"; }
+    for i in 1 2 3; do run11p new_$i $NEW; run11p base_$i $BASE; done
+    ;;
 C)
     ./mnaccept.sh "$J" --stress --only unit,e9,mn,corr,stress 2>&1 | grep -a '^PASS\|^FAIL\|passed\|^=='
     ;;
