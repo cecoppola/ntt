@@ -29,6 +29,7 @@ size_t db_pool_live(int dev);                        /* Phase 14 S1 (E1): bytes 
 size_t db_pool_window_peak(int dev, int reset);      /* Phase 14 S1 (E1): the peak since the last reset (reset: restart the window) */
 size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
 int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
+size_t db_pool_fit_count(int dev, size_t bytes);      /* Phase 15 PC: blocks of `bytes` the free extents hold without a remap or growth (rns_dist.c cache_pc_take) */
 size_t db_pool_largest_free(int dev);                /* Phase 10 B4 (agent M): the largest free extent (what one block can get without a hipMalloc) */
 size_t db_pool_hipmalloc_bytes(int dev);             /* Phase 10 B4: bytes the pool mapped itself (fallback + pregrow), for the phase deltas */
 void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh);   /* Phase 11 M (decision 5): the last `bytes` of a donated region are the reserved tail: requests >= thresh are carved from its back, smaller ones avoid it while anything else fits */
