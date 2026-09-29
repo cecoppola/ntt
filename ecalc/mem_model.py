@@ -531,7 +531,7 @@ TARGET_NP = 'auto'                                      # the user's decision 1 
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/P15.md;
                                                         # ECALC_NP=4 is +17.2 GB per node over auto with RNS_POOL1_4Q); the code's default stays 3 (decimal)
-TARGET_DIGITS = 5.1e13                                  # the target's total digits on TARGET_NODES: the user's decision of 2026-09-27 23:50 EDT (Phase 15 TGT);
+TARGET_DIGITS = 5.276e13                                  # the target's total digits on TARGET_NODES: the user's decision of 2026-09-27 23:50 EDT (Phase 15 TGT);  [2026-09-29: 5.276e13, the user's Batch 3 decision after DL (room kept up to 5.396e13); was 5.1e13]
                                                         # history: 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
                                                         # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
 TARGET_BELOW = 4.74e13                                  # the runtime one step below (the user: test it after the headline): 202 / 226 pieces, 4.75e13 steps to 209 / 233
