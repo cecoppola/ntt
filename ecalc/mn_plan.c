@@ -54,6 +54,7 @@ static size_t D_EST(size_t j) { const char *e = getenv("MN_PLAN_DEXTRA"); long x
 enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
 static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
 static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* g_pieces4: Phase 15 NP -- the pieces at four primes */
+static long g_pieces24[PH_N];                                     /* Phase 15 Batch 3 P24 (MN_P24): the pieces at 24 digits per point */
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
 /* ---- Phase 15 P (PLAN 36): the plan-time check -- every planned product against the prime set's limits ------------------------
@@ -78,6 +79,7 @@ static void chk_init(int np)
     g_chk.bound = np == 3 && !ec_np_auto ? ec_np3_max_terms : 0;   /* Phase 15 NP: under ECALC_NP=auto a piece over the bound runs four primes (no refusal) */
 }
 static const char *np_name(void) { static char b[48]; if (ec_np_auto) snprintf(b, sizeof b, "auto"); else snprintf(b, sizeof b, "%d", ec_np); return b; }
+static const char *np_by(void) { return ec_np_auto && ec_np_auto_min ? " by min(pa, pb) (ECALC_NP_AUTO_MIN=1)" : ""; }   /* Phase 15 MPB: the switch-over's term count ("": pa + pb) */
 static const char *np_tag(int np) { return !ec_np_auto ? "" : np == 4 ? ", 4 primes" : ", 3 primes"; }   /* NP: the printed lines under auto */
 /* one product's largest piece: nc = pa + pb limbs (what mn_core / dist_core pass to ec_np_check), a transform of 2^logk (r3 = 0)
  * or 3 2^logk points (r3 = 1: ec_root3(prime, logk)) */
@@ -100,7 +102,7 @@ static int chk_report(double d, int size)
     char bound[192]; if (g_chk.bound) snprintf(bound, sizeof bound, "%zu terms (three primes)", g_chk.bound); else snprintf(bound, sizeof bound, "none (%d primes)", g_chk.np);
     if (!g_chk.nbound && !g_chk.nroot) {
         if (ec_np_auto) { long p4 = 0, pt = 0; for (int i = 0; i < PH_N; i++) { p4 += g_pieces4[i]; pt += g_pieces[i]; }
-                          snprintf(bound, sizeof bound, "per product (four primes over %zu terms: %ld of %ld pieces)", ec_np_auto_terms, p4, pt); }
+                          snprintf(bound, sizeof bound, "per product (four primes over %zu terms%s: %ld of %ld pieces)", ec_np_auto_terms, np_by(), p4, pt); }
         printf("plan check  %.4g digits g %d, ECALC_NP=%s: OK -- %ld products; the largest piece %zu limbs (%s), bound %s; the longest transform 2^%d of 2^%d (the roots' limit)\n",
                d, size, np_name(), g_chk.nprod, g_chk.worst_nt, g_chk.worst, bound, g_chk.worst_logn, g_chk.lim);
         return 0;
@@ -111,17 +113,29 @@ static int chk_report(double d, int size)
     fflush(stdout);
     return EC_RC_FATAL;
 }
+/* Phase 15 Batch 3 P24 (results/P2415.md): a P24 piece against its own limits -- min(Pa, Pb) <= 10^12 points (the CRT's four limbs:
+ * c < 10^60) and its plane at most 2^40 points (and the roots' limit); pa, pb in limbs, the points p24_pts of them */
+static void chk24(const char *what, int g, size_t pa, size_t pb, int logk)
+{
+    size_t Pa = (3 * pa + 3) / 4, Pb = (3 * pb + 3) / 4, mn = Pa < Pb ? Pa : Pb; char why[200] = "";
+    g_chk.nprod++;
+    if (pa + pb > g_chk.worst_nt) { g_chk.worst_nt = pa + pb; snprintf(g_chk.worst, sizeof g_chk.worst, "dist_mn %s (g %d): P24 piece %zu + %zu limbs = %zu + %zu points", what, g, pa, pb, Pa, Pb); }
+    if (logk > g_chk.worst_logn) g_chk.worst_logn = logk;
+    if (mn > 1000000000000ULL) { g_chk.nbound++; snprintf(why, sizeof why, "P24: min(Pa, Pb) = %zu points > 10^12 (the CRT's four limbs)", mn); }
+    if (logk > g_chk.lim || logk > 40) { g_chk.nroot++; size_t o = strlen(why); snprintf(why + o, sizeof why - o, "%sa P24 plane of 2^%d points > 2^%d", o ? "; " : "", logk, g_chk.lim < 40 ? g_chk.lim : 40); }
+    if (why[0] && !g_chk.first[0]) snprintf(g_chk.first, sizeof g_chk.first, "dist_mn %s (g %d): P24 piece %zu + %zu limbs, 2^%d points: %s", what, g, pa, pb, logk, why);
+}
 static void show_mn(int ph, const char *what, size_t na, size_t nb, int g, int has_x, size_t lowcut, size_t w, int print, struct rns_grid_plan *out)
 {
     struct rns_grid_plan p; rns_dist_mn_plan(na, nb, g, has_x, lowcut, w, &p);
-    if (p.formed) chk("dist_mn", what, g, p.pa, p.pb, (int)log2((double)p.pts), 0);
+    if (p.formed) { if (p.p24) chk24(what, g, p.pa, p.pb, (int)log2((double)p.pts)); else chk("dist_mn", what, g, p.pa, p.pb, (int)log2((double)p.pts), 0); }
     size_t N = na + nb + (has_x ? 1 : 0); int trunc = w < N;
-    if (ph >= 0) { g_pieces[ph] += p.formed; g_pieces4[ph] += p.formed4; g_prods[ph]++; if (!p.one) g_grids[ph]++; }
+    if (ph >= 0) { g_pieces[ph] += p.formed; g_pieces4[ph] += p.formed4; g_prods[ph]++; if (!p.one) g_grids[ph]++; if (p.p24) g_pieces24[ph] += p.formed; }
     char n4[48] = ""; if (ec_np_auto && p.formed4 && p.formed4 < p.formed) snprintf(n4, sizeof n4, " (%d of them at 4 primes)", p.formed4);
     if (print && !g_quiet)
-        printf("plan %-6s %s: dist_mn node 0: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed%s, %d skipped%s%s | piece %zu + %zu limbs, 2^%d points (%d x %d)%s, planes %.2f GB per node\n",
-               ph_name[ph < 0 ? PH_TREE : ph], what, na, nb, g, p.logcap, p.ka, p.kb, p.formed, n4, p.skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "",
-               p.pa, p.pb, (int)log2((double)p.pts), p.logR, p.logC, np_tag(p.np), p.plane_bytes * 1e-9);
+        printf("plan %-6s %s: dist_mn node 0: %zu x %zu limbs over %d x 4 ranks (cap 2^%d%s): %d x %d pieces, %d formed%s, %d skipped%s%s | piece %zu + %zu limbs, 2^%d points (%d x %d)%s, planes %.2f GB per node\n",
+               ph_name[ph < 0 ? PH_TREE : ph], what, na, nb, g, p.logcap, p.p24 ? " points" : "", p.ka, p.kb, p.formed, n4, p.skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "",
+               p.pa, p.pb, (int)log2((double)p.pts), p.logR, p.logC, p.p24 ? ", 4 primes, P24 (24 digits per point)" : np_tag(p.np), p.plane_bytes * 1e-9);
     if (out) *out = p;
 }
 static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcut, size_t w)
@@ -256,10 +270,39 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
+/* INT3 (Phase 15 Batch 3): NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
+ * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
+ * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
+ * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).
+ * The assembly and the corrections are not products.  (A kept mu shorter than h + 1 -- a fresh reciprocal -- is not planned.) */
+static void plan_div_dkm(size_t nq, size_t dl, size_t k_mu, long double lq, int size)
+{
+    size_t h_mu = newton_dkm_h(k_mu), sn = limbs_of(lq + log10l(expl(1.0L)));
+    size_t na = sn + dl, k = na - nq + 1, w = nq + 2, s = k / 2 < dl ? k / 2 : dl, k1 = k - s;
+    size_t ahn1 = sn - (nq - 1 - (dl - s)), xh = k1, ahn2 = s + 1, k2 = s + 1, xl = s;
+    if (size > 1) plan_recip_mn(nq, h_mu, size); else plan_recip_db(nq, h_mu);
+    if (!g_quiet) printf("plan div    NEWTON_DKM=1: k %zu = %zu + %zu (s), the reciprocal to h %zu of k_mu %zu; step 1 A_h %zu x mu %zu, X_hi %zu x Q %zu; step 2 R1_h %zu x mu %zu, X_lo %zu x Q %zu (mod B^%zu)\n",
+                         k, k1, s, h_mu, k_mu, ahn1, k1 + 1, xh, nq, ahn2, k2 + 1, xl, nq, w);
+    if (size > 1) {
+        int L1 = newton_mn_x1_level(ahn1, k1 + 1, size, size, 2 * (ahn1 + k1 + 1)), L2 = newton_mn_x1_level(xh, nq, size, size, 2 * (xh + nq));
+        int L3 = newton_mn_x1_level(ahn2, k2 + 1, size, size, 2 * (ahn2 + k2 + 1)), L4 = newton_mn_x1_level(xl, nq, size, size, 2 * (xl + nq));
+        show_mn(PH_DIV, "DKM step 1 A_h mu", ahn1, k1 + 1, L1 ? 1 << L1 : size, 0, k1 + 1, (size_t)-1, 1, 0);
+        show_mn(PH_DIV, "DKM step 1 X_hi Q mod B^w", xh < w ? xh : w, nq < w ? nq : w, L2 ? 1 << L2 : size, 0, 0, w, 1, 0);
+        show_mn(PH_DIV, "DKM step 2 R1_h mu", ahn2, k2 + 1, L3 ? 1 << L3 : size, 0, k2 + 1, (size_t)-1, 1, 0);
+        show_mn(PH_DIV, "DKM step 2 X_lo Q mod B^w", xl < w ? xl : w, nq < w ? nq : w, L4 ? 1 << L4 : size, 0, 0, w, 1, 0);
+    } else {
+        show_db(PH_DIV, "DKM step 1 A_h mu", ahn1, k1 + 1, k1 + 1, (size_t)-1);
+        show_db(PH_DIV, "DKM step 1 X_hi Q mod B^w", xh < w ? xh : w, nq < w ? nq : w, 0, w);
+        show_db(PH_DIV, "DKM step 2 R1_h mu", ahn2, k2 + 1, k2 + 1, (size_t)-1);
+        show_db(PH_DIV, "DKM step 2 X_lo Q mod B^w", xl < w ? xl : w, nq < w ? nq : w, 0, w);
+    }
+}
+
 static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, int silent)
 {
     g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
+    memset(g_pieces24, 0, sizeof g_pieces24);
     if (!bi_decimal) g_dpl = 64.0L * log10l(2.0L);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
@@ -272,7 +315,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     size_t nq = all.qn, pn = all.pn, dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
     if (!silent) {
-    char npd[96]; if (ec_np_auto) snprintf(npd, sizeof npd, "primes per product (ECALC_NP=auto: 4 over %zu terms, pool 0 for %d)", ec_np_auto_terms, ec_np_planes(pool_log, size)); else snprintf(npd, sizeof npd, "%d primes", np);
+    char npd[160]; if (ec_np_auto) snprintf(npd, sizeof npd, "primes per product (ECALC_NP=auto: 4 over %zu terms%s, pool 0 for %d)", ec_np_auto_terms, np_by(), ec_np_planes(pool_log, size)); else snprintf(npd, sizeof npd, "%d primes", np);
     printf("== MN_PLAN_ONLY: e to %lu digits on %d node-process%s: N %lu terms, P %zu limbs, Q %zu limbs (predicted), dl %zu; pool_log %d, %s, pools %.2f + %.2f GiB per APU; MN_GROUPS",
            d, size, size > 1 ? "es" : "", N, pn, nq, dl, pool_log, npd, p0 / 1073741824.0, p1 / 1073741824.0);
     for (int l = 0; l < L; l++) printf("%c%d", l ? ',' : ' ', gs[l]);
@@ -282,22 +325,20 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     /* the leaf (node 0's range) */
     plan_leaf(1, size > 1 ? term0(N, 1, size) : N + 1);
     long tree_max = 0;
-    size_t k_mu, sn;
-    if (size > 1) {
-        plan_tree(N, size, &tree_max);
-        /* newton_mn_divmod: k from S's largest possible length, the reciprocal, S = P + Q, the two cut products (X1 groups) */
-        k_mu = pn + 1 + dl - nq + 1;
+    size_t k_mu = pn + 1 + dl - nq + 1, sn = limbs_of(all.lq + log10l(expl(1.0L)));   /* k from S's largest possible length; S = P + Q = Q e (P / Q = e - 1 over [1, N+1)) */
+    if (size > 1) plan_tree(N, size, &tree_max);
+    int dkm = newton_dkm_on() && dl >= 1 && (size > 1 ? k_mu >= 5 : sn + dl - nq + 1 >= 4);   /* INT3: NEWTON_DKM=1 -- newton_db.c's dispatch (mn_divmod_dkm / divmod_shifted_dkm) */
+    if (dkm) plan_div_dkm(nq, dl, k_mu, all.lq, size);
+    else if (size > 1) {
+        /* newton_mn_divmod: the reciprocal, S = P + Q, the two cut products (X1 groups) */
         plan_recip_mn(nq, k_mu, size);
-        sn = limbs_of(all.lq + log10l(expl(1.0L)));               /* S = P + Q = Q e (P / Q = e - 1 over [1, N+1)) */
         size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
         int La = newton_mn_x1_level(ahn, k + 1, size, size, 2 * (ahn + k + 1)), Lx = newton_mn_x1_level(xn, nq, size, size, 2 * (xn + nq));
         show_mn(PH_DIV, "A_h mu", ahn, k + 1, La ? 1 << La : size, 0, k + 1, (size_t)-1, 1, 0);
         show_mn(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, Lx ? 1 << Lx : size, 0, 0, w, 1, 0);
     } else {
         /* ecalc.c's device flow (ovl3): k_mu from P's device length, the prewarm reciprocal, S = P + Q, newton_db_divmod_shifted */
-        k_mu = pn + 1 + dl - nq + 1;
         plan_recip_db(nq, k_mu);
-        sn = limbs_of(all.lq + log10l(expl(1.0L)));
         size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
         show_db(PH_DIV, "A_h mu", ahn, k + 1, k + 1, (size_t)-1);
         show_db(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, 0, w);
@@ -306,8 +347,11 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     if (!silent) printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
            (double)d, size, g_pieces[PH_TREE], g_pieces[PH_RECIP], g_pieces[PH_DIV], tot, size > 1 ? tree_max : 0, (size > 1 ? tree_max : 0) + g_pieces[PH_RECIP] + g_pieces[PH_DIV],
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
-    if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
-           (double)d, size, ec_np_auto_terms, g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
+    if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms%s): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
+           (double)d, size, ec_np_auto_terms, np_by(), g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
+    if (!silent && (getenv("MN_P24") ? atoi(getenv("MN_P24")) : 2) > 0)   /* Phase 15 Batch 3 P24: the pieces at 24 digits per point */
+        printf("plan p24   %.4g digits g %d, MN_P24=%d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
+               (double)d, size, getenv("MN_P24") ? atoi(getenv("MN_P24")) : 2, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);

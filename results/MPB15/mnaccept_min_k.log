@@ -1,0 +1,9 @@
+== mnaccept: job 21763 on ppac-pl1-s24-16, 2026-09-28T17:52:52-05:00, 256b0f9b MPB: the node job script, the line checker; the plans at 5.1e13 / 4.74e13 / 4.25e13 on 576, switch off/on (login node); ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-MPB15/ecalc/ref ==
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.99 s (bs 1.4 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.41 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 8.26 s (bs 0.9 + 10dP 0.0 + dm 3.9
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.50 s (bs 1.2 + 10dP 0.0 + dm 3.8
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.15 s (bs 0.9 + 10dP 0.0 + dm 3.3
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 24.00 s (bs 3.4 + 10dP 0.0 + dm 15
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 18.10 s (bs 3.5 + 10dP 0.0 + dm 8.
+== 7 passed, 0 failed; 130 s; 256b0f9b; logs in results/mnaccept/21763 ==

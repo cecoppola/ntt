@@ -1,0 +1,7 @@
+== mnaccept: job 21767 on ppac-pl1-s24-30, 2026-09-28T18:04:07-05:00, b7eed11 P24: p24_job.sh batch 2 starts with a verbose 10^8 run (the P24 lines); ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-P2415/ecalc/ref ==
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 8.38 s (bs 0.8 + 10dP 0.0 + dm 3.7
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.31 s (bs 1.2 + 10dP 0.0 + dm 3.8
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.42 s (bs 0.9 + 10dP 0.0 + dm 3.7
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 22.67 s (bs 3.6 + 10dP 0.0 + dm 13
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 18.58 s (bs 3.9 + 10dP 0.0 + dm 8.
+== 5 passed, 0 failed; 78 s; b7eed11; logs in results/mnaccept/21767 ==

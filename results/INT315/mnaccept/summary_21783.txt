@@ -1,0 +1,12 @@
+== mnaccept: job 21783 on ppac-pl1-s24-16, 2026-09-28T20:39:33-05:00, 3e2a5a5 INT3: int315_job.sh (the node batches); RESUME; ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-INT315/ecalc/ref ==
+PASS e9 size 1 LIMB_BASE=10: identical; total 9.98 s (bs 1.3 + 10dP 0.1 + dm 1.8
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.34 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.81 s (bs 0.8 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.12 s (bs 1.2 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.00 s (bs 1.0 + 10dP 0.0 + dm 3.3
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.05 s (bs 3.7 + 10dP 0.0 + dm 11
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.55 s (bs 3.7 + 10dP 0.0 + dm 7.
+PASS corr d=511461828 size 1 TEST_CORR=14: identical; patched (8 bytes in 1 part file); total 6.31 s (bs 0.9 + 10dP 0.1 + dm 1.6; ECALC_RECHECK=1 on the patched file: RECHECK OK
+PASS corr d=108388422 size 2 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.70 s (bs 1.0 + 10dP 0.0 + dm 3.7
+PASS corr d=108388422 size 4 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 9.20 s (bs 1.1 + 10dP 0.0 + dm 3.6
+== 10 passed, 0 failed; 156 s; 3e2a5a5; logs in results/mnaccept/21783 ==

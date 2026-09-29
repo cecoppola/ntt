@@ -1,0 +1,89 @@
+int315_job 12345 at 3e2a5a5  Mon Sep 28 07:49:32 PM CDT 2026
+batch 1: job 21781 submitted Mon Sep 28 07:49:32 PM CDT 2026
+batch 1: job 21781 running on ppac-pl1-s24-16 Mon Sep 28 07:49:52 PM CDT 2026
+mnaccept unit,e9,mn,recheck,corr (defaults) rc 0
+PASS unit t_ntt 24: t_ntt: VERIFY OK (3215 checks)
+PASS unit t_mul 20: t_mul: VERIFY OK (189 checks)
+PASS unit t_bs: t_bs: VERIFY OK (10 checks)
+PASS unit t_dbig 0: t_dbig: VERIFY OK (555 checks)
+PASS unit t_newton 20: t_newton: VERIFY OK (620 checks)
+PASS unit t_verify: t_verify: VERIFY OK (334 checks)
+PASS unit t_out: t_out: VERIFY OK (1 checks)
+PASS unit t_patch: t_patch: VERIFY OK (both forms)
+PASS unit t_mn_grid (2 procs): 2 VERIFY OK: t_mn_grid: VERIFY OK (200 checks)
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.82 s (bs 1.4 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 20.44 s (bs 1.1 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.90 s (bs 0.8 + 10dP 0.0 + dm 3.6
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 9.39 s (bs 1.2 + 10dP 0.0 + dm 3.6
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.13 s (bs 1.0 + 10dP 0.0 + dm 3.3
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 21.21 s (bs 2.9 + 10dP 0.0 + dm 12
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.06 s (bs 3.0 + 10dP 0.0 + dm 7.
+PASS recheck e9 size 1: run identical; recheck: 1 RECHECK OK, P, Q from the checkpoint on 1 node(s), read in 0.9 s; corrupted copy: 1 RECHECK FAILED
+PASS recheck e8 size 2: run identical; recheck: 3 RECHECK OK, P, Q from the checkpoint on 2 node(s), read in 0.3 s; corrupted copy: 3 RECHECK FAILED
+PASS corr d=511461828 size 1 TEST_CORR=14: identical; patched (8 bytes in 1 part file); total 6.58 s (bs 0.8 + 10dP 0.1 + dm 1.7; ECALC_RECHECK=1 on the patched file: RECHECK OK
+PASS corr d=108388422 size 2 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.66 s (bs 0.9 + 10dP 0.0 + dm 4.0
+PASS corr d=108388422 size 4 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.19 s (bs 1.0 + 10dP 0.0 + dm 3.5
+t_p24 rc 0 t_p24: VERIFY OK (78594 checks)
+t_crt 24 decimal (defaults) rc 0 t_crt: VERIFY OK (12 checks)
+t_crt 24 binary (defaults) rc 0 t_crt: VERIFY OK (24 checks)
+batch 1 done Mon Sep 28 08:14:47 PM CDT 2026
+batch 2: job 21782 submitted Mon Sep 28 08:14:47 PM CDT 2026
+batch 2: job 21782 running on ppac-pl1-s24-26 Mon Sep 28 08:15:07 PM CDT 2026
+t_newton 20 (S4, NEWTON_DEVICE=1 DIST_LOGN_TEST=20) rc 0 t_newton: VERIFY OK (1187 checks)
+t_crt 24 decimal (S4) rc 0 t_crt: VERIFY OK (105 checks)
+t_patch (S4) rc 0 t_patch: VERIFY OK (both forms)
+mnaccept e9,mn,corr,recheck (ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1) rc 0
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.24 s (bs 1.3 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 22.88 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 8.25 s (bs 0.9 + 10dP 0.0 + dm 3.0
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 7.98 s (bs 1.2 + 10dP 0.0 + dm 3.4
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 7.47 s (bs 1.0 + 10dP 0.0 + dm 3.0
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.33 s (bs 2.9 + 10dP 0.0 + dm 11
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 15.63 s (bs 3.1 + 10dP 0.0 + dm 7.
+PASS recheck e9 size 1: run identical; recheck: 1 RECHECK OK, P, Q from the checkpoint on 1 node(s), read in 0.8 s; corrupted copy: 1 RECHECK FAILED
+PASS recheck e8 size 2: run identical; recheck: 3 RECHECK OK, P, Q from the checkpoint on 2 node(s), read in 0.2 s; corrupted copy: 3 RECHECK FAILED
+PASS corr d=511461828 size 1 TEST_CORR=14: identical; patched (8 bytes in 1 part file); total 6.31 s (bs 0.9 + 10dP 0.0 + dm 1.7; ECALC_RECHECK=1 on the patched file: RECHECK OK
+PASS corr d=108388422 size 2 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.66 s (bs 0.9 + 10dP 0.0 + dm 3.7
+PASS corr d=108388422 size 4 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.23 s (bs 1.0 + 10dP 0.0 + dm 3.4
+batch 2 done Mon Sep 28 08:22:49 PM CDT 2026
+batch 3: job 21783 submitted Mon Sep 28 08:22:49 PM CDT 2026
+batch 3: job 21783 running on ppac-pl1-s24-16 Mon Sep 28 08:23:09 PM CDT 2026
+t_mn_grid size 2 decimal, ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1, bound 11000000: rc 0: 2 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 188 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 184 e.g. 10066329 x 8388608; against the rule: 0; P24 piece lines 432, 18-digit four-prime piece lines 0
+t_mn_grid size 3 decimal, ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1, bound 11000000: rc 0: 3 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 282 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 276 e.g. 10066329 x 8388608; against the rule: 0; P24 piece lines 648, 18-digit four-prime piece lines 0
+t_mn_grid size 4 decimal, ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1, bound 20000000: rc 0: 4 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 568 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 544 e.g. 20132659 x 16777216; against the rule: 0; P24 piece lines 888, 18-digit four-prime piece lines 0
+t_mn_grid size 2 decimal, ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 MN_P24=2 (the last wins), bound 11000000: rc 0: 2 VERIFY OK, 0 FAILED; P24 piece lines 560, 18-digit piece lines 0
+e9_k8e6_1: size 1 d 1000000000 k 8000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 1 VERIFY OK, 0 FAILED; lines at 4 primes 6, at 3 46 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 3 e.g. 6944448 x 3472224; against the rule: 0; P24 piece lines 0, 18-digit four-prime piece lines 0; total 14.04 s (bs 1.4 + 10dP 0.1 + dm 1.9 + T1 0.0 + dc 0.0 
+e9_k8e6_2: size 2 d 1000000000 k 8000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 3 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 92 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 6 e.g. 6944448 x 3472224; against the rule: 0; P24 piece lines 16, 18-digit four-prime piece lines 0; total 20.73 s (bs 3.7 + 10dP 0.0 + dm 11.4 + T1 0.0 + dc 0.0
+e9_k8e6_4: size 4 d 1000000000 k 8000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 5 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 172 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 12 e.g. 6944448 x 3472224; against the rule: 0; P24 piece lines 40, 18-digit four-prime piece lines 0; total 17.23 s (bs 3.8 + 10dP 0.0 + dm 7.3 + T1 0.0 + dc 0.0 
+e8_k2e6_2: size 2 d 100000000 k 2000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 3 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 84 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 6 e.g. 1388892 x 694446; against the rule: 0; P24 piece lines 12, 18-digit four-prime piece lines 0; total 7.81 s (bs 0.8 + 10dP 0.0 + dm 3.2 + T1 0.0 + dc 0.0 +
+e8_k2e6_3: size 3 d 100000000 k 2000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 4 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 130 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 21 e.g. 1886195 x 1948658; against the rule: 0; P24 piece lines 12, 18-digit four-prime piece lines 0; total 8.11 s (bs 1.3 + 10dP 0.0 + dm 3.4 + T1 0.0 + dc 0.0 +
+e8_k2e6_4: size 4 d 100000000 k 2000000 ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 RNS_VERBOSE=1: rc 0, identical, 5 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 160 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 20 e.g. 1264775 x 1388890; against the rule: 0; P24 piece lines 24, 18-digit four-prime piece lines 0; total 8.14 s (bs 1.0 + 10dP 0.0 + dm 3.3 + T1 0.0 + dc 0.0 +
+mnaccept e9,mn,corr (ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 ECALC_NP_AUTO_TERMS=2000000) rc 0
+PASS e9 size 1 LIMB_BASE=10: identical; total 9.98 s (bs 1.3 + 10dP 0.1 + dm 1.8
+PASS e9 size 1 LIMB_BASE=2: identical; total 21.34 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 7.81 s (bs 0.8 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.12 s (bs 1.2 + 10dP 0.0 + dm 3.5
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.00 s (bs 1.0 + 10dP 0.0 + dm 3.3
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.05 s (bs 3.7 + 10dP 0.0 + dm 11
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 16.55 s (bs 3.7 + 10dP 0.0 + dm 7.
+PASS corr d=511461828 size 1 TEST_CORR=14: identical; patched (8 bytes in 1 part file); total 6.31 s (bs 0.9 + 10dP 0.1 + dm 1.6; ECALC_RECHECK=1 on the patched file: RECHECK OK
+PASS corr d=108388422 size 2 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.70 s (bs 1.0 + 10dP 0.0 + dm 3.7
+PASS corr d=108388422 size 4 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 9.20 s (bs 1.1 + 10dP 0.0 + dm 3.6
+batch 3 done Mon Sep 28 08:42:09 PM CDT 2026
+batch 4: job 21784 submitted Mon Sep 28 08:42:09 PM CDT 2026
+batch 4: job 21784 running on ppac-pl1-s24-26 Mon Sep 28 08:42:29 PM CDT 2026
+e4e10_off:  ./ecalc 40000000000: rc 0, VERIFY OK, total 65.93 s (bs 26.0 + 10dP 0.1 + dm 23.8 + T1 0.0 + dc 0.0 + T2 0.0 = 49.8; i (wall 68 s)
+e4e10_off: against e_4e10.out: identical (364 s)
+e4e10_s4: ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 ./ecalc 40000000000: rc 0, VERIFY OK, total 57.60 s (bs 24.7 + 10dP 0.1 + dm 18.6 + T1 0.0 + dc 0.0 + T2 0.0 = 43.3; i (wall 67 s)
+e4e10_s4: against e_4e10.out: identical (364 s)
+t_mn_grid size 3 (defaults) rc 0: 3 VERIFY OK, 0 FAILED
+t_mn_grid size 4 (defaults) rc 0: 4 VERIFY OK, 0 FAILED
+batch 4 done Mon Sep 28 09:03:41 PM CDT 2026
+batch 5: job 21785 submitted Mon Sep 28 09:03:41 PM CDT 2026
+batch 5: job 21785 running on ppac-pl1-s24-16 Mon Sep 28 09:04:01 PM CDT 2026
+e1e11_off:  ./ecalc 1e11: rc 0, VERIFY OK, total 208.67 s (bs 85.2 + 10dP 0.2 + dm 102.5 + T1 0.0 + dc 0.0 + T2 0.0 = 187.9 (wall 211 s)
+e1e11_s4: ECALC_NP=auto ECALC_NP_AUTO_MIN=1 MN_P24=1 NEWTON_DKM=1 ./ecalc 1e11: rc 0, VERIFY OK, total 177.14 s (bs 86.2 + 10dP 0.2 + dm 72.5 + T1 0.0 + dc 0.0 + T2 0.0 = 158.9; (wall 180 s)
+e1e11_s4 against e1e11_off (cmp of every part file): 1 files, 0 differ (50 s)
+e1e11_off against e_1e11.out: identical (909 s)
+batch 5 done Mon Sep 28 09:26:36 PM CDT 2026
+int315_job 12345 done Mon Sep 28 09:26:36 PM CDT 2026

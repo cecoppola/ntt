@@ -1,0 +1,24 @@
+plan_51000000000000_p0_m0_k0: OK | node0 222 (108/74/40) largest 242 | four primes 76/35/40 | 
+plan_51000000000000_p0_m0_k1: OK | node0 204 (108/54/42) largest 224 | four primes 76/15/42 | 
+plan_51000000000000_p0_m1_k0: OK | node0 222 (108/74/40) largest 242 | four primes 52/32/40 | 
+plan_51000000000000_p0_m1_k1: OK | node0 204 (108/54/42) largest 224 | four primes 52/12/42 | 
+plan_51000000000000_p1_m0_k0: OK | node0 166 (80/63/23) largest 186 | four primes 48/24/23 | P24 48/24/23
+plan_51000000000000_p1_m0_k1: OK | node0 153 (80/51/22) largest 173 | four primes 48/12/22 | P24 48/12/22
+plan_51000000000000_p1_m1_k0: OK | node0 174 (88/63/23) largest 194 | four primes 32/21/23 | P24 32/21/23
+plan_51000000000000_p1_m1_k1: OK | node0 161 (88/51/22) largest 181 | four primes 32/9/22 | P24 32/9/22
+plan_51000000000000_p2_m0_k0: OK | node0 158 (72/63/23) largest 170 | four primes 72/63/23 | P24 72/63/23
+plan_51000000000000_p2_m0_k1: OK | node0 145 (72/51/22) largest 157 | four primes 72/51/22 | P24 72/51/22
+plan_51000000000000_p2_m1_k0: OK | node0 158 (72/63/23) largest 170 | four primes 72/63/23 | P24 72/63/23
+plan_51000000000000_p2_m1_k1: OK | node0 145 (72/51/22) largest 157 | four primes 72/51/22 | P24 72/51/22
+plan_55500000000000_p0_m0_k0: OK | node0 259 (132/81/46) largest 293 | four primes 88/42/46 | 
+plan_55500000000000_p0_m0_k1: OK | node0 237 (132/57/48) largest 271 | four primes 88/18/48 | 
+plan_55500000000000_p0_m1_k0: OK | node0 259 (132/81/46) largest 293 | four primes 64/39/46 | 
+plan_55500000000000_p0_m1_k1: OK | node0 237 (132/57/48) largest 271 | four primes 64/15/48 | 
+plan_55500000000000_p1_m0_k0: OK | node0 194 (100/66/28) largest 214 | four primes 56/27/28 | P24 56/27/28
+plan_55500000000000_p1_m0_k1: OK | node0 181 (100/53/28) largest 201 | four primes 56/14/28 | P24 56/14/28
+plan_55500000000000_p1_m1_k0: OK | node0 202 (108/66/28) largest 230 | four primes 40/24/28 | P24 40/24/28
+plan_55500000000000_p1_m1_k1: OK | node0 189 (108/53/28) largest 217 | four primes 40/11/28 | P24 40/11/28
+plan_55500000000000_p2_m0_k0: OK | node0 180 (86/66/28) largest 182 | four primes 86/66/28 | P24 86/66/28
+plan_55500000000000_p2_m0_k1: OK | node0 167 (86/53/28) largest 169 | four primes 86/53/28 | P24 86/53/28
+plan_55500000000000_p2_m1_k0: OK | node0 180 (86/66/28) largest 182 | four primes 86/66/28 | P24 86/66/28
+plan_55500000000000_p2_m1_k1: OK | node0 167 (86/53/28) largest 169 | four primes 86/53/28 | P24 86/53/28
