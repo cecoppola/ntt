@@ -349,9 +349,9 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms%s): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
            (double)d, size, ec_np_auto_terms, np_by(), g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
-    if (!silent && getenv("MN_P24") && atoi(getenv("MN_P24")) > 0)   /* Phase 15 Batch 3 P24: the pieces at 24 digits per point */
+    if (!silent && (getenv("MN_P24") ? atoi(getenv("MN_P24")) : 2) > 0)   /* Phase 15 Batch 3 P24: the pieces at 24 digits per point */
         printf("plan p24   %.4g digits g %d, MN_P24=%d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
-               (double)d, size, atoi(getenv("MN_P24")), g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
+               (double)d, size, getenv("MN_P24") ? atoi(getenv("MN_P24")) : 2, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);

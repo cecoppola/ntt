@@ -1753,7 +1753,7 @@ static int mn_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
  * MN_P24=1: a product runs P24 when its 18-digit grid's largest piece would run four primes (ec_np_for(ec_np_terms(pa + pb, pa, pb))
  * == 4, the test mn_core's ec_np_prod makes -- keep the two in step; INT3: MPB's min(pa, pb) under ECALC_NP_AUTO_MIN=1); 2: every mn product (pool 0 must
  * hold four planes: ECALC_NP=4, or auto where the run's largest group can form a four-prime piece).  0 (default): off. */
-static int mn_p24_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("MN_P24"); v = e ? atoi(e) : 0; if (v < 0 || v > 2) v = 0; } return v; }
+static int mn_p24_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("MN_P24"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = 0; } return v; }   /* default 2 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
 static int mn_p24_of(size_t na, size_t nb, int g)
 {
     int v = mn_p24_on(); if (!v || !bi_decimal) return 0;

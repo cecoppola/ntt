@@ -344,7 +344,7 @@ def piece_np(dz, nc, na=None, nb=None):
 # min(pa, pb) (10^24 - 1)^2 10^12 < 10^72 needs min <= 10^12 points); the transform cache is not used by a P24 product.
 # MN_P24=1: the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: every mn product; auto: those over the
 # three-prime bound); 2: every mn product (SC15's model).  P24_F: the local passes' surcharge, ASSUMED 1.0 until measured (SC: 1.05-1.20).
-P24 = int(os.environ.get('MN_P24', '0') or 0)
+P24 = int(os.environ.get('MN_P24', '2') or 0)   # default 2 since Phase 15 Batch 3 (the user's decision, 2026-09-29)
 P24_F = float(os.environ.get('MN_MODEL_P24_F', '1.0'))
 P24_CAP_LOG = 40
 def p24_pts(n): return -(-3 * n // 4)
@@ -538,7 +538,7 @@ def exact_sizes(T):
     lim = lambda lg: int(math.floor(lg / LIMB_DIGITS)) + 1
     return dict(dl=(d + 17) // 18, nq=lim(lq), pn=lim(lq + math.log10(math.e - 1)), sn=lim(lq + math.log10(math.e)))
 
-DKM = os.environ.get('MN_MODEL_DKM', '0') == '1'   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
+DKM = os.environ.get('MN_MODEL_DKM', os.environ.get('NEWTON_DKM', '1')) == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
 DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
 DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # NOT BUILT (results/DKM15.md 1.3): a writer hook after step 1 writing X_hi's digits (final
                                                      # there) under step 2 -- the overlap is then all of step 2 ('hide_hi')
