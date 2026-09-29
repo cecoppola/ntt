@@ -3842,3 +3842,11 @@ deferred T2 windows to the patch (a second, quieter bug). **Tests** (measured): 
 and without `MN_OUT_EARLY`; `t_patch` both forms 0 failures (6365 checks each); `tools/test_unpack.py` patched cases PASS;
 mnaccept `unit,e9,mn,recheck,corr` 21/21 and `ckpt,full,stress,corr` 7/7 (daf9cb5); 4 × 10¹⁰ and 10¹¹ identical. **New
 regression step** `corr` (on the defaults, at sizes where the patch writes file bytes): fails on 44c1642, passes on the fix.
+
+## 91. The target's write rate: ≈ 1 GB/s per node (the user's Lustre test, 2026-09-29)
+
+The user measured ≈ 1 GB/s write on the target's Lustre; the models' default `TARGET_WRITE_BW` is now 1.0 (was 0.6, the apumult
+catalog's single-stream figure; 2.0 / 1.0 / 0.6 printed). **576-node estimate (standing rule; modelled, main, the fabric assumed,
+the cache at 0 slots)**: **5.1 × 10¹³ in 400.0 s (6.67 min) without the write, 394.6 s (6.58 min) with the packed write** — the
+write is fully hidden under the division at 1 GB/s. With Batch 3's P24 + DKM (pending decisions): ≈ 285 / 305 s (the shorter
+division hides ≈ 20 s less; DKM's early writer, Batch 3 item 8, would hide it). Assumed: the rate holds with 576 nodes writing.

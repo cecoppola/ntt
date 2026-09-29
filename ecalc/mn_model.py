@@ -152,9 +152,9 @@ class Fabric:
         """a small collective (all-gather of a few words, a max-reduction) over g nodes"""
         return 0.0 if g <= 1 else (g - 1) * self.lat + self.coll_fixed + 20e-6
 
-TARGET_WRITE_BW = 0.6                  # Phase 15: the target's /ssd0 (Lustre over Slingshot) single-stream write, MEASURED there 0.58-0.64 GB/s (the apumult
+TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
-TARGET_WRITE_BWS = (2.0, 0.8, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
+TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
 TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 4.74e13
