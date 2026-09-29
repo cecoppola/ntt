@@ -3829,3 +3829,16 @@ would exceed `ECALC_NODE_GB`. `ECALC_NP=4` would be 489.1 GB (over 480) — the 
 **576-node estimate (standing rule; modelled, DOC215; the fabric assumed; the cache at 0 slots under FIT)**:
 **5.1 × 10¹³ digits in 400.0 s (6.67 min) without the write, 420.5 s (7.01 min) with the packed write at 0.6 GB/s**;
 4.74 × 10¹³ in 368.7 / 390.7 s. Node 471.9 GB.
+
+## 90. Fix on main: the correction patch on packed output (2026-09-28; results/KP15.md)
+
+**Defect** (found by agent DKM, reproduced by KP; in B1/B2's defaults): `ECALC_CORR_PATCH=2` rewrote ASCII digit bytes at
+ASCII offsets, which lie past the end of a packed part (`ECALC_OUT_PACKED=1`): any run whose division corrected a digit
+inside the file failed VERIFY (sizes 1–4, measured). The regressions missed it: their forced corrections only changed digits
+past d_out, and 10¹¹ on the defaults needs no correction. **Fix** (KP, `mn_out.c` `packed_patch`, `mn_out_tail_core`,
+`patch_bytes`, `out_run_one`): the changed 18-digit limbs are rewritten in place (whole 4 KiB blocks, O_DIRECT as the writer,
+checked before and after) and the part header's stored digit residues moved by new − old; the packed writer now leaves the
+deferred T2 windows to the patch (a second, quieter bug). **Tests** (measured): the reproductions identical at sizes 1–4 with
+and without `MN_OUT_EARLY`; `t_patch` both forms 0 failures (6365 checks each); `tools/test_unpack.py` patched cases PASS;
+mnaccept `unit,e9,mn,recheck,corr` 21/21 and `ckpt,full,stress,corr` 7/7 (daf9cb5); 4 × 10¹⁰ and 10¹¹ identical. **New
+regression step** `corr` (on the defaults, at sizes where the patch writes file bytes): fails on 44c1642, passes on the fix.
