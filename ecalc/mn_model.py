@@ -162,9 +162,9 @@ class Fabric:
         """a small collective (all-gather of a few words, a max-reduction) over g nodes"""
         return 0.0 if g <= 1 else (g - 1) * self.lat + self.coll_fixed + 20e-6
 
-TARGET_WRITE_BW = 0.6                  # Phase 15: the target's /ssd0 (Lustre over Slingshot) single-stream write, MEASURED there 0.58-0.64 GB/s (the apumult
+TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
-TARGET_WRITE_BWS = (2.0, 0.8, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
+TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
 TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 4.74e13
@@ -2024,22 +2024,33 @@ def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
 def cache_partial_primes(free_node, q=1 << 29, np_=4):
     """the planes of q limbs one APU's pool share holds after the margin (the code's rule, cache_pc_take), at most np_"""
     return max(0, min(np_, int((free_node / 4 - PARTIAL_MARGIN) // (q * 8))))
-def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long')):
-    """the estimate at the target with RNS_DIST_CACHE_PARTIAL=1 (modelled): the primes per phase from the pool's rooms, 1 slot, the loop"""
+def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena_room=None, wbs=None):
+    """the estimate at the target with RNS_DIST_CACHE_PARTIAL=1 (modelled): the primes per phase from the pool's rooms, 1 slot, the loop;
+    arena_room: BS_ARENA_ROOM (None: the design's 0.16); wbs: the write rates priced (default TARGET_WRITE_BW, 0.6)"""
     global CACHE_P24
     T = T or TARGET_DIGITS; g = g or TARGET_NODES; GB = 1e9
-    d = DEFAULT15C(cache_fit=False)
+    d = DEFAULT15C(cache_fit=False) if arena_room is None else DEFAULT15C(cache_fit=False, arena_room=arena_room)
+    wbs = wbs or (TARGET_WRITE_BW, 0.6)
+    def runw(**kw):                                                   # the run at each write rate: (wall_nowrite, [wall at wbs])
+        out = []
+        for w in wbs:
+            w0 = TARGET.write_bw; TARGET.write_bw = w
+            try: r = _run_cache(T, g, d, **kw)
+            finally: TARGET.write_bw = w0
+            out.append(r)
+        return out[0]['wall_nowrite'], [r['wall'] for r in out]
     tree, dm, x = cache_partial_rooms(T, g, d, keep_room)
     kt, kd = cache_partial_primes(tree), cache_partial_primes(dm)
     print('== PC: %.3g digits on %d nodes, MN_P24=%d, MN_MODEL_DKM=%d, ECALC_NP=auto (modelled; the fabric assumed as in TARGET.md)' % (T, g, P24, int(DKM)))
     print('   the block pool per node: arena %.1f GB; tree need %.1f -> free %.1f GB; division need %.1f (%s; the default division\'s %.1f) %s -> free %.1f GB; margin %.1f GB per APU'
           % (x['arena'] / GB, x['tree_need'] / GB, tree / GB, x['dm_need'] / GB, 'DKM' if DKM else 'no DKM', x['dm_need0'] / GB,
              'with BS_ARENA_ROOM\'s %.1f GB kept' % (x['room'] / GB) if keep_room else 'less BS_ARENA_ROOM\'s %.1f GB (free at the products)' % (x['room'] / GB), dm / GB, PARTIAL_MARGIN / GB))
-    print('   primes per slot (q = 2^29, %.2f GB per prime per APU): tree %d, division %d' % ((1 << 29) * 8 / GB, kt, kd))
+    print('   primes per slot (q = 2^29, %.2f GB per prime per APU): tree %d, division %d; BS_ARENA_ROOM %.2f; the write at %s GB/s'
+          % ((1 << 29) * 8 / GB, kt, kd, d.arena_room, ' / '.join('%.1f' % w for w in wbs)))
     saved = CACHE_P24
     try:
-        base = _run_cache(T, g, d, slots=0)
-        print('   0 slots: %.1f s without the write, %.1f s with it' % (base['wall_nowrite'], base['wall']))
+        b0, bw = runw(slots=0)
+        print('   0 slots: %.1f s without the write, %s with it' % (b0, ' / '.join('%.1f s' % x for x in bw)))
         rows = []
         for p24c in ((False, True) if P24 else (False,)):
             CACHE_P24 = p24c
@@ -2049,12 +2060,12 @@ def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long')):
                     if (a, b) in done or (p24c is False and P24 >= 2 and (a, b) != (kt, kd)): continue
                     done.add((a, b))
                     ph = {'tree': 1 if a else 0, 'dm': 1 if b else 0}
-                    r = _run_cache(T, g, d, phase=ph, loop=lp, primes_phase={'tree': max(a, 1), 'dm': max(b, 1)})
+                    r0, rw = runw(phase=ph, loop=lp, primes_phase={'tree': max(a, 1), 'dm': max(b, 1)})
                     tag = 'the pool rule' if (a, b) == (kt, kd) else 'forced'
-                    rows.append((p24c, lp, a, b, tag, r))
-                    print('   P24 cached %-3s loop %-4s tree %d / division %d primes (%-13s) | %6.1f s (%.2f min) | with the write %6.1f s | gain %+6.1f / %+6.1f s'
-                          % ('yes' if p24c else 'no', lp, a, b, tag, r['wall_nowrite'], r['wall_nowrite'] / 60, r['wall'], r['wall_nowrite'] - base['wall_nowrite'], r['wall'] - base['wall']))
-        return base, rows
+                    rows.append((p24c, lp, a, b, tag, r0, rw))
+                    print('   P24 cached %-3s loop %-4s tree %d / division %d primes (%-13s) | %6.1f s (%.2f min) | with the write %s | gain %+6.1f / %s s'
+                          % ('yes' if p24c else 'no', lp, a, b, tag, r0, r0 / 60, ' / '.join('%6.1f s' % x for x in rw), r0 - b0, ' / '.join('%+6.1f' % (x - y) for x, y in zip(rw, bw))))
+        return (b0, bw), rows
     finally: CACHE_P24 = saved
 
 def main():
@@ -2074,6 +2085,8 @@ def main():
     ap.add_argument("--cache-slots", type=int, default=None, help="Phase 15 DOC2: price n mn cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows under p15c -- 0 at the target; the code's 2 otherwise)")
     ap.add_argument("--calib15c", action="store_true", help="Phase 15 DOC2: the model at 1e11 against the fin15e paired series (B1 / B2)")
     ap.add_argument("--cache-partial", action="store_true", help="Phase 15 PC: RNS_DIST_CACHE_PARTIAL=1 at the target -- the primes per phase from the block pool's rooms, the loop, P24 cached or not (results/PC15.md)")
+    ap.add_argument("--cache-partial-arena-room", type=float, default=None, help="Phase 15 PC: --cache-partial at this BS_ARENA_ROOM (default the design's 0.16)")
+    ap.add_argument("--cache-partial-digits", type=float, default=None, help="Phase 15 PC: --cache-partial at this many total digits (default the target)")
     ap.add_argument("--cache-partial-keep-room", action="store_true", help="Phase 15 PC: --cache-partial with BS_ARENA_ROOM's bytes left out of the division's free pool (conservative)")
     ap.add_argument("--cache-proposals", action="store_true", help="Phase 15 CX: the mn transform cache at the target -- 0 / 1 / 2 slots, the old term, and the ways to hold a slot inside 480 GB (results/CX15.md section 3)")
     ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
@@ -2114,7 +2127,7 @@ def main():
     if a.cache_proposals:
         cache_proposals(); return
     if a.cache_partial or a.cache_partial_keep_room:
-        cache_partial(keep_room=a.cache_partial_keep_room); return
+        cache_partial(T=a.cache_partial_digits, keep_room=a.cache_partial_keep_room, arena_room=a.cache_partial_arena_room); return
     design = {'p15c': lambda: DEFAULT15C(round_mb=a.round_mb, packed=not a.ascii), 'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
               'legacy': lambda: None}[a.model]()
     if a.plan:
