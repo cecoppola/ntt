@@ -116,6 +116,7 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
     p->K = K; p->k_resume = 0;
     HIP_CHECK(hipStreamCreateWithFlags(&p->ts, hipStreamNonBlocking));
     HIP_CHECK(hipEventCreateWithFlags(&p->ev, hipEventDisableTiming)); HIP_CHECK(hipEventCreateWithFlags(&p->evt, hipEventDisableTiming));
+    HIP_CHECK(hipEventCreateWithFlags(&p->evr, hipEventDisableTiming));
     p->te = 0; p->tk = 0; p->nte = p->te_cap = 0;
 }
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf)
@@ -128,7 +129,7 @@ void dist_plan_free(dist_plan *p)
     HIP_CHECK(hipFree(p->twr)); HIP_CHECK(hipFree(p->twc)); HIP_CHECK(hipFree(p->twr_i)); HIP_CHECK(hipFree(p->twc_i));
     if (p->own_slabs == 2) { comm_sym_free(p->cm, p->sbuf); comm_sym_free(p->cm, p->rbuf); }
     else if (p->own_slabs) { HIP_CHECK(hipFree(p->sbuf)); HIP_CHECK(hipFree(p->rbuf)); }
-    HIP_CHECK(hipStreamDestroy(p->ts)); HIP_CHECK(hipEventDestroy(p->ev)); HIP_CHECK(hipEventDestroy(p->evt));
+    HIP_CHECK(hipStreamDestroy(p->ts)); HIP_CHECK(hipEventDestroy(p->ev)); HIP_CHECK(hipEventDestroy(p->evt)); HIP_CHECK(hipEventDestroy(p->evr));
     for (int i = 0; i < p->te_cap; i++) HIP_CHECK(hipEventDestroy(p->te[i]));
     free(p->te); free(p->tk);
 }
@@ -271,6 +272,17 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
     if (dist_st.on) st_host(tnow() - t0);
     HIP_CHECK(hipEventRecord(p->evt, p->ts)); HIP_CHECK(hipStreamWaitEvent(s, p->evt, 0));
 }
+/* Phase 15 WM (results/WM15.md, hazard H1): a transport that PUSHES into the receivers' slab buffers (comm_xgmi: a kernel on the
+ * sender's device stores into rbuf on the receiver's device as soon as every rank has entered the exchange) writes rbuf while
+ * the receiver's compute stream may still hold the previous transform's unpacks of the same chunk: nothing on the GPU orders
+ * the sender's transfer stream after the receiver's compute stream, and the exchange's barrier orders only the host threads.
+ * The SHMEM and TCP transports synchronise the caller's stream before they publish / receive (comm_shmem.c s_alltoall), the
+ * layered one pushes only into its own scratch (or synchronises first, minor); comm_xgmi did not.  So before the first post of
+ * a transform the host waits for evr -- recorded on s at the transform's start, i.e. every earlier read of rbuf on this rank --
+ * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
+ * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
+ * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
+static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -295,7 +307,8 @@ static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 void dist_fwd_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int K = p->K, D = depth(p);
-    fwd_prod(p, x, 0, s); chunk_post(p, 0);
+    HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
+    fwd_prod(p, x, 0, s); rb_free_wait(p); chunk_post(p, 0);
     for (int k = 1; k < K; k++) { fwd_prod(p, x, k, s); if (D < 2) chunk_wait(p, s); chunk_post(p, k); }
     for (int k = 0; k < K - 1; k++) { if (D >= 2) chunk_wait(p, s); fwd_cons(p, x, k, s); }
 }
@@ -346,10 +359,12 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
 {
     int size = comm_size(p->cm), K = p->K, D = depth(p);
     size_t rk = chunk_rows(p);
+    HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
     if (y) TS(ST_COLS, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s));   /* columns: pointwise + length-R inverse, x R^-1, natural */
     else TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
     for (int k = 0; k < K; k++) inv_prod(p, x, k, s);
     HIP_CHECK(hipEventRecord(p->ev, s));
+    rb_free_wait(p);
     for (int k = 0; k < D; k++) chunk_post(p, k);
     p->k_resume = 0;
     inv_loop(p, x, s, K - D);                             /* through the last post (chunk K-1, posted at k = K-1-D) */
