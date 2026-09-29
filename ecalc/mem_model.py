@@ -31,7 +31,7 @@ unless the calibration table says "measured"; the tables' sources are named in r
 the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, PLAN 27) --
 and L's level schedule (mn_groups, MN_GROUPS); see results/Q.md.
 """
-import math, sys, functools
+import math, sys, functools, os
 
 LN10 = math.log(10.0)
 NR = 4                                   # regions = APUs per node
@@ -271,7 +271,43 @@ def split_grid_cap(na, nb, cap, minpts):
             if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
     return best[1], best[2]
 
-def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0):
+# MS (Phase 15): P24's branch of rns_mul_dist_mn_scratch (MN_P24, results/P2415.md; rns_dist.c mn_p24_of / p24_grid_shape / p24_split).
+# p24 = (mode, np, g_run, auto_min): mode 2 = every mn product when pool 0 holds four planes (rns_pool0_np: np_planes(np, g_run) >= 4);
+# 1 = the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: all; auto: pa + pb, or min(pa, pb) under
+# ECALC_NP_AUTO_MIN=1, over the three-prime bound).  +34 MB of dm need per device at 5.1e13 on 576, measured by the layout.
+P24_CAP_LOG = 40
+def p24_pts(n): return -(-3 * n // 4)
+def mn_logmin(g):
+    nr = 4 * g; lg = 0
+    while (1 << lg) < nr: lg += 1
+    return max(20, 2 * (5 + lg))
+def mn_p24_of(na, nb, g, p24, pool_log=31):
+    """rns_dist.c mn_p24_of"""
+    if not p24 or not p24[0]: return False
+    mode, np, g_run, auto_min = p24
+    if mode >= 2: return np_planes(np, g_run, pool_log) >= 4
+    pa, pb, cap = na, nb, 1 << mn_cap_log(g, pool_log)
+    if na + nb > cap:
+        if -(-na // 32) + -(-nb // 32) > cap: pa, pb = -(-na // 32), -(-nb // 32)
+        else: ka, kb = split_grid_cap(na, nb, cap, 1 << mn_logmin(g)); pa, pb = -(-na // ka), -(-nb // kb)
+    if np == 'auto': return (min(pa, pb) if auto_min else pa + pb) > NP3_MAX_TERMS
+    return np == 4
+def p24_grid_shape(na, nb, g, pool_log=31):
+    """rns_dist.c p24_grid_shape / p24_split: (ka, kb) on the points at min(the group's cap, 2^40)"""
+    cap = 1 << min(mn_cap_log(g, pool_log), P24_CAP_LOG)
+    if p24_pts(na) + p24_pts(nb) <= cap: return 1, 1
+    minpts = 1 << mn_logmin(g); best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j); n = p24_pts(pa) + p24_pts(pb)
+            if n > cap: continue
+            pts = 1 << 20
+            while pts < n: pts <<= 1
+            pts = max(pts, minpts); cost = i * j * pts
+            if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j)
+    return best[1], best[2]
+
+def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_delta=0, t_chunk_mb=0, p24=None):
     """rns_dist.c rns_mul_dist_mn_scratch (Phase 12 agent G -- the code's own formula, which binsplit.c's arena layout calls):
     the block-pool bytes per device at the peak of C = A B (+ X) over g nodes, for shares of share_a, share_b, share_c
     limbs.  The grid's largest piece at the group's cap (mn_logn_cap; the plane pools stay at their init size); mn_core's
@@ -281,6 +317,20 @@ def mn_scratch(na, nb, has_x, g, share_a, share_b, share_c, pool_log=31, logr_de
     exact spills (~ 4 C limbs per APU + 4 per source rank, whatever g) and the window temporary T (a quarter of the
     window, at most share_c).  Returns (bytes, pieces = ka x kb)."""
     if not na or not nb or g < 2: return 0, 0
+    if mn_p24_of(na, nb, g, p24, pool_log):                               # MS: P24's branch (the grid on the points; A's sequence freed before B's)
+        ka, kb = p24_grid_shape(na, nb, g, pool_log)
+        pa = -(-na // ka); pb = -(-nb // kb); nc = pa + pb
+        logn, logR, logC, q = mn_shape(p24_pts(pa) + p24_pts(pb), g)
+        nr = 4 * g; R = 1 << logR; C = 1 << logC; rows = -(-R // nr); rl = rows + rows // 3 + 2; qsl = rl * C
+        def RT24(ln): return min((-(-p24_pts(ln) // R) + 1) * rl, qsl)
+        va = min(share_a, pa); vb = min(share_b, pb)
+        sba = va // 4 + va // R * g + 2 * g * rl; sbb = vb // 4 + vb // R * g + 2 * g * rl
+        win = min(share_c, nc); tmp = q if (g & (g - 1)) == 0 else 0
+        Wt = t_chunk_limbs(t_chunk_mb)
+        if Wt and win > Wt: win = Wt
+        peak1 = max(RT24(pa) + sba, RT24(pb) + sbb) + tmp + 16 * g
+        peak2 = win // 4 + 2 * g * rl + 4 * C + 4 * g + tmp
+        return max(peak1, peak2) * 8 + 32 * g * 8 + quarter_bytes(win), ka * kb
     cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
     nr = 4 * g; lg = 0
     while (1 << lg) < nr: lg += 1
@@ -302,7 +352,7 @@ def t_chunk_limbs(mb):
     """rns_dist.c mn_t_chunk_limbs: MN_T_CHUNK_MB per APU -> limbs per node per round (0: off)"""
     return int(mb * 1048576.0 / 8) * 4 if mb and mb > 0 else 0
 
-def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None, t_chunk_mb=0, early_free=False):
+def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_log=31, groups=None, t_chunk_mb=0, early_free=False, p24=None):
     """the largest tree level's live shares + rns_mul_dist_mn's scratch, per device (bytes); scratch_out[0] = the top
     level's scratch alone (the sharded division's products carry the same), [1] = its per-rank plane q.
     form 'flat': the arena formula of the code before Phase 12 (tree_need_dev_flat above; kept for the before/after tables).
@@ -320,7 +370,7 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
         if nch < 2: continue
         nqc = nq_leaf * P + 8; na = nqc; nb = nqc * (nch - 1); nc = na + nb
         share_child = nq_leaf + 8; share_run = -(-nb // gg); share_new = -(-nc // gg)
-        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta, t_chunk_mb)
+        scratch, pieces = mn_scratch(na, nb, 1, gg, share_child, share_run, share_new, pool_log, logr_delta, t_chunk_mb, p24)
         c = quarter_bytes(share_child + share_child // 8); r = quarter_bytes(share_run + share_run // 8) if nch > 2 else 0; n = quarter_bytes(share_new + share_new // 8)
         live = max(2 * c + 2 * r + n, c + r + 2 * n) if early_free else 2 * c + 2 * r + 2 * n
         best = max(best, live + scratch); top_scratch = scratch; top_q = mn_shape(min(nc, 1 << mn_cap_log(gg, pool_log)), gg, logr_delta)[3]
@@ -724,7 +774,8 @@ def mem_per_node(D, g=1, opts=None):
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
     L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False))   # dkm: Phase 15 DKM with a dm_layout that follows it (not built)
-    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free']) if g > 1 else 0
+    p24 = (o.get('p24', 0), o['np'], g, o.get('np_auto_min', False)) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
+    sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
     if o['tail']:
@@ -894,7 +945,9 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
         for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
             L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm); sc = []
-            tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef) if g > 1 else 0
+            p24m = int(os.environ.get('MN_P24', '0') or 0)                 # MS: the run's MN_P24 / ECALC_NP_AUTO_MIN (the layout line does not print them)
+            p24 = (p24m, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m else None
+            tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
             need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
             ar = sum(arena_of(b, want, ch) for b in bs)
             if rm == 0 or as_room_fits(int(v.get('room_planes', 0)), ar, g): break
