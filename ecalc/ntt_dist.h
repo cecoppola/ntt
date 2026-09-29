@@ -53,6 +53,7 @@ typedef struct {
     int K, k_resume;        /* M7: chunks of the slab pipeline; the inverse's loop index between _pre and _post */
     hipStream_t ts;         /* the transfer stream (the exchanges), events: pack done (s -> ts), exchange done (ts -> s) */
     hipEvent_t ev, evt;
+    hipEvent_t evr;         /* Phase 15 WM (results/WM15.md H1): recorded on s at a transform's start -- the previous transform's reads of rbuf */
     hipEvent_t *te; int nte, te_cap; unsigned char *tk;   /* C5: the timing events of one transform and their kinds */
 } dist_plan;
 /* timing of the parts (DIST_STATS=1; summed over ranks and calls; the caller resets).  Device times from events:
