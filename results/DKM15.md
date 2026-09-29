@@ -301,6 +301,21 @@ part holds 8 bytes per 18-digit limb, so the offset lies past the end of the fil
   under the defaults.
 - **What it means for DKM:** it does not bear on DKM. The same runs pass with `ECALC_CORR_PATCH=0`.
 
+### 4.4 Stage C / D: 10¹¹ timing, off against on (s24-26)
+
+Stage C was job 21773, 19:20–20:05 EDT, on commit 5eb35dc (`dkm15_batch.sh C`). Each run wrote the packed file, was compared with
+`digcmp.sh` against `results/e_1e11.out`, and had the reference evicted before it.
+- **The compare against the cold reference on the shared file system takes ≈ 15 min** (off_1 ended 19:23, its compare 19:38). So
+  the job reached only off_1, on_1 and off_2 (the last without a compare) before its limit.
+- Stage D (job 21778, from 20:06 EDT, commit a55a14c) continues. Each file is `cmp`'d against the first run's, which is valid
+  because the packed header has no run-dependent field, and the first file against the reference at the end.
+
+| run | switch | wall with the file | `total` | recip | dm | division (verbose) | digits |
+|---|---|---|---|---|---|---|---|
+| off_1 | off | 183.7 s | 181.57 s | 36.46 | 88.70 | 52.24 s: A mu 24.87, X out + low product 25.74 | identical |
+| on_1 | `NEWTON_DKM=1` | **162.7 s** | **154.08 s** | **11.76** | **63.07** | 51.31 s: step 1 A mu 7.15, X_hi Q 17.20, step 2 A mu + assembly 7.38, X_lo Q 18.17, corrections 0.74 | identical |
+| off_2 | off | 183.7 s | 181.54 s | 36.48 | 88.82 | 52.34 s | VERIFY OK (not compared: the limit) |
+
 ## RESUME
 
 - **Committed:**
