@@ -1,0 +1,91 @@
+D 4e+10 g 1 (N 4346031744) tight 1 tail_dead 0 early_free 1:
+   nq (limbs)         C       2222222229  model       2222222229  +0.0000 %
+   hole               C       9027799040  model       9027799040  +0.0000 %
+   dm need / dev      C      30063283814  model      30063283814  +0.0000 %
+   room / dev         C       1444447846  model       1444447846  +0.0000 %
+   chunk              C       2147483648  model       2147483648  +0.0000 %
+   v2 / dev           C      28618835968  model      28618835968  +0.0000 %
+   v3 / dev           C      25527904256  model      25527904256  +0.0000 %
+   division / dev     C      27406204928  model      27406204928  +0.0000 %
+   jl (limbs)         C       1111111115  model       1111111115  +0.0000 %
+   top scratch / dev  C                0  model                0  +0.0000 %
+   tree need / dev    C                0  model                0  +0.0000 %
+   bs regions / node  C     131080388608  model     131080388608  +0.0000 %
+   arena / node       C     146028888064  model     146028888064  +0.0000 %
+   planes D 4e+10 g 1 np auto cap 2^30   C 60.74  model 60.74 GB  exact
+   planes D 4e+10 g 1 np auto cap 3*2^29 C 77.93  model 77.93 GB  exact
+   planes D 4e+10 g 1 np auto cap 2^31   C 103.70  model 103.70 GB  exact
+   planes D 4e+10 g 1 np auto cap 3*2^30 C 155.24  model 155.24 GB  exact
+D 1e+11 g 1 (N 10433891470) tight 1 tail_dead 0 early_free 1:
+   nq (limbs)         C       5555555562  model       5555555562  +0.0000 %
+   hole               C      22569497600  model      22569497600  +0.0000 %
+   dm need / dev      C      67430732800  model      67430732800  +0.0000 %
+   room / dev         C       3611119616  model       3611119616  +0.0000 %
+   chunk              C       2147483648  model       2147483648  +0.0000 %
+   v2 / dev           C      63493846016  model      63493846016  +0.0000 %
+   v3 / dev           C      63819613184  model      63819613184  +0.0000 %
+   division / dev     C      62072848384  model      62072848384  +0.0000 %
+   jl (limbs)         C       2777777781  model       2777777781  +0.0000 %
+   top scratch / dev  C                0  model                0  +0.0000 %
+   tree need / dev    C                0  model                0  +0.0000 %
+   bs regions / node  C     261238030336  model     261238030336  +0.0000 %
+   arena / node       C     289910292480  model     289910292480  +0.0000 %
+   planes D 1e+11 g 1 np auto cap 2^30   C 60.74  model 60.74 GB  exact
+   planes D 1e+11 g 1 np auto cap 3*2^29 C 77.93  model 77.93 GB  exact
+   planes D 1e+11 g 1 np auto cap 2^31   C 103.70  model 103.70 GB  exact
+   planes D 1e+11 g 1 np auto cap 3*2^30 C 155.24  model 155.24 GB  exact
+D 8.85e+10 g 576 (N 4184661447309) tight 1 tail_dead 0 early_free 1:
+   nq (limbs)         C    2833333333340  model    2833333333340  +0.0000 %
+   hole               C      19983408640  model      19983408640  +0.0000 %
+   dm need / dev      C      74232858950  model      74232858950  +0.0000 %
+   room / dev         C       3197345382  model       3197345382  +0.0000 %
+   chunk              C       2147483648  model       2147483648  +0.0000 %
+   v2 / dev           C      56833646080  model      56833646080  +0.0000 %
+   v3 / dev           C      56506859008  model      56506859008  +0.0000 %
+   division / dev     C      55452434432  model      55452434432  +0.0000 %
+   jl (limbs)         C    1416666666670  model    1416666666670  +0.0000 %
+   top scratch / dev  C      14201867488  model      14201867488  +0.0000 %
+   tree need / dev    C      66047156654  model      66047156654  +0.0000 %
+   bs regions / node  C     201804742656  model     201804742656  +0.0000 %
+   arena / node       C     300647710720  model     300647710720  +0.0000 %
+   planes D 8.854e+10 g 576 np auto cap 2^30   C 69.33  model 69.33 GB  exact
+   planes D 8.854e+10 g 576 np auto cap 3*2^29 C 90.81  model 90.81 GB  exact
+   planes D 8.854e+10 g 576 np auto cap 2^31   C 120.88  model 120.88 GB  exact
+   planes D 8.854e+10 g 576 np auto cap 3*2^30 C 181.01  model 181.01 GB  exact
+D 8.23e+10 g 576 (N 3899094315378) tight 1 tail_dead 0 early_free 1:
+   nq (limbs)         C    2633333333340  model    2633333333340  +0.0000 %
+   hole               C      18572835840  model      18572835840  +0.0000 %
+   dm need / dev      C      69956988142  model      69956988142  +0.0000 %
+   room / dev         C       2971653734  model       2971653734  +0.0000 %
+   chunk              C       2147483648  model       2147483648  +0.0000 %
+   v2 / dev           C      53200878592  model      53200878592  +0.0000 %
+   v3 / dev           C      52518165504  model      52518165504  +0.0000 %
+   division / dev     C      51841368064  model      51841368064  +0.0000 %
+   jl (limbs)         C    1316666666670  model    1316666666670  +0.0000 %
+   top scratch / dev  C      13784455816  model      13784455816  +0.0000 %
+   tree need / dev    C      62006606896  model      62006606896  +0.0000 %
+   bs regions / node  C     195714613248  model     195714613248  +0.0000 %
+   arena / node       C     283467841536  model     283467841536  +0.0000 %
+   planes D 8.229e+10 g 576 np auto cap 2^30   C 69.33  model 69.33 GB  exact
+   planes D 8.229e+10 g 576 np auto cap 3*2^29 C 90.81  model 90.81 GB  exact
+   planes D 8.229e+10 g 576 np auto cap 2^31   C 120.88  model 120.88 GB  exact
+   planes D 8.229e+10 g 576 np auto cap 3*2^30 C 181.01  model 181.01 GB  exact
+D 9.17e+10 g 1 (N 9603357432) tight 1 tail_dead 0 early_free 1:
+   nq (limbs)         C       5094116217  model       5094116217  +0.0000 %
+   hole               C      20694901760  model      20694901760  +0.0000 %
+   dm need / dev      C      61977251225  model      61977251225  +0.0000 %
+   room / dev         C       3311184281  model       3311184281  +0.0000 %
+   chunk              C       2147483648  model       2147483648  +0.0000 %
+   v2 / dev           C      58666066944  model      58666066944  +0.0000 %
+   v3 / dev           C      58518877184  model      58518877184  +0.0000 %
+   division / dev     C      57273909248  model      57273909248  +0.0000 %
+   jl (limbs)         C       2547058109  model       2547058109  +0.0000 %
+   top scratch / dev  C                0  model                0  +0.0000 %
+   tree need / dev    C                0  model                0  +0.0000 %
+   bs regions / node  C     244448231424  model     244448231424  +0.0000 %
+   arena / node       C     268435456000  model     268435456000  +0.0000 %
+   planes D 9.169e+10 g 1 np auto cap 2^30   C 60.74  model 60.74 GB  exact
+   planes D 9.169e+10 g 1 np auto cap 3*2^29 C 77.93  model 77.93 GB  exact
+   planes D 9.169e+10 g 1 np auto cap 2^31   C 103.70  model 103.70 GB  exact
+   planes D 9.169e+10 g 1 np auto cap 3*2^30 C 155.24  model 155.24 GB  exact
+largest arena difference: 0.0000 %; 0 term(s) not exact (20 plane figures compared)
