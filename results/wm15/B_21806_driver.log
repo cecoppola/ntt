@@ -1,0 +1,8 @@
+2026-09-29T01:11:51-05:00 batch B job 21806 submitted (7baec40 WM15: wm15_job.sh A runs the H1 demonstration (t_dist over xGMI, lag 200 ms, DIST_RB_WAIT 0/1) first)
+2026-09-29T01:13:31-05:00 running on ppac-pl1-s24-26
+2026-09-29T01:20:37-05:00 4e10 fix: identical; total    57.19 s   (bs 24.5 + 10dP 0.1 + dm 18.1 + T1 0.0 + 
+2026-09-29T01:23:33-05:00 1e11 base1 rc 0 elapsed 170.0 s ; total   167.72 s   (bs 77.2 + 10dP 0.2 + dm 71.3 + T1 0.0 + dc 0.0 + T; VERIFY OK
+2026-09-29T01:41:32-05:00 1e11 fix1 rc 0 elapsed 169.2 s digits identical; total   166.96 s   (bs 75.8 + 10dP 0.2 + dm 71.4 + T1 0.0 + dc 0.0 + T; VERIFY OK
+2026-09-29T01:44:36-05:00 1e11 base2 rc 0 elapsed 170.2 s ; total   168.02 s   (bs 77.0 + 10dP 0.2 + dm 70.8 + T1 0.0 + dc 0.0 + T; VERIFY OK
+2026-09-29T01:47:24-05:00 1e11 fix2 rc 0 elapsed 167.6 s ; total   165.33 s   (bs 77.8 + 10dP 0.2 + dm 70.7 + T1 0.0 + dc 0.0 + T; VERIFY OK
+2026-09-29T01:47:25-05:00 batch B done
