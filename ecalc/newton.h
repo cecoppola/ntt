@@ -77,9 +77,9 @@ void newton_mn_divmod(struct mdb_s *X, struct mdb_s *P, struct mdb_s *Q, size_t 
  * (size 1: moved into newton_db_x_dev first), carry = X_lo0 >= B^s, and returns 1 when it released the writer onto X_lo0 -- then the
  * step-2 corrections are deferred (newton_x_dx) as today, else they are added to X_lo0 in place (newton_x_dx = 0).  X = X_hi B^s +
  * X_lo: the division returns X_lo (newton_db_x_dev / *X); X_hi is the hook's */
-extern void (*newton_db_xhi_hook)(struct dbig_s *Xh, size_t s, void *arg);
+extern int (*newton_db_xhi_hook)(struct dbig_s *Xh, size_t s, void *arg);   /* returns 1 when it took X_hi (0: the division goes on as without the hooks) */
 extern int (*newton_db_xlo_hook)(struct dbig_s *Xl, size_t s, int carry, void *arg);
-extern void (*newton_mn_xhi_hook)(struct mdb_s *Xh, size_t s, void *arg);
+extern int (*newton_mn_xhi_hook)(struct mdb_s *Xh, size_t s, void *arg);
 extern int (*newton_mn_xlo_hook)(struct mdb_s *Xl, size_t s, int carry, void *arg);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
