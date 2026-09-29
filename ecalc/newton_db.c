@@ -214,7 +214,7 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
 }
 /* Phase 15 DKM (newton.h): the switch and the reciprocal's length */
 static int dkm_sw = -1;
-int newton_dkm_on(void) { if (dkm_sw < 0) { const char *e = getenv("NEWTON_DKM"); dkm_sw = e ? atoi(e) != 0 : 0; } return dkm_sw; }
+int newton_dkm_on(void) { if (dkm_sw < 0) { const char *e = getenv("NEWTON_DKM"); dkm_sw = e ? atoi(e) != 0 : 1; } return dkm_sw; }   /* default 1 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
 void newton_dkm_set(int on) { dkm_sw = on != 0; }
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
 static long dkm_test_hi(void)                               /* NEWTON_DKM_TEST_HI=<k>: X_hi - k before step 1's corrections (a test hook) */
