@@ -2082,3 +2082,13 @@ the packed write, the cache at 0 slots.
 
 Each staged item commits a design note first and stops if not safe or not worth it; every new behavior behind a switch,
 off by default; one combined decision list at the end of the batch.
+
+### 38.1 Batch 3 decisions (the user, 2026-09-29: every recommendation accepted)
+
+`MN_P24=2` and `NEWTON_DKM=1` by default; `ECALC_NP_AUTO_MIN` stays off; **the target becomes 5.167 × 10¹³** (the largest that
+fits 480 GB with the arena room on; modelled 286 / 307 s without / with the packed write at 1 GB/s), and **5.276 × 10¹³ once
+DKM's memory follow-up is built and verified**; the arena room stays on at the target; build DKM's memory follow-up and the
+room's budget-check fix (agent **DL**) and DKM's early writer (agent **EW**); the partial cache (agent **PC**) decided when it
+reports; then `int15i` + DL + EW (+ PC if adopted) into main as **B3** after the regression, a paired series and a real 2-node DKM
+run. Added (candidates, pending the user): **0a** skip the X·Q low product with a guard-limb certificate (apumult A27; −25.7 s of
+92 s dm at 10¹¹ measured); **0b** a weak-memory (peer-write → CPU-read) audit. **0c** done: the target's write rate 1 GB/s.
