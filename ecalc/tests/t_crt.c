@@ -98,6 +98,13 @@ int main(int argc, char **argv)
         VERIFY(ec_np == 3 && bi_decimal, "auto: ec_np %d decimal %d", ec_np, bi_decimal);
         VERIFY(ec_np_for(1) == 3 && ec_np_for(bt) == 3 && ec_np_for(bt + 1) == 4 && ec_np_for(b3 + 1) == 4 && ec_np_for((size_t)1 << 40) == 4, "ec_np_for around %zu", bt);
         VERIFY(ec_np_prod(bt, 1, "t_crt") == 3 && ec_np_prod(bt + 1, 1, "t_crt") == 4, "ec_np_prod");
+        /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 -- the term count min(na, nb) (a product with min <= bt < na + nb runs three primes); off: nc */
+        printf("   ECALC_NP_AUTO_MIN=%d\n", ec_np_auto_min);
+        if (ec_np_auto_min) {
+            VERIFY(ec_np_terms(2 * bt, bt, bt) == bt && ec_np_terms(bt + 7, 7, bt) == 7 && ec_np_terms(bt + 7, bt, 7) == 7, "ec_np_terms (min)");
+            VERIFY(ec_np_for(ec_np_terms(2 * bt, bt, bt)) == 3 && ec_np_for(ec_np_terms(bt + 1 + 5 * bt, bt + 1, 5 * bt)) == 4 && ec_np_for(ec_np_terms(bt + 1, 1, bt)) == 3, "ec_np_for by min");
+            VERIFY(ec_np_prod(ec_np_terms(2 * bt, bt, bt), 1, "t_crt") == 3, "ec_np_prod by min (the check passes at min = bt)");
+        } else VERIFY(ec_np_terms(2 * bt, bt, bt) == 2 * bt && ec_np_terms(bt + 1, 1, bt) == bt + 1, "ec_np_terms (pa + pb)");
         for (int pl = 27; pl <= 31; pl++) for (int g = 1; g <= 1024; g = g < 4 ? g + 1 : g * 3 / 2) {
             int lg = 0; while ((2 << lg) <= g) lg++;
             int want = ((size_t)1 << (pl + lg)) > bt ? 4 : 3;

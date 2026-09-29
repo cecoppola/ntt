@@ -1,0 +1,23 @@
+mpb15_job 1 at e8d1a673 Mon Sep 28 05:56:00 PM CDT 2026
+batch 1: job 21769 submitted Mon Sep 28 05:56:00 PM CDT 2026
+batch 1: job 21769 running on ppac-pl1-s24-16 Mon Sep 28 05:56:20 PM CDT 2026
+t_crt (min, real bound) rc 0 t_crt: VERIFY OK (105 checks)
+t_crt (min, bound 1e6) rc 0 t_crt: VERIFY OK (105 checks)
+t_crt (switch off) rc 0 t_crt: VERIFY OK (103 checks)
+t_crt (min, binary: four everywhere) rc 0 t_crt: VERIFY OK (24 checks)
+t_dbig 0 x (decimal, bound 4e6) rc 0 t_dbig: VERIFY OK (565 checks); lines at 4 primes 4, at 3 6 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 0; against the rule: 0
+t_newton 20 (decimal, bound 3e5) rc 0 t_newton: VERIFY OK (620 checks); lines at 4 primes 0, at 3 0 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 0; against the rule: 0
+t_mn_grid size 2 decimal (bound 23488102) rc 0: 2 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 772 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 712 e.g. 20132659 x 8388608; against the rule: 0
+t_mn_grid size 3 decimal (bound 23488102) rc 0: 3 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 1158 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 1068 e.g. 20132659 x 8388608; against the rule: 0
+t_mn_grid size 4 decimal (bound 46976204) rc 0: 4 VERIFY OK, 0 FAILED; lines at 4 primes 0, at 3 1776 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 1440 e.g. 40265318 x 16777216; against the rule: 0
+e9_k8e6_1: size 1 d 1000000000 k 8000000 RNS_VERBOSE=1: rc 0, identical, 1 VERIFY OK; lines at 4 primes 6, at 3 46 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 3 e.g. 6944448 x 3472224; against the rule: 0; total 14.26 s (bs 1.5 + 10dP 0.1 + dm 1.9 + T1 0.0 + dc 0.0 
+e9_k8e6_2: size 2 d 1000000000 k 8000000 RNS_VERBOSE=1: rc 0, identical, 3 VERIFY OK; lines at 4 primes 16, at 3 92 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 6 e.g. 6944448 x 3472224; against the rule: 0; total 24.04 s (bs 3.5 + 10dP 0.0 + dm 15.2 + T1 0.0 + dc 0.0
+e9_k8e6_4: size 4 d 1000000000 k 8000000 RNS_VERBOSE=1: rc 0, identical, 5 VERIFY OK; lines at 4 primes 40, at 3 172 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 12 e.g. 6944448 x 3472224; against the rule: 0; total 17.36 s (bs 3.5 + 10dP 0.0 + dm 8.4 + T1 0.0 + dc 0.0 
+e8_k2e6_1: size 1 d 100000000 k 2000000 RNS_VERBOSE=1: rc 0, identical, 1 VERIFY OK; lines at 4 primes 4, at 3 42 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 3 e.g. 1388892 x 694446; against the rule: 0; total 14.68 s (bs 0.6 + 10dP 0.0 + dm 1.6 + T1 0.0 + dc 0.0 
+e8_k2e6_2: size 2 d 100000000 k 2000000 RNS_VERBOSE=1: rc 0, identical, 3 VERIFY OK; lines at 4 primes 12, at 3 84 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 6 e.g. 1388892 x 694446; against the rule: 0; total 8.19 s (bs 0.9 + 10dP 0.0 + dm 3.6 + T1 0.0 + dc 0.0 +
+e8_k2e6_3: size 3 d 100000000 k 2000000 RNS_VERBOSE=1: rc 0, identical, 4 VERIFY OK; lines at 4 primes 12, at 3 130 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 21 e.g. 1886195 x 1948658; against the rule: 0; total 8.46 s (bs 1.2 + 10dP 0.0 + dm 3.7 + T1 0.0 + dc 0.0 +
+e8_k2e6_4: size 4 d 100000000 k 2000000 RNS_VERBOSE=1: rc 0, identical, 5 VERIFY OK; lines at 4 primes 24, at 3 160 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 20 e.g. 1435737 x 1466159; against the rule: 0; total 7.90 s (bs 1.0 + 10dP 0.0 + dm 3.2 + T1 0.0 + dc 0.0 +
+e9_k2e7_3: size 3 d 1000000000 k 20000000 RNS_VERBOSE=1: rc 0, identical, 4 VERIFY OK; lines at 4 primes 12, at 3 150 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 21 e.g. 18819768 x 19367690; against the rule: 0; total 19.08 s (bs 3.6 + 10dP 0.0 + dm 10.4 + T1 0.0 + dc 0.0
+e9_k2e7_4: size 4 d 1000000000 k 20000000 RNS_VERBOSE=1: rc 0, identical, 5 VERIFY OK; lines at 4 primes 24, at 3 188 (unchecked C-form lines 0); at 3 with min <= k < na + nb (moved by the switch): 20 e.g. 14299831 x 14566698; against the rule: 0; total 17.44 s (bs 3.1 + 10dP 0.0 + dm 8.2 + T1 0.0 + dc 0.0 
+batch 1 done Mon Sep 28 06:12:02 PM CDT 2026
+mpb15_job 1 done Mon Sep 28 06:12:02 PM CDT 2026
