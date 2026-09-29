@@ -223,6 +223,8 @@ injection 100 → 50 GB/s per APU: 4.6 min; part files at 1 GB/s: 4.3 min; globa
 (`--taper 0.5`): 4.1 min; the third layer (`--layers 3`): 4.5 min (it doubles the NIC bytes; it pays only if the
 per-message cost is the limit).
 
+> **2026-09-29, the target's write rate (the user's Lustre test): ≈ 1 GB/s per node.** The models now use 1.0 GB/s by default (`mn_model.TARGET_WRITE_BW`; 0.6 and 2.0 still printed). At 1.0 GB/s on B2 the packed part file is fully hidden under the division: **5.1 × 10¹³ in 400.0 s without the write, 394.6 s with it** (modelled; the with-write wall is lower because the digit residues run inside the writer). With P24 + DKM (Batch 3, pending the user's decision) ≈ 285 / 305 s. ASSUMED: every node keeps ≈ 1 GB/s with 576 nodes writing at once (measure the aggregate at bring-up, §6 item 5(b)). Figures below at 0.6 GB/s are kept as history.
+
 ## 2. Build
 
 ```
