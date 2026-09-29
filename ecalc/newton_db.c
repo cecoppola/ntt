@@ -206,6 +206,7 @@ static void db_add_small(dbig *x, long dx)           /* x +/- |dx| in place (H, 
     if (dx < 0) db_norm(x);
 }
 int newton_x_defer = 0; long newton_x_dx = 0;          /* Phase 15 K (ECALC_CORR_PATCH): newton.h */
+int (*newton_db_xhi_hook)(dbig *Xh, size_t s, void *arg) = 0; int (*newton_db_xlo_hook)(dbig *Xl, size_t s, int carry, void *arg) = 0;   /* Phase 15 EW (MN_OUT_DKM_HI): newton.h */
 long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_CORR=<k>, the forced-correction test hook (0: off) */
 {
     const char *e = getenv("ECALC_TEST_CORR"); long k = e ? atol(e) : 0;
@@ -336,7 +337,13 @@ static void dkm_window_db(dbig *Aw, const dbig *S, size_t dl, size_t w)
     if (!lo.n) { db_set_zero(Aw); return; }
     db_shl_limbs(Aw, &lo, dl);
 }
-static void dkm_add_small(dbig *x, long dx) { if (!dx) return; if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx); else db_add_small(x, dx); }
+static void dkm_add_small(dbig *x, long dx)
+{
+    if (!dx) return;
+    if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx);
+    else if (dx > 0) { dbig v; db_init(&v); db_set_u64(&v, (uint64_t)dx); db_add(x, x, &v); db_free(&v); }   /* Phase 15 EW: may grow a limb (ECALC_TEST_CORR < 0 on an X_lo0 near B^s: t_newton 7) */
+    else db_add_small(x, dx);
+}
 /* R = A - X Q from the window Aw and xq = X Q mod B^w (both consumed): the corrections of newton_db_divmod_shifted, R >= 0 < Q in *Rd;
  * returns the change to X */
 static long dkm_corr_db(dbig *Rd, dbig *Aw, dbig *xq, const dbig *Qd, const char *who)
@@ -376,6 +383,10 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     long dx1 = dkm_corr_db(&R1, &Aw, &xq, Qd, "step 1");
     dkm_add_small(&Xh, dx1);                                          /* X_hi exact: no one has seen it */
     newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
+    /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3) -- the X_hi hook: X_hi is final here (X's limbs >= s, whatever step 2 does);
+     * the hook takes it and starts the writer on it.  No X0 is formed below: X_lo goes to newton_db_x_dev, X_hi stays the hook's */
+    int xhi = newton_db_xhi_hook && newton_db_xlo_hook && newton_db_x_dev && newton_x_defer;
+    if (xhi) xhi = newton_db_xhi_hook(&Xh, s, newton_db_x_arg);
     double tc = mem_now();
     /* step 2: the low half, A2 = R1 B^s (A mod B^s = 0: s <= dl) */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
@@ -385,6 +396,29 @@ static void divmod_shifted_dkm(bigint *X, const dbig *S, size_t dl, const dbig *
     dkm_window_db(&Aw, &R1, s, w); db_free(&R1);
     { long tk = newton_test_corr();                                    /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k) */
       if (tk) { if (tk > 0 && (!Xl.n || (Xl.n == 1 && db_limb(&Xl, 0) < (uint64_t)tk))) { ec_fatal(EC_RC_FATAL, "ECALC_TEST_CORR=%ld under NEWTON_DKM: X_lo is below it\n", tk); } dkm_add_small(&Xl, -tk); } }
+    if (xhi) {   /* Phase 15 EW -- the X_lo hook: X_lo0 to the caller's device X; the hook releases the writer onto it unless X_lo0 >= B^s (then
+                  * the corrections go into X_lo0 in place, results/EW15.md 1.2 item 3); X = X_hi B^s + X_lo is never formed */
+        double td = mem_now();
+        int carry = Xl.n > s; *newton_db_x_dev = Xl; db_init(&Xl);
+        newton_x_dx = 0;
+        int rel = newton_db_xlo_hook(newton_db_x_dev, s, carry, newton_db_x_arg);
+        if (newton_db_x_dev->n) rns_mul_low_db(&xq, newton_db_x_dev, Qd, w); else db_set_zero(&xq);
+        rns_dist_cache_hold(0); rns_dist_cache_release();
+        double te = mem_now();
+        long dx = dkm_corr_db(&Rd, &Aw, &xq, Qd, "step 2");
+        if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
+        if (dx && rel) newton_x_dx = dx; else dkm_add_small(newton_db_x_dev, dx);
+        double tr = mem_now();
+        db_mod_qs(&Rd, qs, nres, rres);
+        double tf = mem_now();
+        if (mem_live_on()) mem_live_line("divmod(dev, DKM) end");
+        db_free(&Rd); db_free(&xq); db_free(&Aw);
+        if (getenv("RNS_VERBOSE") || getenv("NEWTON_VERBOSE"))
+            printf("divmod(dev, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu%s; mu %.2f, step 1 A mu %.2f, X_hi Q + corrections %.2f (%ld), step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; pools %.1f GB\n",
+                   mem_now() - t0, k, k1, s, h, kept_ok ? " (kept)" : " (fresh)", ta - t0, tb - ta, tc - tb, dx1, td - tc, te - td, tr - te, dx, rel ? "deferred" : "in place", tf - tr, carry ? ">=" : "<", db_pool_bytes() / 1e9);
+        newton_st.t_div += mem_now() - t0;
+        return;
+    }
     db_add_shifted(&Xd, &Xh, s, &Xl); db_free(&Xh);                   /* X0 = X_hi B^s + X_lo0 */
     int view = Xl.n <= s; if (view) db_free(&Xl);                     /* X_lo0 < B^s: it is X0's low s limbs */
     double td = mem_now();
@@ -926,6 +960,7 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
  * t_recip: the reciprocal's seconds.  Mirrors newton_db_divmod_shifted with S = P + Q. */
 void (*newton_mn_pq_hook)(int stage, mdb *x) = 0;   /* Phase 13 N (mn.c): 0 = before S = P + Q overwrites P, 1 = before Q is freed */
 void (*newton_mn_x_hook)(mdb *X, void *arg) = 0; void *newton_mn_x_arg = 0;   /* Phase 15 IO (W5d): the part file streamed during the low product (ecalc.c, MN_OUT_EARLY) */
+int (*newton_mn_xhi_hook)(mdb *Xh, size_t s, void *arg) = 0; int (*newton_mn_xlo_hook)(mdb *Xl, size_t s, int carry, void *arg) = 0;   /* Phase 15 EW (MN_OUT_DKM_HI): newton.h */
 /* ---- Phase 15 DKM (results/DKM15.md 1.2): newton_mn_divmod in two quotient halves ------------------------------------------- */
 /* Xo = ((Sx >> (nq - 1 - dl)) mu) >> (k + 1) in basis (its length + 1: room for the +1 corrections); mu has exactly k + 1 limbs */
 static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, const mdb *mu, mn_group *G)
@@ -998,6 +1033,10 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     long dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
+    /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
+     * final here; the hook takes it and starts the part files of X_hi's shares.  No X0 below: the division returns X_lo */
+    int xhi = newton_mn_xhi_hook && newton_mn_xlo_hook && newton_x_defer;
+    if (xhi) xhi = newton_mn_xhi_hook(&Xh, s, newton_mn_x_arg);
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
@@ -1006,6 +1045,32 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
     mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1);
     { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k; a borrow out of X_lo is fatal) */
+    if (xhi) {   /* Phase 15 EW -- the X_lo hook (every rank; carry = X_lo0 >= B^s is the group's): released onto X_lo0 unless carry, then the
+                  * corrections deferred as today; else added to X_lo0 in place.  X_lo is kept (the division's result) */
+        int carry = Xl.n > s;
+        newton_x_dx = 0;
+        int rel = newton_mn_xlo_hook(&Xl, s, carry, newton_mn_x_arg);
+        double td = mem_now();
+        mn_dkm_low(&xql, &Xl, Q, w, G);
+        rns_dist_cache_hold(0); rns_dist_cache_release();
+        if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
+        mfree(Q);
+        double te = mem_now();
+        long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
+        if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
+        if (dx && rel) newton_x_dx = dx; else mn_dkm_add(&Xl, dx, G);
+        mfree(&Qw);
+        double tf = mem_now();
+        if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) end");
+        mdb_mod_qs(&Rd, qs, nres, rres, G);
+        mfree(&Rd);
+        if (X->sh.cap) db_free(&X->sh);
+        *X = Xl;
+        newton_st.t_div += mem_now() - ta;
+        if (me == 0) printf("divmod(mn, DKM, X_hi writer) %.2f s: k %zu = %zu + %zu (s), h %zu; reciprocal %.2f (products %.2f), S = P + Q %.2f, step 1 (A mu, X_hi Q, corrections %ld) %.2f, step 2 A mu %.2f, X_lo Q %.2f, corrections %.2f (%ld, %s), R residues %.2f; X_lo0 %s B^s; division products %.2f s; shifts %zu/%.2f s, addsub %zu/%.2f s\n",
+                            mem_now() - t0, k, k1, s, h, ta - t0, p_rec, tb - ta, dx1, tc - tb, td - tc, te - td, tf - te, dx, rel ? "deferred" : "in place", mem_now() - tf, carry ? ">=" : "<", mn_st.t_prod - p_rec, mn_st.n_shift, mn_st.t_shift, mn_st.n_addsub, mn_st.t_addsub);
+        return;
+    }
     {   /* X0 = X_hi B^s + X_lo0, then in the basis of its length (as today's X) */
         size_t NX = (Xh.n + s > Xl.n ? Xh.n + s : Xl.n) + 1;
         mdb_shift(&Xs, &Xh, -(long)s, NX, G); mfree(&Xh);
