@@ -55,6 +55,14 @@ extern int ec_np_auto;                      /* 1: ECALC_NP=auto (decimal limbs) 
 extern size_t ec_np_auto_terms;             /* auto: the largest nc a three-prime product of the distributed tiers takes */
 int ec_np_for(size_t nterms);               /* the product's prime count: ec_np, or under auto 3 / 4 by nterms (no check) */
 int ec_np_prod(size_t nterms, int decimal, const char *where);   /* ec_np_for + the check of that count (ec_np_check at 3) */
+/* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 (under auto; off by default) -- the switch-over on a product's real term count.  A coefficient of
+ * the product of operands of na and nb limbs (each < 10^18) is the sum of the pairs a_i b_j with i + j = k, 0 <= i < na, 0 <= j < nb:
+ * at most min(na, nb) pairs, each <= (10^18 - 1)^2.  mn_core / dist_core form the whole product (every transform length n >= na + nb,
+ * so the cyclic convolution does not wrap; the added operand X enters after the CRT, the low / band cuts skip whole pieces), so
+ * three primes reconstruct it exactly when min(na, nb) <= ec_np3_max_terms (min (10^18 - 1)^2 < p0 p1 p2).  ec_np_terms(nc, na, nb)
+ * = min(na, nb) with the switch, nc (= na + nb, the old conservative form) without; the result is passed to ec_np_for / ec_np_prod. */
+extern int ec_np_auto_min;                  /* 1: ECALC_NP_AUTO_MIN=1 with ECALC_NP=auto (decimal limbs) */
+size_t ec_np_terms(size_t nc, size_t na, size_t nb);
 int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 when the largest plane of g nodes (2^(min(31, pool_log) + floor(log2 g)) points) exceeds ec_np_auto_terms */
 #ifdef __cplusplus
 }

@@ -44,6 +44,7 @@ static size_t np3_max_terms(void)
 }
 int ec_np_auto;
 size_t ec_np_auto_terms;
+int ec_np_auto_min;                                 /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 -- the switch-over on min(pa, pb) (modarith.h) */
 int ec_np_init(void)
 {
     if (g_np_init) return ec_np;
@@ -59,6 +60,8 @@ int ec_np_init(void)
             if (v < 1 || v > ec_np3_max_terms) { ec_fatal(EC_RC_FATAL, "ECALC_NP_AUTO_TERMS=%s: must be in [1, %zu] (the three-prime bound)\n", t, ec_np3_max_terms); }
             ec_np_auto_terms = v;
         }
+        const char *m = getenv("ECALC_NP_AUTO_MIN");     /* Phase 15 MPB: off by default (pa + pb, NP's conservative form) */
+        ec_np_auto_min = ec_np_auto && m && atoi(m) != 0;
     } else if (e) {
         int v = atoi(e);
         if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }
@@ -70,6 +73,11 @@ int ec_np_for(size_t nterms)
 {
     ec_np_init();
     return ec_np_auto && nterms > ec_np_auto_terms ? 4 : ec_np;
+}
+size_t ec_np_terms(size_t nc, size_t na, size_t nb)
+{
+    ec_np_init();
+    return ec_np_auto && ec_np_auto_min ? (na < nb ? na : nb) : nc;   /* Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1; else nc as before */
 }
 int ec_np_prod(size_t nterms, int decimal, const char *where)
 {
