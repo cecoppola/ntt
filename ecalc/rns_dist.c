@@ -1947,11 +1947,12 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm, sa, sb, p24);   /* the first piece at shift 0 straight into the zero-filled C */
             if (cache_trace_on()) {                                   /* Phase 15 CX: the per-piece line (instrumentation) */
                 static const char *st[3] = { "-", "cached", "HIT" };
-                printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d%s: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
-                       node, i, j, ka, kb, av[i].len, bv[j].len, oa + ob, NS, pc ? (pck == 1 ? " x 1 prime" : pck == 2 ? " x 2 primes" : pck == 3 ? " x 3 primes" : " x 4 primes") : "", st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
+                printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
+                       node, i, j, ka, kb, av[i].len, bv[j].len, oa + ob, NS, st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
                        tm.redistribute - t_b.redistribute, tm.ntt - t_b.ntt, tm.crt - t_b.crt, tm.out - t_b.out, tm.carry - t_b.carry);
                 if (dist_st.on) { printf(" | ntt parts rows %.3f cols %.3f pack %.3f xfer %.3f a2a %.3f", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4);
                                   dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0; }
+                if (pc) printf(" | partial: %d prime%s per slot%s", pck, pck == 1 ? "" : "s", p24 ? ", P24" : "");   /* Phase 15 PC */
                 printf("\n");
             }
             formed++;
