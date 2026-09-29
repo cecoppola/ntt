@@ -337,7 +337,13 @@ static void dkm_window_db(dbig *Aw, const dbig *S, size_t dl, size_t w)
     if (!lo.n) { db_set_zero(Aw); return; }
     db_shl_limbs(Aw, &lo, dl);
 }
-static void dkm_add_small(dbig *x, long dx) { if (!dx) return; if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx); else db_add_small(x, dx); }
+static void dkm_add_small(dbig *x, long dx)
+{
+    if (!dx) return;
+    if (!x->n && dx > 0) db_set_u64(x, (uint64_t)dx);
+    else if (dx > 0) { dbig v; db_init(&v); db_set_u64(&v, (uint64_t)dx); db_add(x, x, &v); db_free(&v); }   /* Phase 15 EW: may grow a limb (ECALC_TEST_CORR < 0 on an X_lo0 near B^s: t_newton 7) */
+    else db_add_small(x, dx);
+}
 /* R = A - X Q from the window Aw and xq = X Q mod B^w (both consumed): the corrections of newton_db_divmod_shifted, R >= 0 < Q in *Rd;
  * returns the change to X */
 static long dkm_corr_db(dbig *Rd, dbig *Aw, dbig *xq, const dbig *Qd, const char *who)
