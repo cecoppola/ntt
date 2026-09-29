@@ -270,7 +270,7 @@ class Cost:
         self.t += o.t; self.t_exposed += o.t_exposed; self.nic += o.nic; self.glob += o.glob; self.msgs += o.msgs; self.pieces += o.pieces; self.xfers += o.xfers
         return self
 
-def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=False):
+def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=False, p24=False):
     """one piece product of pts plane points over a group of g nodes (every node transforms: L's balanced map): the
     local passes on 4 g ranks, the fabric exchanges (12 layered all-to-alls per piece: 3 per prime, fewer with cache
     hits), the operand redistributions and the result exchange, the spill all-gather (form 'flat': every rank's 4 C
@@ -280,10 +280,10 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     scale = q / (1 << 29)
     # the local part: the measured piece (its xGMI exchanges included, 84 % hidden), on shared APUs times the share
     dz = DZ
-    npc = piece_np(dz, nc)                              # Phase 15 NP: the piece's primes (ECALC_NP=auto: 4 over the three-prime bound)
+    npc = 4 if p24 else piece_np(dz, nc)                # Phase 15 NP: the piece's primes (ECALC_NP=auto: 4 over the three-prime bound); P24: four
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
     else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
-    t_loc = t31 * scale + 0.005
+    t_loc = t31 * scale * (P24_F if p24 else 1.0) + 0.005             # P24 (Phase 15 Batch 3): the regroup / CRT kernels' surcharge (ASSUMED, P24_F)
     if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
     if dz is not None and not dz.legacy and dz.p15b:                    # Phase 15 (2026-09-27): DIST_TWREC=1 on the pack / unpack passes -- the equal path only
@@ -333,12 +333,68 @@ def piece_np(dz, nc):
         k = 4 if nc > NP_AUTO_TERMS else 3; NP_STATS['n%d' % k] += 1; return k
     return dz.np
 
+# ---- Phase 15 Batch 3 P24 (results/P2415.md): four primes at 24 digits per transform point in the mn tier (MN_P24) ---------------------------
+# A P24 product regroups its operands' 18-digit limbs into 24-digit points (4 limbs = 3 points) at the plane's load and the CRT's carry
+# (rns_dist.c mn_core's P24 path): the plane holds p24_pts(n) = ceil(3 n / 4) points for n limbs, at four primes; the operands' redistribution
+# and the result's exchange still move limbs (8 B per limb); the cap in points is the group's, at most 2^40 (the CRT's four-limb spill:
+# min(pa, pb) (10^24 - 1)^2 10^12 < 10^72 needs min <= 10^12 points); the transform cache is not used by a P24 product.
+# MN_P24=1: the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: every mn product; auto: those over the
+# three-prime bound); 2: every mn product (SC15's model).  P24_F: the local passes' surcharge, ASSUMED 1.0 until measured (SC: 1.05-1.20).
+P24 = int(os.environ.get('MN_P24', '0') or 0)
+P24_F = float(os.environ.get('MN_MODEL_P24_F', '1.0'))
+P24_CAP_LOG = 40
+def p24_pts(n): return -(-3 * n // 4)
+def p24_split(na, nb, cap, g):
+    """rns_dist.c p24_split: split_grid's rule on the pieces' points (p24_pts(pa) + p24_pts(pb) <= cap), i, j <= 32"""
+    best = None
+    for i in range(1, 33):
+        for j in range(1, 33):
+            pa, pb = -(-na // i), -(-nb // j)
+            n = p24_pts(pa) + p24_pts(pb)
+            if n > cap: continue
+            pts = plane_pts(n, g); cost = i * j * pts
+            if best is None or cost < best[0] or (cost == best[0] and i * j < best[1] * best[2]): best = (cost, i, j, pts)
+    if best is None: raise ValueError("no P24 grid for %d x %d at cap %d" % (na, nb, cap))
+    return best[1], best[2], best[3]
+def p24_of(na, nb, g, cap):
+    """rns_dist.c mn_p24_of: whether the product runs P24 (MN_P24 and, at 1, the 18-digit grid's largest piece at four primes)"""
+    dz = DZ
+    if not P24 or dz is None or dz.legacy: return False
+    if P24 >= 2: return True
+    nc = na + nb
+    if nc > cap:
+        ka, kb, _ = split_grid(na, nb, cap, g); nc = -(-na // ka) + -(-nb // kb)
+    if getattr(dz, 'np_auto', False): return nc > NP_AUTO_TERMS
+    return dz.np == 4
+def _product_cost_p24(fab, na, nb, g, cap, lowcut=0, highcut=None, with_x=False, form="grid"):
+    """a P24 product: the grid on the points (p24_split at min(cap, 2^40)), every piece at four primes, no cache; X added afterwards (mdb_add_shifted)"""
+    cap = min(cap, 1 << P24_CAP_LOG)
+    c = Cost(); nc = na + nb
+    if p24_pts(na) + p24_pts(nb) <= cap:
+        c.add(piece_cost(fab, plane_pts(p24_pts(na) + p24_pts(nb), g), g, na, nb, nc, 2, False, form, p24=True))
+    else:
+        ka, kb, pts = p24_split(na, nb, cap, g)
+        pa, pb = -(-na // ka), -(-nb // kb)
+        for j in range(kb):
+            for i in range(ka):
+                oa, ob = i * pa, j * pb
+                la, lb = min(pa, na - oa), min(pb, nb - ob)
+                if la <= 0 or lb <= 0: continue
+                if (highcut is not None and oa + ob >= highcut) or (lowcut and oa + ob + la + lb <= lowcut): continue
+                c.add(piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True, p24=True))
+    if with_x:                                                        # mdb_add_shifted (as _product_cost's grid term)
+        t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
+        if DZ is not None and DZ.t_mb:
+            W = mem_model.t_chunk_limbs(DZ.t_mb); t1 += max(0, -(-(nc // g) // W) - 1) * round_cost(fab, g)
+        c.t += t1 + fab.coll(g); c.t_exposed += t1 + fab.coll(g); c.nic += nic1; c.glob += glob1; c.msgs += msgs1; c.xfers += 1
+    return c
+
 _PC = {}
 def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=True, form="grid"):
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP, P24, P24_F)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -351,6 +407,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
     the cuts, the transform cache over shares"""
     if g <= 1: raise ValueError("product over one node")
     cap = 1 << mem_model.mn_cap_log(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())
+    if p24_of(na, nb, g, cap): return _product_cost_p24(fab, na, nb, g, cap, lowcut, highcut, with_x, form)   # P24 (MN_P24)
     nc = na + nb
     c = Cost()
     if nc <= cap:

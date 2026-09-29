@@ -54,6 +54,7 @@ static size_t D_EST(size_t j) { const char *e = getenv("MN_PLAN_DEXTRA"); long x
 enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
 static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
 static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* g_pieces4: Phase 15 NP -- the pieces at four primes */
+static long g_pieces24[PH_N];                                     /* Phase 15 Batch 3 P24 (MN_P24): the pieces at 24 digits per point */
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
 /* ---- Phase 15 P (PLAN 36): the plan-time check -- every planned product against the prime set's limits ------------------------
@@ -111,17 +112,29 @@ static int chk_report(double d, int size)
     fflush(stdout);
     return EC_RC_FATAL;
 }
+/* Phase 15 Batch 3 P24 (results/P2415.md): a P24 piece against its own limits -- min(Pa, Pb) <= 10^12 points (the CRT's four limbs:
+ * c < 10^60) and its plane at most 2^40 points (and the roots' limit); pa, pb in limbs, the points p24_pts of them */
+static void chk24(const char *what, int g, size_t pa, size_t pb, int logk)
+{
+    size_t Pa = (3 * pa + 3) / 4, Pb = (3 * pb + 3) / 4, mn = Pa < Pb ? Pa : Pb; char why[200] = "";
+    g_chk.nprod++;
+    if (pa + pb > g_chk.worst_nt) { g_chk.worst_nt = pa + pb; snprintf(g_chk.worst, sizeof g_chk.worst, "dist_mn %s (g %d): P24 piece %zu + %zu limbs = %zu + %zu points", what, g, pa, pb, Pa, Pb); }
+    if (logk > g_chk.worst_logn) g_chk.worst_logn = logk;
+    if (mn > 1000000000000ULL) { g_chk.nbound++; snprintf(why, sizeof why, "P24: min(Pa, Pb) = %zu points > 10^12 (the CRT's four limbs)", mn); }
+    if (logk > g_chk.lim || logk > 40) { g_chk.nroot++; size_t o = strlen(why); snprintf(why + o, sizeof why - o, "%sa P24 plane of 2^%d points > 2^%d", o ? "; " : "", logk, g_chk.lim < 40 ? g_chk.lim : 40); }
+    if (why[0] && !g_chk.first[0]) snprintf(g_chk.first, sizeof g_chk.first, "dist_mn %s (g %d): P24 piece %zu + %zu limbs, 2^%d points: %s", what, g, pa, pb, logk, why);
+}
 static void show_mn(int ph, const char *what, size_t na, size_t nb, int g, int has_x, size_t lowcut, size_t w, int print, struct rns_grid_plan *out)
 {
     struct rns_grid_plan p; rns_dist_mn_plan(na, nb, g, has_x, lowcut, w, &p);
-    if (p.formed) chk("dist_mn", what, g, p.pa, p.pb, (int)log2((double)p.pts), 0);
+    if (p.formed) { if (p.p24) chk24(what, g, p.pa, p.pb, (int)log2((double)p.pts)); else chk("dist_mn", what, g, p.pa, p.pb, (int)log2((double)p.pts), 0); }
     size_t N = na + nb + (has_x ? 1 : 0); int trunc = w < N;
-    if (ph >= 0) { g_pieces[ph] += p.formed; g_pieces4[ph] += p.formed4; g_prods[ph]++; if (!p.one) g_grids[ph]++; }
+    if (ph >= 0) { g_pieces[ph] += p.formed; g_pieces4[ph] += p.formed4; g_prods[ph]++; if (!p.one) g_grids[ph]++; if (p.p24) g_pieces24[ph] += p.formed; }
     char n4[48] = ""; if (ec_np_auto && p.formed4 && p.formed4 < p.formed) snprintf(n4, sizeof n4, " (%d of them at 4 primes)", p.formed4);
     if (print && !g_quiet)
-        printf("plan %-6s %s: dist_mn node 0: %zu x %zu limbs over %d x 4 ranks (cap 2^%d): %d x %d pieces, %d formed%s, %d skipped%s%s | piece %zu + %zu limbs, 2^%d points (%d x %d)%s, planes %.2f GB per node\n",
-               ph_name[ph < 0 ? PH_TREE : ph], what, na, nb, g, p.logcap, p.ka, p.kb, p.formed, n4, p.skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "",
-               p.pa, p.pb, (int)log2((double)p.pts), p.logR, p.logC, np_tag(p.np), p.plane_bytes * 1e-9);
+        printf("plan %-6s %s: dist_mn node 0: %zu x %zu limbs over %d x 4 ranks (cap 2^%d%s): %d x %d pieces, %d formed%s, %d skipped%s%s | piece %zu + %zu limbs, 2^%d points (%d x %d)%s, planes %.2f GB per node\n",
+               ph_name[ph < 0 ? PH_TREE : ph], what, na, nb, g, p.logcap, p.p24 ? " points" : "", p.ka, p.kb, p.formed, n4, p.skipped, trunc ? " (low product)" : "", lowcut ? " (low cut)" : "",
+               p.pa, p.pb, (int)log2((double)p.pts), p.logR, p.logC, p.p24 ? ", 4 primes, P24 (24 digits per point)" : np_tag(p.np), p.plane_bytes * 1e-9);
     if (out) *out = p;
 }
 static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcut, size_t w)
@@ -260,6 +273,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
 {
     g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
+    memset(g_pieces24, 0, sizeof g_pieces24);
     if (!bi_decimal) g_dpl = 64.0L * log10l(2.0L);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
@@ -308,6 +322,9 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
            (double)d, size, ec_np_auto_terms, g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
+    if (!silent && getenv("MN_P24") && atoi(getenv("MN_P24")) > 0)   /* Phase 15 Batch 3 P24: the pieces at 24 digits per point */
+        printf("plan p24   %.4g digits g %d, MN_P24=%d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
+               (double)d, size, atoi(getenv("MN_P24")), g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);
