@@ -1663,7 +1663,7 @@ def memory(D, g, form="grid", groups=None, transport="shmem", pool_log=31, stagi
     """the per-node memory model (mem_model.mem_per_node): GB of device at the dm peak, host (with the SHMEM pool), the node peak"""
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1
     o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging)   # Phase 15: the old forms unless the design is p15
-    if design is not None and not design.legacy: o.update(design.mem_opts(D * g))
+    if design is not None and not design.legacy: o.update(design.mem_opts(D * g)); o.update(p24=P24, np_auto_min=NP_AUTO_MIN)   # MS: MN_P24's scratch (mem_model's P24 branch)
     elif design is None: o.update(np=4, host_fit=False)                                 # the legacy path: four primes (before step 0)
     r = mem_model.mem_per_node(int(D), g, o)
     gb = lambda k: r[k] / 1e9
@@ -1680,7 +1680,7 @@ def run(fab, D, g, rule="model", verbose=True, leaf_scale=1.0, init_override=Non
     if design is not None: design = design.at_g(g)                   # Phase 15 (2026-09-27): ECALC_NP=4 at size > 1 on the target's launch line
     saved = DZ; DZ = design; saved_c = CACHE_RUN_SLOTS
     if design is not None and getattr(design, 'cache_fit', False) and g > 1:   # Phase 15 DOC2: RNS_DIST_CACHE_FIT -- the slots the code's budget rule allows
-        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g))
+        o = dict(mem_model.OLD13); o.update(form=form, groups=groups, transport=transport, pool_log=pool_log, staging=staging); o.update(design.mem_opts(D * g)); o.update(p24=P24, np_auto_min=NP_AUTO_MIN)
         CACHE_RUN_SLOTS = min(CACHE_MN_SLOTS, mem_model.mem_per_node(int(D), g, o)['cache_fit_slots'])
     else: CACHE_RUN_SLOTS = None
     try:
