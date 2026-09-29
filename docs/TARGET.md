@@ -225,6 +225,8 @@ per-message cost is the limit).
 
 > **2026-09-29, the target's write rate (the user's Lustre test): ≈ 1 GB/s per node.** The models now use 1.0 GB/s by default (`mn_model.TARGET_WRITE_BW`; 0.6 and 2.0 still printed). At 1.0 GB/s on B2 the packed part file is fully hidden under the division: **5.1 × 10¹³ in 400.0 s without the write, 394.6 s with it** (modelled; the with-write wall is lower because the digit residues run inside the writer). With P24 + DKM (Batch 3, pending the user's decision) ≈ 285 / 305 s. ASSUMED: every node keeps ≈ 1 GB/s with 576 nodes writing at once (measure the aggregate at bring-up, §6 item 5(b)). Figures below at 0.6 GB/s are kept as history.
 
+> **2026-09-29, B3: the target is 5.276 × 10¹³ digits** (the user's Batch 3 decision; `ecalc 52760000000000`). Defaults add `MN_P24=2`, `NEWTON_DKM=1`, DKM's arena layout and the corrected room check (DL: the room is kept up to 5.396 × 10¹³; the absolute ceiling is 5.532 × 10¹³). Plan check OK (149 pieces, 159 on the critical path). Modelled: **292.4 s (4.87 min) without the write, 313.8 s (5.23 min) with the packed write at 1 GB/s**, node ≈ 471.9 GB. Launch line unchanged otherwise (`ECALC_NP=auto`, `RNS_DIST_CACHE_FIT=1`, `COMM_SHMEM_ROUND_MB=1024`, `ECALC_MEM_GUARD_GB=6`). Off by default, for later decisions: `MN_OUT_DKM_HI` (EW, −7 s with the write), `RNS_DIST_CACHE_PARTIAL` (PC, −6…−14 s). Open risk: the multi-node division's peak is counted, not measured (≈ 1.4 GB margin; DL15). Figures below are history.
+
 ## 2. Build
 
 ```

@@ -2082,3 +2082,11 @@ the packed write, the cache at 0 slots.
 
 Each staged item commits a design note first and stops if not safe or not worth it; every new behavior behind a switch,
 off by default; one combined decision list at the end of the batch.
+
+### 38.2 Batch 3 wrap-up (2026-09-29; the weekly token budget nearly spent)
+
+B3 = int15i: P24 (`MN_P24=2`) and DKM (`NEWTON_DKM=1`) by default; DL (DKM's arena layout, the room check fixed); WM (race H1 in
+the single-node dist exchange, fixed); EW `MN_OUT_DKM_HI` and PC `RNS_DIST_CACHE_PARTIAL` merged **off**; MPB off; SX (task 0a):
+the user chose **(c), keep the low product** (nothing built). **Target 5.276 × 10¹³.** Next session: decide EW and PC (EW's 10¹¹
+timing series owed; PC at 3–4 processes owed), a 2-node run at a tight size to measure the multi-node division's peak, the
+target-side list (TARGET_TASKS).
