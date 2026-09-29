@@ -1,0 +1,6 @@
+== t_crt ==
+META limb_base=10^18
+META bench=t_crt host=ppac-pl1-s24-16 date=2026-09-28T20:14:24
+   4 primes, decimal limbs
+
+t_crt: VERIFY OK (12 checks)
