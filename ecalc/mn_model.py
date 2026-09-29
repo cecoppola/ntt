@@ -90,6 +90,14 @@ CACHE_PHASE_NOW = None
 # whatever FIT allows (estimate.py --cache-slots n: what a slot would be worth; its bytes are added to the node and it is labelled "does not fit")
 CACHE_RUN_SLOTS = None
 CACHE_FORCE = None
+# Phase 15 Batch 3 PC (results/PC15.md; RNS_DIST_CACHE_PARTIAL=1): CACHE_P24 -> the P24 products (MN_P24) use the cache too (PC builds it: the slot's
+# key carries the 24-digit form); CACHE_PRIMES_PHASE = {'tree': k, 'dm': k} -> the primes a slot holds per phase (PC: the slot's planes drawn per grid
+# product from the block pool's free bytes -- the arena's slack at the tree, DKM's unused hole in the division; cache_partial() derives k per phase)
+CACHE_P24 = os.environ.get('MN_MODEL_CACHE_P24', '0') == '1'
+CACHE_PRIMES_PHASE = None
+def cache_primes_now():
+    if CACHE_PRIMES_PHASE is not None and CACHE_PHASE_NOW in CACHE_PRIMES_PHASE: return CACHE_PRIMES_PHASE[CACHE_PHASE_NOW]
+    return CACHE_PRIMES
 def cache_slots_now():
     if CACHE_SLOTS_PHASE is not None and CACHE_PHASE_NOW in CACHE_SLOTS_PHASE: return CACHE_SLOTS_PHASE[CACHE_PHASE_NOW]
     if CACHE_FORCE is not None: return CACHE_FORCE
@@ -240,7 +248,7 @@ def cache_pieces_t(na, nb, g, cap, lowcut=0, highcut=None, slots=2):
     ka, kb, _ = split_grid(na, nb, cap, g)
     return [(i, j, la, lb, pts, a, b) for (j, i, lb, la, pts, b, a) in _cache_pieces_grid(nb, na, kb, ka, g, lowcut, highcut, slots)]   # (back to A's i, B's j)
 
-def _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots):
+def _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots, p24=False):
     pa, pb = -(-na // ka), -(-nb // kb)
     N = slots; nA = max(min(ka, N - 1), 0) if N > 0 else 0; nB = N - nA
     slot = [None] * N; out = []
@@ -250,7 +258,8 @@ def _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots):
             la, lb = min(pa, na - oa), min(pb, nb - ob)
             if la <= 0 or lb <= 0: continue
             if (highcut is not None and oa + ob >= highcut) or (oa + ob + la + lb <= lowcut): continue
-            q = mem_model.mn_shape(la + lb, g)[3]; pts = plane_pts(la + lb, g)
+            n_ = p24_pts(la) + p24_pts(lb) if p24 else la + lb        # PC: a P24 piece's plane is on its points
+            q = mem_model.mn_shape(n_, g)[3]; pts = plane_pts(n_, g)
             kA, kB = ('A', i, q), ('B', j, q)
             ha = slot.index(kA) if kA in slot else -1; hb = slot.index(kB) if kB in slot else -1
             sa = i if i < nA else -1; sb = nA + j % nB if nB > 0 else -1
@@ -263,6 +272,28 @@ def _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots):
             if hb < 0 and sb >= 0: slot[sb] = kB
             out.append((i, j, la, lb, pts, 'hit' if ha >= 0 else 'miss', 'hit' if hb >= 0 else 'miss'))
     return out
+
+def cache_hits_p24(na, nb, g, ka, kb, lowcut=0, highcut=None, slots=1, loop='code'):
+    """Phase 15 PC: the hit pieces {(i, j): bool} of a P24 grid (ka x kb from p24_split) as rns_dist.c mn_grid takes them under
+    RNS_DIST_CACHE_PARTIAL=1 (loop 'long': the loop along the longer axis when kb > ka, as the switch does)"""
+    if loop == 'long' and kb > ka:
+        out = [(i, j, la, lb, pts, a, b) for (j, i, lb, la, pts, b, a) in _cache_pieces_grid(nb, na, kb, ka, g, lowcut, highcut, slots, True)]
+    else: out = _cache_pieces_grid(na, nb, ka, kb, g, lowcut, highcut, slots, True)
+    return {(p[0], p[1]): p[5] == 'hit' or p[6] == 'hit' for p in out}
+
+def hit_cost(fab, pts, g, la, lb, form='grid', p24=False, np_=None):
+    """a hit piece (CX's term, shared by the 18- and 24-digit forms): the saving CACHE_HIT_F x (fwd 2 - fwd 1); a slot of k < np primes
+    (cache_primes_now()) saves k / np of the transforms' part and no redistribution"""
+    c2 = piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True, p24=p24); c1 = piece_cost(fab, pts, g, la, lb, la + lb, 1, False, form, grid=True, p24=p24)
+    d_t, d_e = (c2.t - c1.t) * CACHE_HIT_F, (c2.t_exposed - c1.t_exposed) * CACHE_HIT_F
+    kp = cache_primes_now()
+    if kp:
+        npc = np_ if np_ else (4 if p24 else piece_np(DZ, la + lb, la, lb)); k = min(kp, npc)
+        if k < npc:
+            t_r = fab.a2a(8 * lb / (4 * g), g, 1)[0]
+            d_t = max(0.0, d_t - t_r) * k / npc; d_e = max(0.0, d_e - t_r) * k / npc
+    c1.t = c2.t - d_t; c1.t_exposed = max(0.0, c2.t_exposed - d_e)
+    return c1
 
 class Cost:
     def __init__(self): self.t = 0.0; self.t_exposed = 0.0; self.nic = 0.0; self.glob = 0.0; self.msgs = 0; self.pieces = 0; self.xfers = 0
@@ -371,8 +402,9 @@ def p24_of(na, nb, g, cap):
     if getattr(dz, 'np_auto', False):                                 # INT3: MPB's rule (min(pa, pb) under ECALC_NP_AUTO_MIN=1), as mn_p24_of
         return (min(pa, pb) if NP_AUTO_MIN else pa + pb) > NP_AUTO_TERMS
     return dz.np == 4
-def _product_cost_p24(fab, na, nb, g, cap, lowcut=0, highcut=None, with_x=False, form="grid"):
-    """a P24 product: the grid on the points (p24_split at min(cap, 2^40)), every piece at four primes, no cache; X added afterwards (mdb_add_shifted)"""
+def _product_cost_p24(fab, na, nb, g, cap, lowcut=0, highcut=None, with_x=False, form="grid", cache=True):
+    """a P24 product: the grid on the points (p24_split at min(cap, 2^40)), every piece at four primes; the cache only with CACHE_P24 (Phase 15 PC,
+    RNS_DIST_CACHE_PARTIAL=1); X added afterwards (mdb_add_shifted)"""
     cap = min(cap, 1 << P24_CAP_LOG)
     c = Cost(); nc = na + nb
     if p24_pts(na) + p24_pts(nb) <= cap:
@@ -380,13 +412,16 @@ def _product_cost_p24(fab, na, nb, g, cap, lowcut=0, highcut=None, with_x=False,
     else:
         ka, kb, pts = p24_split(na, nb, cap, g)
         pa, pb = -(-na // ka), -(-nb // kb)
+        nsl = cache_slots_now()                                       # Phase 15 PC: the cache over P24 products (RNS_DIST_CACHE_PARTIAL=1)
+        hits = cache_hits_p24(na, nb, g, ka, kb, lowcut, highcut, nsl, CACHE_LOOP) if cache and CACHE_P24 and nsl > 0 and CACHE_MODEL != 'old' else None
         for j in range(kb):
             for i in range(ka):
                 oa, ob = i * pa, j * pb
                 la, lb = min(pa, na - oa), min(pb, nb - ob)
                 if la <= 0 or lb <= 0: continue
                 if (highcut is not None and oa + ob >= highcut) or (lowcut and oa + ob + la + lb <= lowcut): continue
-                c.add(piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True, p24=True))
+                if hits is not None and hits.get((i, j)): c.add(hit_cost(fab, pts, g, la, lb, form, p24=True, np_=4))
+                else: c.add(piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True, p24=True))
     if with_x:                                                        # mdb_add_shifted (as _product_cost's grid term)
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
         if DZ is not None and DZ.t_mb:
@@ -399,7 +434,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     """memoised _product_cost (Phase 13b D: the design table evaluates the same products for many rows); the key is the fabric's
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
-    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, CACHE_PRIMES, CACHE_LOOP, P24, P24_F)
+    dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24)
     k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
@@ -412,7 +447,7 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
     the cuts, the transform cache over shares"""
     if g <= 1: raise ValueError("product over one node")
     cap = 1 << mem_model.mn_cap_log(g, 31 if DZ is None or DZ.legacy else DZ.pool_log())
-    if p24_of(na, nb, g, cap): return _product_cost_p24(fab, na, nb, g, cap, lowcut, highcut, with_x, form)   # P24 (MN_P24)
+    if p24_of(na, nb, g, cap): return _product_cost_p24(fab, na, nb, g, cap, lowcut, highcut, with_x, form, cache)   # P24 (MN_P24)
     nc = na + nb
     c = Cost()
     if nc <= cap:
@@ -441,16 +476,10 @@ def _product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tr
                     if i == 0 and j > 0: fwd = 1                      # A piece 0 is in its slot: B only
                     if i > 0 and j > 0: fwd = 1
             elif hits is not None and hits.get((i, j)): fwd = 1       # Phase 15 CX: the code's hit (one operand at most per piece)
-            if fwd == 2 or CACHE_MODEL == 'old' or (CACHE_HIT_F == 1.0 and not CACHE_PRIMES):
+            if fwd == 2 or CACHE_MODEL == 'old' or (CACHE_HIT_F == 1.0 and not cache_primes_now()):
                 c.add(piece_cost(fab, pts, g, la, lb, la + lb, fwd, False, form, grid=True))
-            else:                                                     # Phase 15 CX: the hit saves CACHE_HIT_F of the modelled saving
-                c2 = piece_cost(fab, pts, g, la, lb, la + lb, 2, False, form, grid=True); c1 = piece_cost(fab, pts, g, la, lb, la + lb, 1, False, form, grid=True)
-                d_t, d_e = (c2.t - c1.t) * CACHE_HIT_F, (c2.t_exposed - c1.t_exposed) * CACHE_HIT_F
-                if CACHE_PRIMES:                                      # (proposal: a slot of k of the piece's primes -- k / np of the transforms' part; the
-                    npc = piece_np(DZ, la + lb, la, lb); k = min(CACHE_PRIMES, npc)   # operand's redistribution and its other primes' gathers stay)
-                    t_r = fab.a2a(8 * lb / (4 * g), g, 1)[0]
-                    d_t = max(0.0, d_t - t_r) * k / npc; d_e = max(0.0, d_e - t_r) * k / npc
-                c1.t = c2.t - d_t; c1.t_exposed = max(0.0, c2.t_exposed - d_e); c.add(c1)
+            else:                                                     # Phase 15 CX: the hit saves CACHE_HIT_F of the modelled saving (PC: hit_cost, the
+                c.add(hit_cost(fab, pts, g, la, lb, form))            # same term; a slot of k < np primes saves k / np of the transforms, no redistribution)
             first = False
     if with_x:                                                        # mdb_add_shifted: rounds of 2^26 limbs per APU
         t1, nic1, glob1, msgs1 = fab.a2a(8 * nc / (4 * g), g, 1)
@@ -1904,10 +1933,10 @@ def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid", design=None):
 # standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
 # need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
 # ============================================================================================================
-def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code'):
+def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code', primes_phase=None):
     """one modelled run with the cache configured (restored after); returns the run's dict"""
-    global CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PHASE_NOW, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost
-    saved = (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost)
+    global CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PHASE_NOW, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE
+    saved = (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE)
     tc0, dc0 = tree_cost, division_cost
     def tc(*a, **k):
         global CACHE_PHASE_NOW
@@ -1921,10 +1950,11 @@ def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', m
         finally: CACHE_PHASE_NOW = None
     try:
         CACHE_MN_SLOTS = slots if slots is not None else CACHE_MN_SLOTS; CACHE_SLOTS_PHASE = phase; CACHE_PRIMES = primes; CACHE_LOOP = loop; CACHE_MODEL = model
+        CACHE_PRIMES_PHASE = primes_phase
         tree_cost, division_cost = tc, dc; _PC.clear()
         return run(TARGET, T / g, g, verbose=False, design=design)
     finally:
-        (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost) = saved; _PC.clear()
+        (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE) = saved; _PC.clear()
 
 def cache_rooms(T=None, g=None, design=None):
     """(tree room, division room) per node in bytes (modelled): 480 GB less the phase's node figure, + the arena's slack in the tree"""
@@ -1971,6 +2001,60 @@ def cache_proposals(T=None, g=None):
             print('   %-52s | %5.1f / %5.1f                    | %-8s | %6.1f s (%.2f min) | %6.1f s | %+6.1f s'
                   % (name, mt / GB, md / GB, 'yes' if fits else 'no', r['wall_nowrite'], r['wall_nowrite'] / 60, r['wall'], r['wall_nowrite'] - base['wall_nowrite']))
 
+# ============================================================================================================
+# Phase 15 Batch 3 PC (results/PC15.md): RNS_DIST_CACHE_PARTIAL=1 -- the slots' planes drawn per grid product from the block pool (the arena),
+# as many primes as its free bytes allow after the product's own need and a margin (RNS_DIST_CACHE_PARTIAL_MARGIN_GB per APU, 0.5), the grid's
+# loop along its longer axis, P24 products cached too.  The pool's free bytes at a phase's peak product (modelled, mem_model): the tree
+# arena - tree_need (the arena's slack); the division arena - dm_need, the arena laid for the default division (binsplit.c dm_layout does not
+# follow NEWTON_DKM) and the need DKM's (mem_model.dm_layout(dkm=True)) when MN_MODEL_DKM=1 -- DKM's unused hole.  keep_room: whether the
+# BS_ARENA_ROOM bytes inside the need are left alone (they are free at the products: the code's rule takes them; True = the conservative figure)
+# ============================================================================================================
+PARTIAL_MARGIN = float(os.environ.get('RNS_DIST_CACHE_PARTIAL_MARGIN_GB', '0.5')) * 1e9
+def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
+    """(tree, dm) pool bytes per node free at the phase's peak product (modelled), and the details"""
+    T = T or TARGET_DIGITS; g = g or TARGET_NODES; design = (design or DEFAULT15C(cache_fit=False)).at_g(g)
+    o = design.mem_opts(T); r0 = mem_model.mem_per_node(T / g, g, o)
+    o1 = dict(o); o1['dkm'] = bool(DKM); r1 = mem_model.mem_per_node(T / g, g, o1)
+    L = mem_model.dm_layout(int(r0['N']), g, 31, True, True, 0, room=o.get('arena_room', 0.0) or 0.0, dkm=bool(DKM))
+    room_b = 4 * L['room'] if not keep_room else 0
+    tree = r0['arena'] - r0['tree_need']; dm = r0['arena'] - (r1['dm_need'] - room_b)
+    return tree, dm, dict(arena=r0['arena'], tree_need=r0['tree_need'], dm_need=r1['dm_need'], dm_need0=r0['dm_need'], room=4 * L['room'])
+def cache_partial_primes(free_node, q=1 << 29, np_=4):
+    """the planes of q limbs one APU's pool share holds after the margin (the code's rule, cache_pc_take), at most np_"""
+    return max(0, min(np_, int((free_node / 4 - PARTIAL_MARGIN) // (q * 8))))
+def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long')):
+    """the estimate at the target with RNS_DIST_CACHE_PARTIAL=1 (modelled): the primes per phase from the pool's rooms, 1 slot, the loop"""
+    global CACHE_P24
+    T = T or TARGET_DIGITS; g = g or TARGET_NODES; GB = 1e9
+    d = DEFAULT15C(cache_fit=False)
+    tree, dm, x = cache_partial_rooms(T, g, d, keep_room)
+    kt, kd = cache_partial_primes(tree), cache_partial_primes(dm)
+    print('== PC: %.3g digits on %d nodes, MN_P24=%d, MN_MODEL_DKM=%d, ECALC_NP=auto (modelled; the fabric assumed as in TARGET.md)' % (T, g, P24, int(DKM)))
+    print('   the block pool per node: arena %.1f GB; tree need %.1f -> free %.1f GB; division need %.1f (%s; the default division\'s %.1f) %s -> free %.1f GB; margin %.1f GB per APU'
+          % (x['arena'] / GB, x['tree_need'] / GB, tree / GB, x['dm_need'] / GB, 'DKM' if DKM else 'no DKM', x['dm_need0'] / GB,
+             'with BS_ARENA_ROOM\'s %.1f GB kept' % (x['room'] / GB) if keep_room else 'less BS_ARENA_ROOM\'s %.1f GB (free at the products)' % (x['room'] / GB), dm / GB, PARTIAL_MARGIN / GB))
+    print('   primes per slot (q = 2^29, %.2f GB per prime per APU): tree %d, division %d' % ((1 << 29) * 8 / GB, kt, kd))
+    saved = CACHE_P24
+    try:
+        base = _run_cache(T, g, d, slots=0)
+        print('   0 slots: %.1f s without the write, %.1f s with it' % (base['wall_nowrite'], base['wall']))
+        rows = []
+        for p24c in ((False, True) if P24 else (False,)):
+            CACHE_P24 = p24c
+            for lp in loops:
+                done = set()
+                for (a, b) in ((kt, kd), (1, 0), (1, 1), (2, 1), (2, 2)):
+                    if (a, b) in done or (p24c is False and P24 >= 2 and (a, b) != (kt, kd)): continue
+                    done.add((a, b))
+                    ph = {'tree': 1 if a else 0, 'dm': 1 if b else 0}
+                    r = _run_cache(T, g, d, phase=ph, loop=lp, primes_phase={'tree': max(a, 1), 'dm': max(b, 1)})
+                    tag = 'the pool rule' if (a, b) == (kt, kd) else 'forced'
+                    rows.append((p24c, lp, a, b, tag, r))
+                    print('   P24 cached %-3s loop %-4s tree %d / division %d primes (%-13s) | %6.1f s (%.2f min) | with the write %6.1f s | gain %+6.1f / %+6.1f s'
+                          % ('yes' if p24c else 'no', lp, a, b, tag, r['wall_nowrite'], r['wall_nowrite'] / 60, r['wall'], r['wall_nowrite'] - base['wall_nowrite'], r['wall'] - base['wall']))
+        return base, rows
+    finally: CACHE_P24 = saved
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--calib", action="store_true", help="the aac6 calibration against the recorded multi-process walls")
@@ -1987,6 +2071,8 @@ def main():
     ap.add_argument("--no-twrec-g", action="store_true", help="Phase 15 DOC2: DIST_TWREC_G=0 (B1)")
     ap.add_argument("--cache-slots", type=int, default=None, help="Phase 15 DOC2: price n mn cache slots whatever RNS_DIST_CACHE_FIT allows (default: what FIT allows under p15c -- 0 at the target; the code's 2 otherwise)")
     ap.add_argument("--calib15c", action="store_true", help="Phase 15 DOC2: the model at 1e11 against the fin15e paired series (B1 / B2)")
+    ap.add_argument("--cache-partial", action="store_true", help="Phase 15 PC: RNS_DIST_CACHE_PARTIAL=1 at the target -- the primes per phase from the block pool's rooms, the loop, P24 cached or not (results/PC15.md)")
+    ap.add_argument("--cache-partial-keep-room", action="store_true", help="Phase 15 PC: --cache-partial with BS_ARENA_ROOM's bytes left out of the division's free pool (conservative)")
     ap.add_argument("--cache-proposals", action="store_true", help="Phase 15 CX: the mn transform cache at the target -- 0 / 1 / 2 slots, the old term, and the ways to hold a slot inside 480 GB (results/CX15.md section 3)")
     ap.add_argument("--calib15b", action="store_true", help="Phase 15 (2026-09-27): the model at 1e11 against RESULTS 86's paired series (B0, the new defaults ASCII and packed)")
     ap.add_argument("--round-mb", type=float, default=1024, help="COMM_SHMEM_ROUND_MB on the target's launch line (D2: 1024; 0 = off, the code's default)")
@@ -2025,6 +2111,8 @@ def main():
         calib15b(); return
     if a.cache_proposals:
         cache_proposals(); return
+    if a.cache_partial or a.cache_partial_keep_room:
+        cache_partial(keep_room=a.cache_partial_keep_room); return
     design = {'p15c': lambda: DEFAULT15C(round_mb=a.round_mb, packed=not a.ascii), 'p15b': lambda: DEFAULT15B(round_mb=a.round_mb, packed=not a.ascii), 'p15': lambda: DEFAULT15(round_mb=a.round_mb, out_overlap=a.out_overlap), 'p13': lambda: Design(np=3, strategy='auto', cap=1 << 31, chunk='both', depth=2, modmul=1),
               'legacy': lambda: None}[a.model]()
     if a.plan:
