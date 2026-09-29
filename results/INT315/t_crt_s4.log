@@ -1,0 +1,10 @@
+== t_crt ==
+META limb_base=10^18
+META bench=t_crt host=ppac-pl1-s24-26 date=2026-09-28T20:17:22
+   3 primes, decimal limbs
+-- 0. ECALC_NP=auto: three-prime bound 58424467928 terms, auto switch-over 58424467928 terms
+   ECALC_NP_AUTO_MIN=1
+   pool 0 planes at pool_log 31: g 1 -> 3, 2 -> 3, 32 -> 4, 576 -> 4
+   garner3 == garner4 on 20000 values up to 58424467928 terms of (B-1)^2; at 58424467929 terms three primes wrap and four hold
+
+t_crt: VERIFY OK (105 checks)

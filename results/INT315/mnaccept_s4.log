@@ -1,0 +1,14 @@
+== mnaccept: job 21782 on ppac-pl1-s24-26, 2026-09-28T20:19:30-05:00, 3e2a5a5 INT3: int315_job.sh (the node batches); RESUME; ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-INT315/ecalc/ref ==
+PASS e9 size 1 LIMB_BASE=10: identical; total 11.24 s (bs 1.3 + 10dP 0.1 + dm 1.
+PASS e9 size 1 LIMB_BASE=2: identical; total 22.88 s (bs 1.0 + 10dP 0.4 + dm 1.
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 8.25 s (bs 0.9 + 10dP 0.0 + dm 3.0
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 7.98 s (bs 1.2 + 10dP 0.0 + dm 3.4
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 7.47 s (bs 1.0 + 10dP 0.0 + dm 3.0
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 20.33 s (bs 2.9 + 10dP 0.0 + dm 11
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 15.63 s (bs 3.1 + 10dP 0.0 + dm 7.
+PASS recheck e9 size 1: run identical; recheck: 1 RECHECK OK, P, Q from the checkpoint on 1 node(s), read in 0.8 s; corrupted copy: 1 RECHECK FAILED
+PASS recheck e8 size 2: run identical; recheck: 3 RECHECK OK, P, Q from the checkpoint on 2 node(s), read in 0.2 s; corrupted copy: 3 RECHECK FAILED
+PASS corr d=511461828 size 1 TEST_CORR=14: identical; patched (8 bytes in 1 part file); total 6.31 s (bs 0.9 + 10dP 0.0 + dm 1.7; ECALC_RECHECK=1 on the patched file: RECHECK OK
+PASS corr d=108388422 size 2 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.66 s (bs 0.9 + 10dP 0.0 + dm 3.7
+PASS corr d=108388422 size 4 TEST_CORR=36: identical; patched (8 bytes in 1 part file); total 8.23 s (bs 1.0 + 10dP 0.0 + dm 3.4
+== 12 passed, 0 failed; 199 s; 3e2a5a5; logs in results/mnaccept/21782 ==

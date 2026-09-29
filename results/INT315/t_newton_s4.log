@@ -1,0 +1,272 @@
+== t_newton ==
+META bench=t_newton host=ppac-pl1-s24-26 date=2026-09-28T20:15:20
+-- 1. schoolbook division
+-- 2. reciprocal error
+   nq 5        k 5        error +0  (3 iterations)
+   nq 33       k 33       error +0  (33 iterations)
+   nq 257      k 257      error +0  (99 iterations)
+   nq 2049     k 2049     error +0  (201 iterations)
+   nq 16385    k 16385    error +0  (339 iterations)
+   nq 131073   k 131073   error +0  (513 iterations)
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 5 formed in the step's two products
+   nq 1048577  k 1048577  error +0  (723 iterations)
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low cut): 0.009 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 2 pieces skipped, 10 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 3 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 3 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 3 formed, 1 skipped (low product): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1 limbs: 2 x 1 pieces of 524289 + 1, 1 formed, 1 skipped (low cut): 0.001 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 2 pieces skipped, 4 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 2 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 2 formed, 1 skipped (low product): 0.003 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 1 pieces skipped, 4 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 2 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 2 formed, 1 skipped (low product): 0.003 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 1 pieces skipped, 4 formed in the step's two products
+-- 3. divmod vs mpz_tdiv_qr
+   2^10 limbs ok  (down 0, up 2 corrections, 0 overshoots, 0 repeats so far)
+   2^14 limbs ok  (down 0, up 4 corrections, 4 overshoots, 16 repeats so far)
+   2^18 limbs ok  (down 0, up 6 corrections, 8 overshoots, 32 repeats so far)
+-- 5. the reciprocal's middle product (NEWTON_RECIP_MID)
+   band 3000 x 1000 (w 3004): 0 pieces formed, 0 skipped; mod B^w identical, cut band off by 0
+   band 3000 x 1000 (w 3004): 0 pieces formed, 0 skipped; mod B^w identical, cut band off by 0
+   band 1048581 x 524291 (w 1048585): 3 pieces formed, 0 skipped; mod B^w identical, cut band off by 0
+   band 1048581 x 524291 (w 1048585): 3 pieces formed, 0 skipped; mod B^w identical, cut band off by 0
+   dist_db 3145729 x 1572859 limbs: 6 x 3 pieces of 524289 + 524287, 17 formed, 1 skipped (low product): 0.022 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 3145729 x 1572859 limbs: 6 x 3 pieces of 524289 + 524287, 14 formed, 4 skipped (low cut) (low product): 0.020 s (cache 0 slots: 0 hits, 0 misses)
+   band 3145729 x 1572859 (w 3145733): 17 pieces formed, 1 skipped; mod B^w identical, cut band off by 0
+   dist_db 3145729 x 1572859 limbs: 6 x 3 pieces of 524289 + 524287, 17 formed, 1 skipped (low product): 0.044 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 3145729 x 1572859 limbs: 6 x 3 pieces of 524289 + 524287, 14 formed, 4 skipped (low cut) (low product): 0.038 s (cache 0 slots: 0 hits, 0 misses)
+   band 3145729 x 1572859 (w 3145733): 17 pieces formed, 1 skipped; mod B^w identical, cut band off by 0
+   dist_db 4194307 x 2097153 limbs: 7 x 5 pieces of 599187 + 419431, 30 formed, 5 skipped (low product): 0.040 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 4194307 x 2097153 limbs: 7 x 5 pieces of 599187 + 419431, 25 formed, 10 skipped (low cut) (low product): 0.035 s (cache 0 slots: 0 hits, 0 misses)
+   band 4194307 x 2097153 (w 4194311): 30 pieces formed, 5 skipped; mod B^w identical, cut band off by 0
+   dist_db 4194307 x 2097153 limbs: 7 x 5 pieces of 599187 + 419431, 30 formed, 5 skipped (low product): 0.080 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 4194307 x 2097153 limbs: 7 x 5 pieces of 599187 + 419431, 25 formed, 10 skipped (low cut) (low product): 0.070 s (cache 0 slots: 0 hits, 0 misses)
+   band 4194307 x 2097153 (w 4194311): 30 pieces formed, 5 skipped; mod B^w identical, cut band off by 0
+   nq 4097     k 2049     cut 0: identical, error +0, 9 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 4097     k 2049     cut 1: identical, error +0, 9 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 4097     k 4097     cut 0: identical, error +0, 10 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 4097     k 4097     cut 1: identical, error +0, 10 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 4097     k 8194     cut 0: identical, error +0, 11 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 4097     k 8194     cut 1: identical, error +0, 11 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 65538    cut 0: identical, error +0, 14 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 65538    cut 1: identical, error +0, 14 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 131075   cut 0: identical, error +0, 15 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 131075   cut 1: identical, error +0, 15 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 262150   cut 0: identical, error +0, 16 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 131075   k 262150   cut 1: identical, error +0, 16 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 1048577  k 524289   cut 0: identical, error +0, 17 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 1048577  k 524289   cut 1: identical, error +0, 17 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   nq 1048577  k 1048577  cut 0: identical, error +0, 18 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 5 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 5 formed in the step's two products
+   nq 1048577  k 1048577  cut 1: identical, error +0, 18 rounds on the middle product, pieces skipped 0 (switch off) -> 0 (on)
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.007 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  k 2097154  cut 0: identical, error +0, 19 rounds on the middle product, pieces skipped 0 (switch off) -> 1 (on)
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048578 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 1 pieces skipped, 11 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.007 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 2 pieces skipped, 10 formed in the step's two products
+   nq 1048577  k 2097154  cut 1: identical, error +0, 19 rounds on the middle product, pieces skipped 1 (switch off) -> 2 (on)
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 3 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 3 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 3 formed, 1 skipped (low product): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 3 formed in the step's two products
+   dist_db 1048578 x 1 limbs: 2 x 1 pieces of 524289 + 1, 1 formed, 1 skipped (low cut): 0.001 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 1 pieces skipped, 5 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 3 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 3 formed, 1 skipped (low product): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1 limbs: 2 x 1 pieces of 524289 + 1, 1 formed, 1 skipped (low cut): 0.001 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 2 pieces skipped, 4 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 2 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 2 formed, 1 skipped (low product): 0.003 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 1048577 (k 2097154): recip cut 0 pieces skipped, 5 formed in the step's two products
+newton(db) j 524289 (k 2097154): recip cut 0 pieces skipped, 2 formed in the step's two products
+   dist_db 1048577 x 1048578 limbs: 2 x 3 pieces of 524289 + 349526, 2 formed, 1 skipped (low product): 0.003 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 2097154): recip cut 1 pieces skipped, 4 formed in the step's two products
+   dist_db 3145733 x 1572868 limbs: 5 x 4 pieces of 629147 + 393217, 18 formed, 2 skipped (low product): 0.023 s (cache 0 slots: 0 hits, 0 misses)
+   nq 3145733  k 3145733  cut 0: identical, error +0, 20 rounds on the middle product, pieces skipped 0 (switch off) -> 2 (on)
+newton(db) j 393217 (k 3145733): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 786434 (k 3145733): recip cut 0 pieces skipped, 10 formed in the step's two products
+   dist_db 3145733 x 1572868 limbs: 5 x 4 pieces of 629147 + 393217, 18 formed, 2 skipped (low cut): 0.024 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1572868 x 1572867 limbs: 3 x 4 pieces of 524290 + 393217, 9 formed, 3 skipped (low cut): 0.011 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1572867 (k 3145733): recip cut 5 pieces skipped, 27 formed in the step's two products
+newton(db) j 393217 (k 3145733): recip cut 0 pieces skipped, 2 formed in the step's two products
+newton(db) j 786434 (k 3145733): recip cut 0 pieces skipped, 10 formed in the step's two products
+   dist_db 3145733 x 1572868 limbs: 5 x 4 pieces of 629147 + 393217, 16 formed, 4 skipped (low cut) (low product): 0.021 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1572868 x 1572867 limbs: 3 x 4 pieces of 524290 + 393217, 9 formed, 3 skipped (low cut): 0.011 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1572867 (k 3145733): recip cut 7 pieces skipped, 25 formed in the step's two products
+   nq 3145733  k 3145733  cut 1: identical, error +0, 20 rounds on the middle product, pieces skipped 5 (switch off) -> 7 (on)
+   dist_db 2097156 x 1048578 limbs: 5 x 2 pieces of 419432 + 524289, 9 formed, 1 skipped (low product): 0.011 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 4194305 x 2097154 limbs: 7 x 5 pieces of 599187 + 419431, 30 formed, 5 skipped (low product): 0.040 s (cache 0 slots: 0 hits, 0 misses)
+   nq 4194305  k 4194305  cut 0: identical, error +0, 20 rounds on the middle product, pieces skipped 0 (switch off) -> 6 (on)
+newton(db) j 524289 (k 4194305): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 2097156 x 1048578 limbs: 5 x 2 pieces of 419432 + 524289, 9 formed, 1 skipped (low cut): 0.011 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 4194305): recip cut 2 pieces skipped, 14 formed in the step's two products
+   dist_db 4194305 x 2097154 limbs: 7 x 5 pieces of 599187 + 419431, 30 formed, 5 skipped (low cut): 0.040 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 2097154 x 2097153 limbs: 4 x 5 pieces of 524289 + 419431, 14 formed, 6 skipped (low cut): 0.018 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 2097153 (k 4194305): recip cut 11 pieces skipped, 44 formed in the step's two products
+newton(db) j 524289 (k 4194305): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 2097156 x 1048578 limbs: 5 x 2 pieces of 419432 + 524289, 8 formed, 2 skipped (low cut) (low product): 0.010 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048578 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 1048577 (k 4194305): recip cut 3 pieces skipped, 13 formed in the step's two products
+   dist_db 4194305 x 2097154 limbs: 7 x 5 pieces of 599187 + 419431, 25 formed, 10 skipped (low cut) (low product): 0.034 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 2097154 x 2097153 limbs: 4 x 5 pieces of 524289 + 419431, 14 formed, 6 skipped (low cut): 0.018 s (cache 0 slots: 0 hits, 0 misses)
+newton(db) j 2097153 (k 4194305): recip cut 16 pieces skipped, 39 formed in the step's two products
+   nq 4194305  k 4194305  cut 1: identical, error +0, 20 rounds on the middle product, pieces skipped 13 (switch off) -> 19 (on)
+-- 6. the division in two quotient halves (NEWTON_DKM)
+   nq 1500     shape 0 off tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 0 on  tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 0 on  tk  +7 th  +0: X 1498 limbs identical, R ok; final corrections +7, step 1 0
+   nq 1500     shape 0 on  tk  -7 th  +0: X 1498 limbs identical, R ok; final corrections -7, step 1 0
+   nq 1500     shape 0 on  tk  +0 th  +7: X 1498 limbs identical, R ok; final corrections +0, step 1 7
+   nq 1500     shape 0 on  tk  +0 th  -7: X 1498 limbs identical, R ok; final corrections +0, step 1 7
+   nq 1500     shape 1 off tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 1 on  tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 1 on  tk  +7 th  +0: X 1497 limbs identical, R ok; final corrections +7, step 1 0
+   nq 1500     shape 1 on  tk  -7 th  +0: X 1497 limbs identical, R ok; final corrections -7, step 1 0
+   nq 1500     shape 1 on  tk  +0 th  +7: X 1497 limbs identical, R ok; final corrections +0, step 1 7
+   nq 1500     shape 1 on  tk  +0 th  -7: X 1497 limbs identical, R ok; final corrections +0, step 1 7
+   nq 1500     shape 2 off tk  +0 th  +0: X 1876 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (940 limbs) does not serve h 1501: a fresh one
+   nq 1500     shape 2 on  tk  +0 th  +0: X 1876 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (940 limbs) does not serve h 1501: a fresh one
+   nq 1500     shape 2 on  tk  +7 th  +0: X 1876 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) DKM: the kept reciprocal (940 limbs) does not serve h 1501: a fresh one
+   nq 1500     shape 2 on  tk  -7 th  +0: X 1876 limbs identical, R ok; final corrections -7, step 1 0
+newton(db) DKM: the kept reciprocal (940 limbs) does not serve h 1501: a fresh one
+   nq 1500     shape 2 on  tk  +0 th  +7: X 1876 limbs identical, R ok; final corrections +0, step 1 7
+newton(db) DKM: the kept reciprocal (940 limbs) does not serve h 1501: a fresh one
+   nq 1500     shape 2 on  tk  +0 th  -7: X 1876 limbs identical, R ok; final corrections +0, step 1 7
+   nq 1500     shape 3 off tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +1, step 1 0
+   nq 1500     shape 3 on  tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +0, step 1 1
+   nq 1500     shape 4 off tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 4 on  tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 5 off tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 5 on  tk  +0 th  +0: X 1497 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 6 off tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1500     shape 6 on  tk  +0 th  +0: X 1498 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 0 off tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 0 on  tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 0 on  tk  +7 th  +0: X 16384 limbs identical, R ok; final corrections +7, step 1 0
+   nq 16387    shape 0 on  tk  -7 th  +0: X 16384 limbs identical, R ok; final corrections -7, step 1 0
+   nq 16387    shape 0 on  tk  +0 th  +7: X 16384 limbs identical, R ok; final corrections +0, step 1 7
+   nq 16387    shape 0 on  tk  +0 th  -7: X 16384 limbs identical, R ok; final corrections +0, step 1 7
+   nq 16387    shape 1 off tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 1 on  tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 1 on  tk  +7 th  +0: X 16385 limbs identical, R ok; final corrections +7, step 1 0
+   nq 16387    shape 1 on  tk  -7 th  +0: X 16385 limbs identical, R ok; final corrections -7, step 1 0
+   nq 16387    shape 1 on  tk  +0 th  +7: X 16385 limbs identical, R ok; final corrections +0, step 1 7
+   nq 16387    shape 1 on  tk  +0 th  -7: X 16385 limbs identical, R ok; final corrections +0, step 1 7
+   nq 16387    shape 2 off tk  +0 th  +0: X 20484 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (10244 limbs) does not serve h 16388: a fresh one
+   nq 16387    shape 2 on  tk  +0 th  +0: X 20484 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (10244 limbs) does not serve h 16388: a fresh one
+   nq 16387    shape 2 on  tk  +7 th  +0: X 20484 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) DKM: the kept reciprocal (10244 limbs) does not serve h 16388: a fresh one
+   nq 16387    shape 2 on  tk  -7 th  +0: X 20484 limbs identical, R ok; final corrections -7, step 1 0
+newton(db) DKM: the kept reciprocal (10244 limbs) does not serve h 16388: a fresh one
+   nq 16387    shape 2 on  tk  +0 th  +7: X 20484 limbs identical, R ok; final corrections +0, step 1 7
+newton(db) DKM: the kept reciprocal (10244 limbs) does not serve h 16388: a fresh one
+   nq 16387    shape 2 on  tk  +0 th  -7: X 20484 limbs identical, R ok; final corrections +0, step 1 7
+   nq 16387    shape 3 off tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +1, step 1 0
+   nq 16387    shape 3 on  tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +0, step 1 1
+   nq 16387    shape 4 off tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 4 on  tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 5 off tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 5 on  tk  +0 th  +0: X 16384 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 6 off tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +0, step 1 0
+   nq 16387    shape 6 on  tk  +0 th  +0: X 16385 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 0 off tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 0 on  tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 0 on  tk  +7 th  +0: X 262147 limbs identical, R ok; final corrections +7, step 1 0
+   nq 262149   shape 0 on  tk  -7 th  +0: X 262147 limbs identical, R ok; final corrections -7, step 1 0
+   nq 262149   shape 0 on  tk  +0 th  +7: X 262147 limbs identical, R ok; final corrections +0, step 1 7
+   nq 262149   shape 0 on  tk  +0 th  -7: X 262147 limbs identical, R ok; final corrections +0, step 1 7
+   nq 262149   shape 1 off tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 1 on  tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 1 on  tk  +7 th  +0: X 262147 limbs identical, R ok; final corrections +7, step 1 0
+   nq 262149   shape 1 on  tk  -7 th  +0: X 262147 limbs identical, R ok; final corrections -7, step 1 0
+   nq 262149   shape 1 on  tk  +0 th  +7: X 262147 limbs identical, R ok; final corrections +0, step 1 7
+   nq 262149   shape 1 on  tk  +0 th  -7: X 262147 limbs identical, R ok; final corrections +0, step 1 7
+   nq 262149   shape 2 off tk  +0 th  +0: X 327686 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (163846 limbs) does not serve h 262150: a fresh one
+   nq 262149   shape 2 on  tk  +0 th  +0: X 327686 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (163846 limbs) does not serve h 262150: a fresh one
+   nq 262149   shape 2 on  tk  +7 th  +0: X 327686 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) DKM: the kept reciprocal (163846 limbs) does not serve h 262150: a fresh one
+   nq 262149   shape 2 on  tk  -7 th  +0: X 327686 limbs identical, R ok; final corrections -7, step 1 0
+newton(db) DKM: the kept reciprocal (163846 limbs) does not serve h 262150: a fresh one
+   nq 262149   shape 2 on  tk  +0 th  +7: X 327686 limbs identical, R ok; final corrections +0, step 1 7
+newton(db) DKM: the kept reciprocal (163846 limbs) does not serve h 262150: a fresh one
+   nq 262149   shape 2 on  tk  +0 th  -7: X 327686 limbs identical, R ok; final corrections +0, step 1 7
+   nq 262149   shape 3 off tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +1, step 1 0
+   nq 262149   shape 3 on  tk  +0 th  +0: X 262147 limbs identical, R ok; final corrections +0, step 1 1
+   nq 262149   shape 4 off tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 4 on  tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 5 off tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 5 on  tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 6 off tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+   nq 262149   shape 6 on  tk  +0 th  +0: X 262146 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) j 524288 (k 1048576): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048575 x 1048576 limbs: 2 x 2 pieces of 524288 + 524288, 3 formed, 1 skipped (low cut): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 0 off tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 0 on  tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 0 on  tk  +7 th  +0: X 1048574 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) j 524288 (k 1048576): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048575 x 1048576 limbs: 2 x 2 pieces of 524288 + 524288, 3 formed, 1 skipped (low cut): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048575 x 1048577 limbs: 2 x 3 pieces of 524288 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 1 off tk  +0 th  +0: X 1048575 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 1 on  tk  +0 th  +0: X 1048575 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 1 on  tk  +7 th  +0: X 1048575 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) j 655362 (k 1310723): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1310722 x 1310723 limbs: 2 x 4 pieces of 655361 + 327681, 6 formed, 2 skipped (low cut): 0.007 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048579 x 1048577 limbs: 2 x 3 pieces of 524290 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 2 off tk  +0 th  +0: X 1310721 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (655363 limbs) does not serve h 1048578: a fresh one
+newton(db) j 524289 (k 1048578): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048578 x 1048579 limbs: 2 x 3 pieces of 524289 + 349527, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048577 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 2 on  tk  +0 th  +0: X 1310721 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) DKM: the kept reciprocal (655363 limbs) does not serve h 1048578: a fresh one
+newton(db) j 524289 (k 1048578): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048578 x 1048579 limbs: 2 x 3 pieces of 524289 + 349527, 5 formed, 1 skipped (low cut): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048577 x 1048577 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 2 on  tk  +7 th  +0: X 1310721 limbs identical, R ok; final corrections +7, step 1 0
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048576 x 1048577 limbs: 2 x 3 pieces of 524288 + 349526, 5 formed, 1 skipped (low cut): 0.009 s (cache 0 slots: 0 hits, 0 misses)
+   dist_db 1048575 x 1048577 limbs: 2 x 3 pieces of 524288 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 3 off tk  +0 th  +0: X 1048575 limbs identical, R ok; final corrections +1, step 1 0
+   nq 1048577  shape 3 on  tk  +0 th  +0: X 1048575 limbs identical, R ok; final corrections +0, step 1 1
+newton(db) j 524288 (k 1048576): recip cut 0 pieces skipped, 5 formed in the step's two products
+   nq 1048577  shape 4 off tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 4 on  tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) j 524288 (k 1048575): recip cut 0 pieces skipped, 2 formed in the step's two products
+   dist_db 1048574 x 1048575 limbs: 2 x 2 pieces of 524287 + 524288, 3 formed, 1 skipped (low cut): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 5 off tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +1, step 1 0
+   nq 1048577  shape 5 on  tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+newton(db) j 524288 (k 1048576): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048575 x 1048576 limbs: 2 x 2 pieces of 524288 + 524288, 3 formed, 1 skipped (low cut): 0.004 s (cache 0 slots: 0 hits, 0 misses)
+   nq 1048577  shape 6 off tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+   nq 1048577  shape 6 on  tk  +0 th  +0: X 1048574 limbs identical, R ok; final corrections +0, step 1 0
+-- 4. time at 2^20 limbs
+newton(db) j 524289 (k 1048577): recip cut 0 pieces skipped, 5 formed in the step's two products
+   dist_db 1048577 x 1048576 limbs: 2 x 3 pieces of 524289 + 349526, 5 formed, 1 skipped (low product): 0.008 s (cache 0 slots: 0 hits, 0 misses)
+   divmod 2097152 / 1048576 limbs: 0.07 s (recip 0.04, 20 iters; 0 mdev, 0 splits; corrections 0/0)
+RESULT t_newton divmod_time s 0.0671868
+RESULT t_newton recip_time s 0.0373157
+VmHWM 82.5 GB
+
+t_newton: VERIFY OK (1187 checks)
+rns_dist: RNS_STRATEGY=auto form B: C 0 products 0.00 s, B 12635 products 6.87 s, B4 0 products 0.00 s; extra plane memory 0.00 GiB/APU (allocations 0.00 s)
