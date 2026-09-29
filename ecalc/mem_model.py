@@ -130,7 +130,7 @@ def arena_of(base, want, chunk=0):
     ex = max(0, want - base); a = base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
-def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0):
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
     Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
     jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
@@ -140,11 +140,13 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     dl10 = 18.0 if decimal else 64.0 / math.log2(10.0)
     nq = math.ceil(lg / dl10) + 2; dl = math.ceil((lg - 50.0) / dl10) + 1
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
-    jl = (k + 1) // 2 if anchor else k - 1
+    kr = k // 2 + 1 if dkm else k                                              # Phase 15 DKM (results/DKM15.md 1.4): the reciprocal to h = floor(k/2) + 1
+    jl = (kr + 1) // 2 if anchor else kr - 1
     take = min(2 * jl + 2, nq); t1a = take + (jl + 2) + 8                      # r has j + 2 limbs (measured, job 21131)
     nq_s, k_s, jl_s = (nq + g - 1) // g, (k + g - 1) // g, (jl + g - 1) // g
     if tight:                                                                  # third form: the hole = t's block (2k + 8), holding r + t1 in the reciprocal
-        tcap = 2 * k + 8; hole = max(quarter_bytes(-(-(2 * k + 8) // g)), quarter_bytes(-(-t1a // g)) + quarter_bytes(jl_s + 4))
+        tcap = 2 * k + 8 if not dkm else k + 8                                 # (DKM: the division's t is (k1 + 1) + (k1 + 1) ~ k limbs)
+        hole = max(quarter_bytes(-(-tcap // g)), quarter_bytes(-(-t1a // g)) + quarter_bytes(jl_s + 4))
     else:
         hole = quarter_bytes(-(-tcap // g)) if g > 1 else quarter_bytes(tcap)
     hole += hole // 64
@@ -155,6 +157,10 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     if tail_dead >= 2: v2 -= qp
     hi = 2 * qp + quarter_bytes(k_s + 1) + quarter_bytes(2 * k_s + 8)
     lo = (qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + k_s + 8)) if tight else (2 * qp + quarter_bytes(k_s) + quarter_bytes(nq_s + k_s + 8))
+    if dkm:                                                                    # DKM: step 1's high product Q + S + mu (h) + t (k); step 2's Q + X_hi (k/2)
+        h_s = (k // 2 + 1 + g - 1) // g                                        # + R1 (n_Q) + mu + t; step 2's low product Q + X + Aw + xq (n_Q + k/2) + X_lo
+        hi = max(2 * qp + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8), qp + quarter_bytes(h_s) + quarter_bytes(nq_s + 2) + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8))
+        lo = qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + h_s + 8) + quarter_bytes(h_s)   # X, Aw, X_lo Q (n_Q + k/2), X_lo
     div = quarter_bytes(piece) + max(hi, lo)
     v2 = max(v2, div)
     v2 += min(v2 // 8, 1 << 30)
@@ -717,7 +723,7 @@ def mem_per_node(D, g=1, opts=None):
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom)
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False))   # dkm: Phase 15 DKM with a dm_layout that follows it (not built)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free']) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
     want = max(L['need_dev'], tree)
@@ -740,7 +746,7 @@ def mem_per_node(D, g=1, opts=None):
     p1np = o.get('pool1_np') or (3 if o['np'] == 'auto' else o['np'])  # Phase 15 PS: pool 1 at the one-node tiers' prime count (auto: three)
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np)
     if aroom > 0 and o['tail'] and not as_room_fits(planes, sum(arena), g):   # Phase 15 AS: the room dropped over the budget (the arenas stay in whole chunks)
-        aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0)
+        aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False))
         if g > 1: L['need_dev'] += sc[0]
         want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
