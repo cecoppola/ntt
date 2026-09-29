@@ -540,8 +540,11 @@ def exact_sizes(T):
 
 DKM = os.environ.get('MN_MODEL_DKM', os.environ.get('NEWTON_DKM', '1')) == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
 DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
-DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # NOT BUILT (results/DKM15.md 1.3): a writer hook after step 1 writing X_hi's digits (final
-                                                     # there) under step 2 -- the overlap is then all of step 2 ('hide_hi')
+DKM_HI = os.environ.get('MN_MODEL_DKM_HI', os.environ.get('MN_OUT_DKM_HI', '0')) == '1'   # Phase 15 EW (results/EW15.md): MN_OUT_DKM_HI=1 -- the writer on X_hi's
+                                                     # digits (final there) from DKM's step 1 on, X_lo's from the release before step 2's low product: early_exposed()
+OVL1_HI = (0.144, 0.369)                             # Phase 15 EW, size 1: (A, B) = the division's fractions between step 1's end and the release (step 2's
+                                                     # high product and window) and after it (X_lo Q, the corrections, R's residues) -- MEASURED at 1e11 on
+                                                     # int15i (DKM15 4.4's on runs: 7.38 and 18.17 + 0.74 of 51.3 s); refitted by EW's series (EW_FIT below)
 
 def division_cost_dkm(fab, nq, dl, npn, g, rule, form, sn=None):
     """Phase 15 DKM (newton_db.c mn_divmod_dkm): the reciprocal to h = floor(k_mu/2) + 1; step 1 = today's division of A >> s by Q
@@ -574,6 +577,21 @@ def division_cost_dkm(fab, nq, dl, npn, g, rule, form, sn=None):
     c.add(rest)
     DKM_LAST.clear(); DKM_LAST.update(h=h, hmu=hmu, s=s, k1=k1, c1=c1.t, c2=c2.t, c3=c3.t, c4=c4.t, p1=c1.pieces, p2=c2.pieces, p3=c3.pieces, p4=c4.pieces, hide=c4.t + rest.t, hide_hi=c.t - t_step1, total=c.t)
     return rc, c, groups
+
+def early_exposed(W, dc, g):
+    """Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3, 5): the part file's exposed seconds when the writer (W seconds of formatting / writing)
+    runs as a pipeline -- X_hi's share of the digits (f_hi = k1 / k: size > 1 every rank writes its share of both layers) from step 1's end,
+    then, after waiting at the release if it got there first, X_lo's: exposed = max(0, max(A, f_hi W) + (1 - f_hi) W - A - B), A = the
+    division from step 1's end to the release (step 2's high product, its window), B = after it.  Size > 1: A, B from division_cost_dkm's
+    parts (scaled as dc.t was); size 1: OVL1_HI x the division (MEASURED).  Without the switch (or DKM): max(0, W - ovl_div)"""
+    if DKM and DKM_HI:
+        if g > 1 and DKM_LAST.get('total'):
+            sc = dc.t / DKM_LAST['total']; A = (DKM_LAST['hide_hi'] - DKM_LAST['hide']) * sc; B = DKM_LAST['hide'] * sc
+            fh = DKM_LAST['k1'] / float(DKM_LAST['k1'] + DKM_LAST['s'])
+        else:
+            A, B = OVL1_HI[0] * dc.t, OVL1_HI[1] * dc.t; fh = 0.5
+        return max(0.0, max(A, fh * W) + (1.0 - fh) * W - A - B)
+    return max(0.0, W - ovl_div(dc, g))
 
 def ovl_div(dc, g):
     """the part of the division the early writer runs under: OVL1 x the division (FITTED at size 1); Phase 15 DKM: the hook is before
@@ -1739,13 +1757,13 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
             if corrections and not p15b:               # the file after `total` (V2's finding, results/V214.md); ECALC_CORR_PATCH (p15b): no wait, no rewrite
                 t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
             else:
-                dc_file = max(0.0, out_write - O); dc_nofile = 0.0
+                dc_file = early_exposed(out_write, dc, 1); dc_nofile = 0.0   # (Phase 15 EW: MN_OUT_DKM_HI's pipeline; else max(0, W - O))
             out_exposed = t1_wait + dc_file
             wall_nowrite = t_compute + dc_nofile
         else:                                          # size > 1: mn_out_run after T1 -- formatting (DC_FMT_MN) and the write in a pipeline, nothing under the division
             fmt = DC_FMT_MN * D / 1e9
             if design.early:                           # MN_OUT_EARLY=1 (2026-09-27): the part file starts at the hook (X formed, before the low product) and
-                out_exposed = max(0.0, max(out_write, fmt) - ovl_div(dc, g))   # overlaps OVL1 x the division, as the size-1 writer does (IO15: dc -> 0 on 2 nodes)
+                out_exposed = early_exposed(max(out_write, fmt), dc, g)   # overlaps OVL1 x the division, as the size-1 writer does (IO15: dc -> 0 on 2 nodes); Phase 15 EW: MN_OUT_DKM_HI's pipeline
             else: out_exposed = max(out_write, fmt) if design.out_overlap == 'none' else max(fmt, out_write - t_lowprod)
             wall_nowrite = t_compute + fmt                 # (without a part file the hook is not set: the digits' residues after T1)
         if p15b: out_exposed += EXIT_S; wall_nowrite += EXIT_S   # the process's exit (measured), on both walls
