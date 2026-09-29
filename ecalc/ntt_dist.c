@@ -282,7 +282,13 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
  * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
  * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
  * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
-static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
+static int rb_wait_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_RB_WAIT"); v = e ? atoi(e) != 0 : 1; } return v; }   /* DIST_RB_WAIT=0: the wait off (a test: the H1 demonstration only) */
+static void rb_free_wait(dist_plan *p) { if (rb_wait_on()) HIP_CHECK(hipEventSynchronize(p->evr)); }
+/* DIST_TEST_LAG_MS=<ms> (a test, default 0): rank 1's compute stream spins <ms> milliseconds (wall_clock64, 100 MHz) before the first
+ * unpack of every forward transform -- its GPU then lags the others by that much while its host runs on, which opens H1's window
+ * wide (tests/t_dist with DIST_XGMI=1: DIST_RB_WAIT=0 must fail, the default must pass) */
+__global__ void k_spin_ms(unsigned ms) { if (threadIdx.x || blockIdx.x) return; unsigned long long t0 = wall_clock64(), n = (unsigned long long)ms * 100000ull; while (wall_clock64() - t0 < n) __builtin_amdgcn_s_sleep(8); }
+static unsigned lag_ms(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TEST_LAG_MS"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return (unsigned)v; }
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -300,6 +306,7 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 {
     int size = comm_size(p->cm); size_t rk = chunk_rows(p);
+    if (k == 0 && lag_ms() && comm_rank(p->cm) == 1) k_spin_ms<<<1, 64, 0, s>>>(lag_ms());   /* DIST_TEST_LAG_MS (a test) */
     TSK(ST_PACK, (k_unpack<<<nblocks(p->cols * rk * size), 256, 0, s>>>(chunk_rb(p, k), x, rk, (size_t)k * rk, p->rows, p->cols, size)));
 }
 /* the forward up to the last chunk's post: every chunk's row pass and pack are enqueued before any unpack (the
