@@ -1,7 +1,7 @@
 #!/bin/bash
 # wm15_job.sh <A|B> [base_ecalc_dir] - Phase 15 WM (results/WM15.md): the node batches of the weak-memory audit, run unattended
 # from the login node (setsid nohup).  Each batch takes its own one-node job (-J WM, 45 min), waits for it, runs, cancels it.
-#   A: mnaccept.sh --only unit,e9,mn,stress --stress (this clone, the fix)
+#   A: t_dist over xGMI with the H1 lag (DIST_RB_WAIT=0 / 1), then mnaccept.sh --only unit,e9,mn,stress --stress (this clone, the fix)
 #   B: 4 x 10^10 identical (digcmp.sh), then 10^11 paired base / fix / base / fix (the reference evicted before each; `total`
 #      and the elapsed wall per run), the fix runs' digits compared to e_1e11.out
 # NODES: sbatch -w list (default: any node of the partition).  Logs: results/wm15/<batch>_<job>/.
@@ -22,6 +22,14 @@ for f in sys.argv[1:]:
     fd=os.open(f,os.O_RDONLY); os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED); os.close(fd)\" $*"; }
 REF4=$HOME/ntt/ecalc/results/e_4e10.out; REF11=$HOME/ntt/ecalc/results/e_1e11.out; T=/tmp/wm15_$J
 if [ "$B" = A ]; then
+  # H1 demonstrated: t_dist over xGMI with rank 1's GPU lagging 200 ms before each forward's first unpack -- the wait off must fail,
+  # the default must pass (twice each), then the plain t_dist over xGMI
+  for v in "0 lag0" "1 lag1" "0 lag0b" "1 lag1b"; do set -- $v
+    R 600 "cd $HERE; env DIST_XGMI=1 DIST_TEST_LAG_MS=200 DIST_RB_WAIT=$1 ./tests/t_dist 24" > "$OUT/tdist_rbwait$1_$2.log" 2>&1
+    echo "$(date -Is) t_dist xgmi lag 200 ms DIST_RB_WAIT=$1 ($2): rc $?; $(grep -a 'VERIFY\|FAIL' "$OUT/tdist_rbwait$1_$2.log" | tail -1 | cut -c1-100); $(grep -ac 'points differ' "$OUT/tdist_rbwait$1_$2.log") cases with points differing" >> "$LOG"
+  done
+  R 600 "cd $HERE; env DIST_XGMI=1 ./tests/t_dist 24" > "$OUT/tdist_plain.log" 2>&1
+  echo "$(date -Is) t_dist xgmi plain: rc $?; $(grep -a 'VERIFY\|FAIL' "$OUT/tdist_plain.log" | tail -1 | cut -c1-100)" >> "$LOG"
   ./mnaccept.sh "$J" --stress --only unit,e9,mn,stress > "$OUT/mnaccept.out" 2>&1
   echo "$(date -Is) mnaccept rc $?" >> "$LOG"
 elif [ "$B" = B ]; then
