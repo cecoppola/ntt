@@ -1,0 +1,14 @@
+== j1: 74e58af PC: README row, the plan's cache line under the switch, tests/pc_j1.sh (cx_grid batches), cx_shapes_c25.txt, cx_build.sh + p24_crt.o Mon Sep 28 09:44:30 PM CDT 2026; 2 procs, pool_log 24, cx_shapes_c25.txt, off,k1,k2,k4,pool,off_24,k1_24,k2_24,k4_24,pool_24
+job 21787 queued Mon Sep 28 09:44:30 PM CDT 2026
+job 21787 running on ppac-pl1-s24-26 Mon Sep 28 09:44:50 PM CDT 2026
+off rc 0 219 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 0 | 
+k1 rc 0 231 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool fr
+k2 rc 0 229 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 2 of 4 primes, q 2^22.00, from the block pool: 0.07 GB per APU (0.27 per node) | pool fr
+k4 rc 0 277 s | 27 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^22.00, from the block pool: 0.27 GB per APU (1.07 per node) | pool f
+pool rc 0 306 s | 27 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 0 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 2 of 4 primes, q 2^22.00, from the block pool: 0.07 GB per APU (0.27 per node) | pool fr
+off_24 rc 0 160 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 0 | 
+k1_24 rc 0 152 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool fr
+k2_24 rc 0 157 s | 18 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 2 of 4 primes, q 2^22.00, from the block pool: 0.07 GB per APU (0.27 per node) | pool fr
+k4_24 rc 0 191 s | 27 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 2 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 2 slots of 4 of 4 primes, q 2^22.00, from the block pool: 0.27 GB per APU (1.07 per node) | pool f
+pool_24 rc 0 206 s | 27 timed products on node 0 | 0 DIFFERS | 2 VERIFY lines, 2 OK | grew: 0 |    transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 2 of 4 primes, q 2^22.00, from the block pool: 0.07 GB per APU (0.27 per node) | pool fr
+== j1 done Mon Sep 28 10:20:18 PM CDT 2026, 2128 s on the node
