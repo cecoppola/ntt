@@ -8,12 +8,18 @@
  *     A < Q; corrections counted; 0 <= R < Q; a perturbed seed forces the
  *     overshoot path; a supplied longer mu
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
+ *  5. (NEWTON_DEVICE=1) the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
  *
  * Usage: t_newton [LOGMAX (26)]
  */
 #include "harness.h"
 #include "../newton.h"
 static int use_db = -1;
+/* Phase 15 EW (section 7): the X_hi / X_lo hooks of the DKM division -- X_hi copied out and freed (taken), the X_lo hook's carry recorded */
+#include "../dbig.h"
+static struct { bigint Xh; size_t s; int hi, lo, carry, release; } h7;
+static int h7_hi_hook(dbig *Xh, size_t s, void *a) { (void)a; db_to_bi(&h7.Xh, Xh); db_free(Xh); h7.s = s; h7.hi++; return 1; }
+static int h7_lo_hook(dbig *Xl, size_t s, int carry, void *a) { (void)a; (void)Xl; (void)s; h7.lo++; h7.carry = carry; return h7.release && !carry; }
 #define newton_recip(m, q, k) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_recip(m, q, k) : newton_recip(m, q, k))
 #define newton_divmod(x, r, a, q, mu) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_divmod(x, r, a, q, mu) : newton_divmod(x, r, a, q, mu))
 #include "../rns_mul.h"
@@ -173,6 +179,128 @@ int main(int argc, char **argv)
         }
         newton_recip_set(cut_env, mid_env);
         bi_free(&B1); bi_free(&C0); bi_free(&C1);
+
+        /* Phase 15 DKM (NEWTON_DKM, results/DKM15.md 1.6): newton_db_divmod_shifted (A = S B^dl, Q on the device, the prewarm reciprocal
+         * as ecalc's device flow takes it) with the switch off and on against GMP -- X exactly, R's residues mod three primes; the shapes:
+         * ecalc's (S ~ Q, k ~ dl), k odd / even, dl < k/2 (s = dl: the kept mu too short, a fresh one), A a multiple of Q (R1 = 0, X_lo = 0),
+         * Q all-ones / a power; forced corrections: ECALC_TEST_CORR +-7 (the final count moves by k) and NEWTON_DKM_TEST_HI +-7 (step 1's) */
+        printf("-- 6. the division in two quotient halves (NEWTON_DKM)\n");
+        {
+            static const uint64_t qs6[3] = { 2305843009213693951ULL, 1000000000000000003ULL, 4611686018427387847ULL };
+            bigint S6, A6, X6, Y6; bi_init(&S6); bi_init(&A6); bi_init(&X6); bi_init(&Y6);
+            mpz_t zr; mpz_init(zr);
+            static const size_t nq6[] = { 1500, (1u << 14) + 3, (1u << 18) + 5, (1u << 20) + 1 };
+            int dkm_env = newton_dkm_on();
+            for (int qi = 0; qi < 4; qi++) for (int shape = 0; shape < 7; shape++) {
+                size_t nq = nq6[qi], dl, sn;
+                int qk = shape == 4 ? GEN_ONES : shape == 5 ? GEN_BIT : GEN_UNIFORM;
+                bi_random(&Q, nq, qk, &rng); if (qk == GEN_BIT) for (size_t i = 0; i + 1 < nq; i++) Q.l[i] = 0;
+                if (Q.n != nq) continue;
+                switch (shape) {
+                case 0: dl = nq - 3; sn = nq; break;               /* ecalc's shape: k = dl + 1 (even / odd by nq) */
+                case 1: dl = nq - 4; sn = nq + 1; break;           /* k = dl + 2 */
+                case 2: dl = nq / 4; sn = 2 * nq; break;           /* dl < k/2: s = dl, a fresh reciprocal */
+                default: dl = nq - 3 - (shape & 1); sn = nq; break;
+                }
+                if (shape == 3) { bi_random(&Y6, 2, GEN_UNIFORM, &rng); rns_mul(&S6, &Q, &Y6); }   /* A = Q Y B^dl: R1 = 0, X_lo = 0 */
+                else bi_random(&S6, sn, GEN_UNIFORM, &rng);
+                bi_shl_limbs(&A6, &S6, dl);
+                bi_to_mpz(a, &A6); bi_to_mpz(q, &Q); mpz_tdiv_qr(x, zr, a, q);
+                uint64_t want[3]; for (int j = 0; j < 3; j++) want[j] = mpz_fdiv_ui(zr, qs6[j]);
+                long nat = 0;                                         /* the unforced final signed correction count (switch on) */
+                static const long forced[][2] = { {0, 0}, {0, 0}, {7, 0}, {-7, 0}, {0, 7}, {0, -7} };   /* {ECALC_TEST_CORR, NEWTON_DKM_TEST_HI}; row 0: off */
+                for (int f = 0; f < 6; f++) {
+                    int on = f > 0;
+                    if (qi == 3 && f > 2) continue;                  /* the largest size: off, on, one forced (time) */
+                    long tk = forced[f][0], th = forced[f][1];
+                    if (shape == 3 && tk > 0) continue;              /* X_lo = 0 there: X - k would need a borrow from X_hi (the hook refuses) */
+                    char b1[16], b2[16]; snprintf(b1, sizeof b1, "%ld", tk); snprintf(b2, sizeof b2, "%ld", th);
+                    setenv("ECALC_TEST_CORR", b1, 1); setenv("NEWTON_DKM_TEST_HI", b2, 1);
+                    newton_dkm_set(on);
+                    dbig Sd, Qd6; db_init(&Sd); db_init(&Qd6); db_from_bi(&Sd, &S6); db_from_bi(&Qd6, &Q);
+                    size_t k_mu = Sd.n + 1 + dl - nq + 1;             /* ecalc.c's prewarm k (S has at most one limb more than P) */
+                    newton_db_Qd = &Qd6; newton_db_mu_host = 0;
+                    newton_db_recip(&mu, &Q, k_mu);
+                    newton_stats b = newton_st;
+                    uint64_t got[3];
+                    newton_db_divmod_shifted(&X6, &Sd, dl, &Qd6, qs6, 3, got);
+                    newton_db_Qd = 0; newton_db_mu_host = 1;
+                    long sg = (long)(newton_st.up_corr - b.up_corr) - (long)(newton_st.down_corr - b.down_corr);
+                    size_t hc = newton_st.dkm_corr - b.dkm_corr;
+                    int okx = bi_eq_mpz(&X6, x), okr = got[0] == want[0] && got[1] == want[1] && got[2] == want[2];
+                    VERIFY(okx && okr, "dkm nq %zu shape %d %s (tk %ld th %ld): X %s, R residues %s", nq, shape, on ? "on" : "off", tk, th, okx ? "ok" : "DIFFERS", okr ? "ok" : "DIFFER");
+                    if (f == 1) nat = sg;
+                    if (f >= 2 && tk) VERIFY(sg == nat + tk, "dkm nq %zu shape %d: ECALC_TEST_CORR=%ld moved the final count %ld -> %ld", nq, shape, tk, nat, sg);
+                    if (f >= 2 && th) VERIFY(sg == nat && hc + 3 >= (size_t)(th < 0 ? -th : th), "dkm nq %zu shape %d: NEWTON_DKM_TEST_HI=%ld: final %ld (unforced %ld), step 1 %zu", nq, shape, th, sg, nat, hc);
+                    VERIFY(sg >= -64 && sg <= 64, "dkm: count");
+                    if (shape < 3 || f < 2) printf("   nq %-8zu shape %d %-3s tk %+3ld th %+3ld: X %zu limbs identical, R ok; final corrections %+ld, step 1 %zu\n", nq, shape, on ? "on" : "off", tk, th, X6.n, sg, hc);
+                    db_free(&Sd); db_free(&Qd6); newton_db_free_scratch();
+                }
+            }
+            unsetenv("ECALC_TEST_CORR"); unsetenv("NEWTON_DKM_TEST_HI"); newton_dkm_set(dkm_env);
+            mpz_clear(zr); bi_free(&S6); bi_free(&A6); bi_free(&X6); bi_free(&Y6);
+        }
+
+        /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.2-1.3): the DKM division with the X_hi / X_lo hooks (no X0): the X_hi hook gets X's limbs
+         * >= s exactly (whatever step 2 and the forced corrections do), the division returns X_lo; released (the hook's 1): X_lo0 with the
+         * corrections deferred (X_lo0 + newton_x_dx = X mod B^s); not released: X mod B^s itself, newton_x_dx = 0.  Operands: A = X Q + R
+         * built from a chosen X (R = -X Q mod B^dl < Q: A a multiple of B^dl), X's low half random or B^s - 3 -- with ECALC_TEST_CORR=-7 the
+         * estimate X_lo0 >= B^s (the carry case: the hook refuses, the corrections go in place); ECALC_TEST_CORR +-7, NEWTON_DKM_TEST_HI 7 */
+        printf("-- 7. the X_hi / X_lo hooks of the DKM division (MN_OUT_DKM_HI), X_lo0 >= B^s constructed\n");
+        {
+            static const uint64_t qs7[3] = { 2305843009213693951ULL, 1000000000000000003ULL, 4611686018427387847ULL };
+            bigint S7, X7, H7, L7; bi_init(&S7); bi_init(&X7); bi_init(&H7); bi_init(&L7);
+            mpz_t xt, bp, bd, xq, r7, hq, lq; mpz_inits(xt, bp, bd, xq, r7, hq, lq, NULL);
+            int dkm_env = newton_dkm_on(), defer_env = newton_x_defer; newton_dkm_set(1); newton_x_defer = 1;
+            static const size_t nq7[] = { 1500, (1u << 14) + 3, (1u << 18) + 5 };
+            int ncarry = 0;
+            for (int qi = 0; qi < 3; qi++) for (int low = 0; low < 2; low++) for (int f = 0; f < 5; f++) {
+                static const long forced7[5][3] = { {0, 0, 1}, {7, 0, 1}, {-20, 0, 1}, {0, 7, 1}, {-20, 0, 0} };   /* {ECALC_TEST_CORR, NEWTON_DKM_TEST_HI, release} */
+                long tk = forced7[f][0], th = forced7[f][1];
+                size_t nq = nq7[qi], dl = nq - 3, xn = nq - 3, s = 0;
+                bi_random(&Q, nq, GEN_UNIFORM, &rng); if (Q.n != nq) continue;
+                bi_to_mpz(q, &Q);
+                bi_random(&X7, xn, GEN_UNIFORM, &rng); if (X7.n != xn) continue;
+                if (bi_decimal) mpz_ui_pow_ui(bd, 10, 18 * dl); else { mpz_set_ui(bd, 0); mpz_setbit(bd, 64 * dl); }
+                for (int pass = 0; pass < 3; pass++) {        /* s from the operands' lengths; X's low half set, then s re-derived (stable) */
+                    bi_to_mpz(xt, &X7);
+                    if (low && s) { if (bi_decimal) mpz_ui_pow_ui(bp, 10, 18 * s); else { mpz_set_ui(bp, 0); mpz_setbit(bp, 64 * s); }
+                                    mpz_tdiv_q(xt, xt, bp); mpz_mul(xt, xt, bp); mpz_add(xt, xt, bp); mpz_sub_ui(xt, xt, 3); }   /* X mod B^s = B^s - 3 */
+                    mpz_mul(xq, xt, q); mpz_neg(r7, xq); mpz_fdiv_r(r7, r7, bd); mpz_add(a, xq, r7); mpz_tdiv_q(a, a, bd);   /* S = (X Q + R) / B^dl */
+                    bi_from_mpz(&S7, a);
+                    size_t k = S7.n + dl - nq + 1, s2 = k / 2 < dl ? k / 2 : dl;
+                    if (s2 == s) break;
+                    s = s2;
+                }
+                char b1[16], b2[16]; snprintf(b1, sizeof b1, "%ld", tk); snprintf(b2, sizeof b2, "%ld", th);
+                setenv("ECALC_TEST_CORR", b1, 1); setenv("NEWTON_DKM_TEST_HI", b2, 1);
+                h7.hi = h7.lo = h7.carry = 0; h7.release = (int)forced7[f][2];
+                dbig Sd, Qd7, Xd7; db_init(&Sd); db_init(&Qd7); db_init(&Xd7); db_from_bi(&Sd, &S7); db_from_bi(&Qd7, &Q);
+                newton_db_Qd = &Qd7; newton_db_mu_host = 0;
+                newton_db_recip(&mu, &Q, Sd.n + 1 + dl - nq + 1);
+                newton_db_xhi_hook = h7_hi_hook; newton_db_xlo_hook = h7_lo_hook; newton_db_x_dev = &Xd7;
+                uint64_t got[3], want[3]; for (int j = 0; j < 3; j++) want[j] = mpz_fdiv_ui(r7, qs7[j]);
+                newton_db_divmod_shifted(&H7, &Sd, dl, &Qd7, qs7, 3, got);   /* (H7: the host X, unused -- X stays on the device) */
+                newton_db_xhi_hook = 0; newton_db_xlo_hook = 0; newton_db_x_dev = 0; newton_db_Qd = 0; newton_db_mu_host = 1;
+                db_to_bi(&L7, &Xd7); db_free(&Xd7);
+                if (bi_decimal) mpz_ui_pow_ui(bp, 10, 18 * h7.s); else { mpz_set_ui(bp, 0); mpz_setbit(bp, 64 * h7.s); }
+                mpz_tdiv_qr(hq, lq, xt, bp);                     /* X's limbs >= s and < s */
+                bi_to_mpz(x, &h7.Xh); int okh = mpz_cmp(x, hq) == 0;
+                bi_to_mpz(x, &L7); if (h7.release && !h7.carry) { if (newton_x_dx >= 0) mpz_add_ui(x, x, (unsigned long)newton_x_dx); else mpz_sub_ui(x, x, (unsigned long)(-newton_x_dx)); }
+                int okl = mpz_cmp(x, lq) == 0, okdx = (h7.release && !h7.carry) || newton_x_dx == 0, okr = got[0] == want[0] && got[1] == want[1] && got[2] == want[2];
+                int wantc = low && tk < 0;                         /* B^s - 3 + 20 - the estimate's shortfall (a few units) >= B^s */
+                ncarry += h7.carry;
+                VERIFY(h7.hi == 1 && h7.lo == 1 && h7.s == s && okh && okl && okdx && okr && (!wantc || h7.carry),
+                       "dkm hooks nq %zu low %d tk %ld th %ld release %d: hooks %d/%d, s %zu (%zu), X_hi %s, X_lo %s (dx %ld), R %s, carry %d (expected %d)",
+                       nq, low, tk, th, h7.release, h7.hi, h7.lo, h7.s, s, okh ? "ok" : "DIFFERS", okl ? "ok" : "DIFFERS", newton_x_dx, okr ? "ok" : "DIFFER", h7.carry, wantc);
+                printf("   nq %-8zu X mod B^s %-9s tk %+3ld th %+3ld release %d: s %zu, X_hi %zu limbs exact, X_lo0 %s B^s -> %s, dx %+ld; R ok\n", nq, low ? "B^s - 3" : "random", tk, th, h7.release,
+                       h7.s, h7.Xh.n, h7.carry ? ">=" : "<", h7.release && !h7.carry ? "deferred" : "corrected in place", newton_x_dx);
+                db_free(&Sd); db_free(&Qd7); newton_db_free_scratch(); newton_x_dx = 0;
+            }
+            VERIFY(ncarry >= 3, "dkm hooks: the carry case X_lo0 >= B^s arose %d times (3 constructed)", ncarry);
+            unsetenv("ECALC_TEST_CORR"); unsetenv("NEWTON_DKM_TEST_HI"); newton_dkm_set(dkm_env); newton_x_defer = defer_env;
+            mpz_clears(xt, bp, bd, xq, r7, hq, lq, NULL); bi_free(&S7); bi_free(&X7); bi_free(&H7); bi_free(&L7); bi_free(&h7.Xh);
+        }
     }
 
     printf("-- 4. time at 2^%d limbs\n", LOGMAX);

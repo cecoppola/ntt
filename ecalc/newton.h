@@ -30,7 +30,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; } newton_stats;
+typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: NEWTON_DKM's step-1 corrections (not in down/up) */
+/* Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 (off by default) -- the division in two quotient halves with a half-length reciprocal
+ * (GMP mu_div): mu to h = floor(k/2) + 1 limbs; step 1 = the shifted division of A >> s (s = min(floor(k/2), dl)) by Q, exact (its own
+ * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST_CORR and the
+ * deferred corrections act at step 2 as they do today.  NEWTON_DKM_TEST_HI=<k> (a test hook, |k| <= 60) moves X_hi by -k before
+ * step 1's corrections.  Size 1: newton_db_divmod_shifted (and newton_db_recip when newton_db_Qd is set: the device flow's prewarm);
+ * size > 1: newton_mn_divmod */
+int newton_dkm_on(void);
+void newton_dkm_set(int on);                          /* tests: override NEWTON_DKM */
+size_t newton_dkm_h(size_t k);                        /* the reciprocal's length under DKM for a quotient of k limbs */
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
@@ -62,6 +71,16 @@ struct mdb_s; struct mn_group;
 extern void (*newton_mn_pq_hook)(int stage, struct mdb_s *x);   /* Phase 13 N: called before S = P + Q overwrites P (0) and before Q is freed (1; may take Q->sh) */
 extern void (*newton_mn_x_hook)(struct mdb_s *X, void *arg); extern void *newton_mn_x_arg;   /* Phase 15 IO (W5d, MN_OUT_EARLY): X over the group before the low product (corrections may still change it) */
 void newton_mn_divmod(struct mdb_s *X, struct mdb_s *P, struct mdb_s *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip);
+/* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): the writer on X_hi after DKM's step 1.  Set (by ecalc.c) with the corrections
+ * deferred (newton_x_defer) -- size 1 also with newton_db_x_dev -- the DKM division forms no X0: the xhi hook gets X_hi right after
+ * step 1's corrections (final: X's limbs >= s) and takes it (*Xh left empty); the xlo hook gets X_lo0 before step 2's low product
+ * (size 1: moved into newton_db_x_dev first), carry = X_lo0 >= B^s, and returns 1 when it released the writer onto X_lo0 -- then the
+ * step-2 corrections are deferred (newton_x_dx) as today, else they are added to X_lo0 in place (newton_x_dx = 0).  X = X_hi B^s +
+ * X_lo: the division returns X_lo (newton_db_x_dev / *X); X_hi is the hook's */
+extern int (*newton_db_xhi_hook)(struct dbig_s *Xh, size_t s, void *arg);   /* returns 1 when it took X_hi (0: the division goes on as without the hooks) */
+extern int (*newton_db_xlo_hook)(struct dbig_s *Xl, size_t s, int carry, void *arg);
+extern int (*newton_mn_xhi_hook)(struct mdb_s *Xh, size_t s, void *arg);
+extern int (*newton_mn_xlo_hook)(struct mdb_s *Xl, size_t s, int carry, void *arg);
 
 void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q);
 void newton_recip(bigint *mu, const bigint *Q, size_t k);

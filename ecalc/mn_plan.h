@@ -22,6 +22,7 @@ struct rns_grid_plan {
     int np;              /* Phase 15 NP: the largest piece's primes (ec_np_for: ECALC_NP=auto -- 4 over the three-prime bound) */
     int formed4;         /* Phase 15 NP: of the formed pieces, those at four primes (every one when ec_np = 4; under auto la + lb > ec_np_auto_terms) */
     double plane_bytes;  /* the transform planes one node holds for the largest piece (all primes, four APUs) */
+    int p24;             /* Phase 15 Batch 3 P24 (MN_P24): the product runs at 24 digits per point (cap and pts in points, pa and pb in limbs, four primes) */
 };
 /* the dist tier (one node; rns_mul_dist_db / rns_mul_high_db / rns_mul_low_db): mul_grid's decision for na x nb limbs with the
  * cuts (lowcut 0: none; w = (size_t)-1: none) */
@@ -40,6 +41,8 @@ size_t newton_mn_chain_start(size_t k);
 size_t newton_recip_cut(size_t v);      /* Phase 14 R1 (E7): the low cut of a reciprocal product read as t1 >> v under NEWTON_RECIP_CUT (0 = none) */
 size_t newton_recip_mid(size_t j, size_t take);   /* Phase 15 R4: Q_t r's high cut under NEWTON_RECIP_MID ((size_t)-1 = none); the run takes it from the chain's second round on */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs);   /* L: the step runs on [0, 2^L) (0: the full group of g nodes) */
+int newton_dkm_on(void);                /* Phase 15 DKM (newton.h): NEWTON_DKM=1 -- the division in two quotient halves (INT3: the plan follows it) */
+size_t newton_dkm_h(size_t k);          /* DKM: the reciprocal's length for a quotient of k limbs (floor(k/2) + 1) */
 /* mn_plan.c: print the plan of a run of d digits (N terms) on `size` node-processes and return the exit status */
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log);
 /* Phase 15 P: every planned product against the prime set (the term bound of ECALC_NP, the roots' 2-adic limit): mn_plan_run

@@ -23,8 +23,8 @@ SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o p24_crt.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -45,13 +45,18 @@ ntt2.o: ntt2.c ntt2.h modarith2.h
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h
+rns_dist.o: rns_dist.c rns_mul.h rns_int.h ntt_dist.h comm.h mem.h bigint.h dbig.h mdb.h mn_plan.h p24.h p24_mn.h
 	$(HIPC) -c -o $@ $<
+# Phase 15 Batch 3 P24 (results/P2415.md): the 24-digit CRT of the mn tier (MN_P24)
+p24_crt.o: p24_crt.c p24.h rns_int.h modarith.h
+	$(HIPC) -c -o $@ $<
+tests/t_p24: tests/t_p24.c $(OBJS) p24.h
+	$(HIPC) $< -x none $(OBJS) -o $@ -lgmp $(SHMEM_LIBS)
 # Phase 13d L: the plan printer (MN_PLAN_ONLY; ecalc.c calls it before rns_init)
 mn_plan.o: mn_plan.c mn_plan.h mdb.h bigint.h binsplit.h rns_mul.h modarith.h
 	$(HIPC) -c -o $@ $<
 
-dbig.o: dbig.c dbig.h bigint.h mem.h
+dbig.o: dbig.c dbig.h bigint.h mem.h p24.h
 	$(HIPC) -c -o $@ $<
 # Phase 14 S1: O_DIRECT file I/O and the spill primitive (E3, E4); the memory sampler and the live-bytes lines (E12, E1)
 spill.o: spill.c spill.h dbig.h mem.h

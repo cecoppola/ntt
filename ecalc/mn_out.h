@@ -33,7 +33,7 @@ extern "C" {
 /* the limbs this node holds of X: global limbs [lo, lo + cnt), either a host array (host[0..cnt)) or a device
  * number (its limbs [0, cnt); a share of an mdb, dev->n = cnt, or a view) */
 typedef struct { const uint64_t *host; const dbig *dev; size_t lo, cnt; } mn_out_src;
-typedef struct {
+typedef struct mn_out_s {
     /* in */
     unsigned long d, d_out; const char *outfile; int rank, size, verbose;
     size_t chunk_limbs;                      /* 0: MN_OUT_CHUNK_MB (256 MB of digits) */
@@ -53,6 +53,14 @@ typedef struct {
     comm *c;                                 /* set by mn_out_boundaries: MN_OUT_WAVES's barrier (0: no waves) */
     int packed;                              /* out: the part was written packed (ECALC_OUT_PACKED=1, packed_fmt.h) */
     int wave, nwaves; double t_wave, t_wave_own;   /* out: MN_OUT_WAVES -- this rank's wave, the waves, the seconds waiting for the others / in its own */
+    /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): X = X_hi B^s + X_lo held apart */
+    size_t split; const mn_out_src *src_hi;  /* split > 0 (size 1, one file in two ranges): the limbs >= split are read from src_hi (its lo = split), the
+                                              * rest from the main source; no chunk crosses split.  src_hi also serves mn_out_tail_fix's gather (both sizes) */
+    void (*at_split)(void *arg, struct mn_out_s *o); void *split_arg;   /* with split: called once from the writer when every limb >= split is formatted
+                                              * and handed to the writer thread, before any limb below (the gate: it may wait, and may set head / nhead
+                                              * when the part had no chunk above split) */
+    size_t lim;                              /* > 0 (size > 1, X_lo's layer): the part holds limbs below lim only; the top rank's reaches lim (not nl) */
+    int part, nparts;                        /* nparts > 0: this part's index and the count (the file <outfile>.part<part> when nparts > 1); 0: size - 1 - rank of size */
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
@@ -81,6 +89,17 @@ struct mdb_s;
 mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
 mn_out *mn_out_early_join(mn_out_early *e, double *t_run);            /* the thread joined; t_run: its seconds */
 void mn_out_early_free(mn_out_early *e);                              /* after mn_out_finish */
+/* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3) at size > 1: two part files per rank -- part size-1-rank = the rank's share of X_hi
+ * (global limbs s + its share; the top rank's up to nl), part 2 size-1-rank = its share of X_lo below s (the top rank's up to s); nparts =
+ * 2 size, so the sorted parts are the file.  mn_out_early_hi_start (every rank, at the division's X_hi hook: a collective) starts the
+ * thread on the X_hi part (finished in the thread), which then waits; mn_out_early_lo_release (every rank: a collective -- the low layer's
+ * T2 heads) gives it X_lo and lets it go on to the low part; mn_out_early_join returns the low part's mn_out (its last write in flight),
+ * mn_out_early_hi the finished high part's.  X_hi's share must live until mn_out_early_free (the low part's patch reads it) */
+mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer);
+void mn_out_early_lo_release(mn_out_early *e, const struct mdb_s *Xl, comm *c);
+mn_out *mn_out_early_hi(mn_out_early *e);
+/* the digit residues of the whole string from J layers of parts (layer j's parts before layer j+1's; in a layer the top node first) */
+void mn_out_digit_res_layers(const mn_out *const *os, int J, comm *c, uint64_t *Dres);
 /* the digit residues of the whole string from the nodes' (ndig, dres) (all-gathered over c; c = 0 at size 1) */
 void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres);
 /* residues of a limb share modulo the T1 primes: the device kernel (db_mod_qs) or the host Horner */

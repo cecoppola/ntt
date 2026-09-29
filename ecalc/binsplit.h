@@ -67,6 +67,7 @@ void dm_switches(void);
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);
+void binsplit_layout_comm_size(int g);   /* MS (Phase 15): BS_LAYOUT_ONLY sets COMM_SIZE to a point's g (0: restore) */
 /* Phase 13b P (PLAN 31 step 0.3, the K axis): the node's bytes at plane cap `cap` (0 2^30, 1 3 2^29, 2 2^31, 3 3 2^30) and np primes
  * for N terms over g node-processes (the caller sets rank 0's range): plane pools + tables, the arena, the host init constants;
  * before rns_init only (it switches rns_pool_log per cap) */

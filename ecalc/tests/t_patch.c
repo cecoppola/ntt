@@ -45,6 +45,9 @@ static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned lo
     }
     digits[d + 1] = 0;
 }
+/* Phase 15 EW: the split writer's gate -- X_lo's limbs arrive only now (the buffer held garbage); called once, after the chunks above s */
+struct ew_gate { const uint64_t *from; uint64_t *to; size_t s; int calls, bad; };
+static void ew_gate_fn(void *a, struct mn_out_s *o) { struct ew_gate *g = (struct ew_gate *)a; g->calls++; if (!o->nchunks) g->bad++; memcpy(g->to, g->from, g->s * 8); }
 static uint64_t rnd(void) { static uint64_t s = 0x2545F4914F6CDD1Dull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
 static char *slurp(const char *fn, long *len) { FILE *f = fopen(fn, "r"); if (!f) { *len = -1; return 0; } fseek(f, 0, SEEK_END); *len = ftell(f); fseek(f, 0, SEEK_SET); char *b = (char *)malloc(*len + 1); if (fread(b, 1, *len, f) != (size_t)*len) *len = -1; fclose(f); return b; }
 int main(int argc, char **argv)
@@ -149,6 +152,101 @@ int main(int argc, char **argv)
         }
         unlink(fn); unlink(wf); free(X0); free(X1); free(r0); free(ref); tier2_windows_reset();
     }
+    /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): X held as X_hi B^s + X_lo0 (the correction dx acts inside X_lo0: X_lo0 + dx < B^s).
+     * Size 1: one file in two ranges (mn_out's split: limbs >= s from X_hi, the gate, then X_lo0 from a buffer that holds garbage until
+     * the gate fills it), patched through mn_out_tail_fix (its gather reads src_hi too); the carry path: the gate gives the corrected
+     * X_lo and dx = 0.  Sizes 2..5: two part layers (parts size-1-r over X_hi's shares in basis n_h + 1, parts 2 size-1-r over X_lo0's in
+     * basis s + 2 below lim = s), the low parts patched.  Checks as above: the files == the corrected file, residues + adjustment, every
+     * window once, the converter on the packed parts; the gate called exactly once, after every chunk above s */
+    int ew_parts = 0, ew_gates = 0;
+    for (int it = 0; it < 40; it++) {
+        unsigned long d_out = 1000 + rnd() % 6000, d = ((d_out + 17) / 18) * 18;
+        size_t nl = (d + 1 + 17) / 18, s = 16 + rnd() % (nl - 40);
+        uint64_t *X0 = (uint64_t *)calloc(nl + 4, 8), *X1 = (uint64_t *)calloc(nl + 4, 8);
+        for (size_t i = 0; i < nl; i++) X0[i] = rnd() % B;
+        X0[nl - 1] = 2;
+        long dx = 1 + (long)(rnd() % 9); if (rnd() & 1) dx = -dx;
+        size_t L = it % 3 == 0 ? s - 2 : rnd() % (s - 1); if (L > s - 2) L = s - 2;   /* a chain of L whole limbs inside X_lo (up to all but its top limb) */
+        X0[0] = dx > 0 ? B - 1 - rnd() % (uint64_t)dx : rnd() % (uint64_t)(-dx);
+        for (size_t i = 1; i <= L; i++) X0[i] = dx > 0 ? B - 1 : 0;
+        X0[L + 1] = dx > 0 ? rnd() % (B - 1) : 1 + rnd() % (B - 1);                  /* the chain ends here, below s */
+        memcpy(X1, X0, nl * 8);
+        { uint64_t c = (uint64_t)(dx < 0 ? -dx : dx); for (size_t i = 0; c && i < s; i++) { if (dx > 0) { uint64_t v = X1[i] + c; if (v >= B) { X1[i] = v - B; c = 1; } else { X1[i] = v; c = 0; } } else { if (X1[i] >= c) { X1[i] -= c; c = 0; } else { X1[i] = X1[i] + B - c; c = 1; } } }
+          checks++; if (c) { fails++; printf("EW it %d: the test's correction left X_lo\n", it); } }
+        char *ref = (char *)malloc(d + 2); digits_format(ref, X1, nl, d);
+        char fn[512]; snprintf(fn, sizeof fn, "%s/t_patch_%d.ref", dir, getpid());
+        FILE *f = fopen(fn, "w"); fputc(ref[0], f); fputc('.', f); fwrite(ref + 1, 1, d_out, f); fputc('\n', f); fclose(f);
+        char wf[512]; snprintf(wf, sizeof wf, "%s/t_patch_%d.win", dir, getpid()); FILE *w = fopen(wf, "w"); int nw = 0;
+        size_t ks = (nl - s) * 18 - (nl * 18 - (d + 1));                               /* the first digit of X_lo's range */
+        for (int k = 0; k < 8; k++) { unsigned long o = 1 + rnd() % (d_out + 1 - 50); fprintf(w, "%lu %.50s\n", o, ref + o); nw++; }
+        for (int k = 0; k < 3; k++) { unsigned long o = ks - 40 + rnd() % 30; if (o + 50 <= d_out + 1) { fprintf(w, "%lu %.50s\n", o, ref + o); nw++; } }   /* across the split */
+        for (int k = 0; k < 2; k++) { unsigned long o = d_out + 1 - 50 - rnd() % 10; fprintf(w, "%lu %.50s\n", o, ref + o); nw++; }
+        fclose(w); setenv("ECALC_WINDOWS", wf, 1);
+        uint64_t Dref[T1_NQ]; vf_digits_mods(ref, d + 1, t1_q, T1_NQ, Dref);
+        for (int size = 1; size <= 5; size++) for (int carry = 0; carry < (size == 1 ? 2 : 1); carry++) { tier2_windows_reset();
+            size_t Lc = 1 + rnd() % 9; static const size_t zones[4] = { 0, 30, 100, 4096 }; size_t zone = zones[rnd() % 4];
+            char out[512]; snprintf(out, sizeof out, "%s/t_patch_%d.out", dir, getpid());
+            uint64_t D[T1_NQ] = {0}, adj[T1_NQ] = {0}; int nwin = 0, bad2 = 0, badp = 0;
+            if (size == 1) {
+                struct ew_gate g = { carry ? X1 : X0, (uint64_t *)malloc(s * 8), s, 0, 0 };
+                memset(g.to, 0xA5, s * 8);                                                  /* garbage until the gate */
+                mn_out_src shi = { X0 + s, 0, s, nl - s }, slo = { g.to, 0, 0, s };
+                mn_out o; memset(&o, 0, sizeof o); o.d = d; o.d_out = d_out; o.outfile = out; o.rank = 0; o.size = 1; o.chunk_limbs = Lc; o.t2_defer = zone;
+                o.split = s; o.src_hi = &shi; o.split_arg = &g;
+                o.at_split = ew_gate_fn;
+                mn_out_run(&o, &slo); mn_out_finish(&o);
+                checks++; ew_gates += g.calls; if (g.calls != 1 || g.bad) { fails++; printf("EW it %d: the gate called %d times (%d before its chunks)\n", it, g.calls, g.bad); }
+                mn_out_fix fx; memset(&fx, 0, sizeof fx);
+                int rc = mn_out_tail_fix(&o, &slo, 0, carry ? 0 : dx, &fx); badp += rc != 0; memcpy(adj, fx.dres_adj, sizeof adj);
+                for (int i = 0; i < T1_NQ; i++) D[i] = o.dres[i];
+                nwin = o.nwin; bad2 = o.bad2; ew_parts++;
+                if (o.packed) { checks++; if (packed_part_check(out, X1, nl, &o, it, 1)) fails++; }
+                free(g.to);
+            } else {
+                size_t Nh = nl - s + 1, Nl = s + 2;
+                uint64_t *Xl = (uint64_t *)calloc(Nl, 8); memcpy(Xl, X0, s * 8);             /* X_lo0's share buffer (zeros at and above s) */
+                mn_out os[2][5]; mn_out_src hs[5], ls[5];
+                char tail[64]; size_t ntail = 0;
+                for (int layer = 0; layer < 2; layer++) for (int r = size - 1; r >= 0; r--) {   /* the parts in file order: X_hi's top down, then X_lo's */
+                    size_t lo, hi; comm_shard(layer ? Nl : Nh, r, size, &lo, &hi);
+                    mn_out *o = &os[layer][r]; memset(o, 0, sizeof *o); o->d = d; o->d_out = d_out; o->outfile = out; o->rank = r; o->size = size; o->chunk_limbs = Lc;
+                    o->nparts = 2 * size; o->part = layer * size + size - 1 - r;
+                    if (layer) { mn_out_src t = { Xl + lo, 0, lo, hi - lo }; ls[r] = t; o->lim = s; o->t2_defer = zone; o->src_hi = &hs[r]; }
+                    else { mn_out_src t = { X0 + s + lo, 0, s + lo, hi - lo }; hs[r] = t; }
+                    memcpy(o->head, tail, ntail); o->nhead = ntail;
+                    mn_out_run(o, layer ? &ls[r] : &hs[r]); mn_out_finish(o); ew_parts++;
+                    for (int i = 0; i < T1_NQ; i++) D[i] = vf_digits_join(D[i], o->ndig, o->dres[i], t1_q[i]);
+                    if (o->k1 > o->k0) { size_t n = o->k1 - o->k0, t = n < 49 ? n : 49; size_t keep = 49 - t < ntail ? 49 - t : ntail; memmove(tail, tail + ntail - keep, keep); memcpy(tail + keep, ref + o->k1 - t, t); ntail = keep + t; }
+                }
+                for (int r = size - 1; r >= 0; r--) {                                       /* the patch: X_lo's parts (the gathered low limbs of X0) */
+                    mn_out *o = &os[1][r]; mn_out_fix fx; memset(&fx, 0, sizeof fx); int rc; size_t wl = 4;
+                    for (;;) { rc = mn_out_tail_core(o, X0, wl, dx, &fx); if (rc >= 0 || wl >= nl) break; wl = wl * 2 < nl ? wl * 2 : nl; }
+                    badp += rc != 0; memcpy(adj, fx.dres_adj, sizeof adj);
+                }
+                for (int layer = 0; layer < 2; layer++) for (int r = 0; r < size; r++) {
+                    mn_out *o = &os[layer][r]; nwin += o->nwin; bad2 += o->bad2;
+                    if (o->packed) { char pn[600]; snprintf(pn, sizeof pn, "%s.part%04d", out, o->part); checks++; if (o->k1 > o->k0 && packed_part_check(pn, X1, nl, o, it, size)) fails++; }
+                    if (o->k0 <= d_out && d_out < o->k1) { checks++; size_t t = strlen(o->last); if (memcmp(o->last, ref + d_out + 1 - t, t)) { fails++; printf("EW it %d size %d: last mismatch\n", it, size); } }
+                    if (o->k1 > o->k0 && o->part == 0) { checks++; if (strncmp(o->first, ref, strlen(o->first))) { fails++; printf("EW it %d: first mismatch\n", it); } }
+                }
+                free(Xl);
+            }
+            checks++; if (badp) { fails++; printf("EW it %d size %d carry %d: %d patch failures\n", it, size, carry, badp); }
+            for (int i = 0; i < T1_NQ; i++) D[i] = vf_add_mod(D[i], adj[i], t1_q[i]);
+            checks++; if (memcmp(D, Dref, sizeof D)) { fails++; printf("EW it %d size %d carry %d: digit residue + adjustment != the corrected string's\n", it, size, carry); }
+            int exp = nw + (100 <= d_out + 1 ? 1 : 0), expbad = 100 <= d_out + 1 ? 1 : 0;
+            checks++; if (nwin != exp || bad2 != expbad) { fails++; printf("EW it %d size %d carry %d: %d windows checked (expected %d), %d bad (expected %d; zone %zu, s %zu, d_out %lu)\n", it, size, carry, nwin, exp, bad2, expbad, zone, s, d_out); }
+            char cmd[2400];
+            if (getenv("ECALC_OUT_PACKED") && atoi(getenv("ECALC_OUT_PACKED"))) {
+                if (size > 1) snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s.part* > /dev/null", unpack, fn, out); else snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s > /dev/null", unpack, fn, out);
+            } else if (size > 1) snprintf(cmd, sizeof cmd, "cat %s.part* | cmp -s - %s", out, fn);
+            else snprintf(cmd, sizeof cmd, "cmp -s %s %s", out, fn);
+            checks++; if (system(cmd)) { fails++; printf("EW it %d size %d carry %d: the file%s differ%s from the corrected file (s %zu, dx %+ld, L %zu, d_out %lu)\n", it, size, carry, size > 1 ? "s" : "", size > 1 ? "" : "s", s, dx, L, d_out); }
+            if (size > 1) { snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); if (system(cmd)) {} } else unlink(out);
+        }
+        unlink(fn); unlink(wf); free(X0); free(X1); free(ref); tier2_windows_reset();
+    }
+    printf("EW (MN_OUT_DKM_HI): %d parts in two ranges / layers, %d gates\n", ew_parts, ew_gates);
     printf("%d checks, %d failures; longest chain %zu digits, %d chains over one limb; %d packed parts checked; %d second patches refused\n", checks, fails, maxchain, nlong, npk, nneg);
     VERIFY(fails == 0, "t_patch: %d of %d checks failed", fails, checks);
     return verify_done("t_patch");
