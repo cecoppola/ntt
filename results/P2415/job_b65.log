@@ -1,0 +1,24 @@
+p24_job batches 65: job 21777 submitted Mon Sep 28 06:50:29 PM CDT 2026
+job 21777 running on ppac-pl1-s24-30 Mon Sep 28 06:50:49 PM CDT 2026
+== batch 6 Mon Sep 28 06:50:49 PM CDT 2026
+t_mn_grid MN_P24=1 ECALC_NP=4 size 2 rc 0: 2 VERIFY OK, 0 FAILED;  (176 s)
+t_mn_grid MN_P24=1 ECALC_NP=4 size 3 rc 0: 3 VERIFY OK, 0 FAILED;  (160 s)
+mnaccept mn MN_P24=1 ECALC_NP=4 rc 0
+== mnaccept: job 21777 on ppac-pl1-s24-30, 2026-09-28T18:56:25-05:00, 3404444 P24: k_gather_mn24_np's macro parameter (it shadowed ec_mod's .p); ref /shared/prerelease/home/mpo_2026/chcoppola/ntt-P2415/ecalc/ref ==
+PASS mn e8 size 2: identical; all 2 nodes VERIFY OK; total 9.10 s (bs 0.8 + 10dP 0.0 + dm 3.6
+PASS mn e8 size 3: identical; all 3 nodes VERIFY OK; total 8.74 s (bs 1.3 + 10dP 0.0 + dm 3.8
+PASS mn e8 size 4: identical; all 4 nodes VERIFY OK; total 8.46 s (bs 1.0 + 10dP 0.0 + dm 3.7
+PASS mn e9 size 2: identical; all 2 nodes VERIFY OK; total 23.83 s (bs 3.7 + 10dP 0.0 + dm 14
+PASS mn e9 size 4: identical; all 4 nodes VERIFY OK; total 17.49 s (bs 3.7 + 10dP 0.0 + dm 8.
+== 5 passed, 0 failed; 89 s; 3404444; logs in results/mnaccept/21777 ==
+== batch 5 Mon Sep 28 06:57:54 PM CDT 2026
+-rw-r--r-- 1 chcoppola mpo_2026 10000000003 Sep 28 18:59 /tmp/p24_ref_1e10.txt
+10^10 size 2 MN_P24=0 rep 1 rc 0: mn: all 2 nodes: VERIFY OK; total   156.22 s   (bs 24.7 + 10dP 0.0 + dm 122.0 + T1 0.1 + dc 0.0 + T2 0.0 = 146.9; init 9.3; other 0.0); VmHWM 26.7 GB (158 s)
+   digits: identical
+10^10 size 2 MN_P24=1 rep 1 rc 0: mn: all 2 nodes: VERIFY OK; total    95.64 s   (bs 18.2 + 10dP 0.0 + dm 68.3 + T1 0.1 + dc 0.0 + T2 0.0 = 86.6; init 9.1; other 0.0); VmHWM 26.7 GB (97 s)
+   digits: identical
+10^10 size 2 MN_P24=0 rep 2 rc 0: mn: all 2 nodes: VERIFY OK; total   162.98 s   (bs 26.2 + 10dP 0.0 + dm 127.2 + T1 0.1 + dc 0.0 + T2 0.0 = 153.5; init 9.5; other 0.0); VmHWM 26.7 GB (165 s)
+   digits: identical
+10^10 size 2 MN_P24=1 rep 2 rc 0: mn: all 2 nodes: VERIFY OK; total    98.29 s   (bs 18.7 + 10dP 0.0 + dm 70.7 + T1 0.1 + dc 0.0 + T2 0.0 = 89.6; init 8.7; other 0.0); VmHWM 26.7 GB (100 s)
+   digits: identical
+p24_job batches 65 done Mon Sep 28 07:08:38 PM CDT 2026

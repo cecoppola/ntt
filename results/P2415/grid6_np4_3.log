@@ -1,0 +1,23 @@
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T18:53:46
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T18:53:46
+META bench=t_mn_grid host=ppac-pl1-s24-30 date=2026-09-28T18:53:46
+mn: node 1 of 3, four meshes of 3 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 25761): connected in 0.10 s
+mn: node 0 of 3, four meshes of 3 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 25761): connected in 0.20 s
+mn: node 2 of 3, four meshes of 3 ranks on ppac-pl1-s24-30,ppac-pl1-s24-30,ppac-pl1-s24-30 (port base 25761): connected in 0.08 s
+mn: node 2: level 2 group [0, 3) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 2 of 3, group [0, 3) (3 x 4 ranks, the general map), plane cap 2^25, unit 33554432 limbs
+mn: node 0: level 2 group [0, 3) (transform nodes 2): meshes connected in 0.00 s
+t_mn_grid: node 0 of 3, group [0, 3) (3 x 4 ranks, the general map), plane cap 2^25, unit 33554432 limbs
+mn: node 1: level 2 group [0, 3) (transform nodes 2): meshes connected in 0.08 s
+t_mn_grid: node 1 of 3, group [0, 3) (3 x 4 ranks, the general map), plane cap 2^25, unit 33554432 limbs
+   one plane 10066329 x 8388608: 1.17 s
+   2 pieces 20132659 x 16777216: 1.34 s
+   2x3 34561064 x 34561064: 2.79 s
+   3x1 50331648 x 13421772: 1.34 s
+   subgroups 30198988 x 30198988: 1.66 s
+
+t_mn_grid: VERIFY OK (200 checks)
+
+t_mn_grid: VERIFY OK (200 checks)
+
+t_mn_grid: VERIFY OK (200 checks)

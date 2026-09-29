@@ -321,7 +321,7 @@ def piece_np(dz, nc):
 
 # ---- Phase 15 Batch 3 P24 (results/P2415.md): four primes at 24 digits per transform point in the mn tier (MN_P24) ---------------------------
 # A P24 product regroups its operands' 18-digit limbs into 24-digit points (4 limbs = 3 points) at the plane's load and the CRT's carry
-# (rns_dist.c mn_core_p24): the plane holds p24_pts(n) = ceil(3 n / 4) points for n limbs, at four primes; the operands' redistribution
+# (rns_dist.c mn_core's P24 path): the plane holds p24_pts(n) = ceil(3 n / 4) points for n limbs, at four primes; the operands' redistribution
 # and the result's exchange still move limbs (8 B per limb); the cap in points is the group's, at most 2^40 (the CRT's four-limb spill:
 # min(pa, pb) (10^24 - 1)^2 10^12 < 10^72 needs min <= 10^12 points); the transform cache is not used by a P24 product.
 # MN_P24=1: the products whose 18-digit grid's largest piece runs four primes (ECALC_NP=4: every mn product; auto: those over the
