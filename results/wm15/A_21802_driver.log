@@ -1,0 +1,9 @@
+2026-09-29T00:24:26-05:00 batch A job 21802 submitted (7baec40 WM15: wm15_job.sh A runs the H1 demonstration (t_dist over xGMI, lag 200 ms, DIST_RB_WAIT 0/1) first)
+2026-09-29T00:42:27-05:00 running on ppac-pl1-s24-30
+2026-09-29T00:43:09-05:00 t_dist xgmi lag 200 ms DIST_RB_WAIT=0 (lag0): rc 0; t_dist: VERIFY FAILED (52 of 52 checks); 52 cases with points differing
+2026-09-29T00:43:51-05:00 t_dist xgmi lag 200 ms DIST_RB_WAIT=1 (lag1): rc 0; t_dist: VERIFY OK (52 checks); 0 cases with points differing
+2026-09-29T00:44:31-05:00 t_dist xgmi lag 200 ms DIST_RB_WAIT=0 (lag0b): rc 0; t_dist: VERIFY FAILED (52 of 52 checks); 52 cases with points differing
+2026-09-29T00:45:14-05:00 t_dist xgmi lag 200 ms DIST_RB_WAIT=1 (lag1b): rc 0; t_dist: VERIFY OK (52 checks); 0 cases with points differing
+2026-09-29T00:45:36-05:00 t_dist xgmi plain: rc 0; t_dist: VERIFY OK (52 checks)
+2026-09-29T01:11:51-05:00 mnaccept rc 0
+2026-09-29T01:11:51-05:00 batch A done
