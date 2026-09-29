@@ -123,7 +123,7 @@ static void *x_bg_run_hi(void *a)
     mn_out_run(&b->o, &g_xhi.src_lo);
     return 0;
 }
-static void x_hi_hook(dbig *Xh, size_t s, void *a)   /* newton_db_xhi_hook: take X_hi, start the writer on it */
+static int x_hi_hook(dbig *Xh, size_t s, void *a)    /* newton_db_xhi_hook: take X_hi, start the writer on it */
 {
     struct x_bg *b = (struct x_bg *)a;
     g_xhi.on = 1; g_xhi.released = 0; g_xhi.s = s; g_xhi.Xh = *Xh; db_init(Xh); sem_init(&g_xhi.go, 0, 0);
@@ -132,6 +132,7 @@ static void x_hi_hook(dbig *Xh, size_t s, void *a)   /* newton_db_xhi_hook: take
     sp_dev_sync_all();
     sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run_hi, b); b->started = 1;
     printf("      MN_OUT_DKM_HI: the writer started on X_hi's %zu limbs (the file's digits above limb %zu) after the division's step 1\n", g_xhi.Xh.n, s);
+    return 1;
 }
 static void x_hi_release(struct x_bg *b)
 {
@@ -174,12 +175,15 @@ static void mn_early_hook(mdb *X, void *a)
 }
 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: the X_hi hook (every rank; collective) takes X_hi and starts its part file; the X_lo hook releases the
  * writer onto X_lo0's share (collective) unless X_lo0 >= B^s (then main releases it after the division, on the corrected X_lo) */
-static void mn_early_hi_hook(mdb *Xh, size_t s, void *a)
+static int mn_early_hi_hook(mdb *Xh, size_t s, void *a)
 {
     struct out_ctx *c = (struct out_ctx *)a;
+    if (s < 4 * (size_t)c->size || Xh->n < 4 * (size_t)c->size) {   /* (tiny: a layer's part could be empty -- the division goes on as without the switch; the same on every rank) */
+        if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: X_hi %zu limbs, s %zu: too small for two part layers over %d nodes, not used\n", Xh->n, s, c->size); return 0; }
     c->hi = 1; c->hi_rel = 0; c->s = s; c->Xh = *Xh; memset(Xh, 0, sizeof *Xh);
     c->early = mn_out_early_hi_start(&c->Xh, s, c->d, c->d_out, c->outfile, c->rank, c->size, c->verbose >= 2, mn_comm(0), c->zone);
     if (c->rank == 0) printf("mn: MN_OUT_DKM_HI: the X_hi part files (parts 0..%d of %d) started after the division's step 1 (X_hi %zu limbs from limb %zu)\n", c->size - 1, 2 * c->size, c->Xh.n, s);
+    return 1;
 }
 static int mn_early_lo_hook(mdb *Xl, size_t s, int carry, void *a)
 {
