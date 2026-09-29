@@ -12,9 +12,12 @@ import mn_model as M, mem_model, estimate as E
 
 G = 576
 
-def design(np_mn):
+def design(np_mn, room=None):
+    # MS (Phase 15): p15c=True -- main B2's memory (BS_ARENA_ROOM 0.16, the code's default since be2eec3; RNS_POOL1_4Q), as estimate.py's
+    # default.  Without it the node column was B1's (no arena room: 478.7 GB at 5.55e13 where the code's layout gives 497.7; results/MS15.md 1).
+    # cache_fit False: the rows' cache slots are priced as forced (CACHE_MN_SLOTS), as before.  room: BS_ARENA_ROOM (None = 0.16).
     return M.Design(np=3, strategy='auto', cap=mem_model.CAPS['2^31'], chunk='both', depth=2, modmul=1, chunk_mb=M.CHUNK_MB,
-                    p15=True, round_mb=1024, out_overlap=None, p15b=True, np_mn=np_mn, packed=True)
+                    p15=True, round_mb=1024, out_overlap=None, p15b=True, np_mn=np_mn, packed=True, p15c=True, arena_room=room, cache_fit=False)
 
 def clear():
     M._PC.clear()

@@ -353,7 +353,9 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) {
             char *c = strchr(t, ':'); int g = c ? atoi(c + 1) : 1; double D = atof(t);
             if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); if (bi_decimal) dt = (dt + 17) / 18 * 18;
-                                  if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1; }
+                                  binsplit_layout_comm_size(g);   /* MS (Phase 15): the point's g as COMM_SIZE, so rns_pool0_np (MN_P24=2's decision) sees it */
+                                  if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1;
+                                  binsplit_layout_comm_size(0); }
         }
         free(dup);
         if (g_layout_refused) atexit(layout_refused_exit);           /* binsplit_layout_only ends with exit(0) */
