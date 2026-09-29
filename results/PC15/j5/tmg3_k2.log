@@ -1,0 +1,24 @@
+META bench=t_mn_grid host=ppac-pl1-s24-16 date=2026-09-29T01:38:48
+META bench=t_mn_grid host=ppac-pl1-s24-16 date=2026-09-29T01:38:48
+META bench=t_mn_grid host=ppac-pl1-s24-16 date=2026-09-29T01:38:48
+ecalc: FATAL [rank 1/3 host ppac-pl1-s24-16, APU 2, thread 2 (tid 2514967), after start, rc 6]: dpool_get_exact: allocation (hipmalloc) of 17.18 GB on APU 2 failed (out of memory)
+mem[1] [OOM] device 0.0 GB in use (per APU 0.0..0.0): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.00, other 0.0
+mem[1] [OOM] host 71.1 GB RSS (HWM 71.1): staging 68.7 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 2.4
+mem[1] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[1] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[1] OOM                0.0     0.0 |     0.0     0.0     0.0     0.0     0.0     0.0     0.0   0.00 |    71.1    68.7     0.0     0.0     0.0     2.4    71.1
+ecalc: FATAL [rank 2/3 host ppac-pl1-s24-16, APU 3, thread 3 (tid 2514971), after start, rc 6]: dpool_get_exact: allocation (hipmalloc) of 17.18 GB on APU 3 failed (out of memory)
+mem[2] [OOM] device 0.0 GB in use (per APU 0.0..0.0): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.00, other 0.0
+mem[2] [OOM] host 71.1 GB RSS (HWM 71.1): staging 68.7 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 2.4
+mem[2] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[2] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[2] OOM                0.0     0.0 |     0.0     0.0     0.0     0.0     0.0     0.0     0.0   0.00 |    71.1    68.7     0.0     0.0     0.0     2.4    71.1
+srun: error: ppac-pl1-s24-16: task 2: Exited with exit code 6
+ecalc: FATAL [rank 0/3 host ppac-pl1-s24-16, APU 3, thread 3 (tid 2514959), after start, rc 6]: dpool_get_exact: allocation (hipmalloc) of 17.18 GB on APU 3 failed (out of memory)
+mem[0] [OOM] device 0.0 GB in use (per APU 0.0..0.0): planes 0.0, regions 0.0, block pool 0.0 (donated 0.0, borrowed 0.0, hipMalloc 0.0; live 0.0, peak live 0.0, free 0.0), tables 0.00, other 0.0
+mem[0] [OOM] host 71.1 GB RSS (HWM 71.1): staging 68.7 pinned, registered 0.0, X 0.0, digits 0.0, named 0.0, other 2.4
+mem[0] summary: bytes in use at each phase boundary, GB (device: all APUs / largest APU; host: this process)
+mem[0] phase           device  maxAPU |  planes regions  pl:don  pl:bor  pl:hip pl:live pl:peak tables |    host staging  regist       X  digits   other     HWM
+mem[0] OOM                0.0     0.0 |     0.0     0.0     0.0     0.0     0.0     0.0     0.0   0.00 |    71.1    68.7     0.0     0.0     0.0     2.4    71.1
+srun: error: ppac-pl1-s24-16: task 1: Exited with exit code 6
+srun: error: ppac-pl1-s24-16: task 0: Exited with exit code 6

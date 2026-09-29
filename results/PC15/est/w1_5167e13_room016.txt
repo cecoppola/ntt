@@ -1,0 +1,14 @@
+== PC: 5.17e+13 digits on 576 nodes, MN_P24=2, MN_MODEL_DKM=1, ECALC_NP=auto (modelled; the fabric assumed as in TARGET.md)
+   the block pool per node: arena 300.6 GB; tree need 267.6 -> free 33.0 GB; division need 288.8 (DKM; the default division's 300.5) less BS_ARENA_ROOM's 6.5 GB (free at the products) -> free 18.3 GB; margin 0.5 GB per APU
+   primes per slot (q = 2^29, 4.29 GB per prime per APU): tree 1, division 0; BS_ARENA_ROOM 0.16; the write at 1.0 / 0.6 GB/s
+   0 slots: 289.3 s without the write, 309.8 s / 336.4 s with it
+   P24 cached no  loop code tree 1 / division 0 primes (the pool rule) |  289.3 s (4.82 min) | with the write  309.8 s /  336.4 s | gain   +0.0 /   +0.0 /   +0.0 s
+   P24 cached no  loop long tree 1 / division 0 primes (the pool rule) |  289.3 s (4.82 min) | with the write  309.8 s /  336.4 s | gain   +0.0 /   +0.0 /   +0.0 s
+   P24 cached yes loop code tree 1 / division 0 primes (the pool rule) |  284.7 s (4.75 min) | with the write  305.2 s /  331.8 s | gain   -4.6 /   -4.6 /   -4.6 s
+   P24 cached yes loop code tree 1 / division 1 primes (forced       ) |  283.3 s (4.72 min) | with the write  304.3 s /  330.8 s | gain   -6.1 /   -5.5 /   -5.5 s
+   P24 cached yes loop code tree 2 / division 1 primes (forced       ) |  278.7 s (4.64 min) | with the write  299.7 s /  326.3 s | gain  -10.7 /  -10.1 /  -10.1 s
+   P24 cached yes loop code tree 2 / division 2 primes (forced       ) |  277.2 s (4.62 min) | with the write  298.7 s /  325.3 s | gain  -12.1 /  -11.1 /  -11.1 s
+   P24 cached yes loop long tree 1 / division 0 primes (the pool rule) |  283.3 s (4.72 min) | with the write  303.7 s /  330.3 s | gain   -6.1 /   -6.1 /   -6.1 s
+   P24 cached yes loop long tree 1 / division 1 primes (forced       ) |  281.2 s (4.69 min) | with the write  302.5 s /  329.1 s | gain   -8.1 /   -7.3 /   -7.3 s
+   P24 cached yes loop long tree 2 / division 1 primes (forced       ) |  275.2 s (4.59 min) | with the write  296.5 s /  323.1 s | gain  -14.1 /  -13.3 /  -13.3 s
+   P24 cached yes loop long tree 2 / division 2 primes (forced       ) |  273.2 s (4.55 min) | with the write  295.3 s /  321.8 s | gain  -16.1 /  -14.5 /  -14.5 s

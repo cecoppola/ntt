@@ -1,0 +1,14 @@
+== PC: 5.1e+13 digits on 576 nodes, MN_P24=0, MN_MODEL_DKM=0, ECALC_NP=auto (modelled; the fabric assumed as in TARGET.md)
+   the block pool per node: arena 300.6 GB; tree need 264.2 -> free 36.5 GB; division need 296.9 (no DKM; the default division's 296.9) less BS_ARENA_ROOM's 12.8 GB (free at the products) -> free 16.5 GB; margin 0.5 GB per APU
+   primes per slot (q = 2^29, 4.29 GB per prime per APU): tree 2, division 0
+   0 slots: 400.0 s without the write, 420.5 s with it
+   P24 cached no  loop code tree 2 / division 0 primes (the pool rule) |  383.7 s (6.40 min) | with the write  404.2 s | gain  -16.3 /  -16.3 s
+   P24 cached no  loop code tree 1 / division 0 primes (forced       ) |  391.9 s (6.53 min) | with the write  412.4 s | gain   -8.1 /   -8.1 s
+   P24 cached no  loop code tree 1 / division 1 primes (forced       ) |  386.2 s (6.44 min) | with the write  408.8 s | gain  -13.8 /  -11.7 s
+   P24 cached no  loop code tree 2 / division 1 primes (forced       ) |  378.1 s (6.30 min) | with the write  400.7 s | gain  -21.9 /  -19.8 s
+   P24 cached no  loop code tree 2 / division 2 primes (forced       ) |  372.4 s (6.21 min) | with the write  397.2 s | gain  -27.6 /  -23.3 s
+   P24 cached no  loop long tree 2 / division 0 primes (the pool rule) |  377.9 s (6.30 min) | with the write  398.4 s | gain  -22.1 /  -22.1 s
+   P24 cached no  loop long tree 1 / division 0 primes (forced       ) |  388.9 s (6.48 min) | with the write  409.4 s | gain  -11.0 /  -11.0 s
+   P24 cached no  loop long tree 1 / division 1 primes (forced       ) |  382.6 s (6.38 min) | with the write  405.4 s | gain  -17.4 /  -15.1 s
+   P24 cached no  loop long tree 2 / division 1 primes (forced       ) |  371.6 s (6.19 min) | with the write  394.3 s | gain  -28.4 /  -26.1 s
+   P24 cached no  loop long tree 2 / division 2 primes (forced       ) |  365.2 s (6.09 min) | with the write  390.3 s | gain  -34.7 /  -30.2 s
