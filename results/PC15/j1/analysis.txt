@@ -1,0 +1,149 @@
+k1_24 k1 k2_24 k2 k4_24 k4 off_24 off pool_24 pool 
+k1_24.log                                 18 (node, shape) products: 3 DIFFER: [(0, '5x3_lowhighcut'), (0, '2x4_lowcut'), (0, '5x6_lowcut')]
+k1.log                                    18 (node, shape) products: identical to the reference
+k2_24.log                                 18 (node, shape) products: 3 DIFFER: [(0, '5x3_lowhighcut'), (0, '2x4_lowcut'), (0, '5x6_lowcut')]
+k2.log                                    18 (node, shape) products: identical to the reference
+k4_24.log                                 18 (node, shape) products: 3 DIFFER: [(0, '5x3_lowhighcut'), (0, '2x4_lowcut'), (0, '5x6_lowcut')]
+k4.log                                    18 (node, shape) products: identical to the reference
+off_24.log                                18 (node, shape) products: 3 DIFFER: [(0, '5x3_lowhighcut'), (0, '2x4_lowcut'), (0, '5x6_lowcut')]
+pool_24.log                               18 (node, shape) products: 3 DIFFER: [(0, '5x3_lowhighcut'), (0, '2x4_lowcut'), (0, '5x6_lowcut')]
+pool.log                                  18 (node, shape) products: identical to the reference
+== k1
+hits: 27 products agree, 0 differ
+2x3_full         0: 4.17 s 1: 3.93 s
+2x6_full         0: 8.38 s 1: 7.87 s
+2x2_full         0: 2.72 s 1: 2.69 s
+2x2_lowhighcut   0: 2.73 s 1: 2.63 s
+1x2_lowcut       0: 1.38 s 1: 1.33 s
+5x3_lowhighcut   0: 8.93 s 1: 8.41 s
+2x4_lowcut       0: 4.88 s 1: 4.63 s
+5x6_lowcut       0: 13.99 s 1: 13.35 s
+5x6_highcut      0: 13.68 s 1: 12.98 s
+all shapes: 0 slots 60.85 s | 1 slots 57.84 s (-4.9 %)
+fit: 64 hit pieces (k = 1, 18-digit): saved 7.1 % of the piece measured, 6.7 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.069
+== k1_24
+hits: 27 products agree, 0 differ
+2x3_full         0: 2.72 s 1: 2.62 s
+2x6_full         0: 5.48 s 1: 5.12 s
+2x2_full         0: 1.35 s 1: 1.30 s
+2x2_lowhighcut   0: 1.31 s 1: 1.27 s
+1x2_lowcut       0: 0.67 s 1: 0.70 s
+5x3_lowhighcut   0: 4.69 s 1: 4.49 s
+2x4_lowcut       0: 2.72 s 1: 2.65 s
+5x6_lowcut       0: 9.03 s 1: 8.73 s
+5x6_highcut      0: 6.77 s 1: 6.45 s
+all shapes: 0 slots 34.73 s | 1 slots 33.34 s (-4.0 %)
+fit: 32 hit pieces (k = 1, P24): saved 6.9 % of the piece measured, 6.5 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.075
+== k2
+hits: 27 products agree, 0 differ
+2x3_full         0: 4.21 s 1: 3.78 s
+2x6_full         0: 8.42 s 1: 7.37 s
+2x2_full         0: 2.74 s 1: 2.51 s
+2x2_lowhighcut   0: 2.72 s 1: 2.54 s
+1x2_lowcut       0: 1.42 s 1: 1.29 s
+5x3_lowhighcut   0: 9.04 s 1: 7.93 s
+2x4_lowcut       0: 4.93 s 1: 4.46 s
+5x6_lowcut       0: 14.02 s 1: 12.63 s
+5x6_highcut      0: 13.56 s 1: 12.18 s
+all shapes: 0 slots 61.06 s | 1 slots 54.70 s (-10.4 %)
+fit: 64 hit pieces (k = 2, 18-digit): saved 14.6 % of the piece measured, 13.3 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.093
+== k2_24
+hits: 27 products agree, 0 differ
+2x3_full         0: 2.86 s 1: 2.64 s
+2x6_full         0: 5.64 s 1: 5.04 s
+2x2_full         0: 1.44 s 1: 1.33 s
+2x2_lowhighcut   0: 1.36 s 1: 1.29 s
+1x2_lowcut       0: 0.71 s 1: 0.72 s
+5x3_lowhighcut   0: 4.95 s 1: 4.39 s
+2x4_lowcut       0: 2.85 s 1: 2.61 s
+5x6_lowcut       0: 9.37 s 1: 8.71 s
+5x6_highcut      0: 6.97 s 1: 6.41 s
+all shapes: 0 slots 36.16 s | 1 slots 33.15 s (-8.3 %)
+fit: 32 hit pieces (k = 2, P24): saved 14.1 % of the piece measured, 12.9 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.087
+== k4
+hits: 36 products agree, 0 differ
+2x3_full         0: 4.18 s 1: 3.27 s 2: 3.05 s
+2x6_full         0: 8.32 s 1: 6.19 s 2: 5.98 s
+2x2_full         0: 2.71 s 1: 2.31 s 2: 2.10 s
+2x2_lowhighcut   0: 2.73 s 1: 2.27 s 2: 2.06 s
+1x2_lowcut       0: 1.41 s 1: 1.15 s 2: 1.20 s
+5x3_lowhighcut   0: 8.89 s 1: 6.79 s 2: 6.56 s
+2x4_lowcut       0: 4.94 s 1: 3.76 s 2: 3.76 s
+5x6_lowcut       0: 13.99 s 1: 10.72 s 2: 10.78 s
+5x6_highcut      0: 13.68 s 1: 10.42 s 2: 9.61 s
+all shapes: 0 slots 60.85 s | 1 slots 46.88 s (-23.0 %) | 2 slots 45.09 s (-25.9 %)
+fit: 137 hit pieces (k = full, 18-digit): saved 31.4 % of the piece measured, 30.9 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.017
+== k4_24
+hits: 36 products agree, 0 differ
+2x3_full         0: 2.84 s 1: 2.35 s 2: 2.10 s
+2x6_full         0: 5.62 s 1: 4.37 s 2: 4.11 s
+2x2_full         0: 1.39 s 1: 1.15 s 2: 1.12 s
+2x2_lowhighcut   0: 1.39 s 1: 1.13 s 2: 1.13 s
+1x2_lowcut       0: 0.70 s 1: 0.72 s 2: 0.68 s
+5x3_lowhighcut   0: 4.94 s 1: 3.77 s 2: 3.57 s
+2x4_lowcut       0: 2.85 s 1: 2.34 s 2: 2.16 s
+5x6_lowcut       0: 9.39 s 1: 7.39 s 2: 7.13 s
+5x6_highcut      0: 7.01 s 1: 5.65 s 2: 4.90 s
+all shapes: 0 slots 36.13 s | 1 slots 28.87 s (-20.1 %) | 2 slots 26.88 s (-25.6 %)
+fit: 72 hit pieces (k = full, P24): saved 31.7 % of the piece measured, 30.6 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 1.039
+== pool
+2x3_full         rep 1 slots 1: code  0 hits, model  4 (grid 2 x 3) DIFFERS
+2x3_full         rep 1 slots 2: code  0 hits, model  5 (grid 2 x 3) DIFFERS
+2x6_full         rep 1 slots 1: code  0 hits, model 10 (grid 2 x 6) DIFFERS
+2x6_full         rep 1 slots 2: code  0 hits, model 11 (grid 2 x 6) DIFFERS
+2x2_full         rep 1 slots 1: code  0 hits, model  2 (grid 2 x 2) DIFFERS
+2x2_full         rep 1 slots 2: code  0 hits, model  3 (grid 2 x 2) DIFFERS
+2x2_lowhighcut   rep 1 slots 1: code  0 hits, model  2 (grid 2 x 2) DIFFERS
+2x2_lowhighcut   rep 1 slots 2: code  0 hits, model  3 (grid 2 x 2) DIFFERS
+1x2_lowcut       rep 1 slots 1: code  0 hits, model  1 (grid 1 x 2) DIFFERS
+1x2_lowcut       rep 1 slots 2: code  0 hits, model  1 (grid 1 x 2) DIFFERS
+5x3_lowhighcut   rep 1 slots 1: code  0 hits, model 10 (grid 5 x 3) DIFFERS
+5x3_lowhighcut   rep 1 slots 2: code  0 hits, model 11 (grid 5 x 3) DIFFERS
+2x4_lowcut       rep 1 slots 1: code  0 hits, model  5 (grid 2 x 4) DIFFERS
+2x4_lowcut       rep 1 slots 2: code  0 hits, model  5 (grid 2 x 4) DIFFERS
+5x6_lowcut       rep 1 slots 1: code  0 hits, model 15 (grid 5 x 6) DIFFERS
+5x6_lowcut       rep 1 slots 2: code  0 hits, model 15 (grid 5 x 6) DIFFERS
+5x6_highcut      rep 1 slots 2: code 15 hits, model 19 (grid 5 x 6) DIFFERS
+hits: 19 products agree, 17 differ
+2x3_full         0: 4.19 s 1: 4.20 s 2: 4.24 s
+2x6_full         0: 8.42 s 1: 8.43 s 2: 8.39 s
+2x2_full         0: 2.78 s 1: 2.72 s 2: 2.73 s
+2x2_lowhighcut   0: 2.75 s 1: 2.76 s 2: 2.73 s
+1x2_lowcut       0: 1.36 s 1: 1.39 s 2: 1.41 s
+5x3_lowhighcut   0: 9.01 s 1: 9.02 s 2: 9.02 s
+2x4_lowcut       0: 4.97 s 1: 4.84 s 2: 4.91 s
+5x6_lowcut       0: 14.10 s 1: 14.20 s 2: 14.03 s
+5x6_highcut      0: 13.78 s 1: 12.34 s 2: 12.29 s
+all shapes: 0 slots 61.35 s | 1 slots 59.90 s (-2.4 %) | 2 slots 59.74 s (-2.6 %)
+fit: 30 hit pieces (k = full, 18-digit): saved 13.8 % of the piece measured, 30.9 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 0.447
+== pool_24
+2x3_full         rep 1 slots 1: code  0 hits, model  2 (grid 2 x 2) DIFFERS
+2x3_full         rep 1 slots 2: code  0 hits, model  3 (grid 2 x 2) DIFFERS
+2x6_full         rep 1 slots 1: code  0 hits, model  6 (grid 2 x 4) DIFFERS
+2x6_full         rep 1 slots 2: code  0 hits, model  7 (grid 2 x 4) DIFFERS
+2x2_full         rep 1 slots 1: code  0 hits, model  1 (grid 1 x 2) DIFFERS
+2x2_full         rep 1 slots 2: code  0 hits, model  1 (grid 1 x 2) DIFFERS
+5x3_lowhighcut   rep 1 slots 1: code  0 hits, model  5 (grid 4 x 2) DIFFERS
+5x3_lowhighcut   rep 1 slots 2: code  0 hits, model  6 (grid 4 x 2) DIFFERS
+2x4_lowcut       rep 1 slots 1: code  0 hits, model  2 (grid 2 x 2) DIFFERS
+2x4_lowcut       rep 1 slots 2: code  0 hits, model  3 (grid 2 x 2) DIFFERS
+5x6_lowcut       rep 1 slots 1: code  0 hits, model  9 (grid 4 x 4) DIFFERS
+5x6_lowcut       rep 1 slots 2: code  0 hits, model 10 (grid 4 x 4) DIFFERS
+5x6_highcut      rep 1 slots 2: code  6 hits, model  9 (grid 4 x 4) DIFFERS
+hits: 23 products agree, 13 differ
+2x3_full         0: 2.80 s 1: 2.82 s 2: 2.78 s
+2x6_full         0: 5.60 s 1: 5.65 s 2: 5.61 s
+2x2_full         0: 1.39 s 1: 1.39 s 2: 1.35 s
+2x2_lowhighcut   0: 1.38 s 1: 1.30 s 2: 1.27 s
+1x2_lowcut       0: 0.70 s 1: 0.72 s 2: 0.72 s
+5x3_lowhighcut   0: 4.89 s 1: 4.90 s 2: 4.92 s
+2x4_lowcut       0: 2.82 s 1: 2.81 s 2: 2.80 s
+5x6_lowcut       0: 9.38 s 1: 9.50 s 2: 9.38 s
+5x6_highcut      0: 7.00 s 1: 6.49 s 2: 6.43 s
+all shapes: 0 slots 35.95 s | 1 slots 35.59 s (-1.0 %) | 2 slots 35.27 s (-1.9 %)
+fit: 14 hit pieces (k = full, P24): saved 13.3 % of the piece measured, 30.5 % modelled (hit_cost x CACHE_HIT_F 0.96) -> measured / modelled 0.435
+== the 24-digit configurations against off_24 (the low-cut products' limbs below the cut depend on the grid: P24's differs from the 18-digit one)
+k1_24.log                                 18 (node, shape) products: identical to the reference
+k2_24.log                                 18 (node, shape) products: identical to the reference
+k4_24.log                                 18 (node, shape) products: identical to the reference
+pool_24.log                               18 (node, shape) products: identical to the reference

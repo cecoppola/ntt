@@ -1,0 +1,448 @@
+META limb_base=10^18
+META bench=cx_grid host=ppac-pl1-s24-26 date=2026-09-28T22:08:32
+META limb_base=10^18
+META bench=cx_grid host=ppac-pl1-s24-26 date=2026-09-28T22:08:32
+mn: node 0 of 2, four meshes of 2 ranks on ppac-pl1-s24-26,ppac-pl1-s24-26 (port base 25476): connected in 0.10 s
+mn: node 0: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+cx_grid: node 0 of 2, plane cap 2^25, pool_log 24, 1 repetitions (+ warm-up), slot counts 0,1
+mn: node 1 of 2, four meshes of 2 ranks on ppac-pl1-s24-26,ppac-pl1-s24-26 (port base 25476): connected in 0.09 s
+mn: node 1: level 1 group [0, 2) (transform nodes 2): meshes connected in 0.00 s
+cx_grid: node 1 of 2, plane cap 2^25, pool_log 24, 1 repetitions (+ warm-up), slot counts 0,1
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.00 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE) -- the pool GREW
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.00 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE) -- the pool GREW
+cache_trace node 0: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 1 x 1 prime: A - B cached | 1.315 s: redistribute 0.325 ntt 0.847 crt 0.034 out 0.104 carry 0.032
+cache_trace node 1: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 1 x 1 prime: A - B cached | 1.315 s: redistribute 0.292 ntt 0.851 crt 0.002 out 0.190 carry 0.032
+cache_trace node 0: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 1 x 1 prime: A - B HIT | 0.680 s: redistribute 0.043 ntt 0.546 crt 0.001 out 0.049 carry 0.048
+cache_trace node 1: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 1 x 1 prime: A - B HIT | 0.680 s: redistribute 0.043 ntt 0.542 crt 0.001 out 0.052 carry 0.049
+cache_trace node 0: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 1 x 1 prime: A - B cached | 0.723 s: redistribute 0.044 ntt 0.623 crt 0.001 out 0.046 carry 0.018
+cache_trace node 1: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 1 x 1 prime: A - B cached | 0.723 s: redistribute 0.044 ntt 0.620 crt 0.001 out 0.044 carry 0.018
+cache_trace node 0: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 1 x 1 prime: A - B HIT | 0.795 s: redistribute 0.062 ntt 0.549 crt 0.001 out 0.190 carry 0.002
+dist_mn node 0: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 1 x 1 prime: A - B HIT | 0.795 s: redistribute 0.036 ntt 0.553 crt 0.002 out 0.122 carry 0.002
+dist_mn node 1: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cx_grid node 0: the allocating product (1 slots): 3.634 s, the cache's allocation 0.00 s
+cx_grid node 1: the allocating product (1 slots): 3.634 s, the cache's allocation 0.00 s
+cache_trace node 0: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.047 ntt 0.620 crt 0.001 out 0.025 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.046 ntt 0.615 crt 0.001 out 0.038 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 0 x 4 primes: A - B - | 0.698 s: redistribute 0.040 ntt 0.609 crt 0.001 out 0.049 carry 0.019
+cache_trace node 1: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 0 x 4 primes: A - B - | 0.698 s: redistribute 0.040 ntt 0.604 crt 0.001 out 0.050 carry 0.019
+cache_trace node 0: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.051 ntt 0.602 crt 0.001 out 0.048 carry 0.019
+cache_trace node 1: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.049 ntt 0.601 crt 0.001 out 0.050 carry 0.019
+cache_trace node 0: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.048 ntt 0.608 crt 0.001 out 0.048 carry 0.002
+dist_mn node 0: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.047 ntt 0.616 crt 0.001 out 0.042 carry 0.002
+dist_mn node 1: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 0: 2.778 s, cache 0 hits 0 misses, C sha256 b53fe65e9accfa51 same
+cx_grid node 0: rep 0 (warm-up) shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 0: 2.778 s, cache 0 hits 0 misses, C sha256 19fe5a72de532305 same
+cache_trace node 0: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.037 ntt 0.587 crt 0.002 out 0.042 carry 0.004
+cache_trace node 1: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.037 ntt 0.591 crt 0.002 out 0.038 carry 0.004
+cache_trace node 0: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 0 x 4 primes: A - B - | 0.699 s: redistribute 0.046 ntt 0.601 crt 0.001 out 0.038 carry 0.024
+cache_trace node 1: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 0 x 4 primes: A - B - | 0.699 s: redistribute 0.043 ntt 0.599 crt 0.001 out 0.033 carry 0.024
+cache_trace node 0: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 0 x 4 primes: A - B - | 0.685 s: redistribute 0.039 ntt 0.583 crt 0.001 out 0.050 carry 0.021
+cache_trace node 1: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 0 x 4 primes: A - B - | 0.685 s: redistribute 0.038 ntt 0.590 crt 0.001 out 0.046 carry 0.021
+cache_trace node 0: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.047 ntt 0.590 crt 0.001 out 0.035 carry 0.023
+cache_trace node 1: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.046 ntt 0.591 crt 0.001 out 0.035 carry 0.023
+cache_trace node 0: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.038 ntt 0.590 crt 0.001 out 0.035 carry 0.024
+cache_trace node 1: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.038 ntt 0.592 crt 0.001 out 0.035 carry 0.024
+cache_trace node 0: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.047 ntt 0.591 crt 0.001 out 0.052 carry 0.021
+cache_trace node 1: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.046 ntt 0.596 crt 0.001 out 0.051 carry 0.021
+cache_trace node 0: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 0 x 4 primes: A - B - | 0.710 s: redistribute 0.039 ntt 0.617 crt 0.001 out 0.046 carry 0.023
+cache_trace node 1: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 0 x 4 primes: A - B - | 0.710 s: redistribute 0.038 ntt 0.615 crt 0.001 out 0.048 carry 0.023
+cache_trace node 0: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 0 x 4 primes: A - B - | 0.707 s: redistribute 0.046 ntt 0.607 crt 0.002 out 0.038 carry 0.025
+dist_mn node 0: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 0 x 4 primes: A - B - | 0.707 s: redistribute 0.046 ntt 0.608 crt 0.002 out 0.033 carry 0.025
+dist_mn node 1: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 0: rep 0 (warm-up) shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 0: 5.576 s, cache 0 hits 0 misses, C sha256 48a8b6d3da21f87f same
+cx_grid node 1: rep 0 (warm-up) shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 0: 5.576 s, cache 0 hits 0 misses, C sha256 da0b208cf6df82ca same
+cache_trace node 0: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 0 x 4 primes: A - B - | 0.666 s: redistribute 0.050 ntt 0.593 crt 0.001 out 0.047 carry 0.001
+cache_trace node 1: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 0 x 4 primes: A - B - | 0.666 s: redistribute 0.049 ntt 0.590 crt 0.001 out 0.045 carry 0.001
+cache_trace node 0: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 0 x 4 primes: A - B - | 0.675 s: redistribute 0.042 ntt 0.582 crt 0.001 out 0.048 carry 0.011
+dist_mn node 0: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 0 x 4 primes: A - B - | 0.675 s: redistribute 0.037 ntt 0.586 crt 0.001 out 0.045 carry 0.011
+dist_mn node 1: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 0: 1.343 s, cache 0 hits 0 misses, C sha256 d38838bf1dea5a21 same
+cx_grid node 0: rep 0 (warm-up) shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 0: 1.343 s, cache 0 hits 0 misses, C sha256 178231cd1ef2b51a same
+cache_trace node 0: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 0 x 4 primes: A - B - | 0.658 s: redistribute 0.037 ntt 0.582 crt 0.001 out 0.052 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 0 x 4 primes: A - B - | 0.658 s: redistribute 0.038 ntt 0.567 crt 0.001 out 0.054 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.644 s: redistribute 0.046 ntt 0.574 crt 0.001 out 0.029 carry 0.001
+dist_mn node 0: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.644 s: redistribute 0.039 ntt 0.581 crt 0.001 out 0.024 carry 0.001
+dist_mn node 1: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 0: 1.304 s, cache 0 hits 0 misses, C sha256 7aa2576d183901df same
+cx_grid node 0: rep 0 (warm-up) shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 0: 1.304 s, cache 0 hits 0 misses, C sha256 4a296081451480d4 same
+cx_grid node 1: rep 0 (warm-up) shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 0: 0.681 s, cache 0 hits 0 misses, C sha256 e750181209d87254 same
+cx_grid node 0: rep 0 (warm-up) shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 0: 0.681 s, cache 0 hits 0 misses, C sha256 300cb49213d3d27f same
+cache_trace node 0: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.881 s: redistribute 0.044 ntt 0.597 crt 0.004 out 0.145 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.881 s: redistribute 0.045 ntt 0.592 crt 0.002 out 0.261 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.687 s: redistribute 0.027 ntt 0.596 crt 0.001 out 0.051 carry 0.022
+cache_trace node 1: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.687 s: redistribute 0.029 ntt 0.601 crt 0.001 out 0.047 carry 0.021
+cache_trace node 0: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.916 s: redistribute 0.067 ntt 0.597 crt 0.001 out 0.260 carry 0.002
+cache_trace node 1: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.916 s: redistribute 0.039 ntt 0.649 crt 0.006 out 0.131 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.685 s: redistribute 0.041 ntt 0.613 crt 0.001 out 0.026 carry 0.015
+cache_trace node 1: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.685 s: redistribute 0.060 ntt 0.611 crt 0.001 out 0.024 carry 0.015
+cache_trace node 0: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.735 s: redistribute 0.059 ntt 0.619 crt 0.001 out 0.047 carry 0.024
+cache_trace node 1: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.735 s: redistribute 0.053 ntt 0.625 crt 0.001 out 0.043 carry 0.024
+cache_trace node 0: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.043 ntt 0.614 crt 0.001 out 0.041 carry 0.003
+cache_trace node 1: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.042 ntt 0.613 crt 0.001 out 0.042 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.055 ntt 0.609 crt 0.001 out 0.030 carry 0.015
+dist_mn node 0: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.048 ntt 0.614 crt 0.001 out 0.025 carry 0.015
+dist_mn node 1: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 0: 5.293 s, cache 0 hits 0 misses, C sha256 83d94cc607ada3a3 same
+cx_grid node 0: rep 0 (warm-up) shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 0: 5.294 s, cache 0 hits 0 misses, C sha256 7a1a1649c2d0cb2b same
+cache_trace node 0: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.637 s: redistribute 0.023 ntt 0.575 crt 0.001 out 0.027 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.637 s: redistribute 0.028 ntt 0.575 crt 0.001 out 0.039 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.041 ntt 0.599 crt 0.001 out 0.047 carry 0.023
+cache_trace node 1: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.042 ntt 0.595 crt 0.001 out 0.050 carry 0.023
+cache_trace node 0: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.045 ntt 0.590 crt 0.001 out 0.045 carry 0.024
+cache_trace node 1: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.044 ntt 0.590 crt 0.001 out 0.044 carry 0.024
+cache_trace node 0: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.052 ntt 0.586 crt 0.001 out 0.051 carry 0.003
+dist_mn node 0: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.049 ntt 0.593 crt 0.001 out 0.030 carry 0.002
+dist_mn node 1: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 0: 2.702 s, cache 0 hits 0 misses, C sha256 ec985af0744fe53f same
+cx_grid node 0: rep 0 (warm-up) shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 0: 2.702 s, cache 0 hits 0 misses, C sha256 845056bac9ddd4f8 same
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.031 ntt 0.587 crt 0.001 out 0.036 carry 0.034
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.031 ntt 0.579 crt 0.001 out 0.039 carry 0.035
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.705 s: redistribute 0.041 ntt 0.590 crt 0.001 out 0.057 carry 0.024
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.705 s: redistribute 0.042 ntt 0.594 crt 0.001 out 0.056 carry 0.024
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.041 ntt 0.605 crt 0.001 out 0.031 carry 0.031
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.048 ntt 0.600 crt 0.001 out 0.034 carry 0.031
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.713 s: redistribute 0.049 ntt 0.592 crt 0.001 out 0.054 carry 0.026
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.713 s: redistribute 0.050 ntt 0.592 crt 0.001 out 0.058 carry 0.026
+cache_trace node 0: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.032 ntt 0.593 crt 0.001 out 0.036 carry 0.033
+cache_trace node 1: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.044 ntt 0.593 crt 0.001 out 0.033 carry 0.033
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.707 s: redistribute 0.048 ntt 0.599 crt 0.001 out 0.040 carry 0.032
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.707 s: redistribute 0.047 ntt 0.600 crt 0.001 out 0.037 carry 0.033
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.041 ntt 0.593 crt 0.001 out 0.048 carry 0.025
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.040 ntt 0.591 crt 0.001 out 0.046 carry 0.025
+cache_trace node 0: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.736 s: redistribute 0.046 ntt 0.586 crt 0.001 out 0.080 carry 0.034
+cache_trace node 1: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.736 s: redistribute 0.045 ntt 0.586 crt 0.003 out 0.080 carry 0.033
+cache_trace node 0: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.682 s: redistribute 0.049 ntt 0.584 crt 0.001 out 0.041 carry 0.018
+cache_trace node 1: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.682 s: redistribute 0.045 ntt 0.587 crt 0.001 out 0.038 carry 0.017
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.701 s: redistribute 0.048 ntt 0.582 crt 0.001 out 0.046 carry 0.027
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.701 s: redistribute 0.047 ntt 0.586 crt 0.001 out 0.044 carry 0.027
+cache_trace node 0: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.038 ntt 0.581 crt 0.001 out 0.051 carry 0.035
+cache_trace node 1: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.037 ntt 0.583 crt 0.001 out 0.045 carry 0.034
+cache_trace node 0: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.692 s: redistribute 0.056 ntt 0.596 crt 0.001 out 0.040 carry 0.018
+cache_trace node 1: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.692 s: redistribute 0.056 ntt 0.600 crt 0.001 out 0.041 carry 0.018
+cache_trace node 0: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 0 x 4 primes: A - B - | 0.718 s: redistribute 0.056 ntt 0.601 crt 0.002 out 0.036 carry 0.031
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 0 x 4 primes: A - B - | 0.718 s: redistribute 0.054 ntt 0.605 crt 0.002 out 0.036 carry 0.031
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 0: 9.172 s, cache 0 hits 0 misses, C sha256 9cd829468ba4e146 same
+cx_grid node 0: rep 0 (warm-up) shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 0: 9.172 s, cache 0 hits 0 misses, C sha256 8dfd856fd8311bea same
+cache_trace node 0: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.666 s: redistribute 0.033 ntt 0.600 crt 0.001 out 0.037 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.666 s: redistribute 0.040 ntt 0.598 crt 0.001 out 0.036 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.706 s: redistribute 0.037 ntt 0.603 crt 0.001 out 0.050 carry 0.022
+cache_trace node 1: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.706 s: redistribute 0.042 ntt 0.606 crt 0.001 out 0.046 carry 0.022
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.047 ntt 0.588 crt 0.001 out 0.039 carry 0.003
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.049 ntt 0.585 crt 0.001 out 0.039 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.648 s: redistribute 0.036 ntt 0.580 crt 0.001 out 0.026 carry 0.015
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.648 s: redistribute 0.036 ntt 0.578 crt 0.001 out 0.022 carry 0.015
+cache_trace node 0: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.691 s: redistribute 0.050 ntt 0.590 crt 0.001 out 0.054 carry 0.019
+cache_trace node 1: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.691 s: redistribute 0.052 ntt 0.591 crt 0.001 out 0.053 carry 0.019
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.048 ntt 0.605 crt 0.001 out 0.037 carry 0.003
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.052 ntt 0.599 crt 0.001 out 0.038 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.657 s: redistribute 0.043 ntt 0.581 crt 0.001 out 0.023 carry 0.016
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.657 s: redistribute 0.043 ntt 0.579 crt 0.001 out 0.024 carry 0.015
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.672 s: redistribute 0.045 ntt 0.588 crt 0.001 out 0.044 carry 0.003
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.672 s: redistribute 0.044 ntt 0.589 crt 0.001 out 0.040 carry 0.002
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.665 s: redistribute 0.036 ntt 0.596 crt 0.001 out 0.024 carry 0.015
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.665 s: redistribute 0.036 ntt 0.600 crt 0.001 out 0.024 carry 0.015
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.654 s: redistribute 0.041 ntt 0.580 crt 0.001 out 0.027 carry 0.015
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.654 s: redistribute 0.040 ntt 0.582 crt 0.001 out 0.022 carry 0.015
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 0 (warm-up) shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 0: 6.700 s, cache 0 hits 0 misses, C sha256 27b0af0492a0457e same
+cx_grid node 0: rep 0 (warm-up) shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 0: 6.700 s, cache 0 hits 0 misses, C sha256 cf16d9f968b3c1fc same
+cache_trace node 0: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 0 x 4 primes: A - B - | 0.656 s: redistribute 0.041 ntt 0.598 crt 0.001 out 0.032 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 0 x 4 primes: A - B - | 0.656 s: redistribute 0.041 ntt 0.598 crt 0.001 out 0.029 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.038 ntt 0.601 crt 0.001 out 0.045 carry 0.019
+cache_trace node 1: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.038 ntt 0.602 crt 0.001 out 0.049 carry 0.019
+cache_trace node 0: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.043 ntt 0.592 crt 0.002 out 0.042 carry 0.020
+cache_trace node 1: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.042 ntt 0.587 crt 0.002 out 0.044 carry 0.020
+cache_trace node 0: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.046 ntt 0.602 crt 0.001 out 0.045 carry 0.003
+dist_mn node 0: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 0 x 4 primes: A - B - | 0.674 s: redistribute 0.045 ntt 0.599 crt 0.001 out 0.039 carry 0.002
+dist_mn node 1: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 1 shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 0: 2.724 s, cache 0 hits 0 misses, C sha256 b53fe65e9accfa51 same
+cx_grid node 0: rep 1 shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 0: 2.724 s, cache 0 hits 0 misses, C sha256 19fe5a72de532305 same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.67 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.88 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 1 x 1 prime: A - B cached | 0.638 s: redistribute 0.034 ntt 0.580 crt 0.001 out 0.033 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 19897701 + 19898891 limbs at 0, slots 1 x 1 prime: A - B cached | 0.638 s: redistribute 0.033 ntt 0.577 crt 0.001 out 0.036 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.047 ntt 0.560 crt 0.001 out 0.048 carry 0.020
+cache_trace node 1: piece (1, 0) of 2 x 2, 19897700 + 19898891 limbs at 19897701, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.047 ntt 0.564 crt 0.001 out 0.046 carry 0.020
+cache_trace node 0: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 1 x 1 prime: A - B cached | 0.693 s: redistribute 0.040 ntt 0.600 crt 0.001 out 0.048 carry 0.020
+cache_trace node 1: piece (0, 1) of 2 x 2, 19897701 + 19898891 limbs at 19898891, slots 1 x 1 prime: A - B cached | 0.693 s: redistribute 0.040 ntt 0.599 crt 0.001 out 0.044 carry 0.020
+cache_trace node 0: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 1 x 1 prime: A - B HIT | 0.625 s: redistribute 0.039 ntt 0.546 crt 0.001 out 0.039 carry 0.003
+dist_mn node 0: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 19897700 + 19898891 limbs at 39796592, slots 1 x 1 prime: A - B HIT | 0.625 s: redistribute 0.038 ntt 0.552 crt 0.001 out 0.032 carry 0.002
+dist_mn node 1: 39795401 x 39797782 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cx_grid node 1: rep 1 shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 1: 2.622 s, cache 2 hits 2 misses, C sha256 b53fe65e9accfa51 same
+cx_grid node 0: rep 1 shape 2x3_full (39795401 x 39797782, cut 0 / -1) slots 1: 2.622 s, cache 2 hits 2 misses, C sha256 19fe5a72de532305 same
+cache_trace node 0: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 0 x 4 primes: A - B - | 0.649 s: redistribute 0.037 ntt 0.590 crt 0.001 out 0.033 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 0 x 4 primes: A - B - | 0.649 s: redistribute 0.036 ntt 0.593 crt 0.001 out 0.030 carry 0.001
+cache_trace node 0: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.046 ntt 0.606 crt 0.001 out 0.031 carry 0.022
+cache_trace node 1: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.045 ntt 0.601 crt 0.001 out 0.036 carry 0.022
+cache_trace node 0: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.040 ntt 0.591 crt 0.001 out 0.042 carry 0.021
+cache_trace node 1: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.039 ntt 0.590 crt 0.001 out 0.038 carry 0.021
+cache_trace node 0: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 0 x 4 primes: A - B - | 0.676 s: redistribute 0.047 ntt 0.583 crt 0.001 out 0.034 carry 0.023
+cache_trace node 1: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 0 x 4 primes: A - B - | 0.676 s: redistribute 0.046 ntt 0.585 crt 0.001 out 0.031 carry 0.023
+cache_trace node 0: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 0 x 4 primes: A - B - | 0.706 s: redistribute 0.040 ntt 0.622 crt 0.001 out 0.033 carry 0.024
+cache_trace node 1: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 0 x 4 primes: A - B - | 0.706 s: redistribute 0.039 ntt 0.618 crt 0.001 out 0.034 carry 0.024
+cache_trace node 0: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.039 ntt 0.579 crt 0.001 out 0.049 carry 0.020
+cache_trace node 1: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 0 x 4 primes: A - B - | 0.680 s: redistribute 0.038 ntt 0.581 crt 0.001 out 0.046 carry 0.020
+cache_trace node 0: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 0 x 4 primes: A - B - | 0.681 s: redistribute 0.044 ntt 0.589 crt 0.001 out 0.043 carry 0.023
+cache_trace node 1: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 0 x 4 primes: A - B - | 0.681 s: redistribute 0.043 ntt 0.588 crt 0.001 out 0.039 carry 0.023
+cache_trace node 0: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 0 x 4 primes: A - B - | 0.700 s: redistribute 0.043 ntt 0.603 crt 0.001 out 0.040 carry 0.025
+dist_mn node 0: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 0 x 4 primes: A - B - | 0.700 s: redistribute 0.042 ntt 0.601 crt 0.001 out 0.043 carry 0.025
+dist_mn node 1: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 0: rep 1 shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 0: 5.478 s, cache 0 hits 0 misses, C sha256 48a8b6d3da21f87f same
+cx_grid node 1: rep 1 shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 0: 5.478 s, cache 0 hits 0 misses, C sha256 da0b208cf6df82ca same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.80 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.59 GB per APU (the smallest), the product's need 0.19, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 1 x 1 prime: A cached B - | 0.643 s: redistribute 0.030 ntt 0.580 crt 0.001 out 0.039 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 4, 19675988 + 19817047 limbs at 0, slots 1 x 1 prime: A cached B - | 0.643 s: redistribute 0.030 ntt 0.579 crt 0.001 out 0.035 carry 0.002
+cache_trace node 0: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 1 x 1 prime: A HIT B - | 0.636 s: redistribute 0.041 ntt 0.556 crt 0.001 out 0.030 carry 0.022
+cache_trace node 1: piece (0, 1) of 2 x 4, 19675988 + 19817047 limbs at 19817047, slots 1 x 1 prime: A HIT B - | 0.636 s: redistribute 0.040 ntt 0.559 crt 0.001 out 0.028 carry 0.023
+cache_trace node 0: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 1 x 1 prime: A HIT B - | 0.644 s: redistribute 0.038 ntt 0.546 crt 0.001 out 0.041 carry 0.021
+cache_trace node 1: piece (0, 2) of 2 x 4, 19675988 + 19817047 limbs at 39634094, slots 1 x 1 prime: A HIT B - | 0.644 s: redistribute 0.038 ntt 0.551 crt 0.001 out 0.038 carry 0.021
+cache_trace node 0: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 1 x 1 prime: A HIT B - | 0.629 s: redistribute 0.041 ntt 0.539 crt 0.001 out 0.034 carry 0.022
+cache_trace node 1: piece (0, 3) of 2 x 4, 19675988 + 19817046 limbs at 59451141, slots 1 x 1 prime: A HIT B - | 0.629 s: redistribute 0.040 ntt 0.540 crt 0.001 out 0.035 carry 0.022
+cache_trace node 0: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 1 x 1 prime: A cached B - | 0.667 s: redistribute 0.037 ntt 0.589 crt 0.002 out 0.034 carry 0.024
+cache_trace node 1: piece (1, 0) of 2 x 4, 19675988 + 19817047 limbs at 19675988, slots 1 x 1 prime: A cached B - | 0.667 s: redistribute 0.037 ntt 0.587 crt 0.002 out 0.034 carry 0.024
+cache_trace node 0: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 1 x 1 prime: A HIT B - | 0.629 s: redistribute 0.041 ntt 0.528 crt 0.001 out 0.046 carry 0.018
+cache_trace node 1: piece (1, 1) of 2 x 4, 19675988 + 19817047 limbs at 39493035, slots 1 x 1 prime: A HIT B - | 0.629 s: redistribute 0.041 ntt 0.533 crt 0.001 out 0.047 carry 0.019
+cache_trace node 0: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 1 x 1 prime: A HIT B - | 0.622 s: redistribute 0.041 ntt 0.534 crt 0.001 out 0.034 carry 0.021
+cache_trace node 1: piece (1, 2) of 2 x 4, 19675988 + 19817047 limbs at 59310082, slots 1 x 1 prime: A HIT B - | 0.622 s: redistribute 0.040 ntt 0.535 crt 0.001 out 0.032 carry 0.021
+cache_trace node 0: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 1 x 1 prime: A HIT B - | 0.646 s: redistribute 0.038 ntt 0.560 crt 0.001 out 0.035 carry 0.025
+dist_mn node 0: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 1 slots of 1 prime, partial: 6 hits, 2 misses)
+cache_trace node 1: piece (1, 3) of 2 x 4, 19675988 + 19817046 limbs at 79127129, slots 1 x 1 prime: A HIT B - | 0.646 s: redistribute 0.037 ntt 0.556 crt 0.001 out 0.037 carry 0.024
+dist_mn node 1: 39351976 x 79268187 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 4 pieces, 8 formed, 0 skipped (cache 1 slots of 1 prime, partial: 6 hits, 2 misses)
+cx_grid node 1: rep 1 shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 1: 5.120 s, cache 6 hits 2 misses, C sha256 da0b208cf6df82ca same
+cx_grid node 0: rep 1 shape 2x6_full (39351976 x 79268187, cut 0 / -1) slots 1: 5.120 s, cache 6 hits 2 misses, C sha256 48a8b6d3da21f87f same
+cache_trace node 0: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 0 x 4 primes: A - B - | 0.671 s: redistribute 0.030 ntt 0.593 crt 0.001 out 0.051 carry 0.001
+cache_trace node 1: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 0 x 4 primes: A - B - | 0.671 s: redistribute 0.030 ntt 0.592 crt 0.001 out 0.049 carry 0.001
+cache_trace node 0: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 0 x 4 primes: A - B - | 0.673 s: redistribute 0.047 ntt 0.584 crt 0.002 out 0.043 carry 0.011
+dist_mn node 0: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 0 x 4 primes: A - B - | 0.673 s: redistribute 0.043 ntt 0.584 crt 0.002 out 0.044 carry 0.011
+dist_mn node 1: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 1 shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 0: 1.346 s, cache 0 hits 0 misses, C sha256 d38838bf1dea5a21 same
+cx_grid node 0: rep 1 shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 0: 1.346 s, cache 0 hits 0 misses, C sha256 178231cd1ef2b51a same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.71 GB per APU (the smallest), the product's need 0.18, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.92 GB per APU (the smallest), the product's need 0.15, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 1 x 1 prime: A cached B - | 0.670 s: redistribute 0.032 ntt 0.592 crt 0.001 out 0.049 carry 0.001
+cache_trace node 1: piece (0, 0) of 1 x 2, 29117627 + 14827520 limbs at 0, slots 1 x 1 prime: A cached B - | 0.670 s: redistribute 0.032 ntt 0.595 crt 0.001 out 0.046 carry 0.001
+cache_trace node 0: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 1 x 1 prime: A HIT B - | 0.626 s: redistribute 0.041 ntt 0.537 crt 0.001 out 0.045 carry 0.011
+dist_mn node 0: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 1 slots of 1 prime, partial: 1 hits, 1 misses)
+cache_trace node 1: piece (0, 1) of 1 x 2, 29117627 + 14827520 limbs at 14827520, slots 1 x 1 prime: A HIT B - | 0.626 s: redistribute 0.040 ntt 0.535 crt 0.001 out 0.047 carry 0.011
+dist_mn node 1: 29117627 x 29655040 limbs over 2 x 4 ranks (cap 2^25 points, P24): 1 x 2 pieces, 2 formed, 0 skipped (cache 1 slots of 1 prime, partial: 1 hits, 1 misses)
+cx_grid node 0: rep 1 shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 1: 1.298 s, cache 1 hits 1 misses, C sha256 178231cd1ef2b51a same
+cx_grid node 1: rep 1 shape 2x2_full (29117627 x 29655040, cut 0 / -1) slots 1: 1.298 s, cache 1 hits 1 misses, C sha256 d38838bf1dea5a21 same
+cache_trace node 0: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 0 x 4 primes: A - B - | 0.644 s: redistribute 0.029 ntt 0.569 crt 0.002 out 0.046 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 0 x 4 primes: A - B - | 0.644 s: redistribute 0.034 ntt 0.563 crt 0.002 out 0.049 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.665 s: redistribute 0.043 ntt 0.602 crt 0.001 out 0.021 carry 0.001
+dist_mn node 0: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.665 s: redistribute 0.044 ntt 0.602 crt 0.001 out 0.024 carry 0.001
+dist_mn node 1: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 1 shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 0: 1.310 s, cache 0 hits 0 misses, C sha256 7aa2576d183901df same
+cx_grid node 0: rep 1 shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 0: 1.310 s, cache 0 hits 0 misses, C sha256 4a296081451480d4 same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.74 GB per APU (the smallest), the product's need 0.14, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.95 GB per APU (the smallest), the product's need 0.14, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 1 x 1 prime: A - B cached | 0.660 s: redistribute 0.033 ntt 0.585 crt 0.001 out 0.045 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 1, 21616618 + 21616617 limbs at 0, slots 1 x 1 prime: A - B cached | 0.660 s: redistribute 0.043 ntt 0.577 crt 0.001 out 0.047 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.613 s: redistribute 0.054 ntt 0.546 crt 0.001 out 0.025 carry 0.001
+dist_mn node 0: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 1 slots of 1 prime, partial: 1 hits, 1 misses)
+cache_trace node 1: piece (1, 0) of 2 x 1, 21616617 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.613 s: redistribute 0.046 ntt 0.544 crt 0.001 out 0.026 carry 0.001
+dist_mn node 1: 43233235 x 21616617 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 1 pieces, 2 formed, 0 skipped (low product) (low cut) (cache 1 slots of 1 prime, partial: 1 hits, 1 misses)
+cx_grid node 1: rep 1 shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 1: 1.275 s, cache 1 hits 1 misses, C sha256 7aa2576d183901df same
+cx_grid node 0: rep 1 shape 2x2_lowhighcut (43233235 x 21616617, cut 21616617 / 43233235) slots 1: 1.275 s, cache 1 hits 1 misses, C sha256 4a296081451480d4 same
+cx_grid node 1: rep 1 shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 0: 0.667 s, cache 0 hits 0 misses, C sha256 e750181209d87254 same
+cx_grid node 0: rep 1 shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 0: 0.667 s, cache 0 hits 0 misses, C sha256 300cb49213d3d27f same
+cx_grid node 1: rep 1 shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 1: 0.696 s, cache 0 hits 0 misses, C sha256 e750181209d87254 same
+cx_grid node 0: rep 1 shape 1x2_lowcut (21616617 x 21616617, cut 21616617 / -1) slots 1: 0.696 s, cache 0 hits 0 misses, C sha256 300cb49213d3d27f same
+cache_trace node 0: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.657 s: redistribute 0.048 ntt 0.594 crt 0.001 out 0.027 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.657 s: redistribute 0.052 ntt 0.590 crt 0.001 out 0.031 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.038 ntt 0.588 crt 0.002 out 0.052 carry 0.021
+cache_trace node 1: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.040 ntt 0.589 crt 0.002 out 0.049 carry 0.021
+cache_trace node 0: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.679 s: redistribute 0.041 ntt 0.607 crt 0.001 out 0.037 carry 0.002
+cache_trace node 1: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.679 s: redistribute 0.045 ntt 0.605 crt 0.001 out 0.033 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.658 s: redistribute 0.033 ntt 0.588 crt 0.002 out 0.025 carry 0.016
+cache_trace node 1: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.658 s: redistribute 0.034 ntt 0.588 crt 0.002 out 0.021 carry 0.016
+cache_trace node 0: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.689 s: redistribute 0.040 ntt 0.584 crt 0.002 out 0.048 carry 0.022
+cache_trace node 1: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.689 s: redistribute 0.040 ntt 0.585 crt 0.002 out 0.048 carry 0.022
+cache_trace node 0: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.656 s: redistribute 0.041 ntt 0.588 crt 0.001 out 0.038 carry 0.002
+cache_trace node 1: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.656 s: redistribute 0.040 ntt 0.586 crt 0.001 out 0.040 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.043 ntt 0.582 crt 0.001 out 0.021 carry 0.016
+dist_mn node 0: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.040 ntt 0.579 crt 0.001 out 0.026 carry 0.016
+dist_mn node 1: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 0: rep 1 shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 0: 4.693 s, cache 0 hits 0 misses, C sha256 7a1a1649c2d0cb2b same
+cx_grid node 1: rep 1 shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 0: 4.693 s, cache 0 hits 0 misses, C sha256 83d94cc607ada3a3 same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.66 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.86 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.649 s: redistribute 0.047 ntt 0.583 crt 0.001 out 0.038 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 2, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.649 s: redistribute 0.047 ntt 0.582 crt 0.001 out 0.035 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.039 ntt 0.563 crt 0.001 out 0.047 carry 0.021
+cache_trace node 1: piece (1, 0) of 4 x 2, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.051 ntt 0.564 crt 0.001 out 0.046 carry 0.021
+cache_trace node 0: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.609 s: redistribute 0.038 ntt 0.540 crt 0.001 out 0.037 carry 0.002
+cache_trace node 1: piece (2, 0) of 4 x 2, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.609 s: redistribute 0.039 ntt 0.534 crt 0.001 out 0.039 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.616 s: redistribute 0.035 ntt 0.545 crt 0.001 out 0.025 carry 0.015
+cache_trace node 1: piece (3, 0) of 4 x 2, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.616 s: redistribute 0.042 ntt 0.547 crt 0.001 out 0.026 carry 0.015
+cache_trace node 0: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.710 s: redistribute 0.051 ntt 0.614 crt 0.001 out 0.044 carry 0.022
+cache_trace node 1: piece (0, 1) of 4 x 2, 21616618 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.710 s: redistribute 0.051 ntt 0.609 crt 0.001 out 0.045 carry 0.022
+cache_trace node 0: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.618 s: redistribute 0.044 ntt 0.540 crt 0.001 out 0.035 carry 0.003
+cache_trace node 1: piece (1, 1) of 4 x 2, 21616618 + 21616617 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.618 s: redistribute 0.043 ntt 0.542 crt 0.001 out 0.040 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.619 s: redistribute 0.049 ntt 0.546 crt 0.001 out 0.024 carry 0.015
+dist_mn node 0: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 1 slots of 1 prime, partial: 5 hits, 2 misses)
+cache_trace node 1: piece (2, 1) of 4 x 2, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.619 s: redistribute 0.047 ntt 0.545 crt 0.001 out 0.027 carry 0.015
+dist_mn node 1: 86466471 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 2 pieces, 7 formed, 1 skipped (low product) (low cut) (cache 1 slots of 1 prime, partial: 5 hits, 2 misses)
+cx_grid node 0: rep 1 shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 1: 4.488 s, cache 5 hits 2 misses, C sha256 7a1a1649c2d0cb2b same
+cx_grid node 1: rep 1 shape 5x3_lowhighcut (86466471 x 43233235, cut 43233235 / 86466471) slots 1: 4.488 s, cache 5 hits 2 misses, C sha256 83d94cc607ada3a3 same
+cache_trace node 0: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.637 s: redistribute 0.031 ntt 0.582 crt 0.001 out 0.031 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.637 s: redistribute 0.031 ntt 0.577 crt 0.001 out 0.030 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.049 ntt 0.595 crt 0.001 out 0.047 carry 0.021
+cache_trace node 1: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.697 s: redistribute 0.049 ntt 0.591 crt 0.001 out 0.050 carry 0.021
+cache_trace node 0: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.689 s: redistribute 0.046 ntt 0.582 crt 0.001 out 0.043 carry 0.021
+cache_trace node 1: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.689 s: redistribute 0.045 ntt 0.585 crt 0.001 out 0.046 carry 0.021
+cache_trace node 0: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.053 ntt 0.604 crt 0.002 out 0.040 carry 0.002
+dist_mn node 0: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.052 ntt 0.610 crt 0.002 out 0.033 carry 0.002
+dist_mn node 1: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 0: rep 1 shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 0: 2.716 s, cache 0 hits 0 misses, C sha256 845056bac9ddd4f8 same
+cx_grid node 1: rep 1 shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 0: 2.716 s, cache 0 hits 0 misses, C sha256 ec985af0744fe53f same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.66 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.86 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.672 s: redistribute 0.049 ntt 0.611 crt 0.001 out 0.033 carry 0.001
+cache_trace node 1: piece (0, 0) of 2 x 2, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.672 s: redistribute 0.055 ntt 0.610 crt 0.001 out 0.033 carry 0.001
+cache_trace node 0: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.644 s: redistribute 0.042 ntt 0.531 crt 0.001 out 0.057 carry 0.020
+cache_trace node 1: piece (1, 0) of 2 x 2, 21616617 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.644 s: redistribute 0.045 ntt 0.533 crt 0.001 out 0.052 carry 0.020
+cache_trace node 0: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.695 s: redistribute 0.046 ntt 0.599 crt 0.001 out 0.049 carry 0.021
+cache_trace node 1: piece (0, 1) of 2 x 2, 21616618 + 21616617 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.695 s: redistribute 0.046 ntt 0.595 crt 0.001 out 0.046 carry 0.021
+cache_trace node 0: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.637 s: redistribute 0.054 ntt 0.557 crt 0.002 out 0.036 carry 0.003
+dist_mn node 0: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cache_trace node 1: piece (1, 1) of 2 x 2, 21616617 + 21616617 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.637 s: redistribute 0.048 ntt 0.558 crt 0.002 out 0.036 carry 0.002
+dist_mn node 1: 43233235 x 43233235 limbs over 2 x 4 ranks (cap 2^25 points, P24): 2 x 2 pieces, 4 formed, 0 skipped (low cut) (cache 1 slots of 1 prime, partial: 2 hits, 2 misses)
+cx_grid node 1: rep 1 shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 1: 2.651 s, cache 2 hits 2 misses, C sha256 ec985af0744fe53f same
+cx_grid node 0: rep 1 shape 2x4_lowcut (43233235 x 43233235, cut 43233235 / -1) slots 1: 2.651 s, cache 2 hits 2 misses, C sha256 845056bac9ddd4f8 same
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.031 ntt 0.600 crt 0.001 out 0.030 carry 0.031
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.686 s: redistribute 0.032 ntt 0.599 crt 0.001 out 0.030 carry 0.031
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.684 s: redistribute 0.039 ntt 0.576 crt 0.002 out 0.045 carry 0.027
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.684 s: redistribute 0.040 ntt 0.576 crt 0.002 out 0.045 carry 0.027
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.039 ntt 0.593 crt 0.001 out 0.035 carry 0.031
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.688 s: redistribute 0.044 ntt 0.590 crt 0.001 out 0.031 carry 0.031
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.043 ntt 0.586 crt 0.001 out 0.046 carry 0.026
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.694 s: redistribute 0.043 ntt 0.581 crt 0.001 out 0.047 carry 0.026
+cache_trace node 0: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.693 s: redistribute 0.042 ntt 0.580 crt 0.002 out 0.043 carry 0.037
+cache_trace node 1: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.693 s: redistribute 0.043 ntt 0.577 crt 0.002 out 0.049 carry 0.036
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.049 ntt 0.598 crt 0.001 out 0.031 carry 0.032
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.048 ntt 0.597 crt 0.001 out 0.032 carry 0.033
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.043 ntt 0.581 crt 0.001 out 0.046 carry 0.025
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.042 ntt 0.585 crt 0.001 out 0.047 carry 0.025
+cache_trace node 0: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.693 s: redistribute 0.050 ntt 0.579 crt 0.001 out 0.036 carry 0.035
+cache_trace node 1: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.693 s: redistribute 0.049 ntt 0.578 crt 0.001 out 0.038 carry 0.035
+cache_trace node 0: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.683 s: redistribute 0.044 ntt 0.593 crt 0.001 out 0.040 carry 0.017
+cache_trace node 1: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.683 s: redistribute 0.037 ntt 0.593 crt 0.001 out 0.037 carry 0.017
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.044 ntt 0.605 crt 0.001 out 0.047 carry 0.024
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.702 s: redistribute 0.044 ntt 0.605 crt 0.001 out 0.044 carry 0.024
+cache_trace node 0: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.718 s: redistribute 0.046 ntt 0.603 crt 0.002 out 0.039 carry 0.036
+cache_trace node 1: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 0 x 4 primes: A - B - | 0.718 s: redistribute 0.044 ntt 0.610 crt 0.002 out 0.035 carry 0.035
+cache_trace node 0: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.053 ntt 0.581 crt 0.001 out 0.043 carry 0.018
+cache_trace node 1: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 0 x 4 primes: A - B - | 0.690 s: redistribute 0.051 ntt 0.582 crt 0.001 out 0.040 carry 0.018
+cache_trace node 0: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 0 x 4 primes: A - B - | 0.705 s: redistribute 0.060 ntt 0.606 crt 0.001 out 0.038 carry 0.031
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 0 x 4 primes: A - B - | 0.705 s: redistribute 0.058 ntt 0.603 crt 0.001 out 0.039 carry 0.031
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 0: rep 1 shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 0: 9.027 s, cache 0 hits 0 misses, C sha256 8dfd856fd8311bea same
+cx_grid node 1: rep 1 shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 0: 9.027 s, cache 0 hits 0 misses, C sha256 9cd829468ba4e146 same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.66 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.86 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.688 s: redistribute 0.033 ntt 0.596 crt 0.001 out 0.036 carry 0.032
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.688 s: redistribute 0.034 ntt 0.593 crt 0.001 out 0.033 carry 0.032
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.645 s: redistribute 0.047 ntt 0.536 crt 0.001 out 0.046 carry 0.024
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.645 s: redistribute 0.049 ntt 0.529 crt 0.001 out 0.050 carry 0.024
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.675 s: redistribute 0.039 ntt 0.581 crt 0.001 out 0.033 carry 0.032
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.675 s: redistribute 0.047 ntt 0.580 crt 0.001 out 0.031 carry 0.032
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.651 s: redistribute 0.040 ntt 0.541 crt 0.001 out 0.050 carry 0.025
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.651 s: redistribute 0.040 ntt 0.542 crt 0.001 out 0.053 carry 0.026
+cache_trace node 0: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.663 s: redistribute 0.043 ntt 0.555 crt 0.001 out 0.039 carry 0.036
+cache_trace node 1: piece (3, 1) of 4 x 4, 21616617 + 21616618 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.663 s: redistribute 0.048 ntt 0.551 crt 0.001 out 0.035 carry 0.036
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.713 s: redistribute 0.051 ntt 0.600 crt 0.001 out 0.035 carry 0.033
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.713 s: redistribute 0.051 ntt 0.600 crt 0.001 out 0.038 carry 0.033
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.649 s: redistribute 0.045 ntt 0.538 crt 0.001 out 0.049 carry 0.025
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.649 s: redistribute 0.045 ntt 0.536 crt 0.001 out 0.046 carry 0.025
+cache_trace node 0: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.661 s: redistribute 0.060 ntt 0.555 crt 0.001 out 0.033 carry 0.036
+cache_trace node 1: piece (2, 2) of 4 x 4, 21616618 + 21616618 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.661 s: redistribute 0.055 ntt 0.552 crt 0.001 out 0.037 carry 0.035
+cache_trace node 0: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 1 x 1 prime: A - B HIT | 0.636 s: redistribute 0.047 ntt 0.544 crt 0.002 out 0.044 carry 0.018
+cache_trace node 1: piece (3, 2) of 4 x 4, 21616617 + 21616618 limbs at 108083090, slots 1 x 1 prime: A - B HIT | 0.636 s: redistribute 0.045 ntt 0.546 crt 0.001 out 0.039 carry 0.018
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B cached | 0.714 s: redistribute 0.040 ntt 0.598 crt 0.001 out 0.053 carry 0.027
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B cached | 0.714 s: redistribute 0.040 ntt 0.598 crt 0.001 out 0.051 carry 0.028
+cache_trace node 0: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.644 s: redistribute 0.041 ntt 0.536 crt 0.002 out 0.034 carry 0.036
+cache_trace node 1: piece (1, 3) of 4 x 4, 21616618 + 21616617 limbs at 86466472, slots 1 x 1 prime: A - B HIT | 0.644 s: redistribute 0.040 ntt 0.537 crt 0.002 out 0.033 carry 0.036
+cache_trace node 0: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 1 x 1 prime: A - B HIT | 0.651 s: redistribute 0.054 ntt 0.562 crt 0.001 out 0.036 carry 0.018
+cache_trace node 1: piece (2, 3) of 4 x 4, 21616618 + 21616617 limbs at 108083090, slots 1 x 1 prime: A - B HIT | 0.651 s: redistribute 0.051 ntt 0.561 crt 0.001 out 0.037 carry 0.018
+cache_trace node 0: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.051 ntt 0.543 crt 0.001 out 0.042 carry 0.031
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 1 slots of 1 prime, partial: 9 hits, 4 misses)
+cache_trace node 1: piece (3, 3) of 4 x 4, 21616617 + 21616617 limbs at 129699708, slots 1 x 1 prime: A - B HIT | 0.664 s: redistribute 0.049 ntt 0.550 crt 0.001 out 0.038 carry 0.031
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 13 formed, 3 skipped (low cut) (cache 1 slots of 1 prime, partial: 9 hits, 4 misses)
+cx_grid node 0: rep 1 shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 1: 8.732 s, cache 9 hits 4 misses, C sha256 8dfd856fd8311bea same
+cx_grid node 1: rep 1 shape 5x6_lowcut (86466471 x 86466471, cut 86466471 / -1) slots 1: 8.732 s, cache 9 hits 4 misses, C sha256 9cd829468ba4e146 same
+cache_trace node 0: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.675 s: redistribute 0.037 ntt 0.612 crt 0.001 out 0.039 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 0 x 4 primes: A - B - | 0.675 s: redistribute 0.038 ntt 0.610 crt 0.001 out 0.037 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.684 s: redistribute 0.034 ntt 0.579 crt 0.001 out 0.051 carry 0.023
+cache_trace node 1: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.684 s: redistribute 0.035 ntt 0.577 crt 0.001 out 0.050 carry 0.023
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.655 s: redistribute 0.038 ntt 0.589 crt 0.001 out 0.035 carry 0.002
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.655 s: redistribute 0.040 ntt 0.583 crt 0.001 out 0.040 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.701 s: redistribute 0.046 ntt 0.632 crt 0.001 out 0.024 carry 0.015
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.701 s: redistribute 0.047 ntt 0.630 crt 0.001 out 0.025 carry 0.015
+cache_trace node 0: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.045 ntt 0.590 crt 0.001 out 0.052 carry 0.020
+cache_trace node 1: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 0 x 4 primes: A - B - | 0.695 s: redistribute 0.051 ntt 0.582 crt 0.001 out 0.048 carry 0.021
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.677 s: redistribute 0.049 ntt 0.602 crt 0.001 out 0.034 carry 0.003
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.677 s: redistribute 0.054 ntt 0.594 crt 0.001 out 0.037 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.036 ntt 0.586 crt 0.001 out 0.029 carry 0.016
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.039 ntt 0.588 crt 0.001 out 0.029 carry 0.015
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.671 s: redistribute 0.051 ntt 0.583 crt 0.001 out 0.044 carry 0.002
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 0 x 4 primes: A - B - | 0.671 s: redistribute 0.050 ntt 0.588 crt 0.001 out 0.046 carry 0.002
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.044 ntt 0.577 crt 0.002 out 0.037 carry 0.015
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.662 s: redistribute 0.043 ntt 0.578 crt 0.002 out 0.030 carry 0.015
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.682 s: redistribute 0.050 ntt 0.597 crt 0.001 out 0.027 carry 0.016
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 0 slots, partial: 0 hits, 0 misses)
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 0 x 4 primes: A - B - | 0.682 s: redistribute 0.050 ntt 0.600 crt 0.001 out 0.025 carry 0.015
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 0 slots, partial: 0 hits, 0 misses)
+cx_grid node 1: rep 1 shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 0: 6.770 s, cache 0 hits 0 misses, C sha256 27b0af0492a0457e same
+cx_grid node 0: rep 1 shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 0: 6.770 s, cache 0 hits 0 misses, C sha256 cf16d9f968b3c1fc same
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 0: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 0.83 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+   transform cache (RNS_DIST_CACHE_PARTIAL) node 1: 1 slot of 1 of 4 primes, q 2^22.00, from the block pool: 0.03 GB per APU (0.13 per node) | pool free 1.04 GB per APU (the smallest), the product's need 0.21, margin 0.50 -> 1 planes (RNS_DIST_CACHE_PARTIAL_FORCE)
+cache_trace node 0: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.646 s: redistribute 0.044 ntt 0.580 crt 0.002 out 0.034 carry 0.001
+cache_trace node 1: piece (0, 0) of 4 x 4, 21616618 + 21616618 limbs at 0, slots 1 x 1 prime: A - B cached | 0.646 s: redistribute 0.049 ntt 0.578 crt 0.002 out 0.038 carry 0.001
+cache_trace node 0: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.650 s: redistribute 0.038 ntt 0.543 crt 0.001 out 0.054 carry 0.023
+cache_trace node 1: piece (1, 0) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B HIT | 0.650 s: redistribute 0.041 ntt 0.542 crt 0.001 out 0.054 carry 0.023
+cache_trace node 0: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.611 s: redistribute 0.037 ntt 0.547 crt 0.001 out 0.034 carry 0.002
+cache_trace node 1: piece (2, 0) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.611 s: redistribute 0.045 ntt 0.544 crt 0.001 out 0.036 carry 0.002
+cache_trace node 0: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.615 s: redistribute 0.044 ntt 0.538 crt 0.001 out 0.026 carry 0.016
+cache_trace node 1: piece (3, 0) of 4 x 4, 21616617 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.615 s: redistribute 0.048 ntt 0.536 crt 0.001 out 0.026 carry 0.016
+cache_trace node 0: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.699 s: redistribute 0.043 ntt 0.597 crt 0.001 out 0.048 carry 0.021
+cache_trace node 1: piece (0, 1) of 4 x 4, 21616618 + 21616618 limbs at 21616618, slots 1 x 1 prime: A - B cached | 0.699 s: redistribute 0.049 ntt 0.602 crt 0.001 out 0.043 carry 0.021
+cache_trace node 0: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.627 s: redistribute 0.042 ntt 0.550 crt 0.001 out 0.037 carry 0.002
+cache_trace node 1: piece (1, 1) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B HIT | 0.627 s: redistribute 0.043 ntt 0.549 crt 0.001 out 0.038 carry 0.002
+cache_trace node 0: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.609 s: redistribute 0.039 ntt 0.533 crt 0.001 out 0.030 carry 0.016
+cache_trace node 1: piece (2, 1) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.609 s: redistribute 0.043 ntt 0.532 crt 0.001 out 0.025 carry 0.015
+cache_trace node 0: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.689 s: redistribute 0.054 ntt 0.600 crt 0.002 out 0.042 carry 0.003
+cache_trace node 1: piece (0, 2) of 4 x 4, 21616618 + 21616618 limbs at 43233236, slots 1 x 1 prime: A - B cached | 0.689 s: redistribute 0.053 ntt 0.599 crt 0.002 out 0.038 carry 0.002
+cache_trace node 0: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.622 s: redistribute 0.043 ntt 0.551 crt 0.001 out 0.023 carry 0.016
+cache_trace node 1: piece (1, 2) of 4 x 4, 21616618 + 21616618 limbs at 64849854, slots 1 x 1 prime: A - B HIT | 0.622 s: redistribute 0.042 ntt 0.548 crt 0.001 out 0.027 carry 0.016
+cache_trace node 0: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B cached | 0.680 s: redistribute 0.043 ntt 0.605 crt 0.001 out 0.027 carry 0.016
+dist_mn node 0: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 1 slots of 1 prime, partial: 6 hits, 4 misses)
+cache_trace node 1: piece (0, 3) of 4 x 4, 21616618 + 21616617 limbs at 64849854, slots 1 x 1 prime: A - B cached | 0.680 s: redistribute 0.042 ntt 0.604 crt 0.001 out 0.027 carry 0.015
+dist_mn node 1: 86466471 x 86466471 limbs over 2 x 4 ranks (cap 2^25 points, P24): 4 x 4 pieces, 10 formed, 6 skipped (low product) (cache 1 slots of 1 prime, partial: 6 hits, 4 misses)
+cx_grid node 1: rep 1 shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 1: 6.454 s, cache 6 hits 4 misses, C sha256 27b0af0492a0457e same
+cx_grid node 1: the cache's allocation 0.00 s (once, excluded above)
+cx_grid node 0: rep 1 shape 5x6_highcut (86466471 x 86466471, cut 0 / 86466471) slots 1: 6.454 s, cache 6 hits 4 misses, C sha256 cf16d9f968b3c1fc same
+cx_grid node 0: the cache's allocation 0.00 s (once, excluded above)
+
+cx_grid: VERIFY OK (1 checks)
+
+cx_grid: VERIFY OK (1 checks)
