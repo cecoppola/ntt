@@ -538,10 +538,56 @@ def exact_sizes(T):
     lim = lambda lg: int(math.floor(lg / LIMB_DIGITS)) + 1
     return dict(dl=(d + 17) // 18, nq=lim(lq), pn=lim(lq + math.log10(math.e - 1)), sn=lim(lq + math.log10(math.e)))
 
+DKM = os.environ.get('MN_MODEL_DKM', '0') == '1'   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
+DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
+DKM_HI = os.environ.get('MN_MODEL_DKM_HI', '0') == '1'   # NOT BUILT (results/DKM15.md 1.3): a writer hook after step 1 writing X_hi's digits (final
+                                                     # there) under step 2 -- the overlap is then all of step 2 ('hide_hi')
+
+def division_cost_dkm(fab, nq, dl, npn, g, rule, form, sn=None):
+    """Phase 15 DKM (newton_db.c mn_divmod_dkm): the reciprocal to h = floor(k_mu/2) + 1; step 1 = today's division of A >> s by Q
+    (s = min(floor(k/2), dl); A_h' (k1 + 1) x mu' (k1 + 1) cut below k1 + 1, X_hi Q mod B^w, the window, the corrections); step 2 =
+    the division of R1 B^s (R1_top (s + 1) x mu'' (s + 2) cut below s + 2, X_lo Q mod B^w); the assembly X_hi B^s + X_lo (three shifts,
+    one add).  DKM_LAST['hide'] = what the early writer overlaps: step 2's low product and what follows"""
+    if sn is None: sn = npn
+    na = sn + dl; k = na - nq + 1; w = nq + 2; kmu = npn + 1 + dl - nq + 1
+    s = min(k // 2, dl); k1 = k - s; h = max(k1, s + 1); hmu = kmu // 2 + 1
+    rc, groups = recip_cost(fab, nq, max(hmu, h), g, rule, form)
+    c = Cost()
+    c.add(shift_cost(fab, nq, g)); c.add(small_cost(fab, g, 3))        # Q into P's basis, S = P + Q, residues of P, Q
+    c.add(shift_cost(fab, k1 + 1, g))                                  # mu's top k1 + 1
+    nah = sn - (nq - 1 - (dl - s))                                     # A_h' = S >> (nq - 1 - dl1): k1 + 1 limbs
+    c.add(shift_cost(fab, nah, g))
+    c1 = product_cost(fab, nah, k1 + 1, g, lowcut=k1 + 1, form=form); c.add(c1)   # X_hi = high(A_h' mu')
+    c.add(shift_cost(fab, nah + k1 + 1, g))                            # X_hi
+    c.add(shift_cost(fab, na, g)); c.add(shift_cost(fab, nq, g))       # the window, Q in basis w
+    c2 = product_cost(fab, k1, nq, g, highcut=w, form=form); c.add(c2)   # X_hi Q mod B^w
+    c.add(small_cost(fab, g, 5))                                       # cmp, sub, corrections, X_hi +- dx
+    t_step1 = c.t                                                      # (X_hi is final here: X's limbs at and above s)
+    c.add(shift_cost(fab, s + 2, g))                                   # mu's top s + 2
+    c.add(shift_cost(fab, s + 1, g))                                   # R1_top
+    c3 = product_cost(fab, s + 1, s + 2, g, lowcut=s + 2, form=form); c.add(c3)   # X_lo = high(R1_top mu'')
+    c.add(shift_cost(fab, 2 * s + 3, g))                               # X_lo
+    c.add(shift_cost(fab, w, g))                                       # the window of R1 B^s
+    c.add(shift_cost(fab, k, g)); c.add(shift_cost(fab, k, g)); c.add(small_cost(fab, g, 1)); c.add(shift_cost(fab, k, g))   # X_hi << s, X_lo in basis, add, X in its basis
+    c4 = product_cost(fab, s, nq, g, highcut=w, form=form); c.add(c4)  # X_lo Q mod B^w
+    rest = Cost(); rest.add(small_cost(fab, g, 6))                     # cmp, sub, corrections, X +- dx, R residues
+    c.add(rest)
+    DKM_LAST.clear(); DKM_LAST.update(h=h, hmu=hmu, s=s, k1=k1, c1=c1.t, c2=c2.t, c3=c3.t, c4=c4.t, p1=c1.pieces, p2=c2.pieces, p3=c3.pieces, p4=c4.pieces, hide=c4.t + rest.t, hide_hi=c.t - t_step1, total=c.t)
+    return rc, c, groups
+
+def ovl_div(dc, g):
+    """the part of the division the early writer runs under: OVL1 x the division (FITTED at size 1); Phase 15 DKM: the hook is before
+    step 2's low product, so step 2's low product and what follows (DKM_LAST['hide'], scaled as dc.t was) -- ASSUMED fully overlapped; size > 1 only
+    (size 1's division is the measured phase table: DKM is measured there, not modelled)"""
+    if DKM and g > 1 and DKM_LAST.get('total'): return DKM_LAST['hide_hi' if DKM_HI else 'hide'] * dc.t / DKM_LAST['total']
+    return OVL1 * dc.t
+
 def division_cost(fab, nq, dl, npn, g, rule, form, sn=None):
     """S = P + Q, A_h = S >> (nq - 1 - dl), t = A_h mu (low cut k + 1), X = t >> (k + 1), X Q mod B^w (high cut w),
     the window, the corrections, the residues; the reciprocal first.  Phase 13d D2 (newton_db.c newton_mn_divmod, L's plan):
-    the reciprocal to k_mu = P + 1 + dl - nq + 1 (S's largest possible length), the division's k = S + dl - nq + 1"""
+    the reciprocal to k_mu = P + 1 + dl - nq + 1 (S's largest possible length), the division's k = S + dl - nq + 1.
+    Phase 15 DKM: MN_MODEL_DKM=1 (the module's DKM) prices NEWTON_DKM=1 instead (division_cost_dkm)"""
+    if DKM: return division_cost_dkm(fab, nq, dl, npn, g, rule, form, sn)
     if sn is None: sn = npn
     na = sn + dl; k = na - nq + 1; w = nq + 2; kmu = npn + 1 + dl - nq + 1
     rc, groups = recip_cost(fab, nq, kmu, g, rule, form)
@@ -1689,7 +1735,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
     t1_wait = 0.0
     if p15 and dc_exposed is None:                     # Phase 15 (D3): the two walls, the part file as the code writes it
         if g == 1:                                     # size 1: the writer starts at the hook (before the low product) and overlaps OVL1 x the division; a
-            O = OVL1 * dc.t; fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
+            O = ovl_div(dc, 1); fmt = DC_FMT1 * D / 1e9   # correction after the hook makes T1 wait for it (inside `total`) and then redoes the digits and rewrites
             if corrections and not p15b:               # the file after `total` (V2's finding, results/V214.md); ECALC_CORR_PATCH (p15b): no wait, no rewrite
                 t1_wait = max(0.0, out_write - O); dc_file = out_write + DC_FIX; dc_nofile = fmt
             else:
@@ -1699,7 +1745,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         else:                                          # size > 1: mn_out_run after T1 -- formatting (DC_FMT_MN) and the write in a pipeline, nothing under the division
             fmt = DC_FMT_MN * D / 1e9
             if design.early:                           # MN_OUT_EARLY=1 (2026-09-27): the part file starts at the hook (X formed, before the low product) and
-                out_exposed = max(0.0, max(out_write, fmt) - OVL1 * dc.t)   # overlaps OVL1 x the division, as the size-1 writer does (IO15: dc -> 0 on 2 nodes)
+                out_exposed = max(0.0, max(out_write, fmt) - ovl_div(dc, g))   # overlaps OVL1 x the division, as the size-1 writer does (IO15: dc -> 0 on 2 nodes)
             else: out_exposed = max(out_write, fmt) if design.out_overlap == 'none' else max(fmt, out_write - t_lowprod)
             wall_nowrite = t_compute + fmt                 # (without a part file the hook is not set: the digits' residues after T1)
         if p15b: out_exposed += EXIT_S; wall_nowrite += EXIT_S   # the process's exit (measured), on both walls
