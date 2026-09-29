@@ -549,7 +549,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 /* Phase 13a M (TASKS 1.1): BS_LAYOUT_ONLY="D:g[,D:g...]" -- print the arena request binsplit_pregrow would make for D digits
  * per node over g node-processes (rank 0's term range, this process's POOL_LOG and switches), without allocating it, and
  * exit.  One `layout:` line per point (bytes, per device unless named): mem_model.py --check-c compares its own port of these
- * formulas with the lines, term by term.  Needs no other process: COMM_SIZE is not read, g comes from the list. */
+ * formulas with the lines, term by term.  Needs no other process: g comes from the list (MS: and is set as COMM_SIZE per point). */
 /* Phase 13b P: the arena binsplit_pregrow requests per node (bytes) for N terms of a run over g node-processes (rank 0's range
  * set by the caller), at the current rns_pool_log(); *bs2 = its bs-region part */
 static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
@@ -586,6 +586,19 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     if (planes_) *planes_ = planes; if (arena_) *arena_ = arena; if (host_) *host_ = host;
     return planes + arena + host;
 }
+/* MS (Phase 15): BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
+ * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and MN_P24=2's decision (rns_dist.c mn_p24_of)
+ * reads rns_pool0_np(): without this the layout and its check did not see MN_P24=2 (P24's open issue 3).  Nothing else in the
+ * layout reads COMM_SIZE (the output is byte-identical without MN_P24=2). */
+void binsplit_layout_comm_size(int g)
+{
+    static int saved; static char *old;
+    if (g > 1) { if (!saved) { const char *e = getenv("COMM_SIZE"); old = e ? strdup(e) : 0; saved = 1; }
+                 char b[16]; snprintf(b, sizeof b, "%d", g); setenv("COMM_SIZE", b, 1); return; }
+    if (!saved) return;
+    if (old) { setenv("COMM_SIZE", old, 1); free(old); old = 0; } else unsetenv("COMM_SIZE");
+    saved = 0;
+}
 static void binsplit_layout_only(const char *spec)
 {
     unsigned long a0 = bs_a0, b1 = bs_b1;
@@ -596,6 +609,7 @@ static void binsplit_layout_only(const char *spec)
         s = *e ? e + 1 : e;
         unsigned long d = (unsigned long)(D * g + 0.5); d = (d + 17) / 18 * 18; unsigned long N = e_terms(d);
         if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }
+        binsplit_layout_comm_size(g);                                   /* MS: COMM_SIZE = g for this point (restored below) */
         size_t need[NR]; region_need(N, need);
         struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
         size_t top = 0; if (g > 1) { size_t nq_s = (L.nq + g - 1) / g; tree_need_dev(nq_s, g, rns_pool_log() > 0 ? rns_pool_log() : 31, &top); }
@@ -620,6 +634,7 @@ static void binsplit_layout_only(const char *spec)
               printf(" cap %s%s: planes %.2f arena %.2f device %.2f node %.2f |", bs_cap_name[c], c == cur ? "*" : "", pb * 1e-9, ab * 1e-9, (pb + ab) * 1e-9, tot * 1e-9);
           }
           printf(" (GB; device = plane pools + arena + 0.61 tables, node = + host init %.1f)\n", (BS_HOST_INIT_BYTES + (g > 1 ? 6e9 : 0)) * 1e-9); }
+        binsplit_layout_comm_size(0);
     }
     fflush(stdout);
     bs_a0 = a0; bs_b1 = b1;
