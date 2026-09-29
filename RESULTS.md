@@ -3850,3 +3850,14 @@ catalog's single-stream figure; 2.0 / 1.0 / 0.6 printed). **576-node estimate (s
 the cache at 0 slots)**: **5.1 × 10¹³ in 400.0 s (6.67 min) without the write, 394.6 s (6.58 min) with the packed write** — the
 write is fully hidden under the division at 1 GB/s. With Batch 3's P24 + DKM (pending decisions): ≈ 285 / 305 s (the shorter
 division hides ≈ 20 s less; DKM's early writer, Batch 3 item 8, would hide it). Assumed: the rate holds with 576 nodes writing.
+
+## 92. B3: Batch 3 merged (2026-09-29; results/{P2415,DKM15,MPB15,INT315,MS15,DL15,EW15,PC15,WM15,SX15}.md)
+
+Defaults added: **`MN_P24=2`** (24 digits per point in every multi-node product: −38 % at 10¹⁰ on 2 processes, measured) and
+**`NEWTON_DKM=1`** (the division in two halves: dm 88.8 → 63.1 s at 10¹¹ on one node, measured); DL's arena layout for DKM and the
+room's budget check (10¹¹ identical, time-neutral, 0 remaps; room kept up to 5.396 × 10¹³ at 576); WM's fix of race H1 (reproduced:
+52/52 checks fail without, pass with). Off by default: EW `MN_OUT_DKM_HI` (−7.2 s with the write at the target, modelled; gates
+21/21), PC `RNS_DIST_CACHE_PARTIAL` (−21.8 % at 10¹⁰ with full slots, measured; −6…−14 s at the target, modelled), MPB
+`ECALC_NP_AUTO_MIN`. SX (skip X·Q): the user kept the low product. Each branch passed its own gates (identical digits); the merged
+regression is recorded below. **576-node estimate (standing rule; modelled, fabric assumed, cache 0 slots, write 1 GB/s):
+the target 5.276 × 10¹³ in 292.4 s (4.87 min) without the write, 313.8 s (5.23 min) with it; node ≈ 471.9 GB.**
