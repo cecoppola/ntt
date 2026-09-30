@@ -9,6 +9,17 @@ this note sets the order, the gates and what to hand back.
 
 ## Where things stand when you start
 
+- **2026-09-29, int15j (the user's decisions of 2026-09-29; main = B3 + int15j; supersedes the figures below, kept as history)**: the target is
+  **5.276 × 10¹³ digits** (`ecalc 52760000000000`, since B3). The launch line (`docs/TARGET.md` §4) now also carries **`MN_OUT_DKM_HI=1`**
+  (the writer on X_hi after the division's step 1: **two part files per node, 1152 in all** — the convert, `digcmp.sh` and `ECALC_RECHECK`
+  take them as they are; T4b's convert line runs two parts per node) and **`RNS_DIST_CACHE_PARTIAL=1`** (cache slots per grid product from
+  the block pool; on the launch line, not a default: its gain at the target's margins is modelled). Standing estimate (modelled,
+  `MN_OUT_DKM_HI=1 ./estimate.py --target`): **284.2 s (4.74 min) without the write, 299.3 s (4.99 min) with the packed write at 1 GB/s,
+  node ≈ 471.9 GB**; plan check OK, 149 pieces (159 on the critical path), pool 9472 MiB. **Decided on aac6, not for the target:**
+  `MN_T_CHUNK_MB=1024` stays (T11 tests 0 against it once `T_ROUND` is measured). **Decided on the target only:** `MN_GROUPS` (T5),
+  the output stripes and waves (T10), the aggregate write rate with 576 writers (T1). Off by default, the user's later call:
+  `ECALC_FAST_EXIT=1` (`_exit` after the reports, RESULTS §93). The multi-node division's peak was measured at 2 node-processes
+  (RESULTS §93; DL15's counted margin).
 - **2026-09-28, DOC2 (the user's decisions of 2026-09-28, RESULTS §88; main = B2; supersedes the figures of the next bullets, kept as
   history)**: the launch line (`docs/TARGET.md` §4) carries **`ECALC_NP=auto`** (four primes only for the products over the three-prime
   bound; it was `ECALC_NP=4`) and **`RNS_DIST_CACHE_FIT=1`** (the mn transform cache bounded by the budget: **0 slots at the target**);

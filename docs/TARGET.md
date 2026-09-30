@@ -227,6 +227,8 @@ per-message cost is the limit).
 
 > **2026-09-29, B3: the target is 5.276 × 10¹³ digits** (the user's Batch 3 decision; `ecalc 52760000000000`). Defaults add `MN_P24=2`, `NEWTON_DKM=1`, DKM's arena layout and the corrected room check (DL: the room is kept up to 5.396 × 10¹³; the absolute ceiling is 5.532 × 10¹³). Plan check OK (149 pieces, 159 on the critical path). Modelled: **292.4 s (4.87 min) without the write, 313.8 s (5.23 min) with the packed write at 1 GB/s**, node ≈ 471.9 GB. Launch line unchanged otherwise (`ECALC_NP=auto`, `RNS_DIST_CACHE_FIT=1`, `COMM_SHMEM_ROUND_MB=1024`, `ECALC_MEM_GUARD_GB=6`). Off by default, for later decisions: `MN_OUT_DKM_HI` (EW, −7 s with the write), `RNS_DIST_CACHE_PARTIAL` (PC, −6…−14 s). Open risk: the multi-node division's peak is counted, not measured (≈ 1.4 GB margin; DL15). Figures below are history.
 
+> **2026-09-29 (int15j, the user's decisions of 2026-09-29): the launch line adds `MN_OUT_DKM_HI=1` (EW: the writer starts on X_hi's digits after the division's step 1; **each node then writes two part files**, `part<size−1−r>` = its share of X_hi and `part<2·size−1−r>` = its share of X_lo, 1152 parts at 576 nodes, sorted names = the file; `tools/unpack_digits`, `digcmp.sh` and `ECALC_RECHECK` take them as they are — §4 "Off the clock" and §6 item 5 give the per-node convert line for two parts) and `RNS_DIST_CACHE_PARTIAL=1` (PC: transform-cache slots per grid product from the block pool's free bytes, nothing added to the node; on the launch line, not a default). Both measured identical on aac6 (RESULTS §93). Off by default and not on the launch line: `ECALC_FAST_EXIT` (`_exit` after the reports; the user decides). **Standing estimate (modelled, `MN_OUT_DKM_HI=1 ./estimate.py --target`, the `RNS_DIST_CACHE_PARTIAL` row): 5.276 × 10¹³ in 284.2 s (4.74 min) without the write, 299.3 s (4.99 min) with the packed write at 1 GB/s; node ≈ 471.9 GB** (the cache's pool slots: tree 1 / division 1 prime by the pool rule). `MN_T_CHUNK_MB=1024` stays; `MN_GROUPS`, the output stripes and waves are decided on the target (TARGET_TASKS T5, T10). The multi-node division's peak was measured at 2 node-processes (RESULTS §93); `mem_model.py` now counts every VMM arena in whole 2 GiB chunks (the room-0 ceilings are DL15's '+c' figures).
+
 ## 2. Build
 
 ```
@@ -339,6 +341,8 @@ One process per node, four APUs per process (the process drives its APUs with fo
 export COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
 export ECALC_NP=auto                          # the user's decision 1 of 2026-09-28 (was 4): four primes only for the products over the three-prime bound; never 3 (refused), and 4 is 489 GB per node (over 480)
 export RNS_DIST_CACHE_FIT=1                   # the user's decision 2 of 2026-09-28: the mn transform cache bounded by the budget (0 slots at 5.1e13); NEVER without it (trap 15)
+export RNS_DIST_CACHE_PARTIAL=1               # the user's decision of 2026-09-29 (int15j): cache slots per grid product from the block pool's free bytes (nothing added to the node; -8 s modelled)
+export MN_OUT_DKM_HI=1                        # the user's decision of 2026-09-29 (int15j): the writer on X_hi after the division's step 1 (-7 s with the write, modelled); TWO part files per node (2 x 576)
 export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity (0 against 1024: §6 item 4)
 export COMM_SHMEM_ROUND_MB=1024               # the user's decision D2 (PLAN §36, 2026-09-26): exchanges staged in rounds; pool 45.0 -> 9.8 GB
 export COMM_SHMEM_POOL_MB=9472                # the measured law at 5.1e13 / 576 with all of the above (`plan pool`, 2026-09-28, with ECALC_NP=auto too; the same at 4.25e13)
@@ -347,13 +351,15 @@ export MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0
 export ECALC_MEM_GUARD_GB=6                   # the user's decision 10 (2026-09-27): a named stop (rc 9) instead of the OOM killer
 export ECALC_VERBOSE=2 MEM_REPORT_DEVS=1
 unset ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR   # the record run: no top set, no checkpoint sets (the user's decision 11)
-OUT=/ssd0/<dir>/e51                           # Lustre (no /tmp: §6 item 10); its stripe layout from §6 item 5(c) if measured to help; 22.7 TB of parts
+OUT=/ssd0/<dir>/e5276                         # Lustre (no /tmp: §6 item 10); its stripe layout from §6 item 5(c) if measured to help; 23.4 TB of parts (1152 files with MN_OUT_DKM_HI)
 srun -N 576 --ntasks=576 --ntasks-per-node=1 --gpus-per-node=4 --distribution=block --export=ALL \
-     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 51000000000000 '$OUT'/e.out'     # the target since 2026-09-27 23:50 EDT (was 42500000000000)
+     bash -c 'export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; exec ./ecalc 52760000000000 '$OUT'/e.out'     # the target since 2026-09-29 (B3; 51000000000000 from 2026-09-27, 42500000000000 before)
 ```
 
 The run writes **packed part files** (`ECALC_OUT_PACKED=1`, the default since 2026-09-27): `$OUT/e.out.part0000` …
-`e.out.part0575`, each a 4096-byte `ECPACK18` header (the part's limb and digit ranges and its digit residues) and the node's
+`e.out.part0575` — **with `MN_OUT_DKM_HI=1` on the launch line (2026-09-29): `part0000` … `part1151`, two per node: rank r writes
+`part<575−r>` (its share of X_hi, the file's first ≈ half) and `part<1151−r>` (its share of X_lo); the sorted names are still the
+file, and every tool below takes the parts as they are** — each a 4096-byte `ECPACK18` header (the part's limb and digit ranges and its digit residues) and the node's
 base-10¹⁸ limbs, 39.35 GB per node, 22.67 TB in all (at 4.25 × 10¹³: 32.8 GB, 18.9 TB); `$OUT/e.out.t1` (node 0) holds the residues RECHECK needs. The wall of
 the record is the run's (D3: `total` and the process's exit, without and with the write); what follows is **off the clock**.
 
@@ -370,7 +376,10 @@ the record is the run's (D3: `total` and the process's exit, without and with th
    beside the 22.7 TB of packed parts: **keep the parts, do not concatenate them into one file on the same file system** (trap 14). *Phase 15 IO2 (eb3b29f)*: the tool converts any consecutive subset of parts, so every node converts
    its own part (`e.txt.part<k>` from `e.out.part<k>`: "2." on part 0000, the newline on the last; the concatenation is the
    single file; measured on aac6 at 1e9 sizes 2 and 4, 1e10 size 2, results/IO215.md):
-   `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits -q -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`.
+   `srun -N 576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); exec tools/unpack_digits -q -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k'`
+   — with `MN_OUT_DKM_HI=1` (1152 parts) each node converts two: `srun -N 576 --ntasks-per-node=1 bash -c 'for k in $(printf %04d $SLURM_PROCID)
+   $(printf %04d $((SLURM_PROCID + 576))); do tools/unpack_digits -q -o '$OUT'/e.txt.part$k '$OUT'/e.out.part$k || exit 1; done'` (or `--ntasks-per-node=2`
+   with `k=$(printf %04d $SLURM_PROCID)` over 1152 tasks); the ASCII parts concatenate in name order as before.
 3. **Verify the converted output**: (a) every conversion exits 0 (its residue check); (b) `ECALC_RECHECK=1` on the ASCII
    parts (`<outfile>` = `$OUT/e.txt`, the same launch line: 88.5 GB read per node, 103–114 s, modelled; 73.8 GB, 86–95 s at 4.25 × 10¹³) → `RECHECK OK` on every
    node; (c) the leading 10¹¹ digits against the 10¹¹ reference (`results/e_1e11.out`, sha1 578f5efb…): `cat
@@ -602,6 +611,7 @@ it comes from.
   ```
   srun -N576 --ntasks-per-node=1 bash -c 'k=$(printf %04d $SLURM_PROCID); \
       tools/unpack_digits -q -o <outdir>/e.txt.part$k <outfile>.part$k'      # the parts are on the shared file system: any node converts any part
+  # with MN_OUT_DKM_HI=1 (the launch line since 2026-09-29): 2 x 576 parts, node r converts part r and part r + 576 (§4 "Off the clock" item 2)
   cat <outdir>/e.txt.part* > e.txt                                            # optional: one file (parts sort by name) -- NOT on the same Lustre at 5.1e13 (trap 14)
   ```
   Each part's digits are checked against the residues its run stored in the header. `--cmp <reference>` on one part
