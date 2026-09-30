@@ -800,9 +800,14 @@ def mem_per_node(D, g=1, opts=None):
     if o['tail']:
         arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want, VMM_CHUNK if aroom > 0 else 0) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
         pool_in_phase = 0
-        pool_total = sum(arena)
+        # Phase 15 int15j (DL15 open issue 2, the user's item 4): the VMM pool maps every arena in whole chunks whether or not the room is on
+        # (dbig.c db_vmm_arena_alloc: m0 = ceil(bytes / chunk)), so the node holds the rounded arena; the request (`arena`, the `layout:`
+        # line that --check-c compares) stays as binsplit_pregrow asks it.  Before, the room-off node counted the unrounded request (the
+        # room-0 ceilings were one chunk per APU too high: DL15).
+        arena_mapped = [(a + VMM_CHUNK - 1) // VMM_CHUNK * VMM_CHUNK for a in arena] if o['vmm'] else list(arena)
+        pool_total = sum(arena_mapped)
     else:
-        arena = bs
+        arena = bs; arena_mapped = list(bs)
         # Phase 10's behaviour: the pool maps t1's quarter per APU inside the reciprocal, plus the byte deficit
         # (measured 141.0 / 231.8 / 265.7 GB of pool at 4 / 7 / 8e10 = 1.07-1.09 x the dm need; the tree's excess at size > 1)
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
@@ -836,10 +841,10 @@ def mem_per_node(D, g=1, opts=None):
         if not as_room_fits(planes, sum(arena), rh, o.get('node_gb', 480.0)):
             aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30))
             if g > 1: L['need_dev'] += sc[0]
-            want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; pool_total = sum(arena)
+            want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
         planes = NR * (npp * sc[1] * 8 + (3 * sc[1] + 16) * 8) + int(0.61 * GB)
-    dev_init = planes + (sum(arena) if o["tail"] else bs_total)          # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak)
+    dev_init = planes + (sum(arena_mapped) if o["tail"] else bs_total)   # Phase 13a M: the arena (bs regions + dm extra) is mapped at init since M11 v2 (measured 4e10: 313.3 GB at init = at the dm peak); int15j: in whole VMM chunks
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
     if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
@@ -863,7 +868,7 @@ def mem_per_node(D, g=1, opts=None):
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
                 cache_mn=cmn, node_peak_cache=peak_c, cache_fit_slots=fit_slots, cache_fit=fit_slots * slot_fit, cache_slot=slot_fit, cache_fit_room=fit_room, layout_node=layout_node,
                 arena_room=aroom, room_node=room_node, dkm=L['dkm'],
-                planes=planes, regions_bs=bs_total, arena=sum(arena), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
+                planes=planes, regions_bs=bs_total, arena=sum(arena), arena_mapped=sum(arena_mapped), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
                 pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''),
                 dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 node_peak=peak)
