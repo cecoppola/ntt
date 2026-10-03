@@ -2112,3 +2112,26 @@ line); (4) MPB off; `mem_model.py`'s room-off node in whole 2 GiB chunks, `--che
 5-minute rehearsal. Then `int15j` from main, the regression, a paired 10¹¹ series, merge, push, aac6 sync, the documents and models.
 Executed 2026-09-29 23:00 EDT – 2026-10-03 (the weekly limit interrupted the session on 09-30 with every job already launched;
 RESULTS §93 has the results). Next: the target-side list (TARGET_TASKS); `ECALC_FAST_EXIT` and SC's 9a/9b are the user's calls.
+
+### 38.4 The decisions of 2026-10-03 and their execution (int15k; RESULTS §94)
+
+The user's decisions (2026-10-03): (1) `ECALC_FAST_EXIT` stays an option, off, **not on the target's launch line** (TARGET.md §4 and
+`estimate.py`'s launch-line row carry nothing of it); (2) **SC's 9a (the seeds' CPU work from t = 0) is dropped** — the rehearsal (RESULTS §93)
+showed the seeds bind by ≈ 1 s only; (3) **the 60-bit packed format** (SC15 item 7: 16 limbs of 10¹⁸ in 15 words, −6.25 % bytes, ≈ −4 s of
+exposed write at the target, 1–2 days for the packer, `unpack_digits`, `digcmp` and `t_out`) is **saved as a future option**, not built now;
+(4) **E11's multi-node memory edits built and tested** as `DM_MN_LEAN` (off by default): M615 §1.2's target part — `recip_mn` frees t once u
+and once corr are formed; `mn_divmod_dkm` takes A_h and μ's top as views of S / R₁ and μ instead of `mdb_shift` copies and keeps Q in basis w
+(Qw) in place of Q from the window on — plus the lean division set in `dm_layout` and `mem_model.dm_layout` (`--check-c` exact). Re-derived on
+B3: at 5.276 × 10¹³ the arena is the dm need (294.5 GB per node) over the tree need (273.3) by 21.2 GB — the most any division edit can save;
+the lean count takes the dm need to 270.0 so the tree binds: **node 471.9 → 446.2 GB (modelled; the arena 300.65 → 274.88 GB in whole chunks);
+5.167 × 10¹³: 463.3 → 446.2 GB**. Measured at 5 × 10¹⁰ on 2 node-processes (RESULTS §94): identical digits, the division's peak lower, 0 growth;
+mnaccept `unit,e9,mn,corr` with the switch; `--check-c` exact. Not adopted on the launch line (a reserve: the target sits inside 480 GB without
+it); (5) **both 5.276 × 10¹³ and 5.167 × 10¹³ stay test sizes** — the documents and `estimate.py --target` show both; (6) **the −15 s items
+tested on aac6 and handed to the target**: `MN_GROUPS=2,4,8,16,32,64,576` (the 9-way top: −4.7 / −4.5 s at 5.276 / 5.167 × 10¹³ on the B3 model
+— SC15's −14.6 s was before P24 / DKM; plan check OK, fewer tree pieces, pool 9216 MiB, node −8.8 GB; identical digits at 2–4 node-processes)
+and `MN_T_CHUNK_MB=2048` (−10.9 / −10.4 s at the assumed `T_ROUND` = 0.03 s; +4.3 GB; identical digits at 2–4 node-processes); what only the
+target measures (the fabric, `T_ROUND`) and the precise steps are in TARGET_TASKS T5 / T11 (`MN_MODEL_T_ROUND` re-models the chunk choice);
+(7) **clean-up**: the 91 local worktrees and 191 merged branches removed (every branch merged or on origin; the unmerged p15-M6 / MAP / RL,
+p14-L1 / R1, rl-fill pushed first), aac6's 118 agent clones (82 GB) and 133 bundles deleted, 469 loose files moved into `~/p15/attic/`
+(cited paths left in place). Then int15k (code = main + `DM_MN_LEAN` off + the documents) through the standing regression, merged, pushed,
+aac6 `~/ntt` synced, and **five 10¹¹ baseline runs** (`closing.sh 5`) on the final main — the reference for every later change.

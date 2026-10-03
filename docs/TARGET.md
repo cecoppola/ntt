@@ -229,6 +229,17 @@ per-message cost is the limit).
 
 > **2026-09-29 (int15j, the user's decisions of 2026-09-29): the launch line adds `MN_OUT_DKM_HI=1` (EW: the writer starts on X_hi's digits after the division's step 1; **each node then writes two part files**, `part<size−1−r>` = its share of X_hi and `part<2·size−1−r>` = its share of X_lo, 1152 parts at 576 nodes, sorted names = the file; `tools/unpack_digits`, `digcmp.sh` and `ECALC_RECHECK` take them as they are — §4 "Off the clock" and §6 item 5 give the per-node convert line for two parts) and `RNS_DIST_CACHE_PARTIAL=1` (PC: transform-cache slots per grid product from the block pool's free bytes, nothing added to the node; on the launch line, not a default). Both measured identical on aac6 (RESULTS §93). Off by default and not on the launch line: `ECALC_FAST_EXIT` (`_exit` after the reports; the user decides). **Standing estimate (modelled, `MN_OUT_DKM_HI=1 ./estimate.py --target`, the `RNS_DIST_CACHE_PARTIAL` row): 5.276 × 10¹³ in 284.2 s (4.74 min) without the write, 299.3 s (4.99 min) with the packed write at 1 GB/s; node ≈ 471.9 GB** (the cache's pool slots: tree 1 / division 1 prime by the pool rule). `MN_T_CHUNK_MB=1024` stays; `MN_GROUPS`, the output stripes and waves are decided on the target (TARGET_TASKS T5, T10). The multi-node division's peak was measured at 2 node-processes (RESULTS §93); `mem_model.py` now counts every VMM arena in whole 2 GiB chunks (the room-0 ceilings are DL15's '+c' figures).
 
+> **2026-10-03 (int15k, the user's decisions of 2026-10-03; PLAN §38.4, RESULTS §94): both 5.276 × 10¹³ and 5.167 × 10¹³ are test sizes** (the
+> target may still move; `./estimate.py --target` prints both: **5.276 × 10¹³ in 284.2 s without / 299.3 s with the packed write at 1 GB/s, node
+> 471.9 GB; 5.167 × 10¹³ in 278.5 / 293.0 s, node 463.3 GB** — modelled, the launch line of §4; plan check OK at both, 149 / 145 pieces, pool
+> 9472 MiB). `ECALC_FAST_EXIT` is an option, **not on the launch line**; SC's 9a (the seeds from t = 0) is dropped; the 60-bit packed format is a
+> future option. **New and off: `DM_MN_LEAN`** — the multi-node reciprocal / DKM division without its dead copies (views of S and μ, Q in basis w)
+> and the arena counted without them: at 5.276 × 10¹³ the dm need 294.5 → 270.0 GB per node (the tree need, 273.3, then binds), the arena 300.65 →
+> 274.88 GB, **node 471.9 → 446.2 GB (modelled, `mem_model.py --check-c` exact against `BS_LAYOUT_ONLY`)**; measured at 5 × 10¹⁰ on 2 node-processes:
+> identical digits, 0 growth (RESULTS §94). It is a reserve for a larger target or a thinner margin, not on the launch line. The −15 s items are
+> target-side: TARGET_TASKS T5 (`MN_GROUPS=2,4,8,16,32,64,576`: −4.7 s, `plan pool` 9216 MiB) and T11 (`MN_T_CHUNK_MB=2048`: −10.9 s at the
+> assumed `T_ROUND`), both modelled on the B3 model.
+
 ## 2. Build
 
 ```
@@ -343,7 +354,8 @@ export ECALC_NP=auto                          # the user's decision 1 of 2026-09
 export RNS_DIST_CACHE_FIT=1                   # the user's decision 2 of 2026-09-28: the mn transform cache bounded by the budget (0 slots at 5.1e13); NEVER without it (trap 15)
 export RNS_DIST_CACHE_PARTIAL=1               # the user's decision of 2026-09-29 (int15j): cache slots per grid product from the block pool's free bytes (nothing added to the node; -8 s modelled)
 export MN_OUT_DKM_HI=1                        # the user's decision of 2026-09-29 (int15j): the writer on X_hi after the division's step 1 (-7 s with the write, modelled); TWO part files per node (2 x 576)
-export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity (0 against 1024: §6 item 4)
+export MN_T_CHUNK_MB=1024                     # the default since Phase 14 (adopted 2026-09-26); shown for clarity (0 and 2048 against 1024: §6 item 4, TARGET_TASKS T11)
+# NOT on the launch line (the user, 2026-10-03): ECALC_FAST_EXIT (an option); DM_MN_LEAN (off: a -25.8 GB per node reserve, RESULTS 94); MN_GROUPS 9-way (T5)
 export COMM_SHMEM_ROUND_MB=1024               # the user's decision D2 (PLAN §36, 2026-09-26): exchanges staged in rounds; pool 45.0 -> 9.8 GB
 export COMM_SHMEM_POOL_MB=9472                # the measured law at 5.1e13 / 576 with all of the above (`plan pool`, 2026-09-28, with ECALC_NP=auto too; the same at 4.25e13)
 export SHMEM_SYMMETRIC_HEAP_SIZE=9984M XT_SYMMETRIC_HEAP_SIZE=9984M  # the pool + 512 MiB
