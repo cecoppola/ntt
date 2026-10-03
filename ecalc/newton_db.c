@@ -218,6 +218,12 @@ static int dkm_sw = -1;
 int newton_dkm_on(void) { if (dkm_sw < 0) { const char *e = getenv("NEWTON_DKM"); dkm_sw = e ? atoi(e) != 0 : 1; } return dkm_sw; }   /* default 1 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
 void newton_dkm_set(int on) { dkm_sw = on != 0; }
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
+/* Phase 15 int15k (DM_MN_LEAN, results/M615.md 1.2's target part; off by default): the multi-node reciprocal and DKM division without
+ * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
+ * (mdb_view) instead of mdb_shift copies, and Q in basis w (Qw) replaces Q once the window is formed.  Value-identical (the same
+ * products on the same limbs); the layout (binsplit.c dm_layout, mem_model.dm_layout) counts the lean division set at size > 1 */
+static int lean_sw = -1;
+int newton_mn_lean(void) { if (lean_sw < 0) { const char *e = getenv("DM_MN_LEAN"); lean_sw = e ? atoi(e) != 0 : 0; } return lean_sw; }
 static long dkm_test_hi(void)                               /* NEWTON_DKM_TEST_HI=<k>: X_hi - k before step 1's corrections (a test hook) */
 {
     const char *e = getenv("NEWTON_DKM_TEST_HI"); long k = e ? atol(e) : 0;
@@ -918,7 +924,8 @@ static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mfree(&u); mfree(&pw);
             mid_ok = d.n <= j + 1;                                     /* R4: as in recip_db2 */
             size_t NB = (r.n + j > t.n ? r.n + j : t.n) + 2;          /* the basis of r' (>= r << j and corr) */
-            if (d.n) { mn_prod_cut(&t, &r, &d, Gs, newton_recip_cut(j), (size_t)-1); mdb_shift(&corr, &t, (long)j, NB, Gs); }   /* |corr| = r |d| >> j (E7: the pieces below j - guard skipped) */
+            if (newton_mn_lean()) mfree(&t);                           /* int15k (DM_MN_LEAN): t = Q_t r is dead once u is formed (NB is computed) */
+            if (d.n) { mn_prod_cut(&t, &r, &d, Gs, newton_recip_cut(j), (size_t)-1); mdb_shift(&corr, &t, (long)j, NB, Gs); if (newton_mn_lean()) mfree(&t); }   /* |corr| = r |d| >> j (E7: the pieces below j - guard skipped); lean: t dead once corr is formed */
             else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, Gs); }              /* d = 0: corr = 0 */
             mfree(&d);
             int converged = corr.n <= j + 1;
@@ -975,6 +982,23 @@ static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, c
 }
 /* mu's top m limbs (a copy in basis m; mu itself when it has exactly m) */
 static void mn_dkm_top(mdb *Y, const mdb *mu, size_t m, mn_group *G) { mdb_shift(Y, mu, (long)(mu->n - m), m, G); }
+/* int15k (DM_MN_LEAN): mn_dkm_est with A_h = Sx >> sh and mu's top m limbs as views (no copies): the same product on the same limbs.
+ * The X1 rule (mn_prod_cut_x1: a subgroup for small products on many nodes) needs operands it can re-shard, so where it would take a
+ * subgroup the copy path runs as before (never at the target's sizes) */
+static void mn_dkm_est_lean(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, const mdb *mu, size_t m, mn_group *G)
+{
+    size_t sh = nq - 1 - dl;
+    mdbv a = mdb_view(Sx, sh, Sx->n > sh ? Sx->n - sh : 0, G), b = mdb_view(mu, mu->n - m, m, G);
+    int hp = env_on("NEWTON_HIGHPROD");
+    if (a.len && b.len && hp && x1_level(a.len, b.len, G, 2 * (a.len + b.len))) {   /* the X1 rule wants a subgroup: the copy path */
+        mdb mt; memset(&mt, 0, sizeof mt); mn_dkm_top(&mt, mu, m, G); mn_dkm_est(Xo, Sx, dl, nq, k, &mt, G); mfree(&mt); return; }
+    mdb t; memset(&t, 0, sizeof t);
+    if (!a.len) { mdb z; memset(&z, 0, sizeof z); db_init(&z.sh); z.g0 = G->g0; z.g = G->g; mdb_shift(Xo, &z, 0, 2, G); mfree(&z); return; }   /* X = 0 */
+    double t0 = mem_now();
+    if (hp) rns_mul_dist_mn_cut_v(&t, &a, &b, G, k + 1, (size_t)-1); else rns_mul_dist_mn_v(&t, &a, &b, 0, G, (size_t)-1);
+    mn_st.t_prod += mem_now() - t0;
+    mdb_shift(Xo, &t, (long)(k + 1), (t.n > k + 1 ? t.n - (k + 1) : 1) + 1, G); mfree(&t);
+}
 /* the low product X Q mod B^w in basis w (as newton_mn_divmod: A5's cut, NEWTON_LOWPROD=0 the full product); X = 0: a zero */
 static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
 {
@@ -1024,12 +1048,17 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mdb m1, Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
     memset(&m1, 0, sizeof m1); memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
     memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
-    mn_dkm_top(&m1, &mu, k1 + 1, G);
-    mn_dkm_est(&Xh, &S, dl - s, nq, k1, &m1, G); mfree(&m1);
+    const int lean = newton_mn_lean();                                 /* int15k (DM_MN_LEAN): views instead of copies, Qw in place of Q */
+    if (lean) mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);
+    else { mn_dkm_top(&m1, &mu, k1 + 1, G); mn_dkm_est(&Xh, &S, dl - s, nq, k1, &m1, G); mfree(&m1); }
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_LIVE) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
     mdb_shift(&Aw, &S, -(long)(dl - s), w, G); mfree(&S);              /* the window (S's last use) */
     mdb_shift(&Qw, Q, 0, w, G);
-    mn_dkm_low(&xql, &Xh, Q, w, G);
+    mdb *Qd = Q;                                                       /* the low products' Q: lean = Qw (the same limbs in basis w; Q freed now, the hook as before) */
+    if (lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); Qd = &Qw; }
+    mn_dkm_low(&xql, &Xh, Qd, w, G);
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
     long dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
@@ -1040,9 +1069,11 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
-    if (na2 >= nq) { mdb m2; memset(&m2, 0, sizeof m2); if (mu.n == k2 + 1) { m2 = mu; memset(&mu, 0, sizeof mu); } else { mn_dkm_top(&m2, &mu, k2 + 1, G); mfree(&mu); }
+    if (na2 >= nq && lean) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
+    else if (na2 >= nq) { mdb m2; memset(&m2, 0, sizeof m2); if (mu.n == k2 + 1) { m2 = mu; memset(&mu, 0, sizeof mu); } else { mn_dkm_top(&m2, &mu, k2 + 1, G); mfree(&mu); }
                      mn_dkm_est(&Xl, &R1, s, nq, k2, &m2, G); mfree(&m2); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 A mu");
     mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1);
     { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k; a borrow out of X_lo is fatal) */
     if (xhi) {   /* Phase 15 EW -- the X_lo hook (every rank; carry = X_lo0 >= B^s is the group's): released onto X_lo0 unless carry, then the
@@ -1051,10 +1082,10 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         newton_x_dx = 0;
         int rel = newton_mn_xlo_hook(&Xl, s, carry, newton_mn_x_arg);
         double td = mem_now();
-        mn_dkm_low(&xql, &Xl, Q, w, G);
+        mn_dkm_low(&xql, &Xl, Qd, w, G);
+        if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
         rns_dist_cache_hold(0); rns_dist_cache_release();
-        if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
-        mfree(Q);
+        if (!lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); }   /* (lean: freed after the window) */
         double te = mem_now();
         long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
         if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
@@ -1078,13 +1109,14 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         mdb_addsub(&Xs, &Xs, &Xl2, 0, G); mfree(&Xl2);
         mdb_shift(&Xn, &Xs, 0, Xs.n ? Xs.n : 1, G); mfree(&Xs);
     }
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 assembly");
     newton_x_dx = 0;
     if (newton_mn_x_hook) newton_mn_x_hook(&Xn, newton_mn_x_arg);     /* Phase 15 IO (W5d): the writer starts on X0, before step 2's low product */
     double td = mem_now();
-    mn_dkm_low(&xql, &Xl, Q, w, G); mfree(&Xl);
+    mn_dkm_low(&xql, &Xl, Qd, w, G); mfree(&Xl);
+    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
     rns_dist_cache_hold(0); rns_dist_cache_release();
-    if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
-    mfree(Q);
+    if (!lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); }   /* (lean: freed after the window) */
     double te = mem_now();
     long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
     if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;

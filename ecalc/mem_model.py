@@ -138,7 +138,7 @@ def arena_of(base, want, chunk=0):
     ex = max(0, want - base); a = base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
-def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False, mdev_logl=30):
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
     Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
     jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
@@ -152,6 +152,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     nq = math.ceil(lg / dl10) + 2; dl = math.ceil((lg - 50.0) / dl10) + 1
     k = nq + 1 + dl - nq + 2 + 1; tcap = max(nq + k, 2 * k) + 8
     dkm = bool(dkm) and k >= 5 and (g > 1 or nq >= (1 << mdev_logl) + (1 << mdev_logl) // 8)   # DL: where the code's division takes DKM
+    lean = bool(lean) and dkm and g > 1                                        # int15k: DM_MN_LEAN counts at size > 1 only (binsplit.c dm_layout)
     kr = k // 2 + 1 if dkm else k                                              # Phase 15 DKM (results/DKM15.md 1.4): the reciprocal to h = floor(k/2) + 1
     k1 = k - k // 2                                                            # DL: step 1's quotient limbs
     jl = (kr + 1) // 2 if anchor else kr - 1
@@ -174,6 +175,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
         h_s = (k // 2 + 1 + g - 1) // g                                        # + R1 (n_Q) + mu + t; step 2's low product Q + X + Aw + xq (n_Q + k/2) + X_lo
         hi = max(2 * qp + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8), qp + quarter_bytes(h_s) + quarter_bytes(nq_s + 2) + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8))
         lo = qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + h_s + 8) + quarter_bytes(h_s)   # X, Aw, X_lo Q (n_Q + k/2), X_lo
+        if lean: lo = 3 * quarter_bytes(nq_s + 2) + quarter_bytes(k_s + 1) + quarter_bytes(h_s + 1)   # int15k (DM_MN_LEAN, size > 1): Qw + Aw + xql (w each) + X (k; the X0 form) + X_lo (h)
     div = quarter_bytes(piece) + max(hi, lo)
     v2 = max(v2, div)
     v2 += min(v2 // 8, 1 << 30)
@@ -183,7 +185,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     need = max(v2, top)
     room_b = int(room * float(hole)) if room > 0 else 0                  # Phase 15 AS: BS_ARENA_ROOM=<room> (with the VMM pool): room x the hole in the dm need
     need += room_b
-    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap), room=room_b, dkm=dkm)
+    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap), room=room_b, dkm=dkm, lean=lean)
 
 def mn_groups(g, spec=None):
     """rns_dist.c mn_groups_parse: the group size per tree level from MN_GROUPS (a list, or the string), default the
@@ -525,7 +527,8 @@ DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 # Phase 15 DL (the user's Batch 3 decisions of 2026-09-29): DEFAULTS15D = the code's defaults now -- DEFAULTS15C + NEWTON_DKM=1 with dm_layout following it
 # (binsplit.c; NEWTON_DKM=0 in the environment gives C's layout).  MN_P24=2 is the tree's scratch (opts p24; mn_model passes it).  mem_per_node's base.
 DKM_CODE = os.environ.get('NEWTON_DKM', '1') != '0'
-DEFAULTS15D = dict(DEFAULTS15C, dkm=DKM_CODE)
+LEAN_CODE = os.environ.get('DM_MN_LEAN', '0') not in ('', '0')   # int15k: DM_MN_LEAN (off by default) -- the lean mn division set at size > 1 (opts lean)
+DEFAULTS15D = dict(DEFAULTS15C, dkm=DKM_CODE, lean=LEAN_CODE)
 TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/V114.md): the target's launch line
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
@@ -792,7 +795,7 @@ def mem_per_node(D, g=1, opts=None):
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3)
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
     p24 = (o.get('p24', 0), o['np'], g, o.get('np_auto_min', False)) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
@@ -839,7 +842,7 @@ def mem_per_node(D, g=1, opts=None):
         rh = room_host(N, g, pool, seedbuf, o['out_early'])               # counted as binsplit.c as_room_fits counts it (this model's bs-phase node)
         room_node = planes + sum(arena) + VMM_BS_GROW + rh
         if not as_room_fits(planes, sum(arena), rh, o.get('node_gb', 480.0)):
-            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30))
+            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False))
             if g > 1: L['need_dev'] += sc[0]
             want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
@@ -973,6 +976,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         tight, tdead = int(v.get('tight', 0)), int(v.get('tail_dead', 0))          # Phase 14 L1: the variant the C line was printed under
         ef = int(v.get('early_free', 0))                                          # Phase 14 T1: MN_TREE_EARLY_FREE
         dkm = int(v.get('dkm', 0))                                                # Phase 15 DL: the layout followed NEWTON_DKM ("dkm 1"; absent: today's)
+        lean = int(v.get('lean', 0))                                              # int15k: "lean 1" = DM_MN_LEAN's division set
         rl = None                                                                 # DL: the room's decision line after it (`room:`), if any
         for l2 in lines[i + 1:i + 3]:
             if l2.startswith('room:'): rl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.replace('(', ' ').replace(')', ' ').replace('|', ' '))); break
@@ -996,7 +1000,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         ch = VMM_CHUNK if arena_room > 0 else 0
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
         for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
-            L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl); sc = []
+            L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean); sc = []
             p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 / ECALC_NP_AUTO_MIN (the layout line does not print them)
             p24 = (p24m, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m else None
             tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
