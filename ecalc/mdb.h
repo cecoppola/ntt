@@ -60,6 +60,7 @@ void rns_mul_dist_mn_v(mdb *C, const mdbv *A, const mdbv *B, const mdb *X, mn_gr
  * used: X is low by at most the number of skipped pieces + 1, absorbed by the up-corrections) and pieces starting at or
  * above highcut (oa + ob >= highcut; (size_t)-1: none -- the low product X Q mod B^w, delivered in basis highcut) */
 void rns_mul_dist_mn_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut);
+void rns_mul_dist_mn_cut_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t lowcut, size_t highcut);   /* int15k (DM_MN_LEAN): the same on views */
 /* the low w limbs of A B (the division's X Q): the grid with the pieces above w skipped, in basis w */
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
