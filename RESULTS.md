@@ -3885,8 +3885,17 @@ every process (the forced runs grow the pool by design). `cx_grid` at 4 processe
 0 DIFFERS, VERIFY OK in all five. **Adopted on the launch line, not as a default**: the switch is inert at size 1 and safe by construction
 (never more than the pool's free extents), but its gain and the slots it will get at the target's margins are modelled (PC15 §4).
 
-**(c) the multi-node division's peak at 2 node-processes** (DL15 open issue 1): see the paragraph at the end (job 22387, 2026-10-03).
-Two attempts at POOL_LOG=30 (5 and 6 × 10¹⁰ total, three primes, with and without `ECALC_NP=auto`) stopped with rc 6 after bs level 22:
+**(c) the multi-node division's peak at 2 node-processes** (DL15 open issue 1; job 22387, s24-26, 2026-10-03 17:10–17:26 EDT): 5 × 10¹⁰
+total on 2 node-processes of one node (two real aac6 nodes over 1 GbE are impractical at a dm-bound size), `POOL_LOG=30 ECALC_NP=4
+ECALC_LIVE=1 MEM_REPORT_DEVS=1 DB_POOL_VERBOSE=1 RNS_DIST_CACHE_FIT=1`, the division setting the arena (modelled per process: dm 100.9 >
+bs 93.2 > tree 71.2 GB; the C layout's arena 120.3 GB, dm extra 27–29 GB). **Identical** to the first 5 × 10¹⁰ digits of `e_1e11.out`,
+both nodes VERIFY OK, `total` 449.1 s (dm 304.2, over the loopback fabric). **The division's window peak: 21.59 GB per APU** (`live:
+divmod(mn, DKM) end`, every APU), 70.6 % of the 25.8–42.9 GB pools, **0 remaps and 0 growths in the division**; the model's counted
+division need at this point is 25.2 GB per APU (the DKM set 17.8 + the product scratch 7.4; u = the Q share = 2.78 GB per APU, so the
+peak is 7.8 u against 5.5 u + the scratch), **measured / counted 0.86** — the count holds with 14 % to spare, so the target stays
+5.276 × 10¹³ (the ratio at the target's size is assumed to carry; its margin is 1.4 GB per APU counted, DL15). One APU grew its pool by
+one 2 GiB chunk (1 remap, 2.2 s) in the **bs top's dist_db product** (a 1.8 GB request against 3.4 GB free in two extents at this
+lowered cap), not in the division. Two earlier attempts at POOL_LOG=30 (5 and 6 × 10¹⁰ total, three primes, with and without `ECALC_NP=auto`) stopped with rc 6 after bs level 22:
 plane pool 0 at three primes is 3 q = 0.75 × 2³⁰ limbs, below the batch tier's 2³⁰-limb tile at that cap (at the code's POOL_LOG=31 the
 tile is 2³⁰ ≤ 3 q = 1.5 × 2³⁰: the target is not affected; a lowered-cap trap, recorded in TARGET.md §8).
 
