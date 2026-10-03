@@ -3863,3 +3863,50 @@ regression is recorded below. **576-node estimate (standing rule; modelled, fabr
 the target 5.276 × 10¹³ in 292.4 s (4.87 min) without the write, 313.8 s (5.23 min) with it; node ≈ 471.9 GB.**
 
 **Merged regression** (17604bb = the B3 code; job 21846, aac6 s24-26, 2026-09-29 09:00–09:48 EDT, measured): unit, e9, mn, recheck, corr, full, stress **24/24 passed**; 10¹¹ identical, `total` 168.8 s (172 s with the write), RECHECK OK. B3 merged into main.
+
+## 93. int15j: the owed tests, EW and PC adopted on the launch line, `ECALC_FAST_EXIT`, the model's chunks (2026-09-29/30 and 10-03; aac6 logs `~/int15j/`)
+
+The user's decisions of 2026-09-29 (PLAN §38.3) carried out by the Fable integrator. Every run on aac6, **measured**, main's code 17604bb
+(= 7061465) unless named; the digits byte-identical in every run; times Eastern.
+
+**(a) EW's 10¹¹ timing series** (job 22004, s24-30, 22:54–23:42 EDT): `MN_OUT_DKM_HI` on / off interleaved, 3 each, with the packed file
+and without. With the file: on 173.6 / 173.1 / 172.6 s (`total` 171.1 mean), off 175.3 / 174.2 / 176.2 s (`total` 172.5); without the
+file: on 175.1 / 174.1 / 173.7, off 173.7 / 174.6 / 172.2. **Time-neutral on aac6's /tmp** (the write is hidden there already, as EW
+predicted; the −7 s is modelled for the target's exposed Lustre write). on_1 and off_1 unpacked (`tools/unpack_digits | sha1sum`) match
+`~/V214/e_1e11.sha1`; every other file is byte-identical to on_1's. **Adopted on the target's launch line** (docs/TARGET.md §4): each
+node then writes two part files (1152 at 576), which `tools/unpack_digits`, `digcmp.sh` and `ECALC_RECHECK` take as they are (EW15 §3);
+the convert line for two parts per node is in TARGET.md §4 / §6.
+
+**(b) PC at 3 and 4 node-processes** (job 22002, s24-26, 22:54–23:29 EDT; `ECALC_NP=auto`, POOL_LOG 27 / 26): ecalc 10¹⁰ with
+`RNS_DIST_CACHE_PARTIAL=1` against `RNS_DIST_CACHE_MN=0`: 3 processes 106.7 → 88.4 s (−17 %), 4 processes 109.7 → 88.3 s (−20 %),
+identical to `e_1e10.out`, every node VERIFY OK; the pool rule took slots on 10 of 10 grid products (≤ 1.07 GB per APU), **0 growth,
+0 hipMalloc inside, 0 remaps**. `t_mn_grid` at 3 and 4 (the pool rule; forced k = 1 and 2 at 24 and 18 digits): 5 of 5 runs VERIFY OK on
+every process (the forced runs grow the pool by design). `cx_grid` at 4 processes (cap 2²³, off / pool rule / k2, 24- and 18-digit):
+0 DIFFERS, VERIFY OK in all five. **Adopted on the launch line, not as a default**: the switch is inert at size 1 and safe by construction
+(never more than the pool's free extents), but its gain and the slots it will get at the target's margins are modelled (PC15 §4).
+
+**(c) the multi-node division's peak at 2 node-processes** (DL15 open issue 1): see the paragraph at the end (job 22387, 2026-10-03).
+Two attempts at POOL_LOG=30 (5 and 6 × 10¹⁰ total, three primes, with and without `ECALC_NP=auto`) stopped with rc 6 after bs level 22:
+plane pool 0 at three primes is 3 q = 0.75 × 2³⁰ limbs, below the batch tier's 2³⁰-limb tile at that cap (at the code's POOL_LOG=31 the
+tile is 2³⁰ ≤ 3 q = 1.5 × 2³⁰: the target is not affected; a lowered-cap trap, recorded in TARGET.md §8).
+
+**SC's rehearsal** (`ECALC_INIT_TL=1 ECALC_NP=auto`, one node, s24-30): at 9.169 × 10¹⁰ (5.1 × 10¹³'s top node) the seed thread ends at
+31.75 s, the last APU's background mapping at 30.62 s, level 1 starts at 32.15 s (`total` 149.0 s); at 9.486 × 10¹⁰ (5.276 × 10¹³'s top
+node, 1.0356 × the average, modelled) 33.46 / 32.33 / 33.87 s (`total` 166.3 s). **The seeds bind, by ≈ 1 s only**: the mapping (its
+chunks queued 5–11 s for the mapper lock) ends at nearly the same moment, so SC's 9a (the seed spans from t = 0) gains ≤ 1–2 s unless the
+mapping is shortened too (9b). Deferred, with that number.
+
+**Branch `int15j`** (from main 7061465): `ECALC_FAST_EXIT` (off; `_exit` after the output stage's reports and the transport's barrier, every
+file closed, fsync'd and verified before), `mem_model.py` counting every VMM arena in whole 2 GiB chunks (the request and `--check-c`
+unchanged: 0 of 168 terms differ on DL15's 16 layout files; the room-0 ceilings are DL15's '+c' figures: 5.52 × 10¹³ at 576, 1.38 × 10¹¹
+on one node), `estimate.py --target`'s launch-line row, the documents. **Regression** (job 22006, s24-16, 23:21–00:10 EDT, 04cd5fc):
+`./mnaccept.sh 22006 --full --stress --only unit,e9,mn,recheck,corr,full,stress` **24 passed, 0 failed** (2897 s). **Paired 10¹¹ series**
+(job 22007, s24-26, 23:29–00:22 EDT; main 17604bb against int15j 04cd5fc, interleaved): with the file main 173.2 / 170.1 / 172.9 s,
+int15j 172.8 / 171.3 / 172.3 s (`total` 167.0 / 166.7), with `ECALC_FAST_EXIT=1` 171.6 / 170.7 / 173.7 s; without the file main 167.6 /
+168.4, int15j 168.0 / 170.4, fast exit 166.2 / 166.2. **The exit after `total`: 5.1 → 4.4 s with the file, 2.1 → 0.65 s without (−1.0 /
+−1.5 s, measured)**; main_1 unpacked matches the 10¹¹ sha1, every other file is byte-identical to it. int15j is **time-neutral**.
+
+**576-node estimate (standing rule; modelled, `MN_OUT_DKM_HI=1 ./estimate.py --target`, the `RNS_DIST_CACHE_PARTIAL` row; the fabric
+assumed, the write 1 GB/s assumed with 576 writers): the target 5.276 × 10¹³ in 284.2 s (4.74 min) without the write, 299.3 s (4.99
+min) with the packed write; node ≈ 471.9 GB** (the cache's pool slots at the pool rule: tree 1 / division 1 prime; the launch line's
+gains −8.2 s without the write, −14.4 s with it against B3's 292.3 / 313.7 s). `ECALC_FAST_EXIT` is not in the figure (off).
