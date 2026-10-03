@@ -40,6 +40,7 @@ typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t
 int newton_dkm_on(void);
 void newton_dkm_set(int on);                          /* tests: override NEWTON_DKM */
 size_t newton_dkm_h(size_t k);                        /* the reciprocal's length under DKM for a quotient of k limbs */
+int newton_mn_lean(void);                             /* int15k: DM_MN_LEAN (off) -- the multi-node reciprocal / DKM division without dead copies; dm_layout counts the lean set */
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
