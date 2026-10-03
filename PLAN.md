@@ -2099,3 +2099,16 @@ the single-node dist exchange, fixed); EW `MN_OUT_DKM_HI` and PC `RNS_DIST_CACHE
 the user chose **(c), keep the low product** (nothing built). **Target 5.276 × 10¹³.** Next session: decide EW and PC (EW's 10¹¹
 timing series owed; PC at 3–4 processes owed), a 2-node run at a tight size to measure the multi-node division's peak, the
 target-side list (TARGET_TASKS).
+
+### 38.3 The decisions of 2026-09-29 and their execution (int15j; RESULTS §93)
+
+The user accepted every recommendation: (1) the owed tests in the order (c) a 2-node-process run measuring the multi-node division's
+peak, (a) EW's 10¹¹ series, (b) PC's 3–4-process tests; (2) `MN_OUT_DKM_HI=1` on the target's launch line after (a) and a check that
+the target's convert / compare / RECHECK take 2·size part files; (3) `RNS_DIST_CACHE_PARTIAL=1` on the launch line after (b) and (c)
+(a default only if safe at every size — it is inert at size 1 and safe by construction, but its target gain is modelled, so the launch
+line); (4) MPB off; `mem_model.py`'s room-off node in whole 2 GiB chunks, `--check-c` exact; (5) `MN_T_CHUNK_MB=1024` kept;
+`MN_GROUPS`, stripes and waves are target-side (TARGET_TASKS T5, T10, T11); (6) the target 5.276 × 10¹³, fallback 5.167 × 10¹³ if
+(c) shows a thin margin; (7) deferred items stay deferred except `_exit` at the end behind a switch (`ECALC_FAST_EXIT`) and SC's
+5-minute rehearsal. Then `int15j` from main, the regression, a paired 10¹¹ series, merge, push, aac6 sync, the documents and models.
+Executed 2026-09-29 23:00 EDT – 2026-10-03 (the weekly limit interrupted the session on 09-30 with every job already launched;
+RESULTS §93 has the results). Next: the target-side list (TARGET_TASKS); `ECALC_FAST_EXIT` and SC's 9a/9b are the user's calls.
