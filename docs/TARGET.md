@@ -690,6 +690,12 @@ it comes from.
     5.1 × 10¹³ and 4.74 × 10¹³** (`plan cache … -> 0 slots`), 2 slots at the development steps 3–5 (modelled). The estimates price exactly that. Check
     the `plan cache` line of `MN_PLAN_ONLY` and the `transform cache:` line at init: `RNS_DIST_CACHE_FIT=1` must be in it.
 
+16. **(2026-10-03, int15j) A lowered plane cap at a large size stops with rc 6.** With `POOL_LOG=30` (the cap 2³⁰) and three primes,
+    plane pool 0 is 3 q = 0.75 × 2³⁰ limbs and the batch tier's 2³⁰-limb tile does not fit it once the bs levels reach L = 2²⁹ pairs
+    (5–6 × 10¹⁰ total on 2 node-processes: `rns_dpool: plane pool 0 … would grow inside a phase, 6.44 -> 8.59 GB`, rc 6, after bs level 22;
+    with and without `ECALC_NP=auto`). At the code's `POOL_LOG=31` the tile (2³⁰) is below 3 q = 1.5 × 2³⁰ and nothing changes; the target
+    never lowers the cap. On aac6 a lowered-cap run at that size needs `ECALC_NP=4` (pool 0 = 4 q = the tile) or `RNS_POOL_GROW=1`.
+
 ## 9. The variables named here exist in the code (checked 2026-09-21 on the q12 branch)
 
 `grep -ohE 'getenv\("[A-Z0-9_]+"\)' ecalc/*.c ecalc/tests/*.c | sort -u` lists every variable the code reads; every variable named in this
