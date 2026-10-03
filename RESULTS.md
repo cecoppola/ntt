@@ -3977,7 +3977,10 @@ for a larger target (PLAN §38.4) — with it 5.39 × 10¹³ (one step up, +≈ 
 - The first attempt at 4 processes without `POOL_LOG` stopped in the budget check (rc 8: 4 × 135.7 GB — the full planes per process, not the switches)
   and the 10¹⁰ runs at `POOL_LOG` 27 / 28 with rc 6 (TARGET trap 16: pool 0 at three primes below the batch tile) — the settings, re-run with
   mnaccept's / DL15's caps (`POOL_LOG=27` at 10⁹ × 4, `POOL_LOG=29` at 10¹⁰) with controls:
-  A2_RESULTS
+  **job 22391 (s24-26, 18:25–18:34 EDT): 7 of 7 identical, every node VERIFY OK, 0 growths** — the controls (10⁹ × 4 at `POOL_LOG=27`,
+  10¹⁰ × 2 at 29) and `MN_T_CHUNK_MB=2048` at 10⁹ × 4 and 10¹⁰ × 2, `MN_GROUPS=2,4,8,16,32,64,576` at 10⁹ × 4 and 10¹⁰ × 2 and × 3 (the g = 3
+  schedule 2, 3 exercised at 10¹⁰: 74.1 s against the mnaccept figures); `total` 14.8 / 14.8 / 14.1 s at 10⁹ × 4, 91.1 / 90.6 / 90.3 s at 10¹⁰ × 2 —
+  **time-neutral on aac6's loopback**, as expected: the chunk's rounds and the top schedule cost only on a real fabric.
 - **What only the target measures**: the fabric (every modelled gain above is on the assumed 100 GB/s per APU, 2 µs per message) and `T_ROUND`.
   TARGET_TASKS **T5** and **T11** carry the exact steps (the plan lines to expect, the interleaved pairs at steps 3–5, how `T_ROUND` is read from the
   `shifts n/t s` and `scratch(mn)` lines and fed back with `MN_MODEL_T_ROUND=<s>`).
