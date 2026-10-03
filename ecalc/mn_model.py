@@ -752,7 +752,7 @@ GEN_HIDE_DEPTH = {1: 0.011, 2: 0.74}   # general map: MEASURED 1.1 % one deep (X
                                        # on two real nodes (X13b, job 21068; 72.6-75.1 % on one node)
 F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
 MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
-T_ROUND = 0.030                        # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
+T_ROUND = float(os.environ.get('MN_MODEL_T_ROUND', '0.030'))   # int15k: MN_MODEL_T_ROUND=<s> once the target measures it (TARGET_TASKS T11)   # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
                                        # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
 CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
 # the POOL_LOG-30 caps (2^30, 3 2^29): agent P's runs (job 21046) take 1.3-1.4 x the per-product law's big products (cap_factor,
