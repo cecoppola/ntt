@@ -3992,6 +3992,8 @@ the 118 agent clones `~/ntt-*` deleted (**82 GB**), 133 bundles (27 MB), 469 loo
 `*tmp` log directories untouched); home 230 → 149 GB. Note: ~95 cited clone names (`~/ntt-<AGENT>`) are gone — they were rebuildable from the
 branches; any untracked result file inside one was not kept.
 
-**The regression and the merge.** REG_RESULTS
+**The regression and the merge.** `./mnaccept.sh 22390 --full --stress --only unit,e9,mn,recheck,corr,full,stress` on int15k's code 6103881
+(= main's code with `DM_MN_LEAN` off; s24-16, 18:19–19:08 EDT): **24 passed, 0 failed** in 2914 s; the 10¹¹ full step identical, `total` 167.88 s
+(174 s with the write), RECHECK OK (87 s). int15k merged into `main` = **6a4a6ef** (pushed; aac6 `~/ntt` synced by bundle and built).
 
 **The 10¹¹ baseline on the final main (`closing.sh 5`, one node, the defaults, the packed file compared to `e_1e11.out` through `digcmp.sh`).** BASELINE_RESULTS
