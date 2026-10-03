@@ -3919,3 +3919,76 @@ int15j 172.8 / 171.3 / 172.3 s (`total` 167.0 / 166.7), with `ECALC_FAST_EXIT=1`
 assumed, the write 1 GB/s assumed with 576 writers): the target 5.276 × 10¹³ in 284.2 s (4.74 min) without the write, 299.3 s (4.99
 min) with the packed write; node ≈ 471.9 GB** (the cache's pool slots at the pool rule: tree 1 / division 1 prime; the launch line's
 gains −8.2 s without the write, −14.4 s with it against B3's 292.3 / 313.7 s). `ECALC_FAST_EXIT` is not in the figure (off).
+
+## 94. int15k: the user's decisions of 2026-10-03 — `DM_MN_LEAN` built and measured, the −15 s items modelled and tested, the clean-up, the 10¹¹ baseline (2026-10-03; aac6 logs `~/p15/{A,A2,B,C,D}/`)
+
+PLAN §38.4 has the decisions; the Fable integrator carried them out on branch `int15k` from `main` 65a9d0a (code commit 6103881). Every aac6
+number **measured**; times Eastern (aac6 prints Central).
+
+**Decisions 1–3, 5 (documents only).** `ECALC_FAST_EXIT` was never on the launch line (TARGET.md §4 and `estimate.py`'s launch-line row checked); it
+stays an option, off. SC's 9a dropped, the 60-bit packed format a future option (PLAN §38.4). `estimate.py --target` and the documents show
+**both test sizes**: 5.276 × 10¹³ in **284.2 / 299.3 s**, node 471.9 GB; 5.167 × 10¹³ in **278.5 / 293.0 s**, node 463.3 GB (modelled, the launch line
+with `MN_OUT_DKM_HI=1` and `RNS_DIST_CACHE_PARTIAL=1`; the C plan on the login node: check OK at both, 149 / 145 pieces, pool 9472 MiB). The grid
+steps above the target (the C plan = the model's at every size): **5.28 × 10¹³ (recip 51 → 53, div 20 → 28: +≈ 10 s), 5.39 (tree 86 → 88), 5.74 × 10¹³
+(tree 88 → 108, node 489 GB: over)**; `estimate.py --target` now prints them.
+
+**Decision 4: `DM_MN_LEAN` (E11's target part, M615 §1.2; off by default).** What is left to save on top of B3, re-derived (modelled, `mem_model`):
+at 5.276 × 10¹³ the arena is the dm need, **294.5 GB per node, over the tree need 273.3 by 21.2 GB** (bs regions 203.4) — the most any division edit
+can give; at 5.167 × 10¹³ 288.9 over 267.7, the same 21.2. The code (`newton_db.c`): `recip_mn` frees t = Q_t·r once u is formed and the correction
+product once corr is formed; `mn_divmod_dkm` takes A_h (S ≫ sh, R₁ ≫ sh) and μ's top k₁+1 / k₂+1 limbs as views (`mdb_view`, the new
+`rns_mul_dist_mn_cut_v`) instead of `mdb_shift` copies, and Q in basis w (Qw) replaces Q from the window on (Q freed there; the checkpoint hook
+runs at that point). Value-identical: the same products over the same limbs. `dm_layout` and `mem_model.dm_layout` count the lean division set
+(step 2's low product Qw + Aw + xql + X + X_lo instead of Q + X + Aw + xq(n_Q + h) + X_lo; the line prints `lean 1`). **Modelled:** the dm need
+294.5 → 270.0 GB per node, so the tree binds; the arena 300.65 → 274.88 GB (whole chunks); **node 471.9 → 446.2 GB at 5.276 × 10¹³, 463.3 → 446.2 at
+5.167 × 10¹³**; the 480 GB ceiling with the room kept 5.38 → **5.96 × 10¹³** (`tests/dl15_ceilings.py`, `DM_MN_LEAN=1`); the time unchanged (the
+partial cache's pool rule gets 2 GB more room: −2 s in `estimate.py`'s launch-line row, 282.2 s). **C layout** (login node, `BS_LAYOUT_ONLY`,
+`mem_model.py --check-c`: **24 of 24 lines exact** with the switch off and on): the dm need per APU 73.62 → 67.51 GB at 5.276 × 10¹³ (want = the
+tree's 68.32), 72.23 → 66.25 at 5.167 (tree 66.94); at the 2-process test point (5 × 10¹⁰, `POOL_LOG=30 ECALC_NP=4`) 25.23 → 23.56 GB per APU, the
+arena 120.26 → 113.82 GB per process.
+
+**Measured (job 22389, s24-16, 17:55–18:18 EDT; `ECALC_LIVE=1 MEM_REPORT_DEVS=1 DB_POOL_VERBOSE=1 POOL_LOG=30 ECALC_NP=4 RNS_DIST_CACHE_FIT=1`,
+5 × 10¹⁰ on 2 node-processes, as RESULTS §93 (c); the division's moments are new `live:` lines, u = the Q share = 2.78 GB per APU):**
+
+| per APU, GB (window peak) | recip's last doubling | step 1 A_h μ | step 1 X_hi Q | step 2 A_h μ | step 2 assembly | step 2 X_lo Q | the division's peak | the arena per process |
+|---|---|---|---|---|---|---|---|---|
+| `DM_MN_LEAN=0` | 14.65 | 17.43 | 20.20 | 20.20 | 17.36 | **21.59** (7.8 u) | 21.59 = §93's figure | 120.3 (pools 42.95 / 25.77 / 25.77 / 27.92) |
+| `DM_MN_LEAN=1` | 13.95 | 14.65 | 17.43 | 16.04 | 14.58 | **18.82** (6.8 u) | **18.82: −2.77 GB = −1.0 u** | **113.8** (42.95 / 23.62 / 23.62 / 25.77) |
+
+Both runs **identical** to the first 5 × 10¹⁰ digits of `e_1e11.out`, both nodes VERIFY OK; **0 remaps and 0 growths in the division** in both (APU3's
+one 2 GiB growth is the bs top's `dist_db` product in both, as in §93). The peak with the switch is 18.82 against the lean count's 23.56 GB per APU
+(**0.80 of the count**; 0.86 before): the count holds with more to spare than before. `total` 467.7 s (dm 303.4) off, 376.1 s (dm 261.1) on — over the
+loopback fabric on a shared node, not a timing (bs moved 118.7 → 93.2 s too); the division's part (recip products 91.5 → 78.4 s, step 1 101.8 → 92.7)
+is consistent with the four shift exchanges the views remove per step, **to be confirmed by a paired series before it is counted**. Gates with the
+switch (job 22388, s24-26, 17:55–18:21 EDT): `DM_MN_LEAN=1 ./mnaccept.sh 22388 --only unit,e9,mn,corr` **19 of 19 passed** (both bases, mn sizes 2–4,
+the correction patch at sizes 1, 2, 4, identical in every one). Not adopted: the target sits inside 480 GB without it (8.1 GB); it is the reserve
+for a larger target (PLAN §38.4) — with it 5.39 × 10¹³ (one step up, +≈ 20 s modelled) would be 454.8 GB and 5.74 × 10¹³ 471.9 GB.
+
+**Decision 6: the −15 s items (the B3 model: P24, DKM, PC, EW; `MN_OUT_DKM_HI=1 ./estimate.py --target …`; modelled unless named).**
+- `MN_GROUPS=2,4,8,16,32,64,576` (the 9-way top): **−4.7 s at 5.276 × 10¹³ (292.3 → 287.6 s without the write), −4.5 s at 5.167 × 10¹³** — SC15's
+  −14.6 s was before P24 / DKM shrank the distributed levels. Node 471.9 → 463.1 GB (5.276) and 463.3 → 454.5 (5.167): the top scratch falls
+  58.8 → 52.7 GB per node (one chunk less of arena) while the tree need rises to 288.5. The C plan (login node, measured): plan check OK at both
+  sizes; tree pieces 76 / 86 → **72 / 78** at 5.276 and 72 / 84 → 68 / 76 at 5.167 × 10¹³; **`plan pool` 9472 → 9216 MiB** (the launch line must set
+  `COMM_SHMEM_POOL_MB=9216` with it). On aac6 the list is inert at g = 2 and 4 (the same levels as the default) and gives levels 2, 3 at g = 3
+  (the default is one 3-group level): **identical digits** at 2 and 3 node-processes at 10⁹ (job 22388) — the 4-process and 10¹⁰ runs: job 22391, below.
+- `MN_T_CHUNK_MB=2048`: **−10.9 s at 5.276 × 10¹³ (292.3 → 281.4 s), −10.4 s at 5.167 × 10¹³ at the assumed `T_ROUND` = 0.03 s** (−5 s at 0.01 s, −48 s
+  at 0.1 s: the saving is the halved round count × the per-round cost, which aac6's loopback cannot measure — SC15 §3.4); the C plan unchanged
+  and `plan pool` unchanged at 9472 MiB (the staging is sized by tree level, not by the chunk); the window temporaries +4.3 GB per node (SC15). Both
+  together −15.5 s. **Identical digits** at 2 and 3 node-processes at 10⁹ (job 22388); 4 processes and 10¹⁰: job 22391, below.
+- The first attempt at 4 processes without `POOL_LOG` stopped in the budget check (rc 8: 4 × 135.7 GB — the full planes per process, not the switches)
+  and the 10¹⁰ runs at `POOL_LOG` 27 / 28 with rc 6 (TARGET trap 16: pool 0 at three primes below the batch tile) — the settings, re-run with
+  mnaccept's / DL15's caps (`POOL_LOG=27` at 10⁹ × 4, `POOL_LOG=29` at 10¹⁰) with controls:
+  A2_RESULTS
+- **What only the target measures**: the fabric (every modelled gain above is on the assumed 100 GB/s per APU, 2 µs per message) and `T_ROUND`.
+  TARGET_TASKS **T5** and **T11** carry the exact steps (the plan lines to expect, the interleaved pairs at steps 3–5, how `T_ROUND` is read from the
+  `shifts n/t s` and `scratch(mn)` lines and fed back with `MN_MODEL_T_ROUND=<s>`).
+
+**Decision 7: the clean-up.** Local: 91 worktrees under `.claude/worktrees` removed (every branch merged into main or at parity with origin; p15-M6,
+p15-MAP, p15-RL, p14-L1, p14-R1, rl-fill, phase8-overlap pushed first), 191 merged branches deleted (the unmerged seven kept), 0.65 GB freed. aac6:
+the 118 agent clones `~/ntt-*` deleted (**82 GB**), 133 bundles (27 MB), 469 loose files moved into `~/p15/attic/{scripts,slurm,logs}/`
+(`MOVED.txt` maps them; the 192 names cited in RESULTS / PLAN / results / docs stay in place; `~/ntt`, `~/int15j`, `~/regB3`, `~/V214`, the
+`*tmp` log directories untouched); home 230 → 149 GB. Note: ~95 cited clone names (`~/ntt-<AGENT>`) are gone — they were rebuildable from the
+branches; any untracked result file inside one was not kept.
+
+**The regression and the merge.** REG_RESULTS
+
+**The 10¹¹ baseline on the final main (`closing.sh 5`, one node, the defaults, the packed file compared to `e_1e11.out` through `digcmp.sh`).** BASELINE_RESULTS
