@@ -1986,6 +1986,13 @@ void rns_mul_dist_mn_cut(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
     mn_grid(Cm, &a, &b, 0, G, lowcut, highcut);
 }
+void rns_mul_dist_mn_cut_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t lowcut, size_t highcut)   /* int15k (DM_MN_LEAN): the cuts on views */
+{
+    if (!highcut || !A->len || !B->len) { mdb_empty(Cm, G); return; }
+    mdbv a = mdb_view(A->m, A->off, A->len < highcut ? A->len : highcut, G), b = mdb_view(B->m, B->off, B->len < highcut ? B->len : highcut, G);
+    if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
+    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut);
+}
 void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w) { rns_mul_dist_mn_cut(Cm, A, B, G, 0, w); }
 /* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)

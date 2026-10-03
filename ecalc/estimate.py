@@ -106,7 +106,7 @@ def main():
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
     ap.add_argument("--p13", action="store_true", help="the Phase 13/14 model (no Phase 15 terms: the old memory forms, no recip cut, no CAL15, the part file under half the division)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
-    ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 5.1e13 since the user's decision of 2026-09-27 23:50 EDT; 4.25e13 from Phase 13d, 4.4e13 in Phase 13c), its steps, the runtime one step below (4.74e13) and its step, the previous target")
+    ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 5.276e13 since B3 2026-09-29; both test sizes 5.276e13 and 5.167e13 are shown (the user, 2026-10-03); 5.1e13 from the user's decision of 2026-09-27 23:50 EDT; 4.25e13 from Phase 13d, 4.4e13 in Phase 13c), its steps, the runtime one step below (4.74e13) and its step, the previous target")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
     ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default='auto', choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision 1 of 2026-09-28: auto on the target's launch line -- Phase 15 NP's per-product count, four only over the three-prime bound; 4 was the launch line of 2026-09-27 (+17.2 GB per node: 489 GB at 5.1e13 with the room, over 480); 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576)")
@@ -172,8 +172,8 @@ def target(a, design):
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
-    for T, what in ((M.TARGET_DIGITS, "the target (the last size below the step)"), (5.11e13, "node 0 steps (222 -> 226), critical path same"),
-                    (5.12e13, "the step (critical path 242 -> 246)"), (5.17e13, "the next step (critical path 266)"),
+    for T, what in ((M.TARGET_DIGITS, "the target (the last size below the step)"), (5.167e13, "the second test size (the fallback; the user, 2026-10-03)"),
+                    (5.28e13, "the step above the target (recip 51 -> 53, div 20 -> 28)"), (5.39e13, "the next step (tree 86 -> 88)"), (5.74e13, "the next (tree 88 -> 108)"),
                     (M.TARGET_BELOW, "one step below (test after the headline)"), (4.75e13, "its step (4.74 -> 4.75e13)"),
                     (4.25e13, "the target until 2026-09-27 23:50 EDT")):
         es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
