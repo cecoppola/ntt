@@ -186,6 +186,7 @@ def target(a, design):
         by_phase(a, design, groups, fabs, TT)
     if design is not None and design.p15c and a.cache_slots is None:
         cache_rows(a, design, groups, fabs)
+        partial_row(a)
     print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps):")
     for budget in (M.NODE_GB_MARGIN, M.NODE_GB):
         D = M.max_digits(576, budget, a.tree, groups, staging=a.staging, design=design)
@@ -193,6 +194,22 @@ def target(a, design):
         p = M.plan(576, D * 576, design)
         print("    %.0f GB: D %.2e per node -> %.3e digits: %.1f s without the write; %s with it; pieces %d + %d + %d; node %.1f GB" % (
             budget, D, D * 576, es[0]["nowrite_s"], " / ".join("%.1f s @%.1f" % (x["wall_s"], b) for x, (b, f) in zip(es, fabs)), p["tree_max"], p["recip"], p["div"], es[0]["node_gb"]))
+
+def partial_row(a):
+    """Phase 15 int15j (2026-09-29, the user's decisions 2 and 3): the launch line carries RNS_DIST_CACHE_PARTIAL=1 (PC: the slots' primes per
+    grid product from the block pool's free bytes, P24 cached, the loop along the longer axis) and MN_OUT_DKM_HI=1 (EW: the writer on
+    X_hi after step 1; the model's DKM_HI term is read from the MN_OUT_DKM_HI / MN_MODEL_DKM_HI environment -- set it for the launch
+    line's figure).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate."""
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf): (b0, bw), rows = M.cache_partial(wbs=(2.0, a.write_bw, 0.6))
+    r = [x for x in rows if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
+    if not r: return
+    p24c, lp, kt, kd, tag, r0, rw = r[0]
+    print("  the launch line's RNS_DIST_CACHE_PARTIAL=1 (int15j; the pool rule: tree %d / division %d primes per slot, P24 cached, the loop along the longer axis)%s:"
+          % (kt, kd, " with MN_OUT_DKM_HI=1" if M.DKM_HI else " (MN_OUT_DKM_HI=1 not set in the environment: its -7 s with the write is not in this row)"))
+    print("    %.3e the target                               | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
+          % (M.TARGET_DIGITS, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b0, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw))))
 
 def cache_rows(a, design, groups, fabs):
     """Phase 15 DOC2: at the target and one step below -- the mn transform cache at 0 (what RNS_DIST_CACHE_FIT allows), 1 and 2 slots (forced: their bytes on

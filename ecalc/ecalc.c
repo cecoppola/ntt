@@ -818,9 +818,16 @@ int main(int argc, char **argv)
         RESULT("ckpt_top", "s", tw); RESULT("ckpt_top_wait", "s", tq);
     }
     mn_ckpt_top_finish();                             /* (size > 1, node 0: the top tree set's writer) */
-    db_release_pools();                               /* B1: X's block (device / sharded) was in use until here */
-    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();
+    /* Phase 15 int15j (the user's item 7, 2026-09-29): ECALC_FAST_EXIT=1 -- every file is closed, fsync'd and verified by here (the
+     * writers were joined in out_stage, the top set above), so the process ends with _exit after the reports and the transport's
+     * barrier: the block pools' VMM release, rns_shutdown's hipFree of the planes and the HIP runtime's atexit teardown are left to
+     * the kernel's exit unmapping (the same physical pages either way).  Off by default: the walls of a record run are measured with
+     * the teardown inside them unless the user adopts this. */
+    const char *fx = getenv("ECALC_FAST_EXIT"); int fast_exit = fx && atoi(fx) != 0;
+    if (!fast_exit) db_release_pools();               /* B1: X's block (device / sharded) was in use until here */
+    mem_report_host_item(MEM_HOST_X, 0); mem_report("end"); mem_report_summary();   /* (ECALC_FAST_EXIT: the block pools are still mapped in the end table) */
     mn_barrier(); mn_finalize();
+    if (fast_exit) { printf("ECALC_FAST_EXIT: _exit(%d) after the reports (%.2f s since t0)\n", fail, mem_now() - t00); fflush(stdout); fflush(stderr); _exit(fail); }
     rns_shutdown();
     return fail;
 }
