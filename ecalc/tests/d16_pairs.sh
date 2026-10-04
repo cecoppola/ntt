@@ -70,20 +70,23 @@ run() {
         SEGV=$((SEGV + 1)); say "run $tag: launch failure rc $rc after $el s ($(grep -m1 -oE 'Segmentation fault|_pmi_network_allgather failed|Error configuring interconnect|PMI2_Init failed' "$lg" || echo no known signature)); $SEGV of $LAUNCHES launches"
         echo "$tag rc $rc total none s elapsed $el s | LAUNCH FAILURE | job $J nodes $NODES | ${words[*]} procs $P" | tee -a "$W" >> "$LOG"; return 2
     fi
-    local dig=
-    if [ "$MODE" = nfs ]; then dig=$(./digcmp.sh "$of" "$REF" 2>&1 | tail -1)
-    else
-        # every part's sha1 over the header's binary fields and the limbs (not the text at 1024, which names the run), collected from the nodes
-        onall "cd $TMPD/$tag 2>/dev/null || exit 0; for p in e.out.part*; do echo \"\$p \$( (head -c 1024 \$p; tail -c +4097 \$p) | sha1sum | cut -c1-40)\"; done" | sort > "$O/$tag.sha1"
-        if [ ! -s "$BASEHASH" ]; then
-            cp "$O/$tag.sha1" "$BASEHASH"
-            dig="baseline ($(wc -l < "$BASEHASH") parts hashed); top part vs $(basename "$REF"): $(onall "p=$TMPD/$tag/e.out.part0000; [ -f \$p ] || exit 0; $HERE/../tools/unpack_digits -q \$p > /tmp/p16D/top.txt; n=\$(stat -c %s /tmp/p16D/top.txt); head -c \$n $REF | cmp -s - /tmp/p16D/top.txt && echo \"identical (\$n bytes)\" || echo DIFFERS; rm -f /tmp/p16D/top.txt" | grep -v '^$' | paste -sd' ')"
-        else cmp -s "$O/$tag.sha1" "$BASEHASH" && dig="identical to the baseline ($(wc -l < "$O/$tag.sha1") parts)" || dig="DIFFERS from the baseline"; fi
-        [ "${D16_KEEP:-0}" = 1 ] || onall "rm -rf $TMPD/$tag" > /dev/null
-    fi
+    # the digits (digcmp.sh of a 4e10 NFS file took 14 min on the login node): every part's sha1 over the header's binary fields and
+    # the limbs (not the text at 1024, which names the run), taken on the nodes (their page cache holds what they just wrote) and
+    # compared with the set's first run's; that first run's top part (part0000: the top node's X_hi share) against the reference's
+    # leading digits through unpack_digits
+    local dig= pd=$(dirname "$of")
+    onall "cd $pd 2>/dev/null || exit 0; for p in e.out.part*; do [ -f \$p ] || continue; echo \"\$p \$( (head -c 1024 \$p; tail -c +4097 \$p) | sha1sum | cut -c1-40)\"; done" | sort -u > "$O/$tag.sha1"
+    if [ ! -s "$BASEHASH" ]; then
+        cp "$O/$tag.sha1" "$BASEHASH"
+        local top=/tmp/p16D_top_$$.txt
+        if [ "$MODE" = nfs ]; then "$HERE/../tools/unpack_digits" -q "$pd/e.out.part0000" > "$top"; n=$(stat -c %s "$top"); head -c "$n" "$REF" | cmp -s - "$top" && t="identical ($n bytes)" || t=DIFFERS; rm -f "$top"
+        else t=$(onall "p=$pd/e.out.part0000; [ -f \$p ] || exit 0; $HERE/../tools/unpack_digits -q \$p > $top; n=\$(stat -c %s $top); head -c \$n $REF | cmp -s - $top && echo \"identical (\$n bytes)\" || echo DIFFERS; rm -f $top" | grep -v '^$' | paste -sd' '); fi
+        dig="baseline ($(wc -l < "$BASEHASH") parts hashed); top part vs $(basename "$REF"): $t"
+    else cmp -s "$O/$tag.sha1" "$BASEHASH" && dig="identical to the baseline ($(wc -l < "$O/$tag.sha1") parts)" || dig="DIFFERS from the baseline"; fi
+    [ "$MODE" = tmp ] && [ "${D16_KEEP:-0}" != 1 ] && onall "rm -rf $pd" > /dev/null
     echo "$tag rc $rc total ${tot:-none} s elapsed $el s | ${ver:-no VERIFY line} | $dig | job $J nodes $NODES | ${words[*]} procs $P" | tee -a "$W" >> "$LOG"
     [ "$MODE" = nfs ] && [ "${D16_KEEP:-0}" != 1 ] && rm -f "$of".part???? "$of".t1
-    [ $rc = 0 ] && [ "$dig" != DIFFERS ] && [[ "$ver" == *"VERIFY OK" ]]; return $?
+    [ $rc = 0 ] && [[ "$dig" != *DIFFERS* ]] && [[ "$ver" == *"VERIFY OK" ]]; return $?
 }
 pair() {   # pair <name> <A words> <B words> [<C words>]: one job per repetition: A B [C] on the same nodes; a launch failure -> a new job, once
     local name=$1 a=$2 b=$3 c=${4:-}; local i try r
