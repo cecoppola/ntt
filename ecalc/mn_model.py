@@ -782,7 +782,11 @@ INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C:
 # Phase 16 C (results/C16.md 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7') -- MEASURED on 2 nodes
 # (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS; T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
 # (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
-AAC7_CONSTS = dict(HIDE_POW2=0.75, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.030, MAP_RATE=0.065, NODE_SCALE=1.0, INIT_SCALE=1.0)   # PLACEHOLDER until C16 fills it
+AAC7_CONSTS = dict(HIDE_POW2=0.72, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.015, MAP_RATE=0.070, NODE_SCALE=1.12, INIT_SCALE=1.20)
+# HIDE_POW2 0.72 MEASURED (C16 2.3: 71-72 % at depth 2, 76 % at depth 1); GEN_HIDE aac6's, ASSUMED (no 3-node run); T_ROUND 0.015 = the MEASURED upper
+# bound (the whole shift round at 1e10 / 2: 15-18 ms, the fixed part <= 3 ms); MAP_RATE 0.070 MEASURED (t_alloc hipmalloc, 7.0.3 = 7.2.4);
+# NODE_SCALE 1.12 and INIT_SCALE 1.20 FITTED on the 7.0.3 one-node 1e11 (205.9 s = 1.12 x the model's 183.8; init 22.2 = 1.20 x 18.4);
+# ROCm 7.2.4 on the same node is 168.5 s (NODE_SCALE 0.92, INIT_SCALE 0.88): MN_MODEL_NODE_SCALE / MN_MODEL_INIT_SCALE override
 T_ROUND = float(os.environ.get('MN_MODEL_T_ROUND', '0.030'))   # int15k: MN_MODEL_T_ROUND=<s> once the target measures it (TARGET_TASKS T11)   # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
                                        # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
 CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
