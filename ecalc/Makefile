@@ -4,6 +4,9 @@ HIPCC  ?= hipcc
 HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench
 HIPC     = $(HIPCC) $(HIPFLAGS) -x hip
 CFLAGS   = -O2 -Wall -fopenmp -I.
+ifeq ($(origin CC),default)
+CC       = gcc                       # Phase 16 A: tests/t_comm with gcc unless CC is given (make's built-in `cc` is Cray's wrapper on aac7)
+endif
 # Phase 11 S: the SHMEM transport (comm_shmem.c) is compiled in when SHMEM=1 (the default where oshcc exists: aac6's
 # compute nodes, OpenMPI 4.1.6 OSHMEM; on the target, SHMEM_CFLAGS / SHMEM_LIBS from the vendor's compiler wrapper).
 # make SHMEM=0 builds without it (COMM_TRANSPORT=shmem then aborts at start).
