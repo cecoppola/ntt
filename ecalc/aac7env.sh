@@ -45,13 +45,22 @@ aac7_log() {
 if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 
 # ---- sourced: modules and variables ---------------------------------------------------------------------------------------
+# Phase 16 V (results/V16.md): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
+# 7.0.3, 168.5 vs 205.9 s at 1e11, C16 §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
+# (AAC7_ROCM=rocm/7.0.3 reverts to the old stack, e.g. to match the target's TARGET_HW_REVIEW ROCm version).
+export AAC7_ROCM=${AAC7_ROCM:-rocm/7.2.4}
 if [ -d /opt/cray/pe/sma ]; then
-    export MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"
+    export MNRUN_MODULES="cray-dsmml cray-openshmemx $AAC7_ROCM"
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp}
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
+# AAC7_FI_TUNE=1: libfabric/CXI tunables that an A/B on 2 nodes (results/V16.md §3c) found worth keeping for large SHMEM puts.
+# Off by default — none of this changes the default stack, only an opt-in override.
+if [ "${AAC7_FI_TUNE:-0}" != 0 ]; then
+    : # results/V16.md §3c: no knob beat the > 5% wall / > 10% GB/s bar in the brief A/B; placeholder for a later pass.
+fi
 [ -d "$HOME/gmp/lib" ] && export GMP_HOME=${GMP_HOME:-$HOME/gmp}
 # aac7_alloc <nodes> <h:mm:00> [name] [sbatch options...]: an exclusive allocation of whole nodes, prints the job id
 aac7_alloc() { local n=$1 t=$2 nm=${3:-p16}; shift 3 2>/dev/null; local s; s=$(echo "$t" | awk -F: '{ print $1 * 3600 + $2 * 60 + $3 }')

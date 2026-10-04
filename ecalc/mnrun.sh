@@ -21,7 +21,8 @@
 set -e
 P=$1; shift
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
-if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"; else MNRUN_MODULES=rocm; fi; fi
+# Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/V16.md) instead of the bare "rocm" alias.
+if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
 export MNRUN_MODULES
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
