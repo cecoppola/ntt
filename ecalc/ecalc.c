@@ -500,10 +500,24 @@ int main(int argc, char **argv)
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
         mn_barrier(); mn_finalize(); return f;
     }
+    /* Phase 16 S (results/S16.md): COMM_INIT_EARLY=1 opens the transport (the pool rule, mn_init: shmem_init_thread, the symmetric
+     * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
+     * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
+     * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
+     * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
+     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init.  0 (the default): the order below. */
+    int init_early = getenv("COMM_INIT_EARLY") ? atoi(getenv("COMM_INIT_EARLY")) != 0 : 0, mn_size_ = 1;
+    if (init_early) {
+        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);
+        double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;
+        if (verbose >= 2 && mn_size_ > 1) printf("      init: COMM_INIT_EARLY=1: the transport opened before rns_init (%.2f s)\n", t_mn);
+    }
     mem_sampler_start();                            /* Phase 14 S1 (E12): ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
-    binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model (COMM_SHMEM_POOL_AUTO=1) or a warning */
-    int mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
+    if (!init_early) {
+        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model (COMM_SHMEM_POOL_AUTO=1) or a warning */
+        mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
+    }
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
