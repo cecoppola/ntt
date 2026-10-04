@@ -68,7 +68,7 @@ run() {
     grep -E '^ +transform cache:|^plan cache|^mn: node 0 level|^divmod\(mn|^recip\(mn|^scratch\(mn|^layer-stats|^xgmi-stats|comm_shmem: pe [0-9]+: all-to-all|mem\[0\]|VmHWM|^mn_out|^total|dist_mn node 0:|aac7env: node [^ ]+ clocks' "$lg" | cut -c1-300 > "$O/$tag.key"
     if [ $rc != 0 ] && [ -z "$tot" ]; then
         SEGV=$((SEGV + 1)); say "run $tag: launch failure rc $rc after $el s ($(grep -m1 -oE 'Segmentation fault|_pmi_network_allgather failed|Error configuring interconnect|PMI2_Init failed' "$lg" || echo no known signature)); $SEGV of $LAUNCHES launches"
-        echo "$tag rc $rc total none s elapsed $el s | LAUNCH FAILURE | job $J nodes $NODES | ${words[*]} procs $P" | tee -a "$W" >> "$LOG"; return 2
+        echo "$tag rc $rc total none s elapsed $el s | LAUNCH FAILURE | job $J nodes $NODES | ${words[*]} procs $P | $MNRUN_MODULES" | tee -a "$W" >> "$LOG"; return 2
     fi
     # the digits (digcmp.sh of a 4e10 NFS file took 14 min on the login node): every part's sha1 over the header's binary fields and
     # the limbs (not the text at 1024, which names the run), taken on the nodes (their page cache holds what they just wrote) and
@@ -84,7 +84,7 @@ run() {
         dig="baseline ($(wc -l < "$BASEHASH") parts hashed); top part vs $(basename "$REF"): $t"
     else cmp -s "$O/$tag.sha1" "$BASEHASH" && dig="identical to the baseline ($(wc -l < "$O/$tag.sha1") parts)" || dig="DIFFERS from the baseline"; fi
     [ "$MODE" = tmp ] && [ "${D16_KEEP:-0}" != 1 ] && onall "rm -rf $pd" > /dev/null
-    echo "$tag rc $rc total ${tot:-none} s elapsed $el s | ${ver:-no VERIFY line} | $dig | job $J nodes $NODES | ${words[*]} procs $P" | tee -a "$W" >> "$LOG"
+    echo "$tag rc $rc total ${tot:-none} s elapsed $el s | ${ver:-no VERIFY line} | $dig | job $J nodes $NODES | ${words[*]} procs $P | $MNRUN_MODULES" | tee -a "$W" >> "$LOG"
     [ "$MODE" = nfs ] && [ "${D16_KEEP:-0}" != 1 ] && rm -f "$of".part???? "$of".t1
     [ $rc = 0 ] && [[ "$dig" != *DIFFERS* ]] && [[ "$ver" == *"VERIFY OK" ]]; return $?
 }
