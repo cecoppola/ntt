@@ -298,6 +298,16 @@ int comm_shmem_init(void)
     }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
 #ifndef COMM_HOST_ONLY
+#if !defined(COMM_SHMEM_SOS) && !defined(COMM_SHMEM_OSHMEM)
+    if (S.devheap && !S.extheap) {                        /* Phase 16 A (results/A16.md): the generic branch takes COMM_SHMEM_DEVHEAP=1 at its word only when the
+                                                           * library's heap is device memory; Cray OpenSHMEMX 11.8's heap is host hugepages (no HIP in libsma), and
+                                                           * handing that to kernels as a device pool would fault -- so it is registered like the default host pool */
+        hipPointerAttribute_t pa; hipError_t pe = hipPointerGetAttributes(&pa, S.pool);
+        int dev = pe == hipSuccess && (pa.type == hipMemoryTypeDevice || pa.type == hipMemoryTypeManaged);
+        (void)hipGetLastError();
+        if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
+    }
+#endif
     if (!S.devheap) {
         hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable);
         S.registered = he == hipSuccess;
