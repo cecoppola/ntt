@@ -36,9 +36,14 @@ cd "$(dirname "$0")"; HERE=$(pwd)
 source ./aac7env.sh
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 
-G=${E16_NODES:-12}
-DIGITS=${E16_DIGITS:-1099200000000}
-BELOW=${E16_BELOW:-1090000000000}
+# 2026-10-04 (the integrator): 12 nodes are never free on aac7 (3 are held for days) -- the headline runs on 10; the 12-node figures
+# stay as the modelled column.  At g = 10 (login node, ~/p16/D/plan/plan_916e9_10.txt, sweep10.txt): 9.16e11 digits -> plan check OK,
+# 98 products, pieces 135 / 139 (node 0 / critical path), levels 12/16 34/34, the default schedule 2,10 (groups of 2, then the 5-way
+# top), pool 8704 MiB, C layout node 453.95 GB (fits 480); the step below at 9.08 -> 9.10e11 (the top level 32 -> 34 pieces):
+# E16_BELOW = 908000000000 (137 on the critical path).
+G=${E16_NODES:-10}
+DIGITS=${E16_DIGITS:-$((G * 91600000000))}
+case $G in 12) BELOW=${E16_BELOW:-1090000000000};; 10) BELOW=${E16_BELOW:-908000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
 OUT=${E16_OUT:-$HOME/p16/E}
 REF11=${E16_REF11:-$HOME/ntt/ecalc/results/e_1e11.out}      # sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
 TO_RUN=${E16_TIMEOUT:-3600}        # one launch (the modelled wall with the NFS write is 692 s; the segfault's hang is killed here)
@@ -47,6 +52,13 @@ KEEP=${E16_KEEP:-0}
 mkdir -p "$OUT"/rec "$OUT"/dev "$OUT"/below "$OUT"/log
 LOG=$OUT/log/e16.log
 say() { echo "$(date '+%Y-%m-%dT%H:%M:%S%z') $*" | tee -a "$LOG"; }
+# the nodes of the allocation and their state at the start (B16: walls drift inside one allocation; a slow node must be nameable):
+# per node the load, leftover GPU processes, free memory, rocm-smi's clocks -- $OUT/log/nodes_<jobid>.txt
+NODES=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)" | paste -sd,)
+say "job $SLURM_JOB_ID nodes $NODES"
+srun --jobid="$SLURM_JOB_ID" -N "$G" --ntasks="$G" --ntasks-per-node=1 -c 4 --overlap --export=ALL bash -c \
+    'h=$(hostname -s); echo "$h load $(cut -d" " -f1-3 /proc/loadavg) memavail $(awk "/MemAvailable/ { printf \"%.0f GB\", \$2 / 1e6 }" /proc/meminfo) tmp $(df -h /tmp | awk "NR == 2 { print \$3 }") gpu-procs $(rocm-smi --showpids 2>/dev/null | grep -cE "^[0-9]+ ") $(rocm-smi --showclocks 2>/dev/null | grep -oE "GPU\[[0-9]\].*sclk[^(]*\([0-9]+Mhz\)" | sed -E "s/.*GPU\[([0-9])\].*\(([0-9]+)Mhz\)/sclk\1=\2/" | paste -sd" ")"' \
+    2>&1 | sort | tee "$OUT/log/nodes_$SLURM_JOB_ID.txt" | tee -a "$LOG"
 
 # the target's launch line (docs/TARGET.md 4) on aac7: the transport's words, the design switches; the pool comes from mnrun.sh's own
 # MN_PLAN_ONLY call (`plan pool` -> COMM_SHMEM_POOL_MB, the heap + 512 MiB), the schedule is the code's default at g = 12 (2,4,12).
