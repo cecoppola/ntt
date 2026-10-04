@@ -125,8 +125,16 @@ def main():
     ap.add_argument("--depth", type=int, default=2, choices=(1, 2), help="the uneven exchange's depth (agent X, Phase 13b)")
     ap.add_argument("--modmul", type=int, default=1, choices=(0, 1), help="NTT_MODMUL (step 0: 1)")
     ap.add_argument("--legacy", action="store_true", help="the Phase 12 model: four primes, the Phase 10/11 phase table")
+    ap.add_argument("--hide-pow2", type=float, default=None, help="Phase 16 F: HIDE_POW2, the equal-slab path's hidden xGMI fraction (default 0.75 measured on aac6; 0.72 measured on aac7 at depth 2, C16); = MN_MODEL_HIDE_POW2")
+    ap.add_argument("--t-round", type=float, default=None, help="Phase 16 F: T_ROUND, the fixed cost of one chunk round in s (default 0.030 fitted on aac6 loopback; <= 0.015 measured on aac7, C16); = MN_MODEL_T_ROUND")
+    ap.add_argument("--local-factor", type=float, default=None, help="Phase 16 F: one factor on the local (non-fabric) terms -- the node's compute and init (NODE_SCALE and INIT_SCALE together; default 1.0 = aac6's calibration at ROCm 7.2.4; the ROCm 7.0.3 toolchain measured +22 %% on bs / dm at 1e11 on aac7, C16 2.7; the profile's fit 1.12 / 1.20); = MN_MODEL_LOCAL_F; MN_MODEL_NODE_SCALE / MN_MODEL_INIT_SCALE set them apart")
     a = ap.parse_args()
     prof = M.apply_profile(a.fabric)                                      # Phase 16 C: the profile's fabric and constants (target = as before)
+    if a.hide_pow2 is not None: M.HIDE_POW2 = a.hide_pow2                 # Phase 16 F: the CLI's constants win over the profile and the environment
+    if a.t_round is not None: M.T_ROUND = a.t_round
+    if a.local_factor is not None:
+        M.NODE_SCALE = a.local_factor
+        if 'MN_MODEL_INIT_SCALE' not in os.environ: M.INIT_SCALE = a.local_factor   # (the env splits init off: MN_MODEL_INIT_SCALE=1.20 --local-factor 1.12 = the AAC7 fit)
     if a.bw is None: a.bw = prof.bw
     if a.lat is None: a.lat = prof.lat
     if a.write_bw is None: a.write_bw = prof.write_bw
@@ -213,10 +221,16 @@ def partial_row(a):
     r = [x for x in rows if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     if not r: return
     p24c, lp, kt, kd, tag, r0, rw = r[0]
+    with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = M.cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab)   # Phase 16 F: the second test size's row (RESULTS 94)
+    r2 = [x for x in rows2 if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     print("  the launch line's RNS_DIST_CACHE_PARTIAL=1 (int15j; the pool rule: tree %d / division %d primes per slot, P24 cached, the loop along the longer axis)%s:"
           % (kt, kd, " with MN_OUT_DKM_HI=1" if M.DKM_HI else " (MN_OUT_DKM_HI=1 not set in the environment: its -7 s with the write is not in this row)"))
     print("    %.3e the target                               | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
           % (M.TARGET_DIGITS, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b0, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw))))
+    if r2:
+        p24c, lp, kt2, kd2, tag, r0, rw = r2[0]
+        print("    %.3e the second test size                     | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
+              % (5.167e13, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b02, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw2))))
 
 def cache_rows(a, design, groups, fabs):
     """Phase 15 DOC2: at the target and one step below -- the mn transform cache at 0 (what RNS_DIST_CACHE_FIT allows), 1 and 2 slots (forced: their bytes on
