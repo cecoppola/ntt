@@ -2142,3 +2142,23 @@ There will **never** be access to the 576-node target or results from it; all de
 (results/AAC7_survey.md): 13 × 4-MI300A nodes on **Slingshot-11** (4 × 200 Gb/s per node) with **Cray OpenSHMEMX 11.8.0**,
 5-day jobs — the most hardware available; use it maximally (aac6: 3 nodes, 1 GbE). **Final stage, paused until no other
 development work remains:** the ready-to-run target package (testing and sweep scripts, rehearsed on aac7) for the hand-off.
+
+## 39. Phase 16 — aac7: the port, bring-up to 12 nodes, the model's inputs on Slingshot, the A/Bs, the scaled headline (approved by the user 2026-10-03; executed from 2026-10-03 23:00 EDT)
+
+The plan of results/TARGET_HW_REVIEW.md §4, on aac7 (`192C4G1H_MI300A_RHEL9_A1`, 13 × 4-MI300A, Slingshot-11, Cray OpenSHMEMX
+11.8.0, ROCm 7.0.3 = the target's; aac7 is **PDT**, Eastern + 3 h; 3 nodes held by another user — never touched). Every phase on
+its own branch `p16-<agent>` from `main`, the standing regression, merge, push; RESULTS §95+ holds the results.
+
+| phase | what | gate |
+|---|---|---|
+| **A** (agent A, Fable) | the port: `make SHMEM_CRAY=1 GMP_HOME=~/gmp` (GMP 6.3.0 built in the home: no headers on aac7), `mnrun.sh`'s `cray` branch (plain srun, `SHMEM_SYMMETRIC_SIZE` / `XT_SYMMETRIC_HEAP_SIZE`), `MNRUN_MODULES`, `ecalc/aac7env.sh` (modules, env, the clocks / NIC-affinity log line = N3); the 10⁹ reference regenerated; the 10¹¹ run (sha1 = 578f5efb…, aac6's); `mnaccept --full --only unit,e9,mn,recheck,corr,full`; `t_comm` / `t_mn_grid` on 2 real nodes; ecalc at 10⁹ / 10¹⁰ on 2 real nodes | identical digits everywhere; the first Slingshot per-APU GB/s |
+| **B** | bring-up 2 → 4 → 8 → 12 nodes at 10¹⁰ per node (`ECALC_CHECKPOINT=1`), both walls, VERIFY OK, identical to the references where they exist; clocks and NIC affinity logged per APU (the 5–7 % spread) | every size OK; the per-level `dist_mn` times for C |
+| **C** | the model's inputs on Slingshot + OpenSHMEMX: injection GB/s per APU (expect ≈ 25 with one 200 Gb/s NIC per APU), the per-message cost, `T_ROUND` (T11's procedure: 1024 vs 2048 at the same size and nodes), overlap at depth 1 / 2 (`COMM_LAYER_STATS=1 COMM_XGMI_STATS=1`), the mapping rate at 7.0.3 (init's `pools … s`), the memory edge; `mn_model.py` recalibrated with an `AAC7` fabric profile, the old constants selectable | every input measured, with its run and log line |
+| **D** | A/Bs at 8–12 nodes, interleaved pairs on the same nodes: `MN_GROUPS` schedules, `MN_T_CHUNK_MB` 1024 vs 2048, `COMM_LAYER_STATS=1` overlap, the cache (`RNS_DIST_CACHE_PARTIAL`, slots), EW `MN_OUT_DKM_HI` and PC real gains, two SHMEM contexts on one NIC, RCCL (`rccl-tests` all-to-all) vs our push kernel (N2) | each pair's two walls and spread; the options with cost / benefit for the user |
+| **E** | the scaled headline: 12 nodes at the target's per-node share (≈ 1.099 × 10¹² digits; modelled 323 / 336 s at 25 GB/s, 445 GB per node), the target's launch line; then the verification chain (RECHECK packed, per-part conversion, RECHECK ASCII, the 10¹¹ prefix) and one step below | both walls, VERIFY / RECHECK OK, the node peak against the model |
+| **N1** | IC-tiled transposes (TARGET_HW_REVIEW §3 item 5), single node, behind a switch — if B–E leave time | identical digits; the measured gain |
+| **F** | the 576-node figures re-estimated from C's inputs (5.276 and 5.167 × 10¹³, both walls, latency and APU-spread bands); the partial-cache row of `estimate.py --target` made to take `--bw` / `--lat` (F1, started with A) | the new estimate, labelled |
+| **G** | the target package — **paused, not started** | — |
+
+Rules: every new behavior behind a switch, off by default; digits byte-identical; measured / modelled / assumed on every number;
+times US Eastern; kill only by PID or an anchored pgrep; nothing that maps VMM memory while GPU kernels run.
