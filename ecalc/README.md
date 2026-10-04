@@ -37,6 +37,9 @@ the disk write. **Phase 15 Batch 3 (B3, 2026-09-29)**: defaults `MN_P24=2`, `NEW
 `DM_MN_LEAN` (int15k: the multi-node division's dead copies removed and the arena counted without them, −20 GB per node at the target, modelled).
 
     module load rocm && make          # ref/gen_e, ntt.o mem.o crt.o bigint.o rns_mul.o, tests/t_*
+    make SHMEM_CRAY=1 GMP_HOME=~/gmp  # Phase 16 A, aac7 (results/A16.md): Cray OpenSHMEMX 11.8.0 (module load cray-dsmml cray-openshmemx) through
+                                      # comm_shmem.c's generic OpenSHMEM 1.5 branch, -lsma -lpmi -lpmi2 -ldsmml with rpaths; GMP_HOME = a GMP built
+                                      # from source (aac7 has no gmp.h).  Nothing changes without the two variables.  `source aac7env.sh` first.
     salloc -p PPAC_MI300A_SPX -N1 --gpus=4 -t 6:00:00 --no-shell
     ./run tests/t_modarith 1000       # -> results/t_modarith.txt
     ./tests/t_roots                   # the roots above 2^33 (host only: runs on the login node)
@@ -376,7 +379,11 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `COMM_PORT` | the TCP port base (`mnrun.sh` picks a random one per run) |
 | `COMM_TRANSPORT` | `tcp` or `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) (tcp) |
 | `COMM_SHMEM_POOL_MB` | the SHMEM transport's symmetric pool (8192; *Phase 14 (V1)*: `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line, and a host heap to it + 512 MiB — `MNRUN_PLAN_POOL=0` skips that) |
-| `COMM_SHMEM_IMPL` | `mnrun.sh`: `sos` or `oshmem` — the SHMEM library the binary was built against, i.e. the launch form (`srun --mpi=pmi2` or `--mpi=pmix` + `setarch -L`) (detected: the first executable of the command, through wrappers such as `env`, `stdbuf`, `timeout`, `numactl`, that links `libsma` or `liboshmem`; neither: oshmem) |
+| `COMM_SHMEM_IMPL` | `mnrun.sh`: `sos`, `oshmem` or *Phase 16 (A)* `cray` — the SHMEM library the binary was built against, i.e. the launch form (`srun --mpi=pmi2`, `--mpi=pmix` + `setarch -L`, or plain `srun` with `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = pool + 512 MiB for Cray OpenSHMEMX) (detected: the first executable of the command, through wrappers such as `env`, `stdbuf`, `timeout`, `numactl`, that links `libsma` (`cray` when its rpath / resolved path is under `/opt/cray/pe`) or `liboshmem`; neither: oshmem) |
+| `MNRUN_MODULES` | *Phase 16 (A)*: the `module load` line of `mnrun.sh`'s wrappers and `mnaccept.sh`'s `R()` (`rocm`; `cray-dsmml cray-openshmemx rocm` where `/opt/cray/pe/sma` exists, i.e. aac7; `ecalc/aac7env.sh` sets it) |
+| `MNRUN_CPUS_PER_TASK` | *Phase 16 (A)*: `srun -c` for `mnrun.sh`'s tasks and `mnaccept.sh`'s `R()` — `auto` = the node's CPUs / tasks per node (aac7's srun confines a task to 2 CPUs otherwise) (unset: no `-c`, as before) |
+| `MNACCEPT_TMP` | *Phase 16 (A)*: the directory on the node where `mnaccept.sh` writes the digits (`/tmp/mnaccept_<jobid>`; aac7's `/tmp` is RAM, so a directory under `$HOME` there) |
+| `ECALC_LOG_CLOCKS` | *Phase 16 (A)*: `mnrun.sh`'s wrappers run `aac7env.sh --log` on every node before the command — the task's CPU set, `rocm-smi --showclocks` per APU, the APU → NUMA node → `cxi<j>` map (TARGET_HW_REVIEW N3) (0) |
 | `MNRUN_SHOW_IMPL` | *Phase 14 (N4), test*: `mnrun.sh` prints the SHMEM implementation it chose; `only` prints it and exits without launching (unset) |
 | `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (1) |
 | `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory: 1 on an implementation whose `shmem_malloc` is device memory or SOS with the external-heap patch, 2 managed (0; *Phase 12 (S)*) |

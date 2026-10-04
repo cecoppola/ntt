@@ -55,6 +55,7 @@ struct newton_mid_stats { size_t mid, whole; };
 extern struct newton_mid_stats newton_mid_st;
 void newton_recip_set(int cut, int mid);
 extern int newton_db_free_inputs;
+struct dbig_s;                                       /* Phase 16 A: declared at file scope (ROCm 7.0.3's clang warns -Wvisibility otherwise) */
 void newton_db_divmod_shifted(bigint *X, const struct dbig_s *S, size_t dl, const struct dbig_s *Qd, const uint64_t *qs, int nres, uint64_t *rres);   /* I3: A = S B^dl, all on device; R's residues out */
 extern struct dbig_s *newton_db_Qd;                  /* Phase 8: Q already on device (owned by the caller) */
 extern int newton_db_mu_host;                        /* 0: no host copy of mu after the reciprocal */
