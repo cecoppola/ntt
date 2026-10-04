@@ -25,6 +25,14 @@ static void map_line(const char *what, unsigned long a)   /* the /proc/self/maps
     char l[512]; while (fgets(l, sizeof l, f)) { unsigned long lo, hi; if (sscanf(l, "%lx-%lx", &lo, &hi) == 2 && a >= lo && a < hi) { write(2, "segv2.so: ", 10); write(2, what, strlen(what)); write(2, " in ", 4); write(2, l, strlen(l)); break; } }
     fclose(f);
 }
+static int map_find(unsigned long a, char *perm)   /* 1 when a is mapped (perm gets the 4 permission chars), 0 otherwise */
+{
+    FILE *f = fopen("/proc/self/maps", "r"); if (!f) return 0; int r = 0;
+    char l[512]; while (fgets(l, sizeof l, f)) { unsigned long lo, hi; char p[8]; if (sscanf(l, "%lx-%lx %7s", &lo, &hi, p) == 3 && a >= lo && a < hi) { if (perm) memcpy(perm, p, 5); r = 1; break; } }
+    fclose(f); return r;
+}
+static int map_ok(unsigned long a) { return map_find(a, 0); }
+static int map_exec(unsigned long a) { char p[8] = ""; return map_find(a, p) && p[2] == 'x'; }
 static volatile int g_depth;
 static void h(int sig, siginfo_t *si, void *ucv)
 {
@@ -43,6 +51,14 @@ static void h(int sig, siginfo_t *si, void *ucv)
     write(2, m, k);
     { Dl_info di; if (rip && dladdr((void *)rip, &di) && di.dli_fname) { k = snprintf(m, sizeof m, "segv2.so: rip in %s (%s+0x%lx)\n", di.dli_fname, di.dli_sname ? di.dli_sname : "?", di.dli_saddr ? rip - (unsigned long)di.dli_saddr : rip - (unsigned long)di.dli_fbase); write(2, m, k); } }
     map_line("rip", rip); map_line("fault address", (unsigned long)si->si_addr); map_line("rsp", rsp);
+    /* a stack scan (no unwinding): every word above rsp that dladdr resolves to code is a candidate return address -- the
+     * callers of a jump through a bad pointer (rip unmapped, b3 ctrl_8: rip 0xfffffffffffff000) stay readable this way */
+    if (rsp) { unsigned long *w = (unsigned long *)(rsp & ~7ul); int printed = 0;
+        for (int i = 0; i < 512 && printed < 24; i++) { unsigned long v; Dl_info di;
+            if (map_ok((unsigned long)(w + i)) == 0) break;
+            v = w[i]; if (v < 0x1000 || v > 0x7fffffffffffUL) continue;
+            if (dladdr((void *)v, &di) && di.dli_fname && di.dli_fbase && (v - (unsigned long)di.dli_fbase) < (256ul << 20) && map_exec(v)) {
+                k = snprintf(m, sizeof m, "segv2.so: stack[%d] 0x%lx in %s (%s+0x%lx)\n", i, v, di.dli_fname, di.dli_sname ? di.dli_sname : "?", di.dli_saddr ? v - (unsigned long)di.dli_saddr : v - (unsigned long)di.dli_fbase); write(2, m, k); printed++; } } }
     fsync(2);
     void *b[64]; int n = backtrace(b, 64);                 /* may fault on a foreign stack: the depth guard above stops the recursion */
     k = snprintf(m, sizeof m, "segv2.so: backtrace (%d frames)\n", n); write(2, m, k); backtrace_symbols_fd(b, n, 2); fsync(2);
