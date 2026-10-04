@@ -64,7 +64,10 @@ export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
 # AAC7_FI_TUNE=1: libfabric/CXI tunables that an A/B on 2 nodes (results/V16.md §3c) found worth keeping for large SHMEM puts.
 # Off by default — none of this changes the default stack, only an opt-in override.
 if [ "${AAC7_FI_TUNE:-0}" != 0 ]; then
-    : # results/V16.md §3c: no knob beat the > 5% wall / > 10% GB/s bar in the brief A/B; placeholder for a later pass.
+    : # results/V16.md §3c: none of FI_CXI_RX_MATCH_MODE=hybrid (+3.4% on the GB/s line, +3.3% slower wall),
+    # SHMEM_OFI_NIC_POLICY=ROUND-ROBIN (+3.1% / +1.0% slower) beat the >5% wall / >10% GB/s bar for a second run.
+    # No FI_CXI_RDZV_* vars are compiled into this libfabric 2.3.1 build (strings on libfabric.so: only
+    # FI_CXI_RX_MATCH_MODE is present of the set named in the task). Left empty on purpose.
 fi
 [ -d "$HOME/gmp/lib" ] && export GMP_HOME=${GMP_HOME:-$HOME/gmp}
 # aac7_alloc <nodes> <h:mm:00> [name] [sbatch options...]: an exclusive allocation of whole nodes, prints the job id
