@@ -29,6 +29,9 @@
 #          every run must be identical with all 4 nodes VERIFY OK
 # References: ref/e_<digits>.txt of this clone or, when absent, ECALC_REF (default ~/ntt/ecalc/ref);
 # the 4e10 file ECALC_REF_4E10 (default ~/ntt/ecalc/results/e_4e10.out).
+# Phase 16 A (results/A16.md): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
+# `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
+# /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
 J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
@@ -42,7 +45,10 @@ REF4=${ECALC_REF_STD:-${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_$STDT.out}}
 [ "$(squeue -j "$J" -h -o %T 2>/dev/null)" = "RUNNING" ] || { echo "job $J is not running"; exit 2; }
 NODE=$(squeue -j "$J" -h -o %N)
 OUT=results/mnaccept/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
-TMP=/tmp/mnaccept_$J
+TMP=${MNACCEPT_TMP:-/tmp/mnaccept_$J}
+if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"; else MNRUN_MODULES=rocm; fi; fi
+export MNRUN_MODULES
+case "${MNRUN_CPUS_PER_TASK:-}" in "") RC=;; auto) RC="-c $(scontrol show node "$NODE" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p')";; *) RC="-c $MNRUN_CPUS_PER_TASK";; esac
 SHA=$(git rev-parse --short HEAD 2>/dev/null)
 echo "== mnaccept: job $J on $NODE, $(date -Is), $(git log --oneline -1 2>/dev/null); ref $REF ==" | tee "$SUM"
 T0=$(date +%s)
@@ -52,7 +58,7 @@ pass() { NPASS=$((NPASS + 1)); echo "PASS $1: $2" | tee -a "$SUM"; }
 fail() { NFAIL=$((NFAIL + 1)); FAILED="$FAILED $1"; echo "FAIL $1: $2" | tee -a "$SUM"; }
 want() { [ -z "$ONLY" ] || [[ ",$ONLY," == *",$1,"* ]]; }
 # on the node: R <timeout> <cmd...> (single process, the four APUs); N <cmd...> (a shell on the node, no GPUs)
-R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 --gpus=4 --overlap bash -lc "module load rocm; cd $ECALC_DIR; $*"; }
+R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
 N() { srun --jobid="$J" -N1 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
