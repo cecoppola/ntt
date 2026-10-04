@@ -79,9 +79,22 @@ def seed_limbs(N, nterms, S=256, decimal=True):
 def region_of(i, n): r = i * NR // n; return r if r < NR else NR - 1
 def place_node(i, n, balance_n=16): return region_of(i, n) if n > balance_n else i % NR
 
-def region_need(N, nterms, mdev_logl=30, decimal=True, S=256):
+POOL_RULE = int(os.environ.get('BS_POOL_RULE', '1'))     # Phase 16 R: 1 = the tier prediction from the lower bound on the level's largest Q (binsplit.c level_q_lower); 0 = 0.9 x the bound
+
+def level_q_lower(a0, nterms, S, m_full, nspan, decimal=True):
+    """binsplit.c level_q_lower: a lower bound (limbs) on the largest Q of a level whose nodes cover m_full spans of S terms --
+    the last full node's product over its own terms [t0, t1), lgamma(t1) - lgamma(t0) in limbs (bs_seed_terms_for's measure)"""
+    nfull = nspan // m_full
+    if not nfull: return 0
+    t0 = a0 + (nfull - 1) * m_full * S; t1 = min(t0 + m_full * S, a0 + nterms)
+    dpl = 18.0 if decimal else 64.0 * math.log10(2.0)
+    return int(math.floor((math.lgamma(t1) - math.lgamma(t0)) / math.log(10.0) / dpl))
+
+def region_need(N, nterms, mdev_logl=30, decimal=True, S=256, a0=1, rule=None):
     """binsplit.c region_need: the limbs each region must hold over the batch levels (the simulated layout).
-    Closed forms per region instead of the C loop over the nodes: every node but the last covers full spans."""
+    Closed forms per region instead of the C loop over the nodes: every node but the last covers full spans.
+    a0: the node's first term (rank 0: 1); rule: BS_POOL_RULE (Phase 16 R; None = the environment's, default 1)"""
+    if rule is None: rule = POOL_RULE
     per, nspan = seed_limbs(N, nterms, S, decimal=decimal)
     r0 = [min(nspan, -(-r * nspan // NR)) for r in range(NR + 1)]           # the first span of region r
     need = [2 * per * (r0[r + 1] - r0[r]) + 2 for r in range(NR)]
@@ -90,7 +103,8 @@ def region_need(N, nterms, mdev_logl=30, decimal=True, S=256):
         n_in = (nspan + (1 << l) - 1) >> l
         if n_in <= 1: break
         m_full = 1 << l; max_nl = m_full * per + l
-        if 2 * int(0.9 * max_nl) + 1 > (1 << mdev_logl): break          # the mdev (device-number) levels
+        est = level_q_lower(a0, nterms, S, m_full, nspan, decimal) if rule else int(0.9 * max_nl)   # Phase 16 R: the lower bound (rule 1) or 0.9 x the bound (rule 0)
+        if 2 * est + 1 > (1 << mdev_logl): break                          # the mdev (device-number) levels
         npairs, odd = n_in // 2, n_in & 1; n = npairs + odd
         full = 4 * m_full * per + l + 1                                   # pa + qb + 1 + qa + qb of a full node
         i = n - 1                                                         # the last node: partial spans (and the odd one)
