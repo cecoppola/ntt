@@ -306,9 +306,28 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
  * just below the threshold is still counted); with host regions or the host mdev tier, every level.  The bound
  * is ~11 % above the real sizes (RESULTS 72: level 1 = 0.895 of total0) and pool_get adds 1/8: the margin.  This
  * replaces the flat total0 / NR (1 + 1/4), which held 1.4 x the live data and still grew at the five-node level. */
+/* Phase 16 R (results/R16.md): the tier prediction of the sizing pass.  The old rule took a level as mdev when 0.9 x the bound
+ * (per: ceil(log2(N + 2)) bits per term of the WHOLE series) exceeded the batch tier's limit; the real sizes of a node whose
+ * terms are the smallest of the g ranges (rank 0 at size > 1 holds [1, N/g)) are 0.88 of that bound (10^11 on 4 nodes:
+ * level 23's inputs 5.31e8 limbs against the bound 6.04e8), so the rule skipped a level the run then computed in the batch
+ * tier, and its outputs did not fit the pool (rank 0: parity 1's pool 0, 10.87 -> 16.15 GB, rc 6).  BS_POOL_RULE=1 (the
+ * default) decides from a LOWER BOUND on the level's largest Q -- the last full node's product over its own terms,
+ * lgamma(b) - lgamma(a) in limbs, the measure bs_seed_terms_for uses -- so a level is skipped only when even that bound is
+ * over the limit (the run then takes it through the mdev tier for sure); the bound is 0.97-0.99 of the real size, so at
+ * most one more level than before is counted, and only where the old rule would have aborted the run or came within 3 %
+ * of it.  BS_POOL_RULE=0 keeps the old rule (byte-identical layout).  mem_model.py region_need follows it. */
+static int bs_pool_rule(void) { static int v = -1; if (v < 0) v = getenv("BS_POOL_RULE") ? atoi(getenv("BS_POOL_RULE")) : 1; return v; }
+static size_t level_q_lower(unsigned long a0, unsigned long nterms, unsigned long S, size_t m_full, unsigned long nspan)
+{
+    unsigned long nfull = nspan / m_full; if (!nfull) return 0;
+    unsigned long t0 = a0 + (nfull - 1) * m_full * S, t1 = t0 + m_full * S; if (t1 > a0 + nterms) t1 = a0 + nterms;
+    long double dpl = bi_decimal ? 18.0L : 64.0L * log10l(2.0L);
+    return (size_t)floorl((lgammal((long double)t1) - lgammal((long double)t0)) / logl(10.0L) / dpl);
+}
 static void region_need(unsigned long N, size_t need[NR])
 {
     size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
+    unsigned long S = bs_seed_terms, a0 = bs_b1 ? bs_a0 : 1, nterms = bs_b1 ? bs_b1 - bs_a0 : N;   /* Phase 16 R: this node's own terms */
     for (int r = 0; r < NR; r++) need[r] = 0;
     { size_t r0[NR + 1]; for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
       for (int r = 0; r < NR; r++) need[r] = 2 * per * (r0[r + 1] - r0[r]) + 2; }
@@ -317,6 +336,7 @@ static void region_need(unsigned long N, size_t need[NR])
         size_t n_in = (nspan + ((size_t)1 << l) - 1) >> l; if (n_in <= 1) break;
         size_t m_full = (size_t)1 << l, max_nl = m_full * per + l;                 /* the bound on any node of level l */
         int mdev_level = 2 * (size_t)(0.9 * max_nl) + 1 > ((size_t)1 << bs_mdev_logl);   /* the real sizes are 0.90-0.945 of the bound at the levels below the top (measured 10^6..4x10^10); a miss costs one pool growth, not a failure; 0.85 pulled the 3-node level in at 4e10 and doubled the regions */
+        if (bs_pool_rule()) mdev_level = 2 * level_q_lower(a0, nterms, S, m_full, nspan) + 1 > ((size_t)1 << bs_mdev_logl);   /* Phase 16 R: from the lower bound (a miss was an abort since Phase 12 R) */
         if (mdev_level && bs_regions_on_device) break;                            /* the mdev levels use device numbers or the host pool */
         size_t npairs = n_in / 2, odd = n_in & 1, n = npairs + odd, offr[NR] = {0};
         if (n <= (size_t)bs_balance_n) nxt_r = (int *)malloc(n * sizeof *nxt_r);
