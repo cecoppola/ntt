@@ -5,19 +5,28 @@
 #                                   MNRUN_MODULES, MNRUN_CPUS_PER_TASK=auto (srun confines a task to 2 CPUs otherwise), MNACCEPT_TMP
 #                                   under $HOME (the nodes' /tmp is RAM), AAC7_PART; plus the helpers aac7_alloc / aac7_wait / aac7_log.
 #   bash ecalc/aac7env.sh --log     the log block of TARGET_HW_REVIEW N3, printed once per node by the task that runs it (mnrun.sh's
-#                                   wrappers call it when ECALC_LOG_CLOCKS=1): the node, the task's CPU set, rocm-smi's current
-#                                   clocks per APU, and the NUMA map APU i -> NUMA node -> cxi<j> (one Cassini per socket), so a run's
-#                                   per-APU dist_mn times can be read against the clocks and the NIC each APU thread (pinned to its
-#                                   NUMA node by mem.c) reaches.
+#                                   wrappers call it when ECALC_LOG_CLOCKS is set): the node, the task's CPU set, rocm-smi's current
+#                                   sclk / mclk / fclk per APU, and the NUMA map APU i -> NUMA node -> cxi<j> (one Cassini per socket), so
+#                                   a run's per-APU dist_mn times can be read against the clocks and the NIC each APU thread (pinned to
+#                                   its NUMA node by mem.c) reaches.  ECALC_LOG_CLOCKS=<seconds >= 2> adds a sampler: the clocks line
+#                                   again every that many seconds while the command runs (the binning tail under load, not at idle).
 # Every variable here is a switch of the scripts with its aac7 value; nothing changes for aac6 (the defaults stay).
 
 # ---- the log block (a task on a node) ----------------------------------------------------------------------------------------
 aac7_log() {
     local h; h=$(hostname -s)
     echo "aac7env: node $h task ${SLURM_PROCID:-?} of ${SLURM_NTASKS:-?} $(date '+%Y-%m-%dT%H:%M:%S%z') cpus $(grep Cpus_allowed_list /proc/self/status | awk '{print $2}')"
-    # the clocks: one line per APU (rocm-smi prints "GPU[i] : sclk/mclk/fclk current level ...")
-    if command -v rocm-smi > /dev/null 2>&1; then
-        rocm-smi --showclocks 2>/dev/null | awk -v h="$h" '/^GPU\[[0-9]+\]/ { gsub(/[ \t]+/, " "); print "aac7env: node " h " clocks " $0 }' | grep -E "sclk|mclk|fclk|socclk" | head -16
+    # the clocks: one line per APU, sclk / mclk / fclk as rocm-smi --showclocks prints them ("GPU[i] : sclk clock level: n: (fMhz)")
+    aac7_clocks() { rocm-smi --showclocks 2>/dev/null | awk -v h="$h" -v t="$1" '
+        match($0, /^GPU\[[0-9]+\]/) { g = substr($0, 1, RLENGTH); if (!(g in seen)) { seen[g] = 1; order[++n] = g } 
+            if (match($0, /(sclk|mclk|fclk) clock level: [^(]*\(([0-9]+)Mhz\)/)) { split(substr($0, RSTART, RLENGTH), a, / /); v = substr($0, RSTART, RLENGTH); sub(/.*\(/, "", v); sub(/Mhz\)/, "", v); c[g] = c[g] " " a[1] "=" v } }
+        END { for (i = 1; i <= n; i++) print "aac7env: node " h " clocks" (t != "" ? " t=" t "s" : "") " " order[i] c[order[i]] }'; }
+    command -v rocm-smi > /dev/null 2>&1 && aac7_clocks ""
+    # ECALC_LOG_CLOCKS=<seconds >= 2>: a sampler every that many seconds while the wrapper's process (the command, after its exec) lives
+    local every=${ECALC_LOG_CLOCKS:-0}
+    if [ "$every" -ge 2 ] 2>/dev/null && command -v rocm-smi > /dev/null 2>&1; then
+        ( local t0=$SECONDS p=$PPID; while kill -0 "$p" 2>/dev/null; do sleep "$every"; kill -0 "$p" 2>/dev/null || break; aac7_clocks "$((SECONDS - t0))"; done ) 2>/dev/null &
+        disown 2>/dev/null
     fi
     # the NUMA map: APU i (the KFD order, by PCI bus like HIP's device order) -> its numa_node; cxi<j> -> its numa_node
     local i=0 d nn; local -a gpu_numa
