@@ -4034,3 +4034,26 @@ the memory-copy rate (0.97–1.03× `memcpy`); every IC-tiled variant (16 / 32 /
 0.87–0.99× of production. The transposes are ≈ 0.6 % of a 10¹⁰ run, so the **modelled** change at the target is 0 s (the review's
 −5 … −7 s upper bound assumed 16 % of the multiply, which is the four-step's whole pass set, not the transposes). Nothing under
 `ecalc/` changed; the benchmark is kept. The one lever left: rotating the plane pointers instead of copying back (≈ 0.04 s at 10¹⁰, modelled).
+
+## 97. Phase 16 C: the model's inputs measured on aac7 — Slingshot-11 + Cray OpenSHMEMX, ROCm 7.0.3 vs 7.2.4 (2026-10-04; results/C16.md; main 1bebc70)
+
+All **measured on aac7** (2 nodes unless noted; C16 §2.10 has every value with its spread, command and log):
+
+| input | aac7 value | the model's assumption (TARGET) |
+|---|---|---|
+| injection per APU thread, ecalc's exchange sizes, 1 PE per node | **3.6 GB/s** (13.5–14.8 GB/s per node: one PE = one NIC, its four contexts share it; 14 GB/s per context only at 4 MiB puts; `SHMEM_OFI_NUM_NICS=4` / ROUND-ROBIN change nothing for one PE, `NIC_POLICY=NUMA` refused) | 100 GB/s per APU |
+| node injection with 4 PEs (one per NIC) | **32 GB/s per node** (7.6–8.2 per PE) — a design question (one process per NIC), not a switch | — |
+| per-message cost | 8.5 µs per put + signal + wait (17 µs per 2-PE exchange) | 2 µs |
+| `HIDE_POW2` | 0.72 at depth 2, 0.76 at depth 1 | 0.75 |
+| `T_ROUND` | ≤ 0.015 s (15–18 ms per divmod round; the fixed part ≤ 3 ms) | 0.030 s |
+| `MAP_RATE` | 0.070 s/GB at both toolchains; init at 10¹¹ 22.2 s (7.0.3) / 16.2 s (7.2.4) | 0.065 |
+| memory edge | 520 GB device (hipMalloc) / 504 GB host pool, then the OOM killer | 524 (aac6) |
+| ROCm 7.2.4 vs 7.0.3, 10¹¹ one node | **168.5 vs 205.9 s** (bs 79.0 / 95.1, dm 72.9 / 88.0, init 16.2 / 22.2); the 44 GB packed files byte-identical | aac6 166.7 ± 1.2 at 7.2.4 |
+| part file on NFS | 0.116 GB/s | 1.0 (Lustre) |
+
+The slowdown at ROCm 7.0.3 is the toolchain (+22 %, the same node, identical digits) — the target's version. **`mn_model.py` has a fabric
+profile `AAC7` (`estimate.py --fabric aac7`; env overrides for HIDE / GEN_HIDE / T_ROUND / MAP_RATE); the TARGET profile is unchanged.**
+The model against the measured walls at 10¹⁰ per node: +40 % at 2 nodes (50.7 modelled vs 35.3–36.7 s), −11 % at 4 (77.8 vs 87.3 s at the
+measured 2.9 GB/s), −33 % at 8 (219 vs 327 s at 1.0 GB/s) — the fabric rate per APU thread **falls with the node count** (3.6 → 2.9 →
+1.0 GB/s at 2 / 4 / 8 nodes; B's 8-node walls also drift up run after run inside one allocation: open, B16), and the model's 2-node byte law
+is 2.2 × the code's bytes (open). Cray trap: a cancelled SHMEM step leaves the node refusing every later launch for the rest of the job.
