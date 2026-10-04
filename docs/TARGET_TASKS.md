@@ -18,7 +18,7 @@ this note sets the order, the gates and what to hand back.
   memory reserve for a larger target (the grid steps above 5.276 × 10¹³: 5.28 (recip 51 → 53, div 20 → 28, +≈ 10 s), 5.39 (tree 86 → 88),
   5.74 × 10¹³ (tree 88 → 108); with the switch the 480 GB ceiling moves from 5.396 to ≈ 5.6 × 10¹³, modelled). **T5 and T11 now carry the
   −15 s items' target-side steps** (`MN_GROUPS` 9-way top −4.7 s, `MN_T_CHUNK_MB=2048` −10.9 s at the assumed `T_ROUND`; both modelled on
-  the B3 model; only the target measures the fabric and `T_ROUND`). The 10¹¹ one-node baseline on main (five runs, RESULTS §94) is the reference for any later regression.
+  the B3 model; only the target measures the fabric and `T_ROUND`). The 10¹¹ one-node baseline on main (five runs, RESULTS §94: `total` 166.7 ± 1.2 s, 175.3 ± 1.8 s with the packed write) is the reference for any later regression.
 - **2026-09-29, int15j (the user's decisions of 2026-09-29; main = B3 + int15j; supersedes the figures below, kept as history)**: the target is
   **5.276 × 10¹³ digits** (`ecalc 52760000000000`, since B3). The launch line (`docs/TARGET.md` §4) now also carries **`MN_OUT_DKM_HI=1`**
   (the writer on X_hi after the division's step 1: **two part files per node, 1152 in all** — the convert, `digcmp.sh` and `ECALC_RECHECK`
