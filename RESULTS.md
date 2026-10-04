@@ -4002,3 +4002,27 @@ packed 44 GB file's compare against the 100 GB reference runs over the shared fi
 packed write (runs 3–5, timed around the process: 173.8 / 177.3 / 174.9 s, **mean 175.3 s, σ 1.8 s**; the earlier int15j figure 172–176 s); VmHWM
 27.5 GB; **every run VERIFY OK and identical** to `e_1e11.out`. This is the new one-node baseline on `main` 6a4a6ef (the merged regression's full step
 gave 167.9 s). Logs `~/ntt/ecalc/results/close10/run1-5.log`, `~/p15/{D,D2,D3}/`.
+
+## 95. Phase 16 A: ecalc ported to aac7 — Cray OpenSHMEMX 11.8.0 over Slingshot-11, ROCm 7.0.3 (2026-10-03/04; results/A16.md; main 3eb531f)
+
+All numbers **measured on aac7** (PDT; times here Eastern) unless noted. Build: `source ecalc/aac7env.sh; make -s -j32 SHMEM_CRAY=1
+GMP_HOME=$HOME/gmp` (GMP 6.3.0 built in the home: aac7 has no GMP headers; `struct dbig_s` at file scope for 7.0.3's `-Wvisibility`;
+`CC=gcc` where make's built-in `cc` would be the Cray wrapper). New, all off by default: `SHMEM_CRAY=1`, `GMP_HOME`, `mnrun.sh`'s `cray`
+implementation (plain srun, `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = pool + 512 MiB), `MNRUN_MODULES`, `MNRUN_CPUS_PER_TASK`,
+`MNACCEPT_TMP`, `ECALC_LOG_CLOCKS` (`aac7env.sh --log`: clocks per APU and the cxi/NUMA affinity; N3 of TARGET_HW_REVIEW).
+
+- **Cray OpenSHMEMX 11.8.0** is OpenSHMEM 1.5 with THREAD_MULTIPLE, contexts and put-with-signal: the transport's generic branch runs
+  unchanged. Its symmetric heap is host hugepages (libsma has no HIP): `COMM_SHMEM_DEVHEAP=1` now falls back to the HIP-registered host
+  pool with one note (on the APU the same HBM). One NIC per PE by default (`SHMEM_OFI_NUM_NICS`, `SHMEM_OFI_NIC_POLICY`); `NUM_NICS=4`
+  against 1 made no difference in one pair at 2 nodes (Phase C measures it).
+- **References**: 10⁹ identical (13.98 s on one node); **10¹¹ on one node: sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 = aac6's**;
+  `total` 206.7 s and 196.3 s (two runs) against aac6's 166.7 ± 1.2 s at ROCm 7.2.4 — `init: region pools 18.30 s` at 7.0.3 (Phase C's
+  7.2.4 A/B says whether it is the toolchain).
+- **2 real nodes over Slingshot**: t_comm, `DIST_LAYERED=1 t_dist 24`, `t_mn_grid 0.5 27` VERIFY OK; 10⁹ identical 17.2 s; **10¹⁰
+  identical, 56.0 s best of 20 (53.7–62.2 s)**; the transport's new summary line: 3.7 GB/s per APU thread post-to-completion (186.6 GB
+  per PE in 50.1 s summed over the four threads) — far below one NIC's 25 GB/s (Phase C).
+- **Regression** `mnaccept.sh 12167 --full --only unit,e9,mn,recheck,corr,full`: 22 PASS; t_bs failed only for the missing 10⁶/10⁷
+  reference hashes (gen_e had made 10⁸/10⁹ only) and passes after generating them: 23/23. The 10¹¹ full step 196.3 s identical, RECHECK OK.
+- **Open**: 10¹⁰ at 2 nodes segfaults in task 1 in **3 of 23 launches** inside Cray's `shmem_init_thread` (the PMI all-gather, after the
+  45 GB of VMM arenas are mapped; 0 of 24 at 10⁹ / t_comm; PE 0 then hangs — launches under `timeout`); agent S is on it (Phase 16).
+  NFS is the I/O: the 10¹¹ packed write 44 GB in 382 s, unpack 1208 s — every timed run keeps its output out of the wall (it does).
