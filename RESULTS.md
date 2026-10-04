@@ -4089,3 +4089,15 @@ newest ROCm that links ecalc (7.12.0 / 7.13.0 / 7.14.0 / rocm-new-10.0.0 fail th
 libfabric 2.3.1 and cray-mpich 9.1.0 are already the newest modules. 2-node 1e10 A/B (measured): baseline 61.80 s, 3.56 GB/s per APU thread;
 `FI_CXI_RX_MATCH_MODE=hybrid` 63.86 s, `SHMEM_OFI_NIC_POLICY=ROUND-ROBIN` 62.40 s — neither kept; `AAC7_FI_TUNE=1` is a documented no-op.
 The target stays ROCm 7.0.3 (F16 reports both); asking the target for 7.2.4 is a user decision.
+
+## 101. Phase 16 P: four PEs per node on aac7 — faster at 4 nodes, does not fit the target as is (2026-10-04; results/P16.md)
+
+Switch `MNRUN_NODES=<n>` in `mnrun.sh` (unset by default: run on the job's first n nodes); no engine change. Measured (job 12211, ROCm 7.2.4,
+`COMM_INIT_EARLY=1`, `ECALC_CHECKPOINT=0`, 4 PEs/node with `ECALC_PLANE_CAP=30`; digits identical in all 11 valid runs), 10¹⁰ wall / compute s:
+4 nodes 1 PE 44.6, 35.4 / 19.2, 19.3 vs **4 PEs 25.9, 26.0 / 13.5, 14.8** (dm 12.8 → 8.1–9.4); 2 nodes 38.1, 39.1 / 19.7, 19.5 vs 31.3, 36.5 /
+20.5, 24.4; 1 node 33.1 / 19.3 vs 60.6 / 45.6. On-node transport 4 PEs: 10.3–12.3 GB/s per PE (40–49 GB/s per node; xGMI in-process 909).
+Memory (modelled, `MN_PLAN_ONLY`): needs `ECALC_PLANE_CAP=30` on aac7 (default cap: 570 GB per node at 2 nodes); at the target (2304 PEs)
+4 × 203–271 GB per node — **does not fit** (≈ 86 GB fixed cost per process). Trap: `ECALC_CHECKPOINT=1` — all PEs of a node share `<out>.top`
+(VERIFY FAILED on PEs 4–7). Open (user): repeat at 8 nodes and 4·10¹⁰ before adopting; per-node memory budget / per-process fixed cost /
+one-PE-per-APU rewrite for the target; per-PE checkpoint name. Merge note: mnrun.sh combines V's AAC7_ROCM default with D's `MNRUN_UNLOAD`
+(default rocm/7.0.3 on Cray).
