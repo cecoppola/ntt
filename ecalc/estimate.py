@@ -199,10 +199,12 @@ def partial_row(a):
     """Phase 15 int15j (2026-09-29, the user's decisions 2 and 3): the launch line carries RNS_DIST_CACHE_PARTIAL=1 (PC: the slots' primes per
     grid product from the block pool's free bytes, P24 cached, the loop along the longer axis) and MN_OUT_DKM_HI=1 (EW: the writer on
     X_hi after step 1; the model's DKM_HI term is read from the MN_OUT_DKM_HI / MN_MODEL_DKM_HI environment -- set it for the launch
-    line's figure).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate."""
+    line's figure).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate,
+    priced at the CLI's fabric (--bw/--lat/--group/--layers/--taper), same as target()'s other rows."""
     import io, contextlib
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW)
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf): (b0, bw), rows = M.cache_partial(wbs=(2.0, a.write_bw, 0.6))
+    with contextlib.redirect_stdout(buf): (b0, bw), rows = M.cache_partial(wbs=(2.0, a.write_bw, 0.6), fab=fab)
     r = [x for x in rows if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     if not r: return
     p24c, lp, kt, kd, tag, r0, rw = r[0]
