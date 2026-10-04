@@ -4026,3 +4026,11 @@ implementation (plain srun, `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = 
 - **Open**: 10¹⁰ at 2 nodes segfaults in task 1 in **3 of 23 launches** inside Cray's `shmem_init_thread` (the PMI all-gather, after the
   45 GB of VMM arenas are mapped; 0 of 24 at 10⁹ / t_comm; PE 0 then hangs — launches under `timeout`); agent S is on it (Phase 16).
   NFS is the I/O: the 10¹¹ packed write 44 GB in 382 s, unpack 1208 s — every timed run keeps its output out of the wall (it does).
+
+## 96. Phase 16 N1: Infinity-Cache-tiled transposes — measured, no gain, rejected (2026-10-04; results/N116.md; aac6)
+
+TARGET_HW_REVIEW §3 item 5 closed. **Measured on aac6** (one MI300A, 2²⁹-point planes): the production `k_transpose` already runs at
+the memory-copy rate (0.97–1.03× `memcpy`); every IC-tiled variant (16 / 32 / 64 MB working sets, LDS 64 × 64 sub-blocks) ran at
+0.87–0.99× of production. The transposes are ≈ 0.6 % of a 10¹⁰ run, so the **modelled** change at the target is 0 s (the review's
+−5 … −7 s upper bound assumed 16 % of the multiply, which is the four-step's whole pass set, not the transposes). Nothing under
+`ecalc/` changed; the benchmark is kept. The one lever left: rotating the plane pointers instead of copying back (≈ 0.04 s at 10¹⁰, modelled).
