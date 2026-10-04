@@ -1953,8 +1953,9 @@ def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid", design=None):
 # standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
 # need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
 # ============================================================================================================
-def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code', primes_phase=None):
+def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code', primes_phase=None, fab=None):
     """one modelled run with the cache configured (restored after); returns the run's dict"""
+    fab = fab if fab is not None else TARGET
     global CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PHASE_NOW, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE
     saved = (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE)
     tc0, dc0 = tree_cost, division_cost
@@ -1972,7 +1973,7 @@ def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', m
         CACHE_MN_SLOTS = slots if slots is not None else CACHE_MN_SLOTS; CACHE_SLOTS_PHASE = phase; CACHE_PRIMES = primes; CACHE_LOOP = loop; CACHE_MODEL = model
         CACHE_PRIMES_PHASE = primes_phase
         tree_cost, division_cost = tc, dc; _PC.clear()
-        return run(TARGET, T / g, g, verbose=False, design=design)
+        return run(fab, T / g, g, verbose=False, design=design)
     finally:
         (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE) = saved; _PC.clear()
 
@@ -2042,19 +2043,21 @@ def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
 def cache_partial_primes(free_node, q=1 << 29, np_=4):
     """the planes of q limbs one APU's pool share holds after the margin (the code's rule, cache_pc_take), at most np_"""
     return max(0, min(np_, int((free_node / 4 - PARTIAL_MARGIN) // (q * 8))))
-def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena_room=None, wbs=None):
+def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena_room=None, wbs=None, fab=None):
     """the estimate at the target with RNS_DIST_CACHE_PARTIAL=1 (modelled): the primes per phase from the pool's rooms, 1 slot, the loop;
-    arena_room: BS_ARENA_ROOM (None: the design's 0.16); wbs: the write rates priced (default TARGET_WRITE_BW, 0.6)"""
+    arena_room: BS_ARENA_ROOM (None: the design's 0.16); wbs: the write rates priced (default TARGET_WRITE_BW, 0.6); fab: the fabric
+    priced (default TARGET -- callers passing --bw/--lat/--group/--layers/--taper build their own Fabric and pass it here)"""
     global CACHE_P24
     T = T or TARGET_DIGITS; g = g or TARGET_NODES; GB = 1e9
+    fab = fab if fab is not None else TARGET
     d = DEFAULT15C(cache_fit=False) if arena_room is None else DEFAULT15C(cache_fit=False, arena_room=arena_room)
     wbs = wbs or (TARGET_WRITE_BW, 0.6)
     def runw(**kw):                                                   # the run at each write rate: (wall_nowrite, [wall at wbs])
         out = []
         for w in wbs:
-            w0 = TARGET.write_bw; TARGET.write_bw = w
-            try: r = _run_cache(T, g, d, **kw)
-            finally: TARGET.write_bw = w0
+            w0 = fab.write_bw; fab.write_bw = w
+            try: r = _run_cache(T, g, d, fab=fab, **kw)
+            finally: fab.write_bw = w0
             out.append(r)
         return out[0]['wall_nowrite'], [r['wall'] for r in out]
     tree, dm, x = cache_partial_rooms(T, g, d, keep_room)
