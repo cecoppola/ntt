@@ -2135,3 +2135,10 @@ target measures (the fabric, `T_ROUND`) and the precise steps are in TARGET_TASK
 p14-L1 / R1, rl-fill pushed first), aac6's 118 agent clones (82 GB) and 133 bundles deleted, 469 loose files moved into `~/p15/attic/`
 (cited paths left in place). Then int15k (code = main + `DM_MN_LEAN` off + the documents) through the standing regression, merged, pushed,
 aac6 `~/ntt` synced, and **five 10¹¹ baseline runs** (`closing.sh 5`) on the final main — the reference for every later change.
+
+### 38.5 Scope and hardware (the user, 2026-10-03)
+
+There will **never** be access to the 576-node target or results from it; all development is on test nodes. **aac7**
+(results/AAC7_survey.md): 13 × 4-MI300A nodes on **Slingshot-11** (4 × 200 Gb/s per node) with **Cray OpenSHMEMX 11.8.0**,
+5-day jobs — the most hardware available; use it maximally (aac6: 3 nodes, 1 GbE). **Final stage, paused until no other
+development work remains:** the ready-to-run target package (testing and sweep scripts, rehearsed on aac7) for the hand-off.
