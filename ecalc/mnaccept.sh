@@ -48,7 +48,8 @@ OUT=results/mnaccept/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
 TMP=${MNACCEPT_TMP:-/tmp/mnaccept_$J}
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"; else MNRUN_MODULES=rocm; fi; fi
 export MNRUN_MODULES
-case "${MNRUN_CPUS_PER_TASK:-}" in "") RC=;; auto) RC="-c $(scontrol show node "$NODE" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p')";; *) RC="-c $MNRUN_CPUS_PER_TASK";; esac
+# Phase 16 S: `| head -1` -- on a multi-node job scontrol prints one CPUTot per node and R()'s srun got "-c 192<newline>192" (execve(): 192: No such file; results/S16.md)
+case "${MNRUN_CPUS_PER_TASK:-}" in "") RC=;; auto) RC="-c $(scontrol show node "$NODE" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p' | head -1)";; *) RC="-c $MNRUN_CPUS_PER_TASK";; esac
 SHA=$(git rev-parse --short HEAD 2>/dev/null)
 echo "== mnaccept: job $J on $NODE, $(date -Is), $(git log --oneline -1 2>/dev/null); ref $REF ==" | tee "$SUM"
 T0=$(date +%s)

@@ -111,6 +111,7 @@ enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
     int inited, me, npes, serial, devheap, order, thread_always, registered, extheap, prov, keep_staging;
+    size_t put_bytes;                                     /* Phase 16 C: COMM_SHMEM_PUT_MB -- a put larger than this goes in pieces of this size (0 = whole, as before) */
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
@@ -292,6 +293,7 @@ int comm_shmem_init(void)
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     S.keep_staging = env_int("COMM_SHMEM_KEEP_STAGING", 0);
+    { const char *ep = getenv("COMM_SHMEM_PUT_MB"); double pm = ep ? atof(ep) : 0; S.put_bytes = pm > 0 ? (size_t)(pm * 1048576.0) : 0; }   /* Phase 16 C (results/C16.md): on Slingshot-11 one 4 MiB put runs at 14 GB/s per context, one 256 MiB put at 7.7 */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }   /* Phase 14 V1 */
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);
@@ -402,6 +404,13 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
+        if (S.put_bytes && n > S.put_bytes) {                 /* Phase 16 C: the pieces before the last without a signal, a fence (delivery order to the PE), the last with it */
+            size_t done = 0;
+            while (n - done > S.put_bytes) { shmem_ctx_putmem_nbi(p->ctx, S.pool + off + done, (const char *)src + done, S.put_bytes, p->pe[r]); done += S.put_bytes; }
+            shmem_ctx_fence(p->ctx);
+            shmem_ctx_putmem_signal_nbi(p->ctx, S.pool + off + done, (const char *)src + done, n - done, (uint64_t *)sw, (uint64_t)sig, SHMEM_SIGNAL_SET, p->pe[r]);
+            return;
+        }
         if (n) shmem_ctx_putmem_signal_nbi(p->ctx, S.pool + off, src, n, (uint64_t *)sw, (uint64_t)sig, SHMEM_SIGNAL_SET, p->pe[r]);
         else shmem_ctx_long_p(p->ctx, sw, sig, p->pe[r]);
         return;
