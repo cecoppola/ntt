@@ -137,8 +137,85 @@ static int check_all(comm *c, int me, int n)
     if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: p2p: %d bad so far\n", me, bad);
     return bad;
 }
+/* ---- Phase 16 C (results/C16.md): the bandwidth / latency sweep over the SHMEM transport ---------------------------------
+ * t_comm --bw  [threads (4)] [reps (5)] [max MiB (256)] [sym|host] [pairs]     slab sizes 64 KiB .. max MiB per destination
+ * t_comm --lat [threads (1)] [reps (200)] [sym|host] [pairs]                   8 B .. 4 KiB
+ * Each thread owns one communicator (its own SHMEM context, as ecalc's four APU threads do) and runs the equal all-to-all
+ * (comm_alltoall + comm_wait) on buffers of the symmetric pool (sym: pool-resident, unstaged -- the pure put + signal path)
+ * or malloc'd (host: staged through the pool by memcpy; the host-only build has no device).  `pairs` with n > 2 PEs makes
+ * every PE exchange with the one PE n/2 away only (4 PEs per node on 2 nodes: four inter-node pairs, no intra-node traffic).
+ * Printed per PE and size: the median time of one exchange per thread and the GB/s per thread received ((n - 1) x the slab),
+ * and the aggregate over the threads (all started together: the node's rate through the PE's NIC(s)); --lat prints the
+ * median us per message (the exchange's time / (n - 1)). */
+#include <pthread.h>
+#include <sys/time.h>
+static double tnow(void) { struct timeval tv; gettimeofday(&tv, 0); return tv.tv_sec + tv.tv_usec * 1e-6; }
+static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
+struct sw_arg { comm *c; int t, n, reps, host; size_t bytes; double med, min, tot; pthread_barrier_t *bar; };
+static void *sw_thread(void *a)
+{
+    struct sw_arg *w = (struct sw_arg *)a; comm *c = w->c; int n = w->n, reps = w->reps; size_t b = w->bytes, alloc = b * n;
+    int ssym = !w->host, rsym = !w->host; char *sb = xalloc(c, alloc, &ssym), *rb = xalloc(c, alloc, &rsym);
+    if (!w->host && (!ssym || !rsym)) { fprintf(stderr, "t_comm: the pool could not hold %zu B x 2 (raise COMM_SHMEM_POOL_MB)\n", alloc); exit(2); }
+    memset(sb, 0x5A, alloc); memset(rb, 0, alloc);
+    double *ts = malloc(reps * sizeof *ts);
+    comm_alltoall(c, sb, rb, b, NULL); comm_wait(c);                         /* warm-up */
+    comm_barrier(c);
+    pthread_barrier_wait(w->bar);
+    double t0 = tnow();
+    for (int r = 0; r < reps; r++) { double x = tnow(); comm_alltoall(c, sb, rb, b, NULL); comm_wait(c); ts[r] = tnow() - x; }
+    w->tot = tnow() - t0;
+    qsort(ts, reps, sizeof *ts, cmp_d); w->med = ts[reps / 2]; w->min = ts[0];
+    comm_barrier(c);
+    free(ts); xfree(c, sb, ssym); xfree(c, rb, rsym);
+    return 0;
+}
+static int run_sweep(int argc, char **argv)
+{
+    int lat = !strcmp(argv[1], "--lat"), T = lat ? 1 : 4, reps = lat ? 200 : 5, host = 0, pairs = 0; size_t maxmb = 256;
+    int pos = 0;
+    for (int i = 2; i < argc; i++) {
+        if (!strcmp(argv[i], "sym")) host = 0; else if (!strcmp(argv[i], "host")) host = 1; else if (!strcmp(argv[i], "pairs")) pairs = 1;
+        else { long v = atol(argv[i]); if (pos == 0) T = (int)v; else if (pos == 1) reps = (int)v; else maxmb = (size_t)v; pos++; }
+    }
+    if (T < 1 || T > 16 || reps < 1) { fprintf(stderr, "t_comm: bad sweep arguments\n"); return 2; }
+    int n = comm_shmem_init(), me = comm_shmem_rank();
+    comm *cs[16], *all = 0; int cn = n, cme = me;
+    if (pairs && n > 2 && n % 2 == 0) all = comm_shmem_create_at(0, 1, n, 31);   /* the full set: a barrier before every timed loop, so the pairs' walls overlap */
+    for (int t = 0; t < T; t++) {
+        if (pairs && n > 2 && n % 2 == 0) { cs[t] = comm_shmem_create_at(me % (n / 2), n / 2, 2, t); cn = 2; cme = me / (n / 2); }
+        else cs[t] = comm_shmem_create_at(0, 1, n, t);
+    }
+    size_t sizes[32]; int ns = 0;
+    if (lat) { for (size_t b = 8; b <= 4096; b *= 8) sizes[ns++] = b; }
+    else { for (size_t b = 64 << 10; b <= (maxmb << 20); b *= 4) sizes[ns++] = b; if (sizes[ns - 1] != (maxmb << 20)) sizes[ns++] = maxmb << 20; }
+    const char *tag = lat ? "t_comm lat" : "t_comm bw";
+    if (me == 0) printf("%s: %d PEs%s, %d thread(s) with a communicator each, %d reps, %s buffers\n", tag, n, pairs && cn == 2 && n > 2 ? " in pairs (pe, pe + n/2)" : "", T, reps, host ? "malloc'd (staged)" : "symmetric (pool-resident)");
+    for (int s = 0; s < ns; s++) {
+        pthread_barrier_t bar; pthread_barrier_init(&bar, 0, T);
+        struct sw_arg w[16]; pthread_t th[16];
+        if (all) comm_barrier(all);
+        for (int t = 0; t < T; t++) { w[t].c = cs[t]; w[t].t = t; w[t].n = cn; w[t].reps = reps; w[t].host = host; w[t].bytes = sizes[s]; w[t].bar = &bar; pthread_create(&th[t], 0, sw_thread, &w[t]); }
+        double tot = 0, medsum = 0; for (int t = 0; t < T; t++) { pthread_join(th[t], 0); if (w[t].tot > tot) tot = w[t].tot; medsum += w[t].med; }
+        pthread_barrier_destroy(&bar);
+        double recv = (double)sizes[s] * (cn - 1);                           /* bytes received per thread per exchange */
+        if (lat) printf("%s: pe %d (rank %d of %d): %6zu B: median %.2f us per message (%.2f us per exchange, min %.2f), %d threads\n", tag, me, cme, cn, sizes[s], medsum / T / (cn - 1) * 1e6, medsum / T * 1e6, w[0].min * 1e6, T);
+        else printf("%s: pe %d (rank %d of %d): %9zu B per slab: median %.3f ms per exchange (min %.3f), %.2f GB/s per thread, aggregate %.2f GB/s over %d threads (%.3f s wall)\n", tag, me, cme, cn, sizes[s],
+                    medsum / T * 1e3, w[0].min * 1e3, recv / (medsum / T) / 1e9, recv * T * reps / tot / 1e9, T, tot);
+        fflush(stdout);
+    }
+    for (int t = 0; t < T; t++) comm_destroy(cs[t]);
+    if (all) comm_destroy(all);
+    printf("%s: pe %d done\n", tag, me);
+    comm_shmem_finalize();
+    return 0;
+}
 int main(int argc, char **argv)
 {
+    if (argc > 1 && (!strcmp(argv[1], "--bw") || !strcmp(argv[1], "--lat"))) {   /* Phase 16 C: the sweep (SHMEM only) */
+        if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm %s needs COMM_TRANSPORT=shmem\n", argv[1]); return 2; }
+        return run_sweep(argc, argv);
+    }
     if (getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* S: one PE per process under oshrun (mnrun.sh) */
         shmem_mode = 1; int n = comm_shmem_init(), me = comm_shmem_rank();
         int bad = run_rank(me, n, 0, 0);
