@@ -4069,3 +4069,14 @@ be a default**) counts that level: 2.5 × 10¹⁰ : 4 pool 0 9.66 → 19.33 GB; 
 nodes without `RNS_POOL_GROW` → identical to the reference, VERIFY OK; 4 × 10¹⁰ identical; mnaccept `mn` e9 sizes 2 and 4 PASS (the `unit`
 and `e9` steps did not run on the 4-node allocation: `MNRUN_CPUS_PER_TASK=auto` printed one CPU count per node — fixed on p16-S; **open**:
 `--only unit,e9` on a 1-node ROCm 7.2.4 job). B's `RNS_POOL_GROW=1` retry of the same run was also identical (B16).
+
+## 99. Phase 16 S: the Cray startup segfault — libfabric memhooks vs the HSA threads; `COMM_INIT_EARLY` (2026-10-04; results/S16.md)
+
+**Measured on aac7**, 10¹⁰ on 2 nodes: the control (the transport opened after the VMM arenas) segfaulted in **8 of 78 launches** (A's 3/23 +
+S's 5/55; 0 at 10⁹); **`COMM_INIT_EARLY=1` (the transport before `rns_init`): 0 of 55**, digits identical at 10⁹ / 10¹⁰, no measurable cost
+(`total` 53–59 s both ways; the init moves, it does not grow); mnaccept `unit,e9,mn` with the switch 15/16 (t_mn_grid's 2-process step
+times out over TCP between two nodes — a harness issue, run it on one node). Cause (diagnosed from four frames, the mechanism libfabric's
+documented one): the cxi provider's **memhooks** MR-cache monitor patches glibc's mmap family in place during `shmem_init_thread`; a
+ROCm HSA worker thread inside one of them continues at a garbage address (`rip` 0x21041 / 0xffff…f000). `FI_MR_CACHE_MONITOR=disabled`:
+0 of 10 (not proven). The switch stays **off by default — the user decides**; on aac7 it belongs on the launch line. Also from S: the
+`MNRUN_CPUS_PER_TASK=auto` fix for multi-node jobs, `ecalc/tools/segv2.c` (the aac7 backtrace preload), TARGET.md §8 traps 17–18.
