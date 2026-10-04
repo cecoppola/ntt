@@ -385,6 +385,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `AAC7_ROCM` | *Phase 16 (V)*: the ROCm module `aac7env.sh` / `mnrun.sh` load on aac7, in place of the system default `rocm` (= `rocm/7.0.3`) (`rocm/7.2.4` — identical digits, 168.5 vs 205.9 s at 1e11, C16 §2.7; set `AAC7_ROCM=rocm/7.0.3` to match the target's toolchain instead) |
 | `AAC7_FI_TUNE` | *Phase 16 (V)*: 1 exports the libfabric/CXI tunables `aac7env.sh` found to help large SHMEM puts (`FI_CXI_*`, `SHMEM_OFI_*`; results/V16.md §3c) (0, off) |
 | `MNRUN_CPUS_PER_TASK` | *Phase 16 (A)*: `srun -c` for `mnrun.sh`'s tasks and `mnaccept.sh`'s `R()` — `auto` = the node's CPUs / tasks per node (aac7's srun confines a task to 2 CPUs otherwise) (unset: no `-c`, as before) |
+| `MNRUN_NODES` | *Phase 16 (P, results/P16.md)*: `mnrun.sh` uses at most the first n nodes of the allocation (unset: all) — 4 PEs on one node (`MNRUN_NODES=1 mnrun.sh 4`), a 2-node run inside a 4-node job |
 | `MNACCEPT_TMP` | *Phase 16 (A)*: the directory on the node where `mnaccept.sh` writes the digits (`/tmp/mnaccept_<jobid>`; aac7's `/tmp` is RAM, so a directory under `$HOME` there) |
 | `ECALC_LOG_CLOCKS` | *Phase 16 (A)*: `mnrun.sh`'s wrappers run `aac7env.sh --log` on every node before the command — the task's CPU set, `rocm-smi --showclocks` per APU, the APU → NUMA node → `cxi<j>` map (TARGET_HW_REVIEW N3) (0) |
 | `MNRUN_SHOW_IMPL` | *Phase 14 (N4), test*: `mnrun.sh` prints the SHMEM implementation it chose; `only` prints it and exits without launching (unset) |
