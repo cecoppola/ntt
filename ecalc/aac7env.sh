@@ -51,6 +51,11 @@ if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 export AAC7_ROCM=${AAC7_ROCM:-rocm/7.2.4}
 if [ -d /opt/cray/pe/sma ]; then
     export MNRUN_MODULES="cray-dsmml cray-openshmemx $AAC7_ROCM"
+    # the login/compute default shell profile already has rocm/7.0.3 loaded; "rocm" is a conflict-marked family
+    # (module-whatis "conflict rocm" on every rocm/* and rocm-new/* modulefile) so a later "module load rocm/X" is a
+    # silent no-op (prints ERROR:150 to stderr, swallowed by 2>&1, and leaves 7.0.3 active) unless 7.0.3 is unloaded
+    # first by its exact name.  Measured on aac7 2026-10-04 (results/V16.md step 1).
+    module unload rocm/7.0.3 > /dev/null 2>&1 || true
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
