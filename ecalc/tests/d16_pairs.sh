@@ -76,6 +76,9 @@ run() {
     # leading digits through unpack_digits
     local dig= pd=$(dirname "$of")
     onall "cd $pd 2>/dev/null || exit 0; for p in e.out.part*; do [ -f \$p ] || continue; echo \"\$p \$( (head -c 1024 \$p; tail -c +4097 \$p) | sha1sum | cut -c1-40)\"; done" | sort -u > "$O/$tag.sha1"
+    # one baseline per part layout (MN_OUT_DKM_HI=0 writes G parts, =1 writes 2G: the same digits hash differently), each checked
+    # against the reference once
+    local np; np=$(wc -l < "$O/$tag.sha1"); BASEHASH=$O/baseline.sha1; [ "$np" != "$((2 * G))" ] && BASEHASH=$O/baseline_${np}parts.sha1
     if [ ! -s "$BASEHASH" ]; then
         cp "$O/$tag.sha1" "$BASEHASH"
         local top=/tmp/p16D_top_$$.txt
