@@ -20,6 +20,8 @@
 # ECALC_LOG_CLOCKS=1 runs aac7env.sh --log (rocm-smi clocks, the APU / NIC NUMA map) on every node before the command.
 # Phase 16 D: MNRUN_UNLOAD=<modules> (unset by default) is unloaded before MNRUN_MODULES in every wrapper and the plan call -- a versioned
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
+# Phase 16 P (results/P16.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
+# (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
 set -e
 P=$1; shift
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -28,6 +30,7 @@ export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 nn=$(echo "$nodes" | wc -l); [ "$nn" -gt "$P" ] && nn=$P
+[ -n "${MNRUN_NODES:-}" ] && [ "$nn" -gt "$MNRUN_NODES" ] && nn=$MNRUN_NODES   # Phase 16 P: at most this many nodes of the allocation (unset: all)
 while [ $((P % nn)) -ne 0 ]; do nn=$((nn - 1)); done
 per=$((P / nn))
 use=$(echo "$nodes" | head -n "$nn")
