@@ -4057,3 +4057,15 @@ The model against the measured walls at 10¹⁰ per node: +40 % at 2 nodes (50.7
 measured 2.9 GB/s), −33 % at 8 (219 vs 327 s at 1.0 GB/s) — the fabric rate per APU thread **falls with the node count** (3.6 → 2.9 →
 1.0 GB/s at 2 / 4 / 8 nodes; B's 8-node walls also drift up run after run inside one allocation: open, B16), and the model's 2-node byte law
 is 2.2 × the code's bytes (open). Cray trap: a cancelled SHMEM step leaves the node refusing every later launch for the rest of the job.
+
+## 98. Phase 16 R: the region-pool sizing abort at 10¹¹ on 4 nodes — `BS_POOL_RULE` (2026-10-04; results/R16.md; main after 4d35fb2)
+
+**Measured on aac7**, 4 nodes (ROCm 7.0.3): 10¹¹ digits on 4 node-processes (2.5 × 10¹⁰ per node) aborted in bs at level 22 — `region
+pool 0 of parity 1 would grow inside bs, 10.87 -> 16.15 GB` — while 10¹⁰ per node and 10¹¹ on one node run. Cause (R16 §1): the init-time
+region rule sized pool 0 from the leaf levels only; at mid per-node sizes the level the multi-node tree hands to the node is larger (the
+level counted at ratio 0.92). The fix `BS_POOL_RULE=1` (**default 1; `0` = the old rule — the user decides whether a sizing correction may
+be a default**) counts that level: 2.5 × 10¹⁰ : 4 pool 0 9.66 → 19.33 GB; **the layouts at 10¹¹ : 1, 9.16 × 10¹⁰ : 12 (Phase E) and
+9.16 × 10¹⁰ : 576 (the target) are byte-identical under both rules** (`mem_model.py --p15` identical; `--check-c` exact). Tests: 10¹¹ on 4
+nodes without `RNS_POOL_GROW` → identical to the reference, VERIFY OK; 4 × 10¹⁰ identical; mnaccept `mn` e9 sizes 2 and 4 PASS (the `unit`
+and `e9` steps did not run on the 4-node allocation: `MNRUN_CPUS_PER_TASK=auto` printed one CPU count per node — fixed on p16-S; **open**:
+`--only unit,e9` on a 1-node ROCm 7.2.4 job). B's `RNS_POOL_GROW=1` retry of the same run was also identical (B16).
