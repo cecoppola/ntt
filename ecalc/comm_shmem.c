@@ -123,6 +123,7 @@ static struct {
     size_t round_bytes;                    /* Phase 14 V1: COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* Phase 14 V1: all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
+    double bv;                             /* Phase 16 A: the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* Phase 14 P2 (below) */
@@ -348,7 +349,7 @@ void comm_shmem_finalize(void)
         printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
                S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
         if (S.verbose >= 2) site_print();
-        printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads)", S.me, S.nv, S.tv);   /* Phase 14 V1 */
+        printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread", S.me, S.nv, S.tv, S.bv / 1e9, S.tv > 0 ? S.bv / 1e9 / S.tv : 0);   /* Phase 14 V1; Phase 16 A: the bytes */
         if (S.round_bytes) printf("; %ld through the rounds' path, %ld of them in %ld rounds (COMM_SHMEM_ROUND_MB=%.6g, the largest round's staging %.1f MiB send + recv)", S.nrpath, S.nround_ex, S.nrounds, S.round_bytes / 1048576.0, S.round_stage_max / 1048576.0);
         printf("\n");
     }
@@ -643,6 +644,12 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     publish(p, rin ? off_of(rb) : p->rst, 0, rin ? rdsp : p->rpre);
     start_push(c);
 }
+/* Phase 16 A: the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
+static double recv_bytes(const shm_priv *p)
+{
+    if (!p->v) return (double)(p->n - 1) * (double)p->bytes;
+    double b = 0; for (int r = 0; r < p->n; r++) if (r != p->me) b += (double)p->rcnt[r]; return b;
+}
 static void s_wait(comm *c)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
@@ -651,7 +658,7 @@ static void s_wait(comm *c)
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
     if (p->rounds) {                                      /* Phase 14 V1: the rounds completed in the helper thread */
         p->rounds = 0; staging_release(p); p->pending = 0;
-        double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; pthread_mutex_unlock(&S.alloc_lock);
+        double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock);
         return;
     }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
@@ -663,7 +670,7 @@ static void s_wait(comm *c)
     }
     staging_release(p);
     p->pending = 0;
-    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; pthread_mutex_unlock(&S.alloc_lock); }   /* Phase 14 V1 */
+    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); }   /* Phase 14 V1 */
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
 static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
