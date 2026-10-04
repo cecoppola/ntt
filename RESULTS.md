@@ -4080,3 +4080,12 @@ documented one): the cxi provider's **memhooks** MR-cache monitor patches glibc'
 ROCm HSA worker thread inside one of them continues at a garbage address (`rip` 0x21041 / 0xffff…f000). `FI_MR_CACHE_MONITOR=disabled`:
 0 of 10 (not proven). The switch stays **off by default — the user decides**; on aac7 it belongs on the launch line. Also from S: the
 `MNRUN_CPUS_PER_TASK=auto` fix for multi-node jobs, `ecalc/tools/segv2.c` (the aac7 backtrace preload), TARGET.md §8 traps 17–18.
+
+## 100. Phase 16 V: the fastest aac7 stack — ROCm 7.2.4 the aac7 default (2026-10-04; results/V16.md)
+
+At the user's direction ("use the fastest versions … on aac7"), `aac7env.sh` now loads **rocm/7.2.4** by default (`AAC7_ROCM`; rocm/7.0.3
+must be unloaded first — a module conflict, fixed in `mnrun.sh`). e9 byte-identical under the new default (measured). Survey: 7.2.4 is the
+newest ROCm that links ecalc (7.12.0 / 7.13.0 / 7.14.0 / rocm-new-10.0.0 fail the same `-fPIC` device-link error); cray-openshmemx 11.8.0,
+libfabric 2.3.1 and cray-mpich 9.1.0 are already the newest modules. 2-node 1e10 A/B (measured): baseline 61.80 s, 3.56 GB/s per APU thread;
+`FI_CXI_RX_MATCH_MODE=hybrid` 63.86 s, `SHMEM_OFI_NIC_POLICY=ROUND-ROBIN` 62.40 s — neither kept; `AAC7_FI_TUNE=1` is a documented no-op.
+The target stays ROCm 7.0.3 (F16 reports both); asking the target for 7.2.4 is a user decision.
