@@ -45,13 +45,30 @@ aac7_log() {
 if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 
 # ---- sourced: modules and variables ---------------------------------------------------------------------------------------
+# Phase 16 V (results/V16.md): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
+# 7.0.3, 168.5 vs 205.9 s at 1e11, C16 §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
+# (AAC7_ROCM=rocm/7.0.3 reverts to the old stack, e.g. to match the target's TARGET_HW_REVIEW ROCm version).
+export AAC7_ROCM=${AAC7_ROCM:-rocm/7.2.4}
 if [ -d /opt/cray/pe/sma ]; then
-    export MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"
+    export MNRUN_MODULES="cray-dsmml cray-openshmemx $AAC7_ROCM"
+    # the login/compute default shell profile already has rocm/7.0.3 loaded; "rocm" is a conflict-marked family
+    # (module-whatis "conflict rocm" on every rocm/* and rocm-new/* modulefile) so a later "module load rocm/X" is a
+    # silent no-op (prints ERROR:150 to stderr, swallowed by 2>&1, and leaves 7.0.3 active) unless 7.0.3 is unloaded
+    # first by its exact name.  Measured on aac7 2026-10-04 (results/V16.md step 1).
+    module unload rocm/7.0.3 > /dev/null 2>&1 || true
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp}
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
+# AAC7_FI_TUNE=1: libfabric/CXI tunables that an A/B on 2 nodes (results/V16.md §3c) found worth keeping for large SHMEM puts.
+# Off by default — none of this changes the default stack, only an opt-in override.
+if [ "${AAC7_FI_TUNE:-0}" != 0 ]; then
+    : # results/V16.md §3c: none of FI_CXI_RX_MATCH_MODE=hybrid (+3.4% on the GB/s line, +3.3% slower wall),
+    # SHMEM_OFI_NIC_POLICY=ROUND-ROBIN (+3.1% / +1.0% slower) beat the >5% wall / >10% GB/s bar for a second run.
+    # No FI_CXI_RDZV_* vars are compiled into this libfabric 2.3.1 build (strings on libfabric.so: only
+    # FI_CXI_RX_MATCH_MODE is present of the set named in the task). Left empty on purpose.
+fi
 [ -d "$HOME/gmp/lib" ] && export GMP_HOME=${GMP_HOME:-$HOME/gmp}
 # aac7_alloc <nodes> <h:mm:00> [name] [sbatch options...]: an exclusive allocation of whole nodes, prints the job id
 aac7_alloc() { local n=$1 t=$2 nm=${3:-p16}; shift 3 2>/dev/null; local s; s=$(echo "$t" | awk -F: '{ print $1 * 3600 + $2 * 60 + $3 }')
