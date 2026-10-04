@@ -3996,4 +3996,9 @@ branches; any untracked result file inside one was not kept.
 (= main's code with `DM_MN_LEAN` off; s24-16, 18:19–19:08 EDT): **24 passed, 0 failed** in 2914 s; the 10¹¹ full step identical, `total` 167.88 s
 (174 s with the write), RECHECK OK (87 s). int15k merged into `main` = **6a4a6ef** (pushed; aac6 `~/ntt` synced by bundle and built).
 
-**The 10¹¹ baseline on the final main (`closing.sh 5`, one node, the defaults, the packed file compared to `e_1e11.out` through `digcmp.sh`).** BASELINE_RESULTS
+**The 10¹¹ baseline on the final main (`closing.sh 5`, one node, the defaults, the packed file compared to `e_1e11.out` through `digcmp.sh`; jobs 22392 / 22393 / 22394, s24-26, 19:09–22:21 EDT — each `closing.sh` iteration takes ≈ 18 min because the
+packed 44 GB file's compare against the 100 GB reference runs over the shared file system, so the five runs needed three 45-min jobs).**
+`total` **166.55 / 166.40 / 165.09 / 168.42 / 166.92 s: mean 166.7 s, σ 1.2 s** (bs 76.1–77.8, dm 70.1–71.6, init 17.4–20.2); the process wall with the
+packed write (runs 3–5, timed around the process: 173.8 / 177.3 / 174.9 s, **mean 175.3 s, σ 1.8 s**; the earlier int15j figure 172–176 s); VmHWM
+27.5 GB; **every run VERIFY OK and identical** to `e_1e11.out`. This is the new one-node baseline on `main` 6a4a6ef (the merged regression's full step
+gave 167.9 s). Logs `~/ntt/ecalc/results/close10/run1-5.log`, `~/p15/{D,D2,D3}/`.
