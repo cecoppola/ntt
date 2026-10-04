@@ -779,6 +779,9 @@ F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4
 MAP_RATE = float(os.environ.get('MN_MODEL_MAP_RATE', '0.065'))   # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
 NODE_SCALE = float(os.environ.get('MN_MODEL_NODE_SCALE', '1.0'))   # Phase 16 C: the node's compute (bs, the leaf, the pieces, the size-1 dm) x this -- 1 = aac6's calibration
 INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C: init x this (the mapping rate of another ROCm / node class on top of MAP_RATE's device term)
+if 'MN_MODEL_LOCAL_F' in os.environ:   # Phase 16 F: one factor on the local (non-fabric) terms = NODE_SCALE and INIT_SCALE together (each env above still wins); default 1.0
+    if 'MN_MODEL_NODE_SCALE' not in os.environ: NODE_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
+    if 'MN_MODEL_INIT_SCALE' not in os.environ: INIT_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
 # Phase 16 C (results/C16.md 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7') -- MEASURED on 2 nodes
 # (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS; T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
 # (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
