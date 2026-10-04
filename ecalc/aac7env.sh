@@ -38,6 +38,8 @@ aac7_log() {
     local j nic=""
     for j in 0 1 2 3; do [ -e /sys/class/cxi/cxi$j/device/numa_node ] && nic="$nic cxi$j:numa$(cat /sys/class/cxi/cxi$j/device/numa_node)"; done
     echo "aac7env: node $h apus ${gpu_numa[*]} nics$nic"
+    # the toolchain the run resolves (Phase 16 D): the HIP runtime ecalc loads, the rocm module in this shell
+    [ -x "${MNRUN_DIR:-.}/ecalc" ] && echo "aac7env: node $h libamdhip64 $(ldd "${MNRUN_DIR:-.}/ecalc" 2>/dev/null | awk '/libamdhip64/ { print $3 }') modules $(module list 2>&1 | grep -oE 'rocm/[0-9.]+' | paste -sd,)"
     # the SHMEM library's own NIC choice, if it was asked to print it (SHMEM_OFI_NIC_POLICY, SHMEM_OFI_NUM_NICS are the caller's)
     [ -n "${SHMEM_OFI_NIC_POLICY:-}${SHMEM_OFI_NUM_NICS:-}" ] && echo "aac7env: node $h SHMEM_OFI_NIC_POLICY=${SHMEM_OFI_NIC_POLICY:-} SHMEM_OFI_NUM_NICS=${SHMEM_OFI_NUM_NICS:-}"
     return 0
@@ -45,8 +47,12 @@ aac7_log() {
 if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 
 # ---- sourced: modules and variables ---------------------------------------------------------------------------------------
+# Phase 16 D: AAC7_ROCM=<version> (e.g. 7.2.4; unset = the login shell's default rocm/7.0.3) selects the ROCm module of the build and of
+# every mnrun.sh wrapper (MNRUN_UNLOAD=rocm swaps the default out first: the versioned modules conflict).  The binary's RUNPATH names
+# its build's ROCm, but a loaded module's LD_LIBRARY_PATH wins over it -- so the run's module must be the build's.
 if [ -d /opt/cray/pe/sma ]; then
-    export MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"
+    export MNRUN_MODULES="cray-dsmml cray-openshmemx rocm${AAC7_ROCM:+/$AAC7_ROCM}"
+    if [ -n "${AAC7_ROCM:-}" ]; then export MNRUN_UNLOAD=rocm; module unload rocm > /dev/null 2>&1 || true; fi
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}

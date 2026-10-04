@@ -77,7 +77,7 @@ launch() {
         SLURM_JOB_ID=$SLURM_JOB_ID timeout "$to" ./mnrun.sh "$G" env $LINE "$@" ./ecalc "$d" "$of" > "$lg" 2>&1; rc=$?
         el=$((SECONDS - t0))
         tot=$(grep -m1 -E '^total [0-9.]+ s' "$lg" | sed -E 's/^total ([0-9.]+) s.*/\1/')
-        echo "$tag try $try rc $rc total ${tot:-none} s elapsed $el s nodes $G digits $d $(grep -c -E 'VERIFY OK|RECHECK OK' "$lg") ok-lines $(grep -m1 -E 'mn: all [0-9]+ nodes: (VERIFY|RECHECK) [A-Z]+' "$lg")" | tee -a "$OUT/log/walls.txt" | tee -a "$LOG"
+        echo "$tag try $try rc $rc total ${tot:-none} s elapsed $el s nodes $G digits $d $(grep -c -E 'VERIFY OK|RECHECK OK' "$lg") ok-lines $(grep -m1 -E 'mn: all [0-9]+ nodes: (VERIFY|RECHECK) [A-Z]+' "$lg") | $MNRUN_MODULES" | tee -a "$OUT/log/walls.txt" | tee -a "$LOG"
         if [ $rc = 0 ]; then return 0; fi
         if [ -z "$tot" ] && { [ $rc = 124 ] || grep -q -E 'Segmentation fault|_pmi_network_allgather failed|inet_recv: unexpected socket EOF' "$lg"; }; then
             say "launch $tag: the init segfault / PMI hang (A16 4), counted; retrying once"; [ $try = 1 ] && continue
