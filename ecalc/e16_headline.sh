@@ -68,15 +68,31 @@ LINE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=aut
 # launch <tag> <timeout> <digits> <outfile> [more VAR=value words]: one mnrun.sh launch under timeout, retried once on the init
 # segfault (rc 124 / 139 / "Segmentation fault" / "_pmi_network_allgather failed" before any `total`); prints rc; the log is
 # $OUT/log/<tag>[.retry].log; both walls appended to $OUT/log/walls.txt
+# E16_MEMWAIT_GB=<GB> (default 0: off): before every launch, wait (up to E16_MEMWAIT_S s, default 900) until MemAvailable is at least
+# that on every node of the allocation, logging the per-node values.  2026-10-04 (job 12195): the record run at 9.16e11 on 10 nodes
+# died on the memory guard at 283 s on the one node that started with MemAvailable 442 GB (the others 463-519 GB; the layout is
+# 454 GB per node) -- the nodes were just out of B's job and a reboot; the same node showed 512 GB 15 min later.
+memwait() {
+    local need=${E16_MEMWAIT_GB:-0} left=${E16_MEMWAIT_S:-900} v mn
+    [ "$need" = 0 ] && return 0
+    while :; do
+        v=$(srun --jobid="$SLURM_JOB_ID" -N "$G" --ntasks="$G" --ntasks-per-node=1 -c 4 --overlap --export=ALL bash -c 'echo "$(hostname -s) $(awk "/MemAvailable/ { printf \"%.0f\", \$2 / 1e6 }" /proc/meminfo)"' 2>/dev/null | sort)
+        mn=$(echo "$v" | awk 'NF == 2 { if (m == "" || $2 < m) m = $2 } END { print m + 0 }')
+        [ "$(echo "$v" | grep -c .)" = "$G" ] && [ "$mn" -ge "$need" ] && { say "memwait: min MemAvailable $mn GB >= $need on all $G nodes"; return 0; }
+        [ "$left" -le 0 ] && { say "memwait: min $mn GB < $need GB after the wait: $(echo "$v" | paste -sd' '); launching anyway"; return 0; }
+        say "memwait: min $mn GB < $need GB ($(echo "$v" | awk '{ printf "%s=%s ", $1, $2 }')), waiting"; sleep 60; left=$((left - 60))
+    done
+}
 launch() {
     local tag=$1 to=$2 d=$3 of=$4; shift 4; local try rc t0 el tot lg
     for try in 1 2; do
         lg=$OUT/log/$tag$([ $try = 2 ] && echo .retry).log
+        memwait
         say "launch $tag try $try: mnrun.sh $G env $LINE $* ./ecalc $d $of (timeout $to)"
         t0=$SECONDS
         SLURM_JOB_ID=$SLURM_JOB_ID timeout "$to" ./mnrun.sh "$G" env $LINE "$@" ./ecalc "$d" "$of" > "$lg" 2>&1; rc=$?
         el=$((SECONDS - t0))
-        tot=$(grep -m1 -E '^total [0-9.]+ s' "$lg" | sed -E 's/^total ([0-9.]+) s.*/\1/')
+        tot=$(grep -m1 -E '^total +[0-9.]+ s' "$lg" | sed -E 's/^total +([0-9.]+) s.*/\1/')
         echo "$tag try $try rc $rc total ${tot:-none} s elapsed $el s nodes $G digits $d $(grep -c -E 'VERIFY OK|RECHECK OK' "$lg") ok-lines $(grep -m1 -E 'mn: all [0-9]+ nodes: (VERIFY|RECHECK) [A-Z]+' "$lg") | $MNRUN_MODULES" | tee -a "$OUT/log/walls.txt" | tee -a "$LOG"
         if [ $rc = 0 ]; then return 0; fi
         if [ -z "$tot" ] && { [ $rc = 124 ] || grep -q -E 'Segmentation fault|_pmi_network_allgather failed|inet_recv: unexpected socket EOF' "$lg"; }; then
