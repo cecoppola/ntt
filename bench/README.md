@@ -29,6 +29,7 @@ verdicts: `../RESULTS.md` (section given below).
 | `21_alloc [maxGiB]` | allocation costs; calloc on reuse | §22, §30 D10 | campaign 4 |
 | `22_clock` | shader clock during bursts | §24, §29 | campaign 4 |
 | `23_d2h` | D2H blit vs streams/chunks/targets | §30 D7 | campaign 4 |
+| `24_transpose [logq] [logrows] [reps]` | the one-node plane transpose in IC-sized supertiles, 64 × 64 LDS tiles, the untiled gathers (Phase 16 N1) | results/N116.md | phase 16 |
 | `mem/infcache` | gather + pointer chase vs working set | §37 | campaign 4 |
 | `arith/mfma` | int8 / bf16 / f64 matrix-core rates | §37 | campaign 4 |
 

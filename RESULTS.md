@@ -4026,3 +4026,57 @@ implementation (plain srun, `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = 
 - **Open**: 10¹⁰ at 2 nodes segfaults in task 1 in **3 of 23 launches** inside Cray's `shmem_init_thread` (the PMI all-gather, after the
   45 GB of VMM arenas are mapped; 0 of 24 at 10⁹ / t_comm; PE 0 then hangs — launches under `timeout`); agent S is on it (Phase 16).
   NFS is the I/O: the 10¹¹ packed write 44 GB in 382 s, unpack 1208 s — every timed run keeps its output out of the wall (it does).
+
+## 96. Phase 16 N1: Infinity-Cache-tiled transposes — measured, no gain, rejected (2026-10-04; results/N116.md; aac6)
+
+TARGET_HW_REVIEW §3 item 5 closed. **Measured on aac6** (one MI300A, 2²⁹-point planes): the production `k_transpose` already runs at
+the memory-copy rate (0.97–1.03× `memcpy`); every IC-tiled variant (16 / 32 / 64 MB working sets, LDS 64 × 64 sub-blocks) ran at
+0.87–0.99× of production. The transposes are ≈ 0.6 % of a 10¹⁰ run, so the **modelled** change at the target is 0 s (the review's
+−5 … −7 s upper bound assumed 16 % of the multiply, which is the four-step's whole pass set, not the transposes). Nothing under
+`ecalc/` changed; the benchmark is kept. The one lever left: rotating the plane pointers instead of copying back (≈ 0.04 s at 10¹⁰, modelled).
+
+## 97. Phase 16 C: the model's inputs measured on aac7 — Slingshot-11 + Cray OpenSHMEMX, ROCm 7.0.3 vs 7.2.4 (2026-10-04; results/C16.md; main 1bebc70)
+
+All **measured on aac7** (2 nodes unless noted; C16 §2.10 has every value with its spread, command and log):
+
+| input | aac7 value | the model's assumption (TARGET) |
+|---|---|---|
+| injection per APU thread, ecalc's exchange sizes, 1 PE per node | **3.6 GB/s** (13.5–14.8 GB/s per node: one PE = one NIC, its four contexts share it; 14 GB/s per context only at 4 MiB puts; `SHMEM_OFI_NUM_NICS=4` / ROUND-ROBIN change nothing for one PE, `NIC_POLICY=NUMA` refused) | 100 GB/s per APU |
+| node injection with 4 PEs (one per NIC) | **32 GB/s per node** (7.6–8.2 per PE) — a design question (one process per NIC), not a switch | — |
+| per-message cost | 8.5 µs per put + signal + wait (17 µs per 2-PE exchange) | 2 µs |
+| `HIDE_POW2` | 0.72 at depth 2, 0.76 at depth 1 | 0.75 |
+| `T_ROUND` | ≤ 0.015 s (15–18 ms per divmod round; the fixed part ≤ 3 ms) | 0.030 s |
+| `MAP_RATE` | 0.070 s/GB at both toolchains; init at 10¹¹ 22.2 s (7.0.3) / 16.2 s (7.2.4) | 0.065 |
+| memory edge | 520 GB device (hipMalloc) / 504 GB host pool, then the OOM killer | 524 (aac6) |
+| ROCm 7.2.4 vs 7.0.3, 10¹¹ one node | **168.5 vs 205.9 s** (bs 79.0 / 95.1, dm 72.9 / 88.0, init 16.2 / 22.2); the 44 GB packed files byte-identical | aac6 166.7 ± 1.2 at 7.2.4 |
+| part file on NFS | 0.116 GB/s | 1.0 (Lustre) |
+
+The slowdown at ROCm 7.0.3 is the toolchain (+22 %, the same node, identical digits) — the target's version. **`mn_model.py` has a fabric
+profile `AAC7` (`estimate.py --fabric aac7`; env overrides for HIDE / GEN_HIDE / T_ROUND / MAP_RATE); the TARGET profile is unchanged.**
+The model against the measured walls at 10¹⁰ per node: +40 % at 2 nodes (50.7 modelled vs 35.3–36.7 s), −11 % at 4 (77.8 vs 87.3 s at the
+measured 2.9 GB/s), −33 % at 8 (219 vs 327 s at 1.0 GB/s) — the fabric rate per APU thread **falls with the node count** (3.6 → 2.9 →
+1.0 GB/s at 2 / 4 / 8 nodes; B's 8-node walls also drift up run after run inside one allocation: open, B16), and the model's 2-node byte law
+is 2.2 × the code's bytes (open). Cray trap: a cancelled SHMEM step leaves the node refusing every later launch for the rest of the job.
+
+## 98. Phase 16 R: the region-pool sizing abort at 10¹¹ on 4 nodes — `BS_POOL_RULE` (2026-10-04; results/R16.md; main after 4d35fb2)
+
+**Measured on aac7**, 4 nodes (ROCm 7.0.3): 10¹¹ digits on 4 node-processes (2.5 × 10¹⁰ per node) aborted in bs at level 22 — `region
+pool 0 of parity 1 would grow inside bs, 10.87 -> 16.15 GB` — while 10¹⁰ per node and 10¹¹ on one node run. Cause (R16 §1): the init-time
+region rule sized pool 0 from the leaf levels only; at mid per-node sizes the level the multi-node tree hands to the node is larger (the
+level counted at ratio 0.92). The fix `BS_POOL_RULE=1` (**default 1; `0` = the old rule — the user decides whether a sizing correction may
+be a default**) counts that level: 2.5 × 10¹⁰ : 4 pool 0 9.66 → 19.33 GB; **the layouts at 10¹¹ : 1, 9.16 × 10¹⁰ : 12 (Phase E) and
+9.16 × 10¹⁰ : 576 (the target) are byte-identical under both rules** (`mem_model.py --p15` identical; `--check-c` exact). Tests: 10¹¹ on 4
+nodes without `RNS_POOL_GROW` → identical to the reference, VERIFY OK; 4 × 10¹⁰ identical; mnaccept `mn` e9 sizes 2 and 4 PASS (the `unit`
+and `e9` steps did not run on the 4-node allocation: `MNRUN_CPUS_PER_TASK=auto` printed one CPU count per node — fixed on p16-S; **open**:
+`--only unit,e9` on a 1-node ROCm 7.2.4 job). B's `RNS_POOL_GROW=1` retry of the same run was also identical (B16).
+
+## 99. Phase 16 S: the Cray startup segfault — libfabric memhooks vs the HSA threads; `COMM_INIT_EARLY` (2026-10-04; results/S16.md)
+
+**Measured on aac7**, 10¹⁰ on 2 nodes: the control (the transport opened after the VMM arenas) segfaulted in **8 of 78 launches** (A's 3/23 +
+S's 5/55; 0 at 10⁹); **`COMM_INIT_EARLY=1` (the transport before `rns_init`): 0 of 55**, digits identical at 10⁹ / 10¹⁰, no measurable cost
+(`total` 53–59 s both ways; the init moves, it does not grow); mnaccept `unit,e9,mn` with the switch 15/16 (t_mn_grid's 2-process step
+times out over TCP between two nodes — a harness issue, run it on one node). Cause (diagnosed from four frames, the mechanism libfabric's
+documented one): the cxi provider's **memhooks** MR-cache monitor patches glibc's mmap family in place during `shmem_init_thread`; a
+ROCm HSA worker thread inside one of them continues at a garbage address (`rip` 0x21041 / 0xffff…f000). `FI_MR_CACHE_MONITOR=disabled`:
+0 of 10 (not proven). The switch stays **off by default — the user decides**; on aac7 it belongs on the launch line. Also from S: the
+`MNRUN_CPUS_PER_TASK=auto` fix for multi-node jobs, `ecalc/tools/segv2.c` (the aac7 backtrace preload), TARGET.md §8 traps 17–18.
