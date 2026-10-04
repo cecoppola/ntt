@@ -180,7 +180,8 @@ static int run_sweep(int argc, char **argv)
     }
     if (T < 1 || T > 16 || reps < 1) { fprintf(stderr, "t_comm: bad sweep arguments\n"); return 2; }
     int n = comm_shmem_init(), me = comm_shmem_rank();
-    comm *cs[16]; int cn = n, cme = me;
+    comm *cs[16], *all = 0; int cn = n, cme = me;
+    if (pairs && n > 2 && n % 2 == 0) all = comm_shmem_create_at(0, 1, n, 31);   /* the full set: a barrier before every timed loop, so the pairs' walls overlap */
     for (int t = 0; t < T; t++) {
         if (pairs && n > 2 && n % 2 == 0) { cs[t] = comm_shmem_create_at(me % (n / 2), n / 2, 2, t); cn = 2; cme = me / (n / 2); }
         else cs[t] = comm_shmem_create_at(0, 1, n, t);
@@ -193,6 +194,7 @@ static int run_sweep(int argc, char **argv)
     for (int s = 0; s < ns; s++) {
         pthread_barrier_t bar; pthread_barrier_init(&bar, 0, T);
         struct sw_arg w[16]; pthread_t th[16];
+        if (all) comm_barrier(all);
         for (int t = 0; t < T; t++) { w[t].c = cs[t]; w[t].t = t; w[t].n = cn; w[t].reps = reps; w[t].host = host; w[t].bytes = sizes[s]; w[t].bar = &bar; pthread_create(&th[t], 0, sw_thread, &w[t]); }
         double tot = 0, medsum = 0; for (int t = 0; t < T; t++) { pthread_join(th[t], 0); if (w[t].tot > tot) tot = w[t].tot; medsum += w[t].med; }
         pthread_barrier_destroy(&bar);
@@ -203,6 +205,7 @@ static int run_sweep(int argc, char **argv)
         fflush(stdout);
     }
     for (int t = 0; t < T; t++) comm_destroy(cs[t]);
+    if (all) comm_destroy(all);
     printf("%s: pe %d done\n", tag, me);
     comm_shmem_finalize();
     return 0;
