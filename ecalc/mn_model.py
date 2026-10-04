@@ -170,6 +170,29 @@ TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 4.74e13
 TARGET_NODES = mem_model.TARGET_NODES
 TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=2.0)   # the historical reports (e10) at the old 2 GB/s
+# Phase 16 C (results/C16.md): aac7 -- HPE Cray EX, 4 x MI300A, 4 x Slingshot-11 (one 200 Gb/s Cassini per socket), Cray OpenSHMEMX 11.8.0, ROCm
+# 7.0.3, one process per node (one NIC per PE: C16 2.1).  MEASURED on 2 nodes: 3.6 GB/s per APU thread through the put path at the exchange
+# sizes ecalc sends (13.5-14.8 GB/s per node aggregate), 8.5 us per put + signal + wait, the part file on NFS at 0.116 GB/s (A16 4).
+# `estimate.py --fabric aac7` (or MN_MODEL_PROFILE=aac7) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
+# every default stay as they are.
+AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
+PROFILES = {'target': TARGET, 'aac7': AAC7}
+def apply_profile(name):
+    """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
+    Returns the Fabric."""
+    global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
+    name = (name or 'target').lower()
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7)' % name)
+    if name == 'aac7':
+        c = AAC7_CONSTS; e = os.environ
+        if 'MN_MODEL_HIDE_POW2' not in e: HIDE_POW2 = c['HIDE_POW2']
+        if 'MN_MODEL_GEN_HIDE1' not in e: GEN_HIDE_DEPTH[1] = c['GEN_HIDE1']
+        if 'MN_MODEL_GEN_HIDE2' not in e: GEN_HIDE_DEPTH[2] = c['GEN_HIDE2']
+        if 'MN_MODEL_T_ROUND' not in e: T_ROUND = c['T_ROUND']
+        if 'MN_MODEL_MAP_RATE' not in e: MAP_RATE = c['MAP_RATE']
+        if 'MN_MODEL_NODE_SCALE' not in e: NODE_SCALE = c['NODE_SCALE']
+        if 'MN_MODEL_INIT_SCALE' not in e: INIT_SCALE = c['INIT_SCALE']
+    return PROFILES[name]
 
 # aac6: g node-processes on ONE node over a loopback transport (correctness transports; every product's local passes
 # shared g-way over the four APUs).  Fitted on the recorded walls (results/X.md, L.md, M11.md, S.md; --calib):
@@ -315,7 +338,7 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     dz = DZ
     npc = 4 if p24 else piece_np(dz, nc, na, nb)        # Phase 15 NP (MPB: min(na, nb) under NP_AUTO_MIN): the piece's primes (ECALC_NP=auto: 4 over the three-prime bound); P24: four
     if dz is None or dz.legacy: t31 = T_PIECE_31 if fwd == 2 else T_PIECE_31_BHIT
-    else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm()   # Phase 13b D: S13's C at 2^31 (P = 3 / 4)
+    else: t31 = T_PIECE_31_NP[npc] * (1.0 if fwd == 2 else T_PIECE_31_BHIT / T_PIECE_31) * dz.f_mm() * NODE_SCALE   # Phase 13b D: S13's C at 2^31 (P = 3 / 4); Phase 16 C: x NODE_SCALE
     t_loc = t31 * scale * (P24_F if p24 else 1.0) + 0.005             # P24 (Phase 15 Batch 3): the regroup / CRT kernels' surcharge (ASSUMED, P24_F)
     if dz is not None and not dz.legacy and CAL13:                      # Phase 13d D2: the pipeline's pieces against the isolated ones
         t_loc *= PIECE13; t_loc += GRID_ADD.get("C", 0.0) * scale * (1 if grid else 0)   # (per 2^31 points = 2^29 per APU; x gpu_share below; GRID_NC not here)
@@ -747,11 +770,23 @@ def phase(name, D):
 # The legacy path (design None: the constants above, four primes, the Phase 10/11 phase table) is what --calib and the
 # Phase 12 tables were computed with; everything the design table prints goes through Design (the code after step 0).
 T_PIECE_31_NP = {4: 1.078, 3: 0.827}   # MEASURED (results/S13.md, E0 decimal, s24-26): C at 2^31 over the four APUs, P = 4 / 3
-HIDE_POW2 = 0.75                       # MEASURED (results/X13.md 3.2): the equal-slab path hides 74-76 % of its xGMI link time
-GEN_HIDE_DEPTH = {1: 0.011, 2: 0.74}   # general map: MEASURED 1.1 % one deep (X13; 1.4 % on two real nodes, X13b); two deep MEASURED 74.3 %
+HIDE_POW2 = float(os.environ.get('MN_MODEL_HIDE_POW2', '0.75'))   # MEASURED (results/X13.md 3.2): the equal-slab path hides 74-76 % of its xGMI link time
+                                       # (Phase 16 C: MN_MODEL_HIDE_POW2 / MN_MODEL_GEN_HIDE1 / MN_MODEL_GEN_HIDE2 / MN_MODEL_MAP_RATE override, as MN_MODEL_T_ROUND does)
+GEN_HIDE_DEPTH = {1: float(os.environ.get('MN_MODEL_GEN_HIDE1', '0.011')), 2: float(os.environ.get('MN_MODEL_GEN_HIDE2', '0.74'))}
+                                       # general map: MEASURED 1.1 % one deep (X13; 1.4 % on two real nodes, X13b); two deep MEASURED 74.3 %
                                        # on two real nodes (X13b, job 21068; 72.6-75.1 % on one node)
 F_MM1 = 58.0 / 58.4                    # MEASURED (results/K13.md, one pair at 4e10): NTT_MODMUL=1 phases 58.4 -> 58.0 s
-MAP_RATE = 0.065                       # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
+MAP_RATE = float(os.environ.get('MN_MODEL_MAP_RATE', '0.065'))   # MEASURED (results/I.md t_alloc 0.057-0.072 s/GB; P3: 25.8 GB fewer planes = -1.5..-2.9 s of init)
+NODE_SCALE = float(os.environ.get('MN_MODEL_NODE_SCALE', '1.0'))   # Phase 16 C: the node's compute (bs, the leaf, the pieces, the size-1 dm) x this -- 1 = aac6's calibration
+INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C: init x this (the mapping rate of another ROCm / node class on top of MAP_RATE's device term)
+# Phase 16 C (results/C16.md 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7') -- MEASURED on 2 nodes
+# (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS; T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
+# (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
+AAC7_CONSTS = dict(HIDE_POW2=0.72, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.015, MAP_RATE=0.070, NODE_SCALE=1.12, INIT_SCALE=1.20)
+# HIDE_POW2 0.72 MEASURED (C16 2.3: 71-72 % at depth 2, 76 % at depth 1); GEN_HIDE aac6's, ASSUMED (no 3-node run); T_ROUND 0.015 = the MEASURED upper
+# bound (the whole shift round at 1e10 / 2: 15-18 ms, the fixed part <= 3 ms); MAP_RATE 0.070 MEASURED (t_alloc hipmalloc, 7.0.3 = 7.2.4);
+# NODE_SCALE 1.12 and INIT_SCALE 1.20 FITTED on the 7.0.3 one-node 1e11 (205.9 s = 1.12 x the model's 183.8; init 22.2 = 1.20 x 18.4);
+# ROCm 7.2.4 on the same node is 168.5 s (NODE_SCALE 0.92, INIT_SCALE 0.88): MN_MODEL_NODE_SCALE / MN_MODEL_INIT_SCALE override
 T_ROUND = float(os.environ.get('MN_MODEL_T_ROUND', '0.030'))   # int15k: MN_MODEL_T_ROUND=<s> once the target measures it (TARGET_TASKS T11)   # FITTED on aac6 loopback (M13, 64 MB chunks: 1e10/4 shift +5.4 s over 70 rounds, both +12.9 s over 123, 1e10/2 both +2.2 over 235; least squares, +-100 %):
                                        # the fixed cost of one extra exchange round (launches, the node scan, the sync); ASSUMED on the target
 CHUNK_MB = 1024                        # the chunk the table uses for both switches (M13's recommendation for the target)
@@ -1778,6 +1813,9 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         if g == 1:
             rc.t *= cal15(D, 'recip') * (P15B_RECIP1 if p15b else 1.0); dc.t *= cal15(D, 'div') * (P15B_DIV1 if p15b else 1.0)   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
             if p15b and design.p15c and design.arena_room > 0: dc.t *= P15C_DIV1   # Phase 15 DOC2: BS_ARENA_ROOM -- no remaps in the division (measured at 1e11)
+    if NODE_SCALE != 1.0 or INIT_SCALE != 1.0:             # Phase 16 C: another machine's node (apply_profile / MN_MODEL_NODE_SCALE, MN_MODEL_INIT_SCALE); the pieces carry it in t31
+        ph["init"] *= INIT_SCALE; ph["batch"] *= NODE_SCALE; ph["top"] *= NODE_SCALE; seed_wait *= NODE_SCALE
+        if g == 1: rc.t *= NODE_SCALE; dc.t *= NODE_SCALE
     t_compute = ph["init"] + seed_wait + ph["batch"] + ph["top"] + t_levels + rc.t + dc.t + ph["other"]
     out_write = D * (PACKED_BPD if (p15 and design.packed) else 1.0) / 1e9 / fab.write_bw   # the node's part file at the write bandwidth (packed: 0.444 B/digit)
     t_lowprod = dc.t * 0.5
