@@ -18,6 +18,20 @@ static int g_rank, g_size = 1; static comm *g_cm[NA];
 static const char *g_hosts; static int g_port = 27000;
 static int g_shmem, g_topo;                           /* g_topo: MN_TOPO_GROUP (below). Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c), else TCP */
 int mn_rank(void) { return g_rank; }
+/* Phase 16 D: MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
+ * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
+ * GB/s per APU thread, and the wall since the mark -- the per-phase fabric rate (E's step-below run: the step's cost vs the
+ * fabric's run-to-run variance).  Reads counters only: no collective, no change to the computation. */
+void mn_comm_mark(const char *what)
+{
+    static int on = -1; static double t0, b0, w0; static long n0;
+    if (on < 0) { const char *e = getenv("MN_COMM_MARK"); on = e && atoi(e) > 0; w0 = mem_now(); }
+    if (!on || !mn_transport_shmem()) return;
+    double t, b, w = mem_now(); long n; comm_shmem_counters(&t, &n, &b);
+    if (g_rank == 0) printf("comm-mark %s: %ld exchanges, %.2f GB received, %.2f s post to completion (summed over the APU threads) = %.2f GB/s per APU thread; wall %.2f s\n",
+                            what, n - n0, (b - b0) / 1e9, t - t0, t > t0 ? (b - b0) / 1e9 / (t - t0) : 0, w - w0);
+    t0 = t; b0 = b; n0 = n; w0 = w;
+}
 int mn_size(void) { return g_size; }
 comm *mn_comm(int apu) { return g_size > 1 ? g_cm[apu] : 0; }
 int mn_transport_shmem(void) { return g_shmem; }
@@ -35,6 +49,7 @@ int mn_init(void)
         for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); }
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over SHMEM: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - t0);
+        mn_comm_mark("start (the meshes created)");   /* Phase 16 D: the marks' origin */
         return g_size;
     }
     g_size = es ? atoi(es) : 1; g_rank = er ? atoi(er) : 0;
@@ -456,6 +471,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
     printf("mn: node %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
+    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }   /* Phase 16 D */
 }
 /* Phase 12 G: a k-way level (MN_GROUPS: the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
  * nodes each (the last one cut), child i = the members [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The
@@ -501,6 +517,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
     *P = Pr; *Q = Qr;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
     printf("mn: node %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
+    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }   /* Phase 16 D */
 }
 /* M3's end: node 0 assembles the whole number on the host from the shares (over mesh 0); the others send theirs */
 void mn_gather_host(bigint *out, const mdb *X)
