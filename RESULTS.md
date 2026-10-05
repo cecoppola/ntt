@@ -4101,3 +4101,16 @@ Memory (modelled, `MN_PLAN_ONLY`): needs `ECALC_PLANE_CAP=30` on aac7 (default c
 (VERIFY FAILED on PEs 4–7). Open (user): repeat at 8 nodes and 4·10¹⁰ before adopting; per-node memory budget / per-process fixed cost /
 one-PE-per-APU rewrite for the target; per-PE checkpoint name. Merge note: mnrun.sh combines V's AAC7_ROCM default with D's `MNRUN_UNLOAD`
 (default rocm/7.0.3 on Cray).
+
+## 102. Phase 16 B, ACC, P follow-up: 10-node bring-up; acceptance on 7.2.4; 4 PEs/node does not scale; the ≥ 32-PE self-test stop (2026-10-05; results/B16.md, ACC16.md, P16.md §2.4–3.1)
+
+**B (job 12193, 10 nodes, ROCm 7.2.4, measured):** e9 43.22 s, e10 275.32 s (NFS write) / 202.29 s (no write), e11 290.66 s; all identical
+to the references; no per-rank drift at 10 nodes; comm 1.31–1.62 GB/s per APU thread; 0 launch failures in all of Phase B.
+**ACC (job 12235, 1 node, main 1be410f):** `COMM_INIT_EARLY=1 mnaccept --only unit,e9` 11 of 11 (t_mn_grid on 1 node VERIFY OK);
+`BS_POOL_RULE` 1 vs 0 at e9 identical. Trap: on aac7 `sbatch -N1` without `-c 192` grants 1 CPU and the inner `srun -c 192` steps hang.
+**P follow-up (jobs 12264, 12272, measured):** 8 nodes × 10¹⁰: 1 PE/node 30.8–42.2 s vs **4 PEs/node 113.8 / 121.6 s** (comm 0.12–0.14 vs
+2.15 GB/s per APU thread; a recip step 25–54 s vs 2.4); 4 nodes × 4·10¹⁰: 1 PE 93.9 / 223.2 s vs 4 PEs 228.5 s (one run timed out).
+Digits identical in all 7 completed runs. The 4-node 10¹⁰ gain (§101) does not hold at scale; cause not found. **Found:** `mn_selftest_layered`
+(the init self-test, fixed 2¹¹ rows) refuses when rows per rank < 32 — **every launch with ≥ 32 node-processes stops at init with
+VERIFY FAILED** (measured at 32 PEs; by the code, also the 576-node target; not run). New switch `MN_SELFTEST_GROW=1` (off) grows the
+test's rows; with it the 32-PE runs pass. Default / target launch line: the user's decision.
