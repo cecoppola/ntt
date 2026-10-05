@@ -110,6 +110,7 @@ const char *comm_shmem_impl(void);             /* S12: the library the binary wa
 int   comm_shmem_init(void);                   /* returns the PE count */
 int   comm_shmem_rank(void);
 int   comm_shmem_size(void);
+void  comm_shmem_counters(double *t, long *n, double *bytes);   /* Phase 16 D: the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
 void  comm_shmem_finalize(void);
 size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */

@@ -14,6 +14,7 @@ extern "C" {
 #endif
 int   mn_init(void);              /* reads the environment, opens the meshes; returns size (1 = not multi-node) */
 int   mn_rank(void);
+void  mn_comm_mark(const char *what);   /* Phase 16 D: MN_COMM_MARK=1 -- node 0 prints the all-to-all traffic since the previous mark (default off) */
 int   mn_size(void);
 comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank = node); 0 when size 1 */
 int   mn_transport_shmem(void);   /* Phase 11 S: 1 when the meshes are SHMEM PE sets (COMM_TRANSPORT=shmem) */
