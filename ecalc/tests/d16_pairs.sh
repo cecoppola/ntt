@@ -91,8 +91,12 @@ run() {
     [ "$MODE" = nfs ] && [ "${D16_KEEP:-0}" != 1 ] && rm -f "$of".part???? "$of".t1
     [ $rc = 0 ] && [[ "$dig" != *DIFFERS* ]] && [[ "$ver" == *"VERIFY OK" ]]; return $?
 }
+# D16_ONLY="<name> ..." (default empty: all): run only the named pairs / singles of the set (e.g. "tch stats" -- s2's cache pair at
+# 4e10 per node dies on the memory guard with RNS_DIST_CACHE_PARTIAL=0 on aac7's ~440 GB nodes, results/D16.md 3)
+only() { [ -z "${D16_ONLY:-}" ] || [[ " $D16_ONLY " == *" $1 "* ]]; }
 pair() {   # pair <name> <A words> <B words> [<C words>]: one job per repetition: A B [C] on the same nodes; a launch failure -> a new job, once
     local name=$1 a=$2 b=$3 c=${4:-}; local i try r
+    only "$name" || { say "pair $name: skipped (D16_ONLY=$D16_ONLY)"; return 0; }
     for i in $(seq 1 "$REPS"); do
         for try in 1 2; do
             job_start "${name}$i" || return 1
@@ -104,7 +108,7 @@ pair() {   # pair <name> <A words> <B words> [<C words>]: one job per repetition
         done
     done
 }
-single() { job_start "$1" || return 1; run "$@"; job_end; }
+single() { only "$1" || { say "single $1: skipped (D16_ONLY=$D16_ONLY)"; return 0; }; job_start "$1" || return 1; run "$@"; job_end; }
 say "set $SET: $G nodes per job, $D digits, $MODE, $REPS pairs per switch, one job per pair"
 case $SET in
     s1)
