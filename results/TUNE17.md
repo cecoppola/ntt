@@ -52,4 +52,4 @@ A subset: `TUNE17_STEPS=nic2,ec2` (steps sw4, sw10, nic2, ec2; sw10 without sw4 
 
 ## RESUME
 
-- Armed on the aac7 login node (see COLLECT for the PID check); the verdict lands in `~/ofitune17/DONE`.
+- **Armed** 2026-10-06 11:38 EDT on the aac7 login node: PID 2394528 (`~/ofimem17` at `31be838`), waiting for `~/ofimem17/R/STD17_DONE` (deadline 16:00 EDT); the STD17 driver (PID 2373608) was itself still waiting for its own marker `~/ofi17/HANDOFF_DONE`, so `SKIPPED` is likely unless STD17 starts and finishes well before 16:00 (its record + RECHECK alone take about 2 h, modelled from RUN16). The verdict lands in `~/ofitune17/DONE`.
