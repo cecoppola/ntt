@@ -7,22 +7,24 @@
 #
 #   SLURM_JOB_ID=<12-node allocation> ./e16_headline.sh [plan|record|dev|chain|below|all]      (default: all, in that order)
 #
-# The sizes (measured on aac7's login node with MN_PLAN_ONLY, ~/p16/D/plan/sweep12.txt, 2026-10-04):
-#   E16_DIGITS = 1099200000000 = 12 x 9.16e10 (the target's top node holds 9.169e10 of 5.276e13 / 576): plan check OK, 102 products,
-#     pieces (node 0 / critical path) 181 / 189, levels 12/16 12/16 40/40, the default MN_GROUPS schedule at g = 12 is 2,4,12
-#     (groups of 2, then 4, then the 3-way top: "the powers of two dividing the size, then the odd part's prime factors"),
-#     pool 8704 MiB (heap 9216M), C layout node 445.36 GB (TARGET_HW_REVIEW 4 row E: 445 GB modelled) -- inside 480.
-#     The flat stretch is 1.091e12 .. 1.110e12 (189 on the critical path); the step below it at 1.090 -> 1.091e12 (185 -> 189,
-#     the top level 36 -> 40 pieces).
-#   E16_BELOW  = 1090000000000: the last size below that step (181 -> 177 pieces on node 0; the step's cost = the pair of walls).
-# Modelled walls (estimate.py --g 12 --D 9.16e10 --write-bw 0.1, the NFS rate A measured, 0.116 GB/s single-stream, ASSUMED to
-# hold with 12 writers): 323.3 s without the write / 691.9 s with it at --bw 25 (the 200 Gb/s NIC per APU, ASSUMED);
-# 1140.4 / 1385.4 s at --bw 3.7 (the 2-node post-to-completion rate A measured, which holds the staging copies too -- an upper
+# The sizes (B7ACCT, 2026-10-06: re-measured on aac7's login node with MN_PLAN_ONLY / BS_LAYOUT_ONLY at the 4.08e13 target's share,
+# the LINE below + COMM_OFI_PLAN_CXI=1 (comm_ofi, the cxi default); ~/b7acct/sweep/, results/B7ACCT.md section 6):
+#   per node 7.0834e10 = the largest node share of the target (4.08e13 / 576: P, Q 2266666666671 limbs, ceil(/ 576) = 3935185186 limbs
+#     = 70833333348 digits, rounded up to 1e6).  Was 9.16e10 (the 5.276e13 target's share, superseded by TGT17).
+#   E16_DIGITS = 850008000000 = 12 x 7.0834e10: plan check OK, 100 products, pieces (node 0 / critical path) 130 / 130, levels
+#     8/8 8/8 24/24, the default MN_GROUPS schedule at g = 12 is 2,4,12 (groups of 2, then 4, then the 3-way top: "the powers of
+#     two dividing the size, then the odd part's prime factors"), SHMEM pool 512 MiB + 4 comm_ofi pools of 2304 MiB, C layout node
+#     369.12 GB (+ the general map's v-slots 11.48 GB = 380.60; device 328.11 / 339.59 with them) -- inside 480.  Pieces are not
+#     monotone in this stretch (128 at 8.40e11, 129-131 from 8.412e11, 133 at 8.52e11).
+#   E16_BELOW  = 840000000000 (7.0e10 per node): 128 / 128 pieces, the same layout (node 369.12 GB).
+# Modelled walls (estimate.py --g 12 --D 7.0834e10 --write-bw 0.1, the NFS rate A measured, 0.116 GB/s single-stream, ASSUMED to
+# hold with 12 writers): 234.4 s without the write / 523.9 s with it at --bw 25 (the 200 Gb/s NIC per APU, ASSUMED);
+# 821.7 / 1032.4 s at --bw 3.7 (the 2-node post-to-completion rate A measured, which holds the staging copies too -- an upper
 # bound of the fabric's cost).  Both are modelled; the measured pair of walls goes in results/D16.md.
 #
 # Output: $E16_OUT (default ~/p16/E): rec/ (the record run: no checkpoint, no top set), dev/ (ECALC_CHECKPOINT=1, the
 # development form), below/; the packed parts e.out.part0000..0023 (MN_OUT_DKM_HI=1: two per node) + e.out.t1; the ASCII parts
-# e.txt.part0000..0023 from the chain.  Disk (NFS, 2.7 TB free on 2026-10-04): 488 GB packed per run, 1.1 TB of ASCII -- the
+# e.txt.part0000..0023 from the chain.  Disk (NFS, 2.7 TB free on 2026-10-04): 488 GB packed per run, 1.1 TB of ASCII at the old 1.0992e12 (scaled, B7ACCT: ~377 / ~0.85 TB at 8.5e11, ~315 / ~0.71 TB at 7.08e11) -- the
 # dev run's parts are deleted after their byte compare with the record's, the ASCII parts after the ASCII RECHECK and the 1e11
 # prefix, the below run's after its RECHECK (E16_KEEP=1 keeps everything).  E16_CANCEL=1 cancels the allocation at the end.
 #
@@ -37,16 +39,18 @@ source ./aac7env.sh
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 
 # 2026-10-04 (the integrator): 12 nodes are never free on aac7 (3 are held for days) -- the headline runs on 10; the 12-node figures
-# stay as the modelled column.  At g = 10 (login node, ~/p16/D/plan/plan_916e9_10.txt, sweep10.txt): 9.16e11 digits -> plan check OK,
-# 98 products, pieces 135 / 139 (node 0 / critical path), levels 12/16 34/34, the default schedule 2,10 (groups of 2, then the 5-way
-# top), pool 8704 MiB, C layout node 453.95 GB (fits 480); the step below at 9.08 -> 9.10e11 (the top level 32 -> 34 pieces):
-# E16_BELOW = 908000000000 (137 on the critical path).
+# stay as the modelled column.  At g = 10 (B7ACCT, login node, ~/b7acct/sweep/): 7.0834e11 digits -> plan check OK, 96 products,
+# pieces 101 / 101 (node 0 / critical path), levels 8/8 20/20, the default schedule 2,10 (groups of 2, then the 5-way top), SHMEM
+# pool 512 MiB + 4 comm_ofi pools of 2304 MiB, C layout node 386.30 GB (+ v-slots 13.77 = 400.08; device 345.29 / 359.06 with them;
+# fits 480); modelled walls (estimate.py --g 10 --D 7.0834e10 --write-bw 0.1) 212.0 / 500.7 s at --bw 25, 719.5 / 926.7 s at
+# --bw 3.7; the step below at 6.87 -> 6.88e11 (97 -> 101 pieces): E16_BELOW = 687000000000 (97 / 97; node 377.71 GB).
+# (Before B7ACCT: 9.16e11 at g = 10, 98 products, 135 / 139 pieces, node 453.95 GB; E16_BELOW 908000000000.)
 G=${E16_NODES:-10}
-DIGITS=${E16_DIGITS:-$((G * 91600000000))}
-case $G in 12) BELOW=${E16_BELOW:-1090000000000};; 10) BELOW=${E16_BELOW:-908000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
+DIGITS=${E16_DIGITS:-$((G * 70834000000))}
+case $G in 12) BELOW=${E16_BELOW:-840000000000};; 10) BELOW=${E16_BELOW:-687000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
 OUT=${E16_OUT:-$HOME/p16/E}
 REF11=${E16_REF11:-$HOME/ref/e_1e11.out}      # sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 (2026-10-06: moved to ~/ref, ~/ntt deleted on aac7)
-TO_RUN=${E16_TIMEOUT:-3600}        # one launch (the modelled wall with the NFS write is 692 s; the segfault's hang is killed here)
+TO_RUN=${E16_TIMEOUT:-3600}        # one launch (the modelled wall with the NFS write: 524 s at g = 12, 501 s at g = 10, B7ACCT; the segfault's hang is killed here)
 TO_CHAIN=${E16_TIMEOUT_CHAIN:-7200}
 KEEP=${E16_KEEP:-0}
 mkdir -p "$OUT"/rec "$OUT"/dev "$OUT"/below "$OUT"/log

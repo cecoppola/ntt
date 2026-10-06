@@ -19,6 +19,8 @@ TARGET_LAUNCH the target's launch line (COMM_SHMEM_ROUND_MB=1024, the user's D2)
 Phase 15 (agent DOC, 2026-09-27): the base is DEFAULTS15B -- + BS_SEED_FILL=128 (the seed span per run, seed_terms_for: the bs regions hold one
 more batch level; --check-c exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share) and MN_OUT_EARLY (HOST_EARLY at size > 1);
 DEFAULTS15 is B0.  TARGET_NP = 4: the target's launch line (ECALC_NP=4).
+B7ACCT (2026-10-06): vslot_resident -- the general map's v-exchange slots (comm_layered.c, hipMalloc'd beside the arena) on dev_bs / dev_dm;
+--check-c compares the C `vslot:` line (per APU, the tree top, device / node with them); ECALC_VSLOT_BUDGET as the C.
 Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the base is DEFAULTS15C = DEFAULTS15B + BS_ARENA_ROOM=0.16 (ARENA_ROOM, the code's
 default since be2eec3); DEFAULTS15B / DEFAULTS15 / OLD13 carry arena_room 0 (B1, B0 and before).  TARGET_NP = 'auto' (the launch line's
 ECALC_NP=auto, decision 1).  The mn transform cache: cache_fit_slots follows the code's RNS_DIST_CACHE_FIT rule (rns_dist.c
@@ -630,7 +632,10 @@ TARGET_DIGITS = 4.08e13                                 # CURRENT (2026-10-06, T
                                                         # 2026-09-27 23:50 EDT decision was 5.1e13; room kept up to 5.396e13), 5.167e13 (int15k's second test size,
                                                         # 2026-10-03), 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
                                                         # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
-TARGET_BELOW = 4.74e13                                  # the runtime one step below (the user: test it after the headline): 202 / 226 pieces, 4.75e13 steps to 209 / 233
+TARGET_BELOW = 3.99e13                                  # B7ACCT (2026-10-06, login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY on 576, the TGT17 launch line): the runtime one step below
+                                                        # 4.08e13 -- pieces node 0 / critical path 115 / 131 (1238 products) against 117..119 / 133 at 4.0 .. 4.08e13 (the step
+                                                        # at 3.997 -> 4.0e13; node 0 alone steps 117 -> 119 at 4.04 -> 4.05e13); the same arena tier (214.75 GB; 210.45 from
+                                                        # 3.85e13 down).  Was 4.74e13 (one step below the 2026-09-29 5.276e13 target: 202 / 226 pieces), now above the target
 TARGET_NODES = 576
 VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's paired 1e11 series, s24-16 / s24-26, ten runs with BS_SEED_FILL=128, all the same):
                                                         # the device at the dm peak 393.6 GB against 377.3 at init -- the division grows the block pool by 12.9 GB
@@ -1095,7 +1100,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             if l2.startswith('room:'): rl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.replace('(', ' ').replace(')', ' ').replace('|', ' '))); break
             if l2.startswith('layout:'): break
         vl = None                                                                 # B7ACCT: the v-slot line after the planes line (`vslot:`), if any
-        for l2 in lines[i + 1:i + 6]:
+        for l2 in lines[i + 1:]:                                          # (to the next point: ECALC_VERBOSE=2 interleaves its tree lines)
             if l2.startswith('vslot:'): vl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.split('| budget')[0].replace('|', ' '))); break
             if l2.startswith('layout:'): break
         npl = None
@@ -1130,7 +1135,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
             ar = sum(arena_of(b, want, ch) for b in bs)
             if rm > 0: ar_room = ar
-            if rm == 0 or as_room_fits(room_planes, ar, rh + vb): break
+            if rm == 0 or as_room_fits(room_planes, ar, rh + vb, float(env.get('ECALC_NODE_GB', '480'))): break   # (B7ACCT: the budget the C reads -- was 480 always)
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]

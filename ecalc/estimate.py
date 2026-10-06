@@ -195,7 +195,8 @@ def target(a, design):
                     (5.167e13, "history: the second test size (int15k, 2026-10-03)"),
                     (5.28e13, "history: the step above the 2026-09-29 target (recip 51 -> 53, div 20 -> 28)"), (5.39e13, "history: the next step (tree 86 -> 88)"),
                     (5.74e13, "history: the next (tree 88 -> 108)"),
-                    (M.TARGET_BELOW, "history: one step below the 2026-09-29 target (test after that headline)"), (4.75e13, "history: its step (4.74 -> 4.75e13)"),
+                    (M.TARGET_BELOW, "one step below the target (critical path 133 -> 131 pieces at 3.997 -> 4.0e13; B7ACCT)"),
+                    (4.74e13, "history: one step below the 2026-09-29 target (test after that headline)"), (4.75e13, "history: its step (4.74 -> 4.75e13)"),
                     (4.25e13, "history: the target until 2026-09-27 23:50 EDT")):
         es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
         p = M.plan(576, T, design); e = es[0]
