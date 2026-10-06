@@ -17,7 +17,8 @@ source ./aac7env.sh > /dev/null 2>&1; export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PE
 O=${TUNE17_OUT:-$HOME/ofitune17}; mkdir -p "$O"; LOG=$O/drive.log; W=$O/walls.txt; T=$O/bw.tsv; rm -f "$O/DONE"
 MARK=${TUNE17_MARKER:-$HOME/ofimem17/R/STD17_DONE}
 DL=${TUNE17_DEADLINE:-$(TZ=America/New_York date -d "$(TZ=America/New_York date +%F) 16:00" +%s)}
-REF=; for r in "$HOME/ref/e_1e11.out" "$HOME/ntt/ecalc/results/e_1e11.out"; do [ -s "$r" ] && { REF=$r; break; }; done
+findref() { REF=; for r in "$HOME/ref/e_1e11.out" "$HOME/ntt/ecalc/results/e_1e11.out"; do [ -s "$r" ] && { REF=$r; break; }; done; }   # resolved again at use (the file may move to ~/ref meanwhile)
+findref
 UNPACK=$(cd ../tools && pwd)/unpack_digits
 say() { echo "$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z') $*" | tee -a "$LOG"; }
 want() { [[ ",$STEPS," == *",$1,"* ]]; }
@@ -87,9 +88,9 @@ run() {   # run <tag> <nodes> <digits> <extra env words...> (template: ofi17_dri
     tot=$(grep -m1 -E '^total +[0-9.]+ s' "$lg" | sed -E 's/^total +([0-9.]+) s.*/\1/'); ver=$(grep -m1 -oE "mn: all $g nodes: VERIFY [A-Z]+" "$lg")
     onn "$g" "cd $O/ab/$tag 2>/dev/null || exit 0; for p in e.out.part*; do [ -f \$p ] || continue; echo \"\$p \$( (head -c 1024 \$p; tail -c +4097 \$p) | sha1sum | cut -c1-40)\"; done" 2>/dev/null | sort -u > "$O/$tag.sha1"
     if [ ! -s "$base" ] && [ -s "$O/$tag.sha1" ]; then
-        cp "$O/$tag.sha1" "$base"; local top=$O/ab/top_$$.txt n
+        findref; cp "$O/$tag.sha1" "$base"; local top=$O/ab/top_$$.txt n
         "$UNPACK" -q "$O/ab/$tag/e.out.part0000" > "$top" 2>/dev/null; n=$(stat -c %s "$top" 2>/dev/null || echo 0)
-        if [ -n "$REF" ] && [ "$n" -gt 0 ] && head -c "$n" "$REF" | cmp -s - "$top"; then dig="baseline; top part identical to the 1e11 prefix ($n bytes)"; else dig="baseline; top part DIFFERS from the 1e11 prefix ($n bytes)"; fi; rm -f "$top"
+        if [ -n "$REF" ] && [ "$n" -gt 0 ] && head -c "$n" "$REF" | cmp -s - "$top"; then dig="baseline; top part identical to the 1e11 prefix ($n bytes)"; else dig="baseline; top part DIFFERS from the 1e11 prefix ($n bytes; ref ${REF:-none})"; fi; rm -f "$top"
     else cmp -s "$O/$tag.sha1" "$base" && dig="identical to the baseline ($(wc -l < "$O/$tag.sha1") parts)" || dig="DIFFERS from the baseline"; fi
     rm -rf "$O/ab/$tag"
     echo "$tag nodes $g digits $d rc $rc total ${tot:-none} s elapsed $((SECONDS - t0)) s | ${ver:-no VERIFY} | $dig | $*" | tee -a "$W" >> "$LOG"
