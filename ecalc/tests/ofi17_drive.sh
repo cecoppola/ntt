@@ -40,6 +40,7 @@ if want tc2; then
         lg=$O/tc2_ofi$ofi.log
         COMM_SHMEM_POOL_MB=1024 SLURM_JOB_ID=$J MNRUN_NODES=2 timeout 300 ./mnrun.sh 2 env COMM_TRANSPORT=shmem COMM_OFI=$ofi COMM_OFI_VERBOSE=1 ./tests/t_comm > "$lg" 2>&1; rc=$?
         say "tc2 COMM_OFI=$ofi: rc $rc, $(grep -c 'VERIFY OK' "$lg") VERIFY OK of 2; $(grep -oE 'cxi[0-9] [0-9.]+ GB in [0-9]+ writes' "$lg" | sort | uniq -c | paste -sd';')"
+        [ $ofi = 1 ] && [ "$(grep -c 'VERIFY OK' "$lg")" != 2 ] && finish "FAIL: t_comm over OFI at 2 nodes (rc $rc): $(grep -m2 -E 'FATAL|error' "$lg" | cut -c1-200 | paste -sd' ')"
     done
 fi
 if want acc; then
@@ -74,7 +75,8 @@ run() {   # run <tag> <nodes> <digits> <words...>
 }
 if want ab; then
     for g in 2 4; do d=$((g * 10000000000))
-        for i in $(seq 1 "$REPS"); do run "ab${g}_shmem$i" "$g" "$d" COMM_OFI=0; run "ab${g}_ofi$i" "$g" "$d" COMM_OFI=1; done
+        for i in $(seq 1 "$REPS"); do run "ab${g}_shmem$i" "$g" "$d" COMM_OFI=0; run "ab${g}_ofi$i" "$g" "$d" COMM_OFI=1
+            tail -1 "$W" | grep -q "^ab${g}_ofi$i .*rc 0 .*VERIFY OK" || finish "FAIL: ab${g}_ofi$i: $(tail -1 "$W" | cut -c1-200); $(grep -m2 -E 'FATAL|rror' "$O/ab${g}_ofi$i.log" | cut -c1-200 | paste -sd' ')"; done
     done
 fi
 if want bwn; then for g in 4 8 10; do bw "$g" 0 "bw${g}_shmem"; bw "$g" 1 "bw${g}_ofi"; done; fi
