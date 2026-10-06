@@ -27,6 +27,7 @@ P=$1; shift
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
 # Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/V16.md) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
+case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
 if [ -d /opt/cray/pe/sma ]; then MNRUN_UNLOAD=${MNRUN_UNLOAD-rocm/7.0.3}; fi
 export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}

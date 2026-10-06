@@ -38,6 +38,8 @@ aac7_log() {
     local j nic=""
     for j in 0 1 2 3; do [ -e /sys/class/cxi/cxi$j/device/numa_node ] && nic="$nic cxi$j:numa$(cat /sys/class/cxi/cxi$j/device/numa_node)"; done
     echo "aac7env: node $h apus ${gpu_numa[*]} nics$nic"
+    # the toolchain the run resolves (Phase 16 D): the HIP runtime ecalc loads, the rocm module in this shell
+    [ -x "${MNRUN_DIR:-.}/ecalc" ] && echo "aac7env: node $h libamdhip64 $(ldd "${MNRUN_DIR:-.}/ecalc" 2>/dev/null | awk '/libamdhip64/ { print $3 }') modules $(module list 2>&1 | grep -oE 'rocm/[0-9.]+' | paste -sd,)"
     # the SHMEM library's own NIC choice, if it was asked to print it (SHMEM_OFI_NIC_POLICY, SHMEM_OFI_NUM_NICS are the caller's)
     [ -n "${SHMEM_OFI_NIC_POLICY:-}${SHMEM_OFI_NUM_NICS:-}" ] && echo "aac7env: node $h SHMEM_OFI_NIC_POLICY=${SHMEM_OFI_NIC_POLICY:-} SHMEM_OFI_NUM_NICS=${SHMEM_OFI_NUM_NICS:-}"
     return 0
@@ -48,6 +50,7 @@ if [ "${1:-}" = --log ]; then aac7_log; exit 0; fi
 # Phase 16 V (results/V16.md): the fastest stack measured on aac7 becomes the default — rocm/7.2.4 (identical digits to
 # 7.0.3, 168.5 vs 205.9 s at 1e11, C16 §2.7) instead of the system default rocm/7.0.3.  AAC7_ROCM overrides it
 # (AAC7_ROCM=rocm/7.0.3 reverts to the old stack, e.g. to match the target's TARGET_HW_REVIEW ROCm version).
+case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merge V+D: a bare version (D: 7.2.4) means rocm/<version>
 export AAC7_ROCM=${AAC7_ROCM:-rocm/7.2.4}
 if [ -d /opt/cray/pe/sma ]; then
     export MNRUN_MODULES="cray-dsmml cray-openshmemx $AAC7_ROCM"
