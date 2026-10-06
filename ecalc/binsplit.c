@@ -649,7 +649,13 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
  * the 3 2^k planes).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
  * (0.61 GB measured at 2^31, taken for every cap); host = the init peak's constants (runtime 7.0 GB, the checkpoint staging
  * 4 GiB, the seed buffers 4 GiB: mem_model.py HOST_*), + 6 GB per process of the comm at size > 1.  Only before rns_init (the
- * pool_log is switched per cap); after it, the caller's own cap only. */
+ * pool_log is switched per cap); after it, the caller's own cap only.
+ * B5 fix (06 EVALUATION §2 row B5 / §4.1 item 3): host at g > 1 was BS_HOST_INIT_BYTES + 6 GB flat, which undercounts the
+ * VMM seed buffers (as_seedbuf can be up to 2 x 8 GiB, not the flat 8 GiB in BS_HOST_INIT_BYTES) and omits the SHMEM pool
+ * entirely.  Now mirrors as_room_fits's size > 1 host term exactly: runtime 7.0 GB + staging 4 GiB + transport 6 GB + the
+ * SHMEM pool (as_shmem_pool), plus the larger of the two VMM seed buffers (as_seedbuf) or the writer 0.65 GB + MN_OUT_EARLY's
+ * 0.9 GB.  size 1 is unchanged (BS_HOST_INIT_BYTES: as_room_fits's size 1 path is a different, measured formula that this
+ * function does not mirror). */
 const char *const bs_cap_name[4] = { "2^30", "3*2^29", "2^31", "3*2^30" };
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
@@ -660,7 +666,14 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
     rns_preinit_pool_log(pl);
     size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, b3, np, 0, 0) + BS_TABLES_BYTES;
     rns_preinit_pool_log(pl0);
-    size_t host = BS_HOST_INIT_BYTES + (g > 1 ? (size_t)6000000000 : 0);
+    size_t host;
+    if (g > 1) {
+        size_t pool = as_shmem_pool(N, g), sb = as_seedbuf(N);
+        size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool;
+        int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
+        size_t hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0), hi = base + sb;
+        host = hi > hd ? hi : hd;
+    } else host = BS_HOST_INIT_BYTES;
     if (planes_) *planes_ = planes; if (arena_) *arena_ = arena; if (host_) *host_ = host;
     return planes + arena + host;
 }
