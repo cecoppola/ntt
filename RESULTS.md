@@ -4195,6 +4195,16 @@ full tables):
   specification" — a CPX-partition idiom that this SPX allocation does not accept); the `t_comm --bw` tests above,
   which need no `--gres`, supersede it.
 
+**Confirmed on merged `main` (62af35a4, a fresh agent closing the handoff, results/OFI17.md's CLOSEOUT):**
+`mnaccept --only unit,e9` — 10 passed, 1 failed (`t_mn_grid`, the known TCP-between-2-nodes harness timeout, not
+a regression), the rest identical. `mnaccept --only mn` at 2 nodes with `COMM_OFI` left **unset** (the new
+default) and `COMM_TRANSPORT=shmem` (needed because `mnaccept.sh`'s `mn` step otherwise runs over `ecalc`'s own
+TCP default, which `comm_ofi` does not hook): 5 passed, 0 failed, 85 s (vs 409 s over the TCP baseline), every
+size digit-identical, every one of the 4 devices opening and writing on its own `cxi0`–`cxi3` with no env var
+set beyond `COMM_TRANSPORT=shmem` — the cxi-present default engages OFI by itself, as designed. (A stale aac7
+clone initially masked this — it was still built from the pre-flip merge commit 7611751e; re-synced from a
+fresh bundle and rebuilt before the confirming run.)
+
 **The user's decision (2026-10-06): adopted.** `COMM_OFI` now defaults to **1 wherever it applies** — a cxi NIC
 present (Cray Slingshot) — instead of defaulting off; it stays off with no code change where there is no cxi device
 (e.g. aac6's TCP/SOS) or the build has no libfabric. `COMM_OFI=0` always forces the old SHMEM-only path exactly (bit-
