@@ -632,7 +632,11 @@ TARGET_DIGITS = 4.08e13                                 # CURRENT (2026-10-06, T
                                                         # 2026-09-27 23:50 EDT decision was 5.1e13; room kept up to 5.396e13), 5.167e13 (int15k's second test size,
                                                         # 2026-10-03), 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
                                                         # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
-TARGET_BELOW = 3.99e13                                  # B7ACCT (2026-10-06, login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY on 576, the TGT17 launch line): the runtime one step below
+                                                        # TGTBENCH2 (2026-10-06) PROPOSED, NOT ADOPTED (the user decides): 3.76e13 -- with B7ACCT's v-slots the
+                                                        # C layout's device at 4.08e13 is 372.12 GB, 1.32 GB under the target's measured 373.44 GB edge; 3.76e13 is in
+                                                        # the largest tier <= 368 GB (367.82 GB, 3.7105 .. 3.896e13), critical path 107 pieces (step 3.769 -> 3.770e13),
+                                                        # 222.7 s vs 282.4 s modelled at --bw 47 (results/TGTBENCH2.md section 4)
+TARGET_BELOW = 3.99e13                                 # B7ACCT (2026-10-06, login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY on 576, the TGT17 launch line): the runtime one step below
                                                         # 4.08e13 -- pieces node 0 / critical path 115 / 131 (1238 products) against 117..119 / 133 at 4.0 .. 4.08e13 (the step
                                                         # at 3.997 -> 4.0e13; node 0 alone steps 117 -> 119 at 4.04 -> 4.05e13); the same arena tier (214.75 GB; 210.45 from
                                                         # 3.85e13 down).  Was 4.74e13 (one step below the 2026-09-29 5.276e13 target: 202 / 226 pieces), now above the target

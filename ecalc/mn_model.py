@@ -188,13 +188,27 @@ TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, gr
 # `estimate.py --fabric aac7` (or MN_MODEL_PROFILE=aac7) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
 # every default stay as they are.
 AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
-PROFILES = {'target': TARGET, 'aac7': AAC7}
+# TGTBENCH2 (2026-10-06, results/TGTBENCH2.md): constants MEASURED ON THE TARGET by the user (their benchmark harness, not ecalc), applied only by
+# apply_profile('target-m') (estimate.py --fabric target-m); the 'target' profile and every default stay as they are (no silent change).
+#   MAP_RATE 0.010 s/GB (m, target, A6/D4, n = 5): the harness's VMM map rate; the unit (per APU-GB as mapped by one APU, or per node-GB) is
+#     not stated -- this model's MAP_RATE multiplies node GB (node_phases), so the profile ASSUMES the same unit.  Only the device term's
+#     difference from the measured reference moves with it; init + the seed wait is bound by the seeds (the CPU), so the wall does not move.
+#   TARGET_DEVICE_EDGE_GB 373.44 (m, target, A6, n = 5, 0 % spread): hipMalloc stops at 93.36 GB per APU; VMM shares the edge (m, aac7, RESULTS 107).
+#   TARGET_HOST_PIN_APU_GB 256.0 (m, target): the hipHostMalloc limit per APU -- informational, no ecalc pool is host-pinned at that scale.
+# The fabric stays the TARGET's (100 GB/s per APU ASSUMED unless --bw): A3 (injection) and A4 (64-node scaling) are not measured.
+TARGET_M_CONSTS = dict(MAP_RATE=0.010)
+TARGET_DEVICE_EDGE_GB = 373.44
+TARGET_HOST_PIN_APU_GB = 256.0
+TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
+PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
-    Returns the Fabric."""
+    Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target)."""
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
     name = (name or 'target').lower()
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7)' % name)
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m)' % name)
+    if name == 'target-m':
+        if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7':
         c = AAC7_CONSTS; e = os.environ
         if 'MN_MODEL_HIDE_POW2' not in e: HIDE_POW2 = c['HIDE_POW2']
