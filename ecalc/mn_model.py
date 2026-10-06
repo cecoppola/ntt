@@ -117,17 +117,29 @@ class Fabric:
     taper: the global tier's bandwidth as a fraction of the group's aggregate injection to each peer group;
     gpu_share: node-processes sharing one node's APUs (aac6 calibration; 1 on the target);
     fixed: a fixed cost per exchange (s) beyond the latency model (the loopback transports' staging and syncs);
-    coll_fixed: a fixed cost per small collective (s); write_bw: the part file (GB/s per node)."""
-    def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True):
+    coll_fixed: a fixed cost per small collective (s); write_bw: the part file (GB/s per node).
+    staging_bw: GB/s HBM copy rate for a D2H + H2D staging copy of every inter-node byte, None = off (06 EVALUATION item 13 /
+    04 open item: ASSUMED -- no transport on the target stages through host memory today; CLI --staging, default off so the
+    standing estimate does not move). fall_off: exponent a on a per-group-size fabric fall-off, rate x (g/2)^(-a), None/0 = off
+    (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm fall-off measurement is fed in by default)."""
+    def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True,
+                 staging_bw=None, fall_off=0.0):
         self.name, self.bw, self.lat, self.group, self.layers, self.taper = name, bw_apu, lat, group, layers, taper
         self.gpu_share, self.fixed, self.write_bw, self.tcp_exp, self.target = gpu_share, fixed, write_bw, tcp_exp, target
         self.coll_fixed = fixed if coll_fixed is None else coll_fixed
+        self.staging_bw = staging_bw; self.fall_off = fall_off or 0.0
 
-    def rate(self, bytes_apu):
+    def rate(self, bytes_apu, g=None):
         """GB/s per APU: constant on the target; the loopback transports' single stream per mesh is slower on small
-        exchanges (fitted: rate = bw x (bytes / 1 GiB per APU)^tcp_exp, capped at bw)"""
-        if not self.tcp_exp: return self.bw
-        return self.bw * min(1.0, (max(bytes_apu, 1.0) / (1 << 30)) ** self.tcp_exp)
+        exchanges (fitted: rate = bw x (bytes / 1 GiB per APU)^tcp_exp, capped at bw); --fall-off <a>: x (g/2)^(-a) when g
+        is given (the per-APU rate falling off with the group size, off by default: a = 0)"""
+        r = self.bw if not self.tcp_exp else self.bw * min(1.0, (max(bytes_apu, 1.0) / (1 << 30)) ** self.tcp_exp)
+        if self.fall_off and g: r *= (max(g, 2) / 2.0) ** (-self.fall_off)
+        return r
+
+    def staging_cost(self, node_bytes):
+        """D2H + H2D of every inter-node byte at --staging's HBM copy rate (GB/s); 0 without it (CLI --staging, off by default)"""
+        return 2.0 * node_bytes / (self.staging_bw * 1e9) if self.staging_bw else 0.0
 
     def a2a(self, bytes_apu, g, chunks=1):
         """one all-to-all over g nodes with bytes_apu bytes per APU in the slab buffer (all destinations).
@@ -145,9 +157,9 @@ class Fabric:
             cross = bytes_apu * max(0, g - G) / g if g > G else 0.0
             nic = out
             msgs = chunks * (g - 1)
-        t_nic = nic / (self.rate(bytes_apu) * 1e9)
-        t_glob = cross / (self.rate(bytes_apu) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
-        t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks
+        t_nic = nic / (self.rate(bytes_apu, g) * 1e9)
+        t_glob = cross / (self.rate(bytes_apu, g) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
+        t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks + self.staging_cost(nic * 4)
         return t, nic * 4, cross * 4, msgs
 
     def allgather(self, bytes_apu, g):
@@ -155,7 +167,7 @@ class Fabric:
         if g <= 1: return 0.0, 0.0, 0.0, 0
         recv = bytes_apu * (g - 1)
         cross = bytes_apu * max(0, g - self.group) if g > self.group else 0.0
-        t = recv / (self.rate(bytes_apu) * 1e9) + (g - 1) * self.lat + self.fixed
+        t = recv / (self.rate(bytes_apu, g) * 1e9) + (g - 1) * self.lat + self.fixed + self.staging_cost(recv * 4)
         return t, recv * 4, cross * 4, g - 1
 
     def coll(self, g):
@@ -1598,6 +1610,12 @@ P15C_DIV1 = 53.50 / 68.15              # MEASURED ratio at size 1, B2 / B1: the 
                                        # against B1 -- the fill's remaps gone (the arena mapped whole at init: device 393.6 GB from init, as B1's dm peak); fin15e
                                        # (job 21670, s24-16, 2026-09-28 04:59-05:44 EDT), 6 + 6 runs: 53.12-54.12 against 67.14-69.19 s; the reciprocal unchanged
                                        # (37.80 vs 38.27 s: not applied).  Size 1 only (ASSUMED at other D); at size > 1 no remap term exists to remove
+B3_DIV1_FIX = os.environ.get('MN_MODEL_B3_DIV1', '0') == '1'   # 06 EVALUATION item 13 / 04 D15: NEWTON_DKM=1 (the user's Batch 3 decision) has no size-1
+                                       # calibration ratio of its own -- P15B_DIV1 and P15C_DIV1 both predate it, so the size-1 model (183.8 s at 1e11
+                                       # nowrite today) overcounts the division by about the gap to V6's measured 166.7 s.  Off by default (CLI
+                                       # --dkm1-fix / MN_MODEL_B3_DIV1=1) so the standing estimate does not move until this is measured properly
+                                       # (the ratio below is fitted to close that one gap, not an independent measurement).
+B3_DIV1 = 32.84420642877413 / 49.943741516194756   # = 0.6576: solved so nowrite at 1e11, g=1 (today 183.8 s, division 49.94 s of it) lands on 166.7 s
 CAL15C_RUNS = [   # fin15e (job 21670, s24-16): B1 (main f184d51's defaults) against B2's switches (ECALC_NP=auto BS_ARENA_ROOM=0.16 DIST_TWREC_G=1); `total` and elapsed
     dict(arm='B1', file=False, total=(210.36, 198.65, 196.95, 197.45), wall=(230.28, 201.22, 199.49, 199.90)),
     dict(arm='B2', file=False, total=(183.69, 190.08, 184.56, 182.22), wall=(186.31, 192.99, 187.10, 184.70)),
@@ -1816,6 +1834,7 @@ def _run(fab, D, g, rule, verbose, leaf_scale, init_override, dc_exposed, groups
         if g == 1:
             rc.t *= cal15(D, 'recip') * (P15B_RECIP1 if p15b else 1.0); dc.t *= cal15(D, 'div') * (P15B_DIV1 if p15b else 1.0)   # (the reciprocal and the division apart: the size-1 writer overlaps the division)
             if p15b and design.p15c and design.arena_room > 0: dc.t *= P15C_DIV1   # Phase 15 DOC2: BS_ARENA_ROOM -- no remaps in the division (measured at 1e11)
+            if B3_DIV1_FIX and DKM: dc.t *= B3_DIV1   # 06 EVALUATION item 13 / 04 D15: the size-1 DKM term, off by default (--dkm1-fix)
     if NODE_SCALE != 1.0 or INIT_SCALE != 1.0:             # Phase 16 C: another machine's node (apply_profile / MN_MODEL_NODE_SCALE, MN_MODEL_INIT_SCALE); the pieces carry it in t31
         ph["init"] *= INIT_SCALE; ph["batch"] *= NODE_SCALE; ph["top"] *= NODE_SCALE; seed_wait *= NODE_SCALE
         if g == 1: rc.t *= NODE_SCALE; dc.t *= NODE_SCALE
@@ -1994,7 +2013,7 @@ def schedules(fab, rule, D_list=(4e10, 6e10, 7.7e10), form="grid", design=None):
 # standing estimate): the tree levels 480 - the bs-phase node (device 411.0 + host 44.4) + the arena's slack at the tree (arena - tree
 # need: a slot drawn from the block pool), the division 480 - (device 417.0 + host 28.8); a slot = k primes x 2^29 limbs x 8 B x 4 APUs.
 # ============================================================================================================
-def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code', primes_phase=None, fab=None):
+def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', model='code', primes_phase=None, fab=None, groups=None):
     """one modelled run with the cache configured (restored after); returns the run's dict"""
     fab = fab if fab is not None else TARGET
     global CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PHASE_NOW, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE
@@ -2014,7 +2033,7 @@ def _run_cache(T, g, design, slots=None, phase=None, primes=None, loop='code', m
         CACHE_MN_SLOTS = slots if slots is not None else CACHE_MN_SLOTS; CACHE_SLOTS_PHASE = phase; CACHE_PRIMES = primes; CACHE_LOOP = loop; CACHE_MODEL = model
         CACHE_PRIMES_PHASE = primes_phase
         tree_cost, division_cost = tc, dc; _PC.clear()
-        return run(fab, T / g, g, verbose=False, design=design)
+        return run(fab, T / g, g, verbose=False, design=design, groups=groups)
     finally:
         (CACHE_MN_SLOTS, CACHE_SLOTS_PHASE, CACHE_PRIMES, CACHE_LOOP, CACHE_MODEL, tree_cost, division_cost, CACHE_PRIMES_PHASE) = saved; _PC.clear()
 
@@ -2084,20 +2103,24 @@ def cache_partial_rooms(T=None, g=None, design=None, keep_room=False):
 def cache_partial_primes(free_node, q=1 << 29, np_=4):
     """the planes of q limbs one APU's pool share holds after the margin (the code's rule, cache_pc_take), at most np_"""
     return max(0, min(np_, int((free_node / 4 - PARTIAL_MARGIN) // (q * 8))))
-def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena_room=None, wbs=None, fab=None):
+def cache_partial(T=None, g=None, keep_room=False, loops=('code', 'long'), arena_room=None, wbs=None, fab=None, design=None, groups=None):
     """the estimate at the target with RNS_DIST_CACHE_PARTIAL=1 (modelled): the primes per phase from the pool's rooms, 1 slot, the loop;
     arena_room: BS_ARENA_ROOM (None: the design's 0.16); wbs: the write rates priced (default TARGET_WRITE_BW, 0.6); fab: the fabric
-    priced (default TARGET -- callers passing --bw/--lat/--group/--layers/--taper build their own Fabric and pass it here)"""
+    priced (default TARGET -- callers passing --bw/--lat/--group/--layers/--taper build their own Fabric and pass it here).
+    design: a Design to price this row at (06 EVALUATION B10 / 04 D3: estimate.py's launch-line row honouring --chunk-mb/--groups/
+    --np-mn/--room/--strategy/--cap/--depth/--ascii) -- default None keeps the old DEFAULT15C(cache_fit=False) (+ arena_room); the
+    caller is expected to have forced cache_fit=False on it (partial caching is priced separately from RNS_DIST_CACHE_FIT's slots).
+    groups: MN_GROUPS for the priced runs (default None: the code's own schedule)"""
     global CACHE_P24
     T = T or TARGET_DIGITS; g = g or TARGET_NODES; GB = 1e9
     fab = fab if fab is not None else TARGET
-    d = DEFAULT15C(cache_fit=False) if arena_room is None else DEFAULT15C(cache_fit=False, arena_room=arena_room)
+    d = design if design is not None else (DEFAULT15C(cache_fit=False) if arena_room is None else DEFAULT15C(cache_fit=False, arena_room=arena_room))
     wbs = wbs or (TARGET_WRITE_BW, 0.6)
     def runw(**kw):                                                   # the run at each write rate: (wall_nowrite, [wall at wbs])
         out = []
         for w in wbs:
             w0 = fab.write_bw; fab.write_bw = w
-            try: r = _run_cache(T, g, d, fab=fab, **kw)
+            try: r = _run_cache(T, g, d, fab=fab, groups=groups, **kw)
             finally: fab.write_bw = w0
             out.append(r)
         return out[0]['wall_nowrite'], [r['wall'] for r in out]
