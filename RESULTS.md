@@ -4114,3 +4114,20 @@ Digits identical in all 7 completed runs. The 4-node 10¹⁰ gain (§101) does n
 (the init self-test, fixed 2¹¹ rows) refuses when rows per rank < 32 — **every launch with ≥ 32 node-processes stops at init with
 VERIFY FAILED** (measured at 32 PEs; by the code, also the 576-node target; not run). New switch `MN_SELFTEST_GROW=1` (off) grows the
 test's rows; with it the 32-PE runs pass. Default / target launch line: the user's decision.
+
+## 103. Phase 16 D / E: the 10-node headline on aac7, its step below, and the pairs (2026-10-05; results/D16.md)
+
+**E (ROCm 7.2.4, `COMM_INIT_EARLY=1`; measured).** The target per-node share (9.16 × 10¹⁰) no longer fits on aac7: each Slurm node reboot
+copies 77 GB of Ollama models into the RAM root filesystem (435–445 GB free per node; admin-side). E ran one size down:
+**8.4 × 10¹¹ on 10 nodes, job 12217: `total` 2429.52 s** (2456 s with the NFS write); VERIFY OK on all nodes, packed RECHECK OK, the 10¹¹
+prefix identical (ASCII RECHECK skipped for time). Fabric 1.31 GB/s per APU thread, ≈ 77 % of the run in the exchange.
+`estimate.py` at the measured 1.31 GB/s: 2274.6 / 2327.2 s (−6.4 / −5.2 %).
+**Step below, 8.20 × 10¹¹, job 12262 (the user's approval, 2026-10-05): `total` 2352.75 s** (−76.8 s, −3.2 %, for −2.4 % digits); VERIFY
+OK on all 10 nodes; the 10¹¹ prefix identical. New switch **`MN_COMM_MARK=1`** (off; reads counters only) works on its first use:
+per APU thread tree level 1 2.45 GB/s, level 2 1.22, reciprocal 1.49, division 1.15. The 8.4 × 10¹¹ run has no per-level marks, so the
+step's cost cannot be separated from the fabric's run-to-run variance (an earlier step-below try ran its inter-node level 5–7× slower).
+576 nodes (modelled): 292.4 / 340.9 s at `--bw 100` (assumed); 4808 / 4859 s at aac7's 1.31 GB/s.
+**Pairs (measured; the same configuration varies ±25 % between jobs, so most deltas are not verdicts):** keep `COMM_SHMEM_SERIAL=0`
+(−60 / +245 s); keep `RNS_DIST_CACHE_PARTIAL=1` (0 hits the memory guard at 4 × 10¹⁰ per node); `MN_T_CHUNK_MB` 2048 −19.5 s (one pair);
+`MN_OUT_DKM_HI`, `SHMEM_OFI_NUM_NICS`, `MN_GROUPS` (8 nodes: default 203–249 s vs `2,8` 233–235 s) within the spread.
+New switches (off): `E16_MEMWAIT_GB` / `E16_MEMWAIT_S`, `D16_ONLY`, `MN_COMM_MARK`. Merge note: `AAC7_ROCM` takes `rocm/<v>` (V) or a bare `<v>` (D).
