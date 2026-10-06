@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t_recip, t_div; size_t dkm_corr; } newton_stats;   /* dkm_corr: NEWTON_DKM's step-1 corrections (not in down/up) */
-/* Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 (off by default) -- the division in two quotient halves with a half-length reciprocal
+/* Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 (default since Phase 15 Batch 3, the user's decision of 2026-09-29; newton_db.c:218) -- the division in two quotient halves with a half-length reciprocal
  * (GMP mu_div): mu to h = floor(k/2) + 1 limbs; step 1 = the shifted division of A >> s (s = min(floor(k/2), dl)) by Q, exact (its own
  * corrections, applied to X_hi); step 2 = the shifted division of R1 B^s; X = X_hi B^s + X_lo.  The hook, ECALC_TEST_CORR and the
  * deferred corrections act at step 2 as they do today.  NEWTON_DKM_TEST_HI=<k> (a test hook, |k| <= 60) moves X_hi by -k before

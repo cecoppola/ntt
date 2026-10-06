@@ -24,8 +24,8 @@ int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->
 int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett, 1 reduced-correction Barrett (default since Phase 13b: +5-12 %, bit-identical), 2 Shoup; -1 = from the environment */
 int ntt_b16_var = -1;      /* NTT_B16_VAR (Phase 13a K, H6): k_b16r variant bits (1 unpadded LDS + global twiddle table, 2 block order); 0 default */
 int ntt_mall = -1;         /* NTT_MALL (Phase 13a K, H2): log2 of a MALL-resident chunk (points); 0 = off (default); -1 = from the environment */
-int ntt_b1r = -1;          /* NTT_B1R (Phase 13b K): 0 the paper's b1 pass (default), 3 / 4 the register-blocked b1 with 2^3 / 2^4 points per thread */
-int ntt_plan = -1;         /* NTT_PLAN (Phase 13b K): pass boundaries, 0 default (see make_plan) */
+int ntt_b1r = -1;          /* NTT_B1R (Phase 13b K): 0 the paper's b1 pass, 3 / 4 the register-blocked b1 with 2^3 / 2^4 points per thread (default 3 since Phase 13c) */
+int ntt_plan = -1;         /* NTT_PLAN (Phase 13b K): pass boundaries, 0 the paper's (see make_plan); default 1 */
 
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
@@ -40,7 +40,8 @@ int ntt_r3_fuse_get(void)
         if (ntt_r3_fuse) printf("      NTT_R3_FUSE=%d: the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass (k >= 13)\n", ntt_r3_fuse);
     }
     return ntt_r3_fuse;
-}   /* default 1 since Phase 13c (K13b: pass boundaries off the slow strides); 0 = the original plan */
+}   /* ntt_r3_fuse's own default is 0, not 1 -- the "default 1 since Phase 13c" note that used to sit here describes
+     * NTT_PLAN (ntt_plan_get, above), not this switch */
 
 /* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
  * hi + lo against the two-term reciprocal pinv + pinvl (pinvl = (1 - p pinv) / p, computed per thread):
@@ -289,8 +290,8 @@ __device__ static inline uint64_t xchg16(uint64_t v)
     hi = (uint32_t)__builtin_amdgcn_ds_swizzle((int)hi, 0x401F);
     return ((uint64_t)hi << 32) | lo;
 }
-/* Phase 13a K (H3): MM selects the modmul of the butterflies.  0: the FP64 Barrett (ec_mm; the default,
- * unchanged).  1: the reduced-correction Barrett (mm_lazy for the data, mm_canon for the twiddles), data
+/* Phase 13a K (H3): MM selects the modmul of the butterflies.  0: the FP64 Barrett (ec_mm; the original).
+ * 1: the reduced-correction Barrett (default since Phase 13b, mm_lazy for the data, mm_canon for the twiddles), data
  * products lazy in [0, 2p).  2: Shoup integer products: v tab[r] (tabS/tabSq: the 128-entry table as integers
  * and Shoup constants) then x T (T formed and squared by ec_mm as before, its Shoup constant by shoup_q once
  * per stage), lazy in [0, 2p); no per-butterfly twiddle product.  For MM != 0 the inverse's difference is

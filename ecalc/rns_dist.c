@@ -459,7 +459,7 @@ double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
 /* ---- Phase 13b B (PLAN 29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
  * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
  * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:
- *   C     the four-step over the four APUs (dist_core below; the default, today's behaviour)
+ *   C     the four-step over the four APUs (dist_core below; the original behaviour, used today where auto falls back)
  *   B     prime-per-APU: APU p transforms prime p of the whole product (planes X_p, Y_p of n points, 2^k or 3 2^k),
  *         loading both operands from wherever their quarters live (xGMI pulls), the pointwise fused into the inverse,
  *         then every APU forms a quarter of the result by the CRT over the prime planes (peer reads).  No all-to-all.
@@ -1333,7 +1333,7 @@ __global__ void k_unpacktw_g(const uint64_t *rb, uint64_t *x, size_t rk, size_t 
         x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
     }
 }
-/* ---- Phase 15 G5: DIST_TWREC_G=1 (default 0) -- the general map's twiddled pack / unpack with the twiddle by a row recurrence
+/* ---- Phase 15 G5: DIST_TWREC_G=1 (default since Batch 2, 2026-09-28; see twrec_g below) -- the general map's twiddled pack / unpack with the twiddle by a row recurrence
  * (ntt_dist.c k_twpack_r's form): a thread's four rows il, il + 8, il + 16, il + 24 of column j take w_n^(i j) from the tables
  * once and step by w_n^(8 j) (one per column, in LDS) -- two table gathers per four points instead of eight.  ec_mm returns
  * canonical residues, so the chain gives exactly w_n^((i + 8) j): bit-identical (gen_pack_bench checks it).  The slab address
@@ -1856,7 +1856,8 @@ static int mn_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
 /* ---- Phase 15 Batch 3 P24 (results/P2415.md): four primes at 24 digits per transform point in the mn tier ------------------------
  * MN_P24=1: a product runs P24 when its 18-digit grid's largest piece would run four primes (ec_np_for(ec_np_terms(pa + pb, pa, pb))
  * == 4, the test mn_core's ec_np_prod makes -- keep the two in step; INT3: MPB's min(pa, pb) under ECALC_NP_AUTO_MIN=1); 2: every mn product (pool 0 must
- * hold four planes: ECALC_NP=4, or auto where the run's largest group can form a four-prime piece).  0 (default): off. */
+ * hold four planes: ECALC_NP=4, or auto where the run's largest group can form a four-prime piece).  0: off; default
+ * is 2, since Phase 15 Batch 3 (the user's decision, 2026-09-29) -- see mn_p24_on below. */
 static int mn_p24_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("MN_P24"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = 0; } return v; }   /* default 2 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
 static int mn_p24_of(size_t na, size_t nb, int g)
 {
