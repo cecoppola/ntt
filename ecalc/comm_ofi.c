@@ -241,7 +241,8 @@ void comm_ofi_free(ofi_dev *od, size_t off)
 void comm_ofi_blob(ofi_dev *od, void *blob)
 {
     struct blobf *b = (struct blobf *)blob; memset(blob, 0, COMM_OFI_BLOB);
-    b->va = (uint64_t)(uintptr_t)od->pool; b->k = (uint32_t)od->k;
+    b->va = (od->nic[0].info->domain_attr->mr_mode & FI_MR_VIRT_ADDR) ? (uint64_t)(uintptr_t)od->pool : 0;   /* the RMA address of pool offset 0 (offset-based without FI_MR_VIRT_ADDR) */
+    b->k = (uint32_t)od->k;
     for (int j = 0; j < od->k; j++) { b->nic[j].key = od->nic[j].key; b->nic[j].alen = od->nic[j].alen; memcpy(b->nic[j].addr, od->nic[j].addr, od->nic[j].alen); }
 }
 ofi_peers *comm_ofi_peers_new(ofi_dev *od, int n, int me, const void *blobs)
