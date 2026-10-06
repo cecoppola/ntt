@@ -4264,8 +4264,20 @@ SHMEM 9472 MiB + 4 × 2624 MiB); 447.5 GB after (SHMEM 1536 MiB + 4 × 2304 MiB)
 (SHMEM) → 420.66 GB (OFI, after) vs ≈ 430.0 before (modelled). Measured at 2 node-processes (job 12294, 1e8 / 1e9, COMM_OFI unset):
 identical digits, SHMEM pool peak 2 MiB (staging 0), comm pool peak 106 MiB of 512 per device.
 
-**B / C — the standard 10-node run with all NICs and B7's v-slots: armed, pending** (`~/ofimem17/ecalc/tests/std17_drive.sh` after
-`~/ofi17/HANDOFF_DONE`; results/STD17.md RESUME). Baseline to compare: SHMEM try 2, 3532.05 s (RESULTS §105).
+**B — the standard 10-node run with all NICs (job 12287, measured; RUN16 try 2's line, `COMM_OFI` unset = on):** min MemAvailable
+441.0 GB → the full 8.1 × 10¹¹ (layout node 420.66 GB modelled, 20.3 GB under). **`total` 1669.98 s against SHMEM's 3532.05 s
+(−52.7 %)**; VERIFY OK on all 10, packed RECHECK OK, the 10¹¹ prefix identical to `~/ref/e_1e11.out`. bs 1225.3 → 262.6 s, dm 2174.2 →
+478.3 s, init 128.8 → 30.5 s; the part-file write to NFS (dc), hidden before, is now exposed: 897.6 s, 54 % of the run. comm-mark per
+APU thread, SHMEM → OFI: tree level 1 1.05 → **8.05 GB/s**, tree level 2 0.75 → **5.63**, reciprocal 1.38 → **7.86**, division 0.61 →
+**4.84** (5.7–7.9×). All 40 NICs (4 × 10) carried 2.47–2.63 TB each (cxi hardware counters); comm pool peak 2048.0 of 2304 MiB on every
+device (= the modelled staging), SHMEM pool peak 2 MiB.
+
+**C — B7 confirmed (measured, attribution inferred):** `MEM_REPORT_DEVS`' driver-used minus the layout's in-use per APU is 6.3–6.4 GB
+here, 3.7–3.8 GB in RUN16's SHMEM run at the same size, 2.0–2.1 GB at g = 2 (no general map). OFI − SHMEM = the comm pool (2.4 GB);
+the rest, ≈ 3.3 GB per APU ≈ **13 GB per node at g = 10, is outside the layout and the model** (the general map's grow-only v-slots,
+comm_layered.c:467-474). Measured node peak (rank 0, bs) 423.5 GB vs the layout's 420.66 (+2.9): the layout's generous host term
+absorbs it today. At the target (B7's estimate, 15 GB per general-map level, up to 2 levels): 447.5 → 462.5–477.5 GB — count the
+v-slots in `rns_mul_dist_mn_scratch` / `mem_model.py` (06_EVALUATION item 5). results/STD17.md §3–§4.
 
 ## 109. EST17: the 576-node estimate re-run for `comm_ofi` (2026-10-06, local model only; results/EST17.md)
 
