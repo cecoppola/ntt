@@ -40,6 +40,10 @@ int mn_init(void)
     const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT"), *et = getenv("COMM_TRANSPORT");
     g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported, as TCP does) */
     g_topo = getenv("MN_TOPO_GROUP") ? atoi(getenv("MN_TOPO_GROUP")) : 0;
+    /* B9: the cross-group mesh of level l's id collides with level l+1's all[d] id under SHMEM's strided PE sets
+     * (comm_shmem.c's "communicator id used twice" abort) -- a trap, not a remedy (products use all[d] only), so
+     * refuse at init with a clear message instead of letting the first group formation hit that abort. */
+    if (g_shmem && g_topo > 1) { ec_fatal(EC_RC_FATAL, "mn: MN_TOPO_GROUP=%d > 1 is not supported under COMM_TRANSPORT=shmem (the cross-group mesh ids collide with the next level's -- see docs/code/06_EVALUATION.md B9); leave MN_TOPO_GROUP unset (0) under SHMEM\n", g_topo); }
     if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
         if (!comm_shmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); }
         double t0 = mem_now();
@@ -83,8 +87,23 @@ int mn_selftest(int logR, int logC, int verbose)
 {
     if (g_size <= 1) return 1;
     if (g_size & (g_size - 1)) { printf("mn: self-test over the plain meshes skipped (size %d is not a power of two; the layered self-test covers the transform nodes)\n", g_size); return 1; }
-    int ok = 1, nr = g_size, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
-    if (rr == 0) { fprintf(stderr, "mn_selftest: R < ranks\n"); return 0; }
+    int nr = g_size;
+    if (getenv("MN_SELFTEST_LOGR")) logR = atoi(getenv("MN_SELFTEST_LOGR"));   /* debug only: lower the starting logR to force R / ranks < 32 at a small rank count -- see the note below on why this cannot
+                                                                                 * reach NTT_LOGN_MIN at only 2 ranks; past that point growth (below) still has to engage, so the knob is exercised, not skipped */
+    if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...) (ntt_dist.c:327): logR itself must be a valid transform size regardless of the rows-per-rank rule below.
+                                                      * Only the debug override above can drive it under NTT_LOGN_MIN (10) -- the production default 11 and everything mn_selftest_layered's growth produces
+                                                      * are already >=.  Consequence for testing at 2 ranks (documented, results/<this agent>.md): R >= 2^NTT_LOGN_MIN = 1024 always, so R / 2 >= 512 -- the
+                                                      * small-rows condition (R / ranks < 32) needs ranks > R_min / 32 = 32, i.e. >= 33 node-processes at this floor (>= 65 at the production logR = 11).
+                                                      * Neither is reachable on the available hardware (aac7: 13 nodes, <= 4 node-processes/node by default), so the real bug cannot be reproduced end to
+                                                      * end here; the growth formula was instead checked by direct arithmetic (matches mn_selftest_layered's identical, already-shipped pattern) and this
+                                                      * clamp keeps the debug knob itself from crashing on an invalid override instead of silently exercising the wrong thing. */
+    /* B8 (results/P16.md's MN_SELFTEST_GROW pattern, mirrored here): the fixed 2^11 rows give R/ranks < 32 from 128
+     * ranks on (k_twpack's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
+     * R/ranks >= 32, same switch and default as the layered test; below 128 ranks R/ranks is already >= 32 (2048/64
+     * = 32) so the loop never fires and behavior is unchanged. */
+    if ((getenv("MN_SELFTEST_GROW") ? atoi(getenv("MN_SELFTEST_GROW")) != 0 : 1)) while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
+    int ok = 1, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
+    if (rr < 32) { fprintf(stderr, "mn_selftest: R / ranks < 32\n"); return 0; }
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static) reduction(&&:ok)
     for (int d = 0; d < NA; d++) {
