@@ -13,7 +13,7 @@ Labels:
 Base: `origin/b7-vslot` c058964 (B7ACCT's v-slot accounting, not merged). No compute-node work, no jobs, no network tests. Login-node
 work was in `aac7:~/b7acct` (build aa86cac = b7-vslot's code); outputs are in `~/b7acct/tgtb2/` and the script is `~/b7acct/tgtb2.sh`.
 
-## RESUME (2026-10-06 19:40 EDT): complete
+## RESUME (2026-10-06 19:00 EDT): complete
 
 - Branch `tgtbench2`:
   - the model profile, the estimate driver and the raw file (cdc7547);
