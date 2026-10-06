@@ -9,8 +9,8 @@ Design: docs/code/07_COMM_OFI.md. Method: results/NIC16_experiments.md.
   (`OFI=1` automatic with `/opt/cray/libfabric/2.3.1`), README rows, `ecalc/tests/ofi17_drive.sh`. Switch `COMM_OFI=1`, off by default.
 - aac7 clone: `~/ofi17` (pull from GitHub, `make -s -j48 SHMEM_CRAY=1` after `source ecalc/aac7env.sh`; tools built too).
 - **Unit (1 node, job 12294) passed** — see §2.
-- **Armed** (fire-and-forget): `~/ofi17/ecalc/tests/ofi17_drive.sh 12287` (nohup, PID 2037988 on the aac7 login node) waits for
-  `~/p16/R16/RUN16_DONE` AND `~/nic16/2N_DONE` (deadline 08:56 EDT), then for job 12287's other steps to end, then runs:
+- **Armed** (fire-and-forget): `~/ofi17/ecalc/tests/ofi17_drive.sh 12287` (nohup, PID 2042505 on the aac7 login node) waits for
+  `~/p16/R16/RUN16_DONE` AND `~/nic16/2N_DONE` (deadline 09:00 EDT), then for job 12287's other steps to end, then runs:
   tc2 (t_comm at 2 nodes, OFI 1/0) → acc (mnaccept unit,e9,mn, `COMM_OFI=1 MNRUN_NODES=2`) → bw2 (t_comm --bw 2 nodes, both) →
   ab (1e10 per node at 2 and 4 nodes, OFI 0/1 interleaved, 2 each, `MN_COMM_MARK=1`) → bwn (t_comm --bw at 4, 8, 10 nodes, both).
   Writes `~/ofi17/R/drive/DONE` (first line = verdict), `drive.log`, `walls.txt`, logs.
