@@ -128,6 +128,9 @@ def main():
     ap.add_argument("--hide-pow2", type=float, default=None, help="Phase 16 F: HIDE_POW2, the equal-slab path's hidden xGMI fraction (default 0.75 measured on aac6; 0.72 measured on aac7 at depth 2, C16); = MN_MODEL_HIDE_POW2")
     ap.add_argument("--t-round", type=float, default=None, help="Phase 16 F: T_ROUND, the fixed cost of one chunk round in s (default 0.030 fitted on aac6 loopback; <= 0.015 measured on aac7, C16); = MN_MODEL_T_ROUND")
     ap.add_argument("--local-factor", type=float, default=None, help="Phase 16 F: one factor on the local (non-fabric) terms -- the node's compute and init (NODE_SCALE and INIT_SCALE together; default 1.0 = aac6's calibration at ROCm 7.2.4; the ROCm 7.0.3 toolchain measured +22 %% on bs / dm at 1e11 on aac7, C16 2.7; the profile's fit 1.12 / 1.20); = MN_MODEL_LOCAL_F; MN_MODEL_NODE_SCALE / MN_MODEL_INIT_SCALE set them apart")
+    ap.add_argument("--staging-copy", type=float, default=None, help="06 EVALUATION item 13 / 04 open item (model terms, behind a CLI flag): a D2H + H2D copy of every inter-node byte, at this HBM copy rate in GB/s (mn_model.Fabric.staging_bw); None (default) = off -- no transport on the target stages exchanges through host memory today, so the standing estimate does not move; priced on every a2a/allgather exchange (2 x the node's NIC bytes / this rate)")
+    ap.add_argument("--fall-off", type=float, default=0.0, metavar="A", help="06 EVALUATION item 13 / 04 WISHLIST 1.4 / B2 open item 9 (model terms, behind a CLI flag): a per-group-size fabric fall-off -- the per-APU injection rate x (g/2)^(-A) (mn_model.Fabric.fall_off), fed by an aac7 t_comm all-to-all measurement at 2/4/8/12 nodes when one exists; 0 (default) = off, the flat rate assumed elsewhere in this file")
+    ap.add_argument("--dkm1-fix", action="store_true", help="06 EVALUATION item 13 / 04 D15 (model terms, behind a CLI flag): a size-1 NEWTON_DKM calibration ratio (mn_model.B3_DIV1) so the one-node model matches V6's measured 166.7 s at 1e11 (183.8 s without it) -- P15B_DIV1 / P15C_DIV1 both predate DKM becoming the default (Batch 3) and carry no ratio of their own for it; off by default (MN_MODEL_B3_DIV1=1) since the ratio is fitted to close this one gap, not an independent measurement")
     a = ap.parse_args()
     prof = M.apply_profile(a.fabric)                                      # Phase 16 C: the profile's fabric and constants (target = as before)
     if a.hide_pow2 is not None: M.HIDE_POW2 = a.hide_pow2                 # Phase 16 F: the CLI's constants win over the profile and the environment
@@ -144,11 +147,12 @@ def main():
     if a.b1 and a.np_mn == 'auto': a.np_mn = 4                            # (B1's launch line)
     M.TWREC_G = not (a.no_twrec_g or a.b1 or not p15b)                    # DIST_TWREC_G (a global of the model)
     M.CACHE_FORCE = a.cache_slots
+    if a.dkm1_fix: M.B3_DIV1_FIX = True                                   # 06 EVALUATION item 13 / 04 D15: off by default
     design = None if a.legacy else M.Design(np=a.np, strategy=a.strategy, cap=mem_model.CAPS[a.cap] if a.cap and a.cap != "rule" else None, chunk=a.chunk, depth=a.depth, modmul=a.modmul, chunk_mb=a.chunk_mb,
                                             p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None,
                                             p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False,
                                             p15c=p15c, arena_room=a.room if p15c else None, cache_fit=p15c and not a.no_cache_fit)
-    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw)
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw, staging_bw=a.staging_copy, fall_off=a.fall_off)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
              " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
@@ -181,7 +185,7 @@ def target(a, design):
     """Phase 15: the standing estimate at 576 nodes -- two walls (D3), the part file at 2.0 / 0.8 / 0.6 GB/s, the node memory, the grid step, the
     memory ceiling at 480 / 502 GB per node"""
     groups = a.groups or '2,4,8,16,32,64,192,576'
-    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw)) for bw in M.TARGET_WRITE_BWS]
+    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw, staging_bw=a.staging_copy, fall_off=a.fall_off)) for bw in M.TARGET_WRITE_BWS]
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
@@ -199,7 +203,7 @@ def target(a, design):
         by_phase(a, design, groups, fabs, TT)
     if design is not None and design.p15c and a.cache_slots is None:
         cache_rows(a, design, groups, fabs)
-        partial_row(a)
+        partial_row(a, design, groups)
     print("  the ceiling by memory (the largest D per node whose node peak fits; the walls at that size, which is past the grid steps):")
     for budget in (M.NODE_GB_MARGIN, M.NODE_GB):
         D = M.max_digits(576, budget, a.tree, groups, staging=a.staging, design=design)
@@ -208,20 +212,27 @@ def target(a, design):
         print("    %.0f GB: D %.2e per node -> %.3e digits: %.1f s without the write; %s with it; pieces %d + %d + %d; node %.1f GB" % (
             budget, D, D * 576, es[0]["nowrite_s"], " / ".join("%.1f s @%.1f" % (x["wall_s"], b) for x, (b, f) in zip(es, fabs)), p["tree_max"], p["recip"], p["div"], es[0]["node_gb"]))
 
-def partial_row(a):
+def partial_row(a, design=None, groups=None):
     """Phase 15 int15j (2026-09-29, the user's decisions 2 and 3): the launch line carries RNS_DIST_CACHE_PARTIAL=1 (PC: the slots' primes per
     grid product from the block pool's free bytes, P24 cached, the loop along the longer axis) and MN_OUT_DKM_HI=1 (EW: the writer on
     X_hi after step 1; the model's DKM_HI term is read from the MN_OUT_DKM_HI / MN_MODEL_DKM_HI environment -- set it for the launch
     line's figure).  The row is mn_model.cache_partial's 'P24 cached yes, loop long, the pool rule' line at the target: the standing estimate,
-    priced at the CLI's fabric (--bw/--lat/--group/--layers/--taper), same as target()'s other rows."""
-    import io, contextlib
-    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW)
+    priced at the CLI's fabric (--bw/--lat/--group/--layers/--taper), same as target()'s other rows.
+    06 EVALUATION B10 / 04 D3: this row used to ignore the CLI design (--chunk-mb/--groups/--np-mn/--room/--strategy/--cap/--depth/
+    --ascii) -- cache_partial() always priced DEFAULT15C(cache_fit=False) and the default schedule.  Now it is priced at main()'s own
+    `design` (copied, with cache_fit forced False: partial caching is priced on its own terms, not RNS_DIST_CACHE_FIT's slot count)
+    and `groups`, so the deltas the CLI asks for (e.g. --chunk-mb 2048) show up here too."""
+    import io, contextlib, copy
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW, staging_bw=a.staging_copy, fall_off=a.fall_off)
+    pd = None
+    if design is not None:
+        pd = copy.copy(design); pd.cache_fit = False
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf): (b0, bw), rows = M.cache_partial(wbs=(2.0, a.write_bw, 0.6), fab=fab)
+    with contextlib.redirect_stdout(buf): (b0, bw), rows = M.cache_partial(wbs=(2.0, a.write_bw, 0.6), fab=fab, design=pd, groups=groups)
     r = [x for x in rows if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     if not r: return
     p24c, lp, kt, kd, tag, r0, rw = r[0]
-    with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = M.cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab)   # Phase 16 F: the second test size's row (RESULTS 94)
+    with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = M.cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab, design=pd, groups=groups)   # Phase 16 F: the second test size's row (RESULTS 94)
     r2 = [x for x in rows2 if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     print("  the launch line's RNS_DIST_CACHE_PARTIAL=1 (int15j; the pool rule: tree %d / division %d primes per slot, P24 cached, the loop along the longer axis)%s:"
           % (kt, kd, " with MN_OUT_DKM_HI=1" if M.DKM_HI else " (MN_OUT_DKM_HI=1 not set in the environment: its -7 s with the write is not in this row)"))
