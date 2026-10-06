@@ -26,6 +26,7 @@ int comm_ofi_enabled(void)
     if (e && atoi(e)) ec_fatal(EC_RC_FATAL, "comm_ofi: COMM_OFI=%s but this binary was built without libfabric (make OFI=1 LIBFABRIC=<prefix>)\n", e);
     return 0;
 }
+int comm_ofi_planned(void) { return 0; }              /* Phase 17 OFIMEM: no libfabric, no comm pools */
 ofi_dev *comm_ofi_dev(int dev) { (void)dev; return 0; }
 char *comm_ofi_pool(ofi_dev *od) { (void)od; return 0; }
 int comm_ofi_in_pool(ofi_dev *od, const void *p) { (void)od; (void)p; return 0; }
@@ -82,6 +83,15 @@ static int read_int(const char *path, int def) { FILE *f = fopen(path, "r"); int
 /* the user's decision, 2026-10-06 (results/OFI17.md): with COMM_OFI unset, on only where it applies -- a cxi NIC present
  * (Cray Slingshot; aac6's TCP/SOS has none, so it stays inert there without needing to know the SHMEM backend) */
 static int cxi_present(void) { char path[64]; snprintf(path, sizeof path, "/sys/class/cxi/cxi0/device/numa_node"); return access(path, F_OK) == 0; }
+/* Phase 17 OFIMEM: the decision comm_ofi_enabled makes, without opening anything -- for the memory rule (binsplit.c: the SHMEM pool
+ * shrinks to what SHMEM still carries and the four comm pools are counted) and MN_PLAN_ONLY's `plan pool` line.  The plan runs on the
+ * login node, which may have no cxi (aac7's uan1): mnrun.sh then passes COMM_OFI_PLAN_CXI=1 when the first compute node has one. */
+int comm_ofi_planned(void)
+{
+    const char *e = getenv("COMM_OFI"); if (e) return atoi(e) != 0;
+    const char *p = getenv("COMM_OFI_PLAN_CXI");
+    return cxi_present() || (p && atoi(p) != 0);
+}
 int comm_ofi_enabled(void)
 {
     if (G.on >= 0) return G.on;

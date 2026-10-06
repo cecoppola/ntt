@@ -14,6 +14,7 @@ extern "C" {
 typedef struct ofi_dev ofi_dev;                /* per device: the NICs (a domain / EP / CQ / AV each) and the registered comm pool */
 typedef struct ofi_peers ofi_peers;            /* per communicator: the members' pool VAs, addresses and keys */
 int      comm_ofi_enabled(void);               /* COMM_OFI=1 (aborts when set on a build without libfabric) */
+int      comm_ofi_planned(void);               /* Phase 17 OFIMEM: what comm_ofi_enabled will decide (COMM_OFI, else a cxi NIC here or COMM_OFI_PLAN_CXI=1), opening nothing; 0 without libfabric */
 ofi_dev *comm_ofi_dev(int dev);                /* the context of HIP device dev, opened at the first call (thread-safe) */
 char    *comm_ofi_pool(ofi_dev *od);           /* the pool's base */
 int      comm_ofi_in_pool(ofi_dev *od, const void *p);
