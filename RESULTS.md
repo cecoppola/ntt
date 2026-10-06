@@ -4153,3 +4153,89 @@ left as written; read them with these corrections in mind.
   multi-node division's dead copies removed and the arena counted without them, node **471.9 → 446.2 GB modelled** at
   5.276 × 10¹³, wall unchanged (int15k, §94); docs/TARGET.md §4 and `ecalc/e16_headline.sh`'s launch environment now
   carry it.
+
+## 105. Phase 16 RUN16: the optimized configuration at near-limit sizes on aac7, 1 node then 10 nodes (2026-10-05/06; results/RUN16.md)
+
+**Both runs PASS, measured, main at 7611751 (after the Phase 17 merges below).** 1 node, 1.03 × 10¹¹ digits: `total`
+193.21 s (init 22.57, bs 93.49, dm 76.75), VERIFY OK, RECHECK OK (432 s), the 10¹¹ prefix identical to the reference;
+device peak 387.2 GB + host HWM 27.7 GB ≈ 415 GB/node against the **420.33 GB modelled** layout figure. 10 nodes,
+8.1 × 10¹¹ digits total (`D10_PER=81000000000`; a first try timed out at 3600 s in the reciprocal exchange, 0.54 GB/s
+per APU thread that attempt — a retry with the record/RECHECK timeouts raised to 9000 s succeeded): `total` 3532.05 s
+(init ≈ 128.8 s max, bs 1225.33, dm 2174.15), VERIFY OK and RECHECK OK (1751 s) on all 10 nodes, the 10¹¹ prefix
+identical; device peak 378.6 GB + host HWM 36.8 GB ≈ 415 GB/node against **419.59 GB modelled**. `MN_COMM_MARK=1`'s
+per-APU-thread rates fell from 1.05 GB/s (tree level 1) to 0.75 (tree level 2) to 0.61 (division, 54 % of the wall) as
+more concurrent peers compete for the fabric; the reciprocal's 1.38 GB/s is an outlier (fewer, larger messages).
+`ECALC_LOG_CLOCKS=1` with no explicit seconds value confirmed one-shot only (no periodic sampler). Both run
+directories (`~/p16/R16/n1/`, `~/p16/R16/n10/`) left empty — no leftover digits on disk.
+
+## 106. Phase 17: `comm_ofi`, a multi-NIC data plane for the SHMEM transport — adopted (2026-10-06; docs/code/07_COMM_OFI.md, results/OFI17.md)
+
+**Design** (branch `p17-ofi`; `ecalc/comm_ofi.c`/`.h`, hooks in `comm_shmem.c`). One process per node, the in-process
+xGMI stage and Cray SHMEM for init / control words / barriers / host collectives are unchanged. Under `COMM_OFI=1`
+the *data* of every SHMEM device exchange (`alltoall`, `alltoallv`, `allgather`, the rounds) leaves as libfabric
+`fi_write`s (`FI_DELIVERY_COMPLETE`, 4 MiB chunks, window 64) over every NIC of the calling APU thread's device (one
+`cxi` fabric/domain/EP/CQ/AV per NIC; the existing SHMEM signal word follows once a peer's chunks complete, so the
+receiver's protocol is untouched). A registered comm pool per device (fine-grained device memory by default)
+replaces the SHMEM pool for OFI exchanges' staging. Not a new `comm_ops`: a data plane inside `comm_shmem.c` (≈ 60
+changed lines) plus `comm_ofi.c` (≈ 330 lines), reusing the existing sequences, roff publication, rounds, counts
+check and staging logic. Needs a build with `OFI=1` (automatic where Cray libfabric's headers exist).
+
+**Measured** (aac7, job 12287/12294, all digit-identical to the SHMEM baseline — see results/OFI17.md §2–3 for the
+full tables):
+- Unit (1 node): every `t_comm` form (2/4 PEs, the rounds path, 2 NICs/device, the baseline) VERIFY OK; a 1 × 10⁸
+  `ecalc` run at 2 node-processes identical to the reference.
+- Multi-node (2–10 nodes): `mnaccept --only unit,e9,mn` with `COMM_OFI=1 MNRUN_NODES=2` — **16 passed, 0 failed**,
+  every size identical to the reference. Full `ecalc` runs at 1 × 10¹⁰ digits/node: SHMEM 86.39/86.02 s (2 nodes),
+  116.12/120.72 s (4 nodes) vs OFI 75.27/76.23 s (2 nodes, −12–13 %), 87.26/94.39 s (4 nodes, −22–25 %); all four
+  digit-identical. Raw aggregate bandwidth at 4 MiB slabs: SHMEM 19.8/14.9/11.7/12.3 GB/s vs OFi 25.0/48.5/44.4/44.1
+  GB/s at 2/4/8/10 nodes — SHMEM is capped at one NIC per node (Cray OpenSHMEMX's one-NIC-per-PE binding, docs/TARGET.md
+  trap 18) and falls as more nodes compete for it; OFI stripes every exchange over all 4 NICs per node and holds
+  2.3–3.8× the SHMEM aggregate from 4 nodes on.
+- The NIC16 2-node confirmation (`~/nic16/2N_results.txt`) failed at `srun --gres=gpu:24` ("Invalid generic resource
+  specification" — a CPX-partition idiom that this SPX allocation does not accept); the `t_comm --bw` tests above,
+  which need no `--gres`, supersede it.
+
+**The user's decision (2026-10-06): adopted.** `COMM_OFI` now defaults to **1 wherever it applies** — a cxi NIC
+present (Cray Slingshot) — instead of defaulting off; it stays off with no code change where there is no cxi device
+(e.g. aac6's TCP/SOS) or the build has no libfabric. `COMM_OFI=0` always forces the old SHMEM-only path exactly (bit-
+identical, as before); `COMM_OFI=1` always forces the OFI path. `ecalc/README.md`'s `COMM_OFI` row, docs/TARGET.md
+§4 (the launch line, shown for clarity since the target's cxi NICs make it the default there too) and
+`docs/code/07_COMM_OFI.md`'s status line all carry the new default. Open items carried from results/OFI17.md: the
+SHMEM pool is not shrunk under `COMM_OFI=1` (the device staging moves to the comm pool, but the node holds both);
+the budget check / `mem_model.py` do not yet count the comm pool; two NICs per APU are untested on real separate
+NICs (aac7 has one NIC per APU) — out of scope for this integration, left for the follow-up memory-accounting agent.
+
+## 107. Phase 17 fixes (fix1, fix2) and the t_edge SPX/CPX comparison (2026-10-05/06; results/FIX117.md)
+
+**fix1** (branch `p17-fix1`, commits c686267/c764c91): three independent fixes found by the docs/code review (`06_EVALUATION.md`
+A2/B8/B9). (1) `tests/t_edge.c` gained a `vmm` form (`hipMemCreate` pinned/device + `hipMemAddressReserve` +
+`hipMemMap` + `hipMemSetAccess`, round-robin over the 4 APUs), same step/cap/report format as `host`/`dev`/`malloc`.
+(2) `mn_selftest` (the plain-mesh self-test) now grows `logR` like `mn_selftest_layered`'s `MN_SELFTEST_GROW` when
+R/ranks < 32 — at ≥ 128 ranks the fixed 2¹¹ rows gave `k_twpack` a 0-block grid (a silent no-op, not a HIP error);
+below 128 ranks R/ranks is already ≥ 32 so behavior is unchanged; `ntt_dist.c`'s `fwd_prod` gained a
+`HIP_CHECK(hipGetLastError())` after its pack-kernel launch so a similar silent failure would now abort instead.
+(3) `MN_TOPO_GROUP > 1` under `COMM_TRANSPORT=shmem` is now fatal at init with a named-cause message (the cross-group
+mesh id collides with the next level's `all[d]` id under SHMEM's strided PE sets) instead of hitting
+`comm_shmem.c`'s generic "communicator id used twice" abort later.
+
+**fix2** (branch `p17-fix2`, commit 4d377af): three model/budget corrections, no digit-affecting code change.
+(1) `binsplit_node_bytes`'s host term at size > 1 now mirrors `as_room_fits` exactly (the VMM seed buffers +
+the SHMEM pool) instead of a flat `BS_HOST_INIT_BYTES` + 6 GB that undercounted both — a correctness fix of the
+budget check; `mem_model.py`'s mirror updated to match. (2) `mn_model.py`'s `cache_partial()` takes the CLI's design
+and groups, so `estimate.py`'s launch-line `RNS_DIST_CACHE_PARTIAL` row is priced at the actual CLI flags instead of
+always the default schedule. (3) New, off-by-default model terms for staging-copy and fabric fall-off costs, plus a
+size-1 `NEWTON_DKM` calibration ratio (`--dkm1-fix`) closing a gap against V6's measured 166.7 s at 10¹¹ (183.8 s
+modelled without it) — none change the standing estimate unless explicitly requested on the CLI.
+
+**The t_edge SPX result (job 12287, x9000c1s3b0n0, alone on the node, this integration): VMM edge 444.0 GB**
+(`hipMemCreate` OOM at step 112, 444.0 GB committed), **dev edge ≈ 448.0 GB** (step 113 OOM-*killed* by the kernel,
+not a graceful `hipMalloc` failure — the node's `MemAvailable` was down to 1.1 GB by then). VMM and dev agree within
+one 4 GB step on a real (non-partitioned) SPX node, confirming A2's open question cleanly — unlike the CPX trap
+below, there is no ~1/4-node cap here.
+
+**The CPX trap (job 12294, x9000c1s6b1n0): confirmed, not a regression.** fix1's own aac7 testing found `t_edge vmm`
+82.0 GB / `dev` 88.0 GB on that node (5× smaller than the SPX figures above) and `mnaccept --only unit,e9` stuck at
+4/11 (passing only the tests that do not need > ~15 GB on one logical GPU) — `rocm-smi --showmeminfo vram` /
+`--showbus` show that node's 4 "devices" as PCI functions `.0`–`.3` of one `02:00:00` MI300A, a ~22.9 GB/logical-GPU
+partition, not 4 separate dies. Identical with and without contention, ruling out a transient cause. **This is why
+this integration's step 2 uses job 12287's SPX nodes (x9000c1s3b0n0) for every test, never job 12294.**

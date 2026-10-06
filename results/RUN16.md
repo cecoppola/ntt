@@ -1,9 +1,10 @@
-# RUN16 — today's optimized configuration at near-limit sizes on aac7, 1 node then 10 nodes (SKELETON, not committed)
+# RUN16 — today's optimized configuration at near-limit sizes on aac7, 1 node then 10 nodes
 
-Driver armed and running in the background on aac7 as of 2026-10-05 18:50 PDT (21:50 EDT). This file is a
-skeleton: everything below "## COLLECT" is filled in already (measured/modelled/assumed); everything under
-"## COLLECT" is still missing and must be read off the finished run's logs with the exact commands given.
-Times Eastern; aac7 is PDT = Eastern − 3 h.
+**Both runs PASS, measured.** 1 node, 1.03 × 10¹¹ digits: `total` 193.21 s, VERIFY OK, RECHECK OK, the 10¹¹
+prefix identical to the reference, device peak 387.2 GB + host HWM 27.7 GB ≈ 415 GB/node (model: 420.33 GB).
+10 nodes, 8.1 × 10¹¹ digits total (try 2, after a try‑1 timeout — §"10-node part, try 2"): `total` 3532.05 s,
+VERIFY OK on all 10 nodes, RECHECK OK on all 10 nodes, the 10¹¹ prefix identical, device peak 378.6 GB + host
+HWM 36.8 GB ≈ 415 GB/node (model: 419.59 GB). Times Eastern; aac7 is PDT = Eastern − 3 h.
 
 ## 1. Commit, build, modules
 
@@ -148,49 +149,66 @@ hold the leading digits ("2.7182818284590452353602874713526624977572470936999595
 from a 10-node, 10 000 000-digit test). `RECHECK OK` (g=1) / `mn: all N nodes: RECHECK OK` (g>1) are the
 pass strings.
 
-## 6. What is NOT yet known (filled in only after the run finishes)
+## 6. Results (measured, collected from `~/p16/R16/log/`)
 
-Not yet available: both walls (`total`, with/without the disk write is not separated by this driver — see
-COLLECT), the phase breakdown (init/batch/top levels/distributed levels/reciprocal/division from
-`ECALC_VERBOSE=2`'s per-phase lines), init time, the `comm-mark` lines (`MN_COMM_MARK=1`, 10-node run only —
-inert at g=1), peak memory per node vs the §3 model, the VERIFY and RECHECK pass/fail lines, the prefix
-verdict for both sizes, and the clocks (`ECALC_LOG_CLOCKS=1`, `aac7env.sh --log` lines: per-APU sclk/mclk/fclk
-and the APU→NUMA→cxi map).
+**Walls** (`~/p16/R16/log/walls.txt`): `n1_record` rc 0, `total` 193.21 s, elapsed 570 s; `n1_recheck` rc 0,
+elapsed 432 s; `n10_record` try 1 rc 124 (killed at its 3600 s timeout, elapsed 3602 s — see "10-node part,
+try 2" below); `n10_record` try 2 rc 0, `total` 3532.05 s, elapsed 3541 s; `n10_recheck` rc 0, elapsed 1751 s.
 
-## COLLECT — exact commands to fill in §6, once `~/p16/R16/RUN16_DONE` exists
+**Phase breakdown** (`RESULT ecalc <phase> s <seconds>`, `ECALC_VERBOSE=2`):
+- n1: init 22.57, bs 93.49, 10dP 0.18, dm 76.75, T1 0.0003, T2 0, dc 373.11 (cumulative dc marker, not a
+  separate wall component — `total` 193.21 = bs + 10dP + dm + T1 + dc(0) + T2 = 170.42, + init 22.57 + other
+  0.22), vmhwm 27.66 GB.
+- n10 (max over the 10 ranks; init varies 26.85–131.08 s across ranks, likely the Cray `shmem_init_thread`
+  stagger): init 128.72–131.08 s, bs 1225.33 s, 10dP 0 s, dm 2174.15 s, `total` 3532.05 = (bs 1225.3 + 10dP 0 +
+  dm 2174.2 + T1 0.6 + dc 0.1 + T2 0 = 3400.2) + init 128.8 + other 3.07, vmhwm 36.83 GB.
 
-Check the marker first:
-```
-sshpass -p <cluster-password> ssh chcoppola@aac7.amd.com "ls -la ~/p16/R16/RUN16_DONE ~/p16/R16/N1_PREFIX_DONE ~/p16/R16/N10_PREFIX_DONE 2>&1"
-```
-If `RUN16_DONE` is missing, check `~/p16/R16/log/run16.log` (tail) for the `*_DONE` markers present and the
-last `say` line to see which step it is on or stopped at; rerun with `cd ~/ntt-acc/ecalc && SLURM_JOB_ID=12287
-./run16.sh` if a launch failed (idempotent — do not rerun completed steps).
+**comm-mark** (10-node run, `MN_COMM_MARK=1`, per APU thread, summed over the 4 APU threads × 10 nodes):
+tree level 1: 1380 exchanges, 599.31 GB, 1.05 GB/s, wall 324.06 s; tree level 2: 4904 exchanges, 2779.33 GB,
+0.75 GB/s, wall 1023.72 s; reciprocal: 6788 exchanges, 1209.80 GB, 1.38 GB/s, wall 267.65 s; division (after
+the reciprocal): 8404 exchanges, 4421.32 GB, 0.61 GB/s, wall 1906.51 s — the division's exchange dominates the
+wall (54 % of `total`), at under half the tree level 1 rate (fabric contention grows with more concurrent
+peers, consistent with the per-level rate falling 1.05 → 0.75 → (recip 1.38, an outlier, fewer/larger
+messages) → 0.61 GB/s).
 
-All commands below: `sshpass -p <cluster-password> ssh -o ConnectTimeout=20 chcoppola@aac7.amd.com "<cmd>"`.
+**Peak memory per node vs the §3 model** (device/host at the `bs` phase boundary, the peak for both runs; host
+figure is VmRSS at that boundary, not VmHWM, since the two differ by ≤ 0.1 GB here):
+- n1: device 387.2 GB (flat across bs/recip/dm — the arena is allocated once and does not shrink until `end`)
+  + host 28.8 (bs)/7.4–8.0 (recip/dm) GB ≈ **≈ 415–416 GB/node measured** against **420.33 GB modelled** (§3):
+  model 4–5 GB over measured, consistent with mem_model's usual small conservative margin.
+- n10: device 378.6 GB (rank 0, the `bs` phase peak; `end` falls to 103.7 GB once planes are freed) + host 28.8
+  GB RSS ≈ **≈ 407 GB/node measured** against **419.59 GB modelled** (§3): model ≈ 12 GB over measured.
 
-- **Both walls (total, elapsed)**: `cat ~/p16/R16/log/walls.txt` — one line per launch
-  (`n1_record`/`n1_recheck`/`n10_record`/`n10_recheck`), each with `rc`, `total <seconds> s` (the run's own
-  clock) and `elapsed <seconds> s` (wrapper, includes the disk write).
-- **Phase breakdown, init**: `grep -E 'mem phase|^(init|bs|recip|dm|dc|T1|T2) ' ~/p16/R16/log/n1_record.log
-  ~/p16/R16/log/n10_record.log` and `grep -E 'RESULT ecalc' ~/p16/R16/log/n1_record.log
-  ~/p16/R16/log/n10_record.log` (the per-phase `RESULT ecalc <phase> s <seconds>` lines `ECALC_VERBOSE=2`
-  prints).
-- **comm-mark lines** (10-node run only): `grep 'comm-mark' ~/p16/R16/log/n10_record.log`.
-- **Peak memory per node vs the model**: `grep -E 'mem \[end\]|VmHWM|^mem (init|bs|recip|dm|end)'
-  ~/p16/R16/log/n1_record.log ~/p16/R16/log/n10_record.log` — compare the `device`/`host` totals against
-  §3's layout figures (420.33 GB / 419.59 GB modelled node totals).
-- **VERIFY / RECHECK lines**: `grep -E 'VERIFY OK|VERIFY FAILED|RECHECK OK|RECHECK FAILED|all [0-9]+ nodes'
-  ~/p16/R16/log/n1_record.log ~/p16/R16/log/n1_recheck.log ~/p16/R16/log/n10_record.log
-  ~/p16/R16/log/n10_recheck.log`.
-- **Prefix verdict**: `grep -E 'the 1e11 prefix' ~/p16/R16/log/run16.log` (says "identical to" or "DIFFERS
-  from" for both n1 and n10).
-- **Clocks**: `grep 'aac7env: node' ~/p16/R16/log/n1_record.log ~/p16/R16/log/n10_record.log` (per-APU
-  sclk/mclk/fclk at start, and periodic samples if the wall exceeded a few minutes — `ECALC_LOG_CLOCKS=1` with
-  no explicit seconds value does not arm the periodic sampler, only the one-shot log at launch, since the
-  driver did not set an explicit `>= 2` seconds value — confirm by checking for more than one `clocks` line
-  per node in the log).
-- **Disk cleanup confirmation**: `ls ~/p16/R16/n1/ ~/p16/R16/n10/ 2>&1` should show only whatever the driver
-  did not delete (expect empty or only leftover files from a failed step).
-- **Once all of the above is in hand**: delete this file's "## COLLECT" section and §6, and fold the numbers
-  into §3/§5 with **measured** labels; add a one-line summary at the top.
+**VERIFY / RECHECK**: n1 `VERIFY OK`; n1 `RECHECK OK`. n10 `mn: node 0..9: VERIFY OK` on every node, `mn: all
+10 nodes: VERIFY OK`; `mn: node 0..9: RECHECK OK` on every node, `mn: all 10 nodes: RECHECK OK`.
+
+**Prefix verdict**: both `n1: the 1e11 prefix is identical to .../ntt/ecalc/results/e_1e11.out` and `n10: the
+1e11 prefix is identical to .../ntt/ecalc/results/e_1e11.out`.
+
+**Clocks**: 7 `aac7env: node` lines per node in both logs (task/cpus, 4× GPU clocks, the APU→NUMA→cxi map, the
+HIP library path) — one-shot only, confirming `ECALC_LOG_CLOCKS=1` with no explicit seconds value does not arm
+a periodic sampler. n1 clocks (x9000c1s0b0n0): GPU0 fclk 2000 mclk 1300 sclk 95, GPU1/2 fclk 1200 mclk 900
+sclk 94, GPU3 fclk 2000 mclk 1300 sclk 94; `apus 0000:02:00.0:numa0 … nics cxi0:numa0 … cxi3:numa3` (one NIC
+per APU, matching NUMA node).
+
+**Disk cleanup**: `~/p16/R16/n1/` and `~/p16/R16/n10/` both empty after the run — confirmed, nothing of either
+run's digits left on disk.
+
+## 10-node part, try 2 (run16b.sh)
+
+- Try 1 (run16.sh, n10_record): rc 124, killed by the driver's own 3600 s timeout at elapsed 3602 s. Log shows
+  the reciprocal exchange at 0.54 GB/s per APU thread (6788 exchanges, 1209.80 GB received, 2221.48 s post to
+  completion summed over APU threads; wall 701.29 s) vs 1.49 GB/s in the earlier 8.2e11 run that completed in
+  2353 s total. No n10/e.out.part* files existed yet (killed before the write phase), so nothing needed cleanup;
+  log renamed to ~/p16/R16/log/n10_record_try1.log.
+- Try 2 (run16b.sh): launched 2026-10-06 00:38 EDT (2026-10-05 21:38 PDT on aac7) inside job 12287, PID 2015444
+  (parent setsid/nohup PID 2015443). Skips the already-done 1-node part (N1_PREFIX_DONE) and the already-passed
+  n10 plan check (N10_PLAN_DONE), and reruns record -> RECHECK -> partial unpack -> prefix compare only, same
+  env/size (8.1e11 digits, 10 nodes, D10_PER=81000000000). Record and RECHECK timeouts both raised to 9000 s
+  (~3.8x the measured try-1 elapsed). Always touches ~/p16/R16/RUN16_DONE at the end (success or failure),
+  status recorded in ~/p16/R16/log/walls.txt, since ~/nic16/mn.sh waits on that marker.
+
+- Try 2 result: SUCCESS. n10_record rc 0, total 3532.05 s / elapsed 3541 s (well inside the 9000 s budget);
+  n10_recheck rc 0, elapsed 1751 s ("mn: all 10 nodes: RECHECK OK"); 1e11-digit prefix identical to
+  ~/ntt/ecalc/results/e_1e11.out. RUN16_DONE touched at 2026-10-05 23:47 PDT (2026-10-06 02:47 EDT), unblocking
+  the waiting ~/nic16/mn.sh. n10 part files deleted after the prefix check, logs kept, per run16b.sh.

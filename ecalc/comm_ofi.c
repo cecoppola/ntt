@@ -8,7 +8,9 @@
  * comm_ofi_write cuts a slab into chunks (COMM_OFI_CHUNK_MB) striped over the device's NICs, posts them delivery-complete with
  * at most COMM_OFI_WINDOW in flight per NIC, and counts them on the caller's counter; whoever progresses the device's CQs
  * lowers the counter of the communicator that posted (the CQ entry's context).  The caller (comm_shmem.c) sends the SHMEM signal
- * once the counter of a peer is 0.  One mutex per device around every call into its domains (FI_THREAD_DOMAIN). */
+ * once the counter of a peer is 0.  One mutex per device around every call into its domains (FI_THREAD_DOMAIN).
+ * The user's decision of 2026-10-06 (results/OFI17.md): COMM_OFI unset defaults to on wherever a cxi NIC is present (Cray
+ * Slingshot), off elsewhere (e.g. aac6's TCP/SOS) -- no code change needed there; COMM_OFI=0 always forces the old path. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -76,10 +78,14 @@ struct ofi_peers { ofi_dev *od; int n, me; uint64_t *va; uint64_t *key; fi_addr_
 static struct { int on, verbose, window; size_t chunk; pthread_mutex_t lock; ofi_dev *dev[MAXDEV]; } G = { -1, 0, 64, 4 << 20, PTHREAD_MUTEX_INITIALIZER, { 0 } };
 #define CK(x) do { int r_ = (int)(x); if (r_) ec_fatal(EC_RC_FATAL, "comm_ofi: %s = %d (%s) at %s:%d\n", #x, r_, fi_strerror(-r_), __FILE__, __LINE__); } while (0)
 
+static int read_int(const char *path, int def) { FILE *f = fopen(path, "r"); int v = def; if (f) { if (fscanf(f, "%d", &v) != 1) v = def; fclose(f); } return v; }
+/* the user's decision, 2026-10-06 (results/OFI17.md): with COMM_OFI unset, on only where it applies -- a cxi NIC present
+ * (Cray Slingshot; aac6's TCP/SOS has none, so it stays inert there without needing to know the SHMEM backend) */
+static int cxi_present(void) { char path[64]; snprintf(path, sizeof path, "/sys/class/cxi/cxi0/device/numa_node"); return access(path, F_OK) == 0; }
 int comm_ofi_enabled(void)
 {
     if (G.on >= 0) return G.on;
-    const char *e = getenv("COMM_OFI"); G.on = e && atoi(e) != 0;
+    const char *e = getenv("COMM_OFI"); G.on = e ? (atoi(e) != 0) : cxi_present();
     if (G.on) {
         G.verbose = getenv("COMM_OFI_VERBOSE") ? atoi(getenv("COMM_OFI_VERBOSE")) : 0;
         if (getenv("COMM_OFI_WINDOW")) G.window = atoi(getenv("COMM_OFI_WINDOW")); if (G.window < 1) G.window = 1;
@@ -88,7 +94,6 @@ int comm_ofi_enabled(void)
     }
     return G.on;
 }
-static int read_int(const char *path, int def) { FILE *f = fopen(path, "r"); int v = def; if (f) { if (fscanf(f, "%d", &v) != 1) v = def; fclose(f); } return v; }
 /* the NUMA node of device d: its PCI function's numa_node (the host-only build: d) */
 static int dev_numa(int d)
 {
