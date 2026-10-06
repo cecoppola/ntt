@@ -682,7 +682,16 @@ def shmem_products(nq_total, g, groups=None):
     out.append(('recip Q_t r', g, nq_total, nq_total // 2 + 1, sh, -(-(nq_total // 2) // g), -(-(3 * nq_total // 2) // g)))
     return out
 
-def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0):
+def ofi_planned(env=None):
+    """Phase 17 OFIMEM: comm_ofi_planned() (comm_ofi.c) -- COMM_OFI if set, else a cxi NIC on this host or COMM_OFI_PLAN_CXI=1 (the plan's
+    hint from mnrun.sh).  The target (Cray, cxi) has it on by default: pass COMM_OFI=1 to model it from a host without cxi."""
+    env = os.environ if env is None else env
+    if env.get('COMM_OFI') is not None: return env['COMM_OFI'] not in ('', '0') and int(env['COMM_OFI'] or 0) != 0
+    return os.path.exists('/sys/class/cxi/cxi0') or env.get('COMM_OFI_PLAN_CXI', '0') not in ('', '0')
+
+def round256_mb(b): mb = -(-b // (1 << 20)); return -(-mb // 256) * 256
+
+def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
       staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
                  my share of each, each at most MDB_SHIFT_CHUNK_MB)
@@ -691,6 +700,9 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
       mailbox  = MAXID x g x 8 B;  + the self-tests' 128 MiB at init (not concurrent with the staging) and a margin.
       sym_slabs (DIST_MN_SYM_SLABS=1, TASKS 2.4): + NR x 3 q x 8 B kept (q = the largest mn_core plane), the transform's staging gone.
       round_mb (COMM_SHMEM_ROUND_MB, Phase 14 V1): every side of every staged exchange at most round_mb.
+      ofi (Phase 17 OFIMEM, COMM_OFI): the device staging and the slabs move to one comm_ofi pool per device (detail['ofi_dev_mb']: one
+      APU's staging, at least the self-tests' 128 MiB, + its slabs + 256 MiB, in whole 256 MiB); the SHMEM pool keeps 128 MiB of host-op
+      staging, the control blocks, the mailbox and the margin (binsplit.c binsplit_shmem_pool_need).
     detail (a dict) receives the parts and the product that sets the staging."""
     if g <= 1: return 0
     best, who, qmax = 0, '', 0
@@ -710,8 +722,11 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     control = 4 * (g + sum(lv)) * (ring + 64)
     mailbox = SHMEM_MAXID * g * 8
     sym = NR * 3 * qmax * 8 if sym_slabs else 0
+    ofi_dev_mb = 0
+    if ofi:
+        ofi_dev_mb = round256_mb(max(best * 8, SHMEM_SELFTEST) + sym // 4 + SHMEM_MARGIN); staging = 0; sym = 0
     need = max(staging, SHMEM_SELFTEST) + control + mailbox + sym + SHMEM_MARGIN
-    if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8)
+    if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
     return need
 
 MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TEST when lower), MN_T_CHUNK_MB, the staging peak MiB of the largest PE, source) -- P214 section 1
@@ -797,7 +812,7 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0, dkm=False); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS15: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); pass OLD13 for the forms before.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
@@ -839,8 +854,10 @@ def mem_per_node(D, g=1, opts=None):
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np)
     pdet = {}                                                             # (Phase 15 DL: the host terms before the room's decision, which counts them)
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
-        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0))
-        stg = pdet['staging']; pool = pool_mb_of(need, o['pool'], o['pool_mb'])   # Phase 15: the pool rule (POOLS; 'max' = the model before)
+        ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: COMM_OFI (None: as the code decides on this host)
+        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi)
+        stg = pdet['staging']; pool = pool_mb_of(need, 'plan' if ofi and o['pool'] == 'auto' else o['pool'], o['pool_mb'])   # Phase 15: the pool rule (POOLS; 'max' = the model before); OFIMEM: under OFI an unset pool = the need
+        pdet['shmem_only'] = pool; pool += NR * (pdet['ofi_dev_mb'] << 20)   # OFIMEM: + the four comm_ofi pools (the transport's pools in all)
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
         stg = shmem_staging(L['nq'], g, o['groups'], o['pool_log'], o['staging']) if (g > 1 and o['transport'] == 'shmem') else 0
         pool = max(o['pool_mb'] << 20, stg + (100 << 20)) if (g > 1 and o['transport'] == 'shmem') else 0
@@ -888,7 +905,7 @@ def mem_per_node(D, g=1, opts=None):
                 cache_mn=cmn, node_peak_cache=peak_c, cache_fit_slots=fit_slots, cache_fit=fit_slots * slot_fit, cache_slot=slot_fit, cache_fit_room=fit_room, layout_node=layout_node,
                 arena_room=aroom, room_node=room_node, dkm=L['dkm'],
                 planes=planes, regions_bs=bs_total, arena=sum(arena), arena_mapped=sum(arena_mapped), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
-                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''),
+                pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''), shmem_pool_only=pdet.get('shmem_only', pool), ofi_pools=NR * (pdet.get('ofi_dev_mb', 0) << 20),
                 dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
                 node_peak=peak)
 
@@ -1006,12 +1023,14 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         room_planes = planes_bytes(pl0, 0, r3, np_planes(npm, g, pl0), 'C', pool1_np=3 if npm == 'auto' or not pool1_4q else npm) - int((0.61 if pl0 >= 30 else 2.16) * GB) + 610000000
         S_ = seed_span(N, g, seed_fill); nt_ = N // g if g > 1 else N           # (BS_LAYOUT_ONLY: rank 0's range [1, 1 + N / g))
         sb = seedbuf_vmm(N, nt_, S_) if g > 1 else 0
-        pool_b = 0
+        pool_b = 0; ofi_b = 0
         if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)))
-            mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', '8192'))
+            pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi)
+            mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if env.get('COMM_SHMEM_POOL_AUTO', '1') != '0' and mb > have else have) << 20
-        rh = room_host(N, g, pool_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
+            if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
+        rh = room_host(N, g, pool_b + ofi_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
         ar_room = None
         ch = VMM_CHUNK if arena_room > 0 else 0
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
@@ -1031,7 +1050,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         if 'room' in v: rows[3:3] = [('room / dev', v['room'], L['room']), ('chunk', v['chunk'], ch)]   # Phase 15 AS (DL: the room decided on this model's node, below)
         if rl is not None and ar_room is not None:                              # Phase 15 DL: the room's node, term by term (binsplit.c as_room_fits)
             rows += [('room planes', rl['planes'], room_planes), ('room arena', rl['arena_with_room'], ar_room), ('room seedbuf', rl['seedbuf'], sb),
-                     ('room shmem pool', rl['shmem_pool'], pool_b), ('room host', rl['host'], rh), ('room node', rl['node'], room_planes + ar_room + int(VMM_BS_GROW) + rh),
+                     ('room shmem pool', rl['shmem_pool'], pool_b)] + ([('room ofi pools', rl['ofi_pool'], ofi_b)] if 'ofi_pool' in rl else []) + [('room host', rl['host'], rh), ('room node', rl['node'], room_planes + ar_room + int(VMM_BS_GROW) + rh),
                      ('room fits', rl['fits'], 1 if as_room_fits(room_planes, ar_room, rh, float(env.get('ECALC_NODE_GB', '480'))) else 0)]
         print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d dkm %d:' % (D, g, N, tight, tdead, ef, dkm))
         for name, c, py in rows:
