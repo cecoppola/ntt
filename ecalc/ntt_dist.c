@@ -301,6 +301,7 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     if (twrec_on() == 2) TSK(ST_PACK, (k_twpack_r<4><<<grid, dim3(32, 4), 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
     else if (twrec_on()) TSK(ST_PACK, (k_twpack_r<8><<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
     else TSK(ST_PACK, (k_twpack<<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
+    HIP_CHECK(hipGetLastError());   /* B8: a bad grid (rk or C/32 rounding to 0 blocks) launches silently -- no HIP error, just no work -- so a launch check alone would not have caught it; mn.c's logR growth is the real fix, this catches any other mis-sized launch */
     HIP_CHECK(hipEventRecord(p->ev, s));
 }
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
