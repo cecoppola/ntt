@@ -30,6 +30,8 @@
 #include "memsample.h"                               /* Phase 14 S1: E1, E12 */
 #include "spill.h"                                   /* Phase 14 S1: E3 (the output file under ECALC_ODIRECT) */
 #include "fatal.h"                                   /* Phase 14 C3: ec_quit, EC_RC_BUDGET */
+#include "comm_ofi.h"                                /* B7ACCT: comm_ofi_planned (the MEM_REPORT_DEVS comm-pool term) */
+extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
 #include <pthread.h>
 #include <semaphore.h>
 #include <omp.h>
@@ -362,7 +364,7 @@ static void budget_check(unsigned long N, int verbose)
     int cap = (rns_pool_log() >= 31 ? 2 : 0) + (rns_planes_3q30 ? 1 : 0);
     size_t pb = 0, ab = 0, hb = 0; binsplit_node_bytes(N, sz, cap, ec_np_init(), &pb, &ab, &hb);
     size_t dev = mem_report_dev_total(), rss = mem_vmrss();
-    size_t dpk = dev > pb + ab ? dev : pb + ab, hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;
+    size_t dpk = (dev > pb + ab ? dev : pb + ab) + binsplit_vslot_budget_node(N, sz), hpk = rss > hb ? rss : hb, peak = dpk + hpk, now = dev + rss;   /* B7ACCT: + the v-slots (hipMalloc'd later) under ECALC_VSLOT_BUDGET=1, else 0 */
     struct meminfo mi; memset(&mi, 0, sizeof mi); mem_meminfo(&mi);
     const int K = 7;
     uint64_t v[7] = { host_hash(), peak, dpk, hpk, peak > now ? peak - now : 0, mi.avail, (uint64_t)-1 };
@@ -529,6 +531,9 @@ int main(int argc, char **argv)
     if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
+    if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
+        const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
+        mem_report_outside(binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes); }
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = dec_verbose = verbose >= 2;

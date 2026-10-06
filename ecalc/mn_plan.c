@@ -358,6 +358,11 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
         double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
         bs_a0 = a0; bs_b1 = b1; rns_preinit_pool_log(pool_log);
         rns_dist_cache_plan(size, pool_log, ec_np_planes(pool_log, size), g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], nb);
+        if (!silent) {                                            /* B7ACCT: the general map's v-exchange slots beside the layout (binsplit_vslot_bytes) */
+            char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, size, &tt, by, sizeof by); double vb = (double)binsplit_vslot_budget_node(N, size), n0 = nb - vb;
+            printf("plan vslot  the general map's v-exchange slots (comm_layered.c, hipMalloc'd outside the layout, alive to the run's end): %.3f GB per APU from the dm phase (%.3f during the tree's top level) = %.2f GB per node [%s]; the layout's node %.2f -> %.2f GB with them (ECALC_VSLOT_BUDGET=%d: %s)\n",
+                   v * 1e-9, tt * 1e-9, 4 * v * 1e-9, by, n0 * 1e-9, (n0 + 4.0 * v) * 1e-9, binsplit_vslot_budget_on(), binsplit_vslot_budget_on() ? "counted in the budget" : "reported only");
+        }
     }
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");

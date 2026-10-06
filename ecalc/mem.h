@@ -95,6 +95,9 @@ void mem_report_host_item(int cat, size_t bytes);   /* MEM_HOST_X / MEM_HOST_DIG
 void mem_report(const char *phase);                 /* print this phase's table (and remember it) */
 void mem_report_summary(void);                      /* every recorded phase, one table */
 size_t mem_report_dev_total(void);                  /* device bytes in use at the last mem_report (all devices) */
+/* B7ACCT: MEM_REPORT_DEVS's per-APU line also prints the layout's terms outside "in use": the v-slots (binsplit_vslot_bytes, per APU),
+ * the comm_ofi pool per device, and the v-slots hipMalloc'd now (live(dev): comm_layered_vbytes) -- set once by the driver */
+void mem_report_outside(size_t vslot_apu, size_t ofi_apu, size_t (*live)(int dev));
 void mem_oom(const char *where, int dev, size_t bytes);   /* Phase 10 B4 (agent M): a failed device allocation: print the request and the accounting, then exit */
 
 #ifdef __cplusplus

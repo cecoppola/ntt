@@ -362,13 +362,18 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     inter_post(c, e);
 }
 /* ---- B7: the unequal exchange ---- */
+/* B7ACCT (results/B7ACCT.md): the v-exchange scratch hipMalloc'd now per device, over every layered communicator (need_vtmp, need_vslot,
+ * freed by y_destroy) -- MEM_REPORT_DEVS prints it beside the layout's term (binsplit_vslot_bytes); a counter only, nothing else reads it */
+static size_t g_vlive[16];
+static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
+extern "C" size_t comm_layered_vbytes(int dev) { return dev >= 0 && dev < 16 ? __atomic_load_n(&g_vlive[dev], __ATOMIC_RELAXED) : 0; }
 static void need_vtmp(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->vcap >= bytes) return;
     HIP_CHECK(hipSetDevice(p->dev));
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
-    HIP_CHECK(hipMalloc((void **)&p->vtmp, bytes)); p->vcap = bytes;
+    HIP_CHECK(hipMalloc((void **)&p->vtmp, bytes)); vlive_add(p->dev, bytes, p->vcap); p->vcap = bytes;
 }
 /* the count tables of a v-exchange on this APU thread (rank g d + node, size 4 g): T[d'][rho] = APU d' of my node
  * sends rho (all-gathered over the intra communicator); the intra stage's counts sI/rI (per APU), the inter stage's
@@ -471,7 +476,7 @@ static void need_vslot(comm *c, int k, size_t bytes)
     if (p->vxcap[k] >= bytes) return;
     HIP_CHECK(hipSetDevice(p->dev));
     if (p->vx[k]) HIP_CHECK(hipFree(p->vx[k]));
-    HIP_CHECK(hipMalloc((void **)&p->vx[k], bytes)); p->vxcap[k] = bytes;
+    HIP_CHECK(hipMalloc((void **)&p->vx[k], bytes)); vlive_add(p->dev, bytes, p->vxcap[k]); p->vxcap[k] = bytes;
 }
 static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, double a0)
 {
@@ -575,6 +580,7 @@ static void y_destroy(comm *c)
     if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
     for (int k = 0; k < 2; k++) if (p->vx[k]) { HIP_CHECK(hipSetDevice(p->dev)); HIP_CHECK(hipFree(p->vx[k])); }
+    vlive_add(p->dev, 0, (p->vtmp ? p->vcap : 0) + (p->vx[0] ? p->vxcap[0] : 0) + (p->vx[1] ? p->vxcap[1] : 0));   /* B7ACCT */
     if (p->ctab) HIP_CHECK(hipHostFree(p->ctab));
     free(p); free(c);
 }

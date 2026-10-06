@@ -406,6 +406,80 @@ def tree_need_dev(nq_leaf, g, scratch_out=None, logr_delta=0, form='grid', pool_
     if scratch_out is not None: scratch_out.append(top_scratch); scratch_out.append(top_q)
     return best + best // 16
 
+# ---------------------------------------------------------------- B7ACCT (results/B7ACCT.md): the general map's v-exchange slots
+def _partn(R, nr, rho): return R * (rho + 1) // nr - R * rho // nr
+
+@functools.lru_cache(maxsize=None)
+def vslot_shape(logR, logC, g, depth=2, chunks=4):
+    """rns_dist.c vslot_shape: the layered communicator's v-exchange scratch (comm_layered.c need_vslot / need_vtmp) one general-map
+    transform of a 2^logR x 2^logC plane over 4 g ranks grows on an APU thread, bytes (the max over the APU threads).  Per chunk k < K
+    (gplan_build's K) and APU d of node r, rho = g d + r: forward A = sum_dd rk(g dd + r, k) x sum_r' cols(g d + r'), B = cols(rho) x
+    sum rk(., k); inverse A = sum_dd cols(g dd + r) x sum_r' rk(g d + r', k), B = rk(rho, k) x C (points, x 8 B).  depth >= 2: two slots
+    of A + max(A, B) + 4 at the largest exchange; depth 1: 2 A + B + 4; each area in whole 2 MiB."""
+    nr = 4 * g; R = 1 << logR; C = 1 << logC; rmin = R // nr
+    K = min(max(chunks, 1), 16)
+    while K > 1 and rmin // K < 32: K -= 1
+    rows = [_partn(R, nr, s) for s in range(nr)]; cols = [_partn(C, nr, s) for s in range(nr)]
+    colcol = [sum(cols[g * d:g * d + g]) for d in range(4)]
+    scol = [sum(cols[g * dd + r] for dd in range(4)) for r in range(g)]
+    need = 0
+    for k in range(K):
+        rk = [rr * (k + 1) // K - rr * k // K for rr in rows]; tot = sum(rk); rkcol = [sum(rk[g * d:g * d + g]) for d in range(4)]
+        for r in range(g):
+            srk = rk[r] + rk[g + r] + rk[2 * g + r] + rk[3 * g + r]
+            for d in range(4):
+                rho = g * d + r
+                Af = srk * colcol[d] * 8; Bf = cols[rho] * tot * 8; Ai = scol[r] * rkcol[d] * 8; Bi = rk[rho] * C * 8
+                if depth >= 2: need = max(need, Af + max(Af, Bf) + 4, Ai + max(Ai, Bi) + 4)
+                else: need = max(need, 2 * Af + Bf + 4, 2 * Ai + Bi + 4)
+    need = -(-need // (2 << 20)) * (2 << 20)
+    return 2 * need if depth >= 2 else need
+
+def vslot_env():
+    """the switches the C function reads: COMM_ALLTOALLV_DEPTH (2), DIST_CHUNKS (4), DIST_GEN (0)"""
+    e = os.environ
+    return int(e.get('COMM_ALLTOALLV_DEPTH', '2') or 2), int(e.get('DIST_CHUNKS', '4') or 4), e.get('DIST_GEN', '0') not in ('', '0')
+
+def mn_vslot(na, nb, g, pool_log=31, p24=None, depth=None, chunks=None, gen_forced=None):
+    """rns_dist.c rns_mul_dist_mn_vslot: one product's v-slots per APU thread (bytes); 0 for a power-of-two g (ntt_dist's transform)"""
+    d0, k0, f0 = vslot_env(); depth = d0 if depth is None else depth; chunks = k0 if chunks is None else chunks; gen_forced = f0 if gen_forced is None else gen_forced
+    if not na or not nb or g < 2 or ((g & (g - 1)) == 0 and not gen_forced): return 0
+    if mn_p24_of(na, nb, g, p24, pool_log):
+        ka, kb = p24_grid_shape(na, nb, g, pool_log); pa = -(-na // ka); pb = -(-nb // kb)
+        _, logR, logC, _ = mn_shape(p24_pts(pa) + p24_pts(pb), g)
+    else:
+        cap = 1 << mn_cap_log(g, pool_log); ka = kb = 1
+        if na + nb > cap: ka, kb = split_grid_cap(na, nb, cap, 1 << mn_logmin(g))
+        pa = -(-na // ka); pb = -(-nb // kb)
+        _, logR, logC, _ = mn_shape(pa + pb, g)
+    return vslot_shape(logR, logC, g, depth, chunks)
+
+def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
+    """binsplit.c binsplit_vslot_bytes: the v-slots resident per APU thread (bytes).  Every general-map group keeps its communicator's
+    slots to the run's end (mn.c groups_finalize): the tree's levels add up (each level's largest product P_0 x Q_run, as tree_need_dev;
+    a level whose last group is cut by the size: the larger of the two shapes), and the whole machine's group holds max(its tree level's,
+    the dm phase's: A_h mu n_Q x n_Q and Q_t r n_Q x (n_Q / 2 + 1)).  Returns dict(per_apu = from the dm phase on, tree_top = during the
+    tree's top level, levels = [(level, group, bytes)], dm)."""
+    if g < 2: return dict(per_apu=0, tree_top=0, levels=[], dm=0)
+    nq_leaf = -(-nq // g); lower = 0; top_tree = 0; levels = []; prev = 1
+    for l, S in enumerate(mn_groups(g, groups), 1):
+        gg = min(S, g); nch = -(-gg // prev); nqc = nq_leaf * prev + 8
+        v = mn_vslot(nqc, nqc * (nch - 1), gg, pool_log, p24, depth) if nch >= 2 else 0
+        if gg < g and g % gg:
+            gc = g % gg; ncc = -(-gc // prev)
+            if ncc >= 2: v = max(v, mn_vslot(nqc, nqc * (ncc - 1), gc, pool_log, p24, depth))
+        if gg == g: top_tree = v
+        else: lower += v
+        if v: levels.append((l, gg, v))
+        prev = S
+    dm = max(mn_vslot(nq, nq, g, pool_log, p24, depth), mn_vslot(nq, nq // 2 + 1, g, pool_log, p24, depth))
+    return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
+
+def vslot_budget_on(env=None):
+    """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 0): the v-slots counted in the node budget (room, cache fit, budget check)"""
+    env = os.environ if env is None else env
+    return env.get('ECALC_VSLOT_BUDGET', '0') not in ('', '0')
+
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
     """rns_mul.c rns_planes_3q30_default (Phase 12 I: the default): the 3 2^k planes on at 2^31 pools below 5e10 digits -- the
@@ -817,13 +891,13 @@ def mem_per_node(D, g=1, opts=None):
           and the staging the transport needs (shmem_staging: staging = 'cached' (the code) | 'per_exchange' | 'resident'),
           in the node's HBM whether host-registered or a device heap).  Returns a dict with the parts and the peaks."""
     o = dict(pool_log=31, tail=True, alltoallv=True, decimal=True, margin=0.0, logr_delta=0, form='grid', groups=None, transport='tcp', pool_mb=8192, staging='code', planes_3q30=None,
-             np=EC_NP, strategy='C', cap=None, depth=1, host_fit=True, tail_dead=0, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
+             np=EC_NP, strategy='C', cap=None, depth=2, host_fit=True, tail_dead=0, arena_room=0.0, dkm=False, ofi=None); o.update(DEFAULTS15D); o.update(opts or {})   # early_free: Phase 14 T1 (MN_TREE_EARLY_FREE); form: 'grid' is the code after Phase 12 G (the arena request follows rns_mul_dist_mn_scratch); 'flat' = before; tight / tail_dead: Phase 14 L1 (DM_TIGHT, DM_TAIL_DEAD)
     # Phase 15 (agent MD): the defaults are the code's since Phase 14 (DEFAULTS15: tight, early_free, t_chunk_mb 1024, shift_chunk_mb 1024,
     # pool 'plan', vmm); pass OLD13 for the forms before.  vmm (DB_POOL_VMM): the host's seed buffers 2 x 8 GiB, the size-1 host fitted anew
     # (host_size1_vmm), the bs phase's measured growth (VMM_BS_GROW) on the device peak.  pool: POOLS.
     # Phase 13b D: np (ECALC_NP: pool 0 scales np/4), strategy (C | B | B4 | auto: B's 16 n planes), cap (the plane cap in points:
-    # sets pool_log and the 3 2^k planes, cap_pool), depth (2 = the uneven exchange two deep: one more v-slot pair per APU on the
-    # general-map levels), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
+    # sets pool_log and the 3 2^k planes, cap_pool), depth (COMM_ALLTOALLV_DEPTH, the code's default 2 since Phase 13c: the v-slots' form --
+    # B7ACCT: vslot_resident, outside the arena, on dev_bs / dev_dm), host_fit (size 1: the host HWM fitted on the measured runs instead of the init constants)
     if o['cap'] is not None: o['pool_log'], o['planes_3q30'] = cap_pool(o['cap'])
     D_total = D * g; d = digits_of_run(D_total); N = e_terms(d); nterms = (N + g - 1) // g
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
@@ -833,6 +907,8 @@ def mem_per_node(D, g=1, opts=None):
     p24 = (o.get('p24', 0), o['np'], g, o.get('np_auto_min', False)) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
+    vs = vslot_resident(L['nq'], g, o['groups'], o['pool_log'], p24, o['depth'])   # B7ACCT: the general map's v-slots per APU (hipMalloc'd beside the arena)
+    vb = NR * vs['per_apu'] if vslot_budget_on() else 0                    # ECALC_VSLOT_BUDGET=1: also in the code's node budget (room, cache fit)
     want = max(L['need_dev'], tree)
     if o['tail']:
         arena = [arena_of(b + (L['hole'] if o['tail'] == 'v1' else 0), want, VMM_CHUNK if aroom > 0 else 0) for b in bs]   # binsplit_pregrow (v2): the bs halves or the dm / tree need per device; the tail is a policy over the last bytes (tail='v1': the hole added to the halves, the batch-1/2 runs of M11.md)
@@ -850,10 +926,8 @@ def mem_per_node(D, g=1, opts=None):
         pool_in_phase = max(0, int(1.08 * NR * L['need_v2']) - bs_total) if g == 1 else max(0, NR * tree - bs_total) + NR * L['hole']
         pool_total = bs_total + pool_in_phase
     xchg = NR * exchange_scratch(L['nq'], g, o['alltoallv'], o['shift_chunk_mb'])
-    if g > 1 and o['depth'] >= 2 and (g & (g - 1)):                      # Phase 13b X13b: COMM_ALLTOALLV_DEPTH=2 takes the exchange scratch
-        xchg += NR * (o['depth'] - 1) * (sc[1] // K_CHUNKS_MEM) * 8       # from 3 S to 4 S per APU thread (measured +33 %: 12.6 -> 16.8 MB at
-                                                                          # size 2, 8.5 -> 11.2 at 3), S = one chunk of the plane (q / K):
-                                                                          # one more quarter-plane per APU on the general-map levels
+    # (B7ACCT: the old depth-2 term here -- one more quarter-plane per APU in the block pool -- is replaced by vslot_resident: the whole
+    # v-exchange scratch, 2 slots of A + max(A, B) at both depths' forms, hipMalloc'd OUTSIDE the arena, added to dev_bs / dev_dm below)
     npp = np_planes(o['np'], g, o['pool_log'])                          # Phase 15 NP: ECALC_NP=auto -- pool 0's planes by the run's largest group
     p1np = o.get('pool1_np') or (3 if o['np'] == 'auto' else o['np'])  # Phase 15 PS: pool 1 at the one-node tiers' prime count (auto: three)
     planes = planes_bytes(o['pool_log'], d, o['planes_3q30'], npp, o['strategy'], pool1_np=p1np)
@@ -877,7 +951,7 @@ def mem_per_node(D, g=1, opts=None):
     if aroom > 0 and o['tail']:                                           # Phase 15 AS: the room dropped over the budget (the arenas stay in whole chunks); DL: the node
         rh = room_host(N, g, pool, seedbuf, o['out_early'])               # counted as binsplit.c as_room_fits counts it (this model's bs-phase node)
         room_node = planes + sum(arena) + VMM_BS_GROW + rh
-        if not as_room_fits(planes, sum(arena), rh, o.get('node_gb', 480.0)):
+        if not as_room_fits(planes, sum(arena), rh + vb, o.get('node_gb', 480.0)):   # (B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1)
             aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False))
             if g > 1: L['need_dev'] += sc[0]
             want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
@@ -887,8 +961,8 @@ def mem_per_node(D, g=1, opts=None):
     # the exchange scratch comes from the block pool (db_pool_alloc): inside the arena while the dm shares + it fit, hipMalloc beyond
     live_dm = NR * L['need_dev'] + xchg
     if live_dm > pool_total: pool_in_phase += live_dm - pool_total; pool_total = live_dm
-    dev_dm = planes + pool_total
-    dev_bs = dev_init + (VMM_BS_GROW if o['vmm'] else 0)                  # Phase 15: the bs phase's measured growth under VMM; counted with the host HWM
+    dev_dm = planes + pool_total + NR * vs['per_apu']                      # B7ACCT: + the v-slots resident from the dm phase on
+    dev_bs = dev_init + (VMM_BS_GROW if o['vmm'] else 0) + NR * vs['tree_top']   # Phase 15: the bs phase's measured growth under VMM; counted with the host HWM; B7ACCT: + the v-slots of the tree's top level
     if g == 1 and o['vmm'] and o['seed_fill'] and o['decimal'] and not aroom > 0:   # Phase 15 (2026-09-27): the fill's division grows the pool at size 1 (measured at 1e11); AS: none with BS_ARENA_ROOM (replayed)
         dev_dm = max(dev_dm, dev_init + VMM_DM_GROW_FILL)
     peak = max(dev_init + host_init, dev_bs + max(host_init, host_dm), dev_dm + host_dm) * (1 + o['margin'])   # (the measured node = device max + host HWM)
@@ -903,7 +977,7 @@ def mem_per_node(D, g=1, opts=None):
     # formula since the B5 fix: runtime + staging + transport + the SHMEM pool + max(the VMM seed buffers, the writer + MN_OUT_EARLY)) less
     # the reserve (32 GB per node), over one slot per node; the run's own check takes its measured init peak where larger (not modelled).
     # cache_fit_room_model: against this model's peak
-    layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else AS_HOST)
+    layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else AS_HOST) + vb   # B7ACCT: vb = the v-slots under ECALC_VSLOT_BUDGET=1
     fit_room = o.get('node_gb', 480) * GB - layout_node - CACHE_FIT_RESERVE
     fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int(fit_room // slot_fit))) if slot_fit and fit_room > 0 else 0
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
@@ -912,6 +986,7 @@ def mem_per_node(D, g=1, opts=None):
                 planes=planes, regions_bs=bs_total, arena=sum(arena), arena_mapped=sum(arena_mapped), dm_need=NR * L['need_dev'], tree_need=NR * tree, top_scratch=NR * sc[0] if g > 1 else 0,
                 pool_in_phase=pool_in_phase, pool_total=pool_total, exchange=xchg, shmem_staging=stg, shmem_pool=pool, shmem_pool_by=pdet.get('by', ''), shmem_pool_only=pdet.get('shmem_only', pool), ofi_pools=NR * (pdet.get('ofi_dev_mb', 0) << 20),
                 dev_init=dev_init, dev_dm=dev_dm, dev_bs=dev_bs, dev_max=max(dev_init, dev_bs, dev_dm), shmem_need=pdet.get("need", 0), host_init=host_init, host_dm=host_dm, host_hwm=max(host_init, host_dm),
+                vslot=NR * vs['per_apu'], vslot_tree=NR * vs['tree_top'], vslot_levels=vs['levels'],   # B7ACCT (bytes per node)
                 node_peak=peak)
 
 def max_digits_per_node(node_bytes, g=1, opts=None, lo=1e9, hi=4e11):
@@ -1019,6 +1094,10 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         for l2 in lines[i + 1:i + 3]:
             if l2.startswith('room:'): rl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.replace('(', ' ').replace(')', ' ').replace('|', ' '))); break
             if l2.startswith('layout:'): break
+        vl = None                                                                 # B7ACCT: the v-slot line after the planes line (`vslot:`), if any
+        for l2 in lines[i + 1:i + 6]:
+            if l2.startswith('vslot:'): vl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.split('| budget')[0].replace('|', ' '))); break
+            if l2.startswith('layout:'): break
         npl = None
         for l2 in lines[i + 1:i + 4]:
             m2 = re.match(r'planes: D \S+ g \d+ np (\d)', l2)
@@ -1038,6 +1117,10 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         rh = room_host(N, g, pool_b + ofi_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
         ar_room = None
         ch = VMM_CHUNK if arena_room > 0 else 0
+        p24m_ = int(os.environ.get('MN_P24', '2') or 0)                           # B7ACCT: the v-slots (binsplit_vslot_bytes), the tree's P24 decision
+        p24_ = (p24m_, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m_ else None
+        vs = vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, p24_) if g > 1 else dict(per_apu=0, tree_top=0)
+        vb = NR * vs['per_apu'] if vslot_budget_on() else 0                       # ECALC_VSLOT_BUDGET=1: in as_room_fits' node
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
         for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
             L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean); sc = []
@@ -1047,7 +1130,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
             ar = sum(arena_of(b, want, ch) for b in bs)
             if rm > 0: ar_room = ar
-            if rm == 0 or as_room_fits(room_planes, ar, rh): break
+            if rm == 0 or as_room_fits(room_planes, ar, rh + vb): break
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
@@ -1056,7 +1139,12 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         if rl is not None and ar_room is not None:                              # Phase 15 DL: the room's node, term by term (binsplit.c as_room_fits)
             rows += [('room planes', rl['planes'], room_planes), ('room arena', rl['arena_with_room'], ar_room), ('room seedbuf', rl['seedbuf'], sb),
                      ('room shmem pool', rl['shmem_pool'], pool_b)] + ([('room ofi pools', rl['ofi_pool'], ofi_b)] if 'ofi_pool' in rl else []) + [('room host', rl['host'], rh), ('room node', rl['node'], room_planes + ar_room + int(VMM_BS_GROW) + rh),
-                     ('room fits', rl['fits'], 1 if as_room_fits(room_planes, ar_room, rh, float(env.get('ECALC_NODE_GB', '480'))) else 0)]
+                     ('room fits', rl['fits'], 1 if as_room_fits(room_planes, ar_room, rh + vb, float(env.get('ECALC_NODE_GB', '480'))) else 0)]
+        if vl is not None:                                                      # B7ACCT: the v-slots, term by term (+ the device / node with them over the room's terms)
+            rows += [('vslot / APU', vl['per_apu'], vs['per_apu']), ('vslot tree top', vl['tree_top'], vs['tree_top'])]
+            if rl is not None and ar_room is not None:
+                rows += [('device + vslots', vl['device_with'], room_planes + ar_room + ofi_b + NR * vs['per_apu']),
+                         ('node + vslots', vl['node_with'], room_planes + ar_room + int(VMM_BS_GROW) + rh + NR * vs['per_apu'])]
         print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d dkm %d:' % (D, g, N, tight, tdead, ef, dkm))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0

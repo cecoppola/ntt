@@ -25,7 +25,8 @@ int newton_mn_lean(void);                                 /* newton.h, int15k: D
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
-size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);   /* Phase 14 P2 (rns_dist.c) */   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
+size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);   /* Phase 14 P2 (rns_dist.c) */
+size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT (rns_dist.c) */   /* Phase 12 G: the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
 unsigned long bs_N = 0;                              /* M6: the run's N, for the tree sets written by mn.c */
 
 bs_stats bs_st;
@@ -399,6 +400,43 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
     (void)pool_log;
     return best + best / 16;
 }
+/* B7ACCT (results/B7ACCT.md; STD17 4): the general map's v-exchange slots, resident per APU thread (bytes).  Every group whose transform
+ * is the general map (g not a power of two, or DIST_GEN) owns a layered communicator per APU thread (rns_dist.c lay_get) whose v-slots
+ * grow to its largest product's exchange (rns_mul_dist_mn_vslot) and stay until groups_finalize at the run's end -- outside the arena,
+ * the plane pools and the comm pools.  So the slots of every general-map level of the tree add up, and the whole machine's group (the
+ * tree's top level, then the reciprocal and the division: the same communicator) holds the larger of its tree products' and the dm
+ * phase's (the division's A_h mu, n_Q x n_Q, and the reciprocal's Q_t r, as binsplit_shmem_pool_need lists them; pieces at the cap).
+ * A level whose last group is cut by the size (MN_GROUPS: 512 -> 576) counts the larger of the two group shapes.  Returns the resident
+ * sum from the dm phase on (the run's largest); *tree_top: the resident sum during the tree's top level; by: the per-level terms.
+ * Not in the arena request nor in any allocation: the layout reports it (BS_LAYOUT_ONLY `vslot:`, MN_PLAN_ONLY `plan vslot`,
+ * MEM_REPORT_DEVS); ECALC_VSLOT_BUDGET=1 (off by default) also counts it in the node budget (binsplit_node_bytes, as_room_fits,
+ * ecalc.c budget_check), which can change the room / cache-fit / plane-cap decisions. */
+static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q's limbs), without the rest of the layout (no room decision) */
+{
+    double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = bi_decimal ? 18.0 : 64.0 / log2(10.0);
+    return (size_t)ceil(lg / dl10) + 2;
+}
+size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen)
+{
+    if (tree_top) *tree_top = 0; if (by && bylen) by[0] = 0;
+    if (size < 2) return 0;
+    size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size, lower = 0, top_tree = 0, o = 0;
+    int gs[32]; int L = mn_groups_parse(size, gs, 31);
+    for (int l = 1; l <= L; l++) {
+        int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1, g = Gl < size ? Gl : size, nch = (g + Gp - 1) / Gp;
+        size_t nqc = nq_leaf * (size_t)Gp + 8, v = nch >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(nch - 1), g) : 0;   /* tree_need_dev's largest product P_0 x Q_run */
+        if (g < size && size % g) { int gc = size % g, ncc = (gc + Gp - 1) / Gp; size_t vc = ncc >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(ncc - 1), gc) : 0; if (vc > v) v = vc; }   /* the cut last group */
+        if (g == size) top_tree = v; else lower += v;
+        if (by && v && o + 64 < bylen) o += (size_t)snprintf(by + o, bylen - o, "%slevel %d g %d %.3f GB", o ? ", " : "", l, g, v * 1e-9);
+    }
+    size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size), dm = a > b ? a : b, top = top_tree > dm ? top_tree : dm;
+    if (by && dm && o + 64 < bylen) o += (size_t)snprintf(by + o, bylen - o, "%sdm g %d %.3f GB", o ? ", " : "", size, dm * 1e-9);
+    if (by && !o && bylen) snprintf(by, bylen, "none (no general-map group)");
+    if (tree_top) *tree_top = lower + top_tree;
+    return lower + top;
+}
+int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 0; } return v; }   /* B7ACCT: default 0 */
+size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
  * the dm need and the VMM pool remapped them (15 remaps, 9.5 s at 1e11 on B1, measured): (1) every VMM arena is laid out in whole
@@ -471,7 +509,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
     else { size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
            int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
            size_t hi = base + sb, hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0); host = hi > hd ? hi : hd; }
-    size_t node = planes + ar + AS_VMM_BS_GROW + host;
+    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1 (0 by default) */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
     cN = N; cs = size; cpl = pl; cfit = (double)node <= budget;
     g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = cfit;
@@ -702,7 +740,7 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
         host = hi > hd ? hi : hd;
     } else host = BS_HOST_INIT_BYTES;
     if (planes_) *planes_ = planes; if (arena_) *arena_ = arena; if (host_) *host_ = host;
-    return planes + arena + host;
+    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1 (0 by default) */
 }
 /* MS (Phase 15): BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
  * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and MN_P24=2's decision (rns_dist.c mn_p24_of)
@@ -746,6 +784,8 @@ static void binsplit_layout_only(const char *spec)
             printf("room: D %.4g g %d | planes %zu arena_with_room %zu bs_grow %zu host %zu (seedbuf %zu shmem_pool %zu ofi_pool %zu) | node %zu budget %.0f fits %d\n",
                    D, g, g_room_planes, g_room_arena, AS_VMM_BS_GROW, g_room_host, g_room_seedbuf, g_room_pool, g_room_ofi, g_room_planes + g_room_arena + AS_VMM_BS_GROW + g_room_host,
                    (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9, g_room_fit);
+        int vroom = bs_arena_room() > 0 && db_pool_vmm_on() && g_room_fit >= 0;   /* B7ACCT: the room's terms, kept before the caps below redo the decision */
+        size_t vdev0 = vroom ? g_room_planes + g_room_arena + g_room_ofi : 0, vnode0 = vroom ? g_room_planes + g_room_arena + AS_VMM_BS_GROW + g_room_host : 0;
         /* Phase 13b P: the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
          * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
         { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);
@@ -756,7 +796,17 @@ static void binsplit_layout_only(const char *spec)
               size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, c, np, &pb, &ab, &hb);
               printf(" cap %s%s: planes %.2f arena %.2f device %.2f node %.2f |", bs_cap_name[c], c == cur ? "*" : "", pb * 1e-9, ab * 1e-9, (pb + ab) * 1e-9, tot * 1e-9);
           }
-          printf(" (GB; device = plane pools + arena + 0.61 tables, node = + host init %.1f)\n", (BS_HOST_INIT_BYTES + (g > 1 ? 6e9 : 0)) * 1e-9); }
+          printf(" (GB; device = plane pools + arena + 0.61 tables, node = + host init %.1f)\n", (BS_HOST_INIT_BYTES + (g > 1 ? 6e9 : 0)) * 1e-9);
+          /* B7ACCT: the general map's v-exchange slots (hipMalloc'd beside the layout; binsplit_vslot_bytes) and the device / node with them:
+           * device = planes + arena_with_room + ofi_pool (the room's terms; without the room line: this cap's plane pools + arena), node = the
+           * room's node (else binsplit_node_bytes at this cap), each + 4 x per_apu (bytes; mem_model.py --check-c compares them) */
+          if (g > 1) {
+              char by[512]; size_t tt = 0, v = binsplit_vslot_bytes(N, g, &tt, by, sizeof by), vb = binsplit_vslot_budget_node(N, g), dev0, node0;
+              if (vroom) { dev0 = vdev0; node0 = vnode0; }
+              else { size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, cur, np, &pb, &ab, &hb); dev0 = pb + ab; node0 = tot - vb; }
+              printf("vslot: D %.4g g %d | per_apu %zu tree_top %zu node_vslot %zu | device %zu device_with %zu node %zu node_with %zu | budget %d | %s\n",
+                     D, g, v, tt, NR * v, dev0, dev0 + NR * v, node0, node0 + NR * v, binsplit_vslot_budget_on(), by);
+          } }
         binsplit_layout_comm_size(0);
     }
     fflush(stdout);

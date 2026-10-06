@@ -2132,6 +2132,58 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 #undef RT
     return bytes;
 }
+/* B7ACCT (results/B7ACCT.md): the layered communicator's v-exchange scratch that one product's general-map transform grows on each APU
+ * thread (comm_layered.c need_vslot / need_vtmp: hipMalloc'd OUTSIDE the block pool and the layout, grow-only, freed only when the
+ * communicator is destroyed -- mn.c groups_finalize, the run's end).  gen_fwd / gen_inv_pw post one alltoallv per chunk k < K (gplan_build's
+ * K) over the 4 g ranks rho = g d + r.  For APU d of node r the exchange's intra-stage receive A (what the node's four APUs send to the ranks
+ * (d, 0..g-1)) and inter-stage receive B, in points (x 8 bytes):
+ *   forward  A = sum_dd rk(g dd + r, k) x sum_r' cols(g d + r'),   B = cols(rho) x sum_sigma rk(sigma, k)
+ *   inverse  A = sum_dd cols(g dd + r) x sum_r' rk(g d + r', k),   B = rk(rho, k) x C
+ * (rk(rho, k) = rank rho's rows of chunk k, cols(rho) = its columns; partn).  The send slabs are back to back in rank order (fsd / frd), so
+ * the reorder area x0 is never taken (need_vtmp stays unused at depth 2).  COMM_ALLTOALLV_DEPTH >= 2 (the default): two slots of
+ * A + max(A, B) + 4 bytes, both counted at the largest exchange (each slot grows to its own exchanges' max: at most one row of chunk
+ * rounding high); depth 1: one area of 2 A + B + 4.  Each area is taken in whole 2 MiB (hipMalloc's granularity; conservative).  Bytes per
+ * APU thread, the max over the group's APU threads.  0 when the group's transform is ntt_dist's (g a power of two and DIST_GEN unset):
+ * its exchanges take the caller's scratch (tmp, from the block pool).  The plane is the grid's largest piece, as rns_mul_dist_mn_scratch. */
+static size_t vslot_shape(int logR, int logC, int g)
+{
+    int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rmin = R / nr;
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 4; if (K < 1) K = 1; if (K > 16) K = 16;   /* gplan_build's K */
+    while (K > 1 && rmin / K < 32) K--;
+    const char *e = getenv("COMM_ALLTOALLV_DEPTH"); int depth = e ? atoi(e) : 2;   /* comm_layered.c lay_opts */
+    size_t *rk = (size_t *)malloc((size_t)nr * sizeof(size_t)), colcol[4] = { 0, 0, 0, 0 }, need = 0;
+    for (int d = 0; d < 4; d++) for (int r = 0; r < g; r++) colcol[d] += partn(C, nr, g * d + r);
+    for (int k = 0; k < K; k++) {
+        size_t tot = 0, rkcol[4] = { 0, 0, 0, 0 };
+        for (int s = 0; s < nr; s++) { size_t rr = partn(R, nr, s); rk[s] = rr * (k + 1) / K - rr * k / K; tot += rk[s]; rkcol[s / g] += rk[s]; }
+        for (int r = 0; r < g; r++) {
+            size_t srk = 0, scol = 0; for (int dd = 0; dd < 4; dd++) { srk += rk[g * dd + r]; scol += partn(C, nr, g * dd + r); }
+            for (int d = 0; d < 4; d++) {
+                int rho = g * d + r;
+                size_t Af = srk * colcol[d] * 8, Bf = partn(C, nr, rho) * tot * 8, Ai = scol * rkcol[d] * 8, Bi = rk[rho] * C * 8;
+                size_t nf = depth >= 2 ? Af + (Af > Bf ? Af : Bf) + 4 : 2 * Af + Bf + 4, ni = depth >= 2 ? Ai + (Ai > Bi ? Ai : Bi) + 4 : 2 * Ai + Bi + 4;
+                if (nf > need) need = nf; if (ni > need) need = ni;
+            }
+        }
+    }
+    free(rk);
+    need = (need + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
+    return depth >= 2 ? 2 * need : need;
+}
+size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
+{
+    if (!na || !nb || g < 2 || (is_pow2(g) && !dist_gen_forced())) return 0;
+    int logn, logR, logC; size_t q;
+    if (mn_p24_of(na, nb, g)) {                               /* P24 (MN_P24): the grid on the points (rns_mul_dist_mn_scratch's P24 branch) */
+        int ka = 1, kb = 1; p24_grid_shape(na, nb, g, &ka, &kb);
+        size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q);
+    } else {
+        size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
+        if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), 0, &ka, &kb);
+        size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb; mn_shape(pa + pb, g, &logn, &logR, &logC, &q);
+    }
+    return vslot_shape(logR, logC, g);
+}
 /* Phase 14 P2 (results/P214.md): the SHMEM transport's staging for the same product, limbs per APU thread = the send + receive of
  * its largest staged exchange (comm_shmem.c stages every buffer outside its symmetric pool, per exchange, released after it; the
  * four APU threads run the same exchange at once, so the pool holds 4 of these): the result exchange (xb -> rbO: my rows of the
