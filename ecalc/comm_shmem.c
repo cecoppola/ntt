@@ -58,6 +58,7 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include "comm.h"
+#include "comm_ofi.h"                             /* Phase 17: COMM_OFI=1, the data of the device exchanges over libfabric (docs/code/07_COMM_OFI.md) */
 /* Phase 14 V1: the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
  * size from the launch line's variable (SHMEM_SYMMETRIC_HEAP_SIZE for OSHMEM, SHMEM_SYMMETRIC_SIZE for SOS and Cray; K / M / G / T
  * suffixes, else bytes), 0 when unset; *name = the variable */
@@ -360,6 +361,7 @@ void comm_shmem_finalize(void)
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
 #endif
+    comm_ofi_finalize();                                  /* Phase 17: the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
     if (!S.extheap) shmem_free(S.pool);
     shmem_finalize(); S.inited = 0;
 #ifndef COMM_HOST_ONLY
@@ -387,6 +389,11 @@ typedef struct {
     long *oseq, *iseq;
     size_t *acnt, *adsp;                   /* an equal exchange's counts and offsets for the rounds */
     int rounds, dev, rs_made; hipStream_t rs; size_t chunk, rsb_cap; const char *vsb; char *vrb; int vsin; double t0;   /* the pending exchange in rounds (helper thread, own stream) */
+    /* Phase 17 (COMM_OFI=1): the communicator's libfabric data plane.  xo: the current exchange's data goes over it (the device ops);
+     * db: the base its staging offsets, the published roff offsets and the in-pool test refer to (the SHMEM pool, or the device's
+     * comm pool under xo); sdb: the pool the cached staging lives in; ocnt[r]: writes to r in flight; osig[r]: r's signal to send
+     * once they completed (0: none) */
+    int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
 static long *W(shm_priv *p, size_t base, int w, int r) { return (long *)(S.pool + base + ((size_t)w * p->n + r) * 8); }   /* word w of rank r in the block at base */
@@ -394,6 +401,10 @@ static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (siz
 #define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset / count below 2^40 tagged with the sequence (< 2^23) */
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
+/* Phase 17: the data base of the current exchange -- on: a device op of an OFI communicator (its data over libfabric) */
+static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? comm_ofi_pool(p->od) : S.pool; }
+static int in_db(shm_priv *p, const void *x) { return p->xo ? comm_ofi_in_pool(p->od, x) : in_pool(x); }
+static size_t off_db(shm_priv *p, const void *x) { return (size_t)((const char *)x - p->db); }
 
 static void put_word(shm_priv *p, int r, int w, int idx, long v)   /* word (w, idx) of rank r's block = v (ordered after the context's earlier puts by the caller's fence) */
 {
@@ -404,6 +415,7 @@ static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { 
 static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
+    if (p->xo) { comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* Phase 17: the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
         if (S.put_bytes && n > S.put_bytes) {                 /* Phase 16 C: the pieces before the last without a signal, a fence (delivery order to the PE), the last with it */
@@ -420,6 +432,22 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
 #endif
     putmem(p, r, off, src, n);
     if (S.order == ORDER_FENCE) { shmem_ctx_fence(p->ctx); shmem_ctx_long_p(p->ctx, sw, sig, p->pe[r]); }
+}
+/* Phase 17: progress the device's writes; each peer whose writes have all completed (delivered) gets its signal word through SHMEM.
+ * Returns when every recorded signal is sent (the data of this exchange is in the receivers' memory) */
+static void ofi_flush(shm_priv *p)
+{
+    for (unsigned spins = 0;; spins++) {
+        int left = 0;
+        for (int r = 0; r < p->n; r++) if (p->osig[r]) {
+            if (__atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE)) { left = 1; continue; }
+            SHM_LOCK(); shmem_ctx_long_p(p->ctx, W(p, p->rbase[r], W_SIG, p->me), p->osig[r], p->pe[r]); SHM_UNLOCK();
+            p->osig[r] = 0;
+        }
+        if (!left) return;
+        comm_ofi_progress(p->od);
+        if (spins > 1024) sched_yield();
+    }
 }
 static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence(p->ctx); else shmem_ctx_quiet(p->ctx); }   /* under SHM_LOCK: the words before their sequence (tiny exchange, rings) */
 
@@ -447,10 +475,14 @@ static void site_print(void)
         printf("%s\n", line);
     }
 }
+static void stage_free(shm_priv *p, size_t off) { if (p->sdb) comm_ofi_free(p->od, off); else pool_free(off); }   /* Phase 17: in the pool it came from */
+static void staging_drop(shm_priv *p) { if (p->sst) stage_free(p, p->sst); if (p->rst) stage_free(p, p->rst); p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0; }
 static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 {
-    if (send > p->sst_cap) { if (p->sst) pool_free(p->sst); p->sst = pool_alloc(send, K_STAGE); p->sst_cap = send; }
-    if (recv > p->rst_cap) { if (p->rst) pool_free(p->rst); p->rst = pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
+    if ((p->sst || p->rst) && p->sdb != p->xo) staging_drop(p);   /* Phase 17: the cached staging is in the other pool */
+    p->sdb = p->xo;
+    if (send > p->sst_cap) { if (p->sst) stage_free(p, p->sst); p->sst = p->xo ? comm_ofi_alloc(p->od, send, 0) : pool_alloc(send, K_STAGE); p->sst_cap = send; }
+    if (recv > p->rst_cap) { if (p->rst) stage_free(p, p->rst); p->rst = p->xo ? comm_ofi_alloc(p->od, recv, 0) : pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
     if (S.verbose >= 2 && (send || recv)) site_note(send, recv);
     if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* Phase 14 P2: which exchange raises the staging peak (racy read: a report, not the accounting) */
         S.stage_rep = S.cur[K_STAGE];
@@ -461,9 +493,7 @@ static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 static void staging_release(shm_priv *p)
 {
     if (S.keep_staging) return;                           /* COMM_SHMEM_KEEP_STAGING=1: Phase 11's form, kept per communicator */
-    if (p->sst) pool_free(p->sst);
-    if (p->rst) pool_free(p->rst);
-    p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0;
+    staging_drop(p);
 }
 /* the sender's half of an exchange for the peers from `from`: wait for each receiver's offset (at most spin_us when
  * >= 0: returns the first peer not ready), put, signal.  Returns n when every peer is done. */
@@ -477,7 +507,8 @@ static int push_peers(shm_priv *p, int from, long spin_us)
         size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
         SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK();
     }
-    if (S.order == ORDER_QUIET) {
+    if (p->xo) ofi_flush(p);                              /* Phase 17 */
+    else if (S.order == ORDER_QUIET) {
         SHM_LOCK(); shmem_ctx_quiet(p->ctx);
         for (int r = from; r < p->n; r++) if (r != p->me) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
         SHM_UNLOCK();
@@ -491,7 +522,7 @@ static void start_push(comm *c)
 {
     shm_priv *p = PRIV(c);
     p->next = 0;
-    if (S.order != ORDER_QUIET && !S.thread_always) p->next = push_peers(p, 0, S.spin_us);
+    if (S.order != ORDER_QUIET && !S.thread_always && !p->xo) p->next = push_peers(p, 0, S.spin_us);   /* (Phase 17: an OFI push blocks until delivery: always the thread) */
     if (p->next < p->n) { if (pthread_create(&p->th, 0, pusher, c)) die("pthread_create"); p->thread = 1; }
 }
 /* the receiver's half: publish where every sender's slab lands: base + r * bytes, or base + the caller's / prefix offsets */
@@ -525,7 +556,8 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoall while one is pending");
-    int sin = in_pool(sb), rin = in_pool(rb);
+    set_xo(p, 1);
+    int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s();
     if (S.round_bytes) {                                  /* Phase 14 V1: the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
         for (int r = 0; r < n; r++) { p->acnt[r] = bytes; p->adsp[r] = (size_t)r * bytes; }
@@ -533,12 +565,12 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     }
     staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall");
     seq_next(p); p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
-    p->src = sin ? (const char *)sb : S.pool + p->sst;
+    p->src = sin ? (const char *)sb : p->db + p->sst;
     TRACE("comm %d: alltoall seq %ld, %zu B per slab%s%s", p->id, p->seq, bytes, sin ? ", send in pool" : "", rin ? ", recv in pool" : "");
-    if (!sin) COPY(S.pool + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
+    if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
     SYNC(s);                                              /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
-    publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
+    publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
     start_push(c);
 }
 /* ---- Phase 14 V1: the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
@@ -572,21 +604,22 @@ static void *rounder(void *a)
         size_t o = (size_t)j * c;
         SHM_LOCK();                                       /* the receiver's half: where each active sender's chunk j lands */
         for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c))
-            put_word(p, r, W_ROFF, me, PACK(p->iseq[r] + 1 + j, p->rin ? off_of(p->vrb) + rdsp[r] + o : p->rst + p->rpre[r]));
+            put_word(p, r, W_ROFF, me, PACK(p->iseq[r] + 1 + j, p->rin ? off_db(p, p->vrb) + rdsp[r] + o : p->rst + p->rpre[r]));
         SHM_UNLOCK();
         if (!p->vsin) {                                   /* my chunks j into the send staging (free: round j - 1's quiet) */
             int any = 0;
-            for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c) && scnt[r] > o) { size_t len = scnt[r] - o < c ? scnt[r] - o : c; COPY(S.pool + p->sst + p->spre[r], p->vsb + sdsp[r] + o, len, p->rs); any = 1; }
+            for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c) && scnt[r] > o) { size_t len = scnt[r] - o < c ? scnt[r] - o : c; COPY(p->db + p->sst + p->spre[r], p->vsb + sdsp[r] + o, len, p->rs); any = 1; }
             if (any) SYNC(p->rs);
         }
         for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) {   /* the sender's half */
             long seq = p->oseq[r] + 1 + j, *w = W(p, p->base, W_ROFF, r); wait_ge(w, PACK(seq, 0));
             long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("round sequence mismatch");
             size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0;
-            const char *src = p->vsin ? p->vsb + sdsp[r] + o : S.pool + p->sst + p->spre[r];
+            const char *src = p->vsin ? p->vsb + sdsp[r] + o : p->db + p->sst + p->spre[r];
             SHM_LOCK(); put_signalled(p, r, UNOFF(x), src, len, PACK(seq, len)); SHM_UNLOCK();
         }
-        if (S.order == ORDER_QUIET) {
+        if (p->xo) ofi_flush(p);                          /* Phase 17 */
+        else if (S.order == ORDER_QUIET) {
             SHM_LOCK(); shmem_ctx_quiet(p->ctx);
             for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
             SHM_UNLOCK();
@@ -600,7 +633,7 @@ static void *rounder(void *a)
         SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();   /* my puts of round j are complete: the send staging is free */
         if (!p->rin) {
             int any = 0;
-            for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c) && rcnt[r] > o) { size_t len = rcnt[r] - o < c ? rcnt[r] - o : c; COPY(p->vrb + rdsp[r] + o, S.pool + p->rst + p->rpre[r], len, p->rs); any = 1; }
+            for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c) && rcnt[r] > o) { size_t len = rcnt[r] - o < c ? rcnt[r] - o : c; COPY(p->vrb + rdsp[r] + o, p->db + p->rst + p->rpre[r], len, p->rs); any = 1; }
             if (any) SYNC(p->rs);                         /* before round j + 1 publishes the same slots */
         }
     }
@@ -641,18 +674,19 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv while an exchange is pending");
-    int sin = in_pool(sb), rin = in_pool(rb);
+    set_xo(p, 1);
+    int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s();
     if (alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     seq_next(p); p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
-    p->src = sin ? (const char *)sb : S.pool + p->sst; p->sdsp = sin ? sdsp : p->spre;
-    if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(S.pool + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
+    p->src = sin ? (const char *)sb : p->db + p->sst; p->sdsp = sin ? sdsp : p->spre;
+    if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(p->db + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     SYNC(s);
-    publish(p, rin ? off_of(rb) : p->rst, 0, rin ? rdsp : p->rpre);
+    publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
     start_push(c);
 }
 /* Phase 16 A: the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
@@ -675,8 +709,8 @@ static void s_wait(comm *c)
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
     TRACE("comm %d: wait seq %ld: arrived", p->id, p->seq);
     if (!p->rin) {
-        if (!p->v) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)p->rb + (size_t)r * p->bytes, S.pool + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
-        else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], S.pool + p->rst + p->rpre[r], p->rcnt[r], p->st);
+        if (!p->v) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
+        else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
         SYNC(p->st);
     }
     staging_release(p);
@@ -688,6 +722,7 @@ static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv_host while an exchange is pending");
+    set_xo(p, 0);                                         /* (Phase 17: host buffers stay on SHMEM) */
     size_t tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, 0, tr + 8, "alltoallv_host");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
@@ -703,6 +738,7 @@ static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("allgather while an exchange is pending");
+    set_xo(p, 0);
     staging(p, 0, bytes * n, "allgather_host");
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) memcpy(self, sb, bytes);
     seq_next(p); p->src = (const char *)sb; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
@@ -716,16 +752,17 @@ static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("allgather while an exchange is pending");
-    int sin = in_pool(sb), rin = in_pool(rb);
+    set_xo(p, 1);
+    int sin = in_db(p, sb), rin = in_db(p, rb);
     staging(p, sin ? 0 : bytes, rin ? 0 : bytes * n, "allgather");
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) COPY(self, sb, bytes, 0);
-    if (!sin) COPY(S.pool + p->sst, sb, bytes, 0);
+    if (!sin) COPY(p->db + p->sst, sb, bytes, 0);
     SYNC(0);
-    seq_next(p); p->src = sin ? (const char *)sb : S.pool + p->sst; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
-    publish(p, rin ? off_of(rb) : p->rst, bytes, 0);
+    seq_next(p); p->src = sin ? (const char *)sb : p->db + p->sst; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
+    publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
     push_peers(p, 0, -1);
     arrive(p, bytes, 0);
-    if (!rin) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)rb + (size_t)r * bytes, S.pool + p->rst + (size_t)r * bytes, bytes, 0); SYNC(0); }
+    if (!rin) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)rb + (size_t)r * bytes, p->db + p->rst + (size_t)r * bytes, bytes, 0); SYNC(0); }
     staging_release(p);
 }
 /* the tiny exchange: every rank's 8-byte value to every rank (val, then fence, then the sequence word; the slot
@@ -793,7 +830,11 @@ static void s_recv(comm *c, int from, void *b, size_t n)
 /* S12: the callers' symmetric buffers (device-accessible: the registered host pool, or the device heap) */
 static void *s_sym_alloc(comm *c, size_t bytes)
 {
-    (void)c;
+    shm_priv *op = PRIV(c);
+    if (op->ofi) {                                        /* Phase 17: the device's comm pool (device-accessible, registered with the NICs) */
+        if (getenv("COMM_SHMEM_NOSYM") && atoi(getenv("COMM_SHMEM_NOSYM"))) return 0;
+        return comm_ofi_pool(op->od) + comm_ofi_alloc(op->od, bytes, 1);
+    }
 #ifndef COMM_HOST_ONLY
     if (!S.devheap && S.registered != 1) return 0;        /* not device-accessible: the caller allocates, the transport stages */
 #endif
@@ -805,6 +846,7 @@ static void *s_sym_alloc(comm *c, size_t bytes)
 static void s_sym_free(comm *c, void *ptr)
 {
     (void)c;
+    { ofi_dev *od = comm_ofi_owner(ptr); if (od) { comm_ofi_free(od, (size_t)((char *)ptr - comm_ofi_pool(od))); return; } }   /* Phase 17 */
     if (!in_pool(ptr)) die("sym_free of a pointer outside the pool");
     pool_free(off_of(ptr));
 }
@@ -817,8 +859,8 @@ static void s_destroy(comm *c)
     TRACE("destroy comm id %d: quiet + ctx destroy", p->id);
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
     TRACE("destroy comm id %d: done", p->id);
-    if (p->sst) pool_free(p->sst);
-    if (p->rst) pool_free(p->rst);
+    staging_drop(p);
+    comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig);   /* Phase 17 */
     pool_free(p->base);
 #ifndef COMM_HOST_ONLY
     if (p->rs_made) HIP_CHECK(hipStreamDestroy(p->rs));
@@ -854,6 +896,21 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     SHM_UNLOCK();
     TRACE("create comm id %d (%d PEs from %d stride %d): posted, waiting for the members", id, n, pe_start, pe_stride);
     for (int r = 0; r < n; r++) { long *m = mailbox(id, p->pe[r]); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
+    set_xo(p, 0);
+    if (comm_ofi_enabled()) {                             /* Phase 17: the device's NICs and comm pool; the members' blobs over SHMEM */
+        int dev = 0;
+#ifdef COMM_HOST_ONLY
+        dev = getenv("COMM_OFI_DEV") ? atoi(getenv("COMM_OFI_DEV")) : id % 4;   /* the test build: a communicator id stands for the APU thread */
+#else
+        HIP_CHECK(hipGetDevice(&dev));
+#endif
+        p->od = comm_ofi_dev(dev);
+        char *blobs = (char *)malloc((size_t)n * COMM_OFI_BLOB); comm_ofi_blob(p->od, blobs + (size_t)me * COMM_OFI_BLOB);
+        s_allgather_host(c, blobs + (size_t)me * COMM_OFI_BLOB, blobs, COMM_OFI_BLOB);
+        p->op = comm_ofi_peers_new(p->od, n, me, blobs); free(blobs);
+        p->ocnt = (long *)calloc(n, sizeof(long)); p->osig = (long *)calloc(n, sizeof(long));
+        p->ofi = 1;
+    }
     TRACE("create comm id %d: done", id);
     return c;
 }
