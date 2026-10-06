@@ -4347,3 +4347,44 @@ removes the problem (405.42 → under 373 GB) without touching digits or the pla
 Updated: docs/TARGET.md (trap 20, §1's standing-estimate note), docs/TARGET_WISHLIST.md §2.1 (now "ANSWERED: VMM
 shares the cap; still a blocker at the headline sizes" with the full writeup).
 
+## 111. TGT17: the target moves to 4.08 × 10¹³ digits — chosen to fit the device-memory edge COMFORTABLY (2026-10-06; results/TGT17.md)
+
+Login-node and local work only (aac7 `uan1`, `~/ofimem17` fast-forwarded to `main` `eebb0da`, rebuilt), the launch
+line of docs/TARGET.md §4. **The user's decision of 2026-10-06**: set the target digit count so the run fits
+COMFORTABLY in the target's available memory, not razor-thin against a bar — raise it later if the memory
+configuration is lifted. This replaces CAP17's answer (4.452 × 10¹³, margin 0.53 GB to a 363 GB bar) with a size
+against tighter bars and a much larger margin.
+
+**Bars:** (a) device layout ≤ 373 − 20 = 353 GB/node; (b) node total + 30 GB (the B7 allowance, **assumed**) ≤ 480
+GB; (c) `plan check` OK, just below a grid step. Bound (b) was never binding (device fails long before node total
+does, as in CAP17). Sweeping and bisecting the arena tier to 1 × 10⁹ digit resolution (`BS_LAYOUT_ONLY` /
+`MN_PLAN_ONLY`, the full launch-line environment including the `COMM_TRANSPORT=shmem` trap-20 workaround):
+
+- **The exact grid step is at 4.0815 × 10¹³ → 4.0816 × 10¹³** (arena 214.748 → 223.338 GB).
+- **The answer: 4.08 × 10¹³ digits** (`ecalc 40800000000000`), a clean round number **1.6 × 10¹⁰ digits (0.039 %)
+  below** that step. **Device layout 345.289514112 GB — 7.71 GB of margin to the 353 GB bar** (measured, exact
+  against `mem_model.py --check-c`). **Node total 387.374957984 GB; + 30 GB B7 = 417.37 GB — 62.63 GB of margin to
+  480 GB.** `plan check` OK — **1238 products**, largest piece 119 of 155 pieces (dist_mn, g 576).
+- This is a **22.7 % cut from the former 5.276 × 10¹³ headline** (21.1 % from its 5.167 × 10¹³ second test size) —
+  deeper than CAP17's 15.6 %/13.8 % cut, bought with a much larger margin (7.71 GB vs CAP17's 0.53 GB, albeit
+  against bars tightened by 10/15 GB).
+
+**Modelled walls** (`estimate.py`, EST17.md's flag set, D/node = 70,833,333,333.33): at 8 NICs / aac7-measured
+efficiency (`--bw 47`) **282.4 / 282.9 s** (ROCm 7.2.4) and 318.0 / 316.0 s (7.0.3, `--local-factor 1.22`); at 4
+NICs (`--bw 11`, measured aac7) 606.7 / 602.4 s and 642.3 / 638.0 s; at line rate (`--bw 100`, assumed) 229.6 /
+236.6 s and 265.4 / 270.0 s. **Every case is faster than the former 5.276 × 10¹³ headline at the same `--bw`**
+(EST17.md §3) — the digit cut costs no time, it saves time (fewer digits to move and compute).
+
+**Updated to make 4.08 × 10¹³ the CURRENT target, old sizes kept as history:** docs/TARGET.md (§1's new Phase 17
+TGT17 standing-estimate paragraph above CAP17's, §4's launch line `ecalc 40800000000000`, the closing summary
+paragraph), docs/TARGET_TASKS.md (a new top entry, T4's headline-run row), ecalc/README.md (the launch-line banner,
+Batch 3's target-is line), ecalc/mem_model.py (`TARGET_DIGITS = 4.08e13`), ecalc/estimate.py (`--target`'s history
+table and `partial_row`'s former-second-test-size label, the `--target` flag's help text). `results/TGT17.md` has
+the full sweep, bisection and derivation.
+
+**Open items (not changed, out of this task's scope):** `mem_model.py`'s `TARGET_BELOW` (4.74 × 10¹³) is now
+*above* the new target, not below it — `estimate.py --target`'s "one step below" row is stale until a fresh
+lower-tier sweep picks a value; `ecalc/e16_headline.sh`'s `E16_DIGITS` default is a separately measured 10/12-node
+scaled test slice (not the 576-node target itself) tied to specific plan-check figures at the former target's
+per-node share — left for whoever next runs Phase 16 E at the new target.
+

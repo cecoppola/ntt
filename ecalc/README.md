@@ -22,17 +22,21 @@ the user's decisions of 2026-09-27**: `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_
 `MN_OUT_EARLY=1`, `ECALC_ODIRECT=auto`; **Phase 15 Batch 2, the user's decisions of 2026-09-28** (main B2): `BS_ARENA_ROOM=0.16`
 (was 0), `DIST_TWREC_G=1` (was 0), `RNS_POOL1_4Q=1` (PS; it changes only `ECALC_NP=4` runs). The top set (`ECALC_CKPT_TOP`) is **off**
 by default (record timing runs); `ECALC_CHECKPOINT=1` turns on its budgeted form for development and testing. Not code defaults but
-on the **target's launch line** (`docs/TARGET.md` §4; the target is **5.276 × 10¹³ digits on 576 nodes**, `ecalc 52760000000000`, since
-the user's Batch 3 decision of 2026-09-29 — **5.167 × 10¹³ is a test size**, int15k, 2026-10-03; *history*: it was 4.25 × 10¹³ from
-2026-09-27, 23:50 EDT until P24 (the user's decision 11 of 2026-09-28), then 5.1 × 10¹³ until B3):
+on the **target's launch line** (`docs/TARGET.md` §4; **CURRENT: the target is 4.08 × 10¹³ digits on 576 nodes**, `ecalc 40800000000000`,
+since the user's decision of 2026-10-06 (TGT17) — set so the run fits COMFORTABLY in the target's available memory (device layout 345.29
+GB vs the 353 GB bar, node total 417.37 GB vs 480 GB; the grid step at 4.0816 × 10¹³, results/TGT17.md); raise later if the memory
+configuration is lifted; *history*: it was **5.276 × 10¹³ from the user's Batch 3 decision of 2026-09-29 to 2026-10-06** (`ecalc
+52760000000000`; CAP17 found it 32.42 GB over the raw 373 GB device edge — does not fit) — **5.167 × 10¹³ was its test size**, int15k,
+2026-10-03; before that, 4.25 × 10¹³ from 2026-09-27, 23:50 EDT until P24 (the user's decision 11 of 2026-09-28), then 5.1 × 10¹³ until B3):
 **`ECALC_NP=auto`** (four primes only for the products over the three-prime bound; the decision of 2026-09-28 — it was `ECALC_NP=4`,
 which is now +17.2 GB per node and over 480 GB at the target, modelled), **`RNS_DIST_CACHE_FIT=1`** (the mn transform cache bounded by
 the budget: 0 slots at the target; without it the code's default takes 2 × 68.7 GB per node that no budget holds — never run the target
 without FIT or `RNS_DIST_CACHE_MN=0`), `ECALC_MEM_GUARD_GB=6`, `COMM_SHMEM_ROUND_MB=1024` (D2). Off and staying off (2026-09-28):
 `NTT_R3_FUSE`, `RNS_R3_MINK`. Not adopted: `DB_POOL_VMM_PAR`, `DB_POOL_VMM_EXTEND` (agent RL, not merged), E11 / `DM_BAND` (dropped
 for now), MAP's `DB_POOL_VMM_STREAM` (dropped: not merged; `ECALC_INIT_TL` stays). Every report gives two walls (D3): without and with
-the disk write. **Phase 15 Batch 3 (B3, 2026-09-29)**: defaults `MN_P24=2`, `NEWTON_DKM=1`; the target is **5.276 × 10¹³ digits**
-(`ecalc 52760000000000`). **int15j (the user's decisions of 2026-09-29)**: on the target's launch line, not defaults, **`MN_OUT_DKM_HI=1`**
+the disk write. **Phase 15 Batch 3 (B3, 2026-09-29)**: defaults `MN_P24=2`, `NEWTON_DKM=1`; the target was **5.276 × 10¹³ digits**
+(`ecalc 52760000000000`) until 2026-10-06, when TGT17 (the user's decision) moved it to **4.08 × 10¹³** (`ecalc 40800000000000`;
+see the banner above). **int15j (the user's decisions of 2026-09-29)**: on the target's launch line, not defaults, **`MN_OUT_DKM_HI=1`**
 (two part files per node) and **`RNS_DIST_CACHE_PARTIAL=1`** (RESULTS §93: measured identical at 10¹¹ and at 3–4 node-processes);
 `ECALC_NP_AUTO_MIN` (MPB) stays off; new and off: `ECALC_FAST_EXIT` (the user's decision of 2026-10-03: an option, not on the launch line) and
 `DM_MN_LEAN` (int15k: the multi-node division's dead copies removed and the arena counted without them, −20 GB per node at the target, modelled;
