@@ -133,7 +133,7 @@ def arena_bs_bytes(N, nterms, decimal=True, S=256):
 
 def quarter_bytes(limbs): return ((limbs + 3) // 4 + 4095) // 4096 * 4096 * 8
 VMM_CHUNK = 2 << 30                      # dbig.c db_pool_vmm_chunk: DB_POOL_VMM_CHUNK_GB (2 GiB)
-AS_HOST = 7000000000 + (8 << 30)         # binsplit.c binsplit_node_bytes: BS_HOST_INIT_BYTES (+ 6e9 of comm at g > 1): the layout's node (RNS_DIST_CACHE_FIT's bound)
+AS_HOST = 7000000000 + (8 << 30)         # binsplit.c binsplit_node_bytes: BS_HOST_INIT_BYTES, size 1 only (size > 1: room_host, B5 fix -- see layout_node)
 def room_host(N, g, pool, seedbuf, out_early=True):
     """Phase 15 DL: binsplit.c as_room_fits's host (bytes) -- this model's host HWM: size 1 host_size1_vmm with the digits as log10 N!; size > 1
     max(host_init, host_dm) = the runtime + the staging + the transport + the SHMEM pool + max(the two VMM seed buffers, the writer + MN_OUT_EARLY)"""
@@ -877,9 +877,11 @@ def mem_per_node(D, g=1, opts=None):
     peak_c = max(dev_init + host_init, dev_bs + cmn + max(host_init, host_dm), dev_dm + cmn + host_dm) * (1 + o['margin'])
     slot_fit = cache_mn_bytes(g, o['pool_log'], npp, 1, fit=True) if g > 1 else 0
     # Phase 15 DOC2: RNS_DIST_CACHE_FIT's bound as the code computes it (rns_dist.c rns_dist_cache_plan / cache_avail): ECALC_NODE_GB less the layout's
-    # node (binsplit_node_bytes: the plane pools + the arena + the tables + BS_HOST_INIT_BYTES + 6 GB at size > 1) less the reserve (32 GB per node),
-    # over one slot per node; the run's own check takes its measured init peak where larger (not modelled).  cache_fit_room_model: against this model's peak
-    layout_node = planes + sum(arena) + AS_HOST + (6000000000 if g > 1 else 0)
+    # node (binsplit_node_bytes: the plane pools + the arena + the tables + the host term -- BS_HOST_INIT_BYTES at size 1, room_host's size > 1
+    # formula since the B5 fix: runtime + staging + transport + the SHMEM pool + max(the VMM seed buffers, the writer + MN_OUT_EARLY)) less
+    # the reserve (32 GB per node), over one slot per node; the run's own check takes its measured init peak where larger (not modelled).
+    # cache_fit_room_model: against this model's peak
+    layout_node = planes + sum(arena) + (room_host(N, g, pool, seedbuf, o['out_early']) if g > 1 else AS_HOST)
     fit_room = o.get('node_gb', 480) * GB - layout_node - CACHE_FIT_RESERVE
     fit_slots = min(CACHE_MN_SLOTS_CODE, max(0, int(fit_room // slot_fit))) if slot_fit and fit_room > 0 else 0
     return dict(D=D, g=g, N=N, digits=d, nq=L['nq'], t1_quarter=L['t1_quarter'], hole=L['hole'],
