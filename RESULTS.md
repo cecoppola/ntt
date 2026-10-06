@@ -4267,3 +4267,29 @@ identical digits, SHMEM pool peak 2 MiB (staging 0), comm pool peak 106 MiB of 5
 **B / C — the standard 10-node run with all NICs and B7's v-slots: armed, pending** (`~/ofimem17/ecalc/tests/std17_drive.sh` after
 `~/ofi17/HANDOFF_DONE`; results/STD17.md RESUME). Baseline to compare: SHMEM try 2, 3532.05 s (RESULTS §105).
 
+## 109. EST17: the 576-node estimate re-run for `comm_ofi` (2026-10-06, local model only; results/EST17.md)
+
+No cluster jobs; `estimate.py`/`mn_model.py` arithmetic only, on `main` post-STD17. docs/TARGET.md §1's standing figure
+(290.2/303.9 s at 7.2.4) assumed 100 GB/s per APU at **line rate**, never measured. `comm_ofi` (now the default on cxi,
+§106) is **measured** on aac7 instead: its node aggregate holds flat at 44.1–44.4 GB/s from 4 nodes on (vs SHMEM's
+19.8 → 11.7 GB/s one-NIC-per-node fall-off, OFI17 §3), i.e. **≈ 11–12 GB/s per NIC, ≈ 0.47–0.5 of the 23.3 GB/s per-NIC
+microbench (NIC16)** — well under line rate.
+
+Four `--bw` cases, `DM_MN_LEAN=1 MN_OUT_DKM_HI=1 MN_MODEL_MAP_RATE=0.070 ./estimate.py --target --lat 8.5e-6 --hide-pow2
+0.72 --t-round 0.015 --bw <BW> [--local-factor 1.22]` (the launch line's `RNS_DIST_CACHE_PARTIAL=1` row, write @ 1.0
+GB/s/node): **(i) bw 11** (today's aac7, 4 NICs/node, measured efficiency): **750.1/744.6 s** (7.2.4), 795.6/790.0 s
+(7.0.3); **(ii) bw 47** (the target's 8 NICs/node at the same measured efficiency, assumed): **352.6/360.6 s**,
+398.1/403.8 s; **(iii) bw 100** (line rate, the old assumption): 288.0/302.7 s, 333.8/346.1 s; **(iv) bw 3.6** (the old
+SHMEM 1-NIC form, `mn_model.AAC7`, for contrast): 1816.1/1810.5 s, 1861.6/1856.0 s. Second test size (5.167 × 10¹³)
+tracks within 2–4 % of each. `--fall-off 0.3` (no aac7 measurement feeds this; comm_ofi's own 4→10-node data is flat,
+a = 0): (i) ×2.8–2.9 to 2134.6/2129.0 s, (ii) ×1.9 to 676.9/671.3 s, (iii) ×1.4–1.5 to 440.6/435.0 s — the single
+largest lever in the table, bigger than the NIC/efficiency choice between (i)/(ii). Node memory 446.2 GB (`COMM_OFI`
+unset locally) / 447.5 GB (modelling the target's cxi nodes per STD17 §108's accounting, +1.3 GB) — a non-issue either
+way against the 480 GB budget; unaffected by `--bw`/`--local-factor`/fall-off.
+
+**Reading.** `comm_ofi`'s measured aac7 efficiency (bw 11, case i) gives 2.5× the old line-rate figure; the
+8-NIC/same-efficiency case (ii) — the most defensible planning number — is still 1.2× the old standing estimate.
+`comm_ofi` remains a large win over plain SHMEM regardless (case iv is 2.4–6.3× cases i/ii). The open risk is an
+unmeasured fall-off with node count at target scale (576, multi-group dragonfly), not the NIC count or efficiency
+value, both of which are now aac7-measured or a direct, labelled extrapolation of that measurement.
+
