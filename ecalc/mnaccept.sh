@@ -41,7 +41,9 @@ REF=${ECALC_REF:-$HOME/ntt/ecalc/ref}; [ -s ref/e_1000000000.txt ] && REF=$ECALC
 for f in "$REF"/e_*; do [ -e "ref/$(basename "$f")" ] || ln -s "$f" ref/; done   # t_bs reads ref/e_<d>.sha256 relative to ecalc/ (the files are git-ignored)
 STD=${ECALC_STD_DIGITS:-100000000000}                                   # the standard size (Phase 14: 10^11; ECALC_STD_DIGITS=40000000000 = the old 4e10 step)
 case $STD in 40000000000) STDT=4e10;; 100000000000) STDT=1e11;; *) STDT=$STD;; esac
-REF4=${ECALC_REF_STD:-${ECALC_REF_4E10:-$HOME/ntt/ecalc/results/e_$STDT.out}}
+# 2026-10-06: e_1e11.out moved to ~/ref (aac7 cleanup, ~/ntt deleted); e_4e10.out stays under ~/ntt/ecalc/results.
+case $STDT in 1e11) STDDEF=$HOME/ref/e_1e11.out;; *) STDDEF=$HOME/ntt/ecalc/results/e_$STDT.out;; esac
+REF4=${ECALC_REF_STD:-${ECALC_REF_4E10:-$STDDEF}}
 [ "$(squeue -j "$J" -h -o %T 2>/dev/null)" = "RUNNING" ] || { echo "job $J is not running"; exit 2; }
 NODE=$(squeue -j "$J" -h -o %N)
 OUT=results/mnaccept/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
