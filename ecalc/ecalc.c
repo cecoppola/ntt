@@ -506,7 +506,7 @@ int main(int argc, char **argv)
      * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
      * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init.  0 (the default): the order below. */
-    int init_early = getenv("COMM_INIT_EARLY") ? atoi(getenv("COMM_INIT_EARLY")) != 0 : 0, mn_size_ = 1;
+    int init_early = getenv("COMM_INIT_EARLY") ? atoi(getenv("COMM_INIT_EARLY")) != 0 : 1,   /* default 1: the user, 2026-10-05 */ mn_size_ = 1;
     if (init_early) {
         binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);
         double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;
