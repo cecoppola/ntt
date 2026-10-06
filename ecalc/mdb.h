@@ -69,6 +69,7 @@ int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the pla
  * at the group's cap; the plane pools stay at their init size), for shares of share_a, share_b, share_c limbs; *pieces = the grid */
 size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);   /* Phase 14 P2: the SHMEM staging per APU (limbs) */
+size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT: the layered comm's v-exchange slots per APU thread (bytes, hipMalloc'd outside the layout) */
 /* Phase 11 L: the level -> group-size schedule of the distributed tree from MN_GROUPS (default, Phase 12 G: the powers of two
  * dividing the size, then the odd part's prime factors ascending -- 576 -> 2, 4, ..., 64, 192, 576; a power of two: the binary
  * tree; L's "powers of two then size" is MN_GROUPS=2,4,...): out[l-1] = the group size of level l, increasing, each a multiple of the previous or the size

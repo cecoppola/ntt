@@ -378,6 +378,8 @@ void mem_acct_register(mem_acct_fn fn)
 }
 void mem_report_host_item(int cat, size_t bytes) { if (cat >= 0 && cat < MEM_HOST_NCAT) g_host_item[cat] = bytes; }
 size_t mem_report_dev_total(void) { return g_last_dev_total; }
+static size_t g_out_vslot, g_out_ofi; static size_t (*g_out_live)(int dev); static int g_out_set;   /* B7ACCT */
+void mem_report_outside(size_t vslot_apu, size_t ofi_apu, size_t (*live)(int dev)) { g_out_vslot = vslot_apu; g_out_ofi = ofi_apu; g_out_live = live; g_out_set = 1; }
 /* device bytes in use per category: the sum of what the providers report; "in use" = planes + regions +
  * pool regions (donated, borrowed, hipMalloc) + tables + other -- live/free/peak are views inside the pool */
 static size_t dev_in_use(const size_t *c) { return c[MEM_DEV_PLANES] + c[MEM_DEV_REGIONS] + c[MEM_DEV_POOL_DONATED] + c[MEM_DEV_POOL_BORROWED] + c[MEM_DEV_POOL_HIPMALLOC] + c[MEM_DEV_TABLES] + c[MEM_DEV_OTHER]; }
@@ -425,6 +427,12 @@ void mem_report(const char *phase)
         for (int c = 0; c < MEM_DEV_NCAT; c++) if (dev[d][c]) printf(" %s %.2f", dev_cat_name[c], dev[d][c] / 1e9);
         size_t f = 0, t = 0; int cur; if (hipGetDevice(&cur) == hipSuccess && hipSetDevice(d) == hipSuccess) { if (hipMemGetInfo(&f, &t) != hipSuccess) f = t = 0; (void)hipSetDevice(cur); }
         if (t) printf("  (driver: %.1f of %.1f GB used)", (t - f) / 1e9, t / 1e9);
+        if (g_out_set) {                          /* B7ACCT: driver used ~ in use + v-slots + comm pool + the runtime (~0.4 GB, STD17 4) */
+            size_t lv = g_out_live ? g_out_live(d) : 0, u = dev_in_use(dev[d]);
+            printf(" | outside the layout: v-slots layout %.2f GB, hipMalloc'd now %.2f; comm pool %.2f GB -> in use + v-slots now + comm pool %.2f GB",
+                   g_out_vslot / 1e9, lv / 1e9, g_out_ofi / 1e9, (u + lv + g_out_ofi) / 1e9);
+            if (t) printf(", driver - that (the runtime) %.2f GB", ((double)(t - f) - (double)(u + lv + g_out_ofi)) / 1e9);
+        }
         printf("\n");
     }
     if (g_nph < MEM_MAX_PHASES) {
