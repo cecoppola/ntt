@@ -351,7 +351,8 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
  *               share of the node budget (ECALC_NODE_GB / ranks on the node; ECALC_BUDGET_RANK_GB=<r>:<GB> sets rank r's
  *               share, a test hook: one rank over while the node is not).
  * The ranks allgather their figures (the host name's hash, the node's ranks found by it) and all apply the same rule to the
- * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default off. */
+ * same numbers: the collective verdict is a max-reduce of "over" over the communicator.  Default on (see budget_check
+ * below); ECALC_BUDGET_CHECK=0 turns it off. */
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
 static void budget_check(unsigned long N, int verbose)
 {

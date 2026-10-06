@@ -251,7 +251,7 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
     p->tmp_cap = bytes; p->own_tmp = 1;
 }
-/* ---- Phase 13b X: COMM_LAYER_TKERNEL=1 (default 0) -- the block transposes and the v-exchange's reorder copies as one kernel
+/* ---- Phase 13b X: COMM_LAYER_TKERNEL=1 (default since Phase 14; see tker_mode above) -- the block transposes and the v-exchange's reorder copies as one kernel
  * each instead of na x nb hipMemcpyAsync calls (2304 per transpose at g = 576).  Equal slabs: grid.y = the destination block
  * (b, a), grid.x strides over its 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned
  * host memory read by the kernel (grid.y = entry); every use is followed by a stream synchronise before the table is refilled.

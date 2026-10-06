@@ -4131,3 +4131,25 @@ step's cost cannot be separated from the fabric's run-to-run variance (an earlie
 (−60 / +245 s); keep `RNS_DIST_CACHE_PARTIAL=1` (0 hits the memory guard at 4 × 10¹⁰ per node); `MN_T_CHUNK_MB` 2048 −19.5 s (one pair);
 `MN_OUT_DKM_HI`, `SHMEM_OFI_NUM_NICS`, `MN_GROUPS` (8 nodes: default 203–249 s vs `2,8` 233–235 s) within the spread.
 New switches (off): `E16_MEMWAIT_GB` / `E16_MEMWAIT_S`, `D16_ONLY`, `MN_COMM_MARK`. Merge note: `AAC7_ROCM` takes `rocm/<v>` (V) or a bare `<v>` (D).
+
+## 104. Corrections (2026-10-05)
+
+Documentation corrections found by the code-review agents (docs/code/01–05); the code is unchanged. Older sections are
+left as written; read them with these corrections in mind.
+
+- **§99** ("`COMM_INIT_EARLY` stays off by default — the user decides") is superseded: the default is **1** (ecalc.c:509,
+  the user's decision of 2026-10-05, after 0 of 55 segfaults vs 8 of 78 on aac7); README and docs/TARGET.md trap 17 agree.
+- **§102** ("`MN_SELFTEST_GROW` (off); default / target launch line: the user's decision") is superseded: the default is
+  **1** (mn.c:241, the user's decision of 2026-10-05); the comment at mn.c:239-240 ("unset: as before") is stale.
+- **§46 (L1655)** ("one prime per device vs four-step corner turn … Dropped") and the related **§41 (L1655, item 4: "need
+  builds")** are superseded: the four-step was built the next day as the single-node distributed tier (§51, §59) and is
+  now **strategy C of `RNS_STRATEGY=auto`**, used for the top bs levels and the whole division (§60, §63, §64, §67); since
+  13c, prime-per-APU (strategy B) is used where it fits (§78–§80). Neither "never built" nor "multi-node only" is true of
+  the code today.
+- **PLAN.md §29 (H8)**: "the multi-NIC endpoint structure is built and switched now" is superseded: **it is not built** —
+  `comm_shmem.c` creates one context per communicator (comm_shmem.c:849), and Cray OpenSHMEMX binds one NIC per PE
+  (`SHMEM_OFI_NUM_NICS`, `SHMEM_OFI_NIC_POLICY`): the contexts of one PE share that PE's one NIC (docs/TARGET.md trap 18).
+- **The user's decision of 2026-10-05**: `DM_MN_LEAN=1` goes on the target's launch line (not a code default) — the
+  multi-node division's dead copies removed and the arena counted without them, node **471.9 → 446.2 GB modelled** at
+  5.276 × 10¹³, wall unchanged (int15k, §94); docs/TARGET.md §4 and `ecalc/e16_headline.sh`'s launch environment now
+  carry it.

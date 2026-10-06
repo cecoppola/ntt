@@ -37,24 +37,24 @@ extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= t
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
 extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
 extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
-/* Phase 13a K (switches, defaults unchanged; -1 = read the environment variable at first use):
- *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (default), 1 reduced-correction Barrett
- *               (two-term reciprocal, one correction for data products, two for twiddles), 2 Shoup integer
- *               products (b16 register-blocked body and b1 pass).  All exact: outputs bit-identical.
+/* Phase 13a K (switches; -1 = read the environment variable at first use):
+ *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (the original), 1 reduced-correction Barrett
+ *               (two-term reciprocal, one correction for data products, two for twiddles; default since Phase 13b),
+ *               2 Shoup integer products (b16 register-blocked body and b1 pass).  All exact: outputs bit-identical.
  *   ntt_mall    NTT_MALL    H2: log2 of a chunk (points) that the passes of narrower span run on to completion
  *               before the next chunk (MALL residency); 0 = off (default).  Bit-identical. */
 extern int ntt_modmul, ntt_mall;
 extern int ntt_b16_var;     /* NTT_B16_VAR  H6: register-blocked body variants, 1 = unpadded LDS + global twiddle table (4 blocks/CU), 2 = block order, 3 = both; 0 default */
 int ntt_modmul_get(void);
 int ntt_mall_get(void);
-/* Phase 13b K (switches, off by default; -1 = read the environment variable at first use):
- *   ntt_b1r   NTT_B1R   0 the paper's b1 pass (default); 3 or 4: the register-blocked b1 pass, 2^3 or 2^4 points per
- *             thread, one LDS exchange per group of 3 or 4 stages instead of one per stage.  Barrett modmuls (NTT_MODMUL
- *             0/1); MODMUL 2 keeps the Shoup kernel.  Bit-identical.
- *   ntt_plan  NTT_PLAN  pass boundaries: 0 default (b1 on 2^10 points, b16 passes top-down, the partial one at the
+/* Phase 13b K (switches; -1 = read the environment variable at first use):
+ *   ntt_b1r   NTT_B1R   0 the paper's b1 pass; 3 or 4: the register-blocked b1 pass (default 3 since Phase 13c), 2^3
+ *             or 2^4 points per thread, one LDS exchange per group of 3 or 4 stages instead of one per stage.  Barrett
+ *             modmuls (NTT_MODMUL 0/1); MODMUL 2 keeps the Shoup kernel.  Bit-identical.
+ *   ntt_plan  NTT_PLAN  pass boundaries: 0 (b1 on 2^10 points, b16 passes top-down, the partial one at the
  *             bottom); 10 lb + d with lb = 10, 11, 12 the b1 length (lb > 10 needs NTT_B1R) and d = 1 for the b16
- *             passes bottom-up (the partial one at the top), d = 0 top-down; 1 = the per-logn choice of plan_auto.
- *             Moves the passes' row strides 2^s_lo off the slow s_lo 17 / 24.  Bit-identical. */
+ *             passes bottom-up (the partial one at the top), d = 0 top-down; 1 = the per-logn choice of plan_auto
+ *             (default since Phase 13b).  Moves the passes' row strides 2^s_lo off the slow s_lo 17 / 24.  Bit-identical. */
 extern int ntt_b1r, ntt_plan;
 int ntt_b1r_get(void);
 int ntt_plan_get(void);
