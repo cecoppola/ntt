@@ -95,7 +95,7 @@ def main():
     ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/P214.md), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
-    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target"), choices=("target", "aac7"), help="Phase 16 C: the fabric profile -- target (the default: the constants as before) or aac7 (mn_model.AAC7: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win)")
+    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target"), choices=("target", "aac7", "target-m"), help="Phase 16 C: the fabric profile -- target (the default: the constants as before) or aac7 (mn_model.AAC7: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge")
     ap.add_argument("--bw", type=float, default=None, help="GB/s per APU injection (default 100: assumed, PLAN 25's two 400 Gb/s NICs; the profile's value under --fabric aac7)")
     ap.add_argument("--lat", type=float, default=None, help="seconds per message (default 2e-6 assumed; the profile's under --fabric aac7)")
     ap.add_argument("--group", type=int, default=64, help="nodes per dragonfly group (MN_TOPO_GROUP)")
@@ -177,9 +177,20 @@ def main():
         for g in a.g:
             for D in a.D: estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging, verbose=True, design=design, corrections=a.corrections)
     table(a.g, a.D, a.tree, a.groups, fab, a.rule, a.staging, design, a.corrections)
+    if a.fabric == "target-m": edge_lines(a, fab, design)
     print()
     print("labels:")
     for k, v in LABELS.items(): print("  %-8s %s" % (k, v))
+
+def edge_lines(a, fab, design):
+    """TGTBENCH2 (--fabric target-m): the modelled device peak against the device edge MEASURED on the target (373.44 GB/node, A6) and the init
+    with the target's measured MAP_RATE.  The modelled device is mem_model's (v-slots included since B7ACCT); the C layout's own figure
+    (BS_LAYOUT_ONLY's vslot: device_with) is the one to compare with a bar -- this line is a cross-check, not the sizing."""
+    for g in a.g:
+        for D in a.D:
+            e = estimate(g, D, a.tree, a.groups, fab, a.rule, staging=a.staging, design=design, corrections=a.corrections)
+            print("  target-m: g %d, %.3e digits: modelled device %.1f GB vs the measured edge %.2f GB/node (m, target): %+.1f GB; init %.1f s + seed wait %.1f s at MAP_RATE %.3f s/GB"
+                  % (g, e["digits"], e["device_gb"], M.TARGET_DEVICE_EDGE_GB, M.TARGET_DEVICE_EDGE_GB - e["device_gb"], e["init"], e["seed_wait"], M.MAP_RATE))
 
 def target(a, design):
     """Phase 15: the standing estimate at 576 nodes -- two walls (D3), the part file at 2.0 / 0.8 / 0.6 GB/s, the node memory, the grid step, the
