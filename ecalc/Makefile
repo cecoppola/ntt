@@ -46,9 +46,19 @@ SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_OSHMEM $(shell oshcc --showme:compile)
 SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
+# Phase 17 (docs/code/07_COMM_OFI.md): comm_ofi.c, the libfabric data plane of the SHMEM transport (COMM_OFI=1 at run time, off by
+# default).  OFI=1 (automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) compiles it in;
+# OFI=0 builds the stubs (COMM_OFI=1 then aborts at start).
+LIBFABRIC ?= $(if $(CRAY_LIBFABRIC_PREFIX),$(CRAY_LIBFABRIC_PREFIX),/opt/cray/libfabric/2.3.1)
+OFI ?= $(if $(wildcard $(LIBFABRIC)/include/rdma/fabric.h),1,0)
+ifeq ($(OFI),1)
+OFI_CFLAGS = -DCOMM_OFI -I$(LIBFABRIC)/include
+OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
+SHMEM_LIBS += $(OFI_LIBS)
+endif
 
 TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o p24_crt.o
+OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o p24_crt.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -114,8 +124,11 @@ comm_sim4.o: comm_sim4.c comm.h
 comm_tcp.o: comm_tcp.c comm.h
 	$(HIPC) -c $< -o $@
 
-comm_shmem.o: comm_shmem.c comm.h
+comm_shmem.o: comm_shmem.c comm.h comm_ofi.h
 	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
+
+comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
+	$(HIPC) $(OFI_CFLAGS) -c $< -o $@
 
 comm_layered.o: comm_layered.c comm.h
 	$(HIPC) -c $< -o $@
@@ -132,8 +145,8 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_util.c fatal.c comm.h fatal.h
-	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) -I. $< comm_tcp.c comm_shmem.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
+tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h fatal.h
+	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) $(OFI_CFLAGS) -I. $< comm_tcp.c comm_shmem.c comm_ofi.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
