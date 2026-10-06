@@ -45,7 +45,7 @@ G=${E16_NODES:-10}
 DIGITS=${E16_DIGITS:-$((G * 91600000000))}
 case $G in 12) BELOW=${E16_BELOW:-1090000000000};; 10) BELOW=${E16_BELOW:-908000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
 OUT=${E16_OUT:-$HOME/p16/E}
-REF11=${E16_REF11:-$HOME/ntt/ecalc/results/e_1e11.out}      # sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7
+REF11=${E16_REF11:-$HOME/ref/e_1e11.out}      # sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 (2026-10-06: moved to ~/ref, ~/ntt deleted on aac7)
 TO_RUN=${E16_TIMEOUT:-3600}        # one launch (the modelled wall with the NFS write is 692 s; the segfault's hang is killed here)
 TO_CHAIN=${E16_TIMEOUT_CHAIN:-7200}
 KEEP=${E16_KEEP:-0}

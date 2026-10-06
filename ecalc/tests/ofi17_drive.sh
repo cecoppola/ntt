@@ -15,7 +15,7 @@ J=${1:?jobid}; STEPS=${2:-wait,tc2,acc,bw2,ab,bwn}
 cd "$(dirname "$0")/.."; HERE=$(pwd)
 source ./aac7env.sh > /dev/null 2>&1; export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 O=${OFI17_OUT:-$HOME/ofi17/R/drive}; mkdir -p "$O"; LOG=$O/drive.log; W=$O/walls.txt; rm -f "$O/DONE"
-REPS=${OFI17_REPS:-2}; REF=${OFI17_REF:-$HOME/ntt/ecalc/results/e_1e11.out}; UNPACK=${OFI17_UNPACK:-$HOME/ntt/tools/unpack_digits}
+REPS=${OFI17_REPS:-2}; REF=${OFI17_REF:-$HOME/ref/e_1e11.out}; UNPACK=${OFI17_UNPACK:-$(cd "$(dirname "$0")/../../tools" && pwd)/unpack_digits}   # 2026-10-06: ref moved to ~/ref (~/ntt deleted on aac7); unpack_digits from this clone's own tools/, not a cross-clone ~/ntt reference
 say() { echo "$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z') $*" | tee -a "$LOG"; }
 want() { [[ ",$STEPS," == *",$1,"* ]]; }
 finish() { say "finish: $1"; { echo "$1"; tail -n 60 "$LOG"; } > "$O/DONE"; exit 0; }
