@@ -1,7 +1,59 @@
 # OFI17 — `comm_ofi`: a multi-NIC bulk path for ecalc (Phase 17, branch `p17-ofi`)
 
-Agent report. Times Eastern (aac7 logs are Pacific: +3 h). Numbers labelled **measured** / **modelled** / **assumed**.
-Design: docs/code/07_COMM_OFI.md. Method: results/NIC16_experiments.md.
+## HANDOFF (2026-10-06, the integrator stopped here — context limit; a fresh agent finishes)
+
+**Merged and pushed to `main`** (`git log --oneline` on `main`, newest first):
+- `2afd415` — `mnaccept.sh`/`e16_headline.sh`/`ofi17_drive.sh`: their `e_1e11.out` reference default moves to `~/ref`
+  (prep for step 4's aac7 cleanup; `e_4e10.out` is untouched, out of scope).
+- `e41b47d` — **`COMM_OFI` now defaults to 1 wherever a cxi NIC is present** (the user's decision, 2026-10-06);
+  `COMM_OFI=0`/`=1` still force either path explicitly. Also folds in RUN16.md/OFI17.md's measured write-ups and
+  RESULTS.md §105–107.
+- `7611751` — the three-way merge of this integration's step 1 (`p17-fix2`, `p17-fix1`, `p17-ofi`, in that order,
+  `--no-ff`), the starting point for everything above.
+
+**Verified on aac7 (merged main, commit 7611751e, clone `~/ntt-acc`, built with `SHMEM_CRAY=1 GMP_HOME=~/gmp` +
+`make -C ../tools`):**
+- (a) `t_edge vmm 4 560` vs `t_edge dev 4 560`, alone on job 12287's SPX node `x9000c1s3b0n0`: **done** — VMM edge
+  444.0 GB, dev edge ≈ 448.0 GB (kernel OOM-killed, not a graceful `hipMalloc` failure); the two agree within one
+  4 GB step. Written up in RESULTS §107.
+- (b) `mnaccept --only unit,e9` on job 12287 (default `COMM_INIT_EARLY`, private `MNACCEPT_TMP=~/acc_verify2_tmp`):
+  **not finished when this agent stopped** — 8 of 11 steps passed (`t_ntt`, `t_mul`, `t_bs`, `t_dbig`, `t_newton`,
+  `t_verify`, `t_out`, `t_patch`, all identical), `t_mn_grid` (2 node-processes) was still running (progressing
+  normally through its growing shapes, ~0 of its 1200 s step timeout exhausted when last checked — not stuck; GPU
+  was idle between logged shapes, which is this test's normal pattern, not a hang). `e9` both limb bases have not
+  run yet. **It is running detached** (`setsid nohup`, PID 2330564 on the aac7 login node) and writes its own
+  summary continuously to `~/ntt-acc/ecalc/results/mnaccept/12287/summary.txt` *and* to `/tmp/acc_unit_e9.log`
+  (redirected at launch, both update live and survive this agent's session ending) — collect with:
+  ```
+  sshpass -p <cluster-password> ssh -o ConnectTimeout=20 chcoppola@aac7.amd.com 'cat /tmp/acc_unit_e9.log; pgrep -af "mnaccept.sh 12287"'
+  ```
+  If the process is gone and the log ends with a `== N passed, M failed …` line, it finished — check all 11 are
+  PASS. If it ended without that line (e.g. the 1200 s `t_mn_grid` timeout), diagnose and rerun just the remainder:
+  `cd ~/ntt-acc/ecalc && MNACCEPT_TMP=~/acc_verify2_tmp ./mnaccept.sh 12287 --only unit,e9` (safe to rerun whole).
+- (c) **not started**: `mnaccept --only mn` at 2 nodes on job 12287, *with the new default* (do **not** set
+  `COMM_OFI` — the point is to confirm the just-merged default turns it on by itself on this cxi-equipped node) —
+  digits must be identical to the SHMEM baseline. Suggested command once (b) is clean:
+  ```
+  cd ~/ntt-acc/ecalc && MNACCEPT_TMP=~/acc_verify3_tmp MNRUN_NODES=2 ./mnaccept.sh 12287 --only mn
+  ```
+  (`COMM_OFI` left unset; `COMM_OFI_VERBOSE=1` would confirm in the log that it actually engaged — expect cxi
+  writes, not a plain SHMEM baseline run, since this node has cxi NICs present).
+- **Remaining after (b)/(c) pass**: fold their results into RESULTS §106/§107 (replace "a fresh agent will
+  confirm" language, if any is added, with the measured PASS lines), then proceed to step 3's remaining write-up
+  only if anything in RUN16.md/OFI17.md/RESULTS.md is still open (as of this handoff, §105–107 and RUN16.md/OFI17.md
+  are already complete and pushed — re-read them first to confirm nothing drifted), then **step 4** (aac7
+  cleanup: `mkdir ~/ref; mv ~/ntt/ecalc/results/e_1e11.out ~/ref/; rm -rf ~/ntt` — the three scripts above are
+  already updated for this; still TODO: confirm no other live-used script references the old path, then do the
+  move + delete; also delete part files / `*.out` data > 100 MB under `~/p16/R16`, `~/ofi17`, `~/nic16`,
+  `~/fix17a`, `~/fix17b` — **already checked by this agent: none exist over 100 MB in any of those five trees**
+  (largest single files were 11 MB test binaries); nothing to delete there, just confirm again before reporting
+  "freed 0 bytes" to the user).
+- **Never touched / still running, do not cancel**: jobs 12287 and 12294 (both must stay up); aac7 clone
+  `~/ntt-acc` (building/testing in progress, same clone the mnaccept run above is using — do not `git fetch`/
+  rebuild it while that PID is still alive).
+
+Agent report (original, unchanged below). Times Eastern (aac7 logs are Pacific: +3 h). Numbers labelled
+**measured** / **modelled** / **assumed**. Design: docs/code/07_COMM_OFI.md. Method: results/NIC16_experiments.md.
 
 ## Status (updated 2026-10-06, the integrator)
 
