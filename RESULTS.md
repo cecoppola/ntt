@@ -4293,3 +4293,45 @@ way against the 480 GB budget; unaffected by `--bw`/`--local-factor`/fall-off.
 unmeasured fall-off with node count at target scale (576, multi-group dragonfly), not the NIC count or efficiency
 value, both of which are now aac7-measured or a direct, labelled extrapolation of that measurement.
 
+## 110. CAP17: the device-memory edge (373 GB/node) against the layout — login-node sweep, no digit cut required (2026-10-06; results/CAP17.md)
+
+Login-node and local work only (aac7 `uan1`, no GPU, no compute jobs), `main` at `8e03ba0` (rebased; `comm_ofi`
+default on cxi; `DM_MN_LEAN=1`; the launch line of docs/TARGET.md §4). A6 (**measured**, target): `hipMalloc` stops
+at 93.36 GB/APU = 373 GB/node; OFI17/RESULTS §107 (**measured**, aac7 SPX): VMM shares that edge within one 4 GB
+step. So the device-located layout (planes `hipMalloc` + arena VMM `hipMemCreate` + the `comm_ofi` device pools,
+OFIMEM/RESULTS §108) must fit under 373 GB minus a margin — this task used 363 GB (−10) and 368 GB (−5).
+
+**A trap found first:** `BS_LAYOUT_ONLY`/`MN_PLAN_ONLY` alone, without `COMM_TRANSPORT=shmem` in the environment,
+silently drops both the SHMEM pool and the `comm_ofi` device pools from the `room:` line's `device` figure (9.66 GB
+short at the target's launch line) with no warning (`as_shmem_pool`'s early `return 0` when the transport variable
+is unset) — docs/TARGET.md trap 20. Every number below uses the full launch-line environment.
+
+**The headline sizes do not fit the raw edge, let alone a margin.** At `ECALC_PLANE_CAP=2^31` (the current
+default), both 5.276 × 10¹³ and 5.167 × 10¹³ give the same **device layout, 405.42 GB** (planes 120.877 + arena
+274.878 + `comm_ofi` 9.664 GB, **measured**, `BS_LAYOUT_ONLY`/`MN_PLAN_ONLY` on the login node; exact against
+`mem_model.py --check-c`, 0.0000 %) — **32.42 GB over the raw 373 GB edge**, before any margin.
+
+**Sweeping the digit count down** (same settings, bisected to 0.002 × 10¹³): the largest total-digit count on 576
+nodes whose device layout fits both 363 and 368 GB is **4.452 × 10¹³ digits** (device 362.47 GB measured; `plan
+check OK`, 1240 products) — a 15.6 % cut from the 5.276 × 10¹³ headline, 13.8 % from 5.167 × 10¹³. The margin to the
+363 GB bar there is thin (0.53 GB); the next grid step up (4.454 × 10¹³) jumps to 371.06 GB, over both bars. Modelled
+wall time at 4.452 × 10¹³ is *lower* than the headline's (260.7/279.0 s vs 290.2/303.9 s) — fewer digits, not slower.
+
+**The strongest lever found keeps the full headline size with no digit cut:** `ECALC_PLANE_CAP=2^30` (an existing,
+off-by-default switch; no code change, digits unaffected) brings the device layout at **both** headline sizes down
+to **345.28 GB** (measured; 17.7–22.7 GB of margin to 363/368 GB) at a **modelled** ≈ +82 % wall time (≈ 527 s vs
+290 s; `plan check OK`, pieces 453 vs 159 — the slowdown trend is credible, the absolute number is not: `mn_model`'s
+own memory estimate for this off-default cap does not match the C-measured bytes, a known calibration gap outside
+`2^31`, flagged in results/CAP17.md). A weaker version, `ECALC_PLANE_CAP=3*2^29`, clears 368 GB (366.76 GB, +1.24
+margin) but not 363 GB, at a modelled ≈ +71 % wall time.
+
+**Other levers, all modelled/assumed, none as strong:** host-pinned planes/arena is a redesign with no credible
+point estimate — ME10 (`docs/code/05_DECISION_REGISTER.md`) measured `hipMemcpy` to host-backed memory at 21 GB/s
+against HBM's measured 3.2 TB/s/APU, ~150× less, touched on nearly every pass; `ECALC_NP`/`RNS_STRATEGY` are
+already at their cheapest setting (forcing `ECALC_NP=4` costs +17.2 GB, strictly worse); asking the admins to raise
+the device edge itself (TARGET_WISHLIST §2.1's named `amdgpu`/`ttm` parameters) costs nothing to ask and, if granted,
+removes the problem (405.42 → under 373 GB) without touching digits or the plane cap.
+
+Updated: docs/TARGET.md (trap 20, §1's standing-estimate note), docs/TARGET_WISHLIST.md §2.1 (now "ANSWERED: VMM
+shares the cap; still a blocker at the headline sizes" with the full writeup).
+
