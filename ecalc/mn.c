@@ -238,7 +238,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     if (g_rank >= gt) return 1;
     /* Phase 16 P (results/P16.md): MN_SELFTEST_GROW=1 grows logR until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
      * (4 x 32 = 128 ranks, R / ranks = 16), i.e. every launch of 32 or more node-processes stops at init; unset: as before */
-    if (getenv("MN_SELFTEST_GROW") && atoi(getenv("MN_SELFTEST_GROW")) && !dbg_local) while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
+    if ((getenv("MN_SELFTEST_GROW") ? atoi(getenv("MN_SELFTEST_GROW")) != 0 : 1) && !dbg_local)   /* default 1: the user, 2026-10-05 */ while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
     int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
     double t0 = mem_now();
