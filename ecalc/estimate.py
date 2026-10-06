@@ -107,7 +107,7 @@ def main():
     ap.add_argument("--corrections", type=int, default=0, help="size 1: the division's corrections (data-dependent; 2 at 1e11 on the defaults)")
     ap.add_argument("--p13", action="store_true", help="the Phase 13/14 model (no Phase 15 terms: the old memory forms, no recip cut, no CAL15, the part file under half the division)")
     ap.add_argument("--max", action="store_true", help="the largest D per node that fits 502 and 480 GB at each g, with its wall")
-    ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 5.276e13 since B3 2026-09-29; both test sizes 5.276e13 and 5.167e13 are shown (the user, 2026-10-03); 5.1e13 from the user's decision of 2026-09-27 23:50 EDT; 4.25e13 from Phase 13d, 4.4e13 in Phase 13c), its steps, the runtime one step below (4.74e13) and its step, the previous target")
+    ap.add_argument("--target", action="store_true", help="the standing estimate at 576 nodes -- the target (mn_model.TARGET_DIGITS: 4.08e13 since TGT17 2026-10-06, set to fit the target's device-memory edge comfortably; raise later if the memory configuration is lifted), its step, and history: 5.276e13 (B3 2026-09-29 to 2026-10-06) and its former second test size 5.167e13 (2026-10-03), 5.1e13 (2026-09-27 23:50 EDT), 4.25e13 (Phase 13d), 4.4e13 (Phase 13c)")
     ap.add_argument("--verbose", action="store_true", help="the per-phase, per-level breakdown of every run")
     ap.add_argument("--np", type=int, default=3, choices=(3, 4), help="ECALC_NP at size 1 (Phase 13b step 0: 3)")
     ap.add_argument("--np-mn", type=lambda v: v if v == 'auto' else int(v), default='auto', choices=(3, 4, 'auto'), help="ECALC_NP at size > 1 (Phase 15, the user's decision 1 of 2026-09-28: auto on the target's launch line -- Phase 15 NP's per-product count, four only over the three-prime bound; 4 was the launch line of 2026-09-27 (+17.2 GB per node: 489 GB at 5.1e13 with the room, over 480); 3 is refused by the plan check at 4.25e13 and 5.1e13 on 576)")
@@ -189,10 +189,14 @@ def target(a, design):
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
-    for T, what in ((M.TARGET_DIGITS, "the target (the last size below the step)"), (5.167e13, "the second test size (the fallback; the user, 2026-10-03)"),
-                    (5.28e13, "the step above the target (recip 51 -> 53, div 20 -> 28)"), (5.39e13, "the next step (tree 86 -> 88)"), (5.74e13, "the next (tree 88 -> 108)"),
-                    (M.TARGET_BELOW, "one step below (test after the headline)"), (4.75e13, "its step (4.74 -> 4.75e13)"),
-                    (4.25e13, "the target until 2026-09-27 23:50 EDT")):
+    for T, what in ((M.TARGET_DIGITS, "the target (TGT17, 2026-10-06: fits the device edge comfortably -- device 345.29 GB vs 353 GB)"),
+                    (4.0816e13, "the grid step just above the target (arena 214.7 -> 223.3 GB; TGT17)"),
+                    (5.276e13, "history: the target from 2026-09-29 (Batch 3) to 2026-10-06 (superseded, over the device edge, CAP17)"),
+                    (5.167e13, "history: the second test size (int15k, 2026-10-03)"),
+                    (5.28e13, "history: the step above the 2026-09-29 target (recip 51 -> 53, div 20 -> 28)"), (5.39e13, "history: the next step (tree 86 -> 88)"),
+                    (5.74e13, "history: the next (tree 88 -> 108)"),
+                    (M.TARGET_BELOW, "history: one step below the 2026-09-29 target (test after that headline)"), (4.75e13, "history: its step (4.74 -> 4.75e13)"),
+                    (4.25e13, "history: the target until 2026-09-27 23:50 EDT")):
         es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
         p = M.plan(576, T, design); e = es[0]
         print("  %.3e %-44s | %5.1f s %s | %s | %3d + %2d + %2d = %3d | %5.1f (%5.1f + %4.1f; %.1f)%s" % (
@@ -232,7 +236,7 @@ def partial_row(a, design=None, groups=None):
     r = [x for x in rows if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     if not r: return
     p24c, lp, kt, kd, tag, r0, rw = r[0]
-    with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = M.cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab, design=pd, groups=groups)   # Phase 16 F: the second test size's row (RESULTS 94)
+    with contextlib.redirect_stdout(buf): (b02, bw2), rows2 = M.cache_partial(T=5.167e13, wbs=(2.0, a.write_bw, 0.6), fab=fab, design=pd, groups=groups)   # Phase 16 F: history -- the former second test size's row (RESULTS 94); superseded by TGT17, 2026-10-06
     r2 = [x for x in rows2 if x[0] and x[1] == 'long' and x[4] == 'the pool rule']
     print("  the launch line's RNS_DIST_CACHE_PARTIAL=1 (int15j; the pool rule: tree %d / division %d primes per slot, P24 cached, the loop along the longer axis)%s:"
           % (kt, kd, " with MN_OUT_DKM_HI=1" if M.DKM_HI else " (MN_OUT_DKM_HI=1 not set in the environment: its -7 s with the write is not in this row)"))
@@ -240,7 +244,7 @@ def partial_row(a, design=None, groups=None):
           % (M.TARGET_DIGITS, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b0, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw))))
     if r2:
         p24c, lp, kt2, kd2, tag, r0, rw = r2[0]
-        print("    %.3e the second test size                     | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
+        print("    %.3e history: the former second test size      | %5.1f s (%.2f min) | %s | gain %+.1f s without the write, %s with it"
               % (5.167e13, r0, r0 / 60, " | ".join("%5.1f s (%.2f min)" % (x, x / 60) for x in rw), r0 - b02, " / ".join("%+.1f" % (x - y) for x, y in zip(rw, bw2))))
 
 def cache_rows(a, design, groups, fabs):
