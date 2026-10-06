@@ -4388,3 +4388,12 @@ lower-tier sweep picks a value; `ecalc/e16_headline.sh`'s `E16_DIGITS` default i
 scaled test slice (not the 576-node target itself) tied to specific plan-check figures at the former target's
 per-node share — left for whoever next runs Phase 16 E at the new target.
 
+
+## 112. Phase 17: comm_ofi tuning and the two-NICs-per-device form (2026-10-06; results/TUNE17.md)
+
+Measured on aac7 (job 12287, after the STD17 run): a 3×3 sweep of chunk (1/4/8 MiB) × writes in flight (16/64/128) at 4 nodes gives
+40.0–48.1 GB/s per node of all-to-all; the default 4 MiB / 64 gives 46.9, and the best (8 MiB / 16) gives 48.1 (+2.4 %) at 4 nodes and 43.5 at 10 nodes
+(the default 44.1, OFI17), so the defaults stay. `COMM_OFI_NICS` with 2 NICs per device (`0,1;1,2;2,3;3,0` and `0,0;…`) is correct (t_comm
+VERIFY; ecalc 2e10 on 2 nodes identical part sha1s) at 25.7 / 24.5 vs 25.7 GB/s per node at 2 nodes: no gain on aac7 (1 NIC per APU), and the mechanism is ready
+for the target's 2 per APU (rate: target-only, WISHLIST §1.3). Standard run with all NICs (§108): 8.1e11 on 10 nodes in 1669.98 s total, 772.4 s
+without the output phase (dc 897.6 s, NFS); SHMEM 3532.05 s (≈ 3430 s without dc): ×4.4 on the computation.

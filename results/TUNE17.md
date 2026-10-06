@@ -53,3 +53,26 @@ A subset: `TUNE17_STEPS=nic2,ec2` (steps sw4, sw10, nic2, ec2; sw10 without sw4 
 ## RESUME
 
 - **Armed** 2026-10-06 11:38 EDT on the aac7 login node: PID 2394528 (`~/ofimem17` at `31be838`), waiting for `~/ofimem17/R/STD17_DONE` (deadline 16:00 EDT); the STD17 driver (PID 2373608) was itself still waiting for its own marker `~/ofi17/HANDOFF_DONE`, so `SKIPPED` is likely unless STD17 starts and finishes well before 16:00 (its record + RECHECK alone take about 2 h, modelled from RUN16). The verdict lands in `~/ofitune17/DONE`.
+
+## Results (2026-10-06, measured; driver verdict SUCCESS)
+
+`t_comm --bw` all-to-all, aggregate GB/s per node at the largest slab (mean / min), per-thread GB/s:
+
+| run | nodes | chunk MiB | window | NICs per device | agg mean | agg min | per thread |
+|---|---|---|---|---|---|---|---|
+| sw4_c1_w16 | 4 | 1 | 16 | 1 | 40.88 | 40.41 | 10.49 |
+| sw4_c1_w64 | 4 | 1 | 64 | 1 | 40.98 | 40.53 | 11.15 |
+| sw4_c1_w128 | 4 | 1 | 128 | 1 | 40.62 | 40.18 | 10.75 |
+| sw4_c4_w16 | 4 | 4 | 16 | 1 | 40.02 | 39.56 | 11.46 |
+| **sw4_c4_w64 (default)** | 4 | 4 | 64 | 1 | **46.93** | 46.73 | 12.27 |
+| sw4_c4_w128 | 4 | 4 | 128 | 1 | 46.86 | 46.64 | 12.12 |
+| sw4_c8_w16 | 4 | 8 | 16 | 1 | 48.07 | 47.98 | 12.74 |
+| sw4_c8_w64 | 4 | 8 | 64 | 1 | 46.04 | 45.85 | 11.89 |
+| sw4_c8_w128 | 4 | 8 | 128 | 1 | 47.20 | 47.03 | 11.95 |
+| sw10_c8_w16 | 10 | 8 | 16 | 1 | 43.52 | 42.87 | 10.97 |
+| nic2_default | 2 | 4 | 64 | 1 | 25.72 | 25.71 | 7.72 |
+| nic2_formA `0,1;1,2;2,3;3,0` | 2 | 4 | 64 | 2 | 25.67 | 25.66 | 6.72 |
+| nic2_formB `0,0;1,1;2,2;3,3` | 2 | 4 | 64 | 2 (same NIC twice) | 24.54 | 24.52 | 6.36 |
+
+- **Tuning:** the best setting (8 MiB, window 16) is +2.4 % over the default at 4 nodes, and at 10 nodes 43.5 vs the default's 44.1 (OFI17), so no gain within the spread. **The defaults (`COMM_OFI_CHUNK_MB=4`, `COMM_OFI_WINDOW=64`) stay.**
+- **Two NICs per device:** both forms run correctly, and ecalc 2e10 on 2 nodes with form A gives part sha1s identical to the default (VERIFY OK on both nodes). There is no rate gain on aac7, as expected with one NIC per APU, where form A shares each NIC between two devices. The mechanism is ready for the target's 2 NICs per APU; its rate needs the target (TARGET_WISHLIST §1.3).
