@@ -4239,3 +4239,21 @@ below, there is no ~1/4-node cap here.
 `--showbus` show that node's 4 "devices" as PCI functions `.0`–`.3` of one `02:00:00` MI300A, a ~22.9 GB/logical-GPU
 partition, not 4 separate dies. Identical with and without contention, ruling out a transient cause. **This is why
 this integration's step 2 uses job 12287's SPX nodes (x9000c1s3b0n0) for every test, never job 12294.**
+
+## 108. Phase 17 STD17: OFI memory accounting (OFIMEM) and the standard 10-node run with all NICs (2026-10-06; results/STD17.md)
+
+**A — accounting (merged).** Under `COMM_OFI` (the default on cxi) the device staging already lived in the per-device comm pools, but
+the SHMEM pool kept its full staging size beside them and nothing counted the comm pools. Now (`comm_ofi_planned()`; binsplit.c's pool
+rule): the SHMEM pool = what SHMEM still carries (128 MiB host-op staging, control, mailbox, 256 MiB), the comm pool per device = one
+APU's staging (≥ 128 MiB) + its slabs + 256 MiB (whole 256 MiB, exported as `COMM_OFI_POOL_MB`); both counted in `binsplit_node_bytes`,
+`as_room_fits` (`room:` … `ofi_pool`), the `plan pool` line and `mem_model.py` — **`--check-c` exact** with COMM_OFI 0 and 1. `mnrun.sh`
+probes the first compute node for cxi when the login node has none (aac7's uan1) and passes `COMM_OFI_PLAN_CXI` to the plan.
+**Target, 5.276 × 10¹³ on 576 with `DM_MN_LEAN=1` (modelled): node 446.2 GB without OFI; 457.2 GB with OFI before (uncounted:
+SHMEM 9472 MiB + 4 × 2624 MiB); 447.5 GB after (SHMEM 1536 MiB + 4 × 2304 MiB)** — docs/TARGET.md's launch line now sets
+`COMM_SHMEM_POOL_MB=1536` and the heap 2048M (keeping 9472 by hand would hold both: 455.8 GB). 10-node aac7 point 8.1 × 10¹¹: 419.59
+(SHMEM) → 420.66 GB (OFI, after) vs ≈ 430.0 before (modelled). Measured at 2 node-processes (job 12294, 1e8 / 1e9, COMM_OFI unset):
+identical digits, SHMEM pool peak 2 MiB (staging 0), comm pool peak 106 MiB of 512 per device.
+
+**B / C — the standard 10-node run with all NICs and B7's v-slots: armed, pending** (`~/ofimem17/ecalc/tests/std17_drive.sh` after
+`~/ofi17/HANDOFF_DONE`; results/STD17.md RESUME). Baseline to compare: SHMEM try 2, 3532.05 s (RESULTS §105).
+
