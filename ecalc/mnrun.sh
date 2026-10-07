@@ -58,9 +58,12 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     # communicator's member -- the user's target rule ">= 4 x ntasks" (576 -> 2304; their largest tested value was 4096, kept
     # as the floor so a small run still gets their tested size). FI_LOG_LEVEL=warn: cuts libfabric's output ~1000x (the
     # user's L2). Both default with ${VAR:-...}, so a site's own exported value (or a different system's) is never shadowed.
-    export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * P > 4096 ? 4 * P : 4096))}
-    export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
-    echo "mnrun.sh: FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL"
+    # MNRUN_FI_DEFAULTS=0 (default 1) leaves both unset -- the pre-s18 launch (S18AB: run (a) of 2026-10-06 segfaulted with them set).
+    if [ "${MNRUN_FI_DEFAULTS:-1}" != 0 ]; then
+        export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * P > 4096 ? 4 * P : 4096))}
+        export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
+    fi
+    echo "mnrun.sh: FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-<unset>} FI_LOG_LEVEL=${FI_LOG_LEVEL:-<unset>} (MNRUN_FI_DEFAULTS=${MNRUN_FI_DEFAULTS:-1})"
     # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
     # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
     # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
