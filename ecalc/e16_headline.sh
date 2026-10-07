@@ -7,16 +7,17 @@
 #
 #   SLURM_JOB_ID=<12-node allocation> ./e16_headline.sh [plan|record|dev|chain|below|all]      (default: all, in that order)
 #
-# The sizes (B7ACCT, 2026-10-06: re-measured on aac7's login node with MN_PLAN_ONLY / BS_LAYOUT_ONLY at the 4.08e13 target's share,
-# the LINE below + COMM_OFI_PLAN_CXI=1 (comm_ofi, the cxi default); ~/b7acct/sweep/, results/B7ACCT.md section 6):
-#   per node 7.0834e10 = the largest node share of the target (4.08e13 / 576: P, Q 2266666666671 limbs, ceil(/ 576) = 3935185186 limbs
-#     = 70833333348 digits, rounded up to 1e6).  Was 9.16e10 (the 5.276e13 target's share, superseded by TGT17).
-#   E16_DIGITS = 850008000000 = 12 x 7.0834e10: plan check OK, 100 products, pieces (node 0 / critical path) 130 / 130, levels
-#     8/8 8/8 24/24, the default MN_GROUPS schedule at g = 12 is 2,4,12 (groups of 2, then 4, then the 3-way top: "the powers of
-#     two dividing the size, then the odd part's prime factors"), SHMEM pool 512 MiB + 4 comm_ofi pools of 2304 MiB, C layout node
-#     369.12 GB (+ the general map's v-slots 11.48 GB = 380.60; device 328.11 / 339.59 with them) -- inside 480.  Pieces are not
-#     monotone in this stretch (128 at 8.40e11, 129-131 from 8.412e11, 133 at 8.52e11).
-#   E16_BELOW  = 840000000000 (7.0e10 per node): 128 / 128 pieces, the same layout (node 369.12 GB).
+# The sizes (s18-target, 2026-10-06: re-measured on aac7's login node with MN_PLAN_ONLY / BS_LAYOUT_ONLY at the 3.71e13 target's
+# share, the LINE below without COMM_OFI_PLAN_CXI (not at g = 10/12); ~/b7acct/ntt/ecalc on b7-vslot aa86cac):
+#   per node 6.441e10 = the largest node share of the target (3.71e13 / 576: MN_PLAN_ONLY=37100000000000:576 gives P, Q
+#     2061111111115 limbs, ceil(/ 576) = 3578317902 limbs = 64409722236 digits, rounded up to 1e6).  Was 7.0834e10 (the 4.08e13
+#     target's share, superseded by s18-target); 9.16e10 before that (the 5.276e13 target's share, superseded by TGT17).
+#   E16_DIGITS = 772920000000 = 12 x 6.441e10: plan check OK, 100 products, pieces (node 0 / critical path) 118 / 118, levels
+#     8/8 8/8 20/20, the default MN_GROUPS schedule at g = 12 is 2,4,12 (groups of 2, then 4, then the 3-way top: "the powers of
+#     two dividing the size, then the odd part's prime factors"), SHMEM pool 8704 MiB (no comm_ofi pools: COMM_OFI_PLAN_CXI unset
+#     at g = 12), C layout node 359.46 GB (+ the general map's v-slots 11.48 GB = 370.93; device 309.86 / 321.33 with them) --
+#     inside 480.
+#   E16_BELOW  = 760000000000 (6.333e10 per node): pieces 116 / 118 (one node-0 step below), layout node 350.87 / 362.34 with v-slots.
 # Modelled walls (estimate.py --g 12 --D 7.0834e10 --write-bw 0.1, the NFS rate A measured, 0.116 GB/s single-stream, ASSUMED to
 # hold with 12 writers): 234.4 s without the write / 523.9 s with it at --bw 25 (the 200 Gb/s NIC per APU, ASSUMED);
 # 821.7 / 1032.4 s at --bw 3.7 (the 2-node post-to-completion rate A measured, which holds the staging copies too -- an upper
@@ -39,15 +40,15 @@ source ./aac7env.sh
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 
 # 2026-10-04 (the integrator): 12 nodes are never free on aac7 (3 are held for days) -- the headline runs on 10; the 12-node figures
-# stay as the modelled column.  At g = 10 (B7ACCT, login node, ~/b7acct/sweep/): 7.0834e11 digits -> plan check OK, 96 products,
-# pieces 101 / 101 (node 0 / critical path), levels 8/8 20/20, the default schedule 2,10 (groups of 2, then the 5-way top), SHMEM
-# pool 512 MiB + 4 comm_ofi pools of 2304 MiB, C layout node 386.30 GB (+ v-slots 13.77 = 400.08; device 345.29 / 359.06 with them;
-# fits 480); modelled walls (estimate.py --g 10 --D 7.0834e10 --write-bw 0.1) 212.0 / 500.7 s at --bw 25, 719.5 / 926.7 s at
-# --bw 3.7; the step below at 6.87 -> 6.88e11 (97 -> 101 pieces): E16_BELOW = 687000000000 (97 / 97; node 377.71 GB).
-# (Before B7ACCT: 9.16e11 at g = 10, 98 products, 135 / 139 pieces, node 453.95 GB; E16_BELOW 908000000000.)
+# stay as the modelled column.  At g = 10 (s18-target, login node, ~/b7acct/ntt/ecalc): 6.441e11 digits -> plan check OK, 96
+# products, pieces 95 / 95 (node 0 / critical path), levels 8/8 18/18, the default schedule 2,10 (groups of 2, then the 5-way
+# top), SHMEM pool 8704 MiB (no comm_ofi pools), C layout node 368.05 GB (+ v-slots 13.77 = 381.82; device 318.45 / 332.22 with
+# them; fits 480); the step below at 6.30e11 (93 / 95 pieces): E16_BELOW = 630000000000 (93 / 95; node 359.46 / 373.23 with v-slots).
+# (Before s18-target: 7.0834e11 at g = 10, 101 / 101 pieces, node 386.30 GB; E16_BELOW 687000000000. Before B7ACCT: 9.16e11, 98
+# products, 135 / 139 pieces, node 453.95 GB; E16_BELOW 908000000000.)
 G=${E16_NODES:-10}
-DIGITS=${E16_DIGITS:-$((G * 70834000000))}
-case $G in 12) BELOW=${E16_BELOW:-840000000000};; 10) BELOW=${E16_BELOW:-687000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
+DIGITS=${E16_DIGITS:-$((G * 64410000000))}
+case $G in 12) BELOW=${E16_BELOW:-760000000000};; 10) BELOW=${E16_BELOW:-630000000000};; *) BELOW=${E16_BELOW:-$((DIGITS * 99 / 100))};; esac
 OUT=${E16_OUT:-$HOME/p16/E}
 REF11=${E16_REF11:-$HOME/ref/e_1e11.out}      # sha1 578f5efb0ff2b9af6b681a375c9ff39197f55cb7 (2026-10-06: moved to ~/ref, ~/ntt deleted on aac7)
 TO_RUN=${E16_TIMEOUT:-3600}        # one launch (the modelled wall with the NFS write: 524 s at g = 12, 501 s at g = 10, B7ACCT; the segfault's hang is killed here)
