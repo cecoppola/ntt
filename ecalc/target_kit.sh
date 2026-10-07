@@ -175,6 +175,7 @@ module_preamble() {   # the module unload/load lines to prepend inside a `bash -
 
 fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / FI_LOG_LEVEL if unset, per TGTBENCH2
     local ntasks="$1"
+    [ "${MNRUN_FI_DEFAULTS:-1}" = 0 ] && return 0   # the same opt-out as mnrun.sh: leave both unset
     local want=$(( ntasks * 4 > 4096 ? ntasks * 4 : 4096 ))
     export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$want}
     export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
