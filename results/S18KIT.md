@@ -79,6 +79,41 @@ and `--only env,build,edge,a3,a4` as needed, pointed at a scratch `--out`.
 - `a4`'s node counts (2/8/64) are configurable (`--nodes-a4`) but the script does not request dragonfly placement (packed vs
   spread, WISHLIST §1.4); that is a `--switches=1@<time>` Slurm option for the coordinator to add at the `mnrun.sh` call site
   if the admins confirm the spread syntax.
-- `build`'s module auto-detection (`module -t avail rocm|cray-openshmemx|cray-dsmml`, highest version) is untested on the
-  real target (no target shell available here); `TARGET_ROCM`/`TARGET_SMA_MODULE`/`TARGET_DSMML_MODULE` are there to override
-  it by hand if detection picks the wrong one.
+- `build`'s SMA/DSMML auto-detection (`module -t avail cray-openshmemx|cray-dsmml`, highest version) is still a blind
+  newest-wins pick; `TARGET_SMA_MODULE`/`TARGET_DSMML_MODULE` override it by hand if that is ever wrong on the target.
+  ROCm itself no longer picks blindly -- see "Module handling" below.
+
+## Module handling
+
+Two bugs, found by rehearsing on aac7 (results/V16.md) and by re-reading the script against `mnrun.sh`/`aac7env.sh`:
+
+1. **ROCm choice.** `module -t avail rocm | sort -V | tail -1` picks the *newest* version, which on aac7 is
+   `rocm/7.14.0` -- a version that fails to link ecalc (results/V16.md: 7.12.0/7.13.0/7.14.0 and `rocm-new`/10.0.0 all
+   hit the same `-fPIC` device-link error in `ld.lld`; `rocm/7.2.4` is the newest that links). The target's ROCm is
+   unknown ahead of time ("do your best with the libraries you have"), so `stage_build` now tries candidates in
+   order and keeps the first that actually builds `ecalc` + `tests/t_comm` + `tests/t_edge` + `tools`:
+   `$TARGET_ROCM` alone if the caller set it; else `rocm/7.2.4`, `rocm/7.2.3`, `rocm/7.0.3` (whichever are available,
+   in that order), then any other `rocm/<version>` module, newest first. `make clean` runs between attempts (stale
+   `.o` from a different ROCm must not be reused); every attempt is logged, and the summary names the ROCm used and
+   any that failed first. A versioned `rocm` module can conflict with a default-loaded `rocm` (aac7:
+   `rocm/7.0.3`, the same trap V16 found) -- the build unloads whatever `rocm/*` the login shell already has before
+   loading each candidate.
+2. **Runtime stages never loaded modules.** Only the `build` subshell called `module load`; the `srun` stages for
+   `edge`/`a3`/`a4` ran with whatever the caller's login shell had, which can be a different ROCm/SHMEM than the one
+   that built the binaries. `stage_build` now writes the chosen set to `$OUT/kit_modules.env`
+   (`TARGET_ROCM`/`TARGET_SMA_MODULE`/`TARGET_DSMML_MODULE`/`TARGET_ROCM_UNLOAD`); every later run stage
+   (`edge`, `a3`, `a4` -- not `env`, which deliberately records the target's as-found default) sources it and fails
+   with a clear message if it is missing (so `--only edge` etc. in a later invocation needs a prior `build` in the
+   same `--out`), loads the same modules inside its own `srun` (`module_preamble()`, the unload-then-load convention
+   `aac7env.sh`/`mnrun.sh` already use), and records the runtime ROCm actually seen on the compute node
+   (`hipconfig --version`, inside the `srun`) in its log and the summary. `a4` additionally exports
+   `MNRUN_MODULES`/`MNRUN_UNLOAD` to `mnrun.sh` from the same chosen set (honouring any caller override, per
+   `mnrun.sh`'s own convention).
+
+Validated on the aac7 login node (branch `s18-kit`, no `srun`/`sbatch`, jobs 12287/12294 untouched): `bash -n` OK;
+`shellcheck` not installed there either. `--dry-run --site aac7 --jobid 12287 --nodes-a4 2` and `...--nodes-a4 8`
+both print the ROCm candidate list (`rocm/7.2.4 rocm/7.2.3 rocm/7.0.3 rocm/7.14.0 rocm/7.13.0 rocm/7.12.0` on aac7)
+and assume the first, write `kit_modules.env`, and every later-stage `srun` line carries the module unload/load
+preamble and a `hipconfig --version` probe. A real `--only build` run (no `srun`, so safe on the login node) chose
+`rocm/7.2.4` on the first try and built `ecalc`, `tests/t_comm`, `tests/t_edge`, and `tools` successfully --
+confirming the candidate order matches results/V16.md's finding without needing the aac7-specific version hard-coded.
