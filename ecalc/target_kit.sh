@@ -351,10 +351,14 @@ stage_edge() {
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
-    echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 -- the init footprint and VMM arena map rate" >> "$lf"
+    # Phase S18 kit fix (results/S18KITFIX.md, bug 3): dbig.c's "VMM arena ... s/GB" line (the only place a map
+    # rate is printed) is gated by vmm_vb(), which is off unless DB_POOL_VERBOSE (or RNS_VERBOSE) is set -- so
+    # this run used to print the "report both forms" text with no number behind it.  DB_POOL_VERBOSE=1 turns
+    # on just that line (narrower than RNS_VERBOSE, which adds a lot of unrelated chatter).
+    echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 -- the init footprint and VMM arena map rate" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
-        env MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
+        env MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e9.out*
 
     echo "== e $E10 (1e10) -- the single-node wall" >> "$lf"
@@ -374,18 +378,28 @@ stage_edge() {
         l=$(grep -m1 "VmHWM" "$lf" | grep "^total"); [ -n "$l" ] && summary "  host RSS peak / single-node total (m target): $l"
         grep "\[init\] device .* GB in use" "$lf" | head -1 | sed 's/^/  per-APU device in-use (m target): /' >> "$SUMMARY"
         grep "APU[0-9]*: in use .* (driver:" "$lf" | sed 's/^/  per-APU in-use vs driver-used (m target): /' >> "$SUMMARY"
-        grep "dbig pool: APU[0-9]* VMM arena" "$lf" | sed 's/^/  per-APU VMM arena map rate (m target): /' >> "$SUMMARY"
-        # per-node map rate: sum GB mapped / sum seconds across the APU lines (naive sum -- NOT the wall-clock rate, labelled as such)
-        awk -F'[= (]+' '
-            /dbig pool: APU[0-9]* VMM arena/ {
-                for (i = 1; i <= NF; i++) {
-                    if ($i ~ /GB$/) { g = $i; gsub("GB","",g) }
-                    if ($i ~ /s\/GB\)/) { r = $i; gsub("s/GB\\).*","",r) }
+        grep "dbig pool: APU[0-9]* VMM arena" "$lf" | sed 's/^/  per-APU VMM arena map rate (measured): /' >> "$SUMMARY"
+        # Phase S18 kit fix (bug 3): compute the map rate instead of leaving a text-only note. Each
+        # "dbig pool: APU<n> VMM arena <GB> GB = ... the first <m> mapped in <s> s (<rate> s/GB) ..." line
+        # (dbig.c:327) already gives one APU's own GB mapped, seconds, and s/GB; TGTBENCH2 (Q5) never settled
+        # whether the target figure should be "per APU-GB" (one APU's own GB) or "per node-GB" (the node's GB
+        # mapped in the node's time), so both are computed here, labelled measured:
+        #   per APU-GB form: the mean of the per-APU s/GB values above (each APU's own rate)
+        #   per node-GB form: sum(seconds) / sum(GB) across the node's APUs (their GB mapped, summed; their
+        #     seconds, summed -- a naive serialized-equivalent total, NOT the parallel wall-clock time)
+        grep -oE 'dbig pool: APU[0-9]+ VMM arena [0-9.]+ GB.*mapped in [0-9.]+ s \([0-9.]+ s/GB\)' "$lf" | \
+            sed -E 's/dbig pool: APU([0-9]+) VMM arena ([0-9.]+) GB.*mapped in ([0-9.]+) s \(([0-9.]+) s\/GB\).*/\1 \2 \3 \4/' | \
+            awk '
+                { tgb += $2; tsec += $3; trate += $4; n++ }
+                END {
+                    if (n > 0) {
+                        printf "  per-node VMM map rate (measured, per APU-GB form): %.4f s/GB (mean of %d per-APU rates above)\n", trate / n, n
+                        printf "  per-node VMM map rate (measured, per node-GB form): %.4f s/GB (%.2f GB total / %.2f s summed per-APU time across %d APUs -- a serialized-equivalent sum, not wall-clock)\n", (tgb > 0 ? tsec / tgb : 0), tgb, tsec, n
+                    } else {
+                        print "  per-node VMM map rate: no \"dbig pool: APU<n> VMM arena\" lines found (DB_POOL_VERBOSE=1 did not produce them -- see log)"
+                    }
                 }
-            }
-        ' "$lf" > /dev/null 2>&1   # (left as a hint; the per-APU lines above already carry the per-APU s/GB -- see note below)
-        summary "  per-node VMM map rate: sum the per-APU GB above over the s/GB x GB they report for a per-node figure;"
-        summary "    the unit (per APU-GB mapped by one APU, or per node-GB) is NOT settled by TGTBENCH2 (Q5) -- report both forms as measured"
+            ' >> "$SUMMARY"
         l=$(grep -m1 "^total" "$lf" | tail -1); [ -n "$l" ] && summary "  single-node 1e10 wall (m target): $(grep "^total" "$lf" | tail -1)"
         l=$(grep -m1 "VERIFY" "$lf"); [ -n "$l" ] && summary "  $(grep VERIFY "$lf" | tail -1)"
     fi
@@ -407,29 +421,40 @@ stage_a3() {
     fi
 
     fi_defaults_for 2
-    export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-2560M}
-    export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
-    local pre; pre=$(module_preamble)
+    # Phase S18 kit fix (results/S18KITFIX.md, bug 1): bare srun left the SHMEM heap at its library default,
+    # far below t_comm --bw's own symmetric-buffer request at A3_MAXMB -- every launch failed with
+    # "comm_shmem: pe N: shmem_malloc of 8192 MiB failed: the SHMEM heap ... must be >= 8704 MiB (the pool +
+    # 512)".  t_comm fits mnrun.sh's <procs> <command...> interface exactly (as results/OFI17.md ยง3's and
+    # results/TUNE17.md's own bw() driver functions launch it), so launch through mnrun.sh instead and give it
+    # the pool t_comm's --bw actually needs, from the same formula those drivers used: t_comm allocates 2
+    # symmetric buffers (sb, rb) per thread, each A3_MAXMB MiB x the node count (the all-to-all peer count);
+    # with A3_THREADS threads that is 2 x A3_THREADS x A3_MAXMB x nodes MiB (OFI17.md/TUNE17.md's
+    # "8 * g * mx + 512" at their default 4 threads).  mnrun.sh then sizes SHMEM_SYMMETRIC_SIZE /
+    # XT_SYMMETRIC_HEAP_SIZE itself at pool + 512 MiB; COMM_OFI_POOL_MB sizes comm_ofi's device staging pool
+    # the same way OFI17/TUNE17 size it (2 x nodes x A3_MAXMB + 256).
+    local g=2
+    local pool=$((2 * A3_THREADS * A3_MAXMB * g + 512))
+    local ofipool=$((2 * g * A3_MAXMB + 256))
+    export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
+    export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
     local rc=0
-    echo "== 1 NIC per APU: COMM_OFI_NICS=$NICS1" >> "$lf"
-    exec_cmd "$lf" "$TO_A3" srun --jobid="$JOBID" -N2 --ntasks=2 --ntasks-per-node=1 --gpus-per-node=4 \
-        --distribution=block --overlap --export=ALL \
-        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
-        env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS1" \
+    echo "== 1 NIC per APU: COMM_OFI_NICS=$NICS1 (COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool via mnrun.sh)" >> "$lf"
+    exec_cmd "$lf" "$TO_A3" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$g" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
+        MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" COMM_SHMEM_POOL_MB="$pool" COMM_OFI_POOL_MB="$ofipool" \
+        "$SELF_DIR/mnrun.sh" "$g" env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS1" \
         "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
-    echo "== 2 NICs per APU (the target's form): COMM_OFI_NICS=$NICS2" >> "$lf"
-    exec_cmd "$lf" "$TO_A3" srun --jobid="$JOBID" -N2 --ntasks=2 --ntasks-per-node=1 --gpus-per-node=4 \
-        --distribution=block --overlap --export=ALL \
-        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
-        env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS2" \
+    echo "== 2 NICs per APU (the target's form): COMM_OFI_NICS=$NICS2 (COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool via mnrun.sh)" >> "$lf"
+    exec_cmd "$lf" "$TO_A3" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$g" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
+        MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" COMM_SHMEM_POOL_MB="$pool" COMM_OFI_POOL_MB="$ofipool" \
+        "$SELF_DIR/mnrun.sh" "$g" env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS2" \
         "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
 
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)";
     else summary "status: $([ $rc -eq 0 ] && echo PASS || echo 'FAIL (see log)')"; fi
     if [ "$DRY_RUN" != 1 ]; then
-        summary "  FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL"
-        local l; l=$(grep -m1 "runtime ROCm" "$lf"); [ -n "$l" ] && summary "  $l (kit chose: $TARGET_ROCM)"
+        summary "  FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL COMM_SHMEM_POOL_MB=$pool COMM_OFI_POOL_MB=$ofipool (kit chose ROCm: $TARGET_ROCM)"
         grep "t_comm bw:" "$lf" | sed 's/^/  /' >> "$SUMMARY"
+        grep -E ": pe [0-9]+ .*B per slab: .*aggregate [0-9.]+ GB/s" "$lf" | sed 's/^/  per-node (1 PE\/node) /' >> "$SUMMARY"
     fi
     summary "  full log: $lf"
     summary ""
@@ -462,18 +487,26 @@ stage_a4() {
         any_ran=1
         local digits=$((n * E10))
         local out="$TMPDIR/a4_n${n}.out"
+        # Phase S18 kit fix (results/S18KITFIX.md, bug 2): the ecalc run's own output used to go straight into the
+        # shared, appended "$lf" -- by the time a later n's block was parsed, grep/tail over that same accumulated
+        # file picked up every earlier n's "comm-mark"/"total"/VERIFY lines too (the n=8 block repeated n=2's
+        # lines ahead of its own).  Give each n its own log file and parse only that file for this n's summary
+        # lines; the per-n log is still appended into the combined "$lf" afterward so the full log on disk is
+        # unchanged for a human reading it end to end.
+        local nlf="$LOGDIR/04_a4_n${n}.log"; : > "$nlf"
         fi_defaults_for "$n"
         echo "== n=$n nodes, $digits digits total ($E10 per node), MN_COMM_MARK=1, MNRUN_MODULES=$MNRUN_MODULES MNRUN_UNLOAD=$MNRUN_UNLOAD" >> "$lf"
         exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$pre"'echo "== runtime ROCm (compute node, n='"$n"'): $(hipconfig --version 2>&1)"'
-        exec_cmd "$lf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
+        exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
             "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
+        cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
         if [ "$DRY_RUN" != 1 ]; then
             summary "  n=$n: $( [ $rc -eq 0 ] && echo PASS || echo FAIL ) (exit $rc)"
             grep -m1 "runtime ROCm.*n=$n" "$lf" | sed 's/^/    /' >> "$SUMMARY"
-            grep -E "^comm-mark|^total|VERIFY" "$lf" | tail -40 | sed 's/^/    /' >> "$SUMMARY"
+            grep -E "^comm-mark|^total|VERIFY" "$nlf" | tail -40 | sed 's/^/    /' >> "$SUMMARY"
             rm -f "$out"*
         else
             summary "  n=$n: DRY-RUN (not executed)"
