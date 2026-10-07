@@ -409,7 +409,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
  * A level whose last group is cut by the size (MN_GROUPS: 512 -> 576) counts the larger of the two group shapes.  Returns the resident
  * sum from the dm phase on (the run's largest); *tree_top: the resident sum during the tree's top level; by: the per-level terms.
  * Not in the arena request nor in any allocation: the layout reports it (BS_LAYOUT_ONLY `vslot:`, MN_PLAN_ONLY `plan vslot`,
- * MEM_REPORT_DEVS); ECALC_VSLOT_BUDGET=1 (off by default) also counts it in the node budget (binsplit_node_bytes, as_room_fits,
+ * MEM_REPORT_DEVS); ECALC_VSLOT_BUDGET (on by default since 2026-10-07) also counts it in the node budget (binsplit_node_bytes, as_room_fits,
  * ecalc.c budget_check), which can change the room / cache-fit / plane-cap decisions. */
 static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q's limbs), without the rest of the layout (no room decision) */
 {
@@ -435,7 +435,7 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = lower + top_tree;
     return lower + top;
 }
-int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 0; } return v; }   /* B7ACCT: default 0 */
+int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 1; } return v; }   /* S18 (the user, 2026-10-07): default 1; was 0 (B7ACCT) */
 size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
@@ -509,7 +509,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
     else { size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
            int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
            size_t hi = base + sb, hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0); host = hi > hd ? hi : hd; }
-    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1 (0 by default) */
+    size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET (1 by default since 2026-10-07) */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
     cN = N; cs = size; cpl = pl; cfit = (double)node <= budget;
     g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = cfit;
@@ -740,7 +740,7 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
         host = hi > hd ? hi : hd;
     } else host = BS_HOST_INIT_BYTES;
     if (planes_) *planes_ = planes; if (arena_) *arena_ = arena; if (host_) *host_ = host;
-    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1 (0 by default) */
+    return planes + arena + host + binsplit_vslot_budget_node(N, g);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET (1 by default since 2026-10-07) */
 }
 /* MS (Phase 15): BS_LAYOUT_ONLY / its plan check at a point of g node-processes set COMM_SIZE to g while the point is laid out, and
  * restore the environment's value after (g = 0).  rns_pool0_np() reads COMM_SIZE, and MN_P24=2's decision (rns_dist.c mn_p24_of)
