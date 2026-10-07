@@ -32,8 +32,15 @@
 #   env    (<1 min, no GPU, 1 node of the allocation probed):
 #            hostname list, Slurm job geometry, ROCm version, module list, fi_info -p cxi domain count.
 #   build  (3-10 min, login node or any node with the toolchain, no GPU needed):
-#            `make SHMEM_CRAY=1` for ecalc, tests/t_comm, tests/t_edge, tools/ (modules auto-detected;
-#            override with TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE / GMP_HOME).
+#            `make SHMEM_CRAY=1` for ecalc, tests/t_comm, tests/t_edge, tools/.  ROCm version is unknown ahead
+#            of time on the target, so this tries candidates in order and keeps the first that links: just
+#            $TARGET_ROCM if set, else rocm/7.2.4, rocm/7.2.3, rocm/7.0.3 (whichever are available), then any
+#            other rocm/<version> module newest first (picking blindly-newest once chose rocm/7.14.0 on aac7,
+#            which fails to link -- results/V16.md).  SMA/DSMML modules auto-detect as before; override any of
+#            the three with TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE / GMP_HOME.  The chosen set is
+#            written to $OUT/kit_modules.env; every later stage sources it and loads the same modules inside its
+#            own srun (not whatever the caller's shell happened to have), and records the ROCm actually seen on
+#            the compute node.
 #   edge   (5-10 min, 1 node, ALONE -- run first, before a3/a4 share the allocation):
 #            tests/t_edge dev then vmm (the device-memory edge, hipMalloc and VMM forms); then one e 1e9 run
 #            with MEM_REPORT_DEVS=1 (host RSS, per-APU device in-use vs driver-used, the VMM arena map rate
@@ -142,6 +149,30 @@ alloc_node_count() {   # best-effort; 0 if unknown or dry-run (never queries Slu
     squeue -j "$JOBID" -h -o %D 2>/dev/null | head -1 || echo 0
 }
 
+# ---- module handling: the chosen stack is decided once (stage_build), recorded in $OUT/kit_modules.env, and
+# every later run stage (edge, a3, a4 -- not env, which records the target's as-found default) sources it so the
+# srun'd binaries run under the same ROCm/SHMEM the build used, not whatever the caller's login shell happens to have.
+KIT_MODULES_ENV="$OUT/kit_modules.env"
+
+require_kit_modules() {   # require_kit_modules <stage> <logfile> -- sources $KIT_MODULES_ENV; 1 (stage must FAIL) if missing
+    local stage=$1 lf=$2
+    if [ -f "$KIT_MODULES_ENV" ]; then
+        # shellcheck disable=SC1090
+        . "$KIT_MODULES_ENV"
+        echo "== kit_modules.env: TARGET_ROCM=$TARGET_ROCM TARGET_SMA_MODULE=$TARGET_SMA_MODULE TARGET_DSMML_MODULE=$TARGET_DSMML_MODULE TARGET_ROCM_UNLOAD=${TARGET_ROCM_UNLOAD:-}" >> "$lf"
+        return 0
+    fi
+    echo "target_kit.sh: stage $stage: $KIT_MODULES_ENV not found -- run stage 'build' first (it writes the chosen module set) or point --out at a directory where build already ran" >> "$lf"
+    return 1
+}
+
+module_preamble() {   # the module unload/load lines to prepend inside a `bash -lc "$(module_preamble)"'...'` srun stage
+    # NB: ends with "; " (not a bare newline) -- $(...) strips trailing newlines, which would otherwise glue this
+    # straight onto the next literal word with no separator.
+    printf 'for __m in %s; do module unload "$__m" >/dev/null 2>&1; done; module load %s %s %s >/dev/null 2>&1; ' \
+        "${TARGET_ROCM_UNLOAD:-}" "$TARGET_DSMML_MODULE" "$TARGET_SMA_MODULE" "$TARGET_ROCM"
+}
+
 fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / FI_LOG_LEVEL if unset, per TGTBENCH2
     local ntasks="$1"
     local want=$(( ntasks * 4 > 4096 ? ntasks * 4 : 4096 ))
@@ -207,28 +238,93 @@ stage_build() {
         cd "$SELF_DIR" || exit 1
         : "${TARGET_ROCM:=}"; : "${TARGET_SMA_MODULE:=}"; : "${TARGET_DSMML_MODULE:=}"; : "${GMP_HOME:=}"; : "${MAKE_JOBS:=4}"
         echo "== module detection (override with TARGET_ROCM / TARGET_SMA_MODULE / TARGET_DSMML_MODULE)" >> "$lf"
-        if [ -z "$TARGET_ROCM" ]; then TARGET_ROCM=$(module -t avail rocm 2>&1 | grep -oE '^rocm/[0-9][0-9.]*' | sort -V | tail -1); fi
-        TARGET_ROCM=${TARGET_ROCM:-rocm}
         if [ -z "$TARGET_SMA_MODULE" ]; then TARGET_SMA_MODULE=$(module -t avail cray-openshmemx 2>&1 | grep -oE '^cray-openshmemx/[0-9][0-9.]*' | sort -V | tail -1); fi
         TARGET_SMA_MODULE=${TARGET_SMA_MODULE:-cray-openshmemx}
         if [ -z "$TARGET_DSMML_MODULE" ]; then TARGET_DSMML_MODULE=$(module -t avail cray-dsmml 2>&1 | grep -oE '^cray-dsmml/[0-9][0-9.]*' | sort -V | tail -1); fi
         TARGET_DSMML_MODULE=${TARGET_DSMML_MODULE:-cray-dsmml}
-        echo "TARGET_ROCM=$TARGET_ROCM TARGET_SMA_MODULE=$TARGET_SMA_MODULE TARGET_DSMML_MODULE=$TARGET_DSMML_MODULE GMP_HOME=${GMP_HOME:-<system>}" >> "$lf"
-        exec_cmd "$lf" "$TO_BUILD" bash -lc "module load $TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM 2>&1; module list 2>&1"
+
+        # ROCm choice (Phase S18 fix): picking the newest rocm/x.y.z (sort -V | tail -1) used to pick rocm/7.14.0 on
+        # aac7, which FAILS to link ecalc (results/V16.md: 7.12/7.13/7.14 and rocm-new/10.0.0 all fail the same
+        # -fPIC device-link error; 7.2.4 is the newest that links).  The target's ROCm is unknown ahead of time, so
+        # try candidates in order and keep the first that actually builds: $TARGET_ROCM alone if the caller set it;
+        # else the validated list (rocm/7.2.4, rocm/7.2.3, rocm/7.0.3) in that order, filtered to what's available,
+        # then any other rocm/<version> module, newest first.
+        default_rocm=$(module -t list 2>&1 | grep -oE '^rocm/[0-9][0-9.]*|^rocm$' | tr '\n' ' ')
+        local -a rocm_candidates=()
+        if [ -n "$TARGET_ROCM" ]; then
+            rocm_candidates=("$TARGET_ROCM")
+        else
+            avail=$(module -t avail rocm 2>&1 | grep -oE '^rocm/[0-9][0-9.]*' | sort -Vu)
+            local -a validated=(rocm/7.2.4 rocm/7.2.3 rocm/7.0.3)
+            for v in "${validated[@]}"; do
+                echo "$avail" | grep -qx "$v" && rocm_candidates+=("$v")
+            done
+            for o in $(echo "$avail" | sort -Vr); do
+                already=0
+                for v in "${rocm_candidates[@]}"; do [ "$o" = "$v" ] && already=1 && break; done
+                [ $already -eq 0 ] && rocm_candidates+=("$o")
+            done
+        fi
+        [ ${#rocm_candidates[@]} -eq 0 ] && rocm_candidates=(rocm)
+        echo "TARGET_SMA_MODULE=$TARGET_SMA_MODULE TARGET_DSMML_MODULE=$TARGET_DSMML_MODULE GMP_HOME=${GMP_HOME:-<system>} default_rocm(unload list)=${default_rocm:-<none>}" >> "$lf"
+        echo "ROCm candidates (in try order): ${rocm_candidates[*]}" | tee -a "$lf"
+
         local mk_extra=(SHMEM_CRAY=1)
         [ -n "$GMP_HOME" ] && mk_extra+=("GMP_HOME=$GMP_HOME")
-        exec_cmd "$lf" "$TO_BUILD" bash -lc "module load $TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} ecalc tests/t_comm tools"
-        rc1=$?
-        exec_cmd "$lf" "$TO_BUILD" bash -lc "module load $TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} tests/t_edge"
-        rc2=$?
-        exit $(( rc1 != 0 || rc2 != 0 ))
+
+        unload_load_cmd() {   # unload_load_cmd <rocm-candidate> -- the module unload/load line, as plain text (no nested quoting)
+            printf 'for x in %s; do module unload "$x" >/dev/null 2>&1; done; module load %s %s %s' \
+                "$default_rocm" "$TARGET_DSMML_MODULE" "$TARGET_SMA_MODULE" "$1"
+        }
+
+        local -a tried=() failed=()
+        chosen=""
+        for cand in "${rocm_candidates[@]}"; do
+            tried+=("$cand")
+            echo "== trying ROCm candidate: $cand" >> "$lf"
+            if [ ${#tried[@]} -gt 1 ]; then
+                exec_cmd "$lf" "$TO_BUILD" bash -lc "cd '$SELF_DIR' && make clean"
+            fi
+            ul=$(unload_load_cmd "$cand")
+            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul; module list 2>&1"
+            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} ecalc tests/t_comm tools"
+            rc1=$?
+            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} tests/t_edge"
+            rc2=$?
+            if [ "$DRY_RUN" = 1 ]; then
+                chosen="$cand"
+                echo "[dry-run] assuming the first candidate ($chosen) builds; the rest are not tried" | tee -a "$lf"
+                break
+            fi
+            if [ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ]; then
+                chosen="$cand"
+                echo "== ROCm candidate $cand: build OK (ecalc, tests/t_comm, tests/t_edge, tools)" >> "$lf"
+                break
+            else
+                failed+=("$cand")
+                echo "== ROCm candidate $cand: FAILED (rc1=$rc1 rc2=$rc2 or a missing binary) -- trying the next candidate" >> "$lf"
+            fi
+        done
+
+        if [ -n "$chosen" ]; then
+            {
+                echo "TARGET_ROCM=$chosen"
+                echo "TARGET_SMA_MODULE=$TARGET_SMA_MODULE"
+                echo "TARGET_DSMML_MODULE=$TARGET_DSMML_MODULE"
+                echo "TARGET_ROCM_UNLOAD=\"$default_rocm\""
+            } > "$KIT_MODULES_ENV"
+            summary "  ROCm used: $chosen$([ ${#failed[@]} -gt 0 ] && echo "  (failed first: ${failed[*]})")"
+        else
+            summary "  ROCm used: none -- every candidate failed (tried: ${tried[*]})"
+        fi
+        [ -n "$chosen" ]
     )
     local rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)";
     elif [ $rc -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ]; then
         summary "status: PASS (ecalc, tests/t_comm, tests/t_edge built)"
     else
-        summary "status: FAIL (see log -- missing binary or a non-zero make)"
+        summary "status: FAIL (see log -- no ROCm candidate linked, or a missing binary)"
     fi
     summary "  full log: $lf"
     summary ""
@@ -241,22 +337,28 @@ stage_edge() {
     local lf="$LOGDIR/02_edge.log"; : > "$lf"
     summary "## Stage edge: one-node device-memory edge, VMM map rate, init footprint (t_edge runs alone, first)"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules edge "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
 
+    local pre; pre=$(module_preamble)
     local rc=0
     echo "== t_edge dev (hipMalloc), alone on the node, before anything else" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" dev "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
     echo "== t_edge vmm (hipMemCreate), alone on the node" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
     echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 -- the init footprint and VMM arena map rate" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e9.out*
 
     echo "== e $E10 (1e10) -- the single-node wall" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/ecalc" "$E10" "$TMPDIR/e10.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e10.out*
 
@@ -264,6 +366,7 @@ stage_edge() {
     else summary "status: $([ $rc -eq 0 ] && echo PASS || echo 'FAIL/PARTIAL (see log)')"; fi
     if [ "$DRY_RUN" != 1 ]; then
         local l
+        l=$(grep -m1 "runtime ROCm" "$lf"); [ -n "$l" ] && summary "  $l (kit chose: $TARGET_ROCM)"
         l=$(grep -m1 "edge in form dev" "$lf"); [ -n "$l" ] && summary "  device edge (hipMalloc, m target): $l"
         l=$(grep -m1 "edge in form vmm" "$lf"); [ -n "$l" ] && summary "  device edge (VMM, m target): $l"
         l=$(grep -m1 "VmRSS .* GB after init" "$lf"); [ -n "$l" ] && summary "  host RSS at init (m target): $l"
@@ -296,6 +399,7 @@ stage_a3() {
     local lf="$LOGDIR/03_a3.log"; : > "$lf"
     summary "## Stage a3: fabric injection, comm_ofi, 2 nodes (1 NIC/APU vs 2 NICs/APU)"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules a3 "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
     local alloc; alloc=$(alloc_node_count)
     if [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$alloc" -lt 2 ]; then
         summary "status: SKIPPED (allocation has $alloc node(s); a3 needs 2)"; summary ""; return
@@ -304,15 +408,18 @@ stage_a3() {
     fi_defaults_for 2
     export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-2560M}
     export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
+    local pre; pre=$(module_preamble)
     local rc=0
     echo "== 1 NIC per APU: COMM_OFI_NICS=$NICS1" >> "$lf"
     exec_cmd "$lf" "$TO_A3" srun --jobid="$JOBID" -N2 --ntasks=2 --ntasks-per-node=1 --gpus-per-node=4 \
         --distribution=block --overlap --export=ALL \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS1" \
         "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
     echo "== 2 NICs per APU (the target's form): COMM_OFI_NICS=$NICS2" >> "$lf"
     exec_cmd "$lf" "$TO_A3" srun --jobid="$JOBID" -N2 --ntasks=2 --ntasks-per-node=1 --gpus-per-node=4 \
         --distribution=block --overlap --export=ALL \
+        bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env COMM_TRANSPORT=shmem COMM_OFI=1 COMM_OFI_NICS="$NICS2" \
         "$SELF_DIR/tests/t_comm" --bw "$A3_THREADS" "$A3_REPS" "$A3_MAXMB" || rc=1
 
@@ -320,6 +427,7 @@ stage_a3() {
     else summary "status: $([ $rc -eq 0 ] && echo PASS || echo 'FAIL (see log)')"; fi
     if [ "$DRY_RUN" != 1 ]; then
         summary "  FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL"
+        local l; l=$(grep -m1 "runtime ROCm" "$lf"); [ -n "$l" ] && summary "  $l (kit chose: $TARGET_ROCM)"
         grep "t_comm bw:" "$lf" | sed 's/^/  /' >> "$SUMMARY"
     fi
     summary "  full log: $lf"
@@ -333,9 +441,16 @@ stage_a4() {
     local lf="$LOGDIR/04_a4.log"; : > "$lf"
     summary "## Stage a4: all-to-all scaling (MN_COMM_MARK=1), 1e10 digits/node, node counts: $NODES_A4"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules a4 "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
     local alloc; alloc=$(alloc_node_count)
     local any_ran=0 any_fail=0
     local n
+    local pre; pre=$(module_preamble)
+    # mnrun.sh's own module-loading convention (its header comments): MNRUN_MODULES / MNRUN_UNLOAD, exported here from
+    # the build's chosen stack so the ecalc that mnrun.sh launches runs under the same ROCm/SHMEM as the build (a caller
+    # override of MNRUN_MODULES/MNRUN_UNLOAD, if already set in the environment, is kept).
+    export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
+    export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
     IFS=',' read -ra counts <<< "$NODES_A4"
     for n in "${counts[@]}"; do
         if [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$n" -gt "$alloc" ]; then
@@ -347,13 +462,16 @@ stage_a4() {
         local digits=$((n * E10))
         local out="$TMPDIR/a4_n${n}.out"
         fi_defaults_for "$n"
-        echo "== n=$n nodes, $digits digits total ($E10 per node), MN_COMM_MARK=1" >> "$lf"
+        echo "== n=$n nodes, $digits digits total ($E10 per node), MN_COMM_MARK=1, MNRUN_MODULES=$MNRUN_MODULES MNRUN_UNLOAD=$MNRUN_UNLOAD" >> "$lf"
+        exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$pre"'echo "== runtime ROCm (compute node, n='"$n"'): $(hipconfig --version 2>&1)"'
         exec_cmd "$lf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
+            MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
             "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         [ $rc -ne 0 ] && any_fail=1
         if [ "$DRY_RUN" != 1 ]; then
             summary "  n=$n: $( [ $rc -eq 0 ] && echo PASS || echo FAIL ) (exit $rc)"
+            grep -m1 "runtime ROCm.*n=$n" "$lf" | sed 's/^/    /' >> "$SUMMARY"
             grep -E "^comm-mark|^total|VERIFY" "$lf" | tail -40 | sed 's/^/    /' >> "$SUMMARY"
             rm -f "$out"*
         else
