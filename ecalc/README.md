@@ -22,10 +22,12 @@ the user's decisions of 2026-09-27**: `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_
 `MN_OUT_EARLY=1`, `ECALC_ODIRECT=auto`; **Phase 15 Batch 2, the user's decisions of 2026-09-28** (main B2): `BS_ARENA_ROOM=0.16`
 (was 0), `DIST_TWREC_G=1` (was 0), `RNS_POOL1_4Q=1` (PS; it changes only `ECALC_NP=4` runs). The top set (`ECALC_CKPT_TOP`) is **off**
 by default (record timing runs); `ECALC_CHECKPOINT=1` turns on its budgeted form for development and testing. Not code defaults but
-on the **target's launch line** (`docs/TARGET.md` §4; **CURRENT: the target is 4.08 × 10¹³ digits on 576 nodes**, `ecalc 40800000000000`,
-since the user's decision of 2026-10-06 (TGT17) — set so the run fits COMFORTABLY in the target's available memory (device layout 345.29
-GB vs the 353 GB bar, node total 417.37 GB vs 480 GB; the grid step at 4.0816 × 10¹³, results/TGT17.md); raise later if the memory
-configuration is lifted; *history*: it was **5.276 × 10¹³ from the user's Batch 3 decision of 2026-09-29 to 2026-10-06** (`ecalc
+on the **target's launch line** (`docs/TARGET.md` §4; **CURRENT: the target is 3.71 × 10¹³ digits on 576 nodes**, `ecalc 37100000000000`,
+since the user's decision of 2026-10-06 ≈ 19:30 EDT (TGTBENCH2/s18-target: "3.71e13 is fine") — chosen with margin against B7ACCT's
+v-exchange-slot accounting (device layout 363.53 GB vs the 373.44 GB measured edge, 9.91 GB margin; node total 405.61 GB with v-slots
+vs 480 GB, 74.39 GB margin; results/S18TGT.md Part 1); raise later if the memory configuration is lifted; *history*: it was **4.08 × 10¹³
+for a few hours on 2026-10-06 (TGT17)** (`ecalc 40800000000000`) before B7ACCT's v-slots were counted and found it only 0.88 GB under
+the edge — it was **5.276 × 10¹³ from the user's Batch 3 decision of 2026-09-29 to 2026-10-06** (`ecalc
 52760000000000`; CAP17 found it 32.42 GB over the raw 373 GB device edge — does not fit) — **5.167 × 10¹³ was its test size**, int15k,
 2026-10-03; before that, 4.25 × 10¹³ from 2026-09-27, 23:50 EDT until P24 (the user's decision 11 of 2026-09-28), then 5.1 × 10¹³ until B3):
 **`ECALC_NP=auto`** (four primes only for the products over the three-prime bound; the decision of 2026-09-28 — it was `ECALC_NP=4`,
@@ -35,8 +37,9 @@ without FIT or `RNS_DIST_CACHE_MN=0`), `ECALC_MEM_GUARD_GB=6`, `COMM_SHMEM_ROUND
 `NTT_R3_FUSE`, `RNS_R3_MINK`. Not adopted: `DB_POOL_VMM_PAR`, `DB_POOL_VMM_EXTEND` (agent RL, not merged), E11 / `DM_BAND` (dropped
 for now), MAP's `DB_POOL_VMM_STREAM` (dropped: not merged; `ECALC_INIT_TL` stays). Every report gives two walls (D3): without and with
 the disk write. **Phase 15 Batch 3 (B3, 2026-09-29)**: defaults `MN_P24=2`, `NEWTON_DKM=1`; the target was **5.276 × 10¹³ digits**
-(`ecalc 52760000000000`) until 2026-10-06, when TGT17 (the user's decision) moved it to **4.08 × 10¹³** (`ecalc 40800000000000`;
-see the banner above). **int15j (the user's decisions of 2026-09-29)**: on the target's launch line, not defaults, **`MN_OUT_DKM_HI=1`**
+(`ecalc 52760000000000`) until 2026-10-06, when TGT17 (the user's decision) moved it briefly to **4.08 × 10¹³** (`ecalc 40800000000000`),
+then TGTBENCH2/s18-target (the same day) moved it to **3.71 × 10¹³** (`ecalc 37100000000000`), the current target — see the banner
+above. **int15j (the user's decisions of 2026-09-29)**: on the target's launch line, not defaults, **`MN_OUT_DKM_HI=1`**
 (two part files per node) and **`RNS_DIST_CACHE_PARTIAL=1`** (RESULTS §93: measured identical at 10¹¹ and at 3–4 node-processes);
 `ECALC_NP_AUTO_MIN` (MPB) stays off; new and off: `ECALC_FAST_EXIT` (the user's decision of 2026-10-03: an option, not on the launch line) and
 `DM_MN_LEAN` (int15k: the multi-node division's dead copies removed and the arena counted without them, −20 GB per node at the target, modelled;
