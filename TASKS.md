@@ -371,3 +371,32 @@ link-level constants, before any pipeline work) → E3 → E4, E5 → E6, E7, E8
    multi-agent session: E1/E2/E0 and the H-series parallelise across disjoint files.
 8. **4.3, 4.4** — document hygiene, one allocation.
 9. **PLAN §28** — the code reduction, last.
+
+---
+
+## Idea sweep of past sessions (2026-10-07)
+
+Two bounded sweeps of past transcripts (the main session and its subagents, and six
+home-directory sessions) produced the ideas below. Only ideas **not** already in §§1–7,
+PLAN, TARGET_TASKS, TARGET_WISHLIST, the decision register or S19B §5 are listed. Ideas
+that were already listed or rejected are not repeated here. Confidence in the sweep is
+low to medium: the search used greps and targeted reads, not full reads. Labels: measured
+(m), modelled (mod), assumed (assumed).
+
+| # | idea | what | claimed saving (label) | source | effort | risk | overlap / where it goes |
+|---|---|---|---|---|---|---|---|
+| S-1 | **Release v-slots after each distributed tree level** | The general-map v-exchange slots stay resident for the whole tree. Free each level's slots once its exchange is consumed (lifetime and order must keep digits identical) | −11.5 GB per node device at 576 nodes (mod, from a transcript table); not quantified at 10 nodes. Probably smaller once DC8 is in, since DC8 halves the slot size | 2026-10-06/07 (docs session, "Find the opportunities") | M | medium: needs a switch and a digits check | Overlaps **DIST_CHUNKS=8** (now default, commit 0adf205; S19B §5 #5, −13.4 GB per node, and ME26). Overlaps the tree-level tight reservations in **PLAN L1 / E2** (−51.7 GB mod at 10¹¹, 50 GB m). Size it after DC8 is measured at 10 nodes |
+| S-2 | **Division-specific overlap** (not only the reciprocal) | The division waits entirely on exchanges: 232 of 432 s at 10 nodes. S19B §5 #4 covers only the reciprocal's wait; §5 #2 covers general "other" time. The division's own overlap is not listed | up to the 232 s wait (upper bound, assumed); realistic share unknown | 2026-10-07 (docs session, candidate table B) | M (assumed) | medium | Partly listed (S19B §5 #2, #4). Sizing: the D3 `MN_WAIT_STATS` run S20 (main session's note; see the caveat under the table). Candidate A of the E1 work in that note, not to be confused with §7 E1 (`t_primes`) |
+| S-3 | **Barrett constant division for decimal seeds** (further tuning) | Replace the compiler's constant division in the decimal seed `mul_1` path with a Barrett constant. The "further tuning still on the table" item | ≈ −10 s on one node (assumed; no measurement in the transcript) | 2026-09-17 (main session) | S | low | Child of **§2.2** and PLAN WP4 (§58, Barrett `mul_1` done, 2.6 ns/limb). Measure first with the seed-thread timers; it moves the seed wall, which 2.1 caps |
+| S-4 | **E2 fixed-slot allocator table** | If the tight-reservation layout (E2, L1) still fragments, replace the allocator with an explicit table of fixed slots | removes one 22 GB mid-phase allocation: ≈ 1.3 s at 10¹¹ (m; cost of that allocation in batch 4); memory-neutral; removes the fragmentation risk | 2026-09-24 (main session) | M | medium: layout correctness | A contingency **inside PLAN L1 / E2**, not a new line. Do not start unless the L1/E2 layout fragments. Note: the sweep's "E2" is the allocator layout, not §7 E2 (`t_cap`) |
+| S-5 | **Push-form broadcast for B** | Push instead of pull for the B tier's plane broadcast. Each APU writes its quarters to the other three; the Phase-2 bench gave 697 GB/s node-wide for the push, and B's pull ran at ≈ 51 GB/s per APU | not quantified (no model or run) | 2026-09 (S13, "not built"; date not resolved) | M | low | Overlaps **B6** (B4's transfer as a push overlapped with the transform) and **§7 H4** (xGMI push saturation). Treat as a question to answer with H4, not an item |
+| S-6 | **HIP graphs for small-dispatch tiers** | Capture repeated small launches (batch and LEAF tiers) as a graph to cut per-dispatch cost. Graphs were never tested; the note says this may lower the "fuse kernels under 30 µs" threshold | upper bound ≈ 4 µs × dispatches per run (assumed; the dispatch count is not measured). Per-dispatch cost itself is measured at 3.5–4.0 µs on the MI300A microbench (m) | undated (2fe672bd, MI300A microbench, "worth adding" table) | M | low: needs a switch; re-capture for variable sizes | Overlaps **§7 H6** (occupancy and launch configuration). Count the dispatches first (one bounded run); if the count times 4 µs is under 1 s, drop it |
+
+**Caveat on the cross-references.** The E1 "candidate A" and the `MN_WAIT_STATS` run "S20"
+named for S-2 were not found in the repo's docs at this commit. Before S-2 is sized, confirm
+that run exists. The ID E1 in §7 means `t_primes`, and E2 in §7 means `t_cap`, so the
+sweep's E-labels must be read in their own context.
+
+Not added (already listed or rejected; see the sweep reports): the squaring path, the
+reciprocal warm start, the lazy reduction, matrix cores, the RCCL all-to-all, the
+per-device remap lock and the other items already in the lists.
