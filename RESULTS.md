@@ -4566,3 +4566,46 @@ aac7 login node: signal, faulting address, backtrace, maps lines; nothing printe
   repeats: it holds ≈ 3.6 % more digits than the average (DT15) and peaks in the bs phase. The layout holds on every node in
   both runs; at the target the top node's share is the same per-node size, so this is the tightest point of the 3.71e13 plan
   (still under the layout, and the layout is 9.91 GB under the 373.44 GB device edge).
+
+## 119. S19B: profile of the 3.71e13 share, 2 → 10 nodes, the switch A/B, and the 576 projection (2026-10-07 09:52–12:11 EDT; job 12287; results/S19B.md)
+
+**Runs.** S19A profiled 6.441e10 digits/node at 2/4/6/8/10 nodes, with a 10-node repeat and a 10-node run without stats.
+S19C ran a 10-node A/B of base / `MN_T_CHUNK_MB=2048` / `DM_MN_LEAN=1` / `DIST_CHUNKS=8`: 3 rounds, fixed order, base first.
+All 19 runs VERIFY OK (m). The S19 base line lacked `DM_MN_LEAN=1`, which is on the target's launch line. Analysis was
+read-only.
+
+- **Walls (m):**
+  - totals: 202 / 283 / 412 / 363 s at 2 / 4 / 6 / 8 nodes; 10 nodes 416–522 s over 6 base-like runs (mean 462, sd 39);
+  - init (25 s), the leaf (36 s) and dc (3 s) are flat in n;
+  - the tree levels cost ≈ 30 s plus ≈ 48 s per further binary level;
+  - a division over a non-power-of-two group (n = 6, 10) costs 1.4–1.5× the n = 8 one;
+  - the stats have no measurable cost.
+- **Exchange vs other (m):**
+  - in-flight exchange per APU thread is 40 → 136–151 s from 2 to 10 nodes, an upper bound on exposed exchange; the fabric is
+    busy 95 % of that span at ≈ 10.2 GB/s per APU thread (the raw comm_ofi rate, §117);
+  - non-exchange time in the distributed phases is 94 → 215–250 s, the largest uninstrumented block;
+  - the per-exchange rate falls from ≈ 11 GB/s at g = 2 to 5.3–6.8 at g = 8–10;
+  - node fabric bytes are 2.3 → 5.7 TB per node;
+  - the reciprocal's single-node chain waits ≈ 10 s per run on average (2.28 s minimum, mean 12.4 s).
+- **Memory (m):**
+  - it is deterministic across rounds;
+  - the base top node peaks 389.1–389.6 GB vs node_with 391.49 (−1.9 to −2.4); its top APU reaches 92.3 GB driver-used;
+  - **LEAN: top node 363.2 GB (−26.2), others −8.4 GB**;
+  - **DC8: −7.0 GB on every node**, from the general-map v-slots halved (−6.87 mod);
+  - T2048: no change.
+- **576 projection (mod):**
+  - one fitted effective rate, 6 GB/s per APU, reproduces 2–10 nodes within −8.6 … +3.9 % (`aac7_s18` at 4.25: +18 … +30 %);
+  - at aac7-class fabric 3.71e13 on 576 nodes takes ≈ 737 s no-write (656–851 s for 5–7 GB/s), 56 % of it in the tree
+    levels;
+  - target standing estimate 216.5 s; ≈ 266 s with the target's rate derated by aac7's effective/raw ratio (a);
+  - the v-slots are 26.8 GB per node at 576 vs 13.8 at 10 (not O(1) in g); DC8 makes them 13.5 (−13.4 GB, device margin
+    9.9 → ≈ 23 GB).
+- **A/B verdicts** (paired Δ vs base; noise ±12 %, and the order was confounded):
+  - T2048 −91 / +49 / −139 s: promising, unproven (its two fast runs are faster than every base-like run);
+  - LEAN −59 / +18 / −70 s: time-neutral; keep it in every base;
+  - DC8 −40 / +2 / −86 s: time-neutral, memory win.
+- **Decisions for the user (results/S19B.md §7):**
+  - D1: adopt `DIST_CHUNKS=8` after a `:576` layout check;
+  - D2: an ABBA retest of T2048 over ≥ 6 rounds;
+  - D3: instrument the waiting-for-peers time and the reciprocal chain's wait;
+  - D4: refit `aac7_s18` to 6 GB/s.
