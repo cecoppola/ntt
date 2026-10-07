@@ -21,7 +21,7 @@
  * back -> inverse twiddle -> local length-C inverse on the rows; the n^-1
  * scaling is split between the two local inverse passes (R^-1 and C^-1).
  * One all-to-all per transform.  logR, logC >= 10 (the local engine's minimum).
- * M7 slab pipelining (DIST_CHUNKS, default 4; 1 = one exchange): the rank's rows are cut into K chunks of
+ * M7 slab pipelining (DIST_CHUNKS, default 8; 1 = one exchange): the rank's rows are cut into K chunks of
  * rows/K rows (>= 32), the slab buffers into K chunk regions [k][size][cols][rows/K], and each chunk is
  * exchanged as its own all-to-all on the plan's transfer stream while the compute stream works on the next:
  * forward -- the row pass and twiddle-pack of chunk k+1 under the exchange of chunk k, the unpacks of the
