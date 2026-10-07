@@ -478,9 +478,9 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
     return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
 
 def vslot_budget_on(env=None):
-    """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 0): the v-slots counted in the node budget (room, cache fit, budget check)"""
+    """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 1 since 2026-10-07 (the user); was 0): the v-slots counted in the node budget (room, cache fit, budget check)"""
     env = os.environ if env is None else env
-    return env.get('ECALC_VSLOT_BUDGET', '0') not in ('', '0')
+    return env.get('ECALC_VSLOT_BUDGET', '1') not in ('', '0')
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
