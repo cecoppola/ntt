@@ -567,6 +567,7 @@ int main(int argc, char **argv)
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
+    comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
     /* Phase 11 V / Phase 12 W: the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
@@ -615,7 +616,7 @@ int main(int argc, char **argv)
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
-            double td = mem_now();
+            double td = mem_now(); comm_wst_set_phase(WST_DM);   /* D3 */
             if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
             if (dkm_hi_on()) {                          /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
                 if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
@@ -625,6 +626,7 @@ int main(int argc, char **argv)
             newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
+            mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
