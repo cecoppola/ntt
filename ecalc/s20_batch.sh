@@ -1,21 +1,29 @@
 #!/bin/bash
-# S20: D3 wait-stats profile + D2 ABBA A/B on the 10-node hold 12331 (HOLDA2), run from aac7 home under nohup. NOT armed by its author.
+# S20: D3 wait-stats profile + D2 ABBA A/B: starts on hold 12287 while >= 35 min remain, moves to its successor 12331 (HOLDA2), run from aac7 home under nohup. NOT armed by its author.
 #   D3: 2 runs at 10 nodes x 6.441e10 digits/node (the 3.71e13 share, no write), MN_WAIT_STATS=1, config A then B.
 #   D2: 8 rounds ABBA (R1 A B, R2 B A, ...), 16 runs, no stats.  A = DM_MN_LEAN=1 (DIST_CHUNKS default 8); B = A + MN_T_CHUNK_MB=2048.
 # Outputs in ~/s20: build.log, ab.tsv, waitstats.txt, summary.txt, ALERT (on any problem), S20_DONE (SUCCESS: n bad runs of m | FAILED: ...).
 # Never cancels anything; kills only the PID rd_run started; never touches other jobs.
-export SLURM_JOB_ID=12331; J=12331; R=$HOME/ntt-acc; E=$R/ecalc; OUT=$HOME/s20
+J1=12287; J2=12331      # J1 = the running hold (build, gate, D3 while >= MIN_LEFT remains); J2 = its successor (the rest)
+R=$HOME/ntt-acc; E=$R/ecalc; OUT=$HOME/s20; MIN_LEFT=1200  # never start a 10-node run with < 20 min left on the hold
 mkdir -p $OUT/log
 alert() { { echo "$(TZ=America/New_York date) $*"; } >> $OUT/ALERT; }
 source $R/tools/rundriver.sh; rd_init $OUT S20_DONE   # (the clone's own copy; identical on main and s20)
-
-# --- wait for the hold to run: one blocking loop, 5-min steps, 3 h limit
-w=0; until [ "$(squeue -j $J -h -o %T 2>/dev/null)" = RUNNING ]; do
-  [ $w -ge 10800 ] && { alert "job $J not RUNNING after 3 h (state: $(squeue -j $J -h -o %T 2>&1))"; RD_VERDICT="FAILED: hold $J not running after 3 h"; exit 0; }
-  sleep 300; w=$((w+300)); done
-rd_say "job $J RUNNING after ${w}s wait"
-NODES=$(scontrol show hostnames "$(squeue -j $J -h -o %N)" | tr '\n' ' '); NN=$(echo $NODES | wc -w)
-[ "$NN" = 10 ] || { alert "job $J has $NN nodes, need 10"; RD_VERDICT="FAILED: $NN nodes"; exit 0; }
+# seconds left on hold $1 (0 if not running)
+left_s() { local t; t=$(squeue -j $1 -h -o %L -t R 2>/dev/null); [ -z "$t" ] && { echo 0; return; }
+  echo "$t" | awk -F'[-:]' '{n=NF; s=$n+60*$(n-1); if(n>=3) s+=3600*$(n-2); if(n>=4) s+=86400*$(n-3); print s}'; }
+# use_hold <job>: wait (5-min steps, 3 h limit) until RUNNING, then set J/NODES and check 10 nodes
+use_hold() { J=$1; export SLURM_JOB_ID=$J; local w=0
+  until [ "$(squeue -j $J -h -o %T 2>/dev/null)" = RUNNING ]; do
+    [ $w -ge 10800 ] && { alert "job $J not RUNNING after 3 h (state: $(squeue -j $J -h -o %T 2>&1))"; RD_VERDICT="FAILED: hold $J not running after 3 h"; exit 0; }
+    sleep 300; w=$((w+300)); done
+  rd_say "using job $J (RUNNING after ${w}s wait, $(left_s $J)s left)"
+  NODES=$(scontrol show hostnames "$(squeue -j $J -h -o %N)" | tr '\n' ' '); NN=$(echo $NODES | wc -w)
+  [ "$NN" = 10 ] || { alert "job $J has $NN nodes, need 10"; RD_VERDICT="FAILED: $NN nodes"; exit 0; }; }
+if [ "$(left_s $J1)" -ge 2100 ]; then use_hold $J1; else use_hold $J2; fi
+# switch to J2 when the current hold has too little time for one more run
+ensure_time() { [ "$J" = "$J2" ] && return 0; [ "$(left_s $J)" -ge $MIN_LEFT ] && return 0
+  rd_say "hold $J has $(left_s $J)s left: switching to $J2"; use_hold $J2; rd_health $J $NODES || { RD_VERDICT="FAILED: unhealthy at start of $J"; exit 0; }; }
 
 # --- no running ecalc of ours may use the binary (login node and the hold's nodes); never kill, just stop
 busy=$(pgrep -u $USER -a -x ecalc 2>/dev/null; timeout 120 srun --jobid=$J -N10 -n10 --overlap bash -c 'pgrep -u $USER -a -x ecalc' 2>/dev/null)
@@ -32,7 +40,7 @@ D=644100000000; bad=0; total=0; consec=0
 evict() { timeout 120 srun --jobid=$J -N10 -n10 --overlap bash -c 'for f in $HOME/ref/e_*; do dd if=$f iflag=nocache count=0 status=none 2>/dev/null; done; rm -f $HOME/s20/gate.txt*' >/dev/null 2>&1; sleep 5; }
 # run_one <label> <expected_s> <digits> <env words...> ; sets RUN_V RUN_T RUN_P ; returns 0 if clean
 run_one() { local l=$1 x=$2 d=$3; shift 3; total=$((total+1))
-  evict
+  ensure_time; evict
   rd_run $l $x ./mnrun.sh 10 env $LINE "$@" ./ecalc $d; RUN_RC=$?
   RUN_V=$(rd_verify $RD_LAST_LOG); RUN_T=$(grep -a -m1 '^total' $RD_LAST_LOG | cut -c1-110); RUN_P=$(rd_peaks $RD_LAST_LOG 2>/dev/null | grep -m1 'rank 0' | grep -o 'peak=[0-9.]*GB')
   rd_say "$l: rc $RUN_RC wall ${RD_LAST_WALL}s $RUN_V | $RUN_T $RUN_P"
@@ -47,7 +55,7 @@ run_one() { local l=$1 x=$2 d=$3; shift 3; total=$((total+1))
 # --- (c) correctness gate: 2 nodes, 1e9 digits, MN_WAIT_STATS=1, VERIFY + digit compare against the reference
 rd_disk $HOME 20 || { alert "home nearly full"; RD_VERDICT="FAILED: disk"; exit 0; }
 G=$OUT/gate.txt
-evict
+ensure_time; evict
 rd_run gate 300 ./mnrun.sh 2 env $LINE $CA MN_WAIT_STATS=1 ./ecalc 1000000000 $G; grc=$?
 gv=$(rd_verify $RD_LAST_LOG); gc=$($E/digcmp.sh $G $HOME/ref/e_1000000000.txt); rm -rf $G $G.*
 gw=$(grep -ac 'wait-stats' $RD_LAST_LOG)
