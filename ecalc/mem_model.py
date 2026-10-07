@@ -438,9 +438,9 @@ def vslot_shape(logR, logC, g, depth=2, chunks=4):
     return 2 * need if depth >= 2 else need
 
 def vslot_env():
-    """the switches the C function reads: COMM_ALLTOALLV_DEPTH (2), DIST_CHUNKS (4), DIST_GEN (0)"""
+    """the switches the C function reads: COMM_ALLTOALLV_DEPTH (2), DIST_CHUNKS (8), DIST_GEN (0)"""
     e = os.environ
-    return int(e.get('COMM_ALLTOALLV_DEPTH', '2') or 2), int(e.get('DIST_CHUNKS', '4') or 4), e.get('DIST_GEN', '0') not in ('', '0')
+    return int(e.get('COMM_ALLTOALLV_DEPTH', '2') or 2), int(e.get('DIST_CHUNKS', '8') or 8), e.get('DIST_GEN', '0') not in ('', '0')
 
 def mn_vslot(na, nb, g, pool_log=31, p24=None, depth=None, chunks=None, gen_forced=None):
     """rns_dist.c rns_mul_dist_mn_vslot: one product's v-slots per APU thread (bytes); 0 for a power-of-two g (ntt_dist's transform)"""
@@ -589,7 +589,7 @@ HOST_SEEDBUF = 2 * (2 << 30)                             # the two 2 GiB seed bu
 HOST_WRITER = int(0.65 * GB)                             # the writer's two 256 MB chunks + a 128 MB limb buffer
 HOST_COMM_PER_PROC = 6.0 * GB                            # measured at 10^9 sizes 2/4: VmHWM 19.3 / 18.9 GB per process (TCP buffers, the comm's pinned slabs)
 
-K_CHUNKS_MEM = 4                                         # DIST_CHUNKS: the slab pipeline's chunks per transform exchange
+K_CHUNKS_MEM = 8                                         # DIST_CHUNKS: the slab pipeline's chunks per transform exchange
 
 def host_size1(D):
     """the host HWM of a size-1 run (bytes), fitted on the measured runs (mem summary / VmHWM of the `total` line):

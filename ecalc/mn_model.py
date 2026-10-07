@@ -67,7 +67,7 @@ NODE_GB = 502.0
 NODE_GB_MARGIN = 480.0          # the safe budget (DECISIONS2 7: 480 GB)
 LIMB_DIGITS = 18                # decimal limbs (RESULTS 67)
 EC_NP = 4
-K_CHUNKS = 4                    # the slab pipeline (M7; DIST_CHUNKS)
+K_CHUNKS = 8                    # the slab pipeline (M7; DIST_CHUNKS)
 CACHE_MN_SLOTS = int(os.environ.get('MN_MODEL_CACHE_SLOTS', '2'))   # RNS_DIST_CACHE_MN default over shares (results/G.md); Phase 15 CX: MN_MODEL_CACHE_SLOTS=n prices n
                                 # slots (0: the cache off -- what the 480 GB budget allows at the target, results/TC15.md, CX15.md)
 CACHE_MODEL = os.environ.get('MN_MODEL_CACHE', 'code')   # Phase 15 CX (results/CX15.md): 'code' = the hits as the code takes them (cache_pieces: the slots'
@@ -192,11 +192,11 @@ AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-
 # 10-node, comm_ofi, no-write walls (job 12287, 2026-10-06/07: b0 721.90 s and b' 679.16 s at 8.1e11 digits, c 457.15 s at
 # 6.441e11) -- old error +10.5 / +17.5 / +41.1 %, all over (AAC7_CONSTS's NODE_SCALE/INIT_SCALE barely move it, -2.2 % tested:
 # the "exposed" fabric term, not the local-compute scale, is what is off).  AAC7_S18 = AAC7_CONSTS UNCHANGED (this calibration
-# does not touch HIDE_POW2 / GEN_HIDE / T_ROUND / MAP_RATE / NODE_SCALE / INIT_SCALE), only bw_apu refit to 4.25 GB/s per APU
+# does not touch HIDE_POW2 / GEN_HIDE / T_ROUND / MAP_RATE / NODE_SCALE / INIT_SCALE), only bw_apu refit to 6 GB/s per APU (S19B, results/S19B.md: 2-10 nodes within -8.6..+3.9 %; was 4.25, S18M)
 # thread -- the value centering the two 8.1e11 no-write walls (b0 -3.1 %, b' +3.0 %); c (a different, smaller digit count)
 # still sits at +23.5 %, better than AAC7's +41.1 % but not closed -- a residual the a4 comm-mark rates (9.4 GB/s/APU thread
 # at n=8, 14.4 at n=2: both far ABOVE 3.6 and 4.25) say is not simple injection bandwidth either; left open, see S18M.md.
-AAC7_S18 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX, S18M 10-node comm_ofi refit", bw_apu=4.25, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
+AAC7_S18 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX, S19B 10-node comm_ofi refit", bw_apu=6.0, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
 # TGTBENCH2 (2026-10-06, results/TGTBENCH2.md): constants MEASURED ON THE TARGET by the user (their benchmark harness, not ecalc), applied only by
 # apply_profile('target-m') (estimate.py --fabric target-m); the 'target' profile and every default stay as they are (no silent change).
 #   MAP_RATE 0.010 s/GB (m, target, A6/D4, n = 5): the harness's VMM map rate; the unit (per APU-GB as mapped by one APU, or per node-GB) is

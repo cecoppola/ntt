@@ -108,8 +108,8 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
         if (p->sbuf && p->rbuf) p->own_slabs = 2;
         else { if (p->sbuf) comm_sym_free(cm, p->sbuf); HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
     }
-    /* M7: K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 4); 1 over the synthetic communicator */
-    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 4;
+    /* M7: K chunks of rows/K >= 32 rows (a power of two; DIST_CHUNKS, default 8); 1 over the synthetic communicator */
+    int K = getenv("DIST_CHUNKS") ? atoi(getenv("DIST_CHUNKS")) : 8;
     if (K < 1 || cm->inflight == 0) K = 1;
     while (K > 1 && (K & (K - 1))) K--;
     while (K > 1 && p->rows / K < 32) K >>= 1;
