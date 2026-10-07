@@ -4552,8 +4552,8 @@ aac7 login node: signal, faulting address, backtrace, maps lines; nothing printe
   (03:04) and 29 (03:08) aborted at startup: libfabric cxi `Unable to allocate CMDQ, ret: -28` → `fi_enable(endpoint)` −262 → LIBSMA
   abort, on x9000c1s0b0n0 and x9000c1s1b1n0 — the two nodes where a late-returning agent was running its own comm_ofi `t_comm`
   tests in the same hold at that moment (its leftover `t_comm` is what the health check then flagged). Clean relaunch (~/s18p2b):
-  **20 of 20 rc 0 VERIFY OK** (60–81 s). Tally since the one unexplained segfault of 21:13 EDT (§116): **0 crashes in 52 clean
-  10-node runs** (8 A/B + 4 S18 10-node + 27 + 20 soak, less the 2 contaminated), so that segfault stays a rare, unreproduced event;
+  **20 of 20 rc 0 VERIFY OK** (60–81 s). Tally since the one unexplained segfault of 21:13 EDT (§116): **0 crashes in 59 clean
+  10-node runs** (8 A/B + 4 S18 10-node + 27 + 20 soak; the 2 contaminated runs excluded), so that segfault stays a rare, unreproduced event;
   the trace switch is ready for the next one.
 - **Lesson (relevant to the target):** two comm_ofi/SHMEM processes on the same node exhaust the NIC's CXI command queues (−28,
   the same errno class as the target's original `fi_enable(-28)`, WISHLIST §0.1). One process per node, as the launch line has it,
