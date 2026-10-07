@@ -4521,4 +4521,48 @@ only watched done-markers, not live progress — `tools/rundriver.sh` (in progre
 
 **Model calibration** (`mn_model.AAC7` checked against b0/b′/c's no-write walls, a new `aac7_s18` profile): results/S18M.md.
 
-§117: the comm_ofi fall-off sweep (pending).
+## 117. The comm_ofi fall-off sweep on aac7, 2 → 10 nodes (2026-10-07 01:43–01:47 EDT; job 12287)
+
+`tests/t_comm --bw 4 5 256` through `mnrun.sh` (COMM_OFI=1, one NIC per APU, `COMM_SHMEM_POOL_MB=4608 COMM_OFI_POOL_MB=1280`),
+3 repetitions, packed (consecutive hold nodes) vs spread (alternating chassis slots). Aggregate per node at 16 MiB slabs, the mean
+of the PEs, median of 3 (**measured**):
+
+| nodes | packed GB/s | spread GB/s |
+|---|---|---|
+| 2 | 25.8 | 26.0 |
+| 4 | 42.2 | 38.1 |
+| 6 | 39.0 | 44.0 |
+| 8 | 39.0 | 45.4 |
+| 10 | 39.1 | — |
+
+**No fall-off from 4 to 10 nodes** (38–45 GB/s per node; 2 nodes have one peer), and no consistent placement effect — as OFI17's
+44–48 GB/s, against SHMEM's one-NIC 19.8 → 11.7 GB/s over the same range (§106). Caveat: at ≥ 4 nodes each run then stopped with
+rc 6 at the larger slabs — the 1280 MiB comm_ofi pool (the kit's 2-node a3 sizing) cannot hold a 1024 MiB block at ≥ 4 peers; the
+16 MiB figures above completed before it. A future sweep should size `COMM_OFI_POOL_MB` by the node count. (A second, stray copy
+of this sweep was later re-armed by a late agent into the same directory; its output is not used here — see §118.)
+
+## 118. Phase 2: crash soak, uneven group steps, the 3.71e13-share rerun — and a CXI queue collision (2026-10-07 02:30–04:07 EDT; job 12287)
+
+First driver built on `tools/rundriver.sh` (watchdog) with `ECALC_SEGV_TRACE=1` (both merged at c582b92; the trace was tested on the
+aac7 login node: signal, faulting address, backtrace, maps lines; nothing printed with the switch off). Launch flags on
+(`FI_UNIVERSE_SIZE=4096 FI_LOG_LEVEL=warn`). All **measured**.
+
+- **Gate** (twice): t_mul, t_newton, e9 identical to the reference.
+- **Crash soak, 10 nodes × 10¹¹ digits, no write:** first driver (~/s18p2) runs 1–24 and 26–28 rc 0 VERIFY OK (60–80 s); runs 25
+  (03:04) and 29 (03:08) aborted at startup: libfabric cxi `Unable to allocate CMDQ, ret: -28` → `fi_enable(endpoint)` −262 → LIBSMA
+  abort, on x9000c1s0b0n0 and x9000c1s1b1n0 — the two nodes where a late-returning agent was running its own comm_ofi `t_comm`
+  tests in the same hold at that moment (its leftover `t_comm` is what the health check then flagged). Clean relaunch (~/s18p2b):
+  **20 of 20 rc 0 VERIFY OK** (60–81 s). Tally since the one unexplained segfault of 21:13 EDT (§116): **0 crashes in 52 clean
+  10-node runs** (8 A/B + 4 S18 10-node + 27 + 20 soak, less the 2 contaminated), so that segfault stays a rare, unreproduced event;
+  the trace switch is ready for the next one.
+- **Lesson (relevant to the target):** two comm_ofi/SHMEM processes on the same node exhaust the NIC's CXI command queues (−28,
+  the same errno class as the target's original `fi_enable(-28)`, WISHLIST §0.1). One process per node, as the launch line has it,
+  is required; drivers must never overlap network programs on a node.
+- **Uneven group steps (10¹⁰ digits per node, no write):** 9 nodes default schedule 80 s, 9 nodes `MN_GROUPS=3,9` (general map at
+  level 1) 60 s, 10 nodes `MN_GROUPS=4,10` (the cut-group branch: level 2 "3 children of 4" = 4+4+2) 80 s — **all VERIFY OK**.
+  This is the first run of a non-dividing step (B7ACCT open item 4; the target's 192 → 576 is the dividing case, 3 × 192).
+- **The 3.71e13 share rerun (10 nodes × 6.441e10, no write):** 440 s VERIFY OK (457.15 s in §116); rank 0 peak 389.40 GB vs the
+  layout's node_with 391.49 GB (**−2.09 GB**; §116 −1.79), ranks 1–9 362.8–363.2 GB (≈ −28.4). The top node's thin margin
+  repeats: it holds ≈ 3.6 % more digits than the average (DT15) and peaks in the bs phase. The layout holds on every node in
+  both runs; at the target the top node's share is the same per-node size, so this is the tightest point of the 3.71e13 plan
+  (still under the layout, and the layout is 9.91 GB under the 373.44 GB device edge).
