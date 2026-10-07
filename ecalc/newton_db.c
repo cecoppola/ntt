@@ -862,8 +862,11 @@ static void mn_prod_cut_x1(mdb *C, const mdb *A, const mdb *B, mn_group *G, size
     if (C->sh.cap) db_free(&C->sh);
     *C = Cs;
 }
+static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G);
+/* D3: the reciprocal's waits are their own phase (MN_WAIT_STATS) */
+static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G) { int pp = comm_wst_set_phase(WST_RECIP); recip_mn_body(mu, Q, k, G); comm_wst_set_phase(pp); }
 /* the reciprocal mu of Q (k + 1 limbs) over G: the single-node chain up to the split precision, then the sharded steps */
-static void recip_mn(mdb *mu, const mdb *Q, size_t k, mn_group *G)
+static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
 {
     double t0 = mem_now();
     nv_init();

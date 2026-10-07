@@ -77,8 +77,16 @@ struct comm { const struct comm_ops *ops; void *priv; int rank, size; int inflig
 static inline int  comm_rank(comm *c) { return c->rank; }
 static inline int  comm_size(comm *c) { return c->size; }
 static inline void comm_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s) { c->ops->alltoall(c, sb, rb, bytes, s); }
-static inline void comm_wait(comm *c) { c->ops->wait(c); }
-static inline void comm_barrier(comm *c) { c->ops->barrier(c); }
+/* D3 (MN_WAIT_STATS=1, default off; comm_util.c): the time each call blocks -- the barrier (the peers' skew) and comm_wait
+ * (the exchanges' completion, transfer plus skew), per phase.  comm_wst_on: -1 unread, 0 off, 1 on: off costs one flag test. */
+enum { WST_OTHER, WST_BS, WST_DM, WST_RECIP, WST_NP };
+extern int comm_wst_on;
+void comm_wst_wait(comm *c); void comm_wst_barrier(comm *c);
+int comm_wst_set_phase(int p);                       /* returns the previous phase */
+int comm_wst_enabled(void);
+void comm_wst_totals(uint64_t ns[WST_NP][2], uint64_t n[WST_NP][2]);   /* [phase][0 barrier, 1 wait]: ns summed over the threads */
+static inline void comm_wait(comm *c) { if (comm_wst_on != 0) comm_wst_wait(c); else c->ops->wait(c); }
+static inline void comm_barrier(comm *c) { if (comm_wst_on != 0) comm_wst_barrier(c); else c->ops->barrier(c); }
 static inline size_t comm_allreduce_max(comm *c, size_t v) { return c->ops->allreduce_max(c, v); }
 static inline void comm_destroy(comm *c) { c->ops->destroy(c); }
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);   /* comm_util.c: the transport's op or the all-to-all fallback */
