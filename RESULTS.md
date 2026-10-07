@@ -4478,3 +4478,47 @@ as applying to a stale or different configuration (the arithmetic of the 421.5 G
   rate" (TGTBENCH2 measured **MAP_RATE 0.010 s/GB on the target itself**, used by `--fabric target-m`; TGT17's prior aac7-only
   estimate used 0.070), and the target's actual ROCm version — estimates keep **both** the 7.0.3 and 7.2.4 rows rather than
   assume one.
+
+## 116. S18 runs on aac7, 2026-10-06/07 (job 12287; results/S18M.md)
+
+**The 21:13 EDT segfault** (rank 3, x9000c1s3b0n0, `srun: error: ... task 3: Segmentation fault (core dumped)`, during the
+first 10-node 8.1e11 LINE10 run, right after the 8-node layered self-test's rank-29..31 checks finished OK) — no backtrace
+available (root-only core, no gdb on the node). Nodes came back clean after killing by PID; no other rank showed anything
+abnormal. **The A/B crash test that followed (10 × 10 nodes, 1e11, 150–155 s each, all VERIFY OK) came back 0/4 crashes vs
+0/4 crashes — inconclusive, flags kept as default (B).** Counting every run attempt after the segfault (A1–A4/B1–B4 = 8, the
+10-node (a)/(b)/(b')/(b0)/(c) series = 5, the kit rehearsal's stages and sub-runs, pre- and post-fix = 7): **0 further
+segfaults in ≈ 20 runs.** Two non-segfault failure modes did occur and are under "lessons" below (NFS ENOSPC, a driver
+SIGTERM on a write timeout) — neither is a crash of the compute.
+
+**The three 10-node 8.1e11/6.441e11-digit runs with the flags** (`FI_UNIVERSE_SIZE=4096 FI_LOG_LEVEL=warn`, `MNRUN_FI_DEFAULTS=1`):
+run **(a)** 1259.28 s, VERIFY OK, written to NFS — peaks 406–424 GB vs the b3a layout's 434.44 GB/node (margins -10 to -28
+GB). Run **(b)** (same config, no output-write bug yet applied) **finished computing** and was writing parts to NFS when the
+driver's 1280 s hard timeout (1× expected wall, not 2×) SIGTERM'd it mid-write — **not a compute failure**; the write itself
+measured ≈ 34 MB/s/node on the 95%-full NFS home (an 18 GB part in 530–543 s). With no-write adopted for all further 10-node
+runs: **(b′)** `ECALC_VSLOT_BUDGET=1`, 679.16 s, VERIFY OK, vs **(b0)** (budget off) 721.90 s, VERIFY OK — both at 8.1e11;
+budget peaks 428.4 vs 414.7 of 480 GB — **no measurable cost from the switch** (aac7 walls vary ±25% between jobs at
+identical config, so the 6.3% gap between b′ and b0 is noise, not signal). **(c)** 6.441e11 digits (the 3.71e13/576 target's
+per-node share), no write: 457.15 s, VERIFY OK; rank 0 peak 389.70 vs layout 391.49 GB (**-1.79 GB, the tightest margin seen
+in this family**), ranks 1–9 ≈ -28 GB each.
+
+**Kit rehearsal** (`target_kit.sh`, `~/s18ab3/kit`): stage **env** PASS; stage **build** PASS (rocm/7.2.4); stage **edge**
+(one node, 1e10 digits) PASS, VERIFY OK, 27.32 s / 25.43 s between the two rehearsal passes — device and VMM edges both
+400.0 GB (the kit's test cap), VMM map rate 0.2542 s/GB per APU-GB or 0.2039 s/GB per node-GB (both forms reported, the unit
+still unsettled per TGTBENCH2 Q5). Stage **a3** (2 nodes, fabric injection) **FAILED on the first rehearsal pass** (a
+config bug, not a crash) and **PASSED after the three kit bugs were fixed (commit ef22f22)**: 1 NIC/APU (`COMM_OFI_NICS=0;1;2;3`)
+peaks at 25.71–25.73 GB/s/thread aggregate (23.17–26.61 at 4 MiB messages) vs 2 NICs/APU (`0,1;1,2;2,3;3,0`) at 26.35–27.45
+GB/s/thread aggregate at the same sizes — a small (≈ 2–6%) gain on aac7's 1-NIC-per-APU hardware, confirming the mechanism
+works for the target's real 2-per-APU form without yet showing a large win here. Stage **a4** (`MN_COMM_MARK=1`, 1e10
+digits/node): n=2 total 74.37 s (tree level 1 11.52, reciprocal 12.66, division 17.93 GB/s per APU thread), n=8 total
+128.06 s (tree level 1 3.03, level 2 14.79, level 3 11.00, reciprocal 9.14, division 10.83 GB/s per APU thread) — both
+VERIFY OK on every node.
+
+**Lessons:** NFS home at 95–96% full and slow — the kit driver's own rule from here on is no digit-output writes on any
+10-node run (write phases exposed separately, run (a)/(c) excluded by design); the false `DIFFERS` on run (a)'s 1e11-prefix
+check was `unpack_digits` hitting ENOSPC writing an ASCII copy, not a digit mismatch; two driver timeouts (run (b)'s SIGTERM,
+s18ab2's SIGKILL) were both write-phase/NFS-rate issues, not compute failures; the coordinator's monitoring gap that night
+only watched done-markers, not live progress — `tools/rundriver.sh` (in progress on branch `s18-w`) is meant to close that.
+
+**Model calibration** (`mn_model.AAC7` checked against b0/b′/c's no-write walls, a new `aac7_s18` profile): results/S18M.md.
+
+§117: the comm_ofi fall-off sweep (pending).

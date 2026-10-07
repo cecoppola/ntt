@@ -188,6 +188,15 @@ TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, gr
 # `estimate.py --fabric aac7` (or MN_MODEL_PROFILE=aac7) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
 # every default stay as they are.
 AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
+# S18M (2026-10-07, results/S18M.md): AAC7 (bw_apu=3.6, C16's 2-node SHMEM put-path measurement) checked against three real
+# 10-node, comm_ofi, no-write walls (job 12287, 2026-10-06/07: b0 721.90 s and b' 679.16 s at 8.1e11 digits, c 457.15 s at
+# 6.441e11) -- old error +10.5 / +17.5 / +41.1 %, all over (AAC7_CONSTS's NODE_SCALE/INIT_SCALE barely move it, -2.2 % tested:
+# the "exposed" fabric term, not the local-compute scale, is what is off).  AAC7_S18 = AAC7_CONSTS UNCHANGED (this calibration
+# does not touch HIDE_POW2 / GEN_HIDE / T_ROUND / MAP_RATE / NODE_SCALE / INIT_SCALE), only bw_apu refit to 4.25 GB/s per APU
+# thread -- the value centering the two 8.1e11 no-write walls (b0 -3.1 %, b' +3.0 %); c (a different, smaller digit count)
+# still sits at +23.5 %, better than AAC7's +41.1 % but not closed -- a residual the a4 comm-mark rates (9.4 GB/s/APU thread
+# at n=8, 14.4 at n=2: both far ABOVE 3.6 and 4.25) say is not simple injection bandwidth either; left open, see S18M.md.
+AAC7_S18 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX, S18M 10-node comm_ofi refit", bw_apu=4.25, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
 # TGTBENCH2 (2026-10-06, results/TGTBENCH2.md): constants MEASURED ON THE TARGET by the user (their benchmark harness, not ecalc), applied only by
 # apply_profile('target-m') (estimate.py --fabric target-m); the 'target' profile and every default stay as they are (no silent change).
 #   MAP_RATE 0.010 s/GB (m, target, A6/D4, n = 5): the harness's VMM map rate; the unit (per APU-GB as mapped by one APU, or per node-GB) is
@@ -200,16 +209,17 @@ TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
 TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
-PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M}
+PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
-    Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target)."""
+    Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target).
+    S18M: 'aac7_s18' = AAC7_S18 (bw_apu refit on 10-node comm_ofi), AAC7_CONSTS applied exactly as for 'aac7' (unchanged)."""
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
     name = (name or 'target').lower()
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m)' % name)
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m, aac7_s18)' % name)
     if name == 'target-m':
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
-    if name == 'aac7':
+    if name in ('aac7', 'aac7_s18'):
         c = AAC7_CONSTS; e = os.environ
         if 'MN_MODEL_HIDE_POW2' not in e: HIDE_POW2 = c['HIDE_POW2']
         if 'MN_MODEL_GEN_HIDE1' not in e: GEN_HIDE_DEPTH[1] = c['GEN_HIDE1']
