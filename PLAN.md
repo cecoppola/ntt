@@ -1,5 +1,10 @@
 # PLAN.md — the single plan for `~/ntt`
 
+> **HISTORICAL.** Covers the bench suite, the paper reproduction and the design phases through 2026-10-03 (Phase
+> 17 was in progress). Superseded as the current state-of-record by `docs/code/00_OVERVIEW.md` (algorithm, defaults,
+> "where the truth lives") and `RESULTS.md` (the measurement log, now through §118). Kept below as the phase-by-
+> phase plan and status log; the body is not edited.
+
 One file for everything: the MI300A microbenchmark suite, the reproduction of
 the *e*-to-40-billion paper, and the path from there to `~/ntt`'s own design.
 Supersedes the earlier `PLAN.md` (suite only) and `EPAPER_PLAN.md`. Edit in
