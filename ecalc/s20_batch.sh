@@ -25,7 +25,6 @@ busy=$(pgrep -u $USER -a -x ecalc 2>/dev/null; timeout 120 srun --jobid=$J -N10 
 cd $R && git fetch -q && git checkout -q s20 && git pull -q --ff-only && rd_say "ntt-acc $(git rev-parse --short HEAD) on $(git rev-parse --abbrev-ref HEAD)" || { alert "git fetch/checkout/pull s20 failed"; RD_VERDICT="FAILED: git"; exit 0; }
 cd $E && source aac7env.sh >/dev/null 2>&1 && make SHMEM_CRAY=1 > $OUT/build.log 2>&1 || { alert "build failed, see $OUT/build.log: $(tail -5 $OUT/build.log)"; RD_VERDICT="FAILED: build"; exit 0; }
 rd_say "build OK"
-source $R/tools/rundriver.sh   # re-source (now the s20 copy)
 
 LINE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 COMM_OFI_PLAN_CXI=1"
 CA="DM_MN_LEAN=1"; CB="DM_MN_LEAN=1 MN_T_CHUNK_MB=2048"      # later assignment wins in env(1); DIST_CHUNKS deliberately unset (default 8)
