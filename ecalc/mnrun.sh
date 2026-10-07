@@ -52,6 +52,15 @@ export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}   
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
 for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 if [ "$COMM_TRANSPORT" = shmem ]; then
+    # s18-target Part 2 (TGTBENCH2 L2, docs/TARGET.md §4; the user: "use the flags that optimize performance but allow us to
+    # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.
+    # FI_UNIVERSE_SIZE: comm_ofi opens its AVs at the provider's default count (comm_ofi.c:157) and inserts every
+    # communicator's member -- the user's target rule ">= 4 x ntasks" (576 -> 2304; their largest tested value was 4096, kept
+    # as the floor so a small run still gets their tested size). FI_LOG_LEVEL=warn: cuts libfabric's output ~1000x (the
+    # user's L2). Both default with ${VAR:-...}, so a site's own exported value (or a different system's) is never shadowed.
+    export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * P > 4096 ? 4 * P : 4096))}
+    export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
+    echo "mnrun.sh: FI_UNIVERSE_SIZE=$FI_UNIVERSE_SIZE FI_LOG_LEVEL=$FI_LOG_LEVEL"
     # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
     # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
     # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
@@ -108,6 +117,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         # registered as SOS's external heap (results/S12.md).  SOS's internal heap is only its own bookkeeping then.
         if [ "${COMM_SHMEM_DEVHEAP:-0}" != 0 ]; then export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-64M}; else export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}; fi
         export FI_PROVIDER=${FI_PROVIDER:-sockets} SHMEM_OFI_PROVIDER=${SHMEM_OFI_PROVIDER:-sockets} SHMEM_DISABLE_ASLR_CHECK=1
+        echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE (pool $POOL MiB + 512, unless COMM_SHMEM_DEVHEAP)"
         exec srun --jobid="$SLURM_JOB_ID" --mpi=pmi2 -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
@@ -116,11 +126,13 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
         export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
         export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
+        echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
         exec srun --jobid="$SLURM_JOB_ID" -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
     export SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
     export OMPI_MCA_memheap_base_max_segments=${OMPI_MCA_memheap_base_max_segments:-64}
+    echo "mnrun.sh: SHMEM_SYMMETRIC_HEAP_SIZE=$SHMEM_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
     exec srun --jobid="$SLURM_JOB_ID" --mpi=pmix -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
          bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec setarch x86_64 -L "$@"' _ "$@"
 fi
