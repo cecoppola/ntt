@@ -1,5 +1,10 @@
 # ALGORITHM.md — master guide
 
+> **HISTORICAL.** Covers the single-node design, 2026-09-13 to 09-17, before the NTT kernels, the multi-node
+> transport and the 576-node target existed. Superseded by `docs/code/00_OVERVIEW.md` (current algorithm, map,
+> defaults) and `docs/code/01_ARITHMETIC.md` / `02_PIPELINE_MEMORY.md` (the current implementation). Kept below as
+> the original design record; the body is not edited.
+
 Computing **e** to the maximum number of decimal digits on one node of
 4 × AMD Instinct MI300A.
 

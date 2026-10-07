@@ -1,5 +1,10 @@
 # The design choices open after Phase 11 — explained, with costs and benefits
 
+> **HISTORICAL.** The choices open after Phase 11 (2026-09-21); closed by measurement in Phase 12 (see
+> DECISIONS3.md's opening note). Superseded by `docs/code/05_DECISION_REGISTER.md`, which carries every decision's
+> current status. Note the superseded claim about multi-NIC SHMEM contexts (00_OVERVIEW §5, row "PLAN §25,
+> DECISIONS2 §4"). Kept below as the historical record; the body is not edited.
+
 State: `main` @ ef4c717 (RESULTS §76). One node: 4 × 10¹⁰ in 81.5 ± 1.4 s / 11.7 GB
 host; 7 × 10¹⁰ in 153.5 s; 10¹¹ in 262.9 s at 445 GB of 502, no memory mapped inside
 any phase. Multi-node: SHMEM transport, transform balanced at any group size, models

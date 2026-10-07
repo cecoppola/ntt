@@ -1,5 +1,10 @@
 # What is open after Phase 12 — the remaining choices, with costs and benefits
 
+> **HISTORICAL.** What was open after Phase 12 (2026-09-22), including the then-modelled 576-node estimate
+> (≈ 3.9 × 10¹³ digits, ≈ 4.0 min) — long superseded (the target is now 3.71 × 10¹³, `docs/code/00_OVERVIEW.md`).
+> Superseded by `docs/code/05_DECISION_REGISTER.md` for decision status. Kept below as the historical record; the
+> body is not edited.
+
 State: `main` @ 3524146 (RESULTS §77). One node: 4 × 10¹⁰ digits in ≈ 81 s / 12.1 GB
 host / 277–322 GB device; 8 × 10¹⁰ at 382 GB; 10¹¹ in 263 s at 445 GB of 502; nothing
 mapped inside any phase. Multi-node: SHMEM transport verified in its target forms,

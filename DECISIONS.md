@@ -1,5 +1,9 @@
 # The eleven open decisions after Phase 10 — explained
 
+> **HISTORICAL.** The eleven decisions open after Phase 10 (2026-09-20); all eleven were closed by measurement in
+> Phase 11 (see DECISIONS2.md's opening note) or later. Superseded by `docs/code/05_DECISION_REGISTER.md`, which
+> carries every decision's current status. Kept below as the historical record; the body is not edited.
+
 State of the code: `main` @ 550797e. One MI300A node computes 4 × 10¹⁰ digits of e
 in 83.0 ± 1.2 s with a host-memory peak of 11.7 GB and 217–262 GB of device memory;
 the same code has been run to 8 × 10¹⁰ digits on the node (210 s, 393 GB of the

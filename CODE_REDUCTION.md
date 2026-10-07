@@ -1,5 +1,10 @@
 # Code reduction: a recommendation for every opportunity
 
+> **HISTORICAL.** A snapshot of `ecalc/` at 2026-09-22 (13 016 lines, Phase ~13), before Phases 14–17 added
+> `comm_ofi`, the v-slot accounting, `target_kit.sh` and `tools/rundriver.sh`. Not revisited since (see
+> `docs/code/06_EVALUATION.md` §4.1 item 14). Superseded as a line-count snapshot by the current code; its
+> per-item archive/remove/merge/retain recommendations are kept below as the historical record, not re-checked.
+
 State: `ecalc/` is 13 016 lines of core C/HIP (26 units, 19 headers), 3 052 lines of tests,
 1 030 lines of Python models, 116 environment switches. Every item below was checked
 against the source — reachability, call sites, and whether two similar things share a

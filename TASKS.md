@@ -1,5 +1,10 @@
 # Outstanding tasks and opportunities
 
+> **HISTORICAL.** Covers Phase 12–13 (through 2026-09-25), before Phases 14–17 and the target work closed or
+> superseded most of these items. Superseded by `docs/code/06_EVALUATION.md` §4 (current ranked recommendations) for
+> aac6/aac7 work and `docs/TARGET_TASKS.md` for target-only work. Kept below as the historical task log; the body
+> is not edited.
+
 Consolidated from PLAN §23, §26–§28, DECISIONS3.md, CODE_REDUCTION.md and the open-issue
 sections of `results/{R,G12,I,S12,Q,W,M11}.md`. State (Phase 12, superseded by the status section below): `main` @ a73fb1d; one node computes
 4 × 10¹⁰ digits in 80.7 ± 1.2 s and 10¹¹ digits in 263 s; the regression is 21/21; the
