@@ -83,6 +83,7 @@ device such as aac6's TCP/SOS, stays on the old path with no code change needed)
 | `mn_out.h/.c` | the output stage per node: X's digits formatted and written in chunks, T1's recurrence over the node's terms, the residues and T2 windows joined over the nodes (M5) |
 | `mem.c` (`mem_report`) | the memory accounting per phase and node (M9) |
 | `mnrun.sh`, `mnaccept.sh`, `accept.sh`, `variance.sh` | the multi-process launcher, the standing regression, the Phase 4 acceptance sweep, the 4 × 10¹⁰ variance series |
+| `target_kit.sh` | S18KIT: one self-explanatory script for a target session (`-h` for usage/time estimates) — environment record, build, the one-node memory edge and VMM map rate, A3 (comm_ofi injection, 1 vs 2 NICs/APU) and A4 (all-to-all scaling with `MN_COMM_MARK`) on configurable node counts; `--dry-run` prints every command; one `KIT_SUMMARY.txt` to send back (results/S18KIT.md) |
 | `ntt3.c` | the radix-3 layer for 3·2ᵏ lengths (WP8) |
 | `ecalc.c` | driver: `./run ecalc <digits> [outfile]` (env POOL_LOG, NTT_B16_STG, PW_FUSE, RNS_CRT_LAYOUT, ECALC_VERBOSE=2 for per-level lines) |
 | `tests/` | one GMP-checked program per module; `harness.h` (VERIFY, generators, GMP bridges, META/RESULT) |
