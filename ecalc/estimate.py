@@ -200,7 +200,7 @@ def target(a, design):
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
-    for T, what in ((M.TARGET_DIGITS, "the target (TGTBENCH2/s18-target, 2026-10-06: chosen with margin against B7ACCT's v-slots -- device 363.53 GB vs the 373.44 GB measured edge)"),
+    for T, what in ((M.TARGET_DIGITS, "the target (TGTBENCH2/s18-target, 2026-10-06: chosen with margin against B7ACCT's v-slots -- device {device_gb} GB vs the 373.44 GB measured edge; the device figure is computed here, after DIST_CHUNKS=8 of 2026-10-07)"),
                     (4.0816e13, "history: the grid step just above TGT17's 4.08e13 target (arena 214.7 -> 223.3 GB)"),
                     (4.08e13, "history: the target for a few hours on 2026-10-06 (TGT17) -- superseded once B7ACCT's v-slots left only 0.88 GB of margin to the device edge"),
                     (5.276e13, "history: the target from 2026-09-29 (Batch 3) to 2026-10-06 (superseded, over the device edge, CAP17)"),
@@ -213,7 +213,7 @@ def target(a, design):
         es = [estimate(576, T / 576, a.tree, groups, f, a.rule, staging=a.staging, design=design) for b, f in fabs]
         p = M.plan(576, T, design); e = es[0]
         print("  %.3e %-44s | %5.1f s %s | %s | %3d + %2d + %2d = %3d | %5.1f (%5.1f + %4.1f; %.1f)%s" % (
-            T, what, e["nowrite_s"], "(%.2f min)" % e["nowrite_min"], " | ".join("%5.1f s (%.2f min)" % (x["wall_s"], x["minutes"]) for x in es), p["tree_max"], p["recip"], p["div"],
+            T, what.replace("{device_gb}", "%.1f" % e["device_gb"]), e["nowrite_s"], "(%.2f min)" % e["nowrite_min"], " | ".join("%5.1f s (%.2f min)" % (x["wall_s"], x["minutes"]) for x in es), p["tree_max"], p["recip"], p["div"],
             p["tree_max"] + p["recip"] + p["div"], e["node_gb"], e["device_gb"], e["host_gb"], e["shmem_pool_gb"], "" if e["fits_margin"] else "  (over 480 GB)")
             + (" [%d slot%s%s]" % (e["cache_slots"], "" if e["cache_slots"] == 1 else "s", ", + %.1f GB -> node %.1f GB%s" % (e["cache_gb"], e["node_cache_gb"], "" if e["node_cache_gb"] <= M.NODE_GB_MARGIN else ": does not fit 480") if e["cache_gb"] else "") if design is not None and design.p15b else ""))
     for TT in (M.TARGET_DIGITS, M.TARGET_BELOW):
