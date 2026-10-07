@@ -624,22 +624,27 @@ TARGET_NP = 'auto'                                      # the user's decision 1 
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/P15.md;
                                                         # ECALC_NP=4 is +17.2 GB per node over auto with RNS_POOL1_4Q); the code's default stays 3 (decimal)
-TARGET_DIGITS = 4.08e13                                 # CURRENT (2026-10-06, TGT17, the user's decision: set the digit count so the run fits COMFORTABLY in the
-                                                        # target's available memory -- device layout 345.29 GB vs the 353 GB bar (373 - 20), node total 387.37 + 30 GB
-                                                        # B7 allowance = 417.37 vs 480; the grid step is at 4.0816e13, exact, 16e9 digits above this size; raise later
-                                                        # if the memory configuration (the 373 GB/node hipMalloc edge) is lifted, results/TGT17.md).
-                                                        # history: 5.276e13 (the target from the user's decision of 2026-09-29, Batch 3, to 2026-10-06; Phase 15 TGT's
-                                                        # 2026-09-27 23:50 EDT decision was 5.1e13; room kept up to 5.396e13), 5.167e13 (int15k's second test size,
-                                                        # 2026-10-03), 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C plan (MN_PLAN_ONLY, ECALC_NP=4,
-                                                        # results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0 226, 5.12 critical 246)
-                                                        # TGTBENCH2 (2026-10-06) PROPOSED, NOT ADOPTED (the user decides): 3.76e13 -- with B7ACCT's v-slots the
-                                                        # C layout's device at 4.08e13 is 372.12 GB, 1.32 GB under the target's measured 373.44 GB edge; 3.76e13 is in
-                                                        # the largest tier <= 368 GB (367.82 GB, 3.7105 .. 3.896e13), critical path 107 pieces (step 3.769 -> 3.770e13),
-                                                        # 222.7 s vs 282.4 s modelled at --bw 47 (results/TGTBENCH2.md section 4)
-TARGET_BELOW = 3.99e13                                 # B7ACCT (2026-10-06, login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY on 576, the TGT17 launch line): the runtime one step below
-                                                        # 4.08e13 -- pieces node 0 / critical path 115 / 131 (1238 products) against 117..119 / 133 at 4.0 .. 4.08e13 (the step
-                                                        # at 3.997 -> 4.0e13; node 0 alone steps 117 -> 119 at 4.04 -> 4.05e13); the same arena tier (214.75 GB; 210.45 from
-                                                        # 3.85e13 down).  Was 4.74e13 (one step below the 2026-09-29 5.276e13 target: 202 / 226 pieces), now above the target
+TARGET_DIGITS = 3.71e13                                 # CURRENT (2026-10-06, s18-target, the user's decision 2026-10-06 ~19:30 EDT: "3.71e13 is fine", the size
+                                                        # is not important while the implementation is built) -- from results/TGTBENCH2.md section 4's lower
+                                                        # candidate (the device edge's margin over the proposed 3.76e13): login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY
+                                                        # at 576 (verified here 2026-10-06, b7-vslot aa86cac): device_with 363.526 GB vs the 373.44 GB measured
+                                                        # edge (9.91 GB under), node 378.785 / 405.612 GB with the general-map v-slots (480 budget: +74.4 GB),
+                                                        # pieces (node 0 / critical path) 103 / 107 (1236 products), `plan check` OK; estimate.py --fabric target-m
+                                                        # at this D/g: 221.9 s modelled without the output write / 225.1 s with it at --bw 47 (ROCm 7.2.4, MAP_RATE
+                                                        # 0.010 measured on the target).
+                                                        # history: 4.08e13 (TGT17, 2026-10-06, superseded by this decision -- device 372.12 GB, 1.32 GB under the
+                                                        # edge, 282.4 s mod at --bw 47), 5.276e13 (the target from the user's decision of 2026-09-29, Batch 3, to
+                                                        # 2026-10-06; Phase 15 TGT's 2026-09-27 23:50 EDT decision was 5.1e13; room kept up to 5.396e13), 5.167e13
+                                                        # (int15k's second test size, 2026-10-03), 4.25e13 (Phase 13d D2 - 2026-09-27), 4.4e13 (Phase 13c).  The C
+                                                        # plan (MN_PLAN_ONLY, ECALC_NP=4, results/TGT15/): 5.10e13 is the last size at 222 / 242 pieces (5.11 node 0
+                                                        # 226, 5.12 critical 246).  TGTBENCH2 (2026-10-06) also proposed 3.76e13 (367.82 GB device, 5.62 under the
+                                                        # edge, 222.7 s mod) as the largest layout tier <= 368 GB; the user picked 3.71e13 instead (more margin)
+TARGET_BELOW = 3.6e13                                  # s18-target (2026-10-06, login-node MN_PLAN_ONLY on 576, the TGT17 launch line; verified here): one piece
+                                                        # step below 3.71e13 in the same arena tier (206.158 GB device layout, 363.526 GB device_with v-slots, both
+                                                        # unchanged from 3.5x10^13 to 3.7104x10^13) -- pieces node 0 / critical path 101 / 107 (1236 products)
+                                                        # against 103 / 107 at 3.71e13 (the node-0 step is at 3.6160 -> 3.6180 x 10^13); the next arena tier down
+                                                        # (201.863 GB device layout) starts at 3.52 -> 3.53 x 10^13 (94 / 102 pieces at <= 3.52e13).  Was 3.99e13
+                                                        # (one step below the former 4.08e13 target)
 TARGET_NODES = 576
 VMM_DM_GROW_FILL = 16.3 * GB                            # MEASURED (RESULTS 86's paired 1e11 series, s24-16 / s24-26, ten runs with BS_SEED_FILL=128, all the same):
                                                         # the device at the dm peak 393.6 GB against 377.3 at init -- the division grows the block pool by 12.9 GB
