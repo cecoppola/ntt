@@ -30,6 +30,7 @@
 #include "memsample.h"                               /* Phase 14 S1: E1, E12 */
 #include "spill.h"                                   /* Phase 14 S1: E3 (the output file under ECALC_ODIRECT) */
 #include "fatal.h"                                   /* Phase 14 C3: ec_quit, EC_RC_BUDGET */
+#include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 #include "comm_ofi.h"                                /* B7ACCT: comm_ofi_planned (the MEM_REPORT_DEVS comm-pool term) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
 #include <pthread.h>
@@ -465,6 +466,8 @@ int main(int argc, char **argv)
         char gb[16]; snprintf(gb, sizeof gb, "%d", plan_g); setenv("COMM_SIZE", gb, 1); setenv("COMM_RANK", "0", 1);
     } else plan = 0;
     if (argc < 2 && !plan) { fprintf(stderr, "usage: ecalc <digits> [outfile]\n"); return 2; }
+    ec_segv_trace_install();                          /* s18w task 2: after COMM_RANK is known (the environment above, or the
+                                                          MN_PLAN_ONLY branch's setenv); no-op unless ECALC_SEGV_TRACE=1 */
     unsigned long d_out = plan ? plan_d : strtoul(argv[1], 0, 10), d = d_out;   /* d: the digits computed; in decimal rounded up to a multiple of 18 (the requested digits are a prefix: floor(floor(10^d' e) / 10^(d'-d)) = floor(10^d e)); d_out: written and windowed */
     const char *outfile = argc > 2 && !plan ? argv[2] : 0;
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
