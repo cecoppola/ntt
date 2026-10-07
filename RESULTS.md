@@ -4397,3 +4397,84 @@ Measured on aac7 (job 12287, after the STD17 run): a 3×3 sweep of chunk (1/4/8 
 VERIFY; ecalc 2e10 on 2 nodes identical part sha1s) at 25.7 / 24.5 vs 25.7 GB/s per node at 2 nodes: no gain on aac7 (1 NIC per APU), and the mechanism is ready
 for the target's 2 per APU (rate: target-only, WISHLIST §1.3). Standard run with all NICs (§108): 8.1e11 on 10 nodes in 1669.98 s total, 772.4 s
 without the output phase (dc 897.6 s, NFS); SHMEM 3532.05 s (≈ 3430 s without dc): ×4.4 on the computation.
+
+
+## 113. B7ACCT: the general map's v-exchange slots counted in the layout (2026-10-06; results/B7ACCT.md, branch `b7-vslot`
+c7664df..c058964)
+
+Login-node work only (aac7 `uan1`, `~/b7acct`). The general map's four-step communicator (`comm_layered.c` `y_alltoallv` /
+`y_alltoallv2`, reached only through `rns_dist.c`'s layered comm `G->lay[d]`, taken when `gen = !is_pow2(g) || DIST_GEN`) keeps
+its own v-exchange slots **resident device memory, `hipMalloc`'d beside the arena, held from the group's first general-map
+level to the run's end** (`comm_layered.c need_vslot` / `need_vtmp`, groups_finalize). Every other `comm_alltoallv` call uses the
+plain mesh `G->all[d]`, staged through the comm_ofi pools OFIMEM already counts — only the layered path's slots were missing
+from the layout.
+
+- **Formula** (`binsplit_vslot_bytes`, `mem_model.vslot_resident`): `COMM_ALLTOALLV_DEPTH=2` (the default) — two slots of
+  A + max(A, B) + 4 bytes per chunk k < K (`DIST_CHUNKS`, default 4); depth 1 — one area of 2A + B + 4. A is the intra-stage
+  receive (Σ rows), B the inter-stage receive (Σ cols); at A ≈ B ≈ q/K, two slots hold q × 8 bytes at K = 4 — one full plane per
+  APU. The v-slots the run keeps resident are the max over every general-map tree level plus the dm phase's own shape (A_h·μ
+  and Q_t·r), added per APU, ×4 for the node.
+- **`--check-c` exact** everywhere tested (0 terms not exact, largest arena difference 0.0000 %), with and without
+  `ECALC_VSLOT_BUDGET=1` (a flip test at 9.1597 × 10¹⁰ : 576 with `ECALC_NODE_GB=460` confirms the room decision moves only
+  under the switch).
+- **`ECALC_VSLOT_BUDGET`** (new switch, default **0**, off): 1 = the v-slots are also counted in the node budget
+  (`binsplit_node_bytes`'s `ECALC_BUDGET_CHECK` peak, the `RNS_DIST_CACHE_FIT` room, `as_room_fits`'s `BS_ARENA_ROOM` decision) —
+  reported (`vslot:` / `plan vslot` lines, `MEM_REPORT_DEVS`) either way. At the sizes tested here (3, 6, 10 and 576
+  node-processes) turning it on changes **no** layout or plan decision — digits are unaffected by construction, off or on.
+- **The target's margins** (the then-current 4.08 × 10¹³/576, TGT17's launch line, `DM_MN_LEAN=1`): v-slots **6.707 GB/APU =
+  26.83 GB/node** (2.873 from the 192-group level + 3.834 from the 576-group / dm phase, both resident from tree level 8 on).
+  Bar (b) (node ≤ 480 GB): 387.37 + 26.83 = 414.20 GB, **+65.80 GB margin: fits.** Bar (a) (device ≤ 353 GB): **372.12 GB,
+  −19.12 GB: FAILS** that bar, and is only +0.88 GB under the raw 373 GB `hipMalloc` edge (A6, m) — the v-slots are the first
+  term CAP17/TGT17 had not counted against the device edge. Options surveyed (modelled, unmeasured for performance): free
+  each level's slots at the level's end (360.62 GB device), `DIST_CHUNKS=8` (358.74), both together (352.96, just inside 353),
+  `DIST_CHUNKS=16` (352.64), or a lower target tier (arena 210.45 from 3.85 × 10¹³, 367.82 GB device) — the last of these is
+  what TGTBENCH2 (§115) and the user's decision (Part 1, s18-target) adopted instead of a code change.
+
+
+## 114. B7V17: the v-slot layout verified on real hardware, aac7 job 12287 (measured, 2026-10-06, from the coordinator)
+
+Three sizes on 3, 6 and 10 nodes, concurrent/sequential on job 12287, the B7ACCT layout (branch `b7-vslot`) against the measured
+device peaks. Gates first: `t_mul` OK, `t_newton` OK (620); e9 identical in both bases — the first attempt (18:21 EDT) reported a
+false `DIFFERS` (the derived 10⁹ reference lacked the trailing newline; fixed, retried 18:39 EDT, identical).
+
+| nodes | digits | wall | verify | per-APU v-slot | device_with | node_with | measured peaks (GB) | margin vs node_with |
+|---|---|---|---|---|---|---|---|---|
+| 3 | 2.43 × 10¹¹ | 1001.94 s | VERIFY OK | 2.869 GB | 373.94 GB | 414.96 GB | 395.20 / 386.70 / 387.00 | −19.76 / −28.26 / −27.96 |
+| 6 | 4.86 × 10¹¹ | 1140.04 s | VERIFY OK | 2.869 GB | 391.12 GB | 432.14 GB | 413.20, 421.00, 403.90, 403.80, 403.70, 403.90 | −18.94 … −28.44 |
+| 10 | 8.1 × 10¹¹ | 1277.87 s | VERIFY OK, RECHECK OK, 10¹¹ prefix identical | 3.444 GB | 393.42 GB | 434.44 GB | rank 0: 424.00; ranks 1–9: 405.5–406.4 | rank 0 −10.44; ranks 1–9 −28.0 … −28.9 |
+
+The 6-node run was concurrent with the 3-node run (both on job 12287). Every measured peak sits **under its node's layout**:
+the margin runs 10.44–28.9 GB, i.e. **the v-slot layout is conservative (not tight) by 10–29 GB** at every node, at every size
+tested. For scale, STD17's same-size (8.1 × 10¹¹ on 10 nodes) wall was 1669.98 s (§112) against this run's 1277.87 s — but
+same-config walls vary ±25 % between aac7 jobs (m, D16), so **this is not a speed claim** either way.
+
+
+## 115. TGTBENCH2 and the target-size / launch-flag decisions (2026-10-06; results/TGTBENCH2.md)
+
+Second round of the user's target tests, assessed item by item against the ecalc design (full detail in results/TGTBENCH2.md).
+Headline confirmations: the device edge **93.36 GB/APU = 373.44 GB/node** (A6, m, target, n = 5, 0 % spread) — already adopted
+by CAP17/TGT17/B7ACCT, now at n = 5; several of the harness's headline claims (the "251.5 s / 1.0 s" communication split, the
+managed-memory host-spill mitigation, specific C3 kernel rates, SDMA attribution) were examined item by item and **rejected**
+as applying to a stale or different configuration (the arithmetic of the 421.5 GB figure does not close against either
+576 × 373.44 or the claimed 265.4 TB; see results/TGTBENCH2.md §1 for the M2/M3/V4/C3 items individually).
+
+**Decisions the user made:**
+- **Target size: 3.71 × 10¹³ digits** (the user, 2026-10-06 ≈ 19:30 EDT: "3.71 × 10¹³ is fine" — the size is not important while
+  the implementation is built). This replaces TGT17's 4.08 × 10¹³ and sidesteps B7ACCT's device-edge failure at that size (§113)
+  without a code change: at 3.71 × 10¹³ the device layout is 363.53 GB, 9.91 GB under the 373.44 GB edge. TGTBENCH2 itself had
+  also proposed 3.76 × 10¹³ (367.82 GB, 5.62 GB under the edge, the largest layout tier ≤ 368 GB) as a faster alternative; the
+  user chose the extra margin instead. See s18-target Part 1 (this branch) for the adopted constants.
+- **Launch flags adopted as overridable `mnrun.sh` defaults** (the user: "use the flags that optimize performance but allow us
+  to adjust to a different system later"): `FI_UNIVERSE_SIZE` (≥ 4 × ntasks, fixed multi-PE `fi_enable`'s −28 failure under the
+  provider's default count) and `FI_LOG_LEVEL=warn` (cuts libfabric's log volume ~1000×) — both exported by `mnrun.sh` only
+  when unset, so a site's own profile is never shadowed (s18-target Part 2). `FI_CXI_DEFAULT_CQ_SIZE` was not proposed:
+  comm_ofi's own 8192 CQ size already passed at the target's 65 536–262 144.
+- **Rejected / not adopted:** the harness's `hipMallocManaged` host-memory spill for the device edge (ME24, PROPOSED: reject —
+  host-backed memory is 21 GB/s vs HBM's 3.2–3.8 TB/s, and 4.08 × 10¹³ already fit at 372.12 GB without it); the "251.5 s
+  compute / 1.0 s communication" split (stale configuration); the C3 kernel-rate figures and SDMA attribution as stated (not
+  reproduced against this design's own measurements).
+- **Unknowns the user could not answer**, left for this project's own target kit to measure directly rather than carried as
+  assumptions: the 28 GB unexplained device-memory gap (B7ACCT inferred ≈ 0.6 GB/APU of it), the units behind the quoted "map
+  rate" (TGTBENCH2 measured **MAP_RATE 0.010 s/GB on the target itself**, used by `--fabric target-m`; TGT17's prior aac7-only
+  estimate used 0.070), and the target's actual ROCm version — estimates keep **both** the 7.0.3 and 7.2.4 rows rather than
+  assume one.
