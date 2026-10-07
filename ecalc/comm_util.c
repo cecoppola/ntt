@@ -10,6 +10,37 @@
 #ifndef COMM_HOST_ONLY
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #endif
+/* D3: MN_WAIT_STATS=1 -- see comm.h.  Waits are timed on the outermost call only (a layered communicator's inner calls
+ * run inside the outer one); the sums are per phase, integer nanoseconds, atomic across the APU threads. */
+#include <time.h>
+#include <stdlib.h>
+int comm_wst_on = -1;
+static int wst_phase = WST_OTHER;
+static uint64_t wst_ns[WST_NP][2], wst_nn[WST_NP][2];
+static __thread int wst_depth;
+static double wst_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + 1e-9 * ts.tv_nsec; }
+int comm_wst_enabled(void) { if (comm_wst_on < 0) { const char *e = getenv("MN_WAIT_STATS"); comm_wst_on = e && atoi(e) > 0; } return comm_wst_on; }
+int comm_wst_set_phase(int p) { return __atomic_exchange_n(&wst_phase, p, __ATOMIC_RELAXED); }
+static void wst_add(int k, double t0)
+{
+    int ph = __atomic_load_n(&wst_phase, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&wst_ns[ph][k], (uint64_t)((wst_now() - t0) * 1e9), __ATOMIC_RELAXED);
+    __atomic_fetch_add(&wst_nn[ph][k], 1, __ATOMIC_RELAXED);
+}
+void comm_wst_wait(comm *c)
+{
+    if (!comm_wst_enabled() || wst_depth) { c->ops->wait(c); return; }
+    wst_depth++; double t0 = wst_now(); c->ops->wait(c); wst_add(1, t0); wst_depth--;
+}
+void comm_wst_barrier(comm *c)
+{
+    if (!comm_wst_enabled() || wst_depth) { c->ops->barrier(c); return; }
+    wst_depth++; double t0 = wst_now(); c->ops->barrier(c); wst_add(0, t0); wst_depth--;
+}
+void comm_wst_totals(uint64_t ns[WST_NP][2], uint64_t n[WST_NP][2])
+{
+    for (int p = 0; p < WST_NP; p++) for (int k = 0; k < 2; k++) { ns[p][k] = __atomic_load_n(&wst_ns[p][k], __ATOMIC_RELAXED); n[p][k] = __atomic_load_n(&wst_nn[p][k], __ATOMIC_RELAXED); }
+}
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
 {
     if (c->ops->allgather) { c->ops->allgather(c, sendbuf, recvbuf, bytes); return; }

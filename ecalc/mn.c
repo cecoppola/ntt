@@ -32,6 +32,30 @@ void mn_comm_mark(const char *what)
                             what, n - n0, (b - b0) / 1e9, t - t0, t > t0 ? (b - b0) / 1e9 / (t - t0) : 0, w - w0);
     t0 = t; b0 = b; n0 = n; w0 = w;
 }
+/* D3: MN_WAIT_STATS=1 (default off; comm.h) -- the time this node blocks in the barrier and in comm_wait, per phase: bs, dm,
+ * recip (the reciprocal inside dm) and other.  One line per node, summed over the APU threads; then node 0's max and min
+ * over the nodes (a collective on mesh 0, run by every node when on).  Reads counters only: the computation is unchanged. */
+void mn_wait_stats_print(void)
+{
+    if (!comm_wst_enabled()) return;
+    static const int ord[4] = { WST_BS, WST_DM, WST_RECIP, WST_OTHER };
+    static const char *nm[4] = { "bs", "dm", "recip", "other" };
+    uint64_t ns[WST_NP][2], n[WST_NP][2]; comm_wst_totals(ns, n);
+    printf("wait-stats node %d:", g_rank);
+    for (int i = 0; i < 4; i++) { int p = ord[i];
+        printf("%s %s barrier %.3f s (%lu) wait %.3f s (%lu)", i ? " |" : "", nm[i], ns[p][0] * 1e-9, (unsigned long)n[p][0], ns[p][1] * 1e-9, (unsigned long)n[p][1]); }
+    printf("\n");
+    if (g_size > 1) {
+        const uint64_t C = 1ULL << 50; uint64_t mx[8], mn[8]; comm *c = g_cm[0];   /* values in microseconds; min = C - max(C - v) */
+        for (int i = 0; i < 4; i++) for (int k = 0; k < 2; k++) {
+            uint64_t u = ns[ord[i]][k] / 1000; mx[2 * i + k] = comm_allreduce_max(c, u); mn[2 * i + k] = C - comm_allreduce_max(c, C - u); }
+        if (g_rank == 0) {
+            printf("wait-stats max/min over %d nodes:", g_size);
+            for (int i = 0; i < 4; i++) printf("%s %s barrier %.3f/%.3f s wait %.3f/%.3f s", i ? " |" : "", nm[i], mx[2 * i] * 1e-6, mn[2 * i] * 1e-6, mx[2 * i + 1] * 1e-6, mn[2 * i + 1] * 1e-6);
+            printf("\n");
+        }
+    }
+}
 int mn_size(void) { return g_size; }
 comm *mn_comm(int apu) { return g_size > 1 ? g_cm[apu] : 0; }
 int mn_transport_shmem(void) { return g_shmem; }
