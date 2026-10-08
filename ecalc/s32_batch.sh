@@ -13,7 +13,7 @@
 #   (d) soak  10 nodes, alternating BASE and BASE + ECALC_VMM_SAFE=$SOAK_SAFE (1), round order AB BA ..., until 30 min before the hold ends; rc 139 counted per arm; every crash raises an
 #             ALERT with the segv trace; the wall / total per arm = the A/B wall cost of VMM_SAFE.  Outputs in ~/s32: summary.txt gates.txt hostrank.txt soak.tsv soak_stats.txt meminfo.txt
 #   results.txt (digest) res/ log/ ALERT S32_DONE.  Stop early: touch ~/s32/STOP.  Never cancels anything; never touches other jobs.  Fire-and-forget.
-BUILD_REV=2a7984d
+BUILD_REV=383327a
 H1=12331; H2=12389
 HD=$(cd "$(dirname "$0")" && pwd); WT=$HOME/ntt-wt/s32; E=$WT/ecalc; OUT=$HOME/s32; S31DONE=$HOME/s31/S31_DONE
 MARGIN=1800; S=64410000000; RUN_S=450; STALL_HOST=${STALL_HOST:-x9000c1s0b1n0}; SOAK_SAFE=${SOAK_SAFE:-1}
