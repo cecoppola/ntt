@@ -15,7 +15,7 @@
 #              or after 16 rounds (S22's stop rule); every run's MEM_REPORT_DEVS peak (rd_peaks) goes to x2.tsv; mem_cmp.txt = mean peak A vs B and the pool lines of one A and one B run.
 # Outputs in ~/s31: summary.txt, gates.txt, x2.tsv, x2_stats.txt, mem_cmp.txt, results.txt (digest), res/<label>.txt, xagg/<label>.txt, log/<label>.log, ALERT, S31_DONE (SUCCESS: ... | FAILED: ...).
 #   Stop early and cleanly: touch ~/s31/STOP (between runs; also ends the wait).  Never cancels anything; never touches other jobs.  Fire-and-forget.
-BUILD_REV=e163337
+BUILD_REV=00ca629
 H1=12331; H2=12389
 HD=$(cd "$(dirname "$0")" && pwd); WT=$HOME/ntt-wt/s31; E=$WT/ecalc; OUT=$HOME/s31; S30DONE=$HOME/s30/S30_DONE
 MARGIN=1800            # keep >= 30 min of the hold unused after the last run
