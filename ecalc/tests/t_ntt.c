@@ -461,7 +461,7 @@ static int bench(int LOGMAX, const char *what)
                 int lo, hi; ntt_pass_bounds(L, ps, &lo, &hi);
                 float mf; TIME_MS(mf, 1, ntt_pass(c, dx, L, 1, 0, ps, 0));
                 sf += mf;
-                printf("   Q4 L%2d pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s\n", L, ps, lo, hi, mf, 16.0 * ((double)1 << L) / (mf * 1e-3) / 1e9);
+                printf("   Q4 L%2d pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s\n", L, ps, lo, hi, mf, 16.0 * ldexp(1.0, L) / (mf * 1e-3) / 1e9);
             }
             printf("   Q4 L%2d sum of passes: fwd %8.3f ms\n", L, sf);
             kcfg_set(&ref);
