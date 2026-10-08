@@ -24,12 +24,12 @@ while [ "$(squeue -j "$J" -h -o %T)" != RUNNING ]; do sleep 15; [ -z "$(squeue -
 T0=$(date +%s); NODEN=$(squeue -j "$J" -h -o %N); log "job $J running on $NODEN"
 N() { srun --jobid="$J" -N1 --overlap bash -c "$*" < /dev/null; }
 ref_of() { local d=$1; if [ "$d" = 40000000000 ]; then echo ~/ntt/ecalc/results/e_4e10.out; else echo ~/ntt/ecalc/ref/e_$d.txt; fi; }
-capture() {   # <name>: the state of a hung run on the node, then SIGINT (gdb prints the stacks) and, 90 s later, SIGKILL
+capture() {   # <name>: the state of a hung run on the node, then SIGINT (gdb prints the stacks) and, 90 s later, SIGTERM with a 60 s grace (SIGKILL only if still alive)
   local name=$1
   N "rocm-smi --showuse --showmemuse 2>/dev/null | grep -v '^=*$'; ps -eo pid,stat,etime,pcpu,rss,nlwp,comm | grep -w ecalc; for p in \$(pgrep -x ecalc); do echo \"== pid \$p wchan:\"; cd /proc/\$p/task && for t in *; do cat \$t/wchan 2>/dev/null; echo; done | sort | uniq -c | sort -rn; done" > "$D/${name}_capture.txt" 2>&1
   tail -40 "$D/$name.log" >> "$D/${name}_capture.txt"
   N "kill -INT \$(pgrep -x ecalc) 2>/dev/null"; sleep 90
-  N "kill -KILL \$(pgrep -x ecalc) 2>/dev/null; sleep 2; pkill -KILL -x gdb 2>/dev/null; true"
+  N 'p=$(pgrep -x ecalc); [ -n "$p" ] && kill -TERM $p 2>/dev/null; for i in $(seq 60); do pgrep -x ecalc >/dev/null || break; sleep 1; done; p=$(pgrep -x ecalc); [ -n "$p" ] && kill -KILL $p 2>/dev/null; sleep 2; pkill -KILL -x gdb 2>/dev/null; true'
 }
 GDB="gdb -q -batch -ex 'set pagination off' -ex 'set confirm off' -ex 'handle SIGUSR1 SIGUSR2 SIGPIPE nostop noprint pass' -ex run -ex 'echo ==GDB STOPPED==\\n' -ex 'info threads' -ex 'thread apply all bt 25' -ex kill --args"
 nok=0; nbad=0; nhang=0; ndiff=0; nrun=0

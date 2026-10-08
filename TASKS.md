@@ -400,3 +400,36 @@ sweep's E-labels must be read in their own context.
 Not added (already listed or rejected; see the sweep reports): the squaring path, the
 reciprocal warm start, the lazy reduction, matrix cores, the RCCL all-to-all, the
 per-device remap lock and the other items already in the lists.
+
+## a37v1 comparison (A37CMP, 2026-10-07) — accepted by the user
+
+Source: `results/A37CMP.md` (the a37v1 spec read item by item against ecalc). The user accepted the
+recommendations of its §2 shortlist on 2026-10-07 (~20:35 EDT) and rejected the §3 items (decision register §2.4).
+Labels: measured (m), modelled (mod), assumed (assumed). Run order: A37-R2 first, then A37-Q1 / Q4 / Q9 as the
+measurements their items need; A37-R1 only after both its gates.
+
+| id | what | benefit (label) | effort | gate / dependency | source |
+|---|---|---|---|---|---|
+| **A37-R2** (FIRST) | CPU microbench of a37v1's base-2^64 sub-range seed (with convert and combine) against ecalc's decimal seed loop (`bi_span_step`, 2.6 ns/limb), on 229-term spans of 128 limbs, one thread, no node | decides whether the seed can be fixed on the CPU; modelled seed 22 → 14–18 s at 6.44e10 (mod, low confidence); a37v1's leaf cost (201 us / 352 terms) suggests it may not beat ecalc (assumed) | S (½ day) | none; gates A37-R1 | A37CMP §2 R2 |
+| **A37-R1** (gated) | Revive the GPU seed kernel (TASKS 6.4 / E8 / B1; register PH9, S24): one thread or wave per 229-term span, written straight into the region arenas; CPU path kept as fallback; first a bench-only kernel reporting spans/s; behind an off-by-default switch | −7…−12 s at 576 (mod; init 20.6 s + seed wait 9.3 s today); about 0…−4 s at 10 nodes on aac7 (mod, the mapping binds there). Evidence: a37v1 N13 does 4.35e9 terms in 6 s (m, its spec §14), so 7.5e9 terms ≈ 10 s (mod, linear), against an ecalc CPU seed of ≈ 22 s (mod) | L (2–4 d) | **GATED** on A37-R2 (CPU rewrite must not already close the gap) and on A37-Q1 (one-node init timeline at 6.44e10 confirming the seed binds init). Risks: ordering against the VMM mapping; HIP calls from a second thread queue behind allocations (TASKS 6.4). Digits: exact integers, byte-identity checkable per span | A37CMP §2 R1 |
+| **A37-R4** | Profile `dc` (2.8–4.1 s, S19B) to split D2H fetch, formatting and T1 residues (Q7); if formatting, a two-digit-table `fmt18` (a37v1 formats 4e10 digits in 0.5 s, m) | ≤ −3 s per node (mod; 0 if `dc` is T1 or D2H); also speeds `tools/unpack_digits` (off the clock) | S (2 h) | none; bit-identical | A37CMP §2 R4, §4 Q7 |
+| **A37-R6** | Time the reciprocal chain per doubling for j < 34126 (`ECALC_LOG_CLOCKS`, S19B §5 #4; floor 2.28 s, m), then, if the timings show it, a one-APU (or CPU) small-j path in place of the four-APU distributed products | ≤ −2 s (mod; the 10 s mean excess is the wait already in S19B §5 #4) | S (measure), then M | pairs with D3 / S-2 (division overlap); measurement is A37-Q8 | A37CMP §2 R6, §4 Q8 |
+| **A37-R5** (LOW PRIORITY) | Batch tile pipeline: two streams, pinned descriptors, fold `k_norm` and stitch (A27_BATCH_PIPE analogue: overlap tile i's CRT/merge with tile i+1's scatter/NTT) | ≤ −2 s per node (mod: merge 0.84 s + gaps at 4e10, ×1.6) | M (1–2 d) | **needs A37-Q9** (by-phase batch-tier run at 6.44e10) before any gain is trusted | A37CMP §2 R5, §4 Q9 |
+| **A37-R9** | Ops hygiene: `ecalc/a14_soak.sh` and `ecalc/g13d_hang.sh` send SIGTERM to ecalc, wait up to 60 s, and SIGKILL only if still alive (KFD poisoning risk on a `kill -9`) | avoids a poisoned node (qualitative) | S (done 2026-10-07) | none | A37CMP §2 R9 |
+
+**Measurements** (no code change; each is a bounded run on the target's share, one job at a time):
+
+- **A37-Q1** One-node init timeline at 6.44e10 with `ECALC_INIT_TL=1` on the target. Settles whether the seed
+  thread (≈ 22 s mod) binds init at 576 nodes, or the 16.5 s reference init does. Gates A37-R1. (On aac7 it cannot
+  answer this: the mapping is slow there.)
+- **A37-Q4** NOP-modmul build of the 2^31 forward NTT (a37v1 HBM floor 51 ms; ecalc 99 ms, m) to split the remaining
+  gap into structure against modmul; also whether a WbPowTab-style twiddle seed (a37v1 #58) matters. No gate; informs
+  the NTT work only.
+- **A37-Q9** By-phase batch-tier breakdown at 6.44e10 on 10 nodes (`BS_LAYOUT` / phase timers). a37v1's batch tier is
+  21.0 s at 4e10 (m); ecalc's last full by-phase breakdown is at 9.5e10 (25.1 s, m). Gates A37-R5 (and the R7/R8
+  gains, which are scaled from 4e10 N-kernel data).
+
+**Not in this list.** Items rejected on 2026-10-07 (A37-R3, R7, R8, and the six a37v1 choices) are in the
+decision register §2.4, with the reason for each. A37-R3 stays a caution: the a37v1 pitfall (1 corrupt run in 18
+with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply to ecalc, whose runs use
+`COMM_SHMEM_DEVHEAP=1` and whose target uses `comm_ofi`.

@@ -33,7 +33,7 @@ while read -r -u 3 tag est np dg ref envs; do
       N "rocm-smi --showuse --showmemuse; ps -eo pid,stat,etime,pcpu,rss,comm | grep -w ecalc; for p in \$(pgrep -x ecalc); do cd /proc/\$p/task; for t in *; do echo \$(cat \$t/wchan); done | sort | uniq -c; done" > $D/${tag}_capture.txt 2>&1
       tail -30 $D/$tag.log >> $D/${tag}_capture.txt
       N "kill -INT \$(pgrep -x ecalc)"
-      sleep 90; N "kill -KILL \$(pgrep -x ecalc) 2>/dev/null";
+      sleep 90; N 'p=$(pgrep -x ecalc); [ -n "$p" ] && kill -TERM $p 2>/dev/null; for i in $(seq 60); do pgrep -x ecalc >/dev/null || break; sleep 1; done; p=$(pgrep -x ecalc); [ -n "$p" ] && kill -KILL $p 2>/dev/null; true';
     fi
   done
   wait $sp; rc=$?; t2=$(date +%s)
