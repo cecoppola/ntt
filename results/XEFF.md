@@ -370,3 +370,24 @@ Model values used (mod):
 | aac7_s18, 10 nodes | 6 / 7 / 8 / 10 | 435.3 / 390.3 / 356.5 / 309.3 s |
 | aac7_s18, 576 nodes | 6 / 7 / 8 / 10 | 747.6 / 666.1 / 605.0 / 519.0 s |
 | target-m, 576 nodes | 28 / 33 / 40 / 47 | 268.4 / 249.9 / 231.7 / 219.0 s |
+
+## X3 verdict (2026-10-08, M2 measured): item 4 (OFI-native signalling) is NOT worth building
+
+**Test (measured):** `t_comm --bw 4 5 256 sym`, 2 nodes (x9000c1s5b0n0, x9000c1s6b0n0 of hold 12377), host-only t_comm build, comm_ofi on (cxi), base env of §4
+(`COMM_SHMEM_DEVHEAP=1 COMM_OFI_PLAN_CXI=1`, pools 8192 MB), ABBA x3 = 6 runs per arm. Arm A = default (data writes `FI_DELIVERY_COMPLETE`); arm B = `COMM_OFI_DC=0`
+(new diagnostic on branch s29, `comm_ofi.c`: transmit-complete data writes with no delivery wait and no replacement fence, i.e. an UPPER BOUND for item 4, unsafe: the SHMEM signal may pass the data).
+Driver `ecalc/s29_m2.sh`, branch s29; logs `~/s29m2/` on aac7.
+
+| slab | DC=1 per-thread GB/s (6 runs) | DC=0 per-thread GB/s (6 runs) | lift |
+|---|---|---|---|
+| 256 MiB | 6.66 mean (6.14-7.63) | 6.67 mean (6.24-7.47) | +0.2 % |
+| 64 MiB | 6.78 mean (6.42-7.14) | 6.79 mean (6.45-7.21) | +0.1 % |
+| 16 MiB | 7.02 mean | 6.97 mean | -0.7 % |
+| aggregate 4 threads, 256 MiB | 24.9 GB/s (mean) | 24.2 GB/s (mean) | within noise |
+
+Run-to-run spread is about +-8 %; both arms scatter identically. `t_comm` VERIFY: OK on both PEs for DC=1 and also DC=0 (no data race observed, not a proof).
+
+**Gate (§3 M2: item 4 worth building if DC=0 lifts the 2-node single-peer rate >= 15 %):** measured lift 0.2 % (an upper bound, since the real item 4 adds a fenced
+8-byte write per peer). FAILS by two orders of magnitude. Delivery-complete costs nothing measurable on the bandwidth path; the 14 ms/GB "protocol term" is not the
+delivery wait. Item 4's remaining claim is only F (control words leaving cxi0 at 576 PEs), which M2 does not test and which XSTATS (item 0) can show if it matters.
+**Decision (per the gate rule): X3 not built; no s29 batch armed.** Switch `COMM_OFI_DC` (default 1 = unchanged) and `MNRUN_NODELIST` (mnrun.sh, default unset) remain on branch s29 only.
