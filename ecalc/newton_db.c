@@ -634,7 +634,7 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
                 k_mn_pack<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sb, sacc_of(&X->sh), s - (long)lo1, dp, g, SLk);
             }
             MN_HIP(hipStreamSynchronize(st));
-            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_wait(G->all[d]);
+            { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, st); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             if (anyr && cn) {
                 MN_HIP(hipMemcpyAsync(dp, hqk, g * sizeof *hq, hipMemcpyHostToDevice, st));
                 k_mn_scatter<<<mn_nblk((size_t)g * SLk), 256, 0, st>>>(sacc_of(&Yn.sh), lo2, rb, dp, g, SLk);
