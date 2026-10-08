@@ -543,6 +543,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
  * newton_db_divmod_shifted: S = P + Q, X = ((S >> (nq - 1 - dl)) mu) >> (k + 1), the window and the +/-Q
  * corrections on shares, R's residues by the sharded kernel scaled by B^lo per node and reduced over G. */
 #include <omp.h>
+#include <time.h>
 #include "mdb.h"
 #include "mn.h"
 #define MN_HIP(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
@@ -877,12 +878,37 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     /* the anchored chain from k: k, ceil(k/2), ...; the single-node part ends at the largest target <= split (or the seed's 2) */
     size_t kp = newton_mn_chain_start(k);                              /* Phase 13d L: extracted (unchanged) */
     size_t T = 2 * kp + 2 < nq ? 2 * kp + 2 : nq;                     /* the top limbs of Q the single-node part reads */
+    /* S30: NEWTON_MN_RECIP_TS=1 (print only): this node's clock at the chain's stages, one line per node (find who enters the sharded steps late);
+     * NEWTON_MN_CHAIN_BCAST=1: only node 0 runs the single-node chain and broadcasts r0 (kp + 1 limbs) -- the other nodes' r0 is bit-identical, they just no longer
+     * compute it (S27: one node was ~20 s late out of the chain in every run, the other nine idled at the first exchange) */
+    static int rts = -1, cbc = -1;
+    if (rts < 0) { rts = getenv("NEWTON_MN_RECIP_TS") ? atoi(getenv("NEWTON_MN_RECIP_TS")) : 0; cbc = getenv("NEWTON_MN_CHAIN_BCAST") ? atoi(getenv("NEWTON_MN_CHAIN_BCAST")) : 0; }
+    double tsa = mem_now(), tsb, tsc, tsd, tse = 0;
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
+    tsb = mem_now();
     bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    tsc = mem_now();
     dbig Qtop, r0; db_init(&Qtop); db_init(&r0); db_from_bi(&Qtop, &hq); bi_free(&hq);
-    recip_db2(&r0, &Qtop, 0, kp, nq);                                  /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
+    if (cbc && G->g > 1) {
+        bigint hr; bi_init(&hr);
+        if (me == 0) { recip_db2(&r0, &Qtop, 0, kp, nq); db_to_bi(&hr, &r0); }
+        tsd = mem_now();
+        uint64_t cnt = me == 0 ? hr.n : 0, *all = (uint64_t *)malloc((size_t)G->g * sizeof cnt);
+        mn_allgather(G->all[0], &cnt, 1, all); cnt = all[0]; free(all);
+        uint64_t *buf = (uint64_t *)calloc((size_t)cnt ? cnt : 1, sizeof *buf), *ga = (uint64_t *)malloc((size_t)G->g * (cnt ? cnt : 1) * sizeof *ga);
+        if (me == 0) memcpy(buf, hr.l, cnt * sizeof *buf);
+        mn_allgather(G->all[0], buf, (int)cnt, ga);                  /* rank 0's block is the chain's r0 (the others' are zeros) */
+        if (me != 0) { bi_reserve(&hr, cnt); memcpy(hr.l, ga, cnt * sizeof *ga); hr.n = cnt; db_from_bi(&r0, &hr); }
+        free(buf); free(ga); bi_free(&hr);
+        tse = mem_now();
+    } else {
+        recip_db2(&r0, &Qtop, 0, kp, nq);                              /* on every node: r ~ B^(nq + kp) / Q, kp + 1 limbs */
+        tsd = mem_now();
+    }
     db_free(&Qtop);
     double t1 = mem_now();
+    if (rts) { struct timespec rt; clock_gettime(CLOCK_REALTIME, &rt);
+        printf("recip ts node %d: wall %.3f; at run %.3f s: shift +%.3f gather +%.3f chain +%.3f bcast +%.3f%s (since this node entered recip_mn)\n", me, (double)(rt.tv_sec % 1000) + rt.tv_nsec * 1e-9, tsa, tsb - tsa, tsc - tsb, tsd - tsc, tse ? tse - tsd : 0.0, cbc && G->g > 1 ? " [chain on node 0 only]" : ""); fflush(stdout); }
     size_t j = kp;
     /* X1: the step's group.  r lives on the group of the current step (Gs, a prefix [0, 2^L) of G or G itself); Q stays
      * on G, so Q_t is cut out of Q by an exchange over G into Gs (every node takes part), the step itself runs on Gs's
