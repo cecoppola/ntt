@@ -4609,3 +4609,32 @@ read-only.
   - D2: an ABBA retest of T2048 over ≥ 6 rounds;
   - D3: instrument the waiting-for-peers time and the reciprocal chain's wait;
   - D4: refit `aac7_s18` to 6 GB/s.
+
+## 120. S20: T2048 paired A/B (8 rounds) and the MN_WAIT_STATS profile at 10 nodes (2026-10-07 18:13-21:13 EDT; holds 12287, 12331; results/S20.md)
+
+Labels: measured (m), modelled (mod), assumed (a). 10 nodes, 6.441e10 digits/node, no write; 18 runs, all VERIFY OK, digits identical. A = `DM_MN_LEAN=1` + `DIST_CHUNKS=8`; B = A + `MN_T_CHUNK_MB=2048`. Round 1 ran on 12287; rounds 2-8 on 12331; no run spanned the switch.
+
+- **D2 paired A/B (m), B - A total per round:** -92.6, +42.8, +281.3, -56.1, -34.7, -332.2, -95.3, -78.7 s.
+  - mean -45.7 s, median **-67.4 s** (-15 %), sd 170.2, t = -0.76 (p about 0.47); sign 6 of 8 negative (p 0.29); Wilcoxon p about 0.25: **not significant**;
+  - without the two fabric blow-ups (r3 B dm 536 s, r6 A dm 502 s): mean -52.4, t = -2.47 (df 5, p about 0.056), 5 of 6 negative;
+  - A: 7 of 8 runs 451.5-478.2 s (mean 457.6); B: 6 of 8 runs 359.9-416.9 s (mean 387.4) plus 498.9 and 733.6; median phases bs -23 s, dm -41 s;
+  - memory unchanged: top node 355.9-357.0 (A) vs 356.2-357.0 GB (B).
+  - **Recommendation: do not adopt as a default yet** (medium confidence the typical gain is real; the model gives no mechanism; no target evidence).
+- **DIST_CHUNKS=8 at 10 nodes (m):** LEAN + DC8 peak 355.9-357.0 GB vs LEAN 362.9-363.5: **-6.9 GB** (additive with DC8 alone, -7.0 vs base); -33 GB vs base. Time 457.6 s (7 runs) vs S19C LEAN 437.5 +- 18.1: neutral within noise (different node set).
+- **D3 wait stats (m, node sums; per thread assumes 4 APU threads):**
+  - bs wait 306 / 315 s (A / B mean; max 339.5, min 278.7 in A), dm 392 / 399 s (max 460.5, min 341.2), recip 96 / 112 s (max 102, min 91), other 8.4 / 6.5 s; barriers 0;
+  - about 200 s per thread (a), which is 43 % of bs wall and 55 % of dm+recip wall (A);
+  - skew bound from the node spread: 13-30 s per thread in dm, 7-15 in bs, about 0 in recip; the same ranks are high in both arms;
+  - it does not reproduce S19B's 215-250 s "other" block as a comm_wait wait; most of S19B's "waiting for peers" upper bound is the exchange itself (136-151 s per thread there); the rest of "other" is unresolved;
+  - **S-2 division overlap: GO on a prototype** (exposed wait about 200 s per thread against a 30 s threshold; realistic hidden share 30-60 s, assumed). A ready counter in wait_ge/wait_ne is not needed first.
+- **Decisions for the user (results/S20.md §4):** T2048 default (keep off / aac7 arm / 8 more rounds / target test); S-2 prototype now or after target fabric numbers.
+
+## 121. S21: single-node A37 measurements (2026-10-07 21:02-21:13 EDT; hold 12377 + CPX node of 12294; results/S21.md)
+
+Labels as above. All runs rc 0, VERIFY OK, gates passed. The earlier attempts (prev1 build error, prev2 false DIFFERS from a missing tools/unpack_digits) are ignored.
+
+- **A37-R2 seed microbench (m, CPX node):** correctness identical on 451 leaves x 4 schemes. One-thread ns/leaf dec18 vs b64k32: 36.3 k vs 34.1 k (rank 0, 10 nodes), 35.1 k vs 35.4 k (rank 5), 36.4 k vs 33.9 k (576, rank 0), 30.5 k vs 35.3 k (576, rank 288): ratio 0.86-1.07, **no CPU gain**. Projected seed (1t x nspan / 192) 4.3-5.2 s, but the all-core wall scaled to nspan is 9-15 s (dec18) and 6-8 s (b64k32): the 1-thread projection is 2-3x too optimistic. b64k32 time: combine 81-83 %, convert 11 %, accumulate 5 %. The A37-R1 gate stays open.
+- **A37-Q1 init timeline (m, 1 node, 6.441e10, aac7 mapping):** seed thread ends 25.5 / 24.9 s vs last mapping 27.8 / 24.0 s (they finish together; 2.3 s before and 0.9 s after); seed thread wall 18-18.9 s of which 3.1-3.3 s waiting for the pools, so about 15 s, spans 10.7 s (A37CMP's 22 s model is high by about 7 s). Target at 7x mapping (mod, low confidence): seed ends about 16-17 s vs the 16.5 s init floor: a GPU seed saves about 0-6 s, not 7-12. **No-go recommended for A37-R1**; measure `ECALC_INIT_TL=1` once on the target first.
+- **A37-R4 dc split (m):** loop 4.10 s = fetch 1.03-1.06 (26 %) + limb reversal 0.48 (12 %) + T1 digit residues 2.26 (55 %) + T2 0.32 (8 %) + writer wait 0; on-the-clock dc 0.02-0.03 s at 1 node (streamed). No ASCII formatting in the run (packed output), so **fmt18 is not worth building**.
+- **A37-R6 doublings (m):** j < 34126 total about 0.02 s; last four doublings 0.4, 0.6-1.2, 1.2-1.3, 3.8 s of a 6.9-11.2 s chain; chain start-up 4.14 s in run 1 vs 0.43 s in run 2 (cause unknown). A one-APU small-j path is not supported by this single-node data; the 10-node floor (2.28 s) needs the per-doubling clocks there (A37-Q8).
+- **A37-Q4 NTT at 2^31 (m):** forward 90.4 ms real, 76.7 ms NOP, so modmul 13.7 ms (15 %); passes (real) 24.0 / 20.8 / 19.4 / 25.8 ms, NOP 17.3 / 19.0 / 17.1 / 24.2. Split (mod, taking a37v1's 51 ms HBM floor): 51 HBM + 17 for the 4th pass + 9 structure + 14 modmul. a37v1: 144 = 51 + 50 + 43. The lever left is the extra memory pass (3-pass plan, about 17-20 ms, mod).
