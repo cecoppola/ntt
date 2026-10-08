@@ -4,6 +4,7 @@
  * The host bigint interface is kept at the phase boundary: Q (and A) are
  * copied to device once, mu / X / R come back once. */
 #include <stdio.h>
+#include <unistd.h>
 #include "fatal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -888,7 +889,12 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     tsb = mem_now();
     bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
     tsc = mem_now();
-    dbig Qtop, r0; db_init(&Qtop); db_init(&r0); db_from_bi(&Qtop, &hq); bi_free(&hq);
+    dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
+    db_init(&Qtop); db_init(&r0);
+    if (rts >= 2) { tsi1 = mem_now(); db_reserve(&Qtop, hq.n ? hq.n : 1); tsi2 = mem_now(); }   /* S32: NEWTON_MN_RECIP_TS=2: db_init / the first pool get (db_from_bi's own reserve is then a no-op) / the upload, timed apart */
+    db_from_bi(&Qtop, &hq); tsi3 = mem_now(); bi_free(&hq);
+    if (rts >= 2) { char hn[64] = "?"; gethostname(hn, sizeof hn);
+        printf("recip ts2 node %d host %s: at run %.3f s: db_init +%.4f first_pool_get(db_reserve) +%.3f db_from_bi(upload) +%.3f total +%.3f\n", me, hn, tsi0, tsi1 - tsi0, tsi2 - tsi1, tsi3 - tsi2, tsi3 - tsi0); fflush(stdout); }
     if (cbc && G->g > 1) {
         bigint hr; bi_init(&hr);
         if (me == 0) { recip_db2(&r0, &Qtop, 0, kp, nq); db_to_bi(&hr, &r0); }
