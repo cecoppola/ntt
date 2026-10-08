@@ -1153,7 +1153,14 @@ static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_
 static int is_pow2(int g) { return g > 0 && !(g & (g - 1)); }
 static int dist_gen_forced(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GEN"); v = e ? atoi(e) != 0 : 0; } return v; }   /* tests: the general transform at a power-of-two g too */
 /* the layered communicator of the group over mesh d: all g nodes (rank rho = g d + r) */
-static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d); return G->lay[d]; }
+static comm *lay_get(mn_group *G, int d)
+{
+    if (!G->lay[d]) {
+        G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
+        const char *e = getenv("COMM_LAYER_INTER2"); if (e && atoi(e)) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
+    }
+    return G->lay[d];
+}
 struct mn_ctx { mn_group *G; int node, g, nr; size_t R, C, n; int p24; };   /* p24 (Phase 15 Batch 3): the operands' sequences are the in-runs of p24.h */
 /* P24: rank rho's in-run (ex 1) or out-run (ex 0) map, and the first index of its sequence at or above limb l */
 static inline struct p24_run mn_run(const struct mn_ctx *X, int rho, int ex) { return p24_rank_run(X->R, X->C, X->nr, rho, ex); }
