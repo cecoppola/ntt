@@ -297,11 +297,13 @@ static int out_stage(struct out_ctx *c)
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
         if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
     }
+    double t_dcA = mem_now();                          /* S21 (DC_STATS): the output loop (run or join) ends here */
     uint64_t Dres[T1_NQ];
     if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* Phase 15 EW: X_hi's parts, then X_lo's */
     if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* Phase 15 K: the patched tail's new - old (the bytes read back) */
     if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
                 printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
+    double t_dcB = mem_now();
     if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (Phase 15 EW: both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
@@ -310,10 +312,12 @@ static int out_stage(struct out_ctx *c)
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
+    if (mn_out_dc_stats()) { node_pfx(c); printf("dcstats: dc %.3f s = start to the loop's end %.3f (boundaries all-gather, loop or join of the streamed writer, patch) + digit-residue join %.3f + digits-vs-X check %.3f\n", t_dc, t_dcA - t, t_dcB - t_dcA, t_dc - (t_dcB - t)); }   /* S21 (A37-R4) */
     if (!multi) RESULT("dc", "s", t_dc);
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);
     node_pfx(c); printf("digits: %s...%s%s\n", oh ? oh->first : o->first, o->last, multi ? (oh ? " (this node's two ranges: X_hi's, X_lo's)" : " (this node's range)") : "");
+    ntt_size_stats_print(c->rank, mem_now() - c->t00);   /* S22: NTT_SIZE_STATS=1, once per rank (nothing printed when off) */
     if (multi && c->rank == 0) {
         total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
         printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
@@ -567,6 +571,7 @@ int main(int argc, char **argv)
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
+    comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
     /* Phase 11 V / Phase 12 W: the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
@@ -615,7 +620,7 @@ int main(int argc, char **argv)
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
-            double td = mem_now();
+            double td = mem_now(); comm_wst_set_phase(WST_DM);   /* D3 */
             if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
             if (dkm_hi_on()) {                          /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
                 if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
@@ -625,6 +630,7 @@ int main(int argc, char **argv)
             newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
+            mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
@@ -816,6 +822,7 @@ int main(int argc, char **argv)
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
         printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+        ntt_size_stats_print(0, total);   /* S22 */
         if (outfile) {
             FILE *f = fopen(outfile, "w");
             if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); if (sp_odirect()) { fflush(f); sp_drop_cache(fileno(f)); }   /* Phase 14 S1 (E3): fsync + DONTNEED */

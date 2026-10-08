@@ -64,6 +64,7 @@ typedef struct mn_out_s {
 } mn_out;
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c);   /* size > 1: all-gather the nodes' tails (49 digits) -> this node's head */
 int  mn_out_run(mn_out *o, const mn_out_src *src);                   /* format, residues, T2, write (streamed); 0 = ok.  Returns with the last chunk's write in flight */
+int  mn_out_dc_stats(void);                                          /* S21: DC_STATS=1 -- the output stage's fine timers (print only; default off) */
 void mn_out_finish(mn_out *o);                                       /* wait for the writes, close the part file */
 /* Phase 15 K (ECALC_CORR_PATCH): the division's corrections (X + dx, |dx| <= 64) applied to digits already written from the uncorrected X.
  * Only the tail its carry / borrow reaches changes: the low limbs of X (gathered over the nodes, more until the carry ends inside
