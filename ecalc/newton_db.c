@@ -130,6 +130,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
         size_t tk = 2 * jl + 2 < nq ? 2 * jl + 2 : nq; db_reserve(&t1, tk + (jl + 2) + 8);   /* t1: the tail's back */
         db_pool_pin_tail(1); db_reserve(&r, jl + 4); db_pool_pin_tail(0);                    /* r: right below it -- the tail is full (job 21154: 7 small blocks had spilled into its front and t found it 0.11 GB short) */
         db_reserve(&r2, 2 * jl + 4); }                                                        /* r2: outside, just below Q (the highest free end); mu takes it */
+    int ts_on = getenv("NEWTON_DOUBLING_TS") ? atoi(getenv("NEWTON_DOUBLING_TS")) : 0; double ts_prev = mem_now();   /* S21 (A37-R6): NEWTON_DOUBLING_TS=1 (off by default; print only) -- one line per doubling with its end time */
     while (j < k) {
         size_t jn = newton_chain_next(j, k);                       /* Phase 13d L: extracted (unchanged) */
         for (;;) {
@@ -176,6 +177,7 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             if (tight && jn == k) { db_shr_limbs(&t1, &r, 2 * j - jn); db_copy(&r, &t1); }   /* E2: the last doubling -- r2 is the small block now; through the dead t1 (job 21151: the shift into r2 regrew it by 1.0 n_Q with everything live) */
             else { db_shr_limbs(&r2, &r, 2 * j - jn); if (tight && jn < k) db_copy(&r, &r2); else { dbig sw = r; r = r2; r2 = sw; } }
         }
+        if (ts_on) { double ts_now = mem_now(); printf("recip ts: doubling j %zu -> %zu (k %zu, Q %zu limbs, r %zu limbs): +%.4f s, %.4f s since the chain began (at %.3f s of the run), %zu repeats so far\n", j, jn, k, nq, r.n, ts_now - ts_prev, ts_now - t0, ts_now, (size_t)newton_st.repeats); ts_prev = ts_now; }   /* S21 (A37-R6) */
         j = jn;
         newton_st.iters++;
     }

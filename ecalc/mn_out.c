@@ -370,8 +370,13 @@ static void out_open(struct writer *w, const mn_out *o)
     if ((o->verbose || getenv("ECALC_OUT_MODE") || getenv("MN_OUT_THREADS") || w->packed || sp_odirect_auto()) && (o->rank == 0 || o->verbose))
         printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed ? "packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
 }
+/* S21 (A37-R4, Q7): DC_STATS=1 (off by default; print only) -- the output stage's fine timers: setup (buffers, the pinned fetch buffer, the writer
+ * thread), the chunk loop's wall against its parts (D2H fetch with its slowest chunk, the limb reversal, the digit residues, T2, the wait on the
+ * writer), and what the loop does besides.  ecalc.c adds the join / digit-residue all-gather / digits-vs-X check around it. */
+int mn_out_dc_stats(void) { static int v = -1; if (v < 0) v = getenv("DC_STATS") ? atoi(getenv("DC_STATS")) : 0; return v; }
 static int out_run_one(mn_out *o, const mn_out_src *src)
 {
+    double dcs_t0 = mn_out_dc_stats() ? mem_now() : 0, dcs_fmax = 0, dcs_wmax = 0, dcs_rmax = 0;
     size_t nl, pad, lo, hi, k0, k1; ranges(o, src, &nl, &pad, &lo, &hi, &k0, &k1);
     o->k0 = k0; o->k1 = k1; o->ndig = 0; o->bad2 = o->nwin = 0; o->bytes = 0; o->nchunks = 0; o->t_fmt = o->t_res = o->t_t2 = o->t_write = o->t_fetch = o->t_wait = 0;
     o->first[0] = o->last[0] = 0; o->ntail = 0;
@@ -393,6 +398,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         w->bytes = w->fd >= 0 ? ECP_HDR_BYTES : 0;
     }
     pthread_create(&w->th, 0, writer_run, w);
+    double dcs_t1 = mn_out_dc_stats() ? mem_now() : 0;
     size_t fbase = k0 == 0 ? 0 : k0 + 1, kw_end = o->d_out + 1;      /* the part's first byte in the file; digits < kw_end are written */
     char head[64]; size_t nhead = o->nhead; memcpy(head, o->head, nhead);
     unsigned long woff[256]; int nwo = 0;
@@ -413,6 +419,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         if (cs->dev || avail < cnt) { if (avail) { if (cs->dev) dev_fetch(cs->dev, a - cs->lo, avail, w->lbuf); else memcpy(w->lbuf, cs->host + (a - cs->lo), avail * 8); } memset(w->lbuf + avail, 0, (cnt - avail) * 8); l = w->lbuf; }
         else l = cs->host + (a - cs->lo);
         double t2 = mem_now(); o->t_fetch += t2 - t1;
+        if (dcs_t0) { if (t2 - t1 > dcs_fmax) dcs_fmax = t2 - t1; if (t1 - t0 > dcs_wmax) dcs_wmax = t1 - t0; }
         size_t p0 = (nl - bb) * 18, ck0 = p0 > pad ? p0 - pad : 0, ck1 = (nl - a) * 18 - pad;   /* the chunk's digits */
         size_t len = ck1 - ck0;
         if (w->packed) {                               /* Phase 15 IO (W2): the limbs, most significant first; the checks from them */
@@ -424,6 +431,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
             o->ndig += len;
             double t4 = mem_now(); o->t_res += t4 - t3;
+            if (dcs_t0 && t4 - t3 > dcs_rmax) dcs_rmax = t4 - t3;
             /* T2: the windows that end in this chunk (as tier2_range picks them), from the digits they cover and the head */
             size_t ndig = o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), x = (size_t)-1, y = 0;   /* (Phase 15 KP: K's deferred windows -- the last t2_defer digits' -- are mn_out_tail_fix's, as in the ASCII form) */
             for (int i = 0; i < nwo; i++) { size_t e = woff[i] + 50; if (e > ndig || e <= ck0 || e > ck1 || woff[i] + nhead < ck0) continue; if (woff[i] < x) x = woff[i]; if (e > y) y = e; }
@@ -468,6 +476,12 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         } else sem_post(&w->buf_free[b]);
         o->nchunks++;
         bb = a;
+    }
+    if (dcs_t0) {
+        double t_end = mem_now(), loop = t_end - dcs_t1, parts = o->t_wait + o->t_fetch + o->t_fmt + o->t_res + o->t_t2;
+        printf("dcstats: node %d output loop: setup %.3f s (buffers, pinned fetch buffer %.0f MB, writer thread), loop %.3f s over %d chunks of %zu limbs = fetch %.3f (slowest chunk %.3f) + limb reversal %.3f + digit residues %.3f (slowest chunk %.3f) + T2 %.3f + writer wait %.3f (longest %.3f) + other %.3f; fetch %.2f GB/s\n",
+               o->rank, dcs_t1 - dcs_t0, L * 8e-6, loop, o->nchunks, L, o->t_fetch, dcs_fmax, o->t_fmt, o->t_res, dcs_rmax, o->t_t2, o->t_wait, dcs_wmax, loop - parts,
+               o->t_fetch > 0 ? (double)(hi - lo) * 8e-9 / o->t_fetch : 0.0);
     }
     return 0;
 }
