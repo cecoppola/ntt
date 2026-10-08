@@ -728,7 +728,7 @@ static int e0_b13(int LOGN)
     }
     for (int ri = 0; ri < 2; ri++)
         printf("E0 B13 b1r %d: 2^13 vs 2^12 b1 pass: fwd %.3f ms vs %.3f ms (%.3fx of 2^12; NTT3P model 30 / 25.8 = 1.16x = %.1f ms at 2^31), inv %.3f vs %.3f ms (%.3fx)\n",
-               rs[ri], t13f[ri], t12f[ri], t13f[ri] / t12f[ri], t13f[ri] * ((double)1 << 31) / tot, t13i[ri], t12i[ri], t13i[ri] / t12i[ri]);
+               rs[ri], t13f[ri], t12f[ri], t13f[ri] / t12f[ri], t13f[ri] * ldexp(1.0, 31) / tot, t13i[ri], t12i[ri], t13i[ri] / t12i[ri]);
     ntt_ctx_free(c);
     HIP_CHECK(hipFree(dx));
 #ifndef NTT_NOP_MODMUL
