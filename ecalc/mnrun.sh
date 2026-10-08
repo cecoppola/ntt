@@ -42,11 +42,11 @@ use=$(echo "$nodes" | head -n "$nn")
 copt=()
 # S32: MNRUN_LABEL=1 adds srun --label (every output line prefixed "<rank>: "); MNRUN_ARBITRARY=1 places rank i on the i-th host of the use-list
 # (srun --distribution=arbitrary + SLURM_HOSTFILE; plain block distribution follows Slurm's sorted node order, not the -w order), one task per node only
-dist=block; tpn=(--ntasks-per-node="$per")
+dist=block; tpn=(--ntasks-per-node="$per"); nopt=(-N "$nn")
 [ "${MNRUN_LABEL:-0}" != 0 ] && copt+=(--label)
 if [ "${MNRUN_ARBITRARY:-0}" != 0 ]; then
     [ "$per" = 1 ] || { echo "mnrun.sh: MNRUN_ARBITRARY needs one task per node"; exit 1; }
-    export SLURM_HOSTFILE=$(mktemp "${TMPDIR:-/tmp}/mnrun_hf.XXXXXX"); echo "$use" > "$SLURM_HOSTFILE"; dist=arbitrary; tpn=()
+    export SLURM_HOSTFILE=$(mktemp "${TMPDIR:-/tmp}/mnrun_hf.XXXXXX"); echo "$use" > "$SLURM_HOSTFILE"; dist=arbitrary; tpn=(); nopt=()   # (srun: --nodes is incompatible with arbitrary)
 fi
 case "${MNRUN_CPUS_PER_TASK:-}" in
     "") ;;
@@ -130,7 +130,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         if [ "${COMM_SHMEM_DEVHEAP:-0}" != 0 ]; then export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-64M}; else export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}; fi
         export FI_PROVIDER=${FI_PROVIDER:-sockets} SHMEM_OFI_PROVIDER=${SHMEM_OFI_PROVIDER:-sockets} SHMEM_DISABLE_ASLR_CHECK=1
         echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE (pool $POOL MiB + 512, unless COMM_SHMEM_DEVHEAP)"
-        exec srun --jobid="$SLURM_JOB_ID" --mpi=pmi2 -N "$nn" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
+        exec srun --jobid="$SLURM_JOB_ID" --mpi=pmi2 "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
     if [ "$impl" = cray ]; then
@@ -139,14 +139,14 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
         export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
         echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
-        exec srun --jobid="$SLURM_JOB_ID" -N "$nn" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
+        exec srun --jobid="$SLURM_JOB_ID" "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
     export SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
     export OMPI_MCA_memheap_base_max_segments=${OMPI_MCA_memheap_base_max_segments:-64}
     echo "mnrun.sh: SHMEM_SYMMETRIC_HEAP_SIZE=$SHMEM_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
-    exec srun --jobid="$SLURM_JOB_ID" --mpi=pmix -N "$nn" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
+    exec srun --jobid="$SLURM_JOB_ID" --mpi=pmix "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
          bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec setarch x86_64 -L "$@"' _ "$@"
 fi
-exec srun --jobid="$SLURM_JOB_ID" -N "$nn" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
+exec srun --jobid="$SLURM_JOB_ID" "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
