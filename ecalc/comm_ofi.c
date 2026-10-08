@@ -146,7 +146,7 @@ static void open_nic(ofi_dev *od, struct nicx *x)
     h->domain_attr->mr_mode = FI_MR_LOCAL | FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY | FI_MR_ENDPOINT | (hmem ? FI_MR_HMEM : 0);
     h->domain_attr->threading = FI_THREAD_DOMAIN;
     h->tx_attr->size = 4096;
-    h->tx_attr->op_flags = FI_DELIVERY_COMPLETE;
+    h->tx_attr->op_flags = od->dc ? FI_DELIVERY_COMPLETE : 0;
     int rc = fi_getinfo(FI_VERSION(1, 20), NULL, NULL, 0, h, &x->info);
     if (rc) { h->tx_attr->op_flags = 0; od->dc = 0; CK(fi_getinfo(FI_VERSION(1, 20), NULL, NULL, 0, h, &x->info)); fprintf(stderr, "comm_ofi: cxi%d: no FI_DELIVERY_COMPLETE (%s): transmit-complete writes\n", x->cxi, fi_strerror(-rc)); }
     fi_freeinfo(h);
@@ -185,7 +185,7 @@ ofi_dev *comm_ofi_dev(int d)
     pthread_mutex_lock(&G.lock);
     ofi_dev *od = G.dev[d];
     if (od) { pthread_mutex_unlock(&G.lock); return od; }
-    od = (ofi_dev *)calloc(1, sizeof *od); od->d = d; od->dc = 1; pthread_mutex_init(&od->lock, 0);
+    od = (ofi_dev *)calloc(1, sizeof *od); od->d = d; od->dc = getenv("COMM_OFI_DC") ? atoi(getenv("COMM_OFI_DC")) != 0 : 1;   /* COMM_OFI_DC=0: M2 diagnostic (XEFF X3), transmit-complete writes, UNSAFE (signal may pass data); throughput upper bound only */ pthread_mutex_init(&od->lock, 0);
     int cx[MAXNIC]; od->k = nic_list(d, cx);
     const char *ef = getenv("COMM_OFI_POOL");
 #ifdef COMM_HOST_ONLY
