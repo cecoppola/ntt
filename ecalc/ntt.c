@@ -904,7 +904,7 @@ void ss_resolve(size_t i)
 {
     float ms = 0;
     if (hipEventElapsedTime(&ms, ss_pending[i].a, ss_pending[i].b) == hipSuccess) ss_pending[i].e->ms += ms; else ss_pending[i].e->untimed++;
-    hipEventDestroy(ss_pending[i].a); hipEventDestroy(ss_pending[i].b);
+    (void)hipEventDestroy(ss_pending[i].a); (void)hipEventDestroy(ss_pending[i].b);
     ss_pending[i] = ss_pending.back(); ss_pending.pop_back();
 }
 }
@@ -914,7 +914,7 @@ int ntt_ss_begin(int dir, int r3, int logn, size_t batch, hipStream_t s)
     if (ss_depth) return -1;
     int tg = ss_tag_v < 0 ? 0 : ss_tag_v >= SS_TAGS ? SS_TAGS - 1 : ss_tag_v, ln = logn < 0 ? 0 : logn > NTT_LOGN_MAX ? NTT_LOGN_MAX : logn;
     ss_ent *e = &ss_tab[tg][r3 ? 1 : 0][dir ? 1 : 0][ln];
-    int dev = 0; hipGetDevice(&dev);
+    int dev = 0; (void)hipGetDevice(&dev);
     pthread_mutex_lock(&ss_mu);
     e->calls++; e->xforms += batch; if (dev >= 0 && dev < 30) ss_devmask |= 1 << dev;
     for (size_t i = 0; i < 64 && i < ss_pending.size(); ) { if (hipEventQuery(ss_pending[i].b) == hipSuccess) ss_resolve(i); else i++; }
@@ -924,14 +924,14 @@ int ntt_ss_begin(int dir, int r3, int logn, size_t batch, hipStream_t s)
     if (full) return -1;
     ss_cur.e = e; ss_cur.dev = dev; ss_cur.a = ss_cur.b = 0;
     if (hipEventCreate(&ss_cur.a) != hipSuccess || hipEventCreate(&ss_cur.b) != hipSuccess) { pthread_mutex_lock(&ss_mu); e->untimed++; pthread_mutex_unlock(&ss_mu); return -1; }
-    hipEventRecord(ss_cur.a, s);
+    (void)hipEventRecord(ss_cur.a, s);
     ss_depth = 1;
     return 1;
 }
 void ntt_ss_end(int tok, hipStream_t s)
 {
     (void)tok;
-    hipEventRecord(ss_cur.b, s);
+    (void)hipEventRecord(ss_cur.b, s);
     pthread_mutex_lock(&ss_mu); ss_pending.push_back(ss_cur); pthread_mutex_unlock(&ss_mu);
     ss_depth = 0;
 }
@@ -939,7 +939,7 @@ void ntt_size_stats_print(int rank, double wall_s)
 {
     if (!ntt_ss_enabled()) return;
     pthread_mutex_lock(&ss_mu);
-    while (!ss_pending.empty()) { hipEventSynchronize(ss_pending.back().b); ss_resolve(ss_pending.size() - 1); }
+    while (!ss_pending.empty()) { (void)hipEventSynchronize(ss_pending.back().b); ss_resolve(ss_pending.size() - 1); }
     int nd = __builtin_popcount(ss_devmask); double tot = 0, tot3 = 0; unsigned long tc = 0, un = 0;
     for (int t = 0; t < SS_TAGS; t++) for (int r = 0; r < 2; r++) for (int d = 0; d < 2; d++) for (int l = 0; l <= NTT_LOGN_MAX; l++) {
         const ss_ent *e = &ss_tab[t][r][d][l]; if (!e->calls) continue;
