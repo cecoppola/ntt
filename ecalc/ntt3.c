@@ -88,6 +88,7 @@ static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (uns
 
 void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(0, 1, logk, batch, s);   /* S22 NTT_SIZE_STATS */
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]);
@@ -97,6 +98,7 @@ void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
 }
 void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(1, 1, logk, batch, s);
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]), inv3 = ec_inv(3, ec_P[prime]);
@@ -108,6 +110,7 @@ void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
  * b1 pass over the thirds) from logk + 1 >= PW_FUSE on; the same modmul either way, so bit-identical */
 void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(1, 1, logk, batch, s);
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]), inv3 = ec_inv(3, ec_P[prime]);
