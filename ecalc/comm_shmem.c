@@ -199,7 +199,7 @@ static int in_pool(const void *p) { return (const char *)p >= S.pool && (const c
 static size_t off_of(const void *p) { return (size_t)((const char *)p - S.pool); }
 
 /* waits: the library's wait_until when threads may call it concurrently, else polled tests under the lock */
-static void wait_ge(long *p, long v)
+static void wait_ge_(long *p, long v)
 {
     if (!S.serial) { shmem_long_wait_until(p, SHMEM_CMP_GE, v); return; }
     for (unsigned spins = 0;; spins++) {
@@ -208,7 +208,8 @@ static void wait_ge(long *p, long v)
         if (spins > 64) sched_yield();
     }
 }
-static void wait_ne(long *p, long v)
+static void wait_ge(long *p, long v) { double t0 = comm_wst_t0(); wait_ge_(p, v); comm_wst_ready_end(t0); }
+static void wait_ne_(long *p, long v)
 {
     if (!S.serial) { shmem_long_wait_until(p, SHMEM_CMP_NE, v); return; }
     for (unsigned spins = 0;; spins++) {
@@ -217,6 +218,7 @@ static void wait_ne(long *p, long v)
         if (spins > 64) sched_yield();
     }
 }
+static void wait_ne(long *p, long v) { double t0 = comm_wst_t0(); wait_ne_(p, v); comm_wst_ready_end(t0); }
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
 int comm_shmem_available(void) { return 1; }
