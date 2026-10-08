@@ -16,7 +16,8 @@
 #   --out DIR               where KIT_SUMMARY.txt and logs/ go (default: ./kit_out_<timestamp>)
 #   --jobid ID              the Slurm allocation (default: $SLURM_JOB_ID).  Required by every stage that
 #                           runs srun, i.e. every stage except --dry-run.
-#   --only LIST             run only these stages (comma list of: env,build,edge,a3,a4).  Default: all.
+#   --only LIST             run only these stages (comma list of: env,build,edge,a3,a4,s2chk).  Default: env,build,edge,a3,a4
+#                           (s2chk is OPT-IN: it runs only when named here, never by default).
 #   --skip LIST             run all stages except these (comma list).  --only and --skip combine (skip wins
 #                           on overlap).
 #   --nodes-a4 LIST         node counts for stage a4, comma list (default: 2,8,64; 2,8 with --site aac7).
@@ -24,7 +25,11 @@
 #   --nics1 LIST            COMM_OFI_NICS form for "1 NIC per APU" (default: "0;1;2;3")
 #   --nics2 LIST            COMM_OFI_NICS form for "2 NICs per APU, the target's form" (default per 07_COMM_OFI.md:
 #                           "0,4;1,5;2,6;3,7")
-#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count).
+#   --nodes-s2chk LIST      node counts for the opt-in stage s2chk (default: 2,8 = the smallest multi-node count a4 uses
+#                           plus its larger one).  A count bigger than the allocation is skipped, not failed.
+#   --s2chk-per-node N      digits per node for s2chk (default 64410000000 = 6.441e10, the largest node share of the
+#                           3.71e13 target on 576 nodes).  KIT_S2CHK_LINE overrides the launch-line env words.
+#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count, s2chk 1800 PER node count).
 #                           A stage that times out or fails is marked FAIL in the summary; every other stage
 #                           still runs.
 #
@@ -50,6 +55,22 @@
 #            tests/t_comm --bw with comm_ofi, 1 NIC per APU vs 2 NICs per APU (COMM_OFI_NICS), GB/s per node.
 #   a4     (5-10 min PER node count, 2/8/64 nodes, skips what the allocation can't hold):
 #            ecalc at 1e10 digits/node with MN_COMM_MARK=1, VERIFY, wall, the comm-mark fabric rates.
+#   s2chk  (OPT-IN, off unless named in --only; about 5-15 min PER node count, default 2 and 8 nodes; needs stage build's
+#           kit_modules.env, so run `--only build,s2chk` or point --out at a directory where build already ran):
+#            the TARGET per-node share (6.441e10 digits/node) on the target launch line (docs/TARGET.md 4 without the
+#            576-only MN_GROUPS/POOL words; DM_MN_LEAN=1, MN_T_CHUNK_MB=1024) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
+#            nothing written.  Saves the full logs (logs/05_s2chk_n<N>.log) and prints a verdict helper:
+#             A37-R1 (GPU seed): "seed thread ends" vs the last "background mapping done" (tl lines, seconds since
+#               rns_init).  Build the GPU seed ONLY if the seed ends later than about 18 s AND more than 2 s after the
+#               last mapping; seed late but mapping within 2 s = mapping binds (marginal, no build); else NO-GO.
+#             S-2 (division overlap): MN_WAIT_STATS "dm" (= reciprocal + division) wait, per APU thread (node sum / 4),
+#               max node; reciprocal and division split; spread max-min (the skew bound).  Rule: build only if the
+#               exposed wait is above about 30 s.  CAVEAT printed with it: the literal wait includes the transfer itself
+#               (results/S22.md 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
+#               S22's aac7 table (n=2: recip 10 + division 32; n=8: 22 + 73 s per thread).
+#            Needs an ecalc built WITH MN_WAIT_STATS (the instrument is not in every branch; the stage says so if no
+#            wait-stats line appears).  The command for the target team:
+#              ./target_kit.sh --jobid $SLURM_JOB_ID --out kit_out_s2chk --only build,s2chk
 #
 # Launch: always Slurm-native `srun --ntasks ... --ntasks-per-node=1` (mnrun.sh for the multi-node ecalc
 # runs of stage a4); never oshrun.  FI_UNIVERSE_SIZE and FI_LOG_LEVEL are set to the TGTBENCH2-proposed
@@ -77,6 +98,9 @@ TO_BUILD=900
 TO_EDGE=600
 TO_A3=600
 TO_A4=1800
+TO_S2=1800
+NODES_S2="2,8"
+S2_PER_NODE=64410000000
 E9=1000000000
 E10=10000000000
 EDGE_STEP_GB=16
@@ -102,6 +126,9 @@ while [ $# -gt 0 ]; do
         --timeout-edge) TO_EDGE=$2; shift 2 ;;
         --timeout-a3) TO_A3=$2; shift 2 ;;
         --timeout-a4) TO_A4=$2; shift 2 ;;
+        --timeout-s2chk) TO_S2=$2; shift 2 ;;
+        --nodes-s2chk) NODES_S2=$2; shift 2 ;;
+        --s2chk-per-node) S2_PER_NODE=$2; shift 2 ;;
         *) echo "target_kit.sh: unknown option $1" >&2; usage; exit 2 ;;
     esac
 done
@@ -121,6 +148,14 @@ mkdir -p "$LOGDIR" "$TMPDIR"
 stage_enabled() {  # stage_enabled <name>
     local n=$1
     if [ -n "$ONLY" ]; then case ",$ONLY," in *",$n,"*) ;; *) return 1 ;; esac; fi
+    if [ -n "$SKIP" ]; then case ",$SKIP," in *",$n,"*) return 1 ;; esac; fi
+    return 0
+}
+
+stage_optin() {  # stage_optin <name> -- an opt-in stage: runs ONLY when named in --only (and not in --skip)
+    local n=$1
+    [ -n "$ONLY" ] || return 1
+    case ",$ONLY," in *",$n,"*) ;; *) return 1 ;; esac
     if [ -n "$SKIP" ]; then case ",$SKIP," in *",$n,"*) return 1 ;; esac; fi
     return 0
 }
@@ -520,6 +555,106 @@ stage_a4() {
 }
 
 # =============================================================================================================
+# Stage: s2chk (OPT-IN) -- the target's S-2 (division overlap) and A37-R1 (GPU seed) gates, one run per node count
+# =============================================================================================================
+# The gates (results/S22.md sections 2 and 3; TASKS.md S-2 / A37-R1, both SHELVED by the user 2026-10-08, kept as options):
+#   A37-R1: build the GPU seed only if the seed thread ends later than ~18 s AND > 2 s after the last background mapping.
+#   S-2:    build the division overlap only if the exposed division/reciprocal wait is above ~30 s per APU thread.
+# The greps are the ones the S22/S23 drivers used: `tl` lines from ECALC_INIT_TL=1 ("seed thread ends (..)", "APU<d>
+# background mapping done: ..") and the `wait-stats node R:` lines of MN_WAIT_STATS=1 (per phase: bs | dm | recip | other;
+# dm contains recip; node sums over the 4 APU threads, so per thread = /4).
+S2_SEED_LATE=18        # s: A37-R1 trigger (seed end)
+S2_SEED_AFTER=2        # s: A37-R1 trigger (seed end minus the last mapping)
+S2_WAIT_LIMIT=30       # s per APU thread: S-2 trigger
+S2_LINE_DEFAULT="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 DM_MN_LEAN=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
+
+s2chk_verdict() {   # s2chk_verdict <log> <n> -- appends the A37-R1 / S-2 verdict lines for one run to the summary
+    local f=$1 n=$2
+    local seed map
+    seed=$(grep -a 'seed thread ends' "$f" | sed -nE 's/.*tl +([0-9.]+) +seed thread ends.*/\1/p')
+    map=$(grep -a 'background mapping done' "$f" | sed -nE 's/.*tl +([0-9.]+) +APU[0-9]+ background mapping done.*/\1/p')
+    if [ -z "$seed" ] || [ -z "$map" ]; then
+        summary "    A37-R1: no 'seed thread ends' / 'background mapping done' tl lines (ECALC_INIT_TL=1 not effective, or the run failed before init ended) -- see $f"
+    else
+        { echo "$seed" | sed 's/^/S /'; echo "$map" | sed 's/^/M /'; } | awk -v late="$S2_SEED_LATE" -v aft="$S2_SEED_AFTER" -v n="$n" '
+            $1=="S" { ns++; ss+=$2; if (ns==1||$2>smax) smax=$2; if (ns==1||$2<smin) smin=$2 }
+            $1=="M" { nm++; if (nm==1||$2>mmax) mmax=$2 }
+            END {
+                d = smax - mmax
+                printf "    A37-R1 (n=%d): seed thread ends %.2f s max (%.2f - %.2f over %d lines, mean %.2f); last background mapping %.2f s (%d lines); seed end - last mapping = %+.2f s\n", n, smax, smin, smax, ns, ss/ns, mmax, nm, d
+                if (smax > late && d > aft) v = "BUILD-CANDIDATE (seed ends > " late " s and > " aft " s after the mapping: the seed binds init)"
+                else if (smax > late) v = "MARGINAL (seed ends > " late " s but the mapping is within " aft " s: the mapping binds, a faster seed gains little) -- no build unless the user decides otherwise"
+                else v = "NO-GO (seed ends <= " late " s; init is not seed-bound)"
+                printf "    A37-R1 verdict (n=%d): %s\n", n, v
+            }' >> "$SUMMARY"
+    fi
+    local ws; ws=$(grep -a 'wait-stats node [0-9]*:' "$f")
+    if [ -z "$ws" ]; then
+        summary "    S-2: no 'wait-stats node' lines -- this ecalc build lacks MN_WAIT_STATS (the instrument lives on branch s22 / d3-wait-stats; merge it into the build first) or the run failed -- see $f"
+    else
+        echo "$ws" | awk -v lim="$S2_WAIT_LIMIT" -v n="$n" '
+            { d=-1; r=-1
+              if (match($0, /[|] dm barrier [0-9.]+ s [(][0-9]+[)] wait [0-9.]+/)) { t=substr($0,RSTART,RLENGTH); sub(/.* wait /,"",t); d=t+0 }
+              if (match($0, /[|] recip barrier [0-9.]+ s [(][0-9]+[)] wait [0-9.]+/)) { t=substr($0,RSTART,RLENGTH); sub(/.* wait /,"",t); r=t+0 }
+              if (d < 0) next
+              k++; if (k==1||d>dmax) { dmax=d; rmax=r } if (k==1||d<dmin) dmin=d
+              dv = d - r; if (k==1||dv>vmax) vmax=dv }
+            END {
+                if (k==0) { printf "    S-2 (n=%d): wait-stats lines found but no dm field parsed\n", n; exit }
+                printf "    S-2 (n=%d, %d nodes, per APU thread = node sum / 4): dm (reciprocal + division) wait %.1f s max node (min %.1f; spread/skew bound %.1f s); reciprocal %.1f s; division %.1f s (max node)\n", n, k, dmax/4, dmin/4, (dmax-dmin)/4, rmax/4, vmax/4
+                printf "    S-2 verdict (n=%d): exposed dm wait %.1f s per thread is %s the %d s rule -- CAVEAT: the literal wait includes the transfer (S22 2.3); S22 aac7 reference per thread: n=2 recip 10 + division 32, n=8 recip 22 + division 73; model at 576 nodes: 34 s exposed, ceiling 25-34 s, realistic gain 6-17 s\n", n, dmax/4, (dmax/4 > lim ? "ABOVE" : "below"), lim
+            }' >> "$SUMMARY"
+    fi
+}
+
+stage_s2chk() {
+    local lf="$LOGDIR/05_s2chk.log"; : > "$lf"
+    summary "## Stage s2chk (opt-in): A37-R1 seed gate + S-2 wait gate, $S2_PER_NODE digits/node, ECALC_INIT_TL=1 MN_WAIT_STATS=1, node counts: $NODES_S2"
+    if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules s2chk "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first, e.g. --only build,s2chk)"; summary ""; return; fi
+    local alloc; alloc=$(alloc_node_count)
+    local any_ran=0 any_fail=0 n
+    export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
+    export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
+    local line="${KIT_S2CHK_LINE:-$S2_LINE_DEFAULT}"
+    summary "  launch line: $line ECALC_INIT_TL=1 MN_WAIT_STATS=1 (nothing written; no MN_GROUPS / pool words: mnrun.sh sizes the pool from MN_PLAN_ONLY)"
+    IFS=',' read -ra counts <<< "$NODES_S2"
+    for n in "${counts[@]}"; do
+        if [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$n" -gt "$alloc" ]; then
+            echo "== n=$n: SKIPPED (allocation has $alloc node(s))" >> "$lf"
+            summary "  n=$n: SKIPPED (allocation has $alloc node(s))"
+            continue
+        fi
+        any_ran=1
+        local digits=$((n * S2_PER_NODE))
+        local nlf="$LOGDIR/05_s2chk_n${n}.log"; : > "$nlf"
+        fi_defaults_for "$n"
+        echo "== n=$n nodes, $digits digits total ($S2_PER_NODE per node), ECALC_INIT_TL=1 MN_WAIT_STATS=1" >> "$lf"
+        # $line is deliberately unquoted: it is a list of VAR=value words for env(1)
+        # shellcheck disable=SC2086
+        exec_cmd "$nlf" "$TO_S2" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
+            MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
+            "$SELF_DIR/mnrun.sh" "$n" env $line ECALC_INIT_TL=1 MN_WAIT_STATS=1 "$SELF_DIR/ecalc" "$digits"
+        local rc=$?
+        cat "$nlf" >> "$lf"
+        [ $rc -ne 0 ] && any_fail=1
+        if [ "$DRY_RUN" != 1 ]; then
+            summary "  n=$n: $( [ $rc -eq 0 ] && echo PASS || echo FAIL ) (exit $rc); log $nlf"
+            grep -aE "^total|VERIFY" "$nlf" | tail -3 | cut -c1-300 | sed 's/^/    /' >> "$SUMMARY"
+            grep -a 'wait-stats max/min' "$nlf" | head -1 | cut -c1-600 | sed 's/^/    /' >> "$SUMMARY"
+            s2chk_verdict "$nlf" "$n"
+        else
+            summary "  n=$n: DRY-RUN (not executed)"
+        fi
+    done
+    if [ "$any_ran" = 0 ]; then summary "status: SKIPPED (no requested node count fits the allocation)";
+    elif [ "$any_fail" = 0 ] || [ "$DRY_RUN" = 1 ]; then summary "status: $([ "$DRY_RUN" = 1 ] && echo DRY-RUN || echo PASS)";
+    else summary "status: PARTIAL (see per-n lines above)"; fi
+    summary "  full logs: $LOGDIR/05_s2chk_n<N>.log (kept; also appended to $lf)"
+    summary ""
+}
+
+# =============================================================================================================
 # main
 # =============================================================================================================
 stage_enabled env   && stage_env
@@ -527,6 +662,7 @@ stage_enabled build && stage_build
 stage_enabled edge  && stage_edge
 stage_enabled a3    && stage_a3
 stage_enabled a4    && stage_a4
+stage_optin s2chk   && stage_s2chk
 
 summary "## Done"
 summary "Send back: $SUMMARY"
