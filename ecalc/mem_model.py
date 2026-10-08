@@ -477,10 +477,20 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
     dm = max(mn_vslot(nq, nq, g, pool_log, p24, depth), mn_vslot(nq, nq // 2 + 1, g, pool_log, p24, depth))
     return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
 
+def vslot_pool_on(env=None):
+    """X2 (results/XEFF.md item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
+    not as hipMalloc'd v-slots (binsplit.c vslot_pool_on)"""
+    env = os.environ if env is None else env
+    return env.get('COMM_LAYER_VSLOT_POOL', '0') not in ('', '0')
+
+def inter2_on(env=None):
+    env = os.environ if env is None else env
+    return env.get('COMM_LAYER_INTER2', '0') not in ('', '0')
+
 def vslot_budget_on(env=None):
     """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 1 since 2026-10-07 (the user); was 0): the v-slots counted in the node budget (room, cache fit, budget check)"""
     env = os.environ if env is None else env
-    return env.get('ECALC_VSLOT_BUDGET', '1') not in ('', '0')
+    return env.get('ECALC_VSLOT_BUDGET', '1') not in ('', '0') and not vslot_pool_on(env)   # X2: under VSLOT_POOL the pool counts them
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
@@ -784,7 +794,7 @@ def ofi_planned(env=None):
 
 def round256_mb(b): mb = -(-b // (1 << 20)); return -(-mb // 256) * 256
 
-def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False):
+def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False, vslot=0):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
       staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
                  my share of each, each at most MDB_SHIFT_CHUNK_MB)
@@ -813,11 +823,13 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     staging = NR * best * 8
     lv = [S for S in mn_groups(g, groups) if S < g]
     control = 4 * (g + sum(lv)) * (ring + 64)
+    if inter2_on(): control += 4 * sum(S for S in [min(S, g) for S in mn_groups(g, groups)] if S > 1 and S & (S - 1)) * (ring + 64)   # X2 COMM_LAYER_INTER2: a second mesh per general-map group
     mailbox = SHMEM_MAXID * g * 8
     sym = NR * 3 * qmax * 8 if sym_slabs else 0
     ofi_dev_mb = 0
     if ofi:
-        ofi_dev_mb = round256_mb(max(best * 8, SHMEM_SELFTEST) + sym // 4 + SHMEM_MARGIN); staging = 0; sym = 0
+        ofi_dev_mb = round256_mb(max(best * 8, SHMEM_SELFTEST) + sym // 4 + vslot + SHMEM_MARGIN); staging = 0; sym = 0
+    if not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread
     need = max(staging, SHMEM_SELFTEST) + control + mailbox + sym + SHMEM_MARGIN
     if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
     return need
@@ -948,7 +960,7 @@ def mem_per_node(D, g=1, opts=None):
     pdet = {}                                                             # (Phase 15 DL: the host terms before the room's decision, which counts them)
     if g > 1 and o['transport'] == 'shmem' and o['staging'] in ('code', 'sym'):   # Phase 14 P2: the measured law (the code as it is; 'sym': DIST_MN_SYM_SLABS=1)
         ofi = ofi_planned() if o.get('ofi') is None else o['ofi']           # Phase 17 OFIMEM: COMM_OFI (None: as the code decides on this host)
-        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi)
+        need = shmem_pool(L['nq'], g, o['groups'], o['pool_log'], o['t_chunk_mb'], o['shift_chunk_mb'], o['staging'] == 'sym', detail=pdet, round_mb=o.get('round_mb', 0), ofi=ofi, vslot=vs['per_apu'] if vslot_pool_on() else 0)   # X2: VSLOT_POOL counts the v-slots here
         stg = pdet['staging']; pool = pool_mb_of(need, 'plan' if ofi and o['pool'] == 'auto' else o['pool'], o['pool_mb'])   # Phase 15: the pool rule (POOLS; 'max' = the model before); OFIMEM: under OFI an unset pool = the need
         pdet['shmem_only'] = pool; pool += NR * (pdet['ofi_dev_mb'] << 20)   # OFIMEM: + the four comm_ofi pools (the transport's pools in all)
     else:                                                                 # the hypotheses before Phase 14 (resident: 0 staging, the pool flat at 8 GiB)
@@ -1124,7 +1136,8 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         pool_b = 0; ofi_b = 0
         if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
             pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi)
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
+                            vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu'] if vslot_pool_on(env) else 0))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if env.get('COMM_SHMEM_POOL_AUTO', '1') != '0' and mb > have else have) << 20
             if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)

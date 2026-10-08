@@ -123,7 +123,7 @@ static struct {
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
-    int xstats, porder;                    /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize); COMM_SHMEM_PEER_ORDER=rot (rotated, ready-first peer service) */
+    int xstats, porder, vslot_pool;                    /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize); COMM_SHMEM_PEER_ORDER=rot (rotated, ready-first peer service) */
     size_t round_bytes;                    /* Phase 14 V1: COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* Phase 14 V1: all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
@@ -300,6 +300,7 @@ int comm_shmem_init(void)
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
+    S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 0) > 0;   /* X2: no rounds for an exchange from and into the pool */
     { const char *eo = getenv("COMM_SHMEM_PEER_ORDER"); S.porder = eo && (!strcmp(eo, "rot") || !strcmp(eo, "1")); }   /* X1 (results/XEFF.md item 1); anything else: today's order */
     if (S.me == 0 && S.porder) printf("comm_shmem: COMM_SHMEM_PEER_ORDER=rot: rotated, ready-first peer service\n");
     S.keep_staging = env_int("COMM_SHMEM_KEEP_STAGING", 0);
@@ -785,7 +786,7 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s(); if (S.xstats) xs_begin(p);
-    if (alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;
+    if (!(sin && rin && S.vslot_pool) && alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;   /* X2 COMM_LAYER_VSLOT_POOL: rounds only bound staging; an exchange from and into the pool stages nothing */
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");

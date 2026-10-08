@@ -435,8 +435,11 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     if (tree_top) *tree_top = lower + top_tree;
     return lower + top;
 }
+/* X2 (results/XEFF.md item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
+static int vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e && atoi(e) != 0; }
+static int inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e && atoi(e) != 0; }
 int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 1; } return v; }   /* S18 (the user, 2026-10-07): default 1; was 0 (B7ACCT) */
-size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
+size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && !vslot_pool_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
  * the dm need and the VMM pool remapped them (15 remaps, 9.5 s at 1e11 on B1, measured): (1) every VMM arena is laid out in whole
@@ -633,15 +636,21 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
     size_t control = 4 * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
+    if (inter2_on()) {   /* X2 COMM_LAYER_INTER2: a second mesh (control blocks) for every general-map group the layered communicator runs over (non-power-of-two S; lay_get) */
+        size_t extra = 0; for (int l = 0; l < nl; l++) { int S = gs[l] < size ? gs[l] : size; if (S > 1 && (S & (S - 1))) extra += (size_t)S; }
+        control += 4 * extra * (ring + 64);
+    }
+    size_t vsp = vslot_pool_on() ? binsplit_vslot_bytes(N, size, 0, 0, 0) : 0;   /* X2 COMM_LAYER_VSLOT_POOL: the v-slots per APU thread, resident to the run's end */
     size_t sym = getenv("DIST_MN_SYM_SLABS") && atoi(getenv("DIST_MN_SYM_SLABS")) ? 4 * 3 * qmax * 8 : 0;
     g_ofi_dev_mb = 0;
     if (ofi) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
-        size_t dv = (best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20)) + sym / 4 + ((size_t)256 << 20);
+        size_t dv = (best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20)) + sym / 4 + vsp + ((size_t)256 << 20);
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256; sym = 0;
     }
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who,
                             getenv("DIST_MN_SYM_SLABS") && atoi(getenv("DIST_MN_SYM_SLABS")) ? " + DIST_MN_SYM_SLABS slabs" : "");
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, sym ? ", DIST_MN_SYM_SLABS slabs" : "");
+    if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads) */
     return (staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20)) + control + mailbox + sym + ((size_t)256 << 20);
 }
 /* Phase 14 P2: the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).

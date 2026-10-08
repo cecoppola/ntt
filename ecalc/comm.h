@@ -132,6 +132,7 @@ void  comm_shmem_finalize(void);
 size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
 int   comm_shmem_pool_in_heap(void);           /* Phase 14 V1: 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
+void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
 /* S (PLAN.md 25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
  * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */
