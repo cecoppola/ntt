@@ -297,11 +297,13 @@ static int out_stage(struct out_ctx *c)
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
         if (c->dx) { node_pfx(c); printf("      patch: digits [%zu, %lu] change (%zu low limbs read); this node: %zu bytes in %d part file%s\n", fx.kp, c->d, fx.w, fx.bytes, fx.parts, fx.parts == 1 ? "" : "s"); }
     }
+    double t_dcA = mem_now();                          /* S21 (DC_STATS): the output loop (run or join) ends here */
     uint64_t Dres[T1_NQ];
     if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* Phase 15 EW: X_hi's parts, then X_lo's */
     if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* Phase 15 K: the patched tail's new - old (the bytes read back) */
     if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
                 printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
+    double t_dcB = mem_now();
     if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (Phase 15 EW: both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
@@ -310,6 +312,7 @@ static int out_stage(struct out_ctx *c)
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
+    if (mn_out_dc_stats()) { node_pfx(c); printf("dcstats: dc %.3f s = start to the loop's end %.3f (boundaries all-gather, loop or join of the streamed writer, patch) + digit-residue join %.3f + digits-vs-X check %.3f\n", t_dc, t_dcA - t, t_dcB - t_dcA, t_dc - (t_dcB - t)); }   /* S21 (A37-R4) */
     if (!multi) RESULT("dc", "s", t_dc);
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);

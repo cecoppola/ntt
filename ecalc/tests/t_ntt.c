@@ -442,6 +442,31 @@ static int bench(int LOGMAX, const char *what)
             kcfg_set(&ref);
         }
     }
+    if (strstr(what, "q4")) {
+        /* S21 (A37-Q4): the production configuration (NTT_MODMUL 1, NTT_B1R 3, NTT_PLAN 1), whole forward / inverse and every pass, at 2^31, 2^28 and
+         * 2^24 single.  Run by tests/t_ntt (real modmul) and tests/t_ntt_nop (ntt.c built with -DNTT_NOP_MODMUL: every modmul one FMA, the data movement
+         * left; its outputs are wrong by design and are not checked here).  The two outputs side by side say what share of the time is the arithmetic. */
+        static const struct kcfg q4c = {1, 0, "production", 0, 3, 1};
+        printf("-- S21 Q4: production plan; L, fwd ms, inv ms, then per pass [s_lo..s_hi] fwd ms (median of 5)\n");
+        static const int Ls[] = {31, 28, 24};
+        for (int li = 0; li < 3; li++) {
+            int L = Ls[li]; if (L > LOGMAX) continue;
+            kcfg_set(&q4c);
+            float tf, ti;
+            TIME_MS(tf, 1, ntt_fwd(c, dx, L, 1, 0));
+            TIME_MS(ti, 1, ntt_inv(c, dx, L, 1, 0));
+            printf("   Q4 L%2d whole: fwd %8.3f ms inv %8.3f ms\n", L, tf, ti);
+            float sf = 0;
+            for (int ps = 0; ps < ntt_npass(L); ps++) {
+                int lo, hi; ntt_pass_bounds(L, ps, &lo, &hi);
+                float mf; TIME_MS(mf, 1, ntt_pass(c, dx, L, 1, 0, ps, 0));
+                sf += mf;
+                printf("   Q4 L%2d pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s\n", L, ps, lo, hi, mf, 16.0 * ((double)1 << L) / (mf * 1e-3) / 1e9);
+            }
+            printf("   Q4 L%2d sum of passes: fwd %8.3f ms\n", L, sf);
+            kcfg_set(&ref);
+        }
+    }
     ntt_ctx_free(c);
     HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
     return verify_done("t_ntt bench");

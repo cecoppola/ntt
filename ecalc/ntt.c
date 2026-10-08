@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ntt.h"
+#ifdef NTT_NOP_MODMUL   /* S21 (A37-Q4): every device modmul of this file (ec_mm: twiddles, scale, pointwise; mm_raw below: the butterflies) becomes one FMA returning a.  Bench build only (make tests/t_ntt_nop) */
+#define ec_mm(a_, b_, p_, pinv_) fma((b_), 0.0, (a_))
+#endif
 
 #define BP 17                      /* LDS pad: sh[128][17], conflict-free columns */
 #define THREADS 256
@@ -53,9 +56,13 @@ int ntt_r3_fuse_get(void)
  * two give canonical (mm_canon, for twiddles).  Same operand rule as ec_mm: a < 2p, b < p. */
 __device__ static inline double mm_raw(double a, double b, double p, double pinv, double pinvl)
 {
+#ifdef NTT_NOP_MODMUL   /* S21 (A37-Q4, results/A37CMP.md): the bench-only build (make tests/t_ntt_nop; never ecalc) -- the modmul is one FMA that keeps the twiddle load alive and returns a: the NTT's data movement without its arithmetic.  Wrong results by design */
+    return fma(b, 0.0, a);
+#else
     double hi = a * b, lo = fma(a, b, -hi);
     double q = floor(fma(hi, pinv, fma(hi, pinvl, lo * pinv)));
     return fma(-q, p, hi) + lo;
+#endif
 }
 __device__ static inline uint64_t mm_lazy(double a, double b, double p, double pinv, double pinvl)
 {
