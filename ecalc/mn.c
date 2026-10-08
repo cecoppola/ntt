@@ -276,6 +276,7 @@ comm *mn_mesh2(mn_group *G, int d, int sub)
     if (!g_shmem) ec_fatal(EC_RC_FATAL, "COMM_LAYER_INTER2=1 needs COMM_TRANSPORT=shmem\n");
     int idx = (G->sched ? 2 * MN_MAXL : 0) + (sub ? MN_MAXL : 0) + G->lvl;
     *slot = comm_shmem_create_at(G->g0, 1, sub ? G->gt : G->g, NA + NA * (3 * MN_MAXL + idx) + d);
+    if (d == 0) printf("mn: node %d: COMM_LAYER_INTER2: second mesh (%s) of level %d%s group [%d, %d), %d nodes\n", g_rank, sub ? "transform nodes" : "all nodes", G->lvl, G->sched ? " schedule" : "", G->g0, G->g0 + G->g, sub ? G->gt : G->g);
     return *slot;
 }
 /* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
