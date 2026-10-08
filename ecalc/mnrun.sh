@@ -33,6 +33,7 @@ if [ -d /opt/cray/pe/sma ]; then MNRUN_UNLOAD=${MNRUN_UNLOAD-rocm/7.0.3}; fi
 export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
+[ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
 nn=$(echo "$nodes" | wc -l); [ "$nn" -gt "$P" ] && nn=$P
 [ -n "${MNRUN_NODES:-}" ] && [ "$nn" -gt "$MNRUN_NODES" ] && nn=$MNRUN_NODES   # Phase 16 P: at most this many nodes of the allocation (unset: all)
 while [ $((P % nn)) -ne 0 ]; do nn=$((nn - 1)); done
