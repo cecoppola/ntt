@@ -12,7 +12,7 @@
 #              (S22's stop rule); every run's MEM_REPORT_DEVS peak (rd_peaks) goes to x2.tsv; mem_cmp.txt = mean peak A vs B and the pool lines of one A and one B run.
 # Outputs in ~/s28: summary.txt, gates.txt, x2.tsv, x2_stats.txt, mem_cmp.txt, results.txt (digest), res/<label>.txt, xagg/<label>.txt, log/<label>.log, ALERT, S28_DONE (SUCCESS: ... | FAILED: ...).
 #   Stop early and cleanly: touch ~/s28/STOP (between runs; also ends the wait).  Never cancels anything; never touches other jobs.  Fire-and-forget.
-BUILD_REV=e2c92b74
+BUILD_REV=e163337
 H1=12331; H2=12389
 HD=$(cd "$(dirname "$0")" && pwd); WT=$HOME/ntt-wt/s28; E=$WT/ecalc; OUT=$HOME/s28; S27DONE=$HOME/s27/S27_DONE
 MARGIN=1800            # keep >= 30 min of the hold unused after the last run
@@ -25,7 +25,7 @@ source $HD/s28_lib.sh
 [ -f $HD/s28_xagg.awk ] || fail "no $HD/s28_xagg.awk"
 cd $E || fail "cd $E"
 source aac7env.sh >/dev/null 2>&1; [ -n "$MNRUN_MODULES" ] || fail "aac7env.sh gave no MNRUN_MODULES"
-check_binary 'COMM_LAYER_INTER2 COMM_LAYER_VSLOT_POOL COMM_XSTATS COMM_SHMEM_PEER_ORDER' "tests/t_mn_grid"
+check_binary 'COMM_LAYER_INTER2 COMM_LAYER_VSLOT_POOL COMM_XSTATS COMM_SHMEM_PEER_ORDER second mesh' "tests/t_mn_grid"
 
 # --- (0) wait for S27, then pick the hold
 hold_ok() { # hold_ok <jobid>: RUNNING, 10 nodes, >= 7200 s left
@@ -155,6 +155,7 @@ gate() { # gate <label> <nodes> <env words...>: fails the batch unless VERIFY OK
   echo "$l: nodes $n rc $grc $gv digits $gc | $(grep -a -m1 '^total' $RD_LAST_LOG | cut -c1-120) | $(grep -aE 'comm_shmem pool: COMM_OFI' $RD_LAST_LOG | head -1 | cut -c1-200)" >> $OUT/gates.txt
   rd_say "$l: rc $grc $gv digits $gc"
   if [ $grc != 0 ] || [ "$gv" != "VERIFY OK" ] || ! grep -aq "mn: all $n nodes: VERIFY OK" $RD_LAST_LOG || [ "$gc" != identical ]; then fail "GATE $l FAILED: rc $grc $gv digits $gc (log $RD_LAST_LOG)"; fi
+  case "$l" in gate3_both|gate6_both) grep -aq 'COMM_LAYER_INTER2: second mesh' $RD_LAST_LOG || fail "GATE $l: no 'COMM_LAYER_INTER2: second mesh' line (the second mesh was not used; log $RD_LAST_LOG)";; esac
   rd_health $J $NODES || fail "unhealthy after gate $l"; }
 gate gate3_base 3
 gate gate3_vp 3 $SW_VP
