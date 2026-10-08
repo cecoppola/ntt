@@ -438,6 +438,12 @@ measurements their items need; A37-R1 only after both its gates.
 - **A37-R6: measured on one node.** j < 34126 totals about 0.02 s; no one-APU path justified; the 10-node floor (2.28 s) needs A37-Q8 (per-doubling clocks at 10 nodes). Odd: chain start-up 4.14 s vs 0.43 s between two runs.
 - **A37-Q4: DONE.** 2^31 forward real 90.4 ms, NOP 76.7 ms (modmul 13.7 ms, 15 %); 4 passes, the extra pass (about 17-20 ms, mod) is the remaining lever. **A37-Q9** and **A37-R5**: not run.
 
+**Status 2026-10-08 (S27 / S25 / S26, results/S27.md, RESULTS §123; recommendations only):**
+
+- **XEFF X1 (rot): NULL** (ABBA B-A +3.1 s, CI -1.0..+7.2). **X3 not built.** **X2 (INTER2 + VSLOT_POOL): in S28.** COMM_XSTATS done: direct exchanges 101 s per thread, 61 % skew; node 1 enters the reciprocal ~20 s late (new item below).
+- **NEW XEFF-6a: reciprocal-chain lateness of node 1 (~19 s idle on nine nodes, m).** Diagnose with one `ECALC_LOG_CLOCKS=1 COMM_XSTATS=1` 10-node run, then replicate/overlap the chain (switch, off by default). Top recommendation for the 10-node hold.
+- **A37-Q9: DONE** (batch tier 21.3 s at 10 n, 20.6 s at 1 n); **A37-R5: not worth it** (realistic -1.5..-3 s). S25 ladder 6.441/7.0/7.64e10: 410.6/464.4/528.5 s VERIFY OK; memory 28.4 GB per 1e10 + 173 GB fixed; 8.1e10 blocked by the vslot rule. A1 soaks: 975 of 975 ok.
+
 **Status 2026-10-08 (S22 / S23 / S24, results/S22.md, RESULTS §122; recommendations only, decisions are the user's):**
 
 - **D2 / MN_T_CHUNK_MB=2048: DONE on aac7.** S22's 16 new ABBA rounds: 16 of 16 negative, mean -40.6 s (CI -51.7 .. -29.5); pooled with S20 24 rounds, mean -42.3, median -35.1, 22 of 24 negative. Recommended: adopt on aac7 profile lines, target line unchanged (pool law 1024) until a target A/B.

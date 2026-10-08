@@ -4660,3 +4660,16 @@ Labels as above. All three batches SUCCESS: S22 42 runs, 0 bad (all VERIFY OK, d
   - **3-pass NTT: stop** (the 2-pass plans at logn 20-22 would also gain at most 3 %, mod from these pass costs). Side result: NTT_R3_FUSE is 12-21 % faster per 3*2^k transform but those are 1.3 s per APU per run (about 0.2 s).
 - **Anomalies:** the S21 Newton start-up 4.14 s vs 0.43 s did not recur (6 runs: 0.44-0.61 s; dm 33.4-34.3 s); S22 stats runs cost about +3-4 % wall; A's dm is clustered (215 / 230-246 s) while B's is tight.
 - **Decisions for the user (results/S22.md §6):** (1) T2048 default on aac7 (adopt, target unchanged); (2) S-2 (no build, one target wait run); (3) A37-R1 (no-go, one target `ECALC_INIT_TL=1` run); (4) 3-pass NTT (stop).
+
+## 123. S27 / S25 / S26: COMM_XSTATS decomposition, X1 rot ABBA, share ladder, A37-Q9, soak counts (2026-10-08 10:45 - 13:15 EDT; holds 12331, 12377; results/S27.md)
+
+Labels as above. All runs rc 0, VERIFY OK, digits identical. Analysis only; nothing launched on aac7.
+
+- **X1 `COMM_SHMEM_PEER_ORDER=rot` (m):** ABBA 4 rounds, B - A mean **+3.1 s** (A 378.6, B 381.7), CI -1.0 .. +7.2: null, STOP. Yet with XSTATS the layered rate rose 11.4 -> 13.7 GB/s and exposed layv wait fell 17.8 s per thread, so the gain is absorbed as waiting for stragglers. One XSTATS+rot run (358 s) is an unexplained outlier (check suggested).
+- **XSTATS answer to XEFF section 3 (m, per thread, 10 nodes):** direct exchanges 101 s (27 % of 376 s), of which **skew (roff) 61 s (61 %)**, signal/transfer 16 s, staging/flush 24 s. Skew sits in the reciprocal's first addsh (**19.2 s on nine nodes, 1.2 s on node 1: node 1 is ~20 s late into the reciprocal, same in 3 runs**) and in result exchanges (dm 22.3, bs 12.0 s; ranks 0-1 wait twice as long as 4-6). Layered: 109.7 s at 11.4 GB/s, 85 % exposed; no slow mesh (4 APUs within 0.4 %): the mesh-0/NIC hypothesis is not supported.
+- **Re-ranked (mod/a, 10 nodes):** (1) recip chain lateness: ceiling -19 s, expected -8..-17; (2) result rank gradient -5..-12; (3) X2 -3..-12 (S28 decides); (4) pipelined rounds -3..-6; (5) fuse redistributions -2..-4; rot, OFI signal, mesh rebinding: dead.
+- **S25 ladder (m):** 6.441 / 7.0 / 7.64e10 per node: 410.6 / 464.4 / 528.5 s, all VERIFY OK; 63.8 / 66.3 / 69.2 s per 1e10 (marginal 96-98 s per 1e10, wall ~ share^1.5); peak rank 0 356.5 / 373.6 / 390.5 GB = **28.4 GB per 1e10 + ~173 GB fixed**. 8.1e10 skipped: needs 427.6 GB > 0.95 x 440.7 GB (the least-free of the 10 nodes; idle nodes show 512 GB).
+- **A37-Q9 (m):** batch tier 21.3 s of bs 161 s at 10 nodes (scatter 2.3, ntt 10.9, crt 3.5, merge 0.3, 3.6 s gaps; levels 1-3 are 7.4 s); one node 20.6 s; mdev top two levels 12.6 s (level 25 alone 9.0 s). **A37-R5 not worth it** (overlappable 6.1 s, realistic -1.5..-3 s, <1 % of wall).
+- **S26 soaks (m, 1 node):** 975 of 975 runs ok (A 470 + C 413 at 1e9 digits, B 92 at share class), 0 bad / diff / hang.
+- **Recommendation:** diagnose node 1's reciprocal lateness (one `ECALC_LOG_CLOCKS` run), then replicate or overlap the chain; X2 after S28.
+
