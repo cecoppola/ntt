@@ -128,7 +128,7 @@ chain_X() { local bad=0 w=0 j CJ="" cfg rep
     sleep 120; w=$((w+120)); done
   rd_say "R2 on CPX hold $CJ ($(squeue -j $CJ -h -o %N), $(left_s $CJ) s left, waited ${w}s)"
   for rep in 1 2; do for cfg in "64410000000 10 0,5" "64410000000 576 0,288"; do
-    rd_run r2_r${rep}_$(echo $cfg | cut -d' ' -f2) 240 srun --jobid=$CJ -N1 -c 192 --overlap bash -lc "cd $E; ./tests/b_seed64 $cfg 192 20000"; local rc=$?
+    rd_run r2_r${rep}_$(echo $cfg | cut -d' ' -f2) 240 srun --jobid=$CJ -N1 -c 192 --overlap bash -lc "$PRE ./tests/b_seed64 $cfg 192 20000"; local rc=$?
     { echo "== r2 rep $rep ($cfg) on CPX $CJ rc $rc"; grep -a '^R2\|^b_seed64' $RD_LAST_LOG | cut -c1-420; } >> $OUT/res/r2.txt
     if [ $rc != 0 ] || ! grep -aq '^R2 done: all identical' $RD_LAST_LOG; then alert "r2 rep $rep ($cfg) rc $rc or not identical (log $RD_LAST_LOG)"; bad=$((bad+1)); fi
   done; done
