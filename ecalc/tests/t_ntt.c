@@ -591,8 +591,323 @@ static int n3x_bench(int kmin, int kmax)
 }
 #endif
 
+/* ---- S24 (results/NTT3P.md section 7, E0): `t_ntt e0 probe|b13|plan [LOGN (31)]` -- bench / test code only, ecalc's production plans unchanged.
+ *   probe  tile read / write bandwidth of 64 KB LDS tiles (1 block/CU) at several row strides, against today's 7-stage tile (the control)
+ *   b13    the 2^13 contiguous bottom pass (k_b1r<13, 4>, NTT_PLAN 130 / 131, ntt.c) against today's 2^12 one, plus the identity check against the default
+ *   plan   a prototype 13 / 9 / 9 forward plan for 2^31: two 9-stage strided passes (k_e0_b9f below) then the 2^13 b1 pass; per-pass times and the
+ *          output compared with the production plan's.  Under t_ntt_nop (-DNTT_NOP_MODMUL, every modmul one FMA) it only times.
+ * The kernels use the same register-blocked structure and lazy modmul as k_b16r (ntt.c, MM 1) and the same twiddle formulas. */
+#ifdef NTT_NOP_MODMUL
+#define E0_NOP 1
+#else
+#define E0_NOP 0
+#endif
+__device__ static inline double e0_raw(double a, double b, double p, double pinv, double pinvl)
+{
+#ifdef NTT_NOP_MODMUL
+    return fma(b, 0.0, a);
+#else
+    double hi = a * b, lo = fma(a, b, -hi);
+    double q = floor(fma(hi, pinv, fma(hi, pinvl, lo * pinv)));
+    return fma(-q, p, hi) + lo;
+#endif
+}
+__device__ static inline uint64_t e0_lazy(double a, double b, double p, double pinv, double pinvl)
+{
+    double r = e0_raw(a, b, p, pinv, pinvl);
+    r += (r < 0.0 ? p : 0.0);
+    return (uint64_t)r;
+}
+__device__ static inline double e0_canon(double a, double b, double p, double pinv, double pinvl)
+{
+    double r = e0_raw(a, b, p, pinv, pinvl);
+    r += (r < 0.0 ? p : 0.0);
+    r -= (r >= p ? p : 0.0);
+    return r;
+}
+
+/* ---- the tile probe.  A block moves ROWS x COLS points (8 B each) at row stride S = 2^s_lo, COLS adjacent points per row (COLS * 8 B contiguous),
+ * exactly the k_b16r access pattern: the loads take rows tt + NT i, the stores rows V tt + i (V = points per thread).  MODE 0: load, +1, through
+ * the LDS tile (one exchange), store (16 B per point); MODE 1: loads only (8 B per point; the sum is kept alive by a conditional store);
+ * MODE 2: stores only (8 B per point).  LDS: ROWS x (COLS + PAD) words; the 8-column tile swaps the row's bit 0 with its bit 4 so that the
+ * 16-lane groups of the row-contiguous reads stay conflict-free. */
+template <int ROWS, int COLS, int THR, int PAD, int MODE>
+__global__ __launch_bounds__(THR) void k_e0_tile(uint64_t *x, size_t S)
+{
+    constexpr int V = ROWS * COLS / THR, NT = THR / COLS, W = COLS + PAD;
+    __shared__ uint64_t sh[MODE == 0 ? ROWS * W : 1];
+    const int tt = threadIdx.x / COLS, bb = threadIdx.x % COLS;
+    const size_t slabs = S / COLS, b = blockIdx.x, blk_hi = b / slabs, slab = b % slabs;
+    const size_t base = blk_hi * ROWS * S + slab * COLS + bb;
+    uint64_t v[V];
+    if (MODE != 2) {
+#pragma unroll
+        for (int i = 0; i < V; i++) v[i] = x[base + (size_t)(tt + NT * i) * S];
+    } else {
+#pragma unroll
+        for (int i = 0; i < V; i++) v[i] = (uint64_t)threadIdx.x + i;
+    }
+    if (MODE == 0) {
+#pragma unroll
+        for (int i = 0; i < V; i++) { const int r = tt + NT * i; sh[(COLS == 8 ? (r ^ ((r >> 4) & 1)) : r) * W + bb] = v[i] + 1; }
+        __syncthreads();
+#pragma unroll
+        for (int i = 0; i < V; i++) { const int r = V * tt + i; v[i] = sh[(COLS == 8 ? (r ^ ((r >> 4) & 1)) : r) * W + bb]; }
+    }
+    if (MODE == 1) {
+        uint64_t acc = 0;
+#pragma unroll
+        for (int i = 0; i < V; i++) acc ^= v[i];
+        if (acc == 0x5A5A5A5A5A5A5A5AULL) x[base] = acc;
+    } else {
+#pragma unroll
+        for (int i = 0; i < V; i++) x[base + (size_t)(V * tt + i) * S] = v[i];
+    }
+}
+template <int ROWS, int COLS, int THR, int PAD>
+static float e0_tile_time(uint64_t *dx, size_t N, int s_lo, int mode)
+{
+    const size_t S = (size_t)1 << s_lo;
+    const unsigned nb = (unsigned)(N / (ROWS * COLS));
+    float ms;
+    if (mode == 0) TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 0><<<nb, THR>>>(dx, S)));
+    else if (mode == 1) TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 1><<<nb, THR>>>(dx, S)));
+    else TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 2><<<nb, THR>>>(dx, S)));
+    return ms;
+}
+static int e0_probe(int LOGN)
+{
+    HIP_CHECK(hipSetDevice(0));
+    const size_t N = (size_t)1 << LOGN;
+    uint64_t *dx; HIP_CHECK(hipMalloc(&dx, N * 8)); HIP_CHECK(hipMemset(dx, 0, N * 8));
+    printf("== t_ntt e0 probe: 2^%d points (%.1f GB) per pass, APU0, median of 5; GB/s = bytes moved / time (rw 16 B per point, r and w 8 B) ==\n", LOGN, N * 8 / 1e9);
+    printf("-- tiles: 7stage = 128 rows x 16 cols, 256 thr, LDS 128x17 (18.4 KB, 3 blocks/CU: today's tile, control); 9stage = 512 x 16, 512 thr, 64 KB (1 block/CU);\n"
+           "--        10stage = 1024 x 8 cols (64 B segments), 512 thr, 64 KB (1 block/CU).  s_lo 4 = contiguous tile (no stride).  n/a: s_lo + stages > %d\n", LOGN);
+    static const int slos[] = {4, 12, 13, 17, 21, 22, 24};
+    static const struct { const char *name; int stg; } kinds[] = {{"7stage", 7}, {"9stage", 9}, {"10stage", 10}};
+    double min9 = 1e30, tb9[2] = {0, 0};
+    for (int k = 0; k < 3; k++) for (unsigned si = 0; si < sizeof slos / sizeof slos[0]; si++) {
+        const int sl = slos[si];
+        if (sl + kinds[k].stg > LOGN) { printf("   E0 %-7s s_lo %2d: n/a\n", kinds[k].name, sl); continue; }
+        float t[3];
+        for (int mode = 0; mode < 3; mode++)
+            t[mode] = k == 0 ? e0_tile_time<128, 16, 256, 1>(dx, N, sl, mode) : k == 1 ? e0_tile_time<512, 16, 512, 0>(dx, N, sl, mode) : e0_tile_time<1024, 8, 512, 0>(dx, N, sl, mode);
+        const double rw = 16.0 * N / (t[0] * 1e-3) / 1e9, rd = 8.0 * N / (t[1] * 1e-3) / 1e9, wr = 8.0 * N / (t[2] * 1e-3) / 1e9;
+        printf("   E0 %-7s s_lo %2d: rw %7.3f ms %6.0f GB/s | read-only %7.3f ms %6.0f GB/s | write-only %7.3f ms %6.0f GB/s\n", kinds[k].name, sl, t[0], rw, t[1], rd, t[2], wr);
+        if (k == 1 && (sl == 13 || sl == 22)) { if (rw < min9) min9 = rw; tb9[sl == 22] = rw; }
+    }
+    printf("E0 GATE 9-stage 16-column tile rw at s_lo 13 / 22: %.0f / %.0f GB/s, threshold 1600 GB/s: %s\n", tb9[0], tb9[1], min9 >= 1600.0 ? "GO" : "NO-GO");
+    HIP_CHECK(hipFree(dx));
+    return 0;
+}
+
+/* ---- 2^13 bottom pass (ntt.c k_b1r<13, LGV>, selected by NTT_PLAN 130 / 131), against today's 2^12 one ---- */
+static int e0_b13(int LOGN)
+{
+    HIP_CHECK(hipSetDevice(0));
+    const size_t tot = (size_t)1 << LOGN;
+    uint64_t *dx; HIP_CHECK(hipMalloc(&dx, tot * 8));
+    ntt_ctx *c = ntt_ctx_create(0);
+    dev_fill(dx, tot, ec_P[0], 1);
+    struct kcfg ref = {0, 0, "ref"};
+    printf("== t_ntt e0 b13: the b1 pass alone over 2^%d points (production modmul NTT_MODMUL 1), APU0, prime 0, median of 5 ==\n", LOGN);
+    printf("-- b1 pass: lb b1r: fwd ms GB/s ms/stage | inv ms GB/s ms/stage\n");
+    static const int lbs[] = {12, 13}, rs[] = {3, 4};
+    float t12f[2] = {0, 0}, t12i[2] = {0, 0}, t13f[2] = {0, 0}, t13i[2] = {0, 0};
+    for (int li = 0; li < 2; li++) for (int ri = 0; ri < 2; ri++) {
+        const int lb = lbs[li], r = rs[ri];
+        struct kcfg kc = {1, 0, "", 0, r, lb * 10}; kcfg_set(&kc);
+        const int np = ntt_npass(20);
+        float mf, mi;
+        TIME_MS(mf, 1, ntt_pass(c, dx, 20, tot >> 20, 0, np - 1, 0));
+        TIME_MS(mi, 1, ntt_pass(c, dx, 20, tot >> 20, 1, np - 1, 0));
+        (lb == 12 ? t12f : t13f)[ri] = mf; (lb == 12 ? t12i : t13i)[ri] = mi;
+        printf("   E0B1 lb %d b1r %d: fwd %7.3f ms %5.0f GB/s %.3f | inv %7.3f ms %5.0f GB/s %.3f\n", lb, r, mf, 16.0 * tot / (mf * 1e-3) / 1e9, mf / lb,
+               mi, 16.0 * tot / (mi * 1e-3) / 1e9, mi / lb);
+        kcfg_set(&ref);
+    }
+    for (int ri = 0; ri < 2; ri++)
+        printf("E0 B13 b1r %d: 2^13 vs 2^12 b1 pass: fwd %.3f ms vs %.3f ms (%.3fx of 2^12; NTT3P model 30 / 25.8 = 1.16x = %.1f ms at 2^31), inv %.3f vs %.3f ms (%.3fx)\n",
+               rs[ri], t13f[ri], t12f[ri], t13f[ri] / t12f[ri], t13f[ri] * ((double)1 << 31) / tot, t13i[ri], t12i[ri], t13i[ri] / t12i[ri]);
+    ntt_ctx_free(c);
+    HIP_CHECK(hipFree(dx));
+#ifndef NTT_NOP_MODMUL
+    /* the identity check: whole forward / inverse / fused inverse (and the radix-3 pair) under the 2^13 plans against the paper's default, random canonical input */
+    const size_t cap = (size_t)3 << 27;
+    uint64_t *a, *r_, *y;
+    HIP_CHECK(hipMalloc(&a, cap * 8)); HIP_CHECK(hipMalloc(&r_, cap * 8)); HIP_CHECK(hipMalloc(&y, cap * 8));
+    static const struct kcfg ks[] = {{1, 0, "B1R3+P130", 0, 3, 130}, {1, 0, "B1R4+P130", 0, 4, 130}, {1, 0, "B1R4+P131", 0, 4, 131}, {0, 0, "MM0+B1R4+P130", 0, 4, 130}};
+    static const int lgs[] = {13, 14, 15, 17, 20, 22, 24, 27};
+    for (int pr = 0; pr < EC_NP && pr < 3; pr++) {
+        ntt_ctx *cc = ntt_ctx_create(pr);
+        for (unsigned ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) for (unsigned li = 0; li < sizeof lgs / sizeof lgs[0]; li++) {
+            if (pr && lgs[li] > 20) continue;
+            ident_check(&ks[ki], pr, lgs[li], 1, cc, a, r_, y, 1);
+        }
+        ident_check(&ks[1], pr, 13, 64, cc, a, r_, y, 1);
+        ident_check(&ks[2], pr, 14, 33, cc, a, r_, y, 1);
+        ntt_ctx_free(cc);
+    }
+    HIP_CHECK(hipFree(a)); HIP_CHECK(hipFree(r_)); HIP_CHECK(hipFree(y));
+    printf("E0 B13 identity check done (see VERIFY line)\n");
+#else
+    printf("E0 B13: NOP build, identity check skipped (outputs wrong by design)\n");
+#endif
+    return verify_done("t_ntt e0 b13");
+}
+
+/* ---- the prototype 9-stage strided pass (forward only): 512 rows x 16 columns per block (64 KB LDS, 512 threads, 16 points each), stages s_lo + 8 .. s_lo.
+ * Register groups: A stages 8..5 (rows tt + 32 i), B stages 4..1 (rows ((tt >> 1) << 5) | (i << 1) | (tt & 1)), C stage 0 (rows 16 tt + i), two LDS exchanges.
+ * Twiddles as k_b16r MM 1: stage lgH, row r: w_{2H}^r (tab: the 512-entry table of w_512^k) times the column factor T = wK^(c 2^(8 - lgH)), T squared after each stage. ---- */
+__global__ __launch_bounds__(512) void k_e0_b9f(uint64_t *x, int s_lo, ec_mod m, const double *tlo, const double *thi, const double *tabT)
+{
+    constexpr int STG = 9, ROWS = 512;
+    __shared__ uint64_t sh[ROWS * 16];
+    const int tt = threadIdx.x >> 4, bb = threadIdx.x & 15;
+    const size_t hmin = (size_t)1 << s_lo, slabs = hmin / 16, b = blockIdx.x, blk_hi = b / slabs, slab0 = b % slabs;
+    const size_t base = blk_hi * ROWS * hmin + slab0 * 16;
+    const double p = m.p, pinv = m.pinv, pinvl = fma(-p, pinv, 1.0) * pinv;
+    const uint64_t p2 = 2 * m.pu;
+    uint64_t v[16];
+    double T;
+    { const size_t c = slab0 * 16 + bb; T = e0_canon(tlo[c & 4095], thi[c >> 12], p, pinv, pinvl); }
+#define ROW_A(i) (tt + 32 * (i))
+#define ROW_B(i) ((((tt) >> 1) << 5) | ((i) << 1) | ((tt) & 1))
+#define ROW_C(i) (16 * (tt) + (i))
+#define STAGE9(lgH, rb, ROWF)                                                          \
+    do {                                                                               \
+        const int H_ = 1 << (lgH), lgstep_ = STG - 1 - (lgH);                          \
+        _Pragma("unroll")                                                              \
+        for (int i_ = 0; i_ < 16; i_++) if (!(i_ & (1 << (rb)))) {                     \
+            const int r_ = ROWF(i_) & (H_ - 1);                                        \
+            const double w_ = e0_canon(tabT[r_ << lgstep_], T, p, pinv, pinvl);        \
+            uint64_t s_ = v[i_] + v[i_ + (1 << (rb))], d_ = v[i_] - v[i_ + (1 << (rb))] + p2; \
+            if (s_ >= p2) s_ -= p2;                                                    \
+            if (d_ >= p2) d_ -= p2;                                                    \
+            v[i_] = s_; v[i_ + (1 << (rb))] = e0_lazy((double)d_, w_, p, pinv, pinvl); \
+        }                                                                              \
+        T = e0_canon(T, T, p, pinv, pinvl);                                            \
+    } while (0)
+#pragma unroll
+    for (int i = 0; i < 16; i++) v[i] = x[base + (size_t)ROW_A(i) * hmin + bb];
+    STAGE9(8, 3, ROW_A); STAGE9(7, 2, ROW_A); STAGE9(6, 1, ROW_A); STAGE9(5, 0, ROW_A);
+#pragma unroll
+    for (int i = 0; i < 16; i++) sh[ROW_A(i) * 16 + bb] = v[i];
+    __syncthreads();
+#pragma unroll
+    for (int i = 0; i < 16; i++) v[i] = sh[ROW_B(i) * 16 + bb];
+    STAGE9(4, 3, ROW_B); STAGE9(3, 2, ROW_B); STAGE9(2, 1, ROW_B); STAGE9(1, 0, ROW_B);
+    __syncthreads();
+#pragma unroll
+    for (int i = 0; i < 16; i++) sh[ROW_B(i) * 16 + bb] = v[i];
+    __syncthreads();
+#pragma unroll
+    for (int i = 0; i < 16; i++) v[i] = sh[ROW_C(i) * 16 + bb];
+    STAGE9(0, 0, ROW_C);
+#pragma unroll
+    for (int i = 0; i < 16; i++) x[base + (size_t)ROW_C(i) * hmin + bb] = v[i];
+#undef ROW_A
+#undef ROW_B
+#undef ROW_C
+#undef STAGE9
+}
+struct e0_tw { double *tlo, *thi, *tab; };
+static e0_tw e0_build(int prime, int s_lo, int s_hi)      /* the tables of one forward pass: wK = the primitive 2^(s_hi+1)-th root, as ntt.c build_pass_tw */
+{
+    const uint64_t p = ec_P[prime], wK = ec_root(prime, s_hi + 1), w9 = ec_root(prime, 9);
+    const size_t nhi = s_lo > 12 ? (size_t)1 << (s_lo - 12) : 1, w4096 = ec_powmod(wK, 4096, p);
+    double *h = (double *)malloc((4096 + nhi + 512) * sizeof *h);
+    uint64_t a = 1; for (int k = 0; k < 4096; k++) { h[k] = (double)a; a = ec_mulmod_ref(a, wK, p); }
+    a = 1; for (size_t k = 0; k < nhi; k++) { h[4096 + k] = (double)a; a = ec_mulmod_ref(a, w4096, p); }
+    a = 1; for (int k = 0; k < 512; k++) { h[4096 + nhi + k] = (double)a; a = ec_mulmod_ref(a, w9, p); }
+    double *d; HIP_CHECK(hipMalloc(&d, (4096 + nhi + 512) * sizeof *h));
+    HIP_CHECK(hipMemcpy(d, h, (4096 + nhi + 512) * sizeof *h, hipMemcpyHostToDevice)); free(h);
+    e0_tw t = {d, d + 4096, d + 4096 + nhi};
+    return t;
+}
+static void e0_b9(ntt_ctx *c, uint64_t *x, size_t n, const e0_tw &t, int s_lo)
+{
+    k_e0_b9f<<<(unsigned)(n / 8192), 512>>>(x, s_lo, ec_mod_get(ntt_ctx_prime(c)), t.tlo, t.thi, t.tab);
+}
+/* the prototype forward of 2^logn = 2^(13 + 9 k) points, k = 1, 2: 9-stage passes s_lo = logn - 9, ..., 13, then the 2^13 b1 pass (ntt_pass of a 2^13 transform
+ * batch under NTT_PLAN 130) */
+static void e0_proto_fwd(ntt_ctx *c, uint64_t *x, int logn, const e0_tw *tw, const struct kcfg *b1cfg)
+{
+    const size_t n = (size_t)1 << logn;
+    for (int k = 0, sl = logn - 9; sl >= 13; sl -= 9, k++) e0_b9(c, x, n, tw[k], sl);
+    kcfg_set(b1cfg);
+    ntt_pass(c, x, 13, n >> 13, 0, 0, 0);
+}
+static int e0_plan(int LOGN)
+{
+    HIP_CHECK(hipSetDevice(0));
+    const int pr = 0;
+    ntt_ctx *c = ntt_ctx_create(pr);
+    struct kcfg ref = {0, 0, "ref"};
+    struct kcfg prod = {1, 0, "production", 0, 3, 1};           /* today: NTT_MODMUL 1, NTT_B1R 3, NTT_PLAN auto (121 at 2^31) */
+    struct kcfg b1c[2] = {{1, 0, "b13/r3", 0, 3, 130}, {1, 0, "b13/r4", 0, 4, 130}};
+    printf("== t_ntt e0 plan: prototype 13/9/9 forward (%s modmul), APU0, prime 0, median of 5 ==\n", E0_NOP ? "NOP" : "real");
+#ifndef NTT_NOP_MODMUL
+    /* correctness: 2^22 (13/9) and 2^LOGN (13/9/9) against the production forward, canonical, random input */
+    static const int lgs[] = {22, 31};
+    for (int li = 0; li < 2; li++) {
+        const int lg = lgs[li]; if (lg > LOGN) continue;
+        const size_t n = (size_t)1 << lg;
+        uint64_t *a, *r_;
+        HIP_CHECK(hipMalloc(&a, n * 8)); HIP_CHECK(hipMalloc(&r_, n * 8));
+        dev_fill(a, n, ec_P[pr], 77 + lg); dev_fill(r_, n, ec_P[pr], 77 + lg);
+        e0_tw tw[2]; tw[0] = e0_build(pr, lg - 9, lg - 1); if (lg > 22) tw[1] = e0_build(pr, 13, lg - 10);
+        e0_proto_fwd(c, a, lg, tw, &b1c[1]);
+        HIP_CHECK(hipDeviceSynchronize());
+        kcfg_set(&prod); ntt_fwd(c, r_, lg, 1, 0); HIP_CHECK(hipDeviceSynchronize()); kcfg_set(&ref);
+        const size_t bad = dev_diff(a, r_, n);
+        VERIFY(bad == 0, "E0 prototype 13/9%s 2^%d forward: %zu mismatches vs the production plan", lg > 22 ? "/9" : "", lg, bad);
+        printf("   E0 plan check 2^%d: %zu mismatches\n", lg, bad);
+        HIP_CHECK(hipFree(tw[0].tlo)); if (lg > 22) HIP_CHECK(hipFree(tw[1].tlo));
+        HIP_CHECK(hipFree(a)); HIP_CHECK(hipFree(r_));
+    }
+#else
+    printf("   (NOP build: outputs wrong by design, no check)\n");
+#endif
+    const int lg = LOGN;
+    if (lg != 31) { printf("   timing only for 2^31\n"); ntt_ctx_free(c); return verify_done("t_ntt e0 plan"); }
+    const size_t n = (size_t)1 << lg;
+    uint64_t *dx; HIP_CHECK(hipMalloc(&dx, n * 8)); dev_fill(dx, n, ec_P[pr], 5);
+    e0_tw tw[2] = {e0_build(pr, 22, 30), e0_build(pr, 13, 21)};
+    float p0, p1, pb[2];
+    TIME_MS(p0, 1, e0_b9(c, dx, n, tw[0], 22));
+    TIME_MS(p1, 1, e0_b9(c, dx, n, tw[1], 13));
+    for (int r = 0; r < 2; r++) { kcfg_set(&b1c[r]); TIME_MS(pb[r], 1, ntt_pass(c, dx, 13, n >> 13, 0, 0, 0)); kcfg_set(&ref); }
+    printf("   E0 P13/9/9 pass 0 [22..30] 9-stage: %8.3f ms %5.0f GB/s\n", p0, 16.0 * n / (p0 * 1e-3) / 1e9);
+    printf("   E0 P13/9/9 pass 1 [13..21] 9-stage: %8.3f ms %5.0f GB/s\n", p1, 16.0 * n / (p1 * 1e-3) / 1e9);
+    for (int r = 0; r < 2; r++) printf("   E0 P13/9/9 pass 2 [ 0..12] b1 2^13 r%d: %8.3f ms %5.0f GB/s\n", r ? 4 : 3, pb[r], 16.0 * n / (pb[r] * 1e-3) / 1e9);
+    const float sum = p0 + p1 + (pb[0] < pb[1] ? pb[0] : pb[1]);
+    kcfg_set(&prod);
+    float tw_whole, ts = 0;
+    TIME_MS(tw_whole, 1, ntt_fwd(c, dx, lg, 1, 0));
+    printf("   E0 today (production plan, %d passes) per pass:", ntt_npass(lg));
+    for (int ps = 0; ps < ntt_npass(lg); ps++) { float mf; TIME_MS(mf, 1, ntt_pass(c, dx, lg, 1, 0, ps, 0)); ts += mf; printf(" %.3f", mf); }
+    printf(" ms\n");
+    kcfg_set(&ref);
+    printf("E0 PLAN 13/9/9 %s: sum of 3 passes %.3f ms (best b1r); today sum of passes %.3f ms, whole ntt_fwd %.3f ms; saving vs sum %.3f ms\n", E0_NOP ? "NOP" : "real", sum, ts, tw_whole, ts - sum);
+    if (!E0_NOP) printf("E0 GATE 3-pass real total <= 80 ms at 2^31: %.3f ms: %s\n", sum, sum <= 80.0 ? "GO" : "NO-GO");
+    HIP_CHECK(hipFree(tw[0].tlo)); HIP_CHECK(hipFree(tw[1].tlo)); HIP_CHECK(hipFree(dx));
+    ntt_ctx_free(c);
+    return verify_done("t_ntt e0 plan");
+}
+static int e0_main(const char *what, int logn)
+{
+    printf("== t_ntt e0 %s (S24, NTT3P E0) ==\n", what);
+    if (!strcmp(what, "probe")) return e0_probe(logn);
+    if (!strcmp(what, "b13")) return e0_b13(logn);
+    if (!strcmp(what, "plan")) return e0_plan(logn);
+    printf("t_ntt e0 probe|b13|plan [LOGN]\n");
+    return 2;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && !strcmp(argv[1], "e0")) return e0_main(argc > 2 ? argv[2] : "probe", argc > 3 ? atoi(argv[3]) : 31);   /* S24: NTT3P E0 (probe, b13, plan) */
     if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);   /* Phase 15 N3x */
 #ifndef T_NTT_OLD
     if (argc > 1 && !strcmp(argv[1], "r3bench")) return n3x_bench(argc > 2 ? atoi(argv[2]) : 10, argc > 3 ? atoi(argv[3]) : 29);

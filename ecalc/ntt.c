@@ -14,7 +14,7 @@
 #define BP 17                      /* LDS pad: sh[128][17], conflict-free columns */
 #define THREADS 256
 #define B1_LGL 10                  /* b1 block length 2^10 (rule 3b) */
-#define B1R_TW 4096                /* Phase 13b K: the register-blocked b1's per-stage twiddle table (b1 lengths up to 2^12) */
+#define B1R_TW 8192                /* Phase 13b K: the register-blocked b1's per-stage twiddle table (b1 lengths up to 2^13 since S24; 2^12 needed 4096) */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
@@ -618,12 +618,19 @@ void k_b1(uint64_t *x, const uint64_t *y, size_t Lt, int ymode, ec_mod m, const 
  * 4096 entries), the same canonical values as k_b1's tab[r << lgstep].  Same butterflies, same modmul (MM 0 ec_mm, 1
  * mm_lazy) and same final canonicalisation / scale as k_b1, so the outputs are bit-identical (they are canonical, hence
  * unique, anyway). */
+template <int LGL>
 __device__ static inline unsigned b1r_swz(unsigned x)
 {
     const unsigned h = x >> 4;
     unsigned r = 0;
+    if constexpr (LGL >= 13) {        /* S24 (NTT3P E0): 2^13 blocks; the 2^12 masks leave 4-way conflicts in the group g = 2 at LGV 4 (index bits 1.. of the thread), searched again (swz2.py: rank of the 4 lane-bit images = 4 in every group, LGV 3 and 4) */
+        r ^= (0u - (h & 1)) & 3u;         r ^= (0u - ((h >> 1) & 1)) & 10u; r ^= (0u - ((h >> 2) & 1)) & 14u; r ^= (0u - ((h >> 3) & 1)) & 13u;
+        r ^= (0u - ((h >> 4) & 1)) & 13u; r ^= (0u - ((h >> 5) & 1)) & 2u;  r ^= (0u - ((h >> 6) & 1)) & 5u;  r ^= (0u - ((h >> 7) & 1)) & 2u;
+        r ^= (0u - ((h >> 8) & 1)) & 8u;
+    } else {
     r ^= (0u - (h & 1)) & 13u;        r ^= (0u - ((h >> 1) & 1)) & 7u;  r ^= (0u - ((h >> 2) & 1)) & 14u; r ^= (0u - ((h >> 3) & 1)) & 8u;
     r ^= (0u - ((h >> 4) & 1)) & 12u; r ^= (0u - ((h >> 5) & 1)) & 11u; r ^= (0u - ((h >> 6) & 1)) & 12u; r ^= (0u - ((h >> 7) & 1)) & 7u;
+    }
     return x ^ r;
 }
 template <int LGL, int LGV, int g> struct b1r_grp {
@@ -674,12 +681,12 @@ __device__ static inline void b1r_xchg(uint64_t *v, uint64_t *sh, unsigned t, in
     constexpr int V = 1 << LGV;
     typedef b1r_grp<LGL, LGV, ga> GA; typedef b1r_grp<LGL, LGV, gb> GB;
     if (!first) __syncthreads();
-    const unsigned sa = b1r_swz(GA::tpart(t)), sb = b1r_swz(GB::tpart(t));
+    const unsigned sa = b1r_swz<LGL>(GA::tpart(t)), sb = b1r_swz<LGL>(GB::tpart(t));
 #pragma unroll
-    for (int i = 0; i < V; i++) sh[sa ^ b1r_swz(GA::ipart(i))] = v[i];
+    for (int i = 0; i < V; i++) sh[sa ^ b1r_swz<LGL>(GA::ipart(i))] = v[i];
     __syncthreads();
 #pragma unroll
-    for (int i = 0; i < V; i++) v[i] = sh[sb ^ b1r_swz(GB::ipart(i))];
+    for (int i = 0; i < V; i++) v[i] = sh[sb ^ b1r_swz<LGL>(GB::ipart(i))];
 }
 template <int LGL, int LGV, int g, int INV, int MM>
 __device__ static inline void b1r_run(uint64_t *v, uint64_t *sh, unsigned t, const double *tw, double p, double pinv, double pinvl, uint64_t pu, uint64_t p2)
@@ -764,7 +771,7 @@ static void free_plan_tw(struct plan_tw *pt);
 
 struct plan { int npass, lb, key, s_lo[NTT_MAXPASS], s_hi[NTT_MAXPASS]; };
 /* Phase 13b K (NTT_PLAN): the pass boundaries.  0 (default): b1 on stages lb-1..0 with lb = 10, b16 passes of stg stages
- * from the top down, the partial pass (if any) at the bottom.  10 lb + d (lb = 10, 11, 12; d = 0 top-down as the
+ * from the top down, the partial pass (if any) at the bottom.  10 lb + d (lb = 10, 11, 12, and since S24 13 for NTT_PLAN 130 / 131 only, never plan_auto; d = 0 top-down as the
  * default, d = 1 bottom-up: the full passes from lb upward, the partial one at the top), so the row strides 2^s_lo of
  * the passes can be moved off the slow ones (s_lo 17 and 24, results/K13.md).  1 = auto: per logn, the plan listed in
  * plan_auto (measured, results/K13b.md).  The variants need the register-blocked b1 (NTT_B1R) for lb > 10 and a
@@ -786,7 +793,7 @@ static int plan_code(int logn)
 {
     int pc = ntt_plan_get();
     if (pc == 1) pc = plan_auto(logn);
-    if (pc < 100 || pc > 121 || (pc % 10) > 1 || ntt_modmul_get() == 2 || (ntt_modmul_get() == 0 && ntt_b1_shoup)) return 0;
+    if (pc < 100 || pc > 131 || (pc % 10) > 1 || ntt_modmul_get() == 2 || (ntt_modmul_get() == 0 && ntt_b1_shoup)) return 0;
     if (pc / 10 != B1_LGL && !ntt_b1r_get()) return 0;
     return pc;
 }
@@ -997,6 +1004,8 @@ static void launch_b1(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int
         case 3: launch_b1r<11, 4>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
         case 4: launch_b1r<12, 3>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
         case 5: launch_b1r<12, 4>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
+        case 6: launch_b1r<13, 3>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;      /* S24: only by an explicit NTT_PLAN 130 / 131 (plan_auto never returns it) */
+        case 7: launch_b1r<13, 4>(c, x, y, Lt, ymode, mode, mm, scale, goff, nb, s); break;
         default: ec_fatal(EC_RC_FATAL, "ntt: b1 length 2^%d not built\n", lb);
         }
         return;

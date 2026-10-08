@@ -77,7 +77,7 @@ ntt.o: ntt.c ntt.h modarith.h
 ntt_nop.o: ntt.c ntt.h modarith.h
 	$(HIPC) -DNTT_NOP_MODMUL -c -o $@ $<
 tests/t_ntt_nop: tests/t_ntt.c ntt_nop.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/harness.h
-	$(HIPC) $< -x none ntt_nop.o ntt3.o bigint.o fatal.o -o $@ $(GMP_LIBS)
+	$(HIPC) -DNTT_NOP_MODMUL $< -x none ntt_nop.o ntt3.o bigint.o fatal.o -o $@ $(GMP_LIBS)
 # S21 (A37-R2): the CPU-only seed-leaf microbench (ecalc's decimal span against a37v1's base-2^64 sub-ranges); on demand, not in TESTS
 tests/b_seed64: tests/b_seed64.c bigint.o fatal.o bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c $< -x none bigint.o fatal.o -o $@ -lm
