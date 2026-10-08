@@ -354,8 +354,9 @@ static int bench(int LOGMAX, const char *what)
         /* Phase 13b K: one b16 pass at every row stride 2^s_lo (k_b16r for 7 stages, the tile kernel for 5 and 6), in
          * one transform of 2^L points: the pass-rate table the plan choice needs */
         printf("-- K13b per-s_lo pass rates: L stg s_lo fwd ms GB/s | inv ms GB/s\n");
-        static const int Ls[] = {31, 28, 24};
-        for (int li = 0; li < 3; li++) {
+        static const int Ls3[] = {31, 28, 24}, Lsw[] = {24, 25, 26, 27, 28, 29, 30, 31};   /* S22: bench <LOGMAX> q4sweep = every L from 24 to 31 */
+        const int *Ls = strstr(what, "q4sweep") ? Lsw : Ls3; const int nLs = strstr(what, "q4sweep") ? 8 : 3;
+        for (int li = 0; li < nLs; li++) {
             int L = Ls[li]; if (L > LOGMAX) continue;
             for (int stg = 7; stg >= 5; stg--) for (int sl = 10; sl + stg <= L; sl++) {
                 if (stg < 7 && sl + stg != L) continue;         /* partial passes: only at the top */
@@ -448,8 +449,9 @@ static int bench(int LOGMAX, const char *what)
          * left; its outputs are wrong by design and are not checked here).  The two outputs side by side say what share of the time is the arithmetic. */
         static const struct kcfg q4c = {1, 0, "production", 0, 3, 1};
         printf("-- S21 Q4: production plan; L, fwd ms, inv ms, then per pass [s_lo..s_hi] fwd ms (median of 5)\n");
-        static const int Ls[] = {31, 28, 24};
-        for (int li = 0; li < 3; li++) {
+        static const int Ls3[] = {31, 28, 24}, Lsw[] = {24, 25, 26, 27, 28, 29, 30, 31};   /* S22: bench <LOGMAX> q4sweep = every L from 24 to 31 */
+        const int *Ls = strstr(what, "q4sweep") ? Lsw : Ls3; const int nLs = strstr(what, "q4sweep") ? 8 : 3;
+        for (int li = 0; li < nLs; li++) {
             int L = Ls[li]; if (L > LOGMAX) continue;
             kcfg_set(&q4c);
             float tf, ti;

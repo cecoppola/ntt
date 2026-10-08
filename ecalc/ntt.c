@@ -894,7 +894,7 @@ namespace {
 struct ss_ent { unsigned long calls, xforms, untimed; double ms; };
 struct ss_pend { hipEvent_t a, b; ss_ent *e; int dev; };
 enum { SS_TAGS = 64, SS_CAP = 65536 };
-ss_ent ss_tab[SS_TAGS][2][2][NTT_LOGN_MAX + 1];
+ss_ent ss_tab[SS_TAGS][3][2][2][NTT_LOGN_MAX + 1];   /* [logical][role: 0 whole, 1 rows, 2 cols][r3][dir][logn] */
 std::vector<ss_pend> ss_pending;
 int ss_devmask;
 pthread_mutex_t ss_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -912,8 +912,9 @@ int ntt_ss_tag(int logical) { int p = ss_tag_v; ss_tag_v = logical; return p; }
 int ntt_ss_begin(int dir, int r3, int logn, size_t batch, hipStream_t s)
 {
     if (ss_depth) return -1;
-    int tg = ss_tag_v < 0 ? 0 : ss_tag_v >= SS_TAGS ? SS_TAGS - 1 : ss_tag_v, ln = logn < 0 ? 0 : logn > NTT_LOGN_MAX ? NTT_LOGN_MAX : logn;
-    ss_ent *e = &ss_tab[tg][r3 ? 1 : 0][dir ? 1 : 0][ln];
+    int lg = ss_tag_v & 255, lR = (ss_tag_v >> 8) & 255, lC = (ss_tag_v >> 16) & 255, role = !lg ? 0 : logn == lC ? 1 : logn == lR ? 2 : 0;
+    int tg = lg >= SS_TAGS ? SS_TAGS - 1 : lg, ln = logn < 0 ? 0 : logn > NTT_LOGN_MAX ? NTT_LOGN_MAX : logn;
+    ss_ent *e = &ss_tab[tg][role][r3 ? 1 : 0][dir ? 1 : 0][ln];
     int dev = 0; (void)hipGetDevice(&dev);
     pthread_mutex_lock(&ss_mu);
     e->calls++; e->xforms += batch; if (dev >= 0 && dev < 30) ss_devmask |= 1 << dev;
@@ -941,10 +942,12 @@ void ntt_size_stats_print(int rank, double wall_s)
     pthread_mutex_lock(&ss_mu);
     while (!ss_pending.empty()) { (void)hipEventSynchronize(ss_pending.back().b); ss_resolve(ss_pending.size() - 1); }
     int nd = __builtin_popcount(ss_devmask); double tot = 0, tot3 = 0; unsigned long tc = 0, un = 0;
-    for (int t = 0; t < SS_TAGS; t++) for (int r = 0; r < 2; r++) for (int d = 0; d < 2; d++) for (int l = 0; l <= NTT_LOGN_MAX; l++) {
-        const ss_ent *e = &ss_tab[t][r][d][l]; if (!e->calls) continue;
-        printf("ntt-size-stats node %d: logical %s2^%d  %s %s length %s2^%d: %lu calls, %lu transforms, %.3f GPU-s (%.3f ms/call)%s\n", rank,
-               t ? "" : "(none) ", t, d ? "inv" : "fwd", r ? "radix-3" : "radix-2", r ? "3*" : "", l, e->calls, e->xforms, e->ms * 1e-3, e->ms / e->calls, e->untimed ? " [some untimed]" : "");
+    for (int t = 0; t < SS_TAGS; t++) for (int ro = 0; ro < 3; ro++) for (int r = 0; r < 2; r++) for (int d = 0; d < 2; d++) for (int l = 0; l <= NTT_LOGN_MAX; l++) {
+        const ss_ent *e = &ss_tab[t][ro][r][d][l]; if (!e->calls) continue;
+        char lay[48]; if (!t) snprintf(lay, sizeof lay, "whole 2^%d (not a distributed piece)", l); else snprintf(lay, sizeof lay, "dist %s of logical 2^%d", ro == 1 ? "rows" : ro == 2 ? "cols" : "piece", t);
+        int np = l >= NTT_LOGN_MIN ? ntt_npass(l) : 0;
+        printf("ntt-size-stats node %d: %s | %s %s length %s2^%d | passes %d (b16 %d + b1) | %lu calls, %lu transforms (%.1f per call), %.3f GPU-s (%.3f ms/call, %.3f ms/transform)%s\n", rank,
+               lay, d ? "inv" : "fwd", r ? "radix-3" : "radix-2", r ? "3*" : "", l, np, np ? np - 1 : 0, e->calls, e->xforms, (double)e->xforms / e->calls, e->ms * 1e-3, e->ms / e->calls, e->xforms ? e->ms / e->xforms : 0.0, e->untimed ? " [some untimed]" : "");
         tot += e->ms * 1e-3; tc += e->calls; un += e->untimed; if (r) tot3 += e->ms * 1e-3; }
     printf("ntt-size-stats node %d: total %.3f GPU-s over %lu calls (3*2^k transforms %.3f GPU-s; %lu untimed) on %d APUs; run wall %.1f s => %.1f %% of %d APU-walls (events on each transform's stream: the passes only, APUs add up)\n",
            rank, tot, tc, tot3, un, nd, wall_s, nd && wall_s > 0 ? 100.0 * tot / (nd * wall_s) : 0.0, nd);
