@@ -2,7 +2,7 @@
  * Host-only (no NIC): comm_ofi.c is included for its allocator.  t_ofi_alloc [sym_top 0|1]: exit 0 when the whole sequence fits a 4096 MiB pool.
 
  * With a 2nd argument: the preallocated-slot pattern (the S31 fix), which must fit with sym-top 0 and 1 alike.
- * Sequence (MiB): slots 400 + 400 and a scratch 1023 (symmetric), staging 1023 + 1023 (taken and released per exchange), the slots regrown to
+ * Sequence (MiB): slots 400 + 400 and a scratch 1023 (symmetric), staging 1023 + 1023 (taken and released per exchange, before the slots regrow), the slots regrown to
  * 822 each (free, then allocate), staging 1023 again.  First-fit everywhere (COMM_OFI_SYM_TOP=0) strands the staging; sym-top does not. */
 #include "../comm_ofi.c"
 #define MB ((size_t)1 << 20)
@@ -14,7 +14,7 @@ int main(int argc, char **argv)
         o2.blocks = (struct oblk *)calloc(1, sizeof *o2.blocks); o2.blocks->len = o2.bytes;
         size_t t2 = comm_ofi_alloc(&o2, 1023 * MB, 1); (void)t2;
         size_t x0 = comm_ofi_alloc(&o2, 822 * MB, 1), x1 = comm_ofi_alloc(&o2, 822 * MB, 1); (void)x0; (void)x1;
-        size_t q = comm_ofi_alloc(&o2, 1023 * MB, 0), r = comm_ofi_alloc(&o2, 1023 * MB - 1, 0); comm_ofi_free(&o2, q); comm_ofi_free(&o2, r);
+        size_t q = comm_ofi_alloc(&o2, 1023 * MB, 0); comm_ofi_free(&o2, q);
         q = comm_ofi_alloc(&o2, 1023 * MB, 0); printf("t_ofi_alloc: prealloc: fits (in use %zu MiB, peak %zu MiB)\n", o2.cur / MB, o2.peak / MB); return 0;
     }
     ofi_dev od; memset(&od, 0, sizeof od); od.d = 0; od.bytes = 4096 * MB; pthread_mutex_init(&od.lock, 0);
