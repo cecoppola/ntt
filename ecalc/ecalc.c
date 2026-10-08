@@ -317,6 +317,7 @@ static int out_stage(struct out_ctx *c)
     node_pfx(c); printf("T2    %8.2f s   windows %s (%d checked%s), digits == X mod q %s%s\n", 0.0, bad2 ? "FAILED" : "ok", o->nwin, multi ? " on this node" : "", bad3 ? "FAILED" : "ok", !multi && c->xb->started ? " (overlapped)" : "");
     if (!multi) RESULT("T2", "s", 0.0);
     node_pfx(c); printf("digits: %s...%s%s\n", oh ? oh->first : o->first, o->last, multi ? (oh ? " (this node's two ranges: X_hi's, X_lo's)" : " (this node's range)") : "");
+    ntt_size_stats_print(c->rank, mem_now() - c->t00);   /* S22: NTT_SIZE_STATS=1, once per rank (nothing printed when off) */
     if (multi && c->rank == 0) {
         total = mem_now() - c->t00; phases = c->t_bs + c->t_10dp + c->t_dm + t_t1 + t_dc;
         printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
@@ -821,6 +822,7 @@ int main(int argc, char **argv)
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
         printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+        ntt_size_stats_print(0, total);   /* S22 */
         if (outfile) {
             FILE *f = fopen(outfile, "w");
             if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); if (sp_odirect()) { fflush(f); sp_drop_cache(fileno(f)); }   /* Phase 14 S1 (E3): fsync + DONTNEED */

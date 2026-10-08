@@ -111,7 +111,21 @@ void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 void ntt_host_fwd(uint64_t *x, int logn, int prime);
 void ntt_host_inv(uint64_t *x, int logn, int prime);
 
+/* S22: NTT_SIZE_STATS=1 (default off; print only) -- per transform size, the count and the summed GPU time (hip events on the call's stream, so the
+ * transform's own passes; summed over the APUs) of the outermost forward / inverse calls, by the local length and by the logical distributed size
+ * (tag: ntt_dist.c sets it to logR + logC around its transforms, 0 outside).  ntt_size_stats_print() prints once per rank (call at the end of a run). */
+int  ntt_ss_enabled(void);
+int  ntt_ss_begin(int dir, int r3, int logn, size_t batch, hipStream_t s);   /* dir 0 forward, 1 inverse; r3: length 3 2^logn; -1 when off or nested */
+void ntt_ss_end(int tok, hipStream_t s);
+int  ntt_ss_tag(int logical);                                                 /* thread-local; returns the previous tag */
+void ntt_size_stats_print(int rank, double wall_s);
 #ifdef __cplusplus
 }
+struct ntt_ss_scope {
+    int tok; hipStream_t s;
+    ntt_ss_scope(int d, int r3, int l, size_t b, hipStream_t st) : tok(ntt_ss_enabled() ? ntt_ss_begin(d, r3, l, b, st) : -1), s(st) {}
+    ~ntt_ss_scope() { if (tok >= 0) ntt_ss_end(tok, s); }
+};
+struct ntt_ss_tagger { int prev, on; ntt_ss_tagger(int l) : prev(0), on(ntt_ss_enabled()) { if (on) prev = ntt_ss_tag(l); } ~ntt_ss_tagger() { if (on) ntt_ss_tag(prev); } };
 #endif
 #endif
