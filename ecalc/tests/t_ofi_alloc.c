@@ -9,13 +9,6 @@
 int main(int argc, char **argv)
 {
     setenv("COMM_OFI_SYM_TOP", argc > 1 ? argv[1] : "1", 1);
-    ofi_dev od; memset(&od, 0, sizeof od); od.d = 0; od.bytes = 4096 * MB; pthread_mutex_init(&od.lock, 0);
-    od.blocks = (struct oblk *)calloc(1, sizeof *od.blocks); od.blocks->off = 0; od.blocks->len = od.bytes;
-    size_t s0 = comm_ofi_alloc(&od, 400 * MB, 1), s1 = comm_ofi_alloc(&od, 400 * MB, 1), tmp = comm_ofi_alloc(&od, 1023 * MB, 1);
-    size_t a = comm_ofi_alloc(&od, 1023 * MB, 0), b = comm_ofi_alloc(&od, 1023 * MB, 0); comm_ofi_free(&od, a); comm_ofi_free(&od, b);
-    comm_ofi_free(&od, s0); s0 = comm_ofi_alloc(&od, 822 * MB, 1);
-    comm_ofi_free(&od, s1); s1 = comm_ofi_alloc(&od, 822 * MB, 1);
-    a = comm_ofi_alloc(&od, 1023 * MB, 0); comm_ofi_free(&od, a);
     if (argc > 2) {   /* preallocated slots (S31 COMM_LAYER_VSLOT_MB_<g>): the same pool, the slots taken once at 822 MiB -> staging after the slots always fits */
         ofi_dev o2; memset(&o2, 0, sizeof o2); o2.bytes = 4096 * MB; pthread_mutex_init(&o2.lock, 0);
         o2.blocks = (struct oblk *)calloc(1, sizeof *o2.blocks); o2.blocks->len = o2.bytes;
@@ -24,6 +17,13 @@ int main(int argc, char **argv)
         size_t q = comm_ofi_alloc(&o2, 1023 * MB, 0), r = comm_ofi_alloc(&o2, 1023 * MB - 1, 0); comm_ofi_free(&o2, q); comm_ofi_free(&o2, r);
         q = comm_ofi_alloc(&o2, 1023 * MB, 0); printf("t_ofi_alloc: prealloc: fits (in use %zu MiB, peak %zu MiB)\n", o2.cur / MB, o2.peak / MB); return 0;
     }
+    ofi_dev od; memset(&od, 0, sizeof od); od.d = 0; od.bytes = 4096 * MB; pthread_mutex_init(&od.lock, 0);
+    od.blocks = (struct oblk *)calloc(1, sizeof *od.blocks); od.blocks->off = 0; od.blocks->len = od.bytes;
+    size_t s0 = comm_ofi_alloc(&od, 400 * MB, 1), s1 = comm_ofi_alloc(&od, 400 * MB, 1), tmp = comm_ofi_alloc(&od, 1023 * MB, 1);
+    size_t a = comm_ofi_alloc(&od, 1023 * MB, 0), b = comm_ofi_alloc(&od, 1023 * MB, 0); comm_ofi_free(&od, a); comm_ofi_free(&od, b);
+    comm_ofi_free(&od, s0); s0 = comm_ofi_alloc(&od, 822 * MB, 1);
+    comm_ofi_free(&od, s1); s1 = comm_ofi_alloc(&od, 822 * MB, 1);
+    a = comm_ofi_alloc(&od, 1023 * MB, 0); comm_ofi_free(&od, a);
     (void)tmp; printf("t_ofi_alloc: sym_top=%s: fits (in use %zu MiB, peak %zu MiB)\n", getenv("COMM_OFI_SYM_TOP"), od.cur / MB, od.peak / MB);
     return 0;
 }
