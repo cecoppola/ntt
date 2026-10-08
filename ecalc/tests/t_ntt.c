@@ -635,7 +635,7 @@ template <int ROWS, int COLS, int THR, int PAD, int MODE>
 __global__ __launch_bounds__(THR) void k_e0_tile(uint64_t *x, size_t S)
 {
     constexpr int V = ROWS * COLS / THR, NT = THR / COLS, W = COLS + PAD;
-    __shared__ uint64_t sh[MODE == 0 ? ROWS * W : 1];
+    __shared__ uint64_t sh[MODE == 0 ? ROWS * W : 1];     /* modes 1 / 2: the launch reserves the same LDS footprint as dynamic LDS (same occupancy) */
     const int tt = threadIdx.x / COLS, bb = threadIdx.x % COLS;
     const size_t slabs = S / COLS, b = blockIdx.x, blk_hi = b / slabs, slab = b % slabs;
     const size_t base = blk_hi * ROWS * S + slab * COLS + bb;
@@ -671,8 +671,8 @@ static float e0_tile_time(uint64_t *dx, size_t N, int s_lo, int mode)
     const unsigned nb = (unsigned)(N / (ROWS * COLS));
     float ms;
     if (mode == 0) TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 0><<<nb, THR>>>(dx, S)));
-    else if (mode == 1) TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 1><<<nb, THR>>>(dx, S)));
-    else TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 2><<<nb, THR>>>(dx, S)));
+    else if (mode == 1) TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 1><<<nb, THR, ROWS * (COLS + PAD) * 8>>>(dx, S)));
+    else TIME_MS(ms, 1, (k_e0_tile<ROWS, COLS, THR, PAD, 2><<<nb, THR, ROWS * (COLS + PAD) * 8>>>(dx, S)));
     return ms;
 }
 static int e0_probe(int LOGN)
