@@ -304,8 +304,10 @@ static void inter_post(comm *c, struct lay_ex *e)
 {
     lay_priv *p = PRIV(c);
     if (lst_mode) LREC(p, e->rec)->f0 = lst_now();
+    int xk = comm_xtag_set(XK_LAYEQ);                                               /* X1: the xstats kind */
     if (p->minor) comm_alltoall(p->inter, e->tmp, e->rb, e->bytes * p->na, e->s);   /* minor: the transposed scratch out, rb receives [r][d] = rank order */
     else comm_alltoall(p->inter, e->rb, e->tmp, e->bytes * p->na, e->s);
+    comm_xtag_set(xk);
     e->inter_posted = 1;
     if (lst_mode == 2) lst_watch_start(p, &e->w, &e->w_on, &e->wf1);
 }
@@ -439,8 +441,10 @@ static void v_post(comm *c, struct vtab *t, char *x2, char *x3, hipStream_t s, i
 {
     lay_priv *p = PRIV(c); int g = p->g;
     if (st) st->f0 = lst_now();
+    int xk = comm_xtag_set(XK_LAYV);                      /* X1: the xstats kind */
     if (host) comm_alltoallv_host(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g);
     else comm_alltoallv(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g, s);
+    comm_xtag_set(xk);
 }
 /* x3 [r][d] -> the receive buffer at the caller's offsets */
 static void v_scatter(comm *c, const struct vtab *t, const char *x3, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int host)
