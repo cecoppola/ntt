@@ -50,7 +50,7 @@ done
 rd_disk $HOME 20 || fail "home nearly full"
 
 # --- build in the worktree on the login node
-cd $E && source aac7env.sh >/dev/null 2>&1 && make -B -j6 SHMEM_CRAY=1 ecalc tests/t_ntt tests/t_ntt_nop tests/b_seed64 > $OUT/build.log 2>&1 || fail "build failed, see $OUT/build.log: $(tail -5 $OUT/build.log | tr '\n' ' ')"
+cd $E && source aac7env.sh >/dev/null 2>&1 && make -B -j6 SHMEM_CRAY=1 ecalc tests/t_ntt tests/t_ntt_nop tests/b_seed64 tools > $OUT/build.log 2>&1 && test -x $WT/tools/unpack_digits || fail "build failed, see $OUT/build.log: $(tail -5 $OUT/build.log | tr '\n' ' ')"
 for f in ecalc tests/t_ntt tests/t_ntt_nop tests/b_seed64; do [ -x $E/$f ] || fail "build left no $f"; done
 rd_say "build OK ($OUT/build.log)"
 
