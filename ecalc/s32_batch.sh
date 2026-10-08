@@ -10,15 +10,16 @@
 #   (b) host-vs-rank  10 nodes x 6.441e10, BASE + NEWTON_MN_RECIP_TS=2: b_base1, b_base2 (nodelist unchanged: sorted, the suspect host is rank 1), b_perm1, b_perm2 (MNRUN_NODELIST
 #             permuted + MNRUN_ARBITRARY=1: the suspect host is rank 7; the 'recip ts2 node N host H' lines show whether the permutation took effect).  hostrank.txt = verdict.
 #   (c) if (b) says the stall follows the host: one run c_evict with the files of that host evicted first (sudo -n drop_caches if allowed, else dd iflag=nocache over our trees).
-#   (d) soak  10 nodes, alternating BASE and BASE + ECALC_VMM_SAFE=$SOAK_SAFE (1), round order AB BA ..., until 30 min before the hold ends; rc 139 counted per arm; every crash raises an
-#             ALERT with the segv trace; the wall / total per arm = the A/B wall cost of VMM_SAFE.  Outputs in ~/s32: summary.txt gates.txt hostrank.txt soak.tsv soak_stats.txt meminfo.txt
+#   (d) soak  PARALLEL (2026-10-08): the 10 nodes as 5 disjoint 2-node jobs (s32_pairsoak.sh workers p0..p4) at 6.441e10 digits per node, each alternating BASE (A) and BASE +
+#             ECALC_VMM_SAFE=$SOAK_SAFE (B), until 30 min before the hold ends; continues on the successor hold $H2 when $H1 was used; rc 139 counted per arm and node count; every
+#             bad run raises an ALERT with the segv trace.  Outputs in ~/s32: summary.txt gates.txt hostrank.txt pairs.tsv soak_stats.txt meminfo.txt w_p*/ (worker logs)
 #   results.txt (digest) res/ log/ ALERT S32_DONE.  Stop early: touch ~/s32/STOP.  Never cancels anything; never touches other jobs.  Fire-and-forget.
 BUILD_REV=383327a
 H1=12331; H2=12389
 HD=$(cd "$(dirname "$0")" && pwd); WT=$HOME/ntt-wt/s32; E=$WT/ecalc; OUT=$HOME/s32; S31DONE=$HOME/s31/S31_DONE
 MARGIN=1800; S=64410000000; RUN_S=450; STALL_HOST=${STALL_HOST:-x9000c1s0b1n0}; SOAK_SAFE=${SOAK_SAFE:-1}
 mkdir -p $OUT/log $OUT/res
-rm -f $OUT/S32_DONE $OUT/ALERT $OUT/STOP $OUT/soak.tsv
+rm -f $OUT/S32_DONE $OUT/ALERT $OUT/STOP $OUT/soak.tsv $OUT/pairs.tsv
 source $WT/tools/rundriver.sh; rd_init $OUT S32_DONE
 source $HD/s31_lib.sh
 cd $E || fail "cd $E"
@@ -100,7 +101,7 @@ digest() {
     echo "runs $total, bad $bad"
     echo; echo "######## (a) gates"; cat $OUT/gates.txt | cut -c1-300
     echo; echo "######## (b)/(c) host vs rank (hostrank.txt)"; cat $OUT/hostrank.txt | cut -c1-300
-    echo; echo "######## (d) soak.tsv (n slot arm rc wall verify total_line) and soak_stats.txt"; cut -f1-6 $OUT/soak.tsv 2>/dev/null | cut -c1-170; cat $OUT/soak_stats.txt 2>/dev/null
+    echo; echo "######## (d) parallel soak: soak_stats.txt, then pairs.tsv (tag nn arm rc wall verify)"; cat $OUT/soak_stats.txt 2>/dev/null; cut -f1-6 $OUT/pairs.tsv 2>/dev/null | cut -c1-120
     echo; echo "######## ALERT"; cat $OUT/ALERT 2>/dev/null | cut -c1-220 | head -80
   } > $OUT/results.txt; }
 trap 'digest; rd_finish' EXIT
@@ -163,21 +164,37 @@ if [ "$FOLLOWS" = host ] && ensure_time $RUN_S; then
 elif [ "$FOLLOWS" = host ]; then echo "(c) skipped: no time" >> $OUT/hostrank.txt
 else echo "(c) skipped: the stall did not follow the host ($FOLLOWS)" >> $OUT/hostrank.txt; fi
 
-# --- (d) crash-rate soak
-echo -e "n\tslot\tarm\trc\twall_s\tverify\ttotal_line" > $OUT/soak.tsv
-soak_stats() { awk -F'\t' 'NR>1 { n[$3]++; if ($4==139) c139[$3]++; else if ($4!=0 || $6!="VERIFY OK") other[$3]++; else { w[$3]+=$5; ok[$3]++ } }
-  END { for (a in n) printf "arm %s: runs %d, rc139 %d, other failures %d, clean %d, mean wall of clean runs %.1f s\n", a, n[a], c139[a], other[a], ok[a], ok[a] ? w[a]/ok[a] : 0 }' $OUT/soak.tsv | sort > $OUT/soak_stats.txt
-  awk -F'\t' 'NR>1 && $4==0 && $6=="VERIFY OK" { t=$7; if (match(t, /total +[0-9.]+/)) { v=substr(t,RSTART+6,RLENGTH-6)+0; n[$3]++; s[$3]+=v } } END { for (a in n) printf "arm %s: mean total %.1f s over %d clean runs\n", a, s[a]/n[a], n[a]; if (n["A"] && n["B"]) printf "B - A (mean total) = %+.1f s (B = BASE + ECALC_VMM_SAFE=%s)\n", s["B"]/n["B"] - s["A"]/n["A"], "'$SOAK_SAFE'" }' $OUT/soak.tsv >> $OUT/soak_stats.txt; }
-nr=0; MNRUN_EXTRA=""; done_=0
-while [ $done_ = 0 ]; do
-  nr=$((nr+1)); if [ $((nr % 2)) = 1 ]; then ord="A B"; else ord="B A"; fi
-  s=0; for c in $ord; do s=$((s+1))
-    ensure_time $RUN_S || { done_=1; break 2; }
-    if [ $c = A ]; then cw=""; else cw="ECALC_VMM_SAFE=$SOAK_SAFE"; fi
-    run_one soak_r${nr}s${s}_$c 10 $RUN_S $S $cw; rr=$?
-    echo -e "$nr\t$s\t$c\t$RUN_RC\t$RUN_WALL\t$RUN_V\t$RUN_T" >> $OUT/soak.tsv; soak_stats; digest
-    [ $RUN_RC = 139 ] && alert "SOAK rc 139 in arm $c (soak_r${nr}s${s}_$c): the segv trace is in the ALERT entry above"
+# --- (d) crash-rate soak, PARALLEL: the 10 nodes as 5 disjoint 2-node jobs (s32_pairsoak.sh workers p0..p4, one network program per node), 6.441e10 digits per node, each worker
+#     alternating BASE (A) and BASE + ECALC_VMM_SAFE=$SOAK_SAFE (B), the first arm alternating over the slots; until 30 min before the hold's end (RUN_S + 600 + MARGIN) or STOP.
+#     On the successor hold ($H2 when this one was $H1) the soak continues when that hold is RUNNING.  Rows: ~/s32/pairs.tsv (tag nn arm rc wall verify total_line end nodes).
+export BASE SOAK_SAFE RUN_S; export MARGIN
+rm -f $OUT/pairs.tsv; : > $OUT/pairs.tsv; SOAK_HOLDS=$J; [ $J = $H1 ] && SOAK_HOLDS="$J $H2"
+soak_stats() { awk -f $HD/pairstats.awk $OUT/pairs.tsv | sort > $OUT/soak_stats.txt
+  awk -F'\t' '$4==139 { c[$3]++ } END { printf "rc139 by arm:"; for (a in c) printf " %s=%d", a, c[a]; printf "\n" }' $OUT/pairs.tsv >> $OUT/soak_stats.txt; }
+nr=0
+for SH in $SOAK_HOLDS; do
+  while :; do
+    [ -e $OUT/STOP ] && break 2
+    st=$(squeue -j $SH -h -o %T 2>/dev/null)
+    [ -z "$st" ] && { rd_say "hold $SH is gone: skipped"; continue 2; }
+    [ "$st" = RUNNING ] && break
+    rd_say "soak: waiting for hold $SH ($st)"; sleep 300
   done
+  NODES=$(scontrol show hostnames "$(squeue -j $SH -h -o %N)" | tr '\n' ' ')
+  [ "$(echo $NODES | wc -w)" = 10 ] || { rd_say "hold $SH has not 10 nodes: skipped"; continue; }
+  [ "$(left_s $SH)" -ge $(( RUN_S + 600 + MARGIN )) ] || { rd_say "hold $SH: too little time left: skipped"; continue; }
+  export SLURM_JOB_ID=$SH; J=$SH
+  rd_health $SH $NODES || { sleep 90; rd_health $SH $NODES; } || { alert "hold $SH unhealthy at the soak start: skipped"; continue; }
+  rd_say "soak on hold $SH: nodes $NODES, $(left_s $SH) s left"
+  set -- $NODES; i=0; PIDS=""
+  while [ $# -ge 2 ]; do
+    if [ $((i % 2)) = 0 ]; then fa=A; else fa=B; fi
+    SOAK_SAFE=$SOAK_SAFE nohup bash $HD/s32_pairsoak.sh $SH $OUT p$i $1,$2 $fa $MARGIN $S > $OUT/w_p$i.nohup 2>&1 < /dev/null &
+    PIDS="$PIDS $!"; i=$((i+1)); shift 2; sleep 20      # staggered starts (the plan call of mnrun.sh runs on the login node)
+  done
+  while :; do alive=0; for p in $PIDS; do kill -0 $p 2>/dev/null && alive=1; done; [ $alive = 0 ] && break
+    sleep 600; soak_stats; digest; done
+  nr=$((nr+1)); soak_stats; digest
 done
 soak_stats; digest
-RD_VERDICT="SUCCESS: $bad bad runs of $total; (b) stall follows: $FOLLOWS; soak $nr rounds: $(tr '\n' ';' < $OUT/soak_stats.txt | cut -c1-300) (digest $OUT/results.txt)"
+RD_VERDICT="SUCCESS: $bad bad runs of $total (stages a-c); (b) stall follows: $FOLLOWS; parallel soak: $(tr '\n' ';' < $OUT/soak_stats.txt | cut -c1-400) (digest $OUT/results.txt)"
