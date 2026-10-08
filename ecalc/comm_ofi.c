@@ -233,10 +233,18 @@ size_t comm_ofi_alloc(ofi_dev *od, size_t len, int sym)
     for (struct oblk *b = od->blocks; b; b = b->next) if (!b->used && b->len >= len) {
         if (b->len > len) { struct oblk *nb = (struct oblk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
         b->used = 1 + (sym != 0); od->cur += len; if (od->cur > od->peak) od->peak = od->cur;
+        if (G.verbose >= 2 && len >= ((size_t)64 << 20)) printf("comm_ofi: device %d: alloc %zu MiB (%s) at %zu MiB, in use %zu MiB\n", od->d, len >> 20, sym ? "sym" : "stg", b->off >> 20, (od->cur) >> 20);
         if (sym) { od->sym_cur += len; if (od->sym_cur > od->sym_peak) od->sym_peak = od->sym_cur; }
         size_t off = b->off; pthread_mutex_unlock(&od->lock); return off;
     }
-    size_t cur = od->cur; pthread_mutex_unlock(&od->lock);
+    size_t cur = od->cur, hole = 0, freetot = 0;
+    for (struct oblk *b = od->blocks; b; b = b->next) if (!b->used) { freetot += b->len; if (b->len > hole) hole = b->len; }
+    if (getenv("COMM_OFI_DUMP") ? atoi(getenv("COMM_OFI_DUMP")) : 1) {   /* S31: the pool's blocks at the failure (fragmentation vs. a real shortage), by device */
+        fprintf(stderr, "comm_ofi: device %d pool dump (request %zu MiB; free %zu MiB in total, largest hole %zu MiB; used blocks: off len kind):", od->d, len >> 20, freetot >> 20, hole >> 20);
+        int n = 0; for (struct oblk *b = od->blocks; b && n < 40; b = b->next) if (b->used) { fprintf(stderr, " [%zu %zu %s]", b->off >> 20, b->len >> 20, b->used == 2 ? "sym" : "stg"); n++; }
+        fprintf(stderr, "\n");
+    }
+    pthread_mutex_unlock(&od->lock);
     ec_fatal(EC_RC_OOM, "comm_ofi: the comm pool of device %d (%zu MiB, COMM_OFI_POOL_MB) cannot hold %zu MiB more (in use %zu MiB): COMM_OFI_POOL_MB >= %zu needed\n",
              od->d, od->bytes >> 20, len >> 20, cur >> 20, ((cur + len) >> 20) + 2);
     return 0;
