@@ -243,3 +243,5 @@ clean:
 	rm -f $(REF) $(TESTS) $(OBJS) ecalc
 
 .PHONY: all clean tools
+tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h
+	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(OFI_CFLAGS) -I. $< fatal.c -lpthread -L$(LIBFABRIC)/lib64 -lfabric -o $@
