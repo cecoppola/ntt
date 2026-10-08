@@ -4673,3 +4673,11 @@ Labels as above. All runs rc 0, VERIFY OK, digits identical. Analysis only; noth
 - **S26 soaks (m, 1 node):** 975 of 975 runs ok (A 470 + C 413 at 1e9 digits, B 92 at share class), 0 bad / diff / hang.
 - **Recommendation:** diagnose node 1's reciprocal lateness (one `ECALC_LOG_CLOCKS` run), then replicate or overlap the chain; X2 after S28.
 
+
+## 124. S30 / S31 analysis: the null cause (node 1 stalls ~20 s before the chain) and two 10-node segfaults (2026-10-08; results/S30.md)
+
+Analysis only; nothing launched on aac7. Labels: m measured, i inferred.
+- **S30 null explained (m):** node 1 spends 19.3 .. 25.0 s in the reciprocal's "chain" stage in 16 of 16 timestamped runs, nodes 0, 2..9 spend 1.0 .. 1.2 s. With NEWTON_MN_CHAIN_BCAST=1 node 1 STILL takes 20.7 .. 24.1 s without running the chain (only db_init / db_from_bi remain), and the other nine wait 19.5 .. 23.2 s in the allgather: the wait moved, it did not shrink (ABBA -2.7 s, CI -13.3 .. +7.9). The stall is on node 1 (x9000c1s0b1n0 in every run; rank and host not yet separated), probably in the first device allocation or a host stall (i); not proven.
+- **Scale (m):** the one-node ladder is linear (exponent 0.97), the 10-node 1.48 is exchange / scale cost; a 20 s straggler is ~5 % of 394 s.
+- **Segfaults (m):** d30_r4s2_A (task 5, x9000c1s2b1n0) and x2_r3s2_B (task 6, x9000c1s3b0n0), both at tl ~31 s, wall 42 s, 0.3-0.5 s before binsplit level 1, at the end of the VMM background mapping; 2 of 54 10-node runs today (3.7 %) vs 0 of 59 before; x9000c1s3b0n0 was also the host of the 10-06 segfault. No trace (ECALC_SEGV_TRACE was off), no core. Hypothesis (i): unsynchronised tail of dbig.c vmm_bg_map (hipStreamDestroy / hipSetDevice outside the mapper lock; db_vmm_arena_wait does not join for the parity-1 wait) overlapping level 1.
+- **Next:** ECALC_SEGV_TRACE=1 on all 10-node runs; a host-vs-rank test (permute the nodelist) with print-only db_from_bi timestamps.

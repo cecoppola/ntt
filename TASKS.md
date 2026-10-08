@@ -466,3 +466,7 @@ measurements their items need; A37-R1 only after both its gates.
 decision register §2.4, with the reason for each. A37-R3 stays a caution: the a37v1 pitfall (1 corrupt run in 18
 with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply to ecalc, whose runs use
 `COMM_SHMEM_DEVHEAP=1` and whose target uses `comm_ofi`.
+
+## Status 2026-10-08 (S30/S31 analysis, RESULTS 124)
+- S30 (chain broadcast): done, null; cause is a ~20 s stall of node 1 before the chain (results/S30.md). Open: host-vs-rank test + db_from_bi timestamps.
+- Segfaults d30_r4s2_A / x2_r3s2_B: open; set ECALC_SEGV_TRACE=1 in all 10-node drivers; candidate race in dbig.c vmm_bg_map tail.
