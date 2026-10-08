@@ -437,6 +437,27 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
 }
 /* X2 (results/XEFF.md item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
 static int vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e && atoi(e) != 0; }
+/* S31 (COMM_LAYER_VSLOT_POOL): each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
+ * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
+ * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
+static void vslot_prealloc_env(unsigned long N, int size)
+{
+    if (!vslot_pool_on() || size < 2 || (getenv("COMM_LAYER_VSLOT_PREALLOC") && !atoi(getenv("COMM_LAYER_VSLOT_PREALLOC")))) return;
+    const char *de = getenv("COMM_ALLTOALLV_DEPTH"); int slots = (de ? atoi(de) : 2) >= 2 ? 2 : 1;
+    size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size; int gs[32]; int L = mn_groups_parse(size, gs, 31);
+    size_t mx[40]; int gg[40], n = 0;
+#define VS_NOTE(g_, v_) do { size_t v2_ = (v_) / slots; int k_ = 0; while (k_ < n && gg[k_] != (g_)) k_++; if (k_ == n && n < 40) { gg[n] = (g_); mx[n++] = 0; } if (k_ < 40 && v2_ > mx[k_]) mx[k_] = v2_; } while (0)
+    for (int l = 1; l <= L; l++) {
+        int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1, g = Gl < size ? Gl : size, nch = (g + Gp - 1) / Gp;
+        size_t nqc = nq_leaf * (size_t)Gp + 8, v = nch >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(nch - 1), g) : 0;
+        if (v) VS_NOTE(g, v);
+        if (g < size && size % g) { int gc = size % g, ncc = (gc + Gp - 1) / Gp; size_t vc = ncc >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(ncc - 1), gc) : 0; if (vc) VS_NOTE(gc, vc); }
+    }
+    { size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size); if (a || b) VS_NOTE(size, a > b ? a : b); }
+    for (int k = 0; k < n; k++) { char nm[48], v[32]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", gg[k]); snprintf(v, sizeof v, "%zu", (mx[k] >> 20) + 1); if (!getenv(nm)) setenv(nm, v, 1);
+        { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
+#undef VS_NOTE
+}
 static int inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e && atoi(e) != 0; }
 int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 1; } return v; }   /* S18 (the user, 2026-10-07): default 1; was 0 (B7ACCT) */
 size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && !vslot_pool_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
@@ -665,6 +686,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
     if (size < 2 || (!plan && !(tr && !strcmp(tr, "shmem")))) return 0;
+    vslot_prealloc_env(N, size);                          /* S31 */
     char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: under COMM_OFI unset = the need */

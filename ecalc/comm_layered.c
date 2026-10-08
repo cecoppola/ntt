@@ -481,7 +481,8 @@ static void need_vslot(comm *c, int k, size_t bytes)
     if (p->vxcap[k] >= bytes) return;
     HIP_CHECK(hipSetDevice(p->dev));
     if (p->vpool) {   /* X2 COMM_LAYER_VSLOT_POOL: the slot from the inter transport's comm pool (unstaged: the exchange puts from / into it); freed first, so the first-fit pool can reuse the space */
-        static size_t minb; if (!minb) { const char *e = getenv("COMM_LAYER_VSLOT_MB"); minb = e ? (size_t)(atof(e) * 1048576.0) : 1; }   /* optional: allocate each slot once at this size (the layout's maximum) */
+        size_t minb = 1; { const char *e = getenv("COMM_LAYER_VSLOT_MB"); char nm[48]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", comm_size(p->inter));
+                          if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* allocate each slot once at this size (S31: set by the pool rule per group size, binsplit.c vslot_prealloc_env; or by hand) */
         size_t want = bytes > minb ? bytes : minb;
         if (p->vx[k]) { comm_sym_free(p->inter, p->vx[k]); p->vx[k] = 0; p->vxcap[k] = 0; }
         p->vx[k] = (char *)comm_sym_alloc(p->inter, want);
