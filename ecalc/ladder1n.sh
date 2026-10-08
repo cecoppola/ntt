@@ -8,7 +8,7 @@
 #   (4) ALWAYS at the end (trap, also after a failure, only if step 0 stopped the soak): mv ~/s26/C ~/s26/C_run2 (suffix if it exists) and restart role C:
 #       cd ~/s25 && setsid nohup bash ~/s25/s26_node.sh C > ~/s26/C.nohup3 2>&1 < /dev/null &
 # Files: ~/s30/ladder1n.sh, ~/s30/s30_lib.sh, ~/s30/s25_phases.awk; outputs ~/s30/L1/ (summary.txt, ladder.tsv, ladder_table.txt, phases/, res/, log/, ALERT); marker ~/s30/L1_DONE.  Touch ~/s30/L1/STOP: stop between runs.
-J=12377; NODE=x9000c1s6b0n0; BUILD_REV=3941592
+J=12377; NODE=x9000c1s6b0n0; BUILD_REV=e163337
 HD=$(cd "$(dirname "$0")" && pwd); WT=$HOME/ntt-wt/s28; E=$WT/ecalc; OUT=$HOME/s30/L1
 SIZES="40000000000 50000000000 64410000000 70000000000 76400000000"; ROUNDS=2
 mkdir -p $OUT/log $OUT/res $OUT/phases
@@ -32,7 +32,7 @@ table() {
             if (k>1) printf "exponent end to end: wall^%.2f\n", log(T[k]/T[1])/log(ds[k]/ds[1]) }' $OUT/ladder.tsv
   } > $OUT/ladder_table.txt; }
 trap 'table; restart_soak; rd_finish' EXIT
-check_binary 'ntt-size-stats ECALC_INIT_TL' "tests/t_ntt"
+check_binary 'ntt-size-stats ECALC_INIT_TL' ""
 cd $E || fail "cd $E"
 source aac7env.sh >/dev/null 2>&1; [ -n "$MNRUN_MODULES" ] || fail "aac7env.sh gave no MNRUN_MODULES"
 [ "$(squeue -j $J -h -o %T 2>/dev/null)" = RUNNING ] || fail "hold $J not RUNNING"
