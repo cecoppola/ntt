@@ -16,7 +16,7 @@
 #include <stdlib.h>
 int comm_wst_on = -1;
 static int wst_phase = WST_OTHER;
-static uint64_t wst_ns[WST_NP][2], wst_nn[WST_NP][2];
+static uint64_t wst_ns[WST_NP][3], wst_nn[WST_NP][3];   /* [phase][0 barrier, 1 wait, 2 ready] */
 static __thread int wst_depth;
 static double wst_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + 1e-9 * ts.tv_nsec; }
 int comm_wst_enabled(void) { if (comm_wst_on < 0) { const char *e = getenv("MN_WAIT_STATS"); comm_wst_on = e && atoi(e) > 0; } return comm_wst_on; }
@@ -37,9 +37,13 @@ void comm_wst_barrier(comm *c)
     if (!comm_wst_enabled() || wst_depth) { c->ops->barrier(c); return; }
     wst_depth++; double t0 = wst_now(); c->ops->barrier(c); wst_add(0, t0); wst_depth--;
 }
-void comm_wst_totals(uint64_t ns[WST_NP][2], uint64_t n[WST_NP][2])
+/* S22: 'ready' = the peer-ready mailbox/flag waits inside the SHMEM transport (wait_ge / wait_ne); a subset of the wait/barrier time, so skew
+ * (a peer not yet there) can be told from transfer.  comm_wst_t0() is 0 when off; comm_wst_ready_end(t0) adds the elapsed time. */
+double comm_wst_t0(void) { return comm_wst_enabled() ? wst_now() : 0; }
+void comm_wst_ready_end(double t0) { if (t0 != 0) wst_add(2, t0); }
+void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3])
 {
-    for (int p = 0; p < WST_NP; p++) for (int k = 0; k < 2; k++) { ns[p][k] = __atomic_load_n(&wst_ns[p][k], __ATOMIC_RELAXED); n[p][k] = __atomic_load_n(&wst_nn[p][k], __ATOMIC_RELAXED); }
+    for (int p = 0; p < WST_NP; p++) for (int k = 0; k < 3; k++) { ns[p][k] = __atomic_load_n(&wst_ns[p][k], __ATOMIC_RELAXED); n[p][k] = __atomic_load_n(&wst_nn[p][k], __ATOMIC_RELAXED); }
 }
 void comm_allgather(comm *c, const void *sendbuf, void *recvbuf, size_t bytes)
 {

@@ -40,18 +40,18 @@ void mn_wait_stats_print(void)
     if (!comm_wst_enabled()) return;
     static const int ord[4] = { WST_BS, WST_DM, WST_RECIP, WST_OTHER };
     static const char *nm[4] = { "bs", "dm", "recip", "other" };
-    uint64_t ns[WST_NP][2], n[WST_NP][2]; comm_wst_totals(ns, n);
+    uint64_t ns[WST_NP][3], n[WST_NP][3]; comm_wst_totals(ns, n);
     printf("wait-stats node %d:", g_rank);
     for (int i = 0; i < 4; i++) { int p = ord[i];
-        printf("%s %s barrier %.3f s (%lu) wait %.3f s (%lu)", i ? " |" : "", nm[i], ns[p][0] * 1e-9, (unsigned long)n[p][0], ns[p][1] * 1e-9, (unsigned long)n[p][1]); }
+        printf("%s %s barrier %.3f s (%lu) wait %.3f s (%lu) ready %.3f s (%lu)", i ? " |" : "", nm[i], ns[p][0] * 1e-9, (unsigned long)n[p][0], ns[p][1] * 1e-9, (unsigned long)n[p][1], ns[p][2] * 1e-9, (unsigned long)n[p][2]); }
     printf("\n");
     if (g_size > 1) {
-        const uint64_t C = 1ULL << 50; uint64_t mx[8], mn[8]; comm *c = g_cm[0];   /* values in microseconds; min = C - max(C - v) */
-        for (int i = 0; i < 4; i++) for (int k = 0; k < 2; k++) {
-            uint64_t u = ns[ord[i]][k] / 1000; mx[2 * i + k] = comm_allreduce_max(c, u); mn[2 * i + k] = C - comm_allreduce_max(c, C - u); }
+        const uint64_t C = 1ULL << 50; uint64_t mx[12], mn[12]; comm *c = g_cm[0];   /* values in microseconds; min = C - max(C - v) */
+        for (int i = 0; i < 4; i++) for (int k = 0; k < 3; k++) {
+            uint64_t u = ns[ord[i]][k] / 1000; mx[3 * i + k] = comm_allreduce_max(c, u); mn[3 * i + k] = C - comm_allreduce_max(c, C - u); }
         if (g_rank == 0) {
             printf("wait-stats max/min over %d nodes:", g_size);
-            for (int i = 0; i < 4; i++) printf("%s %s barrier %.3f/%.3f s wait %.3f/%.3f s", i ? " |" : "", nm[i], mx[2 * i] * 1e-6, mn[2 * i] * 1e-6, mx[2 * i + 1] * 1e-6, mn[2 * i + 1] * 1e-6);
+            for (int i = 0; i < 4; i++) printf("%s %s barrier %.3f/%.3f s wait %.3f/%.3f s ready %.3f/%.3f s", i ? " |" : "", nm[i], mx[3 * i] * 1e-6, mn[3 * i] * 1e-6, mx[3 * i + 1] * 1e-6, mn[3 * i + 1] * 1e-6, mx[3 * i + 2] * 1e-6, mn[3 * i + 2] * 1e-6);
             printf("\n");
         }
     }

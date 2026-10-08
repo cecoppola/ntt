@@ -885,6 +885,73 @@ void ntt_ctx_free(ntt_ctx *c)
 }
 int ntt_ctx_prime(const ntt_ctx *c) { return c->prime; }
 
+/* ---- S22: NTT_SIZE_STATS (see ntt.h).  Outermost calls only (thread-local depth); hip event pairs, resolved lazily, the rest at print time. */
+#include <pthread.h>
+#include <vector>
+static int ss_on = -1;
+int ntt_ss_enabled(void) { if (ss_on < 0) ss_on = env_int("NTT_SIZE_STATS", 0) > 0; return ss_on; }
+namespace {
+struct ss_ent { unsigned long calls, xforms, untimed; double ms; };
+struct ss_pend { hipEvent_t a, b; ss_ent *e; int dev; };
+enum { SS_TAGS = 64, SS_CAP = 65536 };
+ss_ent ss_tab[SS_TAGS][2][2][NTT_LOGN_MAX + 1];
+std::vector<ss_pend> ss_pending;
+int ss_devmask;
+pthread_mutex_t ss_mu = PTHREAD_MUTEX_INITIALIZER;
+thread_local int ss_depth, ss_tag_v;
+thread_local ss_pend ss_cur;
+void ss_resolve(size_t i)
+{
+    float ms = 0;
+    if (hipEventElapsedTime(&ms, ss_pending[i].a, ss_pending[i].b) == hipSuccess) ss_pending[i].e->ms += ms; else ss_pending[i].e->untimed++;
+    hipEventDestroy(ss_pending[i].a); hipEventDestroy(ss_pending[i].b);
+    ss_pending[i] = ss_pending.back(); ss_pending.pop_back();
+}
+}
+int ntt_ss_tag(int logical) { int p = ss_tag_v; ss_tag_v = logical; return p; }
+int ntt_ss_begin(int dir, int r3, int logn, size_t batch, hipStream_t s)
+{
+    if (ss_depth) return -1;
+    int tg = ss_tag_v < 0 ? 0 : ss_tag_v >= SS_TAGS ? SS_TAGS - 1 : ss_tag_v, ln = logn < 0 ? 0 : logn > NTT_LOGN_MAX ? NTT_LOGN_MAX : logn;
+    ss_ent *e = &ss_tab[tg][r3 ? 1 : 0][dir ? 1 : 0][ln];
+    int dev = 0; hipGetDevice(&dev);
+    pthread_mutex_lock(&ss_mu);
+    e->calls++; e->xforms += batch; if (dev >= 0 && dev < 30) ss_devmask |= 1 << dev;
+    for (size_t i = 0; i < 64 && i < ss_pending.size(); ) { if (hipEventQuery(ss_pending[i].b) == hipSuccess) ss_resolve(i); else i++; }
+    int full = ss_pending.size() >= (size_t)SS_CAP;
+    if (full) e->untimed++;
+    pthread_mutex_unlock(&ss_mu);
+    if (full) return -1;
+    ss_cur.e = e; ss_cur.dev = dev; ss_cur.a = ss_cur.b = 0;
+    if (hipEventCreate(&ss_cur.a) != hipSuccess || hipEventCreate(&ss_cur.b) != hipSuccess) { pthread_mutex_lock(&ss_mu); e->untimed++; pthread_mutex_unlock(&ss_mu); return -1; }
+    hipEventRecord(ss_cur.a, s);
+    ss_depth = 1;
+    return 1;
+}
+void ntt_ss_end(int tok, hipStream_t s)
+{
+    (void)tok;
+    hipEventRecord(ss_cur.b, s);
+    pthread_mutex_lock(&ss_mu); ss_pending.push_back(ss_cur); pthread_mutex_unlock(&ss_mu);
+    ss_depth = 0;
+}
+void ntt_size_stats_print(int rank, double wall_s)
+{
+    if (!ntt_ss_enabled()) return;
+    pthread_mutex_lock(&ss_mu);
+    while (!ss_pending.empty()) { hipEventSynchronize(ss_pending.back().b); ss_resolve(ss_pending.size() - 1); }
+    int nd = __builtin_popcount(ss_devmask); double tot = 0, tot3 = 0; unsigned long tc = 0, un = 0;
+    for (int t = 0; t < SS_TAGS; t++) for (int r = 0; r < 2; r++) for (int d = 0; d < 2; d++) for (int l = 0; l <= NTT_LOGN_MAX; l++) {
+        const ss_ent *e = &ss_tab[t][r][d][l]; if (!e->calls) continue;
+        printf("ntt-size-stats node %d: logical %s2^%d  %s %s length %s2^%d: %lu calls, %lu transforms, %.3f GPU-s (%.3f ms/call)%s\n", rank,
+               t ? "" : "(none) ", t, d ? "inv" : "fwd", r ? "radix-3" : "radix-2", r ? "3*" : "", l, e->calls, e->xforms, e->ms * 1e-3, e->ms / e->calls, e->untimed ? " [some untimed]" : "");
+        tot += e->ms * 1e-3; tc += e->calls; un += e->untimed; if (r) tot3 += e->ms * 1e-3; }
+    printf("ntt-size-stats node %d: total %.3f GPU-s over %lu calls (3*2^k transforms %.3f GPU-s; %lu untimed) on %d APUs; run wall %.1f s => %.1f %% of %d APU-walls (events on each transform's stream: the passes only, APUs add up)\n",
+           rank, tot, tc, tot3, un, nd, wall_s, nd && wall_s > 0 ? 100.0 * tot / (nd * wall_s) : 0.0, nd);
+    pthread_mutex_unlock(&ss_mu);
+}
+
+
 /* pass twiddle base tables: T_top(c) = wK^c, wK = w_n^(n / 2^(s_hi+1)), the
  * primitive 2^(s_hi+1)-th root; c < hmin = 2^s_lo.  tlo[k] = wK^k (4096),
  * thi[k] = wK^(4096 k) (2^(s_lo-12) entries, at least 1). */
@@ -1073,6 +1140,7 @@ static void launch_b16_r3(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, 
 /* the forward of batch 3 2^logk transforms: pass 0 fused with the radix-3 stage, then the other passes on the 3 batch thirds */
 void ntt_fwd_r3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s)
 {
+    ntt_ss_scope ss_(0, 1, logk, batch, s);
     struct plan pl;
     check_logn(logk);
     make_plan(&pl, logk);
@@ -1087,6 +1155,7 @@ void ntt_fwd_r3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, const ntt_r3arg
 
 void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(0, 0, logn, batch, s);
     struct plan pl;
     check_logn(logn);
     make_plan(&pl, logn);
@@ -1169,9 +1238,10 @@ void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int 
     if (!c->adhoc_key[k]) { build_pass_tw(&c->adhoc[k], c->prime, s_lo, s_lo + stg - 1, inv); c->adhoc_key[k] = key; }
     launch_b16(c, x, logn, s_lo, stg, &c->adhoc[k], inv, 0.0, (unsigned)(batch << (logn - 11)), s);
 }
-void ntt_inv(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s) { inv_common(c, x, 0, 0, 0, logn, batch, s); }
+void ntt_inv(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s) { ntt_ss_scope ss_(1, 0, logn, batch, s); inv_common(c, x, 0, 0, 0, logn, batch, s); }
 void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logn, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(1, 0, logn, batch, s);
     if (logn >= ntt_pw_fuse) inv_common(c, x, y, (size_t)1 << logn, ymode, logn, batch, s);
     else { ntt_pw_y(c, x, y, ymode, 0, logn, batch, s); inv_common(c, x, 0, 0, 0, logn, batch, s); }
 }
@@ -1181,12 +1251,14 @@ void ntt_inv_pw_bcast(ntt_ctx *c, uint64_t *x, const uint64_t *y, int logn, size
  * with the pointwise product against y in the given layout fused into the b1 pass */
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
+    ntt_ss_scope ss_(1, 1, logk, batch, s);
     inv_common(c, x, y, (size_t)3 << logk, ymode, logk, 3 * batch, s);
 }
 /* Phase 15 N3x: the inverse of batch 3 2^logk transforms with the radix-3 stage fused into the last pass; y != 0: the
  * pointwise product (layout ymode, over 3 2^logk points) fused into the b1 pass */
 void ntt_inv_r3(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s)
 {
+    ntt_ss_scope ss_(1, 1, logk, batch, s);
     if (!ntt_r3_fusable(logk)) { ec_fatal(EC_RC_FATAL, "ntt_inv_r3: 3 2^%d has no fused form\n", logk); }
     inv_common(c, x, y, (size_t)3 << logk, ymode, logk, 3 * batch, s, ra);
 }

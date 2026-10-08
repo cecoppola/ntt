@@ -84,7 +84,8 @@ extern int comm_wst_on;
 void comm_wst_wait(comm *c); void comm_wst_barrier(comm *c);
 int comm_wst_set_phase(int p);                       /* returns the previous phase */
 int comm_wst_enabled(void);
-void comm_wst_totals(uint64_t ns[WST_NP][2], uint64_t n[WST_NP][2]);   /* [phase][0 barrier, 1 wait]: ns summed over the threads */
+void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3]);   /* [phase][0 barrier, 1 wait, 2 ready]: ns summed over the threads */
+double comm_wst_t0(void); void comm_wst_ready_end(double t0);   /* S22: timing of the SHMEM peer-ready waits (wait_ge / wait_ne) */
 static inline void comm_wait(comm *c) { if (comm_wst_on != 0) comm_wst_wait(c); else c->ops->wait(c); }
 static inline void comm_barrier(comm *c) { if (comm_wst_on != 0) comm_wst_barrier(c); else c->ops->barrier(c); }
 static inline size_t comm_allreduce_max(comm *c, size_t v) { return c->ops->allreduce_max(c, v); }
