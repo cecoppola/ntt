@@ -4681,3 +4681,13 @@ Analysis only; nothing launched on aac7. Labels: m measured, i inferred.
 - **Scale (m):** the one-node ladder is linear (exponent 0.97), the 10-node 1.48 is exchange / scale cost; a 20 s straggler is ~5 % of 394 s.
 - **Segfaults (m):** d30_r4s2_A (task 5, x9000c1s2b1n0) and x2_r3s2_B (task 6, x9000c1s3b0n0), both at tl ~31 s, wall 42 s, 0.3-0.5 s before binsplit level 1, at the end of the VMM background mapping; 2 of 54 10-node runs today (3.7 %) vs 0 of 59 before; x9000c1s3b0n0 was also the host of the 10-06 segfault. No trace (ECALC_SEGV_TRACE was off), no core. Hypothesis (i): unsynchronised tail of dbig.c vmm_bg_map (hipStreamDestroy / hipSetDevice outside the mapper lock; db_vmm_arena_wait does not join for the parity-1 wait) overlapping level 1.
 - **Next:** ECALC_SEGV_TRACE=1 on all 10-node runs; a host-vs-rank test (permute the nodelist) with print-only db_from_bi timestamps.
+
+
+## 125. S31 / S32 / S33: X2 at 10 nodes, the stall follows the host, VMM_SAFE=2 soak (2026-10-08 .. 10-09; results/S31.md)
+
+Labels: m measured, i inferred, a assumed.
+- **X2 (INTER2 + VSLOT_POOL, pool prealloc fix) (m):** 14 complete ABBA rounds at 10 nodes x 6.441e10: B - A **-34.1 s** (CI -69.7 .. +1.5), without dm blow-up rounds **-31.7 s** (CI -55.7 .. -7.8, 10 of 12 rounds faster). Rank-0 peak +0.81 GB (356.60 to 357.41 GB). Exposed layered wait 93.6 to 68.6 s (i). Blow-ups: 1 per arm (r1 A, r10 B), so no evidence X2 reduces them; median dm A 199 s, B 188 s. Digits identical. 576-node effect not modelled (a).
+- **Host x9000c1s0b1n0 (m):** the ~20-25 s db_from_bi stall follows the host in permuted runs (2 of 2 moved with it, 0 with the rank). The dd eviction left the cache unchanged (Cached 113.7 GB, the largest of the ten hosts), so eviction is untested.
+- **Segfault soak (m):** 5 parallel 2-node pairs, 590 runs per arm: base 0 crashes, ECALC_VMM_SAFE=2 3 crashes, wall cost +0.5 s. S33: 2 nodes base 1 of 142, VMM_SAFE=2 0 of 141, 1 node base 0 of 515. Pooled 2-node: base 1 of 732, VMM_SAFE=2 3 of 731: no benefit. The soak "rc139" column reads 0 (srun reports rc 1). All traces share one stack inside libamdhip64 under an ecalc pthread (background mapper, i). Ten-node crashes 2026-10-08: 3 of ~85 (3.5 %), 2 in base arms.
+- **Decisions:** adopt X2 as an option on the aac7 line; do not adopt VMM_SAFE=2; exclude host x9000c1s0b1n0 from timed holds; add a MemFree/Cached/upload-timing check to the target kit; next diagnostic is addr2line plus a synchronous-mapping soak.
+

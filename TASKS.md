@@ -470,3 +470,10 @@ with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply t
 ## Status 2026-10-08 (S30/S31 analysis, RESULTS 124)
 - S30 (chain broadcast): done, null; cause is a ~20 s stall of node 1 before the chain (results/S30.md). Open: host-vs-rank test + db_from_bi timestamps.
 - Segfaults d30_r4s2_A / x2_r3s2_B: open; set ECALC_SEGV_TRACE=1 in all 10-node drivers; candidate race in dbig.c vmm_bg_map tail.
+
+## Status 2026-10-09 (S31/S32/S33, RESULTS 125)
+- S31 (X2): done: -34.1 s all rounds / -31.7 s clean at 10 nodes, +0.8 GB; adoption is the user's decision (results/S31.md).
+- S32 (host vs rank): done: the 20-25 s stall follows host x9000c1s0b1n0; eviction untested (dd did not drop the cache). Parallel soak still running at 08:20 EDT.
+- S33 (2-node VMM_SAFE=2 soak): running; so far base 1 of 142 crashes, VMM_SAFE=2 0 of 141; with S32, VMM_SAFE=2 shows no benefit (3 of 731 vs 1 of 732).
+- Open: addr2line of the SEGV traces, synchronous-mapping soak, exclude x9000c1s0b1n0.
+
