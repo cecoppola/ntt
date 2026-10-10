@@ -54,7 +54,7 @@ struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; siz
 typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
-                 comm *inter2; int vpool, i2;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
+                 comm *inter2; int vpool, i2, vshare;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
                  int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
@@ -475,9 +475,41 @@ static void complete_v(comm *c)
  * A + max(A, B) bytes, two slots alternating, each the communicator's own and grown only while not pending.  The intra receive
  * x1 (A) lives in the slot's x3 area: it is dead once reordered into x2, before the inter stage receives into x3.  Scratch:
  * x0 + 2 (A + max(A, B)) against depth 1's x0 + 2 A + B -- with A ~ B one exchange's A more (4 S against 3 S). */
+/* S36 COMM_LAYER_VSLOT_SHARE=1 (results/S36.md): the v-slots are one pair per device, shared by every layered communicator of the APU thread.  The tree's levels run one
+ * after the other and a node is in one group per level, so a level's slots are dead when the next level's exchange begins: instead of each communicator holding its own
+ * pair to the run's end (the sum over the levels), the pair is handed on (the previous owner's pending exchange is completed first) and held at the largest level's size.
+ * Only where the buffers live and when they are reused: the exchanges, their order and the data are the same.  The pair is freed with the last communicator. */
+static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vsh[16];
+static void need_vslot(comm *c, int k, size_t bytes);
+static void complete_v(comm *c);
+static void vslot_attach(lay_priv *p) { if (p->vshare && p->dev >= 0 && p->dev < 16) g_vsh[p->dev].refs++; else p->vshare = 0; }
+static void need_vslot_shared(comm *c, int k, size_t bytes)
+{
+    lay_priv *p = PRIV(c); struct vshare *S = &g_vsh[p->dev];
+    if (S->owner && S->owner != c) { complete_v(S->owner); }   /* the previous level's last exchange still uses the pair */
+    S->owner = c;
+    if (S->cap[k] < bytes) {
+        HIP_CHECK(hipSetDevice(p->dev));
+        if (p->vpool) {
+            size_t minb = 1; { const char *e = getenv("COMM_LAYER_VSLOT_MB"); char nm[48]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", comm_size(p->inter));
+                              if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* (the pool rule sets every group size to the overall maximum under SHARE) */
+            size_t want = bytes > minb ? bytes : minb;
+            if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
+            S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
+            if (!S->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
+            S->cap[k] = want;
+        } else {
+            if (S->vx[k]) HIP_CHECK(hipFree(S->vx[k]));
+            HIP_CHECK(hipMalloc((void **)&S->vx[k], bytes)); vlive_add(p->dev, bytes, S->cap[k]); S->cap[k] = bytes;
+        }
+    }
+    p->vx[k] = S->vx[k]; p->vxcap[k] = S->cap[k];          /* (a stale view of the other slot is refreshed too: only the owner's view is used) */
+    p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
+}
 static void need_vslot(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c);
+    if (p->vshare) { need_vslot_shared(c, k, bytes); return; }
     if (p->vxcap[k] >= bytes) return;
     HIP_CHECK(hipSetDevice(p->dev));
     if (p->vpool) {   /* X2 COMM_LAYER_VSLOT_POOL: the slot from the inter transport's comm pool (unstaged: the exchange puts from / into it); freed first, so the first-fit pool can reuse the space */
@@ -600,8 +632,19 @@ static void y_destroy(comm *c)
     if ((p->own_tmp && p->tmp) || p->vtmp) HIP_CHECK(hipSetDevice(p->dev));
     if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
+    if (p->vshare) {   /* S36: the shared pair goes with the last communicator of the device */
+        struct vshare *S = &g_vsh[p->dev];
+        if (S->owner == c) S->owner = 0;
+        if (--S->refs <= 0) {
+            HIP_CHECK(hipSetDevice(p->dev));
+            for (int k = 0; k < 2; k++) if (S->vx[k]) { if (p->vpool) comm_sym_free(p->inter, S->vx[k]); else HIP_CHECK(hipFree(S->vx[k])); }
+            vlive_add(p->dev, 0, p->vpool ? 0 : S->cap[0] + S->cap[1]); memset(S, 0, sizeof *S);
+        }
+        vlive_add(p->dev, 0, p->vtmp ? p->vcap : 0);
+    } else {
     for (int k = 0; k < 2; k++) if (p->vx[k]) { HIP_CHECK(hipSetDevice(p->dev)); if (p->vpool) comm_sym_free(p->inter, p->vx[k]); else HIP_CHECK(hipFree(p->vx[k])); }
     vlive_add(p->dev, 0, (p->vtmp ? p->vcap : 0) + (p->vpool ? 0 : (p->vx[0] ? p->vxcap[0] : 0) + (p->vx[1] ? p->vxcap[1] : 0)));   /* B7ACCT */
+    }
     if (p->ctab) HIP_CHECK(hipHostFree(p->ctab));
     free(p); free(c);
 }
@@ -611,7 +654,7 @@ static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)-
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
 static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode();
-    { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0;   /* X2 (results/XEFF.md item 2): both off by default */
+    { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0; { const char *sh = getenv("COMM_LAYER_VSLOT_SHARE"); p->vshare = sh && atoi(sh) != 0; vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
       if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
       if (p->i2 && p->vdepth < 2) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_ALLTOALLV_DEPTH >= 2\n"); } }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
