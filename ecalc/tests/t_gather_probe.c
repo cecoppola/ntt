@@ -53,7 +53,7 @@ static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
 int main(int argc, char **argv)
 {
     size_t rows = argc > 1 ? strtoull(argv[1], 0, 0) : 8192, C = argc > 2 ? strtoull(argv[2], 0, 0) : 65536; int reps = argc > 3 ? atoi(argv[3]) : 5;
-    size_t R = 4, total = rows * C, qc = total, N = 4 * qc;      /* source: R x total limbs, as the 4 quarters of a sharded operand */
+    size_t R = 4 * rows, total = rows * C, qc = total, N = R * C;      /* 4 ranks x rows: rank r gathers limbs R j + r rows + il; the source is the 4 quarters of a sharded operand */
     int nd = 0; CK(hipGetDeviceCount(&nd)); if (nd < 4) { printf("needs 4 APUs\n"); return 2; }
     ec_mod m; memset(&m, 0, sizeof m);      /* a ~2^50 modulus: the canon runs the same instructions as with an ntt prime */
     { uint64_t p = 1125899906842597ULL; m.pu = p; m.p = (double)p; m.pinv = 1.0 / m.p; m.mu = (uint64_t)((((unsigned __int128)1) << 115) / p); }
@@ -74,9 +74,9 @@ int main(int argc, char **argv)
         uint64_t *xo = (v == 0) ? x0 : x1;
         for (int r = -1; r < reps; r++) {      /* r = -1: warm-up */
             CK(hipDeviceSynchronize()); double t0 = now();
-            if (!V[v].sel) k_gather_rt<<<nb, 256>>>(xo, V[v].local ? al : ar, R, rows, 1, C, m);
-            else if (V[v].local) k_gather_sel<<<nb, 256>>>(xo, lq[0], lq[1], lq[2], lq[3], qc, 0, N, R, rows, 1, C, m);
-            else k_gather_sel<<<nb, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, 1, C, m);
+            if (!V[v].sel) k_gather_rt<<<nb, 256>>>(xo, V[v].local ? al : ar, R, rows, rows, C, m);
+            else if (V[v].local) k_gather_sel<<<nb, 256>>>(xo, lq[0], lq[1], lq[2], lq[3], qc, 0, N, R, rows, rows, C, m);
+            else k_gather_sel<<<nb, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, rows, C, m);
             CK(hipDeviceSynchronize()); double dt = now() - t0;
             if (r == 0 || dt < tv[v]) tv[v] = dt;      /* best of reps */
         }
