@@ -724,6 +724,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
 #define SEG 16
+static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 0; return v; }   /* S38: the coalesced add/sub kernel (default 0) */
 __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
 {
     __shared__ uint8_t G[256], P[256];
@@ -762,6 +763,69 @@ __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_
             out[i - lo] = s;
         }
     }
+}
+/* S38 (DBIG_ADDSUB2=1, default 0): k_addsub with coalesced loads and stores.  k_addsub gives each thread SEG=16 CONSECUTIVE limbs, so a wave's
+ * loads (and stores) of limb k sit 128 B apart: measured at 6.441e10 digits, 10.4 s of GPU time per APU at 36-84 GB/s (results/S38.md).  Here the
+ * block's 4096 limbs move coalesced (limb e = j 256 + tid) through a 32 KB LDS tile in the thread-major order the carry scan wants (thread t, limb k at
+ * t 16 + (k ^ (t & 15)): conflict-free both ways); the arithmetic, the flags (cout / prop) and the output are those of k_addsub, limb for limb.
+ * G / P live in the tile once it is dead (between the operand loads and the result stores), so the block takes exactly 32 KB of LDS (two per CU). */
+__global__ void __launch_bounds__(256) k_addsub2(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
+{
+    __shared__ uint64_t T[256 * 16];
+    uint8_t *G = (uint8_t *)T, *P = G + 256;
+    const int tid = threadIdx.x;
+    size_t c0 = lo + (size_t)blockIdx.x * CH; if (c0 >= hi) return;
+    size_t c1 = c0 + CH < hi ? c0 + CH : hi;
+    size_t s0 = c0 + (size_t)tid * SEG;
+    uint64_t x[SEG], y[SEG]; int g = 0, p = 1;
+#define S2_IDX(e) ((((e) >> 4) << 4) + (((e) & 15) ^ (((e) >> 4) & 15)))
+#pragma unroll
+    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1 && i < an) ? dget(a, i) : 0; }
+    __syncthreads();
+#pragma unroll
+    for (int k = 0; k < SEG; k++) x[k] = T[tid * 16 + (k ^ (tid & 15))];
+    __syncthreads();
+#pragma unroll
+    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget(b, i) : 0)) : 0; }
+    __syncthreads();
+#pragma unroll
+    for (int k = 0; k < SEG; k++) y[k] = T[tid * 16 + (k ^ (tid & 15))];
+    __syncthreads();                                          /* the tile is dead: G / P take its first 512 bytes */
+    {   /* pass 1: carry-in 0 -> generate / propagate of the segment (as k_addsub) */
+        uint64_t cy = 0; int pr = 1;
+        for (int k = 0; k < SEG; k++) { if (s0 + k >= c1) break;
+            uint64_t xx = x[k], yy = y[k], s;
+            if (dec) { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; pr &= (xx == yy); } else { s = xx + yy + cy; cy = s >= B10; pr &= (xx + yy == B10 - 1); } }
+            else { if (sub) { s = xx - yy - cy; cy = (xx < yy) || (xx == yy && cy); pr &= (xx == yy); } else { s = xx + yy + cy; cy = (s < xx) || (cy && s == xx); pr &= (xx + yy == ~0ULL); } }
+        }
+        g = (int)cy; p = (s0 < c1) ? pr : 1;
+    }
+    G[tid] = (uint8_t)g; P[tid] = (uint8_t)p;
+    __syncthreads();
+    if (tid == 0) {                                           /* serial scan over 256 segments (cheap) */
+        uint8_t cy = 0;
+        for (int t = 0; t < 256; t++) { uint8_t gg = G[t], pp = P[t]; G[t] = cy; cy = gg | (pp & cy); }
+        cout[blockIdx.x] = cy; prop[blockIdx.x] = 1;
+        for (int t = 0; t < 256; t++) if (!P[t]) { prop[blockIdx.x] = 0; break; }
+    }
+    __syncthreads();
+    uint64_t o[SEG];
+    {   /* pass 2: with the segment's carry-in */
+        uint64_t cy = G[tid];
+        for (int k = 0; k < SEG; k++) { o[k] = 0; if (s0 + k >= c1) break;
+            uint64_t xx = x[k], yy = y[k], s;
+            if (dec) { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; s = cy ? s : s - B10; } else { s = xx + yy + cy; cy = s >= B10; s = cy ? s - B10 : s; } }
+            else { if (sub) { s = xx - yy - cy; cy = (xx < yy) || (xx == yy && cy); } else { s = xx + yy + cy; cy = (s < xx) || (cy && s == xx); } }
+            o[k] = s;
+        }
+    }
+    __syncthreads();                                          /* everyone has read G */
+#pragma unroll
+    for (int k = 0; k < SEG; k++) T[tid * 16 + (k ^ (tid & 15))] = o[k];
+    __syncthreads();
+#pragma unroll
+    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; if (i < c1) out[i - lo] = T[S2_IDX(e)]; }
+#undef S2_IDX
 }
 /* apply a carry-in of 1 (or borrow) to a chunk, rippling until absorbed */
 __global__ void k_carry(uint64_t *out, size_t lo, size_t hi, const uint8_t *cin, int sub, int dec)
@@ -851,7 +915,8 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        if (addsub2_on()) k_addsub2<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
