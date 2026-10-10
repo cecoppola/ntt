@@ -85,6 +85,13 @@ void comm_wst_wait(comm *c); void comm_wst_barrier(comm *c);
 int comm_wst_set_phase(int p);                       /* returns the previous phase */
 int comm_wst_enabled(void);
 void comm_wst_totals(uint64_t ns[WST_NP][3], uint64_t n[WST_NP][3]);   /* [phase][0 barrier, 1 wait, 2 ready]: ns summed over the threads */
+/* X1 (COMM_XSTATS=1, default off; comm_shmem.c prints the `xstats` lines at finalize): the kind of the exchange a caller is about to post,
+ * thread-local, captured by the SHMEM transport at post time.  Callers set it before comm_alltoall[v] and restore the previous value after;
+ * the default is XK_OTHER.  Layered exchanges (comm_layered.c's inter stage) are XK_LAYEQ / XK_LAYV; everything else is direct. */
+enum { XK_OTHER, XK_REDIST, XK_RESULT, XK_SPILL, XK_ADDSH, XK_LAYEQ, XK_LAYV, XK_NK };
+extern __thread int comm_xtag;
+static inline int comm_xtag_set(int k) { int o = comm_xtag; comm_xtag = k; return o; }
+int comm_wst_get_phase(void);                         /* the current WST_ phase (for the xstats tables) */
 double comm_wst_t0(void); void comm_wst_ready_end(double t0);   /* S22: timing of the SHMEM peer-ready waits (wait_ge / wait_ne) */
 static inline void comm_wait(comm *c) { if (comm_wst_on != 0) comm_wst_wait(c); else c->ops->wait(c); }
 static inline void comm_barrier(comm *c) { if (comm_wst_on != 0) comm_wst_barrier(c); else c->ops->barrier(c); }
@@ -125,6 +132,7 @@ void  comm_shmem_finalize(void);
 size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
 int   comm_shmem_pool_in_heap(void);           /* Phase 14 V1: 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
+void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
 /* S (PLAN.md 25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
  * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */

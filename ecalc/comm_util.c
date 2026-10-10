@@ -20,6 +20,8 @@ static uint64_t wst_ns[WST_NP][3], wst_nn[WST_NP][3];   /* [phase][0 barrier, 1 
 static __thread int wst_depth;
 static double wst_now(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + 1e-9 * ts.tv_nsec; }
 int comm_wst_enabled(void) { if (comm_wst_on < 0) { const char *e = getenv("MN_WAIT_STATS"); comm_wst_on = e && atoi(e) > 0; } return comm_wst_on; }
+__thread int comm_xtag = 0;
+int comm_wst_get_phase(void) { return __atomic_load_n(&wst_phase, __ATOMIC_RELAXED); }
 int comm_wst_set_phase(int p) { return __atomic_exchange_n(&wst_phase, p, __ATOMIC_RELAXED); }
 static void wst_add(int k, double t0)
 {

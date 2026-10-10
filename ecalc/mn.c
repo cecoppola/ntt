@@ -217,7 +217,7 @@ mn_group *mn_group_at(int level)
     if (g_groups[level]) return g_groups[level];
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
     int k = g_rank >> level; G->g0 = k << level; G->g = (1 << level) < g_size - G->g0 ? (1 << level) : g_size - G->g0;
-    G->gt = pow2_floor(G->g); G->me = g_rank - G->g0;
+    G->gt = pow2_floor(G->g); G->me = g_rank - G->g0; G->lvl = level;
     if (G->g > 1) {
         double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
@@ -250,7 +250,7 @@ mn_group *mn_group_span(int l, int g0, int g)
     }
     if (g_sched[l]) { if (g_sched[l]->g0 != g0 || g_sched[l]->g != g) { ec_fatal(EC_RC_FATAL, "mn_group_span: level %d group changed\n", l); } return g_sched[l]; }
     mn_group *G = (mn_group *)calloc(1, sizeof *G);
-    G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = g_rank - g0;
+    G->g0 = g0; G->g = g; G->gt = pow2_floor(g); G->me = g_rank - g0; G->lvl = l; G->sched = 1;
     double t0 = mem_now();
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
@@ -265,6 +265,19 @@ mn_group *mn_group_span(int l, int g0, int g)
     printf("mn: node %d: schedule level %d group [%d, %d) (%d nodes, the general map): meshes connected in %.2f s\n", g_rank, l, g0, g0 + g, g, mem_now() - t0);
     g_sched[l] = G;
     return G;
+}
+/* X2 (COMM_LAYER_INTER2, results/XEFF.md item 2): the second mesh of the group for APU thread d, over the same PE set as all[d] (sub = 0) or as the
+ * first gt nodes' tr[d] (sub = 1), under an id of its own: NA + NA (3 MN_MAXL + idx) + d, idx = 2 MN_MAXL sched + MN_MAXL sub + level (below MAXID 1024).
+ * Created on first use, collectively by the members (SHMEM only); destroyed by groups_finalize */
+comm *mn_mesh2(mn_group *G, int d, int sub)
+{
+    comm **slot = sub ? &G->tr2[d] : &G->in2[d];
+    if (*slot) return *slot;
+    if (!g_shmem) ec_fatal(EC_RC_FATAL, "COMM_LAYER_INTER2=1 needs COMM_TRANSPORT=shmem\n");
+    int idx = (G->sched ? 2 * MN_MAXL : 0) + (sub ? MN_MAXL : 0) + G->lvl;
+    *slot = comm_shmem_create_at(G->g0, 1, sub ? G->gt : G->g, NA + NA * (3 * MN_MAXL + idx) + d);
+    if (d == 0) printf("mn: node %d: COMM_LAYER_INTER2: second mesh (%s) of level %d%s group [%d, %d), %d nodes\n", g_rank, sub ? "transform nodes" : "all nodes", G->lvl, G->sched ? " schedule" : "", G->g0, G->g0 + G->g, sub ? G->gt : G->g);
+    return *slot;
 }
 /* all-gather of k u64 per node over a mesh: the transport's host all-gather (M7, A-comm; was a point-to-point loop) */
 void mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out) { comm_allgather_host(c, v, out, (size_t)k * 8); }
@@ -297,6 +310,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
         comm *xg = comm_xgmi_create(d), *cm = getenv("MN_LAYERED_RAW") ? xg : comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
+        if (!dbg_local && cm != xg && getenv("COMM_LAYER_INTER2") && atoi(getenv("COMM_LAYER_INTER2"))) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
         if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
@@ -583,6 +597,8 @@ static void groups_finalize(void)
         mn_group *G = g_groups[l];
         for (int d = 0; d < NA; d++) {
             if (G->lay[d]) comm_destroy(G->lay[d]);
+            if (G->in2[d]) comm_destroy(G->in2[d]);
+            if (G->tr2[d]) comm_destroy(G->tr2[d]);
             if (G->tr[d] && G->tr[d] != G->all[d]) comm_destroy(G->tr[d]);
             for (int k = 0; k < 2; k++) if (g_topo_mesh[l][d][k]) { comm_destroy(g_topo_mesh[l][d][k]); g_topo_mesh[l][d][k] = 0; }
             if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]);
@@ -591,7 +607,7 @@ static void groups_finalize(void)
     }
     for (int l = 0; l < MN_MAXL; l++) if (g_sched[l]) {   /* Phase 12 G: the schedule's own groups */
         mn_group *G = g_sched[l];
-        for (int d = 0; d < NA; d++) { if (G->lay[d]) comm_destroy(G->lay[d]); if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]); }
+        for (int d = 0; d < NA; d++) { if (G->lay[d]) comm_destroy(G->lay[d]); if (G->in2[d]) comm_destroy(G->in2[d]); if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]); }
         free(G); g_sched[l] = 0;
     }
 }

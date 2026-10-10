@@ -40,7 +40,8 @@ static inline void mdb_share(const mdb *x, int r, size_t *lo, size_t *hi)
  * group (rank = node - g0) for APU thread d, 0 when the group is one node; lay[d] the layered communicator over
  * all[d] (built by the product, cached).  gt (the largest power of two <= g) and tr[d] (the mesh over the first
  * gt nodes) are no longer used by the product (Phase 11 L: every node transforms); kept for mn.c / t_dist */
-typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; } mn_group;
+typedef struct mn_group { int g0, g, gt, me; comm *all[4], *tr[4], *lay[4]; comm *in2[4], *tr2[4]; int lvl, sched; } mn_group;   /* X2: in2 / tr2 the second meshes of COMM_LAYER_INTER2 (mn.c mn_mesh2); lvl / sched: the group's level, and whether it is a schedule group (their ids) */
+comm *mn_mesh2(mn_group *G, int d, int sub);   /* X2 (mn.c): the group's second mesh for APU thread d (sub 1: over the first gt nodes) */
 /* C = A B + X (X may be 0) over the group; C's share on this node is a new dbig (C->sh freed first if set).
  * Products beyond one plane per node pool (na + nb > 2^(min(31, pool_log) + log2 gt) points) run as a grid of piece
  * products over the shares (Phase 9 A3): piece views of the operands, the first piece straight into C, the others
