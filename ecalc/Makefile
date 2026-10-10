@@ -67,8 +67,15 @@ all: $(REF) $(OBJS) $(TESTS) ecalc tools
 tools:
 	$(MAKE) -s -C ../tools
 
-ecalc: ecalc.c $(OBJS) rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(SHMEM_LIBS)
+# S35: ECALC_VMM_BG=2 (hipmm.c): only the ecalc link wraps the HIP memory APIs (the tests link $(OBJS) without hipmm.o / the wraps)
+HIPMM_API  = hipMalloc hipFree hipExtMallocWithFlags hipMallocManaged hipHostMalloc hipHostFree hipHostRegister hipHostUnregister hipHostGetDevicePointer \
+             hipPointerGetAttributes hipMemGetInfo hipMallocAsync hipFreeAsync hipMallocFromPoolAsync hipMemCreate hipMemMap hipMemSetAccess hipMemUnmap \
+             hipMemRelease hipMemAddressReserve hipMemAddressFree hipStreamCreate hipStreamCreateWithFlags hipStreamDestroy
+HIPMM_WRAP = $(foreach f,$(HIPMM_API),-Wl,--wrap=$(f))
+ecalc: ecalc.c $(OBJS) hipmm.o rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
+	$(HIPC) $< -x none $(OBJS) hipmm.o -o $@ $(HIPMM_WRAP) $(SHMEM_LIBS)
+hipmm.o: hipmm.c dbig.h
+	$(HIPC) -c -o $@ $<
 
 ntt.o: ntt.c ntt.h modarith.h
 	$(HIPC) -c -o $@ $<
@@ -240,7 +247,7 @@ tests/t_modarith: tests/t_modarith.c bigint.o fatal.o modarith.h tests/harness.h
 	$(HIPC) $< -x none bigint.o fatal.o -o $@ $(GMP_LIBS)
 
 clean:
-	rm -f $(REF) $(TESTS) $(OBJS) ecalc
+	rm -f $(REF) $(TESTS) $(OBJS) hipmm.o ecalc
 
 .PHONY: all clean tools
 tests/t_ofi_alloc: tests/t_ofi_alloc.c comm_ofi.c comm_ofi.h fatal.c fatal.h
