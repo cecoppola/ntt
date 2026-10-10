@@ -48,6 +48,10 @@
 #       checks there is no leftover ecalc or tests/t_* process of ours and that MemAvailable can be read.
 #       Returns non-zero (and says which node) if any node is unhealthy.
 #
+#   rd_exclude_hosts <jobid>
+#       Opt-in (MNRUN_EXCLUDE_HOSTS="h1,h2", default empty = off): warns if a listed slow host is in the allocation; with
+#       MNRUN_EXCLUDE_MODE=drop prints the remaining hosts (comma list, for MNRUN_NODELIST) and returns 3. mnrun.sh honours the same variables.
+#
 #   rd_disk <path> <min_GB>
 #       Free-space guard: non-zero if <path>'s filesystem has fewer than <min_GB> GB available.
 #
@@ -174,6 +178,25 @@ rd_run() {
     } > "$RD_OUTDIR/ALERT"
     rd_say "rd_run $label: ALERT written ($RD_OUTDIR/ALERT): $reason"
     return 1
+}
+
+# rd_exclude_hosts <jobid> -- opt-in slow-host check. MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty: does nothing). If a listed host is in
+# the allocation, rd_say-logs a WARNING (default MNRUN_EXCLUDE_MODE=warn) and returns 0; with MNRUN_EXCLUDE_MODE=drop it also prints the
+# allocation's remaining hosts, comma-separated, on stdout for the caller to pass as MNRUN_NODELIST (rd_say goes to stderr/summary only) and
+# returns 3. Returns 0 and prints nothing when the list is empty or no listed host is allocated. Read-only (squeue/scontrol).
+rd_exclude_hosts() {
+    local jid=$1 all hit
+    [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ] || return 0
+    all=$(scontrol show hostnames "$(squeue -j "$jid" -h -o %N)")
+    hit=$(echo "$all" | grep -Fxf <(echo "$MNRUN_EXCLUDE_HOSTS" | tr , "\n") || true)
+    [ -n "$hit" ] || return 0
+    if [ "${MNRUN_EXCLUDE_MODE:-warn}" = drop ]; then
+        rd_say "MNRUN_EXCLUDE_HOSTS: dropping $(echo $hit) from the node list of job $jid"
+        echo "$all" | grep -Fvxf <(echo "$MNRUN_EXCLUDE_HOSTS" | tr , "\n") | paste -sd, -
+        return 3
+    fi
+    rd_say "WARNING: MNRUN_EXCLUDE_HOSTS host(s) in job $jid: $(echo $hit) (MNRUN_EXCLUDE_MODE=warn: kept; =drop removes them)"
+    return 0
 }
 
 # rd_health <jobid> <node> [<node> ...]
