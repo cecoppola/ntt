@@ -724,7 +724,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
 #define SEG 16
-static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 0; return v; }   /* S38: the coalesced add/sub kernel (default 0) */
+static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 1; return v; }   /* S38: the coalesced add/sub kernel (default 1 since 2026-10-10; 0 = old k_addsub) */
 __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
 {
     __shared__ uint8_t G[256], P[256];
