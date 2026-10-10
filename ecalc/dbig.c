@@ -1021,6 +1021,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
     addsub_core(r, r, 0, 0, &s, 1, 0);
 }
 
+static int maxidx_top_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MAXIDX_TOP") ? atoi(getenv("DBIG_MAXIDX_TOP")) : 0; return v; }   /* S40: top-down windowed k_maxidx (default 0) */
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
     double t0 = tnow(); db_st.n_maxidx++;
@@ -1030,17 +1031,25 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
         flags_reserve(d, 1);
         HIP_CHECK(hipSetDevice(d));
-        unsigned blocks = nblk(hi - lo);
+        /* S40 (DBIG_MAXIDX_TOP=1): scan windows from the top of the quarter (4096 limbs, then x16 wider), stop at the first window with a hit; the last
+         * window reaches lo, so the answer is exactly that of the single full scan (the highest differing index is in the topmost window that has one) */
+        size_t whi = hi, wsz = 4096; int top = maxidx_top_on(); size_t m = 0; unsigned blocks;
+        for (;;) {
+            size_t wlo = (!top || whi - lo <= wsz) ? lo : whi - wsz;
+            blocks = nblk(whi - wlo);
 #pragma omp critical
-        k_maxidx<<<blocks, 256>>>(va, vb, b != 0, lo, hi, g_red[d]);
+            k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
         /* Phase 14 A1 (the intermittent garbage leaf length, results/A114.md): the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
          * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at
          * size > 1 (binsplit.c), so it returned heap garbage as P's length once (mn e8 size 4, job 21222: 18385101070989787659) */
-        size_t hred[228 * 8];
-        HIP_CHECK(hipMemcpy(hred, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
-        size_t m = 0; for (unsigned i = 0; i < blocks; i++) if (hred[i] > m) m = hred[i];
+            size_t hred[228 * 8];
+            HIP_CHECK(hipMemcpy(hred, g_red[d], blocks * 8, hipMemcpyDeviceToHost));
+            for (unsigned i = 0; i < blocks; i++) if (hred[i] > m) m = hred[i];
+            if (m || wlo == lo) break;
+            whi = wlo; wsz *= 16;
+        }
         if (m > best) best = m;
     }
     db_st.t_maxidx += tnow() - t0;

@@ -223,6 +223,9 @@ tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/
 tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
 
+tests/t_gather_probe: tests/t_gather_probe.c modarith.h     # S40: k_gather micro-test (results/S40.md); built on demand, not in TESTS; ScratchSize per kernel is printed by the compiler
+	$(HIPC) $< -o $@ -Rpass-analysis=kernel-resource-usage
+
 tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
 	$(HIPC) $< -o $@
 
