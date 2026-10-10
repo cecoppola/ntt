@@ -1153,7 +1153,14 @@ static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_
 static int is_pow2(int g) { return g > 0 && !(g & (g - 1)); }
 static int dist_gen_forced(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GEN"); v = e ? atoi(e) != 0 : 0; } return v; }   /* tests: the general transform at a power-of-two g too */
 /* the layered communicator of the group over mesh d: all g nodes (rank rho = g d + r) */
-static comm *lay_get(mn_group *G, int d) { if (!G->lay[d]) G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d); return G->lay[d]; }
+static comm *lay_get(mn_group *G, int d)
+{
+    if (!G->lay[d]) {
+        G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
+        const char *e = getenv("COMM_LAYER_INTER2"); if (e && atoi(e)) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
+    }
+    return G->lay[d];
+}
 struct mn_ctx { mn_group *G; int node, g, nr; size_t R, C, n; int p24; };   /* p24 (Phase 15 Batch 3): the operands' sequences are the in-runs of p24.h */
 /* P24: rank rho's in-run (ex 1) or out-run (ex 0) map, and the first index of its sequence at or above limb l */
 static inline struct p24_run mn_run(const struct mn_ctx *X, int rho, int ex) { return p24_rank_run(X->R, X->C, X->nr, rho, ex); }
@@ -1199,7 +1206,7 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
         else k_pack_mn<<<nblk((size_t)g * S), 256, 0, s>>>(o->sb, a, lo, X->R, X->nr, g, d, S, o->ds);
     }
     HIP_CHECK(hipStreamSynchronize(s));
-    comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_wait(X->G->all[d]);
+    { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
     db_pool_free(d, o->sb); o->sb = 0;
 }
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
@@ -1748,7 +1755,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
           seg_bytes(hsO, g, scnt, sdsp); seg_bytes(hsI, g, rcnt, rdsp);
           uint64_t *rbO = db_pool_alloc(d, (rtot + 16) * 8); if ((rtot + 16) * 8 > rbo_max[d]) rbo_max[d] = (rtot + 16) * 8;
           double s3 = mem_now();
-          comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_wait(G->all[d]);
+          { int xk_ = comm_xtag_set(XK_RESULT); comm_alltoallv(G->all[d], xb, scnt, sdsp, rbO, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
           if (wn && rtot) { HIP_CHECK(hipMemcpyAsync(dsI, hsI, g * sizeof *hsI, hipMemcpyHostToDevice, s));
                             struct acc c = acc_db(dst, 0, wn);
                             if (p24) k_scatter_mn24<<<nblk((size_t)g * S), 256, 0, s>>>(c, wlo, rbO, dsI, g, S, R, C, nr, d);   /* P24: the out-runs */
@@ -1767,7 +1774,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
                                           htab[3 * r] = j0; htab[3 * r + 1] = j1; htab[3 * r + 2] = blocks; rcnt2[r] = (j1 - j0) * 4 * 8; rdsp2[r] = blocks * 4 * 8; blocks += j1 - j0; }
             spill_rb[d] = db_pool_alloc(d, (blocks * 4 + 16) * 8); sptab_d[d] = (size_t *)db_pool_alloc(d, 3 * (size_t)g * 8 + 64);
             HIP_CHECK(hipMemcpyAsync(sptab_d[d], htab, 3 * (size_t)g * 8, hipMemcpyHostToDevice, s)); HIP_CHECK(hipStreamSynchronize(s));
-            comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_wait(G->all[d]);
+            { int xk_ = comm_xtag_set(XK_SPILL); comm_alltoallv(G->all[d], v->spill, scnt2, sdsp2, spill_rb[d], rcnt2, rdsp2, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_CHECK(hipStreamSynchronize(s));
             sp[d] = spill_rb[d]; sptab[d] = sptab_d[d]; }
           to[d] += mem_now() - s3;
@@ -2339,7 +2346,7 @@ static void mdb_add_shifted_rounds(mdb *C, const mdb *X, size_t k, mn_group *G, 
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (so) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
             HIP_CHECK(hipStreamSynchronize(s));
-            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_wait(G->all[d]);
+            { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (o) { struct acc dst = acc_db(&T, 0, wn); k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S); }
             HIP_CHECK(hipStreamSynchronize(s));
@@ -2406,7 +2413,7 @@ void mdb_add_shifted(mdb *C, const mdb *X, size_t k, mn_group *G)
             HIP_CHECK(hipMemcpyAsync(dt, ht, g * sizeof *ht, hipMemcpyHostToDevice, s));
             if (xhi > xlo) k_pack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(sb, src, dt, g, S);
             HIP_CHECK(hipStreamSynchronize(s));
-            comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_wait(G->all[d]);
+            { int xk_ = comm_xtag_set(XK_ADDSH); comm_alltoallv(G->all[d], sb, scnt, sdsp, rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(G->all[d]);
             HIP_CHECK(hipMemcpyAsync(dt, hu, g * sizeof *hu, hipMemcpyHostToDevice, s));
             if (tn) k_unpack_rng<<<nblk((size_t)g * S), 256, 0, s>>>(dst, rb, dt, g, S);
             HIP_CHECK(hipStreamSynchronize(s));

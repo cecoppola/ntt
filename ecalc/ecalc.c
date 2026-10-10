@@ -540,7 +540,7 @@ int main(int argc, char **argv)
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
-        mem_report_outside(binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes); }
+        mem_report_outside(getenv("COMM_LAYER_VSLOT_POOL") && atoi(getenv("COMM_LAYER_VSLOT_POOL")) ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = dec_verbose = verbose >= 2;

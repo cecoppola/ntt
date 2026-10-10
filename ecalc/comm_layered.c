@@ -50,10 +50,11 @@ static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = get
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
-struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int rec; pthread_t w; int w_on; double wf1; int slot; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
+struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int rec; pthread_t w; int w_on; double wf1; int slot; comm *ic; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
 typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
+                 comm *inter2; int vpool, i2;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
                  int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
@@ -76,17 +77,17 @@ static void *lst_watch(void *a)
     comm_wait(w->inter); *w->f1 = lst_now();
     free(w); return NULL;
 }
-static void lst_watch_start(lay_priv *p, pthread_t *th, int *on, double *f1)
+static void lst_watch_start(lay_priv *p, comm *ic, pthread_t *th, int *on, double *f1)
 {
-    struct lst_w *w = (struct lst_w *)malloc(sizeof *w); w->inter = p->inter; w->dev = p->dev; w->f1 = f1;
+    struct lst_w *w = (struct lst_w *)malloc(sizeof *w); w->inter = ic; w->dev = p->dev; w->f1 = f1;
     if (pthread_create(th, NULL, lst_watch, w)) { ec_fatal(EC_RC_FATAL, "comm_layered: pthread_create\n"); }
     *on = 1;
 }
 /* the inter wait of the oldest exchange: the watcher's join (mode 2) or the wait itself; returns the fabric's end stamp */
-static double lst_inter_wait(lay_priv *p, pthread_t th, int *on, const double *wf1)
+static double lst_inter_wait(lay_priv *p, comm *ic, pthread_t th, int *on, const double *wf1)
 {
     if (*on) { pthread_join(th, NULL); *on = 0; return *wf1; }
-    comm_wait(p->inter);
+    (void)p; comm_wait(ic);
     return lst_mode ? lst_now() : 0;
 }
 /* the folded totals, per bucket of the fabric bytes one APU sends per exchange (log2) */
@@ -304,10 +305,12 @@ static void inter_post(comm *c, struct lay_ex *e)
 {
     lay_priv *p = PRIV(c);
     if (lst_mode) LREC(p, e->rec)->f0 = lst_now();
+    int xk = comm_xtag_set(XK_LAYEQ);                                               /* X1: the xstats kind */
     if (p->minor) comm_alltoall(p->inter, e->tmp, e->rb, e->bytes * p->na, e->s);   /* minor: the transposed scratch out, rb receives [r][d] = rank order */
     else comm_alltoall(p->inter, e->rb, e->tmp, e->bytes * p->na, e->s);
+    comm_xtag_set(xk);
     e->inter_posted = 1;
-    if (lst_mode == 2) lst_watch_start(p, &e->w, &e->w_on, &e->wf1);
+    if (lst_mode == 2) lst_watch_start(p, p->inter, &e->w, &e->w_on, &e->wf1);
 }
 /* complete the oldest pending exchange: tmp slot holds [r][d] after the inter wait; -> [d][r] into rb (major); minor: rb is final */
 static void complete_oldest(comm *c)
@@ -316,7 +319,7 @@ static void complete_oldest(comm *c)
     if (!p->npend) return;
     struct lay_ex *e = &p->ex[p->head];
     if (!e->inter_posted) inter_post(c, e);
-    double f1 = lst_inter_wait(p, e->w, &e->w_on, &e->wf1);
+    double f1 = lst_inter_wait(p, p->inter, e->w, &e->w_on, &e->wf1);
     HIP_CHECK(hipSetDevice(p->dev));
     if (!p->minor) { block_transpose(e->rb, e->tmp, e->bytes, p->g, p->na, e->s); HIP_CHECK(hipStreamSynchronize(e->s)); }   /* -> [d][r] = source rank order */
     if (lst_mode) { struct lst_rec *r = LREC(p, e->rec); r->f1 = f1; r->c1 = lst_now(); }
@@ -435,12 +438,14 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     if (st) { st->r1 = lst_now(); int me = comm_rank(p->inter); for (int r = 0; r < g; r++) if (r != me) st->fb += t->cnt2[r]; }   /* (the fabric stage) */
 }
 /* the inter stage's post (after v_stages; at depth 2 after the previous v-exchange's completion) */
-static void v_post(comm *c, struct vtab *t, char *x2, char *x3, hipStream_t s, int host, struct lst_rec *st)
+static void v_post(comm *c, comm *ic, struct vtab *t, char *x2, char *x3, hipStream_t s, int host, struct lst_rec *st)
 {
     lay_priv *p = PRIV(c); int g = p->g;
     if (st) st->f0 = lst_now();
-    if (host) comm_alltoallv_host(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g);
-    else comm_alltoallv(p->inter, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g, s);
+    int xk = comm_xtag_set(XK_LAYV);                      /* X1: the xstats kind */
+    if (host) comm_alltoallv_host(ic, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g);
+    else comm_alltoallv(ic, x2, t->cnt2, t->dsp2, x3, t->cnt2 + g, t->dsp2 + g, s);
+    comm_xtag_set(xk);
 }
 /* x3 [r][d] -> the receive buffer at the caller's offsets */
 static void v_scatter(comm *c, const struct vtab *t, const char *x3, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int host)
@@ -454,7 +459,7 @@ static void complete_v(comm *c)
 {
     lay_priv *p = PRIV(c); struct lay_v *v = &p->v;
     if (!v->pend) return;
-    double f1 = lst_inter_wait(p, v->w, &v->w_on, &v->wf1);
+    double f1 = lst_inter_wait(p, v->ic, v->w, &v->w_on, &v->wf1);
     HIP_CHECK(hipSetDevice(p->dev));
     struct vtab t; t.dsp2 = v->cnt2 + 2 * p->g;         /* only dsp2 is needed by the scatter */
     v_scatter(c, &t, v->x3, v->rb, v->rcnt, v->rdsp, v->s, 0);
@@ -475,6 +480,15 @@ static void need_vslot(comm *c, int k, size_t bytes)
     lay_priv *p = PRIV(c);
     if (p->vxcap[k] >= bytes) return;
     HIP_CHECK(hipSetDevice(p->dev));
+    if (p->vpool) {   /* X2 COMM_LAYER_VSLOT_POOL: the slot from the inter transport's comm pool (unstaged: the exchange puts from / into it); freed first, so the first-fit pool can reuse the space */
+        size_t minb = 1; { const char *e = getenv("COMM_LAYER_VSLOT_MB"); char nm[48]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", comm_size(p->inter));
+                          if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* allocate each slot once at this size (S31: set by the pool rule per group size, binsplit.c vslot_prealloc_env; or by hand) */
+        size_t want = bytes > minb ? bytes : minb;
+        if (p->vx[k]) { comm_sym_free(p->inter, p->vx[k]); p->vx[k] = 0; p->vxcap[k] = 0; }
+        p->vx[k] = (char *)comm_sym_alloc(p->inter, want);
+        if (!p->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
+        p->vxcap[k] = want; return;
+    }
     if (p->vx[k]) HIP_CHECK(hipFree(p->vx[k]));
     HIP_CHECK(hipMalloc((void **)&p->vx[k], bytes)); vlive_add(p->dev, bytes, p->vxcap[k]); p->vxcap[k] = bytes;
 }
@@ -491,11 +505,18 @@ static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size
     HIP_CHECK(hipSetDevice(p->dev));
     int rec = lst_mode ? lst_new(p, a0, 1) : 0;
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);   /* under the pending exchange's inter stage */
-    complete_v(c);                                        /* the previous one: its inter wait and scatter */
-    v_post(c, &t, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);
+    comm *ic = p->inter;
+    if (p->i2 && p->inter2) {                             /* X2 COMM_LAYER_INTER2: k posts on its own communicator (slot parity) BEFORE k-1 completes: two inter stages in flight */
+        ic = k ? p->inter2 : p->inter;
+        v_post(c, ic, &t, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);
+        complete_v(c);                                    /* the previous one (p->v still describes it): its inter wait and scatter */
+    } else {
+        complete_v(c);                                    /* the previous one: its inter wait and scatter */
+        v_post(c, ic, &t, x2, x3, s, 0, lst_mode ? LREC(p, rec) : 0);
+    }
     p->v.rec = rec;
-    if (lst_mode == 2) lst_watch_start(p, &p->v.w, &p->v.w_on, &p->v.wf1);
-    p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.slot = k; p->v.pend = 1; p->nlog++;
+    if (lst_mode == 2) lst_watch_start(p, ic, &p->v.w, &p->v.w_on, &p->v.wf1);
+    p->v.ic = ic; p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.slot = k; p->v.pend = 1; p->nlog++;
     free(t.T);
 }
 static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
@@ -512,9 +533,9 @@ static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     HIP_CHECK(hipSetDevice(p->dev));
     if (lst_mode) p->v.rec = lst_new(p, a0, 1);
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
-    v_post(c, &t, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
-    if (lst_mode == 2) lst_watch_start(p, &p->v.w, &p->v.w_on, &p->v.wf1);
-    p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.pend = 1; p->nlog++;
+    v_post(c, p->inter, &t, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
+    if (lst_mode == 2) lst_watch_start(p, p->inter, &p->v.w, &p->v.w_on, &p->v.wf1);
+    p->v.ic = p->inter; p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.pend = 1; p->nlog++;
     free(t.T);
 }
 static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
@@ -523,7 +544,7 @@ static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     size_t x0n = t.contig ? 0 : t.S;
     char *x0 = (char *)malloc(x0n + 2 * t.A + t.B + 4), *x1 = x0 + x0n, *x2 = x1 + t.A, *x3 = x2 + t.A;
     v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, 0, 1, 0);
-    v_post(c, &t, x2, x3, 0, 1, 0);
+    v_post(c, PRIV(c)->inter, &t, x2, x3, 0, 1, 0);
     v_scatter(c, &t, x3, rb, rcnt, rdsp, 0, 1);
     free(x0); vtab_free(&t);
 }
@@ -579,8 +600,8 @@ static void y_destroy(comm *c)
     if ((p->own_tmp && p->tmp) || p->vtmp) HIP_CHECK(hipSetDevice(p->dev));
     if (p->own_tmp && p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     if (p->vtmp) HIP_CHECK(hipFree(p->vtmp));
-    for (int k = 0; k < 2; k++) if (p->vx[k]) { HIP_CHECK(hipSetDevice(p->dev)); HIP_CHECK(hipFree(p->vx[k])); }
-    vlive_add(p->dev, 0, (p->vtmp ? p->vcap : 0) + (p->vx[0] ? p->vxcap[0] : 0) + (p->vx[1] ? p->vxcap[1] : 0));   /* B7ACCT */
+    for (int k = 0; k < 2; k++) if (p->vx[k]) { HIP_CHECK(hipSetDevice(p->dev)); if (p->vpool) comm_sym_free(p->inter, p->vx[k]); else HIP_CHECK(hipFree(p->vx[k])); }
+    vlive_add(p->dev, 0, (p->vtmp ? p->vcap : 0) + (p->vpool ? 0 : (p->vx[0] ? p->vxcap[0] : 0) + (p->vx[1] ? p->vxcap[1] : 0)));   /* B7ACCT */
     if (p->ctab) HIP_CHECK(hipHostFree(p->ctab));
     free(p); free(c);
 }
@@ -589,7 +610,10 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode(); }
+static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode();
+    { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0;   /* X2 (results/XEFF.md item 2): both off by default */
+      if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
+      if (p->i2 && p->vdepth < 2) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_ALLTOALLV_DEPTH >= 2\n"); } }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { ec_fatal(EC_RC_FATAL, "comm_layered: the intra communicator must have %d ranks\n", NA); }
@@ -601,6 +625,8 @@ comm *comm_layered_create(comm *intra, comm *inter, int d)
 }
 /* S: the intra-minor form on device dev: rank = size(intra) x rank(inter) + rank(intra) (the dragonfly's third layer: intra
  * = the nodes of my group, inter = my in-group index's nodes across the groups; rank = node) */
+/* X2: the second inter communicator of this layered communicator (COMM_LAYER_INTER2=1; mn.c creates it over the same PE set under a fresh id) */
+void comm_layered_set_inter2(comm *c, comm *inter2) { PRIV(c)->inter2 = inter2; }
 comm *comm_layered_create_minor(comm *intra, comm *inter, int dev)
 {
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
