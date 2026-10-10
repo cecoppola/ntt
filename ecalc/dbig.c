@@ -228,6 +228,14 @@ static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int vmm_safe(void) { static int sf = -1; if (sf < 0) sf = getenv("ECALC_VMM_SAFE") ? atoi(getenv("ECALC_VMM_SAFE")) : 0; return sf; }   /* S32: ECALC_VMM_SAFE=1: the mapper thread's stream destroy / device restore under g_vmm_map_mx and BEFORE the last chunk is published (a waiter released by mapped >= m0 never overlaps the tail); =2 also joins the thread in every arena wait (level 1 starts after the mapper has left) */
+/* S35: ECALC_VMM_BG=2 -- the process-wide HIP memory-management lock (hipmm.c wraps ecalc's HIP memory / VMM / stream create-destroy
+ * calls with it; the background mapper holds it around each chunk's create + map + access).  Recursive: a wrapped call inside a held
+ * section nests.  Off (any other value): db_hipmm_on() = 0 and nothing locks. */
+static pthread_mutex_t g_hipmm_mx = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+static volatile int g_hipmm_on = -1;
+int db_hipmm_on(void) { int o = g_hipmm_on; if (o < 0) { const char *e = getenv("ECALC_VMM_BG"); o = e && atoi(e) == 2; g_hipmm_on = o; } return o; }
+void db_hipmm_lock(void) { if (db_hipmm_on()) pthread_mutex_lock(&g_hipmm_mx); }
+void db_hipmm_unlock(void) { if (db_hipmm_on()) pthread_mutex_unlock(&g_hipmm_mx); }
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -263,7 +271,9 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
         double tq = mem_now();
         pthread_mutex_lock(&g_vmm_map_mx);
         double tg = mem_now(); tlk += tg - tq;
+        db_hipmm_lock();   /* S35: ECALC_VMM_BG=2: the chunk's create + map + access as one section against every other HIP memory call */
         if (!vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (background chunk)", dev, v->chunk);
+        db_hipmm_unlock();
         double tz = mem_now();
         HIP_CHECK(hipMemsetAsync(v->base + (size_t)k * v->chunk, 0, v->chunk, st)); HIP_CHECK(hipStreamSynchronize(st));
         v->t_ms += mem_now() - tz;
@@ -311,7 +321,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
     if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
-    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */
+    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */   /* S35: =2 keeps the mapper, under db_hipmm_lock (hipmm.c) */
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
     v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
