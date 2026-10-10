@@ -14,7 +14,7 @@ NODE=$(squeue -j $HOLD -h -o %N); [ -n "$NODE" ] || { RD_VERDICT="FAILED: hold $
 one() {   # arm label
   local arm=$1 lab=$2 cw="$ARM_A"; [ $arm = B ] && cw="$ARM_B"
   rd_health $HOLD $NODE >/dev/null 2>&1 || { sleep 60; rd_health $HOLD $NODE >/dev/null 2>&1; } || { rd_say "unhealthy $NODE"; return 9; }
-  rd_run $lab 450 srun --jobid=$HOLD -N1 -w $NODE --gpus=4 -c 192 --overlap bash -lc "module unload rocm/7.0.3 >/dev/null 2>&1; module load $MNRUN_MODULES; cd $E; env ECALC_SEGV_TRACE=1 $cw ./ecalc $DPN" < /dev/null; local rc=$?
+  rd_run $lab 450 srun --jobid=$HOLD -N1 --gpus=4 -c 192 --overlap bash -lc "module unload rocm/7.0.3 >/dev/null 2>&1; module load $MNRUN_MODULES; cd $E; env ECALC_SEGV_TRACE=1 $cw ./ecalc $DPN" < /dev/null; local rc=$?
   local P=$OUT/log/$lab.plain; cp $OUT/log/$lab.log $P
   local v tot; v=$(rd_verify $P); tot=$(grep -a -m1 '^total' $P | awk '{print $2}')
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' $lab $arm $rc "$v" "$tot" "$(TZ=America/New_York date +%m-%d_%H:%M:%S)" >> $OUT/pairs.tsv
