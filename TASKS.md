@@ -485,3 +485,16 @@ with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply t
 - Kit: opt-in stage `nodechk` (TARGET_TASKS T14), not yet rehearsed on aac7.
 - aac7 QOS is now 6 nodes per user: no 10-node runs.
 
+
+## Deferred to a future session: the multi-node segfault (user, 2026-10-10)
+
+The current focus is optimising for the node counts we can get on aac7 at once (QOS: 6 per user). The crash work
+is parked here:
+- **Symptom:** segfault in `hipMemMap` called from the background mapper `vmm_bg_map` (`ecalc/dbig.c`), about 1 % of
+  2-node runs (4/422) and about 3.5 % of 10-node runs (3/~85) (m); about 0.4–0.5 % per node per run, so at 576 nodes a
+  run would almost always crash (≥ 90 %, mod, if the per-node rate holds). **A fix is required before the target.**
+- **Candidates:** `ECALC_VMM_BG=0` (synchronous mapping, branch s34, on main): 0/420 vs 4/422 (Fisher p 0.063 one-sided),
+  +20 s per 2-node run (m). `ECALC_VMM_BG=2` (branch s35 015994a: one process-wide lock around the VMM calls and 24
+  wrapped HIP calls): gate passed, 0 crashes in 18 A / 17 C runs so far (~/s35_part1, ~/s35_part2; no evidence yet).
+- **Next step:** a fast reproducer (e.g. smaller map chunks → many more `hipMemMap` calls per run) so a fix can be judged
+  in hours; a plain soak needs ≈ 600 runs per arm (≈ 55 h on 4 nodes) to tell a ≥ 90 % reduction from none.
