@@ -24,7 +24,12 @@ static void par_init(void) { if (g_par < 0) { g_par = !(getenv("DBIG_SERIAL") &&
 struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; };     /* shift: the operand as a << shift limbs; qc: limbs per quarter (any multiple of DB_ALIGN) */
 /* the quarter of global limb g: the number of quarter boundaries at or below g (no division: qc is any size) */
 __device__ static inline size_t dq(size_t g, size_t qc) { return (g >= qc) + (g >= 2 * qc) + (g >= 3 * qc); }
-__device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return v.q[d][g - d * v.qc]; }
+/* S41 (DBIG_QSEL=1): the quarter's base pointer by a select over constant indices (no runtime-indexed pointer array: such an index put the by-value struct in
+ * per-lane scratch, 112 B/lane in k_gather); QS = 0 is the original indexed form */
+template <int QS> __device__ static inline const uint64_t *qsel_p(const uint64_t *const *q, size_t d) { if (!QS) return q[d]; const uint64_t *p = q[0]; if (d == 1) p = q[1]; if (d == 2) p = q[2]; if (d == 3) p = q[3]; return p; }
+template <int QS> __device__ static inline uint64_t dget_t(const struct dv &v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return qsel_p<QS>(v.q, d)[g - d * v.qc]; }
+__device__ static inline uint64_t dget(const struct dv v, size_t i) { return dget_t<0>(v, i); }
+static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 0; return v; }   /* S41: scalar-select quarter pointers in the device kernels (default 0) */
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.off = a->off; v.shift = 0; return v; }
 static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2 * a->qc) + (g >= 3 * a->qc); }   /* host: quarter of global limb g */
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
@@ -684,10 +689,10 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
 }
 uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
-__global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
+template <int QS> __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
 {
     size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; i < hi; i += stride) { long s = (long)i + shift; out[i - lo] = (s >= 0 && (size_t)s < an) ? dget(a, (size_t)s) : 0; }
+    for (; i < hi; i += stride) { long s = (long)i + shift; out[i - lo] = (s >= 0 && (size_t)s < an) ? dget_t<QS>(a, (size_t)s) : 0; }
 }
 /* add/sub of one chunk (CH = 256 threads x SEG limbs) with a block-level carry scan: thread t sums its
  * SEG limbs with carry-in 0 (generate g, propagate p over the segment), a scan over the 256 (g, p) gives
@@ -769,7 +774,7 @@ __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_
  * block's 4096 limbs move coalesced (limb e = j 256 + tid) through a 32 KB LDS tile in the thread-major order the carry scan wants (thread t, limb k at
  * t 16 + (k ^ (t & 15)): conflict-free both ways); the arithmetic, the flags (cout / prop) and the output are those of k_addsub, limb for limb.
  * G / P live in the tile once it is dead (between the operand loads and the result stores), so the block takes exactly 32 KB of LDS (two per CU). */
-__global__ void __launch_bounds__(256) k_addsub2(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
+template <int QS> __global__ void __launch_bounds__(256) k_addsub2(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
 {
     __shared__ uint64_t T[256 * 16];
     uint8_t *G = (uint8_t *)T, *P = G + 256;
@@ -780,13 +785,13 @@ __global__ void __launch_bounds__(256) k_addsub2(uint64_t *out, size_t lo, size_
     uint64_t x[SEG], y[SEG]; int g = 0, p = 1;
 #define S2_IDX(e) ((((e) >> 4) << 4) + (((e) & 15) ^ (((e) >> 4) & 15)))
 #pragma unroll
-    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1 && i < an) ? dget(a, i) : 0; }
+    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1 && i < an) ? dget_t<QS>(a, i) : 0; }
     __syncthreads();
 #pragma unroll
     for (int k = 0; k < SEG; k++) x[k] = T[tid * 16 + (k ^ (tid & 15))];
     __syncthreads();
 #pragma unroll
-    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget(b, i) : 0)) : 0; }
+    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget_t<QS>(b, i) : 0)) : 0; }
     __syncthreads();
 #pragma unroll
     for (int k = 0; k < SEG; k++) y[k] = T[tid * 16 + (k ^ (tid & 15))];
@@ -840,12 +845,12 @@ __global__ void k_carry(uint64_t *out, size_t lo, size_t hi, const uint8_t *cin,
         else { if (sub) { o[i - c0] = v - 1; if (v) return; } else { o[i - c0] = v + 1; if (v != ~0ULL) return; } }
     }
 }
-__global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t hi, size_t *res)   /* 1 + highest i in [lo,hi) with a[i] != b[i] (or != 0), per block */
+template <int QS> __global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t hi, size_t *res)   /* 1 + highest i in [lo,hi) with a[i] != b[i] (or != 0), per block */
 {
     __shared__ size_t sm[256];
     size_t best = 0; int found = 0;
     for (size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < hi; i += (size_t)gridDim.x * blockDim.x)
-        if (hasb ? dget(a, i) != dget(b, i) : dget(a, i) != 0) { if (!found || i > best) best = i; found = 1; }
+        if (hasb ? dget_t<QS>(a, i) != dget_t<QS>(b, i) : dget_t<QS>(a, i) != 0) { if (!found || i > best) best = i; found = 1; }
     sm[threadIdx.x] = found ? best + 1 : 0;
     __syncthreads();
     for (int s = 128; s > 0; s >>= 1) { if (threadIdx.x < s && sm[threadIdx.x + s] > sm[threadIdx.x]) sm[threadIdx.x] = sm[threadIdx.x + s]; __syncthreads(); }
@@ -882,7 +887,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        k_gather_shift<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
+        if (qsel_on()) k_gather_shift<1><<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift); else k_gather_shift<0><<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     r->n = n; db_norm(r);
@@ -915,7 +920,8 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        if (addsub2_on()) k_addsub2<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        else if (addsub2_on()) k_addsub2<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipStreamSynchronize(0));
     }
@@ -1038,7 +1044,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
             size_t wlo = (!top || whi - lo <= wsz) ? lo : whi - wsz;
             blocks = nblk(whi - wlo);
 #pragma omp critical
-            k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
+            { if (qsel_on()) k_maxidx<1><<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]); else k_maxidx<0><<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]); }
         /* Phase 14 A1 (the intermittent garbage leaf length, results/A114.md): the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
