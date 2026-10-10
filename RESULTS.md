@@ -4691,3 +4691,12 @@ Labels: m measured, i inferred, a assumed.
 - **Segfault soak (m):** 5 parallel 2-node pairs, 590 runs per arm: base 0 crashes, ECALC_VMM_SAFE=2 3 crashes, wall cost +0.5 s. S33: 2 nodes base 1 of 142, VMM_SAFE=2 0 of 141, 1 node base 0 of 515. Pooled 2-node: base 1 of 732, VMM_SAFE=2 3 of 731: no benefit. The soak "rc139" column reads 0 (srun reports rc 1). All traces share one stack inside libamdhip64 under an ecalc pthread (background mapper, i). Ten-node crashes 2026-10-08: 3 of ~85 (3.5 %), 2 in base arms.
 - **Decisions:** adopt X2 as an option on the aac7 line; do not adopt VMM_SAFE=2; exclude host x9000c1s0b1n0 from timed holds; add a MemFree/Cached/upload-timing check to the target kit; next diagnostic is addr2line plus a synchronous-mapping soak.
 
+
+## 126. S27-S34 wrap-up: merges, X2 adopted on aac7, final S34 soak, host note, kit nodechk (2026-10-09/10; results/S34.md)
+
+Labels: m measured, mod modelled. Main now contains branches s34 and s29 (merged --no-ff; every switch off by default, digits unchanged).
+- **X2 adopted on the aac7 line** (the user, 2026-10-09): `COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1` in `ecalc/e16_headline.sh`; -31.7 s at 10 nodes (CI -55.7 .. -7.8 s, excl. dm blow-up rounds), -34.1 s (CI -69.7 .. +1.5) over all rounds (m); +0.8 GB/node on aac7 (m), +0.5 GB (mod). Target: optional T13 at the first >= 64-node step. Rejected: X1 rot (+3.1 s null), X3 DC off (0.2 % vs 15 % gate), CHAIN_BCAST (-2.7 s null), VMM_SAFE=1/2 (did not prevent segfaults).
+- **Final S34 soak (m, 1e9 digits):** 2 nodes base 4 segfaults of 422 (mean 204.2 s) against `ECALC_VMM_BG=0` 0 of 420 (224.2 s, +20.0 s / +9.8 %); Fisher p = 0.063 one-sided, 0.124 two-sided: suggestive, not conclusive. 1 node 0 of 121 in both arms. The soak ended early (holds cancelled, NODE_FAIL; the "Memory required" step errors were teardown). aac7 QOS is now 6 nodes per user.
+- **Host x9000c1s0b1n0 (m):** upload stall 20.7-25.2 s vs ~1 s, follows the host, 113.7 GB cache not cleared by dd. New data: MemAvailable is ~441 GB on 7 of 13 nodes and ~520 GB on the other 6, so low MemAvailable is NOT unique to it; only the stall is. Opt-in `MNRUN_EXCLUDE_HOSTS` / `MNRUN_EXCLUDE_MODE=drop` in `ecalc/mnrun.sh` and `rd_exclude_hosts` in `tools/rundriver.sh` (default off); note for the admins in `docs/AAC7_ADMIN_NOTE.md`.
+- **Kit:** opt-in stage `nodechk` in `ecalc/target_kit.sh` (`tests/t_nodechk.c`; meminfo and 1 GB upload per APU, flags > 3x median upload or MemAvailable < 90 % of median); TARGET_TASKS T14.
+

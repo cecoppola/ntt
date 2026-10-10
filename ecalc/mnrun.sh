@@ -34,6 +34,21 @@ export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
+# S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: x9000c1s0b1n0, a ~20 s host->device upload stall, results/S31.md).
+# If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
+# ranks shift, so it needs >= the nodes asked for, else fewer nodes are used as with MNRUN_NODES).  Shared with tools/rundriver.sh rd_exclude_hosts.
+if [ -n "${MNRUN_EXCLUDE_HOSTS:-}" ]; then
+    __hit=$(echo "$nodes" | grep -Fxf <(echo "$MNRUN_EXCLUDE_HOSTS" | tr , "\n") || true)
+    if [ -n "$__hit" ]; then
+        if [ "${MNRUN_EXCLUDE_MODE:-warn}" = drop ]; then
+            echo "mnrun.sh: MNRUN_EXCLUDE_MODE=drop: removing excluded host(s) from the node list: $(echo $__hit)" >&2
+            nodes=$(echo "$nodes" | grep -Fvxf <(echo "$MNRUN_EXCLUDE_HOSTS" | tr , "\n") || true)
+            [ -n "$nodes" ] || { echo "mnrun.sh: no node left after MNRUN_EXCLUDE_HOSTS"; exit 1; }
+        else
+            echo "mnrun.sh: WARNING: excluded-list host(s) in the allocation: $(echo $__hit) (MNRUN_EXCLUDE_MODE=warn: kept; =drop removes them)" >&2
+        fi
+    fi
+fi
 nn=$(echo "$nodes" | wc -l); [ "$nn" -gt "$P" ] && nn=$P
 [ -n "${MNRUN_NODES:-}" ] && [ "$nn" -gt "$MNRUN_NODES" ] && nn=$MNRUN_NODES   # Phase 16 P: at most this many nodes of the allocation (unset: all)
 while [ $((P % nn)) -ne 0 ]; do nn=$((nn - 1)); done

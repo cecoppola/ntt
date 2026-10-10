@@ -16,8 +16,8 @@
 #   --out DIR               where KIT_SUMMARY.txt and logs/ go (default: ./kit_out_<timestamp>)
 #   --jobid ID              the Slurm allocation (default: $SLURM_JOB_ID).  Required by every stage that
 #                           runs srun, i.e. every stage except --dry-run.
-#   --only LIST             run only these stages (comma list of: env,build,edge,a3,a4,s2chk).  Default: env,build,edge,a3,a4
-#                           (s2chk is OPT-IN: it runs only when named here, never by default).
+#   --only LIST             run only these stages (comma list of: env,build,edge,a3,a4,s2chk,nodechk).  Default: env,build,edge,a3,a4
+#                           (s2chk and nodechk are OPT-IN: they run only when named here, never by default).
 #   --skip LIST             run all stages except these (comma list).  --only and --skip combine (skip wins
 #                           on overlap).
 #   --nodes-a4 LIST         node counts for stage a4, comma list (default: 2,8,64; 2,8 with --site aac7).
@@ -29,7 +29,8 @@
 #                           plus its larger one).  A count bigger than the allocation is skipped, not failed.
 #   --s2chk-per-node N      digits per node for s2chk (default 64410000000 = 6.441e10, the largest node share of the
 #                           3.71e13 target on 576 nodes).  KIT_S2CHK_LINE overrides the launch-line env words.
-#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count, s2chk 1800 PER node count).
+#   --nodechk-gb GB         upload size per APU for the opt-in stage nodechk (default 1).
+#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count, s2chk 1800 PER node count, nodechk 300).
 #                           A stage that times out or fails is marked FAIL in the summary; every other stage
 #                           still runs.
 #
@@ -71,6 +72,17 @@
 #            Needs an ecalc built WITH MN_WAIT_STATS (the instrument is not in every branch; the stage says so if no
 #            wait-stats line appears).  The command for the target team:
 #              ./target_kit.sh --jobid $SLURM_JOB_ID --out kit_out_s2chk --only build,s2chk
+#   nodechk (OPT-IN, off unless named in --only; about 1-3 min, EVERY node of the allocation at once, one process per node; needs
+#           stage build's kit_modules.env and the tests/t_nodechk it builds: `--only build,nodechk`; TARGET_TASKS T14):
+#            per node: MemTotal / MemFree / MemAvailable / Cached / HugePages_Total / HugePages_Free from /proc/meminfo,
+#            and the time of a 1 GB host->device hipMemcpy upload (pre-touched pageable buffer, median of 3) to each of the
+#            4 APUs.  Output: a table per node in KIT_SUMMARY.txt (logs/06_nodechk.log keeps the raw NODECHK lines).  A node is
+#            FLAGGED if its slowest-APU upload time is > 3x the median over nodes, or its MemAvailable is < 90 % of the median.
+#            Why: on aac7 the node x9000c1s0b1n0 stalled 20-25 s in the host->device upload of db_from_bi (about 1 s on the
+#            other nodes, measured) and 7 of 13 nodes had ~441 GB MemAvailable against ~520 GB on the other 6 (measured,
+#            2026-10-09): a slow or short node is a straggler for the whole run, so find it BEFORE the timed run and exclude it.
+#            Run it alone on the nodes (nothing else may be using the GPUs or the fabric).  The command for the target team:
+#              ./target_kit.sh --jobid $SLURM_JOB_ID --out kit_out_nodechk --only build,nodechk
 #
 # Launch: always Slurm-native `srun --ntasks ... --ntasks-per-node=1` (mnrun.sh for the multi-node ecalc
 # runs of stage a4); never oshrun.  FI_UNIVERSE_SIZE and FI_LOG_LEVEL are set to the TGTBENCH2-proposed
@@ -99,6 +111,8 @@ TO_EDGE=600
 TO_A3=600
 TO_A4=1800
 TO_S2=1800
+TO_NC=300
+NC_GB=1
 NODES_S2="2,8"
 S2_PER_NODE=64410000000
 E9=1000000000
@@ -127,6 +141,8 @@ while [ $# -gt 0 ]; do
         --timeout-a3) TO_A3=$2; shift 2 ;;
         --timeout-a4) TO_A4=$2; shift 2 ;;
         --timeout-s2chk) TO_S2=$2; shift 2 ;;
+        --timeout-nodechk) TO_NC=$2; shift 2 ;;
+        --nodechk-gb) NC_GB=$2; shift 2 ;;
         --nodes-s2chk) NODES_S2=$2; shift 2 ;;
         --s2chk-per-node) S2_PER_NODE=$2; shift 2 ;;
         *) echo "target_kit.sh: unknown option $1" >&2; usage; exit 2 ;;
@@ -325,16 +341,16 @@ stage_build() {
             exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul; module list 2>&1"
             exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} ecalc tests/t_comm tools"
             rc1=$?
-            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} tests/t_edge"
+            exec_cmd "$lf" "$TO_BUILD" bash -lc "$ul >/dev/null 2>&1; cd '$SELF_DIR' && make ${mk_extra[*]} -j${MAKE_JOBS} tests/t_edge tests/t_nodechk"
             rc2=$?
             if [ "$DRY_RUN" = 1 ]; then
                 chosen="$cand"
                 echo "[dry-run] assuming the first candidate ($chosen) builds; the rest are not tried" | tee -a "$lf"
                 break
             fi
-            if [ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ]; then
+            if [ $rc1 -eq 0 ] && [ $rc2 -eq 0 ] && [ -x "$SELF_DIR/ecalc" ] && [ -x "$SELF_DIR/tests/t_comm" ] && [ -x "$SELF_DIR/tests/t_edge" ] && [ -x "$SELF_DIR/tests/t_nodechk" ]; then
                 chosen="$cand"
-                echo "== ROCm candidate $cand: build OK (ecalc, tests/t_comm, tests/t_edge, tools)" >> "$lf"
+                echo "== ROCm candidate $cand: build OK (ecalc, tests/t_comm, tests/t_edge, tests/t_nodechk, tools)" >> "$lf"
                 break
             else
                 failed+=("$cand")
@@ -655,6 +671,57 @@ stage_s2chk() {
 }
 
 # =============================================================================================================
+# Stage: nodechk (OPT-IN) -- per-node memory and host->device upload health, a table per node, flagged outliers
+# =============================================================================================================
+NC_SLOW_X=3        # flag: slowest-APU upload time > this x the median over nodes
+NC_AVAIL_PCT=90    # flag: MemAvailable < this % of the median over nodes
+
+nodechk_table() {   # nodechk_table <raw log> -- appends the per-node table and the flags to the summary
+    grep -a '^NODECHK ' "$1" | awk -v slowx="$NC_SLOW_X" -v apct="$NC_AVAIL_PCT" '
+        function med(a, n,   i, j, t, b) { for (i = 1; i <= n; i++) b[i] = a[i]; for (i = 2; i <= n; i++) { t = b[i]; for (j = i - 1; j >= 1 && b[j] > t; j--) b[j+1] = b[j]; b[j+1] = t } return (n % 2) ? b[(n+1)/2] : (b[n/2] + b[n/2+1]) / 2 }
+        { n++; host[n] = ""; err[n] = ""; up[n] = -1; for (i = 1; i <= NF; i++) { split($i, kv, "="); k = kv[1]; v = kv[2]
+            if (k == "host") host[n] = v; else if (k == "ERROR") err[n] = v; else if (k == "MemTotal_kB") tot[n] = v; else if (k == "MemFree_kB") fr[n] = v
+            else if (k == "MemAvailable_kB") av[n] = v; else if (k == "Cached_kB") ca[n] = v; else if (k == "HugePages_Total") ht[n] = v; else if (k == "HugePages_Free") hf[n] = v
+            else if (k ~ /^apu[0-9]+_s$/) { ap[n] = ap[n] " " v; if (v == "ERR") err[n] = "apu"; else if (v + 0 > up[n]) up[n] = v + 0 } } }
+        END {
+            if (n == 0) { print "    no NODECHK lines (the program failed to run: see the log)"; exit }
+            m = 0; q = 0
+            for (i = 1; i <= n; i++) { if (err[i] == "") { m++; U[m] = up[i]; A[m] = av[i] } }
+            if (m == 0) { print "    every node reported an error"; for (i = 1; i <= n; i++) printf "    %s: %s\n", host[i], err[i]; exit }
+            mu = med(U, m); ma = med(A, m)
+            printf "    %-16s %9s %9s %9s %9s %7s %7s  %-24s %s\n", "node", "MemTot GB", "MemFree", "MemAvail", "Cached", "HugeTot", "HugeFr", "upload s per APU", "flag"
+            nf = 0
+            for (i = 1; i <= n; i++) {
+                fl = ""
+                if (err[i] != "") fl = "FLAG(error " err[i] ")"
+                else { if (mu > 0 && up[i] > slowx * mu) fl = fl "FLAG(upload " sprintf("%.1f", up[i] / mu) "x median) "; if (av[i] < apct / 100.0 * ma) fl = fl "FLAG(MemAvailable " sprintf("%.0f", 100.0 * av[i] / ma) "% of median)" }
+                if (fl != "") nf++
+                printf "    %-16s %9.1f %9.1f %9.1f %9.1f %7d %7d  %-24s %s\n", host[i], tot[i] / 1e6, fr[i] / 1e6, av[i] / 1e6, ca[i] / 1e6, ht[i], hf[i], ap[i], fl
+            }
+            printf "    median over %d node(s): slowest-APU upload %.3f s, MemAvailable %.1f GB; flag rules: upload > %dx median or MemAvailable < %d%% of median; %d node(s) flagged\n", m, mu, ma / 1e6, slowx, apct, nf
+            if (nf > 0) print "    -> consider excluding the flagged node(s) from the timed run (aac7: MNRUN_EXCLUDE_HOSTS); a low MemAvailable alone is not a stall (aac7 2026-10-09: 7 of 13 nodes at 441 GB, 6 at 520 GB, only one node stalled)"
+        }' >> "$SUMMARY"
+}
+
+stage_nodechk() {
+    local lf="$LOGDIR/06_nodechk.log"; : > "$lf"
+    summary "## Stage nodechk (opt-in): per-node meminfo + ${NC_GB} GB host->device upload per APU (flag: upload > ${NC_SLOW_X}x median, MemAvailable < ${NC_AVAIL_PCT}% of median)"
+    if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules nodechk "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first, e.g. --only build,nodechk)"; summary ""; return; fi
+    if [ "$DRY_RUN" != 1 ] && [ ! -x "$SELF_DIR/tests/t_nodechk" ]; then summary "status: FAIL (tests/t_nodechk not built -- run stage build first)"; summary ""; return; fi
+    local alloc pre rc; alloc=$(alloc_node_count); [ "${alloc:-0}" -ge 1 ] 2>/dev/null || alloc=1
+    pre=$(module_preamble)
+    summary "  nodes probed: $alloc (every node of the allocation, one process each, run alone)"
+    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+        bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3
+    rc=$?
+    if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
+    nodechk_table "$lf"
+    summary "  status: $([ $rc -eq 0 ] && echo PASS || echo "FAIL (exit $rc)"); raw NODECHK lines: $lf"
+    summary ""
+}
+
+# =============================================================================================================
 # main
 # =============================================================================================================
 stage_enabled env   && stage_env
@@ -663,6 +730,7 @@ stage_enabled edge  && stage_edge
 stage_enabled a3    && stage_a3
 stage_enabled a4    && stage_a4
 stage_optin s2chk   && stage_s2chk
+stage_optin nodechk && stage_nodechk
 
 summary "## Done"
 summary "Send back: $SUMMARY"

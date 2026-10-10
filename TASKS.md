@@ -477,3 +477,11 @@ with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply t
 - S33 (2-node VMM_SAFE=2 soak): running; so far base 1 of 142 crashes, VMM_SAFE=2 0 of 141; with S32, VMM_SAFE=2 shows no benefit (3 of 731 vs 1 of 732).
 - Open: addr2line of the SEGV traces, synchronous-mapping soak, exclude x9000c1s0b1n0.
 
+## Status 2026-10-10 (S27-S34 wrap-up, RESULTS 126)
+
+- `main` contains s34 and s29 (--no-ff). X2 is adopted on the aac7 line (`ecalc/e16_headline.sh`); optional target try = TARGET_TASKS T13. Rejected: X1 rot, X3 DC off, CHAIN_BCAST, VMM_SAFE=1/2 (docs/code/05_DECISION_REGISTER.md 2.6).
+- `ECALC_VMM_BG=0`: final soak 4/422 vs 0/420 segfaults (Fisher p 0.063 one-sided, 0.124 two-sided, suggestive), +20 s; off by default, undecided (results/S34.md).
+- Slow host x9000c1s0b1n0: opt-in `MNRUN_EXCLUDE_HOSTS` (mnrun.sh, rundriver.sh); `docs/AAC7_ADMIN_NOTE.md` for the admins (the user sends it). Low MemAvailable is not unique to that host (7 of 13 nodes ~441 GB, 6 ~520 GB).
+- Kit: opt-in stage `nodechk` (TARGET_TASKS T14), not yet rehearsed on aac7.
+- aac7 QOS is now 6 nodes per user: no 10-node runs.
+

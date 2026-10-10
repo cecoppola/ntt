@@ -226,6 +226,9 @@ tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h t
 tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
 	$(HIPC) $< -o $@
 
+tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU; built on demand, not in TESTS
+	$(HIPC) $< -o $@
+
 tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o fatal.o ntt2.h modarith2.h tests/harness.h
 	$(HIPC) $< -x none ntt2.o bigint.o fatal.o -o $@ $(GMP_LIBS)
 
