@@ -349,6 +349,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_INIT_TL` | *debug, Phase 15 (MAP), results/MAP15.md*: 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, the parity-1 half, done, time queued for the mapper lock), every wait for arena chunks, the seed thread (start, the region-pool wait, spans done, end), the join and bs levels 1–3; 2 adds a line per background chunk. Print only (0) |
 | `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_ADDSUB2` | *S38 (results/S38.md)*: 1 = `k_addsub2`, the dbig add/sub kernel with coalesced loads and stores through a 32 KB LDS tile (same arithmetic, same carry flags, same output as `k_addsub`; the old kernel read 16 consecutive limbs per thread, 36-84 GB/s, 10.4 s of GPU time per APU at 6.441e10) (0 = off) |
+| `DBIG_MAXIDX_TOP` | *S40 (results/S40.md)*: 1 = `db_norm` / `db_cmp` scan for the top differing limb in windows from the top of each quarter (4096 limbs, then x16 wider, stop at the first hit; the last window reaches the quarter's low end), instead of one scan of the whole quarter (2.4 s of GPU time per APU at 6.441e10); same result, digits identical (0 = off) |
 | `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
 
 **Binary splitting (`BS_`)**
