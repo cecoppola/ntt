@@ -48,6 +48,7 @@ __global__ void k_gather_sel(uint64_t *x, const uint64_t *q0, const uint64_t *q1
 }
 __global__ void k_fillsrc(uint64_t *p, size_t n, uint64_t seed) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) { uint64_t z = (i + seed) * 0x9E3779B97F4A7C15ULL; z ^= z >> 29; z *= 0xBF58476D1CE4E5B9ULL; z ^= z >> 32; p[i] = z; } }
 __global__ void k_diff(const uint64_t *a, const uint64_t *b, size_t n, unsigned long long *cnt) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; unsigned long long c = 0; for (; i < n; i += st) c += a[i] != b[i]; if (c) atomicAdd(cnt, c); }
+__global__ void k_sum(const uint64_t *p, size_t n, unsigned long long *out) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; unsigned long long c = 0; for (; i < n; i += st) c += p[i]; if (c == 1) out[0] = c; }
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 int main(int argc, char **argv)
 {
@@ -84,6 +85,11 @@ int main(int argc, char **argv)
             CK(hipMemset(cnt, 0, 8)); k_diff<<<nb, 256>>>(x0, x1, total, cnt); unsigned long long h; CK(hipMemcpy(&h, cnt, 8, hipMemcpyDeviceToHost));
             printf("    mismatches vs variant 0: %llu\n", h); if (h) { printf("FAILED\n"); return 1; }
         }
+    }
+    {   /* sanity (c): is the remote source really remote?  a coalesced read of one 4.29 GB quarter from APU 0: APU 1's HBM vs APU 0's own */
+        const uint64_t *src[2] = { rq[1], lq[1] }; const char *nm[2] = { "quarter on APU 1 (remote)", "quarter in APU 0 (local)" };
+        for (int k = 0; k < 2; k++) { double best = 1e9; for (int r = -1; r < reps; r++) { CK(hipDeviceSynchronize()); double t0 = now(); k_sum<<<nb, 256>>>(src[k], qc, cnt); CK(hipDeviceSynchronize()); double dt = now() - t0; if (r == 0 || dt < best) best = dt; }
+            printf("  coalesced read, %-28s %.2f ms = %.1f GB/s\n", nm[k], best * 1e3, qc * 8e-9 / best); }
     }
     printf("remote / local = %.2f (runtime quarter), %.2f (select); select / runtime = %.2f (remote), %.2f (local)\n", tv[0] / tv[1], tv[2] / tv[3], tv[2] / tv[0], tv[3] / tv[1]);
     printf("t_gather_probe: OK\n");
