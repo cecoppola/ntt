@@ -416,22 +416,29 @@ static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q
     double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = bi_decimal ? 18.0 : 64.0 / log2(10.0);
     return (size_t)ceil(lg / dl10) + 2;
 }
+static int vslot_share_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_SHARE"); return e && atoi(e) != 0; }   /* S36 (comm_layered.c): one pair of v-slots per device, handed from level to level */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen)
 {
     if (tree_top) *tree_top = 0; if (by && bylen) by[0] = 0;
     if (size < 2) return 0;
-    size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size, lower = 0, top_tree = 0, o = 0;
+    size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size, lower = 0, maxlow = 0, top_tree = 0, o = 0;
     int gs[32]; int L = mn_groups_parse(size, gs, 31);
     for (int l = 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1, g = Gl < size ? Gl : size, nch = (g + Gp - 1) / Gp;
         size_t nqc = nq_leaf * (size_t)Gp + 8, v = nch >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(nch - 1), g) : 0;   /* tree_need_dev's largest product P_0 x Q_run */
         if (g < size && size % g) { int gc = size % g, ncc = (gc + Gp - 1) / Gp; size_t vc = ncc >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(ncc - 1), gc) : 0; if (vc > v) v = vc; }   /* the cut last group */
-        if (g == size) top_tree = v; else lower += v;
+        if (g == size) top_tree = v; else { lower += v; if (v > maxlow) maxlow = v; }
         if (by && v && o + 64 < bylen) o += (size_t)snprintf(by + o, bylen - o, "%slevel %d g %d %.3f GB", o ? ", " : "", l, g, v * 1e-9);
     }
     size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size), dm = a > b ? a : b, top = top_tree > dm ? top_tree : dm;
     if (by && dm && o + 64 < bylen) o += (size_t)snprintf(by + o, bylen - o, "%sdm g %d %.3f GB", o ? ", " : "", size, dm * 1e-9);
     if (by && !o && bylen) snprintf(by, bylen, "none (no general-map group)");
+    if (vslot_share_on()) {   /* S36 COMM_LAYER_VSLOT_SHARE=1: the levels' pairs are one pair on a device, at the largest level's size: max, not sum */
+        size_t tt = top_tree > maxlow ? top_tree : maxlow, all = top > maxlow ? top : maxlow;
+        if (by && o + 64 < bylen) snprintf(by + o, bylen - o, "%sS36 shared pair: max not sum (sum would be %.3f GB)", o ? ", " : "", (lower + top) * 1e-9);
+        if (tree_top) *tree_top = tt;
+        return all;
+    }
     if (tree_top) *tree_top = lower + top_tree;
     return lower + top;
 }
@@ -454,6 +461,7 @@ static void vslot_prealloc_env(unsigned long N, int size)
         if (g < size && size % g) { int gc = size % g, ncc = (gc + Gp - 1) / Gp; size_t vc = ncc >= 2 ? rns_mul_dist_mn_vslot(nqc, nqc * (size_t)(ncc - 1), gc) : 0; if (vc) VS_NOTE(gc, vc); }
     }
     { size_t a = rns_mul_dist_mn_vslot(nq, nq, size), b = rns_mul_dist_mn_vslot(nq, nq / 2 + 1, size); if (a || b) VS_NOTE(size, a > b ? a : b); }
+    if (vslot_share_on()) { size_t m = 0; for (int k = 0; k < n; k++) if (mx[k] > m) m = mx[k]; for (int k = 0; k < n; k++) mx[k] = m; }   /* S36: the pair is shared, allocated once at the overall maximum (every group size the same) */
     for (int k = 0; k < n; k++) { char nm[48], v[32]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", gg[k]); snprintf(v, sizeof v, "%zu", (mx[k] >> 20) + 1); if (!getenv(nm)) setenv(nm, v, 1);
         { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
 #undef VS_NOTE
