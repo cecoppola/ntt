@@ -37,6 +37,7 @@ extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) 
 #include <semaphore.h>
 #include <omp.h>
 #include "ntt.h"
+#include "config_line.h"   /* L5: the print-only `config:` line */
 #include <math.h>
 
 static void meta_line(const char *bench)
@@ -456,6 +457,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 }
 int main(int argc, char **argv)
 {
+    cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* Phase 13d L (PLAN 32): MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
      * below are set (the plane-cap switch, the pools' sizes), before rns_init.  The digits (4.4e13 or 44000000000000) replace
@@ -490,6 +492,9 @@ int main(int argc, char **argv)
     int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
+    { char eff[160]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,overlap:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", bi_decimal ? "10^18" : "2^64", verbose, ovl_env, pc ? pc : "-", cs ? cs : "1");
+      cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
       int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1);

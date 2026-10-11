@@ -1,0 +1,51 @@
+# ecalc/switches_manual.tsv -- hand-checked rows (L5, 2026-10-11) for the launch-line switches; wins over the extraction in tools/switch_registry.py.
+# columns (tab separated): name, default, type, range, scope, note.   A default that is a code literal must equal it (--check fails otherwise); "auto..." marks a computed default.
+# default read at the site named in note (file:line as of main a1569d5); launch-line switches that have a plain literal default are listed too so that a change of the literal is caught.
+BS_CKPT_DIR	unset	str	path		ecalc.c:544; unset or empty = no per-level checkpoints
+BS_CKPT_EVERY	4	int	>=0		binsplit.c:37 initialiser (the env only overrides it); 0 = never
+BS_CKPT_MIN_LEVEL	16	int	>=0		binsplit.c:38 initialiser
+BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
+BS_RESTART	0	int	0|1		ecalc.c
+COMM_HOSTS	unset	str	host list		comm_tcp.c, mn.c: TCP transport only
+COMM_LAYER_INTER2	0	bool	0|1		binsplit.c:450 (e && atoi(e) != 0)
+COMM_LAYER_VSLOT_POOL	0	bool	0|1		binsplit.c:426
+COMM_LAYER_VSLOT_SHARE	0	bool	0|1		binsplit.c:399
+COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
+COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
+COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)
+COMM_OFI_POOL_MB	auto	int	MiB per device		binsplit.c:694 sets it from the modelled need when unset
+COMM_PORT	unset	int	TCP port		comm_tcp.c, mn.c: TCP transport only
+COMM_RANK	0	int	>=0		set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_SHMEM_DEVHEAP	0	bool	0|1		comm_shmem.c
+COMM_SHMEM_POOL_MB	8192	int	MiB		binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
+COMM_SHMEM_ROUND_MB	0	float	>=0 MiB		comm_shmem.c:305; 0 = no rounds
+COMM_SHMEM_SERIAL	auto	bool	0|1		comm_shmem.c:284 per-build default (OSHMEM 1)
+COMM_SIZE	1	int	>=1		set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_TRANSPORT	auto	enum	shmem|tcp|xgmi|local|sim4		mn.c:503; unset = the build's default transport
+DB_POOL_VERBOSE	0	int	0|1|2		dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
+DM_MN_LEAN	0	bool	0|1		newton_db.c
+ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)
+ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
+ECALC_INIT_TL	0	bool	0|1		dbig.c
+ECALC_MEM_GUARD_GB	0	float	>=0 GB		memsample.c:113; 0 = guard off
+ECALC_NP	auto	enum	auto|3|4		ecalc.c:482: unset becomes 3 (decimal limbs) or 4 (binary); crt.c:54 reads auto
+ECALC_RECHECK	0	bool	0|1		ecalc.c: standalone recheck of a finished run
+ECALC_SEGV_TRACE	0	bool	0|1		segv_trace.c:146
+ECALC_VERBOSE	1	int	0|1|2		ecalc.c
+LIMB_BASE	10	enum	2|10		ecalc.c:480: ecalc defaults to decimal; the tests default to binary (bigint.c:20)
+MEM_REPORT_DEVS	0	bool	0|1		ecalc.c:372/537 (presence test)
+MN_COMM_MARK	0	bool	0|1		mn.c:28 (atoi > 0)
+MN_GROUPS	unset	str	group list		rns_dist.c:2315; unset = the automatic schedule
+MN_OUT_DKM_HI	0	bool	0|1		ecalc.c:102
+MN_PLAN_ONLY	unset	str	D:g		ecalc.c:451; prints the plan and exits
+MN_TOPO_GROUP	0	int	0|1		mn.c
+MN_T_CHUNK_MB	1024	float	MiB		rns_dist.c:1608
+MN_WAIT_STATS	0	bool	0|1		comm_util.c:22 (atoi > 0)
+POOL_LOG	31	int	29..31		ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
+RNS_DIST_CACHE_FIT	0	bool	0|1		rns_dist.c
+RNS_DIST_CACHE_PARTIAL	0	bool	0|1		rns_dist.c
+RNS_VERBOSE	0	bool	0|1		dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+COMM_LAYER_VSLOT_RELEASE	0	bool	0|1	launch-line	binsplit.c:427; user adopted 2026-10-11 (with X2) for the launch lines; needs COMM_LAYER_VSLOT_POOL=1
+COMM_LAYER_TEST_SKEW_MB	unset	float	MiB	test-only	comm_layered.c:488
+COMM_SHMEM_RPIPE	0	bool	0|1	experiment	comm_shmem.c; see README row
+MN_REDIST_FUSE	0	bool	0|1	experiment	default 0
