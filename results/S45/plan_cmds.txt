@@ -1,0 +1,6 @@
+# S45 part 1: login node aac6-fe1, ~/ntt-s45/ecalc (s45 = s36 + main), no GPU; env = docs/TARGET.md 4 launch line (ECALC_NP=auto RNS_DIST_CACHE_FIT=1
+# RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 DM_MN_LEAN=1 COMM_OFI=1 COMM_SHMEM_ROUND_MB=1024 COMM_SHMEM_POOL_MB=1536 MN_GROUPS=2,4,8,16,32,64,192,576
+# MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6) with COMM_LAYER_VSLOT_SHARE=<0|1> and, for the x21 files, COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1:
+MN_PLAN_ONLY=37100000000000:576 ./ecalc 37100000000000 /dev/null
+BS_LAYOUT_ONLY=64409722236:576 MEM_REPORT_DEVS=1 ./ecalc 37100000000000 /dev/null
+# (this build has no libfabric: the OFI pools are not counted by the login-node layout; estimate.py --target counts them: see S45.md)
