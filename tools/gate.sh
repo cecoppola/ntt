@@ -125,8 +125,12 @@ t1=$(date +%s)
 SLURM_JOB_ID=$J MNRUN_NODES=$NODES MNRUN_LABEL=1 COMM_PORT=$((24000 + RANDOM % 9000)) \
   ./mnrun.sh "$NODES" env $LINE $EXTRA ECALC_SEGV_TRACE=1 ./ecalc "$DIG" "$OF" > "$RL" 2>&1 < /dev/null &
 SPID=$!
-( sleep "$TMO"; kill "$SPID" 2>/dev/null ) & WPID=$!
-wait "$SPID"; RC=$?; kill "$WPID" 2>/dev/null; WPID=; SPID=
+# watchdog: its sleep runs with stdin/stdout/stderr on /dev/null (a caller piping gate.sh must not wait for it) and is
+# killed by its own PID when the watchdog gets TERM after the run ends.
+( sleep "$TMO" </dev/null >/dev/null 2>&1 & TPID=$!
+  trap 'kill "$TPID" 2>/dev/null; exit 0' TERM
+  wait "$TPID" 2>/dev/null && kill "$SPID" 2>/dev/null ) </dev/null >/dev/null 2>&1 & WPID=$!
+wait "$SPID"; RC=$?; kill "$WPID" 2>/dev/null; wait "$WPID" 2>/dev/null; WPID=; SPID=
 RUNS=$(( $(date +%s) - t1 ))
 
 # ---- checks
