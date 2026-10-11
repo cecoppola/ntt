@@ -32,7 +32,7 @@
 # Phase 16 A (results/A16.md): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
@@ -90,10 +90,11 @@ total_of() { grep -a '^total' "$1" | tail -1 | sed 's/  */ /g' | cut -c1-40; }
 N "mkdir -p $TMP; rm -f $TMP/*"
 
 # ---- unit tests -------------------------------------------------------------------------------------------
-if want unit; then
-  SKIPBS=; refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
+if want unit || want grid; then
+  SKIPBS=; want unit && refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
   for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- both output forms)
     n=${t// /_}; log=$OUT/unit_$n.log
+    want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
     R 1200 "./tests/$t" > "$log" 2>&1; rc=$?
     v=$(grep -a 'VERIFY' "$log" | tail -1)
