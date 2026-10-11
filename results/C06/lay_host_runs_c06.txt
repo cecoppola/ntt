@@ -1,0 +1,76 @@
+=== 9000 23 2,4,8,23 16 15:45:32
+n23_x1s1_ofi: 92 process lines, 0 FAIL lines, 3 host-OK lines
+n23_x1s0_shmem: 92 process lines, 3 FAIL lines, 0 host-OK lines
+n23_x1s1_shmem: 92 process lines, 3 FAIL lines, 0 host-OK lines
+n23_x0s0.txt: procs 92 bad 0 peak(max/min) 1110680/821576 live_end 1110680 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n23_x0s1.txt: procs 92 bad 0 peak(max/min) 864520/820872 live_end 864520 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n23_x1s0_ofi.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/2097152 after 0+0 asym_top 992 asym_low 0 asym_log 992 asym_lv 1088 | 2 processes, 32 failed -> FAIL
+n23_x1s0_shmem.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/2097152 after 0+0 asym_top 1008 asym_low 0 asym_log 1008 asym_lv 1136 | 2 processes, 32 failed -> FAIL
+n23_x1s1_ofi.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 2097152/2097152 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n23_x1s1_shmem.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 2097152/2097152 after 0+0 asym_top 1008 asym_low 0 asym_log 1008 asym_lv 1136 | 2 processes, 32 failed -> FAIL
+=== 9000 47 2,4,8,16,47 16 15:46:53
+n47_x1s1_ofi: 188 process lines, 0 FAIL lines, 3 host-OK lines
+n47_x1s0_shmem: 188 process lines, 3 FAIL lines, 0 host-OK lines
+n47_x1s1_shmem: 188 process lines, 3 FAIL lines, 0 host-OK lines
+n47_x0s0.txt: procs 188 bad 0 peak(max/min) 2984096/2148616 live_end 2984096 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n47_x0s1.txt: procs 188 bad 0 peak(max/min) 2189832/2148616 live_end 2189832 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n47_x1s0_ofi.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 12582912/6291456 after 0+0 asym_top 4384 asym_low 0 asym_log 4384 asym_lv 5024 | ask 0: Exited with exit code 1
+n47_x1s0_shmem.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 12582912/6291456 after 0+0 asym_top 4400 asym_low 0 asym_log 4400 asym_lv 5088 | ask 0: Exited with exit code 1
+n47_x1s1_ofi.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n47_x1s1_shmem.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 4400 asym_low 0 asym_log 4400 asym_lv 5088 | ask 0: Exited with exit code 1
+=== 9000 35 2,4,8,24,35 16 15:48:34
+n35_x1s1_ofi: 140 process lines, 0 FAIL lines, 3 host-OK lines
+n35_x1s0_shmem: 140 process lines, 3 FAIL lines, 0 host-OK lines
+n35_x1s1_shmem: 140 process lines, 3 FAIL lines, 0 host-OK lines
+n35_x0s0.txt: procs 140 bad 0 peak(max/min) 2515472/1993296 live_end 2515472 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n35_x0s1.txt: procs 140 bad 0 peak(max/min) 1639688/1601160 live_end 1639688 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n35_x1s0_ofi.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/6291456 after 0+0 asym_top 2304 asym_low 0 asym_log 2304 asym_lv 2496 | ask 0: Exited with exit code 1
+n35_x1s0_shmem.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/6291456 after 0+0 asym_top 2320 asym_low 0 asym_log 2320 asym_lv 2560 | ask 0: Exited with exit code 1
+n35_x1s1_ofi.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 4194304/4194304 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n35_x1s1_shmem.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 4194304/4194304 after 0+0 asym_top 2320 asym_low 0 asym_log 2320 asym_lv 2560 | ask 0: Exited with exit code 1
+=== 9000 34 2,4,8,24,34 16 15:50:06
+n34_x1s1_ofi: 136 process lines, 0 FAIL lines, 3 host-OK lines
+n34_x1s0_shmem: 136 process lines, 3 FAIL lines, 0 host-OK lines
+n34_x1s1_shmem: 136 process lines, 3 FAIL lines, 0 host-OK lines
+n34_x0s0.txt: procs 136 bad 0 peak(max/min) 2501264/1922448 live_end 2501264 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n34_x0s1.txt: procs 136 bad 0 peak(max/min) 1612808/1542920 live_end 1612808 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n34_x1s0_ofi.txt: procs 136 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/6291456 after 0+0 asym_top 1920 asym_low 0 asym_log 1920 asym_lv 1920 | ask 0: Exited with exit code 1
+n34_x1s0_shmem.txt: procs 136 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/6291456 after 0+0 asym_top 2048 asym_low 0 asym_log 2048 asym_lv 2176 | ask 0: Exited with exit code 1
+n34_x1s1_ofi.txt: procs 136 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 4194304/4194304 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n34_x1s1_shmem.txt: procs 136 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 4194304/4194304 after 0+0 asym_top 2048 asym_low 0 asym_log 2048 asym_lv 2176 | ask 0: Exited with exit code 1
+=== 9000 23 2,4,8,23 16 15:51:38
+n23_rel_x1s0_ofi: 92 process lines, 3 FAIL lines, 0 host-OK lines
+n23_rel_x1s1_ofi: 92 process lines, 0 FAIL lines, 3 host-OK lines
+n23_rel_x1s0_shmem: 92 process lines, 3 FAIL lines, 0 host-OK lines
+n23_rel_x1s1_shmem: 92 process lines, 3 FAIL lines, 0 host-OK lines
+n23_rel_x1s0_ofi.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/0 after 0+0 asym_top 896 asym_low 0 asym_log 992 asym_lv 0 | 2 processes, 32 failed -> FAIL
+n23_rel_x1s0_shmem.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/0 after 0+0 asym_top 1008 asym_low 0 asym_log 1008 asym_lv 1136 | 2 processes, 32 failed -> FAIL
+n23_rel_x1s1_ofi.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 992 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n23_rel_x1s1_shmem.txt: procs 92 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 1008 asym_low 0 asym_log 1008 asym_lv 1136 | 2 processes, 32 failed -> FAIL
+=== 9000 47 2,4,8,16,47 16 15:52:56
+n47_rel_x1s0_ofi: 188 process lines, 3 FAIL lines, 0 host-OK lines
+n47_rel_x1s1_ofi: 188 process lines, 0 FAIL lines, 3 host-OK lines
+n47_rel_x1s0_shmem: 188 process lines, 3 FAIL lines, 0 host-OK lines
+n47_rel_x1s1_shmem: 188 process lines, 3 FAIL lines, 0 host-OK lines
+n47_rel_x1s0_ofi.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/0 after 0+0 asym_top 3840 asym_low 0 asym_log 4384 asym_lv 0 | ask 0: Exited with exit code 1
+n47_rel_x1s0_shmem.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/0 after 0+0 asym_top 4400 asym_low 0 asym_log 4400 asym_lv 5088 | ask 0: Exited with exit code 1
+n47_rel_x1s1_ofi.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 4384 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n47_rel_x1s1_shmem.txt: procs 188 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 4400 asym_low 0 asym_log 4400 asym_lv 5088 | ask 0: Exited with exit code 1
+=== 9000 35 2,4,8,24,35 16 15:54:28
+n35_rel_x1s0_ofi: 140 process lines, 3 FAIL lines, 0 host-OK lines
+n35_rel_x1s1_ofi: 140 process lines, 0 FAIL lines, 3 host-OK lines
+n35_rel_x1s0_shmem: 140 process lines, 3 FAIL lines, 0 host-OK lines
+n35_rel_x1s1_shmem: 140 process lines, 3 FAIL lines, 0 host-OK lines
+n35_rel_x1s0_ofi.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 2097152/1048576 after 0+0 asym_top 2112 asym_low 0 asym_log 2304 asym_lv 0 | ask 0: Exited with exit code 1
+n35_rel_x1s0_shmem.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 2097152/1048576 after 0+0 asym_top 2320 asym_low 0 asym_log 2320 asym_lv 2560 | ask 0: Exited with exit code 1
+n35_rel_x1s1_ofi.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 768 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n35_rel_x1s1_shmem.txt: procs 140 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 2320 asym_low 0 asym_log 2320 asym_lv 2560 | ask 0: Exited with exit code 1
+=== 9000 36 2,4,12,36 16 15:55:53
+n36_rel_x1s0_ofi: 144 process lines, 0 FAIL lines, 3 host-OK lines
+n36_rel_x1s1_ofi: 144 process lines, 0 FAIL lines, 3 host-OK lines
+n36_rel_x1s0_shmem: 144 process lines, 0 FAIL lines, 3 host-OK lines
+n36_rel_x1s1_shmem: 144 process lines, 0 FAIL lines, 3 host-OK lines
+n36_rel_x1s0_ofi.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/1048576 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n36_rel_x1s0_shmem.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 1048576/1048576 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n36_rel_x1s1_ofi.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
+n36_rel_x1s1_shmem.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0 asym_lv 0 | ocesses, 0 failed -> VERIFY OK
