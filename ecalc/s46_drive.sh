@@ -16,6 +16,7 @@
 #          ARMS   arm names in order (base bg0 bg2); arm env: base = none, bg0 = ECALC_VMM_BG=0, bg2 = ECALC_VMM_BG=2
 #          RUN_MAX seconds budgeted per run for the W / D checks (240); STALL hang watchdog, s without log growth (300);
 #          TMO    hard per-run timeout (900); MAXBAD consecutive non-OK runs before STOP (6)
+#          KEEP_HOLD=1 do not scancel the hold at the end (calibration runs before the coordinator's review)
 #          STUB=1 dry run: a stub replaces mnrun/ecalc (random OK / segfault / hang / failure) and every Slurm call is simulated
 #   files: OUT/runs.tsv (label cycle arm rc wall result verify segv end hold total phase), OUT/stats.txt (s46_stats.py),
 #          OUT/summary.txt, OUT/log/<label>.log, OUT/cap/<label>.txt (hang captures), OUT/ALERT, OUT/hold (current hold id),
@@ -66,7 +67,7 @@ capture() { local lab=$1 cf=$OUT/cap/$1.txt
   { echo "== $lab hang capture at $(TZ=America/New_York date), hold $HOLD, pid $RUN_PID"; echo "-- last 30 log lines"; tail -n 30 $OUT/log/$lab.log
     echo "-- ps -L of our ecalc processes on each node"
     if [ $STUB = 1 ]; then echo "STUB: srun --jobid=$HOLD -N2 --ntasks-per-node=1 --overlap ... ps -L -o pid,tid,wchan:32,stat,comm"
-    else timeout 120 srun --jobid=$HOLD -N2 --ntasks-per-node=1 --overlap bash -c 'echo "== $(hostname)"; for p in $(pgrep -u $USER -x ecalc); do echo "pid $p"; ps -L -o pid,tid,wchan:32,stat,comm -p $p; done' 2>&1; fi
+    else timeout 120 srun --jobid=$HOLD -N2 --ntasks-per-node=1 --overlap bash -c 'echo "== $(hostname)"; for p in $(pgrep -u $USER -x ecalc); do echo "pid $p"; ps -L -o pid,tid,wchan:32,stat,pcpu,comm -p $p; command -v eu-stack >/dev/null && timeout 100 eu-stack -p $p 2>&1 | head -4000; done' 2>&1; fi
   } > $cf 2>&1 < /dev/null; rd_say "hang capture: $cf"; }
 killrun() { kill -TERM $RUN_PID 2>/dev/null; local w=0; while kill -0 $RUN_PID 2>/dev/null && [ $w -lt 60 ]; do sleep 2; w=$((w+2)); done
             kill -0 $RUN_PID 2>/dev/null && { rd_say "PID $RUN_PID alive after 60 s: SIGKILL"; kill -KILL $RUN_PID 2>/dev/null; }; }
@@ -144,6 +145,6 @@ while [ $stop = 0 ]; do
 done
 python3 $E/s46_stats.py $OUT/runs.tsv > $OUT/stats.txt 2>&1
 [ $STUB = 1 ] || { squeue -s -j $HOLD -h 2>/dev/null | grep -v '\.batch\|\.extern' | head -3 | while read l; do rd_say "step still listed: $l"; done; }
-[ "$HOLD" != none ] && sl_cancel $HOLD $HOLD_NAME
+if [ "${KEEP_HOLD:-0}" = 1 ]; then rd_say "KEEP_HOLD=1: hold $HOLD kept"; elif [ "$HOLD" != none ]; then sl_cancel $HOLD $HOLD_NAME; fi
 RD_VERDICT="SUCCESS $(awk -F'\t' 'NR>1' $OUT/runs.tsv | wc -l) runs; $(grep -m1 '^arm base' $OUT/stats.txt)"
 rd_say "done: $(cat $OUT/stats.txt | head -5 | tr '\n' ' ')"

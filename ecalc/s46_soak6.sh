@@ -36,7 +36,7 @@ capture() { local lab=$1
   { echo "== $lab hang capture at $(TZ=America/New_York date), job $J, pid $RUN_PID"; echo "-- last 30 log lines"; tail -n 30 $OUT/log/$lab.log
     echo "-- ps -L of our ecalc processes; rocm-smi"
     if [ $STUB = 1 ]; then echo "STUB: srun --jobid=$J -N1 --overlap ... ps -L -o pid,tid,wchan:32,stat,comm"
-    else timeout 120 srun --jobid=$J -N1 --overlap bash -c 'hostname; for p in $(pgrep -u $USER -x ecalc); do echo "pid $p"; ps -L -o pid,tid,wchan:32,stat,comm -p $p; done; (rocm-smi --showuse --showmemuse 2>&1 || true) | head -40' 2>&1; fi
+    else timeout 120 srun --jobid=$J -N1 --overlap bash -c 'hostname; for p in $(pgrep -u $USER -x ecalc); do echo "pid $p"; ps -L -o pid,tid,wchan:32,stat,pcpu,comm -p $p; command -v eu-stack >/dev/null && timeout 100 eu-stack -p $p 2>&1 | head -4000; done; (rocm-smi --showuse --showmemuse 2>&1 || true) | head -40' 2>&1; fi
   } > $OUT/cap/$lab.txt 2>&1 < /dev/null; rd_say "hang capture: $OUT/cap/$lab.txt"; }
 killrun() { kill -TERM $RUN_PID 2>/dev/null; local w=0; while kill -0 $RUN_PID 2>/dev/null && [ $w -lt 60 ]; do sleep 2; w=$((w+2)); done
             kill -0 $RUN_PID 2>/dev/null && { rd_say "PID $RUN_PID alive after 60 s: SIGKILL"; kill -KILL $RUN_PID 2>/dev/null; }; }
