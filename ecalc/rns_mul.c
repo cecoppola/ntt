@@ -150,6 +150,7 @@ static size_t dev_used(int d) { size_t f = 0, t = 0; int cur; HIP_CHECK(hipGetDe
 int rns_init(int pool_log)
 {
     if (g_nd) return g_nd;
+    if (getenv("RNS_INIT_POOL_LOG")) pool_log = atoi(getenv("RNS_INIT_POOL_LOG"));   /* S44: test knob (unit tests call rns_init(31) fixed; a CPX XCD has 21 GB), unset = unchanged */
     db_tl_start(); db_tl("rns_init begins");   /* Phase 15 MAP: ECALC_INIT_TL=1 (print only) */
     HIP_CHECK(hipGetDeviceCount(&g_nd));
     if (g_nd > EC_NP) g_nd = EC_NP;
