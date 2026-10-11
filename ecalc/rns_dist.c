@@ -75,7 +75,7 @@ template <int QS> __device__ static inline uint64_t *acc_ptr_t(const struct acc 
     if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); uint64_t *p = a.w[0]; if (d == 1) p = a.w[1]; if (d == 2) p = a.w[2]; if (d == 3) p = a.w[3]; return p + (m - d * a.qc);
 }
-static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 0; return v; }   /* S41 (default 0) */
+static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 1; return v; }   /* S41 (default 1 since 2026-10-10) */
 static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
 static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
 
