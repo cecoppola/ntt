@@ -109,6 +109,35 @@ template <int QS> __global__ void k_gather(uint64_t *x, struct acc src, size_t R
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
+/* S50 (DIST_GATHER_TILE, default 0): the same gather with a coalesced WRITE -- a T x T tile (il x j) is read along il (the source run, contiguous in the
+ * limbs), staged in LDS and written along j (a destination row, contiguous); k_gather's x[il C + j] store is strided by C.  Same values, digits identical;
+ * needs rows % T == 0 and C % T == 0 (else k_gather runs).  Grid: (rows/T)(C/T) blocks of 256 threads, il-block fastest */
+template <int QS, int T> __global__ void k_gather_tile(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m)
+{
+    __shared__ uint64_t tile[T][T + 1];
+    size_t nbi = rows / T, il0 = ((size_t)blockIdx.x % nbi) * T, j0 = ((size_t)blockIdx.x / nbi) * T;
+    int tx = threadIdx.x % T, ty = threadIdx.x / T, step = 256 / T;
+    for (int k = ty; k < T; k += step) {      /* read: lane tx = il, row k = j */
+        size_t mm = R * (j0 + k) + row0 + il0 + tx;
+        tile[tx][k] = mm < src.n ? ec_canon64(acc_get_t<QS>(src, mm), m.pu, m.mu) : 0;
+    }
+    __syncthreads();
+    for (int k = ty; k < T; k += step) x[(il0 + k) * C + j0 + tx] = tile[k][tx];      /* write: lane tx = j, row k = il */
+}
+static int gather_tile(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_TILE"); v = e ? atoi(e) : 0; if (v == 1) v = 32; if (v != 16 && v != 32 && v != 64) v = 0; } return v; }
+/* launch the gather of one operand plane (the tile form when DIST_GATHER_TILE is set and the shape allows it) */
+static void gather_launch(uint64_t *x, const struct acc &src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m, size_t q, hipStream_t s)
+{
+    int T = gather_tile();
+    if (T && qsel_on() && rows % T == 0 && C % T == 0) {
+        unsigned nb = (unsigned)(rows / T * (C / T));
+        if (T == 16) k_gather_tile<1, 16><<<nb, 256, 0, s>>>(x, src, R, rows, row0, C, m);
+        else if (T == 32) k_gather_tile<1, 32><<<nb, 256, 0, s>>>(x, src, R, rows, row0, C, m);
+        else k_gather_tile<1, 64><<<nb, 256, 0, s>>>(x, src, R, rows, row0, C, m);
+        return;
+    }
+    if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, s>>>(x, src, R, rows, row0, C, m); else k_gather<0><<<nblk(q), 256, 0, s>>>(x, src, R, rows, row0, C, m);
+}
 __global__ void k_transpose(const uint64_t *x, uint64_t *y, size_t rows, size_t C)   /* rows x C -> C x rows */
 {
     __shared__ uint64_t tile[32][33];
@@ -842,9 +871,9 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             ec_mod m = ec_mod_get(p);
             double g0 = mem_now();
             uint64_t *yb = cb ? cb + (size_t)p * q : xb;        /* B's transform: the cache plane (hit: already there) or xb */
-            if (ha < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
+            if (ha < 0) gather_launch(xa[p], A, R, rows, (size_t)r * rows, C, m, q, v->s);
             else HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
-            if (hb < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
+            if (hb < 0) gather_launch(yb, B, R, rows, (size_t)r * rows, C, m, q, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
             if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], xb, v->s); ntt_pw(v->ctx[p], xa[p], xb, q, v->s); dist3_inv(&c3[p], xa[p], v->s); }
             else {
