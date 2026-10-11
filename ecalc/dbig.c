@@ -653,6 +653,11 @@ __global__ void k_modq_m(const uint64_t *x, size_t n, int nq, const uint64_t *qs
     }
 }
 static int modq_mont_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MODQ_MONT") ? atoi(getenv("DBIG_MODQ_MONT")) : 0; return v; }   /* S51 K3 */
+/* S51: DBIG_S51_STATS=1 -- at exit one line "S51STAT addsub n t modq n t crtb n t" (host wall seconds of db add/sub calls, db_mod_qs calls and the B-form CRT stage; summed over the process) */
+static double g_s51_t[3]; static long g_s51_n[3]; static int g_s51_on = -1; static pthread_mutex_t g_s51_mx = PTHREAD_MUTEX_INITIALIZER;
+static void s51_report(void) { printf("S51STAT addsub %ld %.4f modq %ld %.4f crtb %ld %.4f\n", g_s51_n[0], g_s51_t[0], g_s51_n[1], g_s51_t[1], g_s51_n[2], g_s51_t[2]); fflush(stdout); }
+int s51_stats_on(void) { if (g_s51_on < 0) { g_s51_on = getenv("DBIG_S51_STATS") ? atoi(getenv("DBIG_S51_STATS")) : 0; if (g_s51_on) atexit(s51_report); } return g_s51_on; }
+void s51_stat(int k, double t) { pthread_mutex_lock(&g_s51_mx); g_s51_n[k]++; g_s51_t[k] += t; pthread_mutex_unlock(&g_s51_mx); }
 static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
@@ -684,7 +689,9 @@ void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
     if (nq > MQ_MAXQ) { ec_fatal(EC_RC_FATAL, "db_mod_qs: %d primes\n", nq); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
+    double t51 = s51_stats_on() ? tnow() : 0;
     pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
+    if (t51) s51_stat(1, tnow() - t51);
     if (db_res_log_on()) db_mod_qs_check(x, qs, nq, res);
 }
 static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
@@ -1069,6 +1076,7 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     out->n = n; if (!nfix) db_norm(out);
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
     db_st.t_addsub += tnow() - t0;
+    if (s51_stats_on()) s51_stat(0, tnow() - t0);
 }
 /* M3: r (n limbs, a node's share, in place) += the spills of a product over 4 gt ranks, sp[d] = [r][j][4] on APU d;
  * fixed length, carry out and propagate reported */

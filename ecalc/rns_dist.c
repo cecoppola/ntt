@@ -757,8 +757,16 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
         if (ns) {
             struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, d, sizeof hd);
             HIP_CHECK(hipMemcpyAsync(dd, hd, ns * sizeof hd[0], hipMemcpyHostToDevice, v->s));
+            static int crt_sub = -1; static uint64_t *spsub[4]; static size_t spsub_cap[4];   /* S51 K4: RNS_CRT_SUB=m sub-stripes per stripe (default 1 = off) */
+            if (crt_sub < 0) crt_sub = getenv("RNS_CRT_SUB") ? atoi(getenv("RNS_CRT_SUB")) : 1;
             for (int i = 0; i < ns; i++) {
                 size_t c0 = c0s[i];
+                int m = crt_sub; while (m > 1 && (size_t)hd[i].na / S_[i] / m < 64) m--;           /* sub-stripes of at least 64 coefficients (the interior spills must stay inside the stripe) */
+                if (m > 1) {
+                    if (spsub_cap[d] < S_[i] * m * 4) { if (spsub[d]) HIP_CHECK(hipHostFree(spsub[d])); spsub_cap[d] = S_[i] * m * 4 + 4096; HIP_CHECK(hipHostMalloc((void **)&spsub[d], spsub_cap[d] * 8, 0)); }
+                    k_crt_batch_m<<<(unsigned)(S_[i] * m), CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spsub[d], bi_decimal, m);
+                    k_crt_sub_merge<<<(unsigned)((S_[i] + 63) / 64), 64, 0, v->s>>>(dd + i, 0, (int)S_[i], m, spsub[d], spall + (c0 / rows) * 4, bi_decimal);
+                } else
                 k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4, bi_decimal);
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
@@ -775,6 +783,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_merge += mem_now() - tsp; rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
+    if (s51_stats_on()) s51_stat(2, mc);
     g_bst.n[f] += 1; g_bst.t[f] += mem_now() - t0;
     if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     return 1;

@@ -14,4 +14,8 @@ struct gconst rns_gconst(void);
 __global__ __launch_bounds__(CRT_THREADS)
 void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
                  const struct bdesc *P, size_t first_stripe, int S, size_t Lpts, struct gconst g, uint64_t *stripe_spill, int dec);
+__global__ __launch_bounds__(CRT_THREADS)
+void k_crt_batch_m(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
+                   const struct bdesc *P, size_t first_stripe, int S, size_t Lpts, struct gconst g, uint64_t *sub_spill, int dec, int m);   /* S51 K4 */
+__global__ void k_crt_sub_merge(const struct bdesc *P, size_t first_stripe, int S, int m, const uint64_t *sub_spill, uint64_t *stripe_spill, int dec);
 #endif

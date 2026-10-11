@@ -72,6 +72,7 @@ void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
 uint64_t db_limb(const dbig *a, size_t i);
 uint64_t db_mod_q(const dbig *x, uint64_t q);
+int s51_stats_on(void); void s51_stat(int k, double t);   /* S51: DBIG_S51_STATS=1 */
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
 int  db_res_log_on(void);                             /* Phase 11 V (D5): ECALC_RES_LOG=1 -- every residue printed and cross-checked (RES lines) */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */

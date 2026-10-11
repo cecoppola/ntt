@@ -808,6 +808,102 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     }
 }
 
+/* S51 K4 (RNS_CRT_SUB=m > 1, default off): k_crt_batch with every stripe cut into m sub-stripes (m times the blocks: the B-form launch has one block per CU, 228 of them, with LDS for five).
+ * The B form has no added operand (nx = 0).  Sub-stripe u of stripe gs writes its limbs [K0, K1) with carry-in 0 and its 4-limb spill (the value to add at K1) to sub_spill[4 (gs m + u)];
+ * k_crt_sub_merge then adds the interior spills into the limbs (ripple bounded by the stripe end) and leaves the stripe's own spill, exactly as k_crt_batch would have written it. */
+__global__ __launch_bounds__(CRT_THREADS)
+void k_crt_batch_m(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3,
+                   const struct bdesc *P, size_t first_stripe, int S, size_t Lpts, struct gconst g, uint64_t *sub_spill, int dec, int m)
+{
+    const uint64_t BB = EC_1E18;
+    __shared__ uint64_t C0[CRT_THREADS], C1[CRT_THREADS + 3], C2[CRT_THREADS + 3], C3[CRT_THREADS + 3];
+    __shared__ uint64_t V[CRT_THREADS], CY[CRT_THREADS];
+    __shared__ uint64_t carry;
+    const size_t gb = first_stripe * m + blockIdx.x, gs = gb / m, u = gb % m, pi = gs / S, s = gs % S, base = pi * Lpts;   /* sub-stripe u of stripe gs */
+    const struct bdesc d = P[pi];
+    const uint32_t nc = d.na + d.nb;
+    const uint32_t KS0 = (uint32_t)((uint64_t)nc * s / S), KS1 = (uint32_t)((uint64_t)nc * (s + 1) / S);
+    const uint32_t K0 = KS0 + (uint32_t)((uint64_t)(KS1 - KS0) * u / m), K1 = KS0 + (uint32_t)((uint64_t)(KS1 - KS0) * (u + 1) / m);   /* this sub-stripe's coefficients */
+    uint64_t *out = d.c;
+    const int j = threadIdx.x;
+    if (j < 3) { C1[j] = 0; C2[j] = 0; C3[j] = 0; }
+    if (j == 0) carry = 0;
+    __syncthreads();
+    for (uint32_t c0 = K0; c0 < K1; c0 += CRT_THREADS) {
+        uint32_t k = c0 + j;
+        uint64_t c[4] = {0, 0, 0, 0};
+        uint64_t xk = (k < K1 && k < d.nx) ? d.x[k] : 0;                 /* the added operand's limb */
+        if (k < K1 && g.np == 3) {                                       /* P3: three primes, decimal only (ec_np_check); p3 is not read */
+            uint64_t r[3] = { p0[base + k], p1[base + k], p2[base + k] }, w[3], d[3]; dgarner3(&g, r, w);
+            ec_words_to_dec3(w, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2];
+        } else if (k < K1) { uint64_t r[4] = { p0[base + k], p1[base + k], p2[base + k], p3[base + k] }; dgarner4(&g, r, c);
+                      if (dec) { uint64_t d[4]; ec_words_to_dec4(c, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2]; c[3] = d[3]; } }
+        C0[j] = c[0]; C1[j + 3] = c[1]; C2[j + 3] = c[2]; C3[j + 3] = c[3];
+        __syncthreads();
+        if (dec) {  /* digits < B: the sum of five digits < 5B fits a word */
+            uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;
+            while (sm >= BB) { sm -= BB; q++; }
+            V[j] = sm; CY[j] = q;
+        } else {   /* limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] + x[k] (indices shifted by 3) */
+            unsigned __int128 sm = (unsigned __int128)C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk;
+            V[j] = (uint64_t)sm; CY[j] = (uint64_t)(sm >> 64);
+        }
+        __syncthreads();
+        if (j == 0) {
+            uint64_t cy = carry;
+            int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
+            if (dec) for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i]; if (sm >= BB) { sm -= BB; cy++; } V[i] = sm; }
+            else for (int i = 0; i < n; i++) { uint64_t sm = V[i] + cy; cy = CY[i] + (sm < V[i]); V[i] = sm; }
+            carry = cy;
+        }
+        __syncthreads();
+        if (k < K1) out[k] = V[j];
+        /* tails for the next chunk: the last three C1/C2/C3 entries */
+        __syncthreads();
+        if (j < 3) { int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS); C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }
+        __syncthreads();
+    }
+    if (j == 0) {
+        /* spill at K1: [C1[-1] + C2[-2] + C3[-3] + carry, C2[-1] + C3[-2], C3[-1], overflow] */
+        uint64_t *sp = sub_spill + gb * 4;
+        if (dec) {
+            uint64_t s0 = C1[2] + C2[1] + C3[0] + carry, q0 = 0; while (s0 >= BB) { s0 -= BB; q0++; }
+            uint64_t s1 = C2[2] + C3[1] + q0, q1 = 0; while (s1 >= BB) { s1 -= BB; q1++; }
+            uint64_t s2 = C3[2] + q1, q2 = 0; while (s2 >= BB) { s2 -= BB; q2++; }
+            sp[0] = s0; sp[1] = s1; sp[2] = s2; sp[3] = q2;
+                    } else {
+            unsigned __int128 s0 = (unsigned __int128)C1[2] + C2[1] + C3[0] + carry;
+            unsigned __int128 s1 = (unsigned __int128)C2[2] + C3[1] + (uint64_t)(s0 >> 64);
+            unsigned __int128 s2 = (unsigned __int128)C3[2] + (uint64_t)(s1 >> 64);
+            sp[0] = (uint64_t)s0; sp[1] = (uint64_t)s1; sp[2] = (uint64_t)s2; sp[3] = (uint64_t)(s2 >> 64);
+                    }
+    }
+}
+
+/* one thread per stripe: fold the m - 1 interior sub-spills into the limbs, copy the last sub-spill (the stripe's) to the stripe spill, add what leaves the stripe to it */
+__global__ void k_crt_sub_merge(const struct bdesc *P, size_t first_stripe, int S, int m, const uint64_t *sub_spill, uint64_t *stripe_spill, int dec)
+{
+    const uint64_t BB = EC_1E18;
+    size_t gs = first_stripe + (size_t)blockIdx.x * blockDim.x + threadIdx.x; if (gs >= first_stripe + S) return;
+    size_t pi = gs / S, s = gs % S; const struct bdesc d = P[pi]; const uint32_t nc = d.na + d.nb;
+    const uint32_t KS0 = (uint32_t)((uint64_t)nc * s / S), KS1 = (uint32_t)((uint64_t)nc * (s + 1) / S);
+    uint64_t *out = d.c, *sp = stripe_spill + gs * 4; const uint64_t *sb = sub_spill + gs * m * 4;
+    for (int t = 0; t < 4; t++) sp[t] = sb[(m - 1) * 4 + t];
+    for (int u = 0; u + 1 < m; u++) {
+        uint32_t k = KS0 + (uint32_t)((uint64_t)(KS1 - KS0) * (u + 1) / m); const uint64_t *w = sb + u * 4; uint64_t cy = 0;
+        if (dec) {
+            for (int t = 0; t < 4 && k < KS1; t++, k++) { uint64_t sm = out[k] + w[t] + cy; cy = sm >= BB; out[k] = cy ? sm - BB : sm; }
+            while (cy && k < KS1) { uint64_t sm = out[k] + cy; cy = sm >= BB; out[k] = cy ? sm - BB : sm; k++; }
+            for (int j = 0; cy && j < 3; j++) { uint64_t sm = sp[j] + cy; cy = sm >= BB; sp[j] = cy ? sm - BB : sm; }
+        } else {
+            for (int t = 0; t < 4 && k < KS1; t++, k++) { uint64_t sm = out[k] + w[t], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
+            while (cy && k < KS1) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
+            for (int j = 0; cy && j < 3; j++) { uint64_t sm = sp[j] + cy; cy = sm < cy; sp[j] = sm; }
+        }
+        if (cy) sp[3] += cy;
+    }
+}
+
 struct gconst rns_gconst(void)
 {
     struct gconst g;
