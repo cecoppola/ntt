@@ -1221,6 +1221,55 @@ static void redistribute(const struct mn_ctx *X, const mdbv *op, struct rdst *o,
     { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], o->sb, scnt, sdsp, o->rb, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
     db_pool_free(d, o->sb); o->sb = 0;
 }
+/* C5: MN_REDIST_FUSE=1 (results/C03.md) -- the redistributions of A, B (and X) of one product in ONE alltoallv instead of two or three
+ * blocking ones.  The send buffer holds, per destination rank, [A | B | X] back to back (the pack kernels write at the shifted offsets);
+ * the receive buffer is that per-sender layout, and each operand's sequence (which the gathers read contiguously, in node order) is
+ * then copied out of it by device-to-device copies into its own buffer (the same o->rb, o->tend as `redistribute`).  Same bytes on the
+ * wire; the transient device memory is the send buffers of all operands together and the combined receive buffer on top of the
+ * operands' own (about two planes q x 8 B more than the P24 miss path's peak, which frees A's sequence before B's).  Used for a full
+ * miss of A and B only (ha < 0, B not a full hit); every other product takes `redistribute` as before. */
+static int mn_redist_fuse(void) { static int v = -1; if (v < 0) { const char *e = getenv("MN_REDIST_FUSE"); v = e ? atoi(e) != 0 : 0; } return v; }
+static void redistribute_fused(const struct mn_ctx *X, int nop, const mdbv *const *op, struct rdst *const *o, int d, hipStream_t s)
+{
+    int g = X->g; size_t stot[3], rtot[3], S[3], sall = 0, rall = 0;
+    size_t *c = (size_t *)malloc(4 * (size_t)g * sizeof *c), *scnt = c, *sdsp = c + g, *rcnt = c + 2 * g, *rdsp = c + 3 * g;
+    for (int r = 0; r < g; r++) scnt[r] = rcnt[r] = 0;
+    for (int k = 0; k < nop; k++) {
+        seg_tables(X, op[k], d, o[k]->hs, o[k]->hs + g, &stot[k], &rtot[k], &S[k]);
+        sall += stot[k]; rall += rtot[k];
+        for (int r = 0; r < g; r++) { scnt[r] += (o[k]->hs[r].t1 - o[k]->hs[r].t0) * 8; rcnt[r] += (o[k]->hs[g + r].t1 - o[k]->hs[g + r].t0) * 8; }
+    }
+    { size_t a = 0, b = 0; for (int r = 0; r < g; r++) { sdsp[r] = a; rdsp[r] = b; a += scnt[r]; b += rcnt[r]; } }
+    uint64_t *sbc = (uint64_t *)db_pool_alloc(d, (sall + 16) * 8), *rbc = (uint64_t *)db_pool_alloc(d, (rall + 16) * 8);
+    for (int r = 0; r < g; r++) {                         /* operand k's segment for rank r, after the earlier operands' */
+        size_t so = sdsp[r] / 8;
+        for (int k = 0; k < nop; k++) { struct seg *q = &o[k]->hs[r]; size_t len = q->t1 - q->t0; q->off = so; so += len; }
+    }
+    for (int k = 0; k < nop; k++) {
+        o[k]->tend = rtot[k];
+        if (!stot[k]) continue;
+        size_t lo, hi; view_share(op[k], X->node, &lo, &hi);
+        size_t slo, shi; mdb_share(op[k]->m, X->node, &slo, &shi);
+        struct acc a = acc_db(&op[k]->m->sh, op[k]->off + lo - slo, hi - lo);
+        HIP_CHECK(hipMemcpyAsync(o[k]->ds, o[k]->hs, g * sizeof(struct seg), hipMemcpyHostToDevice, s));
+        if (X->p24) k_pack_mn24<<<nblk((size_t)g * S[k]), 256, 0, s>>>(sbc, a, lo, X->R, X->C, X->nr, g, d, S[k], o[k]->ds);
+        else k_pack_mn<<<nblk((size_t)g * S[k]), 256, 0, s>>>(sbc, a, lo, X->R, X->nr, g, d, S[k], o[k]->ds);
+    }
+    HIP_CHECK(hipStreamSynchronize(s));
+    { int xk_ = comm_xtag_set(XK_REDIST); comm_alltoallv(X->G->all[d], sbc, scnt, sdsp, rbc, rcnt, rdsp, s); comm_xtag_set(xk_); } comm_wait(X->G->all[d]);
+    db_pool_free(d, sbc);
+    for (int k = 0; k < nop; k++) o[k]->rb = (uint64_t *)db_pool_alloc(d, (rtot[k] + 16) * 8);
+    for (int r = 0; r < g; r++) {                         /* each sender's [A | B | X] block into the operands' sequences (node order = back to back) */
+        size_t ro = rdsp[r] / 8;
+        for (int k = 0; k < nop; k++) {
+            const struct seg *q = &o[k]->hs[g + r]; size_t len = q->t1 - q->t0;
+            if (len) HIP_CHECK(hipMemcpyAsync(o[k]->rb + q->off, rbc + ro, len * 8, hipMemcpyDeviceToDevice, s));
+            ro += len;
+        }
+    }
+    HIP_CHECK(hipStreamSynchronize(s));
+    db_pool_free(d, rbc); free(c);
+}
 /* the (carry, propagate) flags of the g nodes' shares, all-gathered over the group's mesh 0 (one byte per node, host
  * point-to-point: write to all, then read from all), and the scan: carry into node r = c_{r-1} | (p_{r-1} & carry into r-1);
  * returns the carry into this node, and aborts on a carry out of the last node (the fixed-length sum overflowed) */
@@ -1681,13 +1730,15 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         struct gplan gp; if (gen) gplan_build(&gp, g, rho, logR, logC, d);
         double s0 = mem_now();
         /* A: every node packs and exchanges; every rank gathers its rows for the four primes */
+        const int fuse = mn_redist_fuse() && ha < 0 && !bfull;   /* C5: one alltoallv for A, B and X (every node decides alike: ha, hb, X are the product's) */
+        if (fuse) { const mdbv *ops[3] = { A, B, &Xv }; struct rdst *os[3] = { &oA, &oB, &oX }; redistribute_fused(&X0, X ? 3 : 2, ops, os, d, s); }
         if (ha < 0 && p24) {                                /* P24: A's points from its in-runs; A's sequence freed before B's (the operands' peak max(A, B)) */
-            redistribute(&X0, A, &oA, d, s);
+            if (!fuse) redistribute(&X0, A, &oA, d, s);
             struct p24_c18s cs; for (int p = 0; p < EC_NP; p++) for (int i = 0; i < 3; i++) cs.c[3 * p + i] = c18[p][i];
             k_gather_mn24_np<<<nblk(qs), 256, 0, s>>>(xa[0], xa[1], xa[2], xa[3], np, oA.rb, oA.tend, R, C, a0, rows, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3), cs);   /* the four planes in one pass */
             HIP_CHECK(hipStreamSynchronize(s)); db_pool_free(d, oA.rb); oA.rb = 0;
         } else if (ha < 0) {
-            redistribute(&X0, A, &oA, d, s);
+            if (!fuse) redistribute(&X0, A, &oA, d, s);
             for (int p = 0; p < np; p++) k_gather_mn<<<nblk(qs), 256, 0, s>>>(xa[p], oA.rb, oA.tend, rows, C, ec_mod_get(p), 1, 1);
         } else if (!afull) {                                /* Phase 15 PC: a partial hit -- primes < kA from the slot, the others gathered as a miss */
             redistribute(&X0, A, &oA, d, s);
@@ -1698,8 +1749,8 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             if (p24) { HIP_CHECK(hipStreamSynchronize(s)); db_pool_free(d, oA.rb); oA.rb = 0; }   /* (as the P24 miss: A's sequence freed before B's) */
             for (int p = 0; p < kA; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));
         } else for (int p = 0; p < np; p++) HIP_CHECK(hipMemcpyAsync(xa[p], cache_pl(slA, d, p, q), q * 8, hipMemcpyDeviceToDevice, s));   /* A hit: the product forms over a copy */
-        if (!bfull) redistribute(&X0, B, &oB, d, s);
-        if (X) { redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
+        if (!bfull && !fuse) redistribute(&X0, B, &oB, d, s);
+        if (X) { if (!fuse) redistribute(&X0, &Xv, &oX, d, s); k_gather_mn<<<nblk(qs), 256, 0, s>>>(cx, oX.rb, oX.tend, rows, C, ec_mod_get(0), 0, 0); }
         HIP_CHECK(hipStreamSynchronize(s));
         if (oA.rb) { db_pool_free(d, oA.rb); oA.rb = 0; } if (oX.rb) { db_pool_free(d, oX.rb); oX.rb = 0; }
         double s1 = mem_now(); tr[d] = s1 - s0;
