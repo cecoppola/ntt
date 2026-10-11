@@ -123,25 +123,26 @@ class Fabric:
     standing estimate does not move). fall_off: exponent a on a per-group-size fabric fall-off, rate x (g/2)^(-a), None/0 = off
     (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm fall-off measurement is fed in by default)."""
     def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True,
-                 staging_bw=None, fall_off=0.0):
+                 staging_bw=None, fall_off=0.0, v_factor=1.0):
+        self.v_factor = v_factor   # T06: the layv (variable-layout, general-map) transform exchange's rate as a fraction of layeq's; 1.0 = off (all profiles but aac7_s48)
         self.name, self.bw, self.lat, self.group, self.layers, self.taper = name, bw_apu, lat, group, layers, taper
         self.gpu_share, self.fixed, self.write_bw, self.tcp_exp, self.target = gpu_share, fixed, write_bw, tcp_exp, target
         self.coll_fixed = fixed if coll_fixed is None else coll_fixed
         self.staging_bw = staging_bw; self.fall_off = fall_off or 0.0
 
-    def rate(self, bytes_apu, g=None):
+    def rate(self, bytes_apu, g=None, v=False):
         """GB/s per APU: constant on the target; the loopback transports' single stream per mesh is slower on small
         exchanges (fitted: rate = bw x (bytes / 1 GiB per APU)^tcp_exp, capped at bw); --fall-off <a>: x (g/2)^(-a) when g
         is given (the per-APU rate falling off with the group size, off by default: a = 0)"""
         r = self.bw if not self.tcp_exp else self.bw * min(1.0, (max(bytes_apu, 1.0) / (1 << 30)) ** self.tcp_exp)
         if self.fall_off and g: r *= (max(g, 2) / 2.0) ** (-self.fall_off)
-        return r
+        return r * self.v_factor if v else r
 
     def staging_cost(self, node_bytes):
         """D2H + H2D of every inter-node byte at --staging's HBM copy rate (GB/s); 0 without it (CLI --staging, off by default)"""
         return 2.0 * node_bytes / (self.staging_bw * 1e9) if self.staging_bw else 0.0
 
-    def a2a(self, bytes_apu, g, chunks=1):
+    def a2a(self, bytes_apu, g, chunks=1, v=False):
         """one all-to-all over g nodes with bytes_apu bytes per APU in the slab buffer (all destinations).
         Returns (time, nic_bytes_per_node, global_bytes_per_node, messages_per_apu)."""
         if g <= 1: return 0.0, 0.0, 0.0, 0
@@ -157,8 +158,8 @@ class Fabric:
             cross = bytes_apu * max(0, g - G) / g if g > G else 0.0
             nic = out
             msgs = chunks * (g - 1)
-        t_nic = nic / (self.rate(bytes_apu, g) * 1e9)
-        t_glob = cross / (self.rate(bytes_apu, g) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
+        t_nic = nic / (self.rate(bytes_apu, g, v) * 1e9)
+        t_glob = cross / (self.rate(bytes_apu, g, v) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
         t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks + self.staging_cost(nic * 4)
         return t, nic * 4, cross * 4, msgs
 
@@ -227,7 +228,7 @@ def apply_profile(name):
         import json
         if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (run refit_s48.py --write-profile)' % AAC7_S48_FILE)
         j = json.load(open(AAC7_S48_FILE))
-        PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116))
+        PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
     if name in ('aac7', 'aac7_s18', 'aac7_s48'):
         c = dict(AAC7_CONSTS)
         if name == 'aac7_s48': c.update(j['consts'])
@@ -404,7 +405,8 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     else:                                                             # Phase 13b D: X13's measured overlap -- the equal path hides
         hide = HIDE_POW2 if is_pow2(g) else GEN_HIDE_DEPTH[min(dz.depth, 2)]   # 3/4 of its xGMI time, the general map 1.1 % (two deep: modelled 3/4)
     n_tr = (EC_NP if dz is None or dz.legacy else npc) * (fwd + 1)
-    t_f, nic, glob, msgs = fab.a2a(8 * q, g, K_CHUNKS)
+    gen_x = not is_pow2(g) or (dz is not None and dz.force_gen)       # T06: the transform's exchange is the layv kind (comm_layered.c v_post) exactly when the general map runs
+    t_f, nic, glob, msgs = fab.a2a(8 * q, g, K_CHUNKS, v=gen_x)
     exposed_tr = max(0.0, t_f - hide * t_x)
     c.nic += n_tr * nic; c.glob += n_tr * glob; c.msgs += n_tr * msgs; c.xfers += n_tr
     # the operand redistributions (A, B, X) and the result: plain all-to-alls over the group of the operands' bytes
@@ -507,7 +509,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
     dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
-    k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target,
+    k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target, fab.v_factor,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
     if c is None:

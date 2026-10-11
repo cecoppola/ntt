@@ -71,10 +71,11 @@ def design():
                     out_overlap='none', p15b=True, np_mn='auto', packed=True, p15c=True, arena_room=None, cache_fit=True)
 
 DES = None
-def model(g, D, bw, lat, node_scale, init_scale, consts=None, write_bw=0.116, groups=None, fab_name=None):
+def model(g, D, bw, lat, node_scale, init_scale, consts=None, write_bw=0.116, groups=None, fab_name=None, v_factor=1.0):
     """the model's no-write wall and phases for g nodes at D digits per node on a fabric (bw, lat); constants as set"""
     global DES
     if DES is None: DES = design()
+    M._PC.clear()   # T06: the product-cost memo's key has no NODE_SCALE / INIT_SCALE, so a call with other scales read stale entries (the S48 'refit locals' 576 row was 169.9, clean 152.4)
     saved = (M.NODE_SCALE, M.INIT_SCALE, M.HIDE_POW2, M.T_ROUND, dict(M.GEN_HIDE_DEPTH), M.MAP_RATE)
     try:
         M.NODE_SCALE, M.INIT_SCALE = node_scale, init_scale
@@ -82,7 +83,7 @@ def model(g, D, bw, lat, node_scale, init_scale, consts=None, write_bw=0.116, gr
             M.HIDE_POW2 = consts.get('HIDE_POW2', M.HIDE_POW2); M.T_ROUND = consts.get('T_ROUND', M.T_ROUND)
             M.MAP_RATE = consts.get('MAP_RATE', M.MAP_RATE)
             M.GEN_HIDE_DEPTH[1] = consts.get('GEN_HIDE1', M.GEN_HIDE_DEPTH[1]); M.GEN_HIDE_DEPTH[2] = consts.get('GEN_HIDE2', M.GEN_HIDE_DEPTH[2])
-        fab = M.Fabric(fab_name or 'aac7 S48 refit', bw, lat, group=64, layers=2, taper=1.0, write_bw=write_bw)
+        fab = M.Fabric(fab_name or 'aac7 S48 refit', bw, lat, group=64, layers=2, taper=1.0, write_bw=write_bw, v_factor=v_factor)
         r = M.run(fab, D, g, 'model', verbose=False, groups=groups, form='grid', transport='shmem', staging='code', design=DES)
         return r
     finally:
@@ -168,6 +169,11 @@ def fit(meas, args):
             res['implied'][g] = bisect(fg, 1.0, 200.0, meas[g]['total'], increasing=False)
         npw = [g for g in gs_all if not M.is_pow2(g)]
         res['nonpow2_bw_factor'] = (sum(res['implied'][g] for g in npw) / len(npw)) / bw if npw else 1.0
+        # T06: the layv rate factor (the model's per-kind rate, mn_model.Fabric.v_factor): fitted on the non-power-of-2 totals with bw, lat, scales fixed
+        res['layv_factor'] = 1.0
+        if npw:
+            fv = lambda v: sum(math.log(model(g, D, bw, lat, ns, isc, ac, v_factor=v)['wall_nowrite'] / meas[g]['total']) for g in npw) / len(npw)
+            res['layv_factor'] = bisect(fv, 0.05, 1.0, 0.0, it=30, increasing=False)
     else:
         res['bw_apu'], res['lat'] = bw0, lat0
     res['consts'] = {k: ac[k] for k in ('HIDE_POW2', 'GEN_HIDE1', 'GEN_HIDE2', 'T_ROUND', 'MAP_RATE')}
@@ -188,14 +194,27 @@ def rate_checks(runs):
         if r['tl_end'] is not None: o['tl'].append(r['tl_end'])
     return out
 
-def target_rows(res, ns, isc):
+def target_rows(res, ns, isc, vf=1.0):
     """the 576-node estimate: the standing target profile (unchanged) and with the refit local scales; groups as estimate.py --target"""
     groups = '2,4,8,16,32,64,192,576'; rows = []
     for T in sorted({3.71e13, 3.82e13, M.TARGET_DIGITS}):
         for label, nsc, isc_ in (('target as is (aac6-calibrated locals)', TGT['NODE_SCALE'], TGT['INIT_SCALE']), ('target + refit local scales', ns, isc)):
-            r = model(576, T / 576, M.TARGET.bw, M.TARGET.lat, nsc, isc_, TGT, write_bw=M.TARGET_WRITE_BW, groups=groups, fab_name='target')
+            r = model(576, T / 576, M.TARGET.bw, M.TARGET.lat, nsc, isc_, TGT, write_bw=M.TARGET_WRITE_BW, groups=groups, fab_name='target', v_factor=vf)
             rows.append((T, label, nsc, isc_, r['wall_nowrite'], r['wall']))
     return rows
+
+def level_split(res, T, vf):
+    """T06: the layv penalty at 576 nodes per level (modelled): the no-write wall with the layv factor vf applied to all non-pow2 levels, to one level only
+    (the others at 1), and none; groups as estimate.py --target (2,4,..,64 = layeq; 192 and 576 = layv).  Returns (wall at vf=1, {level: seconds added}, wall at vf)"""
+    groups = '2,4,8,16,32,64,192,576'; orig = M.Fabric.a2a; out = {}
+    def run(vf_, only):
+        def a2a(self, b, g, c=1, v=False): return orig(self, b, g, c, v and (only is None or g == only))
+        M.Fabric.a2a = a2a; M._PC.clear()
+        try: return model(576, T / 576, M.TARGET.bw, M.TARGET.lat, res['node_scale'], res['init_scale'], TGT, write_bw=M.TARGET_WRITE_BW, groups=groups, fab_name='target', v_factor=vf_)['wall_nowrite']
+        finally: M.Fabric.a2a = orig; M._PC.clear()
+    w1 = run(1.0, None); wall = run(vf, None)
+    for lv in (192, 576): out[lv] = run(vf, lv) - w1
+    return w1, out, wall
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -239,10 +258,23 @@ def main():
         for ph, (b, w, n) in sorted(o['wait'].items()): print('  wait-stats %-6s barrier %.1f s  wait %.1f s (mean over nodes, summed over APU threads)' % (ph, b / n, w / n))
         if o['tl']: print('  init timeline last tl mark: %.1f s' % (sum(o['tl']) / len(o['tl'])))
     print('\n576-node standing estimate (modelled; fabric 100 GB/s per APU / 2 us ASSUMED, the part file at %.1f GB/s ASSUMED), T = %.3e digits:' % (M.TARGET_WRITE_BW, M.TARGET_DIGITS))
+    print('  layv factor (T06, fitted on the non-pow2 totals): %.3f; measured xstats layv/layeq per-thread rate: %s' % (res.get('layv_factor', 1.0), ', '.join('%s %.2f' % (ph, rc[6]['xs'][(ph, 'layv')][0] / rc[6]['xs'][(ph, 'layv')][1] / (rc[4]['xs'][(ph, 'layeq')][0] / rc[4]['xs'][(ph, 'layeq')][1])) for ph in ('bs', 'dm', 'recip') if 6 in rc and 4 in rc and (ph, 'layv') in rc[6]['xs'] and (ph, 'layeq') in rc[4]['xs']) if 6 in rc else 'n/a'))
+    print('  residuals with the per-kind rate (model - measured):')
+    for g, m in meas.items():
+        w2 = model(g, DPN, res['bw_apu'], res['lat'], res['node_scale'], res['init_scale'], ac, v_factor=res.get('layv_factor', 1.0))['wall_nowrite']
+        print('    %d n: model %.1f s vs %.1f s measured: %+.1f %%' % (g, w2, m['total'], 100 * (w2 / m['total'] - 1)))
+    for vf_label, vf in (('layv = layeq (factor 1)', 1.0), ('layv ratio as fitted on aac7 (%.3f)' % res.get('layv_factor', 1.0), res.get('layv_factor', 1.0))):
+      for T, label, nsc, isc, nw, w in target_rows(res, res['node_scale'], res['init_scale'], vf):
+        if 'as is' in label: continue
+        print('  [%s] T %.3e  %-40s: no-write %.1f s (%.2f min), with the file %.1f s (%.2f min)' % (vf_label, T, label, nw, nw / 60, w, w / 60))
+    for vf_label, vf in (('fitted %.3f' % res.get('layv_factor', 1.0), res.get('layv_factor', 1.0)), ('xstats ratio 0.41 (sensitivity)', 0.41)):
+        for T in (3.82e13, 3.71e13):
+            w1, lv, wl = level_split(res, T, vf)
+            print('  [layv per level, factor %s] T %.3e: layeq-only %.1f s; +%.1f s from the 192 level, +%.1f s from the 576 level (alone each); all layv levels %.1f s (+%.1f s)' % (vf_label, T, w1, lv[192], lv[576], wl, wl - w1))
     for T, label, nsc, isc, nw, w in target_rows(res, res['node_scale'], res['init_scale']):
         print('  T %.3e  %-52s node_scale %.3f init_scale %.3f : no-write %.1f s (%.2f min), with the file %.1f s (%.2f min)' % (T, label, nsc, isc, nw, nw / 60, w, w / 60))
     if a.write_profile:
-        prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], nonpow2_bw_factor=res.get('nonpow2_bw_factor', 1.0), consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
+        prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], nonpow2_bw_factor=res.get('nonpow2_bw_factor', 1.0), layv_factor=res.get('layv_factor', 1.0), consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
         json.dump(prof, open(FIT_FILE, 'w'), indent=1); print('\nwrote', FIT_FILE)
 
 def selftest():
