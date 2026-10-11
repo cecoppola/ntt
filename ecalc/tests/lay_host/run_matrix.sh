@@ -25,6 +25,6 @@ run() {   # tag x2 share pool
   echo "$tag: $(grep -c '^T ' "$OUT/$tag.txt") process lines, $(grep -c 'FAIL' "$OUT/$tag.txt") FAIL lines, $(grep -c 'VERIFY OK' "$OUT/$tag.txt") host-OK lines"
 }
 b=$PORT
-run n${N}_x0s0 0 0 ofi $b; b=$((b + 4500)); run n${N}_x0s1 0 1 ofi $b; b=$((b + 4500))
-for pk in $POOLS; do run n${N}_x1s0_$pk 1 0 $pk $b; b=$((b + 4500)); run n${N}_x1s1_$pk 1 1 $pk $b; b=$((b + 4500)); done
+run n${N}_x0s0 0 0 ofi $b; b=$(( b == 9000 ? 14000 : 9000 )); run n${N}_x0s1 0 1 ofi $b; b=$(( b == 9000 ? 14000 : 9000 ))
+for pk in $POOLS; do run n${N}_x1s0_$pk 1 0 $pk $b; b=$(( b == 9000 ? 14000 : 9000 )); run n${N}_x1s1_$pk 1 1 $pk $b; b=$(( b == 9000 ? 14000 : 9000 )); done
 python3 "$(dirname "$0")/ana.py" "$OUT"/n${N}_*.txt
