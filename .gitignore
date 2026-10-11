@@ -33,3 +33,6 @@ results/*
 # python bytecode
 __pycache__/
 *.pyc
+
+# project docs are kept local only (user 2026-10-10)
+docs/
