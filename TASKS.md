@@ -25,10 +25,15 @@ digits ≈ 78 s (was ≈ 94 s), 4 nodes −50.0 s (m, S43). The 576-node plan: d
 | 10 | **Crash/hang (S46):** choose the target-line fix (uffd monitor recommended, `ECALC_VMM_BG=0` alternative; user decides); test `FI_MR_CACHE_MONITOR=userfaultfd` at 4 nodes at real size (about 80+ clean runs needed, a) | open (user, then test) | results/S46.md |
 | 11 | **4-node bimodality:** totals ~182 s vs ~208 s in every arm (S47, S48); investigate with `COMM_XSTATS` per host/stage before the next 4-node A/B | open | results/S47.md, S48.md |
 | 12 | **Non-pow2 `layv` exchange** is 2.3x slower per thread at 6 nodes (S48); 6 n is 20 % above the model; understand and, if possible, speed up (matters for 576 = not a power of 2) | open | results/S48.md |
-| 13 | **S51 K2+K3 default proposal** (`DBIG_ADDSUB3=1 DBIG_MODQ_MONT=1`; K4 no gain): -2.0 / -1.2 s at 1 node, 4 nodes not significant | open (user) | results/S51.md |
+| 13 | **S51 K2+K3 default** (`DBIG_ADDSUB3=1 DBIG_MODQ_MONT=1`; K4 no gain): -2.0 / -1.2 s at 1 node, 4 nodes not significant | **done: adopted by the user 2026-10-11** (default ON) | results/S51.md, results/T08.md |
 | 14 | **S49 cold-path probe** (first-touch/register the real pool per APU, flag > 3x median) to catch the slow host that `nodechk` misses; add to the kit | open | results/S49.md |
 | 15 | **`DIST_COALESCE` decision** (message aggregation, 1.0-4.5 s at 576 n, mod; S52 design) | open (user) | results/S52.md |
 | 16 | **Target size decision:** 3.82e13 digits (margin 13.4 GB, mod) vs 3.71e13; do not exceed 3.82e13 | open (user) | results/S52.md |
+| 17 | **`t_mn_grid` 2-node hang on main** (3 of 3 runs, hangs after "2 pieces"; pre-existing, root cause not investigated) | open | results/T01.md (T13 if merged) |
+| 18 | **mnaccept:** `R`/`N` steps use `srun -N1` without `-w` (can land on different nodes); stale default `ECALC_REF=$HOME/ntt/ecalc/ref`; ref sha256 symlinks dangling | open | results/T01.md |
+| 19 | **4-node slow-mode cause** (about 29 % of runs at -21 % exchange rate; not arm/node/rank/order) | open: test concurrent fabric traffic and a controlled reclaimable memory fill | results/T05.md, results/T09.md |
+| 20 | **Cold probe needs a positive control** (`--nodechk-cold-gb` did not reproduce the stall on aac7-n01; no threshold) | open (item 14 continues) | results/T10.md |
+| 21 | **Adopt `layv_factor` 0.655 in the standing estimate** (576 n: 161.3 / 166.7 s vs 152.4 / 157.3 s without, mod) | open (user) | results/T06.md |
 
 Environment facts: aac7's QOS is 6 nodes per user (no 10-node runs); aac6 SH5 (`SH5_MI300A_SPX`) shows one device (ecalc
 cannot run), its CPX nodes (6 XCDs of 22.9 GB) run up to 4e9 digits with `RNS_INIT_POOL_LOG=29` (S44).

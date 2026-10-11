@@ -414,3 +414,17 @@ Labels: m measured, mod modelled, a assumed. No default changed by this merge; e
 - **S50 (`DIST_GATHER_TILE`):** probe tile 32 is 0.86x the select kernel at one shape, 1.25x at another (m); ABBA 1 node -0.08 s +- 0.88 (m), 4 nodes and aac6 not significant. Not adopted; code kept on tag `archive/s50-gather-tile`, only results and drivers are on main.
 - **S51 (kernels K2-K4, off by default):** ABBA 1 node, all three on: aac7 -2.03 s +- 1.38, aac6 PPAC -1.22 s +- 0.84 (both significant, m); 4 nodes -6.0 / -5.2 s, CI +-22..36 s, not significant (m). Gain mostly K3 `DBIG_MODQ_MONT` (-1.66 s of the host time at 1 node), K2 small, K4 none. Proposal: K2+K3 default (user decides).
 - **S52 (576-node layout, model only):** largest safe size 3.82e13 digits, device peak 357.9 GB (rank 0: 360.0) vs 373.44 GB edge, margin 13.4 GB, time 185.9 s (mod); at 3.83e13 pieces jump and the model wall +20 s. Message coalescing saves 0.48-0.66 M of 2.65 M messages per APU = 1.0-1.4 s at 2 us, 2.4-4.5 s at 8.5 us (mod; design only).
+
+## 129. Session 2026-10-11: engine tests on main, gate and kit fixes, 4-node bimodality, layv model, K2+K3 adopted, CPX ABBA (results/T01.md .. T11.md)
+
+Labels: m measured, mod modelled, a assumed. Branches t01, t03-t06, t08-t11 merged (t07: a private hand-off draft exists; no content here).
+- **T01 (engine tests on main ceb94c1, aac7):** 1-node gate PASS (12.02 s, m); t_ntt/t_mul/t_bs/t_dbig/t_newton/t_verify/t_out/t_patch PASS once `~/ref` references were restored; e9 base 10 / 2 identical (15.46 / 24.60 s, m). `t_mn_grid` (2 nodes) hangs on main, 3 of 3 runs (m); so the S50 failure pre-exists. S50's e9 "missing reference" was mnaccept's stale default `ECALC_REF`; mnaccept `R`/`N` steps can land on different nodes (environment, not code).
+- **T03:** `tools/gate.sh` no longer leaves the orphan `sleep 1500` holding stdout (can be piped now).
+- **T04:** `target_kit.sh` and `mnrun.sh` refuse `FI_MR_CACHE_MONITOR=disabled` (silent wrong exchanges, S46 4.6); README row.
+- **T05 (analysis of 93 logged 4-node runs):** the slow mode (about 208 s vs about 181 s) is a per-run drop of the inter-node all-to-all from 13.8 to 10.9 GB/s per APU thread (-21 %) on all PEs at once; 29 % of runs slow, not tied to arm, node, rank, order or hour (m). Cause still open.
+- **T06 (time model):** `layv_factor` 0.655 fitted on the 6-node point (m raw ratio 0.41; mod). 576 n no-write: 152.4 / 157.3 s at 3.71e13 / 3.82e13 with refit locals (corrects S48's 169.9 / 175.3), 161.3 / 166.7 s with layv 0.655 (mod, fabric a). `estimate.py --help` fixed.
+- **T08 (user-adopted 2026-10-11):** `DBIG_ADDSUB3=1` and `DBIG_MODQ_MONT=1` default ON (`=0` = old). Gates aac7 1 node 12.75 s, 2 nodes 19.67 s, aac6 1 node 11.42 s, all VERIFY OK, digits identical (m).
+- **T09 (4-node hold, 11 runs):** fast 181-185 s, slow 209-258 s, same bytes, exchange rate x0.70-0.84 on all four nodes; the first 4 runs of a fresh hold were slow; not due to rank order, launch form or pause. Cause not established (other jobs' fabric traffic vs host memory state).
+- **T10 (cold probe):** `--nodechk-cold-gb` in the kit (off by default). On the known slow host the stall did not reproduce (cold 17 / 32 GB: same as a normal host within 1-2 %, m), so there is no positive control and no threshold.
+- **T11 (aac6 CPX, 4e9, 6 ABBA rounds, m):** total B-A +0.19 s +- 0.29 (not significant); K2 stage -0.044 s +- 0.011; K3 not exercised at 4e9. The S51 rc 6 cause was `ECALC_PLANE_CAP`: SH5 CPX at <= 4e9 needs `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30`.
+
