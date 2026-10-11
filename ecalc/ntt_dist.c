@@ -190,12 +190,12 @@ __global__ void k_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t ro
         sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
     }
 }
-/* ---- Phase 13b X: DIST_TWREC=1 (default 0) -- the twiddled pack/unpack with the twiddle by a row recurrence.  The plain forms
+/* ---- Phase 13b X: the twiddled pack/unpack with the twiddle by a row recurrence (the only production form since DIST_TWREC was
+ * removed 2026-10-11; the plain forms k_twpack / k_unpacktw stay as dist_pack_bench's bit-identity reference).  The plain forms
  * gather twr and twc for every point (w_n^(i j) = twr[i j >> logC] twc[i j mod C]; j = brev(jb) scatters the gathers over the
  * tables: 64 cache lines per 32-point tile row) and run at 1.2-1.5 TB/s against a 3 TB/s copy (measured).  Here a thread's four
  * rows i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in LDS):
- * two gathers per four points instead of eight (DIST_TWREC=1: block 32 x 8); DIST_TWREC=2: block 32 x 4, eight rows per
- * thread, step w_n^(4 j).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
+ * two gathers per four points instead of eight (block 32 x 8; the 32 x 4 form DIST_TWREC=2 was removed with the switch).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
  * exactly: bit-identical (checked by dist_pack_bench). */
 __device__ static inline double tw_base(size_t e, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
 {
@@ -244,7 +244,6 @@ template <int BY> __global__ void k_unpacktw_r(const uint64_t *rb, uint64_t *x, 
         if (k < 32 - BY) w = ec_mm(w, st, m.p, m.pinv);
     }
 }
-static int twrec_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TWREC"); v = e ? atoi(e) : 1; } return v; }   /* default 1 since Phase 15 (the user's decision) */
 /* tiled unpack: slab r (my cols x rank r's rows, column-major per column) -> my columns of R points: reads
  * coalesced along il, writes coalesced along i = r rows + il -- both contiguous, no tile needed */
 /* ---- the chunk pipeline (M7) ---- */
@@ -298,9 +297,7 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     ec_mod m = ec_mod_get(p->prime);
     TSK(ST_ROWS, ntt_fwd(p->ctx, x + i0 * C, p->logC, rk, s));                    /* rows: length-C, bit-reversed columns */
     dim3 grid((unsigned)(C / 32), (unsigned)(rk / 32)), blk(32, 8);
-    if (twrec_on() == 2) TSK(ST_PACK, (k_twpack_r<4><<<grid, dim3(32, 4), 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
-    else if (twrec_on()) TSK(ST_PACK, (k_twpack_r<8><<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
-    else TSK(ST_PACK, (k_twpack<<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
+    TSK(ST_PACK, (k_twpack_r<8><<<grid, blk, 0, s>>>(x + i0 * C, chunk_sb(p, k), rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr, p->twc, m)));
     HIP_CHECK(hipGetLastError());   /* B8: a bad grid (rk or C/32 rounding to 0 blocks) launches silently -- no HIP error, just no work -- so a launch check alone would not have caught it; mn.c's logR growth is the real fix, this catches any other mis-sized launch */
     HIP_CHECK(hipEventRecord(p->ev, s));
 }
@@ -343,9 +340,7 @@ static void inv_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
     size_t C = (size_t)1 << p->logC, rk = chunk_rows(p), i0 = (size_t)k * rk;
     ec_mod m = ec_mod_get(p->prime);
     dim3 grid((unsigned)(C / 32), (unsigned)(rk / 32)), blk(32, 8);
-    if (twrec_on() == 2) TSK(ST_PACK, (k_unpacktw_r<4><<<grid, dim3(32, 4), 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
-    else if (twrec_on()) TSK(ST_PACK, (k_unpacktw_r<8><<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
-    else TSK(ST_PACK, (k_unpacktw<<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
+    TSK(ST_PACK, (k_unpacktw_r<8><<<grid, blk, 0, s>>>(chunk_rb(p, k), x + i0 * C, rk, (size_t)r * p->rows + i0, p->logC, p->cols, size, p->twr_i, p->twc_i, m)));
     TSK(ST_ROWS, ntt_inv(p->ctx, x + i0 * C, p->logC, rk, s));                     /* rows: length-C inverse, x C^-1 */
 }
 static void inv_prod(dist_plan *p, const uint64_t *x, int k, hipStream_t s)
@@ -471,11 +466,11 @@ int dist_pack_bench(int logn, int size, int reps)
     double *t = (double *)malloc(reps * sizeof(double)); int bad = 0;
     dim3 blk(32, 8), gr((unsigned)(C / 32), (unsigned)(rows / 32));
     printf("pack-bench 2^%d points split over %d ranks: this rank %zu rows x %zu (%.1f MB), cols %zu, R %zu\n", logn, size, rows, C, n * 8e-6, cols, R);
-    for (int kind = 0; kind < 14; kind++) {
-        const char *nm[] = { "device copy (hipMemcpyAsync D2D)", "k_twpack (fwd pack, tiled, twiddled: production)", "k_pack (plain, unused)", "k_pack_tiled (13b)",
-                             "k_unpack (fwd unpack, production)", "k_pack_cols (inv pack, production)", "k_unpacktw (inv unpack, tiled, twiddled: production)",
+    for (int kind = 0; kind < 12; kind++) {
+        const char *nm[] = { "device copy (hipMemcpyAsync D2D)", "k_twpack (fwd pack, tiled, twiddled: plain, the reference)", "k_pack (plain, unused)", "k_pack_tiled (13b)",
+                             "k_unpack (fwd unpack, production)", "k_pack_cols (inv pack, production)", "k_unpacktw (inv unpack, tiled, twiddled: plain, the reference)",
                              "k_unpack_rows (plain)", "k_pack_t (dist_inv_t, plain)", "k_unpack_t (dist_inv_t)",
-                             "k_twpack_r (13b, DIST_TWREC=1)", "k_unpacktw_r (13b, DIST_TWREC=1)", "k_twpack_r<4> (13b, DIST_TWREC=2)", "k_unpacktw_r<4> (13b, DIST_TWREC=2)" };
+                             "k_twpack_r (13b, row recurrence: production)", "k_unpacktw_r (13b, row recurrence: production)" };
         for (int r = 0; r <= reps; r++) {
             HIP_CHECK(hipEventRecord(e0, 0));
             switch (kind) {
@@ -491,8 +486,6 @@ int dist_pack_bench(int logn, int size, int reps)
             case 9: k_unpack_t<<<nblocks(n), 256>>>(x, sb, rows, cols, size); break;
             case 10: k_twpack_r<8><<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
             case 11: k_unpacktw_r<8><<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            case 12: k_twpack_r<4><<<gr, dim3(32, 4)>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            case 13: k_unpacktw_r<4><<<gr, dim3(32, 4)>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
             }
             if (!r && (kind == 1 || kind == 6)) HIP_CHECK(hipMemcpyAsync(kind == 1 ? ref1 : ref6, sb, n * 8, hipMemcpyDeviceToDevice, 0));   /* the references of 10, 11 */
             HIP_CHECK(hipEventRecord(e1, 0)); HIP_CHECK(hipEventSynchronize(e1));
@@ -501,7 +494,7 @@ int dist_pack_bench(int logn, int size, int reps)
         qsort(t, reps, sizeof(double), dbl_cmp);
         double md = t[reps / 2];
         const char *chk = "";
-        if (kind == 3 || kind >= 10) { int b = cmp_dev(kind == 10 || kind == 12 ? ref1 : kind == 11 || kind == 13 ? ref6 : sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
+        if (kind == 3 || kind >= 10) { int b = cmp_dev(kind == 10 ? ref1 : kind == 11 ? ref6 : sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
         printf("pack-bench 2^%d  %-58s %9.3f ms  %7.1f GB/s%s\n", logn, nm[kind], md * 1e3, 16.0 * n / md * 1e-9, chk);
     }
     fflush(stdout);
