@@ -29,11 +29,16 @@ digits ≈ 78 s (was ≈ 94 s), 4 nodes −50.0 s (m, S43). The 576-node plan: d
 | 14 | **S49 cold-path probe** (first-touch/register the real pool per APU, flag > 3x median) to catch the slow host that `nodechk` misses; add to the kit | open | results/S49.md |
 | 15 | **`DIST_COALESCE` decision** (message aggregation, 1.0-4.5 s at 576 n, mod; S52 design) | open (user) | results/S52.md |
 | 16 | **Target size decision:** 3.82e13 digits (margin 13.4 GB, mod) vs 3.71e13; do not exceed 3.82e13 | open (user) | results/S52.md |
-| 17 | **`t_mn_grid` 2-node hang on main** (3 of 3 runs, hangs after "2 pieces"; pre-existing, root cause not investigated) | open: not the S46 memhooks deadlock, a comm-completion hang; uffd does not fix it | results/T01.md, results/T13.md |
-| 18 | **mnaccept:** `R`/`N` steps use `srun -N1` without `-w` (can land on different nodes); stale default `ECALC_REF=$HOME/ntt/ecalc/ref`; ref sha256 symlinks dangling | open | results/T01.md |
+| 17 | **`t_mn_grid` 2-node hang on main** (3 of 3 runs, hangs after "2 pieces"; pre-existing, root cause not investigated) | **done 2026-10-11:** not a bug; TCP over the 1 GbE management network (A01). Fixed in mnaccept (`t_mn_grid` with `COMM_TRANSPORT=shmem`) and a `mnrun.sh` warning | results/T01.md, results/T13.md |
+| 18 | **mnaccept:** `R`/`N` steps use `srun -N1` without `-w` (can land on different nodes); stale default `ECALC_REF=$HOME/ntt/ecalc/ref`; ref sha256 symlinks dangling | **done 2026-10-11** (A04: shared TMP, ref fallbacks, `refneed`, `--mem=0`, `--skip-grid`, step `grid`) | results/T01.md |
 | 19 | **4-node slow-mode cause** (about 29 % of runs at -21 % exchange rate; not arm/node/rank/order) | open: test concurrent fabric traffic and a controlled reclaimable memory fill | results/T05.md, results/T09.md |
-| 20 | **Cold probe needs a positive control** (`--nodechk-cold-gb` did not reproduce the stall on aac7-n01; no threshold) | open (item 14 continues) | results/T10.md |
-| 21 | **Adopt `layv_factor` 0.655 in the standing estimate** (576 n: 161.3 / 166.7 s vs 152.4 / 157.3 s without, mod) | open (user) | results/T06.md |
+| 20 | **Cold probe needs a positive control** (`--nodechk-cold-gb` did not reproduce the stall on aac7-n01; no threshold) | **superseded** by the `tools/initchk.py` upload check (A03/A06); the cold probe stays off | results/T10.md |
+| 21 | **Adopt `layv_factor` 0.655 in the standing estimate** (576 n: 161.3 / 166.7 s vs 152.4 / 157.3 s without, mod) | **done: adopted 2026-10-11** (A02: default 0.655 in the target profiles) | results/T06.md |
+| 22 | **Tier A code reduction** (A11: engine 2 + bug C1, about 1 290 lines, 24 switches; assumed) | open (user approval) | results/A11.md |
+| 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path, A05): diagnose at 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` vs 24 | open | results/A05.md, G12.md |
+| 24 | **`ECALC_VMM_BG=auto`** (synchronous mapping chosen automatically; A09) | proposal, not implemented | results/A09.md |
+| 25 | **Segfault soak** (~600 runs of default + userfaultfd, about 1 node-day; A09/S46) | open: overnight, tabled | results/A09.md, S46.md |
+| 26 | **Kit paths not rehearsed** (A06): 2-NIC a3, 8-node a4, s2chk, `--spares` STOP, plan REFUSED | open (target session) | results/A06.md |
 
 Environment facts: aac7's QOS is 6 nodes per user (no 10-node runs); aac6 SH5 (`SH5_MI300A_SPX`) shows one device (ecalc
 cannot run), its CPX nodes (6 XCDs of 22.9 GB) run up to 4e9 digits with `RNS_INIT_POOL_LOG=29` (S44).
