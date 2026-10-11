@@ -30,6 +30,8 @@
 #   --s2chk-per-node N      digits per node for s2chk (default 64410000000 = 6.441e10, the largest node share of the
 #                           3.71e13 target on 576 nodes).  KIT_S2CHK_LINE overrides the launch-line env words.
 #   --nodechk-gb GB         upload size per APU for the opt-in stage nodechk (default 1).
+#   --nodechk-cold-gb GB    T10 cold-path probe in stage nodechk (default 0 = off): per APU map GB of VMM arena + first-touch + one cold upload of it
+#                           (the ecalc init path); extra NODECHK_COLD line per node (results/T10.md).
 #   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count, s2chk 1800 PER node count, nodechk 300).
 #                           A stage that times out or fails is marked FAIL in the summary; every other stage
 #                           still runs.
@@ -113,6 +115,7 @@ TO_A4=1800
 TO_S2=1800
 TO_NC=300
 NC_GB=1
+NC_COLD_GB=0
 NODES_S2="2,8"
 S2_PER_NODE=64410000000
 E9=1000000000
@@ -143,6 +146,7 @@ while [ $# -gt 0 ]; do
         --timeout-s2chk) TO_S2=$2; shift 2 ;;
         --timeout-nodechk) TO_NC=$2; shift 2 ;;
         --nodechk-gb) NC_GB=$2; shift 2 ;;
+        --nodechk-cold-gb) NC_COLD_GB=$2; shift 2 ;;
         --nodes-s2chk) NODES_S2=$2; shift 2 ;;
         --s2chk-per-node) S2_PER_NODE=$2; shift 2 ;;
         *) echo "target_kit.sh: unknown option $1" >&2; usage; exit 2 ;;
@@ -720,7 +724,7 @@ stage_nodechk() {
     pre=$(module_preamble)
     summary "  nodes probed: $alloc (every node of the allocation, one process each, run alone)"
     exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap \
-        bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3
+        bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3 "$NC_COLD_GB"
     rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
     nodechk_table "$lf"

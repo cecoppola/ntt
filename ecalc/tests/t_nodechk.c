@@ -3,7 +3,12 @@
  * HugePages_Total=.. HugePages_Free=.. Hugepagesize_kB=.. apu0_s=.. apu1_s=.. ...   (apu<d>_s = median of <reps> timed 1 GB
  * host->device hipMemcpy uploads from a pre-touched pageable malloc buffer to device d; the aac7 stall was ~20 s in db_from_bi
  * against ~1 s on the other nodes, so a healthy node shows ~0.05-0.5 s here).  No file is written.
- * Usage: t_nodechk [size GB, default 1] [reps, default 3] */
+ * T10 (2026-10-11, results/T10.md): optional COLD-PATH mode (3rd arg cold GB per APU, default 0 = off, output unchanged).  It reproduces
+ * ecalc's init on a fresh process: per APU hipMemAddressReserve of 3x, then 2 GiB chunks hipMemCreate + hipMemMap, one hipMemSetAccess
+ * for all APUs, hipMemset of the mapped range (db_vmm_arena_alloc / vmm_map_run, dbig.c), then a first-touch of a fresh pageable host
+ * buffer of that size and ONE cold upload of it into the VMM range (db_from_bi).  Prints one extra line per node:
+ *   NODECHK_COLD host=<h> cold_gb=.. touch_s=.. apu<d>_total_s=.. apu<d>_create_s=.. _map_s=.. _access_s=.. _zero_s=.. _up_s=..
+ * Usage: t_nodechk [size GB, default 1] [reps, default 3] [cold GB per APU, default 0] */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,5 +43,36 @@ int main(int argc, char **argv)
         (void)hipFree(p);
     }
     printf("\n"); free(h);
+    double cgb = argc > 3 ? atof(argv[3]) : 0.0;
+    if (cgb > 0) {
+        const size_t C = (size_t)2 << 30; size_t want = (size_t)(cgb * 1e9), nch = (want + C - 1) / C, tot = nch * C;
+        double t0 = now(); char *hb = (char *)malloc(tot); if (!hb) { printf("NODECHK_COLD host=%s ERROR=malloc\n", host); return 1; }
+        memset(hb, 0x3c, tot); double tt = now() - t0;
+        printf("NODECHK_COLD host=%s cold_gb=%.2f touch_s=%.3f", host, tot * 1e-9, tt);
+        hipMemAccessDesc ad[4]; memset(ad, 0, sizeof ad);
+        for (int c = 0; c < ndev; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
+        for (int d = 0; d < ndev; d++) {
+            hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = d;
+            size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
+            char *base = 0; hipMemGenericAllocationHandle_t *hs = (hipMemGenericAllocationHandle_t *)calloc(nch, sizeof *hs);
+            double tc = 0, tm = 0, ta, tz, tu, T0; int ok = 1;
+            hipSetDevice(d); T0 = now();
+            if (hipMemAddressReserve((void **)&base, 3 * tot, gran, 0, 0) != hipSuccess) ok = 0;
+            for (size_t i = 0; ok && i < nch; i++) {
+                double a = now(); if (hipMemCreate(&hs[i], C, &prop, 0) != hipSuccess) { ok = 0; break; }
+                double b = now(); if (hipMemMap(base + i * C, C, 0, hs[i], 0) != hipSuccess) { ok = 0; break; }
+                tc += b - a; tm += now() - b;
+            }
+            double a = now(); if (ok && hipMemSetAccess(base, tot, ad, ndev) != hipSuccess) ok = 0; ta = now() - a;
+            a = now(); if (ok && (hipMemset(base, 0, tot) != hipSuccess || hipDeviceSynchronize() != hipSuccess)) ok = 0; tz = now() - a;
+            a = now(); if (ok && (hipMemcpy(base, hb, tot, hipMemcpyHostToDevice) != hipSuccess || hipDeviceSynchronize() != hipSuccess)) ok = 0; tu = now() - a;
+            if (!ok) { printf(" apu%d_total_s=ERR", d); bad = 1; }
+            else printf(" apu%d_total_s=%.3f apu%d_create_s=%.3f apu%d_map_s=%.3f apu%d_access_s=%.3f apu%d_zero_s=%.3f apu%d_up_s=%.3f",
+                        d, now() - T0 + 0.0, d, tc, d, tm, d, ta, d, tz, d, tu);
+            if (base) { (void)hipMemUnmap(base, tot); for (size_t i = 0; i < nch; i++) if (hs[i]) (void)hipMemRelease(hs[i]); (void)hipMemAddressFree(base, 3 * tot); }
+            free(hs);
+        }
+        printf("\n"); free(hb);
+    }
     return bad;
 }
