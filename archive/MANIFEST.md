@@ -44,10 +44,14 @@ Kept in `results/` because code or live docs read them: `L815` (tests/l8_*.py), 
 `TASKS_HISTORY.md`: the old front of `TASKS.md` (Phase 12-13 log, sections 1-7); `ECALC_README_PREAMBLE_2026-10-05.md`: the
 history of the defaults and of the target size that headed `ecalc/README.md`.
 
+## RESULTS_ARCHIVE_1-114.md (from `RESULTS.md`, 2026-10-10)
+Sections 1-114 of `RESULTS.md` (campaigns 1-4, Phases 1-17 through 2026-10-06), moved verbatim. `RESULTS.md` keeps an index of all
+sections and the full text of section 115 onward.
+
 ## Left in place on purpose
 `diff run suite isa.py envcheck.sh nodecheck.sh` (top level): the microbenchmark suite is live (Makefile `make isa`,
 `ecalc/README.md` uses `./run`, `suite` calls `envcheck.sh`, `bench/README.md` cites them). `PLAN.md` (now bannered as wholly historical),
-`TASKS.md` (now the live list), `RESULTS.md` are not moved (user instruction).
+`TASKS.md` (now the live list) is not moved; `RESULTS.md` is split (see above) (user instruction).
 
 ## Archived experiment branches (tags, 2026-10-10)
 
