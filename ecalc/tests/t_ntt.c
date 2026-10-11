@@ -726,8 +726,11 @@ int main(int argc, char **argv)
             else      { ntt_pw(ctx[pr], dx, dy, n, 0); ntt_inv(ctx[pr], dx, logn, 1, 0); }
             HIP_CHECK(hipMemcpy(hz, dx, n * 8, hipMemcpyDeviceToHost));
             /* coefficients < 2^32 * 2^(logn-1) < p: carry into a GMP integer */
-            mpz_set_ui(C, 0);
-            for (size_t i = n; i-- > 0;) { mpz_mul_2exp(C, C, 16); mpz_add_ui(C, C, hz[i]); }
+            /* B08: carry-propagate into 16-bit limbs and import once (the old Horner loop was O(n^2): ~266 s of this section on aac7) */
+            { uint16_t *c16 = (uint16_t *)malloc((n + 8) * 2); unsigned __int128 cy = 0; size_t i;
+              for (i = 0; i < n; i++) { cy += hz[i]; c16[i] = (uint16_t)cy; cy >>= 16; }
+              for (; i < n + 8; i++) { c16[i] = (uint16_t)cy; cy >>= 16; }
+              mpz_import(C, n + 8, -1, 2, 0, 0, c16); free(c16); }
             mpz_import(A, half, -1, 2, 0, 0, a16); mpz_import(B, half, -1, 2, 0, 0, b16);
             mpz_mul(D, A, B);
             VERIFY(mpz_cmp(C, D) == 0, "P%d 2^%d %s: product != mpz_mul", pr, logn, fuse ? "fused" : "unfused");
