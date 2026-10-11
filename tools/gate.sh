@@ -20,6 +20,7 @@
 #              tools/gate.sh --build --nodes 1 --alloc --line none          (aac6, single node)
 # Never put credentials or target values in this file.
 
+ARGS=("$@")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=$ROOT/ecalc
 BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
 while [ $# -gt 0 ]; do
@@ -59,6 +60,7 @@ trap 'WHY=${WHY:-interrupted}; RES=FAIL; finish' INT TERM
 trap '[ -n "$JOB$SPID" ] && cleanup' EXIT
 
 # ---- modules (non-login shells lack `module`)
+if ! type module >/dev/null 2>&1 && [ -z "$GATE_LOGIN" ]; then export GATE_LOGIN=1; exec bash -lc 'exec "$0" "$@"' "$0" "${ARGS[@]}"; fi   # plain ssh: re-run in a login shell (modules)
 if ! type module >/dev/null 2>&1; then for f in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/Modules/init/bash /opt/cray/pe/lmod/lmod/init/bash; do [ -r $f ] && { . $f; break; }; done; fi
 [ -f "$E/aac7env.sh" ] && [ $CRAY = 1 ] && { cd "$E" && . ./aac7env.sh >/dev/null 2>&1; }
 
