@@ -667,7 +667,7 @@ __global__ void k_modq(const uint64_t *x, size_t n, int nq, const uint64_t *qs, 
         __syncthreads();
     }
 }
-/* S51 K3 (DBIG_MODQ_MONT=1, default 0): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
+/* S51 K3 (DBIG_MODQ_MONT=1, default 1 since 2026-10-11): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
  * v <- montmul(v, B^MQ_T R mod q) + (x mod q) is (v B^MQ_T + x) mod q exactly, and sh <- montmul(v, B^t R mod q); the residues are those of k_modq, bit for bit. */
 __device__ __forceinline__ uint64_t mq_mm(uint64_t a, uint64_t b, uint64_t q, uint64_t qi)   /* a b / 2^64 mod q, a < 2^64, b < q, qi = q^-1 mod 2^64 */
 {
@@ -694,7 +694,7 @@ __global__ void k_modq_m(const uint64_t *x, size_t n, int nq, const uint64_t *qs
         __syncthreads();
     }
 }
-static int modq_mont_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MODQ_MONT") ? atoi(getenv("DBIG_MODQ_MONT")) : 0; return v; }   /* S51 K3 */
+static int modq_mont_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MODQ_MONT") ? atoi(getenv("DBIG_MODQ_MONT")) : 1; return v; }   /* S51 K3: default 1 since 2026-10-11 (0 = old k_modq) */
 /* S51: DBIG_S51_STATS=1 -- at exit one line "S51STAT addsub n t modq n t crtb n t" (host wall seconds of db add/sub calls, db_mod_qs calls and the B-form CRT stage; summed over the process) */
 static double g_s51_t[3]; static long g_s51_n[3]; static int g_s51_on = -1; static pthread_mutex_t g_s51_mx = PTHREAD_MUTEX_INITIALIZER;
 static void s51_report(void) { printf("S51STAT addsub %ld %.4f modq %ld %.4f crtb %ld %.4f\n", g_s51_n[0], g_s51_t[0], g_s51_n[1], g_s51_t[1], g_s51_n[2], g_s51_t[2]); fflush(stdout); }
@@ -814,7 +814,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
 #define SEG 16
-static int addsub3_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB3") ? atoi(getenv("DBIG_ADDSUB3")) : 0; return v; }   /* S51 K2: 16 KB tile + wave-level carry scan (default 0; 1 = k_addsub3 instead of k_addsub2) */
+static int addsub3_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB3") ? atoi(getenv("DBIG_ADDSUB3")) : 1; return v; }   /* S51 K2: 16 KB tile + wave-level carry scan (default 1 since 2026-10-11; 0 = k_addsub2) */
 static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 1; return v; }   /* S38: the coalesced add/sub kernel (default 1 since 2026-10-10; 0 = old k_addsub) */
 __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
 {
@@ -918,7 +918,7 @@ template <int QS> __global__ void __launch_bounds__(256) k_addsub2(uint64_t *out
     for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; if (i < c1) out[i - lo] = T[S2_IDX(e)]; }
 #undef S2_IDX
 }
-/* S51 K2 (DBIG_ADDSUB3=1, default 0): k_addsub2 with a 16 KB tile and a wave-level carry scan.  The chunk is still CH = 4096 limbs with the same flags (cout / prop), so
+/* S51 K2 (DBIG_ADDSUB3=1, default 1 since 2026-10-11): k_addsub2 with a 16 KB tile and a wave-level carry scan.  The chunk is still CH = 4096 limbs with the same flags (cout / prop), so
  * the host scan, k_carry and the digits are those of k_addsub2.  Each thread owns two 8-limb segments (A: limbs 8 tid .. , B: 2048 + 8 tid ..): the block loads and stores
  * the chunk in two halves of 2048 limbs through a 16 KB XOR-swizzled tile (four blocks per CU, against two), and the (generate, propagate) pairs of the 512 segments in
  * order are scanned by __shfl_up inside each wave plus a four-entry combine, not by thread 0 over 2 x 256 entries. */
