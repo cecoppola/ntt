@@ -46,6 +46,39 @@ FNAMES = [re.compile(r'^(?P<exp>[A-Za-z]+)_r(?P<round>\d+)_(?P<arm>[A-Za-z])$'),
           re.compile(r'^(?P<exp>[A-Za-z0-9]+)_(?P<round>\d+)_(?P<arm>[A-Za-z]+)$')]
 
 PH = ['init', 'tree', 'bs', 'recip', 'dm', 'end']
+COV = 'r'            # covariate column of the fits: 'r' (the run's own all-to-all rate) or 'pr' (the environment probe, C04)
+PROBE_COL = 'r64'    # which ENVPROBE rate feeds 'pr' (r64 | r256)
+EPR = re.compile(r'^ENVPROBE\b(.*)$')
+EPKV = re.compile(r'(\w+)=(\S+)')
+
+def parse_probes(lines):
+    """ENVPROBE lines (tools/envprobe.sh): r64= r256= group=A|B fgfc=<M> nn= t= wall= -> list of dicts (rates float or None)"""
+    out = []
+    for ln in lines:
+        m = EPR.match(LAB.sub('', ln.strip()))
+        if not m: continue
+        d = dict(EPKV.findall(m.group(1)))
+        for k in ('r64', 'r256', 'fgfc'):
+            try: d[k] = float(d[k])
+            except (KeyError, ValueError): d[k] = None
+        out.append(d)
+    return out
+
+def probe_fields(path, logname_lines):
+    """probes of a run: ENVPROBE lines in the log itself plus the sidecar <label>.probe next to it"""
+    side = re.sub(r'\.(log|plain)$', '', path) + '.probe'
+    ls = list(logname_lines)
+    if os.path.exists(side): ls += open(side, errors='replace').read().splitlines()
+    ps = parse_probes(ls)
+    f = {}
+    if not ps: return f
+    def avg(k):
+        v = [q[k] for q in ps if q.get(k) is not None]
+        return mean(v) if v else None
+    gs = set(q.get('group', 'NA') for q in ps) - {'NA'}
+    f.update(np=len(ps), pr64=avg('r64'), pr256=avg('r256'), pfgfc=avg('fgfc'), pgroup=(gs.pop() if len(gs) == 1 else ('mixed' if gs else 'NA')))
+    f['pr'] = f.get('pr' + PROBE_COL[1:])
+    return f
 
 def num(x):
     return '' if x is None else (('%.4g' % x) if isinstance(x, float) else str(x))
@@ -53,9 +86,12 @@ def num(x):
 def parse_log(path):
     r = dict(path=path, total=None, bs=None, dm=None, init=None, other=None, dc=None, vmhwm=None, recip=None, dmsub=None, chain=None,
              digits=None, nodes=None, verify=None, a2a={}, tree=None, mem={}, host={}, bud=None, live_peak=None, live_pct=None, live_min=None,
-             xs={}, wait={}, envs={}, pes=set())
+             xs={}, wait={}, envs={}, pes=set(), eplines=[])
     for ln in open(path, errors='replace'):
         ln = LAB.sub('', ln.rstrip('\n'))
+        if ln.startswith('ENVPROBE'):
+            r['eplines'].append(ln)
+            continue
         if ln.startswith('total'):
             t = TOT.match(ln)
             if t and r['total'] is None:
@@ -177,6 +213,7 @@ def row_of(p, cfgmap, drv):
     for (ph, kd), (gb, tp, pes) in sorted(r['xs'].items()):
         if tp > 0 and len(pes): row['xs_%s_%s_gbpe' % (ph, kd)] = gb / len(pes); row['xs_%s_%s_rate' % (ph, kd)] = gb / tp * 1.0 if len(pes) else None
     for ph, (b, w) in sorted(r['wait'].items()): row['wait_%s' % ph] = w; row['bar_%s' % ph] = b
+    row.update(probe_fields(p, r['eplines']))
     d = drv.get(lab)
     if d: row['wall'], row['start'] = d
     return row
@@ -237,7 +274,7 @@ def welch_t(u, v):
 STAGES = ['total', 'bs', 'dm', 'recip']
 
 def fit_rows(rows):
-    return [x for x in rows if x['clean'] and x['r'] and x['total'] is not None and (x['nodes'] or 0) > 1]
+    return [x for x in rows if x['clean'] and x.get(COV) and x['total'] is not None and (x['nodes'] or 0) > 1]
 
 def groups_of(rows):
     g = {}
@@ -250,23 +287,47 @@ def do_fit(rows, oos):
         g = groups_of(rows)[key]
         out.append('group nodes=%s digits/node=%s config=%s : n=%d clean runs with a rate' % (key[0], key[1], key[2], len(g)))
         for st in STAGES:
-            pts = [(1.0 / x['r'], x[st]) for x in g if x.get(st) is not None]
+            pts = [(1.0 / x.get(COV), x[st]) for x in g if x.get(st) is not None]
             f = ols([p[0] for p in pts], [p[1] for p in pts])
             if not f: out.append('  %-6s fit not possible (n=%d)' % (st, len(pts))); continue
             a, b, s, n = f
             raw = sd([p[1] for p in pts])
             out.append('  %-6s %s = %.1f + %.0f / r   residual sd %.2f s (raw sd %.2f s, n=%d)   [modelled]' % (st, st, a, b, s, raw, n))
             if st == 'total':
-                for x in g: x['resid'] = x['total'] - (a + b / x['r'])
+                for x in g: x['resid'] = x['total'] - (a + b / x.get(COV))
                 if oos and len(set(x['src'] for x in g)) > 1:
                     for sname in sorted(set(x['src'] for x in g)):
                         tr = [x for x in g if x['src'] != sname]; te = [x for x in g if x['src'] == sname]
-                        f2 = ols([1 / x['r'] for x in tr], [x['total'] for x in tr])
+                        f2 = ols([1 / x.get(COV) for x in tr], [x['total'] for x in tr])
                         if f2 and te:
-                            e = [x['total'] - (f2[0] + f2[1] / x['r']) for x in te]
+                            e = [x['total'] - (f2[0] + f2[1] / x.get(COV)) for x in te]
                             out.append('    out-of-sample: fit on others (n=%d: a=%.1f b=%.0f), test %s (n=%d): bias %+.2f s, sd %.2f s' % (len(tr), f2[0], f2[1], sname, len(te), mean(e), sd(e)))
     nf = len([x for x in rows if not x['clean']])
     out.append('(%d of %d runs not clean: chain > %.1f s, init >= %.0f s, no VERIFY OK or no total; excluded from the fits)' % (nf, len(rows), CHAIN_MAX, INIT_MAX))
+    return out
+
+def pearson(x, y):
+    mx, my = mean(x), mean(y)
+    sx, sy = math.sqrt(sum((u - mx) ** 2 for u in x)), math.sqrt(sum((v - my) ** 2 for v in y))
+    return sum((u - mx) * (v - my) for u, v in zip(x, y)) / (sx * sy) if sx > 0 and sy > 0 else float('nan')
+
+def do_probe_check(rows):
+    """does the probe rate predict the run's rate r (and its total)?  Rows that carry both."""
+    out = []
+    pr = [x for x in rows if x.get('pr') and x.get('r')]
+    out.append('probe check (%s): %d runs with both a probe and a run rate' % (PROBE_COL, len(pr)))
+    if len(pr) < 3: return out + ['  too few']
+    xs, ys = [x['pr'] for x in pr], [x['r'] for x in pr]
+    f = ols(xs, ys)
+    out.append('  corr(probe %s, run r) = %+.2f   run r = %.2f + %.2f * probe, residual sd %.2f GB/s (raw sd of r %.2f)   [modelled, n=%d]' % (PROBE_COL, pearson(xs, ys), f[0], f[1], f[2], sd(ys), len(pr)))
+    cl = [x for x in pr if x['clean'] and x['total'] is not None]
+    if len(cl) >= 4:
+        f1 = ols([1 / x['r'] for x in cl], [x['total'] for x in cl]); f2 = ols([1 / x['pr'] for x in cl], [x['total'] for x in cl])
+        if f1 and f2:
+            out.append('  total on 1/r (run rate): sd %.2f s; total on 1/probe: sd %.2f s; raw sd %.2f s   [modelled, n=%d clean]' % (f1[2], f2[2], sd([x['total'] for x in cl]), len(cl)))
+    for g in ('A', 'B'):
+        v = [x for x in pr if x.get('pgroup') == g]
+        if v: out.append('  probe group %s: n=%d, mean run r %.2f, mean probe %.2f' % (g, len(v), mean([x['r'] for x in v]), mean([x['pr'] for x in v])))
     return out
 
 def ols2(x, arm, y):
@@ -301,42 +362,44 @@ def do_ab(rows, desc, target, xexp=()):
         pairs = {}
         for x in xs: pairs.setdefault(x['round'], {}).setdefault(x['arm'], []).append(x)
         full = [rd for rd, d in pairs.items() if 'A' in d and 'B' in d]
-        ok = [rd for rd in full if all(x['clean'] and x['r'] and x['total'] is not None for a in 'AB' for x in pairs[rd][a])]
+        ok = [rd for rd in full if all(x['clean'] and x.get(COV) and x['total'] is not None for a in 'AB' for x in pairs[rd][a])]
         out.append('  rounds with both arms: %d; usable (all runs clean, with rate): %d; dropped: %s' % (len(full), len(ok), ', '.join('r' + str(r) for r in full if r not in ok) or 'none'))
         if len(ok) < 2: out.append('  too few usable pairs'); continue
         ref = grp.get((nodes, dpn, xs[0]['config']), [])
-        f = ols([1 / x['r'] for x in ref], [x['total'] for x in ref])
+        f = ols([1 / x.get(COV) for x in ref], [x['total'] for x in ref])
         if not f: out.append('  no fit'); continue
         a, b, s, n = f
-        def resid(x): return x['total'] - (a + b / x['r'])
+        def resid(x): return x['total'] - (a + b / x.get(COV))
         dr, dres, dra = [], [], []
         for rd in ok:
             A, B = pairs[rd]['A'], pairs[rd]['B']
             dr.append(mean([x['total'] for x in B]) - mean([x['total'] for x in A]))
             dres.append(mean([resid(x) for x in B]) - mean([resid(x) for x in A]))
-            dra.append(mean([x['r'] for x in B]) - mean([x['r'] for x in A]))
+            dra.append(mean([x.get(COV) for x in B]) - mean([x.get(COV) for x in A]))
         m0, l0, h0 = ci_mean(dr); m1, l1, h1 = ci_mean(dres); mr, lr, hr = ci_mean(dra)
         out.append('  fit used for the residuals: total = %.1f + %.0f / r over %d clean %d-node runs (residual sd %.2f s) [modelled]' % (a, b, n, nodes, s))
         out.append('  raw paired difference B - A (s):            %+7.2f  95%% CI [%+.2f, %+.2f]  (n=%d pairs, sd %.2f)' % (m0, l0, h0, len(dr), sd(dr)))
         out.append('  rate-adjusted difference of residuals (s):  %+7.2f  95%% CI [%+.2f, %+.2f]  (sd %.2f)  [fit treated as known]' % (m1, l1, h1, sd(dres)))
         sel = [x for rd in ok for a_ in 'AB' for x in pairs[rd][a_]]
-        an = ols2([1 / x['r'] for x in sel], [0 if x['arm'] == 'A' else 1 for x in sel], [x['total'] for x in sel])
+        an = ols2([1 / x.get(COV) for x in sel], [0 if x['arm'] == 'A' else 1 for x in sel], [x['total'] for x in sel])
         if an:
             h = tq(an[3]) * an[1]
             out.append('  ANCOVA cross-check (arm intercepts, common slope b=%.0f, fit on these runs only): %+7.2f  95%% CI [%+.2f, %+.2f]  (dof %d)  <- the wider, more conservative CI' % (an[2], an[0], an[0] - h, an[0] + h, an[3]))
         for st in STAGES[1:]:
-            fs = ols([1 / x['r'] for x in ref if x.get(st) is not None], [x[st] for x in ref if x.get(st) is not None])
+            fs = ols([1 / x.get(COV) for x in ref if x.get(st) is not None], [x[st] for x in ref if x.get(st) is not None])
             if not fs: continue
-            dd = [mean([x[st] - (fs[0] + fs[1] / x['r']) for x in pairs[rd]['B']]) - mean([x[st] - (fs[0] + fs[1] / x['r']) for x in pairs[rd]['A']]) for rd in ok]
+            dd = [mean([x[st] - (fs[0] + fs[1] / x.get(COV)) for x in pairs[rd]['B']]) - mean([x[st] - (fs[0] + fs[1] / x.get(COV)) for x in pairs[rd]['A']]) for rd in ok]
             dd0 = [mean([x[st] for x in pairs[rd]['B']]) - mean([x[st] for x in pairs[rd]['A']]) for rd in ok]
             m2, l2, h2 = ci_mean(dd); m3, l3, h3 = ci_mean(dd0)
             out.append('    stage %-5s raw %+6.2f [%+.2f, %+.2f]   rate-adjusted %+6.2f [%+.2f, %+.2f]' % (st, m3, l3, h3, m2, l2, h2))
-        ra = [x['r'] for rd in ok for x in pairs[rd]['A']]; rb = [x['r'] for rd in ok for x in pairs[rd]['B']]
+        ra = [x.get(COV) for rd in ok for x in pairs[rd]['A']]; rb = [x.get(COV) for rd in ok for x in pairs[rd]['B']]
         t = welch_t(ra, rb); tp = mr / (sd(dra) / math.sqrt(len(dra))) if sd(dra) > 0 else float('nan')
         rel = (mean(rb) - mean(ra)) / mean(ra)
         out.append('  mean r: arm A %.2f, arm B %.2f GB/s (B - A paired %+.2f, CI [%+.2f, %+.2f]; Welch t %.2f; %+.1f%%)' % (mean(ra), mean(rb), mr, lr, hr, t, 100 * rel))
         sig = abs(tp) > tq(len(dra) - 1) or abs(t) > 2.0
-        if sig or abs(rel) > 0.02:
+        if COV == 'pr':
+            out.append('  covariate = environment probe (%s): arm-independent by construction (the probe runs at fixed settings); a rate difference between arms is only the probe draw.' % PROBE_COL)
+        elif sig or abs(rel) > 0.02:
             out.append('  WARNING: the arms differ in mean exchange rate r (%s). If the arm changes the exchange itself, r is not an arm-independent covariate: the adjustment' % ('significant' if sig else 'not significant, n=%d pairs' % len(dra)))
             out.append('           then removes part of the effect, and the estimate needs an environment probe (B05 rank 4). If the difference is only an unbalanced rate draw, the adjustment is right.')
         if exp in xexp:
@@ -347,7 +410,7 @@ def do_ab(rows, desc, target, xexp=()):
     return out
 
 COLS = ['src', 'label', 'exp', 'round', 'arm', 'config', 'nodes', 'digits', 'dpn', 'verify', 'total', 'init', 'bs', 'tree', 'recip', 'dm', 'rcp_prod', 's1', 's2', 'xlo',
-        'dc', 'other', 'vmhwm', 'chain', 'r', 'rmin', 'rmax', 'mode', 'flags', 'clean', 'resid', 'wall', 'start']
+        'dc', 'other', 'vmhwm', 'chain', 'r', 'pr64', 'pr256', 'pgroup', 'pfgfc', 'rmin', 'rmax', 'mode', 'flags', 'clean', 'resid', 'wall', 'start']
 
 def write_tsv(rows, path):
     extra = sorted(set(k for x in rows for k in x) - set(COLS))
@@ -382,11 +445,17 @@ def selftest():
                 for pe in range(4): f.write('comm_shmem: pe %d: all-to-all 10 exchanges, 1.0 s post to completion (summed over the APU threads), 10.0 GB received = %.2f GB/s per APU thread; x\n' % (pe, r))
                 f.write('total   %.2f s   (bs 70.0 + 10dP 0.0 + dm 80.0 + T1 0.4 + dc 3.0 + T2 0.0 = 153.4; init 29.0; other 1.0); VmHWM 29.0 GB\n' % tot)
                 f.write('recip    24.00 s   (over 4 nodes; 32 iterations)\nmn: all 4 nodes: VERIFY OK\n')
+            with open(os.path.join(d, 'log', 'x_r%d_%s.probe' % (rd, arm)), 'w') as f:
+                f.write('ENVPROBE r64=%.2f r256=10.4 group=B fgfc=1.0 nn=4 t=1 wall=30\n' % (r - 1.0))
     rows = [row_of(p, [], {}) for p in collect([d])]
     assert len(rows) == 16 and all(x['clean'] for x in rows) and rows[0]['nodes'] == 4 and rows[0]['dpn'] == 64410000000
     o = do_fit(rows, False); o2 = do_ab(rows, {}, 2.0)
     assert any(l.strip().startswith('total') and 'residual sd' in l for l in o), o
     assert any('-5.' in l or '-4.' in l for l in o2), o2
+    assert all(x['pr'] for x in rows) and rows[0]['pgroup'] == 'B'
+    global COV
+    COV = 'pr'; o3 = do_probe_check(rows) + do_fit(rows, False); COV = 'r'
+    assert any('corr(probe' in l for l in o3), o3
     print('selftest OK'); print('\n'.join(o + o2))
 
 def main():
@@ -399,9 +468,14 @@ def main():
     ap.add_argument('--exchange-exp', action='append', default=[], metavar='EXP', help='experiments whose arm changes the exchange itself (adds the probe caveat)')
     ap.add_argument('--config', action='append', default=[], metavar='REGEX=NAME', help='config name for log paths matching REGEX (when the log does not print its env words)')
     ap.add_argument('--driver-tsv', nargs='*', default=[], help='driver ab.tsv / pairs.tsv / summary.tsv files: attaches wall and start stamp by label')
+    ap.add_argument('--covariate', choices=('r', 'probe'), default='r', help="rate covariate of --fit/--ab: the run's own r, or the ENVPROBE rate (runs need ENVPROBE lines in the log or a <label>.probe sidecar)")
+    ap.add_argument('--probe-col', choices=('r64', 'r256'), default='r64', help='which ENVPROBE rate is the probe covariate (default r64)')
+    ap.add_argument('--probe-check', action='store_true', help='does the probe rate predict the run rate / total?')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest: return selftest()
+    global COV, PROBE_COL
+    PROBE_COL = a.probe_col; COV = 'pr' if a.covariate == 'probe' else 'r'
     cfg = [(re.compile(k), v) for k, v in (c.split('=', 1) for c in a.config)]
     drv = read_driver(a.driver_tsv)
     files = collect(a.paths)
@@ -409,6 +483,7 @@ def main():
     print('# %d logs read' % len(rows))
     if not rows: return 1
     lines = []
+    if a.probe_check: lines += do_probe_check(rows) + ['']
     if a.fit or a.ab: lines += do_fit(rows, a.oos)
     if a.ab: lines += [''] + do_ab(rows, dict(d.split('=', 1) for d in a.desc), a.target_hw, a.exchange_exp)
     if a.tsv: write_tsv(rows, a.tsv); print('# table: %s (%d rows)' % (a.tsv, len(rows)))
