@@ -24,14 +24,11 @@ int ntt_pw_fuse = 14;
 int ntt_b16_body = 1;      /* Phase 9 N-kernel: the register-blocked body (bit-identical, RESULTS 43) is the default now */
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
 int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett, 1 reduced-correction Barrett (default since Phase 13b: +5-12 %, bit-identical), 2 Shoup; -1 = from the environment */
-int ntt_b16_var = -1;      /* NTT_B16_VAR (Phase 13a K, H6): k_b16r variant bits (1 unpadded LDS + global twiddle table, 2 block order); 0 default */
-int ntt_mall = -1;         /* NTT_MALL (Phase 13a K, H2): log2 of a MALL-resident chunk (points); 0 = off (default); -1 = from the environment */
 int ntt_b1r = -1;          /* NTT_B1R (Phase 13b K): 0 the paper's b1 pass, 3 / 4 the register-blocked b1 with 2^3 / 2^4 points per thread (default 3 since Phase 13c) */
 int ntt_plan = -1;         /* NTT_PLAN (Phase 13b K): pass boundaries, 0 the paper's (see make_plan); default 1 */
 
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 int ntt_modmul_get(void) { if (ntt_modmul < 0) ntt_modmul = env_int("NTT_MODMUL", 1); return ntt_modmul; }
-int ntt_mall_get(void) { if (ntt_mall < 0) ntt_mall = env_int("NTT_MALL", 0); return ntt_mall; }
 int ntt_b1r_get(void) { if (ntt_b1r < 0) ntt_b1r = env_int("NTT_B1R", 3); if (ntt_b1r && ntt_b1r != 3 && ntt_b1r != 4) ntt_b1r = 3; return ntt_b1r; }   /* default 3 since Phase 13c (K13b: the b1 pass 1.20-1.33x); 0 = the original b1 pass; any other nonzero value: 3 */
 int ntt_plan_get(void) { if (ntt_plan < 0) ntt_plan = env_int("NTT_PLAN", 1); return ntt_plan; }
 int ntt_r3_fuse = -1;      /* NTT_R3_FUSE (Phase 15 N3x): 1 = the radix-3 stage of 3 2^k transforms fused into the first / last b16 pass; 0 default */
@@ -287,29 +284,24 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
  * and Shoup constants) then x T (T formed and squared by ec_mm as before, its Shoup constant by shoup_q once
  * per stage), lazy in [0, 2p); no per-butterfly twiddle product.  For MM != 0 the inverse's difference is
  * u + 2p - vw.  Every variant is exact, so the canonical outputs are bit-identical to MM 0's. */
-/* Phase 13a K (H6), VAR (bit mask, 0 = the default): bit 0 (OCC) the LDS tile unpadded (sh[128][16]) and the
- * 128-entry twiddle table read from global memory instead of LDS: 16 KB of LDS per block, so 4 blocks per CU
- * instead of 3 (the default's 18.4 KB caps occupancy at 3 waves/SIMD; VGPRs would allow 8+).  bit 1 (ORD) the
- * blocks ordered tile-row-group fastest (blk_hi = b mod nhi) instead of slab fastest, for the wide-stride passes
- * (s_lo 17 and 24 measured at 0.8x).  Same arithmetic: bit-identical. */
-/* Phase 15 N3x, R3 = 1 (with R4 = SW = VAR = 0, MM 0 / 1): transforms of 3 2^logn points, the same tile position in the
+/* Phase 15 N3x, R3 = 1 (with R4 = 0, MM 0 / 1): transforms of 3 2^logn points, the same tile position in the
  * three thirds per block, as k_b16's R3 form: forward, the radix-3 stage on the loaded triples then the body per third;
  * inverse (the last pass), the body per third kept in registers, then the radix-3 stage and one store. */
-template <int INV, int R4, int MM, int VAR = 0, int R3 = 0>
+template <int INV, int R4, int MM, int R3 = 0>
 __global__ __launch_bounds__(THREADS)
 void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
             const double *tabT, double scale, const uint64_t *tabS, const uint64_t *tabSq, ntt_r3arg ra = ntt_r3arg())
 {
-    constexpr int STG = 7, tile = 128, BPX = (VAR & 1) ? 16 : BP;
-    __shared__ uint64_t sh[128 * BPX + ((VAR & 1) ? 0 : 1)];
-    __shared__ double tab[(VAR & 1) ? 1 : tile];
+    constexpr int STG = 7, tile = 128;
+    __shared__ uint64_t sh[128 * BP + 1];
+    __shared__ double tab[tile];
     __shared__ uint64_t tabs[MM == 2 ? tile : 1], tabsq[MM == 2 ? tile : 1];
-#define TABV(k_) ((VAR & 1) ? tabT[k_] : tab[k_])
+#define TABV(k_) (tab[k_])
     const int tt = threadIdx.x >> 4, bb = threadIdx.x & 15;
     const size_t n = (size_t)1 << logn, hmin = (size_t)1 << s_lo, slabs = hmin / 16;
     const size_t bpt = n / 2048, b = blockIdx.x % bpt, t = blockIdx.x / bpt;
     const size_t nhi = n / ((size_t)tile * hmin);
-    const size_t blk_hi = (VAR & 2) ? b % nhi : b / slabs, slab0 = (VAR & 2) ? b / nhi : b % slabs;
+    const size_t blk_hi = b / slabs, slab0 = b % slabs;
     constexpr int NR = R3 ? 3 : 1;
     const size_t base = t * (NR * n) + blk_hi * (size_t)tile * hmin + slab0 * 16, off0 = base - t * (NR * n);
     const double p = m.p, pinv = m.pinv;
@@ -321,7 +313,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
     int i;
 #define MMC(a_, b_) (MM == 1 ? mm_canon((a_), (b_), p, pinv, pinvl) : ec_mm((a_), (b_), p, pinv))
 
-    for (int k = threadIdx.x; k < tile; k += THREADS) { if (!(VAR & 1)) tab[k] = tabT[k]; if (MM == 2) { tabs[k] = tabS[k]; tabsq[k] = tabSq[k]; } }
+    for (int k = threadIdx.x; k < tile; k += THREADS) { tab[k] = tabT[k]; if (MM == 2) { tabs[k] = tabS[k]; tabsq[k] = tabSq[k]; } }
     {
         size_t c = slab0 * 16 + bb;
         T[INV ? STG - 1 : 0] = MMC(tlo[c & 4095], thi[c >> 12]);
@@ -410,8 +402,8 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define STORE_G(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) { uint64_t o = v[i];                        \
                           if (scale != 0.0) o = (uint64_t)ec_mm((double)o, scale, p, pinv);                 \
                           if (R3 && INV) v[i] = o; else x[xo + (size_t)ROWF(i) * hmin + bb] = o; }
-#define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BPX + bb] = v[i]
-#define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BPX + bb]
+#define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BP + bb] = v[i]
+#define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BP + bb]
 
     const int odd = tt & 1;
     /* N3x: the thirds in a rolled loop (unrolled, the compiler keeps each stage's twiddles live across the thirds: 185 VGPRs,
@@ -482,7 +474,7 @@ void k_b1s(uint64_t *x, const uint64_t *y, size_t Lt, int ymode, ec_mod m, const
     constexpr int L = 1 << LGL;
     __shared__ uint64_t sh[L];
     __shared__ uint64_t tab[L / 2], tabp[L / 2];
-    const size_t base = (size_t)blockIdx.x * L, ybase = MODE == 2 ? y_base(goff + base, Lt, ymode) : 0;   /* goff: x's offset in the batch (NTT_MALL chunks) */
+    const size_t base = (size_t)blockIdx.x * L, ybase = MODE == 2 ? y_base(goff + base, Lt, ymode) : 0;   /* goff: x's offset in the batch (always 0 since the NTT_MALL chunks were removed 2026-10-11) */
     const double p = m.p, pinv = m.pinv;
     const uint64_t pu = m.pu, p2 = 2 * pu;
     int k;
@@ -969,19 +961,6 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
     if (stg == 7 && ntt_b16_body >= 1) {
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
         int mm = ntt_b16_body == 1 ? ntt_modmul_get() : 0;      /* H3: the modmul variants are built for body 1 (LDS exchange) */
-        if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
-        if (ntt_b16_body == 1 && ntt_b16_var > 0 && mm < 2) {                  /* H6 variants */
-            int v = ntt_b16_var & 3, sel = (inv ? 8 : 0) | (mm ? 4 : 0) | v;
-#define LAUNCH_V(INV, MM, V) k_b16r<INV, 0, MM, V><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
-            switch (sel) {
-            case 1: LAUNCH_V(0, 0, 1); break; case 2: LAUNCH_V(0, 0, 2); break; case 3: LAUNCH_V(0, 0, 3); break;
-            case 5: LAUNCH_V(0, 1, 1); break; case 6: LAUNCH_V(0, 1, 2); break; case 7: LAUNCH_V(0, 1, 3); break;
-            case 9: LAUNCH_V(1, 0, 1); break; case 10: LAUNCH_V(1, 0, 2); break; case 11: LAUNCH_V(1, 0, 3); break;
-            case 13: LAUNCH_V(1, 1, 1); break; case 14: LAUNCH_V(1, 1, 2); break; default: LAUNCH_V(1, 1, 3); break;
-            }
-#undef LAUNCH_V
-            return;
-        }
         if (mm == 1 || mm == 2) {
             const uint64_t *ts = inv ? c->tab7s_i : c->tab7s_f, *tq = inv ? c->tab7sq_i : c->tab7sq_f;
 #define LAUNCH_M(INV, MM) k_b16r<INV, 0, MM><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, ts, tq)
@@ -1018,7 +997,7 @@ static void launch_b1r(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
     }
 }
 /* the b1 pass on 2^lb-point blocks (nb of them): mode 0 forward, 1 inverse, 2 inverse with the pointwise product (y in
- * layout ymode, Lt points per transform; goff = x's offset in the batch, for the NTT_MALL chunks).  NTT_MODMUL 2 (or
+ * layout ymode, Lt points per transform; goff = x's offset in the batch, always 0 since the NTT_MALL chunks were removed).  NTT_MODMUL 2 (or
  * NTT_B1_SHOUP) uses the Shoup kernel, NTT_MODMUL 1 the reduced-correction Barrett; NTT_B1R the register-blocked kernel
  * (Barrett modmuls only; lb > 10 only with it, make_plan sees to that). */
 static void launch_b1(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int mode, double scale, size_t goff, int lb, unsigned nb, hipStream_t s)
@@ -1052,35 +1031,20 @@ static void launch_b1(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int
     }
 }
 
-/* Phase 13a K (H2), NTT_MALL = lc: the passes whose butterflies stay inside 2^lc contiguous points (span
- * 2^(s_hi+1) <= 2^lc, or whole transforms) run chunk by chunk, all of them on one chunk before the next, so a
- * chunk that fits the 256 MB MALL stays resident between them; the passes of wider span run over the whole
- * array as before.  Same kernels, same arithmetic, so the output is bit-identical.  Returns the first chunked
- * pass (npass: only the b1 pass), or -1 when off or when the whole batch is one chunk. */
-static int mall_split(const struct plan *pl, int logn, size_t batch)
-{
-    int lc = ntt_mall_get();
-    if (lc < 11 || (batch << logn) <= ((size_t)1 << lc)) return -1;
-    int i0 = 0;
-    while (i0 < pl->npass && pl->s_hi[i0] + 1 > lc) i0++;
-    return i0;
-}
-
 /* Phase 15 N3x: the fused radix-3 form of pass 0 (the top b16 pass): the register-blocked body for a 7-stage pass in the
- * default configuration (body 1, LDS exchange, no H6 variant, NTT_MODMUL 0 / 1), the tile kernel for a shorter pass or
- * body 0.  Other configurations and NTT_MALL have no fused form (ntt_r3_fusable = 0: ntt3.c keeps the separate pass). */
+ * default configuration (body 1, NTT_MODMUL 0 / 1), the tile kernel for a shorter pass or
+ * body 0.  Other configurations have no fused form (ntt_r3_fusable = 0: ntt3.c keeps the separate pass). */
 static int r3_kernel(int stg)
 {
     if (stg < 1 || stg > 7) return 0;
     if (stg < 7 || ntt_b16_body == 0) return 2;                               /* k_b16<stg, INV, 1> */
-    if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
     int mm = ntt_modmul_get();
-    if (ntt_b16_body == 1 && !(ntt_b16_var > 0 && mm < 2) && mm < 2) return 1;   /* k_b16r<INV, 0, mm, 0, 1> */
+    if (ntt_b16_body == 1 && mm < 2) return 1;   /* k_b16r<INV, 0, mm, 1> */
     return 0;
 }
 int ntt_r3_fusable(int logk)
 {
-    if (!ntt_r3_fuse_get() || logk < NTT_LOGN_MIN || logk > NTT_LOGN_MAX || ntt_mall_get()) return 0;
+    if (!ntt_r3_fuse_get() || logk < NTT_LOGN_MIN || logk > NTT_LOGN_MAX) return 0;
     struct plan pl; make_plan(&pl, logk);
     return pl.npass >= 1 && r3_kernel(pl.s_hi[0] - pl.s_lo[0] + 1) != 0;
 }
@@ -1092,10 +1056,10 @@ static void launch_b16_r3(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, 
     if (kind == 1) {
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
         switch ((inv ? 2 : 0) | (mm == 1)) {
-        case 0: k_b16r<0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        case 1: k_b16r<0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        case 2: k_b16r<1, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        default: k_b16r<1, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 0: k_b16r<0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 1: k_b16r<0, 0, 1, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 2: k_b16r<1, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        default: k_b16r<1, 0, 1, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
         }
         return;
     }
@@ -1128,29 +1092,17 @@ void ntt_fwd(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s)
     make_plan(&pl, logn);
     struct plan_tw *pt = get_plan_tw(c, logn, &pl);
     unsigned blocks = logn >= 11 ? (unsigned)(batch << (logn - 11)) : 0;
-    int i0 = mall_split(&pl, logn, batch);
-    if (i0 < 0) {
+    {
         for (int i = 0; i < pl.npass; i++)
             launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->f[i], 0, 0.0, blocks, s);
         launch_b1(c, x, 0, 0, 0, 0, 0.0, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
-        return;
-    }
-    for (int i = 0; i < i0; i++)
-        launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->f[i], 0, 0.0, blocks, s);
-    int lc = ntt_mall_get(), lg = lc < logn ? lc : logn;
-    size_t tot = batch << logn, C = (size_t)1 << lc;
-    for (size_t off = 0; off < tot; off += C) {
-        size_t len = tot - off < C ? tot - off : C, bc = len >> lg;
-        for (int i = i0; i < pl.npass; i++)
-            launch_b16(c, x + off, lg, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->f[i], 0, 0.0, (unsigned)(bc << (lg - 11)), s);
-        launch_b1(c, x + off, 0, 0, 0, 0, 0.0, 0, pl.lb, (unsigned)(bc << (lg - pl.lb)), s);
     }
 }
 
 /* the inverse with the pointwise product fused into the b1 pass; Lt = points per transform of the y layout
  * (2^logn, or 3 2^logn for the thirds of a radix-3 transform, where batch counts the thirds) */
 /* ra != 0 (Phase 15 N3x): batch counts the 3 thirds of batch / 3 transforms of 3 2^logn points and the last pass is the
- * fused radix-3 form (ntt_r3_fusable(logn) holds: no NTT_MALL chunks) */
+ * fused radix-3 form (ntt_r3_fusable(logn) holds) */
 static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int logn, size_t batch, hipStream_t s, const ntt_r3arg *ra = 0)
 {
     struct plan pl;
@@ -1159,8 +1111,7 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
     struct plan_tw *pt = get_plan_tw(c, logn, &pl);
     unsigned blocks = logn >= 11 ? (unsigned)(batch << (logn - 11)) : 0;
     double sc = c->ninv[logn];
-    int i0 = ra ? -1 : mall_split(&pl, logn, batch);
-    if (i0 < 0) {
+    {
         launch_b1(c, x, y, Lt, ymode, y ? 2 : 1, pl.npass ? 0.0 : sc, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
         for (int i = pl.npass - 1; i >= 0; i--) {
             if (ra && i == 0) {                            /* N3x: the scale (3m)^-1 = m^-1 3^-1, the radix-3 stage's 3^-1 folded in */
@@ -1169,18 +1120,7 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
             }
             else launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
         }
-        return;
     }
-    int lc = ntt_mall_get(), lg = lc < logn ? lc : logn;
-    size_t tot = batch << logn, C = (size_t)1 << lc;
-    for (size_t off = 0; off < tot; off += C) {
-        size_t len = tot - off < C ? tot - off : C, bc = len >> lg;
-        launch_b1(c, x + off, y, Lt, ymode, y ? 2 : 1, pl.npass ? 0.0 : sc, off, pl.lb, (unsigned)(bc << (lg - pl.lb)), s);
-        for (int i = pl.npass - 1; i >= i0; i--)
-            launch_b16(c, x + off, lg, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, (unsigned)(bc << (lg - 11)), s);
-    }
-    for (int i = i0 - 1; i >= 0; i--)
-        launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
 }
 /* H2 timing: one pass of the forward / inverse alone (pass < npass - 1: b16 pass `pass`; npass - 1: the b1 pass),
  * no scale, no pointwise product */
