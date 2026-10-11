@@ -24,6 +24,9 @@
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
 set -e
 P=$1; shift
+# S46 §4.6: FI_MR_CACHE_MONITOR=disabled gave wrong exchanges silently (2097152 of 2097152 points differed, VERIFY FAILED); refuse it.
+__fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
+if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
 export MNRUN_DIR=$(cd "$(dirname "$0")" && pwd)
 # Phase 16 V: the Cray default module picks up AAC7_ROCM (default rocm/7.2.4, results/V16.md) instead of the bare "rocm" alias;
 # rocm/7.0.3 (the login default) must be unloaded first (module conflict).
