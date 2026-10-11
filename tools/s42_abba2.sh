@@ -1,10 +1,10 @@
 #!/bin/bash
 # S42 abba2.sh <tag> "<ARM_A env>" "<ARM_B env>" <gate 0|1> [digits]   -- one -N2 job (s24-16 + s24-26), 1-node ABBA concurrently on each node (srun -r idx)
 TAG=$1; ARM_A=$2; ARM_B=$3; GATE=${4:-0}; DPN=${5:-64410000000}
-OUT=$HOME/s42/$TAG; mkdir -p $OUT/log; E=$HOME/ntt-s42/ecalc; MAXR=${MAXR:-6}; MINR=${MINR:-3}
+OUT=$HOME/s42/$TAG; mkdir -p $OUT/log; E=${E:-$HOME/ntt-s42/ecalc}; MAXR=${MAXR:-6}; MINR=${MINR:-3}
 say() { echo "$(TZ=America/New_York date +%H:%M:%S) $*" >> $OUT/summary.txt; }
 rm -f $OUT/DONE
-J=$(sbatch -p PPAC_MI300A_SPX -N2 -w ppac-pl1-s24-16,ppac-pl1-s24-26 --gpus=4 -t 0:45:00 -J S42 --parsable --wrap "sleep 2700")
+J=$(sbatch -p PPAC_MI300A_SPX -N2 --exclusive -w ppac-pl1-s24-16,ppac-pl1-s24-26 --gpus-per-node=4 -t 0:45:00 -J S42 --parsable --wrap "sleep 2700")
 echo $J > $OUT/jobid; say "job $J submitted"
 trap 'scancel $J; echo "done $(date)" > $OUT/DONE' EXIT
 for i in $(seq 1 200); do st=$(squeue -j $J -h -o %T); [ "$st" = RUNNING ] && break; [ -z "$st" ] && { say "job vanished"; exit 1; }; sleep 15; done
@@ -12,7 +12,7 @@ for i in $(seq 1 200); do st=$(squeue -j $J -h -o %T); [ "$st" = RUNNING ] && br
 T0=$(date +%s); say "running on $(squeue -j $J -h -o %N)"
 run() { # idx label digits outfile(or -) env...
   local idx=$1 lab=$2 d=$3 f=$4; shift 4; [ "$f" = - ] && f=""
-  timeout 500 srun --jobid=$J -N1 -r $idx --gpus=4 -c 192 --overlap --exact bash -lc "module load rocm >/dev/null 2>&1; cd $E; env RNS_VERBOSE=1 ECALC_VERBOSE=2 $* ./ecalc $d $f" < /dev/null > $OUT/log/$lab.log 2>&1
+  timeout 500 srun --jobid=$J -N1 -r $idx --gpus-per-node=4 --overlap --cpu-bind=none bash -lc "module load rocm >/dev/null 2>&1; cd $E; env RNS_VERBOSE=1 ECALC_VERBOSE=2 $* ./ecalc $d $f" < /dev/null > $OUT/log/$lab.log 2>&1
 }
 stats() { python3 - $1 <<'P'
 import sys,math
@@ -28,9 +28,9 @@ print(n,"%.2f"%m,"%.2f"%(T*se),1 if abs(m)>T*se else 0,"deltas",",".join("%.1f"%
 P
 }
 node() { # idx
-  local idx=$1 P=$OUT/pairs$idx.tsv; : > $P
+  local idx=$1 P=$OUT/pairs$1.tsv; : > $P
   if [ $GATE = 1 ]; then
-    local f=/dev/shm/s42_gate_$idx.txt
+    local f=$OUT/gate_$idx.txt
     run $idx gate$idx 1000000000 $f $ARM_B
     local v=$(grep -a -o 'VERIFY [A-Z]*' $OUT/log/gate$idx.log | tail -1)
     local c=$(bash $E/digcmp.sh $f $HOME/ntt/ecalc/results/e_1000000000.out); rm -f $f
