@@ -73,7 +73,7 @@ struct part { const char *name; ecp_hdr h; };
 static int part_cmp(const void *a, const void *b) { const struct part *x = a, *y = b; return (int)x->h.part - (int)y->h.part; }
 
 /* the input: chunks of limbs over the parts in order */
-struct inbuf { uint64_t *l; size_t m; int part; size_t pos; int last; };   /* pos: the chunk's first limb within its part (file order) */
+struct inbuf { uint64_t *l; uint8_t *raw; size_t m; int part; size_t pos; int last; };   /* pos: the chunk's first limb within its part (file order) */
 static struct { struct part *p; int np; size_t CHL; struct inbuf b[2]; sem_t full[2], empty[2]; int err; double t_io; size_t bytes; } R;
 static void *reader(void *a)
 {
@@ -85,9 +85,10 @@ static void *reader(void *a)
         for (size_t pos = 0; pos < n || (n == 0 && pos == 0); ) {
             sem_wait(&R.empty[k]);
             struct inbuf *b = &R.b[k]; size_t m = n - pos < R.CHL ? n - pos : R.CHL;
-            double t0 = now(); size_t want = m * 8, got = 0; char *d = (char *)b->l;
-            while (fd >= 0 && got < want) { ssize_t r = pread(fd, d + got, want - got, (off_t)(ECP_HDR_BYTES + pos * 8 + got)); if (r < 0 && errno == EINTR) continue; if (r <= 0) { R.err = r < 0 ? errno : EIO; fprintf(stderr, "unpack_digits: %s: short read at limb %zu\n", R.p[i].name, pos + got / 8); break; } got += (size_t)r; }
-            if (fd >= 0) posix_fadvise(fd, (off_t)(ECP_HDR_BYTES + pos * 8), (off_t)want, POSIX_FADV_DONTNEED);
+            int v60 = h->version == ECP_VERSION60; off_t o0 = (off_t)(ECP_HDR_BYTES + (v60 ? 15 * (pos / 2) : pos * 8));   /* version 2: pos is even (the chunk is) */
+            double t0 = now(); size_t want = v60 ? (size_t)ecp60_bytes(m) : m * 8, got = 0; char *d = v60 ? (char *)b->raw : (char *)b->l;
+            while (fd >= 0 && got < want) { ssize_t r = pread(fd, d + got, want - got, o0 + (off_t)got); if (r < 0 && errno == EINTR) continue; if (r <= 0) { R.err = r < 0 ? errno : EIO; fprintf(stderr, "unpack_digits: %s: short read at byte %zu\n", R.p[i].name, (size_t)o0 + got); break; } got += (size_t)r; }
+            if (fd >= 0) posix_fadvise(fd, o0, (off_t)want, POSIX_FADV_DONTNEED);
             R.t_io += now() - t0; R.bytes += got;
             b->m = R.err ? 0 : m; b->part = i; b->pos = pos; pos += m; b->last = (i == R.np - 1 && pos >= n) || R.err;
             sem_post(&R.full[k]); k ^= 1;
@@ -156,7 +157,7 @@ int main(int argc, char **argv)
         fclose(f);
         const ecp_hdr *h = &p[i].h;
         if (h->endian != ECP_ENDIAN) die("%s was written on a host of the other byte order", p[i].name);
-        if (h->version != ECP_VERSION || h->hdr_bytes != ECP_HDR_BYTES || h->limb_bytes != 8 || h->limb_digits != 18 || h->order != 1) die("%s: an unknown format version or layout", p[i].name);
+        if ((h->version != ECP_VERSION && !(h->version == ECP_VERSION60 && h->reserved0 == ECP60_BITS)) || h->hdr_bytes != ECP_HDR_BYTES || h->limb_bytes != 8 || h->limb_digits != 18 || h->order != 1) die("%s: an unknown format version or layout", p[i].name);
         if (!h->complete) die("%s: incomplete (the run did not close it: complete = 0)", p[i].name);
     }
     qsort(p, (size_t)np, sizeof *p, part_cmp);
@@ -180,8 +181,9 @@ int main(int argc, char **argv)
     W.base = b0; W.has_last = HL->part == HL->nparts - 1;
     if (!whole && !quiet) fprintf(stderr, "unpack_digits: parts %u..%u of %u: bytes [%zu, %zu) of the ASCII file (digits [%zu, %zu))\n", H->part, HL->part, H->nparts, b0, b1, k0s, k1s);
     /* the pipeline */
-    R.p = p; R.np = np; R.CHL = (chunk_mb << 20) / 8;
-    for (int k = 0; k < 2; k++) { R.b[k].l = malloc(R.CHL * 8); W.b[k].mem = malloc(R.CHL * 18 + 64); if (!R.b[k].l || !W.b[k].mem) die("%s", "out of memory"); sem_init(&R.full[k], 0, 0); sem_init(&R.empty[k], 0, 1); sem_init(&W.full[k], 0, 0); sem_init(&W.empty[k], 0, 1); }
+    R.p = p; R.np = np; R.CHL = ((chunk_mb << 20) / 8) & ~(size_t)1;   /* (even: a chunk of the 60-bit form starts on a pair) */
+    if (R.CHL < 2) R.CHL = 2;
+    for (int k = 0; k < 2; k++) { R.b[k].l = malloc(R.CHL * 8); R.b[k].raw = malloc(R.CHL * 8); W.b[k].mem = malloc(R.CHL * 18 + 64); if (!R.b[k].l || !W.b[k].mem) die("%s", "out of memory"); sem_init(&R.full[k], 0, 0); sem_init(&R.empty[k], 0, 1); sem_init(&W.full[k], 0, 0); sem_init(&W.empty[k], 0, 1); }
     W.mode = none ? 2 : cmpname ? 1 : 0; W.fd = 1;
     if (W.mode == 0 && outname && strcmp(outname, "-")) { W.fd = open(outname, O_WRONLY | O_CREAT | O_TRUNC, 0644); if (W.fd < 0) die("cannot create %s", outname); }
     if (W.mode == 1) { W.cmp_fd = open(cmpname, O_RDONLY); if (W.cmp_fd < 0) die("cannot open %s", cmpname); if (b0 && lseek(W.cmp_fd, (off_t)b0, SEEK_SET) != (off_t)b0) die("cannot seek in %s", cmpname); posix_fadvise(W.cmp_fd, 0, 0, POSIX_FADV_SEQUENTIAL); W.cbuf = malloc(64u << 20); }
@@ -196,6 +198,7 @@ int main(int argc, char **argv)
         sem_wait(&W.empty[ko]); struct outbuf *ob = &W.b[ko];
         double ta = now();
         char *tmp = ob->mem + 2; size_t m = ib->m;
+        if (h->version == ECP_VERSION60 && m) ecp60_unpack(ib->raw, m, ib->l);
 #pragma omp parallel for schedule(static)
         for (size_t j = 0; j < m; j++) fmt18(tmp + 18 * j, ib->l[j]);
         size_t c0 = 18 * (nl - h->hi + ib->pos), c1 = c0 + 18 * m;             /* the chunk's characters; digit = char - pad */
