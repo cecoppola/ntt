@@ -69,8 +69,8 @@ if [ "${MNRUN_ARBITRARY:-0}" != 0 ]; then
 fi
 case "${MNRUN_CPUS_PER_TASK:-}" in
     "") ;;
-    auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt=(-c $((ncpu / per)));;
-    *) copt=(-c "$MNRUN_CPUS_PER_TASK");;
+    auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
+    *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;
 esac
 hosts=$(echo "$use" | awk -v per=$per '{ for (i = 0; i < per; i++) printf "%s%s", (NR > 1 || i) ? "," : "", $1 }')
 list=$(echo "$use" | paste -sd,)
