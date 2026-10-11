@@ -252,7 +252,7 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
         int Ln = newton_mn_x1_level(take, j + 1, size, size, 0), gs = Ln ? 1 << Ln : size;
         snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn);
         size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, hw = gs == gprev ? newton_recip_mid(j, take) : (size_t)-1; gprev = gs;   /* Phase 14 R1 (E7); R4: the middle product from the second round on the same group */
-        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, hw, 1, 0);   /* Q itself (no cache hold: RNS_DIST_CACHE_HOLD off) */
+        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, hw, 1, 0);   /* Q itself */
         else show_mn(PH_RECIP, w, take, j + 1, gs, 0, c1, hw, 1, 0);
         snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn);
         show_mn(PH_RECIP, w, j + 1, D_EST(j), gs, 0, newton_recip_cut(j), (size_t)-1, 1, 0);

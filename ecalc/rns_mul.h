@@ -98,7 +98,6 @@ void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_
  * doubling for the division's X Q -- and returns whether it holds; hold(0) empties them; release frees the planes) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
 void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* Phase 15 R4: both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
-int rns_dist_cache_hold(int on);
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* Phase 15 TC: ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
