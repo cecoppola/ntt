@@ -14,6 +14,7 @@
 #          OUT    output dir (~/batch1011/T1/jobA); WT the worktree with the built ecalc (~/ntt-wt/s46)
 #          DIG    total digits (10000000000); REPRO the reproducer env (DB_POOL_VMM_CHUNK_GB=0.0625 ECALC_VMM_REPRO=8)
 #          ARMS   arm names in order (base bg0 bg2); arm env: base = none, bg0 = ECALC_VMM_BG=0, bg2 = ECALC_VMM_BG=2,
+#                 mon = FI_MR_CACHE_MONITOR=userfaultfd (VMM_BG default)
 #                 (no 'nomon' arm: libfabric's MR cache without its monitors gives WRONG exchanges, S46 4.3)
 #          NODECHK=1 run T4's target_kit nodechk once on the hold's nodes at start (-> ~/batch1011/T4/jobA)
 #          RUN_MAX seconds budgeted per run for the W / D checks (240); STALL hang watchdog, s without log growth (300);
@@ -117,6 +118,7 @@ can_start() { # 0 = start a run now; 1 = stop (D reached / handoff failed)
 
 # ---- the arms, interleaved by rotation (cycle c starts with arm (c-1) mod n)
 armenv() { case $1 in base) echo "";; bg0) echo "ECALC_VMM_BG=0";; bg2) echo "ECALC_VMM_BG=2";;
+  mon) echo "FI_MR_CACHE_MONITOR=userfaultfd";;   # S46 4.6: libfabric's MR cache monitor without the mmap intercept (memhooks) of the 4.3 deadlock
   *) echo "BAD_ARM";; esac; }
 [ -s $OUT/runs.tsv ] || printf 'label\tcycle\tarm\trc\twall\tresult\tverify\tsegv\tend\thold\ttotal\tphase\n' > $OUT/runs.tsv
 healthy || { sleep 60; healthy; } || { RD_VERDICT="FAILED: hold $HOLD unhealthy at start"; exit 1; }
