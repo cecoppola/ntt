@@ -24,7 +24,6 @@ void crt_garner3(const uint64_t r[3], uint64_t out[3]);      /* P3: one coeffici
 void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T);
 /* quartered layout: buf[q] holds, for each plane d, coefficients [qQ, min((q+1)Q, n)) at
  * buf[q] + d Q; stripes of quarter q run on NUMA node q (T stripes in total, T % 4 == 0) */
-void crt_carry_par4_q(uint64_t *const buf[4], size_t Q, size_t n, uint64_t *out, int T);
 #ifdef __cplusplus
 }
 #endif

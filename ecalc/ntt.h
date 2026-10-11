@@ -36,7 +36,6 @@ extern int ntt_stg;        /* NTT_B16_STG: stages per b16 pass, 3..7 (default 7)
 extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= this (default 14) */
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
 extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
-extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
 /* Phase 13a K (switches; -1 = read the environment variable at first use):
  *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (the original), 1 reduced-correction Barrett
  *               (two-term reciprocal, one correction for data products, two for twiddles; default since Phase 13b),

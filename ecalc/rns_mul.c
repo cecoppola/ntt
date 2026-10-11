@@ -16,7 +16,6 @@
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 rns_stats rns_st;
-int rns_repack_wide = 0;          /* RNS_REPACK_WIDE=1: one full-width copy per device (slower: 1.20 vs 0.78 s at 2^31) */
 int rns_school_max = 1024;
 int rns_crt_threads = 0;
 size_t rns_batch_tile_bytes = 15000000000ULL;
@@ -24,7 +23,6 @@ int rns_gpucrt_min = 1;
 int rns_gpucrt_blocks = 912;      /* GPUCRT_MIN_BLOCKS: stripes so that M S >= this */
 static uint64_t *g_spill; static size_t g_spill_cap;
 static int g_mdev_S;
-int rns_crt_layout = 0;          /* 0: one plane per node (paper, default); 1: quartered node-local planes (no gain, RESULTS.md 38) */
 
 static int g_nd = 0, g_pool_log = 31;
 static uint64_t *g_snap[EC_NP]; static size_t g_snap_cap, g_snap_n; static const uint64_t *g_snap_b; static int g_snap_on = -1;
@@ -154,9 +152,6 @@ int rns_init(int pool_log)
     if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
-    if (getenv("MEM_PIN") && atoi(getenv("MEM_PIN"))) mem_pin_threads(g_nd);   /* WP3: optional; no CPU pass touches device memory now, and pinning costs the decimal seeds 30 % (RESULTS.md 56) */
-    if (getenv("RNS_CRT_LAYOUT")) rns_crt_layout = atoi(getenv("RNS_CRT_LAYOUT"));
-    if (getenv("RNS_REPACK_WIDE")) rns_repack_wide = atoi(getenv("RNS_REPACK_WIDE"));
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
     bi_env_base();
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
@@ -215,7 +210,7 @@ int rns_init(int pool_log)
     HIP_CHECK(hipSetDevice(0));
     db_tl("peer access done (%.2f s)", mem_now() - ti2);
     db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* Phase 14 R1 (DB_POOL_VMM): the arenas' second halves map from here, after the plane pools */
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", mem_alloc_form_name(), sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", "hipMalloc", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
@@ -410,13 +405,6 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
     double tr[EC_NP], th[EC_NP], tf[EC_NP], ti[EC_NP], td[EC_NP], tg[EC_NP] = {0, 0, 0, 0};
     size_t offb = na[0] + (np > 1 ? na[1] : 0);
     double rp0 = mem_now();
-    if (rns_repack_wide) {                     /* all threads, one device after another (RESULTS.md 27: 328 GB/s) */
-        for (int d = 0; d < g_nd; d++) {
-            par_copy(D[d].hstage, a[0], na[0]);
-            if (np > 1) par_copy(D[d].hstage + na[0], a[1], na[1]);
-            par_copy(D[d].hstage + offb, b, nb);
-        }
-    }
     double rp1 = mem_now();
 #pragma omp parallel num_threads(g_nd)
     {
@@ -428,7 +416,7 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
         HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1)); HIP_CHECK(hipEventCreate(&e2)); HIP_CHECK(hipEventCreate(&e3));
         double s0 = mem_now();
         const int act = d < ec_np;                     /* P3: device d transforms prime d; with three primes device 3 only joins the GPU CRT */
-        if (!rns_repack_wide && act) {
+        if (act) {
             node_copy(v->hstage, a[0], na[0], mem_numa_node_of_device(d), v->ncpu);
             if (np > 1) node_copy(v->hstage + na[0], a[1], na[1], mem_numa_node_of_device(d), v->ncpu);
             node_copy(v->hstage + offb, b, nb, mem_numa_node_of_device(d), v->ncpu);
@@ -465,16 +453,7 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
                 }
 #pragma omp barrier                                    /* copy done before the staging is reused */
             } else if (j == np - 1) {
-                if (rns_crt_layout) {
-                    HIP_CHECK(hipStreamSynchronize(v->s));
-#pragma omp barrier
-                    size_t Q = (nc[j] + 3) / 4;
-                    for (int q = 0; q < g_nd; q++) {
-                        size_t q0 = q * Q, q1 = (q + 1) * Q < nc[j] ? (q + 1) * Q : nc[j];
-                        if (q0 < q1) k_store<<<228 * 4, 256, 0, v->s>>>(D[q].hstage + d * Q, da + q0, q1 - q0);
-                    }
-                } else if (act)
-                    k_store<<<228 * 8, 256, 0, v->s>>>(v->hstage, da, nc[j]);
+                if (act) k_store<<<228 * 8, 256, 0, v->s>>>(v->hstage, da, nc[j]);
             } else {
                 /* first product of a pair: keep the result plane in the staging area above the operands
                  * is impossible (operands still needed): store into db? no - db holds B's transform.
@@ -498,8 +477,7 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
     else for (int j = np - 1; j >= 0; j--) {
         bi_reserve(C[j], nc[j] + 4);
         for (int d = 0; d < g_nd; d++) planes[d] = D[d].hstage + (j == np - 1 ? 0 : ((size_t)1 << g_pool_log) - nc[j]);
-        if (rns_crt_layout && j == np - 1) crt_carry_par4_q(planes, (nc[j] + 3) / 4, nc[j], C[j]->l, T);
-        else crt_carry_par4(planes, nc[j], C[j]->l, T);
+        crt_carry_par4(planes, nc[j], C[j]->l, T);
         C[j]->n = nc[j] + 4; bi_norm(C[j]);
     }
     if (!rns_mdev_gpucrt) tcrt = mem_now() - t1;

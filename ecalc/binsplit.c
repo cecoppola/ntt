@@ -239,7 +239,7 @@ static uint64_t *pool_get(int which, int r, size_t limbs)
             if (!rns_pool_grow) { ec_fatal_begin(EC_RC_OOM, "bs: region pool %d of parity %d would grow inside bs, %.2f -> %.2f GB: the regions are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", r, which, g_cap[which][r] * 8e-9, limbs * 8e-9); mem_report("GROW"); mem_report_summary(); ec_fatal_end(EC_RC_OOM); }   /* Phase 14 C3: one report per process, then _exit (the four APU threads meet it together) */
         }
         if (g_pool[which][r] && !in_arena(r, g_pool[which][r])) { if (mem_dev_of(g_pool[which][r]) >= 0) mem_dev_free(g_pool[which][r]); else mem_hreg_free(g_pool[which][r]); }
-        size_t cap = limbs + limbs / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+        size_t cap = limbs + limbs / 8 + 4096;
         int nd = bs_regions_on_device ? mem_device_count() : 0;
         g_pool[which][r] = (uint64_t *)(nd > 0 ? mem_dev_alloc(r % nd, cap * 8) : mem_hreg_alloc(cap * 8));
         g_cap[which][r] = cap;
@@ -740,7 +740,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
     struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
     size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0;
     for (int r = 0; r < NR; r++) {
-        size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+        size_t cap = need[r] + need[r] / 8 + 4096;
         cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;
         size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
         arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS: whole chunks under BS_ARENA_ROOM */
@@ -810,7 +810,7 @@ static void binsplit_layout_only(const char *spec)
         size_t top = 0; if (g > 1) { size_t nq_s = (L.nq + g - 1) / g; tree_need_dev(nq_s, g, rns_pool_log() > 0 ? rns_pool_log() : 31, &top); }
         size_t want = L.need_dev > L.tree_dev ? L.need_dev : L.tree_dev, arena = 0, bs2 = 0;
         for (int r = 0; r < NR; r++) {
-            size_t cap = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+            size_t cap = need[r] + need[r] / 8 + 4096;
             cap = (cap * 8 + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20) / 8;   /* arena_get's rounding */
             size_t base = 2 * cap * 8, extra = want > base ? want - base : 0; extra = (extra + ((size_t)2 << 20) - 1) / ((size_t)2 << 20) * ((size_t)2 << 20);
             arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS */
@@ -858,25 +858,18 @@ void binsplit_pregrow(unsigned long N)
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
     bs_copy_probe = getenv("ECALC_COPY_PROBE") ? atoi(getenv("ECALC_COPY_PROBE")) : 0;
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
-    size_t total0 = seed_limbs(N, 0, 0), per_region = total0 / NR + total0 / (NR * (bs_region_slack ? bs_region_slack : 4)) + (1 << 20);   /* slack: 1/4 (paper-era) or 1/16 (BS_REGION_SLACK=16; the levels stay within a few percent of level 0) */
+    size_t total0 = seed_limbs(N, 0, 0);
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
     int nhp = bs_regions_on_device && total0 > ((size_t)1 << 28) ? (bs_dev_mdev ? 1 : 2) : 0;   /* host pools for the mdev levels (one, for A's buffer, when the top levels run on device), first-touched now */
     double t_pg = mem_now();
-    size_t need[NR]; int exact = !(getenv("BS_REGION_FLAT") && atoi(getenv("BS_REGION_FLAT")));   /* C4: regions from the simulated layout (BS_REGION_FLAT=1: the flat paper-era sizing) */
-    if (exact) region_need(N, need); else for (int r = 0; r < NR; r++) need[r] = per_region;
-    /* the arena also serves the dm phase as the block pool (the regions are donated to it).  ECALC_DM_POOL_K=k makes it
-     * at least k x n_Q limbs per APU (n_Q = d/18; the peak of live device numbers in dm is ~6.8 n_Q at 4e10, k = 8 leaves
-     * the dm phase without any hipMalloc): measured at 4e10 it moves the mapping from dm to init (init +4.4 s, dm -2 s,
-     * recip -2 s) for the same wall clock within the run-to-run spread (93.6 vs 92.5 s, results/A-mem.md), so the
-     * default is the bs need alone (k = 0: init -2.2 s against main).  Node 0 only while the dm is not distributed;
+    size_t need[NR]; region_need(N, need);   /* C4: regions from the simulated layout (the flat paper-era sizing BS_REGION_FLAT removed 2026-10-11) */
+    /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
+     * (ECALC_DM_POOL_K, a k x n_Q floor, was removed 2026-10-11: same wall clock within the spread, results/A-mem.md).
      * ECALC_ARENA_GB sets the arena per APU outright. */
-    { double k = getenv("ECALC_DM_POOL_K") ? atof(getenv("ECALC_DM_POOL_K")) : 0.0, dig = lgamma((double)N + 1.0) / log(10.0) - 50.0;
-      int sz = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (sz < 1) sz = 1;
-      if (sz > 1 && getenv("COMM_RANK") && atoi(getenv("COMM_RANK")) != 0) k = 0;   /* until the division is distributed (A-div) only node 0 runs dm: the others keep the bs need */
-      size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : (size_t)(k * (dig / 18.0) / NR / 2);   /* node 0 runs the whole dm at any size for now */
+    { size_t half = getenv("ECALC_ARENA_GB") ? (size_t)(atof(getenv("ECALC_ARENA_GB")) * 1e9 / 2) / 8 : 0;
       if (bs_regions_on_device && half) for (int r = 0; r < NR; r++) if (half > need[r] + need[r] / 8) need[r] = half - half / 9 - 4096; }
-    if (bs_verbose) printf("bs: regions %s: %.2f / %.2f / %.2f / %.2f GB (+1/8; flat rule %.2f GB)%s\n", exact ? "from the level layouts" : "flat", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, per_region * 8e-9, bs_regions_on_device ? ", one arena per device for both parities" : "");
+    if (bs_verbose) printf("bs: regions from the level layouts: %.2f / %.2f / %.2f / %.2f GB (+1/8)%s\n", need[0] * 8e-9, need[1] * 8e-9, need[2] * 8e-9, need[3] * 8e-9, bs_regions_on_device ? ", one arena per device for both parities" : "");
     if (bs_regions_on_device && mem_device_count() > 0 && !g_arena[0].base && !g_pool[0][0]) {
         double ta = mem_now();
         /* Phase 11 M (decision 5): the arena also holds the dm phase (and, at size > 1, the tree) -- its need per device beyond
@@ -890,7 +883,7 @@ void binsplit_pregrow(unsigned long N)
         }
         size_t extra[NR], hole[NR], cap[NR]; int nd = mem_device_count(), per_dev = (NR + nd - 1) / nd;   /* regions per device (one, on the four-APU node) */
         for (int r = 0; r < NR; r++) {
-            cap[r] = need[r] + need[r] / (bs_region_slack ? 2 * bs_region_slack : 8) + 4096;
+            cap[r] = need[r] + need[r] / 8 + 4096;
             size_t base = 2 * cap[r] * 8, want = dml.need_dev > dml.tree_dev ? dml.need_dev : dml.tree_dev;   /* per device; a region's arena is its share */
             want = (want + per_dev - 1) / per_dev; hole[r] = tail_on ? dml.hole / per_dev : 0;
             extra[r] = want > base ? want - base : 0;             /* the hole is a policy over the arena's last bytes, not bytes added: at the dm phase the
@@ -1856,7 +1849,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 unsigned long bs_a0 = 1, bs_b1 = 0;                                 /* M2: this process's term range [a0, b1) (b1 = 0: all of [1, N+1)) */
 void (*bs_after_seeds_hook)(void *) = 0; void *bs_hook_arg = 0;   /* Phase 8: called once the seeds are in the regions */
 int bs_keep_dev = 0; dbig bs_Pd, bs_Qd;                             /* Phase 8: the top level's P, Q left on device */
-int bs_region_slack = 0;                             /* BS_REGION_SLACK: 4 (default) or 16 */
 int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */
 void binsplit_free_pools(void)
 {

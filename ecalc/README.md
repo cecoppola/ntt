@@ -235,9 +235,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_SEED_ORDER` | *Phase 12 (I)*: `overlap` (the seeds alongside the plane pools' mapping) / `first` (regions, seeds, then the planes) / `after` (the seeds synchronous in bs) (overlap) |
 | `ECALC_COPY_PROBE` | *Phase 12 (R), debug*: times the odd-node copy at a level transition against the next level (0) |
 | `ECALC_B_SNAPSHOT` | *Phase 12 (R), debug*: in the striped grpB tier every device snapshots the shared operand B right before reading it; the snapshots are compared after the level (0) |
-| `ECALC_DM_POOL_K` | the arena sized for the dm phase at init as k × the digit limbs per device, `binsplit_pregrow` (0 = off) |
-| `ECALC_POOL_GROW_GB` | GB of **dbig block pool** (`db_pregrow`, not the plane pool) grown per device in the background thread during bs; off: hipMalloc there stalls the GPU levels (0) |
-| `ECALC_STOP_AFTER_BS` | exit after bs with its line (unset) |
 | `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default** — record timing runs, the user's decision of 2026-09-27; `ECALC_CHECKPOINT=1` makes it `=2`; `ECALC_CKPT_TOP` set overrides both; `=1` writes it at any size). Hidden under the reciprocal and the division only where the disk writes at ≳ 1 GB/s: at 0.31 GB/s (aac6's slower path) the 35.6 GB set costs 113 s that the division waits for; Phase 13 N: the writer is background at every size, P is released before S = P + Q, Q only after the output stage when still needed; `=2` = budgeted: a set the measured disk rate cannot finish within `ECALC_CKPT_TOP_SLACK` of a release is dropped, never waited for (results/N13.md) |
 | `ECALC_CHECKPOINT` | *Phase 15 (the user's decision of 2026-09-27)*: `1` = development and testing: the budgeted top set (`ECALC_CKPT_TOP=2`) unless `ECALC_CKPT_TOP` is set; the headline / record runs leave it unset (0) |
 | `ECALC_CKPT_TOP_SLACK` | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) |
@@ -292,12 +289,9 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_NP_AUTO_MIN` | *Phase 15 (MPB), off by default*: under `ECALC_NP=auto`, `mn_core` / `dist_core` (and the B form they choose) switch a product to four primes when **min(pa, pb)** exceeds the switch-over, instead of pa + pb: a coefficient of the product sums at most min(pa, pb) terms, each ≤ (10¹⁸ − 1)², and these tiers form the whole product (no wrap; the added operand enters after the CRT; the cuts skip whole pieces), so three primes are exact up to min = 58 424 467 928 (crt.c `ec_np_terms`, modarith.h). `MN_PLAN_ONLY` / `BS_LAYOUT_ONLY` and `mn_model.py` (the same variable) follow it; the grids and pool 0 are unchanged. At 5.1 × 10¹³ on 576: −6.7 s (330.7 → 324.0 s without the write, modelled; results/MPB15.md). Without `ECALC_NP=auto`: no effect (0) |
 | `LIMB_BASE` | 10 = decimal limbs of 10¹⁸ (no 10dP, no radix conversion); 2 = the paper's 64-bit limbs with todec (10 in `ecalc`; the tests default to 2) |
 | `POOL_LOG` | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) |
-| `BI_HUGE` | transparent huge pages for the host bigints; measured harmful on this node (THP defrag stalls) (0) |
-| `MEM_PIN` | pin the OpenMP threads to their NUMA node; costs the decimal seeds 30 % (0) |
 | `MEM_REPORT_DEVS` | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table; *B7ACCT*: at size > 1 each row also prints the terms outside `in use` -- the layout's v-slots (`binsplit_vslot_bytes`), the v-slots hipMalloc'd now (`comm_layered_vbytes`), the comm_ofi pool -- and driver used minus in use + v-slots now + comm pool (the runtime) (unset) |
 | `MEM_NO_DEV_MEMSET` | *test*: skip the hipMemset that maps a device pool's pages at allocation (unset) |
 | `MEM_DPOOL_FILL` | *test*: fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0) |
-| `MEM_ALLOC` | *Phase 12 (I)*: the form of every large device allocation — `hipmalloc` / `fine` / `uncached` / `managed` / `host` / `mmap` (hipmalloc) |
 | `MEM_COPY_NOWAIT` | *Phase 12 (R), test*: the pre-fix `mem_dev_copy_on` (no wait on the caller's stream) for the witness runs (0) |
 | `MEM_COPY_WAIT_POLL` | *Phase 14 (A1), diagnostic*: `mem_dev_copy_wait` (the seed thread's DMA wait) polls `hipStreamQuery` instead of `hipStreamSynchronize` and reports a copy still incomplete after `MEM_COPY_WAIT_REPORT_S` (60) seconds (0) |
 
@@ -307,11 +301,8 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 |---|---|
 | `NTT_B16_STG` | the tiled kernel's stage split (7) |
 | `NTT_B16_BODY` | the register-blocked transform body (Phase 9 N-kernel, bit-identical) (1) |
-| `NTT_B16_XCHG` | the register-blocked body's last exchange by `ds_swizzle` instead of LDS (Phase 9 B4) (0) |
 | `PW_FUSE` | the stage from which the pointwise product is fused into the transform (14) |
 | `RNS_R3` | 3·2ᵏ transform lengths (WP8) (1 when the prime set has the radix-3 roots) |
-| `RNS_CRT_LAYOUT` | 0 = one plane per node (the paper's); 1 = quartered node-local planes (no gain) (0) |
-| `RNS_REPACK_WIDE` | one full-width copy per device in the repack (slower) (0) |
 | `RNS_BATCH_LOCAL` | the locality-aware batch tier (1) |
 | `RNS_BATCH_LOCAL_MIN` | below this many products the striped batch path is used (16) |
 | `RNS_BATCH_PAIR` | products 2i, 2i+1 sharing B (the tree's P₁Q₂ + P₂, Q₁Q₂) transform B once (Phase 9 B1) (1) |
@@ -374,8 +365,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `BS_DEV_MDEV` | the top levels as device numbers through the distributed tier (§64) (1) |
 | `BS_MDEV_LOGL` | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30) |
 | `BS_BALANCE_N` | levels with at most this many nodes are balanced over the four regions; 0 = never (16) |
-| `BS_REGION_FLAT` | the flat paper-era region sizing instead of the simulated layout (C4) (0) |
-| `BS_REGION_SLACK` | the flat sizing's slack, 4 or 16 (4) |
 | `BS_CKPT_DIR` | the checkpoint directory: leaf sets of the level loop, the tree sets at size > 1, the top-level set (unset = none) |
 | `BS_CKPT_EVERY` | a leaf set every this many levels (4) |
 | `BS_CKPT_MIN_LEVEL` | leaf sets from this level on, or once a level's pool exceeds 64 GiB (16) |
@@ -431,7 +420,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MNRUN_SHOW_IMPL` | *Phase 14 (N4), test*: `mnrun.sh` prints the SHMEM implementation it chose; `only` prints it and exits without launching (unset) |
 | `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (default: 1 on OSHMEM, or whenever the library does not provide `SHMEM_THREAD_MULTIPLE`; 0 on Cray OpenSHMEMX / SOS, comm_shmem.c:282-289) |
 | `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory: 1 on an implementation whose `shmem_malloc` is device memory or SOS with the external-heap patch, 2 managed (0; *Phase 12 (S)*) |
-| `COMM_SHMEM_FENCE` | Phase 11's form of `COMM_SHMEM_ORDER=fence` (0) |
 | `COMM_SHMEM_ORDER` | *Phase 12 (S)*: how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (OSHMEM 4.1) (putsig on 1.5 headers, else quiet) |
 | `COMM_SHMEM_KEEP_STAGING` | *Phase 12 (S)*: keep the staging copies across exchanges instead of releasing them per exchange (0) |
 | `COMM_SHMEM_THREAD` | *Phase 12 (S)*: always post the puts from the helper thread (0) |
@@ -504,7 +492,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 
 | switch | meaning (default) |
 |---|---|
-| `COMM_OFI_DC` | *S29, X3, REJECTED*: 0 = transmit-complete writes instead of delivery-complete; **unsafe** (the signal may pass the data), a throughput upper bound only, never a setting (1) |
 | `COMM_OFI_DEV` | *test*: the APU a communicator id stands for in the single-process `tests/lay_host` build (id % 4) |
 | `COMM_SHMEM_POOL_NEED_MB` | *internal*: exported by `binsplit.c` (the sizing pass) so that `comm_shmem`'s pool-full error can print the modelled need; do not set |
 | `DC_STATS` | *S21, print only*: the output stage's fine timers (setup, pinned fetch buffer, writer) (0) |

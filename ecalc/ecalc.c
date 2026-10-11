@@ -66,12 +66,9 @@ static void pow10_big(bigint *T, unsigned long d)
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
 static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */
-struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t, t_grow; size_t grow; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
+struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
-    t0 = mem_now();
-    if (b->grow) for (int dv = 0; dv < 4; dv++) db_pregrow(dv, b->grow);   /* the dm phase's block pool beyond the donated regions, allocated while the GPUs run the levels */
-    b->t_grow = mem_now() - t0;
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
 
@@ -253,7 +250,7 @@ static int out_stage(struct out_ctx *c)
     int bad1 = tier1_res_pq(c->N, c->d, c->Pres, c->Qres, &none, &none, Pg, Qg, Xres, c->Rres, c->verbose >= 2);
     double t_t1 = mem_now() - t;
     node_pfx(c); printf("T1    %8.2f s   %s%s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes", c->pqb->started ? (multi ? " (P, Q recurrence over this node's terms, overlapped with bs; joined over the nodes)" : " (P, Q recurrence overlapped with bs)") : "");
-    if (c->pqb->started) { node_pfx(c); printf("      overlapped with bs: P, Q mod q recurrence %.2f s, block pool pregrown by %.0f GB in %.2f s\n", c->pqb->t, 4.0 * c->pqb->grow / 1e9, c->pqb->t_grow); }
+    if (c->pqb->started) { node_pfx(c); printf("      overlapped with bs: P, Q mod q recurrence %.2f s\n", c->pqb->t); }
     if (!multi) RESULT("T1", "s", t_t1);
     node_pfx(c); printf("      VmRSS %.1f GB before dc\n", mem_vmrss() / 1e9);
 
@@ -492,7 +489,6 @@ int main(int argc, char **argv)
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
     int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
-    if (getenv("BS_REGION_SLACK")) bs_region_slack = atoi(getenv("BS_REGION_SLACK"));
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
     { int stg = getenv("ECALC_STAGING") ? atoi(getenv("ECALC_STAGING")) : 1;   /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (ECALC_STAGING=2: the pre-B2 seed-sized staging) */
@@ -566,8 +562,7 @@ int main(int argc, char **argv)
       if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
-    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1;
-               pqb.grow = getenv("ECALC_POOL_GROW_GB") ? (size_t)(atof(getenv("ECALC_POOL_GROW_GB")) * 1e9) : 0; }   /* per device; off: hipMalloc in the background stalls the GPU levels (RESULTS.md 70) */
+    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }   /* (ECALC_POOL_GROW_GB pregrow removed 2026-10-11: hipMalloc in the background stalled the GPU levels, RESULTS.md 70) */
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
@@ -665,7 +660,6 @@ int main(int argc, char **argv)
         printf("mn: node 0 combined %d ranges in %.2f s: P %zu limbs, Q %zu limbs\n", mn_size_, mem_now() - tg, P.n, Q.n);
         t_bs += mem_now() - tg;
     }
-    if (getenv("ECALC_STOP_AFTER_BS")) { printf("bs    %8.2f s   (seeds %.1f school %.1f batch %.1f mdev %.1f)\n", t_bs, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev); return 0; }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
     if (mn_size_ == 1 && ckpt_top && bi_decimal && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
         if (!bs_ckpt_dir) bs_ckpt_dir = mn_out_ckpt_default(outfile);

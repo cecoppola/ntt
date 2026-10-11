@@ -23,7 +23,6 @@ int ntt_stg = 7;
 int ntt_pw_fuse = 14;
 int ntt_b16_body = 1;      /* Phase 9 N-kernel: the register-blocked body (bit-identical, RESULTS 43) is the default now */
 int ntt_b1_shoup = 0;      /* NTT_B1_SHOUP: 1 = Shoup integer modmul in the b1 pass (Phase 5 item 1) */      /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body for 7-stage passes, 2 = 1 + radix-4 stages */
-int ntt_b16_xchg = -1;     /* NTT_B16_XCHG: 1 = the register-blocked body's B<->C exchange by ds_swizzle instead of LDS (Phase 9 B4); -1 = from the environment, default 0 */
 int ntt_modmul = -1;       /* NTT_MODMUL (Phase 13a K, H3): 0 FP64 Barrett, 1 reduced-correction Barrett (default since Phase 13b: +5-12 %, bit-identical), 2 Shoup; -1 = from the environment */
 int ntt_b16_var = -1;      /* NTT_B16_VAR (Phase 13a K, H6): k_b16r variant bits (1 unpadded LDS + global twiddle table, 2 block order); 0 default */
 int ntt_mall = -1;         /* NTT_MALL (Phase 13a K, H2): log2 of a MALL-resident chunk (points); 0 = off (default); -1 = from the environment */
@@ -282,21 +281,6 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
  *   group C  h = 1            rows 8 tt + i
  * Same butterflies, folds and twiddle products as k_b16, so the output is
  * bit-identical.  INV runs the groups in reverse (DIT). */
-/* Phase 9 B4: the B <-> C exchange is between threads tt and tt ^ 1, i.e. lanes l and l ^ 16 of one
- * wavefront (lane = 16 tt + bb), and each thread keeps half of its 8 rows: 4 values cross per thread.
- * SW = 1 does it with ds_swizzle (xor 16 within 32 lanes, RESULTS.md 49: 2x ds_bpermute, 1.6x an LDS
- * round trip) and no barrier; the values are the same, so the output stays bit-identical.
- * Forward, o = tt & 1: row 16 j + 2 i + o (B, register i) -> row 16 j + 8 o + c (C, register c):
- *   send[i] = o ? v[i] : v[4 + i];  C[2 i] = o ? recv[i] : v[i];  C[2 i + 1] = o ? v[4 + i] : recv[i]
- * Inverse (C -> B):
- *   send[i] = o ? v[2 i] : v[2 i + 1];  B[i] = o ? recv[i] : v[2 i];  B[4 + i] = o ? v[2 i + 1] : recv[i] */
-__device__ static inline uint64_t xchg16(uint64_t v)
-{
-    uint32_t lo = (uint32_t)v, hi = (uint32_t)(v >> 32);
-    lo = (uint32_t)__builtin_amdgcn_ds_swizzle((int)lo, 0x401F);     /* bitmask mode: and 0x1f, or 0, xor 0x10 */
-    hi = (uint32_t)__builtin_amdgcn_ds_swizzle((int)hi, 0x401F);
-    return ((uint64_t)hi << 32) | lo;
-}
 /* Phase 13a K (H3): MM selects the modmul of the butterflies.  0: the FP64 Barrett (ec_mm; the original).
  * 1: the reduced-correction Barrett (default since Phase 13b, mm_lazy for the data, mm_canon for the twiddles), data
  * products lazy in [0, 2p).  2: Shoup integer products: v tab[r] (tabS/tabSq: the 128-entry table as integers
@@ -311,7 +295,7 @@ __device__ static inline uint64_t xchg16(uint64_t v)
 /* Phase 15 N3x, R3 = 1 (with R4 = SW = VAR = 0, MM 0 / 1): transforms of 3 2^logn points, the same tile position in the
  * three thirds per block, as k_b16's R3 form: forward, the radix-3 stage on the loaded triples then the body per third;
  * inverse (the last pass), the body per third kept in registers, then the radix-3 stage and one store. */
-template <int INV, int R4, int SW, int MM, int VAR = 0, int R3 = 0>
+template <int INV, int R4, int MM, int VAR = 0, int R3 = 0>
 __global__ __launch_bounds__(THREADS)
 void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const double *thi,
             const double *tabT, double scale, const uint64_t *tabS, const uint64_t *tabSq, ntt_r3arg ra = ntt_r3arg())
@@ -445,32 +429,15 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
         if (R4) { STAGE4(6, 2, ROW_A); STAGE(4, 0, ROW_A); } else { STAGE(6, 2, ROW_A); STAGE(5, 1, ROW_A); STAGE(4, 0, ROW_A); }
         TO_SH(ROW_A); __syncthreads(); FROM_SH(ROW_B);
         if (R4) { STAGE4(3, 2, ROW_B); STAGE(1, 0, ROW_B); } else { STAGE(3, 2, ROW_B); STAGE(2, 1, ROW_B); STAGE(1, 0, ROW_B); }
-        if (SW) {
-            uint64_t r[4], nv[8];
-#pragma unroll
-            for (i = 0; i < 4; i++) r[i] = xchg16(odd ? v[i] : v[4 + i]);
-#pragma unroll
-            for (i = 0; i < 4; i++) { nv[2 * i] = odd ? r[i] : v[i]; nv[2 * i + 1] = odd ? v[4 + i] : r[i]; }
-#pragma unroll
-            for (i = 0; i < 8; i++) v[i] = nv[i];
-        } else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_C); }
+        __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_C);
         STAGE(0, 0, ROW_C);
         STORE_G(ROW_C);
     } else {
         LOAD_G(ROW_C);
         STAGE(0, 0, ROW_C);
-        if (SW) {
-            uint64_t r[4], nv[8];
-#pragma unroll
-            for (i = 0; i < 4; i++) r[i] = xchg16(odd ? v[2 * i] : v[2 * i + 1]);
-#pragma unroll
-            for (i = 0; i < 4; i++) { nv[i] = odd ? r[i] : v[2 * i]; nv[4 + i] = odd ? v[2 * i + 1] : r[i]; }
-#pragma unroll
-            for (i = 0; i < 8; i++) v[i] = nv[i];
-        } else { TO_SH(ROW_C); __syncthreads(); FROM_SH(ROW_B); }
+        TO_SH(ROW_C); __syncthreads(); FROM_SH(ROW_B);
         if (R4) { STAGE(1, 0, ROW_B); STAGE4(3, 2, ROW_B); } else { STAGE(1, 0, ROW_B); STAGE(2, 1, ROW_B); STAGE(3, 2, ROW_B); }
-        if (SW) { TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
-        else { __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A); }
+        __syncthreads(); TO_SH(ROW_B); __syncthreads(); FROM_SH(ROW_A);
         if (R4) { STAGE(4, 0, ROW_A); STAGE4(6, 2, ROW_A); } else { STAGE(4, 0, ROW_A); STAGE(5, 1, ROW_A); STAGE(6, 2, ROW_A); }
         STORE_G(ROW_A);
     }
@@ -1001,12 +968,11 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
 {
     if (stg == 7 && ntt_b16_body >= 1) {
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
-        if (ntt_b16_xchg < 0) ntt_b16_xchg = getenv("NTT_B16_XCHG") ? atoi(getenv("NTT_B16_XCHG")) : 0;
         int mm = ntt_b16_body == 1 ? ntt_modmul_get() : 0;      /* H3: the modmul variants are built for body 1 (LDS exchange) */
         if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
-        if (ntt_b16_body == 1 && ntt_b16_var > 0 && mm < 2 && !ntt_b16_xchg) {                  /* H6 variants */
+        if (ntt_b16_body == 1 && ntt_b16_var > 0 && mm < 2) {                  /* H6 variants */
             int v = ntt_b16_var & 3, sel = (inv ? 8 : 0) | (mm ? 4 : 0) | v;
-#define LAUNCH_V(INV, MM, V) k_b16r<INV, 0, 0, MM, V><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
+#define LAUNCH_V(INV, MM, V) k_b16r<INV, 0, MM, V><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
             switch (sel) {
             case 1: LAUNCH_V(0, 0, 1); break; case 2: LAUNCH_V(0, 0, 2); break; case 3: LAUNCH_V(0, 0, 3); break;
             case 5: LAUNCH_V(0, 1, 1); break; case 6: LAUNCH_V(0, 1, 2); break; case 7: LAUNCH_V(0, 1, 3); break;
@@ -1018,18 +984,17 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
         }
         if (mm == 1 || mm == 2) {
             const uint64_t *ts = inv ? c->tab7s_i : c->tab7s_f, *tq = inv ? c->tab7sq_i : c->tab7sq_f;
-#define LAUNCH_M(INV, MM) k_b16r<INV, 0, 0, MM><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, ts, tq)
+#define LAUNCH_M(INV, MM) k_b16r<INV, 0, MM><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, ts, tq)
             switch ((inv ? 2 : 0) | (mm == 2)) {
             case 0: LAUNCH_M(0, 1); break; case 1: LAUNCH_M(0, 2); break; case 2: LAUNCH_M(1, 1); break; default: LAUNCH_M(1, 2); break;
             }
 #undef LAUNCH_M
             return;
         }
-#define LAUNCH_R(INV, R4, SW) k_b16r<INV, R4, SW, 0><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
-        int sel = (inv ? 4 : 0) | (ntt_b16_body == 2 ? 2 : 0) | (ntt_b16_xchg ? 1 : 0);
+#define LAUNCH_R(INV, R4) k_b16r<INV, R4, 0><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0)
+        int sel = (inv ? 2 : 0) | (ntt_b16_body == 2 ? 1 : 0);
         switch (sel) {
-        case 0: LAUNCH_R(0, 0, 0); break; case 1: LAUNCH_R(0, 0, 1); break; case 2: LAUNCH_R(0, 1, 0); break; case 3: LAUNCH_R(0, 1, 1); break;
-        case 4: LAUNCH_R(1, 0, 0); break; case 5: LAUNCH_R(1, 0, 1); break; case 6: LAUNCH_R(1, 1, 0); break; default: LAUNCH_R(1, 1, 1); break;
+        case 0: LAUNCH_R(0, 0); break; case 1: LAUNCH_R(0, 1); break; case 2: LAUNCH_R(1, 0); break; default: LAUNCH_R(1, 1); break;
         }
 #undef LAUNCH_R
         return;
@@ -1108,10 +1073,9 @@ static int r3_kernel(int stg)
 {
     if (stg < 1 || stg > 7) return 0;
     if (stg < 7 || ntt_b16_body == 0) return 2;                               /* k_b16<stg, INV, 1> */
-    if (ntt_b16_xchg < 0) ntt_b16_xchg = getenv("NTT_B16_XCHG") ? atoi(getenv("NTT_B16_XCHG")) : 0;
     if (ntt_b16_var < 0) ntt_b16_var = env_int("NTT_B16_VAR", 0);
     int mm = ntt_modmul_get();
-    if (ntt_b16_body == 1 && !ntt_b16_xchg && !(ntt_b16_var > 0 && mm < 2) && mm < 2) return 1;   /* k_b16r<INV, 0, 0, mm, 0, 1> */
+    if (ntt_b16_body == 1 && !(ntt_b16_var > 0 && mm < 2) && mm < 2) return 1;   /* k_b16r<INV, 0, mm, 0, 1> */
     return 0;
 }
 int ntt_r3_fusable(int logk)
@@ -1128,10 +1092,10 @@ static void launch_b16_r3(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, 
     if (kind == 1) {
         const double *tb = inv ? c->tabT_i[7] : c->tabT_f[7];
         switch ((inv ? 2 : 0) | (mm == 1)) {
-        case 0: k_b16r<0, 0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        case 1: k_b16r<0, 0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        case 2: k_b16r<1, 0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
-        default: k_b16r<1, 0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 0: k_b16r<0, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 1: k_b16r<0, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        case 2: k_b16r<1, 0, 0, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
+        default: k_b16r<1, 0, 1, 0, 1><<<blocks, THREADS, 0, s>>>(x, logn, s_lo, c->m, tw->tlo, tw->thi, tb, scale, 0, 0, *ra); break;
         }
         return;
     }

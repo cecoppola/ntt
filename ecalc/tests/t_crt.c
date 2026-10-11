@@ -52,30 +52,16 @@ static void crt_gmp(mpz_t v, uint64_t *const res[4], size_t n)
     }
     mpz_clears(c, t, NULL);
 }
-static void to_quartered(uint64_t *const res[4], size_t n, uint64_t *q[4], size_t Q)
+static int check(const char *what, uint64_t *const res[4], size_t n, int T)
 {
-    for (int qq = 0; qq < 4; qq++) {
-        size_t q0 = qq * Q, q1 = (qq + 1) * Q < n ? (qq + 1) * Q : n; if (q0 > n) q0 = n;
-        for (int d = 0; d < 4; d++) memcpy(q[qq] + d * Q, res[d] + q0, (q1 - q0) * 8);
-    }
-}
-static int check(const char *what, uint64_t *const res[4], size_t n, int T, int layout)
-{
-    if (layout && bi_decimal) return 1;                   /* the quartered layout is binary-only */
     uint64_t *out = (uint64_t *)malloc((n + 4) * 8);
     mpz_t v, w; mpz_inits(v, w, NULL);
     for (size_t i = 0; i < n + 4; i++) out[i] = 0xDEADBEEFULL;
-    if (layout) {
-        size_t Q = (n + 3) / 4; uint64_t *q[4];
-        for (int i = 0; i < 4; i++) q[i] = (uint64_t *)malloc(4 * Q * 8 + 8);
-        to_quartered(res, n, q, Q);
-        crt_carry_par4_q(q, Q, n, out, T);
-        for (int i = 0; i < 4; i++) free(q[i]);
-    } else crt_carry_par4(res, n, out, T);
+    crt_carry_par4(res, n, out, T);
     crt_gmp(v, res, n);
     mpz_from_limbs(w, out, n + 4);
     int ok = mpz_cmp(v, w) == 0;
-    VERIFY(ok, "%s n=%zu T=%d layout %d", what, n, T, layout);
+    VERIFY(ok, "%s n=%zu T=%d", what, n, T);
     mpz_clears(v, w, NULL); free(out);
     return ok;
 }
@@ -140,21 +126,21 @@ int main(int argc, char **argv)
         for (int i = 0; i < 4; i++) res[i] = (uint64_t *)malloc(n * 8);
         static const int Ts[] = {1, 7, 96, 192};
         for (int i = 0; i < 4; i++) for (size_t k = 0; k < n; k++) res[i][k] = rng_next(&rng) % ec_P[i];
-        for (int ti = 0; ti < 4; ti++) for (int lay = 0; lay < 2; lay++) check("random", res, n, Ts[ti], lay);
-        check("random", res, 5, 192, 0); check("random", res, 5, 192, 1);
-        check("random", res, 1, 1, 0);
+        for (int ti = 0; ti < 4; ti++) check("random", res, n, Ts[ti]);
+        check("random", res, 5, 192);
+        check("random", res, 1, 1);
         for (int i = 0; i < 4; i++) for (size_t k = 0; k < n; k++) res[i][k] = ec_P[i] - 1;
-        for (int ti = 0; ti < 4; ti++) for (int lay = 0; lay < 2; lay++) check("all M-1", res, n, Ts[ti], lay);
+        for (int ti = 0; ti < 4; ti++) check("all M-1", res, n, Ts[ti]);
         for (int i = 0; i < 4; i++) memset(res[i], 0, n * 8);
         size_t kb = n * 5 / 96;                      /* first limb of stripe 5 at T = 96 */
         for (int i = 0; i < 4; i++) res[i][kb - 1] = res[i][kb] = ec_P[i] - 1;
-        for (int lay = 0; lay < 2; lay++) { check("boundary M-1", res, n, 96, lay); check("boundary M-1", res, n, 192, lay); }
+        check("boundary M-1", res, n, 96); check("boundary M-1", res, n, 192);
         for (int i = 0; i < 4; i++) free(res[i]);
     }
     /* 3. throughput */
     if (!bi_decimal) {
-        size_t n = (size_t)1 << LOG, Q = n / 4;
-        uint64_t *res[4], *q[4], *out = (uint64_t *)malloc((n + 4) * 8);
+        size_t n = (size_t)1 << LOG;
+        uint64_t *res[4], *out = (uint64_t *)malloc((n + 4) * 8);
         printf("-- throughput, n = 2^%d, best of 3 (s)\n", LOG);
         static const int Ts[] = {48, 96, 192};
         /* (a) stripe-local first touch (static schedule, same as the CRT loop at T = 192) */
@@ -186,22 +172,6 @@ int main(int argc, char **argv)
             printf("   (b) one plane per node       T=%3d  %.3f s  %.2f Gcoef/s\n", Ts[ti], best, n / best / 1e9);
             if (Ts[ti] == 192) harness_result("crt_2e30_plane_per_node_T192", "s", best);
         }
-        /* (c) quartered, quarter q on node q */
-        for (int i = 0; i < 4; i++) {
-            q[i] = (uint64_t *)malloc(n * 8);
-#pragma omp parallel num_threads(48)
-            { mem_pin_to_node(i);
-#pragma omp for schedule(static)
-              for (size_t k = 0; k < n; k++) q[i][k] = 0;
-              mem_unpin(); }
-        }
-        to_quartered(res, n, q, Q);
-        for (int ti = 0; ti < 3; ti++) {
-            double best = 1e9;
-            for (int rep = 0; rep < 3; rep++) { double t0 = mem_now(); crt_carry_par4_q(q, Q, n, out, Ts[ti]); double dt = mem_now() - t0; if (dt < best) best = dt; }
-            printf("   (c) quartered node-local     T=%3d  %.3f s  %.2f Gcoef/s\n", Ts[ti], best, n / best / 1e9);
-            if (Ts[ti] == 192) harness_result("crt_2e30_quartered_T192", "s", best);
-        }
         /* (d) registered hugepage staging, one plane per node, as rns_mul's hstage */
         for (int i = 0; i < 4; i++) {
             uint64_t *h = (uint64_t *)mem_hstage_alloc(i, n * 8, 0, 0);
@@ -220,9 +190,6 @@ int main(int argc, char **argv)
             double t0 = mem_now(); crt_carry_par4(res, n, out, 192); double dt = mem_now() - t0;
             printf("   (e) after nested 4x48 region             T=192  run %d  %.3f s\n", rep, dt);
         }
-        /* (c) result must equal (b) */
-        { uint64_t *o2 = (uint64_t *)malloc((n + 4) * 8); crt_carry_par4(res, n, o2, 192);
-          VERIFY(memcmp(o2, out, (n + 4) * 8) == 0, "quartered result differs from plain at 2^%d", LOG); free(o2); }
     }
     return verify_done("t_crt");
 }

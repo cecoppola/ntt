@@ -36,15 +36,10 @@ void  mem_hreg_free(void *p);
 int   mem_is_registered(const void *p, size_t bytes);
 /* WP3: device pools the CPU also uses (hipMalloc on dev; CPU read/write at the local rate with
  * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
-/* Phase 12 I: the form of every large device allocation (planes, regions, the block pool's chunks): MEM_ALLOC=hipmalloc
- * (the default) | fine | uncached (hipExtMallocWithFlags: the same HBM, kernel and copy rates, and the same 0.057-0.065 s/GB
- * of mapping in a fresh process -- a faster number seen for them was hipFree'd memory reused by the runtime) | managed
- * (0.11 s/GB) | host (hipHostMalloc, 0.09 s/GB, and hipMemcpy between such buffers runs on the SDMA engine at 21 GB/s) |
- * mmap (anonymous THP + first touch on the node + hipHostRegister: 0.08 s/GB, the same 21 GB/s copies).  mem_dev_malloc /
- * mem_dev_release are the raw pair (no registry, no memset); results/I.md has the table. */
+/* every large device allocation (planes, regions, the block pool's chunks) is a hipMalloc (the MEM_ALLOC forms of Phase 12 I,
+ * results/I.md, were removed 2026-10-11).  mem_dev_malloc / mem_dev_release are the raw pair (no registry, no memset). */
 void *mem_dev_malloc(int dev, size_t bytes);           /* NULL when the allocation fails */
 void  mem_dev_release(int dev, void *p);
-const char *mem_alloc_form_name(void);
 void *mem_dev_alloc(int dev, size_t bytes);
 void  mem_dev_free(void *p);
 void  mem_dev_forget(void *p);
@@ -59,8 +54,7 @@ void  mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes);   /
 void  mem_dev_copy_wait(int dev);
 /* WP3: pin every OpenMP thread to its home node (thread t -> node t nnodes / nthreads) so that
  * region-aware loops touch node-local memory; mem_unpin() returns a thread to its home */
-void mem_pin_threads(int nnodes);
-int  mem_thread_home(void);                          /* -1 before mem_pin_threads */
+int  mem_thread_home(void);                          /* always -1 (thread pinning removed 2026-10-11) */
 int  mem_region_threads(int *rank);                 /* count of threads on this node, and this thread's rank among them */
 
 /* Phase 12 R (D5): 1 while a phase is running (set by binsplit_e over its level loop and left set for the reciprocal and the

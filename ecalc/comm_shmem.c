@@ -294,7 +294,6 @@ int comm_shmem_init(void)
     if (prov < SHMEM_THREAD_MULTIPLE && !S.serial) { if (S.me == 0) fprintf(stderr, "comm_shmem: the library provides thread level %d, not MULTIPLE: serialising the calls\n", prov); S.serial = 1; }
     const char *eo = getenv("COMM_SHMEM_ORDER");
     if (eo) S.order = !strcmp(eo, "putsig") ? ORDER_PUTSIG : !strcmp(eo, "fence") ? ORDER_FENCE : ORDER_QUIET;
-    else if (getenv("COMM_SHMEM_FENCE") && atoi(getenv("COMM_SHMEM_FENCE"))) S.order = ORDER_FENCE;   /* Phase 11's switch */
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);

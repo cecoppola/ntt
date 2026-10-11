@@ -75,7 +75,6 @@ size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *plan
 extern const char *const bs_cap_name[4];
 void binsplit_seeds_begin(unsigned long N);
 size_t binsplit_seed_stage_bytes(unsigned long N);       /* the pinned staging the seeds need per APU */
-extern int bs_region_slack;              /* Phase 8 I2: the seeds in a background thread during init (needs the pinned staging) */                  /* WP3: allocate the region pools at init (outside the timed phase) */
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
 size_t binsplit_dm_hole_bytes(unsigned long N, int size);

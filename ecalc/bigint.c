@@ -6,21 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-/* large host numbers: 2 MiB-aligned, transparent huge pages requested (the node's THP mode is "madvise"), the
- * valid limbs copied in parallel; small ones stay with realloc */
+/* host numbers: realloc (the 2 MiB-aligned THP form, BI_HUGE, was removed 2026-10-11: measured harmful) */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 {
-    static int huge = -1; if (huge < 0) huge = getenv("BI_HUGE") ? atoi(getenv("BI_HUGE")) : 0;   /* measured harmful on this node (THP defrag stalls: 10dP 3.5-10 s -> 26 s), off by default */
-    if (!huge) { uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8); return p; }
-    size_t bytes = (cap * 8 + ((size_t)2 << 20) - 1) & ~(((size_t)2 << 20) - 1);
-    uint64_t *p = (uint64_t *)aligned_alloc((size_t)2 << 20, bytes);
-    if (!p) ec_fatal(EC_RC_OOM, "bigint: aligned_alloc of %zu bytes (host) failed", bytes);
-    madvise(p, bytes, MADV_HUGEPAGE);
-    if (old && oldn) {
-#pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < oldn; i += 1 << 18) { size_t m = oldn - i < (1 << 18) ? oldn - i : (1 << 18); memcpy(p + i, old + i, m * 8); }
-    }
-    free(old);
+    uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8);   /* BI_HUGE (THP) removed 2026-10-11: measured harmful (defrag stalls) */
     return p;
 }
 
