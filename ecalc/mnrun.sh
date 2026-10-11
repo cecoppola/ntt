@@ -90,6 +90,10 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$((4 * P > 4096 ? 4 * P : 4096))}
         export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
     fi
+    # S46 (adopted 2026-10-11): FI_MR_CACHE_MONITOR=userfaultfd by default (memhooks deadlocks ROCr <-> libfabric: base 22/105 hangs vs uffd 0/104,
+    # results/S46.md). An explicit value (e.g. memhooks) is respected; `disabled` was refused above. Independent of MNRUN_FI_DEFAULTS.
+    export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}
+    echo "mnrun.sh: FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR"
     echo "mnrun.sh: FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-<unset>} FI_LOG_LEVEL=${FI_LOG_LEVEL:-<unset>} (MNRUN_FI_DEFAULTS=${MNRUN_FI_DEFAULTS:-1})"
     # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
     # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
