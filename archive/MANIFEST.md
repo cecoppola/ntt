@@ -60,3 +60,5 @@ Annotated tags `archive/<branch>` on GitHub cecoppola/ntt (branches deleted loca
 archive/p15-RL, archive/p15-SX, archive/rl-fill, archive/s24 (NTT3P bench, shelved), archive/s25 (10-node drivers),
 archive/s37. Branches fully merged into main (29, b7-vslot ... s45, tgtbench2) were deleted without tags.
 Kept as branches: `s35` (crash fix, deferred), `claude/confident-mayer-yx23pt`.
+
+Per-session drivers of the 2026-10-11 batch: `archive/drivers/s46/` (s46_drive, s46_soak6, s46_arm6, s46_stats), `s47/`, `s48/`, `s49/` (s49_*), `s50/`, `s51/`.
