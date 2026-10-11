@@ -4700,3 +4700,17 @@ Labels: m measured, mod modelled. Main now contains branches s34 and s29 (merged
 - **Host x9000c1s0b1n0 (m):** upload stall 20.7-25.2 s vs ~1 s, follows the host, 113.7 GB cache not cleared by dd. New data: MemAvailable is ~441 GB on 7 of 13 nodes and ~520 GB on the other 6, so low MemAvailable is NOT unique to it; only the stall is. Opt-in `MNRUN_EXCLUDE_HOSTS` / `MNRUN_EXCLUDE_MODE=drop` in `ecalc/mnrun.sh` and `rd_exclude_hosts` in `tools/rundriver.sh` (default off); note for the admins in `docs/AAC7_ADMIN_NOTE.md`.
 - **Kit:** opt-in stage `nodechk` in `ecalc/target_kit.sh` (`tests/t_nodechk.c`; meminfo and 1 GB upload per APU, flags > 3x median upload or MemAvailable < 90 % of median); TARGET_TASKS T14.
 
+
+## 127. S35-S45: crash-fix build, VSLOT_SHARE, kernel defaults (ADDSUB2, MAXIDX_TOP, QSEL), multi-node check, 576-node plan (2026-10-10; results/S35.md .. S45.md)
+
+Labels: m measured, mod modelled. All new switches digits-identical; adopted ones are defaults since 2026-10-10 (user).
+- **S35 (crash fix):** `ECALC_VMM_BG=2` built, gate passed; soak paused at A 18 / C 17 runs, 0 segfaults (no evidence yet). Crash work deferred (TASKS).
+- **S36 (VSLOT_SHARE):** `COMM_LAYER_VSLOT_SHARE=1` -8.4 GB per node at 4 nodes with forced DIST_GEN (m); time null. Adopted on the target and aac7 launch lines.
+- **S37:** S-3 (Barrett seed division) and S-6 (HIP graphs) dropped (ceilings about 0.4 s and 0.03 s).
+- **S38 (ADDSUB2):** `DBIG_ADDSUB2` -12.0..-12.5 s on 4 nodes (m); default 1.
+- **S39:** kernel survey (candidates in TASKS).
+- **S40/S41:** `DBIG_MAXIDX_TOP` -3.18 / -1.63 / -2.80 / -2.61 s on 4 nodes (m), default 1. `DBIG_QSEL` -2.08 / -0.93 s on aac7; aac6 CPX pooled -0.30 +- 0.19 s at 4e9 (m); default 1. k_gather is scratch-bound, not remote-bound.
+- **S43:** multi-node A/B of the three defaults: -50.0 s at 4 nodes (CI -71.7..-28.3, about -18.5 %), -37.7 / -45.3 s at 2 nodes (wide CIs) (m).
+- **S44:** aac6 SH5: SH5_MI300A_SPX has one device (ecalc cannot run); CPX nodes (6 XCDs, 22.9 GB each) run up to 4e9 digits; regression passes with the test knob `RNS_INIT_POOL_LOG` (unset = unchanged); gains of 0.2-0.4 s of 17-23 s, no slowdown.
+- **S45 (576-node plan):** VSLOT_SHARE -5.79 GB per node, device 357.5 -> 351.7 GB of 373.44 (mod); works under `COMM_OFI=1`; the host harness `ecalc/tests/lay_host` with 576 ranks is correct. Found: an X2 cut-group pool-offset asymmetry (not a target risk).
+- **Single node (m):** 6.441e10 digits in 94 s -> about 78 s with the defaults.

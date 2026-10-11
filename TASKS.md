@@ -498,3 +498,18 @@ is parked here:
   wrapped HIP calls): gate passed, 0 crashes in 18 A / 17 C runs so far (~/s35_part1, ~/s35_part2; no evidence yet).
 - **Next step:** a fast reproducer (e.g. smaller map chunks → many more `hipMemMap` calls per run) so a fix can be judged
   in hours; a plain soak needs ≈ 600 runs per arm (≈ 55 h on 4 nodes) to tell a ≥ 90 % reduction from none.
+
+
+## Status 2026-10-10 evening (RESULTS 127)
+
+**Done:**
+- S35 crash-fix build (`ECALC_VMM_BG=2`, gate passed), S36 VSLOT_SHARE (adopted), S37 (S-3/S-6 dropped), S38/S40/S41 kernel defaults (ADDSUB2, MAXIDX_TOP, QSEL on), S39 survey, S43 multi-node check (2 and 4 nodes: -50.0 s at 4 nodes), S44 aac6 CPX coverage, S45 576-node plan and host harness.
+- Single node at 6.441e10 digits: 94 s -> about 78 s (m).
+
+**Open:**
+- 10-node runs are impossible under the aac7 QOS (6 nodes per user).
+- QSEL confirmation on aac6 with 4 APUs: pending in branch s42 (not merged).
+- Next kernel candidates from S39: `k_addsub2` tile / wave-scan (1.0-1.5 s, mod), `k_modq` 128-bit `%` (about 1.4 s GPU, mod), `k_crt_batch` small grid (about 0.8 s, mod).
+- X2 cut-group pool-offset asymmetry found by S45 (not a target risk): understand and document.
+- Crash work (hipMemMap in `vmm_bg_map`) deferred; the fix is still required before the target (see the deferred section above).
+- Scaling study at 2 / 4 / 6 nodes: later. Handoff document: later.
