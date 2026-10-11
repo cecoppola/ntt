@@ -1,5 +1,5 @@
 #!/bin/bash
-# AS (Phase 15 Batch 2): node runs for the arena-sizing switch, unattended (docs/AGENT_PROTOCOL.md).  On aac6:
+# AS (Phase 15 Batch 2): node runs for the arena-sizing switch, unattended (the private protocol).  On aac6:
 #   setsid nohup bash ~/ntt-AS15/tests/as_sweep.sh <commit> <outdir> <plan file> [sbatch options...] > <outdir>.out 2>&1 < /dev/null &
 # Adapted from tests/t2_sweep.sh.  Plan: one run per line, "<tag> <digits> <nw|w|wc> [VAR=value ...]" ('#' comments).
 #   nw = no digit file (the wall without the write); w = the digits written to the node's /tmp (packed, the default), unpacked by

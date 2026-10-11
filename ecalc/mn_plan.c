@@ -63,7 +63,7 @@ static char g_lvl[1024];                                          /* per tree le
  * binary limbs refused -- and plan_create / plan3_get take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
  * (ec_logn_limit(np): 2^44 for the WP8 set; modarith.h stops the run beyond).  The plan checks both for every product it forms,
  * on every group of every tree level (not only node 0's), and prints the first that fails; mn_plan_run returns EC_RC_FATAL (3)
- * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (docs/TARGET_TASKS.md T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
+ * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (internal target task list T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
  * check (mn_plan_check). */
 static struct {
     int np, lim, decimal; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */

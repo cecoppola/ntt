@@ -7,7 +7,7 @@ no aac6 run gives).
 
 ## 1. The new 576-node figures (`ecalc/estimate.py --target`, 2026-09-27)
 
-The design: the code's defaults of 2026-09-27 on the target's launch line (`docs/TARGET.md` §4) — **`ECALC_NP=4`**,
+The design: the code's defaults of 2026-09-27 on the target's launch line (internal target notes §4) — **`ECALC_NP=4`**,
 `COMM_SHMEM_ROUND_MB=1024`, `ECALC_MEM_GUARD_GB=6`, no top set; the part file **packed** (0.444 B/digit, 32.8 GB per node) and
 started at the division's hook (`MN_OUT_EARLY=1`). All **modelled**; the fabric (100 GB/s per APU, 2 µs per message) and 576
 nodes writing at once each at its single-stream rate are **assumed**; 0.6–0.8 GB/s is the Lustre single-stream rate
@@ -130,7 +130,7 @@ ECALC_NP=4: OK -- 1240 products`; `plan pool … 43008` (9472 with the rounds).
   1024 kept — test 0 vs 1024); **new rows** `ECALC_CHECKPOINT`, `MN_OUT_EARLY`, `DIST_TWREC`, `ECALC_NP` (none existed);
   `digcmp.sh` and `tools/unpack_digits` in the quick start, the part-file paragraph and mnaccept's description; the recheck
   paragraph (the top set no longer on by default; the residue form).
-- `docs/TARGET.md`: §1 a new dated block with the figures of §1 here (history kept); §3 rows (`ECALC_NP` 4, `MN_OUT_EARLY`,
+- internal target notes: §1 a new dated block with the figures of §1 here (history kept); §3 rows (`ECALC_NP` 4, `MN_OUT_EARLY`,
   `ECALC_OUT_PACKED`, `ECALC_ODIRECT`, stripes / waves, `ECALC_MEM_GUARD_GB` 6, `ECALC_CKPT_TOP` off / `ECALC_CHECKPOINT=1`,
   `BS_CKPT_DIR` development only, `MN_T_CHUNK_MB`, the pool with four primes, RECHECK); §4 the launch line (`ECALC_NP=4`,
   `ECALC_MEM_GUARD_GB=6`, `unset ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR`, the output on Lustre), the packed part files,
@@ -140,13 +140,13 @@ ECALC_NP=4: OK -- 1240 products`; `plan pool … 43008` (9472 with the rounds).
   new ceiling; §6 item 4 `MN_T_CHUNK_MB` 0 vs 1024, item 5 the estimate and the explicit striping / waves reminders, (d) with
   `MN_OUT_EARLY` the default, item 7 the top set; §7 the read-back and conversion times; §8 traps 12 (the converter) and 13
   (three primes refused).
-- `docs/TARGET_TASKS.md`: a dated standing-estimate bullet; T2 with `digcmp.sh` and `ECALC_CHECKPOINT=1`; **T3's pass criterion
+- internal target task list: a dated standing-estimate bullet; T2 with `digcmp.sh` and `ECALC_CHECKPOINT=1`; **T3's pass criterion
   `plan check … OK` with `ECALC_NP=4`** (182 pieces, the layout command with the exact share); T4 without the top set, both
   walls; **T4b** the off-the-clock conversion and verification; **T10** measure striping and waves (decision 12); **T11**
   `MN_T_CHUNK_MB` 0 vs 1024 after the per-round cost (decision 13); the rules (two walls, `ECALC_CHECKPOINT=1` for development).
 - `results/DESIGN_TABLE.md` regenerated (96 rows, 217 s; ee42962): the recommended row (auto, 2³¹, both chunks, depth 2) at the
   target 4.27 / 4.76 min, 5.57 × 10¹³ at 480 GB; the fastest row (chunking off) 3.98 / 4.52 min but only 4.07 × 10¹³ at 480 GB.
-- `docs/APUMULT_STUDY.md`: a dated note (the estimate, four primes); the text kept.
+- internal apumult study: a dated note (the estimate, four primes); the text kept.
 
 ## 3. Tests (all desk / login node)
 

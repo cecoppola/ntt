@@ -689,7 +689,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
  * Phase 14 V1: COMM_SHMEM_POOL_AUTO=1 is the default (the user's decision; =0 restores the warning).  When the pool is carved
  * from the library's heap (comm_shmem_pool_in_heap: OSHMEM, SOS without the device heap, a device heap sized by the launch
  * line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
- * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; docs/TARGET.md 4. */
+ * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; internal target notes 4. */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {
     const char *tr = getenv("COMM_TRANSPORT");
@@ -724,7 +724,7 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
         if (heap && heap < pool + 512)
             ec_fatal(EC_RC_BUDGET, "comm_shmem pool: the SHMEM heap %s=%zu MiB cannot hold the symmetric pool COMM_SHMEM_POOL_MB=%zu MiB (+ 512 MiB; the modelled need of this run %zu MiB: %s): "
                      "launch with %s >= %zuM (mnrun.sh sets it from `MN_PLAN_ONLY=<digits>:<procs> ./ecalc`'s `plan pool` line when neither is set by hand), or with a device heap "
-                     "(COMM_SHMEM_DEVHEAP=1 on SOS with the external-heap patch); docs/TARGET.md 4\n", hn, heap, pool, mb, by, hn, pool + 512);
+                     "(COMM_SHMEM_DEVHEAP=1 on SOS with the external-heap patch); internal target notes 4\n", hn, heap, pool, mb, by, hn, pool + 512);
     }
     return mb;
 }

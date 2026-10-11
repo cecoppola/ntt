@@ -5,7 +5,7 @@ estimates and the one file to send back), runs each stage behind its own flag an
 one fails, and writes a single `$OUT/KIT_SUMMARY.txt` to send back — logs under `$OUT/logs/` are backup detail only. It never
 launches with `oshrun`: every multi-process stage is Slurm-native `srun --ntasks … --ntasks-per-node=1` (`mnrun.sh` for the
 ecalc runs, direct `srun` for `t_edge`/`t_comm`), and sets `FI_UNIVERSE_SIZE` (max(4096, 4 × ntasks)) and `FI_LOG_LEVEL=warn`
-only where the caller has not already set them (the TGTBENCH2-proposed defaults, docs/TARGET.md §4, not yet adopted on the
+only where the caller has not already set them (the TGTBENCH2-proposed defaults, internal target notes §4, not yet adopted on the
 main launch line — this script adopts them for its own probe runs only).
 
 ## What it answers

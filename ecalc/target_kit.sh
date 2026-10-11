@@ -58,7 +58,7 @@
 #            ecalc at 1e10 digits/node with MN_COMM_MARK=1, VERIFY, wall, the comm-mark fabric rates.
 #   s2chk  (OPT-IN, off unless named in --only; about 5-15 min PER node count, default 2 and 8 nodes; needs stage build's
 #           kit_modules.env, so run `--only build,s2chk` or point --out at a directory where build already ran):
-#            the TARGET per-node share (6.441e10 digits/node) on the target launch line (docs/TARGET.md 4 without the
+#            the TARGET per-node share (6.441e10 digits/node) on the target launch line (internal target notes 4 without the
 #            576-only MN_GROUPS/POOL words; DM_MN_LEAN=1, MN_T_CHUNK_MB=1024) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
 #            nothing written.  Saves the full logs (logs/05_s2chk_n<N>.log) and prints a verdict helper:
 #             A37-R1 (GPU seed): "seed thread ends" vs the last "background mapping done" (tl lines, seconds since

@@ -1,8 +1,8 @@
 # What is open after Phase 12 — the remaining choices, with costs and benefits
 
 > **HISTORICAL.** What was open after Phase 12 (2026-09-22), including the then-modelled 576-node estimate
-> (≈ 3.9 × 10¹³ digits, ≈ 4.0 min) — long superseded (the target is now 3.71 × 10¹³, `docs/code/00_OVERVIEW.md`).
-> Superseded by `docs/code/05_DECISION_REGISTER.md` for decision status. Kept below as the historical record; the
+> (≈ 3.9 × 10¹³ digits, ≈ 4.0 min) — long superseded (the target is now 3.71 × 10¹³, internal code notes).
+> Superseded by internal code notes for decision status. Kept below as the historical record; the
 > body is not edited.
 
 State: `main` @ 3524146 (RESULTS §77). One node: 4 × 10¹⁰ digits in ≈ 81 s / 12.1 GB
@@ -109,7 +109,7 @@ implementation must be confirmed on the machine.
 - **(a) Enable all four from the start** on the target, with the fallbacks one
   switch away (`COMM_SHMEM_SERIAL=1`, `COMM_SHMEM_ORDER=fence`, host heap, staged
   slabs). Fastest path; a fault at 576 nodes is harder to diagnose.
-- **(b) Bring them up in order** at 2, 4, 64 nodes as `docs/TARGET.md` prescribes,
+- **(b) Bring them up in order** at 2, 4, 64 nodes as internal target notes prescribes,
   then enable at 576.
 
 ### Recommendation
@@ -174,7 +174,7 @@ Both tracks with two agents, as in Phases 11 and 12; they touch disjoint files.
 | 1 | top checkpoint default and the division's wait | size it by the measured disk; release Q after the output stage |
 | 2 | init floor is now the seeds | overlap them with the plane mapping, then make them faster |
 | 3 | two memory models disagree by 4 × 10⁹ digits per node | reconcile before the target run |
-| 4 | SHMEM forms on the target | bring up in order per `docs/TARGET.md` |
+| 4 | SHMEM forms on the target | bring up in order per internal target notes |
 | 5 | fabric assumptions | measure message cost and file bandwidth first, re-run `estimate.py` |
 | 6 | housekeeping | delete the stand-ins; keep the allocation evidence; document the 4 KiB trap |
 | 7 | next session | two agents, single-node and target-readiness |

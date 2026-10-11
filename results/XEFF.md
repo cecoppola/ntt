@@ -275,7 +275,7 @@ SLURM_JOB_ID=$J MNRUN_NODES=10 ./mnrun.sh 10 env $LINE [$SW] ./ecalc 64410000000
 - the top-node peak (`MEM_REPORT_DEVS`);
 - VERIFY.
 
-**Before arming (gates, docs/AGENT_PROTOCOL.md):**
+**Before arming (gates, the private protocol):**
 - `t_newton`, `t_mul`, `e9` identical in both bases, 4 × 10¹⁰ identical to `e_4e10.out`;
 - `./mnaccept.sh $J --only unit,e9` with the switch on (layered self-test, general map sizes 3/6/10);
 - `t_comm` VERIFY at 2/4/10 nodes with the switch on;

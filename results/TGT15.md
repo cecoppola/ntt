@@ -15,10 +15,10 @@ one step below, 4.74 × 10¹³, is to be tested after the headline run.
 | `ecalc/estimate.py` | `--target` prints these rows: the target, 5.11 (node 0 steps), 5.12 (the critical path steps), 5.17, 4.74 (one step below), 4.75 (its step), and 4.25 (the previous target). It gives a by-phase line for 5.1 and 4.74 (new `by_phase()`). The help text notes that `ECALC_NP=auto` is pending. |
 | `ecalc/design_table.py` | `COMMON = M.TARGET_DIGITS`. Column (e) is at 5.1 × 10¹³. |
 | `results/DESIGN_TABLE.md` | regenerated at 364c727 (215 s, all modelled, no M-run log). |
-| `docs/TARGET.md` | Header. §1: a new block with the table of steps, the memory, the top node, the one-node rehearsal, the disk and the off-the-clock times; the DOC block is marked as history. §3: the pool, `ECALC_NP`, `MN_T_CHUNK_MB` and `ECALC_OUT_PACKED` rows. §4: the launch line is now `ecalc 51000000000000`, plus the part sizes, RECHECK and conversion times, and the plan-only line. §5: step 5's byte fraction, step 6 (the target), 6b, the new **6c (4.74 × 10¹³)** and step 7. §6: items 4, 5 and 7. §7: the read-back times, and a warning on the `cat`. §8: traps 12 and 13 updated, new **trap 14** (the Lustre capacity). |
-| `docs/TARGET_TASKS.md` | "Where things stand"; T0, T3, T4, T4b, T11; the new **T4c: the runtime one step below, 4.74 × 10¹³, after the headline**. |
+| internal target notes | Header. §1: a new block with the table of steps, the memory, the top node, the one-node rehearsal, the disk and the off-the-clock times; the DOC block is marked as history. §3: the pool, `ECALC_NP`, `MN_T_CHUNK_MB` and `ECALC_OUT_PACKED` rows. §4: the launch line is now `ecalc 51000000000000`, plus the part sizes, RECHECK and conversion times, and the plan-only line. §5: step 5's byte fraction, step 6 (the target), 6b, the new **6c (4.74 × 10¹³)** and step 7. §6: items 4, 5 and 7. §7: the read-back times, and a warning on the `cat`. §8: traps 12 and 13 updated, new **trap 14** (the Lustre capacity). |
+| internal target task list | "Where things stand"; T0, T3, T4, T4b, T11; the new **T4c: the runtime one step below, 4.74 × 10¹³, after the headline**. |
 | `ecalc/README.md` | the header's launch-line sentence names the target; the `ECALC_NP` and `MN_PLAN_ONLY` rows get their 5.1 × 10¹³ plan results. |
-| `docs/APUMULT_STUDY.md` | a dated note (2026-09-28). |
+| internal apumult study | a dated note (2026-09-28). |
 | `results/TGT15/` | `sweep576.txt` (the plan at 4.25–5.17 × 10¹³), `plan576_51e13.txt`, `plan576_474e13.txt` (the full plans), `layout.txt` (`BS_LAYOUT_ONLY` at 5.1e13/576, 4.74e13/576 and 9.169e10/1, and the size-1 plan sweep). |
 
 Every dated history line was kept, and the old figures are still recorded. `PLAN.md` and `RESULTS.md` were not touched. No C code changed,

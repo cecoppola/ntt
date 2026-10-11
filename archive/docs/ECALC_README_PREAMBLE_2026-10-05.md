@@ -2,7 +2,7 @@
 
 > Moved here verbatim from the top of `ecalc/README.md` on 2026-10-10 (documentation consolidation). It is the phase-by-phase
 > history of the defaults and of the target size up to 2026-10-06. Current facts: `ecalc/README.md` (defaults table,
-> switch table), `docs/code/00_OVERVIEW.md`, `docs/TARGET.md` §1.
+> switch table), internal code notes, internal target notes §1.
 
 # ecalc — e to 4 × 10¹⁰ digits on one MI300A node, and over several (PLAN.md §8, §15, §17, §25)
 
@@ -28,7 +28,7 @@ the user's decisions of 2026-09-27**: `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_
 `MN_OUT_EARLY=1`, `ECALC_ODIRECT=auto`; **Phase 15 Batch 2, the user's decisions of 2026-09-28** (main B2): `BS_ARENA_ROOM=0.16`
 (was 0), `DIST_TWREC_G=1` (was 0), `RNS_POOL1_4Q=1` (PS; it changes only `ECALC_NP=4` runs). The top set (`ECALC_CKPT_TOP`) is **off**
 by default (record timing runs); `ECALC_CHECKPOINT=1` turns on its budgeted form for development and testing. Not code defaults but
-on the **target's launch line** (`docs/TARGET.md` §4; **CURRENT: the target is 3.71 × 10¹³ digits on 576 nodes**, `ecalc 37100000000000`,
+on the **target's launch line** (internal target notes §4; **CURRENT: the target is 3.71 × 10¹³ digits on 576 nodes**, `ecalc 37100000000000`,
 since the user's decision of 2026-10-06 ≈ 19:30 EDT (TGTBENCH2/s18-target: "3.71e13 is fine") — chosen with margin against B7ACCT's
 v-exchange-slot accounting (device layout 363.53 GB vs the 373.44 GB measured edge, 9.91 GB margin; node total 405.61 GB with v-slots
 vs 480 GB, 74.39 GB margin; results/S18TGT.md Part 1); raise later if the memory configuration is lifted; *history*: it was **4.08 × 10¹³

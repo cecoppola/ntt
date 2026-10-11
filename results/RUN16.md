@@ -11,7 +11,7 @@ HWM 36.8 GB ≈ 415 GB/node (model: 419.59 GB). Times Eastern; aac7 is PDT = Eas
 - Repo `~/ntt-acc` on aac7 refreshed from a stale clone (e5466b7) to **origin/main 5ae3278** via a GitHub
   HTTPS fetch (aac7 cannot reach GitHub by SSH key for `git@github.com:...`, but
   `https://github.com/cecoppola/ntt.git` works): `git fetch https://github.com/cecoppola/ntt.git
-  main:refs/remotes/gh/main && git merge --ff-only gh/main`. Commit 5ae3278 = "docs/TARGET_WISHLIST.md v2:
+  main:refs/remotes/gh/main && git merge --ff-only gh/main`. Commit 5ae3278 = "internal target wishlist v2:
   every measurement still needed from the target, with newbench1's status" (docs-only; same code as e5466b7).
 - Build: `source ecalc/aac7env.sh && cd ecalc && make SHMEM_CRAY=1 GMP_HOME=~/gmp -j32` — clean build, `ecalc`
   and `tools/unpack_digits` produced.
@@ -86,7 +86,7 @@ dropped, confirmed by a tiny g=1 test run producing a single `e.out` with no `.p
 ECALC_NP=auto ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_LOG_CLOCKS=1 MN_COMM_MARK=1
 ```
 
-**10 nodes** (verbatim, the task's launch line = docs/TARGET.md §4 adapted to aac7 by `e16_headline.sh`):
+**10 nodes** (verbatim, the task's launch line = internal target notes §4 adapted to aac7 by `e16_headline.sh`):
 ```
 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 \
 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 \

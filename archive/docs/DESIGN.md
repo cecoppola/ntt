@@ -1,7 +1,7 @@
 # Very-large NTT on one MI300A node — design for computing *e*
 
 > **HISTORICAL.** Written 2026-09-17, before the NTT kernels were implemented ("design + measured foundations").
-> Superseded by `docs/code/00_OVERVIEW.md` and `docs/code/01_ARITHMETIC.md`–`04_OUTPUT_LAUNCH_MODELS.md` (the design
+> Superseded by internal code notes and internal code notes–`04_OUTPUT_LAUNCH_MODELS.md` (the design
 > actually built: FP64 Barrett not Shoup, 3/4 primes not 2, VMM arenas not `hipHostMalloc` — see 00's §5 "Superseded
 > records" table, row "DESIGN §1"). Kept below as the original design record; the body is not edited.
 

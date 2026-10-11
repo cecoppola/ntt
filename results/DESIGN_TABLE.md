@@ -128,5 +128,5 @@ Sensitivity of the recommended row to the chunk rounds' fixed cost (assumed on t
 
 ## How to regenerate
 
-`cd ecalc && ./design_table.py [--mrun <log>]` (about 229 s); `./design_table.py --calibrate [--mrun <log>]` prints the model against every measured run. On the target: measure the fabric first (docs/TARGET.md §6) and pass `--bws <low,measured,high>`, `--lat`, `--write-bw` (and `--hide-pow2`, `--gen-hide2` from the `COMM_LAYER_STATS` both-busy fractions).
+`cd ecalc && ./design_table.py [--mrun <log>]` (about 229 s); `./design_table.py --calibrate [--mrun <log>]` prints the model against every measured run. On the target: measure the fabric first (internal target notes §6) and pass `--bws <low,measured,high>`, `--lat`, `--write-bw` (and `--hide-pow2`, `--gen-hide2` from the `COMM_LAYER_STATS` both-busy fractions).
 

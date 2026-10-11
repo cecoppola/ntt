@@ -1,5 +1,5 @@
 #!/bin/bash
-# T2 (Phase 15): the BS_SEED_TERMS / BS_SEED_FILL sweep, unattended (docs/AGENT_PROTOCOL.md).  On aac6:
+# T2 (Phase 15): the BS_SEED_TERMS / BS_SEED_FILL sweep, unattended (the private protocol).  On aac6:
 #   setsid nohup bash ~/ntt-T215/tests/t2_sweep.sh <commit> <outdir> <plan file> [sbatch options...] > <outdir>.out 2>&1 < /dev/null &
 # The plan: one run per line, "<tag> <digits> <nw|w> [VAR=value ...]" ('#' comments).  nw = no digit file (the wall without the
 # write); w = the digits written to the node's /tmp (ECALC_ODIRECT as the defaults set it) and hashed with O_DIRECT against the

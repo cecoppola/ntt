@@ -6,7 +6,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 
 ## What changed
 
-### docs/code/00_OVERVIEW.md
+### internal code notes
 - Added a **"Defaults chosen for you"** box near the top: target size (3.71 × 10¹³), transport (`comm_ofi`), launch
   flags (`FI_UNIVERSE_SIZE`/`FI_LOG_LEVEL`), ROCm stance (validated against 7.2.4/7.0.3, target version unknown, the
   target kit builds with the best validated one available), the memory bar, and what's still unmeasured (A3
@@ -29,7 +29,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
   TGTBENCH2's measurements and the still-open A3/A4 risk).
 - Glossary kept unchanged (it was not stale).
 
-### docs/TARGET.md
+### internal target notes
 - §1: added a new CURRENT paragraph for 3.71 × 10¹³ (TGTBENCH2/s18-target), demoted the TGT17 (4.08e13) paragraph to
   explicit history with a one-line explanation of *why* it was superseded (B7ACCT's v-slots left only 0.88 GB of
   margin, not the "comfortable" margin TGT17 reported before v-slots were known).
@@ -41,7 +41,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 - Checked §4 step 3(c) ("three parts") and the trap list: **already correct** — a prior agent had fixed step 3(c);
   left untouched per "don't rewrite history."
 
-### docs/TARGET_TASKS.md
+### internal target task list
 - "Where things stand" section: added a new top bullet for the 3.71e13 decision (CURRENT), demoted the TGT17 bullet
   to explicit history.
 - T4 ("the headline run"): rewritten for 3.71e13 (modelled wall, device/node GB, pieces); 4.08e13 moved into its
@@ -49,7 +49,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 - T4b/T4c/T5 untouched: they describe the then-current target's own measurements and are explicitly historical by
   design (T4c is literally "the runtime one step below, *history*: at the then-current 5.1e13 target").
 
-### docs/code/05_DECISION_REGISTER.md
+### internal code notes
 - ME24 (reject the harness's managed-memory host spill): status **PROPOSED → REJECTED** (RESULTS §115 confirms the
   user rejected it); its evidence line's "4.08e13 already fits" corrected to the current target's figure.
 - Added **ME25**: a new row for B7ACCT's v-slot accounting (RESULTS §113), citing it as the decision that superseded
@@ -61,7 +61,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 - Added **TS13**: the target-size decision in force (3.71 × 10¹³), citing RESULTS §115 and results/S18TGT.md.
 - Superseded-claims table: fixed S8 and S15's "Current:" columns, which pointed at 5.276e13 as still current.
 
-### docs/code/06_EVALUATION.md
+### internal code notes
 - Added a dated note (2026-10-06) directly under the title, explaining that most of Tier A/B and the §4.1
   recommendations are now done, that `comm_ofi` replaces the SHMEM-one-NIC-per-PE path described throughout, and
   that the target is now 3.71e13, not 5.276e13.
@@ -90,7 +90,7 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 
 ## Contradictions found (not fixed — out of this task's scope, flagged for the user)
 
-1. **The launch line's SHMEM/OFI pool sizing was not re-derived for the current target.** `docs/TARGET.md` §4's
+1. **The launch line's SHMEM/OFI pool sizing was not re-derived for the current target.** internal target notes §4's
    `COMM_SHMEM_POOL_MB=1536` / `SHMEM_SYMMETRIC_HEAP_SIZE=2048M` carry a comment explicitly citing "`plan pool` at
    5.276e13:576 with COMM_OFI=1" (Phase 17 OFIMEM) — i.e. these pool/heap sizes were computed for the *former*
    5.276 × 10¹³ headline, not for 4.08 × 10¹³ (TGT17) or the current 3.71 × 10¹³ target. Nothing in results/S18TGT.md
@@ -101,9 +101,9 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
    (§111) assumed 30 GB headroom for an unmeasured general-map memory cost against the 480 GB *node* budget. B7ACCT
    (§113) later measured that cost directly (v-slots) and found it instead threatened the *device* edge (373 GB),
    not the node budget — a different bar than the one TGT17 was guarding. This is now explained correctly in the
-   current docs (see docs/TARGET.md §1's CURRENT paragraph), but it's worth the user's attention as a pattern: two
+   current docs (see internal target notes §1's CURRENT paragraph), but it's worth the user's attention as a pattern: two
    different generations of "add a safety margin" assumptions bound two different resources.
-3. **docs/TARGET.md's trap 20 and §5's device-edge sweep (lines ~820-845)** still describe the 5.276e13 headline's
+3. **internal target notes' trap 20 and §5's device-edge sweep (lines ~820-845)** still describe the 5.276e13 headline's
    CAP17 findings (405.42 GB device, etc.) as if they were the live picture. These are explicitly dated/historical
    (CAP17, 2026-10-06) and internally consistent, so left untouched — flagging only because a reader skimming that
    section without the dates could mistake it for current.
@@ -115,8 +115,8 @@ logic — confirmed with `ast.parse`). Branch from `origin/main` 63f50ca, pushed
 
 ## Files touched
 
-`docs/code/00_OVERVIEW.md`, `docs/TARGET.md`, `docs/TARGET_TASKS.md`, `docs/code/05_DECISION_REGISTER.md`,
-`docs/code/06_EVALUATION.md`, `ecalc/README.md`, `ecalc/estimate.py` — 7 files.
+internal code notes, internal target notes, internal target task list, internal code notes,
+internal code notes, `ecalc/README.md`, `ecalc/estimate.py` — 7 files.
 
 ## RESUME
 

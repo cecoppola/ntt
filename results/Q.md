@@ -1,7 +1,7 @@
 # Q — the target plan: the models completed for 576 nodes, `estimate(g, D)`, the runbook (Phase 12, PLAN.md §27 row Q; 2026-09-21)
 
 Branch `q12` (from `main` @ 7aded87). Files: `ecalc/mn_model.py` (X's fabric model, extended), `ecalc/mem_model.py`
-(M's memory model, extended), NEW `ecalc/estimate.py`, NEW `docs/TARGET.md`. Nothing outside my files. No node time
+(M's memory model, extended), NEW `ecalc/estimate.py`, NEW internal target notes. Nothing outside my files. No node time
 used (the calibration is against the recorded walls; the phase splits were read from the earlier batches' logs on
 aac6: `~/l11/out{1,2}`, `~/x11/b{1,2}`, `~/ntt-m11/ecalc/results/m11`, `~/ntt-s/ecalc/results/mnaccept/20817`).
 
@@ -22,7 +22,7 @@ message, the part file's 2 GB/s per node and the general map's exchange overlap 
 aac6 measures them). Phase 11's headline (7.7 × 10¹⁰ per node, 4.4 × 10¹³) does not survive M's accounting of the top
 level's scratch (86 GB per node at the cap) and the sharded exchange (69 GB): 541 GB per node.
 
-Two findings that change the target plan (both in `docs/TARGET.md` §8, traps 6 and 11):
+Two findings that change the target plan (both in internal target notes §8, traps 6 and 11):
 
 1. **The arena request at size > 1 is uncapped.** `binsplit.c`'s `tree_need_dev` sizes the top level as one
    transform over the level's whole product (q = n / 4g, two g × C × 4-limb spill buffers) although `rns_dist.c`'s
@@ -182,7 +182,7 @@ spread, and X1's two runs) — the model's 109.6 is inside it. The shared-node e
 g processes' CPU threads (4 APU threads + helper + 48 background each) on 96 cores at g = 9, the loopback's memory-bus
 share, and init's registration under OSHMEM (taken as measured).
 
-## 5. `docs/TARGET.md` — the runbook
+## 5. internal target notes — the runbook
 
 The build (Makefile's `SHMEM=1` with `SHMEM_CFLAGS`/`SHMEM_LIBS` for Cray `cc` or SOS), the environment (every
 `COMM_*`, `MN_*`, `DIST_*`, `RNS_*`, `NEWTON_MN_*`, `ECALC_*`, `BS_CKPT_*` variable that matters, the target's value and

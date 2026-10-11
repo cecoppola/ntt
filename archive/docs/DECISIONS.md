@@ -1,7 +1,7 @@
 # The eleven open decisions after Phase 10 — explained
 
 > **HISTORICAL.** The eleven decisions open after Phase 10 (2026-09-20); all eleven were closed by measurement in
-> Phase 11 (see DECISIONS2.md's opening note) or later. Superseded by `docs/code/05_DECISION_REGISTER.md`, which
+> Phase 11 (see DECISIONS2.md's opening note) or later. Superseded by internal code notes, which
 > carries every decision's current status. Kept below as the historical record; the body is not edited.
 
 State of the code: `main` @ 550797e. One MI300A node computes 4 × 10¹⁰ digits of e

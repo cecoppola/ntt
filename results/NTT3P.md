@@ -1,7 +1,7 @@
 # NTT3P: can ecalc's large transforms run in 3 memory passes instead of 4? (design study, no code changed)
 
 Tasked by the main session. Read-only on code. Labels: (m) measured, (mod) modelled, (a) assumed. Sources: results/S21.md §5 (A37-Q4), K13.md, K13b.md,
-RESULTS.md §33 (D5) and §48 (lds/occupancy), N3x15.md, V314.md, docs/code/05_DECISION_REGISTER.md, `ecalc/ntt.c` (make_plan, plan_auto, k_b16, k_b16r, k_b1r),
+RESULTS.md §33 (D5) and §48 (lds/occupancy), N3x15.md, V314.md, internal code notes, `ecalc/ntt.c` (make_plan, plan_auto, k_b16, k_b16r, k_b1r),
 `ecalc/mn_model.py` / `estimate.py --fabric target-m --bw 47` and `--fabric aac7_s18 --bw 6` (run on the login node, pure python).
 
 ## 0. Summary
@@ -94,11 +94,11 @@ Other lengths (per 2^31 points, mod): logn 20-22, 3 -> 2 passes: today [b1-10 24
 | 3-pass plan | K13b §2 | "with a b1 of 2^10, 2^31 has 21 stages above b1 = 3 x 7, so no 3-pass plan avoids s_lo 17 and 24"; with b1 2^12 and bottom-up: 5/7/7 + b1 = 4 passes, s_lo 26/19/12 | the 3x7 limit came from the 7-stage clamp, not from a measured failure |
 | 2-pass is the whole transform for logn <= 19 | `plan_auto` | b1 2^11/2^12 saves a pass at logn 25, 26 (1.25-1.40x) | **same lever applied at a different size: it worked every time it was tried** (PH5) |
 | DPP / ds_swizzle exchange, radix-4 grouping | PH4, N-kernel | slower | not needed here |
-| decision register | docs/code/05 | no entry for a >7-stage strided pass or a 2^13 b1 | not tried, not rejected |
+| decision register | internal code notes | no entry for a >7-stage strided pass or a 2^13 b1 | not tried, not rejected |
 
 ## 6. How many large transforms a run does (mod; NTT_SIZE_STATS will replace this)
 
-Two families, with different sizes (docs/code/01 §4.3-4.4):
+Two families, with different sizes (internal code notes §4.3-4.4):
 1. **Node-local B form / mdev / batch** (prime per APU, whole planes up to 2^31 points at size 1; 3·2^29 in the mdev pool): logn 27-31 are the big ones. The bs "top levels" (16.2 s at 10 nodes,
    14.4 s at 576 in the estimator) and part of the batch tier (19.8 / 17.6 s) live here. 4 -> 3 passes.
 2. **4-step C form pieces** (`dist_core`, the mn tier): rows of 2^(logn/2) points. At 10 nodes logn 35-36, rows 2^17-2^18 = 2 passes already (no gain). **At 576 nodes

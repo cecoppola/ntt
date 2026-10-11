@@ -1,7 +1,7 @@
 # TUNE17 — comm_ofi tuning: chunk size × writes in flight, and two NICs per device (Phase 17, aac7)
 
 Times Eastern (aac7 logs are Pacific: +3 h). Numbers labelled **measured** / **modelled** / **assumed**.
-Driver: `ecalc/tests/ofitune17_drive.sh` (fire-and-forget). Design of comm_ofi: docs/code/07_COMM_OFI.md.
+Driver: `ecalc/tests/ofitune17_drive.sh` (fire-and-forget). Design of comm_ofi: internal code notes.
 
 ## Why
 

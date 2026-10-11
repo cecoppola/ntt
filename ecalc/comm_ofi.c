@@ -1,4 +1,4 @@
-/* comm_ofi.c - Phase 17 (docs/code/07_COMM_OFI.md, results/OFI17.md): the multi-NIC data plane of comm_shmem.c.
+/* comm_ofi.c - Phase 17 (internal code notes, results/OFI17.md): the multi-NIC data plane of comm_shmem.c.
  *
  * Per HIP device d (= APU thread d), opened at the first communicator created on d: one libfabric `cxi` fabric / domain / EP / CQ / AV
  * per NIC of d's list (COMM_OFI_NICS, else the cxi devices on d's NUMA node), and one comm pool registered in every one of those

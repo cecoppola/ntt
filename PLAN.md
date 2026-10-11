@@ -6,12 +6,9 @@
 >
 > | question | read |
 > |---|---|
-> | what is computed, the defaults, the launch lines | `docs/code/00_OVERVIEW.md`, `ecalc/README.md` |
-> | what is open | `TASKS.md`, `docs/TARGET_TASKS.md` |
-> | what was decided and why | `docs/code/05_DECISION_REGISTER.md` |
+> | what is computed, the defaults, the launch lines | `ecalc/README.md` |
+> | what is open | `TASKS.md` |
 > | what was measured (latest §127, 2026-10-10) | `RESULTS.md` |
-> | the 576-node runbook | `docs/TARGET.md` |
-> | the common agent protocol (it used to say "read PLAN.md") | `docs/AGENT_PROTOCOL.md` |
 
 One file for everything: the MI300A microbenchmark suite, the reproduction of
 the *e*-to-40-billion paper, and the path from there to `~/ntt`'s own design.
@@ -732,7 +729,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 
 | date | item | note |
 |---|---|---|
-| 2026-09-22 | **Phase 12 closed** (RESULTS §77): six agents merged to `main` (3524146), the standing regression **21/21** including a forced-growth stress step. The D5 race's cause named and fixed (a same-device `hipMemcpy` returns before the copy runs on this ROCm; 56/56 against 24/26); every tree level gridded over fixed planes on a schedule (576-node node peak 1170 → 354 GB, per-node ceiling 1.9 → 7.1 × 10¹⁰); the allocation study (nothing beats `hipMalloc` cold) and the larger planes adopted on the tail layout; the SHMEM transport verified in its target forms on Sandia OpenSHMEM; `estimate.py` + `docs/TARGET.md`. One integration defect caught by measurement: the new top-checkpoint default costs 113 s on a 0.31 GB/s disk → default off. 4 × 10¹⁰: **80.7 ± 1.2 s, phases 58.8** (was 81.5 / 66.0). **576 nodes: ≈ 3.9 × 10¹³ digits in ≈ 4.0 min (modelled; 5.5 × 10¹² before)** | RESULTS.md §77, results/{R,G12,I,S12,Q,W}.md |
+| 2026-09-22 | **Phase 12 closed** (RESULTS §77): six agents merged to `main` (3524146), the standing regression **21/21** including a forced-growth stress step. The D5 race's cause named and fixed (a same-device `hipMemcpy` returns before the copy runs on this ROCm; 56/56 against 24/26); every tree level gridded over fixed planes on a schedule (576-node node peak 1170 → 354 GB, per-node ceiling 1.9 → 7.1 × 10¹⁰); the allocation study (nothing beats `hipMalloc` cold) and the larger planes adopted on the tail layout; the SHMEM transport verified in its target forms on Sandia OpenSHMEM; `estimate.py` + internal target notes. One integration defect caught by measurement: the new top-checkpoint default costs 113 s on a 0.31 GB/s disk → default off. 4 × 10¹⁰: **80.7 ± 1.2 s, phases 58.8** (was 81.5 / 66.0). **576 nodes: ≈ 3.9 × 10¹³ digits in ≈ 4.0 min (modelled; 5.5 × 10¹² before)** | RESULTS.md §77, results/{R,G12,I,S12,Q,W}.md |
 | 2026-09-21 | **Phase 11 closed** (RESULTS §76): six agents merged to `main` (06e06f1), regression 17/17 after every merge and over SHMEM. **10¹¹ digits on one node VERIFY OK (263 s, 445 GB)**; 4 × 10¹⁰ 81.5 ± 1.4 s; 7 × 10¹⁰ 153.5 s; the SHMEM transport with per-level PE sets; the transform balanced at any group size (576); `alltoallv` throughout; the fabric and memory models; **the T1 moduli corrected (seven were composite)**; a timing-dependent leaf-level fault under forced growth localised (open). 576-node estimate: ≈ 1.2 × 10¹³ digits as merged (the top product's scratch), ≈ 4.4 × 10¹³ in ≈ 4.6 min with the top product gridded (next) | RESULTS.md §76, results/{S,L,X,P,V,M11}.md |
 | 2026-09-20 | **Phase 10 closed** (RESULTS §75): five agents (G, H, M, C, T) merged to `main` (1f0b114) and re-verified with the new standing regression `ecalc/mnaccept.sh` (17/17 after every merge). Single node 4 × 10¹⁰ **83.0 ± 1.2 s** (five runs, identical) — host peak **11.7 GB** (X never on the host, seeds streamed into the arenas); 7 × 10¹⁰ 159.7 s (157.2 with `ECALC_DM_POOL=1`, left off); **8 × 10¹⁰ on one node VERIFY OK, 210.4 s, node peak 393 GB**; `alltoallv` in every transport; xGMI push −9 %; tree-level checkpoints without the barrier. Rejected on measurement: the second pipeline plane, the transform cache at size 1. Not done: C2/D1 (two idle nodes never available); the `alltoallv` consumers; E1/E2 await the user | RESULTS.md §75, results/{G,H,M,C,T}.md |
 | 2026-09-19 | **Phase 9 closed** (§74): final series 4 × 10¹⁰ **86.4 ± 1.3 s / 48.8 GB** (five runs, identical); 7 × 10¹⁰ in 163.8 s at 76.5 GB; the multi-node pipeline end to end at sizes 2–4 (10¹⁰ over four node-processes) and on real nodes; paper refreshed (14 pp.). Next: M8 on the target; 4 × 10¹⁰ over two real nodes; the open items in results/A-*.md | RESULTS.md §74, ~/xetex/e40b.tex |
@@ -1266,7 +1263,7 @@ Each row names the complete form and how it is verified on aac6.
 | **G** the top product at scale | #2 (+ the spill buffers) | The tree's top levels formed as **piece grids over fixed 2³¹-point planes for any g** (the single-node reciprocal's form and A-grid's grid over shares, applied to `mn_tree`'s products): pieces of the sharded operands, the shifted distributed add with the cross-node carry, the transform cache over pieces; the spill buffers (2 g C × 4 limbs per APU today) replaced by the gridded pieces' exact spills through `alltoallv`; the per-node memory profile independent of g (the memory model's g-terms become O(share)). Forced-grid tests (`DIST_LOGN_TEST`) at sizes 2–9 make the path run at 10⁸–10¹⁰ on one node | `rns_dist.c` (with L's map), `mn.c` (`mn_tree`), `mdb.h`, `tests/t_mn_grid.c` | `t_mn_grid` with forced grids at 2, 3, 4, 6, 9; 10⁸ at sizes 3, 6, 9 and 10⁹ at 2, 3, 4 with forced grids identical; 10¹⁰ at size 4 identical and the tree's device peak per process reported; the memory model's g-terms updated and matching |
 | **I** the initialisation floor | #3 and the 12 s of mapping behind it | The mapping floor attacked at its source, then the planes decided on the result: (1) measure every allocation form on the APU for 200 GB — `hipMalloc`, `hipMallocAsync` from a `hipMemPool` with a release threshold, `hipMallocManaged`, `hipExtMallocWithFlags` (uncached / fine-grained), `hipHostMalloc` coherent (unified memory: the same HBM), `mmap` + THP + `hipHostRegister` — time to map, first-touch cost, kernel bandwidth from each (the transform kernel's TB/s must not drop); (2) the fastest form that keeps the kernel rate becomes the pool allocator; (3) the seeds moved out of the mapping window (mapping first, then the seed thread — or the reverse — measured both ways, the wall decides); (4) the 3·2³⁰ planes re-measured on the new floor and the default set by the number; (5) `ECALC_DM_POOL` deleted (a no-op with the tail) | `mem.c`, the pools' creation in `rns_mul.c`, the init of `ecalc.c`, `binsplit_pregrow` (with M's tail intact) | 10⁹ identical both bases; five runs at 4 × 10¹⁰ identical, init and wall reported per form; 8 × 10¹⁰ VERIFY OK on the new allocator; the kernel rates unchanged (`t_ntt` timings) |
 | **S** the SHMEM transport's target forms | #4, #5, #9 | The forms the target uses, **tested for real on aac6** by building Sandia OpenSHMEM (SOS, user-space, libfabric `tcp`/`sockets` provider, `SHMEM_THREAD_MULTIPLE` and contexts supported) in `~/sos`: contexts per APU thread without the global lock (`COMM_SHMEM_SERIAL=0`), the symmetric heap of device memory (`COMM_SHMEM_DEVHEAP=1`; on the APU host-registered and device heaps are the same HBM — both paths kept, the target's Cray SHMEM decides), the callers' slabs resident in the pool (`comm_sym_alloc`: `ntt_dist`'s slab buffers allocated from the symmetric pool, no staging copy, no helper thread), `put_signal` under `#if` for 1.5 implementations; the third layer kept behind its switch with a `t_dist` timing at 8 PEs on both transports; the two-real-node SHMEM run at 10⁹ when two nodes are idle | `comm_shmem.c`, `comm.h`, `Makefile`, `mnrun.sh`, `ntt_dist.c` (slab allocation only), `tests/t_comm.c` | `t_comm`/`t_dist` every mode at 2–8 PEs on OSHMEM (serial) and on SOS (thread-multiple, device heap, pool-resident slabs); the regression over SOS 17/17; 2 real nodes at 10⁹ identical if available |
-| **Q** the target plan | #6, #7, the standing estimate | The models completed for the target and turned into a runbook: L's real schedule in `mn_model.py` (9-way vs 3·3 decided by the model and left as `MN_GROUPS`); the memory model with G's gridded profile (per node independent of g) and the safe/ceiling sizes per node with margins; the per-run estimate the user asked for, as a function `estimate(g, D)` printing digits, minutes, GB per node, GB on the fabric; **`docs/TARGET.md`** — the run recipe on the target (environment, `srun` line, `MN_GROUPS`, `MN_TOPO_GROUP`, the sizes to run in order: safe, then the ceiling; checkpoints; the recheck; what to measure first to calibrate the model's assumptions — per-message cost, file bandwidth) | `mn_model.py`, `mem_model.py`, `docs/TARGET.md` (new) | the model reproduces every measured aac6 point within 10 %; the runbook reviewed against the code's switches (every named variable exists) |
+| **Q** the target plan | #6, #7, the standing estimate | The models completed for the target and turned into a runbook: L's real schedule in `mn_model.py` (9-way vs 3·3 decided by the model and left as `MN_GROUPS`); the memory model with G's gridded profile (per node independent of g) and the safe/ceiling sizes per node with margins; the per-run estimate the user asked for, as a function `estimate(g, D)` printing digits, minutes, GB per node, GB on the fabric; **internal target notes** — the run recipe on the target (environment, `srun` line, `MN_GROUPS`, `MN_TOPO_GROUP`, the sizes to run in order: safe, then the ceiling; checkpoints; the recheck; what to measure first to calibrate the model's assumptions — per-message cost, file bandwidth) | `mn_model.py`, `mem_model.py`, internal target notes (new) | the model reproduces every measured aac6 point within 10 %; the runbook reviewed against the code's switches (every named variable exists) |
 | **W** verification and housekeeping | #8 | `ECALC_CKPT_TOP` on by default above 10¹⁰ (the recheck possible for every large run); the recheck (`ECALC_RECHECK=1`) as a regression step at sizes 1 and 2; the host-flow stand-ins deleted once R reports the race closed (else left, with the reason); README and the switch list brought to the final state; `results/*.md` verified tracked | `verify.c`, `mn_out.c`, the output tail of `ecalc.c`, `ecalc/README.md`, `mnaccept.sh` (the recheck step), `.gitignore` | the regression with the recheck step green; a 4 × 10¹⁰ run rechecked from its files |
 | **integrator** | | merges (R and G first), the regression after each and over SOS, RESULTS §77, PLAN log, paper v5, the standing 576-node estimate from Q's function | | |
 
@@ -1586,7 +1583,7 @@ kernel rates, and the size-1 wall at 4 × 10¹⁰ and 10¹¹. The model reproduc
 aac6 run to within a stated error, which is checked in the session. The only assumed inputs
 are the target's fabric bandwidth, per-message cost and disk rate, and column (f) shows
 whether the ranking survives them. The first job on the target is to measure those three
-numbers (`docs/TARGET.md`) and rerun `design_table.py`.
+numbers (internal target notes) and rerun `design_table.py`.
 
 ### Step 0 — the changes that improve every option (hour 0, the user's approval at launch)
 
@@ -1620,7 +1617,7 @@ one scripted sequence run by the integrator, not by the agents.
 | agent | items | owns | gate |
 |---|---|---|---|
 | **B** strategy B in the library (§29 E4, and B4) | a device-resident prime-per-APU product in `rns_dist.c` (`RNS_STRATEGY=C|B|B4|auto`), used by the top tree levels, the reciprocal and the division. B4 spreads three primes' planes over four APUs. `auto` picks B when 16n (B4: 12n) fits the plane budget, else C. First hour: B4 in `t_strategy` at 2²⁶–2³², to settle B against B4 before building | `rns_dist.c` product dispatch, `tests/t_strategy.c` | each strategy byte-identical at 10⁹ and 4 × 10¹⁰; t_strategy table with B4 |
-| **D** models and the table generator | `EC_NP`, strategy, plane cap, chunking and exchange depth as model inputs; new `ecalc/design_table.py` writes the 96-row table, the Pareto front and the sensitivity columns; calibration check against every measured run in RESULTS §77–§79 (error printed per run) | `mem_model.py`, `mn_model.py`, `estimate.py`, new `design_table.py`, `docs/TARGET.md` | the model within 3 % of every measured wall and 1 % of every measured peak it is given; the table regenerates from one command |
+| **D** models and the table generator | `EC_NP`, strategy, plane cap, chunking and exchange depth as model inputs; new `ecalc/design_table.py` writes the 96-row table, the Pareto front and the sensitivity columns; calibration check against every measured run in RESULTS §77–§79 (error printed per run) | `mem_model.py`, `mn_model.py`, `estimate.py`, new `design_table.py`, internal target notes | the model within 3 % of every measured wall and 1 % of every measured peak it is given; the table regenerates from one command |
 | **P** sizing and memory (Step 0.3, the plane-cap axis) | the C arena and pool sizing follow `EC_NP`; the plane cap as a switch over all four values; 10¹¹ at size 1 at the leanest and the fastest settings, to test the model's ceiling at the edge | `binsplit.c` sizing, the pool setup in `rns_dist.c`/`mem.c` | the ceiling at three primes, measured to the edge on one node (the largest D that runs) against the model |
 | **X** uneven exchange two-deep, and the transpose | `alltoallv` pipelined two deep like the equal-slab path (§29 E9 part 2); one transpose kernel instead of g × 4 copies; K's tiled pack (360–770 GB/s today) | `comm_layered.c`, `ntt_dist.c` pack/transpose | byte-identical at sizes 2–4; both-busy fraction on the general map from 1.1 % to its ceiling |
 | **K** kernels (general improvement) | the b1 pass (the slowest everywhere, 1.22 TB/s) register-blocked; the stride penalty (s_lo 17/24 at 0.73–0.82 ×) by padding or rotation | `ntt.c`, `tests/t_ntt.c` | bit-identical at every length; a measured gain or a written negative |
@@ -1715,7 +1712,7 @@ The §19/§21 protocol, with Phase 13b's additions:
 
 The complete, sequenced task list after Phase 13: phases A (blockers for the target run), B (per-node speed),
 C (model, verification, documents), D (code reduction), the user's decisions, and five suggested sessions.
-The same text heads `TASKS.md`; target-machine work is `docs/TARGET_TASKS.md` (T0–T9).
+The same text heads `TASKS.md`; target-machine work is internal target task list (T0–T9).
 Nothing here has started.
 
 State: `main` @ 73b6c85. The chosen design is the default (three primes, `NTT_MODMUL=1`, `RNS_STRATEGY=auto`,
@@ -1726,7 +1723,7 @@ digits in 63.5 ± 1.5 s; the target's top-node share, 7.64 × 10¹⁰, in 133.3 
 This section supersedes the status tables below, which stay as the record. Every item names where its evidence is.
 The order puts first what the target run cannot succeed without, then per-node speed (≈ 80 % of the modelled 576-node
 wall is per-node compute), then verification and documents, then code reduction. Target-machine work is in
-`docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
+internal target task list (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
 Phase A.
 
 ### 33.1 Phase A — blockers for the target run (do first) — DONE 2026-09-25 (RESULTS §84)
@@ -1791,7 +1788,7 @@ The target agent's T0–T9 can start any time; its T4 (the 4.25 × 10¹³ run) w
 
 ## 34. Phase 14 — three windows: the apumult optimizations, then PLAN §33 (written 2026-09-24 00:40 EDT)
 
-**Order (the user's)**: first implement and test **every apumult optimization** of `docs/APUMULT_STUDY.md` (E1–E12),
+**Order (the user's)**: first implement and test **every apumult optimization** of internal apumult study (E1–E12),
 then work through **PLAN §33** (Phase A first). Every change keeps the digits bit-identical and goes behind a switch,
 off by default; adoption stays the user's decision, presented with the measurements at each window's close.
 
@@ -1937,7 +1934,7 @@ measured data; every number is labelled measured, modelled or assumed.
 ### 36.2 The user's decisions (2026-09-26)
 
 - **D1**: C2 (`RNS_AUTO_PIECE_COST=1`) becomes a default once Batch 1's paired five-run series (1e) confirms it.
-- **D2**: `COMM_SHMEM_ROUND_MB=1024` on the target's launch line (`docs/TARGET.md` §4), once the 2-node rerun (0.2) passes.
+- **D2**: `COMM_SHMEM_ROUND_MB=1024` on the target's launch line (internal target notes §4), once the 2-node rerun (0.2) passes.
 - **D3**: **two walls in every report**: without the disk write (digits computed and verified) and with it. Both are
   optimized. The `total` line, `closing.sh`, `mnaccept.sh` and `mn_model.py` print both (task 1g).
 - **D4**: the packed digit output for the headline run: deferred until W2 has measured it.
@@ -2010,7 +2007,7 @@ string, and published digits of e end near 3.5 × 10¹³).
   "apucode" jobs are never touched; ours queue behind them.
 - **Every run checks its commit** ("WRONG COMMIT"); byte compares use `e_1e11.out` (sha1 in `~/V214/e_1e11.sha1`: reading
   the reference from `/shared` takes ≈ 15 min, so compare hashes, or compare on the node).
-- Agents: the protocol in `docs/AGENT_PROTOCOL.md`; one worktree and branch each (`p15-<agent>`) from B0; a written report
+- Agents: the private protocol; one worktree and branch each (`p15-<agent>`) from B0; a written report
   with RESUME section; a final node batch is announced by the integrator.
 - **Reports**: two walls (D3); Eastern times; every session close gives the estimated maximum digits and wall for 576
   nodes (measured / modelled / assumed).
@@ -2059,7 +2056,7 @@ Agents work in parallel where their files do not overlap; node time follows the 
 | 5 | **MAP** | N2: the arena's second half mapped in the background while the seeds and the batch tier run (the planes still first); and S1's idea, the seeds on 96 threads | `dbig.c` (mapping), `rns_mul.c` init (after NP merges), `binsplit.c` seed thread (after AS) | −5…−10 s (assumed) | wave 2 |
 | 6 | **G5** | item 5: faster twiddle packs for the 576 map (`k_twpack_g`, `k_unpacktw_g`); timing on 2–3 nodes, one exclusive window | `rns_dist.c` (after NP merges) | −2…−3 s at the target (assumed) | wave 2 |
 
-- **Gates** per `docs/AGENT_PROTOCOL.md`; the standard size 10¹¹ against `results/e_1e11.out` through `ecalc/digcmp.sh`
+- **Gates** per the private protocol; the standard size 10¹¹ against `results/e_1e11.out` through `ecalc/digcmp.sh`
   (packed output is the default); two walls in every timing (D3).
 - **Integration**: the regression, a paired 10¹¹ series (B1 vs B1 + Batch 2), RESULTS §88, the models, then the user's
   decisions in one list (as in Batch 1).
