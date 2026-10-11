@@ -241,6 +241,7 @@ static volatile int g_hipmm_on = -1;
 int db_hipmm_on(void) { int o = g_hipmm_on; if (o < 0) { const char *e = getenv("ECALC_VMM_BG"); o = e && atoi(e) == 2; g_hipmm_on = o; } return o; }
 void db_hipmm_lock(void) { if (db_hipmm_on()) pthread_mutex_lock(&g_hipmm_mx); }
 void db_hipmm_unlock(void) { if (db_hipmm_on()) pthread_mutex_unlock(&g_hipmm_mx); }
+static int vmm_repro(void) { static int n = -1; if (n < 0) { const char *e = getenv("ECALC_VMM_REPRO"); n = e ? atoi(e) : 0; if (n < 0) n = 0; } return n; }   /* S46: extra remaps per background chunk (crash reproducer; 0 = off) */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -278,6 +279,8 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
         double tg = mem_now(); tlk += tg - tq;
         db_hipmm_lock();   /* S35: ECALC_VMM_BG=2: the chunk's create + map + access as one section against every other HIP memory call */
         if (!vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (background chunk)", dev, v->chunk);
+        for (int r = 0; r < vmm_repro(); r++)   /* S46: ECALC_VMM_REPRO=n -- the crash reproducer: n more unmap + map + access cycles of the same chunk (same handle, same address; zeroed below as always) */
+            if (hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk) != hipSuccess || !vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, v->chunk);
         db_hipmm_unlock();
         double tz = mem_now();
         HIP_CHECK(hipMemsetAsync(v->base + (size_t)k * v->chunk, 0, v->chunk, st)); HIP_CHECK(hipStreamSynchronize(st));
