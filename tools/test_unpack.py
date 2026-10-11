@@ -15,7 +15,17 @@ Q = [4611686018427388039, 4611686018427388073, 4611686018427388081, 461168601842
 B = 10 ** 18
 
 
-def write_parts(base, digits, d, d_out, nparts):
+def pack60(limbs):
+    """M5: the 60-bit stream of packed_fmt.h (limb j in bits [60 j, 60 j + 60), little endian, padded to whole bytes)"""
+    out = bytearray()
+    for j in range(0, len(limbs) - 1, 2):
+        out += (limbs[j] | (limbs[j + 1] << 60)).to_bytes(15, "little")
+    if len(limbs) & 1:
+        out += limbs[-1].to_bytes(8, "little")
+    return bytes(out)
+
+
+def write_parts(base, digits, d, d_out, nparts, v60=False):
     """digits: '2' + d chars.  Writes base (nparts == 1) or base.part%04d; returns the file names"""
     nl = (d + 1 + 17) // 18
     pad = nl * 18 - (d + 1)
@@ -37,7 +47,7 @@ def write_parts(base, digits, d, d_out, nparts):
                 v = (v * B + limbs[i]) % q
             dres.append(v)
         hdr = bytearray(4096)
-        struct.pack_into("<8sIIIIIIIII", hdr, 0, b"ECPACK18", 1, 4096, 0x01020304, 8, 18, 1, part, nparts, 0)
+        struct.pack_into("<8sIIIIIIIII", hdr, 0, b"ECPACK18", 2 if v60 else 1, 4096, 0x01020304, 8, 18, 1, part, nparts, 60 if v60 else 0)
         # (the magic and nine u32 end at 44; the u64 fields start at 48 after alignment)
         struct.pack_into("<10Q", hdr, 48, d, d_out, nl, pad, lo, hi, k0, k1, 1, 8)
         struct.pack_into("<8Q", hdr, 48 + 80, *Q)
@@ -45,7 +55,10 @@ def write_parts(base, digits, d, d_out, nparts):
         name = base if nparts == 1 else "%s.part%04d" % (base, part)
         with open(name, "wb") as f:
             f.write(hdr)
-            f.write(b"".join(struct.pack("<Q", limbs[i]) for i in range(hi - 1, lo - 1, -1)))
+            if v60:
+                f.write(pack60([limbs[i] for i in range(hi - 1, lo - 1, -1)]))
+            else:
+                f.write(b"".join(struct.pack("<Q", limbs[i]) for i in range(hi - 1, lo - 1, -1)))
         names.append(name)
     return sorted(names)
 
@@ -111,10 +124,12 @@ def main():
     fails = 0
     cases = [(18, 18, 1), (36, 20, 1), (1800, 1799, 1), (1800, 1783, 3), (100008, 100000, 4), (18 * 7000, 18 * 7000 - 5, 5),
              (18 * 300001, 18 * 300001 - 17, 2), (18 * 300001, 18 * 300001, 7)]
-    for d, d_out, nparts in cases:
+    cases = [(c, v) for v in (False, True) for c in cases]
+    cases += [((18 * 3, 18 * 3, 1), True), ((18 * 5 - 1, 18 * 5 - 1, 1), True)]
+    for (d, d_out, nparts), v60 in cases:
         digits = "2" + "".join(rnd.choice("0123456789") for _ in range(d))
-        base = os.path.join(wd, "t_%d_%d_%d" % (d, d_out, nparts))
-        names = write_parts(base, digits, d, d_out, nparts)
+        base = os.path.join(wd, "t_%d_%d_%d%s" % (d, d_out, nparts, "_v60" if v60 else ""))
+        names = write_parts(base, digits, d, d_out, nparts, v60)
         want = ("2." + digits[1:d_out + 1] + "\n").encode()
         ref = base + ".ref"
         open(ref, "wb").write(want)
@@ -152,8 +167,8 @@ def main():
         ok6 = r6.returncode == 1
         good = ok1 and ok2 and ok3 and ok4 and ok5 and ok6
         fails += not good
-        print("d %8d d_out %8d parts %d: -o %s, stdout %s, --cmp %s, changed byte %s, longer ref + per part %s, corrupt limb %s -> %s"
-              % (d, d_out, nparts, ok1, ok2, ok3, ok4, ok5, ok6, "ok" if good else "FAIL"))
+        print("%s d %8d d_out %8d parts %d: -o %s, stdout %s, --cmp %s, changed byte %s, longer ref + per part %s, corrupt limb %s -> %s"
+              % ("v60" if v60 else "v1 ", d, d_out, nparts, ok1, ok2, ok3, ok4, ok5, ok6, "ok" if good else "FAIL"))
         for n in names + [ref, ref + ".bad", ref + ".long", out]:
             os.remove(n)
     fails += patched_cases(exe, wd, rnd)

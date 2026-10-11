@@ -26,6 +26,7 @@
 
 #define ECP_MAGIC      "ECPACK18"
 #define ECP_VERSION    1u
+#define ECP_VERSION60  2u            /* M5 (c05): ECALC_OUT_PACKED=2, the 60-bit form below; reserved0 = 60 (the bits per limb) */
 #define ECP_HDR_BYTES  4096u
 #define ECP_ENDIAN     0x01020304u   /* as the writer's host stores it: 04 03 02 01 on a little-endian host */
 #define ECP_NQ         8
@@ -49,4 +50,53 @@ typedef struct {
     uint64_t dres[ECP_NQ];           /* the digits [k0, k1) as a decimal number mod q[i] */
 } ecp_hdr;                           /* (the rest of the 4096 bytes: zero, and the text at ECP_TEXT_OFF) */
 
+/* M5 (c05): version 2, the 60-bit packed form (ECALC_OUT_PACKED=2).  A limb of base 10^18 is < 2^60, so the file holds the
+ * limbs in file order (the most significant first, index j = 0 .. hi-lo-1) as a little-endian bit stream, limb j in the bits
+ * [60 j, 60 j + 60): two limbs a (j even) and b take 15 bytes, the low 8 of  a | b << 60  and then the 7 bytes of  b >> 4;
+ * a last odd limb takes 8 bytes (its 60 bits, zero-extended).  A part of n limbs is ecp60_bytes(n) = 15 (n/2) + 8 (n&1)
+ * bytes after the header (7.5 B per limb = 0.4167 B/digit against 0.444 for version 1: -6.25 %).  Everything else (header
+ * fields, residues, part ranges) is version 1's. */
+#define ECP60_BITS 60
+static inline uint64_t ecp60_bytes(uint64_t n) { return 15 * (n / 2) + 8 * (n & 1); }
+/* the pair at out[0..15) from limbs a, b (< 2^60) */
+static inline void ecp60_put_pair(uint8_t *out, uint64_t a, uint64_t b)
+{
+    uint64_t w0 = a | (b << 60), w1 = b >> 4;
+    for (int i = 0; i < 8; i++) out[i] = (uint8_t)(w0 >> (8 * i));
+    for (int i = 0; i < 7; i++) out[8 + i] = (uint8_t)(w1 >> (8 * i));
+}
+static inline void ecp60_get_pair(const uint8_t *in, uint64_t *a, uint64_t *b)
+{
+    uint64_t w0 = 0, w1 = 0;
+    for (int i = 0; i < 8; i++) w0 |= (uint64_t)in[i] << (8 * i);
+    for (int i = 0; i < 7; i++) w1 |= (uint64_t)in[8 + i] << (8 * i);
+    *a = w0 & ((1ULL << 60) - 1); *b = (w0 >> 60) | (w1 << 4);
+}
+/* n limbs l[0..n) from an even file index to out (ecp60_bytes(n) bytes); the OpenMP loop over pairs */
+static inline void ecp60_pack(const uint64_t *l, size_t n, uint8_t *out)
+{
+    size_t np = n / 2;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < np; i++) ecp60_put_pair(out + 15 * i, l[2 * i], l[2 * i + 1]);
+    if (n & 1) { uint64_t a = l[n - 1]; uint8_t *o = out + 15 * np; for (int i = 0; i < 8; i++) o[i] = (uint8_t)(a >> (8 * i)); }
+}
+/* n limbs from in (an even file index) to l[0..n) */
+static inline void ecp60_unpack(const uint8_t *in, size_t n, uint64_t *l)
+{
+    size_t np = n / 2;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < np; i++) ecp60_get_pair(in + 15 * i, &l[2 * i], &l[2 * i + 1]);
+    if (n & 1) { uint64_t a = 0; const uint8_t *o = in + 15 * np; for (int i = 0; i < 8; i++) a |= (uint64_t)o[i] << (8 * i); l[n - 1] = a; }
+}
+/* The writer's chunk step: the chunk's cnt >= 1 limbs in file order (pk) appended to the stream; *has_pend / *pend carry an odd
+ * last limb of a non-final chunk to the next one.  Writes the bytes to ob (room for ecp60_bytes(cnt + 1) bytes), returns their number. */
+static inline size_t ecp60_stream_chunk(const uint64_t *pk, size_t cnt, int final, int *has_pend, uint64_t *pend, uint8_t *ob)
+{
+    const uint64_t *src = pk; size_t n = cnt, nb = 0;
+    if (*has_pend) { ecp60_put_pair(ob, *pend, pk[0]); nb = 15; src++; n--; *has_pend = 0; }
+    size_t keep = (!final && (n & 1)) ? 1 : 0;
+    ecp60_pack(src, n - keep, ob + nb); nb += (size_t)ecp60_bytes(n - keep);
+    if (keep) { *pend = src[n - 1]; *has_pend = 1; }
+    return nb;
+}
 #endif

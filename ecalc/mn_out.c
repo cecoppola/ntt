@@ -183,7 +183,7 @@ struct writer {
     int fd; pthread_t th; sem_t job_ready, job_taken, buf_free[2]; struct wjob job; int stop; double t_write; size_t bytes; int err;
     char *buf[2]; uint64_t *lbuf; size_t bufsz; int dev_src;
     int direct; char *abuf; size_t ncarry; uint64_t apos;   /* Phase 14 S1 (E3): the O_DIRECT form -- an aligned staging copy, the < 4 KiB carry, the file offset of its first byte */
-    int mode, nt, packed; char *hdr;                         /* Phase 15 IO: OUT_*, pwrite threads, the packed form and its header (aligned, ECP_HDR_BYTES) */
+    int mode, nt, packed, has_pend; uint64_t pend, poff; char *hdr;                         /* Phase 15 IO: OUT_*, pwrite threads, the packed form and its header (aligned, ECP_HDR_BYTES) */
 };
 static void pwrite_all(int fd, const char *p, size_t n, size_t off, int *err)
 {
@@ -303,7 +303,7 @@ static void writer_drain(struct writer *w)
 }
 
 /* ---- Phase 15 IO (W2): the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 1; if (v < 0 || v > 2) v = v < 0 ? 0 : 2; } return v; }   /* M5 (c05): 2 = the 60-bit form (ECP_VERSION60) */   /* default 1 since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
 /* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is handed */
@@ -343,15 +343,15 @@ static void packed_hdr_write(struct writer *w, const mn_out *o, size_t nl, size_
 {
     char *h = w->hdr; memset(h, 0, ECP_HDR_BYTES);
     ecp_hdr *p = (ecp_hdr *)h;
-    memcpy(p->magic, ECP_MAGIC, 8); p->version = ECP_VERSION; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
+    memcpy(p->magic, ECP_MAGIC, 8); p->version = w->packed == 2 ? ECP_VERSION60 : ECP_VERSION; p->reserved0 = w->packed == 2 ? ECP60_BITS : 0; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
     p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(part_cnt(o) > 1 ? part_idx(o) : 0); p->nparts = (uint32_t)(part_cnt(o) > 1 ? part_cnt(o) : 1);   /* (Phase 15 EW: the explicit part) */
     p->d = o->d; p->d_out = o->d_out; p->nl = nl; p->pad = pad; p->lo = lo; p->hi = hi; p->k0 = o->k0; p->k1 = o->k1; p->complete = 0;
     p->nq = T1_NQ; for (int i = 0; i < T1_NQ; i++) p->q[i] = t1_q[i];
     snprintf(h + ECP_TEXT_OFF, ECP_HDR_BYTES - ECP_TEXT_OFF,
              "ecalc packed digits of e, format v%u: after this %u-byte header, the base-10^18 limbs [%zu, %zu) of X (of %zu),\n"
-             "8 bytes each, little-endian, the most significant limb first; part %u of %u; the digits [%zu, %zu) of %lu computed;\n"
+             "%s, the most significant limb first; part %u of %u; the digits [%zu, %zu) of %lu computed;\n"
              "the ASCII file is \"2.\" + digits 1..%lu + a newline: convert with tools/unpack_digits.\n",
-             ECP_VERSION, ECP_HDR_BYTES, lo, hi, nl, p->part, p->nparts, o->k0, o->k1, o->d, o->d_out);
+             p->version, ECP_HDR_BYTES, lo, hi, nl, w->packed == 2 ? "60 bits each, a little-endian bit stream (packed_fmt.h)" : "8 bytes each, little-endian", p->part, p->nparts, o->k0, o->k1, o->d, o->d_out);
     if (w->fd >= 0) pwrite_all(w->fd, h, ECP_HDR_BYTES, 0, &w->err);
 }
 
@@ -368,7 +368,7 @@ static void out_open(struct writer *w, const mn_out *o)
     if (w->fd < 0) w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (w->fd < 0) { printf("mn_out: cannot open %s: %s\n", name, strerror(errno)); return; }
     if ((o->verbose || getenv("ECALC_OUT_MODE") || getenv("MN_OUT_THREADS") || w->packed || sp_odirect_auto()) && (o->rank == 0 || o->verbose))
-        printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed ? "packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
+        printf("mn_out: %s: %s, %s form, %d write threads, file system %s\n", name, out_mode_name[w->mode], w->packed == 2 ? "60-bit packed" : w->packed ? "packed" : "ASCII", w->nt, sp_fs_name(sp_fs_kind(name)));
 }
 /* S21 (A37-R4, Q7): DC_STATS=1 (off by default; print only) -- the output stage's fine timers: setup (buffers, the pinned fetch buffer, the writer
  * thread), the chunk loop's wall against its parts (D2H fetch with its slowest chunk, the limb reversal, the digit residues, T2, the wait on the
@@ -388,13 +388,13 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     w->packed = out_packed(); o->packed = w->packed;
     if (o->outfile) out_open(w, o);
     sem_init(&w->job_ready, 0, 0); sem_init(&w->job_taken, 0, 0); sem_init(&w->buf_free[0], 0, 1); sem_init(&w->buf_free[1], 0, 1);
-    w->bufsz = L * 18 + 64;
+    w->bufsz = L * 18 + 64 + (w->packed == 2 ? 16384 : 0);
     if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     if (w->dev_src) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
     if (w->packed) {                                   /* Phase 15 IO (W2): the header now (complete = 0), completed by mn_out_finish */
         if (posix_memalign((void **)&w->hdr, SP_ALIGN, ECP_HDR_BYTES)) ec_fatal(EC_RC_OOM, "mn_out: header\n");
-        packed_hdr_write(w, o, nl, pad, lo, hi); w->apos = ECP_HDR_BYTES;
+        packed_hdr_write(w, o, nl, pad, lo, hi); w->apos = ECP_HDR_BYTES; w->poff = ECP_HDR_BYTES;
         w->bytes = w->fd >= 0 ? ECP_HDR_BYTES : 0;
     }
     pthread_create(&w->th, 0, writer_run, w);
@@ -427,6 +427,11 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
 #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < cnt; i++) pk[i] = l[cnt - 1 - i];
             double t3 = mem_now(); o->t_fmt += t3 - t2;
+            uint8_t *ob = (uint8_t *)pk; size_t nb = cnt * 8;      /* the bytes to write: the limbs (version 1) */
+            if (w->packed == 2) {                          /* M5 (c05): the 60-bit stream, after the reversed limbs; an odd last limb waits for the next chunk */
+                ob = (uint8_t *)w->buf[b] + ((cnt * 8 + 4095) & ~(size_t)4095); nb = 0;
+                nb = ecp60_stream_chunk(pk, cnt, a <= lo, &w->has_pend, &w->pend, ob);
+            }
             uint64_t v[T1_NQ]; packed_mods(pk, cnt, v);   /* the digits' value = the limbs' (the top limb's pad zeros lead) */
             for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
             o->ndig += len;
@@ -447,8 +452,9 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             if (bb == hi) { size_t f = len < 62 ? len : 62; packed_digits(l, a, nl, pad, ck0, ck0 + f, o->first); o->first[f] = 0; }
             if (ck0 <= o->d_out && o->d_out < ck1) { size_t e = o->d_out + 1 - ck0, t = e < 20 ? e : 20; packed_digits(l, a, nl, pad, o->d_out + 1 - t, o->d_out + 1, o->last); o->last[t] = 0; }
             if (o->d > o->d_out && ck0 <= o->d_out + 1 && ck1 == o->d + 1 && o->d - o->d_out < sizeof o->tail) { o->ntail = o->d - o->d_out; packed_digits(l, a, nl, pad, o->d_out + 1, o->d + 1, o->tail); }
-            if (w->fd >= 0) {
-                struct wjob j; memset(&j, 0, sizeof j); j.buf = b; j.data = (const char *)pk; j.len = cnt * 8; j.off = ECP_HDR_BYTES + (hi - bb) * 8;
+            if (w->fd >= 0 && nb) {
+                struct wjob j; memset(&j, 0, sizeof j); j.buf = b; j.data = (const char *)ob; j.len = nb; j.off = w->packed == 2 ? w->poff : ECP_HDR_BYTES + (hi - bb) * 8;
+                if (w->packed == 2) w->poff += nb;
                 double tw = mem_now(); w->job = j; sem_post(&w->job_ready); sem_wait(&w->job_taken); o->t_wait += mem_now() - tw;
             } else sem_post(&w->buf_free[b]);
             o->nchunks++;
@@ -672,16 +678,35 @@ static int packed_patch(mn_out *o, const char *name, const uint64_t *low, const 
 {
     ecp_hdr h; int ok = 0;
     { int fd = open(name, O_RDONLY); if (fd >= 0) { ok = pread(fd, &h, sizeof h, 0) == (ssize_t)sizeof h; posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); close(fd); } }
-    if (!ok || memcmp(h.magic, ECP_MAGIC, 8) || h.version != ECP_VERSION || h.limb_bytes != 8 || h.order != 1 || !h.complete || h.d != o->d || h.d_out != o->d_out
+    if (!ok || memcmp(h.magic, ECP_MAGIC, 8) || (h.version != ECP_VERSION && h.version != ECP_VERSION60) || h.limb_bytes != 8 || h.order != 1 || !h.complete || h.d != o->d || h.d_out != o->d_out
         || h.k0 != o->k0 || h.k1 != o->k1 || h.lo > h.hi || h.hi > h.nl || h.nq != T1_NQ) {
         printf("mn_out: patch: %s: not this run's complete packed part (header %s)\n", name, ok ? "fields differ" : "unreadable"); return 1; }
     size_t lo = (size_t)h.lo, hi = (size_t)h.hi, ph = m < hi ? m : hi;
     if (lo >= ph) return 0;                                             /* none of this part's limbs change */
     size_t n = ph - lo; uint64_t *bo = (uint64_t *)malloc(n * 8), *bn = (uint64_t *)malloc(n * 8);
     for (size_t j = 0; j < n; j++) { bo[j] = low[ph - 1 - j]; bn[j] = nw[ph - 1 - j]; }   /* file order: limb ph-1 first */
-    int bad = patch_bytes(name, ECP_HDR_BYTES + (hi - ph) * 8, (const char *)bo, (const char *)bn, n * 8, o->verbose);
+    int bad = 0;
+    if (h.version == ECP_VERSION60) {                                   /* M5 (c05): the 60-bit stream -- the pairs that hold the changed limbs, read, checked, repacked */
+        size_t j0 = hi - ph, ja = j0 & ~(size_t)1, jb = j0 + n, nf = hi - lo; if (jb & 1) jb = jb + 1 > nf ? nf : jb + 1;
+        size_t nbytes = (size_t)ecp60_bytes(jb - ja); uint8_t *ro = (uint8_t *)malloc(nbytes), *rn = (uint8_t *)malloc(nbytes);
+        uint64_t *L = (uint64_t *)malloc((jb - ja) * 8); int fd = open(name, O_RDONLY);
+        if (fd < 0 || pread(fd, ro, nbytes, (off_t)(ECP_HDR_BYTES + 15 * (ja / 2))) != (ssize_t)nbytes) { printf("mn_out: patch: %s: cannot read the pairs to patch\n", name); bad++; }
+        else {
+            ecp60_unpack(ro, jb - ja, L);
+            for (size_t t = 0; t < n; t++) if (L[j0 - ja + t] != bo[t]) { bad++; break; }
+            if (bad) printf("mn_out: patch: %s: the limbs in the file are not the old ones\n", name);
+            for (size_t t = 0; t < n; t++) L[j0 - ja + t] = bn[t];
+            ecp60_pack(L, jb - ja, rn);
+        }
+        if (fd >= 0) { posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); close(fd); }
+        if (!bad) bad = patch_bytes(name, ECP_HDR_BYTES + 15 * (ja / 2), (const char *)ro, (const char *)rn, nbytes, o->verbose);
+        free(ro); free(rn); free(L); free(bo); free(bn);
+        f->bytes += nbytes; f->parts++;
+    } else {
+    bad = patch_bytes(name, ECP_HDR_BYTES + (hi - ph) * 8, (const char *)bo, (const char *)bn, n * 8, o->verbose);
     free(bo); free(bn);
     f->bytes += n * 8; f->parts++;
+    }
     if (bad) return bad;
     uint64_t ro[T1_NQ], rn[T1_NQ];                                      /* the header's residues: the run's, and moved */
     for (int i = 0; i < T1_NQ; i++) {
@@ -812,7 +837,7 @@ static int recheck_packed_hdr(const char *name, ecp_hdr *h)
     FILE *f = fopen(name, "rb"); if (!f) return 0;
     int ok = fread(h, sizeof *h, 1, f) == 1 && !memcmp(h->magic, ECP_MAGIC, 8); fclose(f);
     if (!ok) return 0;
-    if (h->version != ECP_VERSION || h->endian != ECP_ENDIAN || h->limb_bytes != 8 || h->order != 1) { printf("recheck: %s: a packed file of another version or byte order\n", name); return -1; }
+    if ((h->version != ECP_VERSION && h->version != ECP_VERSION60) || h->endian != ECP_ENDIAN || h->limb_bytes != 8 || h->order != 1) { printf("recheck: %s: a packed file of another version or byte order\n", name); return -1; }
     if (!h->complete) { printf("recheck: %s: the packed file was not closed by its run (complete = 0)\n", name); return -1; }
     return 1;
 }
@@ -822,7 +847,15 @@ static int recheck_packed_digits(const char *name, const ecp_hdr *h, size_t x, s
     if (x >= y) return 1;
     size_t ia = h->nl - 1 - (x + h->pad) / 18, ib = h->nl - 1 - (y - 1 + h->pad) / 18;   /* the limbs, ia >= ib */
     size_t n = ia - ib + 1; uint64_t *l = (uint64_t *)malloc(n * 8);
-    FILE *f = fopen(name, "rb"); int ok = f && fseeko(f, (off_t)(ECP_HDR_BYTES + (h->hi - 1 - ia) * 8), SEEK_SET) == 0 && fread(l, 8, n, f) == n;
+    FILE *f = fopen(name, "rb"); int ok;
+    if (h->version == ECP_VERSION60) {                                           /* M5 (c05): from the even file index at or below the first limb */
+        size_t j0 = h->hi - 1 - ia, ja = j0 & ~(size_t)1, jb = j0 + n, nf = h->hi - h->lo; if (jb & 1) jb = jb + 1 > nf ? nf : jb + 1;
+        size_t nbytes = (size_t)ecp60_bytes(jb - ja); uint8_t *rb = (uint8_t *)malloc(nbytes); uint64_t *L = (uint64_t *)malloc((jb - ja) * 8);
+        ok = f && fseeko(f, (off_t)(ECP_HDR_BYTES + 15 * (ja / 2)), SEEK_SET) == 0 && fread(rb, 1, nbytes, f) == nbytes;
+        if (ok) { ecp60_unpack(rb, jb - ja, L); memcpy(l, L + (j0 - ja), n * 8); }
+        free(rb); free(L);
+    } else
+    ok = f && fseeko(f, (off_t)(ECP_HDR_BYTES + (h->hi - 1 - ia) * 8), SEEK_SET) == 0 && fread(l, 8, n, f) == n;
     if (f) fclose(f);
     if (ok) for (size_t k = x; k < y; k++) { size_t c = k + h->pad, i = h->nl - 1 - c / 18; char t[18]; fmt18(t, l[ia - i]); out[k - x] = t[c % 18]; }
     free(l);
@@ -860,9 +893,13 @@ static void *recheck_rd_packed(struct recheck_rd *r)
 {
     const ecp_hdr *h = &r->h; size_t nlimbs = h->hi - h->lo, CHL = r->CH / 18, e = h->k1 < h->d_out + 1 ? h->k1 : h->d_out + 1;
     if (fseeko(r->f, ECP_HDR_BYTES, SEEK_SET) != 0) nlimbs = 0;
+    int v60 = h->version == ECP_VERSION60; uint8_t *rb = v60 ? (uint8_t *)malloc((size_t)ecp60_bytes(CHL + 1)) : 0;   /* M5 (c05): CHL is even, so every chunk starts on a pair */
+    if (v60) CHL &= ~(size_t)1;
     for (int k = 0;; k ^= 1) {
-        sem_wait(&r->empty[k]); if (r->stop) return 0;
-        size_t m = nlimbs - r->pos < CHL ? nlimbs - r->pos : CHL, got = m ? fread(r->lb, 8, m, r->f) : 0, n = 0;
+        sem_wait(&r->empty[k]); if (r->stop) { free(rb); return 0; }
+        size_t m = nlimbs - r->pos < CHL ? nlimbs - r->pos : CHL, got = 0, n = 0;
+        if (v60) { size_t nb = (size_t)ecp60_bytes(m); got = m && fread(rb, 1, nb, r->f) == nb ? m : 0; if (got) ecp60_unpack(rb, m, r->lb); }
+        else got = m ? fread(r->lb, 8, m, r->f) : 0;
         if (got == m && m) {
             char *b = r->buf[k];
 #pragma omp parallel for schedule(static)
@@ -874,7 +911,7 @@ static void *recheck_rd_packed(struct recheck_rd *r)
         r->pos += m;
         int last = got != m || r->pos >= nlimbs;
         r->have[k] = n; r->last[k] = last; sem_post(&r->full[k]);
-        if (last) return 0;
+        if (last) { free(rb); return 0; }
     }
 }
 static void *recheck_rd_run(void *a)
