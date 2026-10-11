@@ -625,6 +625,34 @@ __global__ void k_modq(const uint64_t *x, size_t n, int nq, const uint64_t *qs, 
         __syncthreads();
     }
 }
+/* S51 K3 (DBIG_MODQ_MONT=1, default 0): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
+ * v <- montmul(v, B^MQ_T R mod q) + (x mod q) is (v B^MQ_T + x) mod q exactly, and sh <- montmul(v, B^t R mod q); the residues are those of k_modq, bit for bit. */
+__device__ __forceinline__ uint64_t mq_mm(uint64_t a, uint64_t b, uint64_t q, uint64_t qi)   /* a b / 2^64 mod q, a < 2^64, b < q, qi = q^-1 mod 2^64 */
+{
+    uint64_t lo = a * b, hi = __umul64hi(a, b), m = lo * qi, t = __umul64hi(m, q);
+    return hi >= t ? hi - t : hi - t + q;
+}
+__global__ void k_modq_m(const uint64_t *x, size_t n, int nq, const uint64_t *qs, const uint64_t *Bts, const uint64_t *powt, uint64_t *out)   /* Bts, powt in Montgomery form (times 2^64 mod q) */
+{
+    __shared__ uint64_t sh[MQ_T];
+    size_t base = (size_t)blockIdx.x * MQ_CH; unsigned t = threadIdx.x;
+    for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j], Bt = Bts[j], v = 0, qi = q;
+        qi *= 2 - q * qi; qi *= 2 - q * qi; qi *= 2 - q * qi; qi *= 2 - q * qi; qi *= 2 - q * qi; qi *= 2 - q * qi;   /* Newton: q is its own inverse mod 8; 3 -> 6 -> 12 -> 24 -> 48 -> 96 bits */
+        const uint64_t q2 = 2 * q;
+        for (int k = MQ_K; k-- > 0;) {
+            size_t i = base + (size_t)k * MQ_T + t; uint64_t xi = i < n ? x[i] : 0;
+            xi = xi >= q2 ? xi - q2 : xi; xi = xi >= q ? xi - q : xi;
+            v = mq_mm(v, Bt, q, qi) + xi; v = v >= q ? v - q : v;
+        }
+        sh[t] = mq_mm(v, powt[j * MQ_T + t], q, qi);
+        __syncthreads();
+        for (unsigned s2 = MQ_T / 2; s2 > 0; s2 >>= 1) { if (t < s2) { uint64_t a = sh[t] + sh[t + s2]; sh[t] = a >= q ? a - q : a; } __syncthreads(); }
+        if (t == 0) out[blockIdx.x * nq + j] = sh[0];
+        __syncthreads();
+    }
+}
+static int modq_mont_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MODQ_MONT") ? atoi(getenv("DBIG_MODQ_MONT")) : 0; return v; }   /* S51 K3 */
 static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
@@ -666,6 +694,13 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         uint64_t q = qs[j]; Bq[j] = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
         powt[j * MQ_T] = 1; for (int t = 1; t < MQ_T; t++) powt[j * MQ_T + t] = (uint64_t)((unsigned __int128)powt[j * MQ_T + t - 1] * Bq[j] % q);
     }
+    int mont = modq_mont_on();
+    for (int j = 0; j < nq; j++) if (!(qs[j] & 1) || qs[j] < (1ULL << 62) || qs[j] >= (1ULL << 63)) mont = 0;
+    uint64_t Btm[MQ_MAXQ], powtm[MQ_MAXQ * MQ_T];
+    if (mont) for (int j = 0; j < nq; j++) {
+        uint64_t q = qs[j]; Btm[j] = (uint64_t)(((unsigned __int128)Bt[j] << 64) % q);
+        for (int t = 0; t < MQ_T; t++) powtm[j * MQ_T + t] = (uint64_t)(((unsigned __int128)powt[j * MQ_T + t] << 64) % q);
+    }
     uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen);
 #pragma omp parallel for num_threads(DB_NQ) if(g_par)
     for (int d = 0; d < DB_NQ; d++) {
@@ -675,9 +710,10 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         if (g_mq_cap[d] < nc * MQ_MAXQ) { if (g_mq_out[d]) HIP_CHECK(hipFree(g_mq_out[d])); HIP_CHECK(hipMalloc(&g_mq_out[d], (nc * MQ_MAXQ + 1024) * 8)); g_mq_cap[d] = nc * MQ_MAXQ + 1024; }
         if (!g_mq_pow[d]) HIP_CHECK(hipMalloc(&g_mq_pow[d], (MQ_MAXQ * MQ_T + 2 * MQ_MAXQ) * 8));
         uint64_t *dq = g_mq_pow[d] + MQ_MAXQ * MQ_T, *dbt = dq + MQ_MAXQ;
-        HIP_CHECK(hipMemcpy(g_mq_pow[d], powt, (size_t)nq * MQ_T * 8, hipMemcpyHostToDevice));
-        HIP_CHECK(hipMemcpy(dq, qs, (size_t)nq * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dbt, Bt, (size_t)nq * 8, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMemcpy(g_mq_pow[d], mont ? powtm : powt, (size_t)nq * MQ_T * 8, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMemcpy(dq, qs, (size_t)nq * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dbt, mont ? Btm : Bt, (size_t)nq * 8, hipMemcpyHostToDevice));
 #pragma omp critical
+        if (mont) k_modq_m<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[d], g_mq_out[d]); else
         k_modq<<<(unsigned)nc, MQ_T>>>(x->q[d] + first, len, nq, dq, dbt, g_mq_pow[d], g_mq_out[d]);
         HIP_CHECK(hipStreamSynchronize(0));
         uint64_t *hv = (uint64_t *)malloc(nc * nq * 8);
@@ -729,6 +765,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
 #define SEG 16
+static int addsub3_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB3") ? atoi(getenv("DBIG_ADDSUB3")) : 0; return v; }   /* S51 K2: 16 KB tile + wave-level carry scan (default 0; 1 = k_addsub3 instead of k_addsub2) */
 static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 1; return v; }   /* S38: the coalesced add/sub kernel (default 1 since 2026-10-10; 0 = old k_addsub) */
 __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
 {
@@ -832,6 +869,88 @@ template <int QS> __global__ void __launch_bounds__(256) k_addsub2(uint64_t *out
     for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; if (i < c1) out[i - lo] = T[S2_IDX(e)]; }
 #undef S2_IDX
 }
+/* S51 K2 (DBIG_ADDSUB3=1, default 0): k_addsub2 with a 16 KB tile and a wave-level carry scan.  The chunk is still CH = 4096 limbs with the same flags (cout / prop), so
+ * the host scan, k_carry and the digits are those of k_addsub2.  Each thread owns two 8-limb segments (A: limbs 8 tid .. , B: 2048 + 8 tid ..): the block loads and stores
+ * the chunk in two halves of 2048 limbs through a 16 KB XOR-swizzled tile (four blocks per CU, against two), and the (generate, propagate) pairs of the 512 segments in
+ * order are scanned by __shfl_up inside each wave plus a four-entry combine, not by thread 0 over 2 x 256 entries. */
+__device__ __forceinline__ void a3_gp(const uint64_t *x, const uint64_t *y, size_t s0, size_t c1, int sub, int dec, unsigned &g, unsigned &p)
+{
+    uint64_t cy = 0; int pr = 1;
+    for (int k = 0; k < 8; k++) { if (s0 + k >= c1) break;
+        uint64_t xx = x[k], yy = y[k], s;
+        if (dec) { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; pr &= (xx == yy); } else { s = xx + yy + cy; cy = s >= B10; pr &= (xx + yy == B10 - 1); } }
+        else { if (sub) { s = xx - yy - cy; cy = (xx < yy) || (xx == yy && cy); pr &= (xx == yy); } else { s = xx + yy + cy; cy = (s < xx) || (cy && s == xx); pr &= (xx + yy == ~0ULL); } }
+    }
+    g = (unsigned)cy; p = (s0 < c1) ? (unsigned)pr : 1u;
+}
+__device__ __forceinline__ void a3_apply(const uint64_t *x, const uint64_t *y, uint64_t *o, size_t s0, size_t c1, int sub, int dec, uint64_t cy)
+{
+    for (int k = 0; k < 8; k++) { o[k] = 0; if (s0 + k >= c1) break;
+        uint64_t xx = x[k], yy = y[k], s;
+        if (dec) { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; s = cy ? s : s - B10; } else { s = xx + yy + cy; cy = s >= B10; s = cy ? s - B10 : s; } }
+        else { if (sub) { s = xx - yy - cy; cy = (xx < yy) || (xx == yy && cy); } else { s = xx + yy + cy; cy = (s < xx) || (cy && s == xx); } }
+        o[k] = s;
+    }
+}
+/* ordered scan of (g, p) over the block's 256 threads (thread order = segment order), starting from carry cinit; Wg / Wp: one entry per wave (shared);
+ * returns this segment's carry-in, the carry out of the whole set and the AND of all p.  Must be called by every thread. */
+__device__ __forceinline__ void a3_scan(unsigned g, unsigned p, unsigned cinit, volatile unsigned *Wg, volatile unsigned *Wp, unsigned &cin, unsigned &cend, unsigned &pall)
+{
+    const int lane = threadIdx.x % warpSize, wv = threadIdx.x / warpSize, nw = blockDim.x / warpSize;
+    unsigned G = g, P = p;
+    for (int o = 1; o < warpSize; o <<= 1) { unsigned g2 = __shfl_up(G, o), p2 = __shfl_up(P, o); if (lane >= o) { G = G | (P & g2); P = P & p2; } }
+    if (lane == warpSize - 1) { Wg[wv] = G; Wp[wv] = P; }
+    __syncthreads();
+    unsigned c = cinit, pa = 1, cw = cinit;
+    for (int w = 0; w < nw; w++) { if (w == wv) cw = c; c = Wg[w] | (Wp[w] & c); pa &= Wp[w]; }
+    unsigned co = G | (P & cw);                              /* carry out of this segment */
+    unsigned prev = __shfl_up(co, 1);
+    cin = lane ? prev : cw; cend = c; pall = pa;
+}
+template <int QS> __global__ void __launch_bounds__(256) k_addsub3(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, int dec, uint8_t *cout, uint8_t *prop)
+{
+    __shared__ uint64_t T[2048];
+    __shared__ unsigned W[4][8];
+    const int tid = threadIdx.x;
+    size_t c0 = lo + (size_t)blockIdx.x * CH; if (c0 >= hi) return;
+    size_t c1 = c0 + CH < hi ? c0 + CH : hi;
+    uint64_t x[16], y[16], o[16];
+#define S3_IDX(e) ((((e) >> 3) << 3) + (((e) & 7) ^ (((e) >> 3) & 7)))
+#pragma unroll
+    for (int h = 0; h < 2; h++) {
+#pragma unroll
+        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1 && i < an) ? dget_t<QS>(a, i) : 0; }
+        __syncthreads();
+#pragma unroll
+        for (int k = 0; k < 8; k++) x[h * 8 + k] = T[tid * 8 + (k ^ (tid & 7))];
+        __syncthreads();
+#pragma unroll
+        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget_t<QS>(b, i) : 0)) : 0; }
+        __syncthreads();
+#pragma unroll
+        for (int k = 0; k < 8; k++) y[h * 8 + k] = T[tid * 8 + (k ^ (tid & 7))];
+        __syncthreads();
+    }
+    size_t sA = c0 + (size_t)tid * 8, sB = sA + 2048;
+    unsigned gA, pA, gB, pB, cinA, cendA, pallA, cinB, cendB, pallB;
+    a3_gp(x, y, sA, c1, sub, dec, gA, pA);
+    a3_gp(x + 8, y + 8, sB, c1, sub, dec, gB, pB);
+    a3_scan(gA, pA, 0u, W[0], W[1], cinA, cendA, pallA);
+    a3_scan(gB, pB, cendA, W[2], W[3], cinB, cendB, pallB);
+    if (tid == 0) { cout[blockIdx.x] = (uint8_t)cendB; prop[blockIdx.x] = (uint8_t)(pallA & pallB); }
+    a3_apply(x, y, o, sA, c1, sub, dec, cinA);
+    a3_apply(x + 8, y + 8, o + 8, sB, c1, sub, dec, cinB);
+#pragma unroll
+    for (int h = 0; h < 2; h++) {
+#pragma unroll
+        for (int k = 0; k < 8; k++) T[tid * 8 + (k ^ (tid & 7))] = o[h * 8 + k];
+        __syncthreads();
+#pragma unroll
+        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; if (i < c1) out[i - lo] = T[S3_IDX(e)]; }
+        __syncthreads();
+    }
+#undef S3_IDX
+}
 /* apply a carry-in of 1 (or borrow) to a chunk, rippling until absorbed */
 __global__ void k_carry(uint64_t *out, size_t lo, size_t hi, const uint8_t *cin, int sub, int dec)
 {
@@ -920,7 +1039,9 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        if (addsub3_on() && addsub2_on() && qsel_on()) k_addsub3<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        else if (addsub3_on() && addsub2_on()) k_addsub3<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        else if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         else if (addsub2_on()) k_addsub2<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipStreamSynchronize(0));
