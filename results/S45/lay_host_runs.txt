@@ -1,0 +1,36 @@
+n144_x0s0.txt: procs 576 bad 0 peak(max/min) 2686288/2671568 live_end 2686288 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n144_x0s1.txt: procs 576 bad 0 peak(max/min) 2367688/2357448 live_end 2367688 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n144_x1s0_ofi.txt: procs 576 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n144_x1s0_shmem.txt: procs 576 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n144_x1s1_ofi.txt: procs 576 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n144_x1s1_shmem.txt: procs 576 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n150_x0s0.txt: procs 600 bad 0 peak(max/min) 2785616/2497296 live_end 2785616 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n150_x0s1.txt: procs 600 bad 0 peak(max/min) 2467208/2453768 live_end 2467208 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n150_x1s0_ofi.txt: procs 600 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n150_x1s0_shmem.txt no rows
+n150_x1s1_ofi.txt: procs 600 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n150_x1s1_shmem.txt: procs 600 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 6912 asym_low 0 asym_log 6912
+n36_x0s0.txt: procs 144 bad 0 peak(max/min) 4805656/4710168 live_end 4805656 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n36_x0s1.txt: procs 144 bad 0 peak(max/min) 3825672/3770376 live_end 3825672 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n36_x1s0_ofi.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 14680064/14680064 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n36_x1s0_shmem.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 14680064/14680064 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n36_x1s1_ofi.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/10485760 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n36_x1s1_shmem.txt: procs 144 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/10485760 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n39_x0s0.txt: procs 156 bad 0 peak(max/min) 2917392/2651664 live_end 2917392 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n39_x0s1.txt: procs 156 bad 0 peak(max/min) 2595848/2542088 live_end 2595848 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n39_x1s0_ofi.txt: procs 156 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/10485760 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n39_x1s0_shmem.txt: procs 156 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 10485760/10485760 after 0+0 asym_top 864 asym_low 0 asym_log 864
+n39_x1s1_ofi.txt: procs 156 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n39_x1s1_shmem.txt: procs 156 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 864 asym_low 0 asym_log 864
+n72_x0s0.txt: procs 288 bad 0 peak(max/min) 2700048/2671376 live_end 2700048 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n72_x0s1.txt: procs 288 bad 0 peak(max/min) 2378888/2357768 live_end 2378888 pool_sym 0/0 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n72_x1s0_ofi.txt: procs 288 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n72_x1s0_shmem.txt: procs 288 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 8388608/8388608 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n72_x1s1_ofi.txt: procs 288 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0
+n72_x1s1_shmem.txt: procs 288 bad 0 peak(max/min) 0/0 live_end 0 pool_sym 6291456/6291456 after 0+0 asym_top 0 asym_low 0 asym_log 0
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_layout_sh1.txt:plan check  3.71e+13 digits g 576, ECALC_NP=auto: OK -- 1236 products; the largest piece 1442777778088 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 576): P24 piece 1030555555777 + 412222222311 limbs = 772916666833 + 309166666734 points), bound per product (four primes over 58424467928 terms: 103 of 141 pieces); the longest transfo
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_layout_sh1.txt:room: D 6.441e+10 g 576 | planes 120877472896 arena_with_room 206158430208 bs_grow 6000000000 host 44406945536 (seedbuf 17179866368 shmem_pool 9932111872 ofi_pool 0) | node 377442848640 budget 480000000000 fits 1
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_layout_sh1.txt:vslot: D 6.441e+10 g 576 | per_apu 1916796928 tree_top 1916796928 node_vslot 7667187712 | device 327035903104 device_with 334703090816 node 377442848640 node_with 385110036352 | budget 1 | level 7 g 192 1.447 GB, level 8 g 576 1.917 GB, dm g 576 1.917 GB, S36 shared pair: max not sum (sum would be 3.364 GB)
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_plan_sh1.txt:plan vslot  the general map's v-exchange slots (comm_layered.c, hipMalloc'd outside the layout, alive to the run's end): 1.917 GB per APU from the dm phase (1.917 during the tree's top level) = 7.67 GB per node [level 7 g 192 1.447 GB, level 8 g 576 1.917 GB, dm g 576 1.917 GB, S36 shared pair: max not sum (sum would be 3.364 GB)];
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_plan_sh1.txt:plan check  3.71e+13 digits g 576, ECALC_NP=auto: OK -- 1236 products; the largest piece 1442777777780 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 576): P24 piece 1030555555557 + 412222222223 limbs = 772916666668 + 309166666668 points), bound per product (four primes over 58424467928 terms: 103 of 141 pieces); the longest transform
+/shared/prerelease/home/mpo_2026/chcoppola/s45out/blk_plan_sh1.txt:plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=9472 (staging 8192 MiB = 4 x 2048.0 MiB by tree level of 2, control 894.2 MiB); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= 9984 MiB
