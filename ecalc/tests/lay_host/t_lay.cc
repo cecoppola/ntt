@@ -147,7 +147,8 @@ static int child(int node, int d)
     }
     uint64_t live_top = dig_live();
     /* the hand-over: an exchange of the lower level still pending when the top level posts, then back to the lower level, then the top again */
-    int hA = 0; while (hA < g_nl - 1 && !lay_used(gsz[hA])) hA++;
+    int hA = g_nl - 2; while (hA >= 0 && !lay_used(gsz[hA])) hA--;   /* the highest layered level below the top (all members of that level's group agree: groups nest) */
+    if (hA < 0) hA = g_nl - 1;
     if (g_nl >= 2) {   /* (C06: every node runs the top-level exchanges xb, xd; those with a lower layered level also xa, xc around them) */
         int A = hA, T = g_nl - 1, lo = hA < T; xch xa, xb, xc, xd;
         int ra = rnd++, rb = rnd++, rc = rnd++, rd = rnd++;
