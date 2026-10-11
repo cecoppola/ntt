@@ -29,7 +29,7 @@ digits ≈ 78 s (was ≈ 94 s), 4 nodes −50.0 s (m, S43). The 576-node plan: d
 | 14 | **S49 cold-path probe** (first-touch/register the real pool per APU, flag > 3x median) to catch the slow host that `nodechk` misses; add to the kit | open | results/S49.md |
 | 15 | **`DIST_COALESCE` decision** (message aggregation, 1.0-4.5 s at 576 n, mod; S52 design) | open (user) | results/S52.md |
 | 16 | **Target size decision:** 3.82e13 digits (margin 13.4 GB, mod) vs 3.71e13; do not exceed 3.82e13 | open (user) | results/S52.md |
-| 17 | **`t_mn_grid` 2-node hang on main** (3 of 3 runs, hangs after "2 pieces"; pre-existing, root cause not investigated) | open | results/T01.md (T13 if merged) |
+| 17 | **`t_mn_grid` 2-node hang on main** (3 of 3 runs, hangs after "2 pieces"; pre-existing, root cause not investigated) | open: not the S46 memhooks deadlock, a comm-completion hang; uffd does not fix it | results/T01.md, results/T13.md |
 | 18 | **mnaccept:** `R`/`N` steps use `srun -N1` without `-w` (can land on different nodes); stale default `ECALC_REF=$HOME/ntt/ecalc/ref`; ref sha256 symlinks dangling | open | results/T01.md |
 | 19 | **4-node slow-mode cause** (about 29 % of runs at -21 % exchange rate; not arm/node/rank/order) | open: test concurrent fabric traffic and a controlled reclaimable memory fill | results/T05.md, results/T09.md |
 | 20 | **Cold probe needs a positive control** (`--nodechk-cold-gb` did not reproduce the stall on aac7-n01; no threshold) | open (item 14 continues) | results/T10.md |
