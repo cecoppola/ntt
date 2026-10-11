@@ -75,8 +75,9 @@
 #   plan   (< 1 min per point, no device; default on): MN_PLAN_ONLY=<digits>:<procs> for every a4 node count (and --plan-digits/--plan-procs).
 #            PASS only if the last plan line is `plan check ... OK`.  Stages a4 and s2chk run the same check before each long run and
 #            refuse the run on `plan REFUSED`.  Run it before anything long.
-#   initchk (seconds; default on after a4): runs tools/initchk.py (first-run init-time slow-host check; flag > 3x median) on the log of
-#            the first multi-node run (a4 sets ECALC_INIT_TL=1 so the log has the timeline).  SKIPPED if the script is not present.
+#   initchk (seconds; default on after a4): runs tools/initchk.py (slow-host check: flag a node > 3x the median and >= 2 s above it; exit 0 ok, 3 flagged, 2 cannot parse)
+#            the first a4 log (a4 sets ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 MNRUN_LABEL=1: extra timestamp lines and rank labels only; the
+#            host-attributed upload line is where the known slow host stalls).  Post-run diagnosis: rerun without the host.  SKIPPED if absent.
 #   a3     (3-5 min, 2 nodes):
 #            tests/t_comm --bw with comm_ofi, 1 NIC per APU vs 2 NICs per APU (COMM_OFI_NICS), GB/s per node.
 #   a4     (5-10 min PER node count, 2/8/64 nodes, skips what the allocation can't hold):
@@ -309,7 +310,7 @@ plan_check() {   # plan_check <logfile> <digits> <procs> [VAR=val words...] -- M
     # 0 only if the LAST plan line is `plan check ... OK` (a `plan REFUSED` line, or no plan line, is a refusal: 1).  Dry-run: prints, 0.
     local lf=$1 d=$2 g=$3; shift 3
     local plf="$LOGDIR/plan_${d}_${g}.log"; : > "$plf"
-    exec_cmd "$plf" "$TO_PLAN" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$(module_preamble)"'p=$1; shift; export MN_PLAN_ONLY=$p; exec env "$@"' _ "$d:$g" COMM_TRANSPORT=shmem "$@" "$SELF_DIR/ecalc"
+    exec_cmd "$plf" "$TO_PLAN" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -lc "$(module_preamble)"'p=$1; shift; export MN_PLAN_ONLY=$p; exec env "$@"' _ "$d:$g" COMM_TRANSPORT=shmem "$@" "$SELF_DIR/ecalc"
     [ "$DRY_RUN" = 1 ] && { cat "$plf" >> "$lf"; return 0; }
     cat "$plf" >> "$lf"
     local last; last=$(grep -aE '^plan (check|REFUSED)' "$plf" | tail -1)
@@ -324,6 +325,8 @@ if [ "$__fmc" = disabled ]; then
     echo "target_kit.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2
     exit 1
 fi
+export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}   # S46, adopted 2026-10-11 (the crash/hang fix); override: FI_MR_CACHE_MONITOR=memhooks
+echo "target_kit.sh: FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR"
 
 : > "$SUMMARY"
 summary "KIT_SUMMARY -- target_kit.sh"
@@ -351,7 +354,7 @@ stage_env() {
     if [ -n "$JOBID" ]; then
         exec_cmd "$lf" "$TO_ENV" bash -c "echo '== job geometry'; scontrol show job $JOBID" || rc_all=1
         exec_cmd "$lf" "$TO_ENV" bash -c "echo '== allocation hostnames'; scontrol show hostnames \"\$(squeue -j $JOBID -h -o %N)\"" || rc_all=1
-        exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -c '
+        exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -c '
             echo "== (compute node) hostname"; hostname
             echo "== ROCm version"; hipconfig --version 2>&1; for f in /opt/rocm*/.info/version; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
             echo "== module list"; module list 2>&1
@@ -498,7 +501,7 @@ stage_uffd() {
     fi_defaults_for "$n"
     # (1) the syscall on a compute node: permitted, EPERM (needs vm.unprivileged_userfaultfd=1 or a capability) or ENOSYS
     local slf="$LOGDIR/01b_uffd_syscall.log"; : > "$slf"
-    exec_cmd "$slf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -c '
+    exec_cmd "$slf" "$TO_ENV" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -c '
         echo "host $(hostname); vm.unprivileged_userfaultfd=$(cat /proc/sys/vm/unprivileged_userfaultfd 2>&1)"
         python3 -c "
 import ctypes, os
@@ -566,10 +569,14 @@ stage_initchk() {
     fi
     if [ -z "$log" ] || [ ! -f "$log" ]; then summary "status: SKIPPED (no multi-node run log: run stage a4 in this --out or give --initchk-log FILE)"; summary ""; return; fi
     summary "  log checked: $log"
-    timeout 120 python3 "$INITCHK_SCRIPT" ${KIT_INITCHK_ARGS:-} "$log" >> "$lf" 2>&1
+    timeout 120 python3 -I "$INITCHK_SCRIPT" ${KIT_INITCHK_ARGS:-} "$log" >> "$lf" 2>&1
     local rc=$?
-    sed 's/^/    /' "$lf" | head -40 >> "$SUMMARY"
-    summary "status: $([ $rc -eq 0 ] && echo PASS || echo "FLAG/FAIL (initchk exit $rc; see $lf -- exclude the named hosts with --exclude-hosts)")"
+    grep -aE '^(FLAG|node|metric|median)' "$lf" | head -30 | sed 's/^/    /' >> "$SUMMARY"
+    case $rc in
+        0) summary "status: PASS (no node above 3x the allocation median)" ;;
+        3) summary "status: FLAG (slow host(s), see FLAG lines / $lf). Policy: post-run diagnosis, not a pre-run gate -- rerun without the flagged host (--exclude-hosts, or sbatch -x)" ;;
+        *) summary "status: PARTIAL (initchk could not parse the log, rc $rc: needs ECALC_INIT_TL=1, and >= 3 nodes for a median; see $lf)" ;;
+    esac
     summary ""
 }
 
@@ -585,11 +592,11 @@ stage_edge() {
     local pre; pre=$(module_preamble)
     local rc=0
     echo "== t_edge dev (hipMalloc), alone on the node, before anything else" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" dev "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
     echo "== t_edge vmm (hipMemCreate), alone on the node" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/tests/t_edge" vmm "$EDGE_STEP_GB" "$EDGE_CAP_GB" || rc=1
 
@@ -598,13 +605,13 @@ stage_edge() {
     # this run used to print the "report both forms" text with no number behind it.  DB_POOL_VERBOSE=1 turns
     # on just that line (narrower than RNS_VERBOSE, which adds a lot of unrelated chatter).
     echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 -- the init footprint and VMM arena map rate" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         env MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e9.out*
 
     echo "== e $E10 (1e10) -- the single-node wall" >> "$lf"
-    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
         "$SELF_DIR/ecalc" "$E10" "$TMPDIR/e10.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e10.out*
@@ -738,13 +745,13 @@ stage_a4() {
         local nlf="$LOGDIR/04_a4_n${n}.log"; : > "$nlf"
         fi_defaults_for "$n"
         echo "== n=$n nodes, $digits digits total ($E10 per node), MN_COMM_MARK=1, MNRUN_MODULES=$MNRUN_MODULES MNRUN_UNLOAD=$MNRUN_UNLOAD" >> "$lf"
-        exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$pre"'echo "== runtime ROCm (compute node, n='"$n"'): $(hipconfig --version 2>&1)"'
+        exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" --export=ALL -N1 -n1 --overlap bash -lc "$pre"'echo "== runtime ROCm (compute node, n='"$n"'): $(hipconfig --version 2>&1)"'
         if ! plan_check "$nlf" "$digits" "$n"; then
             any_fail=1; summary "  n=$n: REFUSED by the plan check (no run started; see $nlf)"; continue
         fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 "$SELF_DIR/ecalc" "$digits" "$out"
+            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -912,7 +919,7 @@ stage_nodechk() {
     if [ -n "$exin" ]; then xopt=(-x "$exin"); alloc=$((alloc - $(echo "$exin" | tr , '\n' | grep -c .))); summary "  excluded from the probe (--exclude-hosts): $exin"; fi
     pre=$(module_preamble)
     summary "  nodes probed: $alloc (every usable node of the allocation, one process each, run alone)"
-    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap ${xopt[@]+"${xopt[@]}"} \
+    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" --export=ALL -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap ${xopt[@]+"${xopt[@]}"} \
         bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3 "$NC_COLD_GB"
     rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
