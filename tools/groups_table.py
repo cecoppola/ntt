@@ -25,8 +25,8 @@ import mn_model as M, mem_model, estimate as E
 EDGE = M.TARGET_DEVICE_EDGE_GB                                       # 373.44 GB (measured on the target)
 X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
 
-def setup():
-    prof = M.apply_profile('target')
+def setup(profile='target'):
+    prof = M.apply_profile(profile)
     design = M.Design(np=3, strategy='auto', cap=mem_model.CAPS['2^31'], chunk='both', depth=2, modmul=1, chunk_mb=1024, p15=True, out_overlap='none',
                       p15b=True, np_mn='auto', packed=True, p15c=True, arena_room=0.16, cache_fit=True)
     design.t_mb = 2048                                               # MN_T_CHUNK_MB=2048, the shift chunk stays 1024
