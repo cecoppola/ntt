@@ -88,7 +88,7 @@ HANDOFF=0; skipped=""
 kill_tree() { local p=$1 c; for c in $(pgrep -P $p 2>/dev/null); do kill_tree $c; done; kill -TERM $p 2>/dev/null; }
 run_item() { local f=$1 est=$2 own=$3 base=${1%.sh} to pid t0=$(now) w=0
   to=$(( est * 90 + 300 )); rd_say "queue: start $(basename $f) owner $own est ${est} min, timeout ${to}s, hold $J"
-  ( cd $(dirname $f) && SLURM_JOB_ID=$J exec bash $f ) > $base.log 2>&1 < /dev/null & pid=$!
+  ( cd $(dirname $f) && env -u OUT -u HOLD SLURM_JOB_ID=$J exec bash $f )   # S47 fix: the launch line passed OUT as an env var, so items inherited it (queue bug) > $base.log 2>&1 < /dev/null & pid=$!
   while kill -0 $pid 2>/dev/null; do sleep ${QPOLL:-5}; w=$((w + ${QPOLL:-5})); [ $w -ge $to ] && break; done
   if kill -0 $pid 2>/dev/null; then rd_say "queue: $(basename $f) TIMEOUT ${to}s: killing PID tree of $pid"; kill_tree $pid; sleep 20; kill -KILL $pid 2>/dev/null; echo "[driver] timeout ${to}s" >> $base.log; wait $pid 2>/dev/null; RCI=124
   else wait $pid; RCI=$?; fi
