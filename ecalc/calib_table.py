@@ -22,6 +22,7 @@ import argparse, glob, hashlib, math, os, re, sys
 
 SLOW, FAST = 11.95, 12.3          # GB/s per APU thread (T05)
 CHAIN_MAX, INIT_MAX = 2.6, 36.0   # clean-run limits (T05)
+KEEP_STALLED = False               # --keep-stalled: chain-stalled runs count as clean (column chain_x = chain - CHAIN_MAX, s)
 
 LAB = re.compile(r'^\s*\d+: ')
 TOT = re.compile(r'^total\s+([\d.]+) s\s+\(bs ([\d.]+) \+ 10dP ([\d.]+) \+ dm ([\d.]+) \+ T1 ([\d.]+) \+ dc ([\d.]+) \+ T2 ([\d.]+) = [\d.]+; init ([\d.]+); other ([\d.]+)\)(?:; VmHWM ([\d.]+) GB)?')
@@ -40,10 +41,11 @@ WST = re.compile(r'^wait-stats node (\d+):(.*)$')
 WPH = re.compile(r'(\w+) barrier ([\d.]+) s \(\d+\) wait ([\d.]+) s')
 ENVL = re.compile(r'^(?:env|config|LINE)\s*[:|]\s*(.*)$')
 ENVW = re.compile(r'\b((?:COMM|MN|RNS|DM|ECALC|DBIG|BS|DIST|NEWTON)_[A-Z0-9_]+)=(\S+)')
-FNAMES = [re.compile(r'^(?P<exp>[A-Za-z]+)_r(?P<round>\d+)_(?P<arm>[A-Za-z])$'),      # S47: ii_r3_A
+FNAMES = [re.compile(r'^(?P<exp>[A-Za-z][A-Za-z0-9]*)_r(?P<round>\d+)_(?P<arm>[A-Za-z])$'),      # S47: ii_r3_A (exp may hold digits: c4_r1_A)
           re.compile(r'^r(?P<round>\d+)_(?P<pos>\d+)(?P<arm>[A-Za-z])$'),             # S50/S51: r1_2B
           re.compile(r'^n(?P<nn>\d+)_r(?P<round>\d+)$'),                              # S47/S48 scaling: n4_r1
-          re.compile(r'^(?P<exp>[A-Za-z0-9]+)_(?P<round>\d+)_(?P<arm>[A-Za-z]+)$')]
+          re.compile(r'^(?P<exp>[A-Za-z0-9]+)_(?P<round>\d+)_(?P<arm>[A-Za-z]+)$'),
+          re.compile(r'^(?P<exp>.+)$')]                                                 # any other label (c4, c5, ...): exp = the label
 
 PH = ['init', 'tree', 'bs', 'recip', 'dm', 'end']
 COV = 'r'            # covariate column of the fits: 'r' (the run's own all-to-all rate) or 'pr' (the environment probe, C04)
@@ -204,7 +206,8 @@ def row_of(p, cfgmap, drv):
     if row['verify'] != 'OK': fl.append('noverify')
     if r['total'] is None: fl.append('nototal')
     row['flags'] = ','.join(fl)
-    row['clean'] = int(not fl)
+    row['chain_x'] = max(0.0, r['chain'] - CHAIN_MAX) if r['chain'] is not None else None
+    row['clean'] = int(not [f for f in fl if not (KEEP_STALLED and f == 'chain')])
     for ph in PH + sorted(set(r['mem']) - set(PH)):
         if ph in r['mem']: row['dev_' + ph], row['live_' + ph] = r['mem'][ph]
         if ph in r['host']: row['hwm_' + ph] = r['host'][ph]
@@ -410,7 +413,7 @@ def do_ab(rows, desc, target, xexp=()):
     return out
 
 COLS = ['src', 'label', 'exp', 'round', 'arm', 'config', 'nodes', 'digits', 'dpn', 'verify', 'total', 'init', 'bs', 'tree', 'recip', 'dm', 'rcp_prod', 's1', 's2', 'xlo',
-        'dc', 'other', 'vmhwm', 'chain', 'r', 'pr64', 'pr256', 'pgroup', 'pfgfc', 'rmin', 'rmax', 'mode', 'flags', 'clean', 'resid', 'wall', 'start']
+        'dc', 'other', 'vmhwm', 'chain', 'r', 'pr64', 'pr256', 'pgroup', 'pfgfc', 'rmin', 'rmax', 'mode', 'flags', 'clean', 'chain_x', 'resid', 'wall', 'start']
 
 def write_tsv(rows, path):
     extra = sorted(set(k for x in rows for k in x) - set(COLS))
@@ -471,10 +474,12 @@ def main():
     ap.add_argument('--covariate', choices=('r', 'probe'), default='r', help="rate covariate of --fit/--ab: the run's own r, or the ENVPROBE rate (runs need ENVPROBE lines in the log or a <label>.probe sidecar)")
     ap.add_argument('--probe-col', choices=('r64', 'r256'), default='r64', help='which ENVPROBE rate is the probe covariate (default r64)')
     ap.add_argument('--probe-check', action='store_true', help='does the probe rate predict the run rate / total?')
+    ap.add_argument('--keep-stalled', action='store_true', help='keep chain-stalled runs (chain > %.1f s) in the fits/A-B; the chain-excess column chain_x gives the stall in s' % CHAIN_MAX)
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest: return selftest()
-    global COV, PROBE_COL
+    global COV, PROBE_COL, KEEP_STALLED
+    KEEP_STALLED = a.keep_stalled
     PROBE_COL = a.probe_col; COV = 'pr' if a.covariate == 'probe' else 'r'
     cfg = [(re.compile(k), v) for k, v in (c.split('=', 1) for c in a.config)]
     drv = read_driver(a.driver_tsv)
