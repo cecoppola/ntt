@@ -1,9 +1,17 @@
 # PLAN.md — the single plan for `~/ntt`
 
-> **HISTORICAL.** Covers the bench suite, the paper reproduction and the design phases through 2026-10-03 (Phase
-> 17 was in progress). Superseded as the current state-of-record by `docs/code/00_OVERVIEW.md` (algorithm, defaults,
-> "where the truth lives") and `RESULTS.md` (the measurement log, now through §118). Kept below as the phase-by-
-> phase plan and status log; the body is not edited.
+> **HISTORICAL — the whole file.** It covers the bench suite, the paper reproduction and the design phases 1-17 (through
+> 2026-10-03); nothing after that date is recorded here and it is not edited any more. "PLAN §n" citations in other
+> documents point into this file. Where to read the *current* state instead:
+>
+> | question | read |
+> |---|---|
+> | what is computed, the defaults, the launch lines | `docs/code/00_OVERVIEW.md`, `ecalc/README.md` |
+> | what is open | `TASKS.md`, `docs/TARGET_TASKS.md` |
+> | what was decided and why | `docs/code/05_DECISION_REGISTER.md` |
+> | what was measured (latest §127, 2026-10-10) | `RESULTS.md` |
+> | the 576-node runbook | `docs/TARGET.md` |
+> | the common agent protocol (it used to say "read PLAN.md") | `docs/AGENT_PROTOCOL.md` |
 
 One file for everything: the MI300A microbenchmark suite, the reproduction of
 the *e*-to-40-billion paper, and the path from there to `~/ntt`'s own design.
