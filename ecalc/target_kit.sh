@@ -583,7 +583,8 @@ stage_initchk() {
     local rc=$?
     grep -aE '^(FLAG|node|metric|median)' "$lf" | head -30 | sed 's/^/    /' >> "$SUMMARY"
     case $rc in
-        0) summary "status: PASS (no node above 3x the allocation median)" ;;
+        0) if grep -aq 'no median' "$lf"; then summary "status: PARTIAL (no flag, but fewer than 3 nodes report: no median, the check is vacuous)"
+           else summary "status: PASS (no node above 3x the allocation median)"; fi ;;
         3) summary "status: FLAG (slow host(s), see FLAG lines / $lf). Policy: post-run diagnosis, not a pre-run gate -- rerun without the flagged host (--exclude-hosts, or sbatch -x)" ;;
         *) summary "status: PARTIAL (initchk could not parse the log, rc $rc: needs ECALC_INIT_TL=1, and >= 3 nodes for a median; see $lf)" ;;
     esac
