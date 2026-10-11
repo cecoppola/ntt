@@ -93,7 +93,7 @@ figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no
 | `tests/` | one GMP-checked program per module; `harness.h` (VERIFY, generators, GMP bridges, META/RESULT) |
 | `ref/` | `gen_e.c` and the reference digit files |
 
-(The switches these files read — `LIMB_BASE`, `POOL_LOG`, `ECALC_OVERLAP`, `NEWTON_DEVICE`, `BS_DEVICE_POOLS`, the tuning
+(The switches these files read — `LIMB_BASE`, `POOL_LOG`, `ECALC_OVERLAP`, `NEWTON_DEVICE`, the tuning
 and debugging knobs — are all in **Switches** below, one line each with the default. Multi-node pieces (WP5/6):
 `comm.h` rank abstraction, `comm_sim4` (four synthetic ranks), `comm_xgmi` (the four real APUs), `comm_tcp` /
 `comm_shmem` (`COMM_*`), `ntt_dist` (distributed four-step, `tests/t_dist`), `dbig` (device bigint, `tests/t_dbig`),
@@ -224,8 +224,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_VERBOSE` | 1: the phase lines; 2: per-level, init and memory detail; 0: quiet (1) |
 | `ECALC_OVERLAP` | the Phase 8 overlapped flow — parallel per-APU init, the seeds during init's allocations, T1's recurrence during bs, the division on the device, digits/T2 during the low product; 0 = the sequential flow (1) |
 | `ECALC_BG_THREADS` | the background OpenMP team of the recurrence and the writer (48) |
-| `ECALC_STAGING` | the pinned staging per APU in the decimal device flow: 1 = the checkpoints' 1 GiB chunk, 2 = sized to the seeds (pre-B2), 0 = the paper's 8·2^POOL_LOG bytes (1) |
-| `ECALC_TAIL` | the arena's tail for the dm phase mapped at init (Phase 11 M); 0 = the Phase 10 layout, the block pool growing by hipMalloc inside the phase (1) |
 | `ECALC_ARENA_GB` | the region arena per device, in GB, instead of the layout's own sizing (auto) |
 | `DM_TIGHT` | *Phase 14 (L1), APUMULT_STUDY E2*: the reciprocal's scratch reserved once at the last doubling's sizes instead of the final ones — r at ⌈k/2⌉ + 4 limbs, r2 at 2⌈k/2⌉ + 4, t1 at Q_t·r's size there — with r' copied into r's block (no block swap) at every doubling but the last; the device tier's top levels free each input pair as it is consumed; the block pool packs the large blocks (the top level's P, Q below the tail; t1 in the tail, r2 at the highest free end); `dm_layout` re-derived (the last doubling's set 5.2 n_Q + piece instead of 6.2, the top level 3.3 n_Q instead of 4.4, the division's own set as a term); bit-identical (on with `DB_POOL_VMM` since Phase 14) |
 | `DM_TAIL_DEAD` | *Phase 14 (L1), E5's layout half*: 1 = `dm_layout`'s v3 no longer reserves t1's hole beside the top level; after the top level the block pool's tail is re-laid over the level's dead inputs (`db_pool_retarget_tail`, a `dbig pool:` line under `DB_POOL_VERBOSE`); 2 = also v2 without P during the reciprocal — the layout the P spill needs, refused at init until the spill is wired (`BS_LAYOUT_ONLY` and `ECALC_INIT_ONLY=1` still print / map it) (0) |
@@ -297,7 +295,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `NTT_B16_BODY` | the register-blocked transform body (Phase 9 N-kernel, bit-identical) (1) |
 | `PW_FUSE` | the stage from which the pointwise product is fused into the transform (14) |
 | `RNS_R3` | 3·2ᵏ transform lengths (WP8) (1 when the prime set has the radix-3 roots) |
-| `RNS_BATCH_LOCAL` | the locality-aware batch tier (1) |
 | `RNS_BATCH_LOCAL_MIN` | below this many products the striped batch path is used (16) |
 | `RNS_BATCH_PAIR` | products 2i, 2i+1 sharing B (the tree's P₁Q₂ + P₂, Q₁Q₂) transform B once (Phase 9 B1) (1) |
 | `RNS_STRIPED_PAIR` | the paired, 3·2ᵏ form of the striped batch path as a unit (A2) (1) |
@@ -353,8 +350,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `BS_SEED_CHUNK_MB` | the seed stream's buffered chunk per region (8192 with `DB_POOL_VMM`, the default; 2048 without) |
 | `BI_MUL1_FAST` | *Phase 15 (S1), results/S115.md*: 1 = the decimal `mul_1` (`bigint.c mul1_serial`, every caller) by a precomputed reciprocal of 10¹⁸ — one high multiply per limb for **any** multiplier < 10¹⁸, no 128-bit division above 2³³ — and the seed span's Horner step fused (`bi_span_step`: P += Q and Q ·= k in one pass); exact, bit-identical (`tests/t_seed`: 0 mismatches over every k range up to 2⁴⁴) (**1** since 2026-09-27, the user's decision of 2026-09-27) |
 | `BS_SCHOOL_NL` | CPU schoolbook tier below this many limbs; 0 = never (0) |
-| `BS_DEVICE_POOLS` | the level pools as four device regions (WP3); 0 = registered host (1) |
-| `BS_DEV_MDEV` | the top levels as device numbers through the distributed tier (§64) (1) |
 | `BS_MDEV_LOGL` | products above 2^this limbs go to the mdev tier; lower it to test at 10⁹ (30) |
 | `BS_BALANCE_N` | levels with at most this many nodes are balanced over the four regions; 0 = never (16) |
 | `BS_CKPT_DIR` | the checkpoint directory: leaf sets of the level loop, the tree sets at size > 1, the top-level set (unset = none) |

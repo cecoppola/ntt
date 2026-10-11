@@ -36,7 +36,6 @@ static struct dev {
     size_t spill_cap;
     uint32_t *len, *dlen; size_t len_cap;   /* WP3 local mode: normalised lengths (pinned host, device) */
 } D[EC_NP];
-int rns_batch_local = -1;        /* RNS_BATCH_LOCAL: 1 (default) products in device pools are done by their own APU */
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
 int rns_batch_pair = -1;         /* RNS_BATCH_PAIR: 1 (default) products 2i, 2i+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2) transform B once (Phase 9 B1) */
 
@@ -989,7 +988,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
 void rns_mul_batch(rns_prod *P, size_t N)
 {
     if (!N) return;
-    if (rns_batch_local < 0) { rns_batch_local = getenv("RNS_BATCH_LOCAL") ? atoi(getenv("RNS_BATCH_LOCAL")) : 1; if (getenv("RNS_BATCH_LOCAL_MIN")) rns_batch_local_min = atoi(getenv("RNS_BATCH_LOCAL_MIN")); }
+    { static int once = 0; if (!once) { once = 1; if (getenv("RNS_BATCH_LOCAL_MIN")) rns_batch_local_min = atoi(getenv("RNS_BATCH_LOCAL_MIN")); } }   /* (the striped-only form RNS_BATCH_LOCAL=0 was removed 2026-10-11) */
     size_t maxnc = 0, in_limbs = 0, out_limbs = 0;
     int staged = 0;
     for (size_t i = 0; i < N; i++) {
@@ -1007,7 +1006,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
     for (size_t i = 1; i < N && grpB; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
-    if (rns_batch_local && !staged && N >= (size_t)rns_batch_local_min && (rns_plane_limbs() / (ec_np * L)) >= 1) {
+    if (!staged && N >= (size_t)rns_batch_local_min && (rns_plane_limbs() / (ec_np * L)) >= 1) {
         int local = 1;                                  /* few or huge products: the prime-per-device path balances the four APUs */
         for (size_t i = 0; i < N && local; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
