@@ -1,56 +1,52 @@
-# ecalc — e to 4 × 10¹⁰ digits on one MI300A node, and over several (PLAN.md §8, §15, §17, §25)
+# ecalc — e to 10¹⁰…10¹¹ digits on one MI300A node, and 3.71 × 10¹³ digits on 576 nodes
 
-The default configuration at size 1 (one process, four APUs) is the Phase 11 result (RESULTS.md §76):
-decimal limbs of 10¹⁸, the binary-splitting levels and the Newton division on device-resident numbers
-through the four-APU distributed transform, 3·2ᵏ transform lengths, the paired batch tier and the
-register-blocked transform body, the seeds and T1's recurrence overlapped with init and bs, the digits
-streamed to the file in chunks — **4 × 10¹⁰ digits in 81.5 ± 1.4 s wall at 11.7 GB of host memory, 10¹¹
-digits on one node in 263 s (445 GB)**, digits verified against the reference (Phase 9: 86.4 s / 48.8 GB;
-Phase 7's 134 s / 154 GB and Phase 8's 112 s are in RESULTS §63–72). `LIMB_BASE=2` reproduces the
-paper's binary-limb pipeline; `main` carries this code, the Phase 4 reproduction is tag `phase4-accepted`.
-Several node-processes run the same program over the TCP or SHMEM communicator (`mnrun.sh`, below): the
-leaf tree per node, the top levels, the division and the output distributed. Every environment switch
-the code reads is listed once, with its default, in **Switches** at the end.
+*Current as of 2026-10-10 (main after the S38–S45 sessions).* This file is the **reference for every environment switch**
+(section **Switches**, one row per switch the code reads, with its default and its evidence) plus the build/run recipes.
+Narrative lives elsewhere: `docs/code/00_OVERVIEW.md` (algorithm, map, defaults), `docs/TARGET.md` (the 576-node runbook
+and the target-size history), `RESULTS.md` (the measurement log), `docs/code/05_DECISION_REGISTER.md` (every decision).
+The phase-by-phase history of the defaults that used to head this file is kept in
+`archive/docs/ECALC_README_PREAMBLE_2026-10-05.md`.
 
-**The defaults (as of 2026-10-05; nothing to set).** Phase 13c's design (`RNS_STRATEGY=auto`, `ECALC_PLANE_CAP=2^31`,
-`MDB_SHIFT_CHUNK_MB=1024`, `COMM_ALLTOALLV_DEPTH=2`, `NTT_B1R=3`, `NTT_PLAN=1`, three primes and `NTT_MODMUL=1` since step 0);
-Phase 14's nine (2026-09-26: `RNS_PLANES_FIRST`, `NEWTON_RECIP_CUT`, `ECALC_ODIRECT`, `DB_POOL_VMM` with `DM_TIGHT`,
-`MN_TREE_EARLY_FREE`, `MN_T_CHUNK_MB=1024`, `ECALC_BUDGET_CHECK`, `COMM_LAYER_TKERNEL`, `COMM_SHMEM_POOL_AUTO`); and **Phase 15's,
-the user's decisions of 2026-09-27**: `RNS_AUTO_PIECE_COST=1` (D1), `ECALC_CORR_PATCH=2`, `NEWTON_RECIP_MID=1`,
-`BS_SEED_FILL=128` (0, or a `BS_SEED_TERMS` in the environment, keeps the fixed span), `BI_MUL1_FAST=1`, `DIST_TWREC=1`,
-**`ECALC_OUT_PACKED=1`** (the digits written packed, 0.444 B/digit; `tools/unpack_digits` makes the ASCII file off the clock),
-`MN_OUT_EARLY=1`, `ECALC_ODIRECT=auto`; **Phase 15 Batch 2, the user's decisions of 2026-09-28** (main B2): `BS_ARENA_ROOM=0.16`
-(was 0), `DIST_TWREC_G=1` (was 0), `RNS_POOL1_4Q=1` (PS; it changes only `ECALC_NP=4` runs). The top set (`ECALC_CKPT_TOP`) is **off**
-by default (record timing runs); `ECALC_CHECKPOINT=1` turns on its budgeted form for development and testing. Not code defaults but
-on the **target's launch line** (`docs/TARGET.md` §4; **CURRENT: the target is 3.71 × 10¹³ digits on 576 nodes**, `ecalc 37100000000000`,
-since the user's decision of 2026-10-06 ≈ 19:30 EDT (TGTBENCH2/s18-target: "3.71e13 is fine") — chosen with margin against B7ACCT's
-v-exchange-slot accounting (device layout 363.53 GB vs the 373.44 GB measured edge, 9.91 GB margin; node total 405.61 GB with v-slots
-vs 480 GB, 74.39 GB margin; results/S18TGT.md Part 1); raise later if the memory configuration is lifted; *history*: it was **4.08 × 10¹³
-for a few hours on 2026-10-06 (TGT17)** (`ecalc 40800000000000`) before B7ACCT's v-slots were counted and found it only 0.88 GB under
-the edge — it was **5.276 × 10¹³ from the user's Batch 3 decision of 2026-09-29 to 2026-10-06** (`ecalc
-52760000000000`; CAP17 found it 32.42 GB over the raw 373 GB device edge — does not fit) — **5.167 × 10¹³ was its test size**, int15k,
-2026-10-03; before that, 4.25 × 10¹³ from 2026-09-27, 23:50 EDT until P24 (the user's decision 11 of 2026-09-28), then 5.1 × 10¹³ until B3):
-**`ECALC_NP=auto`** (four primes only for the products over the three-prime bound; the decision of 2026-09-28 — it was `ECALC_NP=4`,
-which is now +17.2 GB per node and over 480 GB at the target, modelled), **`RNS_DIST_CACHE_FIT=1`** (the mn transform cache bounded by
-the budget: 0 slots at the target; without it the code's default takes 2 × 68.7 GB per node that no budget holds — never run the target
-without FIT or `RNS_DIST_CACHE_MN=0`), `ECALC_MEM_GUARD_GB=6`, `COMM_SHMEM_ROUND_MB=1024` (D2). Off and staying off (2026-09-28):
-`NTT_R3_FUSE`, `RNS_R3_MINK`. Not adopted: `DB_POOL_VMM_PAR`, `DB_POOL_VMM_EXTEND` (agent RL, not merged), E11 / `DM_BAND` (dropped
-for now), MAP's `DB_POOL_VMM_STREAM` (dropped: not merged; `ECALC_INIT_TL` stays). Every report gives two walls (D3): without and with
-the disk write. **Phase 15 Batch 3 (B3, 2026-09-29)**: defaults `MN_P24=2`, `NEWTON_DKM=1`; the target was **5.276 × 10¹³ digits**
-(`ecalc 52760000000000`) until 2026-10-06, when TGT17 (the user's decision) moved it briefly to **4.08 × 10¹³** (`ecalc 40800000000000`),
-then TGTBENCH2/s18-target (the same day) moved it to **3.71 × 10¹³** (`ecalc 37100000000000`), the current target — see the banner
-above. **int15j (the user's decisions of 2026-09-29)**: on the target's launch line, not defaults, **`MN_OUT_DKM_HI=1`**
-(two part files per node) and **`RNS_DIST_CACHE_PARTIAL=1`** (RESULTS §93: measured identical at 10¹¹ and at 3–4 node-processes);
-`ECALC_NP_AUTO_MIN` (MPB) stays off; new and off: `ECALC_FAST_EXIT` (the user's decision of 2026-10-03: an option, not on the launch line) and
-`DM_MN_LEAN` (int15k: the multi-node division's dead copies removed and the arena counted without them, −20 GB per node at the target, modelled;
-on the target's launch line only since the user's decision of 2026-10-05, not a code default). **Phase 16, the user's decisions of
-2026-10-05**: `BS_POOL_RULE=1` (R: the sizing pass's lower-bound rule for which bs levels take the batch tier vs the mdev tier), `COMM_INIT_EARLY=1`
-(S: the transport opened before `rns_init`, diagnosed against Cray OpenSHMEMX's intermittent `shmem_init_thread` segfault — 0 of 55 vs 8 of 78),
-`MN_SELFTEST_GROW=1` (P: the layered self-test's rows grow until R / ranks ≥ 32, needed for any 32-or-more-rank launch) are all defaults; see
-their rows in **Switches** below. **Phase 17, the user's decision of 2026-10-06** (results/OFI17.md, RESULTS §106): **`COMM_OFI`
-defaults to 1 wherever it applies** — the SHMEM transport's device exchanges go over libfabric on the calling APU's cxi NICs instead
-of `shmem_putmem[_signal]_nbi`, when a cxi NIC is present (Cray Slingshot; a build without `OFI=1`/libfabric, or a system with no cxi
-device such as aac6's TCP/SOS, stays on the old path with no code change needed); `COMM_OFI=0` always restores it.
+**What it does.** Decimal limbs of 10¹⁸ (the digits are the limbs); binary splitting and the Newton division on
+device-resident numbers through the four-APU distributed NTT (3·2ᵏ lengths, three or four primes); the digits are
+written packed (`ECALC_OUT_PACKED=1`, 0.444 B/digit; `tools/unpack_digits` makes the ASCII file off the clock). Several
+node-processes run the same program over the SHMEM (or TCP) communicator (`mnrun.sh`); `COMM_OFI` sends the device
+exchanges over libfabric on the cxi NICs. `LIMB_BASE=2` reproduces the paper's binary-limb pipeline.
+
+**Measured speed (m).** One node: 4 × 10¹⁰ digits in 81.5 ± 1.4 s (Phase 11, RESULTS §76); 6.441 × 10¹⁰ digits per node
+≈ 78 s with the 2026-10-10 kernel defaults (was ≈ 94 s; RESULTS §127); 4 nodes at 6.441 × 10¹⁰ per node −50.0 s (≈ −18.5 %,
+CI −71.7…−28.3 s) from the three kernel defaults (S43). **Modelled (mod):** 576 nodes × 3.71 × 10¹³ digits ≈ 180 s without the
+write at an *assumed* 47 GB/s per APU (`estimate.py --target`, S45); the new kernels are not yet in the time model.
+
+**Code defaults that matter (nothing to set).** The full list, with the date of each decision, is the Switches table; the
+ones changed most recently are:
+
+| switch | default | since | evidence |
+|---|---|---|---|
+| `DBIG_ADDSUB2` | 1 | 2026-10-10 | −12.0…−12.5 s at 4 nodes (m, S38; aac6 −11.6/−12.5 s, S42) |
+| `DBIG_MAXIDX_TOP` | 1 | 2026-10-10 | −1.6…−3.2 s at 4 nodes (m, S40/S41; aac6 −2.8/−2.6 s) |
+| `DBIG_QSEL` | 1 | 2026-10-10 | −0.9…−2.1 s on aac7 (m, S41); aac6 −1.09…−1.49 s (S42); one unexplained hang in 64 aac6 runs with it on, not reproduced in 44 (open, TASKS) |
+| `DIST_CHUNKS` | 8 | 2026-10-07 | modelled device −13.4 GB at 576 nodes for +2.4 s (`estimate.py`); digits identical |
+| `COMM_OFI` | 1 where a cxi NIC is present | 2026-10-06 | ×2.1 over SHMEM at 10 nodes (m, RESULTS §106) |
+| `ECALC_VSLOT_BUDGET` | 1 | 2026-10-07 | v-slots counted in the node budget; no measured cost (RESULTS §116) |
+
+**Launch lines (not code defaults).** Same programme, different switches per system; the target's is the runbook
+(`docs/TARGET.md` §4), aac7's is `ecalc/e16_headline.sh`:
+
+| switch | target line (576 nodes, `ecalc 37100000000000`) | aac7 line (`e16_headline.sh`) |
+|---|---|---|
+| `COMM_OFI` | 1 | default (1) |
+| `MN_T_CHUNK_MB` | *Phase 13a (M), TASKS 1.3*: a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node at 576 × 8 × 10¹⁰); the arena request follows; bit-identical; 0 = one round (the pre-Phase-14 behaviour). **Code default 1024** since Phase 14 (RESULTS §84: the target needs it to fit; it also halves the SHMEM pool, 81.6 → 45.0 GB per node, results/P214.md). **This row is the one canonical place for the 1024-vs-2048 story:** the **target line keeps 1024** (an optional target A/B, TARGET_TASKS T11b; modelled +4.3 GB of window temporaries at 2048 against a device margin of 21.7 GB); the **aac7 line uses 2048 since 2026-10-08** (the user; results/S22.md D2: 24 paired rounds, mean −42.3 s, median −35.1 s, p ≈ 0.04, m). `0` against 1024 is to be tested on the target once `T_ROUND` is measured there (docs/TARGET.md §6 item 4) |
+| `COMM_LAYER_INTER2`, `COMM_LAYER_VSLOT_POOL` (X2) | not set (optional try, TARGET_TASKS T13) | 1, 1 (S31, −31.7 s at 10 nodes, m) |
+| `COMM_LAYER_VSLOT_SHARE` | 1 (S36: −5.79 GB/node device at 576, mod) | 1 |
+| `DM_MN_LEAN` | 1 | 1 |
+| `ECALC_NP`, `RNS_DIST_CACHE_FIT`, `RNS_DIST_CACHE_PARTIAL`, `MN_OUT_DKM_HI` | auto, 1, 1, 1 | same |
+
+**Target figures (modelled, S45; the target itself is never accessed).** 576 nodes × 3.71 × 10¹³ digits: device
+**351.7 of the 373.44 GB** edge per node (21.7 GB margin), node total ≈ **395.0 of 480 GB**; the size history and the older
+figures are in `docs/TARGET.md` §1. aac7's QOS allows 6 nodes per user (no 10-node runs); aac6's SH5 nodes in CPX mode
+(6 XCDs of 22.9 GB) run up to 4 × 10⁹ digits with `RNS_INIT_POOL_LOG=29` (S44).
+
 
     module load rocm && make          # ref/gen_e, ntt.o mem.o crt.o bigint.o rns_mul.o, tests/t_*
     make SHMEM_CRAY=1 GMP_HOME=~/gmp  # Phase 16 A, aac7 (results/A16.md): Cray OpenSHMEMX 11.8.0 (module load cray-dsmml cray-openshmemx) through
@@ -350,7 +346,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_ADDSUB2` | *S38 (results/S38.md)*: 1 = `k_addsub2`, the dbig add/sub kernel with coalesced loads and stores through a 32 KB LDS tile (same arithmetic, same carry flags, same output as `k_addsub`; the old kernel read 16 consecutive limbs per thread, 36-84 GB/s, 10.4 s of GPU time per APU at 6.441e10) **default 1 since 2026-10-10 (S38, -12.0..-12.5 s on 4 nodes, m)** (0 = old kernel) |
 | `DBIG_MAXIDX_TOP` | *S40 (results/S40.md)*: 1 = `db_norm` / `db_cmp` scan for the top differing limb in windows from the top of each quarter (4096 limbs, then x16 wider, stop at the first hit; the last window reaches the quarter's low end), instead of one scan of the whole quarter (2.4 s of GPU time per APU at 6.441e10); same result, digits identical **default 1 since 2026-10-10 (S40/S41, -1.6..-3.2 s on 4 nodes, m)** (0 = old) |
-| `DBIG_QSEL` | *S41 (results/S41.md)*: 1 = the gather / scatter / bload / gather_shift / addsub2 / maxidx kernels pick the quarter pointer by a scalar select with constant indices instead of an indexed array (ScratchSize 112 -> 0 bytes/lane for k_gather and k_scatter_runs, m); same result, digits identical; -2.08 / -0.93 s on aac7, pooled aac6 CPX -0.30 +- 0.19 s at 4e9 (m). **default 1 since 2026-10-10** (0 = old) |
+| `DBIG_QSEL` | *S41 (results/S41.md)*: 1 = the gather / scatter / bload / gather_shift / addsub2 / maxidx kernels pick the quarter pointer by a scalar select with constant indices instead of an indexed array (ScratchSize 112 -> 0 bytes/lane for k_gather and k_scatter_runs, m); same result, digits identical; -2.08 / -0.93 s on aac7, pooled aac6 CPX -0.30 +- 0.19 s at 4e9 (m). **default 1 since 2026-10-10** (0 = old). S42 (aac6, two 4-APU nodes): -1.49 / -1.09 s; **open:** one hang (after init) in 64 `QSEL=1` runs on aac6, not reproduced in 44 repeats (0/44 with, 0/14 with `=0`), cause unknown (TASKS) |
 | `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
 
 **Binary splitting (`BS_`)**
@@ -478,7 +474,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 
 | switch | meaning (default) |
 |---|---|
-| `DIST_CHUNKS` | slabs in flight in the pipelined distributed transform, 1–16 (8) |
+| `DIST_CHUNKS` | slabs in flight in the pipelined distributed transform, 1–16 (**8** since 2026-10-07, was 4: the user's approval, digits identical; at 3.71 × 10¹³ on 576 nodes modelled device 370.9 → 357.5 GB, no-write time 177.8 → 180.2 s, `estimate.py --target`) |
 | `DIST_STATS` | per-part timing of the distributed transform, the exposed exchange per part (unset) |
 | `DIST_TWREC` | *Phase 13b (X), results/X13b.md*: the twiddled pack / unpack of the distributed transform with the twiddle by a row recurrence (two table gathers per four points instead of eight; 1 = block 32 × 8, 2 = 32 × 4); bit-identical (`dist_pack_bench`). Measured: pack × 1.65, unpack × 1.43 (bench); −2.8 ± 0.8 s of `total` at 10¹¹ with C2 (results/C215.md §2) (**1** since 2026-09-27, the user's decision of 2026-09-27; 0 = the plain forms) |
 | `DIST_TWREC_G` | *Phase 15 (G5), results/G515.md*: `DIST_TWREC`'s row recurrence on the **general map** (g not a power of two: the 576 target's 192 and 576 levels, the reciprocal and the division): `rns_dist.c k_twpack_gr / k_unpacktw_gr` in `gen_fwd / gen_inv_pw` (two table gathers per four points instead of eight; the slab address jb·rk + il without the per-point owner search); bit-identical (`t_dist DIST_GBENCH`, `t_mn_grid`). With `DIST_STATS=1` the mn tier prints the general map's pack times per product. Measured: the kernels ×1.75–2.03 at the target's plane shape (750–900 → 1460–1620 GB/s), the packs −24 % at 10¹⁰ on 3 procs (one node: no wall effect); modelled −4.8 s at 5.1 × 10¹³ on 576 (−1.2 s if the chunk pipeline hides 3 of 4 chunks' packs) (0 = the plain `k_twpack_g / k_unpacktw_g`) **Default since Phase 15 Batch 2 (the user's decision, 2026-09-28): 1.** `mn_model.TWREC_G` is True (`--no-twrec-g` for B1): −6.8 s at 5.1 × 10¹³ with the cache at 0 slots (modelled) |
@@ -490,6 +486,26 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DIST_R3` | 3·2ᵏ lengths in the distributed tier (follows `RNS_PLANES_3Q30`) |
 | `DIST_LOGN_TEST` | *test*: a lower plane cap so the grid split runs at small sizes (31) |
 | `DIST_GEN` | *test*: the general (any-g) transform at a power-of-two group size too (0) |
+
+**Diagnostic, test and internal switches (added to the table 2026-10-10 so that every `getenv` is listed)**
+
+| switch | meaning (default) |
+|---|---|
+| `COMM_OFI_DC` | *S29, X3, REJECTED*: 0 = transmit-complete writes instead of delivery-complete; **unsafe** (the signal may pass the data), a throughput upper bound only, never a setting (1) |
+| `COMM_OFI_DEV` | *test*: the APU a communicator id stands for in the single-process `tests/lay_host` build (id % 4) |
+| `COMM_SHMEM_POOL_NEED_MB` | *internal*: exported by `binsplit.c` (the sizing pass) so that `comm_shmem`'s pool-full error can print the modelled need; do not set |
+| `DC_STATS` | *S21, print only*: the output stage's fine timers (setup, pinned fetch buffer, writer) (0) |
+| `DIST_TPACK` | *Phase 13b, test*: 1 = `dist_inv_t` (tests only) uses the tiled transposed pack `k_pack_t_tiled` (0) |
+| `ECALC_ODIRECT_OTHER` | `O_DIRECT` for a file system of unknown type, like `ECALC_ODIRECT_NFS` / `_LUSTRE` (1; `ECALC_ODIRECT=auto` picks per file system) |
+| `ECALC_PLANE_CAP_IDX` | *internal*: set by `ecalc.c` for the bs sizing pass (the plane-cap index in use); do not set |
+| `MN_PLAN_DEXTRA` | *model test*: adds this many to the tree plan's digit-count estimate `D_EST` (0) |
+| `MN_PLAN_QUIET` | 1 = `MN_PLAN_ONLY` / the planner prints nothing but the result lines (0) |
+| `MN_SELFTEST_LOGR` | *debug*: lowers the layered self-test's starting logR to force R / ranks < 32 at a small rank count (unset) |
+| `MN_TREE_LOGN_TEST` | *test (Phase 12 G)*: the tree's levels at a lowered plane cap so the grids run at 10¹⁰ on one node; the division at its own cap (0) |
+| `MN_WAIT_STATS` | *S27, print only*: per-communicator wait-time statistics (`comm_util.c`) (0) |
+| `NEWTON_DOUBLING_TS` | *S21 (A37-R6), print only*: one line per Newton doubling with its end time (0) |
+| `NTT_SIZE_STATS` | *S22, print only*: the NTT time per transform size, once per rank, via hip event pairs (0) |
+| `RNS_INIT_POOL_LOG` | *S44, test knob*: the log2 size `rns_init` uses for the pool in the unit tests (`rns_init(31)` is fixed there; a CPX XCD has 22.9 GB); `29` makes aac6's CPX nodes usable up to 4 × 10⁹ digits; unset = unchanged |
 
 The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes), `T_COMM_TRACE` (`t_comm`) and
 *Phase 12 (I)* `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` (`t_alloc`). The SHMEM transport also reads the launcher's
