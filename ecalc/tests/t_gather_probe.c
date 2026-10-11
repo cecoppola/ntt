@@ -46,6 +46,26 @@ __global__ void k_gather_sel(uint64_t *x, const uint64_t *q0, const uint64_t *q1
         x[il * C + j] = v;
     }
 }
+/* S50: coalesced-write gather: a TI x TJ tile (il x j) is read along il (the source run, contiguous) into LDS and written along j (the destination row, contiguous).
+ * One block per tile, 256 threads; blocks ordered with il fastest.  Needs rows % TI == 0 and C % TJ == 0 (else the caller uses k_gather) */
+template <int T> __global__ void k_gather_tile(uint64_t *x, const uint64_t *q0, const uint64_t *q1, const uint64_t *q2, const uint64_t *q3, size_t qc, size_t lo, size_t n,
+                                               size_t R, size_t rows, size_t row0, size_t C, ec_mod m)
+{
+    __shared__ uint64_t tile[T][T + 1];
+    size_t nbi = rows / T, bi = (size_t)blockIdx.x % nbi, bj = (size_t)blockIdx.x / nbi, il0 = bi * T, j0 = bj * T;
+    int tx = threadIdx.x % T, ty = threadIdx.x / T, step = 256 / T;
+    for (int k = ty; k < T; k += step) {      /* read: lane tx = il, row k = j */
+        size_t mm = R * (j0 + k) + row0 + il0 + tx; uint64_t v = 0;
+        if (mm < n) {
+            size_t g = lo + mm; const uint64_t *p; size_t b;
+            if (g >= 3 * qc) { p = q3; b = 3 * qc; } else if (g >= 2 * qc) { p = q2; b = 2 * qc; } else if (g >= qc) { p = q1; b = qc; } else { p = q0; b = 0; }
+            v = ec_canon64(p[g - b], m.pu, m.mu);
+        }
+        tile[tx][k] = v;
+    }
+    __syncthreads();
+    for (int k = ty; k < T; k += step) x[(il0 + k) * C + j0 + tx] = tile[k][tx];      /* write: lane tx = j, row k = il */
+}
 __global__ void k_fillsrc(uint64_t *p, size_t n, uint64_t seed) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; for (; i < n; i += st) { uint64_t z = (i + seed) * 0x9E3779B97F4A7C15ULL; z ^= z >> 29; z *= 0xBF58476D1CE4E5B9ULL; z ^= z >> 32; p[i] = z; } }
 __global__ void k_diff(const uint64_t *a, const uint64_t *b, size_t n, unsigned long long *cnt) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; unsigned long long c = 0; for (; i < n; i += st) c += a[i] != b[i]; if (c) atomicAdd(cnt, c); }
 __global__ void k_sum(const uint64_t *p, size_t n, unsigned long long *out) { size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x; unsigned long long c = 0; for (; i < n; i += st) c += p[i]; if (c == 1) out[0] = c; }
@@ -68,13 +88,17 @@ int main(int argc, char **argv)
     ar.qc = al.qc = qc; ar.lo = al.lo = 0; ar.n = al.n = N;
     const uint64_t *lq[4]; for (int d = 0; d < 4; d++) lq[d] = lbuf + (size_t)d * qc;
     unsigned nb = 228 * 16;
-    struct { const char *name; int sel, local; } V[4] = { {"remote src, runtime quarter (product)", 0, 0}, {"local src,  runtime quarter", 0, 1}, {"remote src, 4-way select", 1, 0}, {"local src,  4-way select", 1, 1} };
-    double tv[4];
-    for (int v = 0; v < 4; v++) {
+    struct { const char *name; int sel, local; } V[7] = { {"remote src, runtime quarter (product)", 0, 0}, {"local src,  runtime quarter", 0, 1}, {"remote src, 4-way select", 1, 0}, {"local src,  4-way select", 1, 1}, {"remote src, tile 32 (S50)", 2, 0}, {"remote src, tile 64 (S50)", 3, 0}, {"remote src, tile 16 (S50)", 4, 0} };
+    double tv[7];
+    for (int v = 0; v < 7; v++) {
         uint64_t *xo = (v == 0) ? x0 : x1;
         for (int r = -1; r < reps; r++) {      /* r = -1: warm-up */
             CK(hipDeviceSynchronize()); double t0 = now();
-            if (!V[v].sel) k_gather_rt<<<nb, 256>>>(xo, V[v].local ? al : ar, R, rows, rows, C, m);
+            if (V[v].sel >= 2) { if (rows % 64 || C % 64) { tv[v] = 1; break; }
+                unsigned long long nbt; if (V[v].sel == 2) { nbt = (rows / 32) * (C / 32); k_gather_tile<32><<<nbt, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, rows, C, m); }
+                else if (V[v].sel == 3) { nbt = (rows / 64) * (C / 64); k_gather_tile<64><<<nbt, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, rows, C, m); }
+                else { nbt = (rows / 16) * (C / 16); k_gather_tile<16><<<nbt, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, rows, C, m); } }
+            else if (!V[v].sel) k_gather_rt<<<nb, 256>>>(xo, V[v].local ? al : ar, R, rows, rows, C, m);
             else if (V[v].local) k_gather_sel<<<nb, 256>>>(xo, lq[0], lq[1], lq[2], lq[3], qc, 0, N, R, rows, rows, C, m);
             else k_gather_sel<<<nb, 256>>>(xo, rq[0], rq[1], rq[2], rq[3], qc, 0, N, R, rows, rows, C, m);
             CK(hipDeviceSynchronize()); double dt = now() - t0;
@@ -91,6 +115,7 @@ int main(int argc, char **argv)
         for (int k = 0; k < 2; k++) { double best = 1e9; for (int r = -1; r < reps; r++) { CK(hipDeviceSynchronize()); double t0 = now(); k_sum<<<nb, 256>>>(src[k], qc, cnt); CK(hipDeviceSynchronize()); double dt = now() - t0; if (r == 0 || dt < best) best = dt; }
             printf("  coalesced read, %-28s %.2f ms = %.1f GB/s\n", nm[k], best * 1e3, qc * 8e-9 / best); }
     }
+    printf("tile32/select %.2f tile64/select %.2f tile16/select %.2f\n", tv[4] / tv[2], tv[5] / tv[2], tv[6] / tv[2]);
     printf("remote / local = %.2f (runtime quarter), %.2f (select); select / runtime = %.2f (remote), %.2f (local)\n", tv[0] / tv[1], tv[2] / tv[3], tv[2] / tv[0], tv[3] / tv[1]);
     printf("t_gather_probe: OK\n");
     return 0;
