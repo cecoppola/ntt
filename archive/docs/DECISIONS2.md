@@ -1,7 +1,7 @@
 # The design choices open after Phase 11 — explained, with costs and benefits
 
 > **HISTORICAL.** The choices open after Phase 11 (2026-09-21); closed by measurement in Phase 12 (see
-> DECISIONS3.md's opening note). Superseded by `docs/code/05_DECISION_REGISTER.md`, which carries every decision's
+> DECISIONS3.md's opening note). Superseded by internal code notes, which carries every decision's
 > current status. Note the superseded claim about multi-NIC SHMEM contexts (00_OVERVIEW §5, row "PLAN §25,
 > DECISIONS2 §4"). Kept below as the historical record; the body is not edited.
 

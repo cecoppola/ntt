@@ -10,7 +10,7 @@ memory model, M + Q):
 
 Every number is labelled: measured (a recorded aac6 run), modelled (this arithmetic on measured inputs), assumed (a
 target parameter no aac6 measurement can give: the fabric's bandwidth and per-message cost, the part-file bandwidth,
-the general map's exchange overlap).  docs/TARGET.md says what to measure first on the target and how to feed it in
+the general map's exchange overlap).  internal target notes says what to measure first on the target and how to feed it in
 (--bw, --lat, --write-bw; the constants at the top of mn_model.py).
 
 Phase 13b (agent D): the estimate is of the code after step 0 (three primes, NTT_MODMUL=1) and of a design -- --np, --strategy

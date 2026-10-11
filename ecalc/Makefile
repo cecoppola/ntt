@@ -46,7 +46,7 @@ SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_OSHMEM $(shell oshcc --showme:compile)
 SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
 endif
 endif
-# Phase 17 (docs/code/07_COMM_OFI.md): comm_ofi.c, the libfabric data plane of the SHMEM transport (COMM_OFI=1 at run time, off by
+# Phase 17 (internal code notes): comm_ofi.c, the libfabric data plane of the SHMEM transport (COMM_OFI=1 at run time, off by
 # default).  OFI=1 (automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) compiles it in;
 # OFI=0 builds the stubs (COMM_OFI=1 then aborts at start).
 LIBFABRIC ?= $(if $(CRAY_LIBFABRIC_PREFIX),$(CRAY_LIBFABRIC_PREFIX),/opt/cray/libfabric/2.3.1)

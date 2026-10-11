@@ -3201,7 +3201,7 @@ after the merges; `main` @ 3524146.
 | **G** the top product at scale | The tree's top levels as **piece grids over fixed planes for any g**, walking the `MN_GROUPS` schedule with k-way Horner combines (576 → 2,…,64,192,576); the spill all-gather (g × 4C limbs per APU) replaced by an exact `alltoallv` (≈ 4C + 4g limbs, constant in g); `binsplit.c`'s arena request — which sized the top level as one uncapped transform (≈ 700 GB per node at 576 × 4 × 10¹⁰, so the run died at init) — re-derived from the gridded scratch. Found and fixed `mdb_add_shifted` sizing its rounds by the windows of nodes 0…g−1 instead of g₀…g₀+g−1 (on a group not starting at node 0, X was never added; only caller is the gridded product, so no earlier result is affected) | `t_mn_grid` 200–224 checks at 2/3/4/6/9 processes; 10⁸ at sizes 3, 6, 9 and 10⁹ at 2, 3, 4 gridded, identical; **10¹⁰ at size 4: 123.3 s gridded vs 124.3 s not, identical, tree hipMalloc 0**; modelled node peak at 576 × 4 × 10¹⁰ **1170 → 354 GB**, per-node ceiling 1.9 × 10¹⁰ → **7.1 × 10¹⁰** | 7ece3db |
 | **I** the init floor | Every allocation form measured on the APU (`tests/t_alloc`, 50 GB × 4): **nothing beats `hipMalloc` in a fresh process** — 0.057–0.072 s/GB for the device forms, managed 0.114, host-backed 0.091, 4 KiB mmap 0.68; the cost is the kernel clearing pages on the allocating thread (~14 GB/s per core) serialised by one lock, and every host-backed form drops `hipMemcpy` to 21 GB/s (SDMA) from 1.4–1.6 TB/s, disqualifying it. Only re-allocation of memory the same process freed is cheaper (0.035 s/GB). The seed overlap is also already right (81.5 s against 88.5 / 88.3 for seeds-first / seeds-after). What did pay: on M11's tail layout the 3·2³⁰ planes gain 5–6 s of phases for +4 s of init, so `RNS_PLANES_3Q30`'s size rule is now the default. `ECALC_DM_POOL` deleted (a no-op with the tail) | 10⁹ identical both bases; six 4 × 10¹⁰ identical; two 8 × 10¹⁰ VERIFY OK, node peak ≈ 382 GB, zero in-phase `hipMalloc`; `t_ntt` rates unchanged | fe902da |
 | **S** the transport's target forms | **Sandia OpenSHMEM built in user space on aac6** (SOS + libfabric 1.20.1, `srun --mpi=pmi2`, sockets provider) so the forms the target needs are tested for real, not just compiled: one context per communicator with `COMM_SHMEM_SERIAL=0` (concurrent waits), `shmem_ctx_putmem_signal_nbi` ordering, a HIP device buffer as the symmetric heap (a small SOS patch adds the external-heap hook), and `comm_sym_alloc` — the callers' slabs resident in the symmetric pool, so puts go sender-slab → receiver-slab with no staging and no helper thread. Q's finding acted on: the staging is released per exchange (it was held per communicator: ≈ 345 GB per node at 576). One real bug found by the target form: a pool-resident receive buffer published before the caller's stream had finished with it | `t_comm` at 2/4/8 PEs and `t_dist` in every mode on SOS in the target forms and on OSHMEM; 10⁸ at sizes 2, 3, 4 and 10⁹ at 2, 4 identical over SOS on both host and device heaps; **the regression over SOS 16/16**; the third layer measured +16–20 % on one node (no global links to save) and stays off | bc26f6a |
-| **Q** the target plan | `mn_model.py` with L's real schedule (each k-way level costed as the tree folds it) — **decision: `MN_GROUPS=2,4,8,16,32,64,192,576` (3·3), −5 % against the 9-way and fewest global-link bytes**; `mem_model.py` for both tree forms; **`estimate.py`**: `estimate(g, D)` printing digits, minutes, GB per node, TB per NIC and on global links, and whether it fits, every column labelled measured / modelled / assumed; **`docs/TARGET.md`**, the run recipe for the target (build, every variable with its target value, the `srun` line, the sizes in order, checkpoints, the recheck, what to measure first to calibrate, eleven traps) with every named switch grep-verified to exist | the model within **6.1 %** of all 16 recorded aac6 points | 49d2623 |
+| **Q** the target plan | `mn_model.py` with L's real schedule (each k-way level costed as the tree folds it) — **decision: `MN_GROUPS=2,4,8,16,32,64,192,576` (3·3), −5 % against the 9-way and fewest global-link bytes**; `mem_model.py` for both tree forms; **`estimate.py`**: `estimate(g, D)` printing digits, minutes, GB per node, TB per NIC and on global links, and whether it fits, every column labelled measured / modelled / assumed; **internal target notes**, the run recipe for the target (build, every variable with its target value, the `srun` line, the sizes in order, checkpoints, the recheck, what to measure first to calibrate, eleven traps) with every named switch grep-verified to exist | the model within **6.1 %** of all 16 recorded aac6 points | 49d2623 |
 | **W** verification | `ECALC_CKPT_TOP` writing the top-level P, Q in the background (P under the reciprocal, Q under the division) so a finished run can be re-verified without recomputing; the recheck as a regression step (and a corrupted copy must fail); the recheck itself made a single pass over the digit file with a reader thread (98 → 46 s at 4 × 10¹⁰); `ecalc/README.md` brought to one grep-verified switch list | regression 20/20 with the recheck steps; a 4 × 10¹⁰ run rechecked from its files in 46 s | 6dd6349 |
 
 **An integration defect caught by the closing measurement.** W's default
@@ -3324,7 +3324,7 @@ modelled (`estimate.py --max` on the merged models, 502 GB per node).
   the byte at 35 points (new `BS_LAYOUT_ONLY`). Measured device totals are within 0.05 %
   at 10¹⁰, 4 × 10¹⁰, 8 × 10¹⁰ and 10¹¹. The earlier 6.7 vs 7.1 split was two versions of the
   model, not C against the model: Q's pre-G estimate of the top-product scratch, and 8.6 GB
-  of SHMEM pool counted by only one version. The 6.7 in §77 and `docs/TARGET.md` is
+  of SHMEM pool counted by only one version. The 6.7 in §77 and internal target notes is
   superseded by 6.95.
 - **Hardening (TASKS 1.7, 4.1, 1.4)**: a restart under a different schedule or node count
   is refused on every node with exit 5 / 4. Before, three of four nodes segfaulted with
@@ -3388,7 +3388,7 @@ recommended row takes 3.66–4.43 min over its range). The recommended row's env
 `RNS_STRATEGY=auto ECALC_PLANE_CAP=2^31 MDB_SHIFT_CHUNK_MB=1024 MN_T_CHUNK_MB=1024
 COMM_ALLTOALLV_DEPTH=2 NTT_B1R=3 NTT_PLAN=1`.
 
-**What remains assumed, and is the target's first measurement** (`docs/TARGET.md` §6): the
+**What remains assumed, and is the target's first measurement** (internal target notes §6): the
 fabric bandwidth and per-message cost; T_ROUND; the part-file rate; the target node's memory
 edge (aac6: ≈ 524 GB). Depth 2's gain at 576 is a lower bound: the model hides only xGMI link
 time, while X measured the host-side stage hidden too.
@@ -3421,10 +3421,10 @@ step (below). Defaults since commits 8f545fb and 54b541e:
 | `NTT_B1R`, `NTT_PLAN` | `3`, `1` | `0`, `0` (were the defaults) |
 
 `MN_T_CHUNK_MB` stays off (the "shift" row). `estimate.py` defaults to the same design. Other fixes:
-- `docs/TARGET.md` §4: the launch line passed 61000000000, the per-node share of the old safe size, but `ecalc`
+- internal target notes §4: the launch line passed 61000000000, the per-node share of the old safe size, but `ecalc`
   takes the total. It now passes 44000000000000.
-- `docs/TARGET.md` §5: 4.4 × 10¹³ is the headline run.
-- `docs/TARGET_TASKS.md`, new: the target-only tasks T1–T9, for the agent that works on the target.
+- internal target notes §5: 4.4 × 10¹³ is the headline run.
+- internal target task list, new: the target-only tasks T1–T9, for the agent that works on the target.
 - `TASKS.md`: a status section.
 
 **The grid steps** (modelled, 576 nodes, 2³¹ cap). A tree level's products are cut into more pieces as they
@@ -3460,7 +3460,7 @@ The design's 480 GB ceiling, 4.66 × 10¹³ in 272 s, is past a step. 4.4 × 10�
 **4.4 × 10¹³ digits in ≈ 4.1 min** on the defaults, **≈ 460 GB per node**, inside the 480 GB budget. This is the
 design table's 234 s (3.9 min) with its per-node compute, about 188 s of the 234, raised by the 6.2 % the share run
 measured: ≈ 246 s. All modelled on measured per-node inputs. The fabric's bandwidth (100 GB/s per APU),
-per-message cost and chunk-round cost are assumed until the target measures them (`docs/TARGET_TASKS.md` T1).
+per-message cost and chunk-round cost are assumed until the target measures them (internal target task list T1).
 
 ## 81. Phase 13d — the target's grid step, the model recalibrated, SHMEM on real nodes (2026-09-23; results/{L13d,D213d,G13d,S13d}.md)
 
@@ -3538,7 +3538,7 @@ is within 3 % on 11 of 12 fitted one-node walls (5 × 10¹⁰–1.16 × 10¹¹);
   and its polled wait does not. It must not be used across nodes.
 - **The default SHMEM pool is too small**: 8479 MiB in use at 10¹⁰ on 2 nodes, above the 8192 default;
   `COMM_SHMEM_POOL_MB=16384` was needed. The model's pool column is flat, so the pool model is open, and at the
-  target it is `docs/TARGET_TASKS.md` T0.
+  target it is internal target task list T0.
 
 ### 576-node estimate (standing rule)
 
@@ -3551,7 +3551,7 @@ target is not yet in the node total (T0). The choice between the two sizes is th
 
 From §81, the user moved the 576-node target from 4.4 × 10¹³ to **4.25 × 10¹³ digits**: the flat stretch below the grid
 steps at 4.29 → 4.30 and 4.39 → 4.40 × 10¹³. The code, the defaults and the design are unchanged. The launch line in
-`docs/TARGET.md` §4 now passes `42500000000000` (the total), §5 step 6 and `docs/TARGET_TASKS.md` state the new size, and
+internal target notes §4 now passes `42500000000000` (the total), §5 step 6 and internal target task list state the new size, and
 `estimate.py --target` labels it.
 
 | | 4.25 × 10¹³ (the target) | 4.4 × 10¹³ (Phase 13c's) |
@@ -3565,11 +3565,11 @@ The top node's share, 7.64 × 10¹⁰ digits, is the size run on one aac6 node i
 
 **576-node estimate (standing rule): 4.25 × 10¹³ digits in ≈ 3.9 minutes, 452 GB per node.** Modelled on measured
 per-node inputs, with the fabric assumed (100 GB/s per APU, 2 µs per message). The SHMEM pool at the target is still to
-be sized (`docs/TARGET_TASKS.md` T0).
+be sized (internal target task list T0).
 
-## 83. Phase 14 (so far) — the apumult optimizations (2026-09-24; results/{L114,S114,R114}.md, docs/APUMULT_STUDY.md)
+## 83. Phase 14 (so far) — the apumult optimizations (2026-09-24; results/{L114,S114,R114}.md, internal apumult study)
 
-PLAN §34's order: every apumult item of `docs/APUMULT_STUDY.md` first. All new behavior sits behind switches that are
+PLAN §34's order: every apumult item of internal apumult study first. All new behavior sits behind switches that are
 off by default; the digits are identical wherever checked. The regression passes **21/21** on the merged tree, with the
 switches at their defaults: 4bc48ee (jobs 21149, 21148) and 5dbab07 (jobs 21215, 21216). The usage windows ran out
 far earlier than planned: W1 after ≈ 55 minutes with three agents. Work resumed on 2026-09-24 at 08:30 and 17:06.
@@ -3641,11 +3641,11 @@ ECALC_ODIRECT MN_T_CHUNK_MB=1024`: **9/9**, with 4 × 10¹⁰ identical in 66.6 
 | A5 the per-node load speed (N4) | **cause: memory state**. Near the edge the planes, allocated last, get the small pages left after the arenas, and loads and transforms run 4–10× slower; the free memory in ≥ 2 MiB blocks differs by node (448–475 GB). **`RNS_PLANES_FIRST=1`**: 1.42 × 10¹¹ / 2³⁰ / C on s24-16 **1349.7 → 672.0 s**; **1.30 × 10¹¹ on the defaults 497.7 → 364.7 s (−27 %)**; digits identical; no effect at 4 × 10¹⁰. With it, C beats auto at 1.42 × 10¹¹ / 2³⁰ (G13d's opposite finding was an artifact of the slow planes) |
 
 Also: a Makefile race is fixed (`tests/t_verify` linked `$(OBJS)` without depending on them), and the agent protocol now lives in
-`docs/AGENT_PROTOCOL.md`.
+the private protocol.
 
 **For the user to decide**, all measured and passing together: `RNS_PLANES_FIRST=1`, `NEWTON_RECIP_CUT=1`, `ECALC_ODIRECT=1`,
 `DM_TIGHT=1` + `DB_POOL_VMM=1`, `MN_TREE_EARLY_FREE=1`, `ECALC_BUDGET_CHECK=1`, and **`MN_T_CHUNK_MB=1024`, which the
-4.25 × 10¹³ target needs to fit 480 GB** (`docs/TARGET.md` §4 already uses it, flagged as pending).
+4.25 × 10¹³ target needs to fit 480 GB** (internal target notes §4 already uses it, flagged as pending).
 
 **576-node estimate (standing rule)**: 4.25 × 10¹³ digits in ≈ 4.1 min at 460 GB per node with `MN_T_CHUNK_MB=1024`
 (modelled with the measured pool law; the fabric assumed). The defaults do not fit 480 GB at that size.
@@ -3816,7 +3816,7 @@ four-prime rule (≈ −9 s).
 ## 89. B2 merged into main (2026-09-28; the user's Batch 2 decisions, PLAN §38)
 
 `main` = **B2** (int15g 21f788c + this note): the defaults of B1 plus `BS_ARENA_ROOM=0.16`, `DIST_TWREC_G=1`,
-`RNS_POOL1_4Q=1`; the target's launch line `ECALC_NP=auto`, `RNS_DIST_CACHE_FIT=1` (docs/TARGET.md §4, agent DOC2).
+`RNS_POOL1_4Q=1`; the target's launch line `ECALC_NP=auto`, `RNS_DIST_CACHE_FIT=1` (internal target notes §4, agent DOC2).
 **Verification** (measured, aac6 s24-26 / s24-30, be2eec3): regression on the defaults **21/21**; the launch-line settings
 through the e9 and mn steps **7/7**; paired 10¹¹ series B1 → B2: wall without the digit file 198.6 → 187.9 s (3 each),
 with it 198.4 → 189.4 s (2 each), dm 102.4 → 92.5 s; every digit file identical. The target's top-node share
@@ -3873,7 +3873,7 @@ The user's decisions of 2026-09-29 (PLAN §38.3) carried out by the Fable integr
 and without. With the file: on 173.6 / 173.1 / 172.6 s (`total` 171.1 mean), off 175.3 / 174.2 / 176.2 s (`total` 172.5); without the
 file: on 175.1 / 174.1 / 173.7, off 173.7 / 174.6 / 172.2. **Time-neutral on aac6's /tmp** (the write is hidden there already, as EW
 predicted; the −7 s is modelled for the target's exposed Lustre write). on_1 and off_1 unpacked (`tools/unpack_digits | sha1sum`) match
-`~/V214/e_1e11.sha1`; every other file is byte-identical to on_1's. **Adopted on the target's launch line** (docs/TARGET.md §4): each
+`~/V214/e_1e11.sha1`; every other file is byte-identical to on_1's. **Adopted on the target's launch line** (internal target notes §4): each
 node then writes two part files (1152 at 576), which `tools/unpack_digits`, `digcmp.sh` and `ECALC_RECHECK` take as they are (EW15 §3);
 the convert line for two parts per node is in TARGET.md §4 / §6.
 
@@ -4134,11 +4134,11 @@ New switches (off): `E16_MEMWAIT_GB` / `E16_MEMWAIT_S`, `D16_ONLY`, `MN_COMM_MAR
 
 ## 104. Corrections (2026-10-05)
 
-Documentation corrections found by the code-review agents (docs/code/01–05); the code is unchanged. Older sections are
+Documentation corrections found by the code-review agents (internal code notes–05); the code is unchanged. Older sections are
 left as written; read them with these corrections in mind.
 
 - **§99** ("`COMM_INIT_EARLY` stays off by default — the user decides") is superseded: the default is **1** (ecalc.c:509,
-  the user's decision of 2026-10-05, after 0 of 55 segfaults vs 8 of 78 on aac7); README and docs/TARGET.md trap 17 agree.
+  the user's decision of 2026-10-05, after 0 of 55 segfaults vs 8 of 78 on aac7); README and internal target notes trap 17 agree.
 - **§102** ("`MN_SELFTEST_GROW` (off); default / target launch line: the user's decision") is superseded: the default is
   **1** (mn.c:241, the user's decision of 2026-10-05); the comment at mn.c:239-240 ("unset: as before") is stale.
 - **§46 (L1655)** ("one prime per device vs four-step corner turn … Dropped") and the related **§41 (L1655, item 4: "need
@@ -4148,10 +4148,10 @@ left as written; read them with these corrections in mind.
   the code today.
 - **PLAN.md §29 (H8)**: "the multi-NIC endpoint structure is built and switched now" is superseded: **it is not built** —
   `comm_shmem.c` creates one context per communicator (comm_shmem.c:849), and Cray OpenSHMEMX binds one NIC per PE
-  (`SHMEM_OFI_NUM_NICS`, `SHMEM_OFI_NIC_POLICY`): the contexts of one PE share that PE's one NIC (docs/TARGET.md trap 18).
+  (`SHMEM_OFI_NUM_NICS`, `SHMEM_OFI_NIC_POLICY`): the contexts of one PE share that PE's one NIC (internal target notes trap 18).
 - **The user's decision of 2026-10-05**: `DM_MN_LEAN=1` goes on the target's launch line (not a code default) — the
   multi-node division's dead copies removed and the arena counted without them, node **471.9 → 446.2 GB modelled** at
-  5.276 × 10¹³, wall unchanged (int15k, §94); docs/TARGET.md §4 and `ecalc/e16_headline.sh`'s launch environment now
+  5.276 × 10¹³, wall unchanged (int15k, §94); internal target notes §4 and `ecalc/e16_headline.sh`'s launch environment now
   carry it.
 
 ## 105. Phase 16 RUN16: the optimized configuration at near-limit sizes on aac7, 1 node then 10 nodes (2026-10-05/06; results/RUN16.md)
@@ -4168,7 +4168,7 @@ more concurrent peers compete for the fabric; the reciprocal's 1.38 GB/s is an o
 `ECALC_LOG_CLOCKS=1` with no explicit seconds value confirmed one-shot only (no periodic sampler). Both run
 directories (`~/p16/R16/n1/`, `~/p16/R16/n10/`) left empty — no leftover digits on disk.
 
-## 106. Phase 17: `comm_ofi`, a multi-NIC data plane for the SHMEM transport — adopted (2026-10-06; docs/code/07_COMM_OFI.md, results/OFI17.md)
+## 106. Phase 17: `comm_ofi`, a multi-NIC data plane for the SHMEM transport — adopted (2026-10-06; internal code notes, results/OFI17.md)
 
 **Design** (branch `p17-ofi`; `ecalc/comm_ofi.c`/`.h`, hooks in `comm_shmem.c`). One process per node, the in-process
 xGMI stage and Cray SHMEM for init / control words / barriers / host collectives are unchanged. Under `COMM_OFI=1`
@@ -4188,7 +4188,7 @@ full tables):
   every size identical to the reference. Full `ecalc` runs at 1 × 10¹⁰ digits/node: SHMEM 86.39/86.02 s (2 nodes),
   116.12/120.72 s (4 nodes) vs OFI 75.27/76.23 s (2 nodes, −12–13 %), 87.26/94.39 s (4 nodes, −22–25 %); all four
   digit-identical. Raw aggregate bandwidth at 4 MiB slabs: SHMEM 19.8/14.9/11.7/12.3 GB/s vs OFi 25.0/48.5/44.4/44.1
-  GB/s at 2/4/8/10 nodes — SHMEM is capped at one NIC per node (Cray OpenSHMEMX's one-NIC-per-PE binding, docs/TARGET.md
+  GB/s at 2/4/8/10 nodes — SHMEM is capped at one NIC per node (Cray OpenSHMEMX's one-NIC-per-PE binding, internal target notes
   trap 18) and falls as more nodes compete for it; OFI stripes every exchange over all 4 NICs per node and holds
   2.3–3.8× the SHMEM aggregate from 4 nodes on.
 - The NIC16 2-node confirmation (`~/nic16/2N_results.txt`) failed at `srun --gres=gpu:24` ("Invalid generic resource
@@ -4208,16 +4208,16 @@ fresh bundle and rebuilt before the confirming run.)
 **The user's decision (2026-10-06): adopted.** `COMM_OFI` now defaults to **1 wherever it applies** — a cxi NIC
 present (Cray Slingshot) — instead of defaulting off; it stays off with no code change where there is no cxi device
 (e.g. aac6's TCP/SOS) or the build has no libfabric. `COMM_OFI=0` always forces the old SHMEM-only path exactly (bit-
-identical, as before); `COMM_OFI=1` always forces the OFI path. `ecalc/README.md`'s `COMM_OFI` row, docs/TARGET.md
+identical, as before); `COMM_OFI=1` always forces the OFI path. `ecalc/README.md`'s `COMM_OFI` row, internal target notes
 §4 (the launch line, shown for clarity since the target's cxi NICs make it the default there too) and
-`docs/code/07_COMM_OFI.md`'s status line all carry the new default. Open items carried from results/OFI17.md: the
+internal code notes' status line all carry the new default. Open items carried from results/OFI17.md: the
 SHMEM pool is not shrunk under `COMM_OFI=1` (the device staging moves to the comm pool, but the node holds both);
 the budget check / `mem_model.py` do not yet count the comm pool; two NICs per APU are untested on real separate
 NICs (aac7 has one NIC per APU) — out of scope for this integration, left for the follow-up memory-accounting agent.
 
 ## 107. Phase 17 fixes (fix1, fix2) and the t_edge SPX/CPX comparison (2026-10-05/06; results/FIX117.md)
 
-**fix1** (branch `p17-fix1`, commits c686267/c764c91): three independent fixes found by the docs/code review (`06_EVALUATION.md`
+**fix1** (branch `p17-fix1`, commits c686267/c764c91): three independent fixes found by the internal code notes review (`06_EVALUATION.md`
 A2/B8/B9). (1) `tests/t_edge.c` gained a `vmm` form (`hipMemCreate` pinned/device + `hipMemAddressReserve` +
 `hipMemMap` + `hipMemSetAccess`, round-robin over the 4 APUs), same step/cap/report format as `host`/`dev`/`malloc`.
 (2) `mn_selftest` (the plain-mesh self-test) now grows `logR` like `mn_selftest_layered`'s `MN_SELFTEST_GROW` when
@@ -4259,7 +4259,7 @@ APU's staging (≥ 128 MiB) + its slabs + 256 MiB (whole 256 MiB, exported as `C
 `as_room_fits` (`room:` … `ofi_pool`), the `plan pool` line and `mem_model.py` — **`--check-c` exact** with COMM_OFI 0 and 1. `mnrun.sh`
 probes the first compute node for cxi when the login node has none (aac7's uan1) and passes `COMM_OFI_PLAN_CXI` to the plan.
 **Target, 5.276 × 10¹³ on 576 with `DM_MN_LEAN=1` (modelled): node 446.2 GB without OFI; 457.2 GB with OFI before (uncounted:
-SHMEM 9472 MiB + 4 × 2624 MiB); 447.5 GB after (SHMEM 1536 MiB + 4 × 2304 MiB)** — docs/TARGET.md's launch line now sets
+SHMEM 9472 MiB + 4 × 2624 MiB); 447.5 GB after (SHMEM 1536 MiB + 4 × 2304 MiB)** — internal target notes' launch line now sets
 `COMM_SHMEM_POOL_MB=1536` and the heap 2048M (keeping 9472 by hand would hold both: 455.8 GB). 10-node aac7 point 8.1 × 10¹¹: 419.59
 (SHMEM) → 420.66 GB (OFI, after) vs ≈ 430.0 before (modelled). Measured at 2 node-processes (job 12294, 1e8 / 1e9, COMM_OFI unset):
 identical digits, SHMEM pool peak 2 MiB (staging 0), comm pool peak 106 MiB of 512 per device.
@@ -4281,7 +4281,7 @@ v-slots in `rns_mul_dist_mn_scratch` / `mem_model.py` (06_EVALUATION item 5). re
 
 ## 109. EST17: the 576-node estimate re-run for `comm_ofi` (2026-10-06, local model only; results/EST17.md)
 
-No cluster jobs; `estimate.py`/`mn_model.py` arithmetic only, on `main` post-STD17. docs/TARGET.md §1's standing figure
+No cluster jobs; `estimate.py`/`mn_model.py` arithmetic only, on `main` post-STD17. internal target notes §1's standing figure
 (290.2/303.9 s at 7.2.4) assumed 100 GB/s per APU at **line rate**, never measured. `comm_ofi` (now the default on cxi,
 §106) is **measured** on aac7 instead: its node aggregate holds flat at 44.1–44.4 GB/s from 4 nodes on (vs SHMEM's
 19.8 → 11.7 GB/s one-NIC-per-node fall-off, OFI17 §3), i.e. **≈ 11–12 GB/s per NIC, ≈ 0.47–0.5 of the 23.3 GB/s per-NIC
@@ -4308,7 +4308,7 @@ value, both of which are now aac7-measured or a direct, labelled extrapolation o
 ## 110. CAP17: the device-memory edge (373 GB/node) against the layout — login-node sweep, no digit cut required (2026-10-06; results/CAP17.md)
 
 Login-node and local work only (aac7 `uan1`, no GPU, no compute jobs), `main` at `8e03ba0` (rebased; `comm_ofi`
-default on cxi; `DM_MN_LEAN=1`; the launch line of docs/TARGET.md §4). A6 (**measured**, target): `hipMalloc` stops
+default on cxi; `DM_MN_LEAN=1`; the launch line of internal target notes §4). A6 (**measured**, target): `hipMalloc` stops
 at 93.36 GB/APU = 373 GB/node; OFI17/RESULTS §107 (**measured**, aac7 SPX): VMM shares that edge within one 4 GB
 step. So the device-located layout (planes `hipMalloc` + arena VMM `hipMemCreate` + the `comm_ofi` device pools,
 OFIMEM/RESULTS §108) must fit under 373 GB minus a margin — this task used 363 GB (−10) and 368 GB (−5).
@@ -4316,7 +4316,7 @@ OFIMEM/RESULTS §108) must fit under 373 GB minus a margin — this task used 36
 **A trap found first:** `BS_LAYOUT_ONLY`/`MN_PLAN_ONLY` alone, without `COMM_TRANSPORT=shmem` in the environment,
 silently drops both the SHMEM pool and the `comm_ofi` device pools from the `room:` line's `device` figure (9.66 GB
 short at the target's launch line) with no warning (`as_shmem_pool`'s early `return 0` when the transport variable
-is unset) — docs/TARGET.md trap 20. Every number below uses the full launch-line environment.
+is unset) — internal target notes trap 20. Every number below uses the full launch-line environment.
 
 **The headline sizes do not fit the raw edge, let alone a margin.** At `ECALC_PLANE_CAP=2^31` (the current
 default), both 5.276 × 10¹³ and 5.167 × 10¹³ give the same **device layout, 405.42 GB** (planes 120.877 + arena
@@ -4338,19 +4338,19 @@ own memory estimate for this off-default cap does not match the C-measured bytes
 margin) but not 363 GB, at a modelled ≈ +71 % wall time.
 
 **Other levers, all modelled/assumed, none as strong:** host-pinned planes/arena is a redesign with no credible
-point estimate — ME10 (`docs/code/05_DECISION_REGISTER.md`) measured `hipMemcpy` to host-backed memory at 21 GB/s
+point estimate — ME10 (internal code notes) measured `hipMemcpy` to host-backed memory at 21 GB/s
 against HBM's measured 3.2 TB/s/APU, ~150× less, touched on nearly every pass; `ECALC_NP`/`RNS_STRATEGY` are
 already at their cheapest setting (forcing `ECALC_NP=4` costs +17.2 GB, strictly worse); asking the admins to raise
 the device edge itself (TARGET_WISHLIST §2.1's named `amdgpu`/`ttm` parameters) costs nothing to ask and, if granted,
 removes the problem (405.42 → under 373 GB) without touching digits or the plane cap.
 
-Updated: docs/TARGET.md (trap 20, §1's standing-estimate note), docs/TARGET_WISHLIST.md §2.1 (now "ANSWERED: VMM
+Updated: internal target notes (trap 20, §1's standing-estimate note), internal target wishlist §2.1 (now "ANSWERED: VMM
 shares the cap; still a blocker at the headline sizes" with the full writeup).
 
 ## 111. TGT17: the target moves to 4.08 × 10¹³ digits — chosen to fit the device-memory edge COMFORTABLY (2026-10-06; results/TGT17.md)
 
 Login-node and local work only (aac7 `uan1`, `~/ofimem17` fast-forwarded to `main` `eebb0da`, rebuilt), the launch
-line of docs/TARGET.md §4. **The user's decision of 2026-10-06**: set the target digit count so the run fits
+line of internal target notes §4. **The user's decision of 2026-10-06**: set the target digit count so the run fits
 COMFORTABLY in the target's available memory, not razor-thin against a bar — raise it later if the memory
 configuration is lifted. This replaces CAP17's answer (4.452 × 10¹³, margin 0.53 GB to a 363 GB bar) with a size
 against tighter bars and a much larger margin.
@@ -4375,9 +4375,9 @@ NICs (`--bw 11`, measured aac7) 606.7 / 602.4 s and 642.3 / 638.0 s; at line rat
 236.6 s and 265.4 / 270.0 s. **Every case is faster than the former 5.276 × 10¹³ headline at the same `--bw`**
 (EST17.md §3) — the digit cut costs no time, it saves time (fewer digits to move and compute).
 
-**Updated to make 4.08 × 10¹³ the CURRENT target, old sizes kept as history:** docs/TARGET.md (§1's new Phase 17
+**Updated to make 4.08 × 10¹³ the CURRENT target, old sizes kept as history:** internal target notes (§1's new Phase 17
 TGT17 standing-estimate paragraph above CAP17's, §4's launch line `ecalc 40800000000000`, the closing summary
-paragraph), docs/TARGET_TASKS.md (a new top entry, T4's headline-run row), ecalc/README.md (the launch-line banner,
+paragraph), internal target task list (a new top entry, T4's headline-run row), ecalc/README.md (the launch-line banner,
 Batch 3's target-is line), ecalc/mem_model.py (`TARGET_DIGITS = 4.08e13`), ecalc/estimate.py (`--target`'s history
 table and `partial_row`'s former-second-test-size label, the `--target` flag's help text). `results/TGT17.md` has
 the full sweep, bisection and derivation.
@@ -4697,7 +4697,7 @@ Labels: m measured, i inferred, a assumed.
 Labels: m measured, mod modelled. Main now contains branches s34 and s29 (merged --no-ff; every switch off by default, digits unchanged).
 - **X2 adopted on the aac7 line** (the user, 2026-10-09): `COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1` in `ecalc/e16_headline.sh`; -31.7 s at 10 nodes (CI -55.7 .. -7.8 s, excl. dm blow-up rounds), -34.1 s (CI -69.7 .. +1.5) over all rounds (m); +0.8 GB/node on aac7 (m), +0.5 GB (mod). Target: optional T13 at the first >= 64-node step. Rejected: X1 rot (+3.1 s null), X3 DC off (0.2 % vs 15 % gate), CHAIN_BCAST (-2.7 s null), VMM_SAFE=1/2 (did not prevent segfaults).
 - **Final S34 soak (m, 1e9 digits):** 2 nodes base 4 segfaults of 422 (mean 204.2 s) against `ECALC_VMM_BG=0` 0 of 420 (224.2 s, +20.0 s / +9.8 %); Fisher p = 0.063 one-sided, 0.124 two-sided: suggestive, not conclusive. 1 node 0 of 121 in both arms. The soak ended early (holds cancelled, NODE_FAIL; the "Memory required" step errors were teardown). aac7 QOS is now 6 nodes per user.
-- **Host x9000c1s0b1n0 (m):** upload stall 20.7-25.2 s vs ~1 s, follows the host, 113.7 GB cache not cleared by dd. New data: MemAvailable is ~441 GB on 7 of 13 nodes and ~520 GB on the other 6, so low MemAvailable is NOT unique to it; only the stall is. Opt-in `MNRUN_EXCLUDE_HOSTS` / `MNRUN_EXCLUDE_MODE=drop` in `ecalc/mnrun.sh` and `rd_exclude_hosts` in `tools/rundriver.sh` (default off); note for the admins in `docs/AAC7_ADMIN_NOTE.md`.
+- **Host x9000c1s0b1n0 (m):** upload stall 20.7-25.2 s vs ~1 s, follows the host, 113.7 GB cache not cleared by dd. New data: MemAvailable is ~441 GB on 7 of 13 nodes and ~520 GB on the other 6, so low MemAvailable is NOT unique to it; only the stall is. Opt-in `MNRUN_EXCLUDE_HOSTS` / `MNRUN_EXCLUDE_MODE=drop` in `ecalc/mnrun.sh` and `rd_exclude_hosts` in `tools/rundriver.sh` (default off); note for the admins in internal admin note.
 - **Kit:** opt-in stage `nodechk` in `ecalc/target_kit.sh` (`tests/t_nodechk.c`; meminfo and 1 GB upload per APU, flags > 3x median upload or MemAvailable < 90 % of median); TARGET_TASKS T14.
 
 

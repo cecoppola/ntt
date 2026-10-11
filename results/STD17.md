@@ -30,8 +30,8 @@ OFI (comm_shmem.c): the control blocks / rings / signal words, the mailbox, and 
   `room ofi pools`.
 - `mnrun.sh`: the plan runs on the login node, which on aac7 (uan1) has **no cxi** — so with `COMM_OFI` unset it probes the first compute
   node once (`srun --overlap test -e /sys/class/cxi/cxi0`) and exports `COMM_OFI_PLAN_CXI`.
-- Docs: README rows (`COMM_OFI_POOL_MB`, new `COMM_OFI_PLAN_CXI`), docs/code/07_COMM_OFI.md §4/§5, 02_PIPELINE_MEMORY.md §3.7,
-  docs/TARGET.md launch line (`COMM_SHMEM_POOL_MB=1536`, heap 2048M).
+- Docs: README rows (`COMM_OFI_POOL_MB`, new `COMM_OFI_PLAN_CXI`), internal code notes §4/§5, 02_PIPELINE_MEMORY.md §3.7,
+  internal target notes launch line (`COMM_SHMEM_POOL_MB=1536`, heap 2048M).
 
 ## 2. Part A — tests (all on aac7)
 

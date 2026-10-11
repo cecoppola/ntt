@@ -31,8 +31,8 @@ pushed, not merged.
   edit in the same file.
 
 **Docs still quoting 4.08 × 10¹³ as the CURRENT target (not changed — left to the docs pass named in the task):**
-`docs/TARGET.md` (§1's TGT17 paragraph, §4's `srun` line `ecalc 40800000000000` and its closing summary paragraph),
-`docs/TARGET_TASKS.md` (top entry), `docs/code/05_DECISION_REGISTER.md` (ME24 row), `docs/code/06_EVALUATION.md`,
+internal target notes (§1's TGT17 paragraph, §4's `srun` line `ecalc 40800000000000` and its closing summary paragraph),
+internal target task list (top entry), internal code notes (ME24 row), internal code notes,
 `ecalc/README.md` (the launch-line banner, Batch 3's "target-is" line), `ecalc/estimate.py` (`--target`'s help text and
 the `partial_row` history tuple naming "4.08e13 since TGT17"), `RESULTS.md` §110–112 (history, left as written). None of
 these are code/script sizing logic — they are prose or help-text mentions, so left untouched per the task's scope.
@@ -44,7 +44,7 @@ these are code/script sizing logic — they are prose or help-text mentions, so 
 performance but allow us to adjust to a different system later"). The symmetric heap is unchanged — mnrun.sh already
 derives it from the `MN_PLAN_ONLY` plan (`SHMEM_SYMMETRIC_SIZE` and, for Cray, `XT_SYMMETRIC_HEAP_SIZE`, both pool + 512
 MiB, each only-if-unset), so no new pairing was needed there; verified by reading the sos/cray branches side by side.
-Chosen `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL` and the heap size are now printed in mnrun.sh's launch echo. `docs/TARGET.md`
+Chosen `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL` and the heap size are now printed in mnrun.sh's launch echo. internal target notes
 §4's "PROPOSAL — NOT ADOPTED" block is now written as adopted, with the override-per-system idea in one line per
 variable; `ecalc/README.md` gets two new switch-table rows. No C default changed (only `mnrun.sh`, a shell script).
 

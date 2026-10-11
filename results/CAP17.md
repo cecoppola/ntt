@@ -1,7 +1,7 @@
 # CAP17 — the device-memory edge at the target (373 GB/node) against the layout (2026-10-06)
 
 Login-node and local work only (aac7 `uan1`, no GPU, no compute jobs), on `main` at `8e03ba0` (rebased; `comm_ofi`
-default on cxi; the launch line of docs/TARGET.md §4, `DM_MN_LEAN=1`). Build: fresh clone `~/ntt-cap17` on aac7,
+default on cxi; the launch line of internal target notes §4, `DM_MN_LEAN=1`). Build: fresh clone `~/ntt-cap17` on aac7,
 `source ecalc/aac7env.sh && make -s -j16` (rocm/7.2.4, the aac7 default toolchain; the build is login-node-only
 sizing, the toolchain used does not affect the layout). Every number below is **measured** (the C binary's own
 `BS_LAYOUT_ONLY` / `MN_PLAN_ONLY` print, on the login node, no HIP calls) unless marked **modelled** or **assumed**.
@@ -18,13 +18,13 @@ sizing, the toolchain used does not affect the layout). Every number below is **
 ## 2. Method
 
 `BS_LAYOUT_ONLY=<D per node>:576 ./ecalc 1 /dev/null` and `MN_PLAN_ONLY=<D>:576 ./ecalc 1 /dev/null` with the
-launch line's environment (docs/TARGET.md §4): `COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
+launch line's environment (internal target notes §4): `COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1
 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 DM_MN_LEAN=1
 COMM_SHMEM_ROUND_MB=1024 MN_GROUPS=2,4,8,16,32,64,192,576 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6`, plus
 `COMM_OFI_PLAN_CXI=1` (the login node has no cxi; `mnrun.sh` sets this from the first compute node, per
 `comm_ofi.c`'s comment) so the plan and the room line see the `comm_ofi` pools exactly as the compute nodes would.
 
-**Trap found (new; see docs/TARGET.md update below): without `COMM_TRANSPORT=shmem` in the environment, `as_room_fits`
+**Trap found (new; see internal target notes update below): without `COMM_TRANSPORT=shmem` in the environment, `as_room_fits`
 silently returns 0 for both the SHMEM pool and the `comm_ofi` pools** (`binsplit.c`'s `as_shmem_pool`: `if (size < 2
 || !(tr && !strcmp(tr, "shmem"))) return 0;`) — the `room:` line still prints `fits 1` and a plausible-looking device
 figure, 9.66 GB *short*, with no warning. The first pass of this task's sweep used `BS_LAYOUT_ONLY` alone (no
@@ -92,7 +92,7 @@ All **modelled** unless stated; no compute jobs were run (login-node sizing only
 existing, off-by-default environment switch — no code change, digits stay byte-identical.
 
 ### (a) Host-pinned planes/arena (a redesign) — not recommended, no credible number without new code
-Cited at `docs/code/06_EVALUATION.md` A2 and the decision register's **ME10** (`docs/code/05_DECISION_REGISTER.md`):
+Cited at internal code notes A2 and the decision register's **ME10** (internal code notes):
 `hipMemcpy` to host-backed memory **measured** collapsing to **21 GB/s**, against MI300A's HBM **measured** at
 **3.2 TB/s sustained per APU** (TARGET_HW_REVIEW row 7) — roughly **150× less bandwidth**. The arena (232–275 GB)
 and planes (69–121 GB) are read and written on essentially every tree/reciprocal/division pass, not once; a single
@@ -126,7 +126,7 @@ calibrated absolute, until a real run confirms it.
 
 ### (c) `ECALC_NP` / `RNS_STRATEGY` — already at the cheapest setting; not a lever
 `ECALC_NP=auto` (the launch line's setting) is already the minimum-primes choice. Forcing `ECALC_NP=4` costs **+17.2
-GB more** per node at the target (docs/TARGET.md's existing figure, modelled) — strictly worse. `RNS_STRATEGY=auto`
+GB more** per node at the target (internal target notes' existing figure, modelled) — strictly worse. `RNS_STRATEGY=auto`
 already selects the cheaper B/B4 form where it fits the pools, falling back to C only when it must; there is no
 further headroom to find here without new code.
 

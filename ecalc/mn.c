@@ -67,7 +67,7 @@ int mn_init(void)
     /* B9: the cross-group mesh of level l's id collides with level l+1's all[d] id under SHMEM's strided PE sets
      * (comm_shmem.c's "communicator id used twice" abort) -- a trap, not a remedy (products use all[d] only), so
      * refuse at init with a clear message instead of letting the first group formation hit that abort. */
-    if (g_shmem && g_topo > 1) { ec_fatal(EC_RC_FATAL, "mn: MN_TOPO_GROUP=%d > 1 is not supported under COMM_TRANSPORT=shmem (the cross-group mesh ids collide with the next level's -- see docs/code/06_EVALUATION.md B9); leave MN_TOPO_GROUP unset (0) under SHMEM\n", g_topo); }
+    if (g_shmem && g_topo > 1) { ec_fatal(EC_RC_FATAL, "mn: MN_TOPO_GROUP=%d > 1 is not supported under COMM_TRANSPORT=shmem (the cross-group mesh ids collide with the next level's -- see internal code notes B9); leave MN_TOPO_GROUP unset (0) under SHMEM\n", g_topo); }
     if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
         if (!comm_shmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); }
         double t0 = mem_now();

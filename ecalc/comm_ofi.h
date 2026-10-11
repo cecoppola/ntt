@@ -1,4 +1,4 @@
-/* comm_ofi.h - Phase 17 (docs/code/07_COMM_OFI.md): the multi-NIC data plane of the SHMEM transport.  COMM_OFI=1 moves the data of
+/* comm_ofi.h - Phase 17 (internal code notes): the multi-NIC data plane of the SHMEM transport.  COMM_OFI=1 moves the data of
  * comm_shmem.c's device-buffer exchanges onto libfabric fi_writes over the NICs of the calling APU thread's device; SHMEM keeps the
  * control words.  Built with -DCOMM_OFI (Makefile OFI=1); without it comm_ofi_enabled() is 0 (and COMM_OFI=1 aborts).  The user's
  * decision of 2026-10-06: with COMM_OFI unset, on by default wherever a cxi NIC is present (Cray Slingshot), off elsewhere (e.g.

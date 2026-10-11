@@ -618,7 +618,7 @@ def host_size1(D):
 
 # ---------------------------------------------------------------- Phase 15 (agent MD): the defaults since Phase 14 (ecalc/README.md)
 # DB_POOL_VMM=1 (the arena a VMM range), DM_TIGHT following it, MN_TREE_EARLY_FREE=1, MN_T_CHUNK_MB=1024, MDB_SHIFT_CHUNK_MB=1024 (13c),
-# COMM_SHMEM_POOL_AUTO=1 with the pool taken from MN_PLAN_ONLY's `plan pool` line (mnrun.sh, docs/TARGET.md 4: the pool = the need rounded up
+# COMM_SHMEM_POOL_AUTO=1 with the pool taken from MN_PLAN_ONLY's `plan pool` line (mnrun.sh, internal target notes 4: the pool = the need rounded up
 # to 256 MiB, the device heap exactly the pool).  COMM_SHMEM_ROUND_MB is off in the code; the target's launch line adds 1024 (the user's D2):
 # TARGET_LAUNCH.  OLD13 = the forms before Phase 14, for the historical tables (their numbers are unchanged with it).
 DEFAULTS15 = dict(tight=True, early_free=True, t_chunk_mb=1024, shift_chunk_mb=1024, pool='plan', vmm=True, round_mb=0, cap=1 << 31, seed_fill=0, out_early=False, arena_room=0.0, dkm=False)   # cap: ECALC_PLANE_CAP 2^31 (13c)

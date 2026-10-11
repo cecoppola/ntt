@@ -156,7 +156,7 @@ Columns: the user's value | what ecalc assumes today (where) | consistent? | imp
   - The launcher. `oshrun`/`mpiexec` is unavailable in their sandbox, and Slurm-native `srun --ntasks` works: 12/12 configurations,
     7 tests unblocked.
   - That fits our records: WISHLIST §0.1 doubted the `cxi_core` explanation, and **our launch line is already Slurm-native**
-    (`srun -N 576 --ntasks=576 --ntasks-per-node=1 …`, docs/TARGET.md §4). aac7 runs plain `srun` with Cray OpenSHMEMX.
+    (`srun -N 576 --ntasks=576 --ntasks-per-node=1 …`, internal target notes §4). aac7 runs plain `srun` with Cray OpenSHMEMX.
   - Validated so far: 2 PEs on one node and 4 PEs on one node. **No multi-node launch is reported.**
   - So WISHLIST §0.1 is **resolved for on-node multi-PE launches. A 2-node launch is still to be shown**, now blocked by allocation (B2),
     not by `-28`.
@@ -173,7 +173,7 @@ Columns: the user's value | what ecalc assumes today (where) | consistent? | imp
     own endpoints.
   - **`FI_CXI_DEFAULT_CQ_SIZE` does not reach comm_ofi's CQs** (sized 8192 explicitly). It reaches only CQs opened with size 0, which means
     Cray SHMEM's. Their tested 65 536–262 144 all passed.
-- **Proposal for docs/TARGET.md §4** (commented, **not adopted**; the user decides):
+- **Proposal for internal target notes §4** (commented, **not adopted**; the user decides):
   - `FI_UNIVERSE_SIZE=4096`: ≥ 4 × 576 = 2304, and their largest tested value;
   - `FI_LOG_LEVEL=warn`;
   - **`SHMEM_SYMMETRIC_SIZE=2048M`** beside our `SHMEM_SYMMETRIC_HEAP_SIZE`/`XT_SYMMETRIC_HEAP_SIZE`. Their environment used
@@ -281,8 +281,8 @@ Columns: the user's value | what ecalc assumes today (where) | consistent? | imp
   - `TARGET_DEVICE_EDGE_GB = 373.44` (m, target);
   - `TARGET_M_CONSTS = {MAP_RATE: 0.010}` (m, target);
   - `TARGET_HOST_PIN_APU_GB = 256` (m, target, informational).
-- **Docs:** docs/TARGET_WISHLIST.md (§0.1 status, §2.1, §2.2, §3.1, §3.3, and a TGTBENCH2 header line), docs/TARGET.md §4 (the proposal
-  block), docs/code/06_EVALUATION.md (dated note), docs/code/05_DECISION_REGISTER.md (rows marked PROPOSED), ecalc/README.md and 04
+- **Docs:** internal target wishlist (§0.1 status, §2.1, §2.2, §3.1, §3.3, and a TGTBENCH2 header line), internal target notes §4 (the proposal
+  block), internal code notes (dated note), internal code notes (rows marked PROPOSED), ecalc/README.md and 04
   (the profile row).
 - **Rejected, with reasons:**
   - M3's host spill;
@@ -398,7 +398,7 @@ v-slots are 6.707 GB/APU = 26.83 GB/node everywhere in this range.
 
 1. **Target size:** 3.76 × 10¹³ (device 367.82 GB, 5.62 under the edge, 222.7 s mod) or 3.71 × 10¹³ (363.53 GB, 9.91 under, 221.9 s)? Both
    replace 4.08 × 10¹³ (372.12 GB, 1.32 under the edge, 282.4 s).
-2. **Launch-line environment** (proposal in docs/TARGET.md §4): add `FI_UNIVERSE_SIZE=4096`, `FI_LOG_LEVEL=warn` and
+2. **Launch-line environment** (proposal in internal target notes §4): add `FI_UNIVERSE_SIZE=4096`, `FI_LOG_LEVEL=warn` and
    `SHMEM_SYMMETRIC_SIZE=2048M`?
 3. **C1:** which program, configuration and ROCm gave μ = 80.801 at 10¹⁰ (the smoke line says 0.801 s)? ecalc measured 26–28 s at 10¹⁰ on
    aac7 under both 7.0.3 and 7.2.4. Was a 7.2.4 run done on the target to support the "1.22" claim?

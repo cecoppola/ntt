@@ -1,12 +1,12 @@
 > **HISTORICAL — moved from `TASKS.md` on 2026-10-10** (lines 1-376 of that file at commit e38cf4e: the Phase 12-13 task log,
 > the work plan after Phase 13, sections 1-7, the "Suggested order"). The live task list is `TASKS.md`; open items of the target are in
-> `docs/TARGET_TASKS.md`. Section numbers cited elsewhere as "TASKS 1.3", "TASKS §6.1" etc. refer to this file.
+> internal target task list. Section numbers cited elsewhere as "TASKS 1.3", "TASKS §6.1" etc. refer to this file.
 
 # Outstanding tasks and opportunities
 
 > **HISTORICAL.** Covers Phase 12–13 (through 2026-09-25), before Phases 14–17 and the target work closed or
-> superseded most of these items. Superseded by `docs/code/06_EVALUATION.md` §4 (current ranked recommendations) for
-> aac6/aac7 work and `docs/TARGET_TASKS.md` for target-only work. Kept below as the historical task log; the body
+> superseded most of these items. Superseded by internal code notes §4 (current ranked recommendations) for
+> aac6/aac7 work and internal target task list for target-only work. Kept below as the historical task log; the body
 > is not edited.
 
 Consolidated from PLAN §23, §26–§28, archive/docs/DECISIONS3.md, archive/docs/CODE_REDUCTION.md and the open-issue
@@ -24,7 +24,7 @@ digits in 63.5 ± 1.5 s; the target's top-node share, 7.64 × 10¹⁰, in 133.3 
 This section supersedes the status tables below, which stay as the record. Every item names where its evidence is.
 The order puts first what the target run cannot succeed without, then per-node speed (≈ 80 % of the modelled 576-node
 wall is per-node compute), then verification and documents, then code reduction. Target-machine work is in
-`docs/TARGET_TASKS.md` (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
+internal target task list (T0–T9, another agent); it runs whenever target access comes, but T4 (the headline run) waits on
 Phase A.
 
 ### Phase A — blockers for the target run (do first) — **DONE 2026-09-25 (RESULTS §84)**: A1 race fixed (hang unproven), A2 pool law (the target needs MN_T_CHUNK_MB=1024 to fit), A3 clean exits, A4 real-node grid + mnrun detection, A5 RNS_PLANES_FIRST
@@ -125,7 +125,7 @@ seeds are now the critical path**, where driver page-mapping used to be.
 | # | item | note |
 |---|---|---|
 | 3.1 | **Measure the two fabric assumptions first** on the target: SHMEM per-message cost (2 µs assumed; at 20 µs the 576-node wall goes 4.0 → 4.3 min) and part-file bandwidth (2 GB/s assumed) — then re-run `estimate.py` | 1 h; converts the estimate into a plan |
-| 3.2 | **Bring up the SHMEM forms in order** per `docs/TARGET.md` (2 → 4 → 64 → 576 nodes), enabling thread-multiple contexts, device heap and pool-resident slabs at each step | the runbook exists for exactly this |
+| 3.2 | **Bring up the SHMEM forms in order** per internal target notes (2 → 4 → 64 → 576 nodes), enabling thread-multiple contexts, device heap and pool-resident slabs at each step | the runbook exists for exactly this |
 | 3.3 | **Decide the top schedule by measurement** (3·3 default vs 9-way; the model says 3·3 by 5 %) | one environment variable |
 | 3.4 | **Run safe size before ceiling**: 6.1 × 10¹⁰ digits/node (3.5 × 10¹³ total) before 6.7 × 10¹⁰ (3.9 × 10¹³) | at the ceiling one node's allocation failure ends the run |
 | 3.5 | The general map's exchange overlap (`GEN_HIDE` = ½) is an assumption, and at 576 **every** full-group product uses the general map | 20–30 % of the modelled exposed time rests on it |

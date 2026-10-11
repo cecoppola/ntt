@@ -1,6 +1,6 @@
 #!/bin/bash
 # e16_headline.sh - Phase 16 E (PLAN.md 39 row E, results/D16.md): the 12-node scaled headline on aac7 at the target's per-node
-# share, the target's launch line (docs/TARGET.md 4) adapted to aac7, then the verification chain off the clock and the run one
+# share, the target's launch line (internal target notes 4) adapted to aac7, then the verification chain off the clock and the run one
 # grid step below.  Everything under `timeout`, a `_DONE` marker per step, a retry on the open init segfault (results/A16.md 4:
 # Cray's shmem_init_thread dies in ~13 % of the launches; PE 0 then hangs in PMI -- the timeout kills it, the launch is counted
 # and repeated once).  Nothing here changes a default of ecalc: every switch is the launch line's.
@@ -65,10 +65,10 @@ srun --jobid="$SLURM_JOB_ID" -N "$G" --ntasks="$G" --ntasks-per-node=1 -c 4 --ov
     'h=$(hostname -s); echo "$h load $(cut -d" " -f1-3 /proc/loadavg) memavail $(awk "/MemAvailable/ { printf \"%.0f GB\", \$2 / 1e6 }" /proc/meminfo) tmp $(df -h /tmp | awk "NR == 2 { print \$3 }") gpu-procs $(rocm-smi --showpids 2>/dev/null | grep -cE "^[0-9]+ ") $(rocm-smi --showclocks 2>/dev/null | grep -oE "GPU\[[0-9]\].*sclk[^(]*\([0-9]+Mhz\)" | sed -E "s/.*GPU\[([0-9])\].*\(([0-9]+)Mhz\)/sclk\1=\2/" | paste -sd" ")"' \
     2>&1 | sort | tee "$OUT/log/nodes_$SLURM_JOB_ID.txt" | tee -a "$LOG"
 
-# the target's launch line (docs/TARGET.md 4) on aac7: the transport's words, the design switches; the pool comes from mnrun.sh's own
+# the target's launch line (internal target notes 4) on aac7: the transport's words, the design switches; the pool comes from mnrun.sh's own
 # MN_PLAN_ONLY call (`plan pool` -> COMM_SHMEM_POOL_MB, the heap + 512 MiB), the schedule is the code's default at g = 12 (2,4,12).
 # MN_GROUPS is not set: PLAN 39 / TARGET 4 -- set it only at 576 or a multiple of 9 * 2^k (at 12 the default is the only sane list).
-LINE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=2048 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 COMM_LAYER_VSLOT_SHARE=1 DM_MN_LEAN=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_LOG_CLOCKS=1 ${E16_EXTRA:-}"   # MN_T_CHUNK_MB=2048 on aac7 since 2026-10-08 (the user's decision; results/S22.md D2: 24 paired rounds, mean -42.3 s, p ~ 0.04, m; the TARGET line stays 1024); COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 (X2) added 2026-10-09; COMM_LAYER_VSLOT_SHARE=1 added 2026-10-10 (the user; results/S36.md: memory only, on the target line too) (the user's decision; results/S31.md: -31.7 s at 10 nodes, m; not on the target line) -- DM_MN_LEAN=1 added 2026-10-05 (the user's decision; docs/TARGET.md 4, RESULTS §104): not a code default
+LINE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=2048 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 COMM_LAYER_VSLOT_SHARE=1 DM_MN_LEAN=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 ECALC_LOG_CLOCKS=1 ${E16_EXTRA:-}"   # MN_T_CHUNK_MB=2048 on aac7 since 2026-10-08 (the user's decision; results/S22.md D2: 24 paired rounds, mean -42.3 s, p ~ 0.04, m; the TARGET line stays 1024); COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 (X2) added 2026-10-09; COMM_LAYER_VSLOT_SHARE=1 added 2026-10-10 (the user; results/S36.md: memory only, on the target line too) (the user's decision; results/S31.md: -31.7 s at 10 nodes, m; not on the target line) -- DM_MN_LEAN=1 added 2026-10-05 (the user's decision; internal target notes 4, RESULTS §104): not a code default
 
 # launch <tag> <timeout> <digits> <outfile> [more VAR=value words]: one mnrun.sh launch under timeout, retried once on the init
 # segfault (rc 124 / 139 / "Segmentation fault" / "_pmi_network_allgather failed" before any `total`); prints rc; the log is

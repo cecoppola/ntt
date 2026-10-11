@@ -46,13 +46,13 @@ not run by anything live — left untouched, out of scope. No part files or `*.o
 delete there.
 
 Agent report (original, unchanged below). Times Eastern (aac7 logs are Pacific: +3 h). Numbers labelled
-**measured** / **modelled** / **assumed**. Design: docs/code/07_COMM_OFI.md. Method: results/NIC16_experiments.md.
+**measured** / **modelled** / **assumed**. Design: internal code notes. Method: results/NIC16_experiments.md.
 
 ## Status (updated 2026-10-06, the integrator)
 
 **Adopted.** `COMM_OFI` now defaults to 1 wherever a cxi NIC is present (the user's decision of 2026-10-06,
 after the multi-node results below); `COMM_OFI=0` restores the old SHMEM-only path exactly. See RESULTS §106,
-`ecalc/README.md`'s `COMM_OFI` row and docs/code/07_COMM_OFI.md. The RESUME block below is left as the agent
+`ecalc/README.md`'s `COMM_OFI` row and internal code notes. The RESUME block below is left as the agent
 wrote it (it predates the decision and still says "off by default").
 
 ## RESUME (updated 2026-10-06 01:05 EDT)
@@ -76,7 +76,7 @@ wrote it (it predates the decision and still says "off by default").
   $R 'ps -eo pid,etime,args | grep -E "[o]fi17_drive|[a]cc1.sh"'     # kill only by these PIDs
   ```
 
-## 1. Design (summary; full: docs/code/07_COMM_OFI.md)
+## 1. Design (summary; full: internal code notes)
 
 - One process per node, the in-process xGMI stage, Cray SHMEM for init / control words / barriers / host collectives: unchanged.
 - Under `COMM_OFI=1` the *data* of every device exchange of comm_shmem.c (alltoall, alltoallv, allgather, the rounds) goes as
@@ -130,7 +130,7 @@ every size identical to the reference.
 | 10 | 12.29 GB/s | 44.11 GB/s | same pattern, 1.27 GB/node each |
 
 SHMEM uses one NIC (cxi0) per node regardless of node count (Cray OpenSHMEMX's one-NIC-per-PE binding,
-docs/TARGET.md trap 18) and its aggregate falls as more nodes compete for that one path per node (19.8 → 11.7
+internal target notes trap 18) and its aggregate falls as more nodes compete for that one path per node (19.8 → 11.7
 GB/s from 2 to 8 nodes); OFI stripes every exchange over all 4 NICs per node and holds 44–48 GB/s from 4 nodes
 on, 2.3–3.8× the SHMEM aggregate at the same node count.
 

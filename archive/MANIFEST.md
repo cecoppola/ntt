@@ -28,9 +28,9 @@ directory, so to rerun copy them back next to it.
 
 ## drivers/kp15_batch.sh (from `results/`)
 
-## docs/ (from the top level)
+## Superseded design documents (from the top level `docs/` folder of that time)
 `CODE_REDUCTION.md DECISIONS.md DECISIONS2.md DECISIONS3.md DESIGN.md ALGORITHM.md`: banner HISTORICAL, superseded by
-`docs/code/05_DECISION_REGISTER.md` and `docs/code/0*`. References in docs, PLAN, TASKS, RESULTS and results notes now
+internal notes. References in PLAN, TASKS, RESULTS and results notes now
 carry the `archive/docs/` prefix.
 
 ## results-raw/ (from `results/`)
@@ -40,14 +40,14 @@ Raw logs/data (tracked) of: `INT315 NP15 MPB15 CX15 T215 AS15 MS15 SC15 DL15 DOC
 Kept in `results/` because code or live docs read them: `L815` (tests/l8_*.py), `PC15 P2415 V314 P15`, the
 `D13b_strategy_e0 D2_13d_plan576 L13d_plan576 S13_e0 mrun_13b` text files and the other small directories.
 
-## docs/ (documentation consolidation, 2026-10-10)
+## Documentation consolidation, 2026-10-10 (now in `archive/docs/`)
 `TASKS_HISTORY.md`: the old front of `TASKS.md` (Phase 12-13 log, sections 1-7); `ECALC_README_PREAMBLE_2026-10-05.md`: the
 history of the defaults and of the target size that headed `ecalc/README.md`.
 
 ## Left in place on purpose
 `diff run suite isa.py envcheck.sh nodecheck.sh` (top level): the microbenchmark suite is live (Makefile `make isa`,
 `ecalc/README.md` uses `./run`, `suite` calls `envcheck.sh`, `bench/README.md` cites them). `PLAN.md` (now bannered as wholly historical),
-`TASKS.md` (now the live list), `RESULTS.md` and `docs/` are not moved (user instruction).
+`TASKS.md` (now the live list), `RESULTS.md` are not moved (user instruction).
 
 ## Archived experiment branches (tags, 2026-10-10)
 

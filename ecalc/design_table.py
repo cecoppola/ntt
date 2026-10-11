@@ -382,7 +382,7 @@ def write_md(res, args):
         L_.append('')
     L_.append('## How to regenerate\n')
     L_.append('`cd ecalc && ./design_table.py [--mrun <log>]` (about %.0f s); `./design_table.py --calibrate [--mrun <log>]` prints the model against every measured run. '
-              'On the target: measure the fabric first (docs/TARGET.md §6) and pass `--bws <low,measured,high>`, `--lat`, `--write-bw` (and `--hide-pow2`, `--gen-hide2` from the `COMM_LAYER_STATS` both-busy fractions).\n' % res['secs'])
+              'On the target: measure the fabric first (internal target notes §6) and pass `--bws <low,measured,high>`, `--lat`, `--write-bw` (and `--hide-pow2`, `--gen-hide2` from the `COMM_LAYER_STATS` both-busy fractions).\n' % res['secs'])
     open(args.out, 'w').write('\n'.join(L_) + '\n')
     return '\n'.join(L_)
 

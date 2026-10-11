@@ -1,7 +1,7 @@
 # TGT17 — the 4.08 × 10¹³ target: set to fit the device-memory edge comfortably (2026-10-06)
 
 Login-node and local work only (aac7 `uan1`, no GPU, no compute jobs), on `main` fast-forwarded to `eebb0da` in the
-`~/ofimem17` clone (rebuilt, `source ecalc/aac7env.sh && make -s -j16`), the launch line of docs/TARGET.md §4
+`~/ofimem17` clone (rebuilt, `source ecalc/aac7env.sh && make -s -j16`), the launch line of internal target notes §4
 (`DM_MN_LEAN=1`, `comm_ofi` default on cxi). This note follows **the user's decision of 2026-10-06**: set the target
 digit count so the run fits COMFORTABLY in the target's available memory, not razor-thin against a bar; it can be
 raised later if the memory configuration changes. It replaces results/CAP17.md's 4.452 × 10¹³ answer (margin 0.53

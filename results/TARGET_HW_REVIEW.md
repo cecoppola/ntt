@@ -2,7 +2,7 @@
 
 Source: `/home/machinus/apucode/TARGET_HARDWARE.txt` (564 lines; one node, `baryon-cn0059`, 4 × MI300A, ROCm 7.0.3,
 XNACK off; 157 binaries, 13,160 measurements). Compared with `ecalc/mn_model.py`, `ecalc/mem_model.py`,
-`docs/TARGET.md` §6, `docs/TARGET_TASKS.md` T1, `results/AAC7_survey.md` and the memory file of measured MI300A facts.
+internal target notes §6, internal target task list T1, `results/AAC7_survey.md` and the memory file of measured MI300A facts.
 No code was read or edited; the only runs were `ecalc/estimate.py` on this workstation (main a24ef3c).
 Every number is labelled **measured** (the report, or our aac6 runs), **modelled** (`estimate.py`) or **assumed**.
 

@@ -58,7 +58,7 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include "comm.h"
-#include "comm_ofi.h"                             /* Phase 17: COMM_OFI=1, the data of the device exchanges over libfabric (docs/code/07_COMM_OFI.md) */
+#include "comm_ofi.h"                             /* Phase 17: COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
 /* Phase 14 V1: the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
  * size from the launch line's variable (SHMEM_SYMMETRIC_HEAP_SIZE for OSHMEM, SHMEM_SYMMETRIC_SIZE for SOS and Cray; K / M / G / T
  * suffixes, else bytes), 0 when unset; *name = the variable */

@@ -1,6 +1,6 @@
 # ACC16 — deferred 1-node acceptance of main (R + S merged) on aac7, ROCm 7.2.4 (Phase 16 ACC)
 
-Branch `p16-ACC` from `main` 8a56331 (= 1be410f + one docs-only commit, `docs/TARGET_WISHLIST.md`; no code
+Branch `p16-ACC` from `main` 8a56331 (= 1be410f + one docs-only commit, internal target wishlist; no code
 changed, so the run below is equally valid against 8a56331). Times Eastern (aac7 is PDT = Eastern − 3 h).
 This closes the open item left by R16 §"Open issues" and S16 §5 ("the unit / e9 rerun on a 1-node job when
 nodes free up") — both landed in `main` at 1be410f (S's `COMM_INIT_EARLY` switch, `mnaccept.sh`'s `-c` fix;

@@ -241,7 +241,7 @@ struct dist_slot { const void *key; size_t lo, n, q; uint64_t *pl[NR]; int pinne
 static struct { int n, nmn, navail, tried, hold, pin_next, init; struct dist_slot s[DIST_CACHE_MAX]; size_t hits, misses, bytes; double t_alloc;
                 size_t slot_bytes, slot_q; int pc; } g_cache;     /* Phase 15 TC: one slot's bytes per APU, and the q (limbs per prime per rank) it holds under RNS_DIST_CACHE_FIT (0: unbounded);
                                                                * Phase 15 PC: pc = the slots now are RNS_DIST_CACHE_PARTIAL's (planes from the block pool for one grid product) */
-/* ---- Phase 15 TC (docs/TARGET_TASKS.md T7, results/TC15.md): RNS_DIST_CACHE_FIT=1 -- the slots sized to the cap and bounded by the budget ----
+/* ---- Phase 15 TC (internal target task list T7, results/TC15.md): RNS_DIST_CACHE_FIT=1 -- the slots sized to the cap and bounded by the budget ----
  * Without it (the default) a slot is EC_NP x 2^(dist_logn_max - 2) limbs per APU (16 GiB at four primes) whatever POOL_LOG is, and the
  * count is what hipMemGetInfo's free memory less the margin allows -- every node-process on a node reading the same free memory, none
  * of it in the budget check or the memory model.  With it:

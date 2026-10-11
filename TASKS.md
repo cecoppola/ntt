@@ -1,10 +1,8 @@
 # TASKS — live task list (open work, idea lists, dated status)
 
-> Ranked opportunities and big-picture goals: [docs/OPPORTUNITIES.md](docs/OPPORTUNITIES.md) (2026-10-10).
-
 *Rewritten 2026-10-10.* The Phase 12-13 task log (the old front of this file, sections 1-7 and the "Suggested order") is
 history: `archive/docs/TASKS_HISTORY.md` (citations such as "TASKS 1.3" or "TASKS §6.1" refer to it). Target-only work
-(T1-T14) is `docs/TARGET_TASKS.md`; every decision and its status is `docs/code/05_DECISION_REGISTER.md`; measurements are
+(T1-T14) and the decision register are kept in internal notes; measurements are
 `RESULTS.md` (latest §127). Labels: (m) measured, (mod) modelled.
 
 ## Open work (2026-10-10)
@@ -21,9 +19,9 @@ digits ≈ 78 s (was ≈ 94 s), 4 nodes −50.0 s (m, S43). The 576-node plan: d
 | 4 | X2 cut-group pool-offset asymmetry found by S45 (not a target risk) | understand and document | results/S45.md |
 | 5 | Scaling study at 2 / 4 / 6 nodes; put the new kernels into the time model (`mn_model.py` / `estimate.py`) | later | |
 | 6 | Handoff document | later | |
-| 7 | Target-side options (need a target session): `MN_T_CHUNK_MB=2048` A/B (T11b), division overlap gate (T12, S-2), X2 try (T13), kit `nodechk` rehearsal (T14) | open | docs/TARGET_TASKS.md |
+| 7 | Target-side options (need a target session): `MN_T_CHUNK_MB=2048` A/B (T11b), division overlap gate (T12, S-2), X2 try (T13), kit `nodechk` rehearsal (T14) | open | internal target task list |
 | 8 | Repo clean-up: moved drivers, historical docs and raw results to `archive/` (done 2026-10-10, `archive/MANIFEST.md`); unmerged branches s24, s25, s35, s37, p14-*/p15-* and merged worktrees/branches: user's decision | partly open | AUDIT_REPO (session scratchpad) |
-| 9 | `docs/AGENT_PROTOCOL.md` holds the aac6 login password in plain text; moving it out of the tree is the user's decision | open (user) | |
+| 9 | The private protocol holds the aac6 login password in plain text; moving it out of the tree is the user's decision | open (user) | |
 
 Environment facts: aac7's QOS is 6 nodes per user (no 10-node runs); aac6 SH5 (`SH5_MI300A_SPX`) shows one device (ecalc
 cannot run), its CPX nodes (6 XCDs of 22.9 GB) run up to 4e9 digits with `RNS_INIT_POOL_LOG=29` (S44).
@@ -109,8 +107,8 @@ measurements their items need; A37-R1 only after both its gates.
 
 **The user's decisions of 2026-10-08 (on the S22 / S23 / S24 analysis):**
 
-- **`MN_T_CHUNK_MB=2048`: ADOPTED on the aac7 base line** (`DM_MN_LEAN=1`, `DIST_CHUNKS` 8, `MN_T_CHUNK_MB=2048`; `ecalc/e16_headline.sh`, README, 00_OVERVIEW updated). Evidence: S22 D2, 24 paired ABBA rounds, mean −42.3 s, median −35.1 s, p≈0.04 (m). **The target launch line stays 1024**; optional target A/B "2048 vs 1024, 2 runs each" is `docs/TARGET_TASKS.md` T11b.
-- **S-2 division overlap: SAVED as an option** (not built). Gate: build only if the target wait-stats run shows the exposed division/reciprocal wait above about 30 s per APU thread (modelled at 576: ceiling 25–34 s, realistic gain 6–17 s, below the bar). Recorded in `docs/TARGET_TASKS.md` T12.
+- **`MN_T_CHUNK_MB=2048`: ADOPTED on the aac7 base line** (`DM_MN_LEAN=1`, `DIST_CHUNKS` 8, `MN_T_CHUNK_MB=2048`; `ecalc/e16_headline.sh`, README, 00_OVERVIEW updated). Evidence: S22 D2, 24 paired ABBA rounds, mean −42.3 s, median −35.1 s, p≈0.04 (m). **The target launch line stays 1024**; optional target A/B "2048 vs 1024, 2 runs each" is internal target task list T11b.
+- **S-2 division overlap: SAVED as an option** (not built). Gate: build only if the target wait-stats run shows the exposed division/reciprocal wait above about 30 s per APU thread (modelled at 576: ceiling 25–34 s, realistic gain 6–17 s, below the bar). Recorded in internal target task list T12.
 - **A37-R1 GPU seed: SHELVED** (user 2026-10-08). S22 §3: n = 6 timelines, seed ends 0.55 s after the last mapping on aac7 (co-bind), seed threads halved changes the total by 0; on the target the seed is modelled to end at about 15.8 s against the 16.5 s init floor (gain 0–1 s). Reopen only if the target check (T12) shows the seed ending after about 18 s and more than 2 s after the last mapping.
 - **NTT3P / 3-pass 2^31 NTT: SHELVED** (user 2026-10-08). E0: 13/9/9 forward 90.6 ms vs 89.9 ms today (gate ≤ 80 ms); 9-stage passes 32.4 / 28.5 ms vs 22.5 modelled.
 - **Target check stage:** the user wants the target to check S-2 and A37-R1 anyway: `ecalc/target_kit.sh --only build,s2chk` (opt-in; 2 and 8 nodes, 6.441e10 digits/node, `ECALC_INIT_TL=1 MN_WAIT_STATS=1`, verdict lines in `KIT_SUMMARY.txt`). Needs an `ecalc` with `MN_WAIT_STATS` (branch s22 / `d3-wait-stats`, not yet in `main`).
@@ -133,9 +131,9 @@ with fresh anonymous pages and concurrent GPU writes, m) is not shown to apply t
 
 ## Status 2026-10-10 (S27-S34 wrap-up, RESULTS 126)
 
-- `main` contains s34 and s29 (--no-ff). X2 is adopted on the aac7 line (`ecalc/e16_headline.sh`); optional target try = TARGET_TASKS T13. Rejected: X1 rot, X3 DC off, CHAIN_BCAST, VMM_SAFE=1/2 (docs/code/05_DECISION_REGISTER.md 2.6).
+- `main` contains s34 and s29 (--no-ff). X2 is adopted on the aac7 line (`ecalc/e16_headline.sh`); optional target try = TARGET_TASKS T13. Rejected: X1 rot, X3 DC off, CHAIN_BCAST, VMM_SAFE=1/2 (internal code notes 2.6).
 - `ECALC_VMM_BG=0`: final soak 4/422 vs 0/420 segfaults (Fisher p 0.063 one-sided, 0.124 two-sided, suggestive), +20 s; off by default, undecided (results/S34.md).
-- Slow host x9000c1s0b1n0: opt-in `MNRUN_EXCLUDE_HOSTS` (mnrun.sh, rundriver.sh); `docs/AAC7_ADMIN_NOTE.md` for the admins (the user sends it). Low MemAvailable is not unique to that host (7 of 13 nodes ~441 GB, 6 ~520 GB).
+- Slow host x9000c1s0b1n0: opt-in `MNRUN_EXCLUDE_HOSTS` (mnrun.sh, rundriver.sh); internal admin note for the admins (the user sends it). Low MemAvailable is not unique to that host (7 of 13 nodes ~441 GB, 6 ~520 GB).
 - Kit: opt-in stage `nodechk` (TARGET_TASKS T14), not yet rehearsed on aac7.
 - aac7 QOS is now 6 nodes per user: no 10-node runs.
 

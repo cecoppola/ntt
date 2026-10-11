@@ -2,12 +2,12 @@
 
 No cluster jobs run for this note: all figures are `ecalc/estimate.py` / `ecalc/mn_model.py` arithmetic, local, on the repo
 at `main` (post-rebase: `8e03ba0`, STD17). Inputs and labels follow results/OFI17.md (the aac7 `comm_ofi` measurements),
-docs/code/07_COMM_OFI.md (the switch), docs/code/04_OUTPUT_LAUNCH_MODELS.md §5 (the standing-estimate method this note
+internal code notes (the switch), internal code notes §5 (the standing-estimate method this note
 updates) and results/STD17.md (the OFI memory accounting, §108).
 
 ## 1. Why the standing estimate moves
 
-The standing figure at `docs/TARGET.md` §1 (`290.2 / 303.9 s` at ROCm 7.2.4) assumed one SHMEM transport on one NIC per
+The standing figure at internal target notes §1 (`290.2 / 303.9 s` at ROCm 7.2.4) assumed one SHMEM transport on one NIC per
 APU at **100 GB/s per APU, line rate** (two assumed 400 Gb/s NICs at 100 % efficiency — never measured). `comm_ofi`
 (Phase 17, now the default wherever a cxi NIC is present) is **measured** on aac7 instead: it stripes a node's exchange
 over every NIC of the calling APU's device and holds a flat aggregate from 4 nodes on, far above SHMEM's one-NIC cap, but
@@ -32,7 +32,7 @@ Four `--bw` (GB/s per APU injection) cases follow, all **modelled** given the la
 |---|---|---|---|
 | (i) 4 NICs/node (today's aac7 hardware) | **11 GB/s** | the measured `comm_ofi` aggregate/node ÷ 4 NICs at 8–10 nodes (11.1–11.0 GB/s) | measured (aac7) |
 | (ii) 8 NICs/node (the target's hardware, PLAN §25) | **47 GB/s** | 2 × 400 Gb/s NICs/APU × 50 GB/s line rate × 0.47 measured efficiency | assumed (efficiency carried from aac7; NIC count and 400 Gb/s from PLAN) |
-| (iii) line rate (the old assumption) | **100 GB/s** | 2 × 400 Gb/s NICs/APU at 100 % efficiency | assumed (unchanged from docs/TARGET.md §1) |
+| (iii) line rate (the old assumption) | **100 GB/s** | 2 × 400 Gb/s NICs/APU at 100 % efficiency | assumed (unchanged from internal target notes §1) |
 | (iv) old SHMEM, 1 NIC/node (for contrast) | **3.6 GB/s** | `mn_model.AAC7` profile, fitted on the 2-node SHMEM measurement (C16) | measured (aac7, pre-`comm_ofi`) |
 
 `comm_ofi` also removes the transport's device-staging D2H/H2D copy that an earlier model term (`--staging-copy`) priced
@@ -49,11 +49,11 @@ DM_MN_LEAN=1 MN_OUT_DKM_HI=1 MN_MODEL_MAP_RATE=0.070 \
 
 `DM_MN_LEAN=1` (int15k, 2026-10-05: −20 GB/node modelled, node 471.9 → 446.2 GB, time unchanged) and `MN_OUT_DKM_HI=1`
 (the launch line's partial-cache row, `estimate.py`'s `partial_row`) are both on the launch line, not code defaults.
-`--lat 8.5e-6`, `--hide-pow2 0.72`, `--t-round 0.015`, `MN_MODEL_MAP_RATE=0.070` are all aac7-measured (docs/code/04
+`--lat 8.5e-6`, `--hide-pow2 0.72`, `--t-round 0.015`, `MN_MODEL_MAP_RATE=0.070` are all aac7-measured (internal code notes
 §3.1 Profiles, `TARGET_TASKS.md` T1). `--local-factor 1.22` prices the ROCm 7.0.3 toolchain (measured +22 % on bs/dm at
 10¹¹ on aac7, C16); its absence is the 7.2.4 figure (aac6's calibration, factor 1.0). The table below reads the
-**launch line's `RNS_DIST_CACHE_PARTIAL=1` row** (`partial_row`, the headline figure docs/TARGET.md §1 reports), "with
-write" = the write column at 1.0 GB/s/node (576 writers, assumed to hold from one node measured, docs/code/04 Profiles).
+**launch line's `RNS_DIST_CACHE_PARTIAL=1` row** (`partial_row`, the headline figure internal target notes §1 reports), "with
+write" = the write column at 1.0 GB/s/node (576 writers, assumed to hold from one node measured, internal code notes Profiles).
 
 Memory note: `estimate.py` run locally (no cxi NIC on this host) models `COMM_OFI` memory accounting (results/STD17.md
 §108) only if told to — `mem_model.ofi_planned()` defaults off without a cxi device or `COMM_OFI`/`COMM_OFI_PLAN_CXI` set
@@ -96,7 +96,7 @@ of which the per-device comm pools are 4 × ≈0.25 GB) modelling the target's c
 (second test size, 5.167 × 10¹³, same a = 0.3: (i) 2072.6 / 2067.1 s, (ii) 658.5 / 653.1 s, (iii) 429.3 / 423.9 s.)
 
 A fall-off this size would matter more than the NIC/efficiency choice between (i) and (ii) — it is the single largest
-lever in this table, consistent with docs/code/04 §5's reading that injection bandwidth (and, by the same mechanism,
+lever in this table, consistent with internal code notes §5's reading that injection bandwidth (and, by the same mechanism,
 its fall-off with scale) is the only input that can move the answer by more than ±20%.
 
 ## 5. Reading
@@ -120,11 +120,11 @@ its fall-off with scale) is the only input that can move the answer by more than
 ## 6. Labels
 
 measured: the comm_ofi/SHMEM aac7 aggregate and per-NIC tables (§1), `--lat`/`--hide-pow2`/`--t-round`/`MN_MODEL_MAP_RATE`
-(aac7, docs/code/04 Profiles), the 7.0.3 factor 1.22 (aac7, 10¹¹), bw 3.6 (aac7 SHMEM profile fit), the OFI pool
+(aac7, internal code notes Profiles), the 7.0.3 factor 1.22 (aac7, 10¹¹), bw 3.6 (aac7 SHMEM profile fit), the OFI pool
 accounting delta (STD17 §108, exact against the C layout there).
 modelled: every wall and node-GB figure (`estimate.py`/`mn_model.py`/`mem_model.py` arithmetic on the measured/assumed
 inputs below), the fall-off sensitivity's a = 0.3 multiplier (the model's own term, not a measurement at scale).
 assumed: bw 47 (8-NIC extrapolation of aac7's measured efficiency; the NIC count and 400 Gb/s line rate are PLAN §25's,
 unmeasured on the target), bw 100 (the old line-rate assumption, unchanged, now superseded as a lower bound by the
 efficiency correction), the fall-off exponent a = 0.3 itself, 576 writers at 1.0 GB/s/node holding from one node
-measured, dragonfly group/taper/layers unchanged from docs/TARGET.md §1.
+measured, dragonfly group/taper/layers unchanged from internal target notes §1.
