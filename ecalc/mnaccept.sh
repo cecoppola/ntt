@@ -78,8 +78,8 @@ pass() { NPASS=$((NPASS + 1)); echo "PASS $1: $2" | tee -a "$SUM"; }
 fail() { NFAIL=$((NFAIL + 1)); FAILED="$FAILED $1"; echo "FAIL $1: $2" | tee -a "$SUM"; }
 want() { [ -z "$ONLY" ] || [[ ",$ONLY," == *",$1,"* ]]; }
 # on the node: R <timeout> <cmd...> (single process, the four APUs); N <cmd...> (a shell on the node, no GPUs)
-R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 --mem=0 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
-N() { srun --jobid="$J" -N1 --mem=0 --overlap bash -c "$*"; }
+R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 -n1 --mem=0 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
+N() { srun --jobid="$J" -N1 -n1 --mem=0 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
 # the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS
