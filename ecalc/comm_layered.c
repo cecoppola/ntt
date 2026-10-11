@@ -54,7 +54,7 @@ struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; siz
 typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
-                 comm *inter2; int vpool, i2, vshare;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
+                 comm *inter2; int vpool, i2, vshare, vrel;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
                  int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
@@ -483,6 +483,13 @@ static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vs
 static void need_vslot(comm *c, int k, size_t bytes);
 static void complete_v(comm *c);
 static void vslot_attach(lay_priv *p) { if (p->vshare && p->dev >= 0 && p->dev < 16) g_vsh[p->dev].refs++; else p->vshare = 0; }
+static void vslot_test_skew(lay_priv *p)   /* COMM_LAYER_TEST_SKEW_MB=n (test only, default off): the odd ranks of the inter communicator first take an n-MiB (rank-dependent) pool block, so the pool offsets of the slots differ between the group's members (G5) */
+{
+    static __thread void *pad[16]; const char *e = getenv("COMM_LAYER_TEST_SKEW_MB");
+    if (!e || atof(e) <= 0 || !p->vpool || p->dev < 0 || p->dev > 15 || pad[p->dev]) return;
+    int r = comm_rank(p->inter); if (!(r & 1)) return;
+    pad[p->dev] = comm_sym_alloc(p->inter, (size_t)(atof(e) * (1 + (r % 3)) * 1048576.0));
+}
 static void need_vslot_shared(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c); struct vshare *S = &g_vsh[p->dev];
@@ -495,6 +502,7 @@ static void need_vslot_shared(comm *c, int k, size_t bytes)
                               if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* (the pool rule sets every group size to the overall maximum under SHARE) */
             size_t want = bytes > minb ? bytes : minb;
             if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
+            vslot_test_skew(p);
             S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
             if (!S->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
             S->cap[k] = want;
@@ -517,12 +525,35 @@ static void need_vslot(comm *c, int k, size_t bytes)
                           if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* allocate each slot once at this size (S31: set by the pool rule per group size, binsplit.c vslot_prealloc_env; or by hand) */
         size_t want = bytes > minb ? bytes : minb;
         if (p->vx[k]) { comm_sym_free(p->inter, p->vx[k]); p->vx[k] = 0; p->vxcap[k] = 0; }
+        vslot_test_skew(p);
         p->vx[k] = (char *)comm_sym_alloc(p->inter, want);
         if (!p->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
         p->vxcap[k] = want; return;
     }
     if (p->vx[k]) HIP_CHECK(hipFree(p->vx[k]));
     HIP_CHECK(hipMalloc((void **)&p->vx[k], bytes)); vlive_add(p->dev, bytes, p->vxcap[k]); p->vxcap[k] = bytes;
+}
+/* M3 COMM_LAYER_VSLOT_RELEASE=1 (needs COMM_LAYER_VSLOT_POOL=1; results/C06.md): rns_dist.c calls this when a product's last v-exchange has been waited for, before the CRT and the
+ * result exchanges.  The comm pool holds the slots only while a product's v-exchanges run; the staged exchanges around them (the redistribution, the result, the shifted add) use the
+ * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
+ * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
+ * Digits cannot change.  No-op without the switch. */
+void comm_layered_release_vslots(comm *c)
+{
+    lay_priv *p = PRIV(c);
+    if (!p->vrel) return;
+    complete_v(c);                                       /* (nothing is pending after a product's waits: the pair is never freed under an exchange) */
+    if (p->npend) { ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_RELEASE with an exchange pending\n"); }
+    HIP_CHECK(hipSetDevice(p->dev));
+    if (p->vshare) {
+        struct vshare *S = &g_vsh[p->dev];
+        if (S->owner && S->owner != c) complete_v(S->owner);
+        for (int k = 0; k < 2; k++) if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
+        S->owner = 0;
+    } else {
+        for (int k = 0; k < 2; k++) if (p->vx[k]) { comm_sym_free(p->inter, p->vx[k]); p->vx[k] = 0; p->vxcap[k] = 0; }
+    }
+    p->vx[0] = p->vx[1] = 0; p->vxcap[0] = p->vxcap[1] = 0;
 }
 static void y_alltoallv2(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, double a0)
 {
@@ -655,6 +686,8 @@ static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
 static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode();
     { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0; { const char *sh = getenv("COMM_LAYER_VSLOT_SHARE"); p->vshare = sh && atoi(sh) != 0; vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
+      { const char *rl = getenv("COMM_LAYER_VSLOT_RELEASE"); p->vrel = rl && atoi(rl) != 0;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase */
+        if (p->vrel && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_RELEASE=1 needs COMM_LAYER_VSLOT_POOL=1 (hipMalloc'd slots would be allocated again for every product)\n"); }
       if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
       if (p->i2 && p->vdepth < 2) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_ALLTOALLV_DEPTH >= 2\n"); } }
 comm *comm_layered_create(comm *intra, comm *inter, int d)

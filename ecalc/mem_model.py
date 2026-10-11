@@ -491,6 +491,12 @@ def vslot_pool_on(env=None):
     env = os.environ if env is None else env
     return env.get('COMM_LAYER_VSLOT_POOL', '0') not in ('', '0')
 
+def vslot_release_on(env=None):
+    """M3 (results/C06.md) COMM_LAYER_VSLOT_RELEASE=1 (with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
+    share the comm pool in time (binsplit.c vslot_release_on): the pool need takes their maximum, not their sum"""
+    env = os.environ if env is None else env
+    return env.get('COMM_LAYER_VSLOT_RELEASE', '0') not in ('', '0') and vslot_pool_on(env)
+
 def inter2_on(env=None):
     env = os.environ if env is None else env
     return env.get('COMM_LAYER_INTER2', '0') not in ('', '0')
@@ -836,9 +842,12 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     sym = NR * 3 * qmax * 8 if sym_slabs else 0
     ofi_dev_mb = 0
     if ofi:
-        ofi_dev_mb = round256_mb(max(best * 8, SHMEM_SELFTEST) + sym // 4 + vslot + SHMEM_MARGIN); staging = 0; sym = 0
-    if not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread
-    need = max(staging, SHMEM_SELFTEST) + control + mailbox + sym + SHMEM_MARGIN
+        stg = max(best * 8, SHMEM_SELFTEST)
+        ofi_dev_mb = round256_mb((max(stg, vslot) if vslot_release_on() else stg + vslot) + sym // 4 + SHMEM_MARGIN); staging = 0; sym = 0   # M3: release -> the larger, not the sum
+    stg0 = max(staging, SHMEM_SELFTEST)
+    if not ofi and vslot_release_on(): stg0 = max(stg0, NR * vslot)   # M3: the slots are released between products
+    elif not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread
+    need = stg0 + control + mailbox + sym + SHMEM_MARGIN
     if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
     return need
 
