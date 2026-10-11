@@ -15,9 +15,9 @@ run() {   # tag x2 share pool
   for h in $HOSTS; do
     local first=$((k * N / H)) last=$(((k + 1) * N / H)); k=$((k + 1))
     if [ -n "${SLURM_JOB_ID:-}" ]; then
-      timeout 420 srun -N1 -n1 --overlap -w $h --export=ALL "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
+      timeout 420 srun -N1 -n1 --overlap -w $h --export=ALL "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --real ${REAL:-0} --pool $pk >> "$OUT/$tag.txt" 2>&1 &
     else
-      timeout 420 "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
+      timeout 420 "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --real ${REAL:-0} --pool $pk >> "$OUT/$tag.txt" 2>&1 &
     fi
     pids="$pids $!"
   done
