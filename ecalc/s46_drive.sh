@@ -13,7 +13,9 @@
 #          S      epoch every Slurm job must end by (A2's -t)
 #          OUT    output dir (~/batch1011/T1/jobA); WT the worktree with the built ecalc (~/ntt-wt/s46)
 #          DIG    total digits (10000000000); REPRO the reproducer env (DB_POOL_VMM_CHUNK_GB=0.0625 ECALC_VMM_REPRO=8)
-#          ARMS   arm names in order (base bg0 bg2); arm env: base = none, bg0 = ECALC_VMM_BG=0, bg2 = ECALC_VMM_BG=2
+#          ARMS   arm names in order (base bg0 bg2); arm env: base = none, bg0 = ECALC_VMM_BG=0, bg2 = ECALC_VMM_BG=2,
+#                 nomon = FI_MR_CACHE_MONITOR=disabled FI_MR_ROCR_CACHE_MONITOR_ENABLED=0
+#          NODECHK=1 run T4's target_kit nodechk once on the hold's nodes at start (-> ~/batch1011/T4/jobA)
 #          RUN_MAX seconds budgeted per run for the W / D checks (240); STALL hang watchdog, s without log growth (300);
 #          TMO    hard per-run timeout (900); MAXBAD consecutive non-OK runs before STOP (6)
 #          KEEP_HOLD=1 do not scancel the hold at the end (calibration runs before the coordinator's review)
@@ -114,9 +116,17 @@ can_start() { # 0 = start a run now; 1 = stop (D reached / handoff failed)
   return 0; }
 
 # ---- the arms, interleaved by rotation (cycle c starts with arm (c-1) mod n)
-armenv() { case $1 in base) echo "";; bg0) echo "ECALC_VMM_BG=0";; bg2) echo "ECALC_VMM_BG=2";; *) echo "BAD_ARM";; esac; }
+armenv() { case $1 in base) echo "";; bg0) echo "ECALC_VMM_BG=0";; bg2) echo "ECALC_VMM_BG=2";;
+  nomon) echo "FI_MR_CACHE_MONITOR=disabled FI_MR_ROCR_CACHE_MONITOR_ENABLED=0";;   # libfabric's memory monitors off (S46 4.3: the hang is hipMemMap's mmap in ofi_intercept_mmap vs rocr_mm_dealloc_cb)
+  *) echo "BAD_ARM";; esac; }
 [ -s $OUT/runs.tsv ] || printf 'label\tcycle\tarm\trc\twall\tresult\tverify\tsegv\tend\thold\ttotal\tphase\n' > $OUT/runs.tsv
 healthy || { sleep 60; healthy; } || { RD_VERDICT="FAILED: hold $HOLD unhealthy at start"; exit 1; }
+if [ "${NODECHK:-0}" = 1 ] && [ $STUB = 0 ]; then   # T4's host table: target_kit nodechk on every node of the hold (one process per node), once
+  NC=$HOME/batch1011/T4/jobA; mkdir -p $NC; cp $HOME/batch1011/T4/kit_nc/kit_modules.env $NC/ 2>/dev/null
+  rd_say "nodechk (T4) on hold $HOLD -> $NC"
+  ( cd $HOME/ntt-wt/s49/ecalc && timeout 900 ./target_kit.sh --site aac7 --jobid $HOLD --out $NC --only nodechk ) > $NC/kit.stdout 2>&1 < /dev/null
+  rd_say "nodechk rc $? ($(grep -c . $NC/KIT_SUMMARY.txt 2>/dev/null) summary lines)"
+fi
 c=$(awk -F'\t' 'NR>1 && $2+0>m {m=$2+0} END {print m+0}' $OUT/runs.tsv); bad=0; stop=0; n=${#ARMS[@]}
 while [ $stop = 0 ]; do
   c=$((c+1))
