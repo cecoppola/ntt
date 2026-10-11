@@ -1,5 +1,7 @@
 # TASKS — live task list (open work, idea lists, dated status)
 
+> Ranked opportunities and big-picture goals: [docs/OPPORTUNITIES.md](docs/OPPORTUNITIES.md) (2026-10-10).
+
 *Rewritten 2026-10-10.* The Phase 12-13 task log (the old front of this file, sections 1-7 and the "Suggested order") is
 history: `archive/docs/TASKS_HISTORY.md` (citations such as "TASKS 1.3" or "TASKS §6.1" refer to it). Target-only work
 (T1-T14) is `docs/TARGET_TASKS.md`; every decision and its status is `docs/code/05_DECISION_REGISTER.md`; measurements are
