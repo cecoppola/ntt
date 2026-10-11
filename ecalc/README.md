@@ -17,6 +17,7 @@ exchanges over libfabric on the cxi NICs. `LIMB_BASE=2` reproduces the paper's b
 ≈ 78 s with the 2026-10-10 kernel defaults (was ≈ 94 s; RESULTS §127); 4 nodes at 6.441 × 10¹⁰ per node −50.0 s (≈ −18.5 %,
 CI −71.7…−28.3 s) from the three kernel defaults (S43). **Modelled (mod):** 576 nodes × 3.71 × 10¹³ digits ≈ 180 s without the
 write at an *assumed* 47 GB/s per APU (`estimate.py --target`, S45); the new kernels are not yet in the time model.
+**Adopted 2026-10-11 (T06, mod):** the layv exchange (general-map groups) runs at 0.655 of the layeq rate in the target fabric by default (`TARGET_LAYV_FACTOR`; `estimate.py --layv-factor F` overrides, 1.0 = off); the standing 576-node no-write wall is 189.1 s at 3.71 × 10¹³ and 195.3 s at 3.82 × 10¹³ with the standing locals (was 180.2 / 186.0 s; `results/T06.md`).
 
 **Code defaults that matter (nothing to set).** The full list, with the date of each decision, is the Switches table; the
 ones changed most recently are:
