@@ -475,7 +475,15 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
         if v: levels.append((l, gg, v))
         prev = S
     dm = max(mn_vslot(nq, nq, g, pool_log, p24, depth), mn_vslot(nq, nq // 2 + 1, g, pool_log, p24, depth))
+    if vslot_share_on():   # S36 COMM_LAYER_VSLOT_SHARE=1 (binsplit.c): one pair per device handed from level to level -> the largest level, not the sum
+        maxlow = max([v for (_, gg, v) in levels if gg < g] or [0])
+        return dict(per_apu=max(maxlow, top_tree, dm), tree_top=max(maxlow, top_tree), levels=levels, dm=dm, summed=lower + max(top_tree, dm))
     return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
+
+def vslot_share_on(env=None):
+    """S36 COMM_LAYER_VSLOT_SHARE=1 (comm_layered.c need_vslot_shared, binsplit.c vslot_share_on): the levels' v-slot pairs are one pair per device"""
+    env = os.environ if env is None else env
+    return env.get('COMM_LAYER_VSLOT_SHARE', '0') not in ('', '0')
 
 def vslot_pool_on(env=None):
     """X2 (results/XEFF.md item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
