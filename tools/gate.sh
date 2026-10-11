@@ -12,7 +12,7 @@
 #     --line      launch line: aac7 = the LINE of ecalc/e16_headline.sh (parsed, not copied; default on aac7), none = plain (default
 #                 elsewhere), target = the target export block, which is NOT in this repo: use file:PATH (K=V per line, # comments),
 #                 e.g. --line file:~/target_line.env.   --env words are appended; ECALC_SEGV_TRACE=1 is always set.
-#     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out); only 1e9 has a default
+#     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
 #   Exit 0 = PASS (rc 0, VERIFY OK, digits identical, no segfault), 1 = FAIL.  Kills only its own srun PID and its own sbatch id.
@@ -40,7 +40,7 @@ CRAY=0; [ -d /opt/cray/pe/sma ] && CRAY=1
 [ -n "$LINE_SEL" ] || { [ $CRAY = 1 ] && LINE_SEL=aac7 || LINE_SEL=none; }
 [ -n "$OUT" ] || OUT=$HOME/gate/$(date +%Y%m%d_%H%M%S); mkdir -p "$OUT" || exit 2; OUT=$(cd "$OUT" && pwd)
 if [ -z "$REF" ]; then
-  if [ -r "$HOME/ref/e_1000000000.txt" ]; then REF=$HOME/ref/e_1000000000.txt; else REF=$E/results/e_1000000000.out; fi
+  for REF in $HOME/ref/e_1000000000.txt $E/results/e_1000000000.out $HOME/ntt/ecalc/results/e_1000000000.out; do [ -r "$REF" ] && break; done
 fi
 SUM=$OUT/gate.txt; JOB= ; SPID= ; WPID= ; T0=$(date +%s); RES=FAIL; WHY=; ENVSHOW=
 say() { echo "gate.sh: $*"; }
