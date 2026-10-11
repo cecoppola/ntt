@@ -61,6 +61,7 @@ COMM_LAYER_VSLOT_SHARE=1              # user decision 2026-10-10 (S36)
 MN_T_CHUNK_MB=2048                    # T2048, user decision 2026-10-11 (aac7: S22 D2, mean -42.3 s, m; the target had 1024 -- confirm on the target when its A/B runs)
 COMM_LAYER_INTER2=1                   # X2 with VSLOT_POOL, user decision 2026-10-11 (aac7: S31, -31.7 s at 10 nodes, m)
 COMM_LAYER_VSLOT_POOL=1               # X2
+COMM_LAYER_VSLOT_RELEASE=1            # user decision 2026-10-11 (C06: -8.60 GB per-node device peak at 4 nodes, m; plan -8.59 GB at 576, mod; gates PASS; wall 190 vs 189 s); needs X2
 # no spare nodes (user decision 2026-10-11): bad nodes are excluded, not replaced -- see [host exclusions].
 
 # ---- [safety/diagnostics] -------------------------------------------------------------------------------------------

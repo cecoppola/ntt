@@ -17,7 +17,7 @@ EP=$WT/tools/envprobe.sh
 if [ $STUB = 1 ]; then export STUB=1; else
   cd $WT/ecalc || exit 2; source aac7env.sh >/dev/null 2>&1
   LINE=$(bash -c 'unset E16_EXTRA; eval "$(grep -m1 "^LINE=" "$1")"; echo $LINE' _ e16_headline.sh); [ -n "$LINE" ] || exit 2
-  case "$LINE" in *MN_T_CHUNK_MB=2048*COMM_LAYER_INTER2=1*COMM_LAYER_VSLOT_POOL=1*) ;; *) echo "unexpected LINE: $LINE"; exit 2;; esac
+  case "$LINE" in *MN_T_CHUNK_MB=2048*COMM_LAYER_INTER2=1*COMM_LAYER_VSLOT_POOL=1*COMM_LAYER_VSLOT_RELEASE=1*) ;; *) echo "unexpected LINE: $LINE"; exit 2;; esac
   [ "$(squeue -j $J -h -o %T)" = RUNNING ] || { echo "hold $J not running"; exit 2; }
   ldd ./ecalc | grep -q libsma && [ -x tests/t_comm ] || { echo "ecalc without SHMEM or no tests/t_comm"; exit 2; }
 fi
