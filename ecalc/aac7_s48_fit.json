@@ -2,6 +2,7 @@
  "bw_apu": 10.305213491842434,
  "lat": 8.5e-06,
  "nonpow2_bw_factor": 0.7221898564322473,
+ "layv_factor": 0.6546972849406825,
  "consts": {
   "HIDE_POW2": 0.72,
   "GEN_HIDE1": 0.011,
