@@ -1,0 +1,74 @@
+# profiles/target.conf.template -- template for the production machine's profile.  Copy to profiles/target.conf (kept
+# OUT of git: it holds site specifics) and replace every __FILL__.  Format and rules: profiles/README.md.
+# Draft 2026-10-11 (agent c01); NOT read by any script yet.  Tracked file: generic values only, no site name, no module names,
+# no paths from the private notes.  A key still at __FILL__ must make the future entry point refuse to start (validation rule).
+# Machine class assumed: Cray EX-style, 4 x MI300A per node (one process per node, four APU threads), Slingshot with cxi NICs,
+# Cray OpenSHMEMX, shared parallel file system for the output.  Evidence tags: (m) measured, (mod) modelled, (a) assumed.
+
+# ---- [modules/build] ------------------------------------------------------------------------------------------------
+# How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
+# (`module list` inside a one-node job). ecalc/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
+TARGET_ROCM=__FILL__                  # rocm module to load (e.g. rocm/<version>); the name target_kit.sh reads (TARGET_ROCM); compare with the kit's 'env' stage
+TARGET_SMA_MODULE=__FILL__            # the OpenSHMEMX module (target_kit.sh TARGET_SMA_MODULE; auto-detected newest if empty)
+TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target_kit.sh TARGET_DSMML_MODULE)
+MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env)
+MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
+SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
+GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
+COMM_SHMEM_IMPL=cray                  # mnrun.sh detects it; set for the record
+
+# ---- [scheduler] ----------------------------------------------------------------------------------------------------
+# How to determine: `sinfo -o '%P %c %m %D'`; the production queue name and node limit from the site's user guide.
+TARGET_PARTITION=__FILL__             # sbatch -p value for whole-node jobs
+TARGET_NODES=__FILL__                 # node count of the headline run (the plan's g)
+MNRUN_CPUS_PER_TASK=auto              # srun may confine a task to 2 CPUs otherwise (A16, m on the sister machine); mnrun.sh's 'auto' = CPUs / tasks per node
+
+# ---- [paths] --------------------------------------------------------------------------------------------------------
+# How to determine: a file system that sustains the part-file write (shared FS, not a RAM /tmp): `df -h <dir>`; `lfs getstripe <dir>` if Lustre;
+# a one-node `dd` or ecalc's write benchmark for the single-stream rate (README ECALC_ODIRECT rows).
+ECALC_OUT_DIR=__FILL__                # directory for the part files (~0.444 B per digit in all)
+MNACCEPT_TMP=__FILL__                 # scratch for mnaccept (must not be a RAM /tmp)
+
+# ---- [transport] ----------------------------------------------------------------------------------------------------
+COMM_TRANSPORT=shmem                  # README launch table
+COMM_SHMEM_SERIAL=0                   # per-thread contexts on a SHMEM_THREAD_MULTIPLE library (Cray OpenSHMEMX): README COMM_SHMEM_SERIAL row
+COMM_SHMEM_DEVHEAP=1                  # symmetric heap in device memory on the APU (S12, A16)
+COMM_OFI=1                            # device exchanges over libfabric on the cxi NICs: user decision 2026-10-06, OFI17.md (code default where a cxi NIC exists)
+COMM_SHMEM_ROUND_MB=1024              # exchanges staged in 1 GiB rounds: user decision D2 (V114.md; pool 45.0 -> 9.8 GB, mod)
+MN_TOPO_GROUP=0                       # third all-to-all layer OFF until the group size is measured; then the nodes per network group
+# How to determine MN_TOPO_GROUP / MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
+# code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
+
+# ---- [libfabric] ----------------------------------------------------------------------------------------------------
+FI_MR_CACHE_MONITOR=userfaultfd       # S46: memhooks hangs ROCr<->libfabric (22/105 vs 0/104, m on the sister machine); 'disabled' is refused. Verify with the kit's 'uffd' stage
+FI_LOG_LEVEL=warn                     # TGTBENCH2 L2 (the user's tested value)
+# FI_UNIVERSE_SIZE: computed by mnrun.sh = max(4096, 4 x ntasks). Not a key.
+# How to check the NIC set: `fi_info -p cxi | grep -c domain` (the kit's 'env' stage logs it); COMM_OFI_NICS only if the NICs per APU are not the default.
+COMM_OFI_NICS=__FILL__                # leave at the code default unless the kit's NIC-per-APU map differs (delete the line then); README COMM_OFI_NICS row
+
+# ---- [memory pools tied to the hardware] ----------------------------------------------------------------------------
+# COMM_SHMEM_POOL_MB, SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.
+ECALC_NODE_GB=__FILL__                # usable host RAM per node for the budget check: `free -g` on a compute node, less the OS/service reserve. README ECALC_PLANE_CAP row (code default 480)
+ECALC_MEM_GUARD_GB=6                  # named stop (rc 9) when MemAvailable < 6 GB instead of the OOM killer: user decision 2026-09-27
+
+# ---- [adopted switches, pending move to built-in defaults] ------------------------------------------------------------
+ECALC_NP=auto                         # user decision 1, 2026-09-28
+RNS_DIST_CACHE_FIT=1                  # user decision 2, 2026-09-28 (NEVER run without it)
+RNS_DIST_CACHE_PARTIAL=1              # int15j, 2026-09-29
+MN_OUT_DKM_HI=1                       # int15j, 2026-09-29 (two part files per node)
+DM_MN_LEAN=1                          # user decision 2026-10-05
+COMM_LAYER_VSLOT_SHARE=1              # user decision 2026-10-10 (S36)
+MN_T_CHUNK_MB=2048                    # T2048, user decision 2026-10-11 (aac7: S22 D2, mean -42.3 s, m; the target had 1024 -- confirm on the target when its A/B runs)
+COMM_LAYER_INTER2=1                   # X2 with VSLOT_POOL, user decision 2026-10-11 (aac7: S31, -31.7 s at 10 nodes, m)
+COMM_LAYER_VSLOT_POOL=1               # X2
+# no spare nodes (user decision 2026-10-11): bad nodes are excluded, not replaced -- see [host exclusions].
+
+# ---- [safety/diagnostics] -------------------------------------------------------------------------------------------
+ECALC_SEGV_TRACE=1                    # user decision 2026-10-11
+ECALC_VERBOSE=2                       # first runs and calibration
+MEM_REPORT_DEVS=1                     # per-APU memory rows
+
+# ---- [host exclusions] ----------------------------------------------------------------------------------------------
+# How to determine: the kit's 'nodechk' stage writes flagged_hosts.txt (slow upload, bad NIC, low memory); copy the names here.
+MNRUN_EXCLUDE_HOSTS=__FILL__          # comma list of nodes to drop; empty if none flagged
+MNRUN_EXCLUDE_MODE=drop               # 'drop' removes them from the node list (needs the job to ask for the nodes it will use)
