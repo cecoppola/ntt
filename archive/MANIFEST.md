@@ -28,7 +28,7 @@ directory, so to rerun copy them back next to it.
 
 ## drivers/kp15_batch.sh (from `results/`)
 
-## Superseded design documents (from the top level `docs/` folder of that time)
+## Superseded design documents (from the top level, now in `archive/docs/`)
 `CODE_REDUCTION.md DECISIONS.md DECISIONS2.md DECISIONS3.md DESIGN.md ALGORITHM.md`: banner HISTORICAL, superseded by
 internal notes. References in PLAN, TASKS, RESULTS and results notes now
 carry the `archive/docs/` prefix.
