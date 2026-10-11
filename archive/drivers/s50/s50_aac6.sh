@@ -10,11 +10,12 @@ WT=$HOME/ntt-s50; O=$HOME/batch1011/T5/aac6_$KIND; mkdir -p $O; rm -f $O/DONE
 say() { echo "$(TZ=America/New_York date '+%m-%d %H:%M:%S') $*" >> $O/summary.txt; }
 if [ $KIND = cpx ]; then PART=SH5_MI300A_CPX; NODE=aac6-sh5cpx-a; DIG=4000000000; PRE="POOL_LOG=29"; GATEPRE="POOL_LOG=29"; RUN_S=40
 else PART=PPAC_MI300A_SPX; NODE=aac6-spx-b; DIG=64410000000; PRE="X=1"; GATEPRE="X=1"; RUN_S=100; fi
+SX=; [ $KIND = ppac ] && SX="--gpus-per-node=4"; export SRUNX=$SX
 while [ $(date +%s) -lt $START ]; do sleep 30; done
 say "start $KIND (epoch $(date +%s))"
 if [ $KIND = ppac ]; then exec 9> $HOME/batch1011/aac6_s24-26.lock; flock 9; say "lock acquired"; fi
 now=$(date +%s); LEFT=$(( D - now )); [ $LEFT -ge 1500 ] || { echo "FAILED: too late ($LEFT s to D)" > $O/DONE; exit 1; }
-TL=40; [ $LEFT -lt $((40 * 60 + 120)) ] && TL=$(( (LEFT - 120) / 60 ))
+TL=${TLMAX:-40}; [ $LEFT -lt $((40 * 60 + 120)) ] && TL=$(( (LEFT - 120) / 60 ))
 J=$(sbatch -p $PART -N1 -w $NODE --gpus=4 $( [ $KIND = cpx ] && echo --exclusive ) -t 0:$TL:00 -J s50$KIND --parsable --wrap "sleep $((TL * 60))" < /dev/null) || { echo "FAILED: sbatch" > $O/DONE; exit 1; }
 J=${J%%;*}; echo $J > $O/jobid; say "job $J (-t $TL min) on $NODE"
 trap 'scancel $J 2>/dev/null; say "scancel $J; steps left: $(squeue -s -j $J -h 2>/dev/null | wc -l)"' EXIT
@@ -24,10 +25,10 @@ JEND=$(( $(date +%s) + TL * 60 - 120 )); STOP=$(( JEND < D ? JEND : D ))
 say "running; stop epoch $STOP"
 run() { # label digits outfile|- env...
   local lab=$1 d=$2 f=$3; shift 3; [ "$f" = - ] && f=""
-  timeout 450 srun --jobid=$J --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $WT/ecalc; env $* ./ecalc $d $f" < /dev/null > $O/$lab.log 2>&1; }
+  timeout 450 srun --jobid=$J $SX --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $WT/ecalc; env $* ./ecalc $d $f" < /dev/null > $O/$lab.log 2>&1; }
 TILE=${S50_TILE:-32}
 if [ $KIND = ppac ]; then
-  timeout 600 srun --jobid=$J --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $WT/ecalc; ./tests/t_gather_probe 8192 65536 8; ./tests/t_gather_probe 1024 524288 8" < /dev/null > $O/probe.log 2>&1
+  timeout 600 srun --jobid=$J $SX --overlap bash -lc "module load rocm >/dev/null 2>&1; cd $WT/ecalc; ./tests/t_gather_probe 8192 65536 8; ./tests/t_gather_probe 1024 524288 8" < /dev/null > $O/probe.log 2>&1
   TILE=$(python3 - $O/probe.log <<'P'
 import re,sys
 t=open(sys.argv[1]).read().split("rows 1024")[0]

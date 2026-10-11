@@ -9,7 +9,7 @@ mkdir -p $OUT/log; : > $OUT/pairs.tsv
 one() { # arm label
   local arm=$1 lab=$2 cw="$A"; [ $arm = B ] && cw="$B"
   [ "$STOP_EPOCH" -gt 0 ] && [ $(( $(date +%s) + RUN_S + 60 )) -gt "$STOP_EPOCH" ] && { echo "deadline" > $OUT/DEADLINE; return 8; }
-  timeout 450 srun --jobid=$J --overlap bash -lc "module load rocm; cd $WT/ecalc; env $PRE $cw ./ecalc $DIG" < /dev/null > $OUT/log/$lab.log 2>&1; local rc=$?
+  timeout 450 srun --jobid=$J $SRUNX --overlap bash -lc "module load rocm; cd $WT/ecalc; env $PRE $cw ./ecalc $DIG" < /dev/null > $OUT/log/$lab.log 2>&1; local rc=$?
   local v tot; v=$(grep -a -m1 '^VERIFY' $OUT/log/$lab.log); tot=$(grep -a -m1 '^total' $OUT/log/$lab.log | awk '{print $2}')
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' $lab $arm $rc "$v" "$tot" "$(TZ=America/New_York date +%H:%M:%S)" >> $OUT/pairs.tsv
   [ $rc = 0 ] && [ "$v" = "VERIFY OK" ] && [ -n "$tot" ]
