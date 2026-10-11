@@ -3,7 +3,7 @@
 # OWNER=c10
 # NODES=4
 # EST_MIN=30
-# APPROVED=
+# APPROVED=coordinator-2026-10-11
 # EXCLUSIVE=0
 # ALLOW_SLOW=0
 #
@@ -21,9 +21,11 @@ cp $WT/archive/drivers/c10/c10_mon.sh $HD/
 sed -e 's|^  if \[ \$n = 1 \]; then snap p000_pre; probe p000; snap p000_post; fi$||' \
     -e 's|^  \[ -e \$OUT/STOP \] \|\| { probe p\$(printf %03d \$n); snap p\$(printf %03d \$n)_post; }$||' \
     -e 's|^  snap \${lab}_pre; run_one \$lab; snap \${lab}_post; parse \$lab$|  mon_start $lab; snap ${lab}_pre; run_one $lab; snap ${lab}_post; parse $lab|' \
-    -e 's|^PREPS=|mon_start() { [ $STUB = 1 ] \&\& return 0; ( timeout 330 srun --jobid=$HOLD -N$NN -n$NN --ntasks-per-node=1 --overlap bash $HD/c10_mon.sh $1 ${MONSEC:-300} >/dev/null 2>\&1 < /dev/null \& ); }\nPREPS=|' \
+    -e 's|^PREPS=|mon_start() { [ $STUB = 1 ] \&\& return 0; ( timeout 330 srun --jobid=$HOLD -N$NN -n$NN --ntasks-per-node=1 --overlap --mem=0 bash $HD/c10_mon.sh $1 ${MONSEC:-300} >/dev/null 2>\&1 < /dev/null \& ); }\nPREPS=|' \
+    -e 's|--overlap bash|--overlap --mem=0 bash|g' \
     $HD/a13_drive.sh > $HD/c10_drive.sh
 grep -q 'mon_start \$lab' $HD/c10_drive.sh || { echo "sed did not patch the driver"; exit 3; }
+grep -q -- '--overlap --mem=0 bash' $HD/c10_drive.sh || { echo "mem=0 sed failed"; exit 3; }
 grep -q 'probe p0' $HD/c10_drive.sh && { echo "probe still in driver"; exit 3; }
 sed -i "s|sess1011c/a13|sess1011c/c10|g" $HD/snap.sh
 if [ "${STUB:-0}" = 1 ]; then echo "STUB: driver patched OK ($HD/c10_drive.sh)"; fi
