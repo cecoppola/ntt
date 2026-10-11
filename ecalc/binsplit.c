@@ -1693,6 +1693,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
         if (bs_st.levels < 3) db_tl("bs: level %d starts (its pools are there)", bs_st.levels + 1);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
+        long long c07_t0 = 0; if (getenv("C07_TS")) { struct timespec c07; clock_gettime(CLOCK_MONOTONIC, &c07); c07_t0 = (long long)c07.tv_sec * 1000000000LL + c07.tv_nsec; }   /* c07: level timestamps on the rocprof clock */
         const char *tier; int normed = 0, finished = 0;
         if (max_nl <= (size_t)bs_school_nl) {
             tier = "school"; bs_st.school_levels++;
@@ -1809,6 +1810,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
         if (!strcmp(tier, "school")) bs_st.t_school += dt; else if (!strcmp(tier, "batch")) bs_st.t_batch += dt; else bs_st.t_mdev += dt;
         bs_st.levels++;
+        if (c07_t0) { struct timespec c07; clock_gettime(CLOCK_MONOTONIC, &c07); printf("c07ts level %d %s %lld %lld\n", bs_st.levels, tier, c07_t0, (long long)c07.tv_sec * 1000000000LL + c07.tv_nsec); }
         if (bs_st.levels <= 3) db_tl("bs: level %d done (%s, %.2f s)", bs_st.levels, tier, dt);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
         if (bs_verbose) printf("bs: level %2d %-6s %8zu pairs  max_nl %10zu  pool %6.2f GB  %.2f s  (batch %.2f: scatter %.2f ntt %.2f crt %.2f merge %.2f)\n", bs_st.levels, tier, npairs, max_nl, off * 8e-9, dt, rns_st.tb_total, rns_st.tb_scatter, rns_st.tb_ntt, rns_st.tb_crt, rns_st.tb_merge);
         memset(&rns_st, 0, sizeof rns_st);

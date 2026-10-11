@@ -805,8 +805,10 @@ static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
 }
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written.  sa, sb: the cache slots for A and B
  * (-1: not cached; a hit anywhere in the cache is taken regardless) */
+static long long c07_now(void) { if (!getenv("C07_TS")) return 0; struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (long long)t.tv_sec * 1000000000LL + t.tv_nsec; }   /* c07: product timestamps on the rocprof clock */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
 {
+    long long c07_a = c07_now();
     int logn = 0; while (((size_t)1 << logn) < nc) logn++;
     if (logn < 20) logn = 20;                                  /* R, C >= 2^10 */
     int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
@@ -819,7 +821,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     size_t n = r3 ? (size_t)3 << (logn - 1) : (size_t)1 << logn, R = (size_t)1 << logR, C = r3 ? (size_t)3 << logk : (size_t)1 << logC, rows = R / NR, q = n / NR;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
-    { int f = b_choose(A, B, Cw, nc, sa, sb, np); if (f != STRAT_C && b_core(f, A, B, Cw, nc, np)) { if (b_check_on()) b_check(f, A, B, Cw, nc); return; } }   /* Phase 13b B: RNS_STRATEGY */
+    { int f = b_choose(A, B, Cw, nc, sa, sb, np); if (f != STRAT_C && b_core(f, A, B, Cw, nc, np)) { if (b_check_on()) b_check(f, A, B, Cw, nc); if (c07_a) printf("c07ts prod B %zu %lld %lld\n", nc, c07_a, c07_now()); return; } }   /* Phase 13b B: RNS_STRATEGY */
     /* A1: the cache slots -- hits anywhere, misses filled in the designated slots (never the slot the other operand hits in) */
     int ha = r3 ? -1 : cache_find(&A, q, np), hb = r3 ? -1 : cache_find(&B, q, np);
     if (r3 || A.flat) sa = -1; if (r3 || B.flat) sb = -1;
@@ -902,12 +904,15 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         db_add_spills(Cd, Cd, sp, R, rows, C, nc);               /* in place, one chunked-carry pass */
         if (Cd->n > nc) { ec_fatal(EC_RC_FATAL, "dist: carry out of the product\n"); }
     }
+    if (c07_a) printf("c07ts prod C %zu %lld %lld\n", nc, c07_a, c07_now());
     rns_dist_st.t_merge += mem_now() - tsp;
     rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0; g_bst.n[0]++; g_bst.t[0] += mem_now() - t0;
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
     if (getenv("RNS_VERBOSE")) printf("dist %s2^%d = 2^%d x %s2^%d (%zu limbs%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s%s%s\n", r3 ? "3*" : "", r3 ? logn - 1 : logn, logR, r3 ? "3*" : "", r3 ? logk : logC, nc, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0, ha >= 0 ? " [A hit]" : sa >= 0 ? " [A cached]" : "", hb >= 0 ? " [B hit]" : sb >= 0 ? " [B cached]" : "");
     if (dist_st.on) { printf("   ntt parts (all ranks summed / 4): local rows %.3f cols %.3f pack+unpack %.3f all-to-all %.3f\n", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_a2a / 4);
+                      printf("   c07 per-rank exchange host time, post|wait s: %.3f|%.3f %.3f|%.3f %.3f|%.3f %.3f|%.3f\n", dist_st_post[0], dist_st_wait[0], dist_st_post[1], dist_st_wait[1], dist_st_post[2], dist_st_wait[2], dist_st_post[3], dist_st_wait[3]);
+                      for (int i = 0; i < 8; i++) dist_st_post[i] = dist_st_wait[i] = 0;
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
 

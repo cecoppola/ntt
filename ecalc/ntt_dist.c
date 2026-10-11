@@ -170,7 +170,9 @@ static void st_flush(dist_plan *p)
     pthread_mutex_unlock(&st_mx);
     p->nte = 0;
 }
+double dist_st_post[8], dist_st_wait[8];   /* c07: per-rank host time in the exchange's post (barrier + enqueue) and wait (stream sync + barrier), DIST_STATS=1 */
 static void st_host(double dt) { if (!dist_st.on) return; pthread_mutex_lock(&st_mx); dist_st.t_a2a += dt; pthread_mutex_unlock(&st_mx); }
+static void st_host_r(double dt, int r, int post) { if (!dist_st.on) return; pthread_mutex_lock(&st_mx); dist_st.t_a2a += dt; (post ? dist_st_post : dist_st_wait)[r & 7] += dt; pthread_mutex_unlock(&st_mx); }
 #define TS(kind, stmt) do { st_mark(p, s, kind); stmt; st_mark(p, s, (kind) | ST_END); } while (0)
 /* fused twiddle + pack through a 32 x 32 LDS tile: read rows x C coalesced (row-major), twiddle, write the
  * slab (column-major per slab: sb[s][jl][i]) coalesced along i.  grid (C/32, rows/32), block (32, 8). */
@@ -261,7 +263,7 @@ static void chunk_post(dist_plan *p, int k)
     st_mark(p, p->ts, ST_XFER);
     double t0 = dist_st.on ? tnow() : 0;
     comm_alltoall(p->cm, chunk_sb(p, k), chunk_rb(p, k), chunk_limbs(p) * 8, p->ts);
-    if (dist_st.on) st_host(tnow() - t0);
+    if (dist_st.on) st_host_r(tnow() - t0, comm_rank(p->cm), 1);
     st_mark(p, p->ts, ST_XFER | ST_END);
 }
 /* wait for chunk k (the k-th wait) and make the compute stream follow the transfer stream */
@@ -269,7 +271,7 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
 {
     double t0 = dist_st.on ? tnow() : 0;
     comm_wait(p->cm);
-    if (dist_st.on) st_host(tnow() - t0);
+    if (dist_st.on) st_host_r(tnow() - t0, comm_rank(p->cm), 0);
     HIP_CHECK(hipEventRecord(p->evt, p->ts)); HIP_CHECK(hipStreamWaitEvent(s, p->evt, 0));
 }
 /* Phase 15 WM (results/WM15.md, hazard H1): a transport that PUSHES into the receivers' slab buffers (comm_xgmi: a kernel on the

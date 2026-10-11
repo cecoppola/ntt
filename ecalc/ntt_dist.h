@@ -61,6 +61,7 @@ typedef struct {
  * transform; t_a2a the host time blocked in post + wait = the exposed exchange. */
 struct dist_stats { int on; double t_local1, t_local2, t_tw, t_pack, t_a2a, t0_a2a, t_xfer, t_total; };
 extern struct dist_stats dist_st;
+extern double dist_st_post[8], dist_st_wait[8];   /* c07: per-rank host post / wait seconds */
 void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC);
 void dist_plan_create_shared(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, uint64_t *sbuf, uint64_t *rbuf);   /* caller's slab buffers (rows x C each) */
 void dist_plan_free(dist_plan *p);
