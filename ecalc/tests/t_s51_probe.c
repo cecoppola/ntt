@@ -25,13 +25,13 @@ int main(int argc, char **argv)
     dbig x, y, z; db_init(&x); db_init(&y); db_init(&z); db_from_bi(&x, &a); db_from_bi(&y, &b);
     double *t = (double *)malloc(reps * sizeof *t); uint64_t rs[T1_NQ];
     db_add(&z, &x, &y); db_sub(&z, &z, &y);                                  /* warm-up */
-    for (int i = 0; i < reps; i++) { double t0 = now(); db_add(&z, &x, &y); t[i] = now() - t0; }
+    for (int i = 0; i < reps; i++) { double t0 = wnow(); db_add(&z, &x, &y); t[i] = wnow() - t0; }
     rep("add", t, reps); db_mod_qs(&z, t1_q, T1_NQ, rs); printf("CHK add :"); for (int j = 0; j < T1_NQ; j++) printf(" %llu", (unsigned long long)rs[j]); printf("\n");
-    for (int i = 0; i < reps; i++) { double t0 = now(); db_sub(&z, &x, &y); t[i] = now() - t0; }
+    for (int i = 0; i < reps; i++) { double t0 = wnow(); db_sub(&z, &x, &y); t[i] = wnow() - t0; }
     rep("sub", t, reps); db_mod_qs(&z, t1_q, T1_NQ, rs); printf("CHK sub :"); for (int j = 0; j < T1_NQ; j++) printf(" %llu", (unsigned long long)rs[j]); printf("\n");
-    for (int i = 0; i < reps; i++) { double t0 = now(); db_add(&z, &z, &y); t[i] = now() - t0; db_sub(&z, &z, &y); }
+    for (int i = 0; i < reps; i++) { double t0 = wnow(); db_add(&z, &z, &y); t[i] = wnow() - t0; db_sub(&z, &z, &y); }
     rep("add-inpl", t, reps);
-    for (int i = 0; i < reps; i++) { double t0 = now(); db_mod_qs(&x, t1_q, T1_NQ, rs); t[i] = now() - t0; }
+    for (int i = 0; i < reps; i++) { double t0 = wnow(); db_mod_qs(&x, t1_q, T1_NQ, rs); t[i] = wnow() - t0; }
     rep("modqs", t, reps); printf("CHK modq:"); for (int j = 0; j < T1_NQ; j++) printf(" %llu", (unsigned long long)rs[j]); printf("\n");
     return 0;
 }
