@@ -513,3 +513,4 @@ is parked here:
 - X2 cut-group pool-offset asymmetry found by S45 (not a target risk): understand and document.
 - Crash work (hipMemMap in `vmm_bg_map`) deferred; the fix is still required before the target (see the deferred section above).
 - Scaling study at 2 / 4 / 6 nodes: later. Handoff document: later.
+- 2026-10-10 late: aac6 S42 (results/S42.md) confirms ADDSUB2 (−11.6/−12.5 s), MAXIDX (−2.8/−2.6 s), QSEL (−1.49/−1.09 s) on two 4-APU nodes. The one QSEL=1 hang (n1_r6_4B, after init) did not recur in 44 repeat runs (0/44 QSEL=1, 0/14 QSEL=0): 1 hang in 64 QSEL=1 runs on aac6, cause unknown; watch for start-up stalls in future soaks.
