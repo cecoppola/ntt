@@ -18,9 +18,9 @@
 static const uint64_t B10 = 1000000000000000000ULL;
 struct db_stats db_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
-static int g_par = -1;                                 /* DBIG_SERIAL=1: drive the four quarters from one thread (debug) */
+static int g_inited = 0;                               /* (the DBIG_SERIAL one-thread quarter driver was removed 2026-10-11) */
 static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
-static void par_init(void) { if (g_par < 0) { g_par = !(getenv("DBIG_SERIAL") && atoi(getenv("DBIG_SERIAL"))); mem_acct_register(db_acct); } }
+static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db_acct); } }
 
 struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; };     /* shift: the operand as a << shift limbs; qc: limbs per quarter (any multiple of DB_ALIGN) */
 /* the quarter of global limb g: the number of quarter boundaries at or below g (no division: qc is any size) */
@@ -55,7 +55,6 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
-__global__ void k_touch(uint64_t *p, size_t n) { size_t step = (1 << 21) / 8; for (size_t i = (size_t)threadIdx.x * step; i < n; i += step * blockDim.x) { uint64_t v = p[i]; if (v == 0x123456789ULL) p[i] = v; } }
 /* quarter blocks come from per-device free lists by size class (hipMalloc costs ~0.06 s/GB and the Newton
  * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
 /* Block pool per device: address-ordered free extents with coalescing (best fit, carve from the front,
@@ -563,14 +562,6 @@ void db_reserve(dbig *x, size_t limbs)
     size_t need = (limbs + DB_NQ - 1) / DB_NQ, qc = (need + DB_ALIGN - 1) / DB_ALIGN * DB_ALIGN;
     dbig y; db_init(&y); y.cap = qc * DB_NQ; y.qc = qc;
     for (int d = 0; d < DB_NQ; d++) y.q[d] = q_alloc(d, qc * 8);
-    if (getenv("DBIG_WARM")) {                             /* touch every 2 MiB page of each quarter from every other device */
-        for (int d = 0; d < DB_NQ; d++) for (int c = 0; c < DB_NQ; c++) if (c != d) {
-            HIP_CHECK(hipSetDevice(c));
-            k_touch<<<1, 256>>>(y.q[d], qc);
-            HIP_CHECK(hipStreamSynchronize(0));
-        }
-        HIP_CHECK(hipSetDevice(0));
-    }
     if (x->n) {                                           /* keep the contents: quarter-wise DMA through the limb map */
         size_t n = x->n;
         for (int d = 0; d < DB_NQ; d++) {
@@ -751,7 +742,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         for (int t = 0; t < MQ_T; t++) powtm[j * MQ_T + t] = (uint64_t)(((unsigned __int128)powt[j * MQ_T + t] << 64) % q);
     }
     uint64_t vq[DB_NQ][MQ_MAXQ]; size_t qlen[DB_NQ]; memset(vq, 0, sizeof vq); memset(qlen, 0, sizeof qlen);
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(x, d, x->n, &lo, &hi); if (lo >= hi) continue;
         size_t first = x->off + lo - (size_t)d * x->qc, len = hi - lo, nc = (len + MQ_CH - 1) / MQ_CH; qlen[d] = len;
@@ -1050,7 +1041,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
     if (r == a) { ec_fatal(EC_RC_FATAL, "db shift: in place\n"); }
     need_owner(r, "shift"); db_reserve(r, n ? n : 1);
     struct dv v = view_of(a);
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
@@ -1081,7 +1072,7 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     need_owner(out, "add/sub"); db_reserve(out, n ? n : 1);
     struct dv va = view_of(a), vb = b ? view_of(b) : va; va.shift = ashift; struct sparse sp; memset(&sp, 0, sizeof sp); if (spx) sp = *spx;
     size_t chunks[DB_NQ], lo[DB_NQ], hi[DB_NQ];
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         qrange(out, d, n, &lo[d], &hi[d]); chunks[d] = (hi[d] - lo[d] + CH - 1) / CH;
         if (!chunks[d]) continue;
@@ -1107,7 +1098,7 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     if (cy && !sub) { ec_fatal(EC_RC_FATAL, "db_add: carry out of the top (n undersized)\n"); }
     if (cy && sub) { ec_fatal(EC_RC_FATAL, "db_sub: a < b\n"); }
     }
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         if (!chunks[d]) continue;
         HIP_CHECK(hipSetDevice(d));
@@ -1185,7 +1176,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
     if (r == a) { ec_fatal(EC_RC_FATAL, "db_pow_sub: in place\n"); }
     need_owner(r, "pow_sub"); db_reserve(r, e + 1);
     struct dv va = view_of(a); uint64_t top = bi_decimal ? B10 - 1 : ~0ULL;
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(r, d, e, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
@@ -1203,7 +1194,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
 {
     double t0 = tnow(); db_st.n_maxidx++;
     size_t best = 0; struct dv va = view_of(a), vb = b ? view_of(b) : va;
-#pragma omp parallel for num_threads(DB_NQ) reduction(max:best) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ) reduction(max:best)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
         flags_reserve(d, 1);
@@ -1248,7 +1239,7 @@ void db_set_u64(dbig *r, uint64_t v) { db_reserve(r, 1); mem_dev_copy_on(0, r->q
 void db_set_base_pow(dbig *r, size_t k)
 {
     db_reserve(r, k + 1);
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, k + 1, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipMemset(r->q[d], 0, (hi - lo) * 8)); HIP_CHECK(hipDeviceSynchronize()); } }
     uint64_t one = 1; size_t d = hq(r, k); mem_dev_copy_on((int)d, r->q[d] + (k - d * r->qc), &one, 8);
     r->n = k + 1;
@@ -1258,7 +1249,7 @@ __global__ void k_fill0(uint64_t *p, size_t n) { size_t i = (size_t)blockIdx.x *
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
 {
     db_reserve(r, n);
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);                  /* (hipMemset runs at ~10 GB/s here) */
@@ -1271,7 +1262,7 @@ void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n)
 void db_zero_fill(dbig *r, size_t n)
 {
     db_reserve(r, n ? n : 1);
-#pragma omp parallel for num_threads(DB_NQ) if(g_par)
+#pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) { size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo < hi) { HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
         k_fill0<<<228 * 8, 256>>>(r->q[d], hi - lo);

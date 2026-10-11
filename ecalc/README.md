@@ -137,8 +137,7 @@ seven of the eight were composite; two of them divided every Q, which blinded T1
 the background recurrence against the main thread, each node's leaf P_r, Q_r against the recurrence over its
 terms, from level `ECALC_RES_LOG_LEVEL` (17) on every node of every leaf level — by the kernel, or with
 `ECALC_RES_LOG_CPU=1` by the CPU reading the regions, no stream synchronisation — the leaf hand-over copy, each
-share before the cross-node reduction); `ECALC_LEAF_DUMP=<dir>` writes the leaf P_r, Q_r as raw limbs and, with the
-level check, the first wrong node of a level with its four children (`bs_n<rank>_l<level>_i<node>_{P,Q,P1,Q1,P2,Q2}.bin`);
+share before the cross-node reduction);
 `MEM_DPOOL_FILL=1|2` fills a grown (every) plane pool with 0xA5 (a test of zero-memory assumptions).
 `ECALC_RECHECK=1 ./ecalc <digits> <outfile>` (through `mnrun.sh <size>` at size > 1) is the standalone recheck of a
 finished run, without pools or computation: the run writes `<outfile>.t1` (node 0: the residues it checked with and
@@ -233,8 +232,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MN_TREE_EARLY_FREE` | *Phase 14 (T1), APUMULT_STUDY E10a*: the multi-node tree's levels (`mn.c tree_level`, `tree_level_k`) free the dead P_i / P_run shares between a level's two products (P_n = P_i Q_run + P_run, then Q_n = Q_i Q_run), and `tree_need_dev` (mirrored in `mem_model.py`) counts max(2c + 2r + n, c + r + 2n) instead of 2c + 2r + 2n per device; `BS_LAYOUT_ONLY` prints `early_free`; `mem_model.py --e10a` gives the 576 ceilings; bit-identical (1 since Phase 14) |
 | `MN_SELFTEST_GROW` | *Phase 16 (P, results/P16.md)*: 1 grows the layered self-test's rows (`mn_selftest_layered`, 2^11 x 2^11) until R / ranks >= 32 -- without it every launch of 32 or more node-processes stops at init (`R / ranks < 32`, VERIFY FAILED); **default 1** (the user, 2026-10-05); 0 = the fixed 2^11 rows |
 | `ECALC_SEED_ORDER` | *Phase 12 (I)*: `overlap` (the seeds alongside the plane pools' mapping) / `first` (regions, seeds, then the planes) / `after` (the seeds synchronous in bs) (overlap) |
-| `ECALC_COPY_PROBE` | *Phase 12 (R), debug*: times the odd-node copy at a level transition against the next level (0) |
-| `ECALC_B_SNAPSHOT` | *Phase 12 (R), debug*: in the striped grpB tier every device snapshots the shared operand B right before reading it; the snapshots are compared after the level (0) |
 | `ECALC_CKPT_TOP` | the top-level P, Q on disk for the recheck (above): `BS_CKPT_DIR` or `<outfile>.top` (**off by default** — record timing runs, the user's decision of 2026-09-27; `ECALC_CHECKPOINT=1` makes it `=2`; `ECALC_CKPT_TOP` set overrides both; `=1` writes it at any size). Hidden under the reciprocal and the division only where the disk writes at ≳ 1 GB/s: at 0.31 GB/s (aac6's slower path) the 35.6 GB set costs 113 s that the division waits for; Phase 13 N: the writer is background at every size, P is released before S = P + Q, Q only after the output stage when still needed; `=2` = budgeted: a set the measured disk rate cannot finish within `ECALC_CKPT_TOP_SLACK` of a release is dropped, never waited for (results/N13.md) |
 | `ECALC_CHECKPOINT` | *Phase 15 (the user's decision of 2026-09-27)*: `1` = development and testing: the budgeted top set (`ECALC_CKPT_TOP=2`) unless `ECALC_CKPT_TOP` is set; the headline / record runs leave it unset (0) |
 | `ECALC_CKPT_TOP_SLACK` | `ECALC_CKPT_TOP=2`: the seconds a release may wait for the writer (1) |
@@ -277,7 +274,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_RES_LOG` | *debug*: every residue the checks use printed and cross-checked — the kernel against a host Horner, the recurrence against the main thread, each node's leaf against the recurrence (0) |
 | `ECALC_RES_LOG_LEVEL` | *debug*: with `ECALC_RES_LOG`, every node of every leaf level from this level on checked against the recurrence (17) |
 | `ECALC_RES_LOG_CPU` | *debug*: the per-level check reads the regions with the CPU — no kernel, no stream synchronisation (0) |
-| `ECALC_LEAF_DUMP` | *debug*: a directory for the leaf P_r, Q_r as raw limbs and, with the level check, the first wrong node with its children (unset) |
 
 **Limbs and pools (`LIMB_BASE`, `POOL_LOG`, `BI_`, `MEM_`)**
 
@@ -290,9 +286,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `LIMB_BASE` | 10 = decimal limbs of 10¹⁸ (no 10dP, no radix conversion); 2 = the paper's 64-bit limbs with todec (10 in `ecalc`; the tests default to 2) |
 | `POOL_LOG` | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) |
 | `MEM_REPORT_DEVS` | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table; *B7ACCT*: at size > 1 each row also prints the terms outside `in use` -- the layout's v-slots (`binsplit_vslot_bytes`), the v-slots hipMalloc'd now (`comm_layered_vbytes`), the comm_ofi pool -- and driver used minus in use + v-slots now + comm pool (the runtime) (unset) |
-| `MEM_NO_DEV_MEMSET` | *test*: skip the hipMemset that maps a device pool's pages at allocation (unset) |
 | `MEM_DPOOL_FILL` | *test*: fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0) |
-| `MEM_COPY_NOWAIT` | *Phase 12 (R), test*: the pre-fix `mem_dev_copy_on` (no wait on the caller's stream) for the witness runs (0) |
 | `MEM_COPY_WAIT_POLL` | *Phase 14 (A1), diagnostic*: `mem_dev_copy_wait` (the seed thread's DMA wait) polls `hipStreamQuery` instead of `hipStreamSynchronize` and reports a copy still incomplete after `MEM_COPY_WAIT_REPORT_S` (60) seconds (0) |
 
 **The transform and the product tiers (`NTT_`, `PW_FUSE`, `RNS_`)**
@@ -340,7 +334,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `DB_POOL_VERBOSE` | *debug*: the dbig block pool's growth and how the reserved tails were used (follows `RNS_VERBOSE`) |
 | `DB_POOL_TRACE` | *debug, Phase 15 (AS)*: 1 = every block-pool event as a `dbtrace:` line (donations, blocks taken and freed, the tail, the pack / pin flags, VMM remaps; offsets from the APU's VMM base) for `tests/as_pool_replay.py`, which replays the pool exactly and tries other arena layouts offline (0) |
 | `ECALC_INIT_TL` | *debug, Phase 15 (MAP), results/MAP15.md*: 1 = init's timeline as `tl <s since rns_init began>` lines: rns_init's steps, each arena's mapping with the HIP calls split (create / map / access / zero), the background mappers (start, the parity-1 half, done, time queued for the mapper lock), every wait for arena chunks, the seed thread (start, the region-pool wait, spans done, end), the join and bs levels 1–3; 2 adds a line per background chunk. Print only (0) |
-| `DBIG_SERIAL` | *debug*: drive the four quarters from one thread (0) |
 | `DBIG_ADDSUB2` | *S38 (results/S38.md)*: 1 = `k_addsub2`, the dbig add/sub kernel with coalesced loads and stores through a 32 KB LDS tile (same arithmetic, same carry flags, same output as `k_addsub`; the old kernel read 16 consecutive limbs per thread, 36-84 GB/s, 10.4 s of GPU time per APU at 6.441e10) **default 1 since 2026-10-10 (S38, -12.0..-12.5 s on 4 nodes, m)** (0 = old kernel) |
 | `DBIG_MAXIDX_TOP` | *S40 (results/S40.md)*: 1 = `db_norm` / `db_cmp` scan for the top differing limb in windows from the top of each quarter (4096 limbs, then x16 wider, stop at the first hit; the last window reaches the quarter's low end), instead of one scan of the whole quarter (2.4 s of GPU time per APU at 6.441e10); same result, digits identical **default 1 since 2026-10-10 (S40/S41, -1.6..-3.2 s on 4 nodes, m)** (0 = old) |
 | `DBIG_ADDSUB3` | *S51 K2 (results/S51.md)*: 1 = `k_addsub3` in place of `k_addsub2` (needs `DBIG_ADDSUB2=1`): the same 4096-limb chunk, flags and digits, with a 16 KB LDS tile (two 2048-limb halves, 4 blocks per CU instead of 2) and the 512 segment carries scanned by wave shuffles instead of thread 0 **default 1 since 2026-10-11 (adopted by the user; S51, -0.18 s at 1 node, -2.0 s at 4 nodes, m)** (0 = k_addsub2) |
@@ -348,7 +341,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `RNS_CRT_SUB` | *S51 K4 (results/S51.md)*: m > 1 = the B-form CRT launch (`b_core`, one block per CU) cuts every stripe into m sub-stripes (`k_crt_batch_m`, m times the blocks) and folds the interior spills in `k_crt_sub_merge`; limbs and stripe spills are the same numbers as `k_crt_batch`'s (1 = off) |
 | `DBIG_S51_STATS` | *debug, S51*: 1 = at exit one `S51STAT addsub n t modq n t crtb n t` line (host wall seconds of the db add/sub calls, `db_mod_qs` calls and the B-form CRT stage), for kernel-level A/B comparisons (0) |
 | `DBIG_QSEL` | *S41 (results/S41.md)*: 1 = the gather / scatter / bload / gather_shift / addsub2 / maxidx kernels pick the quarter pointer by a scalar select with constant indices instead of an indexed array (ScratchSize 112 -> 0 bytes/lane for k_gather and k_scatter_runs, m); same result, digits identical; -2.08 / -0.93 s on aac7, pooled aac6 CPX -0.30 +- 0.19 s at 4e9 (m). **default 1 since 2026-10-10** (0 = old). S42 (aac6, two 4-APU nodes): -1.49 / -1.09 s; **open:** one hang (after init) in 64 `QSEL=1` runs on aac6, not reproduced in 44 repeats (0/44 with, 0/14 with `=0`), cause unknown (TASKS) |
-| `DBIG_WARM` | *test*: touch every 2 MiB page of each quarter from every other device at allocation (unset) |
 
 **Binary splitting (`BS_`)**
 
@@ -456,7 +448,6 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MN_MODEL_LOCAL_F` / `estimate.py --local-factor F`, `--hide-pow2 F`, `--t-round S` | *Phase 16 (F)*: one factor on the model's local (non-fabric) terms — `NODE_SCALE` and `INIT_SCALE` together (`MN_MODEL_NODE_SCALE` / `MN_MODEL_INIT_SCALE` set still win: `MN_MODEL_INIT_SCALE=1.20 --local-factor 1.12` = the AAC7 fit); default 1.0 = aac6's calibration at ROCm 7.2.4, 1.22 = ROCm 7.0.3 (measured on aac7 at 10¹¹, C16 §2.7). `--hide-pow2` / `--t-round` are the CLI forms of `MN_MODEL_HIDE_POW2` / `MN_MODEL_T_ROUND` (the CLI wins). The re-estimate from aac7's inputs: results/F16.md, TARGET.md §1 |
 | `COMM_SHMEM_STAGE_SLOTS` | *Phase 14 (V1)*: the SHMEM pool's staging in four regions at its end, one per APU (the calling thread's HIP device), each the model's per-APU need (`COMM_SHMEM_STAGE_SLOT_MB`, exported by the pool rule before `shmem_init`); a request that does not fit its region goes to the general first-fit area. Needed once the pool is sized to the need (`COMM_SHMEM_POOL_AUTO=1`, `mnrun.sh`'s plan): one first-fit area fragments — 4 processes at 10¹⁰ stopped with 529 MiB not found beside 1441 MiB free in 4608 (results/V114.md). Memory placement only, bit-identical (1; =0 one area as before) |
 | `COMM_SHMEM_RING_KB` | the point-to-point ring per (dest, source) (256) |
-| `COMM_SHMEM_TRACE` | *debug*: trace the SHMEM transport (unset) |
 | `COMM_PUSH64` | the xGMI push by 64-bit stores; 0 = 16-byte vectors (1) |
 | `COMM_PUSH_BLOCKS` | blocks per peer of the xGMI push (76) |
 | `MN_GROUPS` | the tree's level → group-size schedule, e.g. `2,4,8,16,32,64,576` (on `w12`: the powers of two up to the size, then the size; *Phase 12 (G, Q's decision)*: the powers of two dividing the size, then the odd part's prime factors ascending — 576 → …, 64, 192, 576) |
@@ -469,7 +460,7 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `MN_OUT_CHUNK_MB` | the streamed writer's digit chunk per node (256) |
 | `MN_COMBINE=host` | *stand-in*: M2's combine — the leaf results sent to node 0 and multiplied on its host mdev tier — instead of the distributed tree |
 | `MN_DM=host` | *stand-in*: the division on node 0 alone (the sharded P, Q gathered to its host) instead of the distributed one; the cross-check of the sharded division (kept while DECISIONS2 #1 is open) |
-| `MN_TOPO_TRACE`, `MN_LAYERED_RAW`, `MN_LAYERED_LOCAL`, `MN_DEBUG` | *debug*: the topology layer's trace; the layered communicator's self-test over the raw xGMI mesh / a size-1 inter communicator; where a wrong self-test value came from (unset) |
+| `MN_LAYERED_RAW`, `MN_LAYERED_LOCAL` | *debug*: the layered communicator's self-test over the raw xGMI mesh / a size-1 inter communicator (unset) |
 
 **The distributed transform (`DIST_`)**
 

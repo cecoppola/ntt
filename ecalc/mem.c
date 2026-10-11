@@ -120,7 +120,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
     double t0 = mem_now();
     if (!(p = mem_dev_malloc(dev, bytes))) mem_oom("mem_dev_alloc", dev, bytes);
     double t1 = mem_now();
-    if (!getenv("MEM_NO_DEV_MEMSET")) { HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize()); }   /* map the pages now */
+    HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize());   /* map the pages now */
     if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB (%s): malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, "hipMalloc", t1 - t0, mem_now() - t1);
     HIP_CHECK(hipSetDevice(cur));
 #pragma omp critical(memreg)
@@ -150,8 +150,7 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
      * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
      * overwritten by their CRT, while it was still in flight (results/R.md).  Every caller assumes the copy is complete
      * when this returns, so wait for it here. */
-    static int nowait = -1; if (nowait < 0) nowait = getenv("MEM_COPY_NOWAIT") ? atoi(getenv("MEM_COPY_NOWAIT")) : 0;   /* MEM_COPY_NOWAIT=1: the old behaviour, for the witness runs only */
-    if (!nowait) HIP_CHECK(hipStreamSynchronize(0));
+    HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
 /* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for

@@ -597,11 +597,6 @@ int main(int argc, char **argv)
             printf("RES node %d leaf P/Q vs recurrence [%lu, %lu):", mn_rank(), pqb.a0, pqb.b1);
             for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
             printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
-            if (getenv("ECALC_LEAF_DUMP")) {            /* the leaf P_r, Q_r as raw limbs: <dir>/leaf_n<rank>_{P,Q}.bin (cmp -l against a good run's names the wrong limbs) */
-                bigint h; bi_init(&h); char nm[4096]; const dbig *two[2] = { &Pl, &Ql };
-                for (int k = 0; k < 2; k++) { db_to_bi(&h, two[k]); snprintf(nm, sizeof nm, "%s/leaf_n%d_%c.bin", getenv("ECALC_LEAF_DUMP"), mn_rank(), "PQ"[k]); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); } }
-                bi_free(&h); printf("RES node %d leaf P, Q dumped to %s\n", mn_rank(), getenv("ECALC_LEAF_DUMP"));
-            }
         }
         if (ckpt_top && !bs_ckpt_dir && outfile && bi_decimal) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
         if (mn_dm) { mn_ckpt_bg_mode = getenv("BS_CKPT_TREE_BG") && !atoi(getenv("BS_CKPT_TREE_BG")) ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack; }   /* Phase 13 N (1.4): the top tree set in the background (BS_CKPT_TREE_BG=0: synchronous) */

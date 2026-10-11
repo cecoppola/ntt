@@ -33,7 +33,6 @@ bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
 int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU schoolbook tier below this many limbs; 0 = never (WP4: the device batch tier is faster at any size, and the pools are device memory) */
 int bs_verbose = 0;
-static int bs_copy_probe = 0;                        /* Phase 12 R (D5): ECALC_COPY_PROBE=1 times the odd-node copy against the next level (rns_copy_probe_*) */
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
 int bs_ckpt_every = 4;                               /* BS_CKPT_EVERY: a checkpoint every this many levels */
 int bs_ckpt_min_level = 16;                          /* BS_CKPT_MIN_LEVEL: only the top levels, where the time is (a snapshot costs
@@ -109,19 +108,11 @@ static dbig node_q(const struct level *lv, const struct node *nd) { return nd->q
  * (device regions or device numbers) are reduced modulo the T1 primes and compared with the term recurrence over the
  * node's span range [a0 + i S 2^l, ...): the level and the node whose product first goes wrong are named */
 #include "verify.h"
-static void bs_dump(const char *dir, int level, size_t i, const char *what, const dbig *x)   /* the limbs of a level's node as a raw file */
-{
-    bigint h; bi_init(&h); bi_reserve(&h, x->n ? x->n : 1); h.n = x->n; static int cpu = -1; if (cpu < 0) cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0;
-    for (int d = 0; d < DB_NQ; d++) { size_t g0 = (size_t)d * x->qc, g1 = g0 + x->qc, s0 = x->off > g0 ? x->off : g0, s1 = x->off + x->n < g1 ? x->off + x->n : g1;
-        if (s0 >= s1) continue; if (cpu) memcpy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); else mem_dev_copy(h.l + (s0 - x->off), x->q[d] + (s0 - g0), (s1 - s0) * 8); }
-    char nm[4096]; snprintf(nm, sizeof nm, "%s/bs_n%d_l%d_i%zu_%s.bin", dir, mn_rank(), level, i, what); FILE *f = fopen(nm, "wb"); if (f) { fwrite(h.l, 8, h.n, f); fclose(f); }
-    bi_free(&h);
-}
 static void bs_res_check(const struct level *lv, const struct level *prev, int level, unsigned long S, unsigned long N)
 {
     static int minlev = -1, cpu = -1; if (minlev < 0) { minlev = getenv("ECALC_RES_LOG_LEVEL") ? atoi(getenv("ECALC_RES_LOG_LEVEL")) : 17; cpu = getenv("ECALC_RES_LOG_CPU") ? atoi(getenv("ECALC_RES_LOG_CPU")) : 0; }
     if (!db_res_log_on() || level < minlev || !lv->nd) return;
-    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0; const char *dump = getenv("ECALC_LEAF_DUMP");
+    unsigned long bend = bs_b1 ? bs_b1 : N + 1, span = S << level; int bad = 0;
     for (size_t i = 0; i < lv->n; i++) {
         unsigned long a = bs_a0 + i * span, b = a + span; if (b > bend) b = bend; if (a >= bend) break;
         if (!lv->nd[i].pd && mem_dev_of(lv->pool[lv->nd[i].r]) < 0) { printf("RES bs level %d: host pools, not checked\n", level); return; }
@@ -131,12 +122,6 @@ static void bs_res_check(const struct level *lv, const struct level *prev, int l
         for (int j = 0; j < T1_NQ; j++) { uint64_t p, q; vf_pq_range_mod(a, b, t1_q[j], &p, &q); if (p != rp[j] || q != rq[j]) nb++; }
         if (nb) {
             bad++; printf("RES bs level %d node %zu of %zu (terms [%lu, %lu), P %zu Q %zu limbs, region %d, %s): %d of %d primes BAD\n", level, i, lv->n, a, b, lv->nd[i].pn, lv->nd[i].qn, lv->nd[i].r, lv->nd[i].pd ? "device number" : "region", nb, T1_NQ);
-            if (dump && bad == 1 && prev && prev->nd && 2 * i + 1 < prev->n) {   /* the first wrong node: its P, Q and its children (the operands of the products) as raw limbs */
-                const struct node *ca = &prev->nd[2 * i], *cb = &prev->nd[2 * i + 1];
-                dbig a1 = node_p(prev, ca), a2 = node_q(prev, ca), b1 = node_p(prev, cb), b2 = node_q(prev, cb);
-                bs_dump(dump, level, i, "P", &vp); bs_dump(dump, level, i, "Q", &vq); bs_dump(dump, level, i, "P1", &a1); bs_dump(dump, level, i, "Q1", &a2); bs_dump(dump, level, i, "P2", &b1); bs_dump(dump, level, i, "Q2", &b2);
-                printf("RES bs level %d node %zu dumped to %s: P (%zu limbs) = P1 (%zu) Q2 (%zu) + P2 (%zu), Q (%zu) = Q1 (%zu) Q2; children in regions %d, %d\n", level, i, dump, vp.n, a1.n, b2.n, b1.n, vq.n, a2.n, ca->r, cb->r);
-            }
         }
     }
     printf("RES bs level %d: %zu nodes, %d BAD%s\n", level, lv->n, bad, bad ? "  LEVEL MISMATCH" : "");
@@ -856,7 +841,6 @@ void binsplit_pregrow(unsigned long N)
     static unsigned long done_N; if (done_N == N) return; done_N = N;   /* Phase 10 H (B2): once per run -- binsplit_seeds_begin calls it inside rns_init (the seeds stream into the regions), the driver again after */
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* Phase 13a M: the arena request without the arena */
     if (bs_regions_on_device < 0) bs_regions_on_device = getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1;
-    bs_copy_probe = getenv("ECALC_COPY_PROBE") ? atoi(getenv("ECALC_COPY_PROBE")) : 0;
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0);
     if (bs_dev_mdev < 0) bs_dev_mdev = getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1;   /* default on since the coalescing pool (RESULTS.md 64) */
@@ -1713,7 +1697,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             tl1 = mem_now();
             rns_mul_batch(pr, 2 * npairs);
             tl2 = mem_now();
-            if (bs_copy_probe) rns_copy_probe_report(bs_st.levels + 1);   /* Phase 12 R (D5): the previous level's odd-node copy against this level's launch */
             normed = 1;
             for (size_t i = 0; i < npairs; i++) {
                 if (!pr[2 * i].ncn || !pr[2 * i + 1].ncn) { normed = 0; break; }
@@ -1795,9 +1778,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             o->qn = node_norm(NODE_Q(nxt, o), a->qn + b->qn);
         }
         if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
-                   region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r);
-                   if (bs_copy_probe && mem_dev_of(NODE_P(nxt, o)) >= 0) { rns_copy_probe_pair(0, NODE_P(nxt, o), NODE_P(cur, a), a->pn); rns_copy_probe_pair(1, NODE_Q(nxt, o), NODE_Q(cur, a), a->qn);
-                                                                             rns_copy_probe_issue(mem_dev_of(NODE_P(nxt, o)), (a->pn + a->qn) * 8, bs_st.levels + 1); } }   /* Phase 12 R (D5): ECALC_COPY_PROBE */
+                   region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r); }
         double dt = mem_now() - t, tl3 = mem_now();
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);
         if (!strcmp(tier, "school")) bs_st.t_school += dt; else if (!strcmp(tier, "batch")) bs_st.t_batch += dt; else bs_st.t_mdev += dt;
