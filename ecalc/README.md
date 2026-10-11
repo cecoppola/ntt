@@ -49,6 +49,8 @@ ones changed most recently are:
 figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no 10-node runs); aac6's SH5 nodes in CPX mode
 (6 XCDs of 22.9 GB) run up to 4 × 10⁹ digits with `RNS_INIT_POOL_LOG=29` (S44).
 
+**CPX launch note (T11, results/T11.md).** On aac6's SH5 CPX nodes, runs up to 4 × 10⁹ digits need `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (both set in the environment of the launch).
+
 
     module load rocm && make          # ref/gen_e, ntt.o mem.o crt.o bigint.o rns_mul.o, tests/t_*
     make SHMEM_CRAY=1 GMP_HOME=~/gmp  # Phase 16 A, aac7 (results/A16.md): Cray OpenSHMEMX 11.8.0 (module load cray-dsmml cray-openshmemx) through
