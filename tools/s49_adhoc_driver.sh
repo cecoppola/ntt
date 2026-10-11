@@ -31,7 +31,7 @@ while :; do
     st=$(hoststate "$h"); [ "$st" = idle ] || continue
     if [ "$DRY" = 1 ]; then log "DRY would: sbatch -N1 -w $h -t 0:10:00 nc_job.sh adhoc_$h (our nodes running=$(mynodes), state=$st)"; tries[$h]=3; continue; fi
     lab=adhoc_${h}_$now
-    J=$(sbatch --parsable -N1 -w "$h" -t 0:10:00 -J b1011t4 -o "$T4/job.%j.out" --wrap "bash $T4/nc_job.sh $lab") || { log "sbatch failed $h"; continue; }
+    J=$(sbatch --parsable -N1 --exclusive --gpus-per-node=4 -w "$h" -t 0:10:00 -J b1011t4 -o "$T4/job.%j.out" --wrap "bash $T4/nc_job.sh $lab") || { log "sbatch failed $h"; continue; }
     tries[$h]=$(( ${tries[$h]:-0} + 1 )); log "submitted $J on $h ($lab)"
     t0=$(date +%s)
     while squeue -h -j "$J" 2>/dev/null | grep -q .; do
