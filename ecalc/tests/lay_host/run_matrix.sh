@@ -15,9 +15,9 @@ run() {   # tag x2 share pool
   for h in $HOSTS; do
     local first=$((k * N / H)) last=$(((k + 1) * N / H)); k=$((k + 1))
     if [ -n "${SLURM_JOB_ID:-}" ]; then
-      timeout 1500 srun -N1 -n1 --overlap -w $h --export=ALL "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
+      timeout 420 srun -N1 -n1 --overlap -w $h --export=ALL "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
     else
-      timeout 1500 "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
+      timeout 420 "$BIN" --nodes $N --levels $LV --hosts $HL --first $first --count $((last - first)) --port $base --ubase $UB --pool-mb 1024 --pool $pk >> "$OUT/$tag.txt" 2>&1 &
     fi
     pids="$pids $!"
   done
@@ -25,6 +25,6 @@ run() {   # tag x2 share pool
   echo "$tag: $(grep -c '^T ' "$OUT/$tag.txt") process lines, $(grep -c 'FAIL' "$OUT/$tag.txt") FAIL lines, $(grep -c 'VERIFY OK' "$OUT/$tag.txt") host-OK lines"
 }
 b=$PORT
-run n${N}_x0s0 0 0 ofi $b; b=$((b + 3000)); run n${N}_x0s1 0 1 ofi $b; b=$((b + 3000))
-for pk in $POOLS; do run n${N}_x1s0_$pk 1 0 $pk $b; b=$((b + 3000)); run n${N}_x1s1_$pk 1 1 $pk $b; b=$((b + 3000)); done
+run n${N}_x0s0 0 0 ofi $b; b=$((b + 4500)); run n${N}_x0s1 0 1 ofi $b; b=$((b + 4500))
+for pk in $POOLS; do run n${N}_x1s0_$pk 1 0 $pk $b; b=$((b + 4500)); run n${N}_x1s1_$pk 1 1 $pk $b; b=$((b + 4500)); done
 python3 "$(dirname "$0")/ana.py" "$OUT"/n${N}_*.txt

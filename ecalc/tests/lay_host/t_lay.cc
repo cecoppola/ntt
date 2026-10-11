@@ -103,20 +103,20 @@ static uint64_t dig_log(void) { uint64_t h = 1469598103934665603ULL; for (auto &
 static int child(int node, int d)
 {
     g_pool_bytes = g_pool_mb << 20; g_pool = (char *)malloc(g_pool_bytes); g_blocks = new blk{ 0, g_pool_bytes, 0, 0, 0 };
-    int base = g_port, commno = 0; const int SPAN = 64;
-    auto nextbase = [&]() { int b = base + SPAN * commno++; return b; };
+    int cur = g_port;   /* one port range per communicator, its size (rank r listens on base + r): the same sequence in every process */
+    auto nextbase = [&](int sz) { int b = cur; cur += sz + 1; return b; };
     /* global creation order: intra of every node, then per level every group's inter comms (APU d of the members), then the second meshes */
     comm *intra = 0;
-    for (int n = 0; n < g_N; n++) { int b = nextbase(); if (n == node) intra = comm_tcp_create_at(d, NA, hostlist_intra(n).c_str(), b); }
+    for (int n = 0; n < g_N; n++) { int b = nextbase(NA); if (n == node) intra = comm_tcp_create_at(d, NA, hostlist_intra(n).c_str(), b); }
     comm *inter[16] = {}, *inter2[16] = {}, *lay[16] = {}; int gsz[16], gidx[16], g0s[16];
     for (int L = 0; L < g_nl; L++) {
         int g = g_lv[L]; int ng = (g_N + g - 1) / g; gidx[L] = node / g; g0s[L] = gidx[L] * g; gsz[L] = std::min(g, g_N - g0s[L]);
         for (int G = 0; G < ng; G++) for (int dd = 0; dd < NA; dd++) {
-            int b = nextbase(); int g0 = G * g, gs = std::min(g, g_N - g0);
+            int g0 = G * g, gs = std::min(g, g_N - g0); int b = nextbase(gs);
             if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter[L] = wrap(t, 4096 + 64 * (size_t)gs); }
         }
         if (g_i2_on) for (int G = 0; G < ng; G++) for (int dd = 0; dd < NA; dd++) {
-            int b = nextbase(); int g0 = G * g, gs = std::min(g, g_N - g0);
+            int g0 = G * g, gs = std::min(g, g_N - g0); int b = nextbase(gs);
             if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter2[L] = wrap(t, 4096 + 64 * (size_t)gs); }
         }
     }
