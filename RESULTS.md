@@ -4701,7 +4701,7 @@ Labels: m measured, mod modelled. Main now contains branches s34 and s29 (merged
 - **Kit:** opt-in stage `nodechk` in `ecalc/target_kit.sh` (`tests/t_nodechk.c`; meminfo and 1 GB upload per APU, flags > 3x median upload or MemAvailable < 90 % of median); TARGET_TASKS T14.
 
 
-## 127. S35-S45: crash-fix build, VSLOT_SHARE, kernel defaults (ADDSUB2, MAXIDX_TOP, QSEL), multi-node check, 576-node plan (2026-10-10; results/S35.md .. S45.md)
+## 127. S35-S45: crash-fix build, VSLOT_SHARE, kernel defaults (ADDSUB2, MAXIDX_TOP, QSEL), multi-node check, 576-node plan (2026-10-10; results/S36.md .. S45.md; S35 is on branch s35 only)
 
 Labels: m measured, mod modelled. All new switches digits-identical; adopted ones are defaults since 2026-10-10 (user).
 - **S35 (crash fix):** `ECALC_VMM_BG=2` built, gate passed; soak paused at A 18 / C 17 runs, 0 segfaults (no evidence yet). Crash work deferred (TASKS).
