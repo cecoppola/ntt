@@ -209,18 +209,29 @@ TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
 TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
-PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18}
+# S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by ecalc/refit_s48.py; it reads ecalc/aac7_s48_fit.json
+# (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected only by --fabric aac7_s48 / MN_MODEL_PROFILE; no default changes.
+AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
+AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
+PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
     Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target).
     S18M: 'aac7_s18' = AAC7_S18 (bw_apu refit on 10-node comm_ofi), AAC7_CONSTS applied exactly as for 'aac7' (unchanged)."""
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
     name = (name or 'target').lower()
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m, aac7_s18)' % name)
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m, aac7_s18, aac7_s48)' % name)
     if name == 'target-m':
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
-    if name in ('aac7', 'aac7_s18'):
-        c = AAC7_CONSTS; e = os.environ
+    if name == 'aac7_s48':
+        import json
+        if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (run refit_s48.py --write-profile)' % AAC7_S48_FILE)
+        j = json.load(open(AAC7_S48_FILE))
+        PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116))
+    if name in ('aac7', 'aac7_s18', 'aac7_s48'):
+        c = dict(AAC7_CONSTS)
+        if name == 'aac7_s48': c.update(j['consts'])
+        e = os.environ
         if 'MN_MODEL_HIDE_POW2' not in e: HIDE_POW2 = c['HIDE_POW2']
         if 'MN_MODEL_GEN_HIDE1' not in e: GEN_HIDE_DEPTH[1] = c['GEN_HIDE1']
         if 'MN_MODEL_GEN_HIDE2' not in e: GEN_HIDE_DEPTH[2] = c['GEN_HIDE2']
