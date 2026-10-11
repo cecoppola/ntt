@@ -10,7 +10,7 @@
 #include "../rns_mul.h"
 #include <string.h>
 #include <time.h>
-static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+static double wnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static int cmpd(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return (x > y) - (x < y); }
 static void rep(const char *w, double *t, int n) { qsort(t, n, sizeof *t, cmpd); printf("%-8s median %.4f s  min %.4f s  (n %d)\n", w, t[n / 2], t[0], n); }
 int main(int argc, char **argv)
