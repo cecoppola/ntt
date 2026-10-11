@@ -9,6 +9,7 @@
 #          plus the run's wall (a fabric-wide slow state shows as a high total, it cannot be pinned on one node).
 # Rule (same as initchk): a node is flagged when a time metric is > THR x the median (default 3) AND >= MINEX s above it (default 2), or when any
 # step failed / timed out / printed no result.  With fewer than 3 nodes the reference is the smaller value instead of the median.
+# SLURM_LABELIO=1 labels the mn log (mnrun.sh drops MNRUN_LABEL when MNRUN_CPUS_PER_TASK is set: its copt is overwritten, line 72-73).
 # Output ($OUT): screen_table.txt (per-node table), EXCLUDE (one host per line, the nodes to leave out), screen_summary.txt (wall per stage),
 # local/<host>.log, mn.log.  Exit 0 = no node flagged, 3 = flagged (EXCLUDE is non-empty), 2 = the screen itself could not run / parse.
 #
@@ -35,6 +36,7 @@ done
 [ -n "$HOLD" ] || { echo "nodescreen.sh: give --hold JOBID (or export SLURM_JOB_ID)" >&2; exit 2; }
 [ -x "$E/ecalc" ] && [ -x "$E/tests/t_nodechk" ] || { echo "nodescreen.sh: need $E/ecalc and $E/tests/t_nodechk built (make; make tests/t_nodechk)" >&2; exit 2; }
 [ -n "$OUT" ] || OUT=$HOME/nodescreen/$(date +%Y%m%d_%H%M%S); mkdir -p "$OUT/local" || exit 2; OUT=$(cd "$OUT" && pwd)
+# --local-digits 0 skips the single-node ecalc
 DIGL=$(awk -v d="$LDIG" 'BEGIN { printf "%.0f", d }'); DIGM=$(awk -v d="$MDIG" 'BEGIN { printf "%.0f", d }')
 T0=$(date +%s.%N); SUM=$OUT/screen_summary.txt; : > "$SUM"; SPID=
 say() { echo "nodescreen: $*" | tee -a "$SUM"; }
@@ -64,9 +66,11 @@ echo "NS host $H"
 a=$(now); timeout "$TMO" "$ED/tests/t_nodechk" 1 3 "$COLD" 2>&1 | grep -a '^NODECHK'; rc=${PIPESTATUS[0]}; b=$(now)
 echo "NS step nodechk rc=$rc wall=$(awk -v a=$a -v b=$b 'BEGIN{printf "%.2f", b-a}')"
 OF=${TMPDIR:-/tmp}/ns_${H}_$$.out
+if [ "$DIG" != 0 ]; then
 a=$(now); timeout "$TMO" env ECALC_INIT_TL=1 ECALC_VERBOSE=2 "$ED/ecalc" "$DIG" "$OF" 2>&1 | grep -a -E '^tl |init: |RESULT|VERIFY|total|ERROR|rror'; rc=${PIPESTATUS[0]}; b=$(now)
 rm -f "$OF" "$OF".part* 2>/dev/null
 echo "NS step ecalc rc=$rc wall=$(awk -v a=$a -v b=$b 'BEGIN{printf "%.2f", b-a}')"
+fi
 echo "NS done $H"
 NODE
 chmod +x "$OUT/node_local.sh"
