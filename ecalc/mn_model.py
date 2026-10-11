@@ -189,7 +189,7 @@ TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, gr
 # Phase 16 C (results/C16.md): aac7 -- HPE Cray EX, 4 x MI300A, 4 x Slingshot-11 (one 200 Gb/s Cassini per socket), Cray OpenSHMEMX 11.8.0, ROCm
 # 7.0.3, one process per node (one NIC per PE: C16 2.1).  MEASURED on 2 nodes: 3.6 GB/s per APU thread through the put path at the exchange
 # sizes ecalc sends (13.5-14.8 GB/s per node aggregate), 8.5 us per put + signal + wait, the part file on NFS at 0.116 GB/s (A16 4).
-# `estimate.py --fabric aac7` (or MN_MODEL_PROFILE=aac7) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
+# `estimate.py --fabric aac7_c16` (or MN_MODEL_PROFILE=aac7_c16; plain `aac7` is the S48 refit since 2026-10-11) selects it and applies AAC7_CONSTS to the constants above; the TARGET profile and
 # every default stay as they are.
 AAC7 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX (C16)", bw_apu=3.6, lat=8.5e-6, group=64, layers=2, taper=1.0, write_bw=0.116)
 # S18M (2026-10-07, results/S18M.md): AAC7 (bw_apu=3.6, C16's 2-node SHMEM put-path measurement) checked against three real
@@ -214,17 +214,21 @@ TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
 TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 # S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by ecalc/refit_s48.py; it reads ecalc/aac7_s48_fit.json
-# (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected only by --fabric aac7_s48 / MN_MODEL_PROFILE; no default changes.
+# (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected by --fabric aac7_s48 or its alias --fabric aac7 / MN_MODEL_PROFILE (B01, 2026-10-11: the aac7 default; the old one is aac7_c16).  The estimate.py default (no --fabric) stays the target profile.
 AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
 AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
-PROFILES = {'target': TARGET, 'aac7': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48}
+# B01 (the user's decision of 2026-10-11): 'aac7' now means the S48 refit (an alias of 'aac7_s48'); the previous aac7 profile (C16: 3.6 GB/s per
+# APU thread, AAC7_CONSTS) stays selectable by the name 'aac7_c16'.  No code default of ecalc changes (this is the model only).
+PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48}
+PROFILE_ALIASES = {'aac7': 'aac7_s48'}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
     Returns the Fabric.  TGTBENCH2: 'target-m' = the target fabric with TARGET_M_CONSTS (measured on the target).
     S18M: 'aac7_s18' = AAC7_S18 (bw_apu refit on 10-node comm_ofi), AAC7_CONSTS applied exactly as for 'aac7' (unchanged)."""
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
     name = (name or 'target').lower()
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7, target-m, aac7_s18, aac7_s48)' % name)
+    name = PROFILE_ALIASES.get(name, name)                                # B01: aac7 = aac7_s48
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s18, aac7_s48)' % name)
     if name == 'target-m':
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7_s48':
@@ -232,7 +236,7 @@ def apply_profile(name):
         if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (run refit_s48.py --write-profile)' % AAC7_S48_FILE)
         j = json.load(open(AAC7_S48_FILE))
         PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
-    if name in ('aac7', 'aac7_s18', 'aac7_s48'):
+    if name in ('aac7_c16', 'aac7_s18', 'aac7_s48'):
         c = dict(AAC7_CONSTS)
         if name == 'aac7_s48': c.update(j['consts'])
         e = os.environ
@@ -834,7 +838,7 @@ INIT_SCALE = float(os.environ.get('MN_MODEL_INIT_SCALE', '1.0'))   # Phase 16 C:
 if 'MN_MODEL_LOCAL_F' in os.environ:   # Phase 16 F: one factor on the local (non-fabric) terms = NODE_SCALE and INIT_SCALE together (each env above still wins); default 1.0
     if 'MN_MODEL_NODE_SCALE' not in os.environ: NODE_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
     if 'MN_MODEL_INIT_SCALE' not in os.environ: INIT_SCALE = float(os.environ['MN_MODEL_LOCAL_F'])
-# Phase 16 C (results/C16.md 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7') -- MEASURED on 2 nodes
+# Phase 16 C (results/C16.md 2.3-2.5, 2.7): the aac7 values of the constants above, applied by apply_profile('aac7_c16') (and the base of aac7_s48) -- MEASURED on 2 nodes
 # (HIDE_POW2, GEN_HIDE at depth 1 / 2 from COMM_LAYER_STATS; T_ROUND from the MN_T_CHUNK_MB 512 / 1024 / 2048 series) and on one node
 # (MAP_RATE from t_alloc at ROCm 7.0.3; NODE_SCALE / INIT_SCALE FITTED on the one-node 1e10 / 1e11 runs against this model's aac6 calibration)
 AAC7_CONSTS = dict(HIDE_POW2=0.72, GEN_HIDE1=0.011, GEN_HIDE2=0.74, T_ROUND=0.015, MAP_RATE=0.070, NODE_SCALE=1.12, INIT_SCALE=1.20)

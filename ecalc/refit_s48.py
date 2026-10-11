@@ -224,7 +224,7 @@ def main():
     ap.add_argument('--write-profile', action='store_true', help='write ecalc/aac7_s48_fit.json (the profile `estimate.py --fabric aac7_s48` reads)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
-    M.apply_profile('aac7')
+    M.apply_profile('aac7_c16')
     if a.selftest: return selftest()
     runs = collect(a.logs)
     table = {}
@@ -278,7 +278,7 @@ def main():
         json.dump(prof, open(FIT_FILE, 'w'), indent=1); print('\nwrote', FIT_FILE)
 
 def selftest():
-    import tempfile; M.apply_profile('aac7')
+    import tempfile; M.apply_profile('aac7_c16')
     d = tempfile.mkdtemp()
     for n in (1, 2, 4):
         for k in (1, 2):

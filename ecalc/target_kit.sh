@@ -24,9 +24,10 @@
 #                           srun -x, and counted out of the allocation size when a stage decides whether a node count fits.  Hosts
 #                           flagged by stage nodechk in the same --out are added automatically (file $OUT/flagged_hosts.txt).
 #                           MNRUN_EXCLUDE_HOSTS in the environment is taken as the default list.
-#   --spares N              the allocation holds N spare nodes beyond the largest node count asked for (request max count + N).  The
-#                           summary prints the size to request; stage nodechk then says STOP (ask for replacements) if more than N
-#                           nodes are flagged, else lists the --exclude-hosts line.  Default: unset (no spare check).
+#   --spares N              NOT USED (the policy of 2026-10-11 is exclude-only: ask for exactly the nodes you run, drop bad nodes
+#                           with --exclude-hosts, no spare nodes).  The option is kept so old command lines still work: it only
+#                           prints the allocation size (largest node count + N) and makes nodechk say STOP when more than N nodes
+#                           are flagged.  Default: unset (no spare check); do not pass it in the recommended flow.
 #   --plan-digits D --plan-procs G
 #                           stage plan also checks this one point (D total digits on G node-processes), e.g. the run you are
 #                           about to make.  Stage plan always checks every node count of stage a4.
@@ -85,7 +86,7 @@
 #   s2chk  (OPT-IN, off unless named in --only; about 5-15 min PER node count, default 2 and 8 nodes; needs stage build's
 #           kit_modules.env, so run `--only build,s2chk` or point --out at a directory where build already ran):
 #            the TARGET per-node share (6.441e10 digits/node) on the target launch line (internal target notes 4 without the
-#            576-only MN_GROUPS/POOL words; DM_MN_LEAN=1, MN_T_CHUNK_MB=1024) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
+#            576-only MN_GROUPS/POOL words; DM_MN_LEAN=1, MN_T_CHUNK_MB=2048, X2 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1, RNS_DIST_CACHE_FIT=1, ECALC_SEGV_TRACE=1) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
 #            nothing written.  Saves the full logs (logs/05_s2chk_n<N>.log) and prints a verdict helper:
 #             A37-R1 (GPU seed): "seed thread ends" vs the last "background mapping done" (tl lines, seconds since
 #               rns_init).  Build the GPU seed ONLY if the seed ends later than about 18 s AND more than 2 s after the
@@ -347,7 +348,7 @@ if [ "$SPARES" -ge 0 ]; then
     need=0
     for c in $(echo "$NODES_A4,${PLAN_PROCS:-0}" | tr , ' '); do [ "$c" -gt "$need" ] 2>/dev/null && need=$c; done
     if stage_optin s2chk; then for c in $(echo "$NODES_S2" | tr , ' '); do [ "$c" -gt "$need" ] 2>/dev/null && need=$c; done; fi
-    summary "spares: $SPARES -> request $((need + SPARES)) node(s) = largest node count asked for ($need) + $SPARES"
+    summary "spares (option NOT USED by the exclude-only policy): $SPARES -> request $((need + SPARES)) node(s) = largest node count asked for ($need) + $SPARES"
 fi
 [ -n "$(excl_all)" ] && summary "excluded hosts (--exclude-hosts / MNRUN_EXCLUDE_HOSTS): $(excl_all | paste -sd, -)"
 summary ""
@@ -526,7 +527,7 @@ print(\"uffd syscall: permitted\" if fd >= 0 else \"uffd syscall: refused, errno
     echo "== tiny run: $n node(s), $tiny digits, FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR" >> "$lf"
     exec_cmd "$lf" "$TO_UFFD" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR="$FI_MR_CACHE_MONITOR" \
         MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-        "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem "$SELF_DIR/ecalc" "$tiny" "$TMPDIR/uffd.out"
+        "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem ECALC_SEGV_TRACE=1 "$SELF_DIR/ecalc" "$tiny" "$TMPDIR/uffd.out"
     local rc=$?
     rm -f "$TMPDIR"/uffd.out*
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
@@ -618,13 +619,13 @@ stage_edge() {
     echo "== e $E9 (1e9), MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 -- the init footprint and VMM arena map rate" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
-        env MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
+        env ECALC_SEGV_TRACE=1 MEM_REPORT_DEVS=1 ECALC_VERBOSE=2 DB_POOL_VERBOSE=1 "$SELF_DIR/ecalc" "$E9" "$TMPDIR/e9.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e9.out*
 
     echo "== e $E10 (1e10) -- the single-node wall" >> "$lf"
     exec_cmd "$lf" "$TO_EDGE" srun --jobid="$JOBID" --export=ALL -N1 -n1 --ntasks-per-node=1 --gpus-per-node=4 --overlap \
         bash -lc "$pre"'echo "== runtime ROCm (compute node): $(hipconfig --version 2>&1)"; exec "$@"' _ \
-        "$SELF_DIR/ecalc" "$E10" "$TMPDIR/e10.out" || rc=1
+        env ECALC_SEGV_TRACE=1 "$SELF_DIR/ecalc" "$E10" "$TMPDIR/e10.out" || rc=1
     [ "$DRY_RUN" != 1 ] && rm -f "$TMPDIR"/e10.out*
 
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)";
@@ -762,7 +763,7 @@ stage_a4() {
         fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem RNS_DIST_CACHE_FIT=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
+            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem RNS_DIST_CACHE_FIT=1 ECALC_SEGV_TRACE=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -794,7 +795,7 @@ stage_a4() {
 S2_SEED_LATE=18        # s: A37-R1 trigger (seed end)
 S2_SEED_AFTER=2        # s: A37-R1 trigger (seed end minus the last mapping)
 S2_WAIT_LIMIT=30       # s per APU thread: S-2 trigger
-S2_LINE_DEFAULT="COMM_LAYER_VSLOT_SHARE=1 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 DM_MN_LEAN=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
+S2_LINE_DEFAULT="COMM_LAYER_VSLOT_SHARE=1 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=2048 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 ECALC_SEGV_TRACE=1 DM_MN_LEAN=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
 
 s2chk_verdict() {   # s2chk_verdict <log> <n> -- appends the A37-R1 / S-2 verdict lines for one run to the summary
     local f=$1 n=$2
