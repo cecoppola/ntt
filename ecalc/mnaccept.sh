@@ -32,13 +32,25 @@
 # Phase 16 A (results/A16.md): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
-FULL=0; STRESS=0; ONLY=""
-while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
+FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
+while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
-REF=${ECALC_REF:-$HOME/ntt/ecalc/ref}; [ -s ref/e_1000000000.txt ] && REF=$ECALC_DIR/ref
-for f in "$REF"/e_*; do [ -e "ref/$(basename "$f")" ] || ln -s "$f" ref/; done   # t_bs reads ref/e_<d>.sha256 relative to ecalc/ (the files are git-ignored)
+# Reference directory: ECALC_REF, else this clone's ref/ (when it holds the 1e9 digits), else $HOME/ref (aac7 since 2026-10-06),
+# else the old $HOME/ntt/ecalc/ref (aac6 keeps its references under ~/ntt/ecalc/results; set ECALC_REF there).
+if [ -n "${ECALC_REF:-}" ]; then REF=$ECALC_REF
+elif [ -s ref/e_1000000000.txt ]; then REF=$ECALC_DIR/ref
+elif [ -d "$HOME/ref" ]; then REF=$HOME/ref
+else REF=$HOME/ntt/ecalc/ref; fi
+# A04: a missing/dangling reference is "reference missing", never VERIFY FAILED.  refneed <step> <file...> reports the first absent
+# file (a dangling symlink counts as absent), counts the step as a failure with that text and returns 1 (the step is skipped).
+refneed() { local st=$1 f; shift; for f in "$@"; do [ -s "$f" ] || { fail "$st" "reference missing: $f (set ECALC_REF to the directory with e_<digits>.txt / .sha256)"; return 1; }; done; return 0; }
+mkdir -p ref
+for f in "$REF"/e_*; do b=$(basename "$f"); [ -e "$f" ] || continue
+  [ -e "ref/$b" ] && continue                      # a good file or link is kept
+  ln -sfn "$f" "ref/$b"                            # (-f also replaces a dangling link left by a deleted directory)
+done   # t_bs reads ref/e_<d>.sha256 relative to ecalc/ (the files are git-ignored)
 STD=${ECALC_STD_DIGITS:-100000000000}                                   # the standard size (Phase 14: 10^11; ECALC_STD_DIGITS=40000000000 = the old 4e10 step)
 case $STD in 40000000000) STDT=4e10;; 100000000000) STDT=1e11;; *) STDT=$STD;; esac
 # 2026-10-06: e_1e11.out moved to ~/ref (aac7 cleanup, ~/ntt deleted); e_4e10.out stays under ~/ntt/ecalc/results.
@@ -47,7 +59,12 @@ REF4=${ECALC_REF_STD:-${ECALC_REF_4E10:-$STDDEF}}
 [ "$(squeue -j "$J" -h -o %T 2>/dev/null)" = "RUNNING" ] || { echo "job $J is not running"; exit 2; }
 NODE=$(squeue -j "$J" -h -o %N)
 OUT=results/mnaccept/$J; mkdir -p "$OUT"; SUM=$OUT/summary.txt
-TMP=${MNACCEPT_TMP:-/tmp/mnaccept_$J}
+NNODES=$(squeue -j "$J" -h -o %D)
+# A04: on a multi-node hold the R/N helpers (srun -N1) may land on different nodes, so node-local /tmp would give a false DIFFERS;
+# default to a shared directory there (under $HOME), keep node-local /tmp for a 1-node hold.  MNACCEPT_TMP overrides.
+if [ -n "${MNACCEPT_TMP:-}" ]; then TMP=$MNACCEPT_TMP
+elif [ "${NNODES:-1}" -gt 1 ]; then TMP=$HOME/sess/mnaccept_$J; mkdir -p "$HOME/sess"
+else TMP=/tmp/mnaccept_$J; fi
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx rocm"; else MNRUN_MODULES=rocm; fi; fi
 export MNRUN_MODULES
 # Phase 16 S: `| head -1` -- on a multi-node job scontrol prints one CPUTot per node and R()'s srun got "-c 192<newline>192" (execve(): 192: No such file; results/S16.md)
@@ -61,8 +78,8 @@ pass() { NPASS=$((NPASS + 1)); echo "PASS $1: $2" | tee -a "$SUM"; }
 fail() { NFAIL=$((NFAIL + 1)); FAILED="$FAILED $1"; echo "FAIL $1: $2" | tee -a "$SUM"; }
 want() { [ -z "$ONLY" ] || [[ ",$ONLY," == *",$1,"* ]]; }
 # on the node: R <timeout> <cmd...> (single process, the four APUs); N <cmd...> (a shell on the node, no GPUs)
-R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
-N() { srun --jobid="$J" -N1 --overlap bash -c "$*"; }
+R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 --mem=0 --gpus=4 $RC --overlap bash -lc "module load $MNRUN_MODULES; cd $ECALC_DIR; $*"; }
+N() { srun --jobid="$J" -N1 --mem=0 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
 # the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS
@@ -73,22 +90,29 @@ total_of() { grep -a '^total' "$1" | tail -1 | sed 's/  */ /g' | cut -c1-40; }
 N "mkdir -p $TMP; rm -f $TMP/*"
 
 # ---- unit tests -------------------------------------------------------------------------------------------
-if want unit; then
+if want unit || want grid; then
+  SKIPBS=; want unit && refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
   for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- both output forms)
     n=${t// /_}; log=$OUT/unit_$n.log
+    want unit || continue
+    [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
     R 1200 "./tests/$t" > "$log" 2>&1; rc=$?
     v=$(grep -a 'VERIFY' "$log" | tail -1)
     if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$log" && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit $t" "$v"; else fail "unit $t" "rc $rc; ${v:-no VERIFY line}"; fi
   done
   log=$OUT/unit_t_mn_grid_2.log
-  M 1200 2 ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
+  if [ "$NOGRID" = 1 ]; then echo "SKIP unit t_mn_grid (2 procs): --skip-grid / MNACCEPT_SKIP_GRID=1" | tee -a "$SUM"; else
+  # A01 (measured): without COMM_TRANSPORT the TCP mesh runs over bond0 (1 Gb/s) on aac7 and overruns every timeout; shmem: 127 s on 2 nodes
+  GT=; [ -d /opt/cray/pe/sma ] && GT=COMM_TRANSPORT=shmem
+  M 1200 2 $GT ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
   ok=$(grep -ac 'VERIFY OK' "$log")
   if [ $rc -eq 0 ] && [ "$ok" -ge 1 ] && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit t_mn_grid (2 procs)" "$ok VERIFY OK: $(grep -a 'VERIFY OK' "$log" | head -1)"
   else fail "unit t_mn_grid (2 procs)" "rc $rc, $ok VERIFY OK; $(grep -a 'VERIFY FAILED\|error\|abort' "$log" | head -1)"; fi
+  fi
 fi
 
 # ---- 10^9 at size 1, both bases -----------------------------------------------------------------------------
-if want e9; then
+if want e9 && refneed "e9" "$REF/e_1000000000.txt"; then
   for b in 10 2; do
     log=$OUT/e9_b$b.log; f=$TMP/e9_b$b.txt
     R 900 "env LIMB_BASE=$b ./ecalc 1000000000 $f" > "$log" 2>&1; rc=$?
