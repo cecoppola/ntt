@@ -5,6 +5,7 @@
 #include <string.h>
 #include <omp.h>
 #include <pthread.h>
+#include <unistd.h>                                    /* S46: usleep (ECALC_VMM_REPRO_SPIN) */
 #include <hip/hip_runtime.h>
 #include "dbig.h"
 #include "mem.h"
@@ -233,6 +234,39 @@ static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int vmm_safe(void) { static int sf = -1; if (sf < 0) sf = getenv("ECALC_VMM_SAFE") ? atoi(getenv("ECALC_VMM_SAFE")) : 0; return sf; }   /* S32: ECALC_VMM_SAFE=1: the mapper thread's stream destroy / device restore under g_vmm_map_mx and BEFORE the last chunk is published (a waiter released by mapped >= m0 never overlaps the tail); =2 also joins the thread in every arena wait (level 1 starts after the mapper has left) */
+/* S35: ECALC_VMM_BG=2 -- the process-wide HIP memory-management lock (hipmm.c wraps ecalc's HIP memory / VMM / stream create-destroy
+ * calls with it; the background mapper holds it around each chunk's create + map + access).  Recursive: a wrapped call inside a held
+ * section nests.  Off (any other value): db_hipmm_on() = 0 and nothing locks. */
+static pthread_mutex_t g_hipmm_mx = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+static volatile int g_hipmm_on = -1;
+int db_hipmm_on(void) { int o = g_hipmm_on; if (o < 0) { const char *e = getenv("ECALC_VMM_BG"); o = e && atoi(e) == 2; g_hipmm_on = o; } return o; }
+void db_hipmm_lock(void) { if (db_hipmm_on()) pthread_mutex_lock(&g_hipmm_mx); }
+void db_hipmm_unlock(void) { if (db_hipmm_on()) pthread_mutex_unlock(&g_hipmm_mx); }
+static int vmm_repro(void) { static int n = -1; if (n < 0) { const char *e = getenv("ECALC_VMM_REPRO"); n = e ? atoi(e) : 0; if (n < 0) n = 0; } return n; }   /* S46: extra remaps per background chunk (crash reproducer; 0 = off) */
+/* S46: ECALC_VMM_REPRO_SPIN=us -- the crash reproducer, part 2: once an APU's background mapper has mapped its chunks, a thread of its
+ * own keeps mapping, granting access to and unmapping ONE spare chunk in a VA range of its own (never the arena, so the digits cannot
+ * change) every `us` microseconds until db_vmm_arena_release, under the mapper's locks (g_vmm_map_mx, and db_hipmm_lock under
+ * ECALC_VMM_BG=2): the background mapper's hipMemMap concurrent with the rest of the run.  Only where a background mapper runs (not
+ * under ECALC_VMM_BG=0).  0 = off (default). */
+static int vmm_spin_us(void) { static int n = -1; if (n < 0) { const char *e = getenv("ECALC_VMM_REPRO_SPIN"); n = e ? atoi(e) : 0; if (n < 0) n = 0; } return n; }
+static pthread_t g_spin[DB_NQ]; static int g_spin_on[DB_NQ]; static volatile int g_spin_stop[DB_NQ]; static long g_spin_n[DB_NQ];
+static void *vmm_spin(void *arg)
+{
+    int dev = (int)(intptr_t)arg; size_t C = g_vmm[dev].chunk; int nd = g_vmm[dev].nd; char *va = 0; hipMemGenericAllocationHandle_t h = 0;
+    hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
+    if (hipMemAddressReserve((void **)&va, C, 0, 0, 0) != hipSuccess || hipMemCreate(&h, C, &prop, 0) != hipSuccess) { fprintf(stderr, "dbig: ECALC_VMM_REPRO_SPIN: APU%d: reserve/create failed\n", dev); return 0; }
+    hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
+    for (int c = 0; c < nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
+    while (!g_spin_stop[dev]) {
+        pthread_mutex_lock(&g_vmm_map_mx); db_hipmm_lock();
+        int ok = hipMemMap(va, C, 0, h, 0) == hipSuccess && hipMemSetAccess(va, C, ad, nd) == hipSuccess && hipMemUnmap(va, C) == hipSuccess;
+        db_hipmm_unlock(); pthread_mutex_unlock(&g_vmm_map_mx);
+        if (!ok) { fprintf(stderr, "dbig: ECALC_VMM_REPRO_SPIN: APU%d: map/access/unmap failed after %ld cycles\n", dev, g_spin_n[dev]); break; }
+        g_spin_n[dev]++; usleep(vmm_spin_us());
+    }
+    (void)hipMemRelease(h); (void)hipMemAddressFree(va, C);
+    return 0;
+}
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -268,7 +302,11 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
         double tq = mem_now();
         pthread_mutex_lock(&g_vmm_map_mx);
         double tg = mem_now(); tlk += tg - tq;
+        db_hipmm_lock();   /* S35: ECALC_VMM_BG=2: the chunk's create + map + access as one section against every other HIP memory call */
         if (!vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (background chunk)", dev, v->chunk);
+        for (int r = 0; r < vmm_repro(); r++)   /* S46: ECALC_VMM_REPRO=n -- the crash reproducer: n more unmap + map + access cycles of the same chunk (same handle, same address; zeroed below as always) */
+            if (hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk) != hipSuccess || !vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, v->chunk);
+        db_hipmm_unlock();
         double tz = mem_now();
         HIP_CHECK(hipMemsetAsync(v->base + (size_t)k * v->chunk, 0, v->chunk, st)); HIP_CHECK(hipStreamSynchronize(st));
         v->t_ms += mem_now() - tz;
@@ -284,6 +322,7 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
     if ((size_t)v->m0 * v->chunk > v->bytes) { ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); }   /* the last chunk's remainder: free at once */
     v->n_grow = 0; v->grow_chunks = 0; v->t_bg = mem_now() - t0;
     pthread_mutex_unlock(&g_pool_mx);
+    if (vmm_spin_us() > 0) { g_spin_stop[dev] = 0; g_spin_n[dev] = 0; if (!pthread_create(&g_spin[dev], 0, vmm_spin, (void *)(intptr_t)dev)) g_spin_on[dev] = 1; }   /* S46 (joined in db_vmm_arena_release, after this thread) */
     return 0;
 }
 void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes` are mapped (the parity-1 half before level 1, everything before the halves are donated / released) */
@@ -316,11 +355,13 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
     if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
-    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */
+    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */   /* S35: =2 keeps the mapper, under db_hipmm_lock (hipmm.c) */
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
     v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
+    for (int r = 0; r < vmm_repro(); r++) for (int k = 0; k < m1; k++)   /* S46: ECALC_VMM_REPRO=n also here (the synchronous part; all of it under ECALC_VMM_BG=0): n more unmap + map + access cycles per chunk, zeroed below */
+        if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess || !vmm_map_run(dev, k, 1, &v->h[k])) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, C);
     double tz = mem_now();
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m1 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
     v->t_ms += mem_now() - tz;
@@ -341,6 +382,7 @@ void db_vmm_arena_release(int dev)                     /* after the pool is done
 {
     struct vmm *v = &g_vmm[dev]; if (!v->base) return;
     db_vmm_arena_wait(dev, (size_t)-1);
+    if (g_spin_on[dev]) { g_spin_stop[dev] = 1; pthread_join(g_spin[dev], 0); g_spin_on[dev] = 0; printf("dbig pool: APU%d ECALC_VMM_REPRO_SPIN: %ld spare-chunk map/access/unmap cycles\n", dev, g_spin_n[dev]); }   /* S46 */
     for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
     (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
     if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_grow, v->grow_chunks);
