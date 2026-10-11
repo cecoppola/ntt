@@ -1,7 +1,7 @@
 # T — tests, checkpoints and docs (Phase 10, PLAN.md §21: D3, D2, D4, D5, C6, E3)
 
 Branch `t10` (from `main` @ 4aca721 = 38ed61b + the PLAN §20–22 commits; the aac6 clone `~/ntt-t`).
-Files: `ecalc/mnaccept.sh` (new), `ecalc/t10_test.sh`, `t10_d5.sh`, `t10_d5b.sh` (new: this report's runs), `ecalc/accept.sh`,
+Files: `ecalc/mnaccept.sh` (new), `archive/drivers/ecalc/t10_test.sh`, `t10_d5.sh`, `t10_d5b.sh` (new: this report's runs), `ecalc/accept.sh`,
 `ecalc/variance.sh`, `ecalc/mn.c` (the tree checkpoint loop and `mn_finalize`), `ecalc/binsplit.c`
 (`bs_ckpt_tree_remove_below` and a comment), `ecalc/README.md`. Nothing else touched; the numerics are
 unchanged (the C6 change moves a barrier and a set removal).

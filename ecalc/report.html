@@ -94,7 +94,7 @@ ol,ul{max-width:70ch;padding-left:22px}li{margin-bottom:6px}
 </table></div>
 
 <h2>Beyond the paper</h2>
-<p><b>5 × 10¹⁰ digits, verified</b> (residues, and windows at 10¹⁰, 2 × 10¹⁰, 3 × 10¹⁰ and 4 × 10¹⁰ from the 40-billion run): 442 s, 375 GB host + 128 GiB pools = 503 GB of the node's 512 GB. That is the ceiling of this pipeline here; 6 × 10¹⁰ does not fit. The ~/ntt goal of 10¹¹ digits on one node needs a memory-resident-plane design, not a denser prime set — the ALGORITHM.md estimate of 3.4 bytes per digit is now corrected to 6.2 bytes per digit plus 192 GB fixed for this structure.</p>
+<p><b>5 × 10¹⁰ digits, verified</b> (residues, and windows at 10¹⁰, 2 × 10¹⁰, 3 × 10¹⁰ and 4 × 10¹⁰ from the 40-billion run): 442 s, 375 GB host + 128 GiB pools = 503 GB of the node's 512 GB. That is the ceiling of this pipeline here; 6 × 10¹⁰ does not fit. The ~/ntt goal of 10¹¹ digits on one node needs a memory-resident-plane design, not a denser prime set — the archive/docs/ALGORITHM.md estimate of 3.4 bytes per digit is now corrected to 6.2 bytes per digit plus 192 GB fixed for this structure.</p>
 
 <h2>Hardware facts established on the way</h2>
 <ul>
@@ -107,7 +107,7 @@ ol,ul{max-width:70ch;padding-left:22px}li{margin-bottom:6px}
 </ul>
 
 <h2>Artefacts</h2>
-<p><code>~/ntt/ecalc/</code> — the pipeline (13 modules, 10 GMP-checked tests, <code>accept.sh</code>, <code>variance.sh</code>); <code>~/ntt/bench/</code> — 28 microbenchmarks in seven groups with the <code>./suite</code> runner; <code>ref/e_1000000000.txt</code>; <code>results/e_4e10.out</code> (40 GB) and <code>results/e_5e10.out</code> (50 GB); <code>RESULTS.md</code> §17–48; <code>ALGORITHM.md</code> Part 6 (corrections).</p>
+<p><code>~/ntt/ecalc/</code> — the pipeline (13 modules, 10 GMP-checked tests, <code>accept.sh</code>, <code>variance.sh</code>); <code>~/ntt/bench/</code> — 28 microbenchmarks in seven groups with the <code>./suite</code> runner; <code>ref/e_1000000000.txt</code>; <code>results/e_4e10.out</code> (40 GB) and <code>results/e_5e10.out</code> (50 GB); <code>RESULTS.md</code> §17–48; <code>archive/docs/ALGORITHM.md</code> Part 6 (corrections).</p>
 </main>
 
 </body>

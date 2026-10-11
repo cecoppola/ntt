@@ -21,7 +21,7 @@
  *
  * The four-step twiddle w_L^(i1*k2) would need an L-entry table (a whole extra
  * plane).  Instead m = i1*k2 is split as q*N2 + r and looked up in two tables
- * of N2 entries, costing one modular multiply -- DESIGN.md 4.5.
+ * of N2 entries, costing one modular multiply -- archive/docs/DESIGN.md 4.5.
  *
  * Usage: 08_multiply [limbs] [reps]
  */

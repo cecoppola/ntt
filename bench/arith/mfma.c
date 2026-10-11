@@ -1,4 +1,4 @@
-/* arith/mfma - matrix-core rates, for the record (ALGORITHM.md R10 quotes
+/* arith/mfma - matrix-core rates, for the record (archive/docs/ALGORITHM.md R10 quotes
  * 880.4 T int8 MAC/s per APU with no source in bench/).
  *
  *   int8   v_mfma_i32_32x32x16_i8   32x32x16 = 16 384 MAC per wave-instruction

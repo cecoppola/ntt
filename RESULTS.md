@@ -2,7 +2,7 @@
 
 Everything here was measured on `PPAC_MI300A_SPX` (4 × MI300A). Sources are
 `bench/01`–`bench/08`, all plain C built with `hipcc -x hip`. Several of these
-overturn recommendations in `DESIGN.md`; those are marked **CORRECTION**.
+overturn recommendations in `archive/docs/DESIGN.md`; those are marked **CORRECTION**.
 
 ## 1. Where the design stands
 
@@ -17,7 +17,7 @@ overturn recommendations in `DESIGN.md`; those are marked **CORRECTION**.
 
 The multiply is verified two ways: against schoolbook at small operand sizes,
 and at full size by the homomorphism `hash61(a)·hash61(b) = hash61(a·b)` over
-2<sup>61</sup>−1 — which is also the production error detector (§8 of DESIGN.md).
+2<sup>61</sup>−1 — which is also the production error detector (§8 of archive/docs/DESIGN.md).
 
 ## 2. Arithmetic engine (bench/01)
 
@@ -46,7 +46,7 @@ compiles to **28 VALU instructions per butterfly at 88 % issue efficiency**;
 each group of 3 radix-2 stages register-resident, so LDS is only a transpose
 buffer between groups: 3 round trips and 3 barriers instead of 11 of each.
 
-**CORRECTION to DESIGN.md §4.4 on the XOR swizzle.** The blanket
+**CORRECTION to archive/docs/DESIGN.md §4.4 on the XOR swizzle.** The blanket
 recommendation was wrong in both directions. In the *simple* LDS kernel the
 access pattern is already conflict-free and the swizzle costs 3 %. In the
 *register-blocked* kernel it is essential — counting bank classes (an 8-byte
@@ -76,7 +76,7 @@ Three fixes tried (bench/07); only the first works:
 | non-temporal loads/stores for the data | **0.66× — do not use** |
 | stage the hot 8 KiB of table in LDS | 0.96×, occupancy loss exceeds the saving |
 
-**CORRECTION to DESIGN.md §12/report guidance on non-temporal loads.** The node
+**CORRECTION to archive/docs/DESIGN.md §12/report guidance on non-temporal loads.** The node
 report measured 1.10× for streaming reads, but that does not transfer: with the
 strided 8-element-per-thread load pattern, `__builtin_nontemporal_load` defeats
 coalescing and costs 34 %.
@@ -98,7 +98,7 @@ coalescing and costs 34 %.
 
 ## 5. CORRECTION: the fabric is not the dominant cost
 
-DESIGN.md §1 ranked xGMI as the second constraint and §4.6 concluded "the
+archive/docs/DESIGN.md §1 ranked xGMI as the second constraint and §4.6 concluded "the
 fabric costs more than the arithmetic and the HBM combined". That is true of a
 single distributed multiply but false of the run, because **only level 0 of the
 recursion has to be distributed**:
@@ -219,7 +219,7 @@ Four consequences:
 2. **The lazy conditional subtract costs 4.88 cyc — 18 % of a butterfly.**
    Deferring it to one per 3-stage register group (possible with a
    p < 2<sup>61</sup> prime, which loses only 2.2 % of density) is worth
-   **11.8 %**, not the 8 % estimated in DESIGN.md §4.1.
+   **11.8 %**, not the 8 % estimated in archive/docs/DESIGN.md §4.1.
 3. **The VALU is fully pipelined for this mix**: latency/throughput is 1.0–2.2
    for every operation, and 1.0 for the butterfly itself. The NTT kernel is
    **issue-bound, not latency-bound**, so register blocking buys instruction
@@ -337,7 +337,7 @@ Scattered stores still collapse, as expected:
   overlap efficiency        74 %
 ```
 
-DESIGN.md §7.5 said not to expect fabric transfers to hide behind computation,
+archive/docs/DESIGN.md §7.5 said not to expect fabric transfers to hide behind computation,
 on the strength of the node report's 16 % figure. That figure is for
 `hipMemcpyPeerAsync`, which is serviced by a blit kernel occupying CUs. A push
 kernel on its own stream overlaps at **74 %**. This answers open question 1 and
@@ -481,7 +481,7 @@ work is finished until something changes the memory ledger.**
 
 `bench/13` is hard-wired to L = 2048². Real use needs L from about
 2<sup>16</sup> to 2<sup>34</sup>, chosen 7-smooth to fit the operand within a
-few percent (§4.3 of DESIGN.md). After that, binary splitting is what turns the
+few percent (§4.3 of archive/docs/DESIGN.md). After that, binary splitting is what turns the
 3–5 bytes/digit whole-program estimate into a measurement.
 
 ---
@@ -505,7 +505,7 @@ Source: `envcheck.sh` → `results/0_env_ppac-pl1-s24-16.txt`; `tests/t_params.c
 | memory | 502 GB total, 495 free, no swap; THP `always`; no hugetlb reserved |
 | **`ulimit -l`** | **32 970 408 KB ≈ 31.4 GiB** — below the paper's 64 GB `hipHostRegister`; B3 decides whether the KFD userptr path honours it |
 | `ulimit -m` | 471 859 200 KB = 450 GiB (Slurm RSS cap) — fine for 256 GB |
-| `amdttm.pages_limit` | 134 217 728 pages = **512 GiB**, not the 96 GiB/APU DESIGN.md §5.1 assumed (CORRECTION: on this node `hipHostMalloc` was never needed to defeat a cap; it remains the right choice for bandwidth) |
+| `amdttm.pages_limit` | 134 217 728 pages = **512 GiB**, not the 96 GiB/APU archive/docs/DESIGN.md §5.1 assumed (CORRECTION: on this node `hipHostMalloc` was never needed to defeat a cap; it remains the right choice for bandwidth) |
 | idle telemetry | sclk 94 MHz, fclk 2000, mclk 1300, ~110 W and 45 °C per APU |
 
 Paper constants, all verified with GMP (`t_params`):
@@ -1747,7 +1747,7 @@ Findings:
    2³¹ points), not the host peak. Engine 2's peak is *higher* because more
    products exceed a plane and go through the split's temporaries. The
    2.81 bits/byte figure only sets the ceiling in a memory-resident-plane
-   design like `~/ntt`'s ALGORITHM.md — a different pipeline, not a switch.
+   design like `~/ntt`'s archive/docs/ALGORITHM.md — a different pipeline, not a switch.
 2. As built engine 2 is 2.2× slower: one product occupies two devices (two
    primes), so mdev uses half the node, and its CRT is CPU-only. Both are
    fixable (products in pairs on device pairs; a 2-prime striped GPU CRT)
@@ -1758,7 +1758,7 @@ Findings:
    plus 128 GiB of device pools in the same 512 GB → ≈ 5 × 10¹⁰ digits with
    the current footprint (task 2 measures it).
 
-**CORRECTION to ALGORITHM.md:** its "3.4 bytes per digit → 10¹¹ digits"
+**CORRECTION to archive/docs/ALGORITHM.md:** its "3.4 bytes per digit → 10¹¹ digits"
 estimate assumes memory-resident planes and does not carry over to the
 paper's host-resident pipeline; on that pipeline the ceiling is ≈ 6.2 bytes
 per digit (248 GB / 4 × 10¹⁰) plus the fixed 192 GB of pools and staging.
@@ -3145,7 +3145,7 @@ on `main` after the merges. The integration facts:
 | S transport (M8-s) | `comm_shmem.c` on OpenSHMEM 1.4 only (symmetric pool HIP-registered, one context per communicator, `putmem_nbi` + `quiet` + signal, `wait_until`; all-to-all/-v, all-gather, barrier, max, sum-mod-q, point-to-point); per-level PE sets (the teams shim) replace the per-level TCP meshes and port slots; `mnrun.sh` by `srun --mpi=pmix`; the dragonfly third layer of the layered all-to-all (`MN_TOPO_GROUP`) on both transports. OSHMEM 4.1.6 traps documented (ASLR crash without `setarch -L`, `fence` not ordering nbi puts, THREAD_MULTIPLE crashes → serial default) | `t_comm` at 2/4/8 PEs, `t_dist` every mode incl. layered at 8 with `MN_TOPO_GROUP=4`; 10⁸ sizes 2/3/4 and 10⁹ sizes 2/4 identical over SHMEM; **`mnaccept.sh` with `COMM_TRANSPORT=shmem`: 16/16** | 826cd58 |
 | M memory (§23-5, model, 10¹¹) | the arena's tail reserved for t₁'s quarter as a pool policy (`ECALC_TAIL`, v4: large requests carved from the back, small ones kept out of it) — **zero `hipMalloc` inside bs, the reciprocal and the division at 4, 8, 10 × 10¹⁰**; the tree's slabs at size > 1 from the arena (5 GB/process → 0); `mem_model.py` (`mem_per_node(D, g)`), exact against the runs | 4 × 10¹⁰ identical, device 253 GB at the dm peak (was 262); **8 × 10¹⁰ node peak 382 GB (was 393)**; **10¹¹ digits on one node: VERIFY OK, 262.9 s, node peak 445 of 502 GB**; sizes 2/4 identical, 10¹⁰ at size 4 identical | 1efe1b8 |
 | P single-node speed (B3, A2, §23-3, I11, A4) | 3·2³⁰-point planes sized at init (`RNS_PLANES_3Q30`): phases −3.6 s but the 60 GB more of pools cost +4.7…6.3 s of driver mapping at init → **default off** (measured, switch kept; fastest phases measured 62.4 s); level-22 products paired in the striped batch path, −0.55 s, adopted; `ECALC_DM_POOL` on at ≥ 5 × 10¹⁰: **7 × 10¹⁰ in 153.5 s** (was 159.7); context tables and twiddles uploaded once (bit-identical); the tile budget knob (no gain) | 10⁹ identical both bases; 10⁸ sizes 2/4 identical; **4 × 10¹⁰ five runs 82.0 / 82.2 / 82.7 / 79.1 / 81.3 — 81.5 ± 1.4 s, phases 66.0 ± 0.4**, identical (target ≤ 79 not met: init's mapping is the spread) | fba199d |
-| V verification (D5, recheck, E1 c, E2) | **the T1 moduli corrected**: `verify.c`'s eight "primes above 2⁶²" were 2⁶² + {135, 179, 183, 247, 315, 319, 349, 397} — only the first is prime; two composites have all factors < 2.5 × 10⁷ so every Q ≡ 0 modulo them, which is what made the failures read "BAD at six, ok at q2/q6" (and every historical failure had wrong digits — §75's "digits right, checker wrong" was mistaken); now the true first eight primes 2⁶² + {135, 169, 177, 187, 189, 193, 253, 277} (§-table), digits unchanged. **A real fault localised, not fixed**: under T's forced-growth recipe (10¹⁰/4, pool 1 forced to grow) node 0 or 1's leaf P_r and Q_r come out wrong from one limb up — 57 runs: 21/26 right without a per-level probe, 31/31 with one → a timing-dependent error at the batch tier's level transition (`spill_merge`'s CPU→GPU hand-over before the next scatter is the first suspect); never at the defaults (no growth). Reproducer `v11_d5.sh`, `ECALC_RES_LOG`, `ECALC_LEAF_DUMP`. `ECALC_RECHECK=1` re-verifies a finished run from the digit file, the `.t1` sidecar and the checkpointed top-level P, Q (RECHECK OK / FAILED on a flipped digit). Deleted: `DIST_PLANE2`, `BS_SEED_DIRECT=0`, `ECALC_OVERLAP_COPY`; the host-flow stand-ins kept as the cross-check. `results/*.md` tracked | 17/17 on the branch (4 × 10¹⁰ identical, 86.2 s); recheck identical to the in-run check at 10⁸/10⁹ sizes 1, 2 | 06e06f1 |
+| V verification (D5, recheck, E1 c, E2) | **the T1 moduli corrected**: `verify.c`'s eight "primes above 2⁶²" were 2⁶² + {135, 179, 183, 247, 315, 319, 349, 397} — only the first is prime; two composites have all factors < 2.5 × 10⁷ so every Q ≡ 0 modulo them, which is what made the failures read "BAD at six, ok at q2/q6" (and every historical failure had wrong digits — §75's "digits right, checker wrong" was mistaken); now the true first eight primes 2⁶² + {135, 169, 177, 187, 189, 193, 253, 277} (§-table), digits unchanged. **A real fault localised, not fixed**: under T's forced-growth recipe (10¹⁰/4, pool 1 forced to grow) node 0 or 1's leaf P_r and Q_r come out wrong from one limb up — 57 runs: 21/26 right without a per-level probe, 31/31 with one → a timing-dependent error at the batch tier's level transition (`spill_merge`'s CPU→GPU hand-over before the next scatter is the first suspect); never at the defaults (no growth). Reproducer `archive/drivers/ecalc/v11_d5.sh`, `ECALC_RES_LOG`, `ECALC_LEAF_DUMP`. `ECALC_RECHECK=1` re-verifies a finished run from the digit file, the `.t1` sidecar and the checkpointed top-level P, Q (RECHECK OK / FAILED on a flipped digit). Deleted: `DIST_PLANE2`, `BS_SEED_DIRECT=0`, `ECALC_OVERLAP_COPY`; the host-flow stand-ins kept as the cross-check. `results/*.md` tracked | 17/17 on the branch (4 × 10¹⁰ identical, 86.2 s); recheck identical to the in-run check at 10⁸/10⁹ sizes 1, 2 | 06e06f1 |
 
 Conflicts: `rns_dist.c` (P's radix-3 argument on L's any-size cap;
 both kept). **Regression on the merged tree:** after L+X+S (826cd58,

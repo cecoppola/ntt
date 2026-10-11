@@ -291,7 +291,7 @@ Columns: the user's value | what ecalc assumes today (where) | consistent? | imp
   - the claim that C1 validates the 1.22 factor;
   - SDMA for xGMI.
 
-## 3. The 576-node estimate with the target profile (4.08 × 10¹³, `ecalc/tgtb2_est.sh old-new`, all mod)
+## 3. The 576-node estimate with the target profile (4.08 × 10¹³, `archive/drivers/ecalc/tgtb2_est.sh old-new`, all mod)
 
 Old = TGT17's flag set: `--fabric target`, `MN_MODEL_MAP_RATE=0.070`. New = `--fabric target-m` (MAP_RATE 0.010). Both use
 `DM_MN_LEAN=1 MN_OUT_DKM_HI=1 COMM_OFI=1 --g 576 --D 70833333333.33 --np-mn auto --lat 8.5e-6 --hide-pow2 0.72 --t-round 0.015`.
@@ -351,7 +351,7 @@ v-slots are 6.707 GB/APU = 26.83 GB/node everywhere in this range.
 | 3.770 – 3.8209 × 10¹³ | 109 (42 + 49 + 18) | the division 16 → 18 |
 | 3.8210 – 3.896 × 10¹³ | 111 → 127 | the tree level-8 group 42 → 60 |
 
-### Modelled walls (`ecalc/tgtb2_est.sh sizes`, `--fabric target-m`, ROCm 7.2.4, no-write / write @ 1.0 GB/s, mod)
+### Modelled walls (`archive/drivers/ecalc/tgtb2_est.sh sizes`, `--fabric target-m`, ROCm 7.2.4, no-write / write @ 1.0 GB/s, mod)
 
 | T | device tier | critical path | bw 11 | **bw 47** | bw 100 | NIC TB/node |
 |---|---|---|---|---|---|---|

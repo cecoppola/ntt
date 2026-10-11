@@ -31,7 +31,7 @@ and off.
   is not edited). The two callers pass the operand lengths. The product memo key includes the flag, and `Design.env()` names it.
 - **`tests/t_crt.c`** part 0: `ec_np_terms` checks with the switch on and with it off.
 - **`ecalc/README.md`**: one row, `ECALC_NP_AUTO_MIN`.
-- New files: `ecalc/mpb15_job.sh` (the node batches) and `tests/mpb15_lines.py`. The script checks every `RNS_VERBOSE` product line
+- New files: `archive/drivers/ecalc/mpb15_job.sh` (the node batches) and `tests/mpb15_lines.py`. The script checks every `RNS_VERBOSE` product line
   against the rule "four primes iff min(na, nb) > k" and counts the products the switch moved (min ≤ k < na + nb, at three).
 - Pool 0's size (`ec_np_planes`) is unchanged and conservative. Under min, four planes would be needed only above 2 × the bound of
   plane points. At the target the division's pieces stay at four primes anyway, so pool 0 stays at four planes.
@@ -70,7 +70,7 @@ Take the product C = A·B of operands of na and nb limbs, each limb in [0, 10¹�
 
 ## 3. Results
 
-### 3.1 The plan at the target, switch off / on (plan; login node 17:49 EDT; `results/MPB15/plan_<d>_min{0,1}.txt`)
+### 3.1 The plan at the target, switch off / on (plan; login node 17:49 EDT; `archive/results-raw/MPB15/plan_<d>_min{0,1}.txt`)
 
 Environment: `ECALC_NP=auto COMM_SHMEM_ROUND_MB=1024 MN_T_CHUNK_MB=1024 MN_GROUPS=2,4,8,16,32,64,192,576 MN_PLAN_ONLY=<d>:576 ./ecalc`,
 plus `ECALC_NP_AUTO_MIN=0` / `1`. Every run returned rc 0, `plan check … OK`, 1240 products.
@@ -91,7 +91,7 @@ plus `ECALC_NP_AUTO_MIN=0` / `1`. Every run returned rc 0, `plan check … OK`, 
 
 ### 3.2 The node tests (measured)
 
-**Batch 2: the standing regression with the switch on** (job 21763, s24-16, 18:31–18:55 EDT; `results/MPB15/mnaccept_min*.log`)
+**Batch 2: the standing regression with the switch on** (job 21763, s24-16, 18:31–18:55 EDT; `archive/results-raw/MPB15/mnaccept_min*.log`)
 
 | command | result |
 |---|---|
@@ -102,7 +102,7 @@ plus `ECALC_NP_AUTO_MIN=0` / `1`. Every run returned rc 0, `plan check … OK`, 
 `sacct`: CANCELLED, not by my script). Only the four t_crt runs had finished: all VERIFY OK (105 / 105 / 103 / 24 checks). Everything
 after that failed with an expired job and is not a result. The script now flags a batch whose job ended early (e8d1a67). Rerun as job 21769 (below).
 
-**Batch 1: the forced tests** (job 21769, s24-16, 18:56–19:12 EDT; the job ran to the end; `results/MPB15/job1.log` and the per-test logs).
+**Batch 1: the forced tests** (job 21769, s24-16, 18:56–19:12 EDT; the job ran to the end; `archive/results-raw/MPB15/job1.log` and the per-test logs).
 Every run below has `ECALC_NP=auto ECALC_NP_AUTO_MIN=1`.
 - "Lines" are the `RNS_VERBOSE` product lines of every node, checked by `tests/mpb15_lines.py k`. "Moved" = lines at three primes with
   min ≤ k < na + nb: these are the products the old rule ran at four.
@@ -140,7 +140,7 @@ The switch only lowers each product's prime count, so it can only reduce time. T
 sizes with a lowered bound, where the two rules differ in a few products. I did not run a timing pair; the target's gain is §3.3's
 model, on NP's measured 1.29–1.31 per-product ratio.
 
-### 3.3 The estimate at 5.1 × 10¹³ on 576 (modelled; `results/MPB15/estimate_min{0,1}.txt`)
+### 3.3 The estimate at 5.1 × 10¹³ on 576 (modelled; `archive/results-raw/MPB15/estimate_min{0,1}.txt`)
 
 `[ECALC_NP_AUTO_MIN=1] python3 estimate.py --target --np-mn auto`. Assumptions: mn_model's code defaults, the TARGET fabric (assumed:
 100 GB/s per APU, 2 µs), cache 2, the packed part file.
@@ -170,12 +170,12 @@ model, on NP's measured 1.29–1.31 per-product ratio.
   - `ecalc/mn_plan.c`: `np_by` and three print lines.
   - `ecalc/mn_model.py`: `NP_AUTO_MIN`, `piece_np`, two callers, the memo key, `env()`.
   - `ecalc/README.md`: one row.
-  - `results/MPB15.md` and `results/MPB15/*`.
+  - `results/MPB15.md` and `archive/results-raw/MPB15/*`.
 - **Outside the list, minimal and commented**:
   - `ecalc/crt.c`: the switch in `ec_np_init`, and `ec_np_terms`.
   - `ecalc/modarith.h`: the declarations and the exactness comment.
   - `ecalc/tests/t_crt.c`: part 0, five check lines.
-- **New**: `ecalc/mpb15_job.sh`, `tests/mpb15_lines.py`.
+- **New**: `archive/drivers/ecalc/mpb15_job.sh`, `tests/mpb15_lines.py`.
 - **Not touched**: `estimate.py` (the model reads the same environment variable), `mem_model.py`, `binsplit.c`, `b_fits`, the grids,
   pool 0.
 

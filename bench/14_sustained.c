@@ -13,7 +13,7 @@
  *    study", and notes it cannot tell whether the four APUs share a package
  *    power budget.  The real computation runs for minutes at high VALU
  *    utilisation on all four APUs, so if throughput decays under load every
- *    time estimate in ALGORITHM.md is optimistic.  This runs the kernel
+ *    time estimate in archive/docs/ALGORITHM.md is optimistic.  This runs the kernel
  *    continuously and reports throughput per window.
  *
  * With a second argument, R GiB per APU of hipHostMalloc memory is allocated

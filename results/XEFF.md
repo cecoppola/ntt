@@ -254,7 +254,7 @@ levels: the stats cost 3–4 % in S22).
 
 **Setup:**
 - Hold: 10 nodes, one network program per node, no other job on them.
-- Driver: `tools/rundriver.sh`, like `ecalc/s22_batch.sh`.
+- Driver: `tools/rundriver.sh`, like `archive/drivers/ecalc/s22_batch.sh`.
 - Base line, the aac7 base of 2026-10-08:
 ```
 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1
@@ -376,7 +376,7 @@ Model values used (mod):
 **Test (measured):** `t_comm --bw 4 5 256 sym`, 2 nodes (x9000c1s5b0n0, x9000c1s6b0n0 of hold 12377), host-only t_comm build, comm_ofi on (cxi), base env of §4
 (`COMM_SHMEM_DEVHEAP=1 COMM_OFI_PLAN_CXI=1`, pools 8192 MB), ABBA x3 = 6 runs per arm. Arm A = default (data writes `FI_DELIVERY_COMPLETE`); arm B = `COMM_OFI_DC=0`
 (new diagnostic on branch s29, `comm_ofi.c`: transmit-complete data writes with no delivery wait and no replacement fence, i.e. an UPPER BOUND for item 4, unsafe: the SHMEM signal may pass the data).
-Driver `ecalc/s29_m2.sh`, branch s29; logs `~/s29m2/` on aac7.
+Driver `archive/drivers/ecalc/s29_m2.sh`, branch s29; logs `~/s29m2/` on aac7.
 
 | slab | DC=1 per-thread GB/s (6 runs) | DC=0 per-thread GB/s (6 runs) | lift |
 |---|---|---|---|

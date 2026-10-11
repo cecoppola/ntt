@@ -5,7 +5,7 @@
 > aac6/aac7 work and `docs/TARGET_TASKS.md` for target-only work. Kept below as the historical task log; the body
 > is not edited.
 
-Consolidated from PLAN §23, §26–§28, DECISIONS3.md, CODE_REDUCTION.md and the open-issue
+Consolidated from PLAN §23, §26–§28, archive/docs/DECISIONS3.md, archive/docs/CODE_REDUCTION.md and the open-issue
 sections of `results/{R,G12,I,S12,Q,W,M11}.md`. State (Phase 12, superseded by the status section below): `main` @ a73fb1d; one node computes
 4 × 10¹⁰ digits in 80.7 ± 1.2 s and 10¹¹ digits in 263 s; the regression is 21/21; the
 576-node estimate is ≈ 3.9 × 10¹³ digits in ≈ 4.0 min (modelled).
@@ -27,7 +27,7 @@ Phase A.
 
 | # | item | why first | evidence | size |
 |---|---|---|---|---|
-| A1 | **The rare hang after init: find and fix the cause.** Soak runs at the target's share size (7.64 × 10¹⁰) and at small sizes (fast repeats, e.g. 10⁹ × 200) with stacks captured by `ecalc/g13d_hang.sh` (gdb launch mode; `ptrace_scope` blocks attaching); then fix; then a soak with zero hangs | 1 hang in 31 one-node runs. A 576-node job runs 576 processes: at 1/31 each it almost never finishes; even at 1/3000 it fails 17 % of the time. A watchdog does not rescue a 576-node run | G13d §0 (197 threads in futex, 2 in `kfd_wait_on_events`, just after init — the seed thread's join) | 1–2 sessions |
+| A1 | **The rare hang after init: find and fix the cause.** Soak runs at the target's share size (7.64 × 10¹⁰) and at small sizes (fast repeats, e.g. 10⁹ × 200) with stacks captured by `archive/drivers/ecalc/g13d_hang.sh` (gdb launch mode; `ptrace_scope` blocks attaching); then fix; then a soak with zero hangs | 1 hang in 31 one-node runs. A 576-node job runs 576 processes: at 1/31 each it almost never finishes; even at 1/3000 it fails 17 % of the time. A watchdog does not rescue a 576-node run | G13d §0 (197 threads in futex, 2 in `kfd_wait_on_events`, just after init — the seed thread's join) | 1–2 sessions |
 | A2 | **The SHMEM pool: model it, size it, fix the staging** — measure the pool's high-water at 2 real nodes and 4 processes at 10⁸–10¹⁰, fit its growth, put it in `mem_model`/`estimate.py`, re-check the 4.25 × 10¹³ node total; include 2.4 (`rns_dist`'s slabs still staged: the one-line `comm_sym_alloc` change) | 8479 MiB in use at 10¹⁰ on 2 nodes, above the 8192 default; the model's column is flat. Decides whether 452 GB holds (T0 on the target) | S13d open 3; TARGET_TASKS T0 | ½ session |
 | A3 | **Clean failure from worker threads**: the in-phase pool guard calls `exit(1)` from four worker threads at once and the process segfaults; route it through one error path with a clear message and exit code | at 576 nodes a clean, attributable failure matters | G13d (c) | small |
 | A4 | **`t_mn_grid` on real nodes** (SOS, 2 and 3 nodes, small size) and **`mnrun.sh`'s SHMEM detection** under wrappers (`stdbuf`, `timeout`, `numactl`) | the any-size map is the target's path; only loopback-verified | S13d open 2, 5 | small |
@@ -140,7 +140,7 @@ seeds are now the critical path**, where driver page-mapping used to be.
 
 ## 5. Code reduction — PLAN §28, scheduled after everything above
 
-Per-item reasoning in `CODE_REDUCTION.md`. Approved groups: (a) archive, (b) remove,
+Per-item reasoning in `archive/docs/CODE_REDUCTION.md`. Approved groups: (a) archive, (b) remove,
 (e) the binary pipeline. Group (c) (merging) is **not** scheduled; group (d) is retention.
 
 | step | content | core lines |
@@ -166,7 +166,7 @@ Gate at every step: `mnaccept.sh --full --stress` green either side, plus a five
 Three big-integer layers (different carry topologies, already factored through one core),
 six product tiers (all reachable, each bound by a different resource), five communicator
 implementations (each earns its place), `ntt3.c` (adopted), single-node vs sharded
-reciprocal, `batch_local` vs striped-pair. Reasoning in `CODE_REDUCTION.md` §(d).
+reciprocal, `batch_local` vs striped-pair. Reasoning in `archive/docs/CODE_REDUCTION.md` §(d).
 
 
 ---
@@ -415,7 +415,7 @@ measurements their items need; A37-R1 only after both its gates.
 | **A37-R4** | Profile `dc` (2.8–4.1 s, S19B) to split D2H fetch, formatting and T1 residues (Q7); if formatting, a two-digit-table `fmt18` (a37v1 formats 4e10 digits in 0.5 s, m) | ≤ −3 s per node (mod; 0 if `dc` is T1 or D2H); also speeds `tools/unpack_digits` (off the clock) | S (2 h) | none; bit-identical | A37CMP §2 R4, §4 Q7 |
 | **A37-R6** | Time the reciprocal chain per doubling for j < 34126 (`ECALC_LOG_CLOCKS`, S19B §5 #4; floor 2.28 s, m), then, if the timings show it, a one-APU (or CPU) small-j path in place of the four-APU distributed products | ≤ −2 s (mod; the 10 s mean excess is the wait already in S19B §5 #4) | S (measure), then M | pairs with D3 / S-2 (division overlap); measurement is A37-Q8 | A37CMP §2 R6, §4 Q8 |
 | **A37-R5** (LOW PRIORITY) | Batch tile pipeline: two streams, pinned descriptors, fold `k_norm` and stitch (A27_BATCH_PIPE analogue: overlap tile i's CRT/merge with tile i+1's scatter/NTT) | ≤ −2 s per node (mod: merge 0.84 s + gaps at 4e10, ×1.6) | M (1–2 d) | **needs A37-Q9** (by-phase batch-tier run at 6.44e10) before any gain is trusted | A37CMP §2 R5, §4 Q9 |
-| **A37-R9** | Ops hygiene: `ecalc/a14_soak.sh` and `ecalc/g13d_hang.sh` send SIGTERM to ecalc, wait up to 60 s, and SIGKILL only if still alive (KFD poisoning risk on a `kill -9`) | avoids a poisoned node (qualitative) | S (done 2026-10-07) | none | A37CMP §2 R9 |
+| **A37-R9** | Ops hygiene: `archive/drivers/ecalc/a14_soak.sh` and `archive/drivers/ecalc/g13d_hang.sh` send SIGTERM to ecalc, wait up to 60 s, and SIGKILL only if still alive (KFD poisoning risk on a `kill -9`) | avoids a poisoned node (qualitative) | S (done 2026-10-07) | none | A37CMP §2 R9 |
 
 **Measurements** (no code change; each is a bounded run on the target's share, one job at a time):
 

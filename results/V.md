@@ -3,7 +3,7 @@
 Branch `v11` (from `main` @ 72aa2e9; the aac6 clone `~/ntt-v`). Files: `ecalc/verify.c`, `ecalc/mn_out.c/.h`, the
 residue kernel of `ecalc/dbig.c` (+ `dbig.h`), the output tail and the T1 flow of `ecalc/ecalc.c`, `ecalc/tests/t_dist.c`,
 `ecalc/ntt_dist.c/.h` (the two deleted functions), the seeds of `ecalc/binsplit.c` (the deleted path) plus a
-commented instrumentation block there, `.gitignore`, `ecalc/README.md`, the scripts `ecalc/v11_d5.sh`, `ecalc/v11_recheck.sh`.
+commented instrumentation block there, `.gitignore`, `ecalc/README.md`, the scripts `archive/drivers/ecalc/v11_d5.sh`, `archive/drivers/ecalc/v11_recheck.sh`.
 Touched outside my list, minimal and commented `Phase 11 V`: `ecalc/newton_db.c` (five lines of logging in
 `mdb_mod_qs`), `ecalc/mem.c` (`MEM_DPOOL_FILL`, a test knob in `dpool_get`), `ecalc/binsplit.c` (the level loop calls
 `bs_res_check` once per level; the leaf hand-over check).
