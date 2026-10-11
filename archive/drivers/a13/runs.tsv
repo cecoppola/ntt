@@ -1,0 +1,7 @@
+label	n	rc	class	wall	total	init	bs	dm	a2a	mode	start_et	phase	segv	maxstill
+r001	1	0	ok	231	220.55	47.6	78.2	91.6	12.00	mid	10-11_14:46:31	post-init	0	15
+r002	2	0	ok	206	197.59	35.7	71.0	86.1	13.10	fast	10-11_14:57:02	post-init	0	15
+r003	3	0	ok	206	196.76	37.7	70.7	84.6	13.07	fast	10-11_15:03:27	post-init	0	15
+r004	4	0	ok	230	219.98	34.9	76.0	104.0	10.99	slow	10-11_15:09:50	post-init	0	15
+r005	5	0	ok	211	200.17	33.9	75.5	87.5	11.60	slow	10-11_15:16:37	post-init	0	15
+r006	6	0	ok	190	182.01	32.1	69.4	77.0	13.68	fast	10-11_15:23:04	post-init	0	15
