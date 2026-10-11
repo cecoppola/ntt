@@ -186,7 +186,7 @@ int main(int argc, char **argv)
     if (count < 0) count = g_N - first;
     for (int i = 0; i < g_N; i++) g_host.push_back("");
     if (hosts.empty()) for (int i = 0; i < g_N; i++) g_host[i] = "127.0.0.1";
-    else { std::vector<std::string> hl; char *s = strdup(hosts.c_str()), *sp; for (char *t = strtok_r(s, ",", &sp); t; t = strtok_r(0, ",", &sp)) hl.push_back(t); for (int i = 0; i < g_N; i++) g_host[i] = hl[i % hl.size()]; }
+    else { std::vector<std::string> hl; char *s = strdup(hosts.c_str()), *sp; for (char *t = strtok_r(s, ",", &sp); t; t = strtok_r(0, ",", &sp)) hl.push_back(t); for (int i = 0; i < g_N; i++) g_host[i] = hl[(size_t)i * hl.size() / g_N];   /* block placement: host k holds nodes [k N / H, (k+1) N / H) */ }
     { const char *e; e = getenv("COMM_LAYER_VSLOT_POOL"); g_pool_on = e && atoi(e); e = getenv("COMM_LAYER_VSLOT_SHARE"); g_share_on = e && atoi(e); e = getenv("COMM_LAYER_INTER2"); g_i2_on = e && atoi(e); }
     setvbuf(stdout, 0, _IOLBF, 0);
     std::vector<pid_t> pids;
