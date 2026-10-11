@@ -49,7 +49,7 @@ COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	c
 COMM_PORT	int	unset	derived	TCP port	launch-line	-	WP6.md	Y	ecalc	comm_tcp.c,mn.c	2	comm_tcp.c, mn.c: TCP transport only
 COMM_PUSH64	int	1	1		built-in default	-	C.md	Y	ecalc	comm_xgmi.c	2	
 COMM_PUSH_BLOCKS	int	76	76		built-in default	-	C.md	Y	ecalc	comm_xgmi.c	2	
-COMM_RANK	int	0	conflict:0|1	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,comm_tcp.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c	10	set per process by the launcher (mnrun.sh); excluded from the config hash
+COMM_RANK	int	0	conflict:0|1	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,comm_tcp.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c	11	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	3	comm_shmem.c
 COMM_SHMEM_KEEP_STAGING	int	0	0		experiment	-	S12.md	Y	ecalc	comm_shmem.c	1	
 COMM_SHMEM_NOSYM	int	unset	unset		test-only	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	4	
@@ -68,7 +68,7 @@ COMM_SHMEM_STAGE_SLOTS	int	1	1		built-in default	-	V114.md	Y	ecalc	comm_shmem.c	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	
 COMM_SHMEM_THREAD	int	0	0		experiment	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
 COMM_SHMEM_VERBOSE	int	0	0		test-only	-	P214.md+V114.md	Y	ecalc	comm_shmem.c	1	
-COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,comm_tcp.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	18	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,comm_tcp.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	19	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	auto	derived	shmem|tcp|xgmi|local|sim4	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	mn.c:503; unset = the build's default transport
 COMM_XGMI_STATS	int	0	0		test-only	-	X13.md+D16.md	Y	ecalc	comm_xgmi.c	1	
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	
@@ -120,7 +120,7 @@ ECALC_MEM_GUARD_PERIOD	float	1	1		test-only	-	IO15.md	prose	ecalc	memsample.c	2
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	
 ECALC_MEM_SAMPLE_FILE	bool	derived	derived	0|1	test-only	-	S114.md	Y	ecalc	memsample.c	1	
 ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsplit.c,ecalc.c,rns_dist.c	10	
-ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	2	ecalc.c:482: unset becomes 3 (decimal limbs) or 4 (binary); crt.c:54 reads auto
+ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	3	ecalc.c:482: unset becomes 3 (decimal limbs) or 4 (binary); crt.c:54 reads auto
 ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1	
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	
@@ -132,7 +132,7 @@ ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecal
 ECALC_OUT_PACKED	int	1	1		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	
 ECALC_OVERLAP	int	1	1		built-in default	-	H.md+A-out.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	8	
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	
-ECALC_PLANE_CAP_IDX	int	unset	unset		test-only	-	-	Y	ecalc	binsplit.c	2	
+ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	ecalc.c: standalone recheck of a finished run
 ECALC_RES_LOG	int	0	0		test-only	-	S51.md+V.md	Y	ecalc	dbig.c	2	
 ECALC_RES_LOG_CPU	int	0	0		test-only	-	V.md	Y	ecalc	binsplit.c	2	
