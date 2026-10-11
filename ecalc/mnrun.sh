@@ -35,6 +35,7 @@ if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODU
 if [ -d /opt/cray/pe/sma ]; then MNRUN_UNLOAD=${MNRUN_UNLOAD-rocm/7.0.3}; fi
 export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
+__user_comm_hosts=${COMM_HOSTS:-}   # a12: the caller's COMM_HOSTS (mnrun.sh overwrites it below; only used for the TCP warning)
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
 # S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/S31.md).
@@ -78,6 +79,8 @@ export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}   
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
 for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+# a12: warning only -- cross-node TCP with the Slurm host names (aac7: the 1 GbE management network, ~110 MB/s per process, results/A01.md)
+if [ "$nn" -gt 1 ] && [ "${COMM_TRANSPORT:-tcp}" != shmem ] && [ -z "$__user_comm_hosts" ]; then echo "mnrun.sh: WARNING: cross-node TCP will use the Slurm host names (on aac7 the 1 GbE management network, ~110 MB/s per process, results/A01.md); set COMM_TRANSPORT=shmem or COMM_HOSTS with hsn0 addresses" >&2; fi
 if [ "$COMM_TRANSPORT" = shmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.

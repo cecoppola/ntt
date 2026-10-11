@@ -95,7 +95,7 @@
 #               exposed wait is above about 30 s.  CAVEAT printed with it: the literal wait includes the transfer itself
 #               (results/S22.md 2.3), and the 576-node value is modelled at 34 s; judge the 8-node figure against
 #               S22's aac7 table (n=2: recip 10 + division 32; n=8: 22 + 73 s per thread).
-#            Needs an ecalc built WITH MN_WAIT_STATS (the instrument is not in every branch; the stage says so if no
+#            Needs an ecalc built WITH MN_WAIT_STATS (in main since D3, comm_util.c; the stage says so if no
 #            wait-stats line appears).  The command for the target team:
 #              ./target_kit.sh --jobid $SLURM_JOB_ID --out kit_out_s2chk --only build,s2chk
 #   nodechk (OPT-IN, off unless named in --only; about 1-3 min, EVERY node of the allocation at once, one process per node; needs
@@ -762,7 +762,7 @@ stage_a4() {
         fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
+            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem RNS_DIST_CACHE_FIT=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -818,7 +818,7 @@ s2chk_verdict() {   # s2chk_verdict <log> <n> -- appends the A37-R1 / S-2 verdic
     fi
     local ws; ws=$(grep -a 'wait-stats node [0-9]*:' "$f")
     if [ -z "$ws" ]; then
-        summary "    S-2: no 'wait-stats node' lines -- this ecalc build lacks MN_WAIT_STATS (the instrument lives on branch s22 / d3-wait-stats; merge it into the build first) or the run failed -- see $f"
+        summary "    S-2: no 'wait-stats node' lines -- this ecalc build lacks MN_WAIT_STATS (the instrument is in main since D3; a build from an older commit lacks it) or the run failed -- see $f"
     else
         echo "$ws" | awk -v lim="$S2_WAIT_LIMIT" -v n="$n" '
             { d=-1; r=-1
