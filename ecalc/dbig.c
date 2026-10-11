@@ -769,7 +769,7 @@ __global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_
         }
     }
 }
-/* S38 (DBIG_ADDSUB2=1, default 0): k_addsub with coalesced loads and stores.  k_addsub gives each thread SEG=16 CONSECUTIVE limbs, so a wave's
+/* S38 (DBIG_ADDSUB2=1, the default since 2026-10-10; 0 = the old k_addsub): k_addsub with coalesced loads and stores.  k_addsub gives each thread SEG=16 CONSECUTIVE limbs, so a wave's
  * loads (and stores) of limb k sit 128 B apart: measured at 6.441e10 digits, 10.4 s of GPU time per APU at 36-84 GB/s (results/S38.md).  Here the
  * block's 4096 limbs move coalesced (limb e = j 256 + tid) through a 32 KB LDS tile in the thread-major order the carry scan wants (thread t, limb k at
  * t 16 + (k ^ (t & 15)): conflict-free both ways); the arithmetic, the flags (cout / prop) and the output are those of k_addsub, limb for limb.
