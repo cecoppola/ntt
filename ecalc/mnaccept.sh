@@ -32,9 +32,9 @@
 # Phase 16 A (results/A16.md): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
-FULL=0; STRESS=0; ONLY=""
-while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; *) echo "unknown option $1"; exit 2;; esac; shift; done
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
+FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
+while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
 # Reference directory: ECALC_REF, else this clone's ref/ (when it holds the 1e9 digits), else $HOME/ref (aac7 since 2026-10-06),
@@ -100,10 +100,12 @@ if want unit; then
     if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$log" && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit $t" "$v"; else fail "unit $t" "rc $rc; ${v:-no VERIFY line}"; fi
   done
   log=$OUT/unit_t_mn_grid_2.log
+  if [ "$NOGRID" = 1 ]; then echo "SKIP unit t_mn_grid (2 procs): --skip-grid / MNACCEPT_SKIP_GRID=1" | tee -a "$SUM"; else
   M 1200 2 ./tests/t_mn_grid 1 28 > "$log" 2>&1; rc=$?
   ok=$(grep -ac 'VERIFY OK' "$log")
   if [ $rc -eq 0 ] && [ "$ok" -ge 1 ] && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit t_mn_grid (2 procs)" "$ok VERIFY OK: $(grep -a 'VERIFY OK' "$log" | head -1)"
   else fail "unit t_mn_grid (2 procs)" "rc $rc, $ok VERIFY OK; $(grep -a 'VERIFY FAILED\|error\|abort' "$log" | head -1)"; fi
+  fi
 fi
 
 # ---- 10^9 at size 1, both bases -----------------------------------------------------------------------------
