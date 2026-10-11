@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""refit_s48.py - S48: refit the aac7 profile of mn_model.py to measured scaling runs and recompute the 576-node estimate.
+
+    ./refit_s48.py --logs ~/s48/log                       # run logs of s48_run.sh (files n<N>_r<k>.log; ECALC_VERBOSE xstats / wait-stats / tl lines used)
+    ./refit_s48.py --table 1:77.9 2:155.7 4:220.3         # nodes:total_seconds[:init_seconds] (measured totals; mixes with --logs)
+    ./refit_s48.py --logs ... --write-profile             # also write ecalc/aac7_s48_fit.json, which `estimate.py --fabric aac7_s48` then uses
+    ./refit_s48.py --selftest                             # parser + fit on a synthetic log
+
+What is fitted (all other model constants stay as they are; nothing in the code or its defaults changes):
+  1 node : INIT_SCALE (the init time, when the logs give it) and NODE_SCALE (the node's compute) so the model's no-write wall = the measured `total`.
+  >1 node: bw_apu (GB/s per APU thread) and lat (s per message) by a grid search on sum(log(model / measured)^2) over the multi-node sizes,
+           with the 1-node scales held (HIDE_POW2, GEN_HIDE, T_ROUND stay at AAC7_CONSTS).  The logs' xstats lines also give the measured
+           exchange rate (GB / t_post per APU thread, by phase and kind) and the wait-stats the blocked time: printed as independent checks of bw_apu.
+Then: the 576-node target estimate (M.TARGET_DIGITS, the target fabric, as `estimate.py --target`) with the unchanged target locals and with the
+refit local scales (NODE_SCALE, INIT_SCALE: the same MI300A hardware) - modelled, labelled so; the target fabric (100 GB/s per APU) is ASSUMED, not fitted.
+Measured quantity = `total` of the run (no digit write), compared to the model's no-write wall.  Labels: measured (logs/table), modelled (the rest).
+"""
+import argparse, glob, json, math, os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mn_model as M
+import mem_model
+
+DPN = 6.441e10
+TGT = dict(HIDE_POW2=M.HIDE_POW2, T_ROUND=M.T_ROUND, GEN_HIDE1=M.GEN_HIDE_DEPTH[1], GEN_HIDE2=M.GEN_HIDE_DEPTH[2], MAP_RATE=M.MAP_RATE, NODE_SCALE=M.NODE_SCALE, INIT_SCALE=M.INIT_SCALE)   # the target profile's constants (module defaults, before any apply_profile)
+FIT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
+
+# ---------------------------------------------------------------- parsing
+LAB = re.compile(r'^\s*\d+: ')
+TOT = re.compile(r'^total\s+([\d.]+) s\s+\(bs ([\d.]+) \+ 10dP ([\d.]+) \+ dm ([\d.]+) \+ T1 ([\d.]+) \+ dc ([\d.]+) \+ T2 ([\d.]+) = [\d.]+; init ([\d.]+); other ([\d.]+)\)')
+XPH = re.compile(r'^xstats pe (\d+) phase (\w+) kind (\w+): n (\d+) rounds (\d+) GB ([\d.]+) t_post ([\d.]+) s t_call ([\d.]+) s t_wait ([\d.]+) s')
+WST = re.compile(r'^wait-stats node (\d+):(.*)$')
+WPH = re.compile(r'(\w+) barrier ([\d.]+) s \(\d+\) wait ([\d.]+) s')
+TLL = re.compile(r'^tl\s+([\d.]+)\s+(.*)$')
+
+def parse_log(path, nodes=None):
+    """one run's log -> dict(nodes, total, bs, dm, init, other, verify, xs{(phase,kind)->[GB, t_post, n_pe]}, wait{phase->[barrier, wait, n]}, tl_end)"""
+    r = dict(path=path, nodes=nodes, total=None, init=None, bs=None, dm=None, other=None, verify=False, xs={}, wait={}, tl_end=None, pes=set())
+    m = re.search(r'n(\d+)_r', os.path.basename(path))
+    if m and nodes is None: r['nodes'] = int(m.group(1))
+    for ln in open(path, errors='replace'):
+        ln = LAB.sub('', ln.rstrip('\n'))
+        if 'VERIFY OK' in ln: r['verify'] = True
+        t = TOT.match(ln)
+        if t and r['total'] is None:
+            r.update(total=float(t.group(1)), bs=float(t.group(2)), dm=float(t.group(4)), init=float(t.group(8)), other=float(t.group(9)))
+        x = XPH.match(ln)
+        if x:
+            pe, ph, kd = int(x.group(1)), x.group(2), x.group(3); r['pes'].add(pe)
+            a = r['xs'].setdefault((ph, kd), [0.0, 0.0, set()]); a[0] += float(x.group(6)); a[1] += float(x.group(7)); a[2].add(pe)
+        w = WST.match(ln)
+        if w:
+            for ph, b, wt in WPH.findall(w.group(2)):
+                a = r['wait'].setdefault(ph, [0.0, 0.0, 0]); a[0] += float(b); a[1] += float(wt); a[2] += 1
+        tl = TLL.match(ln)
+        if tl: r['tl_end'] = float(tl.group(1))
+    if r['nodes'] is None and r['pes']: r['nodes'] = len(r['pes'])
+    return r
+
+def collect(paths):
+    files = []
+    for p in paths:
+        p = os.path.expanduser(p)
+        files += sorted(glob.glob(os.path.join(p, '*.log'))) if os.path.isdir(p) else sorted(glob.glob(p))
+    return [parse_log(f) for f in files]
+
+# ---------------------------------------------------------------- model
+def design():
+    """the design of `estimate.py`'s defaults (p15c: auto primes at size > 1, round 1024 MB, packed part file, cache FIT)"""
+    M.TWREC_G = True; M.CACHE_FORCE = None
+    return M.Design(np=3, strategy='auto', cap=mem_model.CAPS['2^31'], chunk='both', depth=2, modmul=1, chunk_mb=M.CHUNK_MB, p15=True, round_mb=1024,
+                    out_overlap='none', p15b=True, np_mn='auto', packed=True, p15c=True, arena_room=None, cache_fit=True)
+
+DES = None
+def model(g, D, bw, lat, node_scale, init_scale, consts=None, write_bw=0.116, groups=None, fab_name=None):
+    """the model's no-write wall and phases for g nodes at D digits per node on a fabric (bw, lat); constants as set"""
+    global DES
+    if DES is None: DES = design()
+    saved = (M.NODE_SCALE, M.INIT_SCALE, M.HIDE_POW2, M.T_ROUND, dict(M.GEN_HIDE_DEPTH), M.MAP_RATE)
+    try:
+        M.NODE_SCALE, M.INIT_SCALE = node_scale, init_scale
+        if consts:
+            M.HIDE_POW2 = consts.get('HIDE_POW2', M.HIDE_POW2); M.T_ROUND = consts.get('T_ROUND', M.T_ROUND)
+            M.MAP_RATE = consts.get('MAP_RATE', M.MAP_RATE)
+            M.GEN_HIDE_DEPTH[1] = consts.get('GEN_HIDE1', M.GEN_HIDE_DEPTH[1]); M.GEN_HIDE_DEPTH[2] = consts.get('GEN_HIDE2', M.GEN_HIDE_DEPTH[2])
+        fab = M.Fabric(fab_name or 'aac7 S48 refit', bw, lat, group=64, layers=2, taper=1.0, write_bw=write_bw)
+        r = M.run(fab, D, g, 'model', verbose=False, groups=groups, form='grid', transport='shmem', staging='code', design=DES)
+        return r
+    finally:
+        M.NODE_SCALE, M.INIT_SCALE, M.HIDE_POW2, M.T_ROUND = saved[:4]; M.GEN_HIDE_DEPTH.update(saved[4]); M.MAP_RATE = saved[5]
+
+def bisect(f, lo, hi, target, it=40, increasing=True):
+    """x in [lo, hi] with f(x) = target (f monotone); geometric bisection; clamps at the ends"""
+    flo, fhi = f(lo), f(hi)
+    if (flo - target) * (fhi - target) > 0: return lo if abs(flo - target) < abs(fhi - target) else hi
+    for _ in range(it):
+        mid = math.sqrt(lo * hi); fm = f(mid)
+        if (fm < target) == increasing: lo = mid
+        else: hi = mid
+    return math.sqrt(lo * hi)
+
+# ---------------------------------------------------------------- fit
+def mean(xs): xs = [x for x in xs if x is not None]; return sum(xs) / len(xs) if xs else None
+
+def summarize(runs, table):
+    """per node count: dict(total, init, bs, dm, n, src)  -- measured; logs first, table entries fill in what the logs lack"""
+    by = {}
+    for r in runs:
+        if r['total'] is None or not r['verify'] or r['nodes'] is None: continue
+        by.setdefault(r['nodes'], []).append(r)
+    out = {}
+    for g, rs in sorted(by.items()):
+        out[g] = dict(total=mean([x['total'] for x in rs]), init=mean([x['init'] for x in rs]), bs=mean([x['bs'] for x in rs]), dm=mean([x['dm'] for x in rs]),
+                      n=len(rs), spread=(max(x['total'] for x in rs) - min(x['total'] for x in rs)), src='logs')
+    for g, (tot, ini) in table.items():
+        if g not in out: out[g] = dict(total=tot, init=ini, bs=None, dm=None, n=1, spread=0.0, src='table')
+    return out
+
+def fit(meas, args):
+    ac = dict(M.AAC7_CONSTS)
+    ns0, is0 = ac['NODE_SCALE'], ac['INIT_SCALE']
+    bw0, lat0 = M.AAC7.bw, M.AAC7.lat
+    res = dict(base=dict(bw_apu=bw0, lat=lat0, consts=ac))
+    D = DPN
+    # --- 1 node: scales
+    ns, isc = ns0, is0
+    if 1 in meas:
+        m1 = meas[1]
+        if m1['init'] is not None:
+            isc = bisect(lambda s: model(1, D, bw0, lat0, ns0, s)['init'], 0.2, 5.0, m1['init'])
+        else:
+            isc = ns0 * is0 / ns0   # no init measurement: keep AAC7's ratio below
+        f = lambda s: model(1, D, bw0, lat0, s, isc if m1['init'] is not None else s * is0 / ns0)['wall_nowrite']
+        ns = bisect(f, 0.2, 5.0, m1['total'])
+        if m1['init'] is None: isc = ns * is0 / ns0
+    res['node_scale'], res['init_scale'] = ns, isc
+    # --- multi-node: bw, lat
+    gs = [g for g in sorted(meas) if g > 1]
+    best = None
+    if gs:
+        bws = [bw0 * 2 ** (k / 4.0) for k in range(-8, 13)]
+        lats = [2e-6, 4e-6, 8.5e-6, 17e-6, 34e-6]
+        if args.fix_lat: lats = [lat0]
+        for lat in lats:
+            for bw in bws:
+                e = 0.0
+                for g in gs:
+                    w = model(g, D, bw, lat, ns, isc, ac)['wall_nowrite']
+                    e += math.log(w / meas[g]['total']) ** 2
+                if best is None or e < best[0]: best = (e, bw, lat)
+        # refine bw at the best lat by bisection on the mean log error
+        _, bw, lat = best
+        f = lambda b: sum(math.log(model(g, D, b, lat, ns, isc, ac)['wall_nowrite'] / meas[g]['total']) for g in gs) / len(gs)
+        lo, hi = bw / 1.2, bw * 1.2
+        try:
+            bw = bisect(f, lo, hi, 0.0, it=18, increasing=False)
+        except Exception:
+            pass
+        res['bw_apu'], res['lat'] = bw, lat
+    else:
+        res['bw_apu'], res['lat'] = bw0, lat0
+    res['consts'] = {k: ac[k] for k in ('HIDE_POW2', 'GEN_HIDE1', 'GEN_HIDE2', 'T_ROUND', 'MAP_RATE')}
+    res['consts']['NODE_SCALE'], res['consts']['INIT_SCALE'] = ns, isc
+    return res
+
+def rate_checks(runs):
+    """measured exchange rates (GB/s per APU thread = GB / t_post) from the xstats lines, and the wait stats; mean over runs with them, by node count"""
+    out = {}
+    for r in runs:
+        if r['nodes'] is None or not r['verify']: continue
+        o = out.setdefault(r['nodes'], dict(xs={}, wait={}, n=0, tl=[]))
+        if r['xs'] or r['wait']: o['n'] += 1
+        for k, (gb, tp, pes) in r['xs'].items():
+            a = o['xs'].setdefault(k, [0.0, 0.0, 0]); a[0] += gb / len(pes); a[1] += tp / len(pes); a[2] += 1
+        for ph, (b, w, n) in r['wait'].items():
+            a = o['wait'].setdefault(ph, [0.0, 0.0, 0]); a[0] += b / n; a[1] += w / n; a[2] += 1
+        if r['tl_end'] is not None: o['tl'].append(r['tl_end'])
+    return out
+
+def target_rows(res, ns, isc):
+    """the 576-node estimate: the standing target profile (unchanged) and with the refit local scales; groups as estimate.py --target"""
+    groups = '2,4,8,16,32,64,192,576'; T = M.TARGET_DIGITS; rows = []
+    for label, nsc, isc_ in (('target as is (aac6-calibrated locals)', TGT['NODE_SCALE'], TGT['INIT_SCALE']), ('target + refit local scales', ns, isc)):
+        for wbw in (M.TARGET_WRITE_BW,):
+            r = model(576, T / 576, M.TARGET.bw, M.TARGET.lat, nsc, isc_, TGT, write_bw=wbw, groups=groups, fab_name='target')
+            rows.append((label, nsc, isc_, r['wall_nowrite'], r['wall']))
+    return rows
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--logs', nargs='*', default=[], help='log files / dirs (n<N>_r<k>.log of s48_run.sh)')
+    ap.add_argument('--table', nargs='*', default=[], help='nodes:total[:init] measured seconds (mean of the runs)')
+    ap.add_argument('--fix-lat', action='store_true', help='keep the profile latency (8.5 us), fit bw only')
+    ap.add_argument('--write-profile', action='store_true', help='write ecalc/aac7_s48_fit.json (the profile `estimate.py --fabric aac7_s48` reads)')
+    ap.add_argument('--selftest', action='store_true')
+    a = ap.parse_args()
+    M.apply_profile('aac7')
+    if a.selftest: return selftest()
+    runs = collect(a.logs)
+    table = {}
+    for t in a.table:
+        p = t.split(':'); table[int(p[0])] = (float(p[1]), float(p[2]) if len(p) > 2 else None)
+    meas = summarize(runs, table)
+    if not meas: raise SystemExit('refit_s48: no usable run (need a VERIFY OK log with a `total` line, or --table)')
+    print('measured (mean per node count; total = the run\'s own clock, no digit write):')
+    for g, m in meas.items():
+        print('  %d node(s): total %.1f s (n %d, spread %.1f s, %s)%s%s' % (g, m['total'], m['n'], m['spread'], m['src'],
+              ', init %.1f' % m['init'] if m['init'] is not None else '', ', bs %.1f dm %.1f' % (m['bs'], m['dm']) if m['bs'] is not None else ''))
+    res = fit(meas, a)
+    ac = res['base']['consts']
+    print('\nfit (modelled on the measured totals above):')
+    print('  node_scale %.3f (AAC7 %.3f)   init_scale %.3f (AAC7 %.3f)   bw_apu %.2f GB/s (AAC7 %.2f)   lat %.1f us (AAC7 %.1f)' % (
+        res['node_scale'], ac['NODE_SCALE'], res['init_scale'], ac['INIT_SCALE'], res['bw_apu'], res['base']['bw_apu'], res['lat'] * 1e6, res['base']['lat'] * 1e6))
+    if res['lat'] in (2e-6, 34e-6) and not a.fix_lat: print('  WARNING: lat at the edge of its grid (%.0f us): bw and lat are not separated by these data; read the fit as a pair, or use --fix-lat' % (res['lat'] * 1e6))
+    print('  %-6s %10s %10s %7s | %10s %7s' % ('nodes', 'measured', 'model AAC7', 'err %', 'model fit', 'err %'))
+    for g, m in meas.items():
+        w0 = model(g, DPN, res['base']['bw_apu'], res['base']['lat'], ac['NODE_SCALE'], ac['INIT_SCALE'], ac)['wall_nowrite']
+        w1 = model(g, DPN, res['bw_apu'], res['lat'], res['node_scale'], res['init_scale'], ac)['wall_nowrite']
+        print('  %-6d %10.1f %10.1f %+7.1f | %10.1f %+7.1f' % (g, m['total'], w0, 100 * (w0 / m['total'] - 1), w1, 100 * (w1 / m['total'] - 1)))
+    rc = rate_checks(runs)
+    for g, o in sorted(rc.items()):
+        if not o['n']: continue
+        print('\nindependent checks, %d node(s), %d run(s) with stats (measured): ' % (g, o['n']))
+        for (ph, kd), (gb, tp, n) in sorted(o['xs'].items()):
+            if tp > 0: print('  xstats %-6s %-7s %8.1f GB/node  t_post %7.1f s (4 threads summed)  -> %.2f GB/s per APU thread' % (ph, kd, gb / n, tp / n, gb / tp * 1.0 / 1))
+        for ph, (b, w, n) in sorted(o['wait'].items()): print('  wait-stats %-6s barrier %.1f s  wait %.1f s (mean over nodes, summed over APU threads)' % (ph, b / n, w / n))
+        if o['tl']: print('  init timeline last tl mark: %.1f s' % (sum(o['tl']) / len(o['tl'])))
+    print('\n576-node standing estimate (modelled; fabric 100 GB/s per APU / 2 us ASSUMED, the part file at %.1f GB/s ASSUMED), T = %.3e digits:' % (M.TARGET_WRITE_BW, M.TARGET_DIGITS))
+    for label, nsc, isc, nw, w in target_rows(res, res['node_scale'], res['init_scale']):
+        print('  %-42s node_scale %.3f init_scale %.3f : no-write %.1f s (%.2f min), with the file %.1f s (%.2f min)' % (label, nsc, isc, nw, nw / 60, w, w / 60))
+    if a.write_profile:
+        prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
+        json.dump(prof, open(FIT_FILE, 'w'), indent=1); print('\nwrote', FIT_FILE)
+
+def selftest():
+    import tempfile; M.apply_profile('aac7')
+    d = tempfile.mkdtemp()
+    for n in (1, 2, 4):
+        for k in (1, 2):
+            tot = {1: 78.0, 2: 156.0, 4: 221.0}[n] + k * 0.3
+            with open(os.path.join(d, 'n%d_r%d.log' % (n, k)), 'w') as f:
+                f.write('tl    0.00  rns_init begins\ntl   14.20  join\n')
+                for pe in range(n):
+                    f.write('%d: all %d nodes: VERIFY OK\n' % (pe, n) if pe == 0 else '')
+                    f.write('%d: xstats pe %d phase dm kind layv: n 100 rounds 50 GB 400.000 t_post 100.000 s t_call 90.000 s t_wait 10.000 s roff_wait 0 s sig_wait 0 s (x)\n' % (pe, pe))
+                    f.write('%d: wait-stats node %d: bs barrier 1.000 s (3) wait 2.000 s (9) ready 0.000 s (0) | dm barrier 1.0 s (3) wait 20.0 s (9) ready 0.000 s (0)\n' % (pe, pe))
+                f.write('0: total %8.2f s   (bs 30.0 + 10dP 0.0 + dm 40.0 + T1 1.0 + dc 1.0 + T2 1.0 = 73.0; init 14.2; other 0.8); VmHWM 1.0 GB\n' % tot)
+    runs = collect([d]); assert len(runs) == 6 and all(r['verify'] and r['total'] for r in runs), runs
+    assert abs(runs[0]['init'] - 14.2) < 1e-9 and runs[0]['nodes'] == 1
+    meas = summarize(runs, {})
+    assert sorted(meas) == [1, 2, 4], meas
+    rc = rate_checks(runs); assert abs(rc[4]['xs'][('dm', 'layv')][0] / rc[4]['xs'][('dm', 'layv')][2] - 400.0) < 1e-6, rc[4]
+    ns = bisect(lambda s: model(1, DPN, 3.6, 8.5e-6, s, 1.2)['wall_nowrite'], 0.2, 5.0, 78.0)
+    w = model(1, DPN, 3.6, 8.5e-6, ns, 1.2)['wall_nowrite']; assert abs(w - 78.0) < 0.5, (ns, w)
+    print('selftest OK (parser, summary, rate check, node_scale %.3f -> %.1f s at 1 node)' % (ns, w))
+
+if __name__ == '__main__':
+    main()
