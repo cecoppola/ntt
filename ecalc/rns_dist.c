@@ -1772,6 +1772,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             HIP_CHECK(hipStreamSynchronize(s));
         }
         if (oB.rb) { db_pool_free(d, oB.rb); oB.rb = 0; }
+        if (gen) comm_layered_release_vslots(cl);           /* M3 COMM_LAYER_VSLOT_RELEASE=1 (comm_layered.c): the v-exchanges of this product are all waited for; the pool's slots go before the staged result exchange (no-op otherwise) */
         double s2 = mem_now(); tf[d] = s2 - s1;
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);

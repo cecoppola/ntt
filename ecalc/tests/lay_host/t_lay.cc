@@ -21,7 +21,8 @@
 extern "C" int comm_xgmi_last_push(int, double *, double *) { return 0; }
 static const int NA = 4;
 static int g_N, g_nl; static int g_lv[16]; static std::vector<std::string> g_host; static int g_port = 30000, g_rounds = 3; static size_t g_pool_mb = 256;
-static int g_pool_on, g_share_on, g_i2_on;
+static int g_pool_on, g_share_on, g_i2_on, g_real, g_rel;   /* g_real (C06): only non-power-of-two group sizes run the layered communicator, as in the product (a power-of-two group is ntt_dist's plain mesh) */
+static int lay_used(int gs) { return !g_real || (gs > 1 && (gs & (gs - 1))); }
 /* ---- the emulated symmetric pool: first-fit, coalescing (comm_shmem.c pool_alloc / pool_free), one per process ---- */
 struct blk { size_t off, len; int used, kind; blk *next; };
 static int g_ofi; static blk *g_blocks; static size_t g_pool_bytes; static const size_t ALIGN_ = 256;
@@ -61,7 +62,7 @@ static comm *wrap(comm *t, size_t ctrl)
 {
     if (!g_wops.rank) { g_wops = *t->ops; g_wops.sym_alloc = w_sym_alloc; g_wops.sym_free = w_sym_free; }
     comm *w = (comm *)calloc(1, sizeof *w); *w = *t; w->ops = &g_wops;
-    if (!g_ofi) pool_alloc(ctrl, 1);   /* SHMEM transport: the communicator's control block lives in the same pool (emulated size: 4 KiB + 64 B per rank); the OFI pool holds only the symmetric buffers and staging */
+    if (!g_ofi) pool_alloc(ctrl, 1);   /* SHMEM transport: the communicator's control block lives in the same pool (C06: comm_shmem.c ctrl_bytes = n (64 + ring 256 KiB); S45 had assumed 4 KiB + 64 B per rank, which the 256 B alignment hid); the OFI pool holds only the symmetric buffers and staging */
     return w;
 }
 /* ---- the exchange pattern ---- */
@@ -113,45 +114,52 @@ static int child(int node, int d)
         int g = g_lv[L]; int ng = (g_N + g - 1) / g; gidx[L] = node / g; g0s[L] = gidx[L] * g; gsz[L] = std::min(g, g_N - g0s[L]);
         for (int G = 0; G < ng; G++) for (int dd = 0; dd < NA; dd++) {
             int g0 = G * g, gs = std::min(g, g_N - g0); int b = nextbase(gs);
-            if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter[L] = wrap(t, 4096 + 64 * (size_t)gs); }
+            if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter[L] = wrap(t, (size_t)gs * (262144 + 64)); }
         }
         if (g_i2_on) for (int G = 0; G < ng; G++) for (int dd = 0; dd < NA; dd++) {
             int g0 = G * g, gs = std::min(g, g_N - g0); int b = nextbase(gs);
-            if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter2[L] = wrap(t, 4096 + 64 * (size_t)gs); }
+            if (G == gidx[L] && dd == d) { comm *t = comm_tcp_create_at(node - g0, gs, hostlist(g0, gs).c_str(), b); inter2[L] = wrap(t, (size_t)gs * (262144 + 64)); }
         }
     }
     /* the pool rule (binsplit.c vslot_prealloc_env): under COMM_LAYER_VSLOT_POOL every v-slot is allocated once at its group size's bound (all sizes the overall maximum under SHARE) */
     if (g_pool_on) {
         size_t mx[16] = {}, all = 0;
-        for (int L = 0; L < g_nl; L++) { int g = g_lv[L]; for (int G = 0; G * g < g_N; G++) { int gs = std::min(g, g_N - G * g); size_t bound = 2 * (size_t)NA * gs * 8 * unit_of(L) + 8192; if (bound > mx[L]) mx[L] = bound; } if (mx[L] > all) all = mx[L]; }
+        for (int L = 0; L < g_nl; L++) { int g = g_lv[L]; for (int G = 0; G * g < g_N; G++) { int gs = std::min(g, g_N - G * g); if (!lay_used(gs)) continue; size_t bound = 2 * (size_t)NA * gs * 8 * unit_of(L) + 8192; if (bound > mx[L]) mx[L] = bound; } if (mx[L] > all) all = mx[L]; }
         for (int L = 0; L < g_nl; L++) for (int G = 0; G * g_lv[L] < g_N; G++) {
-            int gs = std::min(g_lv[L], g_N - G * g_lv[L]); size_t bound = 2 * (size_t)NA * gs * 8 * unit_of(L) + 8192, m = g_share_on ? all : bound; (void)bound; (void)mx;
+            int gs = std::min(g_lv[L], g_N - G * g_lv[L]); if (!lay_used(gs)) continue; size_t bound = 2 * (size_t)NA * gs * 8 * unit_of(L) + 8192, m = g_share_on ? all : bound; (void)bound; (void)mx;
             char nm[64], v[32]; snprintf(nm, sizeof nm, "COMM_LAYER_VSLOT_MB_%d", gs); snprintf(v, sizeof v, "%zu", (m >> 20) + 1); setenv(nm, v, 1);
         }
     }
     for (int L = 0; L < g_nl; L++) { lay[L] = comm_layered_create(intra, inter[L], d); if (g_i2_on) comm_layered_set_inter2(lay[L], inter2[L]); }
-    long bad = 0; size_t live_lvl[16] = {};
+    long nrel_bad = 0; long bad = 0; size_t live_lvl[16] = {}; uint64_t lvl_dig[16] = {};
     auto me_of = [&](int L) { return gsz[L] * d + (node - g0s[L]); };
     auto nr_of = [&](int L) { return NA * gsz[L]; };
     const int R = g_rounds;
     int rnd = 0;
     for (int L = 0; L < g_nl; L++) {
         xch xs[8];
+        if (!lay_used(gsz[L])) { live_lvl[L] = shim_live; rnd += R; continue; }   /* (the round number stays the same on every node) */
         for (int k = 0; k < R; k++) { xch_post(&xs[k], lay[L], L, rnd++, me_of(L), nr_of(L)); if (getenv("LAY_WAIT_EACH")) comm_wait(lay[L]); }
         if (!getenv("LAY_WAIT_EACH")) for (int k = 0; k < R; k++) comm_wait(lay[L]);   /* one wait per exchange (comm_layered y_wait counts them) */
         for (int k = 0; k < R; k++) bad += xch_check(&xs[k]);
-        live_lvl[L] = shim_live;
+        live_lvl[L] = shim_live; lvl_dig[L] = dig_live();
+        if (g_rel) { comm_layered_release_vslots(lay[L]); if (dig_live() != 1469598103934665603ULL) nrel_bad++; }   /* C06 M3: every pool slot gone after the release */
     }
     uint64_t live_top = dig_live();
     /* the hand-over: an exchange of the lower level still pending when the top level posts, then back to the lower level, then the top again */
-    if (g_nl >= 2) {
-        int A = 0, T = g_nl - 1; xch xa, xb, xc, xd;
-        xch_post(&xa, lay[A], A, rnd++, me_of(A), nr_of(A));
-        xch_post(&xb, lay[T], T, rnd++, me_of(T), nr_of(T));
-        comm_wait(lay[T]); bad += xch_check(&xb); comm_wait(lay[A]); bad += xch_check(&xa);
-        xch_post(&xc, lay[A], A, rnd++, me_of(A), nr_of(A)); comm_wait(lay[A]); bad += xch_check(&xc);
-        xch_post(&xd, lay[T], T, rnd++, me_of(T), nr_of(T)); comm_wait(lay[T]); bad += xch_check(&xd);
+    int hA = g_nl - 2; while (hA >= 0 && !lay_used(gsz[hA])) hA--;   /* the highest layered level below the top (all members of that level's group agree: groups nest) */
+    if (hA < 0) hA = g_nl - 1;
+    if (g_nl >= 2) {   /* (C06: every node runs the top-level exchanges xb, xd; those with a lower layered level also xa, xc around them) */
+        int A = hA, T = g_nl - 1, lo = hA < T; xch xa, xb, xc, xd;
+        int ra = rnd++, rb = rnd++, rc = rnd++, rd = rnd++;
+        if (lo) xch_post(&xa, lay[A], A, ra, me_of(A), nr_of(A));
+        xch_post(&xb, lay[T], T, rb, me_of(T), nr_of(T));
+        comm_wait(lay[T]); bad += xch_check(&xb); if (lo) { comm_wait(lay[A]); bad += xch_check(&xa); }
+        if (g_rel) comm_layered_release_vslots(lay[T]);   /* (the top level's slots go while the lower level's exchange is done too) */
+        if (lo) { xch_post(&xc, lay[A], A, rc, me_of(A), nr_of(A)); comm_wait(lay[A]); bad += xch_check(&xc); }
+        xch_post(&xd, lay[T], T, rd, me_of(T), nr_of(T)); comm_wait(lay[T]); bad += xch_check(&xd);
         live_top = dig_live();
+        if (g_rel) comm_layered_release_vslots(lay[T]);
     }
     size_t peak = shim_peak, live = shim_live;
     /* symmetry: the live pool blocks must agree across the members of the top communicator (and of the lower level's group); the whole log is informational */
@@ -162,15 +170,17 @@ static int child(int node, int d)
         comm_allgather_host(inter[0], mine, all, 24);
         for (int r = 0; r < gsz[0]; r++) if (all[3 * r] != mine[0]) asym_low++;
     }
+    long asym_lv = 0;   /* C06: at every layered level, the members of the level's group must hold the same live symmetric blocks as seen after that level's exchanges */
+    if (g_pool_on) for (int L = 0; L < g_nl; L++) if (lay_used(gsz[L])) { uint64_t m1 = lvl_dig[L]; comm_allgather_host(inter[L], &m1, all, 8); for (int r = 0; r < gsz[L]; r++) if (all[r] != m1) asym_lv++; }
     comm_barrier(inter[g_nl - 1]);
     size_t live_before = shim_live, pool_live = 0; for (blk *b = g_blocks; b; b = b->next) if (b->used && b->kind == 2) pool_live += b->len;
     for (int L = g_nl - 1; L >= 0; L--) comm_destroy(lay[L]);   /* (the last communicator of the device frees the shared pair) */
     size_t after = shim_live, pool_after = 0; for (blk *b = g_blocks; b; b = b->next) if (b->used && b->kind == 2) pool_after += b->len;
     printf("T node %d d %d bad %ld peak %zu live %zu lv", node, d, bad, peak, live_before);
     for (int L = 0; L < g_nl; L++) printf(" %zu", live_lvl[L]);
-    printf(" after %zu pool_sym %zu pool_sym_after %zu asym_top %ld asym_low %ld asym_log %ld\n", after, pool_live, pool_after, asym_top, asym_low, asym_log);
+    printf(" after %zu pool_sym %zu pool_sym_after %zu asym_top %ld asym_low %ld asym_log %ld asym_lv %ld relbad %ld\n", after, pool_live, pool_after, asym_top, asym_low, asym_log, asym_lv, nrel_bad);
     fflush(stdout);
-    return (bad || asym_top || asym_low || after || pool_after) ? 1 : 0;
+    return (bad || nrel_bad || asym_top || asym_low || asym_lv || after || pool_after) ? 1 : 0;
 }
 int main(int argc, char **argv)
 {
@@ -179,15 +189,15 @@ int main(int argc, char **argv)
         std::string a = argv[i]; const char *v = argv[i + 1];
         if (a == "--nodes") g_N = atoi(v); else if (a == "--levels") { char *s = strdup(v), *sp; for (char *t = strtok_r(s, ",", &sp); t; t = strtok_r(0, ",", &sp)) g_lv[g_nl++] = atoi(t); }
         else if (a == "--hosts") hosts = v; else if (a == "--first") first = atoi(v); else if (a == "--count") count = atoi(v);
-        else if (a == "--port") g_port = atoi(v); else if (a == "--rounds") g_rounds = atoi(v); else if (a == "--ubase") g_ubase = atoi(v); else if (a == "--pool") g_ofi = !strcmp(v, "ofi"); else if (a == "--pool-mb") g_pool_mb = (size_t)atoi(v);
+        else if (a == "--port") g_port = atoi(v); else if (a == "--rounds") g_rounds = atoi(v); else if (a == "--ubase") g_ubase = atoi(v); else if (a == "--pool") g_ofi = !strcmp(v, "ofi"); else if (a == "--pool-mb") g_pool_mb = (size_t)atoi(v); else if (a == "--real") g_real = atoi(v);
         else { fprintf(stderr, "bad arg %s\n", a.c_str()); return 2; }
     }
     if (g_N < 2 || !g_nl) { fprintf(stderr, "usage: t_lay --nodes N --levels g1,..,N [--hosts ..] [--first a --count b] [--port P] [--rounds R] [--pool-mb M]\n"); return 2; }
     if (count < 0) count = g_N - first;
     for (int i = 0; i < g_N; i++) g_host.push_back("");
     if (hosts.empty()) for (int i = 0; i < g_N; i++) g_host[i] = "127.0.0.1";
-    else { std::vector<std::string> hl; char *s = strdup(hosts.c_str()), *sp; for (char *t = strtok_r(s, ",", &sp); t; t = strtok_r(0, ",", &sp)) hl.push_back(t); for (int i = 0; i < g_N; i++) g_host[i] = hl[(size_t)i * hl.size() / g_N];   /* block placement: host k holds nodes [k N / H, (k+1) N / H) */ }
-    { const char *e; e = getenv("COMM_LAYER_VSLOT_POOL"); g_pool_on = e && atoi(e); e = getenv("COMM_LAYER_VSLOT_SHARE"); g_share_on = e && atoi(e); e = getenv("COMM_LAYER_INTER2"); g_i2_on = e && atoi(e); }
+    else { std::vector<std::string> hl; char *s = strdup(hosts.c_str()), *sp; for (char *t = strtok_r(s, ",", &sp); t; t = strtok_r(0, ",", &sp)) hl.push_back(t); for (size_t k = 0; k < hl.size(); k++) for (size_t i = k * g_N / hl.size(); i < (k + 1) * g_N / hl.size(); i++) g_host[i] = hl[k];   /* C06: exactly the blocks run_matrix.sh forks per host (i * H / N was off for N not divisible by H) */   /* block placement: host k holds nodes [k N / H, (k+1) N / H) */ }
+    { const char *e; e = getenv("COMM_LAYER_VSLOT_RELEASE"); g_rel = e && atoi(e); e = getenv("COMM_LAYER_VSLOT_POOL"); g_pool_on = e && atoi(e); e = getenv("COMM_LAYER_VSLOT_SHARE"); g_share_on = e && atoi(e); e = getenv("COMM_LAYER_INTER2"); g_i2_on = e && atoi(e); }
     setvbuf(stdout, 0, _IOLBF, 0);
     std::vector<pid_t> pids;
     for (int n = first; n < first + count; n++) for (int d = 0; d < NA; d++) {
