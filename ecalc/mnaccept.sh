@@ -37,12 +37,19 @@ FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
 ECALC_DIR=$PWD
-# Reference directory: ECALC_REF, else this clone's ref/ (when it holds the 1e9 digits), else $HOME/ref (aac7 since 2026-10-06),
+# Reference directory: ECALC_REF, else the first of this clone's ref/, $HOME/ref that holds all needed files, else $HOME/ref (aac7 since 2026-10-06),
 # else the old $HOME/ntt/ecalc/ref (aac6 keeps its references under ~/ntt/ecalc/results; set ECALC_REF there).
 if [ -n "${ECALC_REF:-}" ]; then REF=$ECALC_REF
-elif [ -s ref/e_1000000000.txt ]; then REF=$ECALC_DIR/ref
-elif [ -d "$HOME/ref" ]; then REF=$HOME/ref
-else REF=$HOME/ntt/ecalc/ref; fi
+else
+  # a candidate directory is chosen only if it holds ALL the files the steps need (1e9 digits + the t_bs sha256 files); a clone's ref/
+  # with the 1e9 file alone (no sha256) is skipped (t_bs would fail "reference missing"); fall back to $HOME/ref, then the old place
+  refall() { [ -s "$1/e_1000000000.txt" ] && [ -s "$1/e_1000000.sha256" ] && [ -s "$1/e_10000000.sha256" ]; }
+  REF=
+  for d in "$ECALC_DIR/ref" "$HOME/ref" "$HOME/ntt/ecalc/ref"; do refall "$d" && { REF=$d; break; }; done
+  if [ -z "$REF" ]; then   # none is complete: the old choice (the first with the 1e9 digits, else $HOME/ref, else the old place)
+    if [ -s ref/e_1000000000.txt ]; then REF=$ECALC_DIR/ref; elif [ -d "$HOME/ref" ]; then REF=$HOME/ref; else REF=$HOME/ntt/ecalc/ref; fi
+  fi
+fi
 # A04: a missing/dangling reference is "reference missing", never VERIFY FAILED.  refneed <step> <file...> reports the first absent
 # file (a dangling symlink counts as absent), counts the step as a failure with that text and returns 1 (the step is skipped).
 refneed() { local st=$1 f; shift; for f in "$@"; do [ -s "$f" ] || { fail "$st" "reference missing: $f (set ECALC_REF to the directory with e_<digits>.txt / .sha256)"; return 1; }; done; return 0; }
