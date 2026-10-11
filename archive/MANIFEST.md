@@ -48,3 +48,11 @@ history of the defaults and of the target size that headed `ecalc/README.md`.
 `diff run suite isa.py envcheck.sh nodecheck.sh` (top level): the microbenchmark suite is live (Makefile `make isa`,
 `ecalc/README.md` uses `./run`, `suite` calls `envcheck.sh`, `bench/README.md` cites them). `PLAN.md` (now bannered as wholly historical),
 `TASKS.md` (now the live list), `RESULTS.md` and `docs/` are not moved (user instruction).
+
+## Archived experiment branches (tags, 2026-10-10)
+
+Annotated tags `archive/<branch>` on GitHub cecoppola/ntt (branches deleted locally and on GitHub; recover with
+`git checkout -b <branch> archive/<branch>`): archive/p14-L1, archive/p14-R1, archive/p15-M6, archive/p15-MAP,
+archive/p15-RL, archive/p15-SX, archive/rl-fill, archive/s24 (NTT3P bench, shelved), archive/s25 (10-node drivers),
+archive/s37. Branches fully merged into main (29, b7-vslot ... s45, tgtbench2) were deleted without tags.
+Kept as branches: `s35` (crash fix, deferred), `claude/confident-mayer-yx23pt`.
