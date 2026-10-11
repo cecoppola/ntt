@@ -178,7 +178,10 @@ class Fabric:
 TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
 TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
-TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
+# T06 (adopted by the user 2026-10-11): the layv exchange (general-map groups, g not a power of 2) at 65.5 % of the layeq rate, part of the
+# standing 576-node estimate (aac7 fit, aac7_s48_fit.json; one parameter, modelled). Only the non-power-of-2 groups are affected.
+TARGET_LAYV_FACTOR = 0.655
+TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 3.99e13 (B7ACCT; was 4.74e13, below the 2026-09-29 target)
 TARGET_NODES = mem_model.TARGET_NODES
@@ -209,7 +212,7 @@ AAC7_S18 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX, S19B 10-node comm_ofi re
 TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
-TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW)
+TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 # S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by ecalc/refit_s48.py; it reads ecalc/aac7_s48_fit.json
 # (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected only by --fabric aac7_s48 / MN_MODEL_PROFILE; no default changes.
 AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
