@@ -360,6 +360,8 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
+    for (int r = 0; r < vmm_repro(); r++) for (int k = 0; k < m1; k++)   /* S46: ECALC_VMM_REPRO=n also here (the synchronous part; all of it under ECALC_VMM_BG=0): n more unmap + map + access cycles per chunk, zeroed below */
+        if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess || !vmm_map_run(dev, k, 1, &v->h[k])) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, C);
     double tz = mem_now();
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m1 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
     v->t_ms += mem_now() - tz;
