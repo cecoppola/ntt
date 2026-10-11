@@ -29,7 +29,7 @@ __device__ static inline size_t dq(size_t g, size_t qc) { return (g >= qc) + (g 
 template <int QS> __device__ static inline const uint64_t *qsel_p(const uint64_t *const *q, size_t d) { if (!QS) return q[d]; const uint64_t *p = q[0]; if (d == 1) p = q[1]; if (d == 2) p = q[2]; if (d == 3) p = q[3]; return p; }
 template <int QS> __device__ static inline uint64_t dget_t(const struct dv &v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return qsel_p<QS>(v.q, d)[g - d * v.qc]; }
 __device__ static inline uint64_t dget(const struct dv v, size_t i) { return dget_t<0>(v, i); }
-static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 0; return v; }   /* S41: scalar-select quarter pointers in the device kernels (default 0) */
+static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 1; return v; }   /* S41: scalar-select quarter pointers in the device kernels (default 1 since 2026-10-10; 0 = old) */
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.off = a->off; v.shift = 0; return v; }
 static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2 * a->qc) + (g >= 3 * a->qc); }   /* host: quarter of global limb g */
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
