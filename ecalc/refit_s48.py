@@ -138,8 +138,13 @@ def fit(meas, args):
     best = None
     if gs:
         bws = [bw0 * 2 ** (k / 4.0) for k in range(-8, 13)]
-        lats = [2e-6, 4e-6, 8.5e-6, 17e-6, 34e-6]
-        if args.fix_lat: lats = [lat0]
+        # S48 finding: the per-message latency moves the modelled walls by < 0.5 % over 2..68 us (the message counts are small), so the totals cannot
+        # separate lat from bw.  lat is therefore FIXED at the profile value (a pair fit would just wander); --fix-lat is kept for compatibility.
+        lats = [lat0]
+        # bw is fitted on the power-of-2 sizes only: a non-power-of-2 size runs the 'layv' (variable-layout) exchange, measured ~2.4x slower per
+        # thread than the equal-slab 'layeq' of 2/4 nodes, which one bw cannot describe.  It is reported as an implied bw / factor instead.
+        gs_all = gs
+        gs = [g for g in gs if M.is_pow2(g)] or gs
         for lat in lats:
             for bw in bws:
                 e = 0.0
@@ -156,6 +161,13 @@ def fit(meas, args):
         except Exception:
             pass
         res['bw_apu'], res['lat'] = bw, lat
+        res['fit_sizes'] = gs
+        res['implied'] = {}
+        for g in gs_all:
+            fg = lambda b, g=g: model(g, D, b, lat, ns, isc, ac)['wall_nowrite']
+            res['implied'][g] = bisect(fg, 1.0, 200.0, meas[g]['total'], increasing=False)
+        npw = [g for g in gs_all if not M.is_pow2(g)]
+        res['nonpow2_bw_factor'] = (sum(res['implied'][g] for g in npw) / len(npw)) / bw if npw else 1.0
     else:
         res['bw_apu'], res['lat'] = bw0, lat0
     res['consts'] = {k: ac[k] for k in ('HIDE_POW2', 'GEN_HIDE1', 'GEN_HIDE2', 'T_ROUND', 'MAP_RATE')}
@@ -178,11 +190,11 @@ def rate_checks(runs):
 
 def target_rows(res, ns, isc):
     """the 576-node estimate: the standing target profile (unchanged) and with the refit local scales; groups as estimate.py --target"""
-    groups = '2,4,8,16,32,64,192,576'; T = M.TARGET_DIGITS; rows = []
-    for label, nsc, isc_ in (('target as is (aac6-calibrated locals)', TGT['NODE_SCALE'], TGT['INIT_SCALE']), ('target + refit local scales', ns, isc)):
-        for wbw in (M.TARGET_WRITE_BW,):
-            r = model(576, T / 576, M.TARGET.bw, M.TARGET.lat, nsc, isc_, TGT, write_bw=wbw, groups=groups, fab_name='target')
-            rows.append((label, nsc, isc_, r['wall_nowrite'], r['wall']))
+    groups = '2,4,8,16,32,64,192,576'; rows = []
+    for T in sorted({3.71e13, 3.82e13, M.TARGET_DIGITS}):
+        for label, nsc, isc_ in (('target as is (aac6-calibrated locals)', TGT['NODE_SCALE'], TGT['INIT_SCALE']), ('target + refit local scales', ns, isc)):
+            r = model(576, T / 576, M.TARGET.bw, M.TARGET.lat, nsc, isc_, TGT, write_bw=M.TARGET_WRITE_BW, groups=groups, fab_name='target')
+            rows.append((T, label, nsc, isc_, r['wall_nowrite'], r['wall']))
     return rows
 
 def main():
@@ -210,7 +222,9 @@ def main():
     print('\nfit (modelled on the measured totals above):')
     print('  node_scale %.3f (AAC7 %.3f)   init_scale %.3f (AAC7 %.3f)   bw_apu %.2f GB/s (AAC7 %.2f)   lat %.1f us (AAC7 %.1f)' % (
         res['node_scale'], ac['NODE_SCALE'], res['init_scale'], ac['INIT_SCALE'], res['bw_apu'], res['base']['bw_apu'], res['lat'] * 1e6, res['base']['lat'] * 1e6))
-    if res['lat'] in (2e-6, 34e-6) and not a.fix_lat: print('  WARNING: lat at the edge of its grid (%.0f us): bw and lat are not separated by these data; read the fit as a pair, or use --fix-lat' % (res['lat'] * 1e6))
+    print('  lat fixed at %.1f us (not identifiable from totals); bw fitted on the power-of-2 sizes %s' % (res['lat'] * 1e6, res.get('fit_sizes')))
+    if res.get('implied'):
+        print('  implied bw per size (GB/s per APU, lat fixed): ' + ', '.join('%d n %.2f' % (g, b) for g, b in sorted(res['implied'].items())) + '   non-pow2 bw factor %.2f (measured layv vs layeq rate is lower still)' % res['nonpow2_bw_factor'])
     print('  %-6s %10s %10s %7s | %10s %7s' % ('nodes', 'measured', 'model AAC7', 'err %', 'model fit', 'err %'))
     for g, m in meas.items():
         w0 = model(g, DPN, res['base']['bw_apu'], res['base']['lat'], ac['NODE_SCALE'], ac['INIT_SCALE'], ac)['wall_nowrite']
@@ -225,10 +239,10 @@ def main():
         for ph, (b, w, n) in sorted(o['wait'].items()): print('  wait-stats %-6s barrier %.1f s  wait %.1f s (mean over nodes, summed over APU threads)' % (ph, b / n, w / n))
         if o['tl']: print('  init timeline last tl mark: %.1f s' % (sum(o['tl']) / len(o['tl'])))
     print('\n576-node standing estimate (modelled; fabric 100 GB/s per APU / 2 us ASSUMED, the part file at %.1f GB/s ASSUMED), T = %.3e digits:' % (M.TARGET_WRITE_BW, M.TARGET_DIGITS))
-    for label, nsc, isc, nw, w in target_rows(res, res['node_scale'], res['init_scale']):
-        print('  %-42s node_scale %.3f init_scale %.3f : no-write %.1f s (%.2f min), with the file %.1f s (%.2f min)' % (label, nsc, isc, nw, nw / 60, w, w / 60))
+    for T, label, nsc, isc, nw, w in target_rows(res, res['node_scale'], res['init_scale']):
+        print('  T %.3e  %-52s node_scale %.3f init_scale %.3f : no-write %.1f s (%.2f min), with the file %.1f s (%.2f min)' % (T, label, nsc, isc, nw, nw / 60, w, w / 60))
     if a.write_profile:
-        prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
+        prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], nonpow2_bw_factor=res.get('nonpow2_bw_factor', 1.0), consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
         json.dump(prof, open(FIT_FILE, 'w'), indent=1); print('\nwrote', FIT_FILE)
 
 def selftest():
