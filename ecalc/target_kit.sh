@@ -16,8 +16,20 @@
 #   --out DIR               where KIT_SUMMARY.txt and logs/ go (default: ./kit_out_<timestamp>)
 #   --jobid ID              the Slurm allocation (default: $SLURM_JOB_ID).  Required by every stage that
 #                           runs srun, i.e. every stage except --dry-run.
-#   --only LIST             run only these stages (comma list of: env,build,edge,a3,a4,s2chk,nodechk).  Default: env,build,edge,a3,a4
+#   --only LIST             run only these stages (comma list of: env,build,uffd,plan,edge,a3,a4,initchk,s2chk,nodechk, or the
+#                           shortcut `preflight` = env,build,uffd,plan,edge,nodechk).  Default: env,build,uffd,plan,edge,a3,a4,initchk
 #                           (s2chk and nodechk are OPT-IN: they run only when named here, never by default).
+#   --exclude-hosts LIST    comma list of hosts never to use (slow or failed nodes).  Passed to every multi-node run as
+#                           MNRUN_EXCLUDE_HOSTS with MNRUN_EXCLUDE_MODE=drop (mnrun.sh removes them from its node list), to nodechk as
+#                           srun -x, and counted out of the allocation size when a stage decides whether a node count fits.  Hosts
+#                           flagged by stage nodechk in the same --out are added automatically (file $OUT/flagged_hosts.txt).
+#                           MNRUN_EXCLUDE_HOSTS in the environment is taken as the default list.
+#   --spares N              the allocation holds N spare nodes beyond the largest node count asked for (request max count + N).  The
+#                           summary prints the size to request; stage nodechk then says STOP (ask for replacements) if more than N
+#                           nodes are flagged, else lists the --exclude-hosts line.  Default: unset (no spare check).
+#   --plan-digits D --plan-procs G
+#                           stage plan also checks this one point (D total digits on G node-processes), e.g. the run you are
+#                           about to make.  Stage plan always checks every node count of stage a4.
 #   --skip LIST             run all stages except these (comma list).  --only and --skip combine (skip wins
 #                           on overlap).
 #   --nodes-a4 LIST         node counts for stage a4, comma list (default: 2,8,64; 2,8 with --site aac7).
@@ -32,7 +44,9 @@
 #   --nodechk-gb GB         upload size per APU for the opt-in stage nodechk (default 1).
 #   --nodechk-cold-gb GB    T10 cold-path probe in stage nodechk (default 0 = off): per APU map GB of VMM arena + first-touch + one cold upload of it
 #                           (the ecalc init path); extra NODECHK_COLD line per node (results/T10.md).
-#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, edge 600, a3 600, a4 1800 PER node count, s2chk 1800 PER node count, nodechk 300).
+#   --initchk-log FILE      log for stage initchk (default: the log of the smallest a4 node count in --out).
+#   --timeout-STAGE SECS    per-stage timeout (env 90, build 900, uffd 300, plan 120 PER point, edge 600, a3 600, a4 1800 PER node count,
+#                           s2chk 1800 PER node count, nodechk 300).
 #                           A stage that times out or fails is marked FAIL in the summary; every other stage
 #                           still runs.
 #
@@ -54,6 +68,15 @@
 #            with MEM_REPORT_DEVS=1 (host RSS, per-APU device in-use vs driver-used, the VMM arena map rate
 #            per APU and per node); then one e 1e10 run for the single-node wall.  t_edge runs to
 #            completion and exits before anything else touches these GPUs.
+#   uffd   (< 2 min, 2 nodes; default on): is libfabric's memory-cache monitor usable?  Launch default FI_MR_CACHE_MONITOR=userfaultfd
+#            (the crash/hang fix, results/S46.md; override by exporting it; `disabled` is refused).  The stage runs a tiny 2-node ecalc
+#            with FI_LOG_LEVEL=info and looks for "memory monitor is: uffd"; it also tries the userfaultfd syscall on a compute node.
+#            PASS = the log line is seen.  FAIL names the monitor libfabric chose instead; then set FI_MR_CACHE_MONITOR=memhooks.
+#   plan   (< 1 min per point, no device; default on): MN_PLAN_ONLY=<digits>:<procs> for every a4 node count (and --plan-digits/--plan-procs).
+#            PASS only if the last plan line is `plan check ... OK`.  Stages a4 and s2chk run the same check before each long run and
+#            refuse the run on `plan REFUSED`.  Run it before anything long.
+#   initchk (seconds; default on after a4): runs tools/initchk.py (first-run init-time slow-host check; flag > 3x median) on the log of
+#            the first multi-node run (a4 sets ECALC_INIT_TL=1 so the log has the timeline).  SKIPPED if the script is not present.
 #   a3     (3-5 min, 2 nodes):
 #            tests/t_comm --bw with comm_ofi, 1 NIC per APU vs 2 NICs per APU (COMM_OFI_NICS), GB/s per node.
 #   a4     (5-10 min PER node count, 2/8/64 nodes, skips what the allocation can't hold):
@@ -114,6 +137,13 @@ TO_A3=600
 TO_A4=1800
 TO_S2=1800
 TO_NC=300
+TO_UFFD=300
+TO_PLAN=120
+EXCL_HOSTS="${MNRUN_EXCLUDE_HOSTS:-}"
+SPARES=-1
+PLAN_DIGITS=""
+PLAN_PROCS=""
+INITCHK_LOG=""
 NC_GB=1
 NC_COLD_GB=0
 NODES_S2="2,8"
@@ -146,6 +176,13 @@ while [ $# -gt 0 ]; do
         --timeout-s2chk) TO_S2=$2; shift 2 ;;
         --timeout-nodechk) TO_NC=$2; shift 2 ;;
         --nodechk-gb) NC_GB=$2; shift 2 ;;
+        --exclude-hosts) EXCL_HOSTS=$2; shift 2 ;;
+        --spares) SPARES=$2; shift 2 ;;
+        --plan-digits) PLAN_DIGITS=$2; shift 2 ;;
+        --plan-procs) PLAN_PROCS=$2; shift 2 ;;
+        --initchk-log) INITCHK_LOG=$2; shift 2 ;;
+        --timeout-uffd) TO_UFFD=$2; shift 2 ;;
+        --timeout-plan) TO_PLAN=$2; shift 2 ;;
         --nodechk-cold-gb) NC_COLD_GB=$2; shift 2 ;;
         --nodes-s2chk) NODES_S2=$2; shift 2 ;;
         --s2chk-per-node) S2_PER_NODE=$2; shift 2 ;;
@@ -153,6 +190,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+ONLY=${ONLY//preflight/env,build,uffd,plan,edge,nodechk}
+case "$SPARES" in -1|[0-9]*) ;; *) echo "target_kit.sh: --spares needs a number" >&2; exit 2 ;; esac
 case "$SITE" in
     aac7) [ -z "$NODES_A4" ] && NODES_A4="2,8" ;;
     target) [ -z "$NODES_A4" ] && NODES_A4="2,8,64" ;;
@@ -163,6 +202,7 @@ esac
 LOGDIR="$OUT/logs"
 TMPDIR="$OUT/tmp"
 SUMMARY="$OUT/KIT_SUMMARY.txt"
+FLAGGED="$OUT/flagged_hosts.txt"   # written by stage nodechk; read by every later multi-node stage
 mkdir -p "$LOGDIR" "$TMPDIR"
 
 stage_enabled() {  # stage_enabled <name>
@@ -204,6 +244,32 @@ alloc_node_count() {   # best-effort; 0 if unknown or dry-run (never queries Slu
     squeue -j "$JOBID" -h -o %D 2>/dev/null | head -1 || echo 0
 }
 
+alloc_hosts() {   # the allocation's host names, one per line (empty under --dry-run or without a job)
+    [ "$DRY_RUN" = 1 ] && return 0
+    [ -z "$JOBID" ] && return 0
+    scontrol show hostnames "$(squeue -j "$JOBID" -h -o %N 2>/dev/null)" 2>/dev/null
+}
+
+excl_all() {   # the hosts to leave out: --exclude-hosts (or MNRUN_EXCLUDE_HOSTS), plus those nodechk flagged in this --out; sorted, one per line
+    { echo "$EXCL_HOSTS" | tr , '\n'; [ -f "$FLAGGED" ] && cat "$FLAGGED"; } | grep -v '^$' | sort -u
+}
+
+excl_in_alloc() {   # excluded hosts that are really in the allocation
+    local ex; ex=$(excl_all); [ -n "$ex" ] || return 0
+    alloc_hosts | grep -Fxf <(echo "$ex") || true
+}
+
+alloc_usable_count() {   # allocation size minus excluded hosts; 0 if unknown or dry-run
+    local tot ne; tot=$(alloc_node_count); [ "${tot:-0}" -gt 0 ] 2>/dev/null || { echo 0; return; }
+    ne=$(excl_in_alloc | grep -c .); echo $(( tot - ne ))
+}
+
+export_exclude() {   # for the mnrun.sh launches of the calling stage: drop the excluded hosts from its node list
+    local e; e=$(excl_all | paste -sd, -)
+    if [ -n "$e" ]; then export MNRUN_EXCLUDE_HOSTS="$e" MNRUN_EXCLUDE_MODE=drop; fi
+    return 0
+}
+
 # ---- module handling: the chosen stack is decided once (stage_build), recorded in $OUT/kit_modules.env, and
 # every later run stage (edge, a3, a4 -- not env, which records the target's as-found default) sources it so the
 # srun'd binaries run under the same ROCm/SHMEM the build used, not whatever the caller's login shell happens to have.
@@ -230,10 +296,26 @@ module_preamble() {   # the module unload/load lines to prepend inside a `bash -
 
 fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / FI_LOG_LEVEL if unset, per TGTBENCH2
     local ntasks="$1"
+    # the crash/hang fix (results/S46.md section 4.6, adopted as the launch default): libfabric's MR cache monitor = userfaultfd.
+    # Overridable (export FI_MR_CACHE_MONITOR=memhooks to get the old behaviour); `disabled` is refused at the top of this script.
+    export FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd}
     [ "${MNRUN_FI_DEFAULTS:-1}" = 0 ] && return 0   # the same opt-out as mnrun.sh: leave both unset
     local want=$(( ntasks * 4 > 4096 ? ntasks * 4 : 4096 ))
     export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$want}
     export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
+}
+
+plan_check() {   # plan_check <logfile> <digits> <procs> [VAR=val words...] -- MN_PLAN_ONLY on a compute node (no device touched).
+    # 0 only if the LAST plan line is `plan check ... OK` (a `plan REFUSED` line, or no plan line, is a refusal: 1).  Dry-run: prints, 0.
+    local lf=$1 d=$2 g=$3; shift 3
+    local plf="$LOGDIR/plan_${d}_${g}.log"; : > "$plf"
+    exec_cmd "$plf" "$TO_PLAN" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$(module_preamble)"'p=$1; shift; export MN_PLAN_ONLY=$p; exec env "$@"' _ "$d:$g" COMM_TRANSPORT=shmem "$@" "$SELF_DIR/ecalc"
+    [ "$DRY_RUN" = 1 ] && { cat "$plf" >> "$lf"; return 0; }
+    cat "$plf" >> "$lf"
+    local last; last=$(grep -aE '^plan (check|REFUSED)' "$plf" | tail -1)
+    echo "plan point $d digits on $g node-process(es): ${last:-<no plan line>}" | cut -c1-220 >> "$lf"
+    case "$last" in "plan check "*": OK"*) return 0 ;; esac
+    return 1
 }
 
 # S46 §4.6: FI_MR_CACHE_MONITOR=disabled gave wrong exchanges silently (2097152 of 2097152 points differed, VERIFY FAILED); refuse it.
@@ -248,6 +330,13 @@ summary "KIT_SUMMARY -- target_kit.sh"
 summary "generated: $(date -Is 2>/dev/null || date)"
 summary "site: $SITE   jobid: ${JOBID:-<none>}   dry-run: $DRY_RUN"
 summary "out: $OUT"
+if [ "$SPARES" -ge 0 ]; then
+    need=0
+    for c in $(echo "$NODES_A4,${PLAN_PROCS:-0}" | tr , ' '); do [ "$c" -gt "$need" ] 2>/dev/null && need=$c; done
+    if stage_optin s2chk; then for c in $(echo "$NODES_S2" | tr , ' '); do [ "$c" -gt "$need" ] 2>/dev/null && need=$c; done; fi
+    summary "spares: $SPARES -> request $((need + SPARES)) node(s) = largest node count asked for ($need) + $SPARES"
+fi
+[ -n "$(excl_all)" ] && summary "excluded hosts (--exclude-hosts / MNRUN_EXCLUDE_HOSTS): $(excl_all | paste -sd, -)"
 summary ""
 
 # =============================================================================================================
@@ -394,6 +483,97 @@ stage_build() {
 }
 
 # =============================================================================================================
+# Stage: uffd -- is libfabric's userfaultfd memory monitor usable here?  (FI_MR_CACHE_MONITOR launch default, results/S46.md)
+# =============================================================================================================
+stage_uffd() {
+    local lf="$LOGDIR/01b_uffd.log"; : > "$lf"
+    summary "## Stage uffd: libfabric memory monitor (FI_MR_CACHE_MONITOR=${FI_MR_CACHE_MONITOR:-userfaultfd})"
+    if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules uffd "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
+    local alloc; alloc=$(alloc_usable_count); export_exclude
+    export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
+    export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
+    local n=2 pre; pre=$(module_preamble)
+    [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$alloc" -lt 2 ] && n=1
+    fi_defaults_for "$n"
+    # (1) the syscall on a compute node: permitted, EPERM (needs vm.unprivileged_userfaultfd=1 or a capability) or ENOSYS
+    local slf="$LOGDIR/01b_uffd_syscall.log"; : > "$slf"
+    exec_cmd "$slf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -c '
+        echo "host $(hostname); vm.unprivileged_userfaultfd=$(cat /proc/sys/vm/unprivileged_userfaultfd 2>&1)"
+        python3 -c "
+import ctypes, os
+libc = ctypes.CDLL(None, use_errno=True)
+nr = {\"x86_64\": 323, \"aarch64\": 282}.get(os.uname().machine)
+if nr is None: print(\"uffd syscall: unknown arch\"); raise SystemExit
+fd = libc.syscall(nr, os.O_CLOEXEC | os.O_NONBLOCK)
+print(\"uffd syscall: permitted\" if fd >= 0 else \"uffd syscall: refused, errno %d (%s)\" % (ctypes.get_errno(), os.strerror(ctypes.get_errno())))
+" 2>&1'
+    # (2) the real test: a tiny multi-node ecalc with libfabric info logging; libfabric prints the monitor it selected
+    local tiny=$((n * E9 / 10))
+    echo "== tiny run: $n node(s), $tiny digits, FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR" >> "$lf"
+    exec_cmd "$lf" "$TO_UFFD" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL=info FI_MR_CACHE_MONITOR="$FI_MR_CACHE_MONITOR" \
+        MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
+        "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem "$SELF_DIR/ecalc" "$tiny" "$TMPDIR/uffd.out"
+    local rc=$?
+    rm -f "$TMPDIR"/uffd.out*
+    if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
+    grep -a 'uffd syscall' "$slf" | head -1 | sed 's/^/  /' >> "$SUMMARY"
+    local mon; mon=$(grep -aoE 'memory monitor is: [a-z_]+' "$lf" | sort | uniq -c | sort -rn | head -3 | tr '\n' ';')
+    summary "  libfabric monitor lines: ${mon:-<none>}   (run exit $rc)"
+    if grep -aq 'memory monitor is: uffd' "$lf"; then summary "status: PASS (libfabric selected uffd)"
+    elif [ -n "$mon" ]; then summary "status: FAIL (libfabric selected another monitor: $mon; set FI_MR_CACHE_MONITOR=memhooks and tell the developers)"
+    elif grep -aq 'syscall: permitted' "$slf"; then summary "status: PARTIAL (syscall permitted but no monitor line in the log: tiny run exit $rc, see $lf)"
+    else summary "status: FAIL (no monitor line and no permitted syscall; see $lf and $slf)"; fi
+    summary "  full log: $lf"
+    summary ""
+}
+
+# =============================================================================================================
+# Stage: plan -- MN_PLAN_ONLY before any long run (no device touched)
+# =============================================================================================================
+stage_plan() {
+    local lf="$LOGDIR/01c_plan.log"; : > "$lf"
+    summary "## Stage plan: MN_PLAN_ONLY=<digits>:<procs> must end in 'plan check ... OK' before any long run"
+    if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
+    if ! require_kit_modules plan "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
+    local n bad=0 pts=() c
+    IFS=',' read -ra counts <<< "$NODES_A4"
+    for c in "${counts[@]}"; do pts+=("$((c * E10)):$c"); done
+    [ -n "$PLAN_DIGITS" ] && [ -n "$PLAN_PROCS" ] && pts+=("$PLAN_DIGITS:$PLAN_PROCS")
+    for c in "${pts[@]}"; do
+        if plan_check "$lf" "${c%%:*}" "${c##*:}"; then summary "  ${c%%:*} digits on ${c##*:}: plan check OK"
+        else summary "  ${c%%:*} digits on ${c##*:}: NOT OK -- $(grep -aE '^plan (check|REFUSED)' "$LOGDIR/plan_${c%%:*}_${c##*:}.log" 2>/dev/null | tail -1 | cut -c1-160)"; bad=1; fi
+    done
+    if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; elif [ $bad -eq 0 ]; then summary "status: PASS"; else summary "status: FAIL (a long run at a refused point must not be started)"; fi
+    summary "  full log: $lf"
+    summary ""
+}
+
+# =============================================================================================================
+# Stage: initchk -- first-run init-time slow-host check (tools/initchk.py; policy: flag a node whose init is > 3x the median)
+# =============================================================================================================
+INITCHK_SCRIPT="$SELF_DIR/../tools/initchk.py"
+stage_initchk() {
+    local lf="$LOGDIR/04b_initchk.log"; : > "$lf"
+    summary "## Stage initchk: init-time slow-host check on the first multi-node run's log (flag > 3x median)"
+    if [ ! -f "$INITCHK_SCRIPT" ]; then summary "status: SKIPPED ($INITCHK_SCRIPT not present in this checkout)"; summary ""; return; fi
+    local log="$INITCHK_LOG"
+    if [ -z "$log" ]; then   # the log of the smallest a4 node count that ran
+        log=$(ls "$LOGDIR"/04_a4_n*.log 2>/dev/null | sort -t n -k3 -V | head -1)
+    fi
+    if [ "$DRY_RUN" = 1 ]; then
+        printf '[dry-run] python3 %q %q\n' "$INITCHK_SCRIPT" "${log:-<first a4 log>}" | tee -a "$lf"; summary "status: DRY-RUN (not executed)"; summary ""; return
+    fi
+    if [ -z "$log" ] || [ ! -f "$log" ]; then summary "status: SKIPPED (no multi-node run log: run stage a4 in this --out or give --initchk-log FILE)"; summary ""; return; fi
+    summary "  log checked: $log"
+    timeout 120 python3 "$INITCHK_SCRIPT" ${KIT_INITCHK_ARGS:-} "$log" >> "$lf" 2>&1
+    local rc=$?
+    sed 's/^/    /' "$lf" | head -40 >> "$SUMMARY"
+    summary "status: $([ $rc -eq 0 ] && echo PASS || echo "FLAG/FAIL (initchk exit $rc; see $lf -- exclude the named hosts with --exclude-hosts)")"
+    summary ""
+}
+
+# =============================================================================================================
 # Stage: edge -- one node, t_edge ALONE first, then one e 1e9 and one e 1e10 run
 # =============================================================================================================
 stage_edge() {
@@ -477,7 +657,7 @@ stage_a3() {
     summary "## Stage a3: fabric injection, comm_ofi, 2 nodes (1 NIC/APU vs 2 NICs/APU)"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
     if ! require_kit_modules a3 "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
-    local alloc; alloc=$(alloc_node_count)
+    local alloc; alloc=$(alloc_usable_count); export_exclude
     if [ "$DRY_RUN" != 1 ] && [ "$alloc" -gt 0 ] && [ "$alloc" -lt 2 ]; then
         summary "status: SKIPPED (allocation has $alloc node(s); a3 needs 2)"; summary ""; return
     fi
@@ -530,7 +710,7 @@ stage_a4() {
     summary "## Stage a4: all-to-all scaling (MN_COMM_MARK=1), 1e10 digits/node, node counts: $NODES_A4"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
     if ! require_kit_modules a4 "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first)"; summary ""; return; fi
-    local alloc; alloc=$(alloc_node_count)
+    local alloc; alloc=$(alloc_usable_count); export_exclude
     local any_ran=0 any_fail=0
     local n
     local pre; pre=$(module_preamble)
@@ -559,9 +739,12 @@ stage_a4() {
         fi_defaults_for "$n"
         echo "== n=$n nodes, $digits digits total ($E10 per node), MN_COMM_MARK=1, MNRUN_MODULES=$MNRUN_MODULES MNRUN_UNLOAD=$MNRUN_UNLOAD" >> "$lf"
         exec_cmd "$lf" "$TO_ENV" srun --jobid="$JOBID" -N1 -n1 --overlap bash -lc "$pre"'echo "== runtime ROCm (compute node, n='"$n"'): $(hipconfig --version 2>&1)"'
+        if ! plan_check "$nlf" "$digits" "$n"; then
+            any_fail=1; summary "  n=$n: REFUSED by the plan check (no run started; see $nlf)"; continue
+        fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 "$SELF_DIR/ecalc" "$digits" "$out"
+            "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -639,7 +822,7 @@ stage_s2chk() {
     summary "## Stage s2chk (opt-in): A37-R1 seed gate + S-2 wait gate, $S2_PER_NODE digits/node, ECALC_INIT_TL=1 MN_WAIT_STATS=1, node counts: $NODES_S2"
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
     if ! require_kit_modules s2chk "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first, e.g. --only build,s2chk)"; summary ""; return; fi
-    local alloc; alloc=$(alloc_node_count)
+    local alloc; alloc=$(alloc_usable_count); export_exclude
     local any_ran=0 any_fail=0 n
     export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
     export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
@@ -659,6 +842,9 @@ stage_s2chk() {
         echo "== n=$n nodes, $digits digits total ($S2_PER_NODE per node), ECALC_INIT_TL=1 MN_WAIT_STATS=1" >> "$lf"
         # $line is deliberately unquoted: it is a list of VAR=value words for env(1)
         # shellcheck disable=SC2086
+        if ! plan_check "$nlf" "$digits" "$n" $line; then
+            any_fail=1; summary "  n=$n: REFUSED by the plan check (no run started; see $nlf)"; continue
+        fi
         exec_cmd "$nlf" "$TO_S2" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
             "$SELF_DIR/mnrun.sh" "$n" env $line ECALC_INIT_TL=1 MN_WAIT_STATS=1 "$SELF_DIR/ecalc" "$digits"
@@ -688,7 +874,7 @@ NC_SLOW_X=3        # flag: slowest-APU upload time > this x the median over node
 NC_AVAIL_PCT=90    # flag: MemAvailable < this % of the median over nodes
 
 nodechk_table() {   # nodechk_table <raw log> -- appends the per-node table and the flags to the summary
-    grep -a '^NODECHK ' "$1" | awk -v slowx="$NC_SLOW_X" -v apct="$NC_AVAIL_PCT" '
+    grep -a '^NODECHK ' "$1" | awk -v slowx="$NC_SLOW_X" -v apct="$NC_AVAIL_PCT" -v flagfile="$FLAGGED" '
         function med(a, n,   i, j, t, b) { for (i = 1; i <= n; i++) b[i] = a[i]; for (i = 2; i <= n; i++) { t = b[i]; for (j = i - 1; j >= 1 && b[j] > t; j--) b[j+1] = b[j]; b[j+1] = t } return (n % 2) ? b[(n+1)/2] : (b[n/2] + b[n/2+1]) / 2 }
         { n++; host[n] = ""; err[n] = ""; up[n] = -1; for (i = 1; i <= NF; i++) { split($i, kv, "="); k = kv[1]; v = kv[2]
             if (k == "host") host[n] = v; else if (k == "ERROR") err[n] = v; else if (k == "MemTotal_kB") tot[n] = v; else if (k == "MemFree_kB") fr[n] = v
@@ -706,7 +892,7 @@ nodechk_table() {   # nodechk_table <raw log> -- appends the per-node table and 
                 fl = ""
                 if (err[i] != "") fl = "FLAG(error " err[i] ")"
                 else { if (mu > 0 && up[i] > slowx * mu) fl = fl "FLAG(upload " sprintf("%.1f", up[i] / mu) "x median) "; if (av[i] < apct / 100.0 * ma) fl = fl "FLAG(MemAvailable " sprintf("%.0f", 100.0 * av[i] / ma) "% of median)" }
-                if (fl != "") nf++
+                if (fl != "") { nf++; if (host[i] != "") print host[i] >> flagfile }
                 printf "    %-16s %9.1f %9.1f %9.1f %9.1f %7d %7d  %-24s %s\n", host[i], tot[i] / 1e6, fr[i] / 1e6, av[i] / 1e6, ca[i] / 1e6, ht[i], hf[i], ap[i], fl
             }
             printf "    median over %d node(s): slowest-APU upload %.3f s, MemAvailable %.1f GB; flag rules: upload > %dx median or MemAvailable < %d%% of median; %d node(s) flagged\n", m, mu, ma / 1e6, slowx, apct, nf
@@ -720,14 +906,25 @@ stage_nodechk() {
     if [ -z "$JOBID" ] && [ "$DRY_RUN" != 1 ]; then summary "status: FAIL (no --jobid / SLURM_JOB_ID)"; summary ""; return; fi
     if ! require_kit_modules nodechk "$lf"; then summary "status: FAIL ($KIT_MODULES_ENV missing -- run stage build first, e.g. --only build,nodechk)"; summary ""; return; fi
     if [ "$DRY_RUN" != 1 ] && [ ! -x "$SELF_DIR/tests/t_nodechk" ]; then summary "status: FAIL (tests/t_nodechk not built -- run stage build first)"; summary ""; return; fi
-    local alloc pre rc; alloc=$(alloc_node_count); [ "${alloc:-0}" -ge 1 ] 2>/dev/null || alloc=1
+    local alloc pre rc xopt=(); alloc=$(alloc_node_count); [ "${alloc:-0}" -ge 1 ] 2>/dev/null || alloc=1
+    : > "$FLAGGED"   # this run decides the flagged list afresh
+    local exin; exin=$(excl_in_alloc | paste -sd, -)
+    if [ -n "$exin" ]; then xopt=(-x "$exin"); alloc=$((alloc - $(echo "$exin" | tr , '\n' | grep -c .))); summary "  excluded from the probe (--exclude-hosts): $exin"; fi
     pre=$(module_preamble)
-    summary "  nodes probed: $alloc (every node of the allocation, one process each, run alone)"
-    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap \
+    summary "  nodes probed: $alloc (every usable node of the allocation, one process each, run alone)"
+    exec_cmd "$lf" "$TO_NC" srun --jobid="$JOBID" -N"$alloc" --ntasks="$alloc" --ntasks-per-node=1 --gpus-per-node=4 --overlap ${xopt[@]+"${xopt[@]}"} \
         bash -lc "$pre"'exec "$@"' _ "$SELF_DIR/tests/t_nodechk" "$NC_GB" 3 "$NC_COLD_GB"
     rc=$?
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; summary ""; return; fi
     nodechk_table "$lf"
+    local nfl; nfl=$(grep -c . "$FLAGGED" 2>/dev/null); nfl=${nfl:-0}
+    if [ "$nfl" -gt 0 ]; then
+        summary "  flagged hosts ($nfl): $(paste -sd, - < "$FLAGGED")  -> later stages in this --out drop them automatically; for a separate launch use --exclude-hosts $(paste -sd, - < "$FLAGGED")"
+        if [ "$SPARES" -ge 0 ]; then
+            if [ "$nfl" -gt "$SPARES" ]; then summary "  SPARES: STOP -- $nfl flagged > $SPARES spare(s): ask for replacement nodes before the timed run"
+            else summary "  SPARES: OK -- $nfl flagged <= $SPARES spare(s); exclude them and continue (the probe cannot see the first-touch stall: also run stage initchk on the first run)"; fi
+        fi
+    elif [ "$SPARES" -ge 0 ]; then summary "  SPARES: no node flagged (the known first-touch stall is invisible to this probe: stage initchk after the first run)"; fi
     summary "  status: $([ $rc -eq 0 ] && echo PASS || echo "FAIL (exit $rc)"); raw NODECHK lines: $lf"
     summary ""
 }
@@ -737,11 +934,14 @@ stage_nodechk() {
 # =============================================================================================================
 stage_enabled env   && stage_env
 stage_enabled build && stage_build
+stage_enabled uffd  && stage_uffd
+stage_enabled plan  && stage_plan
 stage_enabled edge  && stage_edge
+stage_optin nodechk && stage_nodechk   # before a3/a4: the nodes it flags are dropped by every later stage in this --out
 stage_enabled a3    && stage_a3
 stage_enabled a4    && stage_a4
+stage_enabled initchk && stage_initchk
 stage_optin s2chk   && stage_s2chk
-stage_optin nodechk && stage_nodechk
 
 summary "## Done"
 summary "Send back: $SUMMARY"
