@@ -30,13 +30,3 @@ void crt_carry_par4_q(uint64_t *const buf[4], size_t Q, size_t n, uint64_t *out,
 #endif
 #endif
 
-/* engine 2 (crt2.c): two 62-bit primes, coefficients c_i < P0 P1 < 2^124 at
- * bit positions 45 i.  out[0 .. limbs_out) = sum_i c_i 2^(45 i) mod 2^(64 limbs_out),
- * T stripes with 4-limb spills merged sequentially. */
-#ifdef __cplusplus
-extern "C" {
-#endif
-void crt2_carry(uint64_t *const res[2], size_t n, uint64_t *out, size_t limbs_out, int T);
-#ifdef __cplusplus
-}
-#endif

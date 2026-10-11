@@ -62,3 +62,11 @@ archive/s37. Branches fully merged into main (29, b7-vslot ... s45, tgtbench2) w
 Kept as branches: `s35` (crash fix, deferred), `claude/confident-mayer-yx23pt`.
 
 Per-session drivers of the 2026-10-11 batch: `archive/drivers/s46/` (s46_drive, s46_soak6, s46_arm6, s46_stats), `s47/`, `s48/`, `s49/` (s49_*), `s50/`, `s51/`.
+
+## Code reduction 2026-10-11 (results/A11.md tiers A and B; agent b02, branch b02)
+
+Deleted from the working tree, not moved. The parent commit is tagged `archive/pre-reduction-2026-10-11` (bc80001) on
+GitHub; recover any item with `git show archive/pre-reduction-2026-10-11:<path>` or `git diff <b02 commit>^ <b02 commit>`.
+| item | removed | switches | evidence |
+|---|---|---|---|
+| A1 | engine 2 (two 62-bit primes / 45-bit points): `ecalc/ntt2.c ntt2.h modarith2.h crt2.c tests/t_ntt2.c`; `rns_mul.c` `rns2_core`, `rns2_mul_mdev`, `rns2_mul_batch` and their dispatch; `crt.h` `crt2_carry`; `dbig.c` VMM guard; `ecalc.c` META `engine=`; Makefile and `tests/cx_build.sh` objects. Closes bug C1 (`rns2_mul_batch` ignored its added operand) by removal | `RNS_ENGINE` | RESULTS §44 (archive/RESULTS_ARCHIVE_1-114.md): 641 s vs 291 s at 4×10¹⁰, peak 282 vs 248 GB (measured) — engine 1 adopted |

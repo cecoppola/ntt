@@ -86,7 +86,6 @@ extern size_t rns_batch_tile_bytes;   /* default 15e9 (paper) */
 extern int rns_batch_pair;            /* RNS_BATCH_PAIR: 1 (default) the locality-aware tier transforms a B shared by products 2j, 2j+1 once (Phase 9 B1) */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
-extern int rns_engine;               /* RNS_ENGINE: 1 paper's (4 x 52-bit FP64 Barrett), 2 two 62-bit primes / 45-bit points (Phase 5 item 5) */
 extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */
 void rns_mul_batch(rns_prod *P, size_t N);
 uint64_t *rns_hstage(int dev);

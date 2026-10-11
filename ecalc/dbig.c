@@ -216,12 +216,12 @@ int db_pool_vmm_on(void)
     if (g_vmm_on < 0) {
         const char *e = getenv("DB_POOL_VMM");
         g_vmm_on = e ? atoi(e) != 0 : 1;                                  /* default 1 since Phase 14 (R114) */
-        /* the engine-2 batch tier and the CPU schoolbook tier write pool memory from the host, which a VMM range forbids */
-        int host_tiers = (getenv("RNS_ENGINE") && atoi(getenv("RNS_ENGINE")) == 2) || (getenv("BS_SCHOOL_NL") && atol(getenv("BS_SCHOOL_NL")) > 0);
+        /* the CPU schoolbook tier writes pool memory from the host, which a VMM range forbids (engine 2 removed 2026-10-11) */
+        int host_tiers = getenv("BS_SCHOOL_NL") && atol(getenv("BS_SCHOOL_NL")) > 0;
         if (g_vmm_on && host_tiers) {
-            if (e) { fprintf(stderr, "DB_POOL_VMM=1 cannot be combined with RNS_ENGINE=2 or BS_SCHOOL_NL > 0 (they write pool memory from the host)\n"); exit(2); }
+            if (e) { fprintf(stderr, "DB_POOL_VMM=1 cannot be combined with BS_SCHOOL_NL > 0 (it writes pool memory from the host)\n"); exit(2); }
             g_vmm_on = 0;
-            fprintf(stderr, "dbig pool: DB_POOL_VMM off (RNS_ENGINE=2 or BS_SCHOOL_NL set: host-writing tiers)\n");
+            fprintf(stderr, "dbig pool: DB_POOL_VMM off (BS_SCHOOL_NL set: host-writing tier)\n");
         }
     }
     return g_vmm_on;

@@ -43,7 +43,7 @@ static void meta_line(const char *bench)
 {
     char host[128] = "?", date[64]; time_t t = time(0);
     gethostname(host, sizeof host); strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));
-    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d engine=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, rns_engine, bi_decimal ? "10^18" : "2^64");
+    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, bi_decimal ? "10^18" : "2^64");
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 

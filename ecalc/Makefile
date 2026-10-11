@@ -57,8 +57,8 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_ntt2 tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
-OBJS  = ntt.o ntt3.o ntt2.o mem.o crt.o crt2.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
+OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -89,8 +89,6 @@ tests/t_ntt_nop: tests/t_ntt.c ntt_nop.o ntt3.o bigint.o fatal.o ntt.h modarith.
 tests/b_seed64: tests/b_seed64.c bigint.o fatal.o bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c $< -x none bigint.o fatal.o -o $@ -lm
 ntt3.o: ntt3.c ntt.h modarith.h
-	$(HIPC) -c -o $@ $<
-ntt2.o: ntt2.c ntt2.h modarith2.h
 	$(HIPC) -c -o $@ $<
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
 	$(HIPC) -c -o $@ $<
@@ -169,8 +167,6 @@ tests/t_comm: tests/t_comm.c comm_tcp.c comm_shmem.c comm_ofi.c comm_util.c fata
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
-crt2.o: crt2.c crt.h modarith2.h
-	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 crt.o: crt.c crt.h modarith.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 todec.o: todec.c todec.h rns_mul.h newton.h mem.h modarith.h
@@ -241,9 +237,6 @@ tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C1
 
 tests/t_nodechk: tests/t_nodechk.c     # target_kit.sh stage nodechk: per-node meminfo + 1 GB host->device upload per APU; built on demand, not in TESTS
 	$(HIPC) $< -o $@
-
-tests/t_ntt2: tests/t_ntt2.c ntt2.o bigint.o fatal.o ntt2.h modarith2.h tests/harness.h
-	$(HIPC) $< -x none ntt2.o bigint.o fatal.o -o $@ $(GMP_LIBS)
 
 ref/gen_e: ref/gen_e.c tests/sha256.h
 	gcc $(CFLAGS) -o $@ $< $(GMP_LIBS) -lm
