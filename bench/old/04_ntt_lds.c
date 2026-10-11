@@ -3,7 +3,7 @@
  * bench/01 measured 3886 Gbfly/s with operands already in registers.  That is
  * an upper bound: a real transform also pays LDS traffic, barrier
  * synchronisation, twiddle loads and index arithmetic.  The whole time model
- * in DESIGN.md rests on the ratio between the two, so this measures it.
+ * in archive/docs/DESIGN.md rests on the ratio between the two, so this measures it.
  *
  * Structure is the inner sub-transform of a four-step NTT: each workgroup
  * loads N points into LDS, runs log2(N) radix-2 Cooley-Tukey stages with

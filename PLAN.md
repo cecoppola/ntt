@@ -12,7 +12,7 @@ place; append to the status log (§14) as items land.
 
 Written 2026-09-12; revised 2026-09-12 (evening) after Phases 0, 1 and 1b —
 all thirteen discrepancies decided; the `s25-40` follow-up is archived. Sources: `bench/01`–`23`, `common_ntt.h`, `RESULTS.md`
-§1–30, `DESIGN.md`, `ALGORITHM.md`, and `~/apucode/epaper.pdf` ("High-Performance
+§1–30, `archive/docs/DESIGN.md`, `archive/docs/ALGORITHM.md`, and `~/apucode/epaper.pdf` ("High-Performance
 Computation of e to 40 Billion Decimal Digits on a Single MI300A Node", 4 pp.,
 scanned). A mirror of this file lives at `~/apucode/PLAN.md` on the laptop.
 
@@ -59,9 +59,9 @@ Contents
 ### Documents
 | file | lines | role |
 |---|---:|---|
-| `DESIGN.md` | 625 | original design for *e* on one node (2 × 62-bit Shoup, four-step, push corner turn); §18 lists measured revisions |
-| `RESULTS.md` | 901 | campaigns 1–3 (§1–16) and campaign 4 (§17–30: Phase 0, Phase 1 gates, harness, burst clock, baseline, partition survey, Phase 1b verdicts), with CORRECTIONs to DESIGN.md and to campaigns 2–3 |
-| `ALGORITHM.md` | 654 | master guide: segments S1–S16 with option tables, tiers 1–3, reviews R1–R11 |
+| `archive/docs/DESIGN.md` | 625 | original design for *e* on one node (2 × 62-bit Shoup, four-step, push corner turn); §18 lists measured revisions |
+| `RESULTS.md` | 901 | campaigns 1–3 (§1–16) and campaign 4 (§17–30: Phase 0, Phase 1 gates, harness, burst clock, baseline, partition survey, Phase 1b verdicts), with CORRECTIONs to archive/docs/DESIGN.md and to campaigns 2–3 |
+| `archive/docs/ALGORITHM.md` | 654 | master guide: segments S1–S16 with option tables, tiers 1–3, reviews R1–R11 |
 | `PLAN.md` | 676 | this file |
 | `bench/README.md` | — | program → question → RESULTS.md section |
 | `results/` | — | `0_env_*.txt`, `0_params.txt`, `0_node_*.txt` (Phase 0 / partition survey); `<date>_<node>/` suite runs with `*.log`, `*.smi` telemetry, `env.log`, `results.tsv`; `1b_*` Phase 1b runs |
@@ -157,7 +157,7 @@ general suite. Every program answers a stated question and records its verdict.
    claims (28 instr, 272 `v_mov`, 147 `s_nop`) are still un-rerun and assumed
    the wrong clock.
 5. **Acknowledged, unresolved.** 09's add/sub latencies strength-reduced;
-   latencies per wave-slot; the int8 MFMA number in ALGORITHM.md R10 has no
+   latencies per wave-slot; the int8 MFMA number in archive/docs/ALGORITHM.md R10 has no
    source in `bench/`. 14 now runs 300 s at 256 GiB with telemetry (§23).
 6. **New (§24, §29): every cyc/op in campaigns 2–3 assumed 2.10 GHz; the
    shader runs at ~1.55 GHz under this load.** Restated ×0.74; report rates
@@ -189,7 +189,7 @@ general suite. Every program answers a stated question and records its verdict.
 | dead ends | NUMA interleave on hstage (+20 s); persistent Rhi depth-pool (+11 s); Karp-Markstein truncation (error saturates at 2⁻ᵍ); u64 pseudo-Mersenne primes (3.1× slower NTT); 8 × u32 Montgomery (4.83× slower CRT) |
 | future | cyclic/negacyclic NTT for true Karp-Markstein (−10 s); 2D split for dc TOP; radix-4 stages; multi-node via 4-step NTT |
 
-### 4.2 Differences from `~/ntt`'s design (ALGORITHM.md)
+### 4.2 Differences from `~/ntt`'s design (archive/docs/ALGORITHM.md)
 | | paper | `~/ntt` (measured) |
 |---|---|---|
 | primes | 4 × 52-bit, FP64 Barrett | 2 × 62-bit, integer Shoup (bench/01: 240 949 vs FP64 210 602 Gbit-bfly/s) |
@@ -262,7 +262,7 @@ alternative to S9/S16, not just something to reproduce.
 | ≥ 500 GB usable at HBM speed | bench/02: 460 GiB at 14.0 TB/s | confirmed |
 | peer access, allocator-independent | bench/03: within 1 % | confirmed |
 | no throttling | bench/14: 0.5 % over 60 s | partial — paper runs 286 s (B7) |
-| launch cost for batch/LEAF tiers | 4.0 µs dispatch (ALGORITHM.md ✔) | known |
+| launch cost for batch/LEAF tiers | 4.0 µs dispatch (archive/docs/ALGORITHM.md ✔) | known |
 
 ### 6.2 New gate benchmarks, priority order
 Numbering continues the `bench/` sequence. Each prints `VERIFY`, `RESULT`,
@@ -656,10 +656,10 @@ faithful baseline on the same node:
 2. ~~**b = 48 with 3 primes** (Q2): 25 % less plane memory~~ **dropped** — the same bytes and the same transform work as 4 primes at b = 64 (RESULTS §41).
 3. ~~**Register-blocked rows (06/12) as the b16 body**~~ ✅ 2026-09-14: `NTT_B16_BODY=1`, bit-identical, +19 % forward / +15 % inverse at 2³¹, ≈ 2 % on the pipeline (RESULTS §43).
 4. ~~**One-prime-per-device vs four-step corner turn**~~ dropped 2026-09-15: the same device memory per product whatever the distribution (RESULTS §46); four-step stays the multi-node path.
-5. ~~**2 × 62-bit primes (S3)** in the paper's pipeline~~ ✅ 2026-09-15 built and verified (`RNS_ENGINE=2`): 2.2× slower, higher peak; the density argument does not apply to a host-resident pipeline (RESULTS §44, CORRECTION to ALGORITHM.md). Engine 1 stays.
+5. ~~**2 × 62-bit primes (S3)** in the paper's pipeline~~ ✅ 2026-09-15 built and verified (`RNS_ENGINE=2`): 2.2× slower, higher peak; the density argument does not apply to a host-resident pipeline (RESULTS §44, CORRECTION to archive/docs/ALGORITHM.md). Engine 1 stays.
 6. Items the paper lists as future work: ~~radix-4 stages in the b16 kernel~~ ✅ measured — no gain once the body is register-blocked (RESULTS §43); negacyclic NTT for Karp-Markstein — deferred (the pipeline's Newton does not use Karp–Markstein).
 
-Record CORRECTIONs to ALGORITHM.md wherever the paper's structure wins.
+Record CORRECTIONs to archive/docs/ALGORITHM.md wherever the paper's structure wins.
 
 ---
 
@@ -682,7 +682,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
   swizzle; `ds_swizzle` and DPP vs `ds_bpermute`.
 - **kernel/**: N sweep 512–4096 for the row transform (R11's N = 512
   hypothesis); radix-4/8 in register groups; variable 7-smooth L
-  (ALGORITHM.md Tier 1 item 1).
+  (archive/docs/ALGORITHM.md Tier 1 item 1).
 
 ---
 
@@ -698,7 +698,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
   `results/`.
 - Pin one node for a campaign; name it in RESULTS.md.
 - Record the verdict in `RESULTS.md` under a numbered section; mark any
-  DESIGN.md / ALGORITHM.md claim it overturns as CORRECTION.
+  archive/docs/DESIGN.md / archive/docs/ALGORITHM.md claim it overturns as CORRECTION.
 - Keep copies off aac6 (`~/apucode/ntt` on the laptop): the home is not
   backed up.
 
@@ -755,7 +755,7 @@ Ordered by relevance to this project; each lands in its `bench/<group>/`.
 | 2026-09-16 | WP1 in progress on `wp1-decimal-base`: decimal base implemented; both bases pass all tests; decimal 10⁸/10⁹ byte-identical; WP2's phase removals fall out of the switch. Gate running | RESULTS.md §50 |
 | 2026-09-15 | **Phase 7 planned** (§15): the single-node cell of multi-node design A — decimal base as a switch, device-resident pools, rank abstraction, inter-node correctness on aac6, radix-3 last; 8 WPs, ≈ 25 days; every change adopted by the user's decision on measured data; repository github.com/cecoppola/ntt | — |
 | 2026-09-15 | **Phase 6 complete**: system/alloc, mem/stride, lds/xchg, kernel/rowN; 7-smooth analysis (dc pads 37 % of points; 3·2ᵏ lengths would save ≈ 11 s) | RESULTS.md §49 |
-| 2026-09-15 | **Phase 5 sequence complete (tasks 1–6)**; ALGORITHM.md Part 6 CORRECTIONs; campaign report artifact https://claude.ai/code/artifact/928ec61d-c221-402f-81a8-5341c427b483 | — |
+| 2026-09-15 | **Phase 5 sequence complete (tasks 1–6)**; archive/docs/ALGORITHM.md Part 6 CORRECTIONs; campaign report artifact https://claude.ai/code/artifact/928ec61d-c221-402f-81a8-5341c427b483 | — |
 | 2026-09-15 | Phase 5 item 1 measured (Shoup b1: −2 %), Phase 5 closed; Phase 6 first pass: five group benchmarks | RESULTS.md §47–48 |
 | 2026-09-15 | **Past the paper: e to 5 × 10¹⁰ digits verified in 442 s, peak 375 GB** — the node's ceiling for this pipeline (RESULTS §45); item 4 dropped by analysis (§46) | — |
 | 2026-09-15 | Phase 5 item 5: engine 2 (2 × 62-bit, 45-bit points) built, verified to 4 × 10¹⁰; 641 s / 282 GB vs 291 s / 248 GB — density does not help a host-resident pipeline; engine 1 stays | RESULTS.md §44 |
@@ -841,7 +841,7 @@ decimal limbs none of this exists (dc 4.4 s, local formatting).
 | **WP4 — compute tuning on the final layout** | seed spans as a batched GPU level (2¹⁰-point products), register-blocked body for batch products with log L ≥ 17, operand reuse extended to dm (fwd(Q) for the reciprocal's top step and X·Q; fwd(r) for r·d) | 2 d | `t_ntt` bit-identical where applicable, GMP elsewhere; 4 × 10¹⁰ ≈ 80 s |
 | **WP5 — the rank abstraction** (D3, D5, GPU-direct, slabs) | a communicator interface (rank, size, all-to-all of slabs, barrier) with two implementations: single-rank identity and a synthetic four-rank layout inside one APU's HBM; the four-step distributed transform (local column pass → slab transpose → twiddle → local row pass) written against it, slab-pipelined, sourced from HBM; tree partition by rank (subtree per rank, top levels distributed); the same transform validated bit-for-bit against `ntt_fwd` on one rank and against GMP on four synthetic ranks | 5 d | `t_ntt` extended with the distributed path; the whole pipeline runs unchanged through the one-rank communicator |
 | **WP6 — inter-node correctness on aac6** | aac6 has no high-speed fabric (one 1 Gb/s Intel I210 NIC per node, no IB/Slingshot device, no MPI/RCCL/UCX modules) and 3 usable 4-APU nodes (PPAC_MI300A_SPX: s24-16/26/30; s24-35 down; no per-user node cap, 8 h). So this WP is **correctness only, never performance**: a TCP-socket implementation of the WP5 communicator (an OpenMPI built in `$HOME` with the TCP BTL is the alternative), the pipeline run on 2 and 3 nodes (8 and 12 APU ranks), the distributed four-step transform and the rank-partitioned tree checked bit-for-bit against the one-rank run and against GMP, slab pipelining, checkpoint/restart from a per-level checkpoint; the SH5 single-APU nodes as extra ranks if a job may span partitions. Bandwidth, all-to-all efficiency, incast and GPU-direct RDMA are **not** measured here — they belong to the target Slingshot system (2 × 400 Gb/s per APU); the A-vs-E decision waits for a 2 048-endpoint all-to-all test there, with E kept behind a switch | 3 d | 2- and 3-node runs verified (T1, T2, 10⁹ identical); restart from a checkpoint reproduces the run |
-| **WP7 — verification and hardening** | independent second run through engine 2 (2 × 62-bit primes, binary base — a separate pipeline path, verified to 5 × 10¹⁰) compared at windows, checkpoints of P, Q per tree level, `accept.sh` and `variance.sh` extended to the new phases, RESULTS.md sections per WP, ALGORITHM.md Part 7 | 2 d, spread across WPs | five-run variance ≤ 2 %; documentation current |
+| **WP7 — verification and hardening** | independent second run through engine 2 (2 × 62-bit primes, binary base — a separate pipeline path, verified to 5 × 10¹⁰) compared at windows, checkpoints of P, Q per tree level, `accept.sh` and `variance.sh` extended to the new phases, RESULTS.md sections per WP, archive/docs/ALGORITHM.md Part 7 | 2 d, spread across WPs | five-run variance ≤ 2 %; documentation current |
 
 | **WP8 — radix-3 lengths (last, optional)** | 3·2ᵏ transform lengths for dm's A·μ products (37 % padding today): a four-prime set with 2ᵏ·3 ∣ p−1 if the paper's set lacks the factor 3, a mixed-radix pass in both kernel bodies, `t_ntt` at 3·2ᵏ; the smallest gain of the set (≈ 10 s of dm at 4 × 10¹⁰) and the only item touching the bit-identical kernels — after everything else | 3 d | `t_ntt` bit-identical where applicable, GMP elsewhere |
 Expected end state on one node: 4 × 10¹⁰ digits in ≈ 80 s, host ≈ 110 GB,
@@ -1254,7 +1254,7 @@ Each row names the complete form and how it is verified on aac6.
 
 | agent | item(s) | the complete solution | owns | gate |
 |---|---|---|---|---|
-| **R** the race | DECISIONS2 #1 | Root cause, not avoidance: V's reproducer (`v11_d5.sh`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP`) run with the per-level probe moved one step at a time until the faulting transition is named; every CPU→GPU hand-over at a level boundary (`spill_merge`, the scatter, the CRT tree add, the plane-pool growth's copy) audited for stream ordering (events recorded on the producing stream, waited on the consuming one, no null-stream assumptions); the fix; then the invariant: a pool that would grow inside a phase aborts with `mem_oom`'s accounting unless `RNS_POOL_GROW=1` (the stress recipe sets it); a **stress step in `mnaccept.sh`** (`--stress`: 10 forced-growth runs at 10⁹/4, must be 10/10) so the race cannot return unnoticed | `rns_mul.c` (batch tier, pools' growth path), the level loop of `binsplit.c`, `mnaccept.sh` (the stress step only) | 40 forced-growth runs at 10¹⁰/4 without any probe: 40/40 identical; the stress step 10/10 in three separate batches; the regression 17/17 |
+| **R** the race | DECISIONS2 #1 | Root cause, not avoidance: V's reproducer (`archive/drivers/ecalc/v11_d5.sh`, `ECALC_RES_LOG_LEVEL`, `ECALC_LEAF_DUMP`) run with the per-level probe moved one step at a time until the faulting transition is named; every CPU→GPU hand-over at a level boundary (`spill_merge`, the scatter, the CRT tree add, the plane-pool growth's copy) audited for stream ordering (events recorded on the producing stream, waited on the consuming one, no null-stream assumptions); the fix; then the invariant: a pool that would grow inside a phase aborts with `mem_oom`'s accounting unless `RNS_POOL_GROW=1` (the stress recipe sets it); a **stress step in `mnaccept.sh`** (`--stress`: 10 forced-growth runs at 10⁹/4, must be 10/10) so the race cannot return unnoticed | `rns_mul.c` (batch tier, pools' growth path), the level loop of `binsplit.c`, `mnaccept.sh` (the stress step only) | 40 forced-growth runs at 10¹⁰/4 without any probe: 40/40 identical; the stress step 10/10 in three separate batches; the regression 17/17 |
 | **G** the top product at scale | #2 (+ the spill buffers) | The tree's top levels formed as **piece grids over fixed 2³¹-point planes for any g** (the single-node reciprocal's form and A-grid's grid over shares, applied to `mn_tree`'s products): pieces of the sharded operands, the shifted distributed add with the cross-node carry, the transform cache over pieces; the spill buffers (2 g C × 4 limbs per APU today) replaced by the gridded pieces' exact spills through `alltoallv`; the per-node memory profile independent of g (the memory model's g-terms become O(share)). Forced-grid tests (`DIST_LOGN_TEST`) at sizes 2–9 make the path run at 10⁸–10¹⁰ on one node | `rns_dist.c` (with L's map), `mn.c` (`mn_tree`), `mdb.h`, `tests/t_mn_grid.c` | `t_mn_grid` with forced grids at 2, 3, 4, 6, 9; 10⁸ at sizes 3, 6, 9 and 10⁹ at 2, 3, 4 with forced grids identical; 10¹⁰ at size 4 identical and the tree's device peak per process reported; the memory model's g-terms updated and matching |
 | **I** the initialisation floor | #3 and the 12 s of mapping behind it | The mapping floor attacked at its source, then the planes decided on the result: (1) measure every allocation form on the APU for 200 GB — `hipMalloc`, `hipMallocAsync` from a `hipMemPool` with a release threshold, `hipMallocManaged`, `hipExtMallocWithFlags` (uncached / fine-grained), `hipHostMalloc` coherent (unified memory: the same HBM), `mmap` + THP + `hipHostRegister` — time to map, first-touch cost, kernel bandwidth from each (the transform kernel's TB/s must not drop); (2) the fastest form that keeps the kernel rate becomes the pool allocator; (3) the seeds moved out of the mapping window (mapping first, then the seed thread — or the reverse — measured both ways, the wall decides); (4) the 3·2³⁰ planes re-measured on the new floor and the default set by the number; (5) `ECALC_DM_POOL` deleted (a no-op with the tail) | `mem.c`, the pools' creation in `rns_mul.c`, the init of `ecalc.c`, `binsplit_pregrow` (with M's tail intact) | 10⁹ identical both bases; five runs at 4 × 10¹⁰ identical, init and wall reported per form; 8 × 10¹⁰ VERIFY OK on the new allocator; the kernel rates unchanged (`t_ntt` timings) |
 | **S** the SHMEM transport's target forms | #4, #5, #9 | The forms the target uses, **tested for real on aac6** by building Sandia OpenSHMEM (SOS, user-space, libfabric `tcp`/`sockets` provider, `SHMEM_THREAD_MULTIPLE` and contexts supported) in `~/sos`: contexts per APU thread without the global lock (`COMM_SHMEM_SERIAL=0`), the symmetric heap of device memory (`COMM_SHMEM_DEVHEAP=1`; on the APU host-registered and device heaps are the same HBM — both paths kept, the target's Cray SHMEM decides), the callers' slabs resident in the pool (`comm_sym_alloc`: `ntt_dist`'s slab buffers allocated from the symmetric pool, no staging copy, no helper thread), `put_signal` under `#if` for 1.5 implementations; the third layer kept behind its switch with a `t_dist` timing at 8 PEs on both transports; the two-real-node SHMEM run at 10⁹ when two nodes are idle | `comm_shmem.c`, `comm.h`, `Makefile`, `mnrun.sh`, `ntt_dist.c` (slab allocation only), `tests/t_comm.c` | `t_comm`/`t_dist` every mode at 2–8 PEs on OSHMEM (serial) and on SOS (thread-multiple, device heap, pool-resident slabs); the regression over SOS 17/17; 2 real nodes at 10⁹ identical if available |
@@ -1280,7 +1280,7 @@ digits, minutes and GB for any (g, D).
 
 ## 28. Code reduction — scheduled after all other work items (2026-09-22)
 
-Recommendations and per-item reasoning: `CODE_REDUCTION.md`. The user has approved
+Recommendations and per-item reasoning: `archive/docs/CODE_REDUCTION.md`. The user has approved
 groups (a), (b) and (e); group (c) (merging) and group (d) (retention) are not
 scheduled here. **This work comes after every other item in §23, §26 and the
 DECISIONS3 list**: it touches live code and its only justification is clarity, so it
@@ -1725,7 +1725,7 @@ Phase A.
 
 | # | item | why first | evidence | size |
 |---|---|---|---|---|
-| A1 | **The rare hang after init: find and fix the cause.** Soak runs at the target's share size (7.64 × 10¹⁰) and at small sizes (fast repeats, e.g. 10⁹ × 200) with stacks captured by `ecalc/g13d_hang.sh` (gdb launch mode; `ptrace_scope` blocks attaching); then fix; then a soak with zero hangs | 1 hang in 31 one-node runs. A 576-node job runs 576 processes: at 1/31 each it almost never finishes; even at 1/3000 it fails 17 % of the time. A watchdog does not rescue a 576-node run | G13d §0 (197 threads in futex, 2 in `kfd_wait_on_events`, just after init — the seed thread's join) | 1–2 sessions |
+| A1 | **The rare hang after init: find and fix the cause.** Soak runs at the target's share size (7.64 × 10¹⁰) and at small sizes (fast repeats, e.g. 10⁹ × 200) with stacks captured by `archive/drivers/ecalc/g13d_hang.sh` (gdb launch mode; `ptrace_scope` blocks attaching); then fix; then a soak with zero hangs | 1 hang in 31 one-node runs. A 576-node job runs 576 processes: at 1/31 each it almost never finishes; even at 1/3000 it fails 17 % of the time. A watchdog does not rescue a 576-node run | G13d §0 (197 threads in futex, 2 in `kfd_wait_on_events`, just after init — the seed thread's join) | 1–2 sessions |
 | A2 | **The SHMEM pool: model it, size it, fix the staging** — measure the pool's high-water at 2 real nodes and 4 processes at 10⁸–10¹⁰, fit its growth, put it in `mem_model`/`estimate.py`, re-check the 4.25 × 10¹³ node total; include 2.4 (`rns_dist`'s slabs still staged: the one-line `comm_sym_alloc` change) | 8479 MiB in use at 10¹⁰ on 2 nodes, above the 8192 default; the model's column is flat. Decides whether 452 GB holds (T0 on the target) | S13d open 3; TARGET_TASKS T0 | ½ session |
 | A3 | **Clean failure from worker threads**: the in-phase pool guard calls `exit(1)` from four worker threads at once and the process segfaults; route it through one error path with a clear message and exit code | at 576 nodes a clean, attributable failure matters | G13d (c) | small |
 | A4 | **`t_mn_grid` on real nodes** (SOS, 2 and 3 nodes, small size) and **`mnrun.sh`'s SHMEM detection** under wrappers (`stdbuf`, `timeout`, `numactl`) | the any-size map is the target's path; only loopback-verified | S13d open 2, 5 | small |
@@ -1839,7 +1839,7 @@ round trip, `BS_LAYOUT_ONLY` against a real init with `ECALC_INIT_ONLY=1`), fini
   model beat `MN_T_CHUNK_MB=1024`; **E11** (V6, band-sized products) as a Fable design note with the modelled
   ceiling, implemented only if the user asks; **E12**'s collective budget check at size > 1 (with TASKS A3).
 - **11:30–14:15 — PLAN §33 Phase A**, agents in parallel:
-  - **A1** the hang (Fable for the root cause): soak runs at 7.64 × 10¹⁰ and 10⁹ × 200 with `g13d_hang.sh`, stacks,
+  - **A1** the hang (Fable for the root cause): soak runs at 7.64 × 10¹⁰ and 10⁹ × 200 with `archive/drivers/ecalc/g13d_hang.sh`, stacks,
     the fix, a zero-hang soak;
   - **A2** the SHMEM pool: its high-water at 2 real nodes and 4 processes at 10⁸–10¹⁰, the model, TASKS 2.4's staging;
   - **A3** clean exits from worker threads (with E12's budget check);

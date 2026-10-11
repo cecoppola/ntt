@@ -3,7 +3,7 @@
 Branch `m6-ckpt` (from `main` at a75474d). Files: `ecalc/binsplit.c` (the WP7 checkpoint
 functions and the level-loop hooks), `ecalc/binsplit.h`, `ecalc/mn.c` / `mn.h` (`mn_tree` only:
 a tree-level save/restore and the restart-level agreement; the group, mesh and product code is
-untouched), `ecalc/ackpt_test.sh` (the gate's runs). Nothing outside these files was touched;
+untouched), `archive/drivers/ecalc/ackpt_test.sh` (the gate's runs). Nothing outside these files was touched;
 `ecalc.c` is unchanged (the restart at a tree level is expressed through `binsplit_e` returning
 empty P, Q and `mn_tree` reloading its shares).
 
@@ -79,7 +79,7 @@ right after that level's set is written (before the barrier, for the tree); `BS_
 restricts either to one node-process, which leaves the others running or blocked in the barrier
 (a `timeout` on the run kills them) — the mixed state the minimum rule is for.
 
-## 2. Tests (jobs 20711, 20732, 20737, one node each, 2026-09-19; `ecalc/ackpt_test.sh <job> [s1 s1v1 s1dev m8 m9 mdev]`)
+## 2. Tests (jobs 20711, 20732, 20737, one node each, 2026-09-19; `archive/drivers/ecalc/ackpt_test.sh <job> [s1 s1v1 s1dev m8 m9 mdev]`)
 
 All runs: `ECALC_VERBOSE=2`, decimal limbs (the default), `BS_CKPT_DIR` on the node's local
 `/tmp`, digits `cmp`'d against `ref/e_<digits>.txt` and against the run's own uninterrupted

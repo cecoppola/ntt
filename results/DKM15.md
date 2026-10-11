@@ -249,7 +249,7 @@ affected). **This corrects §1.4 and SC's ≤ −20 GB.**
 
 ### 4.1 Stage A: `NEWTON_DKM=1` correctness
 
-Job 21766 ran on s24-26, 18:29–18:46 EDT, on commit 3fc51d6. The command was `ecalc/dkm15_batch.sh A 3fc51d6`, and the logs are in
+Job 21766 ran on s24-26, 18:29–18:46 EDT, on commit 3fc51d6. The command was `archive/drivers/ecalc/dkm15_batch.sh A 3fc51d6`, and the logs are in
 aac6 `~/dkm15tmp/A/` and `~/ntt-DKM15/ecalc/results/mnaccept/21766/`. The first attempt, job 21760, was cancelled by the scheduler
 after 50 s on s24-16 and ran nothing.
 
@@ -272,7 +272,7 @@ corrections), the digits are identical. The failures are all in `mn_out`'s tail 
 
 ### 4.2 Stage B: the gates with the switch off, the size-1 device flow at 10⁹, the patch controls
 
-Job 21768 ran on s24-26, 18:46–19:19 EDT, on commit 5eb35dc. The command was `ecalc/dkm15_batch.sh B 5eb35dc`, and the logs are in
+Job 21768 ran on s24-26, 18:46–19:19 EDT, on commit 5eb35dc. The command was `archive/drivers/ecalc/dkm15_batch.sh B 5eb35dc`, and the logs are in
 aac6 `~/dkm15tmp/B/` and `results/mnaccept/21768/`.
 
 | test | result (measured) |
@@ -370,7 +370,7 @@ write). With an X_hi writer (not built), the with-write figures would be −20.9
    `total` figure. The dm figure is firm.
 
 **Outside my files:**
-- `ecalc/dkm15_batch.sh` and `tests/dkm15_model.py` are new files.
+- `archive/drivers/ecalc/dkm15_batch.sh` and `tests/dkm15_model.py` are new files.
 - The README row.
 - Nothing in `mn_out.c`, `binsplit.c`, `mn_plan.c`, `rns_dist.c` or `ecalc.c` was changed.
 
