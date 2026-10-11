@@ -133,8 +133,6 @@ enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* Phase 14 P2 (below) */
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
-static int g_trace;
-#define TRACE(...) do { if (g_trace) { fprintf(stderr, "comm_shmem: pe %d: ", S.me); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 static void die(const char *m) { ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: %s\n", S.me, m); }
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static void xs_print(void);   /* X1 (below) */
@@ -257,7 +255,6 @@ int comm_shmem_init(void)
 {
     if (S.inited) return S.npes;
     int prov = -1;
-    g_trace = getenv("COMM_SHMEM_TRACE") != 0;
     S.verbose = env_int("COMM_SHMEM_VERBOSE", 0); if (!S.verbose && env_int("ECALC_VERBOSE", 1) >= 2) S.verbose = 1;
     size_t mb = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192;
 #ifdef COMM_SHMEM_DEVICE_HEAP
@@ -294,7 +291,6 @@ int comm_shmem_init(void)
     if (prov < SHMEM_THREAD_MULTIPLE && !S.serial) { if (S.me == 0) fprintf(stderr, "comm_shmem: the library provides thread level %d, not MULTIPLE: serialising the calls\n", prov); S.serial = 1; }
     const char *eo = getenv("COMM_SHMEM_ORDER");
     if (eo) S.order = !strcmp(eo, "putsig") ? ORDER_PUTSIG : !strcmp(eo, "fence") ? ORDER_FENCE : ORDER_QUIET;
-    else if (getenv("COMM_SHMEM_FENCE") && atoi(getenv("COMM_SHMEM_FENCE"))) S.order = ORDER_FENCE;   /* Phase 11's switch */
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.thread_always = env_int("COMM_SHMEM_THREAD", 0);
@@ -356,7 +352,7 @@ void comm_shmem_finalize(void)
 {
     if (!S.inited) return;
     shmem_barrier_all();
-    if (S.me == 0 || g_trace || S.verbose) {
+    if (S.me == 0 || S.verbose) {
         printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
         /* Phase 14 P2: what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
         printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
@@ -641,7 +637,6 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall");
     seq_next(p); p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : p->db + p->sst;
-    TRACE("comm %d: alltoall seq %ld, %zu B per slab%s%s", p->id, p->seq, bytes, sin ? ", send in pool" : "", rin ? ", recv in pool" : "");
     if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
     SYNC(s);                                              /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
@@ -774,7 +769,6 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
 #endif
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     SYNC(s);                                              /* the caller's stream is done with sb and rb */
-    TRACE("comm %d: alltoallv in %ld rounds of %zu B per pair (staging %zu + %zu B)", p->id, K, ch, ss, rs);
     if (pthread_create(&p->th, 0, rounder, p)) die("pthread_create");
     p->thread = 1;
     return 1;
@@ -809,7 +803,6 @@ static void s_wait(comm *c)
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (!p->pending) return;
     double xtw0 = S.xstats ? now_s() : 0;                 /* X1 */
-    TRACE("comm %d: wait seq %ld", p->id, p->seq);
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
     if (p->rounds) {                                      /* Phase 14 V1: the rounds completed in the helper thread */
         p->rounds = 0; staging_release(p); p->pending = 0;
@@ -818,7 +811,6 @@ static void s_wait(comm *c)
         return;
     }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
-    TRACE("comm %d: wait seq %ld: arrived", p->id, p->seq);
     if (!p->rin) {
         if (!p->v) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
         else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
@@ -951,7 +943,6 @@ static void *s_sym_alloc(comm *c, size_t bytes)
 #endif
     if (getenv("COMM_SHMEM_NOSYM") && atoi(getenv("COMM_SHMEM_NOSYM"))) return 0;
     size_t off = pool_alloc(bytes, K_SYM);
-    TRACE("sym_alloc %zu MiB at %zu", bytes >> 20, off);
     return S.pool + off;
 }
 static void s_sym_free(comm *c, void *ptr)
@@ -965,11 +956,8 @@ static void s_destroy(comm *c)
 {
     shm_priv *p = PRIV(c);
     if (p->pending) s_wait(c);
-    TRACE("destroy comm id %d: barrier", p->id);
     s_barrier(c);                                          /* nobody's block goes while a member may still write to it */
-    TRACE("destroy comm id %d: quiet + ctx destroy", p->id);
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
-    TRACE("destroy comm id %d: done", p->id);
     staging_drop(p);
     comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig);   /* Phase 17 */
     pool_free(p->base);
@@ -1005,7 +993,6 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     for (int r = 0; r < n; r++) shmem_ctx_long_p(p->ctx, mailbox(id, S.me), (long)p->base + 1, p->pe[r]);   /* my block's offset into every member's row (mine included), indexed by PE */
     shmem_ctx_quiet(p->ctx);
     SHM_UNLOCK();
-    TRACE("create comm id %d (%d PEs from %d stride %d): posted, waiting for the members", id, n, pe_start, pe_stride);
     for (int r = 0; r < n; r++) { long *m = mailbox(id, p->pe[r]); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
     set_xo(p, 0);
     if (comm_ofi_enabled()) {                             /* Phase 17: the device's NICs and comm pool; the members' blobs over SHMEM */
@@ -1022,7 +1009,6 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
         p->ocnt = (long *)calloc(n, sizeof(long)); p->osig = (long *)calloc(n, sizeof(long));
         p->ofi = 1;
     }
-    TRACE("create comm id %d: done", id);
     return c;
 }
 #endif

@@ -24,19 +24,8 @@ void crt_garner3(const uint64_t r[3], uint64_t out[3]);      /* P3: one coeffici
 void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T);
 /* quartered layout: buf[q] holds, for each plane d, coefficients [qQ, min((q+1)Q, n)) at
  * buf[q] + d Q; stripes of quarter q run on NUMA node q (T stripes in total, T % 4 == 0) */
-void crt_carry_par4_q(uint64_t *const buf[4], size_t Q, size_t n, uint64_t *out, int T);
 #ifdef __cplusplus
 }
 #endif
 #endif
 
-/* engine 2 (crt2.c): two 62-bit primes, coefficients c_i < P0 P1 < 2^124 at
- * bit positions 45 i.  out[0 .. limbs_out) = sum_i c_i 2^(45 i) mod 2^(64 limbs_out),
- * T stripes with 4-limb spills merged sequentially. */
-#ifdef __cplusplus
-extern "C" {
-#endif
-void crt2_carry(uint64_t *const res[2], size_t n, uint64_t *out, size_t limbs_out, int T);
-#ifdef __cplusplus
-}
-#endif

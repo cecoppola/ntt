@@ -36,17 +36,14 @@ extern int ntt_stg;        /* NTT_B16_STG: stages per b16 pass, 3..7 (default 7)
 extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= this (default 14) */
 extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
 extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
-extern int ntt_b16_xchg;   /* NTT_B16_XCHG: 1 = the register-blocked body's last exchange by ds_swizzle (Phase 9 B4), 0 = LDS */
 /* Phase 13a K (switches; -1 = read the environment variable at first use):
  *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (the original), 1 reduced-correction Barrett
  *               (two-term reciprocal, one correction for data products, two for twiddles; default since Phase 13b),
  *               2 Shoup integer products (b16 register-blocked body and b1 pass).  All exact: outputs bit-identical.
- *   ntt_mall    NTT_MALL    H2: log2 of a chunk (points) that the passes of narrower span run on to completion
- *               before the next chunk (MALL residency); 0 = off (default).  Bit-identical. */
-extern int ntt_modmul, ntt_mall;
-extern int ntt_b16_var;     /* NTT_B16_VAR  H6: register-blocked body variants, 1 = unpadded LDS + global twiddle table (4 blocks/CU), 2 = block order, 3 = both; 0 default */
+ *   (NTT_MALL, the MALL-chunked pass schedule, and NTT_B16_VAR, the k_b16r occupancy / block-order variants, were removed
+ *   2026-10-11: no gain, results/N116.md, NTT3P.md) */
+extern int ntt_modmul;
 int ntt_modmul_get(void);
-int ntt_mall_get(void);
 /* Phase 13b K (switches; -1 = read the environment variable at first use):
  *   ntt_b1r   NTT_B1R   0 the paper's b1 pass; 3 or 4: the register-blocked b1 pass (default 3 since Phase 13c), 2^3
  *             or 2^4 points per thread, one LDS exchange per group of 3 or 4 stages instead of one per stage.  Barrett

@@ -46,7 +46,6 @@
 struct lst_rec { double a0, x0, x1, r1, f0, f1, c1, l0, l1; size_t xb, fb; int v; };   /* [l0, l1]: the push kernel's link-active interval (COMM_XGMI_STATS=1) */
 extern "C" int comm_xgmi_last_push(int rank, double *t0, double *t1);   /* comm_xgmi.c */
 struct lst { struct lst_rec *r; int n, cap; };
-static int tker_mode(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_LAYER_TKERNEL"); v = e ? atoi(e) : 1; } return v; }   /* default 1 since Phase 14 (X13b: one transpose kernel; at 576 8.2 ms -> 0.012 ms per transpose); =0 the copies */
 static int lst_mode;                                     /* COMM_LAYER_STATS: read at the first create */
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
@@ -55,7 +54,7 @@ typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
                  comm *inter2; int vpool, i2, vshare;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
-                 int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
+                 int vdepth; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
 /* ---- the stats (E9 part 1) ---- */
@@ -196,7 +195,7 @@ static void lst_print(const char *tag)
         printf("layer-stats %s node %d: block transposes %.4f s per APU (%.3f ms per exchange); the NIC balance over the APU threads: fabric bytes %.4f .. %.4f GB (max/min %.4f), fabric time %.4f .. %.4f s (max/min %.3f)\n",
                tag, g_node, a->tr / q, a->n > 0 ? 1e3 * a->tr / a->n : 0, bmin * 1e-9, bmax * 1e-9, bmin > 0 ? bmax / bmin : 0, tmin, tmax, tmin > 0 ? tmax / tmin : 0); }
     printf("layer-stats %s node %d: v-exchange depth %s, transposes %s; scratch of one APU thread's communicator (max): v-exchange %.1f MB, equal-slab %.1f MB\n", tag, g_node,
-           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "2", tker_mode() ? "one kernel" : "copies", g_vmem * 1e-6, g_emem * 1e-6);
+           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "2", "one kernel", g_vmem * 1e-6, g_emem * 1e-6);
     if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
                           tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
@@ -252,7 +251,8 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
     p->tmp_cap = bytes; p->own_tmp = 1;
 }
-/* ---- Phase 13b X: COMM_LAYER_TKERNEL=1 (default since Phase 14; see tker_mode above) -- the block transposes and the v-exchange's reorder copies as one kernel
+/* ---- Phase 13b X: the block transposes (one kernel; the 4 x g hipMemcpyAsync form COMM_LAYER_TKERNEL=0 was removed 2026-10-11,
+ * the copies remain only as the fallback of the size guards below) and the v-exchange's reorder copies as one kernel
  * each instead of na x nb hipMemcpyAsync calls (2304 per transpose at g = 576).  Equal slabs: grid.y = the destination block
  * (b, a), grid.x strides over its 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned
  * host memory read by the kernel (grid.y = entry); every use is followed by a stream synchronise before the table is refilled.
@@ -280,7 +280,7 @@ static unsigned gx_of(size_t w) { size_t b = (w + 255) / 256; return (unsigned)(
 /* [a][b] blocks of `bytes` -> [b][a]: na x nb blocks */
 static void block_transpose(void *dst, const void *src, size_t bytes, int na, int nb, hipStream_t s)
 {
-    if (tker_mode() && bytes && !(bytes & 15) && (size_t)na * nb <= 65535 && dev_ok(dst) && dev_ok(src)) {
+    if (bytes && !(bytes & 15) && (size_t)na * nb <= 65535 && dev_ok(dst) && dev_ok(src)) {
         k_btrans<<<dim3(gx_of(bytes >> 4), (unsigned)(na * nb)), 256, 0, s>>>((uint4 *)dst, (const uint4 *)src, bytes >> 4, na, nb);
         HIP_CHECK(hipGetLastError()); return;
     }
@@ -295,7 +295,7 @@ static struct cpy *ctab_get(lay_priv *p, int n)
 }
 static void bcopy_run(lay_priv *p, char *dst, const char *src, int n, hipStream_t s)
 {
-    struct cpy *t = p->ctab; size_t mx = 0; int ok = tker_mode() && n > 0 && n <= 65535 && dev_ok(dst) && dev_ok(src);
+    struct cpy *t = p->ctab; size_t mx = 0; int ok = n > 0 && n <= 65535 && dev_ok(dst) && dev_ok(src);
     for (int i = 0; i < n && ok; i++) { if ((t[i].dst | t[i].src | t[i].len) & 7) ok = 0; if (t[i].len > mx) mx = t[i].len; }
     if (ok) { k_bcopy<<<dim3(gx_of(mx >> 3), (unsigned)n), 256, 0, s>>>(dst, src, t); HIP_CHECK(hipGetLastError()); return; }
     for (int i = 0; i < n; i++) if (t[i].len) HIP_CHECK(hipMemcpyAsync(dst + t[i].dst, src + t[i].src, t[i].len, hipMemcpyDefault, s));
@@ -411,7 +411,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
 {
     lay_priv *p = PRIV(c); int g = p->g, na = p->na, n = na * g, d = p->d;
     const char *src = (const char *)sb; size_t soff0 = sdsp[0];
-    int tk = !host && tker_mode();                       /* (13b X: the reorder copies as one kernel each) */
+    int tk = !host;                       /* (13b X: the reorder copies as one kernel each) */
     if (!t->contig) {                                    /* the slabs into [d'][r'] order (= rank order in the major form), back to back, in x0 */
         struct cpy *ct = tk ? ctab_get(p, n) : 0; int m = 0;
         size_t o = 0; for (int dd = 0; dd < na; dd++) for (int r = 0; r < g; r++) { int rho = rho_of(p, dd, r); if (tk) { ct[m].dst = o; ct[m].src = sdsp[rho]; ct[m++].len = scnt[rho]; } else vcopy(x0 + o, (const char *)sb + sdsp[rho], scnt[rho], s, host); o += scnt[rho]; }
@@ -450,7 +450,7 @@ static void v_post(comm *c, comm *ic, struct vtab *t, char *x2, char *x3, hipStr
 /* x3 [r][d] -> the receive buffer at the caller's offsets */
 static void v_scatter(comm *c, const struct vtab *t, const char *x3, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int host)
 {
-    lay_priv *p = PRIV(c); int g = p->g, tk = !host && tker_mode(), m = 0;
+    lay_priv *p = PRIV(c); int g = p->g, tk = !host, m = 0;
     struct cpy *ct = tk ? ctab_get(p, p->na * g) : 0;
     for (int r = 0; r < g; r++) { size_t off = t->dsp2[g + r]; for (int dd = 0; dd < p->na; dd++) { int rho = rho_of(p, dd, r); if (tk) { ct[m].dst = rdsp[rho]; ct[m].src = off; ct[m++].len = rcnt[rho]; } else vcopy((char *)rb + rdsp[rho], x3 + off, rcnt[rho], s, host); off += rcnt[rho]; } }
     if (tk) bcopy_run(p, (char *)rb, x3, m, s);
@@ -653,7 +653,7 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */ p->tker = tker_mode();
+static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */
     { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0; { const char *sh = getenv("COMM_LAYER_VSLOT_SHARE"); p->vshare = sh && atoi(sh) != 0; vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
       if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
       if (p->i2 && p->vdepth < 2) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_ALLTOALLV_DEPTH >= 2\n"); } }

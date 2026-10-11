@@ -45,7 +45,7 @@ void mem_pin_to_node(int node)
     cpu_set_t set;
     if (node_cpuset(node, &set) > 0) sched_setaffinity(0, sizeof set, &set);
 }
-static __thread int t_home = -1;                    /* WP3: the thread's home node once mem_pin_threads ran */
+static __thread int t_home = -1;                    /* WP3: always -1 since MEM_PIN (mem_pin_threads) was removed 2026-10-11 */
 void mem_unpin(void)
 {
     if (t_home >= 0) { mem_pin_to_node(t_home); return; }
@@ -54,16 +54,6 @@ void mem_unpin(void)
     sched_setaffinity(0, sizeof set, &set);
 }
 static int g_nnodes = 0;
-void mem_pin_threads(int nnodes)
-{
-    g_nnodes = nnodes;
-#pragma omp parallel
-    {
-        int nth = omp_get_num_threads(), tid = omp_get_thread_num();
-        t_home = tid * nnodes / nth;
-        mem_pin_to_node(t_home);
-    }
-}
 int mem_thread_home(void) { return t_home; }
 int mem_region_threads(int *rank)                    /* this thread's rank and count within its node's threads */
 {
@@ -105,45 +95,10 @@ int mem_dev_of(const void *p)
     }
     return -1;
 }
-/* ---- Phase 12 I: the allocation form (mem.h) ---- */
-enum { AF_HIPMALLOC, AF_FINE, AF_UNCACHED, AF_MANAGED, AF_HOST, AF_MMAP };
-static const char *af_name[] = { "hipmalloc", "fine", "uncached", "managed", "host", "mmap" };
-static int alloc_form(void)
-{
-    static int f = -1;
-    if (f < 0) {
-        const char *e = getenv("MEM_ALLOC"); f = AF_HIPMALLOC;
-        if (e) { int k; for (k = 0; k < 6; k++) if (!strcmp(e, af_name[k])) f = k; if (k == 6 && strcmp(e, af_name[f])) fprintf(stderr, "MEM_ALLOC=%s unknown: hipmalloc|fine|uncached|managed|host|mmap (using %s)\n", e, af_name[f]); }
-    }
-    return f;
-}
-const char *mem_alloc_form_name(void) { return af_name[alloc_form()]; }
-static struct { void *p; size_t bytes; } *mm_tab; static int mm_n, mm_cap;   /* the mmap form's blocks (munmap needs the length) */
 void *mem_dev_malloc(int dev, size_t bytes)
 {
     void *p = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    switch (alloc_form()) {
-    case AF_HIPMALLOC: if (hipMalloc(&p, bytes) != hipSuccess) p = 0; break;
-    case AF_FINE:      if (hipExtMallocWithFlags(&p, bytes, hipDeviceMallocFinegrained) != hipSuccess) p = 0; break;
-    case AF_UNCACHED:  if (hipExtMallocWithFlags(&p, bytes, hipDeviceMallocUncached) != hipSuccess) p = 0; break;
-    case AF_MANAGED:   if (hipMallocManaged(&p, bytes, hipMemAttachGlobal) != hipSuccess) p = 0; break;
-    case AF_HOST:      { mem_pin_to_node(mem_numa_node_of_device(dev)); if (hipHostMalloc(&p, bytes, hipHostMallocNumaUser) != hipSuccess) p = 0; mem_unpin(); break; }
-    case AF_MMAP: {
-        const size_t huge = (size_t)2 << 20; size_t b = (bytes + huge - 1) & ~(huge - 1);
-        p = mmap(0, b, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (p == MAP_FAILED) { p = 0; break; }
-        madvise(p, b, MADV_HUGEPAGE);
-        int node = mem_numa_node_of_device(dev), nt = mem_par_init ? mem_ncpus_node(node) : omp_get_max_threads();
-#pragma omp parallel num_threads(nt)
-        { mem_pin_to_node(node); unsigned char *c = (unsigned char *)p;
-#pragma omp for schedule(static)
-          for (size_t off = 0; off < b; off += 4096) c[off] = 0;
-          mem_unpin(); }
-        if (hipHostRegister(p, b, hipHostRegisterDefault) != hipSuccess) { munmap(p, b); p = 0; break; }
-#pragma omp critical(memreg)
-        { if (mm_n >= mm_cap) { mm_cap = mm_cap ? 2 * mm_cap : 64; mm_tab = (typeof(mm_tab))realloc(mm_tab, mm_cap * sizeof *mm_tab); } mm_tab[mm_n].p = p; mm_tab[mm_n].bytes = b; mm_n++; }
-        break; }
-    }
+    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* the other forms (MEM_ALLOC=fine|uncached|managed|host|mmap, results/I.md) were removed 2026-10-11 */
     HIP_CHECK(hipSetDevice(cur));
     return p;
 }
@@ -151,19 +106,12 @@ void mem_dev_release(int dev, void *p)
 {
     if (!p) return;
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    switch (alloc_form()) {
-    case AF_HOST: HIP_CHECK(hipHostFree(p)); break;
-    case AF_MMAP: { size_t b = 0;
-#pragma omp critical(memreg)
-        { for (int i = 0; i < mm_n; i++) if (mm_tab[i].p == p) { b = mm_tab[i].bytes; mm_tab[i] = mm_tab[--mm_n]; break; } }
-        HIP_CHECK(hipHostUnregister(p)); if (b) munmap(p, b); break; }
-    default: HIP_CHECK(hipFree(p));
-    }
+    HIP_CHECK(hipFree(p));
     HIP_CHECK(hipSetDevice(cur));
 }
 void mem_oom(const char *where, int dev, size_t bytes)
 {
-    ec_fatal_begin(EC_RC_OOM, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, mem_alloc_form_name(), bytes / 1e9, dev);   /* Phase 14 C3: the first failing thread reports, the others wait for the _exit */
+    ec_fatal_begin(EC_RC_OOM, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, "hipMalloc", bytes / 1e9, dev);   /* Phase 14 C3: the first failing thread reports, the others wait for the _exit */
     mem_report("OOM"); mem_report_summary(); ec_fatal_end(EC_RC_OOM);
 }
 void *mem_dev_alloc(int dev, size_t bytes)
@@ -172,8 +120,8 @@ void *mem_dev_alloc(int dev, size_t bytes)
     double t0 = mem_now();
     if (!(p = mem_dev_malloc(dev, bytes))) mem_oom("mem_dev_alloc", dev, bytes);
     double t1 = mem_now();
-    if (!getenv("MEM_NO_DEV_MEMSET")) { HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize()); }   /* map the pages now */
-    if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB (%s): malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, mem_alloc_form_name(), t1 - t0, mem_now() - t1);
+    HIP_CHECK(hipMemset(p, 0, bytes)); HIP_CHECK(hipDeviceSynchronize());   /* map the pages now */
+    if (getenv("RNS_VERBOSE")) printf("mem_dev_alloc: dev %d %.1f GB (%s): malloc %.2f s memset %.2f s\n", dev, bytes / 1e9, "hipMalloc", t1 - t0, mem_now() - t1);
     HIP_CHECK(hipSetDevice(cur));
 #pragma omp critical(memreg)
     { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
@@ -202,8 +150,7 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
      * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
      * overwritten by their CRT, while it was still in flight (results/R.md).  Every caller assumes the copy is complete
      * when this returns, so wait for it here. */
-    static int nowait = -1; if (nowait < 0) nowait = getenv("MEM_COPY_NOWAIT") ? atoi(getenv("MEM_COPY_NOWAIT")) : 0;   /* MEM_COPY_NOWAIT=1: the old behaviour, for the witness runs only */
-    if (!nowait) HIP_CHECK(hipStreamSynchronize(0));
+    HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
 /* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for

@@ -155,11 +155,10 @@ static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcu
 static void plan_leaf(unsigned long a0, unsigned long b1)
 {
     /* the tier knobs read as binsplit.c reads them (seed_limbs, binsplit_e): BS_SEED_TERMS 256, BS_SCHOOL_NL 0, BS_MDEV_LOGL
-     * RNS_BATCH_LOGL_MAX, BS_DEV_MDEV 1, BS_DEVICE_POOLS 1 */
+     * RNS_BATCH_LOGL_MAX; the top levels always run on device (BS_DEV_MDEV / BS_DEVICE_POOLS removed 2026-10-11) */
     unsigned long S = bs_seed_terms_for(b1);                      /* Phase 15 T2: BS_SEED_FILL's per-run span, else BS_SEED_TERMS (256) */
     size_t school = getenv("BS_SCHOOL_NL") ? (size_t)atol(getenv("BS_SCHOOL_NL")) : 0;
     int mlog = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : RNS_BATCH_LOGL_MAX;
-    int devm = (getenv("BS_DEV_MDEV") ? atoi(getenv("BS_DEV_MDEV")) : 1) && (getenv("BS_DEVICE_POOLS") ? atoi(getenv("BS_DEVICE_POOLS")) : 1);
     unsigned long nspan = (b1 - a0 + S - 1) / S;
     int lvl = 0, nbatch = 0; size_t n = nspan;
     for (int l = 0; n > 1; l++) {
@@ -170,7 +169,7 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
          * the last two nodes are all binsplit's max over the level can be (a full scan costs 10^8 lgammal calls at 4.4e13) */
         for (size_t i = n >= 2 ? n - 2 : 0; i < n; i++) { unsigned long lo, hi; NODE_RANGE(i, lo, hi); struct pq x = pq_of(lo, hi); if (x.pn > max_nl) max_nl = x.pn; if (x.qn > max_nl) max_nl = x.qn; }
         int mdev = max_nl > school && 2 * max_nl + 1 > ((size_t)1 << mlog);
-        if (!mdev || !devm) { nbatch++; n = npairs + (n & 1); continue; }
+        if (!mdev) { nbatch++; n = npairs + (n & 1); continue; }
         lvl++;
         for (size_t i = 0; i < npairs; i++) {
             unsigned long al, ah, bl, bh; NODE_RANGE(2 * i, al, ah); NODE_RANGE(2 * i + 1, bl, bh);
@@ -253,7 +252,7 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
         int Ln = newton_mn_x1_level(take, j + 1, size, size, 0), gs = Ln ? 1 << Ln : size;
         snprintf(w, sizeof w, "j %zu -> %zu Q_t r", j, jn);
         size_t c1 = j <= take ? newton_recip_cut(take - j) : 0, hw = gs == gprev ? newton_recip_mid(j, take) : (size_t)-1; gprev = gs;   /* Phase 14 R1 (E7); R4: the middle product from the second round on the same group */
-        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, hw, 1, 0);   /* Q itself (no cache hold: RNS_DIST_CACHE_HOLD off) */
+        if (take == nq && gs == size) show_mn(PH_RECIP, w, nq, j + 1, gs, 0, c1, hw, 1, 0);   /* Q itself */
         else show_mn(PH_RECIP, w, take, j + 1, gs, 0, c1, hw, 1, 0);
         snprintf(w, sizeof w, "j %zu -> %zu r d", j, jn);
         show_mn(PH_RECIP, w, j + 1, D_EST(j), gs, 0, newton_recip_cut(j), (size_t)-1, 1, 0);

@@ -125,17 +125,6 @@ int main(int argc, char **argv)
                 harness_result("mdev_2e31_total", "s", rns_st.t_total);
                 harness_result("mdev_2e31_crt", "s", rns_st.t_crt);
                 harness_result("mdev_2e31_ntt", "s", rns_st.t_fwd + rns_st.t_inv);
-                /* repeat for a steady-state time */
-                for (int lay = 1; lay >= 0; lay--) {
-                    rns_crt_layout = lay;
-                    memset(&rns_st, 0, sizeof rns_st); rns_mul(&C, &A, &B);
-                    check_product(what, &A, &B, &C, 0);
-                    printf("   %-36s %.3f s (layout %d): repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total, lay,
-                           rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
-                    char nm[48]; snprintf(nm, sizeof nm, "mdev_2e31_total_layout%d", lay); harness_result(nm, "s", rns_st.t_total);
-                    snprintf(nm, sizeof nm, "mdev_2e31_crt_layout%d", lay); harness_result(nm, "s", rns_st.t_crt);
-                }
-                rns_crt_layout = 0;
             }
         }
     }

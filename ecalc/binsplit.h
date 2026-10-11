@@ -74,8 +74,6 @@ void binsplit_layout_comm_size(int g);   /* MS (Phase 15): BS_LAYOUT_ONLY sets C
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
 extern const char *const bs_cap_name[4];
 void binsplit_seeds_begin(unsigned long N);
-size_t binsplit_seed_stage_bytes(unsigned long N);       /* the pinned staging the seeds need per APU */
-extern int bs_region_slack;              /* Phase 8 I2: the seeds in a background thread during init (needs the pinned staging) */                  /* WP3: allocate the region pools at init (outside the timed phase) */
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
 size_t binsplit_dm_hole_bytes(unsigned long N, int size);
@@ -90,7 +88,6 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);           
 void binsplit_release_arenas(void);                      /* Phase 9 C4: the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* Phase 9 C2: levels with at most this many nodes are laid out least-loaded-first (16) */
 extern int bs_donate_pools;
-extern int bs_dev_mdev;
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;   /* Phase 8 overlap */
 extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process computes (b1 = 0: [1, N+1)) */
 extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;             /* Phase 8: P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */                          /* release the two level pools */

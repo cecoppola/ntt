@@ -33,7 +33,6 @@ typedef struct {
 extern rns_stats rns_st;
 extern int rns_school_max;        /* points (na+nb) below which the CPU schoolbook is used (default 1024) */
 extern int rns_crt_threads;       /* default: all */
-extern int rns_crt_layout;        /* RNS_CRT_LAYOUT: 0 one plane per node (default), 1 quartered node-local planes */
 
 int  rns_init(int pool_log);      /* 31 (default, paper) or 32; allocates staging + pools, returns ndev */
 extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
@@ -86,7 +85,6 @@ extern size_t rns_batch_tile_bytes;   /* default 15e9 (paper) */
 extern int rns_batch_pair;            /* RNS_BATCH_PAIR: 1 (default) the locality-aware tier transforms a B shared by products 2j, 2j+1 once (Phase 9 B1) */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
-extern int rns_engine;               /* RNS_ENGINE: 1 paper's (4 x 52-bit FP64 Barrett), 2 two 62-bit primes / 45-bit points (Phase 5 item 5) */
 extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */
 void rns_mul_batch(rns_prod *P, size_t N);
 uint64_t *rns_hstage(int dev);
@@ -100,13 +98,11 @@ void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_
  * doubling for the division's X Q -- and returns whether it holds; hold(0) empties them; release frees the planes) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
 void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* Phase 15 R4: both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
-int rns_dist_cache_hold(int on);
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* Phase 15 TC: ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
 void *rns_dpool(int dev, int which, size_t bytes);
 extern int rns_pool_grow; size_t rns_pool_n_grow(void);   /* Phase 12 R: RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort); the count of such growths */
-void rns_copy_probe_issue(int dev, size_t bytes, int level); void rns_copy_probe_report(int level_next); void rns_copy_probe_pair(int i, const uint64_t *dst, const uint64_t *src, size_t limbs);   /* Phase 12 R (D5): ECALC_COPY_PROBE, the odd-node copy against the next level's launch */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
 void rns_ensure_staging(void);

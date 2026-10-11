@@ -199,12 +199,8 @@ static comm *sub_mesh_strided(int start, int stride, int n, int slot, int lane, 
 static comm *topo_tr(mn_group *G, int level, int d)
 {
     int T = g_topo, gt = G->gt, me = G->me, a = me / T, b = me % T, q = gt / T;
-    int tr = getenv("MN_TOPO_TRACE") != 0;
-    if (tr) fprintf(stderr, "mn: node %d thread %d: in-group mesh [%d +%d) ...\n", g_rank, d, G->g0 + a * T, T);
     comm *in = sub_mesh_strided(G->g0 + a * T, 1, T, 2 * level, d, a * T);          /* the in-group mesh: node b of group a */
-    if (tr) fprintf(stderr, "mn: node %d thread %d: in-group mesh done; cross mesh {%d + %d k, k < %d} ...\n", g_rank, d, G->g0 + b, T, q);
     comm *cross = sub_mesh_strided(G->g0 + b, T, q, 2 * level, NA + d, q * b);      /* the cross-group mesh: group a of in-group index b */
-    if (tr) fprintf(stderr, "mn: node %d thread %d: cross mesh done\n", g_rank, d);
     g_topo_mesh[level][d][0] = in; g_topo_mesh[level][d][1] = cross;
     return comm_layered_create_minor(in, cross, d);
 }
@@ -334,11 +330,6 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         size_t bad = 0;
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
         if (bad || verbose) printf("mn: node %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", g_rank, r, nr, logn, bad, rows);
-        if (bad && getenv("MN_DEBUG")) {                      /* where do my values come from? search the reference for got[0], got[1] */
-            for (int k = 0; k < 3; k++) { size_t il = k, j = 0; uint64_t got = tmp[il * C + j]; size_t where = n;
-                for (size_t i = 0; i < n; i++) if (ref[i] == got) { where = i; break; }
-                printf("mn: node %d rank %d: row %zu col 0 (point %zu): got %llu, ref %llu; got is ref[%zu] (row %zu col %zu)\n", g_rank, r, r * rr + il, r * rr + il, (unsigned long long)got, (unsigned long long)ref[r * rr + il], where, where < n ? where % R : 0, where < n ? where / R : 0); }
-        }
         if (bad) ok = 0;
         dist_plan_free(&pl); if (cm != xg) comm_destroy(cm); comm_destroy(xg);
         HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
