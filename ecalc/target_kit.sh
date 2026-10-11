@@ -306,6 +306,16 @@ fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / F
     export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
 }
 
+cache_guard() {   # cache_guard <VAR=val words...> -- README RNS_DIST_CACHE_MN: the code default (2 slots, ~137 GB per node at the target size) must never run
+    # on the target; it is safe only with RNS_DIST_CACHE_FIT=1 or RNS_DIST_CACHE_MN=0.  Returns 1 (the launch stage must abort) when
+    # the effective setting is the unbounded default.  (The README names no explicit MN value for the target line: FIT=1 is what its line sets.)
+    local w mn=${RNS_DIST_CACHE_MN-} fit=${RNS_DIST_CACHE_FIT-}
+    for w in "$@"; do case $w in RNS_DIST_CACHE_MN=*) mn=${w#*=} ;; RNS_DIST_CACHE_FIT=*) fit=${w#*=} ;; esac; done
+    if [ "$mn" = 0 ] || [ "${fit:-0}" = 1 ]; then return 0; fi
+    echo "target_kit.sh: REFUSING to launch: RNS_DIST_CACHE_MN=${mn:-<unset>} (default 2 slots) without RNS_DIST_CACHE_FIT=1 or RNS_DIST_CACHE_MN=0 (README switch table)" >&2
+    return 1
+}
+
 plan_check() {   # plan_check <logfile> <digits> <procs> [VAR=val words...] -- MN_PLAN_ONLY on a compute node (no device touched).
     # 0 only if the LAST plan line is `plan check ... OK` (a `plan REFUSED` line, or no plan line, is a refusal: 1).  Dry-run: prints, 0.
     local lf=$1 d=$2 g=$3; shift 3
@@ -834,6 +844,8 @@ stage_s2chk() {
     export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
     export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
     local line="${KIT_S2CHK_LINE:-$S2_LINE_DEFAULT}"
+    # shellcheck disable=SC2086
+    if ! cache_guard $line; then summary "status: FAIL (launch refused: RNS_DIST_CACHE_MN default without RNS_DIST_CACHE_FIT=1 in the launch line)"; summary ""; return; fi
     summary "  launch line: $line ECALC_INIT_TL=1 MN_WAIT_STATS=1 (nothing written; no MN_GROUPS / pool words: mnrun.sh sizes the pool from MN_PLAN_ONLY)"
     IFS=',' read -ra counts <<< "$NODES_S2"
     for n in "${counts[@]}"; do
