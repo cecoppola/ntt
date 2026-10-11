@@ -232,6 +232,13 @@ fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / F
     export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
 }
 
+# S46 §4.6: FI_MR_CACHE_MONITOR=disabled gave wrong exchanges silently (2097152 of 2097152 points differed, VERIFY FAILED); refuse it.
+__fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
+if [ "$__fmc" = disabled ]; then
+    echo "target_kit.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2
+    exit 1
+fi
+
 : > "$SUMMARY"
 summary "KIT_SUMMARY -- target_kit.sh"
 summary "generated: $(date -Is 2>/dev/null || date)"
