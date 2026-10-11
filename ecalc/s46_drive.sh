@@ -8,7 +8,8 @@
 #   env  : HOLD   the running 2-node hold (ours, -J b1011A); required
 #          D      epoch: start no run that cannot finish by D (RUN_MAX); then stats, marker, scancel own hold
 #          W      epoch of the 6-node window (0 = no handoff): start no run crossing W; at W scancel HOLD, submit A2
-#                 (sbatch -N2 -J $A2_NAME --dependency=$A2_DEP -x $EXCL -t <to S>), poll every POLL_S (>= 60 s) until it runs
+#                 (sbatch -N2 -J $A2_NAME --dependency=$A2_DEP -x $EXCL -t <to S>), poll every POLL_S (>= 60 s) until it runs;
+#                 A2_DEP=auto: afterany:<lowest-id b1011w job of ours = J6> (none: no dependency); use with A2_NAME=b1011A2
 #          S      epoch every Slurm job must end by (A2's -t)
 #          OUT    output dir (~/batch1011/T1/jobA); WT the worktree with the built ecalc (~/ntt-wt/s46)
 #          DIG    total digits (10000000000); REPRO the reproducer env (DB_POOL_VMM_CHUNK_GB=0.0625 ECALC_VMM_REPRO=8)
@@ -47,9 +48,12 @@ sl_state() { if [ $STUB = 1 ]; then [ "$1" = 99999 ] && { echo x >> $OUT/.stubpo
 sl_ours() { [ $STUB = 1 ] && return 0; [ "$(squeue -j $1 -h -o '%u %j' 2>/dev/null)" = "<user> $2" ]; }
 sl_cancel() { if ! sl_ours $1 $2; then alert "not cancelling $1: not our job named $2"; return 1; fi
               rd_say "scancel $1 ($2)"; [ $STUB = 1 ] && return 0; scancel $1; }
-sl_submit_a2() { local m=$(( (S - $(date +%s)) / 60 - 1 )); [ $m -ge 10 ] || { alert "A2: only $m min to S: not submitted"; return 1; }
-  if [ $STUB = 1 ]; then rd_say "STUB sbatch -N2 -J $A2_NAME --dependency=$A2_DEP -x $EXCL --exclusive -t $m"; echo 99999; return 0; fi
-  sbatch -N2 -J $A2_NAME --dependency=$A2_DEP -x $EXCL --exclusive -t $m -o $OUT/holdA2_%j.out --parsable --wrap "sleep $((m * 60))"; }
+sl_submit_a2() { local m=$(( (S - $(date +%s)) / 60 - 1 )) dep=$A2_DEP j6; [ $m -ge 10 ] || { alert "A2: only $m min to S: not submitted"; return 1; }
+  if [ "$A2_DEP" = auto ]; then   # A2_DEP=auto: after the 6-node job only (the lowest-id b1011w job of ours = J6), not singleton with B2
+    j6=$([ $STUB = 1 ] && echo 77777 || squeue -u <user> -n b1011w -h -o %i 2>/dev/null | sort -n | head -1)
+    [ -n "$j6" ] && dep=afterany:$j6 || dep=""; fi
+  if [ $STUB = 1 ]; then rd_say "STUB sbatch -N2 -J $A2_NAME ${dep:+--dependency=$dep} -x $EXCL --exclusive -t $m"; echo 99999; return 0; fi
+  sbatch -N2 -J $A2_NAME ${dep:+--dependency=$dep} -x $EXCL --exclusive -t $m -o $OUT/holdA2_%j.out --parsable --wrap "sleep $((m * 60))"; }
 
 # ---- one run: background, watchdog (crash text; STALL s without log growth = hang, captured before the kill; TMO)
 CRASH_RE='Segmentation fault|ecalc: SEGV \[|core dumped|srun: error: .*(Exited with exit code [1-9]|Killed)|CANCELLED'
