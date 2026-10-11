@@ -6,7 +6,7 @@
 #   ~/ntt/ecalc/results/e_1000000000.out; ABBA (A = DIST_GATHER_TILE=0, B = tile) with s50_abba6.sh, stop p<0.05 / MAXR 5 / the job end.  cpx: no probe (needs 4 APUs): TILE from
 #   $S50_TILE (default 32).  Marker ~/batch1011/T5/aac6_<kind>/DONE, summary there.
 KIND=$1; START=${2:-0}; D=1791723386
-WT=$HOME/ntt-s50; O=$HOME/batch1011/T5/aac6_$KIND; mkdir -p $O; rm -f $O/DONE
+WT=$HOME/ntt-s50; O=$HOME/batch1011/T5/aac6_${KIND}${SLOT}; mkdir -p $O; rm -f $O/DONE
 say() { echo "$(TZ=America/New_York date '+%m-%d %H:%M:%S') $*" >> $O/summary.txt; }
 if [ $KIND = cpx ]; then PART=SH5_MI300A_CPX; NODE=aac6-sh5cpx-a; DIG=4000000000; PRE="POOL_LOG=29"; GATEPRE="POOL_LOG=29"; RUN_S=40
 else PART=PPAC_MI300A_SPX; NODE=aac6-spx-b; DIG=64410000000; PRE="X=1"; GATEPRE="X=1"; RUN_S=100; fi
