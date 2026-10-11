@@ -1027,7 +1027,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
     addsub_core(r, r, 0, 0, &s, 1, 0);
 }
 
-static int maxidx_top_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MAXIDX_TOP") ? atoi(getenv("DBIG_MAXIDX_TOP")) : 0; return v; }   /* S40: top-down windowed k_maxidx (default 0) */
+static int maxidx_top_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MAXIDX_TOP") ? atoi(getenv("DBIG_MAXIDX_TOP")) : 1; return v; }   /* S40: top-down windowed k_maxidx (default 1 since 2026-10-10; 0 = full scan) */
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
     double t0 = tnow(); db_st.n_maxidx++;
