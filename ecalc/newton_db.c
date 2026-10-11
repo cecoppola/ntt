@@ -755,6 +755,7 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
     free(all);
 }
 /* the whole number on every node's host (small numbers: Q's top for the seed phase; the rare shrink) */
+extern int g_comm_hs_ts;   /* G1 (comm_util.c) */
 static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
 {
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); size_t ms = mshare_max(X); if (!ms) ms = 1;
@@ -882,7 +883,14 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     double tsa = mem_now(), tsb, tsc, tsd;
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     tsb = mem_now();
-    bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    bigint hq; bi_init(&hq);
+    static int hsts = -1;   /* G1: COMM_HS_TS=1 (print only, off by default): absolute CLOCK_REALTIME us stamps of the gather's handshake (comm_shmem.c) */
+    if (hsts < 0) hsts = getenv("COMM_HS_TS") ? atoi(getenv("COMM_HS_TS")) != 0 : 0;
+    if (hsts) { char hn[64] = "?"; gethostname(hn, sizeof hn); struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht);
+        printf("hs_ts node %d host %s: gather window opens t_us %lld\n", me, hn, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); g_comm_hs_ts = 1; }
+    mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    if (hsts) { struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht); g_comm_hs_ts = 0;
+        printf("hs_ts node %d: gather window closes t_us %lld\n", me, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); }
     tsc = mem_now();
     dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
     db_init(&Qtop); db_init(&r0);
