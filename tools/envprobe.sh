@@ -38,7 +38,7 @@ if [ $STUB = 1 ]; then
   echo "t_comm bw: pe 0 (rank 0 of 4): 268435456 B per slab: median 1 ms per exchange (min 1), ${STUB_R256:-10.4} GB/s per thread, aggregate 41 GB/s over 4 threads (1 s wall)" >> $log
 else
   # fixed settings: drop every tunable the caller may have exported, then set ours
-  while read -r v; do unset "$v"; done < <(env | cut -d= -f1 | grep -E '^(COMM|MN|RNS|ECALC|DM|DBIG|BS|DIST|NEWTON|FI|MNRUN)_')
+  while read -r v; do unset "$v"; done < <(env | cut -d= -f1 | grep -E '^(COMM|MN|RNS|ECALC|DM|DBIG|BS|DIST|NEWTON|FI)_')
   cd "$WT/ecalc" || exit 2
   ( exec env SLURM_JOB_ID=$HOLD MNRUN_NODES=$NN MNRUN_LABEL=1 COMM_SHMEM_POOL_MB=12000 COMM_PORT=$((24000 + RANDOM % 900)) \
       timeout 240 ./mnrun.sh $NN env COMM_TRANSPORT=shmem FI_MR_CACHE_MONITOR=userfaultfd ./tests/t_comm --bw 4 $REPS $PMAX ) >> $log 2>&1 < /dev/null
