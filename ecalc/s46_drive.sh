@@ -127,7 +127,7 @@ while [ $stop = 0 ]; do
     elif [ $sg -gt 0 ]; then res=segv
     elif [ $RUN_RC = 0 ] && [ "$v" = "VERIFY OK" ]; then res=ok
     else res=fail; fi
-    grep -aqE 'self-test.*: ok|level 1 group' $log && ph=post-init || ph=startup
+    grep -aqE 'self-test.*: ok' $log && ph=post-init || ph=startup
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' $lab $c $arm $RUN_RC $RUN_WALL $res "$v" $sg "$(TZ=America/New_York date +%m-%d_%H:%M:%S)" $HOLD $tot $ph >> $OUT/runs.tsv
     rd_say "$lab: $res rc $RUN_RC wall ${RUN_WALL}s segv $sg phase $ph total $tot"
     if [ $res != ok ]; then
