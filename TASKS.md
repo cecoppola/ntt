@@ -3,7 +3,7 @@
 *Rewritten 2026-10-10.* The Phase 12-13 task log (the old front of this file, sections 1-7 and the "Suggested order") is
 history: `archive/docs/TASKS_HISTORY.md` (citations such as "TASKS 1.3" or "TASKS §6.1" refer to it). Target-only work
 (T1-T14) and the decision register are kept in internal notes; measurements are
-`RESULTS.md` (latest §127). Labels: (m) measured, (mod) modelled.
+`RESULTS.md` (latest §132). Labels: (m) measured, (mod) modelled.
 
 ## Open work (2026-10-11)
 
@@ -45,6 +45,12 @@ digits ≈ 78 s (was ≈ 94 s), 4 nodes −50.0 s (m, S43). The 576-node plan: d
 | 30 | **Environment probe for exchange-changing A/Bs:** a 30 s all-to-all probe (about 2 node-min per 4 nodes) before a run or hold start, so the rate-adjusted fit stays valid for arms that change the exchange; refit `a, b` after any code change | open: next 4-node hold | results/B05.md (rank 4) |
 | 31 | **Uneven-groups policy:** any node count 572-576 passes the plan check, but the default group schedule depends on the factors of g; an uneven last group is plan-checked only, no run exists. Decide the policy and run a small test of a non-dividing `MN_GROUPS` (3-7 nodes) | open: user decision + small test | results/B04.md, B06.md |
 | 32 | **Slow-mode launch choice:** the all-to-all rate (fast/slow) is set per launch (which NIC MCU group the traffic lands in), not by fabric state; find what picks it (log `oxe_mcu_meas`, many cheap `t_comm --bw` launches), then test a retry-at-init (about 20 s in about 30 % of runs, mod) | open | results/A13.md, A14.md |
+| 33 | **`COMM_LAYER_VSLOT_RELEASE=1` adoption** (C06: device peak 355.80 -> 347.20 GB at 4 nodes, -8.60 GB, m; wall 190 vs 189 s; off by default; needs `COMM_LAYER_VSLOT_POOL=1`) | **pending user** | results/C06.md |
+| 34 | **Single-level `MN_GROUPS` finding** (C09/F3: 6 nodes `MN_GROUPS=6` 260.0 s vs default `2,6` 335.8 s, one run each, m; the model ranking is refuted; B06: uneven groups correct but not faster) | pending the paired tests queued as `80_f3_single6`, `81_f3_single4` (and `82`/`83` BAAB); then the default group schedule and `estimate.py` ranking | results/C09.md, B06.md |
+| 35 | **Chain stall (g1):** a 15.8-19.2 s stall in the single-node head of the reciprocal (gather), identical on all nodes, wait in the remote-offset handshake; the upload is refuted (C10) | open: g1 handshake timestamps (queue 85) | results/C10.md |
+| 36 | **C4 `COMM_SHMEM_RPIPE` / C5 `MN_REDIST_FUSE` re-time after the stall fix** (3 pairs: C4 -2.9 [-17.4, +11.7] s, C5 -0.5 [-8.8, +7.7] s, not significant, m); C5 peak 97.3 % vs 91.1 % of the pool | open, after #35 | results/C03.md |
+| 37 | **K7-a balanced 4-way B form (optional):** 0.5-0.8 s at 1 node (mod); K6-a no | optional | results/C07.md |
+| 38 | **Probe covariate not adopted** (C04: corr -0.06 / -0.20); `calib_table.py --keep-stalled` and arbitrary labels added; peer-order schedules (C02): no build | closed unless a new covariate appears | results/C04.md, C02.md |
 
 Environment facts: aac7's QOS is 6 nodes per user (no 10-node runs); aac6 SH5 (`SH5_MI300A_SPX`) shows one device (ecalc
 cannot run), its CPX nodes (6 XCDs of 22.9 GB) run up to 4e9 digits with `RNS_INIT_POOL_LOG=29` (S44).
