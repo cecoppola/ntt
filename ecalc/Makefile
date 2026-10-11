@@ -233,6 +233,9 @@ tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h t
 tests/t_gather_probe: tests/t_gather_probe.c modarith.h     # S40: k_gather micro-test (results/S40.md); built on demand, not in TESTS; ScratchSize per kernel is printed by the compiler
 	$(HIPC) $< -o $@ -Rpass-analysis=kernel-resource-usage
 
+tests/t_s51_probe: tests/t_s51_probe.c $(OBJS) dbig.h tests/harness.h     # S51: add/sub + k_modq micro-benchmark (results/S51.md); built on demand, not in TESTS
+	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
+
 tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
 	$(HIPC) $< -o $@
 
