@@ -1,0 +1,160 @@
+== g 575
+vslot per APU from dm (1.917 during the tree's top level) = 7.67 GB per node [level 2 g 4 1.434 GB, level 3 g 8 1.233 GB, level 4 g 16 1.153 GB, level 5 g 32 1.120 GB, level 6 g 64 1.103 GB, level 7 g 192 1.447
+plan check  3.704e+13 digits g 575, ECALC_NP=auto: OK -- 1234 products; the largest piece 1440279166669 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 575): P24 piece 1028770833334 + 411508333335 limbs = 771578125
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_3=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_7=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_15=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_31=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_63=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_191=915 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_575=915 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2304 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1660.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 574
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 3 g 8 1.439 GB, level 4 g 16 1.233 GB, level 5 g 32 1.153 GB, level 6 g 64 1.120 GB, level 7 g 192 1.464 GB, level 8 g 574 1.9
+plan check  3.697e+13 digits g 574, ECALC_NP=auto: OK -- 1232 products; the largest piece 1437774333336 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 574): P24 piece 1026981666668 + 410792666668 limbs = 770236250
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_6=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_14=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_30=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_62=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_190=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_574=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1658.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 573
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 3 g 8 1.724 GB, level 4 g 16 1.330 GB, level 5 g 32 1.195 GB, level 6 g 64 1.137 GB, level 7 g 192 1.464 GB, level 8 g 573 1.9
+plan check  3.691e+13 digits g 573, ECALC_NP=auto: OK -- 1230 products; the largest piece 1435269500002 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 573): P24 piece 1025192500001 + 410077000001 limbs = 768894375
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_5=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_13=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_29=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_61=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_189=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_573=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1656.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 572
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 4 g 16 1.439 GB, level 5 g 32 1.237 GB, level 6 g 64 1.153 GB, level 7 g 192 1.481 GB, level 8 g 572 1.950 GB, dm g 572 1.950 
+plan check  3.684e+13 digits g 572, ECALC_NP=auto: OK -- 1228 products; the largest piece 1432764666669 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 572): P24 piece 1023403333334 + 409361333335 limbs = 767552500
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_12=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_28=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_60=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_188=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_572=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1654.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 571
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 2 g 4 1.434 GB, level 4 g 16 1.569 GB, level 5 g 32 1.279 GB, level 6 g 64 1.170 GB, level 7 g 192 1.481 GB, level 8 g 571 1.9
+plan check  3.678e+13 digits g 571, ECALC_NP=auto: OK -- 1226 products; the largest piece 1430259833336 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 571): P24 piece 1021614166668 + 408645666668 limbs = 766210625
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_3=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_11=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_27=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_59=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_187=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_571=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1652.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 570
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 4 g 16 1.724 GB, level 5 g 32 1.330 GB, level 6 g 64 1.195 GB, level 7 g 192 1.497 GB, level 8 g 570 1.950 GB, dm g 570 1.950 
+plan check  3.671e+13 digits g 570, ECALC_NP=auto: OK -- 1224 products; the largest piece 1427755000002 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 570): P24 piece 1019825000001 + 407930000001 limbs = 764868750
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_10=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_26=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_58=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_186=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_570=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1650.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 569
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 4 g 16 1.917 GB, level 5 g 32 1.380 GB, level 6 g 64 1.212 GB, level 7 g 192 1.497 GB, level 8 g 569 1.950 GB, dm g 569 1.950 
+plan check  3.665e+13 digits g 569, ECALC_NP=auto: OK -- 1222 products; the largest piece 1425250166669 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 569): P24 piece 1018035833334 + 407214333335 limbs = 763526875
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_9=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_25=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_57=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_185=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_569=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1648.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 568
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 5 g 32 1.439 GB, level 6 g 64 1.237 GB, level 7 g 192 1.514 GB, level 8 g 568 1.950 GB, dm g 568 1.950 GB, S36 shared pair: ma
+plan check  3.658e+13 digits g 568, ECALC_NP=auto: OK -- 1220 products; the largest piece 1422745333336 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 568): P24 piece 1016246666668 + 406498666668 limbs = 762185000
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_24=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_56=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_184=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_568=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1646.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 567
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 2 g 4 1.434 GB, level 3 g 8 1.233 GB, level 5 g 32 1.506 GB, level 6 g 64 1.254 GB, level 7 g 192 1.514 GB, level 8 g 567 1.95
+plan check  3.652e+13 digits g 567, ECALC_NP=auto: OK -- 1218 products; the largest piece 1420240500002 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 567): P24 piece 1014457500001 + 405783000001 limbs = 760843125
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_3=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_7=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_23=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_55=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_183=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_567=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1644.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 566
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 3 g 8 1.439 GB, level 5 g 32 1.573 GB, level 6 g 64 1.279 GB, level 7 g 192 1.531 GB, level 8 g 566 1.950 GB, dm g 566 1.950 G
+plan check  3.646e+13 digits g 566, ECALC_NP=auto: OK -- 1216 products; the largest piece 1417735666668 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 566): P24 piece 1012668333334 + 405067333334 limbs = 759501250
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_6=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_22=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_54=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_182=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_566=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1642.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 565
+vslot per APU from dm (1.950 during the tree's top level) = 7.80 GB per node [level 3 g 8 1.724 GB, level 5 g 32 1.648 GB, level 6 g 64 1.304 GB, level 7 g 192 1.531 GB, level 8 g 565 1.950 GB, dm g 565 1.950 G
+plan check  3.639e+13 digits g 565, ECALC_NP=auto: OK -- 1214 products; the largest piece 1415230833336 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 565): P24 piece 1010879166668 + 404351666668 limbs = 758159375
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_5=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_21=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_53=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_181=931 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_565=931 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1640.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 564
+vslot per APU from dm (1.984 during the tree's top level) = 7.94 GB per node [level 5 g 32 1.724 GB, level 6 g 64 1.330 GB, level 7 g 192 1.548 GB, level 8 g 564 1.984 GB, dm g 564 1.984 GB, S36 shared pair: ma
+plan check  3.633e+13 digits g 564, ECALC_NP=auto: OK -- 1212 products; the largest piece 1412726000002 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 564): P24 piece 1009090000001 + 403636000001 limbs = 756817500
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_20=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_52=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_180=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_564=947 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1638.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 563
+vslot per APU from dm (1.984 during the tree's top level) = 7.94 GB per node [level 2 g 4 1.434 GB, level 5 g 32 1.816 GB, level 6 g 64 1.355 GB, level 7 g 192 1.548 GB, level 8 g 563 1.984 GB, dm g 563 1.984 G
+plan check  3.626e+13 digits g 563, ECALC_NP=auto: OK -- 1210 products; the largest piece 1410221166668 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 563): P24 piece 1007300833334 + 402920333334 limbs = 755475625
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_3=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_19=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_51=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_179=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_563=947 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1636.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 562
+vslot per APU from dm (1.984 during the tree's top level) = 7.94 GB per node [level 5 g 32 1.917 GB, level 6 g 64 1.380 GB, level 7 g 192 1.564 GB, level 8 g 562 1.984 GB, dm g 562 1.984 GB, S36 shared pair: ma
+plan check  3.62e+13 digits g 562, ECALC_NP=auto: OK -- 1208 products; the largest piece 1407716333336 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 562): P24 piece 1005511666668 + 402204666668 limbs = 7541337500
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_18=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_50=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_178=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_562=947 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1634.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 561
+vslot per APU from dm (2.026 during the tree's top level) = 8.10 GB per node [level 5 g 32 2.026 GB, level 6 g 64 1.413 GB, level 7 g 192 1.564 GB, level 8 g 561 1.984 GB, dm g 561 1.984 GB, S36 shared pair: ma
+plan check  3.613e+13 digits g 561, ECALC_NP=auto: OK -- 1206 products; the largest piece 1405211500002 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 561): P24 piece 1003722500001 + 401489000001 limbs = 752791875
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_17=967 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_49=967 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=967 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_177=967 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_561=967 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1632.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
+== g 560
+vslot per APU from dm (1.984 during the tree's top level) = 7.94 GB per node [level 6 g 64 1.439 GB, level 7 g 192 1.581 GB, level 8 g 560 1.984 GB, dm g 560 1.984 GB, S36 shared pair: max not sum (sum would be
+plan check  3.607e+13 digits g 560, ECALC_NP=auto: OK -- 1204 products; the largest piece 1402706666668 limbs (dist_mn DKM step 1 X_hi Q mod B^w (g 560): P24 piece 1001933333334 + 400773333334 limbs = 751450000
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_48=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_192=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_176=947 MiB per slot 
+plan vslot-prealloc  COMM_LAYER_VSLOT_MB_560=947 MiB per slot 
+plan pool   COMM_SHMEM_POOL_MB=2048 (COMM_OFI: SHMEM staging 128 MiB (host ops), control 1630.4 MiB; the device staging in 4 comm_ofi pools of 4352 MiB = 2048.0 MiB by tree level of 2 + margin); the SHMEM heap 
