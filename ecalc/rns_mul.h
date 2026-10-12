@@ -100,10 +100,9 @@ void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
 void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
 void *rns_dpool(int dev, int which, size_t bytes);
-extern int rns_pool_grow; size_t rns_pool_n_grow(void);   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort); the count of such growths */
+extern int rns_pool_grow;   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort) */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
-void rns_ensure_staging(void);
 struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; size_t n_formed, n_skipped; };   /* n_formed / n_skipped: mul_grid's piece counts, summed (the reciprocal reports its cut) */
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 

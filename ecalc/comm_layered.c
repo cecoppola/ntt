@@ -50,13 +50,13 @@ static int lst_mode;                                     /* COMM_LAYER_STATS: re
 static inline double lst_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 struct lay_ex { void *rb; size_t bytes; hipStream_t s; char *tmp; int inter_posted; int rec; pthread_t w; int w_on; double wf1; };   /* one pending exchange (rec.. wf1: the stats record, the watcher, its stamp) */
 struct lay_v { void *rb; const size_t *rcnt, *rdsp; hipStream_t s; char *x3; size_t *cnt2; int pend; int rec; pthread_t w; int w_on; double wf1; int slot; comm *ic; };   /* the pending v-exchange (slot: its x2/x3 area at depth 2) */
-typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
+typedef struct { comm *intra, *inter; int d, g, na, dev; char *tmp; size_t tmp_cap; int own_tmp, tmp_sym;   /* tmp_sym: the scratch is the inter transport's symmetric memory (S12) */   /* d: my intra rank; dev: my device; na: intra size; minor: rho = na r + d (else g d + r) */
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
                  comm *inter2; int vpool, i2, vshare, vrel;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
                  int tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
-static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
+static inline int rho_of(const lay_priv *p, int d, int r) { return p->g * d + r; }   /* the global rank of (intra d, inter r) */
 /* ---- the stats (E9 part 1) ---- */
 static int lst_new(lay_priv *p, double a0, int v)
 {
@@ -66,7 +66,7 @@ static int lst_new(lay_priv *p, double a0, int v)
     return L->n++;
 }
 #define LREC(p, i) (&(p)->st.r[(i)])
-static void lst_link(lay_priv *p, struct lst_rec *r) { if (!p->minor) comm_xgmi_last_push(p->d, &r->l0, &r->l1); }
+static void lst_link(lay_priv *p, struct lst_rec *r) { comm_xgmi_last_push(p->d, &r->l0, &r->l1); }
 /* mode 2: the watcher completes the inter exchange as soon as it lands and stamps the time */
 struct lst_w { comm *inter; int dev; double *f1; };
 static void *lst_watch(void *a)
@@ -305,13 +305,12 @@ static void inter_post(comm *c, struct lay_ex *e)
     lay_priv *p = PRIV(c);
     if (lst_mode) LREC(p, e->rec)->f0 = lst_now();
     int xk = comm_xtag_set(XK_LAYEQ);                                               /* X1: the xstats kind */
-    if (p->minor) comm_alltoall(p->inter, e->tmp, e->rb, e->bytes * p->na, e->s);   /* minor: the transposed scratch out, rb receives [r][d] = rank order */
-    else comm_alltoall(p->inter, e->rb, e->tmp, e->bytes * p->na, e->s);
+    comm_alltoall(p->inter, e->rb, e->tmp, e->bytes * p->na, e->s);
     comm_xtag_set(xk);
     e->inter_posted = 1;
     if (lst_mode == 2) lst_watch_start(p, p->inter, &e->w, &e->w_on, &e->wf1);
 }
-/* complete the oldest pending exchange: tmp slot holds [r][d] after the inter wait; -> [d][r] into rb (major); minor: rb is final */
+/* complete the oldest pending exchange: tmp slot holds [r][d] after the inter wait; -> [d][r] into rb */
 static void complete_oldest(comm *c)
 {
     lay_priv *p = PRIV(c);
@@ -320,7 +319,7 @@ static void complete_oldest(comm *c)
     if (!e->inter_posted) inter_post(c, e);
     double f1 = lst_inter_wait(p, p->inter, e->w, &e->w_on, &e->wf1);
     HIP_CHECK(hipSetDevice(p->dev));
-    if (!p->minor) { block_transpose(e->rb, e->tmp, e->bytes, p->g, p->na, e->s); HIP_CHECK(hipStreamSynchronize(e->s)); }   /* -> [d][r] = source rank order */
+    block_transpose(e->rb, e->tmp, e->bytes, p->g, p->na, e->s); HIP_CHECK(hipStreamSynchronize(e->s));   /* -> [d][r] = source rank order */
     if (lst_mode) { struct lst_rec *r = LREC(p, e->rec); r->f1 = f1; r->c1 = lst_now(); }
     p->head ^= 1; p->npend--;
 }
@@ -343,14 +342,6 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
         e->rec = lst_new(p, a0, 0); struct lst_rec *r = LREC(p, e->rec);
         r->xb = bytes * (size_t)g * (na - 1); r->fb = bytes * (size_t)na * (g - 1); r->x0 = lst_now();
     }
-    if (p->minor) {
-        /* minor: the slabs for intra peer d' are {na r' + d'}: gathered into the scratch as [d'][r'] blocks of g slabs; the intra
-         * exchange into rb ([d''][r']); the transpose into the scratch ([r'][d'']); the inter exchange sends its blocks of na */
-        block_transpose(e->tmp, sb, bytes, g, na, s); HIP_CHECK(hipStreamSynchronize(s));
-        comm_alltoall(p->intra, e->tmp, rb, bytes * g, s); comm_wait(p->intra);
-        if (lst_mode) LREC(p, e->rec)->x1 = lst_now();
-        block_transpose(e->tmp, rb, bytes, na, g, s); HIP_CHECK(hipStreamSynchronize(s));
-    } else {
     /* 1: intra-node, blocks of g slabs; the xGMI wait synchronises the stream and the four threads */
     comm_alltoall(p->intra, sb, e->tmp, bytes * g, s);
     comm_wait(p->intra);
@@ -358,7 +349,6 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     /* 2: [d][r'] -> [r'][d] into rb, then the inter-node exchange of blocks of na slabs, received into the slot */
     block_transpose(rb, e->tmp, bytes, na, g, s);
     HIP_CHECK(hipStreamSynchronize(s));
-    }
     if (lst_mode) LREC(p, e->rec)->r1 = lst_now();
     if (p->npend == 2) complete_oldest(c);               /* the inter transport takes one exchange at a time */
     inter_post(c, e);
@@ -387,7 +377,7 @@ static void vtab_build(comm *c, const size_t *scnt, const size_t *sdsp, const si
     t->T = (size_t *)malloc(((size_t)na * n + 4 * (size_t)na) * sizeof(size_t)); t->sI = t->T + (size_t)na * n; t->rI = t->sI + na; t->sIoff = t->rI + na; t->rIoff = t->sIoff + na;
     t->cnt2 = (size_t *)malloc(4 * (size_t)g * sizeof(size_t)); t->dsp2 = t->cnt2 + 2 * g;
     (void)host; comm_allgather_host(p->intra, scnt, t->T, (size_t)n * sizeof(size_t));
-    t->A = t->B = t->S = 0; t->contig = !p->minor;      /* minor: the slabs for one intra peer are strided in rank order: always packed */
+    t->A = t->B = t->S = 0; t->contig = 1;
     for (int dd = 0; dd < na; dd++) {
         size_t si = 0, ri = 0;
         for (int r = 0; r < g; r++) { si += scnt[rho_of(p, dd, r)]; ri += t->T[(size_t)dd * n + rho_of(p, d, r)]; }
@@ -611,12 +601,6 @@ static void y_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     HIP_CHECK(hipSetDevice(p->dev));
-    if (p->minor) {                                      /* the group's na slots are contiguous: intra first, then the group blocks over the inter comm */
-        char *slot = (char *)rb + (size_t)p->na * comm_rank(p->inter) * bytes;
-        comm_allgather(p->intra, sb, slot, bytes);
-        comm_allgather(p->inter, slot, rb, bytes * (size_t)p->na);
-        return;
-    }
     char *slot = (char *)rb + (size_t)p->d * p->g * bytes;
     comm_allgather(p->inter, sb, slot, bytes);
     comm_allgather(p->intra, slot, rb, bytes * (size_t)p->g);
@@ -624,12 +608,6 @@ static void y_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 static void y_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
     lay_priv *p = PRIV(c);
-    if (p->minor) {
-        char *slot = (char *)rb + (size_t)p->na * comm_rank(p->inter) * bytes;
-        comm_allgather_host(p->intra, sb, slot, bytes);
-        comm_allgather_host(p->inter, slot, rb, bytes * (size_t)p->na);
-        return;
-    }
     char *slot = (char *)rb + (size_t)p->d * p->g * bytes;
     comm_allgather_host(p->inter, sb, slot, bytes);
     comm_allgather_host(p->intra, slot, rb, bytes * (size_t)p->g);
@@ -683,18 +661,8 @@ comm *comm_layered_create(comm *intra, comm *inter, int d)
     lst_register(p, comm_rank(inter), p->g); lay_opts(p);
     return c;
 }
-/* S: the intra-minor form on device dev: rank = size(intra) x rank(inter) + rank(intra) (the dragonfly's third layer: intra
- * = the nodes of my group, inter = my in-group index's nodes across the groups; rank = node) */
 /* X2: the second inter communicator of this layered communicator (COMM_LAYER_INTER2=1; mn.c creates it over the same PE set under a fresh id) */
 void comm_layered_set_inter2(comm *c, comm *inter2) { PRIV(c)->inter2 = inter2; }
-comm *comm_layered_create_minor(comm *intra, comm *inter, int dev)
-{
-    comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
-    p->intra = intra; p->inter = inter; p->d = comm_rank(intra); p->dev = dev; p->na = comm_size(intra); p->g = comm_size(inter); p->minor = 1;
-    c->ops = &lay_ops; c->priv = p; c->size = p->na * p->g; c->rank = p->na * comm_rank(inter) + p->d; c->inflight = 2;
-    lst_register(p, comm_rank(inter), p->g); lay_opts(p);
-    return c;
-}
 /* a device scratch of at least one slab buffer (size x bytes of the largest exchange; two slab buffers of the
  * pipelined exchanges let two stay in flight); the comm's own is freed */
 void comm_layered_scratch(comm *c, void *p, size_t bytes)

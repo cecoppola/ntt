@@ -49,11 +49,6 @@ static inline int bi_cmp(const bigint *a, const bigint *b)
         if (a->l[i] != b->l[i]) return a->l[i] < b->l[i] ? -1 : 1;
     return 0;
 }
-static inline size_t bi_bits(const bigint *a)
-{
-    if (!a->n) return 0;
-    return 64 * (a->n - 1) + (64 - __builtin_clzll(a->l[a->n - 1]));
-}
 
 /* ---- limb-array primitives (bigint.c) ------------------------------------- */
 #ifdef __cplusplus
@@ -85,7 +80,6 @@ void bi_set_u64(bigint *r, uint64_t v);
 void bi_add(bigint *r, const bigint *a, const bigint *b);
 void bi_sub(bigint *r, const bigint *a, const bigint *b);           /* a >= b */
 void bi_add_shifted(bigint *r, const bigint *a, size_t limbs);      /* r += a << (64 limbs) */
-void bi_sub_shifted(bigint *r, const bigint *a, size_t limbs);      /* r -= a << (64 limbs), r >= that */
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
 /* mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */

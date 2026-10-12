@@ -122,7 +122,6 @@ int   comm_shmem_available(void);              /* 1 when built with SHMEM (make 
 const char *comm_shmem_impl(void);             /* S12: the library the binary was built against ("sos", "oshmem", "shmem"); "none" without SHMEM */
 int   comm_shmem_init(void);                   /* returns the PE count */
 int   comm_shmem_rank(void);
-int   comm_shmem_size(void);
 void  comm_shmem_counters(double *t, long *n, double *bytes);   /* the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
 void  comm_shmem_finalize(void);
@@ -136,9 +135,6 @@ int   comm_layered_vslot_share_on(void);     /* COMM_LAYER_VSLOT_SHARE, default 
 int   comm_layered_vslot_release_on(void);   /* COMM_LAYER_VSLOT_RELEASE, default: COMM_LAYER_VSLOT_POOL's value */
 void  comm_layered_release_vslots(comm *c);   /* M3: COMM_LAYER_VSLOT_RELEASE=1 -- free the pool v-slots after a product's v-exchanges (no-op otherwise) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
-/* S (archive:PLAN §25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
- * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */
-comm *comm_layered_create_minor(comm *intra, comm *inter, int dev);   /* a device scratch of one slab buffer for the block transposes (else hipMalloc'd) */
 
 /* the shard of an n-limb number held by rank r of size ranks: [lo, hi) */
 static inline void comm_shard(size_t n, int r, int size, size_t *lo, size_t *hi) { *lo = n * (size_t)r / size; *hi = n * (size_t)(r + 1) / size; }

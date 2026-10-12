@@ -215,8 +215,6 @@ void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh)
     if (vb || lg < bytes) printf("dbig pool: APU%d tail moved to the top level's dead inputs: %.2f GB at the back of the largest free extent (%.2f GB; free %.2f GB in %d extents, live %.2f GB)%s\n",
                                  dev, tb / 1e9, lg / 1e9, fr / 1e9, g_ext[dev].n, g_live_bytes[dev] / 1e9, lg < bytes ? "  SHORT: t1's quarter will not fit it whole" : "");
 }
-size_t db_pool_tail_bytes(int dev) { return dev >= 0 && dev < DB_NQ ? g_tail[dev].bytes : 0; }
-size_t db_pool_tail_stats(int dev, size_t *spills) { if (dev < 0 || dev >= DB_NQ) { if (spills) *spills = 0; return 0; } if (spills) *spills = g_tail[dev].n_spill; return g_tail[dev].n_tail; }
 static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's bytes not in the reserved tail (an extent never straddles the tail's end: it is a region's end) */
 {
     if (!g_tail[d].bytes) return e->bytes;
@@ -465,7 +463,6 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
                     if (m > nf) printf("dbig pool: APU%d VMM growth by %d chunks (%.2f GB) inside the phase\n", d, m - nf, (double)(m - nf) * C / 1e9); }
     free(fr); free(hs); return 1;
 }
-size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks) { struct vmm *v = &g_vmm[dev]; if (remaps) *remaps = v->n_remap; if (grow_chunks) *grow_chunks = v->grow_chunks; return v->base ? v->remap_chunks : 0; }
 static uint64_t *q_alloc_locked(int d, size_t need);
 static uint64_t *q_alloc(int d, size_t need) { pthread_mutex_lock(&g_pool_mx); uint64_t *p = q_alloc_locked(d, need); pthread_mutex_unlock(&g_pool_mx); return p; }
 static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: bytes, a multiple of DB_ALIGN limbs */
@@ -510,17 +507,6 @@ size_t db_pool_window_peak(int dev, int reset)
 /* M3: per-APU scratch from the block pool (the multi-node product's packed slabs and the layered comm's transposes) */
 uint64_t *db_pool_alloc(int dev, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8; return q_alloc(dev, (bytes + al - 1) / al * al); }
 void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
-/* grow the block pool of device dev by one region of `bytes` now (from a background thread while the GPUs run
- * the levels -- hipMalloc is 0.057 s/GB of CPU-side driver work, hidden there instead of inside the Newton loop) */
-void db_pregrow(int dev, size_t bytes)
-{
-    void *m; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    if (hipMalloc(&m, bytes) != hipSuccess) mem_oom("db_pregrow", dev, bytes); HIP_CHECK(hipMemset(m, 0, bytes)); HIP_CHECK(hipStreamSynchronize(0));
-    HIP_CHECK(hipSetDevice(cur));
-    pthread_mutex_lock(&g_pool_mx); g_pool_bytes += bytes; pthread_mutex_unlock(&g_pool_mx);
-    db_donate_ext(dev, m, bytes, 1);
-    g_donated[g_ndonated - 1].kind = 2;                   /* M9: the pool's own hipMalloc */
-}
 void db_donate_ext(int dev, void *p, size_t bytes, int own)
 {
     pthread_mutex_lock(&g_pool_mx);
@@ -564,7 +550,6 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 }
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
-size_t db_pool_largest_free(int d) { size_t m = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) if (g_ext[d].e[i].bytes > m) m = g_ext[d].e[i].bytes; pthread_mutex_unlock(&g_pool_mx); return m; }
 /* (results/PC15.md; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
@@ -1049,13 +1034,6 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     out->n = n; if (!nfix) db_norm(out);
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
     db_st.t_addsub += tnow() - t0;
-}
-/* M3: r (n limbs, a node's share, in place) += the spills of a product over 4 gt ranks, sp[d] = [r][j][4] on APU d;
- * fixed length, carry out and propagate reported */
-void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
-{
-    struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
-    addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
 /* the same with the compact spill buffers of the exact exchange (rns_dist.c mn_core): sp[d] holds, per
  * source node r in order, the 4-limb blocks of the columns [tab[d][3r], tab[d][3r+1]) at block offset tab[d][3r+2] (device tables) */

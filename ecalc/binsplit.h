@@ -63,7 +63,6 @@ extern const char *const bs_cap_name[4];
 void binsplit_seeds_begin(unsigned long N);
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
-size_t binsplit_dm_hole_bytes(unsigned long N, int size);
 /* B7ACCT (results/B7ACCT.md): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
  * layout, alive to the run's end): the dm phase's sum (the run's largest), *tree_top = during the tree's top level, by = the terms per level.
  * binsplit_vslot_budget_node: 4 x it when ECALC_VSLOT_BUDGET=1 (default 0: not in the budget, reported only) */

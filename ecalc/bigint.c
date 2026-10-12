@@ -243,13 +243,6 @@ void bi_add_shifted(bigint *r, const bigint *a, size_t k)
     r->l[need - 1] = c;
     r->n = need; bi_norm(r);
 }
-void bi_sub_shifted(bigint *r, const bigint *a, size_t k)
-{
-    if (r->n < a->n + k) { ec_fatal(EC_RC_FATAL, "bi_sub_shifted: r too small\n"); }
-    uint64_t br = limb_sub(r->l + k, r->l + k, r->n - k, a->l, a->n);
-    if (br) { ec_fatal(EC_RC_FATAL, "bi_sub_shifted: negative\n"); }
-    bi_norm(r);
-}
 /* r = a B^k and r = floor(a / B^k): whole-limb shifts (limb_move handles r == a and overlap) */
 void bi_shl_limbs(bigint *r, const bigint *a, size_t k)
 {

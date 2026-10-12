@@ -204,15 +204,8 @@ void rns_release_staging(void)
 {
     for (int d = 0; d < g_nd; d++) if (D[d].hstage) { mem_hstage_free(D[d].hstage); D[d].hstage = 0; }
 }
-void rns_ensure_staging(void)
-{
-    size_t bytes = g_staging_bytes ? g_staging_bytes : (size_t)8 << g_pool_log;
-    for (int d = 0; d < g_nd; d++) if (!D[d].hstage) { double tt, tr; HIP_CHECK(hipSetDevice(d)); D[d].hstage = (uint64_t *)mem_hstage_alloc(d, bytes, &tt, &tr); }
-}
 /* WP5: device dev's plane pools (da: which 0, db: which 1), grown to bytes if needed; the tiers share them */
 int rns_pool_grow = -1;                                            /* RNS_POOL_GROW: 1 lets a plane pool grow inside a phase (the stress recipe); 0 (default) aborts */
-static size_t g_n_grow;
-size_t rns_pool_n_grow(void) { return g_n_grow; }
 void *rns_dpool(int dev, int which, size_t bytes)
 {
     dpool *dp = which ? &D[dev].db : &D[dev].da;
@@ -226,8 +219,6 @@ void *rns_dpool(int dev, int which, size_t bytes)
             ec_fatal_begin(EC_RC_OOM, "rns_dpool: plane pool %d on APU %d would grow inside a phase, %.2f -> %.2f GB: the pools are sized at init and must not grow (RNS_POOL_GROW=1 allows it)\n", which, dev, dp->cap / 1e9, bytes / 1e9);   /* one report per process, then _exit */
             mem_report("GROW"); mem_report_summary(); ec_fatal_end(EC_RC_OOM);
         }
-#pragma omp atomic
-        g_n_grow++;
         if (getenv("RNS_VERBOSE")) printf("rns_dpool: plane pool %d on APU %d grows inside a phase, %.2f -> %.2f GB (RNS_POOL_GROW=1)\n", which, dev, dp->cap / 1e9, bytes / 1e9);
     }
     return dpool_get(dp, dev, bytes);

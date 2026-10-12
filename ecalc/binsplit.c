@@ -585,7 +585,6 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     if (L->room && !g_room_probe && !as_room_fits(N, size, L->room)) L->room = 0;                              /* (over the node budget: dropped) */
     L->need_dev += L->room;
 }
-size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; dm_layout(N, size, &L); return L.hole; }
 /* the SHMEM transport's symmetric pool this run needs per node-process, in bytes (mem_model.py
  * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
  * levels as tree_need_dev forms them; the division's A_h mu -- nq x nq, C of 2 nq limbs, the largest -- and the reciprocal's last
@@ -1393,10 +1392,8 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = place_node(npairs, nxt.n, offr, a->r, -1); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
         which ^= 1;
         int mdev_level = 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);
-        int dev_mdev = mdev_level;
-        int top_direct = nxt.n == 1 && mdev_level;                     /* mdev top level: straight to P, Q */
         for (int r = 0; r < NR; r++) off += offr[r];
-        if (top_direct || dev_mdev) for (int r = 0; r < NR; r++) nxt.pool[r] = 0;
+        if (mdev_level) for (int r = 0; r < NR; r++) nxt.pool[r] = 0;   /* the mdev levels' results are device numbers */
         else for (int r = 0; r < NR; r++) nxt.pool[r] = pool_get(which, r, offr[r] + 2);
         if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
         if (bs_st.levels < 3) db_tl("bs: level %d starts (its pools are there)", bs_st.levels + 1);   /* ECALC_INIT_TL=1 */
@@ -1422,7 +1419,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             free(pr);
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
-            if (dev_mdev) {
+            {
                 /* the top levels on the device tier: operands are region-pool views or the children's device
                  * numbers; results are device numbers (blocks from the region pools no longer needed) */
                 if (!cur.nd[0].pd) donate_pools(which);                   /* the first such level: the other parity's pools are free */
@@ -1452,29 +1449,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
                     else { db_to_bi(P, nxt.nd[0].pd); db_to_bi(Q, nxt.nd[0].qd); db_free(nxt.nd[0].pd); db_free(nxt.nd[0].qd); }
                     free(nxt.nd[0].pd); free(nxt.nd[0].qd); nxt.nd[0].pd = nxt.nd[0].qd = 0; finished = 1; }
                 normed = 1;
-            } else {
-            bigint A1, A2, B, C1, C2, P2; bi_init(&A1); bi_init(&A2); bi_init(&B); bi_init(&C1); bi_init(&C2); bi_init(&P2);
-            for (size_t i = 0; i < npairs; i++) {
-                struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                /* views into the pools (rns_mul_pair stages them by DMA when they are device pools) */
-                A1.l = NODE_P(cur, a); A1.n = a->pn; A2.l = NODE_Q(cur, a); A2.n = a->qn; B.l = NODE_Q(cur, b); B.n = b->qn;
-                A1.cap = A2.cap = B.cap = 0;
-                rns_mul_pair(&C1, &A1, &C2, &A2, &B);
-                /* P = C1 + P2 on the host (a read-modify-write pass over device memory is slow), then one DMA */
-                size_t pn = a->pn + b->qn + 1;
-                bi_reserve(&C1, pn); if (C1.n < pn) memset(C1.l + C1.n, 0, (pn - C1.n) * 8);
-                bi_reserve(&P2, b->pn); region_copy(P2.l, NODE_P(cur, b), b->pn, b->r); P2.n = b->pn;
-                C1.l[pn - 1] = limb_add(C1.l, C1.l, pn - 1, P2.l, P2.n); C1.n = pn;
-                if (nxt.n == 1) {                            /* the top: straight into the outputs, no pool */
-                    bigint sw = *P; *P = C1; C1 = sw; sw = *Q; *Q = C2; C2 = sw; P->n = limb_norm(P->l, P->n); Q->n = limb_norm(Q->l, Q->n);
-                    finished = 1;
-                } else {
-                    region_copy(NODE_P(nxt, o), C1.l, pn, o->r);
-                    if (C2.n < a->qn + b->qn) { bi_reserve(&C2, a->qn + b->qn); memset(C2.l + C2.n, 0, (a->qn + b->qn - C2.n) * 8); }
-                    region_copy(NODE_Q(nxt, o), C2.l, a->qn + b->qn, o->r);
-                }
-            }
-            A1.l = A2.l = B.l = 0; bi_free(&C1); bi_free(&C2); bi_free(&P2);
             }
         }
         if (normed || finished) {                       /* lengths came back from the device-local batch path, or the top is done */
@@ -1494,7 +1468,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             o->pn = node_norm(NODE_P(nxt, o), a->pn + b->qn + 1);
             o->qn = node_norm(NODE_Q(nxt, o), a->qn + b->qn);
         }
-        if (odd && !dev_mdev) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
+        if (odd && !mdev_level) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs];
                    region_copy(NODE_P(nxt, o), NODE_P(cur, a), a->pn, o->r); region_copy(NODE_Q(nxt, o), NODE_Q(cur, a), a->qn, o->r); }
         double dt = mem_now() - t, tl3 = mem_now();
         if (bs_verbose && tl2) printf("bs:   layout %.3f  batch %.3f  add+norm %.3f\n", tl1 - t, tl2 - tl1, tl3 - tl2);

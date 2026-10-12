@@ -168,8 +168,6 @@ EC_HD static inline uint64_t ec_mmu(uint64_t x, uint64_t w, const ec_mod m)
 /* lazy [0,2p) -> canonical [0,p) */
 EC_HD static inline uint64_t ec_fold(uint64_t x, uint64_t p) { return x >= p ? x - p : x; }
 /* lazy add / sub, both inputs in [0,p), outputs in [0,2p) (rule 2: integer) */
-EC_HD static inline uint64_t ec_add(uint64_t a, uint64_t b) { return a + b; }
-EC_HD static inline uint64_t ec_sub(uint64_t a, uint64_t b, uint64_t p) { return a + p - b; }
 
 EC_HD static inline uint64_t ec_umulhi(uint64_t a, uint64_t b)
 {
@@ -199,19 +197,11 @@ EC_HD static inline uint64_t ec_shoup_lazy(uint64_t w, uint64_t wp, uint64_t y, 
     uint64_t q = ec_umulhi(wp, y);
     return w * y - q * p;
 }
-EC_HD static inline uint64_t ec_shoup(uint64_t w, uint64_t wp, uint64_t y, uint64_t p)
-{
-    return ec_fold(ec_shoup_lazy(w, wp, y, p), p);
-}
 
 /* ---- host-side exact helpers --------------------------------------------- */
 static inline uint64_t ec_mulmod_ref(uint64_t a, uint64_t b, uint64_t p)
 {
     return (uint64_t)(((unsigned __int128)a * b) % p);
-}
-static inline uint64_t ec_shoup_pre(uint64_t w, uint64_t p)
-{
-    return (uint64_t)((((unsigned __int128)w) << 64) / p);
 }
 static inline uint64_t ec_powmod(uint64_t a, uint64_t e, uint64_t p)
 {

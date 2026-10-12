@@ -80,7 +80,6 @@ int comm_shmem_pool_in_heap(void) { return 0; }
 static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); }
 int   comm_shmem_init(void) { no_shmem(); return 0; }
 int   comm_shmem_rank(void) { return 0; }
-int   comm_shmem_size(void) { return 1; }
 void  comm_shmem_counters(double *t, long *n, double *b) { *t = 0; *n = 0; *b = 0; }
 void  comm_shmem_finalize(void) { }
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id) { (void)pe_start; (void)pe_stride; (void)n; (void)id; no_shmem(); return 0; }
@@ -238,7 +237,6 @@ int comm_shmem_pool_in_heap(void)
 #endif
 }
 int comm_shmem_rank(void) { return S.me; }
-int comm_shmem_size(void) { return S.npes; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 #if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)   /* as its only caller below */

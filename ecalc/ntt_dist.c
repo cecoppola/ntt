@@ -12,19 +12,8 @@
 
 __device__ static inline unsigned brev(unsigned v, int bits) { return __brev(v) >> (32 - bits); }
 
-/* twiddle: x[i][jb] *= w_n^(i * j), i = global row, j = brev(jb) (the row pass left columns bit-reversed).
+/* the twiddle convention of the kernels below: x[i][jb] *= w_n^(i * j), i = global row, j = brev(jb) (the row pass left columns bit-reversed).
  * w_n^(i j) = twr[(i j) >> logC] * twc[(i j) & (C-1)] with twr[k] = w_n^(k C) = w_R^k, twc[k] = w_n^k. */
-__global__ void k_twiddle(uint64_t *x, size_t rows, size_t row0, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m, int inv_scale_unused)
-{
-    size_t C = (size_t)1 << logC, total = rows * C;
-    size_t t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) {
-        size_t i = row0 + t / C, jb = t & (C - 1), j = brev((unsigned)jb, logC);
-        size_t e = i * j;                                                 /* < R C = n, no reduction needed */
-        double w = ec_mm((double)twr[(e >> logC)], (double)twc[e & (C - 1)], m.p, m.pinv);
-        x[t] = (uint64_t)ec_mm((double)x[t], w, m.p, m.pinv);
-    }
-}
 /* slab pack: rows x C row-major -> size slabs, slab s = the block (all my rows) x (columns of rank s), stored as
  * cols_per_rank x rows (column-major within the slab, so the receiver can concatenate slabs into columns) */
 __global__ void k_pack(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols, int size)

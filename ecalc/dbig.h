@@ -20,23 +20,20 @@ void db_free(dbig *x);
 struct db_stats { size_t n_shift, n_addsub, n_maxidx, n_reserve; double t_shift, t_addsub, t_maxidx, t_reserve; };
 extern struct db_stats db_st;                        /* accumulated; the caller resets */
 void db_release_pools(void);                          /* free the cached quarter blocks and donated regions (end of a phase) */
-void db_donate(int dev, void *p, size_t bytes);
-void db_donate_ext(int dev, void *p, size_t bytes, int own);
+void db_donate(int dev, void *p, size_t bytes);       /* a device region for the block free lists; released by db_release_pools */
+void db_donate_ext(int dev, void *p, size_t bytes, int own);   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */
 void db_donate_adjacent(int dev, void *p, size_t bytes);   /* a borrowed range joined to the borrowed region it touches (same allocation) */
-void db_pregrow(int dev, size_t bytes);              /* one owned region of `bytes` into the pool now (callable from a background thread) */   /* own = 0: a borrowed range (e.g. a plane pool's tail), never freed by db_release_pools */      /* a device region for the block free lists; released by db_release_pools */
 size_t db_pool_bytes(void);
 size_t db_pool_live(int dev);                        /* bytes handed out now */
 size_t db_pool_window_peak(int dev, int reset);      /* the peak since the last reset (reset: restart the window) */
 size_t db_pool_free_bytes(int dev);                  /* free bytes in the pool (all extents) */
 int db_pool_extents(int dev);                        /* number of free extents (fragmentation) */
 size_t db_pool_fit_count(int dev, size_t bytes);      /* blocks of `bytes` the free extents hold without a remap or growth (rns_dist.c cache_pc_take) */
-size_t db_pool_largest_free(int dev);                /* the largest free extent (what one block can get without a hipMalloc) */
 size_t db_pool_hipmalloc_bytes(int dev);             /* bytes the pool mapped itself (fallback + pregrow), for the phase deltas */
 void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh);   /* the last `bytes` of a donated region are the reserved tail: requests >= thresh are carved from its back, smaller ones avoid it while anything else fits */
 void db_pool_pack_large(int on);
 void db_pool_pin_tail(int on);                         /* while on, requests are carved from the back of the tail's free part (r right below t1) */                       /* requests >= the tail's thresh carved from the back of the highest-ending free extent that fits (the big blocks stack at the top) */
 void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh);   /* the tail becomes the last `bytes` of the largest free extent (all of it when it is smaller; a line under DB_POOL_VERBOSE) */
-size_t db_pool_tail_bytes(int dev);
 int db_pool_vmm_on(void);                            /* DB_POOL_VMM=1 -- the arena as a VMM range whose free chunks are remapped contiguously on demand (results/R114.md 5) */
 size_t db_pool_vmm_chunk(void);                      /* the VMM arena's chunk in bytes (DB_POOL_VMM_CHUNK_GB, default 2 GiB) */
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
@@ -55,8 +52,6 @@ void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes);   /*
 void db_pull_wait(int dev);                             /* as db_copy_h2d_wait (a host spin) */
 void db_pull_stop_all(void);                            /* the kernels leave (before the buffers are unregistered) */                        /* rns_init after the plane pools: the arenas' background mapping may start */      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
 void db_vmm_arena_release(int dev);
-size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks);   /* chunks moved by remaps; the remap count; chunks created inside a phase */
-size_t db_pool_tail_stats(int dev, size_t *spills);  /* requests served from the tail's back; spills = small requests that had to enter the tail */
 void db_reserve(dbig *x, size_t limbs);               /* grow-only; contents kept up to min(old n, new cap) */
 void db_from_bi(dbig *x, const bigint *a);            /* DMA in */
 void db_to_bi(bigint *r, const dbig *x);              /* DMA out */
@@ -85,7 +80,6 @@ void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);  
 uint64_t *db_pool_alloc(int dev, size_t bytes);      /* per-APU scratch from the block pool */
 void db_pool_free(int dev, uint64_t *p);
 void db_zero_fill(dbig *r, size_t n);                 /* r = n zero limbs (n kept, not normalised) */
-void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop);   /* r += the spills (fixed n limbs; carry out, propagate) */
 void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop);   /* a P24 product's spills (p24.h) */
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop);   /* the compact spill buffers (per source node the columns [tab[3r], tab[3r+1]) at block tab[3r+2]) */
 void db_share_add_one(dbig *r, size_t n, int *cout);  /* r += 1 (fixed n limbs) */
