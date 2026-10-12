@@ -30,7 +30,6 @@ COMM_HS_TS	bool	0	0	0|1	test-only	-	-	prose	ecalc	newton_db.c	2	newton_db.c; G1 
 COMM_INIT_EARLY	bool	1	1	0|1	built-in default	-	S16.md	Y	ecalc	ecalc.c	2	
 COMM_LAYER_INTER2	bool	0	unset	0|1	launch-line	aac7	XEFF.md+S47.md	Y	ecalc	binsplit.c,comm_layered.c,mn.c,rns_dist.c	5	binsplit.c:450 (e && atoi(e) != 0)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	
-COMM_LAYER_TEST_SKEW_MB	float	unset	derived	MiB	test-only	-	-	Y	ecalc	comm_layered.c	1	comm_layered.c:488
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	2	
 COMM_LAYER_VSLOT_POOL	bool	0	0	0|1	launch-line	aac7	XEFF.md	Y	ecalc	binsplit.c,comm_layered.c,comm_ofi.c,comm_shmem.c,ecalc.c	6	binsplit.c:426
 COMM_LAYER_VSLOT_PREALLOC	int	unset	unset		built-in default	-	-	prose	ecalc	binsplit.c	2	
@@ -39,35 +38,24 @@ COMM_LAYER_VSLOT_SHARE	bool	0	unset	0|1	launch-line	aac7	S36.md	Y	ecalc	binsplit
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	
 COMM_OFI_DEV	int	derived	derived		test-only	-	-	Y	ecalc	comm_shmem.c	2	
-COMM_OFI_DUMP	int	1	1		test-only	-	-	Y	ecalc	comm_ofi.c	2	
 COMM_OFI_NICS	str	unset	derived	NIC list, ; between devices	launch-line	-	TUNE17.md+TGTBENCH2.md	Y	ecalc	comm_ofi.c	1	comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	bool	0	derived	0|1	launch-line	-	STD17.md+XEFF.md	Y	ecalc	comm_ofi.c	1	comm_ofi.c:92 (cxi_present() || set)
 COMM_OFI_POOL	bool	derived	derived	0|1	built-in default	-	TGTBENCH2.md+OFI17.md	Y	ecalc	comm_ofi.c	1	
 COMM_OFI_POOL_MB	int	auto	derived	MiB per device	launch-line	-	STD17.md+S18KITFIX.md	Y	ecalc	binsplit.c,comm_ofi.c,ecalc.c	7	binsplit.c:694 sets it from the modelled need when unset
-COMM_OFI_SYM_TOP	bool	derived	derived	0|1	built-in default	-	S45.md+S31.md	Y	ecalc	comm_ofi.c	1	
 COMM_OFI_VERBOSE	int	0	0		test-only	-	OFI17.md+STD17.md	Y	ecalc	comm_ofi.c	2	
 COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	
 COMM_PORT	int	unset	derived	TCP port	launch-line	-	WP6.md	Y	ecalc	comm_tcp.c,mn.c	2	comm_tcp.c, mn.c: TCP transport only
-COMM_PUSH64	int	1	1		built-in default	-	C.md	Y	ecalc	comm_xgmi.c	2	
-COMM_PUSH_BLOCKS	int	76	76		built-in default	-	C.md	Y	ecalc	comm_xgmi.c	2	
 COMM_RANK	int	0	conflict:0|1	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,comm_tcp.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,mn.c,segv_trace.c	11	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	3	comm_shmem.c
-COMM_SHMEM_KEEP_STAGING	int	0	0		experiment	-	S12.md	Y	ecalc	comm_shmem.c	1	
-COMM_SHMEM_NOSYM	int	unset	unset		test-only	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	4	
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
-COMM_SHMEM_PEER_ORDER	bool	unset	unset	0|1	experiment	-	XEFF.md	Y	ecalc	comm_shmem.c	1	
 COMM_SHMEM_POOL_AUTO	bool	1	1	0|1	built-in default	-	V114.md+P214.md	Y	ecalc	binsplit.c	4	
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	2	
-COMM_SHMEM_PUT_MB	float	0	0		experiment	-	C16.md	Y	ecalc	comm_shmem.c	1	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	
 COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	4	comm_shmem.c:305; 0 = no rounds
-COMM_SHMEM_RPIPE	bool	0	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	1	comm_shmem.c; see README row
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
-COMM_SHMEM_STAGE_SLOTS	int	1	1		built-in default	-	V114.md	Y	ecalc	comm_shmem.c	1	
-COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	prose	ecalc	comm_shmem.c	1	
-COMM_SHMEM_THREAD	int	0	0		experiment	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
+COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	N	ecalc	comm_shmem.c	1	
 COMM_SHMEM_VERBOSE	int	0	0		test-only	-	P214.md+V114.md	Y	ecalc	comm_shmem.c	1	
 COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,comm_tcp.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	19	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	auto	derived	shmem|tcp|xgmi|local|sim4	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	mn.c:503; unset = the build's default transport

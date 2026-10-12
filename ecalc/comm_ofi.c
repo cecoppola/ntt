@@ -225,14 +225,16 @@ ofi_dev *comm_ofi_dev(int d)
 }
 char *comm_ofi_pool(ofi_dev *od) { return od ? od->pool : 0; }
 int comm_ofi_in_pool(ofi_dev *od, const void *p) { return od && (const char *)p >= od->pool && (const char *)p < od->pool + od->bytes; }
-ofi_dev *comm_ofi_owner(const void *p) { for (int d = 0; d < MAXDEV; d++) if (comm_ofi_in_pool(G.dev[d], p)) return G.dev[d]; return 0; }
-/* S31 COMM_OFI_SYM_TOP (default: on with COMM_LAYER_VSLOT_POOL=1, whose v-slots regrow in the pool; else off): symmetric buffers allocated top-down */
-static int sym_top(void) { static int v = -1; if (v < 0) { const char *e = getenv("COMM_OFI_SYM_TOP"), *vp = getenv("COMM_LAYER_VSLOT_POOL"); v = e ? atoi(e) != 0 : (vp && atoi(vp) != 0); } return v; }
+ofi_dev *comm_ofi_owner(const void *p) { for (int d = 0; d < MAXDEV; d++) { ofi_dev *o = (&G)->dev[d]; if (comm_ofi_in_pool(o, p)) return o; } return 0; }
+/* S31: symmetric buffers allocated top-down with COMM_LAYER_VSLOT_POOL=1 (whose v-slots regrow in the pool); else first fit.
+ * (tests/t_ofi_alloc.c, which includes this file, sets g_sym_top directly: 1 top-down, 0 first fit) */
+static int g_sym_top = -1;
+static int sym_top(void) { if (g_sym_top < 0) { const char *vp = getenv("COMM_LAYER_VSLOT_POOL"); g_sym_top = vp && atoi(vp) != 0; } return g_sym_top; }
 size_t comm_ofi_alloc(ofi_dev *od, size_t len, int sym)
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
     pthread_mutex_lock(&od->lock);
-    if (sym && sym_top()) {   /* S31 COMM_OFI_SYM_TOP: the long-lived symmetric buffers (v-slots, scratch) from the pool's high end (last fit, carved from the hole's top), the short-lived staging from the low end: the staging never splits the holes the slots regrow in */
+    if (sym && sym_top()) {   /* S31 top-down: the long-lived symmetric buffers (v-slots, scratch) from the pool's high end (last fit, carved from the hole's top), the short-lived staging from the low end: the staging never splits the holes the slots regrow in */
         struct oblk *best = 0; for (struct oblk *b = od->blocks; b; b = b->next) if (!b->used && b->len >= len) best = b;
         if (best) {
             struct oblk *b = best; size_t off;
@@ -252,7 +254,7 @@ size_t comm_ofi_alloc(ofi_dev *od, size_t len, int sym)
     }
     size_t cur = od->cur, hole = 0, freetot = 0;
     for (struct oblk *b = od->blocks; b; b = b->next) if (!b->used) { freetot += b->len; if (b->len > hole) hole = b->len; }
-    if (getenv("COMM_OFI_DUMP") ? atoi(getenv("COMM_OFI_DUMP")) : 1) {   /* S31: the pool's blocks at the failure (fragmentation vs. a real shortage), by device */
+    {   /* S31: the pool's blocks at the failure (fragmentation vs. a real shortage), by device */
         fprintf(stderr, "comm_ofi: device %d pool dump (request %zu MiB; free %zu MiB in total, largest hole %zu MiB; used blocks: off len kind):", od->d, len >> 20, freetot >> 20, hole >> 20);
         int n = 0; for (struct oblk *b = od->blocks; b && n < 40; b = b->next) if (b->used) { fprintf(stderr, " [%zu %zu %s]", b->off >> 20, b->len >> 20, b->used == 2 ? "sym" : "stg"); n++; }
         fprintf(stderr, "\n");

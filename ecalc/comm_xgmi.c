@@ -24,17 +24,14 @@ static struct { void *rb[NR]; size_t bytes; hipStream_t s[NR]; pthread_barrier_t
                 const void *ag_sb[NR]; void *ag_rb[NR];
                 const size_t *scnt[NR], *rcnt[NR], *rdsp[NR]; const void *hsb[NR]; } G;   /* B7: the v-exchange's tables */
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
-static int g_push64, g_push_blocks;   /* COMM_PUSH64 (default 1: 64-bit stores -- measured in results/C.md: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s); COMM_PUSH_BLOCKS: blocks per peer (default 76: fewer blocks leave the CUs to the row pass that runs under the exchange) */
+#define PUSH_BLOCKS 76   /* blocks per peer of the push kernel (fewer blocks leave the CUs to the row pass that runs under the exchange); 64-bit stores
+                         * (measured in results/C.md: the 2^31 convolution -8..-10 % against 16-byte vectors at 228 blocks; RESULTS.md 11 had 909 vs 699 GB/s) */
 static void g_init(void)
 {
     pthread_barrier_init(&G.bar, NULL, NR);
-    g_push64 = getenv("COMM_PUSH64") ? atoi(getenv("COMM_PUSH64")) : 1;
-    g_push_blocks = getenv("COMM_PUSH_BLOCKS") ? atoi(getenv("COMM_PUSH_BLOCKS")) : 76;
-    if (g_push_blocks < 1) g_push_blocks = 1;
 }
 /* push: one kernel drives the three links -- block b serves peer b % 3, so the three streams of stores are
- * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 64-bit words (default), or 16-byte
- * vectors with COMM_PUSH64=0.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
+ * concurrent (a push kernel beats hipMemcpyPeerAsync by 1.67x, RESULTS.md 11); 64-bit words.  Per-peer lengths n[peer] in elements (B7: the unequal exchange; a zero is allowed). */
 struct push3 { const void *src[3]; void *dst[3]; size_t n[3]; };
 template <typename T> __global__ void k_push3(struct push3 a)
 {
@@ -56,14 +53,11 @@ template <typename T> __global__ void k_push3_ts(struct push3 a, unsigned long l
     __syncthreads();
     if (threadIdx.x == 0) { __threadfence_system(); ts[2 * blockIdx.x + 1] = wall_clock64(); }
 }
-/* the element width of a push: 16 when every (src, dst, bytes) is a 16-byte multiple, 8 for 8-byte ones, else 0
- * (the transfer goes by memcpy) */
+/* the element width of a push: 8 when every (src, dst, bytes) is an 8-byte multiple, else 0 (the transfer goes by memcpy) */
 static int push_width(const struct push3 *a, const size_t *bytes)
 {
-    int w = g_push64 ? 8 : 16;
-    for (int k = 0; k < 3; k++) if (bytes[k] && (bytes[k] % w || (uintptr_t)a->src[k] % w || (uintptr_t)a->dst[k] % w)) w = 8;
     for (int k = 0; k < 3; k++) if (bytes[k] && (bytes[k] % 8 || (uintptr_t)a->src[k] % 8 || (uintptr_t)a->dst[k] % 8)) return 0;
-    return w;
+    return 8;
 }
 /* the three peers' blocks (bytes[k] each, k = the peer's slot) pushed on stream s */
 static void h4_launch(int me, struct push3 a, const size_t *bytes, int w, int blocks, int map, hipStream_t s, const int *peer);
@@ -73,8 +67,8 @@ static void push_run(struct push3 a, const size_t *bytes, hipStream_t s, int me 
     int w = push_width(&a, bytes);
     if (!w) { for (int k = 0; k < 3; k++) if (bytes[k]) HIP_CHECK(hipMemcpyAsync(a.dst[k], a.src[k], bytes[k], hipMemcpyDeviceToDevice, s)); return; }
     for (int k = 0; k < 3; k++) a.n[k] = bytes[k] / w;
-    if (me >= 0 && xstats_on()) { h4_launch(me, a, bytes, w, g_push_blocks, 0, s, peer); return; }
-    if (w == 16) k_push3<ulonglong2><<<g_push_blocks * 3, 256, 0, s>>>(a); else k_push3<uint64_t><<<g_push_blocks * 3, 256, 0, s>>>(a);
+    if (me >= 0 && xstats_on()) { h4_launch(me, a, bytes, w, PUSH_BLOCKS, 0, s, peer); return; }
+    k_push3<uint64_t><<<PUSH_BLOCKS * 3, 256, 0, s>>>(a);
 }
 /* ---- H4: per-link bytes and active time (COMM_XGMI_STATS=1) ---- */
 static int g_xstats = -1;
@@ -122,7 +116,7 @@ static void h4_launch(int me, struct push3 a, const size_t *bytes, int w, int bl
     }
     H.nts[me] = nt;
     for (int k = 0; k < 3; k++) { H.pb[me][k] = bytes[k]; H.peer[me][k] = peer[k]; }
-    if (w == 16) k_push3_ts<ulonglong2><<<nt, 256, 0, s>>>(a, H.d_ts[me], map); else k_push3_ts<uint64_t><<<nt, 256, 0, s>>>(a, H.d_ts[me], map);
+    (void)w; k_push3_ts<uint64_t><<<nt, 256, 0, s>>>(a, H.d_ts[me], map);
     H.pend[me] = 1; H.map[me] = map;
 }
 static double lst_now_x(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }

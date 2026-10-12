@@ -46,8 +46,6 @@ RNS_DIST_CACHE_FIT	0	bool	0|1		rns_dist.c
 RNS_DIST_CACHE_PARTIAL	0	bool	0|1		rns_dist.c
 RNS_VERBOSE	0	bool	0|1		dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 COMM_LAYER_VSLOT_RELEASE	0	bool	0|1	launch-line	binsplit.c:427; user adopted 2026-10-11 (with X2) for the launch lines; needs COMM_LAYER_VSLOT_POOL=1
-COMM_LAYER_TEST_SKEW_MB	unset	float	MiB	test-only	comm_layered.c:488
-COMM_SHMEM_RPIPE	0	bool	0|1	experiment	comm_shmem.c; see README row
 MN_REDIST_FUSE	0	bool	0|1	experiment	default 0
 DIST_GATHER_RAW	2	int	0|1|2	built-in default	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
 DIST_GATHER_RAW_MARGIN_GB	2	float	-	built-in default	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane

@@ -15,7 +15,7 @@
 #include <time.h>
 #include <stdlib.h>
 int comm_wst_on = -1;
-int g_comm_hs_ts = 0;   /* G1: COMM_HS_TS=1 window flag (set by newton_db.c around the reciprocal's gather to host; read by comm_shmem.c) */
+int g_comm_hs_ts = 0;   /* G1: COMM_HS_TS=1 window flag (set by newton_db.c around the reciprocal's gather to host; printed by newton_db.c) */
 static int wst_phase = WST_OTHER;
 static uint64_t wst_ns[WST_NP][3], wst_nn[WST_NP][3];   /* [phase][0 barrier, 1 wait, 2 ready] */
 static __thread int wst_depth;

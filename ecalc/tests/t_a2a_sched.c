@@ -11,7 +11,7 @@
  *
  * Schedules (-o list, comma separated; the order in which the chunks are posted to the NIC's queue):
  *   seq   peers in index order, all chunks of a peer before the next      (comm_shmem.c today: push_peers r = 0 .. n-1)
- *   rot   the same, starting at me + 1 (X1, COMM_SHMEM_PEER_ORDER=rot)
+ *   rot   the same, starting at me + 1 (X1 rot; the transport form was removed after X1 was rejected)
  *   rr    rotated start, one chunk per peer round robin (every receiver sees every sender at once: no moving incast)
  *   winK  rotated start, at most K peers open at a time, round robin among the open ones (K = 1 is rot, K = g - 1 is rr)
  *   pair  the pairwise rounds in lockstep: round i sends to me + 1 + i and waits for the data from me - 1 - i (+ quiet)

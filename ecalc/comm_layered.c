@@ -483,13 +483,6 @@ static struct vshare { char *vx[2]; size_t cap[2]; comm *owner; int refs; } g_vs
 static void need_vslot(comm *c, int k, size_t bytes);
 static void complete_v(comm *c);
 static void vslot_attach(lay_priv *p) { if (p->vshare && p->dev >= 0 && p->dev < 16) g_vsh[p->dev].refs++; else p->vshare = 0; }
-static void vslot_test_skew(lay_priv *p)   /* COMM_LAYER_TEST_SKEW_MB=n (test only, default off): the odd ranks of the inter communicator first take an n-MiB (rank-dependent) pool block, so the pool offsets of the slots differ between the group's members (G5) */
-{
-    static __thread void *pad[16]; const char *e = getenv("COMM_LAYER_TEST_SKEW_MB");
-    if (!e || atof(e) <= 0 || !p->vpool || p->dev < 0 || p->dev > 15 || pad[p->dev]) return;
-    int r = comm_rank(p->inter); if (!(r & 1)) return;
-    pad[p->dev] = comm_sym_alloc(p->inter, (size_t)(atof(e) * (1 + (r % 3)) * 1048576.0));
-}
 static void need_vslot_shared(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c); struct vshare *S = &g_vsh[p->dev];
@@ -502,7 +495,6 @@ static void need_vslot_shared(comm *c, int k, size_t bytes)
                               if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* (the pool rule sets every group size to the overall maximum under SHARE) */
             size_t want = bytes > minb ? bytes : minb;
             if (S->vx[k]) { comm_sym_free(p->inter, S->vx[k]); S->vx[k] = 0; S->cap[k] = 0; }
-            vslot_test_skew(p);
             S->vx[k] = (char *)comm_sym_alloc(p->inter, want);
             if (!S->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
             S->cap[k] = want;
@@ -525,7 +517,6 @@ static void need_vslot(comm *c, int k, size_t bytes)
                           if (!e) e = getenv(nm); if (e) minb = (size_t)(atof(e) * 1048576.0); }   /* allocate each slot once at this size (S31: set by the pool rule per group size, binsplit.c vslot_prealloc_env; or by hand) */
         size_t want = bytes > minb ? bytes : minb;
         if (p->vx[k]) { comm_sym_free(p->inter, p->vx[k]); p->vx[k] = 0; p->vxcap[k] = 0; }
-        vslot_test_skew(p);
         p->vx[k] = (char *)comm_sym_alloc(p->inter, want);
         if (!p->vx[k]) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_POOL=1: the inter transport has no symmetric pool (%zu B v-slot)\n", want);
         p->vxcap[k] = want; return;

@@ -3,12 +3,12 @@
 
  * With a 2nd argument: the preallocated-slot pattern (the S31 fix), which must fit with sym-top 0 and 1 alike.
  * Sequence (MiB): slots 400 + 400 and a scratch 1023 (symmetric), staging 1023 + 1023 (taken and released per exchange, before the slots regrow), the slots regrown to
- * 822 each (free, then allocate), staging 1023 again.  First-fit everywhere (COMM_OFI_SYM_TOP=0) strands the staging; sym-top does not. */
+ * 822 each (free, then allocate), staging 1023 again.  First-fit everywhere (sym_top 0) strands the staging; sym-top does not. */
 #include "../comm_ofi.c"
 #define MB ((size_t)1 << 20)
 int main(int argc, char **argv)
 {
-    setenv("COMM_OFI_SYM_TOP", argc > 1 ? argv[1] : "1", 1);
+    g_sym_top = argc > 1 ? atoi(argv[1]) != 0 : 1;
     if (argc > 2) {   /* preallocated slots (S31 COMM_LAYER_VSLOT_MB_<g>): the same pool, the slots taken once at 822 MiB -> staging after the slots always fits */
         ofi_dev o2; memset(&o2, 0, sizeof o2); o2.bytes = 4096 * MB; pthread_mutex_init(&o2.lock, 0);
         o2.blocks = (struct oblk *)calloc(1, sizeof *o2.blocks); o2.blocks->len = o2.bytes;
@@ -24,6 +24,6 @@ int main(int argc, char **argv)
     comm_ofi_free(&od, s0); s0 = comm_ofi_alloc(&od, 822 * MB, 1);
     comm_ofi_free(&od, s1); s1 = comm_ofi_alloc(&od, 822 * MB, 1);
     a = comm_ofi_alloc(&od, 1023 * MB, 0); comm_ofi_free(&od, a);
-    (void)tmp; printf("t_ofi_alloc: sym_top=%s: fits (in use %zu MiB, peak %zu MiB)\n", getenv("COMM_OFI_SYM_TOP"), od.cur / MB, od.peak / MB);
+    (void)tmp; printf("t_ofi_alloc: sym_top=%d: fits (in use %zu MiB, peak %zu MiB)\n", g_sym_top, od.cur / MB, od.peak / MB);
     return 0;
 }
