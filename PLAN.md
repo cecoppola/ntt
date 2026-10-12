@@ -32,7 +32,7 @@ digits up to 10¹¹.
 | 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/W2B.md` |
 | 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/S48.md` |
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
-| 4 / 6 nodes at 6.441 × 10¹⁰ digits per node | 181.8 / 293.5 s (m, before the 2026-10-12 defaults) | `results/S48.md` |
+| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7) | 74.4 / 138.9 / 188.2 / 246.4 s; efficiency vs 1 node 0.54 / 0.40 / 0.30 (m, 2026-10-12 overnight, before the 2026-10-12 defaults; the 6-node runs had not settled: 224.7-271.4 s) | `results/M2a.md` |
 
 The 60-bit packed output as the default (`ECALC_OUT_PACKED=2`) is decided; its batch D5 was still gating when `results/W2A.md` was written.
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
