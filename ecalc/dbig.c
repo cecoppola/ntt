@@ -90,7 +90,7 @@ __global__ void k_pull(struct db_pullctl *c)
         if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->done, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
     }
 }
-int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 0; return on; }
+int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 1; return on; }   /* default 1 since 2026-10-12 (user-adopted, results/CAND.md); 0 = the old hipMemcpy path */
 static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];
 static pthread_mutex_t g_pull_mx = PTHREAD_MUTEX_INITIALIZER;
 static struct { const void *h, *d; } g_pull_src[4]; static int g_pull_nsrc;   /* db_pull_resolve: the seed buffers' device pointers */
@@ -688,13 +688,13 @@ static void bounce_init(int d)
     bs_init(d);
     if (bounce_ts_on()) { printf("bounce_init dev %d: 2 x pinned %zu B %.3f s\n", d, (size_t)BOUNCE * 8, tnow() - t0); fflush(stdout); }
 }
-/* O2: DBIG_SMALL_BOUNCE=1 (off by default) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
+/* O2: DBIG_SMALL_BOUNCE=1 (default on since 2026-10-12; 0 = the old path) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
  * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/O2.md); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
 #define SBOUNCE ((size_t)1 << 20)
 static uint64_t *g_sbounce[DB_NQ];
-static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 0; return v; }
+static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 1; return v; }   /* default 1 since 2026-10-12 (user-adopted, results/CAND.md) */
 static uint64_t *sbounce_get(int d)
 {
     if (!g_sbounce[d]) {

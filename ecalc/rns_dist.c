@@ -109,12 +109,12 @@ template <int QS> __global__ void k_gather(uint64_t *x, struct acc src, size_t R
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
-/* K1b (results/K1b.md, DIST_GATHER_RAW, off by default): S39 candidate A -- gather an operand once without the canon (the strided
+/* K1b (results/K1b.md, DIST_GATHER_RAW, default 2 since 2026-10-12): S39 candidate A -- gather an operand once without the canon (the strided
  * gather is the cost, not the prime), then one coalesced elementwise canon pass per prime.  canon(raw) = what k_gather writes, bit for bit
  * (the zero beyond src.n stays zero).  1 = A into xa[np-1] (its own plane is the staging), B into its cache plane when it has one (no memory);
  * 2 = also B without a cache plane, through one extra q-limb plane taken from the block pool's free extents only (no growth; a margin of
  * DIST_GATHER_RAW_MARGIN_GB per APU, default 2, must stay free) -- else B is gathered per prime as before */
-static int gather_raw(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW"); v = e ? atoi(e) : 0; } return v; }
+static int gather_raw(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW"); v = e ? atoi(e) : 2; } return v; }   /* default 2 since 2026-10-12 (user-adopted, results/CAND.md); 0 = the old gather */
 static double gather_raw_margin(void) { static double v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW_MARGIN_GB"); v = e ? atof(e) : 2.0; } return v; }
 template <int QS> __global__ void k_gather_raw(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C)
 {
