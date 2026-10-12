@@ -23,7 +23,8 @@ measured, modelled or assumed.
 
 - `--build` runs `make -B` in `ecalc/`. A multi-node build needs SHMEM (`SHMEM_CRAY=1`); the gate checks the build log
   for `-DCOMM_SHMEM` and refuses a multi-node run without it. It also runs `tools/switch_registry.py --check` and
-  `tools/profile_load.py --validate-all`; either failing is a FAIL.
+  `tools/profile_load.py --validate-all`; either failing is a FAIL. The registry check's review-date `WARN` lines (a
+  setting past its review date in `ecalc/switches_review.tsv`, or an experiment without one) are printed, never a FAIL.
 - `--line` selects the launch line (the test system's is parsed from `LINE` in `ecalc/e16_headline.sh`; the target's is
   supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
@@ -131,6 +132,7 @@ Raw logs stay on the cluster or in the local archive; the report cites their nam
 `tools/doccheck.py` (read-only, about 1 s) checks that the docs match the tree: the switch registry is current, the central
 docs have a `Scope:` line, every cited `results/`, `tools/`, `ecalc/`, `tests/`, `profiles/` path and markdown link exists,
 `PLAN §N` references name an existing section, no citation of the old paper outside `results/`, and archive paths are
-written `archive:<path>` (not as a repository folder). Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
+written `archive:<path>` (not as a repository folder). The registry's review-date warnings print as `[review]` lines and
+are not failures. Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
 first: `GATE_DOCCHECK=strict` (default) fails the gate, `warn` prints the problems and goes on, `off` skips it.
 

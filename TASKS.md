@@ -17,7 +17,7 @@ for aac7 nodes or agents, the higher class goes first.
 |---|---|---|---|---|
 | 1 | 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path): 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` fails, 24 OK | running: local diagnosis, then one 4-node aac7 item | results/A05.md, G12.md |
 | 2 | S | **Settings removal:** remove 83 settings + A5 (overlap/device flow) + B4 (TCP); registry 269 → 187 so far | running: lane A's A5 and D5 (packed output default, TASKS 40) gating; lane B done | results/W2A.md, W2B.md |
-| 3 | 27 | **Parameter system:** registry, profiles, six built-in defaults done; left: size-dependent plan values computed by the planner, review dates for settings | running: scope + implement | results/C01.md, L5.md, O3.md |
+| 3 | 27 | **Parameter system:** registry, profiles, six built-in defaults, size-dependent plan values (`tools/plan_values.py`) and review dates for settings (`ecalc/switches_review.tsv`) done 2026-10-12 | done except two user decisions (results/T27.md): the target launch block stops typing pool/heap (stale under the X2 default: plan 2304/2816 MiB vs typed 1536/2048), and `MN_GROUPS` at 576 - k nodes | results/C01.md, L5.md, O3.md, T27.md |
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | running: division multiply | results/P2.md, P3.md |
 | 5 | D | **Documentation:** central docs and the strict doc check done; each merge updates its docs; left: final pass after S (regenerate the settings table, re-run the `results/` prune) | waits for S | `TESTING.md` §9 |
 

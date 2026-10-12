@@ -67,6 +67,17 @@ lines. The two lines are kept in:
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`, precedence: explicit environment > profile > code default)
 hold what is machine-specific. Settings adopted on both lines become code defaults (TASKS 27).
 
+Size-dependent values are computed, never typed (TASKS 27, `results/T27.md`): the SHMEM pool (`COMM_SHMEM_POOL_MB`, from
+the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZE` (`mnrun.sh`) and the tree schedule
+`MN_GROUPS` (the code's default). `tools/plan_values.py [--profile P] [--line FILE] [--exports] <digits> <nodes>` prints
+them without launching, checks a hand-typed line against them, and prints `export` lines for a launch without `mnrun.sh`.
+At 3.82 × 10¹³ digits on 576 nodes the plan asks for a pool of 2304 MiB and a heap of 2816 MiB with the current defaults
+(m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`.
+
+Every setting that is not a plain default (experiments, diagnostics, test-harness switches, fallbacks kept after a default
+flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table in `ecalc/README.md`);
+`tools/switch_registry.py --check` warns, without failing, once a date has passed.
+
 ## 4. Plan to the target run
 
 **Remaining work in this repository** is in `TASKS.md`: code reduction (wave 2), the forced-grid correction defect at 4
