@@ -7,15 +7,19 @@ Shrunk 2026-10-12 (user plan rev 2). Everything closed or done, and the dated st
 `archive:TASKS_HISTORY_2026-10-12.md` (local archive) (row numbers there keep their old meaning). Measurements are in `RESULTS.md`
 and `results/*.md`. Labels: (m) measured, (mod) modelled.
 
-## Open work (2026-10-12)
+## Open work, in priority order (user 2026-10-12)
 
-| # | item | status | where |
-|---|---|---|---|
-| 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path, A05): diagnose at 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` vs 24 | open: fix approved; scheduled after all <1 h aac7 tasks | results/A05.md, G12.md |
-| 27 | **P1 parameter system:** profiles, size-dependent plan values, one entry point, registry, expiry (steps 1-2 merged 2026-10-12: L5 registry, O3 profile loader) | open: six launch-line settings become built-in defaults (approved) - wave 2 lane B | results/C01.md, L5.md, O3.md |
-| S | **Switch removal** (wave 2): audit approved 2026-10-12 - remove 83 settings + A5 + B4 | open: wave 2 | `ecalc/README.md` switch table |
-| D | **Documentation rewrite** (wave 3): central docs, `tools/doccheck.py` (strict in the gate) done; left: regenerate the switch table after S, remove old text from print labels and registry notes (`results/` prune pass 2, `report.html` move and the `spill.c` check done: still used) | open: after S | `TESTING.md` §9 |
-| P | **Performance on aac7** (wave 4): distributed division multiply (P1, running); `k_gather` evaluated 2026-10-12 — limited by the remote read, kernel headroom ≈0.6 s/run (mod), not pursued (results/P2.md); init mapping evaluated — ≈1-1.5 s at 1 node, ≈0 at 2+ nodes (mod), not pursued (results/P3.md) | open: P1 | results/P2.md, P3.md |
+Priority classes, highest first: **1** bug fixes; **2** dead code removal and consolidation (settings removal);
+**3** streamlining of parameters, arguments and scripts; **4** performance; **5** documentation. When work competes
+for aac7 nodes or agents, the higher class goes first.
+
+| class | # | item | status | where |
+|---|---|---|---|---|
+| 1 | 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path): 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` fails, 24 OK | running: local diagnosis, then one 4-node aac7 item | results/A05.md, G12.md |
+| 2 | S | **Settings removal:** remove 83 settings + A5 (overlap/device flow) + B4 (TCP); registry 269 → 187 so far | running: lane A's A5 and D5 (packed output default, TASKS 40) gating; lane B done | results/W2A.md, W2B.md |
+| 3 | 27 | **Parameter system:** registry, profiles, six built-in defaults done; left: size-dependent plan values computed by the planner, review dates for settings | running: scope + implement | results/C01.md, L5.md, O3.md |
+| 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | running: division multiply | results/P2.md, P3.md |
+| 5 | D | **Documentation:** central docs and the strict doc check done; each merge updates its docs; left: final pass after S (regenerate the settings table, re-run the `results/` prune) | waits for S | `TESTING.md` §9 |
 
 Done 2026-10-12 (waves 0+1): R branch clean-up + the old archive folder moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
 
