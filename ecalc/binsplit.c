@@ -470,9 +470,8 @@ static int as_room_fits(unsigned long N, int size, size_t room)
 {
     static unsigned long cN; static int cs, cfit = -1, cpl = -1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
     if (cfit >= 0 && cN == N && cs == size && cpl == pl) return cfit;
-    int b3 = rns_planes_3q30 >= 0 ? rns_planes_3q30 : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
     int np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, size);   /* DL: pool 0's planes under ECALC_NP=auto (as binsplit_node_bytes) */
-    size_t planes = NR * rns_plane_pool_bytes(pl, b3, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
+    size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
     size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
     size_t sb = size > 1 ? as_seedbuf(N) : 0, host;
     if (size == 1) { double D = lgamma((double)N + 1.0) / log(10.0) / 1e9 - 40.0; host = (size_t)((25.85 + 0.0208 * (D > 0 ? D : 0.0)) * 1e9); }
@@ -696,8 +695,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
     return arena;
 }
 /* the plane caps, their settings and the node's device and host bytes at a cap.
- * cap c: 0 = 2^30 (POOL_LOG 30), 1 = 3 2^29 (POOL_LOG 30 + the 3 2^k planes), 2 = 2^31 (POOL_LOG 31), 3 = 3 2^30 (POOL_LOG 31 +
- * the 3 2^k planes).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
+ * cap c: 0 = 2^30 (POOL_LOG 30), 1 = 2^31 (POOL_LOG 31).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
  * (0.61 GB measured at 2^31, taken for every cap); host = the init peak's constants (runtime 7.0 GB, the checkpoint staging
  * 4 GiB, the seed buffers 4 GiB: mem_model.py HOST_*), + 6 GB per process of the comm at size > 1.  Only before rns_init (the
  * pool_log is switched per cap); after it, the caller's own cap only.
@@ -707,15 +705,15 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
  * SHMEM pool (as_shmem_pool), plus the larger of the two VMM seed buffers (as_seedbuf) or the writer 0.65 GB + MN_OUT_EARLY's
  * 0.9 GB.  size 1 is unchanged (BS_HOST_INIT_BYTES: as_room_fits's size 1 path is a different, measured formula that this
  * function does not mirror). */
-const char *const bs_cap_name[4] = { "2^30", "3*2^29", "2^31", "3*2^30" };
+const char *const bs_cap_name[2] = { "2^30", "2^31" };   /* the cap index c = pool_log - 30 */
 #define BS_TABLES_BYTES ((size_t)610000000)
 #define BS_HOST_INIT_BYTES ((size_t)7000000000 + ((size_t)8 << 30))
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes_, size_t *arena_, size_t *host_)
 {
-    int pl0 = rns_pool_log(), pl = cap >= 2 ? 31 : 30, b3 = cap & 1;
+    int pl0 = rns_pool_log(), pl = 30 + cap;
     if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);                /* pool 0 holds four planes where a product of g nodes may need them */
     rns_preinit_pool_log(pl);
-    size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, b3, np, 0, 0) + BS_TABLES_BYTES;
+    size_t arena = layout_arena(N, g, 0), planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
     rns_preinit_pool_log(pl0);
     size_t host;
     if (g > 1) {
@@ -773,11 +771,11 @@ static void binsplit_layout_only(const char *spec)
         int vroom = bs_arena_room() > 0 && db_pool_vmm_on() && g_room_fit >= 0;   /* B7ACCT: the room's terms, kept before the caps below redo the decision */
         size_t vdev0 = vroom ? g_room_planes + g_room_arena + g_room_ofi : 0, vnode0 = vroom ? g_room_planes + g_room_arena + AS_VMM_BS_GROW + g_room_host : 0;
         /* the plane pools at this run's prime count and the node totals at each plane cap (GB); '*' = the cap this
-         * run's settings give at these digits (POOL_LOG, RNS_PLANES_3Q30 / its size rule, ECALC_PLANE_CAP) */
-        { int pl = rns_pool_log(), cur = (pl >= 31 ? 2 : 0) + (rns_planes_3q30_default(pl, (double)d) ? 1 : 0);
+         * run's settings give (POOL_LOG, ECALC_PLANE_CAP) */
+        { int pl = rns_pool_log(), cur = pl >= 31 ? 1 : 0;
           if (getenv("ECALC_PLANE_CAP_IDX")) cur = atoi(getenv("ECALC_PLANE_CAP_IDX"));
           printf("planes: D %.4g g %d np %d |", D, g, np);
-          for (int c = 0; c < 4; c++) {
+          for (int c = 0; c < 2; c++) {
               if (rns_ndev() && c != cur) continue;                      /* after rns_init: the run's own cap only */
               size_t pb, ab, hb, tot = binsplit_node_bytes(N, g, c, np, &pb, &ab, &hb);
               printf(" cap %s%s: planes %.2f arena %.2f device %.2f node %.2f |", bs_cap_name[c], c == cur ? "*" : "", pb * 1e-9, ab * 1e-9, (pb + ab) * 1e-9, tot * 1e-9);

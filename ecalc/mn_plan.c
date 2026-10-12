@@ -60,7 +60,7 @@ static char g_lvl[1024];                                          /* per tree le
 /* ---- the plan-time check -- every planned product against the prime set's limits ------------------------
  * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
  * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms (p0 p1 p2 > nterms (10^18-1)^2), and
- * binary limbs refused -- and plan_create / plan3_get take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
+ * binary limbs refused -- and plan_create / form B's 3 2^k lengths take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
  * (ec_logn_limit(np): 2^44 for the WP8 set; modarith.h stops the run beyond).  The plan checks both for every product it forms,
  * on every group of every tree level (not only node 0's), and prints the first that fails; mn_plan_run returns EC_RC_FATAL (3)
  * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (internal target task list T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
@@ -303,7 +303,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
     chk_init(np);                                                 /* the plan-time check */
-    size_t p0, p1; rns_plane_pool_bytes(pool_log, rns_planes_3q30 > 0, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; pool 0 at rns_pool0_np's planes) */
+    size_t p0, p1; rns_plane_pool_bytes(pool_log, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; pool 0 at rns_pool0_np's planes) */
     if (rns_pool1_bytes_req) p1 = rns_pool1_bytes_req;
     if (getenv("RNS_POOL1_GB")) p1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
     rns_dist_plan_pools(p0, p1);
@@ -350,7 +350,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
                (double)d, size, 2, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
     if (size > 1) {                                               /* the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
-        int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);
+        int cap = pool_log >= 31 ? 1 : 0;
         double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
         bs_a0 = a0; bs_b1 = b1; rns_preinit_pool_log(pool_log);
         rns_dist_cache_plan(size, pool_log, ec_np_planes(pool_log, size), g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], nb);

@@ -173,15 +173,15 @@ With three primes form B transforms on three APUs and the fourth only takes part
 
 ### 4.5 Plane cap and grids
 
-The largest single transform is the **plane cap**: 2³¹ points per node by default (`ECALC_PLANE_CAP`; the top sizes may
-use 3·2^28 … 3·2^30 points when the 3·2^k planes are enabled, which the size rule does below 5 × 10¹⁰ digits). For g nodes
+The largest single transform is the **plane cap**: 2³¹ points per node by default (`ECALC_PLANE_CAP`: 2³⁰ or 2³¹; the
+distributed tier's planes are powers of two, while form B and the batch tier keep their 3·2^k lengths). For g nodes
 the cap is 2^(31 + ⌊log₂ g⌋) points (`mn_logn_cap`). A product with nc above the cap is cut into a **grid** of ka × kb
 piece products:
 
 - the pieces are views of the operands; the first writes straight into C, the others into a temporary window and a shifted
   add with carry (`mn_round_add`, rounds of `MN_T_CHUNK_MB`);
-- the shape minimises the total transform points under a cost model that prices form B pieces at 0.70, 3·2^k planes at
-  1.05 per point and adds a per-piece pipeline cost (`split_grid_cap`, `split_grid`, `mn_grid_shape`);
+- the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
+  form B lengths at 1.05 per point) and adds a per-piece pipeline cost (`split_grid_cap`, `split_grid`, `mn_grid_shape`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
   `results/S52.md`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
@@ -348,7 +348,7 @@ Device memory is the limiting resource (373.44 GB per node on the target, 93.36 
 everything is allocated once, up front, and sized by a model that the C layout reproduces exactly (`mem_model.py --check-c`).
 
 - **Plane pools** (`rns_init`, `rns_plane_pool_bytes`): per APU, pool 0 holds np planes of q limbs and pool 1 holds
-  3q + 16, with q = 2^(pool_log − 2) (3·2^(pool_log − 3) with 3·2^k planes). Planes are mapped first because the last
+  3q + 16, with q = 2^(pool_log − 2). Planes are mapped first because the last
   allocations near the edge get small pages. A plane pool does not grow inside a phase unless `RNS_POOL_GROW` is set;
   growth is counted and otherwise an error (rc 6). An unused pool tail is donated to the block pool.
 - **Region arena → block pool.** Per APU one HIP virtual-memory range (`db_vmm_arena_alloc`). Binary splitting places each

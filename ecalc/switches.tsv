@@ -55,7 +55,6 @@ DIST_GATHER_RAW	int	2	2	0|1|2	built-in default	-	-	Y	ecalc	rns_dist.c	1	coordina
 DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.c	1	-	-	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
-DIST_R3	int	derived	derived		experiment	-	A-grid.md+P.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DM_MN_WRAP	int	0	0	0|1|20..62	experiment	-	-	Y	ecalc	binsplit.c,newton_db.c	2	P1/DEF (results/P1.md, results/DEF.md)	2026-11-11	newton_db.c dm_wrap; off by default (P1, results/P1.md); dm_layout counts it (D19, results/DEF.md)
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	coordinator (TASKS S)	2026-11-11	
@@ -145,7 +144,6 @@ RNS_DIST_CACHE_PARTIAL_K	int	derived	derived		built-in default	-	PC15.md	prose	e
 RNS_DIST_CACHE_PARTIAL_MARGIN_GB	float	0.5	0.5		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	4	-	-	
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	diagnostics (TESTING.md)	2027-04-12	
-RNS_PLANES_3Q30	bool	0	0	0|1	experiment	-	P.md+P13b.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	5	coordinator (TASKS S)	2026-11-11	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	

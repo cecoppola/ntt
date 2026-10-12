@@ -57,32 +57,12 @@ size_t rns_staging_bytes_req = 0;                                  /* the pinned
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
 size_t rns_pool1_bytes_req = 0;                                    /* plane pool 1 per APU (0 = 8 << pool_log; the device flow needs 3 q + 16 limbs) */
-/* plane pool 0 sized at init to 3 2^(pool_log-1) limbs (24 GiB at 2^31) and pool 1 to the dist tier's
- * 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB), so the top levels and the dm phase run their products on 3 2^28 .. 3 2^30-point
- * planes (rns_dist.c's DIST_R3, whose default follows this switch) with nothing mapped inside a phase (A-grid's C5 paid 15 s
- * at first use).  RNS_PLANES_3Q30=0/1 overrides.  Measured at 4e10 (results/P.md): the phases lose 3.6 s (top levels -2.8,
- * reciprocal -0.6, level 21 paired -0.2) but the 60 GB more of plane pools cost 4.7-6.3 s of mapping at init (0.08-0.1 s/GB
- * while the seeds stream), so P left the default OFF.  with M11's tail layout the phases gain 5 s (the dm phase
- * 2.5 of them) for the same 5 s of init, and the size rule (on below 5e10 at 2^31 pools) is the default -- see
- * rns_planes_3q30_default. */
-int rns_planes_3q30 = -1;
-int rns_planes_3q30_default(int pool_log, double digits)
-{
-    const char *e = getenv("RNS_PLANES_3Q30");
-    if (e && strcmp(e, "auto")) return atoi(e) != 0;
-    /* the size rule is the default (RNS_PLANES_3Q30=auto, or unset): on below 5e10 at 2^31 pools (7-8e10 do not fit).
-     * Re-measured on the same node in one batch with M11's tail layout (results/I.md): phases 59.2 s against 64.2 / 64.8 (bs
-     * 32.7 vs 35.2-35.8, dm 26.4 vs 28.9), init 22.5 against 17.3-18.1 (the 60 GB more map at the same 0.075 s/GB), wall
-     * 81.7 against 82.1-82.3: the planes now pay for themselves by a hair, and the phases are 5 s faster. */
-    return (pool_log ? pool_log : 31) >= 31 && digits < 5e10;
-}
-static int planes_3q30(void) { if (rns_planes_3q30 < 0) { const char *e = getenv("RNS_PLANES_3Q30"); rns_planes_3q30 = e && strcmp(e, "auto") ? atoi(e) != 0 : 0; } return rns_planes_3q30; }   /* (unset by the driver: off -- the tests' rns_init) */
-/* with three primes plane pool 0 holds the dist tier's ec_np q = 3 q limbs (q = 2^(pool_log-2), or
- * 3 2^(pool_log-3) with the B3 planes): 3/4 of the four-prime pool; pool 1 (xb | sbuf | rbuf, one prime at a time) keeps
+/* with three primes plane pool 0 holds the dist tier's ec_np q = 3 q limbs (q = 2^(pool_log-2)): 3/4 of the four-prime
+ * pool; pool 1 (xb | sbuf | rbuf, one prime at a time) keeps
  * its 3 q + 16.  The mdev tier's plane is then capped by pool 0 (mdev_pts). */
 static size_t pool0_np3_bytes(void)
 {
-    size_t p0; rns_plane_pool_bytes(g_pool_log ? g_pool_log : 31, planes_3q30(), 3, &p0, 0); return p0;
+    size_t p0; rns_plane_pool_bytes(g_pool_log ? g_pool_log : 31, 3, &p0, 0); return p0;
 }
 /* the planes pool 0 is made for -- ec_np, or under ECALC_NP=auto four when a product of this run's largest group
  * (COMM_SIZE node-processes) can exceed the auto bound (ec_np_planes); the one-node tiers still see the three-prime pool
@@ -92,18 +72,16 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the 3 2^k planes,
- * the prime count) alone -- the one formula for rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and
- * mem_model.py's port).  q = the dist tier's rank plane per prime: 2^(pool_log-2), or 3 2^(pool_log-3) with the 3 2^k planes
- * (the plane cap n = 4 q: 2^pool_log or 3 2^(pool_log-1)).  Pool 0 = np q limbs (the np planes xa[]; four primes without the
- * 3 2^k planes: the power of two 2^pool_log = 4 q, the same bytes), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
+/* the plane pools' bytes per APU as rns_init makes them, from (pool_log, the prime count) alone -- the one formula for
+ * rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and mem_model.py's port).  q = the dist tier's rank
+ * plane per prime: 2^(pool_log-2) (the plane cap n = 4 q = 2^pool_log).  Pool 0 = np q limbs (the np planes xa[]), exact.  Pool 1 = xb | sbuf | rbuf, one prime at a time:
  * 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30), 2 MiB-aligned.
  * four one-node primes (not auto) make pool 1 max(that, 4 q): the batch-local tier's B planes (see below).
  * Returns p0 + p1. */
-size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1)
+size_t rns_plane_pool_bytes(int pool_log, int np, size_t *p0, size_t *p1)
 {
     int pl = pool_log ? pool_log : 31;
-    size_t q = b3 ? (size_t)3 << (pl - 3) : (size_t)1 << (pl - 2), al = (size_t)2 << 20;
+    size_t q = (size_t)1 << (pl - 2), al = (size_t)2 << 20;
     size_t a = (size_t)np * q * 8, b = (3 * q + 16) * 8, full = (size_t)8 << (pl < 30 ? pl : 30);
     if (b < full) b = full;
     /* the batch-local tier (rns_mul_batch_local) takes np Mmax L B limbs from pool 1 with np Mmax L <= its plane
@@ -119,19 +97,18 @@ size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1
 }
 /* BS_LAYOUT_ONLY runs before rns_init (no device): binsplit's sizing reads rns_pool_log() */
 void rns_preinit_pool_log(int pool_log) { if (!g_nd) g_pool_log = pool_log ? pool_log : 31; }
-size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log, or 3 2^(pool_log-1) with the B3 planes */
+size_t rns_plane_limbs(void)                                       /* plane pool 0's capacity in limbs: 2^pool_log */
 {
     int pl = g_pool_log ? g_pool_log : 31;
     if (g_nd && D[0].da.p) return ec_np_auto && ec_np == 3 && D[0].da.cap > pool0_np3_bytes() ? pool0_np3_bytes() / 8 : D[0].da.cap / 8;   /* NP: the one-node tiers' view under auto */
     if (ec_np_init() == 3) return pool0_np3_bytes() / 8;
-    return planes_3q30() ? (size_t)3 << (pl - 1) : (size_t)1 << pl;
+    return (size_t)1 << pl;
 }
 size_t rns_dpool_cap(int dev, int which) { return which ? D[dev].db.cap : D[dev].da.cap; }
 size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
-                                                                    * never below the full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
-                                                                    * B3: q = 3 2^(pool_log-3) with the 3 2^k planes */
+                                                                    * never below the full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there) */
 {
-    size_t b; rns_plane_pool_bytes(pool_log, planes_3q30(), ec_np_init(), 0, &b); return b;   /* the one formula.  at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16 as before) */
+    size_t b; rns_plane_pool_bytes(pool_log, ec_np_init(), 0, &b); return b;   /* the one formula.  at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16 as before) */
 }
 static size_t g_tables[EC_NP];                                     /* M9: device bytes of the transform contexts (twiddle tables), by hipMemGetInfo around their creation */
 void (*rns_shutdown_hook)(void) = 0;                               /* binsplit releases its region arenas here (they outlive the block pool's use of them) */
@@ -180,9 +157,8 @@ int rns_init(int pool_log)
 #pragma omp parallel for num_threads(g_nd) schedule(static)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
-        if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, planes_3q30(), 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
+        if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
         else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
-        else if (planes_3q30()) dpool_get_exact(&D[d].da, d, ((size_t)3 << (g_pool_log - 1)) * 8);   /* B3: 3 2^(pool_log-1) limbs exactly (24 GiB), not the power of two above it */
         else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log */
         dpool_get_exact(&D[d].db, d, b1);
     }
@@ -202,7 +178,7 @@ int rns_init(int pool_log)
     HIP_CHECK(hipSetDevice(0));
     db_tl("peer access done (%.2f s)", mem_now() - ti2);
     db_pool_vmm_on() ? db_vmm_bg_release() : (void)0;   /* the arenas' second halves map from here, after the plane pools */
-    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB%s (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, planes_3q30() ? " (3*2^k planes, B3)" : "", "hipMalloc", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
+    if (getenv("RNS_VERBOSE")) printf("rns_init: plane pools per APU %.2f + %.2f GiB (%s), staging %.2f GiB, tables %.3f GB; staging+contexts %.2f s, pools %.2f s, peer access %.2f s\n", D[0].da.cap / 1073741824.0, b1 / 1073741824.0, "hipMalloc", sbytes / 1073741824.0, g_tables[0] / 1e9, ti1 - ti0, ti2 - ti1, mem_now() - ti2);
     return g_nd;
 }
 int rns_pool_log(void) { return g_pool_log; }
@@ -791,7 +767,7 @@ __global__ void k_spill_merge(const struct bdesc *P, size_t M, const uint64_t *s
 static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc, const signed char *dv)   /* 0 = the B planes do not fit pool 1 (nothing done: the caller runs the striped tier) */
 {                                                  /* dv (N3, BS_BATCH_PIPE=1): mem_dev_of(P[i].c) per product, from the caller's scan; 0 = look it up */
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
-    size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* B3: pool 0's real capacity (3 2^(pool_log-1) with the 3 2^k planes) */
+    size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* pool 0's real capacity */
     size_t Mmax = plane_cap / (ec_np * L); if (Mmax < 1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_local: L %zu does not fit the pools\n", L); }
     /* products 2j, 2j+1 with the same B (the tree's P1 Q2 + P2 and Q1 Q2) on the same device: B is
      * scattered and transformed once per pair (M/2 B transforms per tile), the fused inverse reads y transform

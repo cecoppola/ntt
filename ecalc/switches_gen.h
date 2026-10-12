@@ -54,7 +54,6 @@ static const char *const cfg_names[] = {
     "DIST_GATHER_RAW_MARGIN_GB",
     "DIST_GEN",
     "DIST_LOGN_TEST",
-    "DIST_R3",
     "DIST_STATS",
     "DM_MN_WRAP",
     "DM_TAIL_DEAD",
@@ -144,7 +143,6 @@ static const char *const cfg_names[] = {
     "RNS_DIST_CACHE_PARTIAL_MARGIN_GB",
     "RNS_DIST_CACHE_TRACE",
     "RNS_INIT_POOL_LOG",
-    "RNS_PLANES_3Q30",
     "RNS_POOL1_GB",
     "RNS_POOL_GROW",
     "RNS_R3",
@@ -152,4 +150,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 150
+#define CFG_NAMES_N 148

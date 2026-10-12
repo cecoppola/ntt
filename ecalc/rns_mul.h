@@ -40,14 +40,10 @@ extern size_t rns_staging_bytes_req;   /* set before rns_init: pinned staging pe
 size_t rns_staging_bytes(void);
 extern size_t rns_pool1_bytes_req;     /* set before rns_init: plane pool 1 per APU (0 = 8 << pool_log); rns_pool1_default_bytes gives the dist tier's 3 q + 16 limbs */
 size_t rns_pool1_default_bytes(int pool_log);
-/* plane pools sized at init for 3 2^k-point planes (pool 0 = 3 2^(pool_log-1) limbs, pool 1 = 3 q + 16 at
- * q = 3 2^(pool_log-3)); the dist tier's DIST_R3 default follows it.  Set rns_planes_3q30 before rns_init (the driver: on below
- * 5e10 digits at 2^31 pools only with RNS_PLANES_3Q30=auto; =1 forces it; default off, results/P.md); rns_plane_limbs() is pool 0's capacity in limbs */
-extern int rns_planes_3q30;
-int rns_planes_3q30_default(int pool_log, double digits);
+/* rns_plane_limbs() is pool 0's capacity in limbs */
 size_t rns_plane_limbs(void);
 int rns_pool0_np(void);                                              /* the planes plane pool 0 is made for (ec_np; ECALC_NP=auto: 3 or 4 by the run's largest group, ec_np_planes) */
-size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1);   /* pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
+size_t rns_plane_pool_bytes(int pool_log, int np, size_t *p0, size_t *p1);   /* pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
 void rns_preinit_pool_log(int pool_log);                                                /* rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
 size_t rns_dpool_cap(int dev, int which);   /* the pool's current bytes (0 before rns_init) */
 extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */

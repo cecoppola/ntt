@@ -535,9 +535,9 @@ def vslot_budget_on(env=None):
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
-    """rns_mul.c rns_planes_3q30_default (Phase 12 I: the default): the 3 2^k planes on at 2^31 pools below 5e10 digits -- the
-    run's digits, i.e. D x g at size g (ecalc.c passes the run's d), so never at 576 nodes"""
-    return pool_log >= 31 and digits < 5e10
+    """the 3 2^k plane pools (RNS_PLANES_3Q30 and its size rule) were removed from the code (SIMP, results/SIMP.md): never on.
+    The p3q30 / cap arguments below keep modelling the old runs measured with them"""
+    return False
 
 EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
 NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 p2 - 1) / (10^18 - 1)^2), the largest nc = pa + pb three primes hold

@@ -24,7 +24,6 @@ DC_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-inje
 DIST_GATHER_RAW	fallback	coordinator (TASKS S)	2026-11-11	other values are the fallback; default 2 since 2026-10-12 (CAND)
 DIST_GEN	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DIST_LOGN_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-DIST_R3	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 DIST_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DM_TAIL_DEAD	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_BUDGET_RANK_GB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -62,7 +61,6 @@ RNS_DIST_CACHE_PARTIAL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; de
 RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_DIST_CACHE_TRACE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_INIT_POOL_LOG	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_PLANES_3Q30	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 RNS_POOL_GROW	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 RNS_R3	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 RNS_STRATEGY_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit

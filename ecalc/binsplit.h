@@ -55,11 +55,11 @@ unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);
 void binsplit_layout_comm_size(int g);   /* MS: BS_LAYOUT_ONLY sets COMM_SIZE to a point's g (0: restore) */
-/* the node's bytes at plane cap `cap` (0 2^30, 1 3 2^29, 2 2^31, 3 3 2^30) and np primes
+/* the node's bytes at plane cap `cap` (0 2^30, 1 2^31) and np primes
  * for N terms over g node-processes (the caller sets rank 0's range): plane pools + tables, the arena, the host init constants;
  * before rns_init only (it switches rns_pool_log per cap) */
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
-extern const char *const bs_cap_name[4];
+extern const char *const bs_cap_name[2];
 void binsplit_seeds_begin(unsigned long N);
 uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
