@@ -1,10 +1,11 @@
-/* ecalc - e to d decimal digits on one MI300A node, the paper's pipeline.
+/* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18; the paper's binary-limb pipeline with the
+ * radix conversion todec is archived: PLAN 28.5, archive/binary_pipeline/, git tag pre-28.5-binary).
  *
  *   bs    P, Q = binary splitting of sum 1/k!, N = min{m : lgamma(m+1)/ln10 >= d+50}
- *   10dP  T = 10^d (5^d by squaring, shifted), A = T (P + Q)
+ *   10dP  A = 10^d (P + Q): a limb shift and one small multiply
  *   dm    X, R = divmod(A, Q) by Newton reciprocal + Barrett
  *   T1    residue identities mod eight 62-bit primes
- *   dc    digits = todec(X), "2" followed by d fractional digits
+ *   out   the digits are the limbs of X: "2" followed by d fractional digits, streamed to the file
  *   T2    digit windows vs known values; digits == X mod q
  *
  * Usage: ecalc <digits> [outfile]      env: POOL_LOG (31), NTT_B16_STG (7),
@@ -20,7 +21,6 @@
 #include "rns_mul.h"
 #include "newton.h"
 #include "binsplit.h"
-#include "todec.h"
 #include "verify.h"
 #include "mem.h"
 #include "dbig.h"
@@ -44,25 +44,9 @@ static void meta_line(const char *bench)
 {
     char host[128] = "?", date[64]; time_t t = time(0);
     gethostname(host, sizeof host); strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));
-    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, bi_decimal ? "10^18" : "2^64");
+    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, "10^18");
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
-
-/* T = 10^d: decimal limbs: B^(d/18) x 10^(d%18); binary: 5^d by powering, then << d */
-static void pow10_big(bigint *T, unsigned long d)
-{
-    if (bi_decimal) { bi_set_base_pow(T, d / 18); if (d % 18) bi_mul_pow10(T, T, (unsigned)(d % 18)); return; }
-    bigint five, t2; bi_init(&five); bi_init(&t2);
-    bi_set_u64(&five, 1);
-    int top = 63; while (top > 0 && !((d >> top) & 1)) top--;
-    for (int b = top; b >= 0; b--) {
-        if (b != top) { rns_mul(&t2, &five, &five); bigint sw = five; five = t2; t2 = sw; }
-        if ((d >> b) & 1) bi_mul_u64(&five, &five, 5);
-    }
-    bi_shl(T, &five, d);
-    bi_free(&five); bi_free(&t2);
-}
-
 
 /* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
@@ -444,7 +428,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
         char *dup = strdup(getenv("BS_LAYOUT_ONLY"));
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) {
             char *c = strchr(t, ':'); int g = c ? atoi(c + 1) : 1; double D = atof(t);
-            if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); if (bi_decimal) dt = (dt + 17) / 18 * 18;
+            if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); dt = (dt + 17) / 18 * 18;
                                   binsplit_layout_comm_size(g);   /* MS (Phase 15): the point's g as COMM_SIZE, so rns_pool0_np (MN_P24=2's decision) sees it */
                                   if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1;
                                   binsplit_layout_comm_size(0); }
@@ -479,11 +463,10 @@ int main(int argc, char **argv)
     if (getenv("PW_FUSE")) ntt_pw_fuse = atoi(getenv("PW_FUSE"));
     if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!getenv("LIMB_BASE")) bi_set_decimal(1);      /* the decimal base is the pipeline's default (RESULTS.md 63, 67); LIMB_BASE=2 reproduces the paper's binary limbs */
-    bi_env_base();
-    if (!getenv("ECALC_NP")) setenv("ECALC_NP", bi_decimal ? "3" : "4", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); binary limbs need four */
-    if (bi_decimal) d = ((d_out + 17) / 18) * 18;
-    printf("== ecalc: e to %lu digits%s%s ==\n", d_out, bi_decimal ? " (decimal limbs, base 10^18)" : " (binary limbs)", d != d_out ? " [computed to the next multiple of 18]" : "");
+    bi_check_base();                                  /* PLAN 28.5: decimal limbs only (RESULTS.md 63, 67); LIMB_BASE=2 (the archived binary pipeline) is refused loudly */
+    if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
+    d = ((d_out + 17) / 18) * 18;
+    printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
     double t00 = mem_now(), t;
     unsigned long N = e_terms(d);
@@ -493,11 +476,11 @@ int main(int argc, char **argv)
     if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
     { char eff[160]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,overlap:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", bi_decimal ? "10^18" : "2^64", verbose, ovl_env, pc ? pc : "-", cs ? cs : "1");
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,overlap:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", "10^18", verbose, ovl_env, pc ? pc : "-", cs ? cs : "1");
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
-      int devflow = bi_decimal && (getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1);
+      int devflow = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;
       int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
       if (devflow && !host_combine) rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
@@ -544,7 +527,7 @@ int main(int argc, char **argv)
         mem_report_outside(getenv("COMM_LAYER_VSLOT_POOL") && atoi(getenv("COMM_LAYER_VSLOT_POOL")) ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
-    bs_verbose = dec_verbose = verbose >= 2;
+    bs_verbose = verbose >= 2;
     bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the bs regions become the dm phase's blocks (default since RESULTS.md 62b) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
@@ -554,7 +537,7 @@ int main(int argc, char **argv)
     g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
-    int ovl = g_overlap && bi_decimal && newton_dev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
+    int ovl = g_overlap && newton_dev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* B1: X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
@@ -562,7 +545,7 @@ int main(int argc, char **argv)
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
     { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 since Phase 15 (the user's decision, 2026-09-27) */   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
-      newton_x_defer = bi_decimal && ((mn_size_ == 1 && ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2));
+      newton_x_defer = (mn_size_ == 1 && ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
@@ -588,7 +571,7 @@ int main(int argc, char **argv)
     /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
      * and the single-node division there).  The residues of P, Q, R come from the sharded kernels; X is gathered to node 0
      * for the existing output (A-out writes it per node) */
-    int mn_dm = mn_dist && bi_decimal && !(getenv("MN_DM") && !strcmp(getenv("MN_DM"), "host"));
+    int mn_dm = mn_dist && !(getenv("MN_DM") && !strcmp(getenv("MN_DM"), "host"));
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
     double t_recip = 0, t_10dp = 0, t_dm = 0; size_t mn_pn = 0, mn_qn = 0, mn_xn = 0;
     if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups */
@@ -603,7 +586,7 @@ int main(int argc, char **argv)
             for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
             printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
         }
-        if (ckpt_top && !bs_ckpt_dir && outfile && bi_decimal) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
+        if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
         if (mn_dm) { mn_ckpt_bg_mode = getenv("BS_CKPT_TREE_BG") && !atoi(getenv("BS_CKPT_TREE_BG")) ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack; }   /* Phase 13 N (1.4): the top tree set in the background (BS_CKPT_TREE_BG=0: synchronous) */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
@@ -661,7 +644,7 @@ int main(int argc, char **argv)
         t_bs += mem_now() - tg;
     }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
-    if (mn_size_ == 1 && ckpt_top && bi_decimal && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+    if (mn_size_ == 1 && ckpt_top && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
         if (!bs_ckpt_dir) bs_ckpt_dir = mn_out_ckpt_default(outfile);
         if (!bs_ckpt_dir) printf("      checkpoint: ECALC_CKPT_TOP needs BS_CKPT_DIR or an outfile -- the top-level set is not written\n");
         else if (ovl3) {                                  /* the device flow: in the background (P under the reciprocal, Q under the division and the output stage) */
@@ -688,7 +671,7 @@ int main(int argc, char **argv)
         RESULT("bs_ckpt", "s", bs_st.t_ckpt); RESULT("bs_ckpt_bytes", "GB", bs_st.ckpt_bytes * 1e-9);
     }
     { size_t hc = 0; uint64_t *hp = binsplit_take_hpool(&hc);   /* the bs host pool (already faulted) becomes A's buffer */
-      size_t need = bi_decimal ? (d + 17) / 18 + P.n + 4 : 0;
+      size_t need = (d + 17) / 18 + P.n + 4;
       if (hp && need && hc >= need) { A.l = hp; A.cap = hc; A.n = 0; } else if (hp) free(hp); }
     binsplit_free_pools();
 
@@ -696,8 +679,7 @@ int main(int argc, char **argv)
     if (!ovl3 && !mn_dm) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
 
     bigint MU; bi_init(&MU);
-    char *digits = 0;                                 /* the binary path's whole digit string (todec); decimal streams its digits (M5) */
-    size_t dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);   /* limbs of 10^d */
+    size_t dl = (d + 17) / 18;                        /* limbs of 10^d */
     if (mn_dm) {                                      /* M4: the dm phase ran over the nodes above; the phase lines for the summary */
         printf("recip %8.2f s   (over %d nodes; %zu iterations)\n", t_recip, mn_size_, newton_st.iters);
         printf("10dP  %8.2f s   (S = P + Q over shares, inside dm)\n", 0.0); RESULT("10dP", "s", 0.0);
@@ -710,7 +692,7 @@ int main(int argc, char **argv)
     memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
     newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
-    if (newton_dev && bi_decimal) rns_release_staging();   /* decimal: nothing between here and dm needs the staging */
+    if (newton_dev) rns_release_staging();        /* nothing between here and dm needs the staging */
     double t_res3 = 0;
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
@@ -744,14 +726,9 @@ int main(int argc, char **argv)
     bi_add(&S, &P, &Q);
     bi_free(&P);
     memset(&rns_st, 0, sizeof rns_st);
-    if (bi_decimal) {                           /* WP2: 10^d (P+Q) is a limb shift and one small multiply */
-        bi_shl_limbs(&A, &S, d / 18);
-        if (d % 18) bi_mul_pow10(&A, &A, (unsigned)(d % 18));
-        bi_set_u64(&T, 0); T.n = (d + 17) / 18;   /* for the size print only */
-    } else {
-        pow10_big(&T, d);
-        rns_mul(&A, &T, &S);
-    }
+    bi_shl_limbs(&A, &S, d / 18);               /* WP2: 10^d (P+Q) is a limb shift and one small multiply */
+    if (d % 18) bi_mul_pow10(&A, &A, (unsigned)(d % 18));
+    bi_set_u64(&T, 0); T.n = (d + 17) / 18;     /* for the size print only */
     t_10dp = mem_now() - t;
     }
     printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, T.n, A.n, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
@@ -761,7 +738,6 @@ int main(int argc, char **argv)
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    /* (binary keeps the staging: dc needs it and its memory fits; decimal released it before the reciprocal) */
     if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
     if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* Phase 10 H (B1): X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
     if (dkm_hi_on()) {                                /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
@@ -780,56 +756,11 @@ int main(int argc, char **argv)
     t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, ovl3 ? (g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n) : X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, ovl3 ? (g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device") : "", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
-    mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report_host_item(MEM_HOST_DIGITS, digits ? d + 2 : 0); mem_report("dm");
+    mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report("dm");
     RESULT("dm", "s", t_dm);
     }
 
-    if (!bi_decimal) {                                /* the binary-limb path (LIMB_BASE=2): the radix conversion produces the whole string; unchanged */
-        t = mem_now();
-        if (ovl && pqb.started) pthread_join(pqb.th, 0);
-        int bad1 = tier1_res_pq(N, d, Pres, Qres, &X, &R, ovl && pqb.started ? pqb.p : 0, ovl && pqb.started ? pqb.qq : 0, 0, rres_ok ? Rres : 0, verbose >= 2);
-        double t_t1 = mem_now() - t;
-        printf("T1    %8.2f s   %s\n", t_t1, bad1 ? "FAILED" : "ok: T(P+Q) == XQ + R and P, Q mod q for 8 primes");
-        RESULT("T1", "s", t_t1);
-        bi_free(&A); bi_free(&R); bi_free(&Q);
-        uint64_t Xres[T1_NQ];
-        for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_limbs_mod(X.l, X.n, t1_q[i]);
-        t = mem_now();
-        todec_free_input = 1;
-        todec(0, &X, d + 1);                   /* allocates the 40 GB digit string only at the LEAF step */
-        digits = todec_out;
-        double t_dc = mem_now() - t;
-        printf("dc    %8.2f s   %zu leaf pieces, %d levels (prewarm %.1f top %.1f mid %.1f deep %.1f leaf %.1f)\n",
-               t_dc, dec_st.pieces, dec_st.levels, dec_st.t_prewarm, dec_st.t_top, dec_st.t_mid, dec_st.t_deep, dec_st.t_leaf);
-        RESULT("dc", "s", t_dc);
-        printf("      VmHWM %.1f GB after dc\n", mem_vmhwm() / 1e9);
-        t = mem_now();
-        int bad2 = tier2(digits, d_out + 1, verbose >= 2);
-        int bad3 = tier1_digits_res(digits, d + 1, Xres, verbose >= 2);
-        double t_t2 = mem_now() - t;
-        printf("T2    %8.2f s   windows %s, digits == X mod q %s\n", t_t2, bad2 ? "FAILED" : "ok", bad3 ? "FAILED" : "ok");
-        RESULT("T2", "s", t_t2);
-        printf("digits: %.62s...%.20s\n", digits, digits + d_out + 1 - 20);
-        double total = mem_now() - t00, phases = t_bs + t_10dp + t_dm + t_t1 + t_dc + t_t2;
-        printf("total %8.2f s   (bs %.1f + 10dP %.1f + dm %.1f + T1 %.1f + dc %.1f + T2 %.1f = %.1f; init %.1f; other %.1f); VmHWM %.1f GB\n",
-               total, t_bs, t_10dp, t_dm, t_t1, t_dc, t_t2, phases, t_init, total - phases - t_init, mem_vmhwm() / 1e9);
-        RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - t_init);
-        RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
-        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
-        ntt_size_stats_print(0, total);   /* S22 */
-        if (outfile) {
-            FILE *f = fopen(outfile, "w");
-            if (f) { fputc(digits[0], f); fputc('.', f); fwrite(digits + 1, 1, d_out, f); fputc('\n', f); if (sp_odirect()) { fflush(f); sp_drop_cache(fileno(f)); }   /* Phase 14 S1 (E3): fsync + DONTNEED */
-                     fclose(f); printf("wrote %s\n", outfile); }
-        }
-        int fail = bad1 || bad2 || bad3;
-        printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
-        mem_hreg_free(digits);
-        mn_barrier(); mn_finalize();
-        rns_shutdown();
-        return fail;
-    }
-    /* decimal: the output stage (M5 + C1) -- T1 from the residues, the digits streamed to the file in chunks, T2 */
+    /* the output stage (M5 + C1) -- T1 from the residues, the digits streamed to the file in chunks, T2 */
     if (!rres_ok) for (int i = 0; i < T1_NQ; i++) Rres[i] = vf_limbs_mod(R.l, R.n, t1_q[i]);   /* the host flow's R (the device flow's came from the kernel) */
     memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;

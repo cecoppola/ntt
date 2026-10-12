@@ -3,14 +3,16 @@
  *  1. bi_divmod_school vs mpz_tdiv_qr, random sizes to 64 limbs, all generators
  *  2. newton_recip: mu vs floor(2^(64(nq+k))/Q) by GMP, error in units, for
  *     nq = 3 .. 2^20 and k = 1, nq/2, nq, 2 nq
- *  3. newton_divmod vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs (default 26):
- *     random; Q = 2^k and 2^k - 1; A = Q^2 - 1, Q^2, Q^2 + 1 (near multiples);
+ *  3. newton_divmod vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs (default 26; exact to 2^22, above that the GMP string
+ *     bridge of decimal limbs is too slow and A == X Q + R is checked by residues mod 2^61-1 and two 62-bit primes):
+ *     random; Q = B^k-ish (single top limb) and B^k - 1; A = Q^2 - 1, Q^2, Q^2 + 1 (near multiples);
  *     A < Q; corrections counted; 0 <= R < Q; a perturbed seed forces the
  *     overshoot path; a supplied longer mu
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
  *  5. (NEWTON_DEVICE=1) the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
  *
  * Usage: t_newton [LOGMAX (26)]
+ * Decimal limbs only since PLAN 28.5.
  */
 #include "harness.h"
 #include "../newton.h"
@@ -28,23 +30,38 @@ static int h7_lo_hook(dbig *Xl, size_t s, int carry, void *a) { (void)a; (void)X
 
 static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
 {
-    if (bi_decimal) mpz_ui_pow_ui(mu, BI_B10, nq + k); else { mpz_set_ui(mu, 1); mpz_mul_2exp(mu, mu, 64 * (nq + k)); }
+    mpz_ui_pow_ui(mu, BI_B10, nq + k);
     mpz_fdiv_q(mu, mu, Q);
 }
+#define EXACT_MAX_NQ ((size_t)1 << 22)                  /* exact GMP comparison up to this Q length; residues above (PLAN 28.5) */
 static int check_div(const char *what, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     bigint X, R; bi_init(&X); bi_init(&R);
-    mpz_t a, q, x, r, xx, rr; mpz_inits(a, q, x, r, xx, rr, NULL);
     newton_stats before = newton_st;
     newton_divmod(&X, &R, A, Q, mu_opt);
-    bi_to_mpz(a, A); bi_to_mpz(q, Q); mpz_tdiv_qr(x, r, a, q);
-    bi_to_mpz(xx, &X); bi_to_mpz(rr, &R);
-    int ok = mpz_cmp(x, xx) == 0 && mpz_cmp(r, rr) == 0;
-    VERIFY(ok, "%s: quotient/remainder differ (na %zu nq %zu)", what, A->n, Q->n);
+    int ok;
+    if (Q->n <= EXACT_MAX_NQ) {
+        mpz_t a, q, x, r, xx, rr; mpz_inits(a, q, x, r, xx, rr, NULL);
+        bi_to_mpz(a, A); bi_to_mpz(q, Q); mpz_tdiv_qr(x, r, a, q);
+        bi_to_mpz(xx, &X); bi_to_mpz(rr, &R);
+        ok = mpz_cmp(x, xx) == 0 && mpz_cmp(r, rr) == 0;
+        VERIFY(ok, "%s: quotient/remainder differ (na %zu nq %zu)", what, A->n, Q->n);
+        mpz_clears(a, q, x, r, xx, rr, NULL);
+    } else {                                              /* A == X Q + R mod M61 and two 62-bit primes; with 0 <= R < Q (below) this pins X and R */
+        uint64_t ra = limbs_mod_m61(A->l, A->n), rq = limbs_mod_m61(Q->l, Q->n), rx = limbs_mod_m61(X.l, X.n), rr = limbs_mod_m61(R.l, R.n);
+        ok = m61_add(m61_mul(rx, rq), rr) == ra;
+        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };
+        for (int j = 0; j < 2; j++) {
+            uint64_t q = qs[j], a1 = limbs_mod_u64(A->l, A->n, q), q1 = limbs_mod_u64(Q->l, Q->n, q), x1 = limbs_mod_u64(X.l, X.n, q), r1 = limbs_mod_u64(R.l, R.n, q);
+            if ((hv_mulmod(x1, q1, q) + r1) % q != a1) ok = 0;
+        }
+        VERIFY(ok, "%s: A != X Q + R by residues (na %zu nq %zu)", what, A->n, Q->n);
+        VERIFY(X.n == A->n - Q->n + 1 || X.n == A->n - Q->n, "%s: X has %zu limbs (na %zu nq %zu)", what, X.n, A->n, Q->n);
+    }
     VERIFY(bi_cmp(&R, Q) < 0, "%s: R >= Q", what);
     size_t dc = newton_st.down_corr - before.down_corr, uc = newton_st.up_corr - before.up_corr;
     VERIFY(dc + uc <= 4, "%s: %zu down + %zu up corrections", what, dc, uc);
-    mpz_clears(a, q, x, r, xx, rr, NULL); bi_free(&X); bi_free(&R);
+    bi_free(&X); bi_free(&R);
     return ok;
 }
 
@@ -88,8 +105,8 @@ int main(int argc, char **argv)
         }
     }
 
-    printf("-- 3. divmod vs mpz_tdiv_qr%s\n", bi_decimal ? " (decimal: exact to 2^22, the GMP string bridge is slow above)" : "");
-    for (int lg = 10; lg <= (bi_decimal && LOGMAX > 22 ? 22 : LOGMAX); lg += 4) {
+    printf("-- 3. divmod vs mpz_tdiv_qr (exact to 2^22 limbs of Q; residues mod 2^61-1 and two 62-bit primes above)\n");
+    for (int lg = 10; lg <= LOGMAX; lg += 4) {
         size_t nq = (size_t)1 << lg;
         bi_random(&Q, nq, GEN_UNIFORM, &rng);
         bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);       check_div("random", &A, &Q, 0);
@@ -121,7 +138,7 @@ int main(int argc, char **argv)
         /* a supplied longer mu */
         newton_recip(&mu, &Q, nq + 8);
         check_div("supplied mu", &A, &Q, &mu);
-        printf("   2^%d limbs ok  (down %zu, up %zu corrections, %zu overshoots, %zu repeats so far)\n", lg, newton_st.down_corr, newton_st.up_corr, newton_st.overshoots, newton_st.repeats);
+        printf("   2^%d limbs ok%s  (down %zu, up %zu corrections, %zu overshoots, %zu repeats so far)\n", lg, nq > EXACT_MAX_NQ ? " (by residues)" : "", newton_st.down_corr, newton_st.up_corr, newton_st.overshoots, newton_st.repeats);
     }
 
     if (use_db > 0) {
@@ -142,7 +159,7 @@ int main(int argc, char **argv)
             rns_mul_band_db(&c, &a, &b, 0, w); db_to_bi(&C1, &c);
             size_t sk = rns_dist_st.n_skipped - s0, fo = rns_dist_st.n_formed - f0;
             mpz_t z0, z1, bw, bv; mpz_inits(z0, z1, bw, bv, NULL); bi_to_mpz(z0, &C0); bi_to_mpz(z1, &C1);
-            if (bi_decimal) { mpz_ui_pow_ui(bw, BI_B10, w); mpz_ui_pow_ui(bv, BI_B10, v); } else { mpz_set_ui(bw, 1); mpz_mul_2exp(bw, bw, 64 * w); mpz_set_ui(bv, 1); mpz_mul_2exp(bv, bv, 64 * v); }
+            mpz_ui_pow_ui(bw, BI_B10, w); mpz_ui_pow_ui(bv, BI_B10, v);
             mpz_mod(z0, z0, bw);
             VERIFY(mpz_cmp(z0, z1) == 0 && C1.n <= w, "band %zu x %zu w %zu: mod B^w differs", na, nb, w);
             rns_mul_band_db(&c, &a, &b, v - 1, w); db_to_bi(&C1, &c); bi_to_mpz(z1, &C1);   /* with the low cut one limb below the band */
@@ -257,10 +274,10 @@ int main(int argc, char **argv)
                 bi_random(&Q, nq, GEN_UNIFORM, &rng); if (Q.n != nq) continue;
                 bi_to_mpz(q, &Q);
                 bi_random(&X7, xn, GEN_UNIFORM, &rng); if (X7.n != xn) continue;
-                if (bi_decimal) mpz_ui_pow_ui(bd, 10, 18 * dl); else { mpz_set_ui(bd, 0); mpz_setbit(bd, 64 * dl); }
+                mpz_ui_pow_ui(bd, 10, 18 * dl);
                 for (int pass = 0; pass < 3; pass++) {        /* s from the operands' lengths; X's low half set, then s re-derived (stable) */
                     bi_to_mpz(xt, &X7);
-                    if (low && s) { if (bi_decimal) mpz_ui_pow_ui(bp, 10, 18 * s); else { mpz_set_ui(bp, 0); mpz_setbit(bp, 64 * s); }
+                    if (low && s) { mpz_ui_pow_ui(bp, 10, 18 * s);
                                     mpz_tdiv_q(xt, xt, bp); mpz_mul(xt, xt, bp); mpz_add(xt, xt, bp); mpz_sub_ui(xt, xt, 3); }   /* X mod B^s = B^s - 3 */
                     mpz_mul(xq, xt, q); mpz_neg(r7, xq); mpz_fdiv_r(r7, r7, bd); mpz_add(a, xq, r7); mpz_tdiv_q(a, a, bd);   /* S = (X Q + R) / B^dl */
                     bi_from_mpz(&S7, a);
@@ -279,7 +296,7 @@ int main(int argc, char **argv)
                 newton_db_divmod_shifted(&H7, &Sd, dl, &Qd7, qs7, 3, got);   /* (H7: the host X, unused -- X stays on the device) */
                 newton_db_xhi_hook = 0; newton_db_xlo_hook = 0; newton_db_x_dev = 0; newton_db_Qd = 0; newton_db_mu_host = 1;
                 db_to_bi(&L7, &Xd7); db_free(&Xd7);
-                if (bi_decimal) mpz_ui_pow_ui(bp, 10, 18 * h7.s); else { mpz_set_ui(bp, 0); mpz_setbit(bp, 64 * h7.s); }
+                mpz_ui_pow_ui(bp, 10, 18 * h7.s);
                 mpz_tdiv_qr(hq, lq, xt, bp);                     /* X's limbs >= s and < s */
                 bi_to_mpz(x, &h7.Xh); int okh = mpz_cmp(x, hq) == 0;
                 bi_to_mpz(x, &L7); if (h7.release && !h7.carry) { if (newton_x_dx >= 0) mpz_add_ui(x, x, (unsigned long)newton_x_dx); else mpz_sub_ui(x, x, (unsigned long)(-newton_x_dx)); }

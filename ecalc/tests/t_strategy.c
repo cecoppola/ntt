@@ -17,7 +17,7 @@
  *
  * Operands: na = nb = n/2 random limbs (top limb nonzero), device-resident as dbigs (quartered over the APUs, as in the
  * dm phase) for B and C, a flat copy on APU 0 for A.  Every strategy's result is compared with the first one computed
- * (all n limbs); TSTRAT_GMP=1 also checks it against GMP (binary limbs).
+ * (all n limbs); TSTRAT_GMP=1 also checks it against GMP.
  *
  *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
  *   V  (Phase 13b B) the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
@@ -33,7 +33,7 @@
  *      Planes: 1.5 n points on every APU (12 n bytes, C's at P = 3); transforms 2.5 n on APUs 0-2 (B: 3 n), 1.5 n on 3.
  *
  * usage: t_strategy logn [reps=5] [strategies=ABC, any of ABCb4]
- * env:   LIMB_BASE (2 default, 10 = decimal limbs), TSTRAT_GMP=1, TSTRAT_BUDGET_GB (the per-APU plane budget reported
+ * env:   TSTRAT_GMP=1, TSTRAT_BUDGET_GB (the per-APU plane budget reported
  *        against; default = the production plane pools at POOL_LOG 31: 2^31 limbs + rns_pool1_default_bytes(31)),
  *        DIST_STATS=1 (C's transform parts)
  * One size per process: C's plane pools are made by rns_init(min(logn, 31)) at exactly the production layout
@@ -77,10 +77,9 @@ static void merge_spills(const struct qv *out, size_t n, const uint64_t *sp, int
         if (k >= n) { if (w[0] | w[1] | w[2] | w[3]) { fprintf(stderr, "t_strategy: nonzero spill beyond the product\n"); exit(1); } continue; }
         for (int t = 0; t < 4 && k < n; t++, k++) {
             uint64_t *o = qv_ptr(out, k);
-            if (bi_decimal) { uint64_t sm = *o + w[t] + cy; cy = sm >= EC_1E18; *o = cy ? sm - EC_1E18 : sm; }
-            else { uint64_t sm = *o + w[t], c1 = sm < *o; sm += cy; c1 += sm < cy; *o = sm; cy = c1; }
+            uint64_t sm = *o + w[t] + cy; cy = sm >= EC_1E18; *o = cy ? sm - EC_1E18 : sm;
         }
-        while (cy && k < n) { uint64_t *o = qv_ptr(out, k); if (bi_decimal) { uint64_t sm = *o + cy; cy = sm >= EC_1E18; *o = cy ? sm - EC_1E18 : sm; } else { uint64_t sm = *o + cy; cy = sm < cy; *o = sm; } k++; }
+        while (cy && k < n) { uint64_t *o = qv_ptr(out, k); uint64_t sm = *o + cy; cy = sm >= EC_1E18; *o = cy ? sm - EC_1E18 : sm; k++; }
         if (cy) { fprintf(stderr, "t_strategy: carry out of the product\n"); exit(1); }
     }
 }
@@ -191,7 +190,6 @@ int main(int argc, char **argv)
     int logn = atoi(argv[1]), reps = argc > 2 ? atoi(argv[2]) : 5; const char *which = argc > 3 ? argv[3] : "ABC";
     if (reps < 1) reps = 1; if (reps > MAXREP) reps = MAXREP;
     if (logn < 20 || logn > 33) { fprintf(stderr, "logn 20..33\n"); return 2; }
-    bi_env_base();
     if (ec_np_init) NP = ec_np_init();
     int nd = 0; HIP_CHECK(hipGetDeviceCount(&nd)); if (nd < ND) { fprintf(stderr, "need %d APUs\n", ND); return 1; }
     for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); for (int c = 0; c < ND; c++) if (c != d) { hipError_t e = hipDeviceEnablePeerAccess(c, 0); if (e != hipSuccess && e != hipErrorPeerAccessAlreadyEnabled) { fprintf(stderr, "peer %d->%d\n", d, c); return 1; } (void)hipGetLastError(); } }
@@ -201,14 +199,14 @@ int main(int argc, char **argv)
     const struct gconst G = rns_gconst();
     const int S = 912;                                           /* CRT stripes per segment (rns_gpucrt_blocks) */
     printf("t_strategy: n = 2^%d points, na = nb = %zu limbs, %s limbs, P = %d primes, %d reps after a warm-up, budget %.1f GiB/APU\n",
-           logn, na, bi_decimal ? "decimal" : "binary", NP, reps, budget / GiB);
+           logn, na, "decimal", NP, reps, budget / GiB);
 
     /* the operands: random limbs on the host, then dbigs (quartered) */
     uint64_t *ha = (uint64_t *)malloc(na * 8), *hb = (uint64_t *)malloc(nb * 8);
     { const uint64_t B10 = EC_1E18;
 #pragma omp parallel
       { rng_t r = { 0x5eed0000ULL + 7919ULL * omp_get_thread_num() }; int T = omp_get_num_threads(), t = omp_get_thread_num();
-        for (size_t i = na * t / T; i < na * (t + 1) / T; i++) { uint64_t x = rng_next(&r), y = rng_next(&r); ha[i] = bi_decimal ? x % B10 : x; hb[i] = bi_decimal ? y % B10 : y; } }
+        for (size_t i = na * t / T; i < na * (t + 1) / T; i++) { uint64_t x = rng_next(&r), y = rng_next(&r); ha[i] = x % B10; hb[i] = y % B10; } }
       if (!ha[na - 1]) ha[na - 1] = 1; if (!hb[nb - 1]) hb[nb - 1] = 1; }
     dbig Ad, Bd; db_init(&Ad); db_init(&Bd);
     { bigint t; t.l = ha; t.n = t.cap = na; db_from_bi(&Ad, &t); t.l = hb; t.n = t.cap = nb; db_from_bi(&Bd, &t); }
@@ -246,7 +244,7 @@ int main(int argc, char **argv)
                     ntt_inv_pw(ctx[p], xp, Y, logn, 1, s);
                 }
                 HIP_CHECK(hipStreamSynchronize(s)); double b = now();
-                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, NP > 3 ? X + 3 * n : X, dd, 0, S, Lseg, G, sp, bi_decimal);
+                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, NP > 3 ? X + 3 * n : X, dd, 0, S, Lseg, G, sp, 1);
                 HIP_CHECK(hipStreamSynchronize(s)); double c = now();
                 merge_spills(&ov, n, sp, M, Lseg, S); double e = now();
                 if (it) { r->t[it - 1] = e - a; r->tn += (b - a) / reps; r->tc += (c - b) / reps; r->tm += (e - c) / reps; }
@@ -301,7 +299,7 @@ int main(int argc, char **argv)
                     }
 #pragma omp barrier
                     double x3 = now();
-                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3] ? X[3] : X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, bi_decimal);
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3] ? X[3] : X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, 1);
                     HIP_CHECK(hipStreamSynchronize(st[d]));
                     tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
                 }
@@ -369,7 +367,7 @@ int main(int argc, char **argv)
                     x2 = now();
 #pragma omp barrier
                     double x3 = now();
-                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, bi_decimal);
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, 1);
                     HIP_CHECK(hipStreamSynchronize(st[d]));
                     tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
                 }
@@ -476,10 +474,10 @@ int main(int argc, char **argv)
         rns_dist_cache_release();
         rns_dist_strategy_set(0);
     }
-    if (ref && getenv("TSTRAT_GMP") && atoi(getenv("TSTRAT_GMP")) && !bi_decimal) {
+    if (ref && getenv("TSTRAT_GMP") && atoi(getenv("TSTRAT_GMP"))) {
         mpz_t x, y, z, w; mpz_inits(x, y, z, w, NULL);
-        mpz_import(x, na, -1, 8, 0, 0, ha); mpz_import(y, nb, -1, 8, 0, 0, hb); t0 = now(); mpz_mul(z, x, y);
-        mpz_import(w, n, -1, 8, 0, 0, ref);
+        mpz_from_limbs(x, ha, na); mpz_from_limbs(y, hb, nb); t0 = now(); mpz_mul(z, x, y);   /* (harness.h: decimal limbs through a string) */
+        mpz_from_limbs(w, ref, n);
         VERIFY(mpz_cmp(z, w) == 0, "the product (%c) differs from GMP", refname);
         printf("GMP check %.1f s\n", now() - t0); mpz_clears(x, y, z, w, NULL);
     }

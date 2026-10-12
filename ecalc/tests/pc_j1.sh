@@ -17,7 +17,7 @@ while :; do s=$(squeue -j $J -h -o %T 2>/dev/null); [ "$s" = RUNNING ] && break;
 echo "job $J running on $(squeue -j $J -h -o %N) $(date)"; T0=$(date +%s)
 export SLURM_JOB_ID=$J
 left() { echo $(( 2600 - ($(date +%s) - T0) )); }
-E="LIMB_BASE=10 ECALC_NP=4 RNS_POOL_GROW=1 RNS_DIST_CACHE_TRACE=1 ECALC_VERBOSE=1"
+E="ECALC_NP=4 RNS_POOL_GROW=1 RNS_DIST_CACHE_TRACE=1 ECALC_VERBOSE=1"
 for c in ${CFGS//,/ }; do
   base=${c%_24}; x=""; [ "$base" != "$c" ] && x="MN_P24=2"
   case $base in

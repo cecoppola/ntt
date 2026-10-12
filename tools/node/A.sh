@@ -5,12 +5,11 @@ M() { local p=$1; shift; SLURM_JOB_ID=$J timeout ${STO:-1500} ./mnrun.sh $p "$@"
 step() { local tag=$1; shift; local el=$(( $(date +%s) - T0 )); [ $el -gt ${TMAX:-2400} ] && { echo "SKIP $tag (time $el)"; return; }
          echo "== $tag $(date +%T)"; local t1=$(date +%s); "$@" > $D/$tag.log 2>&1; local rc=$?
          echo "   rc $rc, $(( $(date +%s) - t1 )) s; $(grep -a '^total\|VERIFY\|IDENTICAL\|identical\|differ\|RECHECK OK\|RECHECK FAILED\|FATAL\|^rc=\|^wrote\|unpack_digits:\|^wall' $D/$tag.log | head -8 | cut -c1-220 | tr '\n' '|')"; }
-# Batch A: functional -- gates at 1e9 (both bases), packed at 1e9 (direct, sync, small chunks) vs ASCII, RECHECK on packed,
+# Batch A: functional -- gates at 1e9 (decimal limbs; the LIMB_BASE=2 step went with PLAN 28.5), packed at 1e9 (direct, sync, small chunks) vs ASCII, RECHECK on packed,
 # size 2-4 on one node (packed, waves), the stripe command path (fake lfs), W7 auto on /tmp and NFS, the memory guard
 R=$HOME/ntt/ecalc/ref/e_1000000000.txt; F='^VERIFY\|^total\|^wrote\|^mn_out\|^T2 \|^dc \|^mn: node .*: T2\|^mn: all\|^mn: node .*: wrote\|MN_OUT_WAVES\|stripe\|FATAL\|^memsample: ECALC'
 N "hostname; df -h /tmp | tail -1; free -g | head -2" > $D/node.txt 2>&1
 step e9b10 G "./ecalc 1000000000 /tmp/io_a.txt | grep -a '$F'; cmp /tmp/io_a.txt $R && echo IDENTICAL; rm -f /tmp/io_a.txt*"
-step e9b2 G "LIMB_BASE=2 ./ecalc 1000000000 /tmp/io_b.txt | grep -a '$F'; cmp /tmp/io_b.txt $R && echo IDENTICAL; rm -f /tmp/io_b.txt*"
 step pk9 G "ECALC_OUT_PACKED=1 ECALC_CKPT_TOP=1 ./ecalc 1000000000 /tmp/io_p.txt | grep -a '$F'; ls -l /tmp/io_p.txt; $U --cmp $R /tmp/io_p.txt; ECALC_RECHECK=1 ./ecalc 1000000000 /tmp/io_p.txt | tail -3; rm -rf /tmp/io_p.txt*"
 step pk9s G "ECALC_OUT_PACKED=1 ECALC_OUT_MODE=sync ./ecalc 1000000000 /tmp/io_q.txt | grep -a '$F'; $U --cmp $R /tmp/io_q.txt; $U /tmp/io_q.txt | sha1sum; cat $R.sha1; ECALC_RECHECK=1 ./ecalc 1000000000 /tmp/io_q.txt | tail -2; rm -rf /tmp/io_q.txt*"
 step ch1a G "MN_OUT_CHUNK_MB=1 ECALC_VERBOSE=2 ./ecalc 1000000000 /tmp/io_c.txt | grep -a 'T2 \|VERIFY'; cmp /tmp/io_c.txt $R && echo IDENTICAL; rm -rf /tmp/io_c.txt*"

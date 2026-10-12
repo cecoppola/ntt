@@ -193,7 +193,6 @@ int main(int argc, char **argv)
     int cores = argc > 4 ? atoi(argv[4]) : 192;
     unsigned long nsamp1 = argc > 5 ? strtoul(argv[5], 0, 10) : 20000;
     setvbuf(stdout, 0, _IOLBF, 0); MU_LO = (uint64_t)(~(u128)0 / D19);
-    bi_set_decimal(1);
     { char model[160] = "?"; FILE *f = fopen("/proc/cpuinfo", "r"); char ln[256]; while (f && fgets(ln, sizeof ln, f)) if (!strncmp(ln, "model name", 10)) { char *c = strchr(ln, ':'); if (c) { strncpy(model, c + 2, sizeof model - 1); model[strcspn(model, "\n")] = 0; } break; } if (f) fclose(f);
       printf("b_seed64: cpu %s; omp threads %d; BI_MUL1_FAST %d; digits per node %lu, %d nodes\n", model, omp_get_max_threads(), bi_mul1_fast_on(), dpn, nodes); }
     unsigned long N = e_terms(dpn * (unsigned long)nodes);

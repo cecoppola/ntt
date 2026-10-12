@@ -52,8 +52,8 @@ int ec_np_init(void)
     ec_np3_max_terms = np3_max_terms();
     ec_np_auto_terms = ec_np3_max_terms;
     const char *e = getenv("ECALC_NP");
-    if (e && !strcmp(e, "auto")) {                  /* Phase 15 NP: per product (decimal limbs); binary limbs need four everywhere */
-        ec_np = bi_decimal ? 3 : 4; ec_np_auto = bi_decimal;
+    if (e && !strcmp(e, "auto")) {                  /* Phase 15 NP: per product */
+        ec_np = 3; ec_np_auto = 1;
         const char *t = getenv("ECALC_NP_AUTO_TERMS");   /* the test knob: a lower bound, so both counts occur at small sizes */
         if (t && ec_np_auto) {
             size_t v = (size_t)strtoull(t, 0, 10);
@@ -79,10 +79,10 @@ size_t ec_np_terms(size_t nc, size_t na, size_t nb)
     ec_np_init();
     return ec_np_auto && ec_np_auto_min ? (na < nb ? na : nb) : nc;   /* Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1; else nc as before */
 }
-int ec_np_prod(size_t nterms, int decimal, const char *where)
+int ec_np_prod(size_t nterms, const char *where)
 {
     int np = ec_np_for(nterms);
-    if (np == 3) ec_np_check(nterms, decimal, where);
+    if (np == 3) ec_np_check(nterms, where);
     return np;
 }
 int ec_np_planes(int pool_log, int g)
@@ -92,14 +92,11 @@ int ec_np_planes(int pool_log, int g)
     int c = pool_log > 0 && pool_log < 31 ? pool_log : 31, lg = 0; while (g > 1 && (2 << lg) <= g) lg++;
     return ((size_t)1 << (c + lg)) > ec_np_auto_terms ? 4 : 3;   /* (an upper bound of mn_logn_cap / dist_cap: no product of the run exceeds it) */
 }
-void ec_np_check(size_t nterms, int decimal, const char *where)
+void ec_np_check(size_t nterms, const char *where)
 {
     if (ec_np == 4) return;
     if (ec_np != 3) { ec_fatal(EC_RC_FATAL, "%s: ec_np = %d, must be 3 or 4\n", where, ec_np); }
     if (!ec_np3_max_terms) ec_np3_max_terms = np3_max_terms();
-    if (!decimal) {
-        ec_fatal(EC_RC_FATAL, "%s: ECALC_NP=3 needs base-10^18 limbs: binary 2^64 limbs need all four primes (LIMB_BASE=2 with ECALC_NP=3 is refused)\n", where);
-    }
     if (nterms > ec_np3_max_terms) {
         ec_fatal(EC_RC_FATAL, "%s: ECALC_NP=3: a product of %zu terms exceeds the three-prime bound (at most %zu terms: nterms (10^18-1)^2 < p0 p1 p2)\n", where, nterms, ec_np3_max_terms);
     }
@@ -169,7 +166,7 @@ static void crt3_stripe(uint64_t *const res[4], size_t k0, size_t k1, uint64_t *
 void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T)
 {
     crt_init();
-    if (ec_np == 3) ec_np_check(n, bi_decimal, "crt_carry_par4");      /* n coefficients: at most n terms each */
+    if (ec_np == 3) ec_np_check(n, "crt_carry_par4");      /* n coefficients: at most n terms each */
     for (size_t i = n; i < n + 4; i++) out[i] = 0;
     if (T < 1) T = 1;
     if ((size_t)T > n / 64 + 1) T = (int)(n / 64 + 1);
@@ -183,33 +180,23 @@ void crt_carry_par4(uint64_t *const res[4], size_t n, uint64_t *out, int T)
         for (k = k0; k < k1; k++) {
             uint64_t r[4] = { res[0][k], res[1][k], res[2][k], res[3][k] }, c[4];
             garner4(r, c);
-            if (bi_decimal) {                            /* four base-B digits; window of 4 digits + carry */
+            {                                            /* four base-B digits; window of 4 digits + carry */
                 uint64_t d[4]; ec_words_to_dec4(c, d);
                 uint64_t s = w0 + d[0], cy = s >= BI_B10; out[k] = cy ? s - BI_B10 : s;
                 s = w1 + d[1] + cy; cy = s >= BI_B10; w0 = cy ? s - BI_B10 : s;
                 s = w2 + d[2] + cy; cy = s >= BI_B10; w1 = cy ? s - BI_B10 : s;
                 s = w3 + d[3] + cy; cy = s >= BI_B10; w2 = cy ? s - BI_B10 : s;
                 w3 = cy;
-            } else {
-                u128 s;
-                s = (u128)w0 + c[0]; out[k] = (uint64_t)s;
-                s = (s >> 64) + w1 + c[1]; w0 = (uint64_t)s;
-                s = (s >> 64) + w2 + c[2]; w1 = (uint64_t)s;
-                w2 = (uint64_t)(s >> 64) + c[3];
             }
         }
         spill[t][0] = w0; spill[t][1] = w1; spill[t][2] = w2; spill[t][3] = w3;
     }
     for (t = 0; t < T; t++) {
         size_t k1 = n * (t + 1) / T, i;
-        if (bi_decimal) {
+        {
             uint64_t cy = 0;
             for (i = 0; i < 4 && k1 + i < n + 4; i++) { uint64_t s = out[k1 + i] + spill[t][i] + cy; cy = s >= BI_B10; out[k1 + i] = cy ? s - BI_B10 : s; }
             for (; cy && k1 + i < n + 4; i++) { uint64_t s = out[k1 + i] + cy; cy = s >= BI_B10; out[k1 + i] = cy ? s - BI_B10 : s; }
-        } else {
-            u128 s = 0;
-            for (i = 0; i < 3; i++) { s += (u128)out[k1 + i] + spill[t][i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
-            for (i = 3; s && k1 + i < n + 4; i++) { s += out[k1 + i]; out[k1 + i] = (uint64_t)s; s >>= 64; }
         }
     }
     free(spill);

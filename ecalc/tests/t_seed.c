@@ -161,7 +161,6 @@ int main(int argc, char **argv)
 {
     long per = argc > 1 ? atol(argv[1]) : 400;
     long nb = argc > 2 ? atol(argv[2]) : 100000;
-    bi_set_decimal(1);
     harness_meta("t_seed");
     rng_t rg = { 20260926 };
     double t0 = now();

@@ -47,7 +47,7 @@ static void ref_low(bigint *rl, const bigint *r, size_t w) { bi_reserve(rl, r->n
 int main(int argc, char **argv)
 {
     double scale = argc > 1 ? atof(argv[1]) : 1.0;
-    harness_meta("t_mn_grid"); bi_env_base(); rns_init(argc > 2 ? atoi(argv[2]) : 31);
+    harness_meta("t_mn_grid"); rns_init(argc > 2 ? atoi(argv[2]) : 31);
     g_size = mn_init(); g_me = mn_rank();
     if (g_size < 2) { printf("t_mn_grid: needs COMM_SIZE >= 2 (mnrun.sh)\n"); return 2; }
     int L = 0; while ((1 << L) < g_size) L++;

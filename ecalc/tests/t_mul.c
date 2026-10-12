@@ -5,7 +5,8 @@
  *     (mdev -> Karatsuba), unbalanced (chunked), all five generators, vs
  *     mpz_mul exactly
  *  2. pool 2^31 (the paper): sizes crossing 2^17, 2^18, 2^27, 2^28 limbs per
- *     operand vs mpz_mul (<= 2^26) or a mod-(2^61-1) residue check (above),
+ *     operand vs mpz_mul (<= 2^20: the GMP string bridge of decimal limbs is slow above) or residues mod 2^61-1 and
+ *     two 62-bit primes (above; the length too),
  *     per-phase times of the mdev multiply at 2^31 points
  *  4. batch tier: products of <= 2^logL points for logL 10 .. 18, GPU CRT (N >= 8)
  *     and CPU CRT, registered and unregistered (staged) operands, vs mpz_mul
@@ -13,6 +14,7 @@
  *     4.16e9 > 2^31 points) through the Karatsuba split (RESULTS.md 35), twice
  *
  * Usage: t_mul [POOL (20); 0 skips part 1] [big]
+ * Decimal limbs only since PLAN 28.5 (the base-2 form is archive/binary_pipeline/t_mul_base2.c).
  */
 #include "harness.h"
 #include "../rns_mul.h"
@@ -30,6 +32,11 @@ static void check_product(const char *what, const bigint *A, const bigint *B, co
     } else {
         uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
         VERIFY(m61_mul(ra, rb) == rc, "%s: residue mod 2^61-1 differs", what);
+        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                      /* two more residues (PLAN 28.5: the exact check stops at 2^20) */
+        for (int j = 0; j < 2; j++) {
+            uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
+            VERIFY(hv_mulmod(xa, xb, qs[j]) == xc, "%s: residue mod %llu differs", what, (unsigned long long)qs[j]);
+        }
         VERIFY(C->n == A->n + B->n || C->n == A->n + B->n - 1, "%s: length %zu", what, C->n);
     }
 }
@@ -96,7 +103,7 @@ int main(int argc, char **argv)
                 bi_random(&A, lc[i].na, kind, &rng); bi_random(&B, lc[i].nb, kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
                 rns_mul_low(&C, A.l, A.n, B.l, B.n, lc[i].w);
                 bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b);
-                if (bi_decimal) { mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m); } else mpz_fdiv_r_2exp(c, c, 64 * lc[i].w);
+                mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m);
                 VERIFY(bi_eq_mpz(&C, c), "low product %zux%zu w %zu %s", lc[i].na, lc[i].nb, lc[i].w, gen_name[kind]);
             }
             mpz_clears(a, b, c, m, NULL);
@@ -118,7 +125,7 @@ int main(int argc, char **argv)
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul(&C, &A, &B);
             char what[64]; snprintf(what, sizeof what, "2^31 pool %zu x %zu limbs", n, n);
-            check_product(what, &A, &B, &C, n <= (bi_decimal ? (1 << 20) : (1 << 26)));   /* decimal: the GMP string bridge is slow above 2^20 */
+            check_product(what, &A, &B, &C, n <= (1 << 20));   /* the GMP string bridge is slow above 2^20: residues there */
             printf("   %-36s %.3f s: repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total,
                    rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
             if (n == (1 << 30)) {
@@ -136,7 +143,7 @@ int main(int argc, char **argv)
             bi_random(&A, ps[i], GEN_UNIFORM, &rng); bi_random(&A2, ps[i] - 3, GEN_ONES, &rng); bi_random(&B, ps[i] + 1, GEN_UNIFORM, &rng);
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul_pair(&C, &A, &C2, &A2, &B);
-            check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 24)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 24));
+            check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
             printf("   pair %zu limbs: %.3f s, %zu mdev (fwd %.3f)\n", ps[i], rns_st.t_total, rns_st.n_mdev, rns_st.t_fwd);
         }
         bi_free(&A2); bi_free(&C2);

@@ -11,7 +11,8 @@ The phase-by-phase history of the defaults that used to head this file is kept i
 device-resident numbers through the four-APU distributed NTT (3·2ᵏ lengths, three or four primes); the digits are
 written packed (`ECALC_OUT_PACKED=1`, 0.444 B/digit; `tools/unpack_digits` makes the ASCII file off the clock). Several
 node-processes run the same program over the SHMEM (or TCP) communicator (`mnrun.sh`); `COMM_OFI` sends the device
-exchanges over libfabric on the cxi NICs. `LIMB_BASE=2` reproduces the paper's binary-limb pipeline.
+exchanges over libfabric on the cxi NICs. The paper's binary-limb pipeline (`LIMB_BASE=2`, the radix conversion `todec`) was
+archived with PLAN 28.5 (`archive/binary_pipeline/`, git tag `pre-28.5-binary`); `LIMB_BASE` set to anything but 10 is refused.
 
 **Measured speed (m).** One node: 4 × 10¹⁰ digits in 81.5 ± 1.4 s (Phase 11, RESULTS §76); 6.441 × 10¹⁰ digits per node
 ≈ 78 s with the 2026-10-10 kernel defaults (was ≈ 94 s; RESULTS §127); 4 nodes at 6.441 × 10¹⁰ per node −50.0 s (≈ −18.5 %,
@@ -81,7 +82,6 @@ figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no
 | `rns_mul.h/.c` | tiers: schoolbook, mdev, mdev_pair, batch (GPU S-stripe CRT, staged fallback), grpB, Karatsuba/chunked split |
 | `newton.h/.c` | Newton reciprocal (self-correcting doubling), Barrett divmod with corrections, Knuth D |
 | `binsplit.h/.c` | e = Σ 1/k!: seed spans, level loop with batch / mdev tiers; level pools as four device regions with subtree ownership (WP3); the top levels as device numbers through the distributed tier (§64); checkpoint/restart (WP7) |
-| `todec.h/.c` | radix conversion (binary limbs only): divisor cache, TOP/MID/DEEP levels, GPU LEAF kernel by 10¹⁸ |
 | `verify.h/.c` | tier-1 residues mod eight 62-bit primes (incl. the digit string), tier-2 windows |
 | `dbig.h/.c` | device bigint: four quarters, one per APU; chunk-flag carries, views, block pool fed by the bs regions (WP5) |
 | `rns_dist.h/.c` | the distributed product tier (four-step over the four APUs, grid split above one 2³¹-point plane) |
@@ -98,7 +98,7 @@ figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no
 | `tests/` | one GMP-checked program per module; `harness.h` (VERIFY, generators, GMP bridges, META/RESULT) |
 | `ref/` | `gen_e.c` and the reference digit files |
 
-(The switches these files read — `LIMB_BASE`, `POOL_LOG`, `ECALC_OVERLAP`, `NEWTON_DEVICE`, the tuning
+(The switches these files read — `POOL_LOG`, `ECALC_OVERLAP`, `NEWTON_DEVICE`, the tuning
 and debugging knobs — are all in **Switches** below, one line each with the default. Multi-node pieces (WP5/6):
 `comm.h` rank abstraction, `comm_sim4` (four synthetic ranks), `comm_xgmi` (the four real APUs), `comm_tcp` /
 `comm_shmem` (`COMM_*`), `ntt_dist` (distributed four-step, `tests/t_dist`), `dbig` (device bigint, `tests/t_dbig`),
@@ -218,8 +218,8 @@ size 1), `variance.sh N` the N-run 4 × 10¹⁰ series with amd-smi sampling.
 
 Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|env_int("[A-Z0-9_]*"' *.c *.h`), one line
 each, the default in parentheses; `on/off` switches take 1/0. Those marked *debug* or *test* change no result. The digits
-never depend on any of them except `LIMB_BASE` (the same digits by another pipeline) — everything else is bit-identical by
-construction and checked so by the regression. Switches marked *Phase 12* were added by the other agents of that session
+never depend on any of them — everything is bit-identical by construction and checked so by the regression (the GMP
+reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks since the binary pipeline's archive, PLAN 28.5). Switches marked *Phase 12* were added by the other agents of that session
 (their `results/<agent>.md` has the measurements); the integrator's merge is the final word on those lines.
 
 **The run (`ECALC_`)**
@@ -279,15 +279,15 @@ construction and checked so by the regression. Switches marked *Phase 12* were a
 | `ECALC_RES_LOG_LEVEL` | *debug*: with `ECALC_RES_LOG`, every node of every leaf level from this level on checked against the recurrence (17) |
 | `ECALC_RES_LOG_CPU` | *debug*: the per-level check reads the regions with the CPU — no kernel, no stream synchronisation (0) |
 
-**Limbs and pools (`LIMB_BASE`, `POOL_LOG`, `BI_`, `MEM_`)**
+**Limbs and pools (`POOL_LOG`, `BI_`, `MEM_`)**
 
 | switch | meaning (default) |
 |---|---|
-| `ECALC_NP` | the number of NTT primes: 3 for decimal limbs (Phase 13b step 0: −17 % wall, −25.8 GB of planes), 4 for binary limbs (`ecalc.c` sets it when unset). Three primes hold a piece of at most 58 424 467 928 terms (pa + pb): **the 576 target needs 4** — `MN_PLAN_ONLY=4.25e13:576` refuses 3 (84 products over the bound, the first at tree level 5) and passes 4 (results/P15.md); `ECALC_NP=4` was on the target's launch line by the user's decision of 2026-09-27 (+46.8 s, +17.2 GB per node, modelled). *2026-09-28*: at the target 5.1 × 10¹³ `MN_PLAN_ONLY=5.1e13:576` refuses 3 (85 of 1240 products, the first at tree level 5) and passes 4 (results/TGT15/). **Since the user's decision 1 of 2026-09-28 the launch line uses `ECALC_NP=auto`** (the next row): at 5.1 × 10¹³ `plan check … OK` with `plan primes` 76 of 108 tree, 35 of 74 reciprocal, 40 of 40 division pieces at four primes (measured on the login node, archive/results-raw/DOC215/); 400.0 s without the write against 423.3 s with `ECALC_NP=4`, and the node 471.9 against **489.1 GB — `ECALC_NP=4` is over 480 GB at the target with `BS_ARENA_ROOM=0.16`** (modelled, results/DOC215.md) (3 decimal / 4 binary) |
+| `ECALC_NP` | the number of NTT primes: 3 (Phase 13b step 0: −17 % wall, −25.8 GB of planes; `ecalc.c` sets it when unset; 4 was the binary-limb count, archived with PLAN 28.5). Three primes hold a piece of at most 58 424 467 928 terms (pa + pb): **the 576 target needs 4** — `MN_PLAN_ONLY=4.25e13:576` refuses 3 (84 products over the bound, the first at tree level 5) and passes 4 (results/P15.md); `ECALC_NP=4` was on the target's launch line by the user's decision of 2026-09-27 (+46.8 s, +17.2 GB per node, modelled). *2026-09-28*: at the target 5.1 × 10¹³ `MN_PLAN_ONLY=5.1e13:576` refuses 3 (85 of 1240 products, the first at tree level 5) and passes 4 (results/TGT15/). **Since the user's decision 1 of 2026-09-28 the launch line uses `ECALC_NP=auto`** (the next row): at 5.1 × 10¹³ `plan check … OK` with `plan primes` 76 of 108 tree, 35 of 74 reciprocal, 40 of 40 division pieces at four primes (measured on the login node, archive/results-raw/DOC215/); 400.0 s without the write against 423.3 s with `ECALC_NP=4`, and the node 471.9 against **489.1 GB — `ECALC_NP=4` is over 480 GB at the target with `BS_ARENA_ROOM=0.16`** (modelled, results/DOC215.md) (3 decimal / 4 binary) |
 | `ECALC_NP=auto` | *Phase 15 (NP), not a code default; **on the target's launch line since the user's decision 1 of 2026-09-28***: the prime count **per product** of the distributed tiers (P15 option b). `ec_np` stays 3 (every one-node tier, the host CRT and their checks as with `ECALC_NP=3`); `mn_core` / `dist_core` (and the B form) run a product on four primes when its pa + pb exceeds 58 424 467 928 terms, on three otherwise (transforms, gathers, the GPU CRT's prime count, the transform cache keyed by it). Plane pool 0 is made for four planes where the run's largest group can form such a piece (2^(31 + ⌊log₂ g⌋) > the bound: from 32 node-processes; at size 1 the pools are those of `ECALC_NP=3`). `MN_PLAN_ONLY` / `BS_LAYOUT_ONLY` follow it (`plan primes` line; the check passes). At 4.25 × 10¹³ on 576: 110 of 222 pieces at four primes; 238.6 s without the write, 268.3 s with it at 0.6 GB/s (against 256.0 / 285.7 s with `ECALC_NP=4`), 416.0 GB per node as `ECALC_NP=4` (modelled; `estimate.py --target --np-mn auto`). Binary limbs: four everywhere (results/NP15.md). *2026-09-28 (DOC2), at the target 5.1 × 10¹³ on the launch line (B2, `RNS_DIST_CACHE_FIT=1`: 0 cache slots)*: `plan check … OK` (1240 products; 151 of 264 pieces at four primes), 222 / 242 pieces, pool 9472 MiB (measured, login node); **400.0 s without the write, 420.5 s at 0.6 GB/s; node 471.9 GB** (pool 0 at four planes, pool 1 at three: 17.2 GB below `ECALC_NP=4`; modelled; `estimate.py --target`, the default) (unset; `auto` on the launch line) |
 | `ECALC_NP_AUTO_TERMS` | *Phase 15 (NP), test knob*: under `ECALC_NP=auto`, the switch-over in terms (1 … 58 424 467 928, the three-prime bound): a lower value makes small runs form both counts (the forced tests of results/NP15.md) (the bound) |
 | `ECALC_NP_AUTO_MIN` | *Phase 15 (MPB), off by default*: under `ECALC_NP=auto`, `mn_core` / `dist_core` (and the B form they choose) switch a product to four primes when **min(pa, pb)** exceeds the switch-over, instead of pa + pb: a coefficient of the product sums at most min(pa, pb) terms, each ≤ (10¹⁸ − 1)², and these tiers form the whole product (no wrap; the added operand enters after the CRT; the cuts skip whole pieces), so three primes are exact up to min = 58 424 467 928 (crt.c `ec_np_terms`, modarith.h). `MN_PLAN_ONLY` / `BS_LAYOUT_ONLY` and `mn_model.py` (the same variable) follow it; the grids and pool 0 are unchanged. At 5.1 × 10¹³ on 576: −6.7 s (330.7 → 324.0 s without the write, modelled; results/MPB15.md). Without `ECALC_NP=auto`: no effect (0) |
-| `LIMB_BASE` | 10 = decimal limbs of 10¹⁸ (no 10dP, no radix conversion); 2 = the paper's 64-bit limbs with todec (10 in `ecalc`; the tests default to 2) |
+| `LIMB_BASE` | 10 is the only value since PLAN 28.5 (decimal limbs of 10¹⁸); anything else is refused at start (`bi_check_base`, every program). The binary pipeline is in `archive/binary_pipeline/` (tag `pre-28.5-binary`) |
 | `POOL_LOG` | the plane pools' 2ᵏ points per APU (31; 27–29 with several node-processes on one node) |
 | `MEM_REPORT_DEVS` | `mem_report` adds per-APU rows (driver used/total) to the per-phase memory table; *B7ACCT*: at size > 1 each row also prints the terms outside `in use` -- the layout's v-slots (`binsplit_vslot_bytes`), the v-slots hipMalloc'd now (`comm_layered_vbytes`), the comm_ofi pool -- and driver used minus in use + v-slots now + comm pool (the runtime) (unset) |
 | `MEM_DPOOL_FILL` | *test*: fill a grown (1) or every (2) plane pool with 0xA5 — a test of zero-memory assumptions (0) |
