@@ -5,7 +5,7 @@
 # OWNER=o4
 # NODES=4
 # EST_MIN=45
-# APPROVED=coordinator-2026-10-11 (overnight plan item 80)
+# APPROVED=coordinator-2026-10-11
 # EXCLUSIVE=0
 set -u
 WT=$HOME/ntt-wt/o4; O=$HOME/o4_aac7; mkdir -p $O; rm -f $O/O4_DONE
