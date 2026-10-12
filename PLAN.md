@@ -58,7 +58,7 @@ division step 1, the lean division and the X2 exchange with slot sharing and rel
 
 | system | line | source |
 |---|---|---|
-| aac7 | the `LINE` of `ecalc/e16_headline.sh`; profile `profiles/aac7.conf` | `tools/gate.sh --line aac7` parses it |
+| aac7 | `LAUNCH_LINE_KEYS` of `profiles/aac7.conf` (`tools/profile_load.py aac7 --line`) | `tools/gate.sh --line aac7` runs it; one source (D15) |
 | target | `profiles/target.conf.template` (site values `__FILL__`); the filled copy stays out of git | `ecalc/target_kit.sh` |
 
 `mnrun.sh` also sets, when unset, `FI_UNIVERSE_SIZE` (≥ 4 × tasks), `FI_LOG_LEVEL=warn` and
@@ -72,7 +72,7 @@ the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZ
 `MN_GROUPS` (the code's default). `tools/plan_values.py [--profile P] [--line FILE] [--exports] <digits> <nodes>` prints
 them without launching, checks a hand-typed line against them, and prints `export` lines for a launch without `mnrun.sh`.
 At 3.82 × 10¹³ digits on 576 nodes the plan asks for a pool of 2304 MiB and a heap of 2816 MiB with the current defaults
-(m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`.
+(m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`. User decision D9 (a), 2026-10-12: the target launch block does not type pool or heap; it takes them from `tools/plan_values.py --profile target --exports <digits> <nodes>`.
 
 Every setting that is not a plain default (experiments, diagnostics, test-harness switches, fallbacks kept after a default
 flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table in `ecalc/README.md`);

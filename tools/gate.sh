@@ -3,18 +3,25 @@
 #
 # USAGE
 #   tools/gate.sh [--build] [--nodes 1|2|4] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
-#                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
+#                 [--profile NAME|PATH] [--p24 auto|on|off] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
 #     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
 #                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
 #                 Without --hold/--alloc an exported SLURM_JOB_ID is used as the hold.
 #     --alloc     submit its own short sbatch sleep job of --nodes nodes (MNRUN_EXCLUDE_HOSTS -> sbatch -x), run, scancel only that id
-#     --line      launch line: aac7 = the LINE of ecalc/e16_headline.sh (parsed, not copied; default on aac7), none = plain (default
+#     --line      launch line: aac7 = the launch line of profiles/aac7.conf (LAUNCH_LINE_KEYS, via
+#                 tools/profile_load.py aac7 --line; the one source; default on aac7), none = plain (default
 #                 elsewhere), target = the target export block, which is NOT in this repo: use file:PATH (K=V per line, # comments),
 #                 e.g. --line file:~/target_line.env.   --env words are appended; ECALC_SEGV_TRACE=1 is always set.
 #     --profile P load profiles/P.conf (tools/profile_load.py) into the gate's environment: explicit env > profile > code default; writes
 #                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
 #                 --build also runs `tools/switch_registry.py --check` and `tools/profile_load.py --validate-all` first (either failing = FAIL).
+#     --p24       the target's four-prime product form (P24, MN_P24) switches on only from 32 nodes, so a 1..6-node gate never ran it
+#                 (results/AUD3.md coverage finding 2). on = add ECALC_NP_AUTO_TERMS=1000000 (a test bound of ECALC_NP=auto: pool 0 holds four
+#                 planes whenever 2^(31 + floor(log2 g)) > 1e6, so rns_pool0_np() >= 4 and mn_p24_of() is true for every multi-node product;
+#                 crt.c ec_np_planes, rns_dist.c mn_p24_of); the run log must then show "plane pool 0 for 4 primes". auto (default) = on
+#                 for --nodes 2, off otherwise (1 node has no multi-node product; 4 nodes keep the three-prime 18-digit form under test);
+#                 off = never. A user --env word of the same name wins. Needs ECALC_NP=auto on the line (the aac7 profile line has it).
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
@@ -27,16 +34,17 @@
 
 ARGS=("$@")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=$ROOT/ecalc
-PROFILE= BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
+P24=auto PROFILE= BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
 while [ $# -gt 0 ]; do
   case $1 in
     --build) BUILD=1;; --nodes) NODES=$2; shift;; --digits) DIGITS=$2; shift;; --hold) HOLD=$2; shift;; --alloc) ALLOC=1;;
-    --line) LINE_SEL=$2; shift;; --profile) PROFILE=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
+    --line) LINE_SEL=$2; shift;; --profile) PROFILE=$2; shift;; --p24) P24=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
     --timeout) TMO=$2; shift;; --wait) WAITS=$2; shift;;
     -h|--help) sed -n '2,/^# Never put/p' "$0" | cut -c3-; exit 0;;
     *) echo "gate.sh: unknown option $1" >&2; exit 2;;
   esac; shift
 done
+case $P24 in auto|on|off) ;; *) echo "gate.sh: --p24 must be auto, on or off" >&2; exit 2;; esac
 case $NODES in 1|2|4) ;; *) echo "gate.sh: --nodes must be 1, 2 or 4" >&2; exit 2;; esac
 [ -z "$HOLD" ] && [ "$ALLOC" = 0 ] && HOLD=${SLURM_JOB_ID:-}
 [ -n "$HOLD" ] && [ "$ALLOC" = 1 ] && { echo "gate.sh: --hold and --alloc are exclusive" >&2; exit 2; }
@@ -117,13 +125,19 @@ fi
 # ---- launch line
 LINE=
 case $LINE_SEL in
-  aac7) LINE=$(bash -c 'unset E16_EXTRA; eval "$(grep -m1 "^LINE=" "$1")"; echo $LINE' _ "$E/e16_headline.sh") ; [ -n "$LINE" ] || fail "no LINE in e16_headline.sh";;
+  aac7) LINE=$(python3 "$ROOT/tools/profile_load.py" aac7 --line 2>"$OUT/line.err") ; [ -n "$LINE" ] || fail "no launch line in profiles/aac7.conf: $(head -c 200 "$OUT/line.err")";;
   none) ;;
   target) fail "--line target: target values are not in the repo; use --line file:PATH";;
   file:*) lf=${LINE_SEL#file:}; lf=${lf/#\~/$HOME}; [ -r "$lf" ] || fail "line file $lf unreadable"
           LINE=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' -e 's/^export //' "$lf" | grep -v '^$' | tr '\n' ' ');;
   *) fail "bad --line $LINE_SEL";;
 esac
+FORCE_P24=0; { [ "$P24" = on ] || { [ "$P24" = auto ] && [ "$NODES" = 2 ]; }; } && FORCE_P24=1
+if [ $FORCE_P24 = 1 ]; then
+  case " $LINE " in *" ECALC_NP=auto "*) ;; *) fail "--p24 needs ECALC_NP=auto on the launch line";; esac
+  [ "$NODES" -gt 1 ] || fail "--p24 on needs --nodes > 1"
+  EXTRA="ECALC_NP_AUTO_TERMS=1000000$EXTRA"          # first: a later --env word of the same name wins
+fi
 ENVSHOW="line=${LINE_SEL%%:*}${PROFILE:+ profile=$PROFILE} $EXTRA ECALC_SEGV_TRACE=1"
 ENVSHOW=$(echo $ENVSHOW)
 
@@ -171,5 +185,10 @@ CMP=skipped
 [ "$RC" = 0 ] && CMP=$("$E/digcmp.sh" "$OF" "$REF" 2>&1 | tail -1)
 say "rc $RC | $V | digits $CMP | segv $SEGV | ecalc total $TOT | wall ${RUNS}s"
 WHY="rc $RC, $V, digits $CMP, segv $SEGV, ecalc total $TOT, run ${RUNS}s"
-if [ "$RC" = 0 ] && [ "$V" = "VERIFY OK" ] && [ "$CMP" = identical ] && [ "$SEGV" = 0 ]; then RES=PASS; fi
+P24OK=
+if [ $FORCE_P24 = 1 ]; then   # the forced form must be visible in the log: pool 0 holds four planes (the P24 condition)
+  if grep -aq 'plane pool 0 for 4 primes' "$PL"; then P24OK="; P24 forced (pool 0: 4 primes)"; else P24OK="; P24 NOT active (no 'plane pool 0 for 4 primes' in run.log)"; fi
+  WHY="$WHY$P24OK"
+fi
+if [ "$RC" = 0 ] && [ "$V" = "VERIFY OK" ] && [ "$CMP" = identical ] && [ "$SEGV" = 0 ] && { [ $FORCE_P24 = 0 ] || [ -n "${P24OK##*NOT*}" ]; }; then RES=PASS; fi
 finish

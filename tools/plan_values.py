@@ -4,8 +4,7 @@
   tools/plan_values.py [--profile NAME|PATH] [--line FILE] [--ecalc PATH] [--exports] DIGITS NODES
 
 What it computes, from (digits, node-processes, machine profile + the line's settings), with nothing typed:
-  - the SHMEM pool COMM_SHMEM_POOL_MB, the library heap (SHMEM_SYMMETRIC_SIZE / XT_SYMMETRIC_HEAP_SIZE or
-    SHMEM_SYMMETRIC_HEAP_SIZE, by implementation) and FI_UNIVERSE_SIZE: ecalc/mnrun.sh with MNRUN_PRINT_ENV=1 (mnrun.sh asks the
+  - the SHMEM pool COMM_SHMEM_POOL_MB, the library heap (SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE, Cray) and FI_UNIVERSE_SIZE: ecalc/mnrun.sh with MNRUN_PRINT_ENV=1 (mnrun.sh asks the
     planner, `MN_PLAN_ONLY=<digits>:<nodes>`, for the pool and adds 512 MiB for the heap -- the rule every launch through mnrun.sh
     already uses);
   - the tree schedule MN_GROUPS, the plane pools' pool_log and the plan's verdict: the planner's own header and `plan check` line.
@@ -27,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import profile_load as PL                                           # registry() and script_words(): who reads a key
 
 # the values a launch line used to type per size; plan_values computes them (MN_GROUPS: the code's default schedule)
-LAUNCH_KEYS = ["COMM_SHMEM_POOL_MB", "SHMEM_SYMMETRIC_SIZE", "XT_SYMMETRIC_HEAP_SIZE", "SHMEM_SYMMETRIC_HEAP_SIZE", "FI_UNIVERSE_SIZE"]
+LAUNCH_KEYS = ["COMM_SHMEM_POOL_MB", "SHMEM_SYMMETRIC_SIZE", "XT_SYMMETRIC_HEAP_SIZE", "FI_UNIVERSE_SIZE"]
 PLAN_KEYS = ["MN_GROUPS"]
 COMPUTED = LAUNCH_KEYS + PLAN_KEYS
 PRE = '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"'
@@ -191,8 +190,8 @@ def main(argv):
         if a["line"]:
             if h is None:
                 v = "computed (not on the line)"
-            elif c is None and k in LAUNCH_KEYS[1:4]:
-                v = "EXTRA (a heap name this SHMEM implementation's launch does not set)"
+            elif c is None and k in LAUNCH_KEYS[1:3]:
+                v = "EXTRA (a heap name this launch does not set)"
             elif c is None:
                 v = "DIFF (the line sets it; this launch computes none)"; diffs += 1
             elif k == "MN_GROUPS":

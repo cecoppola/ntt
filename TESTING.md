@@ -25,9 +25,15 @@ measured, modelled or assumed.
   for `-DCOMM_SHMEM` and refuses a multi-node run without it. It also runs `tools/switch_registry.py --check` and
   `tools/profile_load.py --validate-all`; either failing is a FAIL. The registry check's review-date `WARN` lines (a
   setting past its review date in `ecalc/switches_review.tsv`, or an experiment without one) are printed, never a FAIL.
-- `--line` selects the launch line (the test system's is parsed from `LINE` in `ecalc/e16_headline.sh`; the target's is
-  supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
+- `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
+  `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
+- `--p24 auto|on|off` (default `auto`: on for `--nodes 2`). The target's four-prime product form (P24) switches on by
+  itself only from 32 nodes, so no gate of 1 to 6 nodes ran it (`results/AUD3.md`, coverage finding 2). The forced form adds
+  `ECALC_NP_AUTO_TERMS=1000000` (a test bound of `ECALC_NP=auto`: `ec_np_planes` in `crt.c` gives pool 0 four planes when
+  2^(31 + ⌊log₂ g⌋) exceeds it, so `rns_pool0_np()` is 4 and `mn_p24_of()` in `rns_dist.c` is true for every multi-node
+  product); the gate requires `plane pool 0 for 4 primes` in the run log, and the digits must be identical as always. The
+  4-node gate and `mnaccept.sh` keep the three-prime 18-digit form under test.
 - Output: `build.log`, `run.log` and one summary line `gate.txt` (`gate PASS | nodes … | digits … | total …s`). The digit
   files are deleted afterwards. The gate kills only its own processes and cancels only an allocation it submitted.
 - Exit status 0 = PASS, 1 = FAIL. A single-node system without SHMEM runs `--nodes 1` only.
@@ -65,10 +71,10 @@ References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a
 
 Local unit tests are `ecalc/tests/t_*.c`, built by `make` in `ecalc/` (`make tests/t_<name>`), one GMP-checked program per
 module (`t_ntt`, `t_ntt3`, `t_modarith`, `t_primes`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_dist`, `t_mn_grid`,
-`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, …). Run one inside a one-node allocation with 4 GPUs:
+`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, …). Run one inside a one-node allocation with 4 GPUs (or `mnaccept.sh <hold> --only unit` for the standard set):
 
-    ./run tests/t_ntt 24            # arguments are the test's size
-    ./run ref/gen_e 1000000000 ref  # reference digits by GMP
+    srun --jobid=<hold> -N1 --gpus=4 --overlap ./tests/t_ntt 24            # arguments are the test's size
+    srun --jobid=<hold> -N1 --gpus=4 --overlap ./ref/gen_e 1000000000 ref  # reference digits by GMP
 
 `tests/harness.h` provides the assertions. `tests/` at the repository root holds two model scripts
 (`t2_seed_model.py`, `as_pool_replay.py`); `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.

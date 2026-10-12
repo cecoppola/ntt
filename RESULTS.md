@@ -60,7 +60,7 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 
 ## Launch-line settings in force (not code defaults)
 
-On both launch lines (`ecalc/e16_headline.sh` for aac7, `profiles/target.conf.template` for the target). Rows marked
+On both launch lines (`profiles/aac7.conf` (`LAUNCH_LINE_KEYS`) for aac7, `profiles/target.conf.template` for the target). Rows marked
 "code default" were moved off the lines into the code on 2026-10-12 (TASKS 27, `results/W2B.md`; each keeps a `=0` fallback).
 
 | setting | effect | label | evidence |

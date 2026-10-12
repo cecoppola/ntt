@@ -15,7 +15,7 @@ MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MOD
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
-COMM_SHMEM_IMPL=cray                  # mnrun.sh detects it; set for the record
+COMM_SHMEM_IMPL=cray                  # the only launch form mnrun.sh supports (D14); detected; set for the record
 
 # ---- [scheduler] ----------------------------------------------------------------------------------------------------
 # How to determine: `sinfo -o '%P %c %m %D'`; the production queue name and node limit from the site's user guide.

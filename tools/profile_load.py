@@ -7,6 +7,8 @@
   tools/profile_load.py aac7 --show             table: key, value, origin (profile / env / default-changed), read-only
   tools/profile_load.py aac7 --run [--] CMD...  run CMD with the profile loaded; prints one provenance line first:
                                                 config-src: profile=NAME from-profile=K,K env-over=K,K (code defaults: all other switches)
+  tools/profile_load.py aac7 --line             the profile's launch line: KEY=value words of the keys named in LAUNCH_LINE_KEYS, in that order
+                                                (tools/gate.sh --line aac7 runs them; the one source of the aac7 launch line, SCR2/D15)
   tools/profile_load.py PROFILE --check [-q] [--strict] [--launch=aac7|none]
                                                 compare the profile with what the launch scripts set (see check() below; read-only)
 
@@ -22,6 +24,7 @@ import os, re, sys, glob, shlex, subprocess, difflib, locale
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL = re.compile(r"^(SLURM_|PMI_|SHMEM_|FI_|OMPI_|XT_|HIP_|ROC|HSA_|OMP_|MPICH_|CRAY_|LD_)")
 UNSET_MARK = "__UNSET__"
+META_KEYS = ("LAUNCH_LINE_KEYS",)           # profile keys that describe the profile, not a setting: never exported
 
 
 def registry():
@@ -88,13 +91,16 @@ def validate(path, reg=None, words=None):
     keys, errs, vals = parse(path)
     base = os.path.basename(path)
     for k in dict.fromkeys(keys):
-        if k in reg or EXTERNAL.match(k) or k in words:
+        if k in reg or EXTERNAL.match(k) or k in words or k in META_KEYS:
             pass
         else:
             near = difflib.get_close_matches(k, list(reg), n=2, cutoff=0.8)
             errs.append("%s: unknown switch %s%s" % (base, k, " (did you mean %s?)" % " or ".join(near) if near else ""))
         if vals.get(k) == "__FILL__":
             errs.append("%s: %s is still __FILL__" % (base, k))
+    for k in vals.get("LAUNCH_LINE_KEYS", "").split():
+        if k not in vals or vals[k] == "__FILL__":
+            errs.append("%s: LAUNCH_LINE_KEYS names %s, which the profile does not set" % (base, k))
     return keys, errs, vals
 
 
@@ -118,13 +124,12 @@ CHECK_DOC = """profile_load.py PROFILE --check [-q] [--strict] [--launch=aac7|no
     --launch=aac7|none  compare with the aac7 launch lines (default: only for aac7*.conf)
     --strict  exit 1 if any MISMATCH or UNKNOWN is found (default exit 0: it reports, it does not gate)
   1. Sources the profile in an `env -i` subshell and reads the value of every KEY=value line.
-  2. Collects what the scripts set: e16 = the words of LINE= in ecalc/e16_headline.sh (parsed as tools/gate.sh does);
-     aac7env = the variables ecalc/aac7env.sh exports when sourced (module stubbed, the /opt/cray/pe/sma test forced true);
-     default = the literal ${NAME:-value} / ${NAME-value} defaults in mnrun.sh, aac7env.sh, target_kit.sh, e16_headline.sh
+  2. Collects what the scripts set: aac7env = the variables ecalc/aac7env.sh exports when sourced (module stubbed, the /opt/cray/pe/sma test forced true);
+     default = the literal ${NAME:-value} / ${NAME-value} defaults in mnrun.sh, aac7env.sh, target_kit.sh
      (values containing $ are COMPUTED, never compared).
-  3. Per key: MATCH / MISMATCH (against e16 / aac7env), PROFILE-ONLY (script defaults shown), UNFILLED (__FILL__).
+  3. Per key: MATCH / MISMATCH (against aac7env), PROFILE-ONLY (script defaults shown), UNFILLED (__FILL__).
   4. UNKNOWN: a key named nowhere in ecalc/*.c|*.h|*.sh, ecalc/Makefile, tools/ (FI_* SHMEM_* XT_* OMPI_* SLURM_* are EXTERNAL).
-  5. SCRIPT-ONLY: keys that e16 LINE or aac7env.sh set but the profile lacks.
+  5. SCRIPT-ONLY: keys that aac7env.sh sets but the profile lacks.
   6. REMOVAL-SLATED: profile keys named in the tier A / B tables of results/A11.md."""
 CHECK_EXT = ("FI_", "SHMEM_", "XT_", "OMPI_", "SLURM_")
 
@@ -145,12 +150,12 @@ def _bash(script, *args, env_i=False):
     return r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
 
 
-def e16_line(e):
-    """the words of LINE= in ecalc/e16_headline.sh, E16_EXTRA unset (the parse tools/gate.sh --line aac7 does)"""
-    f = os.path.join(e, "e16_headline.sh")
-    if not os.access(f, os.R_OK):
+def launch_line(path):
+    """the launch line of a profile: KEY=value for every key of LAUNCH_LINE_KEYS, in that order (None: the profile has no line)"""
+    _, errs, vals = parse(path)
+    if errs or "LAUNCH_LINE_KEYS" not in vals:
         return None
-    return _bash('unset E16_EXTRA; eval "$(grep -m1 "^LINE=" "$1")"; echo $LINE', f)[1].split()
+    return ["%s=%s" % (k, vals[k]) for k in vals["LAUNCH_LINE_KEYS"].split()]
 
 
 def check(argv):
@@ -191,9 +196,6 @@ def check(argv):
         profv.append((k, v.strip("\t")))
     # 2. what the scripts set: (key, source, kind set|default|computed, value)
     src = []
-    for w in e16_line(E) or []:
-        if "=" in w:
-            src.append((w.split("=", 1)[0], "e16", "set", w.split("=", 1)[1]))
     ae = os.path.join(E, "aac7env.sh")
     if os.access(ae, os.R_OK):
         forced = open(ae, errors="replace").read().replace("/opt/cray/pe/sma", "/")
@@ -202,7 +204,7 @@ def check(argv):
         for l in out.splitlines():
             if "=" in l:
                 src.append((l.split("=", 1)[0], "aac7env", "set", l.split("=", 1)[1]))
-    for f in ("mnrun.sh", "aac7env.sh", "target_kit.sh", "e16_headline.sh"):
+    for f in ("mnrun.sh", "aac7env.sh", "target_kit.sh"):
         p = os.path.join(E, f)
         if not os.access(p, os.R_OK):
             continue
@@ -305,7 +307,7 @@ def check(argv):
     keyset = set(keys)
     so = ["SCRIPT-ONLY   %s=%s  (set by %s, not in the profile)" % (k, v, s)
           for k, s, v in (l.split("\t") for l in _lsort("%s\t%s\t%s" % (r[0], r[1], r[3]) for r in src
-                                                          if r[2] == "set" and r[1] in ("e16", "aac7env")))
+                                                          if r[2] == "set" and r[1] == "aac7env"))
           if k not in keyset]
     for l in so:
         print(l)
@@ -333,6 +335,7 @@ def main(argv):
             print("profile_load: " + e, file=sys.stderr)
         if errs:
             return 1
+        rows = [r for r in rows if r[0] not in META_KEYS]
         os.environ.update({k: v for k, v, o, d in rows if o == "profile"})
         fromp = ",".join(k for k, v, o, d in rows if o == "profile")
         over = ",".join(k for k, v, o, d in rows if o.startswith("env"))
@@ -362,6 +365,13 @@ def main(argv):
         for e in errs:
             print("profile_load: " + e, file=sys.stderr)
         return 1
+    if "--line" in argv:
+        w = launch_line(path)
+        if not w:
+            print("profile_load: %s has no LAUNCH_LINE_KEYS" % os.path.basename(path), file=sys.stderr)
+            return 1
+        print(" ".join(w))
+        return 0
     if "--validate" in argv:
         print("profile_load: %s ok (%d keys)" % (os.path.basename(path), len(rows)))
         return 0
@@ -369,6 +379,7 @@ def main(argv):
         for k, v, o, d in rows:
             print("%-32s %-28s %-14s code-default=%s" % (k, v, o, d))
         return 0
+    rows = [r for r in rows if r[0] not in META_KEYS]
     prof = os.path.basename(path)[:-5]
     fromp = [k for k, v, o, d in rows if o == "profile"]
     over = [k for k, v, o, d in rows if o.startswith("env")]

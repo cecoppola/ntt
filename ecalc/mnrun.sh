@@ -5,14 +5,11 @@
 # fewer nodes (they share the node's four APUs); the node count used is the largest that divides
 # <procs> (Slurm places tasks by blocks otherwise), listed explicitly.
 #   mnrun.sh <procs> <command...>          e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
-# SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by srun's PMIx (OpenMPI 4.1.6 OSHMEM on aac6; the
-# target's srun likewise), rank = PE.  COMM_SHMEM_POOL_MB sizes the transport's symmetric pool (unset: the run's modelled
-# need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); a host heap (OSHMEM, SOS without COMM_SHMEM_DEVHEAP) is set
-# 512 MiB above it.  setarch -L (the legacy bottom-up mmap layout) makes OSHMEM's scan of the static
-# data segments deterministic across the PEs -- without it every anonymous mapping below liboshmem (thread stacks,
-# malloc arenas) is registered and their count differs per PE, and shmem_init crashes in the key exchange about
-# half the time (results/S.md).
-# Phase 16 A (results/A16.md): a third implementation, `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
+# SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB sizes the
+# transport's symmetric pool (unset: the run's modelled need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); the host heap is set
+# 512 MiB above it.  Only Cray OpenSHMEMX is launched (D14, 2026-10-12: the SOS and OpenMPI OSHMEM launch forms were removed;
+# the archived forms are in the local archive removed_2026-10-12/).
+# Phase 16 A (results/A16.md): `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
 # COMM_SHMEM_IMPL=cray): plain srun (Cray's PMI), the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE = pool + 512 MiB (its heap is
 # host hugepages; COMM_SHMEM_DEVHEAP=1 falls back to the registered host pool there).  MNRUN_MODULES is the module line of every
 # wrapper (default `rocm`; `cray-dsmml cray-openshmemx rocm` where /opt/cray/pe/sma exists); MNRUN_CPUS_PER_TASK adds srun -c
@@ -33,8 +30,8 @@ if [ "$PRINT_ENV" != 0 ]; then exec 3>&1 1>&2; fi
 print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the launch, as export lines on the saved stdout (fd 3)
     local v
     echo "# mnrun.sh MNRUN_PRINT_ENV: $P process(es), transport ${COMM_TRANSPORT:-none}, SHMEM implementation ${impl:-none}" >&3
-    for v in COMM_TRANSPORT COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE SHMEM_SYMMETRIC_HEAP_SIZE \
-             OMPI_MCA_memheap_base_max_segments FI_PROVIDER SHMEM_OFI_PROVIDER SHMEM_DISABLE_ASLR_CHECK FI_UNIVERSE_SIZE FI_LOG_LEVEL \
+    for v in COMM_TRANSPORT COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE \
+             FI_UNIVERSE_SIZE FI_LOG_LEVEL \
              FI_MR_CACHE_MONITOR MNRUN_MODULES MNRUN_UNLOAD; do
         [ -n "${!v+x}" ] && printf 'export %s=%q\n' "$v" "${!v}" >&3
     done
@@ -114,7 +111,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
     # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
     # COMM_SHMEM_POOL_MB -- so ecalc's pool rule (binsplit_shmem_pool_rule) finds the pool already at the need, and a host heap
-    # (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE = pool + 512 MiB) holds it.  Other commands: 8192 as before.
+    # (SHMEM_SYMMETRIC_SIZE = pool + 512 MiB) holds it.  Other commands: 8192 as before.
     # MNRUN_PLAN_POOL=0 skips the plan.
     if [ -z "${COMM_SHMEM_POOL_MB:-}" ] && [ "${MNRUN_PLAN_POOL:-1}" != 0 ]; then
         pbin=; pd=; pas=()
@@ -123,7 +120,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
             case "$a" in [A-Za-z_]*=*) pas+=("$a"); continue;; -*) continue;; esac
             f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
             head -c 4 "$f" 2>/dev/null | grep -q ELF || continue
-            readelf -d "$f" 2>/dev/null | grep NEEDED | grep -q -e libsma -e liboshmem && pbin=$f
+            readelf -d "$f" 2>/dev/null | grep NEEDED | grep -q libsma && pbin=$f
         done
         if [ -n "$pbin" ] && [ -n "$pd" ]; then
             # Phase 17 OFIMEM: comm_ofi (on by default where a cxi NIC is present) moves the device staging out of the SHMEM pool, and
@@ -141,47 +138,33 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     fi
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL
-    # Phase 12 S: the implementation the binary was built against: SOS (make SHMEM_HOME=~/sos; libsma) or OSHMEM (oshcc).
-    # COMM_SHMEM_IMPL=sos|oshmem overrides the detection.
-    # Phase 14 N4 (A4): the detection looks through wrappers (env, stdbuf, timeout, numactl, setarch, nice, ...): every word of
-    # the command that resolves to an executable ELF file is checked for libsma / liboshmem in its dynamic section, the
-    # first that links either decides (the wrappers link neither); none found: oshmem, as before, with a note.
+    # The implementation the binary was built against: only Cray OpenSHMEMX is launched (D14, 2026-10-12).  The detection looks
+    # through wrappers (env, stdbuf, timeout, numactl, ...): every word of the command that resolves to an executable ELF file is
+    # checked for libsma / liboshmem in its dynamic section, the first that links either decides (the wrappers link neither).
+    # A libsma that is not Cray's, or liboshmem, is refused; none found: cray, with a note.  COMM_SHMEM_IMPL=cray is accepted.
     impl=${COMM_SHMEM_IMPL:-}
-    case "$impl" in ""|sos|oshmem|cray) ;; *) echo "mnrun.sh: COMM_SHMEM_IMPL=$impl: use sos, oshmem or cray"; exit 1;; esac
+    case "$impl" in ""|cray) ;; *) echo "mnrun.sh: COMM_SHMEM_IMPL=$impl: only cray is supported (the sos and oshmem launch forms were removed 2026-10-12)"; exit 1;; esac
     if [ -z "$impl" ]; then
         for a in "$@"; do
             case "$a" in *=*|-*) continue;; esac                                 # env assignments, wrapper options
             f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
             head -c 4 "$f" 2>/dev/null | grep -q ELF || continue                  # scripts: their interpreter is not the binary
             need=$(readelf -d "$f" 2>/dev/null | grep NEEDED; ldd "$f" 2>/dev/null)
-            if echo "$need" | grep -q libsma; then if echo "$need" | grep -q /opt/cray/pe; then impl=cray; else impl=sos; fi; break; fi   # Phase 16 A: Cray's libsma by its rpath / resolved path
-            if echo "$need" | grep -q liboshmem; then impl=oshmem; break; fi
+            if echo "$need" | grep -q libsma; then
+                echo "$need" | grep -q /opt/cray/pe || { echo "mnrun.sh: $f links a libsma that is not Cray's: only Cray OpenSHMEMX is launched (sos removed 2026-10-12)" >&2; exit 1; }
+                impl=cray; break
+            fi
+            if echo "$need" | grep -q liboshmem; then echo "mnrun.sh: $f links liboshmem: only Cray OpenSHMEMX is launched (oshmem removed 2026-10-12)" >&2; exit 1; fi
         done
-        [ -n "$impl" ] || { impl=oshmem; echo "mnrun.sh: no libsma/liboshmem found in the command's executables; assuming oshmem (set COMM_SHMEM_IMPL)" >&2; }
+        [ -n "$impl" ] || { impl=cray; echo "mnrun.sh: no libsma found in the command's executables; assuming cray" >&2; }
     fi
     [ -n "${MNRUN_SHOW_IMPL:-}" ] && { echo "mnrun.sh: SHMEM implementation $impl"; [ "$MNRUN_SHOW_IMPL" = only ] && exit 0; }   # (test hook: MNRUN_SHOW_IMPL=only prints and stops)
-    mpi=(); pre=                                                              # the srun --mpi option and the exec prefix of each implementation
-    if [ "$impl" = sos ]; then
-        # SOS: PMI-1 (simple PMI) under srun's pmi2 plugin; the sockets provider of libfabric (the tcp provider lacks what SOS asks
-        # for); the pool is the transport's own shmem_malloc (SHMEM_SYMMETRIC_SIZE) or, with COMM_SHMEM_DEVHEAP=1, a HIP buffer
-        # registered as SOS's external heap (results/S12.md).  SOS's internal heap is only its own bookkeeping then.
-        if [ "${COMM_SHMEM_DEVHEAP:-0}" != 0 ]; then export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-64M}; else export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}; fi
-        export FI_PROVIDER=${FI_PROVIDER:-sockets} SHMEM_OFI_PROVIDER=${SHMEM_OFI_PROVIDER:-sockets} SHMEM_DISABLE_ASLR_CHECK=1
-        echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE (pool $POOL MiB + 512, unless COMM_SHMEM_DEVHEAP)"
-        mpi=(--mpi=pmi2)
-    elif [ "$impl" = cray ]; then
-        # Phase 16 A: Cray OpenSHMEMX: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
-        # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
-        export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
-        export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
-        echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
-    else
-        # OSHMEM: srun's PMIx; setarch -L (see the header)
-        export SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
-        export OMPI_MCA_memheap_base_max_segments=${OMPI_MCA_memheap_base_max_segments:-64}
-        echo "mnrun.sh: SHMEM_SYMMETRIC_HEAP_SIZE=$SHMEM_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
-        mpi=(--mpi=pmix); pre="setarch x86_64 -L "
-    fi
+    mpi=(); pre=                                                              # the srun --mpi option and the exec prefix (none for Cray)
+    # Cray OpenSHMEMX: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
+    # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
+    export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
+    export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
+    echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
 fi
 [ "$PRINT_ENV" = 0 ] || print_env_exit
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command

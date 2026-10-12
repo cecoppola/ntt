@@ -21,8 +21,8 @@ validates, and prints the effective configuration and its hash. Size-dependent v
 
 | file | machine | status |
 |---|---|---|
-| `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, `e16_headline.sh`, the launch lines in `PLAN.md` §3 |
-| `aac6.conf` | aac6 (MI300A, InfiniBand, OSHMEM, single node standard) | filled, small: aac6 is a correctness machine |
+| `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, the launch lines in `PLAN.md` §3; holds the aac7 launch line (`LAUNCH_LINE_KEYS`) |
+| `aac6.conf` | aac6 (MI300A, InfiniBand, single node; set aside 2026-10-12) | filled, small: aac6 is a correctness machine |
 | `target.conf.template` | the production machine | every unknown is `__FILL__` with "how to determine"; copy to `target.conf` (not tracked: add it to `.git/info/exclude`) |
 
 Site specifics of the target (names, module names, paths, node lists) must never be committed here. The tracked template holds
@@ -35,7 +35,7 @@ generic values only; the filled copy stays out of git.
   them (`tools/gate.sh --line file:` does not, so keep path keys out of any file given to it).
 * `#` starts a comment, also after a value. Section headers are comment lines of the form `# ---- [name] ----`; the section names are
   `modules/build`, `scheduler`, `paths`, `transport`, `libfabric`, `memory pools tied to the hardware`, `exchange tuning`,
-  `adopted ... pending move to built-in defaults`, `safety/diagnostics`, `host exclusions`.
+  `adopted ... pending move to built-in defaults`, `safety/diagnostics`, `launch line`, `host exclusions`.
 * `__FILL__` is the value of an unknown. The validator must refuse a profile that still has one (the checker lists them as UNFILLED).
 * A key to be **unset** is not expressible yet (the target's record run unsets `ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR`): the
   entry point needs an `unset` section; open question in `results/C01.md`.
@@ -49,20 +49,27 @@ generic values only; the filled copy stays out of git.
 | **profile** | a fact about the machine or site that no measurement on another machine would change: modules, SHMEM implementation, transport choice, NIC/fabric settings, memory pools bounded by the hardware, scheduler partition, scratch and output paths, excluded hosts, per-site safety limits | `MNRUN_MODULES`, `COMM_TRANSPORT`, `COMM_SHMEM_DEVHEAP`, `FI_MR_CACHE_MONITOR`, `MNRUN_EXCLUDE_HOSTS`, `MNACCEPT_TMP` |
 | **built-in default** (code) | a choice the user adopted that is right on every supported machine, or a safe value of a tunable | `ECALC_NP=auto`, `MN_OUT_DKM_HI=1`, `MN_T_CHUNK_MB`, `COMM_LAYER_VSLOT_*` (built in 2026-10-12, TASKS 27) |
 | **computed** (plan stage: `tools/plan_values.py`) | anything that is a function of the digit count, node count and hardware sizes | `COMM_SHMEM_POOL_MB`, `SHMEM_SYMMETRIC_SIZE`, `XT_SYMMETRIC_HEAP_SIZE` (pool + 512 MiB), `COMM_OFI_POOL_MB`, `FI_UNIVERSE_SIZE` (max(4096, 4 x tasks)), `MN_GROUPS` at a given size |
-| **override** | one run's deliberate deviation (an A/B arm, a test) | `E16_EXTRA`, `--env` of `tools/gate.sh`, the caller's environment |
+| **override** | one run's deliberate deviation (an A/B arm, a test) | `--env` of `tools/gate.sh`, the caller's environment |
 
 Transitional section: today some adopted switches (T2048, `ECALC_NP`, ...) are on the launch lines but not yet code defaults.
 They are listed in the profile under `adopted ... pending move to built-in defaults` so that nothing is lost; as each becomes a code
 default its line is deleted from every profile (the checker then shows it as PROFILE-ONLY equal to the default, the cue to delete it).
 Switches slated for removal (tiers A and B of `results/A11.md`) are never put in a profile; the checker reports them as REMOVAL-SLATED.
 
+## The launch line (SCR2, D15, 2026-10-12)
+
+`LAUNCH_LINE_KEYS="K1 K2 ..."` (a meta key: described here, never exported) names the profile keys that go on the command line of every
+timed or gated launch, in order. `tools/profile_load.py NAME --line` prints them as `KEY=value` words; `tools/gate.sh --line aac7` uses
+exactly that, so the line has one source (the values above it in the same file). The old holder, the script `e16_headline.sh`, is archived.
+
 ## Checking a profile
 
 ```
-tools/profile_load.py aac7 --check                 # compare with the aac7 launch lines (e16_headline.sh LINE, aac7env.sh exports)
+tools/profile_load.py aac7 --check                 # compare with what aac7env.sh exports
+tools/profile_load.py aac7 --line                  # the launch line (the keys of LAUNCH_LINE_KEYS as KEY=value); tools/gate.sh --line aac7 runs it
 tools/profile_load.py aac6 --check -q              # problems only; --launch=aac7 forces the aac7 comparison, --strict exits 1 on MISMATCH/UNKNOWN
 ```
 
-Statuses: MATCH (a launch line sets the same value), MISMATCH (it sets a different one), PROFILE-ONLY (no launch line sets it; the
+Statuses: MATCH (a launch script sets the same value), MISMATCH (it sets a different one), PROFILE-ONLY (no launch script sets it; the
 script's own `${VAR:-default}` is shown for information), UNFILLED, UNKNOWN (no such name anywhere in `ecalc/` or `tools/`: a typo or a
-key without a consumer), SCRIPT-ONLY (a launch line sets it but the profile lacks it), REMOVAL-SLATED. Read-only; it needs bash and grep.
+key without a consumer), SCRIPT-ONLY (aac7env.sh sets it but the profile lacks it), REMOVAL-SLATED. Read-only; it needs bash and grep.
