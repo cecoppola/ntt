@@ -34,6 +34,6 @@ Run-level model used by the driver's stop rule: saving = 174 calls x 36.5 ms x (
 (pending; filled on collection)
 
 ## RESUME
-- State: code + probe + driver on branch k1b (pushed). aac6 clone `~/ntt-k1b` (from a full bundle; the shared clone `~/ntt` is on the pre-rewrite history), built (`module load rocm; make -s -j16`, probe built). Driver armed, output `~/k1b/`.
+- State: code + probe + driver on branch k1b (pushed). aac6 clone `~/ntt-k1b` (from a full bundle; the shared clone `~/ntt` is on the pre-rewrite history), built (`module load rocm; make -s -j16`, probe built). Driver armed 2026-10-12 02:32 Eastern (`setsid nohup`, GIVEUP_EPOCH 12:00 Eastern), hold job 22989 pending third in the PPAC queue behind two of our jobs; expected start ~03:05-03:50, DONE ~03:50-04:35 Eastern (as). Output `~/k1b/`.
 - Collect: `ssh aac6 'cat ~/k1b/DONE; cat ~/k1b/summary.txt'` (one bounded command). Marker text: `SUCCESS: refuted by the probe ...` (write up: section 5 + verdict), `SUCCESS: probe ... gates PASS; DONE rounds=...` (copy the ABBA line, memory lines and probe numbers into section 5), or `FAILED: ...` (see summary.txt; probe.log, gate_*/, abba/log/).
 - After collection: remove `~/ntt-k1b` and `~/k1b.bundle` on aac6 when the branch is decided; local worktree `../ntt-wt-k1b`.
