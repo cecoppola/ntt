@@ -1,6 +1,6 @@
 # TGTBENCH2 — the user's second set of target tests, assessed against the ecalc design (2026-10-06, branch `tgtbench2`)
 
-Input: `results/TGTBENCH2_raw.md`, received about 18:40 EDT and kept verbatim. The tests are the user's, run **on the target** (576-node
+Input: `archive:results/TGTBENCH2_raw.md`, received about 18:40 EDT and kept verbatim. The tests are the user's, run **on the target** (576-node
 MI300A, 8 Cassini NICs per node) with a generic benchmark harness, **not ecalc**. Times are Eastern.
 
 Labels:

@@ -1,7 +1,7 @@
 # XEFF: why ecalc's exchanges underuse the transport, and what to change
 
 Design study, 2026-10-08. No code changes, no runs. Read-only inputs: aac7 `~/s22/log/scale_n10_r1.log` (S22, 10 nodes, the
-`MN_WAIT_STATS` / `MN_COMM_MARK` build) and `~/s19a/log/p10.log` (S19A, 10 nodes, `COMM_LAYER_STATS=1`). Also results/S19B.md, S20.md,
+`MN_WAIT_STATS` / `MN_COMM_MARK` build) and `~/s19a/log/p10.log` (S19A, 10 nodes, `COMM_LAYER_STATS=1`). Also results/S19B.md, archive:results/S20.md,
 S22.md, OFI17.md, TUNE17.md, NIC16_experiments.md, I.md, RESULTS §112 and §116–§122. Code: `ecalc/comm_ofi.c`, `comm_shmem.c`,
 `comm_layered.c`, `rns_dist.c` (`mn_core`, `redistribute`, `gen_fwd`, `gen_inv_pw`, `mn_round_add`), `ntt_dist.c`, `mn.c` at
 `main` f09e2de. Models: `ecalc/estimate.py`.

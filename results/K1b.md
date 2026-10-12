@@ -3,7 +3,7 @@
 Branch k1b (from origin/main a448d73). Labels: **m** measured, **mod** modelled, **as** assumed. Times Eastern.
 
 ## 1. Question
-O7b (results/O7b.md, on branch o7b): k_gather is the largest kernel at 6.441e10 on one node (6.34 s APU0, 174 calls x 36.5 ms per APU, 15 % of GPU time, m), plus k_bload 1.2 s. S39 candidate A: gather each operand once without the canon, then canonicalise per prime with a local elementwise pass; O7b modelled 2.5-3.6 s.
+O7b (archive:results/O7b.md, on branch o7b): k_gather is the largest kernel at 6.441e10 on one node (6.34 s APU0, 174 calls x 36.5 ms per APU, 15 % of GPU time, m), plus k_bload 1.2 s. S39 candidate A: gather each operand once without the canon, then canonicalise per prime with a local elementwise pass; O7b modelled 2.5-3.6 s.
 
 Prior evidence that bears on it: S40 (aac7) ran the "local-only source" micro-test that S39 asked for: remote 36.1 ms vs local 35.9 ms with the select kernel (m). So the gather is **not** bound by the remote pull, and S40 concluded "do not build A as specified". That conclusion only removes S39's reason (fewer remote pulls); it does not decide the design. Raw-once saves whenever the gather itself (whatever bounds it: the strided store, the 64-bit `/` and `%` index arithmetic, the remote read) costs much more than a coalesced canon pass, because the gather then runs once per operand instead of once per prime. S50's tile kernel (coalesced store) bought only 5 ms of 35 ms (m), so the store alone is not the bound either. The right micro-test is therefore the design's own two pieces: raw gather vs gather + canon, and the canon pass, at the product shape.
 

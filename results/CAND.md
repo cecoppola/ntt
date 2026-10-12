@@ -48,7 +48,7 @@ Arms: A = main binary (85d9d73f), switches unset; B = cand binary (7e7cd7da) wit
 
 ### aac6 profile of cand all-on (`~/p2a`), 6.441e10, 1 node, one profiled + one unprofiled run (indicative)
 - Profiled total 66.45 s, unprofiled total 66.91 s (both VERIFY OK). Unprofiled phases: init 13.74 s (region pools 7.24 s inside rns_init; arenas 6.98 s), bs 36.56 s (seeds 8.2, batch 21.1, mdev 7.1; the bs thread waited 8.24 s for the init thread), dm about 16.6 s (derived: total - init - bs).
-- Against main (results/O7b.md on branch o7b, same size, 1 node, main 0298fe2, unprofiled): total 73.32 s -> 66.91 s (-6.4 s, one pair vs one run, indicative), init 15.5 -> 13.7 s, bs 38.2 -> 36.6 s (seed wait 10.0 -> 8.2 s), dm 19.5 -> about 16.6 s. This matches the paired aac6 result (-7.16 s).
+- Against main (archive:results/O7b.md on branch o7b, same size, 1 node, main 0298fe2, unprofiled): total 73.32 s -> 66.91 s (-6.4 s, one pair vs one run, indicative), init 15.5 -> 13.7 s, bs 38.2 -> 36.6 s (seed wait 10.0 -> 8.2 s), dm 19.5 -> about 16.6 s. This matches the paired aac6 result (-7.16 s).
 - Kernel profile: GPU busy per APU 47.8 / 49.0 / 48.7 / 41.9 s (O7b main: 43.7 / 44.7 / 44.4 / 38.1 s), i.e. more GPU time but a shorter wall. New in the top list: `k_pull` 8.6 s per APU (18.5 % of GPU time, 4 calls; the BS_SEED_PULL kernel moving seeds on the device) and `k_gather_raw<1>` 2.0 s per APU (4.3 %). GPU timeline busier early (first 5 s bin 2.4 s busy, bin 5-10 s fully busy).
 
 ### Verdict

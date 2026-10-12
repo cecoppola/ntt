@@ -79,7 +79,7 @@ CAP17's 4.452 × 10¹³, or back to the 5.276 × 10¹³ headline with `ECALC_PLA
 outright) if the memory configuration — the 373 GB/node `hipMalloc` edge, or the B7 v-exchange-slot allowance — is
 lifted or found larger than assumed.
 
-## 5. Modelled walls (`estimate.py`, EST17.md's flag set)
+## 5. Modelled walls (`estimate.py`, archive:results/EST17.md's flag set)
 
 Command (per-node D = 4.08 × 10¹³ / 576 = 70,833,333,333.33): `DM_MN_LEAN=1 MN_OUT_DKM_HI=1
 MN_MODEL_MAP_RATE=0.070 python3 estimate.py --g 576 --D 70833333333.33 --np-mn auto --lat 8.5e-6 --hide-pow2 0.72
@@ -93,10 +93,10 @@ different write column, 1.0 GB/s matches the no-flag default).
 | (ii) 8 NICs, same efficiency (`--bw 47`, assumed) | **282.4 / 282.9 s** | 318.0 / 316.0 s |
 | (iii) line rate (`--bw 100`, assumed, old) | 229.6 / 236.6 s | 265.4 / 270.0 s |
 
-All **modelled**, labels as EST17.md §6 (bw 11 measured-aac7/assumed-at-576, bw 47 and bw 100 assumed). Node memory
+All **modelled**, labels as archive:results/EST17.md §6 (bw 11 measured-aac7/assumed-at-576, bw 47 and bw 100 assumed). Node memory
 printed by `estimate.py` at this size: dev ≈ 348 GB, host ≈ 44 GB, pool ≈ 10 GB, node ≈ 386 GB (model; within ~0.2 %
 of the C-measured 345.29 / 387.37 GB above — the usual model/C gap at the default plane cap). Every case is
-**faster than the former 5.276 × 10¹³ headline at the same `--bw`** (EST17.md §3: case i 750.1/744.6 s, case ii
+**faster than the former 5.276 × 10¹³ headline at the same `--bw`** (archive:results/EST17.md §3: case i 750.1/744.6 s, case ii
 352.6/360.6 s, case iii 288.0/302.7 s at 7.2.4) — fewer digits costs no time at all, it saves it.
 
 ## 6. Open items
