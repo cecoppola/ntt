@@ -3,7 +3,7 @@
 #
 # USAGE
 #   tools/gate.sh [--build] [--nodes 1|2|4] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
-#                 [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
+#                 [--profile NAME|PATH] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
 #     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
 #                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
 #     --hold J    run inside the existing allocation J (srun --overlap through mnrun.sh with SLURM_JOB_ID=J, no -w); never cancelled.
@@ -12,6 +12,9 @@
 #     --line      launch line: aac7 = the LINE of ecalc/e16_headline.sh (parsed, not copied; default on aac7), none = plain (default
 #                 elsewhere), target = the target export block, which is NOT in this repo: use file:PATH (K=V per line, # comments),
 #                 e.g. --line file:~/target_line.env.   --env words are appended; ECALC_SEGV_TRACE=1 is always set.
+#     --profile P load profiles/P.conf (tools/profile_load.py) into the gate's environment: explicit env > profile > code default; writes
+#                 config_src.txt (config-src: line). Unknown/misspelled key or __FILL__ = FAIL. Not given = behaviour unchanged.
+#                 --build also runs `tools/switch_registry.py --check` and `tools/profile_load.py --validate-all` first (either failing = FAIL).
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
@@ -22,11 +25,11 @@
 
 ARGS=("$@")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=$ROOT/ecalc
-BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
+PROFILE= BUILD=0 NODES=1 DIGITS=1e9 HOLD= ALLOC=0 LINE_SEL= EXTRA= OUT= REF= TMO=1500 WAITS=1800
 while [ $# -gt 0 ]; do
   case $1 in
     --build) BUILD=1;; --nodes) NODES=$2; shift;; --digits) DIGITS=$2; shift;; --hold) HOLD=$2; shift;; --alloc) ALLOC=1;;
-    --line) LINE_SEL=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
+    --line) LINE_SEL=$2; shift;; --profile) PROFILE=$2; shift;; --env) EXTRA="$EXTRA $2"; shift;; --out) OUT=$2; shift;; --ref) REF=$2; shift;;
     --timeout) TMO=$2; shift;; --wait) WAITS=$2; shift;;
     -h|--help) sed -n '2,/^# Never put/p' "$0" | cut -c3-; exit 0;;
     *) echo "gate.sh: unknown option $1" >&2; exit 2;;
@@ -64,6 +67,20 @@ if ! type module >/dev/null 2>&1 && [ -z "$GATE_LOGIN" ]; then export GATE_LOGIN
 if ! type module >/dev/null 2>&1; then for f in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/Modules/init/bash /opt/cray/pe/lmod/lmod/init/bash; do [ -r $f ] && { . $f; break; }; done; fi
 [ -f "$E/aac7env.sh" ] && [ $CRAY = 1 ] && { cd "$E" && . ./aac7env.sh >/dev/null 2>&1; }
 
+# ---- registry and profile validation (before the build; read-only)
+if [ $BUILD = 1 ]; then
+  command -v python3 >/dev/null 2>&1 || fail "python3 missing (needed for the registry check)"
+  python3 "$ROOT/tools/switch_registry.py" --check > "$OUT/registry.log" 2>&1 || fail "switch registry stale (see registry.log; run tools/switch_registry.py)"
+  python3 "$ROOT/tools/profile_load.py" --validate-all > "$OUT/profiles.log" 2>&1 || fail "profile validation failed (see profiles.log)"
+fi
+PROF_SRC=
+if [ -n "$PROFILE" ]; then
+  PL_OUT=$(python3 "$ROOT/tools/profile_load.py" "$PROFILE" 2>"$OUT/profile.err") || fail "profile $PROFILE: $(head -c 200 "$OUT/profile.err")"
+  eval "$PL_OUT"
+  PROF_SRC="config-src: profile=$ECALC_PROFILE_NAME from-profile=${ECALC_PROFILE_FROM:--} env-over=${ECALC_PROFILE_OVER:--}"
+  say "$PROF_SRC"; echo "$PROF_SRC" > "$OUT/config_src.txt"
+fi
+
 # ---- build
 if [ $BUILD = 1 ]; then
   cd "$E" || fail "no $E"
@@ -95,7 +112,7 @@ case $LINE_SEL in
           LINE=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' -e 's/^export //' "$lf" | grep -v '^$' | tr '\n' ' ');;
   *) fail "bad --line $LINE_SEL";;
 esac
-ENVSHOW="line=${LINE_SEL%%:*} $EXTRA ECALC_SEGV_TRACE=1"
+ENVSHOW="line=${LINE_SEL%%:*}${PROFILE:+ profile=$PROFILE} $EXTRA ECALC_SEGV_TRACE=1"
 ENVSHOW=$(echo $ENVSHOW)
 
 # ---- allocation
