@@ -192,24 +192,17 @@ static int out_stage(struct out_ctx *c)
     }
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
     if (rlog) { printf("RES node %d joined P/Q", c->rank); for (int i = 0; i < T1_NQ; i++) printf(" %llu/%llu", (unsigned long long)Pg[i], (unsigned long long)Qg[i]); printf("\n"); }
-    /* the share of X this node holds: the device X (size 1, B1), this node's share of the sharded X (the distributed division:
-     * A-div's mdb, read in place), or -- the host flows -- the host X, at size > 1 scattered from node 0 (the stand-in) */
-    mn_out_src src; memset(&src, 0, sizeof src); dbig xsh; db_init(&xsh); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
+    /* the share of X this node holds: the device X (size 1, B1), the host X (size 1, the host flow), or this node's share of
+     * the sharded X (size > 1: the distributed division's mdb, read in place) */
+    mn_out_src src; memset(&src, 0, sizeof src); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
     if (!multi) { if (c->Xd) { src.dev = c->Xd; src.cnt = c->Xd->n; } else { src.host = c->X->l; src.cnt = c->X->n; } }
-    else if (c->Xm) {
+    else {
         size_t lo, hi; mdb_share(c->Xm, c->rank, &lo, &hi);
         src.dev = &c->Xm->sh; src.lo = lo; src.cnt = hi - lo; if (src.cnt > c->Xm->sh.n) src.cnt = c->Xm->sh.n;   /* (the share's dbig is never normalised; shorter = zeros above) */
         node_pfx(c); printf("X%s share [%zu, %zu) of %zu limbs on the device (the distributed division's)\n", c->hi ? "_lo" : "", lo, hi, xn);
-    } else {
-        double ts = mem_now(); size_t lo, cnt;
-        mn_out_scatter_standin(cm, c->X->l, c->X->n, &xsh, &lo, &cnt, &xn);
-        src.dev = &xsh; src.lo = lo; src.cnt = cnt;
-        if (c->rank == 0) { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; }
-        node_pfx(c); printf("X share [%zu, %zu) of %zu limbs on the device (stand-in scatter from node 0: %.2f s)\n", lo, lo + cnt, xn, mem_now() - ts);
     }
-    /* T1 (b): the residues of P, Q, R: with the distributed division every node has them (newton_mn_divmod: each share's db_mod_qs
-     * scaled by B^lo and summed over the group); the host flows broadcast node 0's */
-    if (multi && !c->Xm) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
+    /* T1 (b): the residues of P, Q, R: at size > 1 every node has them (newton_mn_divmod: each share's db_mod_qs
+     * scaled by B^lo and summed over the group) */
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
     uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && (!c->ncorr || c->defer), joined = 0;   /* (deferred corrections -- T1 never waits for the writer) */
     if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
@@ -290,7 +283,6 @@ static int out_stage(struct out_ctx *c)
     double t_dc = mem_now() - t;
     if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (X_hi) */
     if (c->Xm) db_free(&c->Xm->sh);
-    db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
     if (mn_out_dc_stats()) { node_pfx(c); printf("dcstats: dc %.3f s = start to the loop's end %.3f (boundaries all-gather, loop or join of the streamed writer, patch) + digit-residue join %.3f + digits-vs-X check %.3f\n", t_dc, t_dcA - t, t_dcB - t_dcA, t_dc - (t_dcB - t)); }   /* S21 (A37-R4) */

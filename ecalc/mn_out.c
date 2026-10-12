@@ -68,23 +68,6 @@ void mn_out_res_share(const mn_out_src *src, uint64_t *res)
     if (src->dev) { dbig v = *src->dev; v.n = src->cnt; db_mod_qs(&v, t1_q, T1_NQ, res); }
     else for (int i = 0; i < T1_NQ; i++) res[i] = vf_limbs_mod(src->host, src->cnt, t1_q[i]);
 }
-/* the stand-in for A-div's sharded X: node 0 scatters its host X (basis N = xn) over mesh 0 */
-void mn_out_scatter_standin(comm *c, const uint64_t *X, size_t xn, dbig *share, size_t *lo, size_t *cnt, size_t *n_out)
-{
-    int n = c ? comm_size(c) : 1, me = c ? comm_rank(c) : 0;
-    uint64_t v = xn;
-    if (n > 1) { if (me == 0) for (int r = 1; r < n; r++) comm_send(c, r, &v, 8); else comm_recv(c, 0, &v, 8); }
-    xn = v; *n_out = xn;
-    size_t l, h; comm_shard(xn, me, n, &l, &h); *lo = l; *cnt = h - l;
-    uint64_t *buf = 0;
-    if (me == 0) {
-        for (int r = 1; r < n; r++) { size_t rl, rh; comm_shard(xn, r, n, &rl, &rh); if (rh > rl) comm_send(c, r, X + rl, (rh - rl) * 8); }
-        buf = (uint64_t *)X + l;
-    } else { buf = (uint64_t *)malloc((h - l + 1) * 8); if (h > l) comm_recv(c, 0, buf, (h - l) * 8); }
-    bigint view = { buf, h - l, 0 };
-    db_init(share); db_from_bi(share, &view); share->n = h - l;
-    if (me) free(buf);
-}
 
 /* ---- the digits ---- */
 static inline void fmt18(char *o, uint64_t v)              /* 18 digits, zero-padded */

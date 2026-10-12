@@ -110,9 +110,6 @@ void mn_out_res_combine(comm *c, const uint64_t *res, size_t lo, uint64_t *out);
 void mn_out_pq_combine(comm *c, const uint64_t *p, const uint64_t *qq, uint64_t *P, uint64_t *Q);   /* the term ranges in node order */
 void mn_out_bcast_u64(comm *c, uint64_t *v, int k, int root);
 int  mn_out_allreduce_or(comm *c, int v);
-/* the stand-in for the distributed division's X (until A-div lands): node 0's host X scattered over mesh 0 into
- * the nodes' device shares, basis N = X->n; every node returns its share (a dbig, cnt = hi - lo limbs) */
-void mn_out_scatter_standin(comm *c, const uint64_t *X, size_t xn, dbig *share, size_t *lo, size_t *cnt, size_t *n_out);
 /* the recheck mode (ECALC_RECHECK=1).  The run writes <outfile>.t1 (node 0): N, d, d_out, size, the residues of
  * X, R, P, Q it checked with, and the d - d_out digits after d_out.  mn_out_recheck recomputes, without the run: the digit
  * residues from the digit file (the part files at size > 1, each node its own), X mod q from them and the tail, P and Q
