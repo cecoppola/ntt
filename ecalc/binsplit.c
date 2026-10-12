@@ -1354,13 +1354,38 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             ec_fatal(EC_RC_FATAL, "ECALC_FATAL_TEST=1: a forced failure in bs's worker %d of %d (all at once, after the seeds)", omp_get_thread_num(), NR);
         }
     }
+    /* N3 (BS_BATCH_PIPE=1, rns_mul.c): the level's host passes over its nodes in parallel -- the max_nl scan, the layout
+     * region by region (a large level's regions are contiguous index ranges, so each region's running offset is the
+     * serial one), the product list in one buffer kept across the levels, the lengths read back -- the same layout */
+    int pipe = rns_batch_pipe_on(); rns_prod *pr_buf = 0; size_t pr_cap = 0;
     while (cur.n > 1) {
         t = mem_now();
         size_t npairs = cur.n / 2, odd = cur.n & 1, max_nl = 0;
+        int par = pipe && npairs >= 4096 && npairs + odd > (size_t)bs_balance_n;   /* N3: a large level (place_node = region_of) */
+        if (par) {
+#pragma omp parallel for schedule(static) reduction(max : max_nl)
+            for (size_t i = 0; i < cur.n; i++) { size_t m = cur.nd[i].pn > cur.nd[i].qn ? cur.nd[i].pn : cur.nd[i].qn; if (m > max_nl) max_nl = m; }
+        } else
         for (size_t i = 0; i < cur.n; i++) { if (cur.nd[i].pn > max_nl) max_nl = cur.nd[i].pn; if (cur.nd[i].qn > max_nl) max_nl = cur.nd[i].qn; }
         /* next level layout: P slot n(P1)+n(Q2)+1, Q slot n(Q1)+n(Q2) */
         nxt.n = npairs + odd; nxt.nd = (struct node *)calloc(nxt.n, sizeof *nxt.nd);
         size_t offr[NR] = {0}, off = 0;
+        if (par) {                                   /* N3: region r holds pairs [ceil(r n / NR), ceil((r+1) n / NR)) of the n = nxt.n nodes */
+            size_t lo[NR + 1]; for (int r = 0; r <= NR; r++) { size_t v = ((size_t)r * nxt.n + NR - 1) / NR; lo[r] = v < npairs ? v : npairs; }
+            lo[NR] = npairs; int bad = 0;
+#pragma omp parallel for num_threads(NR) schedule(static, 1) reduction(|| : bad)
+            for (int r = 0; r < NR; r++) {
+                size_t acc = 0;
+                for (size_t i = lo[r]; i < lo[r + 1]; i++) {
+                    struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
+                    o->r = place_node(i, nxt.n, offr, a->r, b->r); if (o->r != r) bad = 1;
+                    o->po = acc; acc += a->pn + b->qn + 1; o->qo = acc; acc += a->qn + b->qn;
+                    o->pn = o->qn = 0;
+                }
+                offr[r] = acc;
+            }
+            if (bad) ec_fatal(EC_RC_FATAL, "bs: BS_BATCH_PIPE: a level's regions are not contiguous (level %d, %zu nodes)\n", bs_st.levels + 1, nxt.n);
+        } else
         for (size_t i = 0; i < npairs; i++) {
             struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
             o->r = place_node(i, nxt.n, offr, a->r, b->r);   /* C2: balanced at the small top levels */
@@ -1379,22 +1404,44 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         const char *tier; int normed = 0, finished = 0;
         if (2 * max_nl + 1 <= ((size_t)1 << bs_mdev_logl)) {
             tier = "batch"; bs_st.batch_levels++;
-            rns_prod *pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
+            rns_prod *pr;
+            if (pipe) {                              /* N3: one buffer for all the levels (level 1's size), every field set */
+                if (pr_cap < 2 * npairs) { free(pr_buf); pr_cap = 2 * npairs; pr_buf = (rns_prod *)malloc(pr_cap * sizeof *pr_buf); }
+                pr = pr_buf;
+#pragma omp parallel for schedule(static) if (par)
+                for (size_t i = 0; i < npairs; i++) {
+                    struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
+                    rns_prod *p0 = &pr[2 * i], *p1 = &pr[2 * i + 1];
+                    p0->a = NODE_P(cur, a); p0->na = a->pn; p0->b = NODE_Q(cur, b); p0->nb = b->qn; p0->c = NODE_P(nxt, o);
+                    p0->x = NODE_P(cur, b); p0->nx = b->pn; p0->ncn = 0;
+                    p1->a = NODE_Q(cur, a); p1->na = a->qn; p1->b = p0->b; p1->nb = b->qn; p1->c = NODE_Q(nxt, o);
+                    p1->x = 0; p1->nx = 0; p1->ncn = 0;
+                }
+            } else {
+            pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
             for (size_t i = 0; i < npairs; i++) {
                 struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
                 pr[2 * i].a = NODE_P(cur, a); pr[2 * i].na = a->pn; pr[2 * i].b = NODE_Q(cur, b); pr[2 * i].nb = b->qn; pr[2 * i].c = NODE_P(nxt, o);
                 pr[2 * i].x = NODE_P(cur, b); pr[2 * i].nx = b->pn;                 /* P = P1 Q2 + P2 in the CRT */
                 pr[2 * i + 1].a = NODE_Q(cur, a); pr[2 * i + 1].na = a->qn; pr[2 * i + 1].b = pr[2 * i].b; pr[2 * i + 1].nb = b->qn; pr[2 * i + 1].c = NODE_Q(nxt, o);
             }
+            }
             tl1 = mem_now();
             rns_mul_batch(pr, 2 * npairs);
             tl2 = mem_now();
             normed = 1;
+            if (pipe) {                              /* N3: all lengths, then the flag (a missing one: node_norm below redoes them all) */
+                int ok = 1;
+#pragma omp parallel for schedule(static) if (par) reduction(&& : ok)
+                for (size_t i = 0; i < npairs; i++) { ok = ok && pr[2 * i].ncn && pr[2 * i + 1].ncn; nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn; }
+                normed = ok;
+            } else {
             for (size_t i = 0; i < npairs; i++) {
                 if (!pr[2 * i].ncn || !pr[2 * i + 1].ncn) { normed = 0; break; }
                 nxt.nd[i].pn = pr[2 * i].ncn; nxt.nd[i].qn = pr[2 * i + 1].ncn;
             }
             free(pr);
+            }
         } else {
             tier = "mdev"; bs_st.mdev_levels++;
             {
@@ -1477,6 +1524,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         bi_reserve(Q, cur.nd[0].qn); region_copy(Q->l, NODE_Q(cur, &cur.nd[0]), cur.nd[0].qn, cur.nd[0].r); Q->n = cur.nd[0].qn;
     }
     free(cur.nd);
+    free(pr_buf);                                    /* N3 */
     bs_st.t_total = mem_now() - t0;
 }
 unsigned long bs_a0 = 1, bs_b1 = 0;                                 /* M2: this process's term range [a0, b1) (b1 = 0: all of [1, N+1)) */

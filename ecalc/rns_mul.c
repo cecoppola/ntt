@@ -23,6 +23,14 @@ int rns_gpucrt_min = 1;
 int rns_gpucrt_blocks = 912;      /* GPUCRT_MIN_BLOCKS: stripes so that M S >= this */
 static uint64_t *g_spill; static size_t g_spill_cap;
 static int g_mdev_S;
+/* N3 (BS_BATCH_PIPE=1, default 0): the batch tier's host side without needless gaps -- the per-product scans of
+ * rns_mul_batch in parallel (one device lookup per product, reused), and in rns_mul_batch_local the tiles of a device
+ * issued back to back: descriptors through two pinned slots, the spill merge on the stream (VMM pools), the lengths of
+ * all the device's tiles read back once at the end, so the GPU never waits for the host between tiles.  Same kernels,
+ * same arguments, same order on each stream: digits identical.  binsplit_e reads it too (its level layout in parallel). */
+int rns_batch_pipe = -1;
+int rns_batch_pipe_on(void) { if (rns_batch_pipe < 0) { const char *e = getenv("BS_BATCH_PIPE"); rns_batch_pipe = e ? atoi(e) != 0 : 0; } return rns_batch_pipe; }
+static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
 static struct dev {
@@ -243,6 +251,8 @@ void rns_shutdown(void)
         mem_hstage_free(D[d].hstage);
         HIP_CHECK(hipStreamDestroy(D[d].s));
         ntt_ctx_free(D[d].ctx);
+        for (int k = 0; k < 2; k++) if (g_hdp[d][k]) { HIP_CHECK(hipHostFree(g_hdp[d][k])); g_hdp[d][k] = 0; }   /* N3 */
+        g_hdp_cap[d] = 0;
     }
     g_nd = 0;
 }
@@ -743,8 +753,8 @@ __global__ void k_spill_merge(const struct bdesc *P, size_t M, const uint64_t *s
         while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
     }
 }
-static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc)   /* 0 = the B planes do not fit pool 1 (nothing done: the caller runs the striped tier) */
-{
+static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t maxnc, const signed char *dv)   /* 0 = the B planes do not fit pool 1 (nothing done: the caller runs the striped tier) */
+{                                                  /* dv (N3, BS_BATCH_PIPE=1): mem_dev_of(P[i].c) per product, from the caller's scan; 0 = look it up */
     int logk, r3 = pick_len(maxnc, &logk); (void)logL;
     size_t L = len_of(r3, logk), plane_cap = rns_plane_limbs();   /* B3: pool 0's real capacity (3 2^(pool_log-1) with the 3 2^k planes) */
     size_t Mmax = plane_cap / (ec_np * L); if (Mmax < 1) { ec_fatal(EC_RC_FATAL, "rns_mul_batch_local: L %zu does not fit the pools\n", L); }
@@ -753,7 +763,13 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
      * t >> 1 for x transform t.  Pairs stay adjacent in every device's list (both go to the region's device, in
      * order) and tiles start at even positions when Mmax is even. */
     int pair = !grpB && N >= 2 && !(N & 1);
-    for (size_t i = 0; i < N && pair; i += 2)
+    if (dv && pair) {                              /* N3: the same test in parallel */
+        int ok = 1;
+#pragma omp parallel for schedule(static) reduction(&& : ok)
+        for (size_t j = 0; j < N / 2; j++) { size_t i = 2 * j; ok = ok && P[i].b == P[i + 1].b && P[i].nb == P[i + 1].nb && dv[i] == dv[i + 1]; }
+        pair = ok;
+    }
+    for (size_t i = 0; i < N && pair && !dv; i += 2)
         if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb || mem_dev_of(P[i].c) != mem_dev_of(P[i + 1].c)) pair = 0;
     if (pair) {                                    /* tile budget over a (M) + b (M/2) planes; at least one pair when the pools allow it */
         size_t tile_limit = rns_batch_tile_bytes * 2 / (3 * L * 8) / ec_np; if (tile_limit < 2) tile_limit = 2;
@@ -775,10 +791,22 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
     if (!ginit || G.np != ec_np) { G = rns_gconst(); ginit = 1; }   /* (P3: refreshed when the prime count changes) */
     /* products by owning device */
     size_t *idx = (size_t *)malloc(N * sizeof *idx), cnt[EC_NP] = {0}, start[EC_NP + 1];
+    if (dv) {                                      /* N3: the same stable order, by chunks in parallel (counts, offsets, fill) */
+        enum { NCH = 64 }; size_t cc[NCH][EC_NP]; memset(cc, 0, sizeof cc);
+#pragma omp parallel for schedule(static, 1)
+        for (int c = 0; c < NCH; c++) for (size_t i = N * c / NCH; i < N * (c + 1) / NCH; i++) cc[c][dv[i]]++;
+        for (int c = 0; c < NCH; c++) for (int d = 0; d < g_nd; d++) cnt[d] += cc[c][d];
+        start[0] = 0; for (int d = 0; d < g_nd; d++) start[d + 1] = start[d] + cnt[d];
+        size_t pos[EC_NP]; for (int d = 0; d < g_nd; d++) pos[d] = start[d];
+        for (int c = 0; c < NCH; c++) for (int d = 0; d < g_nd; d++) { size_t k = cc[c][d]; cc[c][d] = pos[d]; pos[d] += k; }
+#pragma omp parallel for schedule(static, 1)
+        for (int c = 0; c < NCH; c++) for (size_t i = N * c / NCH; i < N * (c + 1) / NCH; i++) idx[cc[c][dv[i]]++] = i;
+    } else {
     for (size_t i = 0; i < N; i++) cnt[mem_dev_of(P[i].c)]++;
     start[0] = 0; for (int d = 0; d < g_nd; d++) start[d + 1] = start[d] + cnt[d];
     { size_t fill[EC_NP]; for (int d = 0; d < g_nd; d++) fill[d] = start[d];
       for (size_t i = 0; i < N; i++) idx[fill[mem_dev_of(P[i].c)]++] = i; }
+    }
     double tsc = 0, tnt = 0, tcr = 0, tmg = 0;
 #pragma omp parallel num_threads(g_nd)
     {
@@ -793,6 +821,57 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
             for (int p = 0; p < ec_np; p++) { ntt_load(v->ctxp[p], db + p * L, P[0].b, P[0].nb, L, v->s); x_fwd(v->ctxp[p], db + p * L, r3, logk, 1, v->s); }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
+        if (dv && cnt[d]) {                           /* N3: the tiles back to back on the stream (same kernels, same order) */
+            size_t nd_ = cnt[d], Mt = Mmax < nd_ ? Mmax : nd_, ntile = (nd_ + Mmax - 1) / Mmax;
+            int vmm = db_pool_vmm_on();
+            HIP_CHECK(hipStreamSynchronize(v->s));        /* (idle already: the buffers below may be re-sized) */
+            if (g_hdp_cap[d] < Mt) { for (int k = 0; k < 2; k++) { if (g_hdp[d][k]) HIP_CHECK(hipHostFree(g_hdp[d][k])); HIP_CHECK(hipHostMalloc((void **)&g_hdp[d][k], Mt * sizeof(struct bdesc), 0)); } g_hdp_cap[d] = Mt; }
+            if (g_desc_cap[d] < Mt) { if (g_desc[d]) HIP_CHECK(hipFree(g_desc[d])); HIP_CHECK(hipMalloc(&g_desc[d], Mt * sizeof(struct bdesc))); g_desc_cap[d] = Mt; }
+            { size_t sp = (size_t)rns_gpucrt_blocks + Mt;  /* M S <= blocks + M for every tile (S = ceil(blocks / M), capped) */
+              if (v->spill_cap < sp) { if (v->spill) mem_hreg_free(v->spill); v->spill_cap = sp + 64; v->spill = (uint64_t *)mem_hreg_alloc(v->spill_cap * 4 * 8); } }
+            if (v->len_cap < nd_) { if (v->len) { HIP_CHECK(hipHostFree(v->len)); HIP_CHECK(hipFree(v->dlen)); } v->len_cap = nd_ + 1024; HIP_CHECK(hipHostMalloc((void **)&v->len, v->len_cap * 4, 0)); HIP_CHECK(hipMalloc(&v->dlen, v->len_cap * 4)); }
+            hipEvent_t *ev = (hipEvent_t *)malloc(ntile * 4 * sizeof *ev), hev[2]; int hrec[2] = {0, 0};
+            for (size_t k = 0; k < ntile * 4; k++) HIP_CHECK(hipEventCreate(&ev[k]));
+            for (int k = 0; k < 2; k++) HIP_CHECK(hipEventCreateWithFlags(&hev[k], hipEventDisableTiming));
+            size_t t = 0;
+            for (size_t first = start[d]; first < start[d + 1]; first += Mmax, t++) {
+                size_t M = start[d + 1] - first < Mmax ? start[d + 1] - first : Mmax, plane = M * L, Mb = pair ? M / 2 : M, plane_b = Mb * L;
+                int sl = (int)(t & 1); struct bdesc *h = g_hdp[d][sl];
+                if (hrec[sl]) HIP_CHECK(hipEventSynchronize(hev[sl]));   /* the slot's last copy is done (two tiles back) */
+                for (size_t i = 0; i < M; i++) { const rns_prod *q = &P[idx[first + i]]; h[i].a = q->a; h[i].b = q->b; h[i].c = q->c; h[i].x = q->x; h[i].na = (uint32_t)q->na; h[i].nb = (uint32_t)q->nb; h[i].nx = (uint32_t)(q->x ? q->nx : 0); }
+                HIP_CHECK(hipMemcpyAsync(g_desc[d], h, M * sizeof(struct bdesc), hipMemcpyHostToDevice, v->s));   /* after the previous tile's kernels on the stream */
+                HIP_CHECK(hipEventRecord(hev[sl], v->s)); hrec[sl] = 1;
+                int S = (int)((rns_gpucrt_blocks + M - 1) / M); if (S < 1) S = 1;
+                if ((size_t)S > (L >> 10)) S = (int)(L >> 10) > 0 ? (int)(L >> 10) : 1;
+                size_t blocks = (plane + 255) / 256; if (blocks > 228 * 16) blocks = 228 * 16;
+                hipEvent_t *e = ev + 4 * t;
+                HIP_CHECK(hipEventRecord(e[0], v->s));
+                k_scatter4<<<(unsigned)blocks, 256, 0, v->s>>>(da, grpB ? 0 : db, plane, plane_b, pair, g_desc[d], M, logk, r3, ec_mod_get(0), ec_mod_get(1), ec_mod_get(2), ec_mod_get(3), ec_np);
+                HIP_CHECK(hipEventRecord(e[1], v->s));
+                for (int p = 0; p < ec_np; p++) {
+                    x_fwd(v->ctxp[p], da + p * plane, r3, logk, M, v->s);
+                    if (grpB) x_inv_pw_bcast(v->ctxp[p], da + p * plane, db + p * L, r3, logk, M, v->s);
+                    else { x_fwd(v->ctxp[p], db + p * plane_b, r3, logk, Mb, v->s); x_inv_pw_y(v->ctxp[p], da + p * plane, db + p * plane_b, pair ? NTT_Y_PAIR : NTT_Y_FULL, r3, logk, M, v->s); }
+                }
+                HIP_CHECK(hipEventRecord(e[2], v->s));
+                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, v->s>>>(da, da + plane, da + 2 * plane, da + 3 * plane, g_desc[d], 0, S, L, G, v->spill);
+                HIP_CHECK(hipEventRecord(e[3], v->s));
+                if (S > 1) {
+                    if (vmm) k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->spill, S);   /* stream-ordered before the next tile's CRT reuses the spill */
+                    else { double tm0 = mem_now(); HIP_CHECK(hipStreamSynchronize(v->s)); for (size_t i = 0; i < M; i++) spill_merge(&P[idx[first + i]], v->spill + i * S * 4, S); lmg += mem_now() - tm0; }   /* host pools: the CPU merges (as before) */
+                }
+                k_norm<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->dlen + (first - start[d]));
+            }
+            double tm0 = mem_now();
+            HIP_CHECK(hipMemcpyAsync(v->len, v->dlen, nd_ * 4, hipMemcpyDeviceToHost, v->s));
+            HIP_CHECK(hipStreamSynchronize(v->s));
+            for (size_t i = 0; i < nd_; i++) P[idx[start[d] + i]].ncn = v->len[i];
+            lmg += mem_now() - tm0;
+            for (size_t k = 0; k < ntile; k++) { float m1, m2, m3; HIP_CHECK(hipEventElapsedTime(&m1, ev[4 * k], ev[4 * k + 1])); HIP_CHECK(hipEventElapsedTime(&m2, ev[4 * k + 1], ev[4 * k + 2])); HIP_CHECK(hipEventElapsedTime(&m3, ev[4 * k + 2], ev[4 * k + 3])); lsc += m1 * 1e-3; lnt += m2 * 1e-3; lcr += m3 * 1e-3; }
+            for (size_t k = 0; k < ntile * 4; k++) HIP_CHECK(hipEventDestroy(ev[k]));
+            for (int k = 0; k < 2; k++) HIP_CHECK(hipEventDestroy(hev[k]));
+            free(ev);
+        } else
         for (size_t first = start[d]; first < start[d + 1]; first += Mmax) {
             size_t M = start[d + 1] - first < Mmax ? start[d + 1] - first : Mmax, plane = M * L, Mb = pair ? M / 2 : M, plane_b = Mb * L;
             for (size_t i = 0; i < M; i++) { const rns_prod *q = &P[idx[first + i]]; hd[i].a = q->a; hd[i].b = q->b; hd[i].c = q->c; hd[i].x = q->x; hd[i].na = (uint32_t)q->na; hd[i].nb = (uint32_t)q->nb; hd[i].nx = (uint32_t)(q->x ? q->nx : 0); }
@@ -848,6 +927,21 @@ void rns_mul_batch(rns_prod *P, size_t N)
     { static int once = 0; if (!once) { once = 1; if (getenv("RNS_BATCH_LOCAL_MIN")) rns_batch_local_min = atoi(getenv("RNS_BATCH_LOCAL_MIN")); } }
     size_t maxnc = 0, in_limbs = 0, out_limbs = 0;
     int staged = 0;
+    signed char *dv = 0; int dv_local = 1;              /* N3: one device lookup per product, reused by the local tier */
+    if (rns_batch_pipe_on() && N >= 4096) {          /* the scans below in parallel (the same results) */
+        dv = (signed char *)malloc(N);
+        size_t mx = 0, inl = 0; int st = 0, loc = 1;
+#pragma omp parallel for schedule(static) reduction(max : mx) reduction(+ : inl) reduction(|| : st) reduction(&& : loc)
+        for (size_t i = 0; i < N; i++) {
+            size_t nc = P[i].na + P[i].nb;
+            if (nc > mx) mx = nc;
+            inl += nc;
+            if (!mem_is_registered(P[i].a, P[i].na * 8) || !mem_is_registered(P[i].b, P[i].nb * 8) || !mem_is_registered(P[i].c, (nc + (P[i].x ? 1 : 0)) * 8) || (P[i].x && !mem_is_registered(P[i].x, P[i].nx * 8))) st = 1;
+            int dd = mem_dev_of(P[i].c); dv[i] = (signed char)dd; if (dd < 0) loc = 0;
+        }
+        maxnc = mx; in_limbs = out_limbs = inl; staged = st; dv_local = loc;
+        if (staged && getenv("RNS_VERBOSE")) printf("batch: a product is not registered (N3 scan)\n");
+    } else
     for (size_t i = 0; i < N; i++) {
         size_t nc = P[i].na + P[i].nb;
         if (nc > maxnc) maxnc = nc;
@@ -862,18 +956,27 @@ void rns_mul_batch(rns_prod *P, size_t N)
     if (logL > RNS_BATCH_LOGL_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: L 2^%d too large\n", logL); }
     size_t L = (size_t)1 << logL;
     int grpB = N > 1;                                   /* every product shares one B: transform it once */
-    for (size_t i = 1; i < N && grpB; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
+    if (dv && grpB) {                                   /* N3: the same test in parallel */
+        int ok = 1;
+#pragma omp parallel for schedule(static) reduction(&& : ok)
+        for (size_t i = 1; i < N; i++) ok = ok && P[i].b == P[0].b && P[i].nb == P[0].nb;
+        grpB = ok;
+    }
+    for (size_t i = 1; i < N && grpB && !dv; i++) if (P[i].b != P[0].b || P[i].nb != P[0].nb) grpB = 0;
     if (!staged && N >= (size_t)rns_batch_local_min && (rns_plane_limbs() / (ec_np * L)) >= 1) {
         int local = 1;                                  /* few or huge products: the prime-per-device path balances the four APUs */
-        for (size_t i = 0; i < N && local; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
+        if (dv) local = dv_local;
+        for (size_t i = 0; i < N && local && !dv; i++) if (mem_dev_of(P[i].c) < 0) local = 0;
         if (local) {
             double tl = mem_now();
-            if (rns_mul_batch_local(P, N, logL, grpB, maxnc)) {   /* 0 -- the striped tier below */
+            if (rns_mul_batch_local(P, N, logL, grpB, maxnc, dv)) {   /* 0 -- the striped tier below */
                 rns_st.t_total += mem_now() - tl; rns_st.n_batch += N; rns_st.tb_total += mem_now() - tl;
+                free(dv);
                 return;
             }
         }
     }
+    free(dv); dv = 0;
     /* the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
