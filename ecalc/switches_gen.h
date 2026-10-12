@@ -92,9 +92,6 @@ static const char *const cfg_names[] = {
     "ECALC_PLANE_CAP",
     "ECALC_PLANE_CAP_IDX",
     "ECALC_RECHECK",
-    "ECALC_RES_LOG",
-    "ECALC_RES_LOG_CPU",
-    "ECALC_RES_LOG_LEVEL",
     "ECALC_SEGV_TEST",
     "ECALC_SEGV_TRACE",
     "ECALC_TEST_CORR",
@@ -152,4 +149,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 150
+#define CFG_NAMES_N 147

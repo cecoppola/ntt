@@ -183,15 +183,7 @@ static int out_stage(struct out_ctx *c)
     uint64_t pr[T1_NQ], qr[T1_NQ], Pg[T1_NQ], Qg[T1_NQ];
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
-    int rlog = db_res_log_on();
-    if (rlog) {                                        /* the recurrence recomputed here (the main thread) against the background thread's */
-        int bad = 0; printf("RES node %d terms [%lu, %lu): pq", c->rank, c->pqb->a0, c->pqb->b1);
-        for (int i = 0; i < T1_NQ; i++) { uint64_t p2, q2; vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &p2, &q2); if (p2 != pr[i] || q2 != qr[i]) bad++;
-                                          printf(" %llu/%llu%s", (unsigned long long)pr[i], (unsigned long long)qr[i], p2 == pr[i] && q2 == qr[i] ? "" : "!=main"); }
-        printf("%s\n", bad ? "  MISMATCH background vs main thread" : "  (main thread agrees)");
-    }
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
-    if (rlog) { printf("RES node %d joined P/Q", c->rank); for (int i = 0; i < T1_NQ; i++) printf(" %llu/%llu", (unsigned long long)Pg[i], (unsigned long long)Qg[i]); printf("\n"); }
     /* the share of X this node holds: the device X (size 1, B1), the host X (size 1, the host flow), or this node's share of
      * the sharded X (size > 1: the distributed division's mdb, read in place) */
     mn_out_src src; memset(&src, 0, sizeof src); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
@@ -218,11 +210,6 @@ static int out_stage(struct out_ctx *c)
         uint64_t xh[T1_NQ], Xh[T1_NQ]; mn_out_res_share(&shs, xh); mn_out_res_combine(cm, xh, shs.lo, Xh);
         for (int i = 0; i < T1_NQ; i++) Xres[i] = vf_add_mod(Xres[i], Xh[i], t1_q[i]);
     }
-    if (rlog) { printf("RES node %d X share [%zu, +%zu) res", c->rank, src.lo, src.cnt); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)xs[i]);
-                printf(" | X"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Xres[i]);
-                printf(" | P"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Pres[i]);
-                printf(" | Q"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Qres[i]);
-                printf(" | R"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)c->Rres[i]); printf("\n"); }
     bigint none; bi_init(&none);
     int bad1 = tier1_res_pq(c->N, c->d, c->Pres, c->Qres, &none, &none, Pg, Qg, Xres, c->Rres, c->verbose >= 2);
     double t_t1 = mem_now() - t;
@@ -275,8 +262,6 @@ static int out_stage(struct out_ctx *c)
     uint64_t Dres[T1_NQ];
     if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* X_hi's parts, then X_lo's */
     if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* the patched tail's new - old (the bytes read back) */
-    if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
-                printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
     double t_dcB = mem_now();
     if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
@@ -552,13 +537,6 @@ int main(int argc, char **argv)
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
-        if (db_res_log_on() && pqb.started) {           /* this node's leaf P_r, Q_r against the recurrence over its terms -- a wrong leaf is named before the tree */
-            pthread_join(pqb.th, 0); pqb.joined = 1;
-            uint64_t lp[T1_NQ], lq[T1_NQ]; db_mod_qs(&Pl, t1_q, T1_NQ, lp); db_mod_qs(&Ql, t1_q, T1_NQ, lq); int bad = 0;
-            printf("RES node %d leaf P/Q vs recurrence [%lu, %lu):", mn_rank(), pqb.a0, pqb.b1);
-            for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
-            printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
-        }
         if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }
         mn_ckpt_bg_mode = !ckpt_top ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);

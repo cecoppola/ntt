@@ -293,33 +293,6 @@ int mn_selftest_layered(int logR, int logC, int verbose)
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
 static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
-/* after a level, the sharded P, Q of the group [g0, g0+g) against the recurrence
- * over the group's terms [1 + N g0 / size, 1 + N (g0+g) / size) mod the T1 primes -- every node computes its share's residues,
- * an all-gather over the group, the sum of share_r B^lo_r mod q on every node.  Names the level whose product is wrong. */
-#include "verify.h"
-static uint64_t mulmod_u64(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)((unsigned __int128)a * b % q); }
-static uint64_t powmod_u64(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u64(r, b, q); b = mulmod_u64(b, b, q); e >>= 1; } return r; }
-static void tree_check(const mdb *P, const mdb *Q, int l, int g0, int g, mn_group *G)
-{
-    uint64_t v[2 + 2 * T1_NQ], *all = (uint64_t *)malloc((size_t)g * sizeof v);
-    size_t lo, hi; mdb_share(P, g_rank, &lo, &hi); v[0] = lo; mdb_share(Q, g_rank, &lo, &hi); v[1] = lo;
-    if (P->sh.n) db_mod_qs(&P->sh, t1_q, T1_NQ, v + 2); else memset(v + 2, 0, 8 * T1_NQ);
-    if (Q->sh.n) db_mod_qs(&Q->sh, t1_q, T1_NQ, v + 2 + T1_NQ); else memset(v + 2 + T1_NQ, 0, 8 * T1_NQ);
-    mn_allgather(G->all[0], v, 2 + 2 * T1_NQ, all);
-    uint64_t B = 1000000000000000000ull;   /* the limb base */
-    unsigned __int128 nn = bs_N; unsigned long a0 = 1 + (unsigned long)(nn * g0 / g_size), b1 = 1 + (unsigned long)(nn * (g0 + g) / g_size);
-    int bad = 0; char line[512]; int o = snprintf(line, sizeof line, "RES node %d tree level %d [%d, %d) P/Q vs recurrence [%lu, %lu):", g_rank, l, g0, g0 + g, a0, b1);
-    for (int i = 0; i < T1_NQ; i++) {
-        uint64_t q = t1_q[i], pr, qr, ps = 0, qs = 0; vf_pq_range_mod(a0, b1, q, &pr, &qr);
-        uint64_t Bq = B ? B % q : (uint64_t)(((unsigned __int128)1 << 64) % q);
-        for (int r = 0; r < g; r++) { const uint64_t *w = all + (size_t)r * (2 + 2 * T1_NQ);
-            ps = (ps + mulmod_u64(w[2 + i], powmod_u64(Bq, w[0], q), q)) % q; qs = (qs + mulmod_u64(w[2 + T1_NQ + i], powmod_u64(Bq, w[1], q), q)) % q; }
-        int ok = ps == pr && qs == qr; if (!ok) bad++;
-        o += snprintf(line + o, sizeof line - o, " q%d %s", i, ok ? "ok" : (ps == pr ? "Q BAD" : qs == qr ? "P BAD" : "P,Q BAD"));
-    }
-    printf("%s%s\n", line, bad ? "  TREE LEVEL MISMATCH" : "  (agrees)");
-    free(all);
-}
 /* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 0 = none, 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
  * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
@@ -364,7 +337,6 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         if (nch == 2) tree_level(P, Q, l, g0, g, Gp);        /* two children: the pair of products as before (the default schedule: bit for bit, the same groups) */
         else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
         /* (one child: no sibling group, carried up unchanged) */
-        if (nch > 1 && db_res_log_on()) tree_check(P, Q, l, g0, g, mn_group_span(l, g0, g));
         if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", g_rank, l); mem_live_line(w); }   /* the pool's live bytes per level */
         if (ck && l == L) {                                  /* this node's shares after the top level, in the background */
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };

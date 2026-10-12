@@ -40,9 +40,6 @@ ECALC_NP_AUTO_TERMS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or
 ECALC_OUT_PACKED	fallback	coordinator (TASKS S)	2026-11-11	=1 / =0 fallbacks of the 60-bit packed output (TASKS 40, default 2 with lane A batch D5)
 ECALC_PLANE_CAP	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 ECALC_PLANE_CAP_IDX	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_RES_LOG	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_RES_LOG_CPU	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-ECALC_RES_LOG_LEVEL	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_SEGV_TEST	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_TEST_CORR	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 ECALC_WINDOWS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
