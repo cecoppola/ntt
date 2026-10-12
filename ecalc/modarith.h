@@ -35,7 +35,7 @@
  * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
  * (tests/t_primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
  * 216, 207} is the subset with the largest product (dropping 147, t_primes prints all four).  Four stay required for
- * binary 2^64 limbs (nterms 2^128 < p0 p1 p2 only below 2^27 terms): ec_np_check refuses that loudly. */
+ * (binary 2^64 limbs, which held only below 2^27 terms, are archived: PLAN 28.5). */
 #include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +45,7 @@ int ec_np_init(void);                       /* ECALC_NP once (called by crt_init
 extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1)^2): the largest term count three primes reconstruct */
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
  * upper bound of it) could exceed p0 p1 p2 */
-void ec_np_check(size_t nterms, int decimal, const char *where);
+void ec_np_check(size_t nterms, const char *where);
 /* Phase 15 NP (PLAN 37 row 1, P15 option b): ECALC_NP=auto -- the prime count per product of the distributed tiers.
  * ec_np stays 3 (every one-node tier, the host CRT and ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form)
  * take ec_np_for(nc): four primes when nc = pa + pb > ec_np_auto_terms, else three.  ec_np_auto_terms = ec_np3_max_terms
@@ -54,7 +54,7 @@ void ec_np_check(size_t nterms, int decimal, const char *where);
 extern int ec_np_auto;                      /* 1: ECALC_NP=auto (decimal limbs) */
 extern size_t ec_np_auto_terms;             /* auto: the largest nc a three-prime product of the distributed tiers takes */
 int ec_np_for(size_t nterms);               /* the product's prime count: ec_np, or under auto 3 / 4 by nterms (no check) */
-int ec_np_prod(size_t nterms, int decimal, const char *where);   /* ec_np_for + the check of that count (ec_np_check at 3) */
+int ec_np_prod(size_t nterms, const char *where);   /* ec_np_for + the check of that count (ec_np_check at 3) */
 /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 (under auto; off by default) -- the switch-over on a product's real term count.  A coefficient of
  * the product of operands of na and nb limbs (each < 10^18) is the sum of the pairs a_i b_j with i + j = k, 0 <= i < na, 0 <= j < nb:
  * at most min(na, nb) pairs, each <= (10^18 - 1)^2.  mn_core / dist_core form the whole product (every transform length n >= na + nb,

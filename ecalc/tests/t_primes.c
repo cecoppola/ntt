@@ -37,9 +37,8 @@ static double mpz_log2(const mpz_t z) { long e; double m = mpz_get_d_2exp(&e, z)
 static void part1(void)
 {
     printf("-- 1. the three-prime bound: margin = prod p / (n (B-1)^2), B = 10^18 (exact, GMP)\n");
-    mpz_t P, D, Db, t, u; mpz_inits(P, D, Db, t, u, NULL);
+    mpz_t P, D, t, u; mpz_inits(P, D, t, u, NULL);
     mpz_set_ui(D, B - 1); mpz_mul(D, D, D);                                   /* (B-1)^2 */
-    mpz_set_ui(Db, 1); mpz_mul_2exp(Db, Db, 64); mpz_sub_ui(Db, Db, 1); mpz_mul(Db, Db, Db);   /* (2^64-1)^2 */
     static const int cs[4] = { 240, 216, 207, 147 };
     double best = 0; int bestdrop = -1;
     printf("   %-18s %8s", "subset (c)", "log2 P");
@@ -71,16 +70,12 @@ static void part1(void)
                        mpz_get_d(P) / (mpz_get_d(D) * 0x1p31), mpz_get_d(P) / (mpz_get_d(D) * 0x1p33), mpz_get_d(P) / (mpz_get_d(D) * 3 * 0x1p33));
                 harness_result("margin_2e31", "x", mpz_get_d(P) / (mpz_get_d(D) * 0x1p31));
                 harness_result("margin_2e33", "x", mpz_get_d(P) / (mpz_get_d(D) * 0x1p33));
-                /* binary limbs: the same three primes hold only below 2^27 terms */
-                mpz_fdiv_q(u, P, Db);
-                printf("   binary 2^64 limbs, the same subset: at most %lu terms (2^%.2f) -- ECALC_NP=3 is refused with LIMB_BASE=2\n", mpz_get_ui(u), log2(mpz_get_d(u)));
-                VERIFY(mpz_cmp_ui(u, 1UL << 28) < 0, "binary limbs do not fit three primes at 2^28 terms");
             }
         }
     }
     printf("   best subset for the margin: drop c = %d (%.2fx at 2^33); the four primes share the kernels (c 2^44 + 1, 3 | c: 2^k and 3 2^k lengths, p < 2^52 for the FP64 Barrett)\n", cs[bestdrop], best);
     VERIFY(bestdrop == 3, "the pipeline's subset {0,1,2} has the best margin");
-    mpz_clears(P, D, Db, t, u, NULL);
+    mpz_clears(P, D, t, u, NULL);
 }
 
 /* ---- 2. Garner at the extremes ------------------------------------------------------------------------------------ */
@@ -126,7 +121,7 @@ static void residues_of(const mpz_t v, uint64_t r[4]) { for (int i = 0; i < 4; i
 static void part3(void)
 {
     printf("-- 3. crt_carry_par4 at ec_np = 3, decimal limbs\n");
-    int save = ec_np; ec_np = 3; bi_set_decimal(1); crt_init();
+    int save = ec_np; ec_np = 3; crt_init();
     mpz_t P, D, W, v, w, bm; mpz_inits(P, D, W, v, w, bm, NULL);
     mpz_set_ui(P, 1); for (int i = 0; i < 3; i++) mpz_mul_ui(P, P, ec_P[i]);
     mpz_set_ui(D, B - 1); mpz_mul(D, D, D);
@@ -213,7 +208,6 @@ static void check_rand(const char *what, const bigint *A, const bigint *Bb, cons
 }
 static void part4(int logmax)
 {
-    bi_set_decimal(1);
     rns_init(31);
     printf("-- 4. GPU end to end at ec_np = %d (ECALC_NP), decimal limbs, pools 2^31 (plane pool 0: %zu limbs)\n", ec_np, rns_plane_limbs());
     bigint A, Bb, C; bi_init(&A); bi_init(&Bb); bi_init(&C);

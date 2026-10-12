@@ -5,14 +5,17 @@
  *     (mdev -> Karatsuba), unbalanced (chunked), all five generators, vs
  *     mpz_mul exactly
  *  2. pool 2^31 (the paper): sizes crossing 2^17, 2^18, 2^27, 2^28 limbs per
- *     operand vs mpz_mul (<= 2^26) or a mod-(2^61-1) residue check (above),
+ *     operand vs mpz_mul (<= 2^20: the GMP string bridge of decimal limbs is slow above) or residues mod 2^61-1 and
+ *     two 62-bit primes (above; the length too),
  *     per-phase times of the mdev multiply at 2^31 points
  *  4. batch tier: products of <= 2^logL points for logL 10 .. 18, GPU CRT (N >= 8)
- *     and CPU CRT, registered and unregistered (staged) operands, vs mpz_mul
+ *     and CPU CRT, registered and unregistered (staged) operands, vs mpz_mul (every product for groups up to 2^24
+ *     limbs; larger groups: four products vs mpz_mul and every product by residues mod three primes, see batch_sampled)
  *  3. optional (arg "big"): 2.08e9 x 2.08e9 limbs (the paper's 10dP product,
  *     4.16e9 > 2^31 points) through the Karatsuba split (RESULTS.md 35), twice
  *
  * Usage: t_mul [POOL (20); 0 skips part 1] [big]
+ * Decimal limbs only since PLAN 28.5 (the base-2 form is archive/binary_pipeline/t_mul_base2.c).
  */
 #include "harness.h"
 #include "../rns_mul.h"
@@ -30,8 +33,43 @@ static void check_product(const char *what, const bigint *A, const bigint *B, co
     } else {
         uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
         VERIFY(m61_mul(ra, rb) == rc, "%s: residue mod 2^61-1 differs", what);
+        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                      /* two more residues (PLAN 28.5: the exact check stops at 2^20) */
+        for (int j = 0; j < 2; j++) {
+            uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
+            VERIFY(hv_mulmod(xa, xb, qs[j]) == xc, "%s: residue mod %llu differs", what, (unsigned long long)qs[j]);
+        }
         VERIFY(C->n == A->n + B->n || C->n == A->n + B->n - 1, "%s: length %zu", what, C->n);
     }
+}
+
+/* batch groups (sections 4, 4b): the GMP string bridge of decimal limbs costs about as much per product as a 2^17-limb
+ * multiply, so a group of thousands of products took > 700 s (results/H4.md 7).  Groups up to BATCH_EXACT_LIMBS operand and
+ * product limbs are still checked exactly for every product; larger groups check four products exactly (the first two, the
+ * middle, the last) and every product by residues: c == a b (+ x) mod 2^61-1, 10^18+3 and 4611686018427387847 (a modulus of
+ * about 2^184), with every limb of c < B (so c < B^nc and the residues pin c up to that modulus) */
+#define BATCH_EXACT_LIMBS ((size_t)1 << 24)
+static int batch_sampled(size_t i, size_t N) { return i < 2 || i == N / 2 || i + 1 == N; }
+static int prod_residues_ok(const uint64_t *a, size_t na, const uint64_t *b, size_t nb, const uint64_t *x, size_t nx,
+                            const uint64_t *c, size_t nc)
+{
+    for (size_t k = 0; k < nc; k++) if (c[k] >= BI_B10) return 0;
+    uint64_t rx = x ? limbs_mod_m61(x, nx) : 0;
+    if (m61_add(m61_mul(limbs_mod_m61(a, na), limbs_mod_m61(b, nb)), rx) != limbs_mod_m61(c, nc)) return 0;
+    static const uint64_t qs[2] = { HV_Q1, HV_Q2 };
+    for (int j = 0; j < 2; j++) {
+        uint64_t q = qs[j], xx = x ? limbs_mod_u64(x, nx, q) : 0;
+        if ((hv_mulmod(limbs_mod_u64(a, na, q), limbs_mod_u64(b, nb, q), q) + xx) % q != limbs_mod_u64(c, nc, q)) return 0;
+    }
+    return 1;
+}
+/* products of a batch group by residues (OpenMP over the products); returns the count wrong */
+static size_t batch_residues_bad(const rns_prod *P, size_t N)
+{
+    size_t bad = 0;
+    #pragma omp parallel for schedule(dynamic, 8) reduction(+:bad)
+    for (long i = 0; i < (long)N; i++)
+        if (!prod_residues_ok(P[i].a, P[i].na, P[i].b, P[i].nb, P[i].x, P[i].nx, P[i].c, P[i].na + P[i].nb + (P[i].x ? 1 : 0))) bad++;
+    return bad;
 }
 
 int main(int argc, char **argv)
@@ -96,7 +134,7 @@ int main(int argc, char **argv)
                 bi_random(&A, lc[i].na, kind, &rng); bi_random(&B, lc[i].nb, kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
                 rns_mul_low(&C, A.l, A.n, B.l, B.n, lc[i].w);
                 bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b);
-                if (bi_decimal) { mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m); } else mpz_fdiv_r_2exp(c, c, 64 * lc[i].w);
+                mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m);
                 VERIFY(bi_eq_mpz(&C, c), "low product %zux%zu w %zu %s", lc[i].na, lc[i].nb, lc[i].w, gen_name[kind]);
             }
             mpz_clears(a, b, c, m, NULL);
@@ -118,7 +156,7 @@ int main(int argc, char **argv)
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul(&C, &A, &B);
             char what[64]; snprintf(what, sizeof what, "2^31 pool %zu x %zu limbs", n, n);
-            check_product(what, &A, &B, &C, n <= (bi_decimal ? (1 << 20) : (1 << 26)));   /* decimal: the GMP string bridge is slow above 2^20 */
+            check_product(what, &A, &B, &C, n <= (1 << 20));   /* the GMP string bridge is slow above 2^20: residues there */
             printf("   %-36s %.3f s: repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total,
                    rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
             if (n == (1 << 30)) {
@@ -136,7 +174,7 @@ int main(int argc, char **argv)
             bi_random(&A, ps[i], GEN_UNIFORM, &rng); bi_random(&A2, ps[i] - 3, GEN_ONES, &rng); bi_random(&B, ps[i] + 1, GEN_UNIFORM, &rng);
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul_pair(&C, &A, &C2, &A2, &B);
-            check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 24)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 24));
+            check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
             printf("   pair %zu limbs: %.3f s, %zu mdev (fwd %.3f)\n", ps[i], rns_st.t_total, rns_st.n_mdev, rns_st.t_fwd);
         }
         bi_free(&A2); bi_free(&C2);
@@ -200,15 +238,18 @@ int main(int argc, char **argv)
             double t0 = mem_now();
             rns_mul_batch(P, N);
             double dt = mem_now() - t0;
-            size_t bad = 0, pts = 0;
+            size_t bad = 0, pts = 0, nex = 0, badr = 0;
+            int all_exact = need <= BATCH_EXACT_LIMBS;
             for (size_t i = 0; i < N; i++) {
-                mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb);
-                mpz_mul(c, a, b); mpz_from_limbs(d, P[i].c, P[i].na + P[i].nb);
-                if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu\n", i, P[i].na, P[i].nb); bad++; }
                 pts += L;
+                if (!all_exact && !batch_sampled(i, N)) continue;
+                mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb);
+                mpz_mul(c, a, b); mpz_from_limbs(d, P[i].c, P[i].na + P[i].nb); nex++;
+                if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu\n", i, P[i].na, P[i].nb); bad++; }
             }
-            VERIFY(bad == 0, "batch %s: %zu of %zu products wrong", bc[ci].why, bad, N);
-            printf("   %-34s N=%-6zu %.3f s  %.2f Gpoint/s\n", bc[ci].why, N, dt, pts / dt / 1e9);
+            if (!all_exact) badr = batch_residues_bad(P, N);
+            VERIFY(bad == 0 && badr == 0, "batch %s: %zu of %zu exact products wrong, %zu of %zu by residues", bc[ci].why, bad, nex, badr, all_exact ? 0 : N);
+            printf("   %-34s N=%-6zu %.3f s  %.2f Gpoint/s  (%zu exact%s)\n", bc[ci].why, N, dt, pts / dt / 1e9, nex, all_exact ? "" : ", all by residues");
             if (N == 40000) harness_result("batch_2e14_Gpoints_per_s", "Gpoint/s", pts / dt / 1e9);
             if (reg) mem_hreg_free(pool); else free(pool);
             free(P); free(na); free(nb);
@@ -261,24 +302,29 @@ int main(int argc, char **argv)
                 for (size_t i = 0; i < N; i++) { P[i].ncn = 0; memset(P[i].c, 0, (P[i].na + P[i].nb + (P[i].x ? 1 : 0)) * 8); }
                 memset(&rns_st, 0, sizeof rns_st);
                 double t0 = mem_now(); rns_mul_batch(P, N); dt[mode] = mem_now() - t0;
-                size_t bad = 0, badn = 0; uint64_t h = 0x243F6A8885A308D3ULL;
+                size_t bad = 0, badn = 0, nex = 0, badr = 0; uint64_t h = 0x243F6A8885A308D3ULL;
+                int all_exact = need[0] + need[1] + need[2] + need[3] <= BATCH_EXACT_LIMBS;
                 for (size_t i = 0; i < N; i++) {
                     size_t nc = P[i].na + P[i].nb + (P[i].x ? 1 : 0);
-                    mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb); mpz_mul(c, a, b);
-                    if (P[i].x) { mpz_from_limbs(x, P[i].x, P[i].nx); mpz_add(c, c, x); }
-                    mpz_from_limbs(d, P[i].c, nc);
-                    if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu nx %zu\n", i, P[i].na, P[i].nb, P[i].nx); bad++; }
+                    if (all_exact || batch_sampled(i, N)) {
+                        mpz_from_limbs(a, P[i].a, P[i].na); mpz_from_limbs(b, P[i].b, P[i].nb); mpz_mul(c, a, b);
+                        if (P[i].x) { mpz_from_limbs(x, P[i].x, P[i].nx); mpz_add(c, c, x); }
+                        mpz_from_limbs(d, P[i].c, nc); nex++;
+                        if (mpz_cmp(c, d) != 0) { if (!bad) printf("   first bad product %zu: na %zu nb %zu nx %zu\n", i, P[i].na, P[i].nb, P[i].nx); bad++; }
+                    }
                     size_t n = nc; while (n && P[i].c[n - 1] == 0) n--;
                     if (P[i].ncn != n) badn++;
                     for (size_t k = 0; k < nc; k++) { h ^= P[i].c[k]; h *= 0x9E3779B97F4A7C15ULL; h ^= h >> 29; }
                 }
                 hash[mode] = h;
-                VERIFY(bad == 0, "batch-local %s pair=%d: %zu of %zu products wrong", bc[ci].why, mode, bad, N);
+                if (!all_exact) badr = batch_residues_bad(P, N);
+                VERIFY(bad == 0 && badr == 0, "batch-local %s pair=%d: %zu of %zu exact products wrong, %zu of %zu by residues", bc[ci].why, mode, bad, nex, badr, all_exact ? 0 : N);
                 VERIFY(badn == 0, "batch-local %s pair=%d: %zu normalised lengths wrong", bc[ci].why, mode, badn);
                 VERIFY(rns_st.n_batch_local == N && rns_st.n_batch_pair == (mode ? N : 0), "batch-local %s pair=%d: the local tier did not run as expected (local %zu paired %zu of %zu)", bc[ci].why, mode, rns_st.n_batch_local, rns_st.n_batch_pair, N);
             }
             VERIFY(hash[0] == hash[1], "batch-local %s: paired and unpaired results differ", bc[ci].why);
-            printf("   %-48s N=%-5zu pair %.3f s  unpaired %.3f s\n", bc[ci].why, N, dt[1], dt[0]);
+            printf("   %-48s N=%-5zu pair %.3f s  unpaired %.3f s  (%s)\n", bc[ci].why, N, dt[1], dt[0],
+                   need[0] + need[1] + need[2] + need[3] <= BATCH_EXACT_LIMBS ? "all exact" : "4 exact, all by residues");
             rns_batch_tile_bytes = save_tile; rns_batch_pair = 1;
             for (int dv = 0; dv < nd; dv++) mem_dev_free(pool[dv]);
             free(P); free(na1); free(na2); free(nb); free(nx);

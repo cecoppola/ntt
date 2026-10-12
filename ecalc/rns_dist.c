@@ -753,10 +753,10 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
                 int m = crt_sub; while (m > 1 && (size_t)hd[i].na / S_[i] / m < 64) m--;           /* sub-stripes of at least 64 coefficients (the interior spills must stay inside the stripe) */
                 if (m > 1) {
                     if (spsub_cap[d] < S_[i] * m * 4) { if (spsub[d]) HIP_CHECK(hipHostFree(spsub[d])); spsub_cap[d] = S_[i] * m * 4 + 4096; HIP_CHECK(hipHostMalloc((void **)&spsub[d], spsub_cap[d] * 8, 0)); }
-                    k_crt_batch_m<<<(unsigned)(S_[i] * m), CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spsub[d], bi_decimal, m);
-                    k_crt_sub_merge<<<(unsigned)((S_[i] + 63) / 64), 64, 0, v->s>>>(dd + i, 0, (int)S_[i], m, spsub[d], spall + (c0 / rows) * 4, bi_decimal);
+                    k_crt_batch_m<<<(unsigned)(S_[i] * m), CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spsub[d], 1, m);
+                    k_crt_sub_merge<<<(unsigned)((S_[i] + 63) / 64), 64, 0, v->s>>>(dd + i, 0, (int)S_[i], m, spsub[d], spall + (c0 / rows) * 4, 1);
                 } else
-                k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4, bi_decimal);
+                k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4, 1);
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
@@ -801,7 +801,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     int r3 = dist_r3() && logn >= dist_logn_max() - 1 && nc <= ((size_t)3 << (logn - 2));   /* C5: 3 2^(logn-2) points instead of 2^logn (the top three sizes: 3 2^28 .. 3 2^30 at the 2^31 cap) */
     if (r3) logn--;                                            /* the 2^k length whose pool this replaces: n = 3 2^(logn-1) */
     if (logn > dist_logn_max()) { ec_fatal(EC_RC_FATAL, "dist_core: %zu limbs > 2^%d points\n", nc, dist_logn_max()); }
-    const int np = ec_np_prod(ec_np_terms(nc, A.n, B.n), bi_decimal, "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: the terms min(A.n, B.n) under ECALC_NP_AUTO_MIN=1 (modarith.h), else nc */
+    const int np = ec_np_prod(ec_np_terms(nc, A.n, B.n), "dist_core");    /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: the terms min(A.n, B.n) under ECALC_NP_AUTO_MIN=1 (modarith.h), else nc */
     int logR = r3 ? (logn - 1) / 2 : logn / 2 + dist_logr_delta(), logk, logC;
     if (!r3) { if (logR < 10) logR = 10; if (logR > logn - 10) logR = logn - 10; }   /* (A6: DIST_LOGR_DELTA; R, C >= 2^10) */
     logk = logn - 1 - logR; logC = r3 ? 0 : logn - logR;
@@ -864,7 +864,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, r, sizeof hd);
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, v->s));
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
-        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill, bi_decimal);
+        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill, 1);
         { if (qsel_on()) k_scatter_runs<1><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); else k_scatter_runs<0><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); }
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
@@ -880,8 +880,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             for (size_t j = 0; j < C; j++) {
                 size_t k = R * j + (size_t)(r + 1) * rows; const uint64_t *w = hs + j * 4; uint64_t cy = 0;
                 if (k >= nc) continue;
-                if (bi_decimal) { for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; } }
-                else { for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t], c1 = sm < cc[k]; sm += cy; c1 += sm < cy; cc[k] = sm; cy = c1; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm < cy; cc[k] = sm; k++; } }
+                for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; }
             }
         }
         free(hs);
@@ -1656,11 +1655,11 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
     /* Phase 15 Batch 3 P24 (results/P2415.md): the plane holds 24-digit points, p24_pts(na) + p24_pts(nb) of them, at four primes;
      * the operands' sequences are the ranks' in-runs of limbs (p24.h), the result's their out-runs; X is added by the caller */
     const size_t npt = p24 ? p24_pts(na) + p24_pts(nb) : nc;
-    if (p24 && (X || !bi_decimal)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 with %s\n", X ? "an added operand" : "binary limbs"); }
+    if (p24 && X) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 with an added operand\n"); }
     if (p24 && (p24_pts(na) < p24_pts(nb) ? p24_pts(na) : p24_pts(nb)) > P24_MIN_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 piece %zu x %zu limbs: min(Pa, Pb) > 10^12 points (the CRT's four limbs)\n", na, nb); }
     int logn, logR, logC; size_t q; mn_shape(npt, g, &logn, &logR, &logC, &q);
     if (logn > mn_logn_cap(g) || (p24 && logn > P24_CAP_LOG)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %zu %s > 2^%d points over %d nodes\n", npt, p24 ? "P24 points" : "limbs", p24 && mn_logn_cap(g) > P24_CAP_LOG ? P24_CAP_LOG : mn_logn_cap(g), g); }
-    const int np = p24 ? 4 : ec_np_prod(ec_np_terms(nc, na, nb), bi_decimal, "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc; P24: four (INT3: the two composed) */
+    const int np = p24 ? 4 : ec_np_prod(ec_np_terms(nc, na, nb), "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc; P24: four (INT3: the two composed) */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -1790,7 +1789,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             unsigned fl = p24_crt_err(s);
             if (fl) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound)\n", fl); }
         } else
-        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill, bi_decimal);
+        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill, 1);
         HIP_CHECK(hipStreamSynchronize(s));
         tc[d] = mem_now() - s2;
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from
@@ -1932,7 +1931,7 @@ static int mn_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
 static int mn_p24_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("MN_P24"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = 0; } return v; }   /* default 2 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
 static int mn_p24_of(size_t na, size_t nb, int g)
 {
-    int v = mn_p24_on(); if (!v || !bi_decimal) return 0;
+    int v = mn_p24_on(); if (!v) return 0;
     if (v >= 2) return rns_pool0_np() >= 4;
     int ka, kb; size_t pa = na, pb = nb, cap = (size_t)1 << mn_logn_cap(g);   /* INT3: the 18-digit grid's largest piece pa x pb */
     if (na + nb > cap) {

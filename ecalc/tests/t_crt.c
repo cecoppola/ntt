@@ -1,7 +1,7 @@
 /* t_crt - step 4 test: crt.h against GMP, adversarial carries, throughput.
  *
  *  1. random residues, n = 2^16, T = 1, 7, 96, 192: value(out) == sum_k
- *     CRT(r_k) 2^(64k) computed by GMP; n = 5 (fewer coefficients than stripes)
+ *     CRT(r_k) B^k (B = 10^18) computed by GMP; n = 5 (fewer coefficients than stripes)
  *  2. adversarial: every coefficient = M - 1 (all four residues p_i - 1), so
  *     every limb carries and every stripe spills; and a single M - 1 at a
  *     stripe boundary with zeros elsewhere; both layouts
@@ -11,10 +11,11 @@
  *     96, 192; best of 3.  Paper: CPU CRT must keep up with the multiply
  *     (RESULTS.md 27, 34: 0.29 s / 2^30 tight window, clang).
  *
- * Phase 13a P3: ECALC_NP=3 runs parts 1 and 2 with three primes (the value mod p0 p1 p2) in decimal limbs (three primes
- * are decimal-only: the binary base is switched to decimal with a note); part 3 is binary-only and is skipped then.
+ * Phase 13a P3: ECALC_NP=3 runs every part with three primes (the value mod p0 p1 p2, crt3_stripe); ECALC_NP=4 the
+ * four-prime garner with the base-B digit window.  Decimal limbs only since PLAN 28.5 (part 3 runs in decimal; it was
+ * binary-only before).  Run it twice, ECALC_NP=3 and ECALC_NP=4, to cover both CRT forms.
  *
- * Usage: t_crt [log2 n for part 3 (30)]
+ * Usage: t_crt [log2 n for part 3 (30); 0 skips part 3]
  */
 #include "harness.h"
 #include "../crt.h"
@@ -47,7 +48,7 @@ static void crt_gmp(mpz_t v, uint64_t *const res[4], size_t n)
         mpz_set_ui(c, 0);
         for (int i = 0; i < ec_np; i++) { mpz_mul_ui(t, E[i], res[i][k]); mpz_add(c, c, t); }
         mpz_mod(c, c, M);
-        if (bi_decimal) mpz_mul_ui(v, v, BI_B10); else mpz_mul_2exp(v, v, 64);
+        mpz_mul_ui(v, v, BI_B10);
         mpz_add(v, v, c);
     }
     mpz_clears(c, t, NULL);
@@ -73,23 +74,22 @@ int main(int argc, char **argv)
     printf("== t_crt ==\n");
     harness_meta("t_crt");
     crt_gmp_init();
-    if (ec_np == 3 && !bi_decimal) { printf("   ECALC_NP=3: three primes are decimal-only -- running parts 1 and 2 in base 10^18\n"); bi_set_decimal(1); }
-    printf("   %d primes, %s limbs\n", ec_np, bi_decimal ? "decimal" : "binary");
-    /* 0. Phase 15 NP: ECALC_NP=auto (run with LIMB_BASE=10; ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
+    printf("   %d primes, decimal limbs\n", ec_np);
+    /* 0. Phase 15 NP: ECALC_NP=auto (ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
      *    and pool 0's planes, and the two CRTs agree on every value three primes hold: v = k (B-1)^2 + random < p0 p1 p2 for k up
      *    to the bound gives garner3(v mod p0..p2) == garner4(v mod p0..p3) == v, and at the bound + 1 garner3 wraps (the bound is exact) */
     if (ec_np_auto) {
         size_t b3 = ec_np3_max_terms, bt = ec_np_auto_terms;
         printf("-- 0. ECALC_NP=auto: three-prime bound %zu terms, auto switch-over %zu terms\n", b3, bt);
-        VERIFY(ec_np == 3 && bi_decimal, "auto: ec_np %d decimal %d", ec_np, bi_decimal);
+        VERIFY(ec_np == 3, "auto: ec_np %d", ec_np);
         VERIFY(ec_np_for(1) == 3 && ec_np_for(bt) == 3 && ec_np_for(bt + 1) == 4 && ec_np_for(b3 + 1) == 4 && ec_np_for((size_t)1 << 40) == 4, "ec_np_for around %zu", bt);
-        VERIFY(ec_np_prod(bt, 1, "t_crt") == 3 && ec_np_prod(bt + 1, 1, "t_crt") == 4, "ec_np_prod");
+        VERIFY(ec_np_prod(bt, "t_crt") == 3 && ec_np_prod(bt + 1, "t_crt") == 4, "ec_np_prod");
         /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 -- the term count min(na, nb) (a product with min <= bt < na + nb runs three primes); off: nc */
         printf("   ECALC_NP_AUTO_MIN=%d\n", ec_np_auto_min);
         if (ec_np_auto_min) {
             VERIFY(ec_np_terms(2 * bt, bt, bt) == bt && ec_np_terms(bt + 7, 7, bt) == 7 && ec_np_terms(bt + 7, bt, 7) == 7, "ec_np_terms (min)");
             VERIFY(ec_np_for(ec_np_terms(2 * bt, bt, bt)) == 3 && ec_np_for(ec_np_terms(bt + 1 + 5 * bt, bt + 1, 5 * bt)) == 4 && ec_np_for(ec_np_terms(bt + 1, 1, bt)) == 3, "ec_np_for by min");
-            VERIFY(ec_np_prod(ec_np_terms(2 * bt, bt, bt), 1, "t_crt") == 3, "ec_np_prod by min (the check passes at min = bt)");
+            VERIFY(ec_np_prod(ec_np_terms(2 * bt, bt, bt), "t_crt") == 3, "ec_np_prod by min (the check passes at min = bt)");
         } else VERIFY(ec_np_terms(2 * bt, bt, bt) == 2 * bt && ec_np_terms(bt + 1, 1, bt) == bt + 1, "ec_np_terms (pa + pb)");
         for (int pl = 27; pl <= 31; pl++) for (int g = 1; g <= 1024; g = g < 4 ? g + 1 : g * 3 / 2) {
             int lg = 0; while ((2 << lg) <= g) lg++;
@@ -137,8 +137,8 @@ int main(int argc, char **argv)
         check("boundary M-1", res, n, 96); check("boundary M-1", res, n, 192);
         for (int i = 0; i < 4; i++) free(res[i]);
     }
-    /* 3. throughput */
-    if (!bi_decimal) {
+    /* 3. throughput (decimal since PLAN 28.5; 0 skips it) */
+    if (LOG > 0) {
         size_t n = (size_t)1 << LOG;
         uint64_t *res[4], *out = (uint64_t *)malloc((n + 4) * 8);
         printf("-- throughput, n = 2^%d, best of 3 (s)\n", LOG);

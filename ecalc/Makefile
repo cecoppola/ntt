@@ -57,8 +57,8 @@ OFI_LIBS   = -L$(LIBFABRIC)/lib64 -lfabric -Wl,-rpath,$(LIBFABRIC)/lib64
 SHMEM_LIBS += $(OFI_LIBS)
 endif
 
-TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_dec tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
-OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o todec.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
+TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_spill tests/t_seed tests/t_patch tests/t_p24
+OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_tcp.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -72,7 +72,7 @@ HIPMM_API  = hipMalloc hipFree hipExtMallocWithFlags hipMallocManaged hipHostMal
              hipPointerGetAttributes hipMemGetInfo hipMallocAsync hipFreeAsync hipMallocFromPoolAsync hipMemCreate hipMemMap hipMemSetAccess hipMemUnmap \
              hipMemRelease hipMemAddressReserve hipMemAddressFree hipStreamCreate hipStreamCreateWithFlags hipStreamDestroy
 HIPMM_WRAP = $(foreach f,$(HIPMM_API),-Wl,--wrap=$(f))
-ecalc: ecalc.c $(OBJS) hipmm.o rns_mul.h newton.h binsplit.h todec.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
+ecalc: ecalc.c $(OBJS) hipmm.o rns_mul.h newton.h binsplit.h verify.h mem.h ntt.h mn.h mdb.h mn_out.h mn_plan.h
 	$(HIPC) $< -x none $(OBJS) hipmm.o -o $@ $(HIPMM_WRAP) $(SHMEM_LIBS)
 hipmm.o: hipmm.c dbig.h
 	$(HIPC) -c -o $@ $<
@@ -172,8 +172,6 @@ ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
 crt.o: crt.c crt.h modarith.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
-todec.o: todec.c todec.h rns_mul.h newton.h mem.h modarith.h
-	$(HIPC) -c -o $@ $<
 verify.o: verify.c verify.h bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 binsplit.o: binsplit.c binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
@@ -211,8 +209,6 @@ tests/t_seed: tests/t_seed.c $(OBJS) bigint.h tests/harness.h
 tests/t_bs: tests/t_bs.c $(OBJS) binsplit.h tests/harness.h tests/sha256.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) -lm $(SHMEM_LIBS)
 
-tests/t_dec: tests/t_dec.c $(OBJS) todec.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 
 tests/t_verify: tests/t_verify.c $(OBJS) verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)

@@ -1,4 +1,4 @@
-/* t_school - CPU limb arithmetic throughput in both bases (WP1 attribution item 1):
+/* t_school - CPU limb arithmetic throughput, decimal limbs (WP1 attribution item 1; the binary base is archived, PLAN 28.5):
  * schoolbook (ns per limb^2), mul_1, and the big passes the Newton loop uses
  * (add, sub, cmp, shr by limbs) at 2^26 limbs.
  * Build: cc -O3 -fopenmp -I.. t_school.c ../bigint.c -o t_school */
@@ -15,9 +15,7 @@ int main(void)
     setvbuf(stdout, NULL, _IOLBF, 0);
     size_t sizes[] = { 8, 32, 128, 512, 2048 };
     printf("%-6s %8s %14s %14s\n", "base", "n", "school ns/l^2", "mul_1 ns/limb");
-    for (int base = 0; base < 2; base++) {
-        bi_set_decimal(base);
-        uint64_t B = base ? BI_B10 : 0;
+    {   const int base = 1; uint64_t B = BI_B10;
         for (size_t si = 0; si < sizeof sizes / sizeof *sizes; si++) {
             size_t n = sizes[si];
             uint64_t *a = malloc(n * 8), *b = malloc(n * 8), *r = malloc(2 * n * 8 + 16);
@@ -33,9 +31,7 @@ int main(void)
     }
     printf("\n%-6s %12s %12s %12s %12s %12s   (2^26 limbs, ms per pass)\n", "base", "add", "sub", "cmp", "shr_limbs", "mul_1");
     size_t n = (size_t)1 << 26;
-    for (int base = 0; base < 2; base++) {
-        bi_set_decimal(base);
-        uint64_t B = base ? BI_B10 : 0;
+    {   const int base = 1; uint64_t B = BI_B10;
         bigint a, b, r; bi_init(&a); bi_init(&b); bi_init(&r);
         bi_reserve(&a, n); bi_reserve(&b, n); a.n = b.n = n;
         for (size_t i = 0; i < n; i++) { a.l[i] = base ? rnd() % B : rnd(); b.l[i] = base ? rnd() % B : rnd(); }

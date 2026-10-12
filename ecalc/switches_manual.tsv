@@ -28,11 +28,11 @@ ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2
 ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
 ECALC_INIT_TL	0	bool	0|1		dbig.c
 ECALC_MEM_GUARD_GB	0	float	>=0 GB		memsample.c:113; 0 = guard off
-ECALC_NP	auto	enum	auto|3|4		ecalc.c:482: unset becomes 3 (decimal limbs) or 4 (binary); crt.c:54 reads auto
+ECALC_NP	auto	enum	auto|3|4		ecalc.c: unset becomes 3; crt.c reads auto
 ECALC_RECHECK	0	bool	0|1		ecalc.c: standalone recheck of a finished run
 ECALC_SEGV_TRACE	0	bool	0|1		segv_trace.c:146
 ECALC_VERBOSE	1	int	0|1|2		ecalc.c
-LIMB_BASE	10	enum	2|10		ecalc.c:480: ecalc defaults to decimal; the tests default to binary (bigint.c:20)
+LIMB_BASE	10	enum	10		bigint.c bi_check_base: only 10 is accepted; any other value is refused at start (PLAN 28.5 archived the binary pipeline)
 MEM_REPORT_DEVS	0	bool	0|1		ecalc.c:372/537 (presence test)
 MN_COMM_MARK	0	bool	0|1		mn.c:28 (atoi > 0)
 MN_GROUPS	unset	str	group list		rns_dist.c:2315; unset = the automatic schedule

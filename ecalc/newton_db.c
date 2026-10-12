@@ -257,7 +257,7 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
         if (g_mu_kept.n == k + 1) { dbig sw = mu; mu = g_mu_kept; g_mu_kept = sw; }
         else db_shr_limbs(&mu, &g_mu_kept, g_mu_kept.n - (k + 1));
         db_free(&g_mu_kept);
-    } else if (mu_opt && mu_opt->n >= k + 1 && mu_opt->l) { bigint mh; bi_init(&mh); bi_shr(&mh, mu_opt, 64 * (mu_opt->n - (k + 1))); db_from_bi(&mu, &mh); bi_free(&mh); }
+    } else if (mu_opt && mu_opt->n >= k + 1 && mu_opt->l) { bigint mh; bi_init(&mh); bi_shr_limbs(&mh, mu_opt, mu_opt->n - (k + 1)); db_from_bi(&mu, &mh); bi_free(&mh); }
     else recip_db(&mu, &Qd, Q, k);
     double tb = mem_now();
     /* A's top k limbs go to device for the gather (the host copy stays for the remainder window below).
@@ -741,7 +741,7 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
     uint64_t v[16]; memset(v, 0, sizeof v);
     if (hi > lo) { dbig s = X->sh; s.n = hi - lo; db_mod_qs(&s, qs, nq, v);
-                   for (int j = 0; j < nq; j++) { uint64_t q = qs[j], Bq = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); v[j] = (uint64_t)((unsigned __int128)v[j] * mn_powmod(Bq, lo, q) % q); } }
+                   for (int j = 0; j < nq; j++) { uint64_t q = qs[j], Bq = BI_B10 % q; v[j] = (uint64_t)((unsigned __int128)v[j] * mn_powmod(Bq, lo, q) % q); } }
     uint64_t *all = (uint64_t *)malloc((size_t)g * nq * 8);
     mn_allgather(G->all[0], v, nq, all);
     for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int k = 0; k < g; k++) { r += all[(size_t)k * nq + j]; if (r >= qs[j]) r -= qs[j]; } res[j] = r; }

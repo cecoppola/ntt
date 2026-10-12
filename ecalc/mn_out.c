@@ -822,7 +822,7 @@ void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d,
 {
     char name[4096]; snprintf(name, sizeof name, "%s.t1", outfile);
     FILE *f = fopen(name, "w"); if (!f) { printf("mn_out: cannot write %s: %s\n", name, strerror(errno)); return; }
-    fprintf(f, "ecalc-t1 v1\nN %lu d %lu d_out %lu size %d base %s\nq", N, d, d_out, size, bi_decimal ? "10^18" : "2^64");
+    fprintf(f, "ecalc-t1 v1\nN %lu d %lu d_out %lu size %d base %s\nq", N, d, d_out, size, "10^18");
     for (int i = 0; i < T1_NQ; i++) fprintf(f, " %llu", (unsigned long long)t1_q[i]);
     const char *nm[4] = { "X", "R", "P", "Q" }; const uint64_t *rs[4] = { Xres, Rres, Pres, Qres };
     for (int k = 0; k < 4; k++) { fprintf(f, "\n%s", nm[k]); for (int i = 0; i < T1_NQ; i++) fprintf(f, " %llu", (unsigned long long)rs[k][i]); }

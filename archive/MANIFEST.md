@@ -77,3 +77,17 @@ GitHub; recover any item with `git show archive/pre-reduction-2026-10-11:<path>`
 | B1 | kernel experiments measured no-gain: `ntt.c` MALL-chunked pass schedule (`mall_split`, the chunk loops of `ntt_fwd` / `inv_common`) and the `k_b16r` occupancy / block-order variants (template parameter `VAR`, `LAUNCH_V`); `tests/t_ntt.c` `mall` and `h6` sweeps and the MALL/VAR identity configurations | `NTT_MALL`, `NTT_B16_VAR` | results/N116.md, NTT3P.md (within ±2 %) |
 | B5 (partial) | settled rollbacks: `ntt_dist.c` plain-pack dispatch (`twrec_on`) and the 32 × 4 recurrence forms `k_twpack_r<4>` / `k_unpacktw_r<4>` (the plain kernels stay as `dist_pack_bench`'s reference); `comm_layered.c` `tker_mode` / `p->tker` (the copy form stays only as the size-guard fallback). NOT removed: `BI_MUL1_FAST`, `NEWTON_RECIP_CUT`, `NEWTON_RECIP_MID` (their off paths are the references of `t_seed` and `t_newton` §5; see results/B02.md) | `DIST_TWREC`, `COMM_LAYER_TKERNEL` | adopted defaults since Phases 14-15 (results/X13b.md, C215.md §2) |
 | B5 (rest) | settled rollbacks: `bigint.c` `bi_mul1_fast` / `bi_mul1_fast_on` (the serial `mul_1` is only the fallback for multipliers >= 10^18 or add > 10^18) and the unfused seed span loop in `binsplit.c`; `newton_db.c` `recip_cut` / `recip_mid`, `newton_recip_set` (the whole-product forms; the first round after the seed keeps its whole product). Tests re-pointed first: `t_seed` and `t_newton` §5 now compare with GMP directly | `BI_MUL1_FAST`, `NEWTON_RECIP_CUT`, `NEWTON_RECIP_MID` | adopted defaults since Phases 14-15 (results/S115.md, R114.md, R415.md); see results/B02.md (B5 completion) |
+
+## binary_pipeline/ (PLAN 28.5, branch h4, 2026-10-11)
+
+The binary 2^64-limb pipeline (the paper's: `LIMB_BASE=2`, four primes, the radix conversion `todec`) was removed from `ecalc/`;
+decimal limbs of 10^18 are the only base. The parent commit is tagged `pre-28.5-binary` (0298fe2): rebuild the binary
+comparison from it (`git checkout -b binary pre-28.5-binary`). Kept here so the comparison can be reconstructed by reading:
+| file | from | note |
+|---|---|---|
+| `todec.c`, `todec.h` | `ecalc/` (`git mv`) | the radix conversion (divisor cache, TOP/MID/DEEP levels, GPU LEAF kernel by 10^18); needs the binary `bi_shl`/`bi_shr` and `limb_*_bits` of `bigint.c` at the tag |
+| `t_dec.c` | `ecalc/tests/` (`git mv`) | its test (todec against `mpz_get_str` and the reference digits) |
+| `t_mul_base2.c` | copy of `ecalc/tests/t_mul.c` at the tag | the last base-2 form of the multiply test (`rns_mul` vs GMP in both bases through `harness.h` at the tag); `ecalc/tests/t_mul.c` is decimal-only now |
+Also gone from the tree (recover from the tag): the binary arms of `bigint.c` (`add_serial`, `sub_serial`, `mul_school`, `mul1`, `bi_add_u64`,
+`bi_divmod_u64`, the bit shifts), the binary Knuth D tail of `newton.c`, the `ecalc.c` T1/dc/T2 digit-string path and `pow10_big`, the
+binary CRT window of `crt.c`, the binary spill merges of `rns_mul.c` / `rns_dist.c`, and `mnaccept.sh`'s `LIMB_BASE=2` e9 step.

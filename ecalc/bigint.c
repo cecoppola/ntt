@@ -15,35 +15,27 @@ uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 
 typedef unsigned __int128 u128;
 #define B10 BI_B10
-int bi_decimal = 0;
-void bi_set_decimal(int on) { bi_decimal = on ? 1 : 0; }
-int bi_env_base(void) { const char *e = getenv("LIMB_BASE"); if (e) bi_decimal = atoi(e) == 10; return bi_decimal; }   /* the tests default to binary (bit operations); ecalc defaults to decimal */
-static void need_binary(const char *what) { if (bi_decimal) { ec_fatal(EC_RC_FATAL, "bigint: %s is a bit operation; not valid in the decimal base\n", what); } }
+/* PLAN 28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (LIMB_BASE=2, todec) is archived under
+ * archive/binary_pipeline/ (tag pre-28.5-binary).  A LIMB_BASE other than 10 is refused here, never silently ignored. */
+void bi_check_base(void)
+{
+    const char *e = getenv("LIMB_BASE");
+    if (e && *e && atoi(e) != 10)
+        ec_fatal(EC_RC_FATAL, "LIMB_BASE=%s: only decimal limbs (10) exist since PLAN 28.5; the binary 2^64 pipeline is archived (archive/binary_pipeline/, git tag pre-28.5-binary)\n", e);
+}
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
 {
-    size_t i;
-    if (bi_decimal) {
-        uint64_t c = cin;
-        for (i = 0; i < nb; i++) { uint64_t s = a[i] + b[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
-        for (; i < na; i++) { uint64_t s = a[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
-        return c;
-    }
-    u128 s = cin;
-    for (i = 0; i < nb; i++) { s += (u128)a[i] + b[i]; r[i] = (uint64_t)s; s >>= 64; }
-    for (; i < na; i++) { s += a[i]; r[i] = (uint64_t)s; s >>= 64; }
-    return (uint64_t)s;
+    size_t i; uint64_t c = cin;
+    for (i = 0; i < nb; i++) { uint64_t s = a[i] + b[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
+    for (; i < na; i++) { uint64_t s = a[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; }
+    return c;
 }
 static uint64_t sub_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t bin)
 {
     uint64_t br = bin; size_t i;
-    if (bi_decimal) {
-        for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i] + br; br = ai < bi; r[i] = br ? ai + B10 - bi : ai - bi; }
-        for (; i < na; i++) { uint64_t ai = a[i]; uint64_t d = br; br = ai < d; r[i] = br ? ai + B10 - d : ai - d; }
-        return br;
-    }
-    for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i], d = ai - bi - br; br = (ai < bi) | (ai == bi && br); r[i] = d; }
-    for (; i < na; i++) { uint64_t ai = a[i], d = ai - br; br = ai < br; r[i] = d; }
+    for (i = 0; i < nb; i++) { uint64_t ai = a[i], bi = b[i] + br; br = ai < bi; r[i] = br ? ai + B10 - bi : ai - bi; }
+    for (; i < na; i++) { uint64_t ai = a[i]; uint64_t d = br; br = ai < d; r[i] = br ? ai + B10 - d : ai - d; }
     return br;
 }
 #define PAR_MIN (1u << 22)
@@ -63,7 +55,7 @@ uint64_t limb_add(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, 
     uint64_t c = 0;
     for (t = 0; t < nch; t++) {
         size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
-        while (c && i < hi) { r[i] += 1; if (bi_decimal) { c = r[i] == B10; if (c) r[i] = 0; } else c = r[i] == 0; i++; }
+        while (c && i < hi) { r[i] += 1; c = r[i] == B10; if (c) r[i] = 0; i++; }
         c |= cout[t];
     }
     free(cout);
@@ -94,8 +86,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     size_t n = na + nb, k;
     if (!na || !nb) return;
     if (na < nb) { const uint64_t *t = a; a = b; b = t; size_t tn = na; na = nb; nb = tn; }
-    if (bi_decimal) {
-        /* columns as 3-word sums (a b < 10^36 < 2^120: up to 2^8 products per u128 before
+    {   /* columns as 3-word sums (a b < 10^36 < 2^120: up to 2^8 products per u128 before
          * spilling), reduced mod B once per column with the carry rippled: two 128-bit
          * divisions per column instead of one per product */
         uint64_t *w1 = (uint64_t *)malloc(2 * n * sizeof *w1), *w2 = w1 + n;
@@ -120,40 +111,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
             carry = (qH << 64) + q2;
         }
         free(w1);
-        return;
     }
-    if (n <= 64) {                                   /* row by row, serial */
-        size_t i, j;
-        for (k = 0; k < n; k++) r[k] = 0;
-        for (i = 0; i < na; i++) {
-            u128 c = 0;
-            for (j = 0; j < nb; j++) { c += (u128)a[i] * b[j] + r[i + j]; r[i + j] = (uint64_t)c; c >>= 64; }
-            r[i + nb] = (uint64_t)c;
-        }
-        return;
-    }
-    /* column k = sum_i a[i] b[k-i] as a 3-word value, columns independent; then one carry pass */
-    uint64_t *w1 = (uint64_t *)malloc(2 * n * sizeof *w1), *w2 = w1 + n;
-#pragma omp parallel for schedule(dynamic, 64) if (!omp_in_parallel() && n > 4096)
-    for (k = 0; k < n; k++) {
-        size_t i0 = k >= nb - 1 ? k - (nb - 1) : 0, i1 = k < na ? k : na - 1, i;
-        uint64_t c0 = 0, c1 = 0, c2 = 0;
-        for (i = i0; i <= i1; i++) {
-            u128 p = (u128)a[i] * b[k - i];
-            u128 s = (u128)c0 + (uint64_t)p; c0 = (uint64_t)s;
-            s = (s >> 64) + c1 + (uint64_t)(p >> 64); c1 = (uint64_t)s;
-            c2 += (uint64_t)(s >> 64);
-        }
-        r[k] = c0; w1[k] = c1; w2[k] = c2;
-    }
-    u128 s = 0;
-    for (k = 0; k < n; k++) {
-        s += r[k];
-        if (k >= 1) s += w1[k - 1];
-        if (k >= 2) s += w2[k - 2];
-        r[k] = (uint64_t)s; s >>= 64;
-    }
-    free(w1);
 }
 /* Phase 15 S1: the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
  * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
@@ -181,7 +139,7 @@ static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, 
 void bi_span_step(bigint *P, bigint *Q, uint64_t k)
 {
     size_t n = Q->n, pn = P->n, i;
-    if (!bi_decimal || k >= B10) { bi_add(P, P, Q); bi_mul_u64(Q, Q, k); return; }
+    if (k >= B10) { bi_add(P, P, Q); bi_mul_u64(Q, Q, k); return; }
     bi_reserve(P, (pn > n ? pn : n) + 1); bi_reserve(Q, n + 1);
     uint64_t *p = P->l, *q = Q->l, ca = 0, c = 0;
     const uint64_t mh = recip_b10(k);
@@ -206,8 +164,8 @@ void bi_span_step(bigint *P, bigint *Q, uint64_t k)
 static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
-    if (bi_decimal && m < B10 && add <= B10) return mul1_dec_fast(r, a, na, m, add);
-    if (bi_decimal) {                              /* m < B: a[i] m + c < B^2 + B */
+    if (m < B10 && add <= B10) return mul1_dec_fast(r, a, na, m, add);
+    {                                              /* m < B: a[i] m + c < B^2 + B */
         if (m < ((uint64_t)1 << 33)) {
             /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
              * with mu = floor(2^94 / 10^18) < 2^35, then at most two corrections (WP4, RESULTS.md 58) */
@@ -224,8 +182,6 @@ static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t 
         for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)(c % B10); c /= B10; }
         return (uint64_t)c;
     }
-    for (size_t i = 0; i < na; i++) { c += (u128)a[i] * m; r[i] = (uint64_t)c; c >>= 64; }
-    return (uint64_t)c;
 }
 /* parallel: chunks multiplied independently, each chunk's carry-out (< m) added into the next chunk with a ripple */
 uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
@@ -242,8 +198,7 @@ uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint6
     for (t = 0; t < nch; t++) {
         size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < na ? lo + PAR_CHUNK : na, i = lo;
         if (c) {                                      /* add the previous chunk's carry with ripple */
-            if (bi_decimal) { while (c && i < hi) { uint64_t s = r[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; i++; } }
-            else { while (c && i < hi) { uint64_t s = r[i] + c; c = s < c; r[i] = s; i++; } }
+            while (c && i < hi) { uint64_t s = r[i] + c; c = s >= B10; r[i] = c ? s - B10 : s; i++; }
         }
         c += cout[t];
     }
@@ -264,51 +219,6 @@ static void limb_move(uint64_t *r, const uint64_t *a, size_t n)
         size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
         memcpy(r + lo, a + lo, (hi - lo) * 8);
     }
-}
-void limb_shr_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
-{
-    if (!bits) { limb_move(r, a, n); return; }
-    need_binary("limb_shr_bits");
-    if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
-        for (size_t i = 0; i + 1 < n; i++) r[i] = (a[i] >> bits) | (a[i + 1] << (64 - bits));
-        if (n) r[n - 1] = a[n - 1] >> bits;
-        return;
-    }
-    /* each chunk reads a[hi] (the next chunk's first limb) before it is overwritten: save the chunk heads first */
-    size_t nch = (n + PAR_CHUNK - 1) / PAR_CHUNK;
-    uint64_t *heads = (uint64_t *)malloc(nch * 8);
-    for (size_t t = 0; t < nch; t++) heads[t] = a[t * PAR_CHUNK];
-#pragma omp parallel for schedule(static)
-    for (size_t t = 0; t < nch; t++) {
-        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
-        for (size_t i = lo; i + 1 < hi; i++) r[i] = (a[i] >> bits) | (a[i + 1] << (64 - bits));
-        uint64_t next = hi < n ? heads[t + 1] : 0;
-        r[hi - 1] = (a[hi - 1] >> bits) | (next << (64 - bits));
-    }
-    free(heads);
-}
-uint64_t limb_shl_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits)
-{
-    if (!bits) { limb_move(r, a, n); return 0; }
-    need_binary("limb_shl_bits");
-    uint64_t out = n ? a[n - 1] >> (64 - bits) : 0;
-    if (n < PAR_MIN || (r != a && (r < a ? (size_t)(a - r) : (size_t)(r - a)) < n)) {
-        for (size_t i = n; i-- > 1;) r[i] = (a[i] << bits) | (a[i - 1] >> (64 - bits));
-        if (n) r[0] = a[0] << bits;
-        return out;
-    }
-    size_t nch = (n + PAR_CHUNK - 1) / PAR_CHUNK;
-    uint64_t *tails = (uint64_t *)malloc(nch * 8);      /* last limb of each chunk, read before overwrite */
-    for (size_t t = 0; t < nch; t++) { size_t hi = (t + 1) * PAR_CHUNK < n ? (t + 1) * PAR_CHUNK : n; tails[t] = a[hi - 1]; }
-#pragma omp parallel for schedule(static)
-    for (size_t t = 0; t < nch; t++) {
-        size_t lo = t * PAR_CHUNK, hi = lo + PAR_CHUNK < n ? lo + PAR_CHUNK : n;
-        for (size_t i = hi; i-- > lo + 1;) r[i] = (a[i] << bits) | (a[i - 1] >> (64 - bits));
-        uint64_t prev = t ? tails[t - 1] : 0;
-        r[lo] = (a[lo] << bits) | (prev >> (64 - bits));
-    }
-    free(tails);
-    return out;
 }
 size_t limb_norm(const uint64_t *a, size_t n) { while (n && a[n - 1] == 0) n--; return n; }
 
@@ -346,24 +256,20 @@ void bi_sub_shifted(bigint *r, const bigint *a, size_t k)
     if (br) { ec_fatal(EC_RC_FATAL, "bi_sub_shifted: negative\n"); }
     bi_norm(r);
 }
-void bi_shl(bigint *r, const bigint *a, size_t bits)
+/* r = a B^k and r = floor(a / B^k): whole-limb shifts (limb_move handles r == a and overlap) */
+void bi_shl_limbs(bigint *r, const bigint *a, size_t k)
 {
-    size_t k = bits / 64; unsigned b = bits % 64;
-    if (b) need_binary("bi_shl by bits");
     if (!a->n) { r->n = 0; return; }
-    bi_reserve(r, a->n + k + 1);
-    uint64_t out = limb_shl_bits(r->l + k, a->l, a->n, b);
-    r->l[a->n + k] = out;
+    bi_reserve(r, a->n + k);
+    limb_move(r->l + k, a->l, a->n);
     for (size_t i = 0; i < k; i++) r->l[i] = 0;
-    r->n = a->n + k + 1; bi_norm(r);
+    r->n = a->n + k; bi_norm(r);
 }
-void bi_shr(bigint *r, const bigint *a, size_t bits)
+void bi_shr_limbs(bigint *r, const bigint *a, size_t k)
 {
-    size_t k = bits / 64; unsigned b = bits % 64;
-    if (b) need_binary("bi_shr by bits");
     if (a->n <= k) { r->n = 0; return; }
     bi_reserve(r, a->n - k);
-    limb_shr_bits(r->l, a->l + k, a->n - k, b);
+    limb_move(r->l, a->l + k, a->n - k);
     r->n = a->n - k; bi_norm(r);
 }
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b)
@@ -385,29 +291,20 @@ void bi_add_u64(bigint *r, uint64_t v)
 {
     bi_reserve(r, r->n + 2);
     u128 s = v;
-    if (bi_decimal) {
-        for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)(s % B10); s /= B10; }
-        while (s) { r->l[r->n++] = (uint64_t)(s % B10); s /= B10; }
-        return;
-    }
-    for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)s; s >>= 64; }
-    if (s) r->l[r->n++] = (uint64_t)s;
+    for (size_t i = 0; i < r->n && s; i++) { s += r->l[i]; r->l[i] = (uint64_t)(s % B10); s /= B10; }
+    while (s) { r->l[r->n++] = (uint64_t)(s % B10); s /= B10; }
 }
 uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d)
 {
     u128 rem = 0;
     bi_reserve(q, a->n ? a->n : 1);
-    if (bi_decimal) for (size_t i = a->n; i-- > 0;) { rem = rem * B10 + a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
-    else for (size_t i = a->n; i-- > 0;) { rem = (rem << 64) | a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
+    for (size_t i = a->n; i-- > 0;) { rem = rem * B10 + a->l[i]; q->l[i] = (uint64_t)(rem / d); rem %= d; }
     q->n = a->n; bi_norm(q);
     return (uint64_t)rem;
 }
-void bi_shl_limbs(bigint *r, const bigint *a, size_t k) { bi_shl(r, a, 64 * k); }
-void bi_shr_limbs(bigint *r, const bigint *a, size_t k) { bi_shr(r, a, 64 * k); }
 void bi_mul_pow10(bigint *r, const bigint *a, unsigned k)
 {
     static const uint64_t p10[19] = {1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,1000000000000ULL,10000000000000ULL,100000000000000ULL,1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,1000000000000000000ULL};
-    if (!bi_decimal) { ec_fatal(EC_RC_FATAL, "bi_mul_pow10: decimal base only\n"); }
     bi_mul_u64(r, a, p10[k]);
 }
 void bi_set_base_pow(bigint *r, size_t k)

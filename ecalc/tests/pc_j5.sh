@@ -28,7 +28,7 @@ tmg tmg2_k1 2 $K1; tmg tmg2_k2 2 $K2; tmg tmg2_k4 2 $K4
 tmg tmg2_k1_24 2 MN_P24=2 $K1; tmg tmg2_k2_24 2 MN_P24=2 $K2; tmg tmg2_k4_24 2 MN_P24=2 $K4
 tmg tmg3_k2 3 $K2; tmg tmg3_k2_24 3 MN_P24=2 $K2; tmg tmg4_k1_24 4 MN_P24=2 $K1
 echo "t_mn_grid done $(date), $(( $(date +%s) - T0 )) s"
-E="LIMB_BASE=10 ECALC_NP=4 RNS_POOL_GROW=1 RNS_DIST_CACHE_TRACE=1 ECALC_VERBOSE=1"
+E="ECALC_NP=4 RNS_POOL_GROW=1 RNS_DIST_CACHE_TRACE=1 ECALC_VERBOSE=1"
 for c in off k1 k2 off_24 k1_24 k2_24; do
   base=${c%_24}; x=""; [ "$base" != "$c" ] && x="MN_P24=2"
   case $base in off) ce="RNS_DIST_CACHE_FIT=1"; sl=0,2;; k1) ce="$K1"; sl=0,1;; k2) ce="$K2"; sl=0,1;; esac

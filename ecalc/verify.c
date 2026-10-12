@@ -32,13 +32,12 @@ uint64_t vf_limbs_mod(const uint64_t *a, size_t n, uint64_t q)
     if (!n) return 0;
     int T = omp_get_max_threads(); if ((size_t)T > n / 4096 + 1) T = (int)(n / 4096 + 1);
     uint64_t *cv = (uint64_t *)malloc(2 * T * 8), *cw = cv + T;
-    uint64_t b64 = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q);   /* B mod q */
+    uint64_t b64 = BI_B10 % q;   /* B mod q */
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
         size_t k0 = n * t / T, k1 = n * (t + 1) / T;
         u128 v = 0;
-        if (bi_decimal) for (size_t k = k1; k-- > k0;) v = (v * BI_B10 + a[k]) % q;
-        else for (size_t k = k1; k-- > k0;) v = ((v << 64) | a[k]) % q;
+        for (size_t k = k1; k-- > k0;) v = (v * BI_B10 + a[k]) % q;
         cv[t] = (uint64_t)v; cw[t] = vf_pow_mod(b64, k1 - k0, q);
     }
     uint64_t r = 0;
@@ -55,12 +54,12 @@ void vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, uint
 #pragma omp parallel for num_threads(T) schedule(static)
     for (int t = 0; t < T; t++) {
         size_t k0 = n * t / T, k1 = n * (t + 1) / T; u128 v[16]; uint64_t b[16];
-        for (int j = 0; j < nq; j++) { v[j] = 0; b[j] = bi_decimal ? BI_B10 % qs[j] : (uint64_t)(((u128)1 << 64) % qs[j]); }
+        for (int j = 0; j < nq; j++) { v[j] = 0; b[j] = BI_B10 % qs[j]; }
         for (size_t k = k1; k-- > k0;) { uint64_t x = a[k]; for (int j = 0; j < nq; j++) v[j] = (v[j] * b[j] + x) % qs[j]; }
         for (int j = 0; j < nq; j++) cv[(size_t)t * nq + j] = (uint64_t)v[j];
     }
     for (int j = 0; j < nq; j++) {
-        uint64_t q = qs[j], b = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q), r = 0;
+        uint64_t q = qs[j], b = BI_B10 % q, r = 0;
         for (int t = T; t-- > 0;) { size_t k0 = n * t / T, k1 = n * (t + 1) / T; r = (mulmod(r, vf_pow_mod(b, k1 - k0, q), q) + cv[(size_t)t * nq + j]) % q; }
         out[j] = r;
     }
@@ -117,7 +116,7 @@ uint64_t vf_add_mod(uint64_t a, uint64_t b, uint64_t q) { return (a + b) % q; }
 uint64_t vf_digits_join(uint64_t acc, size_t len, uint64_t v, uint64_t q) { return (mulmod(acc, vf_pow_mod(10, len, q), q) + v) % q; }
 uint64_t vf_shift_res(uint64_t res, size_t lo, uint64_t q)
 {
-    uint64_t b = bi_decimal ? BI_B10 % q : (uint64_t)(((u128)1 << 64) % q);
+    uint64_t b = BI_B10 % q;
     return mulmod(res, vf_pow_mod(b, lo, q), q);
 }
 /* one pass over the string for nq primes: each 18-digit block parsed once, one modmul per prime */

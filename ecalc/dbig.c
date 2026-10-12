@@ -731,7 +731,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
 {
     uint64_t Bq[MQ_MAXQ], Bt[MQ_MAXQ], Bch[MQ_MAXQ], powt[MQ_MAXQ * MQ_T];
     for (int j = 0; j < nq; j++) {
-        uint64_t q = qs[j]; Bq[j] = bi_decimal ? BI_B10 % q : (uint64_t)(((unsigned __int128)1 << 64) % q); Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
+        uint64_t q = qs[j]; Bq[j] = BI_B10 % q; Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
         powt[j * MQ_T] = 1; for (int t = 1; t < MQ_T; t++) powt[j * MQ_T + t] = (uint64_t)((unsigned __int128)powt[j * MQ_T + t - 1] * Bq[j] % q);
     }
     int mont = modq_mont_on();
@@ -1079,11 +1079,11 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        if (addsub3_on() && addsub2_on() && qsel_on()) k_addsub3<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
-        else if (addsub3_on() && addsub2_on()) k_addsub3<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
-        else if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
-        else if (addsub2_on()) k_addsub2<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
-        else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, bi_decimal, g_flags[d][0], g_flags[d][1]);
+        if (addsub3_on() && addsub2_on() && qsel_on()) k_addsub3<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, 1, g_flags[d][0], g_flags[d][1]);
+        else if (addsub3_on() && addsub2_on()) k_addsub3<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, 1, g_flags[d][0], g_flags[d][1]);
+        else if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, 1, g_flags[d][0], g_flags[d][1]);
+        else if (addsub2_on()) k_addsub2<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, 1, g_flags[d][0], g_flags[d][1]);
+        else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, 1, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
@@ -1103,7 +1103,7 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         if (!chunks[d]) continue;
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub, bi_decimal);
+        k_carry<<<(unsigned)chunks[d], 1>>>(out->q[d], lo[d], hi[d], g_flags[d][0], sub, 1);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     out->n = n; if (!nfix) db_norm(out);
@@ -1175,7 +1175,7 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
 {
     if (r == a) { ec_fatal(EC_RC_FATAL, "db_pow_sub: in place\n"); }
     need_owner(r, "pow_sub"); db_reserve(r, e + 1);
-    struct dv va = view_of(a); uint64_t top = bi_decimal ? B10 - 1 : ~0ULL;
+    struct dv va = view_of(a); uint64_t top = B10 - 1;
 #pragma omp parallel for num_threads(DB_NQ)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo, hi; qrange(r, d, e, &lo, &hi); if (lo >= hi) continue;

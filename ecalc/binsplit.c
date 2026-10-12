@@ -58,14 +58,7 @@ unsigned long e_terms(unsigned long d)
 static void span(bigint *P, bigint *Q, unsigned long a, unsigned long b)
 {
     bi_set_u64(P, 1); bi_set_u64(Q, b - 1);
-    if (bi_decimal) {                                 /* Phase 15 S1: P += Q; Q *= k fused, the quotient by a precomputed reciprocal */
-        for (unsigned long k = b - 1; k-- > a;) bi_span_step(P, Q, k);
-        return;
-    }
-    for (unsigned long k = b - 1; k-- > a;) {
-        bi_add(P, P, Q);
-        bi_mul_u64(Q, Q, k);
-    }
+    for (unsigned long k = b - 1; k-- > a;) bi_span_step(P, Q, k);   /* Phase 15 S1: P += Q; Q *= k fused, the quotient by a precomputed reciprocal */
 }
 void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b) { span(P, Q, a, b); }   /* Phase 15 S1: for tests/t_seed (declared there) */
 void binsplit_ref(bigint *P, bigint *Q, unsigned long a, unsigned long b)
@@ -262,7 +255,7 @@ unsigned long bs_seed_terms_for(unsigned long bend)
 {
     long fill = bs_seed_fill();
     if (fill <= 0 || bend < 3) return getenv("BS_SEED_TERMS") ? (unsigned long)atol(getenv("BS_SEED_TERMS")) : (unsigned long)bs_seed_terms;
-    long double dpl = bi_decimal ? 18.0L : 64.0L * log10l(2.0L), l10 = logl(10.0L), lb = lgammal((long double)bend);
+    long double dpl = 18.0L, l10 = logl(10.0L), lb = lgammal((long double)bend);
 #define SEED_FILL_LIMBS(S) ((long)floorl((lb - lgammal((long double)(bend - (S)))) / l10 / dpl) + 1)
     unsigned long S = (unsigned long)(fill * dpl / log10l((long double)bend)); if (S < 1) S = 1; if (S > bend - 2) S = bend - 2;
     while (S > 1 && SEED_FILL_LIMBS(S) > fill) S--;
@@ -277,7 +270,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
     if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     unsigned long S = bs_seed_terms, nterms = bs_b1 ? bs_b1 - bs_a0 : N, nspan = (nterms + S - 1) / S;
-    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / (bi_decimal ? 59 : 64) + 2;   /* a decimal limb holds 59.8 bits */
+    size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / 59 + 2;   /* a decimal limb holds 59.8 bits */
     if (per_out) *per_out = per; if (nspan_out) *nspan_out = nspan;
     return 2 * per * nspan;
 }
@@ -303,7 +296,7 @@ static size_t level_q_lower(unsigned long a0, unsigned long nterms, unsigned lon
 {
     unsigned long nfull = nspan / m_full; if (!nfull) return 0;
     unsigned long t0 = a0 + (nfull - 1) * m_full * S, t1 = t0 + m_full * S; if (t1 > a0 + nterms) t1 = a0 + nterms;
-    long double dpl = bi_decimal ? 18.0L : 64.0L * log10l(2.0L);
+    long double dpl = 18.0L;
     return (size_t)floorl((lgammal((long double)t1) - lgammal((long double)t0)) / logl(10.0L) / dpl);
 }
 static void region_need(unsigned long N, size_t need[NR])
@@ -393,7 +386,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
  * ecalc.c budget_check), which can change the room / cache-fit / plane-cap decisions. */
 static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q's limbs), without the rest of the layout (no room decision) */
 {
-    double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = bi_decimal ? 18.0 : 64.0 / log2(10.0);
+    double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = 18.0;
     return (size_t)ceil(lg / dl10) + 2;
 }
 static int vslot_share_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_SHARE"); return e && atoi(e) != 0; }   /* S36 (comm_layered.c): one pair of v-slots per device, handed from level to level */
@@ -535,7 +528,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
 static void dm_layout(unsigned long N, int size, struct dm_layout *L)
 {
     double lg = lgamma((double)N + 1.0) / log(10.0);                          /* log10 N! = log10 Q */
-    double dl10 = bi_decimal ? 18.0 : 64.0 / log2(10.0);                     /* digits per limb */
+    double dl10 = 18.0;                                                     /* digits per limb */
     size_t nq = (size_t)ceil(lg / dl10) + 2, dl = (size_t)ceil((lg - 50.0) / dl10) + 1;   /* Q's limbs; the limbs of 10^d for the run's d (the driver: d <= log10 N! - 50) */
     size_t k = nq + 1 + dl - nq + 2 + 1, tcap = (nq + k > 2 * k ? nq + k : 2 * k) + 8;   /* k_mu with P.n = n_Q + 1 (P > Q) */
     int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
@@ -1159,7 +1152,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
     if (sc) *sc = s3;
     int v2 = h->magic[7] >= '2', me = g_ck_node < 0 ? 0 : g_ck_node;
     long want_st = bs_seed_fill() > 0 ? (long)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1) : bs_seed_terms;   /* Phase 15 integration: BS_SEED_FILL's span, as seed_limbs sets it (RECHECK reads the set before seed_limbs runs) */
-    if (h->N != N || h->decimal != bi_decimal || h->seed_terms != want_st || h->nregions != NR
+    if (h->N != N || h->decimal != 1 || h->seed_terms != want_st || h->nregions != NR
         || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
         || (!v2 && mn_size() > 1)) {
         snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
@@ -1178,7 +1171,7 @@ static size_t ckpt_write(struct level *cur, int which, int level, int mdev_host,
     if (sp_odirect()) sp_dev_sync_all();               /* Phase 14 S1 (E3): the O_DIRECT path's DMA is on its own streams */
     int dev_nodes = cur->nd[0].pd != 0;
     struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
-    h.N = N; h.decimal = bi_decimal; h.seed_terms = bs_seed_terms; h.level = level; h.which = which;
+    h.N = N; h.decimal = 1; h.seed_terms = bs_seed_terms; h.level = level; h.which = which;
     h.mdev_host = dev_nodes ? 0 : mdev_host; h.nregions = NR; h.n = cur->n; h.off = off; h.node_bytes = cur->n * sizeof(struct node);
     size_t used[NR];
     for (int r = 0; r < NR; r++) h.offr[r] = used[r] = dev_nodes ? devnodes_limbs(cur, r) : offr[r];
@@ -1246,7 +1239,7 @@ static int tree_io(int level, dbig *P, dbig *Q, int r, int write, struct ckpt_io
 static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], dbig *P, dbig *Q, struct ckpt_io *io, double *t_data)
 {
     struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
-    h.N = N; h.decimal = bi_decimal; h.seed_terms = bs_seed_terms; h.level = level; h.nregions = NR;
+    h.N = N; h.decimal = 1; h.seed_terms = bs_seed_terms; h.level = level; h.nregions = NR;
     for (int r = 0; r < NR; r++) h.offr[r] = range_lo(P->n, r + 1) - range_lo(P->n, r) + range_lo(Q->n, r + 1) - range_lo(Q->n, r);
     x.size = mn_size(); x.rank = mn_rank(); x.kind = 1; x.a0 = bs_a0; x.b1 = bs_b1; memcpy(x.tree, desc, sizeof x.tree);
     mkdir(bs_ckpt_dir, 0777);

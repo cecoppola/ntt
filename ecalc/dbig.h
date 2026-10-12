@@ -4,7 +4,7 @@
  * operation runs as one kernel per APU over that APU's quarter of the result,
  * reading the operands wherever they are (peer access); carries across chunks
  * and quarters are resolved by a scan on the host (n / 4096 chunk flags).
- * Both bases (bi_decimal).  Normalised: n == 0 or limb n-1 != 0. */
+ * Decimal limbs (base 10^18).  Normalised: n == 0 or limb n-1 != 0. */
 #ifndef EC_DBIG_H
 #define EC_DBIG_H
 #include <stdint.h>

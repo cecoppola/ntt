@@ -26,7 +26,6 @@ int main(void)
 {
     printf("== t_out ==\n"); harness_meta("t_out");
     setenv("ECALC_OUT_PACKED", "0", 0);   /* this test checks the ASCII part files byte by byte; the packed form (the default since Phase 15) is checked by mnaccept's e9 / mn / full steps (digcmp.sh) and tools/test_unpack.py */
-    bi_set_decimal(1);
     int fails = 0, checks = 0;
     for (int it = 0; it < 60; it++) {
         unsigned long d_out = 1 + rnd() % 3000, d = ((d_out + 17) / 18) * 18;

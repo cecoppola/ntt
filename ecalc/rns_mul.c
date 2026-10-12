@@ -151,10 +151,10 @@ int rns_init(int pool_log)
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
-    bi_env_base();
+    bi_check_base();                              /* PLAN 28.5: LIMB_BASE other than 10 is refused loudly */
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
     if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
-    else if (ec_np == 3) { ec_np_check(0, bi_decimal, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }   /* P3: refuse three primes with binary limbs at start (the tests set the base before rns_init) */
+    else if (ec_np == 3) { ec_np_check(0, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
     int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
     mem_par_init = par;
@@ -343,7 +343,7 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
     int logk, r3 = pick_len(ncmax, &logk), logn = r3 ? logk + 2 : logk;   /* logn: the 2^k length this replaces (pool checks, stats) */
     size_t n = len_of(r3, logk);
     if (n > ((size_t)1 << g_pool_log) || n > D[0].da.cap / 8) { ec_fatal(EC_RC_FATAL, "rns_mul_mdev: %zu points > pool 2^%d (plane pool 0: %zu limbs)\n", ncmax, g_pool_log, D[0].da.cap / 8); }
-    if (ec_np == 3) ec_np_check(na[0] < nb ? na[0] : nb, bi_decimal, "rns_mul_mdev");   /* P3 (a pair: both a's are checked below by the CRT's n) */
+    if (ec_np == 3) ec_np_check(na[0] < nb ? na[0] : nb, "rns_mul_mdev");   /* P3 (a pair: both a's are checked below by the CRT's n) */
     if (na[0] + (np > 1 ? na[1] : 0) + nb > ((size_t)1 << g_pool_log)) { ec_fatal(EC_RC_FATAL, "mdev_pair: operands exceed staging\n"); }
     double t0 = mem_now(), tcrt = 0;
     double tr[EC_NP], th[EC_NP], tf[EC_NP], ti[EC_NP], td[EC_NP], tg[EC_NP] = {0, 0, 0, 0};
@@ -860,13 +860,8 @@ static void spill_merge(const rns_prod *q, const uint64_t *sp, int S)
     size_t nc = q->na + q->nb, top = nc + (q->x && q->nx ? 1 : 0); uint64_t *out = q->c;   /* with x the carry limb nc exists */
     for (int s = 0; s + 1 < S; s++) {
         size_t k = nc * (s + 1) / S; const uint64_t *w = sp + s * 4; uint64_t cy = 0;
-        if (bi_decimal) {
-            for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
-            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
-        } else {
-            for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
-            while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
-        }
+        for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = out[k] + w[t] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+        while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
     }
 }
 __global__ void k_spill_merge(const struct bdesc *P, size_t M, const uint64_t *sp, int S, int decimal)   /* Phase 14 R1 (E8): spill_merge on the device, one thread per product (a VMM pool takes no CPU access) */
@@ -956,12 +951,12 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
                 else { x_fwd(v->ctxp[p], db + p * plane_b, r3, logk, Mb, v->s); x_inv_pw_y(v->ctxp[p], da + p * plane, db + p * plane_b, pair ? NTT_Y_PAIR : NTT_Y_FULL, r3, logk, M, v->s); }
             }
             HIP_CHECK(hipEventRecord(e2, v->s));
-            k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, v->s>>>(da, da + plane, da + 2 * plane, da + 3 * plane, g_desc[d], 0, S, L, G, v->spill, bi_decimal);
+            k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, v->s>>>(da, da + plane, da + 2 * plane, da + 3 * plane, g_desc[d], 0, S, L, G, v->spill, 1);
             HIP_CHECK(hipEventRecord(e3, v->s));
             HIP_CHECK(hipStreamSynchronize(v->s));
             double tm0 = mem_now();
             if (S > 1) {
-                if (db_pool_vmm_on()) { k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->spill, S, bi_decimal); HIP_CHECK(hipStreamSynchronize(v->s)); }   /* Phase 14 R1 (E8): the outputs may be a VMM range */
+                if (db_pool_vmm_on()) { k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, v->s>>>(g_desc[d], M, v->spill, S, 1); HIP_CHECK(hipStreamSynchronize(v->s)); }   /* Phase 14 R1 (E8): the outputs may be a VMM range */
                 else for (size_t i = 0; i < M; i++) spill_merge(&P[idx[first + i]], v->spill + i * S * 4, S);
             }
             /* normalised lengths (the CPU reading one limb per product from device memory is latency-bound) */
@@ -1000,7 +995,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
             staged = 1;
         }
     }
-    if (ec_np == 3) { size_t mt = 0; for (size_t i = 0; i < N; i++) { size_t t = P[i].na < P[i].nb ? P[i].na : P[i].nb; if (t > mt) mt = t; } ec_np_check(mt, bi_decimal, "rns_mul_batch"); }   /* P3 */
+    if (ec_np == 3) { size_t mt = 0; for (size_t i = 0; i < N; i++) { size_t t = P[i].na < P[i].nb ? P[i].na : P[i].nb; if (t > mt) mt = t; } ec_np_check(mt, "rns_mul_batch"); }   /* P3 */
     int logL = ceil_log2(maxnc); if (logL < NTT_LOGN_MIN) logL = NTT_LOGN_MIN;
     if (logL > RNS_BATCH_LOGL_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_batch: L 2^%d too large\n", logL); }
     size_t L = (size_t)1 << logL;
@@ -1131,7 +1126,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 HIP_CHECK(hipEventRecord(e2, v->s));
                 if (g1 > g0)
                     k_crt_batch<<<(unsigned)(g1 - g0), CRT_THREADS, 0, v->s>>>((const uint64_t *)D[0].da.p, (const uint64_t *)D[1].da.p,
-                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, L3, G, g_spill, bi_decimal);
+                        (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, L3, G, g_spill, 1);
                 HIP_CHECK(hipEventRecord(e3, v->s));
                 HIP_CHECK(hipStreamSynchronize(v->s));
                 HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
@@ -1149,7 +1144,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
         double tm0 = mem_now();
         if (gpucrt && db_pool_vmm_on()) {                 /* Phase 14 R1 (E8): the outputs may be a VMM range -- the merge on device 0 (g_desc[0] holds the M descriptors) */
             int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(0));
-            k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, D[0].s>>>(g_desc[0], M, g_spill, S, bi_decimal); HIP_CHECK(hipStreamSynchronize(D[0].s));
+            k_spill_merge<<<(unsigned)((M + 255) / 256), 256, 0, D[0].s>>>(g_desc[0], M, g_spill, S, 1); HIP_CHECK(hipStreamSynchronize(D[0].s));
             HIP_CHECK(hipSetDevice(cur));
         } else if (gpucrt) {
             /* merge the stripe spills on the CPU: stripe s of product i spills at coefficient nc (s+1) / S */
@@ -1158,13 +1153,8 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 size_t nc = Q[first + i].na + Q[first + i].nb, top = nc + (Q[first + i].x && Q[first + i].nx ? 1 : 0); uint64_t *out = Q[first + i].c;
                 for (int s = 0; s + 1 < S; s++) {
                     size_t k = nc * (s + 1) / S; const uint64_t *sp = g_spill + (i * S + s) * 4; uint64_t cy = 0;
-                    if (bi_decimal) {
-                        for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
-                        while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
-                    } else {
-                    for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
-                    while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
-                    }
+                    for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+                    while (cy && k < top) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
                 }
             }
         }
@@ -1219,20 +1209,15 @@ static void mdev_gpu_crt(int d, size_t nc, int logn, uint64_t *dst)
     size_t g0 = (size_t)S * d / g_nd, g1 = (size_t)S * (d + 1) / g_nd;
     if (g1 > g0)
         k_crt_batch<<<(unsigned)(g1 - g0), CRT_THREADS, 0, v->s>>>((const uint64_t *)D[0].da.p, (const uint64_t *)D[1].da.p,
-            (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, (size_t)1 << logn, G, g_spill, bi_decimal);
+            (const uint64_t *)D[2].da.p, (const uint64_t *)D[3].da.p, g_desc[d], g0, S, (size_t)1 << logn, G, g_spill, 1);
     HIP_CHECK(hipStreamSynchronize(v->s));
 #pragma omp barrier
     if (d == 0) {
         uint64_t *out = dst;
         for (int s = 0; s + 1 < S; s++) {
             size_t k = nc * (s + 1) / S; const uint64_t *sp = g_spill + s * 4; uint64_t cy = 0;
-            if (bi_decimal) {
-                for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
-                while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
-            } else {
-            for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q], c1 = sm < out[k]; sm += cy; c1 += sm < cy; out[k] = sm; cy = c1; }
-            while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm < cy; out[k] = sm; k++; }
-            }
+            for (int q = 0; q < 4 && k < nc; q++, k++) { uint64_t sm = out[k] + sp[q] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; }
+            while (cy && k < nc) { uint64_t sm = out[k] + cy; cy = sm >= EC_1E18; out[k] = cy ? sm - EC_1E18 : sm; k++; }
         }
     }
 }

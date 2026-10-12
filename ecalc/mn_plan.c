@@ -32,7 +32,7 @@
 #include "modarith.h"
 
 /* ---- the sizes (the only prediction) ---------------------------------------------------------------------------------- */
-static long double g_dpl = 18.0L;                                 /* digits per limb (decimal limbs; binary: 64 log10 2) */
+static long double g_dpl = 18.0L;                                 /* digits per limb */
 static long double lg10_q(unsigned long a, unsigned long b) { return b <= a + 1 ? (b == a + 1 ? log10l((long double)a) : 0.0L) : (lgammal((long double)b) - lgammal((long double)a)) / logl(10.0L); }
 static long double lg10_f(unsigned long a, unsigned long b)       /* log10 of P / Q over [a, b) */
 {
@@ -66,7 +66,7 @@ static char g_lvl[1024];                                          /* per tree le
  * then, so `MN_PLAN_ONLY=<D>:<g> ./ecalc` (internal target task list T3) refuses the size on a login node.  BS_LAYOUT_ONLY runs the same
  * check (mn_plan_check). */
 static struct {
-    int np, lim, decimal; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */
+    int np, lim; size_t bound;       /* bound: the largest nc = pa + pb the primes hold (0: no bound, four primes) */
     long nbound, nroot, nprod;                /* products over the bound / over the root limit / checked */
     long nmin;                                /* products whose min(pa, pb) (the coefficients' real term count) exceeds the bound: information */
     size_t worst_nt; int worst_logn;          /* the largest piece nc and transform log2 planned */
@@ -75,7 +75,7 @@ static struct {
 static void chk_init(int np)
 {
     memset(&g_chk, 0, sizeof g_chk);
-    g_chk.np = np; g_chk.lim = ec_logn_limit(ec_np_auto ? 4 : np); g_chk.decimal = bi_decimal;
+    g_chk.np = np; g_chk.lim = ec_logn_limit(ec_np_auto ? 4 : np);
     g_chk.bound = np == 3 && !ec_np_auto ? ec_np3_max_terms : 0;   /* Phase 15 NP: under ECALC_NP=auto a piece over the bound runs four primes (no refusal) */
 }
 static const char *np_name(void) { static char b[48]; if (ec_np_auto) snprintf(b, sizeof b, "auto"); else snprintf(b, sizeof b, "%d", ec_np); return b; }
@@ -90,7 +90,6 @@ static void chk(const char *tier, const char *what, int g, size_t pa, size_t pb,
     if (nc > g_chk.worst_nt) { g_chk.worst_nt = nc; snprintf(g_chk.worst, sizeof g_chk.worst, "%s %s (g %d): piece %zu + %zu = %zu limbs", tier, what, g, pa, pb, nc); }
     if (logk > g_chk.worst_logn) g_chk.worst_logn = logk;
     if (g_chk.bound && (pa < pb ? pa : pb) > g_chk.bound) g_chk.nmin++;
-    if (g_chk.np == 3 && !g_chk.decimal) { g_chk.nbound++; snprintf(why, sizeof why, "ECALC_NP=3 with binary limbs (four primes needed)"); }
     else if (g_chk.bound && nc > g_chk.bound) { g_chk.nbound++; snprintf(why, sizeof why, "%zu terms > the three-prime bound %zu (%.2fx over)", nc, g_chk.bound, (double)nc / g_chk.bound); }
     if (logk > g_chk.lim) { g_chk.nroot++; size_t o = strlen(why); snprintf(why + o, sizeof why - o, "%sa transform of %s2^%d points > 2^%d (no root: 2^%d | p - 1 for %d primes)", o ? "; " : "", r3 ? "3*" : "", logk, g_chk.lim, g_chk.lim, g_chk.np); }
     if (why[0] && !g_chk.first[0])
@@ -302,7 +301,6 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     g_quiet = silent || (getenv("MN_PLAN_QUIET") && atoi(getenv("MN_PLAN_QUIET")));
     memset(g_pieces, 0, sizeof g_pieces); memset(g_pieces4, 0, sizeof g_pieces4); memset(g_prods, 0, sizeof g_prods); memset(g_grids, 0, sizeof g_grids); g_lvl[0] = 0;
     memset(g_pieces24, 0, sizeof g_pieces24);
-    if (!bi_decimal) g_dpl = 64.0L * log10l(2.0L);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
     chk_init(np);                                                 /* Phase 15 P: the plan-time check */
@@ -311,7 +309,7 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     if (getenv("RNS_POOL1_GB")) p1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
     rns_dist_plan_pools(p0, p1);
     struct pq all = pq_of(1, N + 1);
-    size_t nq = all.qn, pn = all.pn, dl = bi_decimal ? (d + 17) / 18 : (size_t)ceil(d * log2(10.0) / 64.0);
+    size_t nq = all.qn, pn = all.pn, dl = (d + 17) / 18;
     int gs[64]; int L = mn_groups_parse(size, gs, 63);
     if (!silent) {
     char npd[160]; if (ec_np_auto) snprintf(npd, sizeof npd, "primes per product (ECALC_NP=auto: 4 over %zu terms%s, pool 0 for %d)", ec_np_auto_terms, np_by(), ec_np_planes(pool_log, size)); else snprintf(npd, sizeof npd, "%d primes", np);

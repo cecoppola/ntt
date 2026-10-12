@@ -365,7 +365,7 @@ static void tree_check(const mdb *P, const mdb *Q, int l, int g0, int g, mn_grou
     if (P->sh.n) db_mod_qs(&P->sh, t1_q, T1_NQ, v + 2); else memset(v + 2, 0, 8 * T1_NQ);
     if (Q->sh.n) db_mod_qs(&Q->sh, t1_q, T1_NQ, v + 2 + T1_NQ); else memset(v + 2 + T1_NQ, 0, 8 * T1_NQ);
     mn_allgather(G->all[0], v, 2 + 2 * T1_NQ, all);
-    uint64_t B = bi_decimal ? 1000000000000000000ull : 0;   /* the limb base (2^64 = 0 mod q handled as (2^64 - 1) + 1) */
+    uint64_t B = 1000000000000000000ull;   /* the limb base */
     unsigned __int128 nn = bs_N; unsigned long a0 = 1 + (unsigned long)(nn * g0 / g_size), b1 = 1 + (unsigned long)(nn * (g0 + g) / g_size);
     int bad = 0; char line[512]; int o = snprintf(line, sizeof line, "RES node %d tree level %d [%d, %d) P/Q vs recurrence [%lu, %lu):", g_rank, l, g0, g0 + g, a0, b1);
     for (int i = 0; i < T1_NQ; i++) {

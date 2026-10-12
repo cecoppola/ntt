@@ -1,5 +1,5 @@
 /* t_s51_probe - S51 micro-benchmark of the dbig add/sub kernels (DBIG_ADDSUB2 / DBIG_ADDSUB3) and k_modq (DBIG_MODQ_MONT).
- * Usage: [DBIG_ADDSUB3=0|1] [DBIG_MODQ_MONT=0|1] [LIMB_BASE=...] t_s51_probe [logn (27)] [reps (5)] [kind 0=uniform 1=all-ones (3)]
+ * Usage: [DBIG_ADDSUB3=0|1] [DBIG_MODQ_MONT=0|1] t_s51_probe [logn (27)] [reps (5)] [kind 0=uniform 1=all-ones (3)]
  * Prints, per operation, the median and min wall time and a checksum line (residues of the results mod the T1 primes) so two runs can be compared
  * by diff.  Not part of TESTS (built on demand; needs 4 APUs, ~12 B x 2^logn bytes of HBM + host copies). */
 #include "harness.h"
@@ -16,7 +16,7 @@ static void rep(const char *w, double *t, int n) { qsort(t, n, sizeof *t, cmpd);
 int main(int argc, char **argv)
 {
     int logn = argc > 1 ? atoi(argv[1]) : 27, reps = argc > 2 ? atoi(argv[2]) : 5, kind = argc > 3 ? atoi(argv[3]) : 0;
-    harness_meta("t_s51_probe"); bi_env_base(); rns_init(31);
+    harness_meta("t_s51_probe"); rns_init(31);
     size_t n = (size_t)1 << logn; rng_t rg = { 5151 };
     bigint a, b; bi_init(&a); bi_init(&b);
     bi_reserve(&a, n); gen_limbs(a.l, n, kind, &rg); a.n = n; bi_norm(&a);

@@ -5,7 +5,7 @@
  * that wants them: RNS_DIST_CACHE_MN of them); RNS_DIST_CACHE_TRACE=1 prints the per-piece lines (DIST_STATS=1 adds the transforms'
  * parts).  Every product's share of C is hashed (sha256): the hashes must agree over the slot counts and the repetitions.
  *
- *   SLURM_JOB_ID=<id> ./mnrun.sh <g> env LIMB_BASE=10 ECALC_NP=4 RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_TRACE=1 ./tests/cx_grid <pool_log> <reps> <slots,..> <shapes file>
+ *   SLURM_JOB_ID=<id> ./mnrun.sh <g> env ECALC_NP=4 RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_TRACE=1 ./tests/cx_grid <pool_log> <reps> <slots,..> <shapes file>
  *
  * shapes file: one line per shape, "na nb lowcut highcut tag" (highcut -1: none); tag ending in "_full" = the tree's layout (A over the
  * group's lower half, B over the upper half), otherwise both over the whole group.  Repetition 0 is a warm-up (each shape once, at the first count; printed, marked). */
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     if (argc < 5) { fprintf(stderr, "usage: cx_grid <pool_log> <reps> <slots,..> <shapes file>\n"); return 2; }
     int pool_log = atoi(argv[1]), reps = atoi(argv[2]);
     int sl[8], ns = 0; { char *t = strdup(argv[3]); for (char *p = strtok(t, ","); p && ns < 8; p = strtok(0, ",")) sl[ns++] = atoi(p); }
-    harness_meta("cx_grid"); bi_env_base(); rns_init(pool_log);
+    harness_meta("cx_grid"); rns_init(pool_log);
     g_size = mn_init(); g_me = mn_rank();
     if (g_size < 2) { printf("cx_grid: needs COMM_SIZE >= 2 (mnrun.sh)\n"); return 2; }
     int L = 0; while ((1 << L) < g_size) L++;

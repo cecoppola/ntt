@@ -62,7 +62,6 @@ int main(int argc, char **argv)
     printf("== t_patch (ECALC_OUT_PACKED=%s) ==\n", getenv("ECALC_OUT_PACKED")); harness_meta("t_patch");
     const char *unpack = getenv("T_PATCH_UNPACK") ? getenv("T_PATCH_UNPACK") : "../tools/unpack_digits";
     int npk = 0, nneg = 0;
-    bi_set_decimal(1);
     const char *dir = getenv("T_PATCH_DIR") ? getenv("T_PATCH_DIR") : "/tmp";
     int fails = 0, checks = 0; size_t maxchain = 0; int nlong = 0;
     for (int it = 0; it < 80; it++) {

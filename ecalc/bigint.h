@@ -1,4 +1,5 @@
-/* bigint.h - little-endian base-2^64 limb arrays (PLAN.md 8).
+/* bigint.h - little-endian limb arrays in base B = 10^18 (PLAN.md 8; decimal limbs since WP1, the only base since
+ * PLAN 28.5: the binary 2^64 pipeline is archived under archive/binary_pipeline/, tag pre-28.5-binary).
  *
  * A bigint owns a limb buffer; n is the used length (no leading-zero limbs
  * after bi_norm), cap the allocation.  The heavy operations (shifts, add/sub,
@@ -14,18 +15,13 @@
 
 typedef struct { uint64_t *l; size_t n, cap; } bigint;
 
-/* Limb base (WP1, PLAN.md 15): 0 = binary limbs (2^64, the paper's); 1 =
- * decimal limbs, each < BI_B10 = 10^18 (60 bits).  Set once at start-up
- * (bi_set_decimal / env LIMB_BASE=10); every primitive below honours it.
- * Limb-granular operations (shift by limbs, compare, split) are the same in
- * both bases; bit shifts exist only in binary mode. */
+/* Limb base (WP1, PLAN.md 15): every limb is < BI_B10 = 10^18 (60 bits); shifts are by whole limbs (powers of B).
+ * LIMB_BASE=2 (the archived binary pipeline) is refused loudly by bi_check_base. */
 #define BI_B10 1000000000000000000ULL
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern int bi_decimal;
-void bi_set_decimal(int on);
-int  bi_env_base(void);                 /* reads LIMB_BASE, returns bi_decimal */
+void bi_check_base(void);               /* ec_fatal if LIMB_BASE is set to anything but 10 (the binary pipeline is archived) */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);   /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (first-touch faults are the 10dP/T1 variance, RESULTS.md 62) */
 #ifdef __cplusplus
 }
@@ -72,19 +68,16 @@ uint64_t limb_sub(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, 
 void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb);
 /* r = a * m + add, returns the carry-out limb */
 uint64_t limb_mul_1(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add);
-/* r = a >> bits / a << bits (bits < 64), returns bits shifted out (shl); binary base only */
-void limb_shr_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits);
-uint64_t limb_shl_bits(uint64_t *r, const uint64_t *a, size_t n, unsigned bits);
-/* the base-agnostic replacements: r = a * B^k (limb shift) and r = a / B^k */
+/* r = a * B^k (limb shift) and r = a / B^k */
 void bi_shl_limbs(bigint *r, const bigint *a, size_t k);
 void bi_shr_limbs(bigint *r, const bigint *a, size_t k);
-/* r = a * 10^k (0 <= k < 18), decimal base only */
+/* r = a * 10^k (0 <= k < 18) */
 void bi_mul_pow10(bigint *r, const bigint *a, unsigned k);
-/* B^k as a bigint (2^(64k) or 10^(18k)) */
+/* B^k = 10^(18k) as a bigint */
 void bi_set_base_pow(bigint *r, size_t k);
 /* top limb of a w-limb window read as a signed value: 1 if the value is negative (>= B/2) */
-static inline int bi_limb_negative(uint64_t top) { extern int bi_decimal; return bi_decimal ? top >= BI_B10 / 2 : (int)(top >> 63); }
-static inline uint64_t bi_limb_max(void) { extern int bi_decimal; return bi_decimal ? BI_B10 - 1 : ~0ULL; }
+static inline int bi_limb_negative(uint64_t top) { return top >= BI_B10 / 2; }
+static inline uint64_t bi_limb_max(void) { return BI_B10 - 1; }
 size_t limb_norm(const uint64_t *a, size_t n);
 
 /* bigint operations; results are normalised */
@@ -94,12 +87,10 @@ void bi_add(bigint *r, const bigint *a, const bigint *b);
 void bi_sub(bigint *r, const bigint *a, const bigint *b);           /* a >= b */
 void bi_add_shifted(bigint *r, const bigint *a, size_t limbs);      /* r += a << (64 limbs) */
 void bi_sub_shifted(bigint *r, const bigint *a, size_t limbs);      /* r -= a << (64 limbs), r >= that */
-void bi_shl(bigint *r, const bigint *a, size_t bits);          /* bits: binary base only; multiples of 64 are limb shifts in either base */
-void bi_shr(bigint *r, const bigint *a, size_t bits);
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
-/* Phase 15 S1: the decimal mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */
-void bi_span_step(bigint *P, bigint *Q, uint64_t k);                /* P += Q; Q *= k in one pass (decimal; else the two calls) */
+/* Phase 15 S1: mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */
+void bi_span_step(bigint *P, bigint *Q, uint64_t k);                /* P += Q; Q *= k in one pass (k < B; else the two calls) */
 void bi_add_u64(bigint *r, uint64_t v);
 uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);     /* returns remainder */
 #ifdef __cplusplus

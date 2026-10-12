@@ -7,7 +7,7 @@
 #
 # Steps (--only picks a subset; --full adds the last):
 #   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_mn_grid at 2 node-processes
-#   e9     10^9 at size 1, decimal (the default) and binary limbs (LIMB_BASE=2), cmp'd against the reference
+#   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with PLAN 28.5), cmp'd against the reference
 #   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
 #   ckpt   10^8 at size 2: BS_CKPT_ABORT=6 on every node, then BS_RESTART=1 (restart identical to the reference)
 #   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
@@ -103,7 +103,8 @@ if want unit || want grid; then
     n=${t// /_}; log=$OUT/unit_$n.log
     want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
-    R 1200 "./tests/$t" > "$log" 2>&1; rc=$?
+    to=1200; [ "$t" = "t_mul 20" ] && to=1800   # H7 (measured): t_mul 20 takes 896 s on an aac6 CPX node; 1200 s left 1.3x margin
+    R $to "./tests/$t" > "$log" 2>&1; rc=$?
     v=$(grep -a 'VERIFY' "$log" | tail -1)
     if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$log" && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit $t" "$v"; else fail "unit $t" "rc $rc; ${v:-no VERIFY line}"; fi
   done
@@ -118,15 +119,13 @@ if want unit || want grid; then
   fi
 fi
 
-# ---- 10^9 at size 1, both bases -----------------------------------------------------------------------------
+# ---- 10^9 at size 1 (decimal limbs; PLAN 28.5 archived the LIMB_BASE=2 run) -----------------------------------
 if want e9 && refneed "e9" "$REF/e_1000000000.txt"; then
-  for b in 10 2; do
-    log=$OUT/e9_b$b.log; f=$TMP/e9_b$b.txt
-    R 900 "env LIMB_BASE=$b ./ecalc 1000000000 $f" > "$log" 2>&1; rc=$?
-    c=$(cmpref "$f" "$REF/e_1000000000.txt")
-    if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "e9 size 1 LIMB_BASE=$b" "$c; $(total_of "$log")"
-    else fail "e9 size 1 LIMB_BASE=$b" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error' "$log" | head -1)"; fi
-  done
+  log=$OUT/e9.log; f=$TMP/e9.txt
+  R 900 "./ecalc 1000000000 $f" > "$log" 2>&1; rc=$?
+  c=$(cmpref "$f" "$REF/e_1000000000.txt")
+  if [ $rc -eq 0 ] && grep -aq '^VERIFY OK' "$log" && [ "$c" = identical ]; then pass "e9 size 1" "$c; $(total_of "$log")"
+  else fail "e9 size 1" "rc $rc; $c; $(grep -a 'VERIFY\|abort\|error' "$log" | head -1)"; fi
 fi
 
 # ---- multi-process on one node --------------------------------------------------------------------------------
