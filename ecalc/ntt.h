@@ -4,13 +4,12 @@
  *   ntt_fwd      natural order, canonical in  -> bit-reversed, canonical out
  *   ntt_inv      bit-reversed, lazy [0,2p) in -> natural, canonical, x n^-1
  *   ntt_pw       x[i] = x[i] y[i]              (both canonical)
- *   ntt_inv_pw   ntt_pw fused into the first inverse pass (PW_FUSE)
+ *   ntt_inv_pw   ntt_pw fused into the first inverse pass (from 2^14 on: ntt_pw_fuse)
  *   ntt_load     canon64 of nlimbs limbs (device or registered host memory)
  *                into a plane of npoints, zero-extended
  *
- * Forward: b16 passes of NTT_B16_STG stages (default 7, tile 128, 3 blocks/CU)
- * for stages logn-1 .. 10, then one b1 pass for stages 9 .. 0 on 1024-point
- * blocks.  Inverse: the transposed (DIT) stages in the opposite order with the
+ * Forward: b16 passes of 7 stages (tile 128; a partial pass of fewer) and one b1
+ * pass on 2^10..2^12-point blocks, as the per-logn plan places them (ntt.c).  Inverse: the transposed (DIT) stages in the opposite order with the
  * inverse roots.  All kernels: 2048 elements per block, integer add/sub, one
  * lazy operand per modmul, twiddles from two-level tables (rules 1-3b).
  * logn from 10 to 33.
@@ -32,29 +31,11 @@ extern "C" {
 
 typedef struct ntt_ctx ntt_ctx;
 
-extern int ntt_stg;        /* NTT_B16_STG: stages per b16 pass, 3..7 (default 7) */
-extern int ntt_pw_fuse;    /* PW_FUSE: fuse pointwise into inverse for logn >= this (default 14) */
-extern int ntt_b1_shoup;   /* NTT_B1_SHOUP: Shoup integer modmul in the b1 pass */
-extern int ntt_b16_body;   /* NTT_B16_BODY: 0 tile kernel (paper), 1 register-blocked body (Phase 5 item 3; the default since Phase 9) */
-/* Phase 13a K (switches; -1 = read the environment variable at first use):
- *   ntt_modmul  NTT_MODMUL  H3: 0 FP64 Barrett with Dekker split (the original), 1 reduced-correction Barrett
- *               (two-term reciprocal, one correction for data products, two for twiddles; default since Phase 13b),
- *               2 Shoup integer products (b16 register-blocked body and b1 pass).  All exact: outputs bit-identical.
- *   (NTT_MALL, the MALL-chunked pass schedule, and NTT_B16_VAR, the k_b16r occupancy / block-order variants, were removed
- *   2026-10-11: no gain, results/N116.md, NTT3P.md) */
-extern int ntt_modmul;
-int ntt_modmul_get(void);
-/* Phase 13b K (switches; -1 = read the environment variable at first use):
- *   ntt_b1r   NTT_B1R   0 the paper's b1 pass; 3 or 4: the register-blocked b1 pass (default 3 since Phase 13c), 2^3
- *             or 2^4 points per thread, one LDS exchange per group of 3 or 4 stages instead of one per stage.  Barrett
- *             modmuls (NTT_MODMUL 0/1); MODMUL 2 keeps the Shoup kernel.  Bit-identical.
- *   ntt_plan  NTT_PLAN  pass boundaries: 0 (b1 on 2^10 points, b16 passes top-down, the partial one at the
- *             bottom); 10 lb + d with lb = 10, 11, 12 the b1 length (lb > 10 needs NTT_B1R) and d = 1 for the b16
- *             passes bottom-up (the partial one at the top), d = 0 top-down; 1 = the per-logn choice of plan_auto
- *             (default since Phase 13b).  Moves the passes' row strides 2^s_lo off the slow s_lo 17 / 24.  Bit-identical. */
-extern int ntt_b1r, ntt_plan;
-int ntt_b1r_get(void);
-int ntt_plan_get(void);
+extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-split check sets it; NTT_B16_STG removed 2026-10-12) */
+extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it; PW_FUSE removed 2026-10-12) */
+/* The kernel switches NTT_B16_BODY, NTT_MODMUL, NTT_B1R, NTT_PLAN (Phase 9, 13a/b K) and NTT_R3_FUSE (Phase 15 N3x) were
+ * removed 2026-10-12 at their defaults: the register-blocked 7-stage body, the reduced-correction Barrett, the
+ * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt3.c). */
 /* bench: one b16 pass of stg stages at row stride 2^s_lo (its own twiddles) over batch x 2^logn points */
 void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s);
 /* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
@@ -91,16 +72,6 @@ void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int lo
 void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int logk, size_t batch, hipStream_t s);
 /* ntt3.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
-/* Phase 15 N3x (NTT_R3_FUSE, default 0): the radix-3 stage of a 3 2^logk transform fused into the first forward pass and
- * the last inverse pass of the 2^logk engine (ntt3.c builds the argument: its twiddle tables and constants; t1/t2 are the
- * inverse tables for the inverse).  Same arithmetic as ntt3.c's k_r3_fwd / k_r3_inv, so bit-identical. */
-typedef struct ntt_r3arg { const uint64_t *t1, *t2; uint64_t w3, w3s, inv3; } ntt_r3arg;
-extern int ntt_r3_fuse;
-int  ntt_r3_fuse_get(void);
-int  ntt_r3_fusable(int logk);                 /* the switch is on and the plan / kernel configuration has a fused form */
-void ntt_fwd_r3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s);
-/* the inverse of batch 3 2^logk transforms, y = 0 (no pointwise product) or y in layout ymode fused into the b1 pass */
-void ntt_inv_r3(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, const ntt_r3arg *ra, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
 void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 

@@ -257,9 +257,9 @@ int main(int argc, char **argv)
         mpz_clears(a, b, c, d, NULL);
     }
     /* 4b. Phase 9 B1: the locality-aware tier as the tree uses it - products in device pools, pairs
-     * (P1 Q2 + P2, Q1 Q2) sharing B, 2^k and 3 2^k lengths, several tiles - vs GMP, with the paired B
-     * transform on and off (the results must agree bit for bit; the normalised lengths too) */
-    printf("-- 4b. batch-local: device-pool products in pairs sharing B (RNS_BATCH_PAIR 1 / 0)\n");
+     * (P1 Q2 + P2, Q1 Q2) sharing B, 2^k and 3 2^k lengths, several tiles - vs GMP and the normalised lengths
+     * (the unpaired form, RNS_BATCH_PAIR=0, was removed 2026-10-12; it is still taken where a batch does not pair) */
+    printf("-- 4b. batch-local: device-pool products in pairs sharing B\n");
     {
         struct { int logL; size_t npairs; int r3; size_t tile; const char *why; } bc[] = {
             {12, 40, 0, 0, "2^12, 40 pairs"}, {14, 300, 0, 0, "2^14, 300 pairs (fused pointwise)"},
@@ -296,13 +296,12 @@ int main(int argc, char **argv)
                 if (nx[j]) gen_limbs((uint64_t *)p1->x, nx[j], kind, &rng);
             }
             size_t save_tile = rns_batch_tile_bytes; if (bc[ci].tile) rns_batch_tile_bytes = bc[ci].tile;
-            uint64_t hash[2] = {0, 0}; double dt[2] = {0, 0};
-            for (int mode = 1; mode >= 0; mode--) {
-                rns_batch_pair = mode;
+            double dt[2] = {0, 0};
+            { const int mode = 1;   /* paired */
                 for (size_t i = 0; i < N; i++) { P[i].ncn = 0; memset(P[i].c, 0, (P[i].na + P[i].nb + (P[i].x ? 1 : 0)) * 8); }
                 memset(&rns_st, 0, sizeof rns_st);
                 double t0 = mem_now(); rns_mul_batch(P, N); dt[mode] = mem_now() - t0;
-                size_t bad = 0, badn = 0, nex = 0, badr = 0; uint64_t h = 0x243F6A8885A308D3ULL;
+                size_t bad = 0, badn = 0, nex = 0, badr = 0;
                 int all_exact = need[0] + need[1] + need[2] + need[3] <= BATCH_EXACT_LIMBS;
                 for (size_t i = 0; i < N; i++) {
                     size_t nc = P[i].na + P[i].nb + (P[i].x ? 1 : 0);
@@ -314,18 +313,15 @@ int main(int argc, char **argv)
                     }
                     size_t n = nc; while (n && P[i].c[n - 1] == 0) n--;
                     if (P[i].ncn != n) badn++;
-                    for (size_t k = 0; k < nc; k++) { h ^= P[i].c[k]; h *= 0x9E3779B97F4A7C15ULL; h ^= h >> 29; }
                 }
-                hash[mode] = h;
                 if (!all_exact) badr = batch_residues_bad(P, N);
                 VERIFY(bad == 0 && badr == 0, "batch-local %s pair=%d: %zu of %zu exact products wrong, %zu of %zu by residues", bc[ci].why, mode, bad, nex, badr, all_exact ? 0 : N);
                 VERIFY(badn == 0, "batch-local %s pair=%d: %zu normalised lengths wrong", bc[ci].why, mode, badn);
                 VERIFY(rns_st.n_batch_local == N && rns_st.n_batch_pair == (mode ? N : 0), "batch-local %s pair=%d: the local tier did not run as expected (local %zu paired %zu of %zu)", bc[ci].why, mode, rns_st.n_batch_local, rns_st.n_batch_pair, N);
             }
-            VERIFY(hash[0] == hash[1], "batch-local %s: paired and unpaired results differ", bc[ci].why);
-            printf("   %-48s N=%-5zu pair %.3f s  unpaired %.3f s  (%s)\n", bc[ci].why, N, dt[1], dt[0],
+            printf("   %-48s N=%-5zu pair %.3f s  (%s)\n", bc[ci].why, N, dt[1],
                    need[0] + need[1] + need[2] + need[3] <= BATCH_EXACT_LIMBS ? "all exact" : "4 exact, all by residues");
-            rns_batch_tile_bytes = save_tile; rns_batch_pair = 1;
+            rns_batch_tile_bytes = save_tile;
             for (int dv = 0; dv < nd; dv++) mem_dev_free(pool[dv]);
             free(P); free(na1); free(na2); free(nb); free(nx);
         }

@@ -8,15 +8,16 @@
  *  3. convolution: (a) cyclic convolution mod p vs schoolbook at 2^12;
  *     (b) integer product with 16-bit limbs vs mpz_mul at logn 16 .. 20,
  *     fused and unfused pointwise, every prime
- *  4. forward output and round trip bit-identical for NTT_B16_STG = 3 .. 7
+ *  4. forward output and round trip bit-identical for 3 .. 7 stages per b16 pass (ntt_stg)
  *     at 2^24 (STG 8 would need a 256-row tile: LDS 34 KB, 1 block/CU - not
  *     built, RESULTS.md 33)
  *  5. rate: ms per pass at 2^LOGMAX on all APUs (paper 1.08 TB/s effective =
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
- * Usage: t_ntt [LOGMAX (31)] [4c: section 4c only]
+ * Usage: t_ntt [LOGMAX (31)]
  *        t_ntt hash [KMAX2 KMAX3]   (Phase 15 N3x: output hashes of every transform, for old / new diffs)
- *        t_ntt r3bench [KMIN KMAX]  (Phase 15 N3x: the fused radix-3 pass against the separate one, and 2^(k+2))
+ *        t_ntt bench [LOGMAX [h2,h7,stride,slo,q4,q4sweep]]   (rates; the kernel variants' benches were removed with their
+ *                                   switches 2026-10-12: NTT_MODMUL, NTT_B1R, NTT_PLAN, NTT_B16_BODY, NTT_R3_FUSE)
  */
 #include "harness.h"
 #include "../ntt.h"
@@ -66,41 +67,6 @@ __global__ void k_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed)
     }
 }
 static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<<<228 * 8, 256>>>(x, n, p, seed); HIP_CHECK(hipDeviceSynchronize()); }
-
-/* one configuration of the switches */
-struct kcfg { int mm, mall; const char *name; int var, b1r, plan; };      /* Phase 13b K: + NTT_B1R, NTT_PLAN */
-static void kcfg_set(const struct kcfg *k) { ntt_modmul = k->mm; ntt_b1r = k->b1r; ntt_plan = k->plan; }   /* (mall, var: inert since NTT_MALL / NTT_B16_VAR were removed 2026-10-11) */
-
-/* the H3 / H2 identity check: every operation under configuration k against the default (MM 0, MALL off), on the
- * device.  ops: fwd, inv (input canonical random: no round-trip identity to hide behind), fused inverse with the
- * pointwise product in the three layouts, and the radix-3 pair. */
-static void ident_check(const struct kcfg *k, int pr, int logn, size_t batch, ntt_ctx *c, uint64_t *dx, uint64_t *dr, uint64_t *dy, int with_y)
-{
-    struct kcfg ref = {0, 0, "ref"};
-    size_t n = batch << logn;
-    uint64_t p = ec_P[pr];
-    for (int op = 0; op < (with_y ? 6 : 2); op++) {
-        if (op == 5 && !ec_has_radix3()) continue;
-        size_t nn = op == 5 ? 3 * n : n;
-        for (int pass = 0; pass < 2; pass++) {
-            kcfg_set(pass ? k : &ref);
-            uint64_t *out = pass ? dx : dr;
-            dev_fill(out, nn, p, 0x1234 + logn * 77 + op);
-            if (op >= 2) dev_fill(dy, nn, p, 0x5678 + logn);
-            switch (op) {
-            case 0: ntt_fwd(c, out, logn, batch, 0); break;
-            case 1: ntt_inv(c, out, logn, batch, 0); break;
-            case 2: case 3: case 4: { int save = ntt_pw_fuse; ntt_pw_fuse = 10; ntt_inv_pw_y(c, out, dy, op - 2, logn, batch, 0); ntt_pw_fuse = save; break; }
-            case 5: ntt_fwd3(c, out, logn, batch, 0); ntt_inv3_pw_y(c, out, dy, NTT_Y_FULL, logn, batch, 0); break;
-            }
-            HIP_CHECK(hipDeviceSynchronize());
-        }
-        size_t bad = dev_diff(dx, dr, nn);
-        static const char *opn[] = {"fwd", "inv", "inv_pw full", "inv_pw bcast", "inv_pw pair", "fwd3+inv3_pw"};
-        VERIFY(bad == 0, "%s P%d 2^%d x %zu %s: %zu mismatches vs default", k->name, pr, logn, batch, opn[op], bad);
-    }
-    kcfg_set(&ref);
-}
 
 /* timing: median of 5 trials of `reps` calls, ms per call */
 #define TIME_MS(out, reps, stmt) do {                                                                  \
@@ -172,8 +138,7 @@ static int bench(int LOGMAX, const char *what)
     HIP_CHECK(hipMalloc(&dx, nmax * 8)); HIP_CHECK(hipMalloc(&dy, nmax * 8));
     ntt_ctx *c = ntt_ctx_create(0);
     dev_fill(dx, nmax, ec_P[0], 1); dev_fill(dy, nmax, ec_P[0], 2);
-    struct kcfg ref = {0, 0, "ref"};
-    printf("== t_ntt bench %s: LOGMAX %d, APU0, P0, NTT_B16_STG %d, body %d; median of 5 ==\n", what, LOGMAX, ntt_stg, ntt_b16_body);
+    printf("== t_ntt bench %s: LOGMAX %d, APU0, P0, %d stages per b16 pass; median of 5 ==\n", what, LOGMAX, ntt_stg);
 
     if (strstr(what, "h2")) {
         /* H2 part 1: per-pass rate against the working set.  logL = transform length, tot = points in the batch.
@@ -199,28 +164,6 @@ static int bench(int LOGMAX, const char *what)
             TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
             TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
             printf("   H2 L%2d tot 2^%2d whole: fwd %8.3f ms (sum of passes %8.3f) inv %8.3f ms (%8.3f); %d passes, fwd %.3f ns/pt/pass\n", logL, lt, tf, sf, ti, si, np, tf * 1e6 / tot / np);
-        }
-    }
-    if (strstr(what, "h3")) {
-        /* H3: the modmul variants on the whole transform */
-        printf("-- H3 modmul: logL tot MM fwd ms inv ms (vs MM 0)\n");
-        static const int Ls[] = {14, 17, 20, 0};
-        for (int li = 0; li < 4; li++) for (int lt = 20; lt <= LOGMAX; lt++) {
-            int logL = Ls[li] ? Ls[li] : lt;
-            if (Ls[li] && lt != 28 && lt != LOGMAX) continue;
-            size_t tot = (size_t)1 << lt, B = tot >> logL;
-            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
-            float f0 = 0, i0 = 0;
-            for (int mm = 0; mm < 3; mm++) {
-                struct kcfg kc = {mm, 0, ""};
-                kcfg_set(&kc);
-                float tf, ti;
-                TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
-                TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
-                if (!mm) { f0 = tf; i0 = ti; }
-                printf("   MM L%2d tot 2^%2d mm %d: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx)\n", logL, lt, mm, tf, f0 / tf, ti, i0 / ti);
-            }
-            kcfg_set(&ref);
         }
     }
     if (strstr(what, "h7")) {
@@ -307,92 +250,15 @@ static int bench(int LOGMAX, const char *what)
             }
         }
     }
-    if (strstr(what, "b1")) {
-        /* Phase 13b K: the b1 pass alone: the paper's kernel against the register-blocked one (NTT_B1R 3, 4) and the
-         * b1 lengths 2^11, 2^12, at MM 1 (the default) and MM 0 */
-        printf("-- K13b b1 pass: tot mm b1r lb fwd ms GB/s | inv ms GB/s (x vs b1r 0)\n");
-        for (int lt = 20; lt <= LOGMAX; lt += (lt < 24 ? 4 : lt < 28 ? 2 : 1)) for (int mm = 1; mm >= 0; mm--) {
-            size_t tot = (size_t)1 << lt;
-            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
-            float f0 = 0, i0 = 0;
-            for (int r = 0; r <= 4; r++) for (int lb = 10; lb <= 12; lb++) {
-                if (r == 1 || r == 2 || (!r && lb > 10)) continue;
-                struct kcfg kc = {mm, 0, "", 0, r, lb == 10 ? 0 : lb * 10}; kcfg_set(&kc);
-                int np = ntt_npass(20);
-                float mf, mi;
-                TIME_MS(mf, reps, ntt_pass(c, dx, 20, tot >> 20, 0, np - 1, 0));
-                TIME_MS(mi, reps, ntt_pass(c, dx, 20, tot >> 20, 1, np - 1, 0));
-                if (!r) { f0 = mf; i0 = mi; }
-                printf("   B1 tot 2^%2d mm %d b1r %d lb %d: fwd %8.3f ms %6.0f GB/s (%.3fx) | inv %8.3f ms %6.0f GB/s (%.3fx)\n", lt, mm, r, lb,
-                       mf, 16.0 * tot / (mf * 1e-3) / 1e9, f0 / mf, mi, 16.0 * tot / (mi * 1e-3) / 1e9, i0 / mi);
-            }
-            kcfg_set(&ref);
-        }
-    }
-    if (strstr(what, "whole")) {
-        /* Phase 13b K: whole transforms (fwd, inv, fused inverse) under the switches, against the default (MM 1, b1r 0,
-         * plan 0); single transforms 2^20 .. 2^LOGMAX and batches of 2^14, 2^17, 2^20, 2^24 */
-        printf("-- K13b whole transforms: logL tot config fwd ms inv ms inv_pw ms (x vs default)\n");
-        static const struct kcfg wc[] = {{1, 0, "default"}, {1, 0, "B1R3", 0, 3}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R3+P1", 0, 3, 1},
-                                         {1, 0, "B1R4+P1", 0, 4, 1}, {1, 0, "B1R3+P121", 0, 3, 121}, {0, 0, "MM0"}, {0, 0, "MM0+B1R3+P1", 0, 3, 1}};
-        const int nw = sizeof wc / sizeof wc[0];
-        static const int Ls[] = {14, 17, 20, 24, 0};
-        for (int li = 0; li < 5; li++) for (int lt = 20; lt <= LOGMAX; lt++) {
-            int logL = Ls[li] ? Ls[li] : lt;
-            if (Ls[li] && (lt < 26 || (lt != 28 && lt != LOGMAX)) ) continue;
-            if (logL > lt) continue;
-            size_t tot = (size_t)1 << lt, B = tot >> logL;
-            int reps = lt >= 26 ? 1 : 1 << (26 - lt);
-            float f0 = 0, i0 = 0, p0 = 0;
-            for (int k = 0; k < nw; k++) {
-                kcfg_set(&wc[k]);
-                float tf, ti, tp;
-                TIME_MS(tf, reps, ntt_fwd(c, dx, logL, B, 0));
-                TIME_MS(ti, reps, ntt_inv(c, dx, logL, B, 0));
-                TIME_MS(tp, reps, ntt_inv_pw(c, dx, dy, logL, B, 0));
-                if (!k) { f0 = tf; i0 = ti; p0 = tp; }
-                char pl[64] = ""; int np = ntt_npass(logL);
-                for (int ps = 0; ps < np; ps++) { int lo, hi; ntt_pass_bounds(logL, ps, &lo, &hi); snprintf(pl + strlen(pl), sizeof pl - strlen(pl), "%s%d", ps ? "," : "", lo); }
-                printf("   W L%2d tot 2^%2d %-10s [s_lo %s]: fwd %8.3f ms (%.3fx) inv %8.3f ms (%.3fx) inv_pw %8.3f ms (%.3fx)\n", logL, lt, wc[k].name, pl,
-                       tf, f0 / tf, ti, i0 / ti, tp, p0 / tp);
-            }
-            kcfg_set(&ref);
-        }
-    }
-    if (strstr(what, "pass")) {
-        /* Phase 13b K: every pass of the forward and the inverse under the plans, at 2^31, 2^30, 2^28, 2^24 single */
-        printf("-- K13b per pass under the plans: L config pass [s_lo..s_hi] fwd ms GB/s | inv ms GB/s\n");
-        static const struct kcfg pc[] = {{1, 0, "default"}, {1, 0, "B1R4", 0, 4}, {1, 0, "B1R4+P111", 0, 4, 111}, {1, 0, "B1R4+P121", 0, 4, 121}, {1, 0, "B1R4+P101", 0, 4, 101}};
-        static const int Ls[] = {31, 30, 28, 24};
-        for (int li = 0; li < 4; li++) for (int k = 0; k < 5; k++) {
-            int L = Ls[li]; if (L > LOGMAX) continue;
-            kcfg_set(&pc[k]);
-            size_t tot = (size_t)1 << L;
-            float sf = 0, si = 0;
-            for (int ps = 0; ps < ntt_npass(L); ps++) {
-                int lo, hi; ntt_pass_bounds(L, ps, &lo, &hi);
-                float mf, mi;
-                TIME_MS(mf, 1, ntt_pass(c, dx, L, 1, 0, ps, 0));
-                TIME_MS(mi, 1, ntt_pass(c, dx, L, 1, 1, ps, 0));
-                sf += mf; si += mi;
-                printf("   P L%2d %-10s pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s | inv %8.3f ms %6.0f GB/s\n", L, pc[k].name, ps, lo, hi,
-                       mf, 16.0 * tot / (mf * 1e-3) / 1e9, mi, 16.0 * tot / (mi * 1e-3) / 1e9);
-            }
-            printf("   P L%2d %-10s sum: fwd %8.3f ms inv %8.3f ms\n", L, pc[k].name, sf, si);
-            kcfg_set(&ref);
-        }
-    }
     if (strstr(what, "q4")) {
-        /* S21 (A37-Q4): the production configuration (NTT_MODMUL 1, NTT_B1R 3, NTT_PLAN 1), whole forward / inverse and every pass, at 2^31, 2^28 and
+        /* S21 (A37-Q4): the production configuration (the only one since 2026-10-12), whole forward / inverse and every pass, at 2^31, 2^28 and
          * 2^24 single.  Run by tests/t_ntt (real modmul) and tests/t_ntt_nop (ntt.c built with -DNTT_NOP_MODMUL: every modmul one FMA, the data movement
          * left; its outputs are wrong by design and are not checked here).  The two outputs side by side say what share of the time is the arithmetic. */
-        static const struct kcfg q4c = {1, 0, "production", 0, 3, 1};
         printf("-- S21 Q4: production plan; L, fwd ms, inv ms, then per pass [s_lo..s_hi] fwd ms (median of 5)\n");
         static const int Ls3[] = {31, 28, 24}, Lsw[] = {24, 25, 26, 27, 28, 29, 30, 31};   /* S22: bench <LOGMAX> q4sweep = every L from 24 to 31 */
         const int *Ls = strstr(what, "q4sweep") ? Lsw : Ls3; const int nLs = strstr(what, "q4sweep") ? 8 : 3;
         for (int li = 0; li < nLs; li++) {
             int L = Ls[li]; if (L > LOGMAX) continue;
-            kcfg_set(&q4c);
             float tf, ti;
             TIME_MS(tf, 1, ntt_fwd(c, dx, L, 1, 0));
             TIME_MS(ti, 1, ntt_inv(c, dx, L, 1, 0));
@@ -405,7 +271,6 @@ static int bench(int LOGMAX, const char *what)
                 printf("   Q4 L%2d pass %d [%2d..%2d]: fwd %8.3f ms %6.0f GB/s\n", L, ps, lo, hi, mf, 16.0 * ldexp(1.0, L) / (mf * 1e-3) / 1e9);
             }
             printf("   Q4 L%2d sum of passes: fwd %8.3f ms\n", L, sf);
-            kcfg_set(&ref);
         }
     }
     ntt_ctx_free(c);
@@ -417,10 +282,8 @@ static int bench(int LOGMAX, const char *what)
  * hash: every transform the code uses -- 2^k (k = 10 .. KMAX2) and 3 2^k (k = 10 .. KMAX3), every prime, batch 1 and 3 (3
  * while the batch fits 3 2^29 points), forward, inverse and the inverse with the pointwise product in the three y layouts,
  * fused into the b1 pass (PW_FUSE 10) and not (99) -- on deterministic canonical inputs; one line per case with a
- * position-dependent device hash of the output.  Run it with the old build and the new one (NTT_R3_FUSE=0 and =1) and diff
- * the lines: the transforms must be bitwise identical.  T_NTT_OLD builds the mode against a tree without ntt_r3_fuse.
- * r3bench: ms per call of the 3 2^k forward, inverse and inverse with the pointwise product, NTT_R3_FUSE off and on, and of
- * the 2^(k+2) transforms of the same products (the pick_len alternative), about 3 2^28 points per call. */
+ * position-dependent device hash of the output.  Run it with the old build and the new one and diff the `H ` lines: the
+ * transforms must be bitwise identical. */
 __device__ static inline uint64_t n3x_mix(uint64_t z)
 {
     z ^= z >> 30; z *= 0xBF58476D1CE4E5B9ULL; z ^= z >> 27; z *= 0x94D049BB133111EBULL; z ^= z >> 31; return z;
@@ -442,12 +305,7 @@ static uint64_t n3x_hash(const uint64_t *x, size_t n)
 }
 static int n3x_hash_mode(int kmax2, int kmax3)
 {
-    if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));   /* as ecalc.c reads it */
-#ifndef T_NTT_OLD
-    printf("== t_ntt hash: NTT_R3_FUSE %d, NTT_MODMUL %d, NTT_PLAN %d, NTT_B1R %d, NTT_B16_BODY %d ==\n", ntt_r3_fuse_get(), ntt_modmul_get(), ntt_plan_get(), ntt_b1r_get(), ntt_b16_body);
-#else
-    printf("== t_ntt hash (old tree): NTT_MODMUL %d, NTT_PLAN %d, NTT_B1R %d, NTT_B16_BODY %d ==\n", ntt_modmul_get(), ntt_plan_get(), ntt_b1r_get(), ntt_b16_body);
-#endif
+    printf("== t_ntt hash ==\n");
     HIP_CHECK(hipSetDevice(0));
     ntt_ctx *ctx[EC_NP];
     for (int pr = 0; pr < EC_NP; pr++) ctx[pr] = ntt_ctx_create(pr);
@@ -490,59 +348,14 @@ static int n3x_hash_mode(int kmax2, int kmax3)
     HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
     return 0;
 }
-#ifndef T_NTT_OLD
-static int n3x_bench(int kmin, int kmax)
-{
-    if (!ec_has_radix3()) { printf("r3bench: no radix-3 primes\n"); return 0; }
-    HIP_CHECK(hipSetDevice(0));
-    const int pr = 0;
-    ntt_ctx *c = ntt_ctx_create(pr);
-    const size_t cap = (size_t)1 << 31;
-    uint64_t *dx, *dy;
-    HIP_CHECK(hipMalloc(&dx, cap * 8)); HIP_CHECK(hipMalloc(&dy, cap * 8));
-    dev_fill(dx, cap, ec_P[pr], 1); dev_fill(dy, cap, ec_P[pr], 2);
-    printf("== t_ntt r3bench: APU0, prime %d, ms per call (median of 5), about 3 2^28 points per call; fused = NTT_R3_FUSE=1 ==\n", pr);
-    printf("%-6s %6s | %8s %8s %6s %8s | %8s %8s %6s %8s | %8s %8s %6s | %8s %8s | %9s %9s %9s %6s %6s\n", "3*2^k", "batch",
-           "fwd3", "fused", "gain", "floor", "inv3", "fused", "gain", "floor", "invpw3", "fused", "gain", "fwd2^k+2", "invpw", "prod3", "prod3f", "prod2^k+2", "3/4", "3f/4");
-    for (int logk = kmin; logk <= kmax; logk++) {
-        int lb = 28 - logk; size_t batch = lb > 0 ? (size_t)1 << lb : 1;
-        float f0, f1, i0, i1, p0, p1, f4, p4, ff, fi;
-        ntt_r3_fuse = 0;
-        TIME_MS(f0, 3, ntt_fwd3(c, dx, logk, batch, 0));
-        TIME_MS(i0, 3, ntt_inv3(c, dx, logk, batch, 0));
-        TIME_MS(p0, 3, ntt_inv3_pw(c, dx, dy, logk, batch, 0));
-        ntt_r3_fuse = 1;
-        int fz = ntt_r3_fusable(logk);
-        TIME_MS(f1, 3, ntt_fwd3(c, dx, logk, batch, 0));
-        TIME_MS(i1, 3, ntt_inv3(c, dx, logk, batch, 0));
-        TIME_MS(p1, 3, ntt_inv3_pw(c, dx, dy, logk, batch, 0));
-        ntt_r3_fuse = 0;
-        TIME_MS(f4, 3, ntt_fwd(c, dx, logk + 2, batch, 0));
-        TIME_MS(p4, 3, ntt_inv_pw(c, dx, dy, logk + 2, batch, 0));
-        TIME_MS(ff, 3, ntt_fwd(c, dx, logk, 3 * batch, 0));          /* the floor: the 2^k transforms of the thirds alone */
-        TIME_MS(fi, 3, ntt_inv(c, dx, logk, 3 * batch, 0));
-        float pr3 = 2 * f0 + p0, pr3f = 2 * f1 + p1, pr4 = 2 * f4 + p4;
-        printf("%-6d %6zu | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% %8.3f | %8.3f %8.3f %5.1f%% | %8.3f %8.3f | %9.3f %9.3f %9.3f %6.3f %6.3f%s\n", logk, batch,
-               f0, f1, 100 * (1 - f1 / f0), ff, i0, i1, 100 * (1 - i1 / i0), fi, p0, p1, 100 * (1 - p1 / p0), f4, p4, pr3, pr3f, pr4, pr3 / pr4, pr3f / pr4, fz ? "" : "  (no fused form)");
-        fflush(stdout);
-    }
-    ntt_ctx_free(c);
-    HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy));
-    return 0;
-}
-#endif
-
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);   /* Phase 15 N3x */
-#ifndef T_NTT_OLD
-    if (argc > 1 && !strcmp(argv[1], "r3bench")) return n3x_bench(argc > 2 ? atoi(argv[2]) : 10, argc > 3 ? atoi(argv[3]) : 29);
-#endif
-    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,mall,h3,h7");   /* Phase 13b K: stride, slo, b1, whole, pass */
+    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,h7");   /* Phase 13b K: stride, slo; S21 q4 */
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 31;
     int nd = 0, pr, logn;
     HIP_CHECK(hipGetDeviceCount(&nd));
-    printf("== t_ntt: LOGMAX %d, %d devices, NTT_B16_STG %d ==\n", LOGMAX, nd, ntt_stg);
+    printf("== t_ntt: LOGMAX %d, %d devices, %d stages per b16 pass ==\n", LOGMAX, nd, ntt_stg);
     harness_meta("t_ntt");
     rng_t rng = {0x7E57ULL};
 
@@ -555,10 +368,6 @@ int main(int argc, char **argv)
     uint64_t *dx, *dy;
     HIP_CHECK(hipMalloc(&dx, nmax * 8)); HIP_CHECK(hipMalloc(&dy, nmax * 8));
 
-    /* Phase 13b K: `t_ntt LOGMAX 4c` runs only section 4c (the switch identities, every length to 2^LOGMAX); the host
-     * references of sections 1-3 take most of a full run's time */
-    const int only4c = argc > 2 && !strcmp(argv[2], "4c");
-    if (!only4c) {
     /* 1. O(n^2) DFT */
     printf("-- 1. fwd vs O(n^2) DFT\n");
     for (pr = 0; pr < EC_NP; pr++) {
@@ -702,50 +511,6 @@ int main(int argc, char **argv)
             ntt_ctx_free(c);
         }
         ntt_stg = 7;
-        /* register-blocked body (1) and with radix-4 stages (2) (the ds_swizzle B<->C exchange NTT_B16_XCHG was
-         * removed 2026-10-11): bit-identical forward, exact round trip, and the inverse pass output itself
-         * identical to the tile kernel's (the forward output, inverted without the scale fusion, compared) */
-        uint64_t hinv_ref = 0;
-        for (ntt_b16_body = 0; ntt_b16_body <= 2; ntt_b16_body++) {
-            ntt_ctx *c = ntt_ctx_create(0);
-            HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice));
-            ntt_fwd(c, dx, logn, 1, 0);
-            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
-            uint64_t h = hash_arr(hy, n);
-            VERIFY(h == href, "body %d: forward differs from the tile kernel", ntt_b16_body);
-            ntt_inv(c, dx, logn, 1, 0);
-            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
-            size_t first, bad = count_diff(hx, hy, n, &first);
-            VERIFY(bad == 0, "body %d: round trip %zu mismatches", ntt_b16_body, bad);
-            /* the inverse's intermediate: inv over the forward output of a batch of 2 (no round-trip identity to hide behind) */
-            HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice));
-            ntt_inv(c, dx, logn - 1, 2, 0);
-            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
-            uint64_t hi = hash_arr(hy, n);
-            if (ntt_b16_body == 0) hinv_ref = hi;
-            VERIFY(hi == hinv_ref, "body %d: inverse output differs from the tile kernel", ntt_b16_body);
-            printf("   body %d: fwd hash %016llx %s, inv hash %016llx %s\n", ntt_b16_body, (unsigned long long)h, h == href ? "== tile kernel" : "DIFFERS",
-                   (unsigned long long)hi, hi == hinv_ref ? "==" : "DIFFERS");
-            ntt_ctx_free(c);
-        }
-        ntt_b16_body = 0;
-        /* Shoup b1 pass: forward output canonical and identical; round trip exact */
-        ntt_b1_shoup = 1;
-        {
-            ntt_ctx *c = ntt_ctx_create(0);
-            HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice));
-            ntt_fwd(c, dx, logn, 1, 0);
-            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
-            uint64_t h = hash_arr(hy, n);
-            VERIFY(h == href, "Shoup b1: forward differs");
-            ntt_inv(c, dx, logn, 1, 0);
-            HIP_CHECK(hipMemcpy(hy, dx, n * 8, hipMemcpyDeviceToHost));
-            size_t first, bad = count_diff(hx, hy, n, &first);
-            VERIFY(bad == 0, "Shoup b1: round trip %zu mismatches", bad);
-            printf("   Shoup b1 pass: fwd hash %016llx %s\n", (unsigned long long)h, h == href ? "== tile kernel" : "DIFFERS");
-            ntt_ctx_free(c);
-        }
-        ntt_b1_shoup = 0;
     }
 
     /* 4b. Phase 9 B1: the pointwise operand's layouts (FULL, BCAST, PAIR), fused into the b1 pass and not,
@@ -787,41 +552,8 @@ int main(int argc, char **argv)
         ntt_pw_fuse = save;
     }
 
-    }   /* !only4c */
-
-    /* 4c. Phase 13a K: the switches (NTT_MODMUL 1, 2 = H3; NTT_MALL and NTT_B16_VAR removed 2026-10-11) give outputs
-     * bit-identical to the default for fwd, inv, the fused pointwise inverse in all three layouts and the
-     * radix-3 pair, at every length 2^10 .. 2^LOGMAX and at batches (incl. a non-power-of-two one) */
-    printf("-- 4c. NTT_MODMUL / NTT_B1R / NTT_PLAN variants bit-identical to the default\n");
-    {
-        uint64_t *dr; HIP_CHECK(hipMalloc(&dr, nmax * 8));
-        static const struct kcfg ks[] = {{1, 0, "MM1"}, {2, 0, "MM2"},
-                                         /* Phase 13b K: the register-blocked b1 (NTT_B1R) and the pass plans (NTT_PLAN) */
-                                         {0, 0, "B1R3", 0, 3}, {1, 0, "MM1+B1R3", 0, 3}, {0, 0, "B1R4", 0, 4}, {1, 0, "MM1+B1R4", 0, 4},
-                                         {2, 0, "MM2+B1R4", 0, 4, 111}, {0, 0, "P101", 0, 0, 101}, {1, 0, "MM1+B1R4+P110", 0, 4, 110},
-                                         {1, 0, "MM1+B1R4+P111", 0, 4, 111}, {0, 0, "B1R3+P111", 0, 3, 111}, {1, 0, "MM1+B1R4+P120", 0, 4, 120},
-                                         {1, 0, "MM1+B1R3+P121", 0, 3, 121}, {1, 0, "MM1+B1R4+P121", 0, 4, 121},
-                                         {1, 0, "MM1+B1R4+P1", 0, 4, 1}, {1, 0, "MM1+B1R3+P1", 0, 3, 1}, {0, 0, "B1R3+P1", 0, 3, 1}};
-        int save_body = ntt_b16_body; ntt_b16_body = 1;
-        for (size_t ki = 0; ki < sizeof ks / sizeof ks[0]; ki++) {
-            for (logn = 10; logn <= LOGMAX; logn++) {
-                pr = (logn + (int)ki) % EC_NP;
-                ident_check(&ks[ki], pr, logn, 1, ctx[pr], dx, dr, dy, logn + 2 <= LOGMAX && logn <= 27);
-            }
-            static const int bl[][2] = {{11, 1000}, {14, 64}, {17, 16}, {20, 6}, {12, 3}};
-            for (int b = 0; b < 5; b++) if (((size_t)3 * bl[b][1] << bl[b][0]) <= nmax)
-                ident_check(&ks[ki], (b + (int)ki) % EC_NP, bl[b][0], bl[b][1], ctx[(b + (int)ki) % EC_NP], dx, dr, dy, 1);
-            printf("   %-21s ok to 2^%d\n", ks[ki].name, LOGMAX);
-        }
-        ntt_b16_body = save_body; ntt_modmul = 0; ntt_b1r = 0; ntt_plan = 0;
-        HIP_CHECK(hipFree(dr));
-    }
-
-    if (only4c) return verify_done("t_ntt 4c");
     /* 5. rates on every device */
-    for (int body = 0; body < 4; body++) {
-    ntt_b16_body = body >= 3 ? 1 : body; ntt_b1_shoup = body == 3;
-    printf("-- 5. rates (P0, STG 7, body %d = %s)\n", body, body == 3 ? "register-blocked + Shoup b1" : body == 2 ? "register-blocked + radix-4" : body ? "register-blocked" : "tile kernel");
+    printf("-- 5. rates (P0)\n");
     {
         double sum_fwd = 0, sum_inv = 0;
         int np = ntt_npass(LOGMAX);
@@ -852,11 +584,9 @@ int main(int argc, char **argv)
             }
             HIP_CHECK(hipFree(ddx)); ntt_ctx_free(c);
         }
-        char nm[40]; snprintf(nm, sizeof nm, "fwd_TBps_per_apu_body%d", body); harness_result(nm, "TB/s", sum_fwd / nd);
-        snprintf(nm, sizeof nm, "inv_TBps_per_apu_body%d", body); harness_result(nm, "TB/s", sum_inv / nd);
+        harness_result("fwd_TBps_per_apu", "TB/s", sum_fwd / nd);
+        harness_result("inv_TBps_per_apu", "TB/s", sum_inv / nd);
         VERIFY(sum_fwd / nd > 0.9, "forward rate %.2f TB/s below 0.9 (bench/16: 1.17)", sum_fwd / nd);
     }
-    }
-    ntt_b16_body = 0; ntt_b1_shoup = 0;
     return verify_done("t_ntt");
 }

@@ -37,7 +37,6 @@ static struct dev {
     uint32_t *len, *dlen; size_t len_cap;   /* WP3 local mode: normalised lengths (pinned host, device) */
 } D[EC_NP];
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
-int rns_batch_pair = -1;         /* RNS_BATCH_PAIR: 1 (default) products 2i, 2i+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2) transform B once (Phase 9 B1) */
 
 __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -93,14 +92,6 @@ int rns_pool0_np(void)
  * 3 q + 16 limbs whatever np, never below the batch tier's 2^min(pool_log, 30)-limb tile (pool_log <= 30), 2 MiB-aligned.
  * Phase 15 PS: four one-node primes (not auto) make pool 1 max(that, 4 q): the batch-local tier's B planes (see below).
  * Returns p0 + p1. */
-/* Phase 15 PS: RNS_POOL1_4Q (default 1) -- with four one-node primes plane pool 1 is made 4 q (the fix: the batch-local tier's
- * B planes fit it).  0: pool 1 stays 3 q + 16 (17.18 GB less per node at 2^31) and the batch-local tier fits its tiles to
- * pool 1 instead, sending a batch whose B planes cannot fit (L = q, 2^29 points at 2^31) to the striped tier (rns_mul_batch) */
-int rns_pool1_4q(void)
-{
-    static int v = -1; if (v < 0) { const char *e = getenv("RNS_POOL1_4Q"); v = e ? atoi(e) != 0 : 1; }
-    return v;
-}
 size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1)
 {
     int pl = pool_log ? pool_log : 31;
@@ -111,8 +102,9 @@ size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1
      * cap (rns_plane_limbs: np q) -- at L = q, Mmax = 1 (2^29 points at 2^31 pools, non-paired: the level of 10 pairs at
      * 9.17e10 digits) that is np q.  Three primes: 3 q < 3 q + 16, nothing changes.  Four one-node primes (ECALC_NP=4, binary
      * limbs): 4 q, which 3 q + 16 lacked (the pool grew inside the bs phase: rc 6, ~/fin15f/t2_B1_1.log).  Under ECALC_NP=auto
-     * the one-node tiers run three primes whatever np pool 0 is made for (rns_plane_limbs caps them at 3 q): pool 1 stays. */
-    if (np >= 4 && !ec_np_auto && rns_pool1_4q()) { size_t c = (size_t)np * q * 8; if (b < c) b = c; }
+     * the one-node tiers run three primes whatever np pool 0 is made for (rns_plane_limbs caps them at 3 q): pool 1 stays.
+     * (RNS_POOL1_4Q, default 1, the switch of this rule, was removed 2026-10-12.) */
+    if (np >= 4 && !ec_np_auto) { size_t c = (size_t)np * q * 8; if (b < c) b = c; }
     a = (a + al - 1) / al * al; b = (b + al - 1) / al * al;
     if (p0) *p0 = a; if (p1) *p1 = b;
     return a + b;
@@ -176,9 +168,8 @@ int rns_init(int pool_log)
     /* Phase 14 N4 (A5): RNS_PLANES_FIRST=1 maps the plane pools before the hook's region arenas.  Near the node's memory
      * edge the last allocations get what is left of the free memory in pieces below 2 MiB; the plane pools (every
      * transform of the dist tier) are then the victims and the tier's gathers and transforms run 4-10 x slower
-     * (results/N414.md).  Mapped first, they take 2 MiB blocks; the seeds start after them (default 0: the hook first). */
-    int planes_first = getenv("RNS_PLANES_FIRST") ? atoi(getenv("RNS_PLANES_FIRST")) : 1;   /* default 1 since Phase 14 (N414: the planes get the 2 MiB pages) */
-    if (rns_after_staging_hook && !planes_first) rns_after_staging_hook(rns_hook_arg);     /* Phase 8 I2: the seeds start now, during the pool allocations below */
+     * (results/N414.md).  Mapped first, they take 2 MiB blocks; the seeds start after them (the switch RNS_PLANES_FIRST, default
+     * 1 since Phase 14, was removed 2026-10-12 with the hook-first order). */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
@@ -191,7 +182,7 @@ int rns_init(int pool_log)
         dpool_get_exact(&D[d].db, d, b1);
     }
     db_tl("plane pools done (%.2f s)", mem_now() - ti1);
-    if (rns_after_staging_hook && planes_first) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
+    if (rns_after_staging_hook) { HIP_CHECK(hipSetDevice(0)); rns_after_staging_hook(rns_hook_arg); db_tl("the hook (region arenas, the seed thread started) done"); }   /* N4: the region arenas and the seeds after the plane pools */
     mem_par_init = 0;
     mem_acct_register(rns_acct);
     double ti2 = mem_now();
@@ -273,11 +264,9 @@ static int ceil_log2(size_t n) { int l = 0; while (((size_t)1 << l) < n) l++; re
 int rns_r3 = -1;                                     /* RNS_R3: 1 (default when the prime set allows) */
 static int pick_len(size_t nc, int *logk)
 {
-    static int r3_mink = -1;                         /* Phase 15 N3x: RNS_R3_MINK (10..13), the smallest k taking 3 2^k (below it 2^(k+2), cheaper per product at k = 10: t_ntt r3bench); default NTT_LOGN_MIN = today */
-    if (r3_mink < 0) { r3_mink = getenv("RNS_R3_MINK") ? atoi(getenv("RNS_R3_MINK")) : NTT_LOGN_MIN; if (r3_mink < NTT_LOGN_MIN) r3_mink = NTT_LOGN_MIN; if (r3_mink > 13) r3_mink = 13; }   /* small products only: never a pool-sized one */
     int logn = ceil_log2(nc); if (logn < NTT_LOGN_MIN) logn = NTT_LOGN_MIN;
     if (rns_r3 < 0) rns_r3 = getenv("RNS_R3") ? atoi(getenv("RNS_R3")) : ec_has_radix3();
-    if (rns_r3 && ec_has_radix3() && logn - 2 >= r3_mink && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
+    if (rns_r3 && ec_has_radix3() && logn - 2 >= NTT_LOGN_MIN && nc <= ((size_t)3 << (logn - 2))) { *logk = logn - 2; return 1; }
     *logk = logn; return 0;
 }
 static size_t len_of(int r3, int logk) { return (size_t)(r3 ? 3 : 1) << logk; }
@@ -854,8 +843,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
      * scattered and transformed once per pair (M/2 B transforms per tile), the fused inverse reads y transform
      * t >> 1 for x transform t.  Pairs stay adjacent in every device's list (both go to the region's device, in
      * order) and tiles start at even positions when Mmax is even. */
-    if (rns_batch_pair < 0) rns_batch_pair = getenv("RNS_BATCH_PAIR") ? atoi(getenv("RNS_BATCH_PAIR")) : 1;
-    int pair = rns_batch_pair && !grpB && N >= 2 && !(N & 1);
+    int pair = !grpB && N >= 2 && !(N & 1);   /* (RNS_BATCH_PAIR, default 1, removed 2026-10-12) */
     for (size_t i = 0; i < N && pair; i += 2)
         if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb || mem_dev_of(P[i].c) != mem_dev_of(P[i + 1].c)) pair = 0;
     if (pair) {                                    /* tile budget over a (M) + b (M/2) planes; at least one pair when the pools allow it */
@@ -865,8 +853,7 @@ static int rns_mul_batch_local(rns_prod *P, size_t N, int logL, int grpB, size_t
     }
     if (!pair) { size_t tile_limit = rns_batch_tile_bytes / (3 * L * 8) / ec_np; if (tile_limit >= 1 && Mmax > tile_limit) Mmax = tile_limit; }
     /* Phase 15 PS: the tile's B planes in pool 1 as it is (np Mmax L, np Mmax/2 L paired, np L grpB): never a growth inside the
-     * phase.  A no-op whenever pool 1 holds the plane cap (three primes: 3 q + 16 >= 3 q; four with RNS_POOL1_4Q=1: 4 q); with
-     * RNS_POOL1_4Q=0 at four primes the tile shrinks, or (L = q) the batch goes to the striped tier.  Not with RNS_POOL_GROW=1
+     * phase.  A no-op whenever pool 1 holds the plane cap (three primes: 3 q + 16 >= 3 q; four: 4 q).  Not with RNS_POOL_GROW=1
      * (mnaccept.sh --stress grows pool 1 here on purpose). */
     if (rns_pool_grow < 0) rns_pool_grow = getenv("RNS_POOL_GROW") ? atoi(getenv("RNS_POOL_GROW")) : 0;
     if (!rns_pool_grow) { size_t lim = D[0].db.cap / 8 / ((size_t)ec_np * L), mb = pair ? 2 * lim : lim;   /* the tile's products pool 1 holds (paired: two per B plane) */
@@ -981,13 +968,11 @@ void rns_mul_batch(rns_prod *P, size_t N)
     /* Phase 11 A2 (agent P): the striped path pairs products 2j, 2j+1 sharing B (the tree's P1 Q2 + P2, Q1 Q2 -- at 4e10 the
      * level of 8 products at 2^30 points, which the batch-local tier cannot hold) and takes the 3 2^k length when nc fits it:
      * per pair 5 transforms of 3 2^28 points instead of 6 of 2^30.  Both need the GPU CRT (the host CRT path reads 2^logL
-     * planes from the staging); RNS_STRIPED_PAIR=0 restores the old form (RNS_BATCH_PAIR=0 / RNS_R3=0 also apply). */
+     * planes from the staging); RNS_R3=0 keeps the 2^k lengths.  (RNS_STRIPED_PAIR, default 1, removed 2026-10-12.) */
     int logk = logL, r3 = 0, pair = 0;
-    if (rns_batch_pair < 0) rns_batch_pair = getenv("RNS_BATCH_PAIR") ? atoi(getenv("RNS_BATCH_PAIR")) : 1;
-    static int striped_pair = -1; if (striped_pair < 0) striped_pair = getenv("RNS_STRIPED_PAIR") ? atoi(getenv("RNS_STRIPED_PAIR")) : 1;   /* the switch for A2 as a unit (pair + 3 2^k in this path) */
-    if (striped_pair && rns_gpucrt_min <= 1 && !staged) {
+    if (rns_gpucrt_min <= 1 && !staged) {
         r3 = pick_len(maxnc, &logk); if (!r3) logk = logL;
-        pair = rns_batch_pair && !grpB && N >= 2 && !(N & 1);
+        pair = !grpB && N >= 2 && !(N & 1);
         for (size_t i = 0; i < N && pair; i += 2) if (P[i].b != P[i + 1].b || P[i].nb != P[i + 1].nb) pair = 0;
     }
     size_t L3 = len_of(r3, logk);                       /* the plane length (L stays the 2^logL of the host paths) */

@@ -8,8 +8,7 @@
  *   out   the digits are the limbs of X: "2" followed by d fractional digits, streamed to the file
  *   T2    digit windows vs known values; digits == X mod q
  *
- * Usage: ecalc <digits> [outfile]      env: POOL_LOG (31), NTT_B16_STG (7),
- *        PW_FUSE (14), RNS_CRT_LAYOUT (0), ECALC_VERBOSE (1)
+ * Usage: ecalc <digits> [outfile]      env: POOL_LOG (31), RNS_CRT_LAYOUT (0), ECALC_VERBOSE (1)
  * Prints META/RESULT lines (phase seconds, VmHWM) as the benchmarks do.
  */
 #include <stdio.h>
@@ -44,7 +43,7 @@ static void meta_line(const char *bench)
 {
     char host[128] = "?", date[64]; time_t t = time(0);
     gethostname(host, sizeof host); strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));
-    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, ntt_b16_body, "10^18");
+    printf("META bench=%s host=%s date=%s pool_log=%d stg=%d pw_fuse=%d body=%d base=%s\n", bench, host, date, rns_pool_log(), ntt_stg, ntt_pw_fuse, 1, "10^18");
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
@@ -459,9 +458,6 @@ int main(int argc, char **argv)
     const char *outfile = argc > 2 && !plan ? argv[2] : 0;
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
-    if (getenv("NTT_B16_STG")) ntt_stg = atoi(getenv("NTT_B16_STG"));
-    if (getenv("PW_FUSE")) ntt_pw_fuse = atoi(getenv("PW_FUSE"));
-    if (getenv("NTT_B16_BODY")) ntt_b16_body = atoi(getenv("NTT_B16_BODY"));
     setvbuf(stdout, NULL, _IOLBF, 0);
     bi_check_base();                                  /* PLAN 28.5: decimal limbs only (RESULTS.md 63, 67); LIMB_BASE=2 (the archived binary pipeline) is refused loudly */
     if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */

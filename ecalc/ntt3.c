@@ -10,9 +10,8 @@
  * and 3^-1.  Twiddles w_n^j, j < m, from two tables of <= 2^16 entries
  * (w_n^(j >> 16 << 16) and w_n^(j & 0xffff)), one extra modmul per point.
  * Needs the EC_PRIMES=1 prime set (3 * 2^44 | p - 1).
- * Phase 15 N3x (NTT_R3_FUSE=1): where ntt_r3_fusable(logk) holds (a b16 pass exists: logk >= 13), the radix-3 stage runs
- * inside the first forward / last inverse b16 pass of the 2^logk engine (ntt.c), with these tables and constants: one
- * read and one write of the 3 2^logk points fewer per transform; same arithmetic, bit-identical. */
+ * (Phase 15 N3x's form with the radix-3 stage fused into the 2^logk engine's first / last b16 pass, NTT_R3_FUSE, was
+ * removed 2026-10-12: never adopted, ~0.2 s per run.) */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -92,7 +91,6 @@ void ntt_fwd3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]);
-    if (ntt_r3_fusable(logk)) { ntt_r3arg ra = {t->t1, t->t2, w3, w3s, 0}; ntt_fwd_r3(c, x, logk, batch, &ra, s); return; }   /* N3x */
     k_r3_fwd<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1, t->t2, w3, w3s, md);
     ntt_fwd(c, x, logk, 3 * batch, s);
 }
@@ -102,24 +100,17 @@ void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]), inv3 = ec_inv(3, ec_P[prime]);
-    if (ntt_r3_fusable(logk)) { ntt_r3arg ra = {t->t1i, t->t2i, w3, w3s, inv3}; ntt_inv_r3(c, x, 0, 0, logk, batch, &ra, s); return; }   /* N3x */
     ntt_inv(c, x, logk, 3 * batch, s);
     k_r3_inv<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1i, t->t2i, w3, w3s, inv3, md);
 }
 /* Phase 9 B1: the pointwise product in any y layout, fused into the first inverse pass (the 2^logk engine's
- * b1 pass over the thirds) from logk + 1 >= PW_FUSE on; the same modmul either way, so bit-identical */
+ * b1 pass over the thirds) from logk + 1 >= ntt_pw_fuse on; the same modmul either way, so bit-identical */
 void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {
     ntt_ss_scope ss_(1, 1, logk, batch, s);
     int prime = ntt_ctx_prime(c); size_t m = (size_t)1 << logk; ec_mod md = ec_mod_get(prime);
     const struct r3tw *t = tables(prime, logk);
     uint64_t w3 = ec_powmod(ec_root3(prime, logk), m, ec_P[prime]), w3s = ec_mulmod_ref(w3, w3, ec_P[prime]), inv3 = ec_inv(3, ec_P[prime]);
-    if (ntt_r3_fusable(logk)) {                                                                               /* N3x */
-        ntt_r3arg ra = {t->t1i, t->t2i, w3, w3s, inv3};
-        if (logk + 1 >= ntt_pw_fuse) ntt_inv_r3(c, x, y, ymode, logk, batch, &ra, s);
-        else { ntt_pw_y(c, x, y, ymode, 1, logk, batch, s); ntt_inv_r3(c, x, 0, 0, logk, batch, &ra, s); }
-        return;
-    }
     if (logk + 1 >= ntt_pw_fuse) ntt_inv3_core_pw(c, x, y, ymode, logk, batch, s);
     else { ntt_pw_y(c, x, y, ymode, 1, logk, batch, s); ntt_inv(c, x, logk, 3 * batch, s); }
     k_r3_inv<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1i, t->t2i, w3, w3s, inv3, md);

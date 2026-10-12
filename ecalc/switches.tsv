@@ -171,18 +171,10 @@ NEWTON_MN_SHARE	float	unset	unset		built-in default	-	-	Y	ecalc	newton_db.c	2
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton.c,newton_db.c	8	
-NTT_B16_BODY	int	unset	unset		experiment	-	N-kernel.md+N3x15.md	Y	ecalc	ecalc.c	2	
-NTT_B16_STG	int	unset	unset		built-in default	-	NTT3P.md+N3x15.md	Y	ecalc	ecalc.c	2	
-NTT_B1R	int	3	3		built-in default	-	K13b.md+N3x15.md	Y	ecalc	ntt.c	1	
-NTT_MODMUL	int	1	1		built-in default	-	D13b.md+N3x15.md	prose	ecalc	ntt.c	1	
-NTT_PLAN	int	1	1		built-in default	-	K13b.md+N3x15.md	Y	ecalc	ntt.c	1	
-NTT_R3_FUSE	int	0	0		experiment	-	N3x15.md	Y	ecalc	ntt.c	1	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
-PW_FUSE	int	unset	unset		built-in default	-	A37CMP.md+N-kernel.md	Y	ecalc	ecalc.c	2	
 RNS_AUTO_PIECE_COST	bool	1	1	0|1	built-in default	-	D213d.md+V214.md	Y	ecalc	rns_dist.c	1	
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	
-RNS_BATCH_PAIR	int	1	1		built-in default	-	N-kernel.md+P.md	Y	ecalc	rns_mul.c	4	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	
 RNS_CRT_SUB	int	1	1		experiment	-	S51.md	Y	ecalc	rns_dist.c	2	
 RNS_DIST_CACHE	int	0	0		experiment	-	G.md+B13b.md	Y	ecalc	rns_dist.c	1	
@@ -197,17 +189,13 @@ RNS_DIST_CACHE_PARTIAL_MARGIN_GB	float	0.5	0.5		built-in default	-	PC15.md	prose
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	
 RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	
 RNS_PLANES_3Q30	bool	0	0	0|1	experiment	-	P.md+P13b.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	7	
-RNS_PLANES_FIRST	int	1	1		built-in default	-	N414.md	Y	ecalc	rns_mul.c	2	
-RNS_POOL1_4Q	bool	1	1	0|1	built-in default	-	PS15.md	Y	ecalc	rns_mul.c	1	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	
-RNS_R3_MINK	int	derived	derived		built-in default	-	N3x15.md+SC15.md	Y	ecalc	rns_mul.c	2	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	
 RNS_STRATEGY_FORM	bool	derived	derived	0|1	built-in default	-	DESIGN_TABLE.md+D13b.md	Y	ecalc	rns_dist.c	1	
 RNS_STRATEGY_GRID	bool	1	1	0|1	built-in default	-	B13b.md+V214.md	Y	ecalc	rns_dist.c	1	
-RNS_STRIPED_PAIR	int	1	1		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 SPILL_BUFFERED	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	spill.c	2	
 SPILL_CHUNK_MB	bool	256	256	0|1	built-in default	-	S114.md	Y	ecalc	spill.c	1	
