@@ -100,11 +100,10 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
     p->own_slabs = slabs; p->sbuf = p->rbuf = 0;
     /* Phase 12 S: the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the SHMEM
-     * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd.  DIST_SYM_SLABS=0 forces
-     * the latter (the staged path) for comparison. */
+     * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd.  (DIST_SYM_SLABS=0, the staged
+     * comparison form, was removed 2026-10-12.) */
     if (slabs) {
-        int sym = getenv("DIST_SYM_SLABS") ? atoi(getenv("DIST_SYM_SLABS")) : 1;
-        if (sym) { p->sbuf = (uint64_t *)comm_sym_alloc(cm, bytes); p->rbuf = p->sbuf ? (uint64_t *)comm_sym_alloc(cm, bytes) : 0; }
+        p->sbuf = (uint64_t *)comm_sym_alloc(cm, bytes); p->rbuf = p->sbuf ? (uint64_t *)comm_sym_alloc(cm, bytes) : 0;
         if (p->sbuf && p->rbuf) p->own_slabs = 2;
         else { if (p->sbuf) comm_sym_free(cm, p->sbuf); HIP_CHECK(hipMalloc(&p->sbuf, bytes)); HIP_CHECK(hipMalloc(&p->rbuf, bytes)); }
     }
@@ -281,13 +280,7 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
  * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
  * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
  * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
-static int rb_wait_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_RB_WAIT"); v = e ? atoi(e) != 0 : 1; } return v; }   /* DIST_RB_WAIT=0: the wait off (a test: the H1 demonstration only) */
-static void rb_free_wait(dist_plan *p) { if (rb_wait_on()) HIP_CHECK(hipEventSynchronize(p->evr)); }
-/* DIST_TEST_LAG_MS=<ms> (a test, default 0): rank 1's compute stream spins <ms> milliseconds (wall_clock64, 100 MHz) before the first
- * unpack of every forward transform -- its GPU then lags the others by that much while its host runs on, which opens H1's window
- * wide (tests/t_dist with DIST_XGMI=1: DIST_RB_WAIT=0 must fail, the default must pass) */
-__global__ void k_spin_ms(unsigned ms) { if (threadIdx.x || blockIdx.x) return; unsigned long long t0 = wall_clock64(), n = (unsigned long long)ms * 100000ull; while (wall_clock64() - t0 < n) __builtin_amdgcn_s_sleep(8); }
-static unsigned lag_ms(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_TEST_LAG_MS"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return (unsigned)v; }
+static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }   /* (DIST_RB_WAIT=0, the H1 demonstration without it, removed 2026-10-12) */
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -304,7 +297,6 @@ static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 static void fwd_cons(dist_plan *p, uint64_t *x, int k, hipStream_t s)
 {
     int size = comm_size(p->cm); size_t rk = chunk_rows(p);
-    if (k == 0 && lag_ms() && comm_rank(p->cm) == 1) k_spin_ms<<<1, 64, 0, s>>>(lag_ms());   /* DIST_TEST_LAG_MS (a test) */
     TSK(ST_PACK, (k_unpack<<<nblocks(p->cols * rk * size), 256, 0, s>>>(chunk_rb(p, k), x, rk, (size_t)k * rk, p->rows, p->cols, size)));
 }
 /* the forward up to the last chunk's post: every chunk's row pass and pack are enqueued before any unpack (the

@@ -423,7 +423,7 @@ static int vslot_release_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_REL
 static void vslot_prealloc_env(unsigned long N, int size)
 {
     if (!vslot_pool_on() || size < 2 || (getenv("COMM_LAYER_VSLOT_PREALLOC") && !atoi(getenv("COMM_LAYER_VSLOT_PREALLOC")))) return;
-    const char *de = getenv("COMM_ALLTOALLV_DEPTH"); int slots = (de ? atoi(de) : 2) >= 2 ? 2 : 1;
+    const int slots = 2;                                    /* the v-exchange two deep (COMM_ALLTOALLV_DEPTH=2, built in 2026-10-12) */
     size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size; int gs[32]; int L = mn_groups_parse(size, gs, 31);
     size_t mx[40]; int gg[40], n = 0;
 #define VS_NOTE(g_, v_) do { size_t v2_ = (v_) / slots; int k_ = 0; while (k_ < n && gg[k_] != (g_)) k_++; if (k_ == n && n < 40) { gg[n] = (g_); mx[n++] = 0; } if (k_ < 40 && v2_ > mx[k_]) mx[k_] = v2_; } while (0)
@@ -605,7 +605,7 @@ size_t binsplit_dm_hole_bytes(unsigned long N, int size) { struct dm_layout L; d
  * shmem_pool is the same law): 4 APU threads x the largest staged exchange's send + receive over the run's products (the tree's
  * levels as tree_need_dev forms them; the division's A_h mu -- nq x nq, C of 2 nq limbs, the largest -- and the reciprocal's last
  * Q_t r; mdb_shift at MDB_SHIFT_CHUNK_MB) + the communicators' control blocks (4 per level of size S < size, 4 meshes of size:
- * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin; DIST_MN_SYM_SLABS=1 adds 3 q per APU.
+ * 8 words and a COMM_SHMEM_RING_KB ring per member) + the mailbox + a 256 MiB margin.
  * by: the product that sets the staging. */
 static size_t g_stage_apu;                                  /* Phase 14 V1: the last need's per-APU staging (bytes), for the staging regions */
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen)
@@ -642,16 +642,15 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
         control += 4 * extra * (ring + 64);
     }
     size_t vsp = vslot_pool_on() ? binsplit_vslot_bytes(N, size, 0, 0, 0) : 0;   /* X2 COMM_LAYER_VSLOT_POOL: the v-slots per APU thread, resident to the run's end */
-    size_t sym = getenv("DIST_MN_SYM_SLABS") && atoi(getenv("DIST_MN_SYM_SLABS")) ? 4 * 3 * qmax * 8 : 0;
+    size_t sym = 0;                                         /* (DIST_MN_SYM_SLABS's 3 q per APU removed 2026-10-12) */
     g_ofi_dev_mb = 0;
     if (ofi) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
-        size_t dv = (vslot_release_on() ? (stg > vsp ? stg : vsp) : stg + vsp) + sym / 4 + ((size_t)256 << 20);   /* M3: staged exchanges and the slots are not live together: the larger, not the sum */
-        g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256; sym = 0;
+        size_t dv = (vslot_release_on() ? (stg > vsp ? stg : vsp) : stg + vsp) + ((size_t)256 << 20);   /* M3: staged exchanges and the slots are not live together: the larger, not the sum */
+        g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
     }
-    if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who,
-                            getenv("DIST_MN_SYM_SLABS") && atoi(getenv("DIST_MN_SYM_SLABS")) ? " + DIST_MN_SYM_SLABS slabs" : "");
-    else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, sym ? ", DIST_MN_SYM_SLABS slabs" : "");
+    if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
+    else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, "");
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
     if (!ofi && vslot_release_on()) { size_t vs4 = 4 * vsp; if (vs4 > stg0) stg0 = vs4; }   /* M3: the slots are released between products: the staging and the slots share the pool in time */
     else if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads) */

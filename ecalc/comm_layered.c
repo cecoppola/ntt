@@ -54,7 +54,7 @@ typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
                  comm *inter2; int vpool, i2, vshare, vrel;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
-                 int vdepth, tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
+                 int tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
 /* ---- the stats (E9 part 1) ---- */
@@ -195,7 +195,7 @@ static void lst_print(const char *tag)
         printf("layer-stats %s node %d: block transposes %.4f s per APU (%.3f ms per exchange); the NIC balance over the APU threads: fabric bytes %.4f .. %.4f GB (max/min %.4f), fabric time %.4f .. %.4f s (max/min %.3f)\n",
                tag, g_node, a->tr / q, a->n > 0 ? 1e3 * a->tr / a->n : 0, bmin * 1e-9, bmax * 1e-9, bmin > 0 ? bmax / bmin : 0, tmin, tmax, tmin > 0 ? tmax / tmin : 0); }
     printf("layer-stats %s node %d: v-exchange depth %s, transposes %s; scratch of one APU thread's communicator (max): v-exchange %.1f MB, equal-slab %.1f MB\n", tag, g_node,
-           getenv("COMM_ALLTOALLV_DEPTH") ? getenv("COMM_ALLTOALLV_DEPTH") : "2", "one kernel", g_vmem * 1e-6, g_emem * 1e-6);
+           "2", "one kernel", g_vmem * 1e-6, g_emem * 1e-6);
     if (a->xl > 0) printf("layer-stats %s node %d: the xGMI stage vs its link time (the push kernels, COMM_XGMI_STATS): stage %.4f s, link-active %.4f s (%.1f %%, %.1f GB/s per APU), BOTH link+fabric %.4f s = %.1f %% of the link time\n",
                           tag, g_node, a->x / q, a->xl / q, a->x > 0 ? 100 * a->xl / a->x : 0, a->xb / a->xl * 1e-9, a->bothl / q, 100 * a->bothl / a->xl);
     for (int k = 0; k < LB; k++) {
@@ -467,7 +467,8 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
-/* ---- Phase 13b X (archive:PLAN §31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (the default since Phase 13c; 1 = the one-deep path) -- the v-exchange pipelined two deep
+/* ---- Phase 13b X (archive:PLAN §31 axis A, 29 E9 part 2): the v-exchange pipelined two deep (COMM_ALLTOALLV_DEPTH=2, the default since
+ * Phase 13c, built in 2026-10-12; the one-deep path was removed)
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
  * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
@@ -578,19 +579,7 @@ static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     lay_priv *p = PRIV(c);
     double a0 = lst_mode ? lst_now() : 0;
     while (p->npend) complete_oldest(c);                 /* one kind at a time */
-    if (p->vdepth >= 2) { y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0); return; }
-    complete_v(c);
-    struct vtab t; vtab_build(c, scnt, sdsp, rcnt, &t, 0);
-    size_t x0n = t.contig ? 0 : t.S;
-    need_vtmp(c, x0n + 2 * t.A + t.B + 4);
-    char *x0 = p->vtmp, *x1 = x0 + x0n, *x2 = x1 + t.A, *x3 = x2 + t.A;
-    HIP_CHECK(hipSetDevice(p->dev));
-    if (lst_mode) p->v.rec = lst_new(p, a0, 1);
-    v_stages(c, sb, scnt, sdsp, &t, x0, x1, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
-    v_post(c, p->inter, &t, x2, x3, s, 0, lst_mode ? LREC(p, p->v.rec) : 0);
-    if (lst_mode == 2) lst_watch_start(p, p->inter, &p->v.w, &p->v.w_on, &p->v.wf1);
-    p->v.ic = p->inter; p->v.rb = rb; p->v.rcnt = rcnt; p->v.rdsp = rdsp; p->v.s = s; p->v.x3 = x3; p->v.cnt2 = t.cnt2; p->v.pend = 1; p->nlog++;
-    free(t.T);
+    y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0);   /* two deep (COMM_ALLTOALLV_DEPTH=2, built in 2026-10-12; the one-deep path was removed) */
 }
 static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {
@@ -675,12 +664,11 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-static void lay_opts(lay_priv *p) { const char *e = getenv("COMM_ALLTOALLV_DEPTH"); p->vdepth = e ? atoi(e) : 2;   /* default 2 since Phase 13c (X13b: general map hidden 1.4 -> 74 %) */
+static void lay_opts(lay_priv *p) {
     { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0; { const char *sh = getenv("COMM_LAYER_VSLOT_SHARE"); p->vshare = sh && atoi(sh) != 0; vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
       { const char *rl = getenv("COMM_LAYER_VSLOT_RELEASE"); p->vrel = rl && atoi(rl) != 0;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase */
         if (p->vrel && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_RELEASE=1 needs COMM_LAYER_VSLOT_POOL=1 (hipMalloc'd slots would be allocated again for every product)\n"); }
-      if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");
-      if (p->i2 && p->vdepth < 2) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_ALLTOALLV_DEPTH >= 2\n"); } }
+      if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");} }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { ec_fatal(EC_RC_FATAL, "comm_layered: the intra communicator must have %d ranks\n", NA); }

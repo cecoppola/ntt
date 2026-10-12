@@ -86,7 +86,7 @@
 #   s2chk  (OPT-IN, off unless named in --only; about 5-15 min PER node count, default 2 and 8 nodes; needs stage build's
 #           kit_modules.env, so run `--only build,s2chk` or point --out at a directory where build already ran):
 #            the TARGET per-node share (6.441e10 digits/node) on the target launch line (internal target notes 4 without the
-#            576-only MN_GROUPS/POOL words; MN_T_CHUNK_MB=2048, X2 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1, COMM_LAYER_VSLOT_RELEASE=1, RNS_DIST_CACHE_FIT=1, ECALC_SEGV_TRACE=1) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
+#            576-only MN_GROUPS/POOL words; MN_T_CHUNK_MB=2048, X2 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1, COMM_LAYER_VSLOT_RELEASE=1, ECALC_SEGV_TRACE=1) with ECALC_INIT_TL=1 MN_WAIT_STATS=1,
 #            nothing written.  Saves the full logs (logs/05_s2chk_n<N>.log) and prints a verdict helper:
 #             A37-R1 (GPU seed): "seed thread ends" vs the last "background mapping done" (tl lines, seconds since
 #               rns_init).  Build the GPU seed ONLY if the seed ends later than about 18 s AND more than 2 s after the
@@ -305,16 +305,6 @@ fi_defaults_for() {   # fi_defaults_for <ntasks> -- exports FI_UNIVERSE_SIZE / F
     local want=$(( ntasks * 4 > 4096 ? ntasks * 4 : 4096 ))
     export FI_UNIVERSE_SIZE=${FI_UNIVERSE_SIZE:-$want}
     export FI_LOG_LEVEL=${FI_LOG_LEVEL:-warn}
-}
-
-cache_guard() {   # cache_guard <VAR=val words...> -- README RNS_DIST_CACHE_MN: the code default (2 slots, ~137 GB per node at the target size) must never run
-    # on the target; it is safe only with RNS_DIST_CACHE_FIT=1 or RNS_DIST_CACHE_MN=0.  Returns 1 (the launch stage must abort) when
-    # the effective setting is the unbounded default.  (The README names no explicit MN value for the target line: FIT=1 is what its line sets.)
-    local w mn=${RNS_DIST_CACHE_MN-} fit=${RNS_DIST_CACHE_FIT-}
-    for w in "$@"; do case $w in RNS_DIST_CACHE_MN=*) mn=${w#*=} ;; RNS_DIST_CACHE_FIT=*) fit=${w#*=} ;; esac; done
-    if [ "$mn" = 0 ] || [ "${fit:-0}" = 1 ]; then return 0; fi
-    echo "target_kit.sh: REFUSING to launch: RNS_DIST_CACHE_MN=${mn:-<unset>} (default 2 slots) without RNS_DIST_CACHE_FIT=1 or RNS_DIST_CACHE_MN=0 (README switch table)" >&2
-    return 1
 }
 
 plan_check() {   # plan_check <logfile> <digits> <procs> [VAR=val words...] -- MN_PLAN_ONLY on a compute node (no device touched).
@@ -763,7 +753,7 @@ stage_a4() {
         fi
         exec_cmd "$nlf" "$TO_A4" env SLURM_JOB_ID="$JOBID" MNRUN_NODES="$n" FI_UNIVERSE_SIZE="$FI_UNIVERSE_SIZE" FI_LOG_LEVEL="$FI_LOG_LEVEL" \
             MNRUN_MODULES="$MNRUN_MODULES" MNRUN_UNLOAD="$MNRUN_UNLOAD" \
-            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem RNS_DIST_CACHE_FIT=1 ECALC_SEGV_TRACE=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
+            MNRUN_LABEL=1 "$SELF_DIR/mnrun.sh" "$n" env COMM_TRANSPORT=shmem ECALC_SEGV_TRACE=1 MN_COMM_MARK=1 ECALC_VERBOSE=2 ECALC_INIT_TL=1 NEWTON_MN_RECIP_TS=2 "$SELF_DIR/ecalc" "$digits" "$out"
         local rc=$?
         cat "$nlf" >> "$lf"
         [ $rc -ne 0 ] && any_fail=1
@@ -795,7 +785,7 @@ stage_a4() {
 S2_SEED_LATE=18        # s: A37-R1 trigger (seed end)
 S2_SEED_AFTER=2        # s: A37-R1 trigger (seed end minus the last mapping)
 S2_WAIT_LIMIT=30       # s per APU thread: S-2 trigger
-S2_LINE_DEFAULT="COMM_LAYER_VSLOT_SHARE=1 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=2048 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 COMM_LAYER_VSLOT_RELEASE=1 ECALC_SEGV_TRACE=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
+S2_LINE_DEFAULT="COMM_LAYER_VSLOT_SHARE=1 COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=2048 COMM_LAYER_INTER2=1 COMM_LAYER_VSLOT_POOL=1 COMM_LAYER_VSLOT_RELEASE=1 ECALC_SEGV_TRACE=1 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1"
 
 s2chk_verdict() {   # s2chk_verdict <log> <n> -- appends the A37-R1 / S-2 verdict lines for one run to the summary
     local f=$1 n=$2
@@ -846,8 +836,6 @@ stage_s2chk() {
     export MNRUN_MODULES="${MNRUN_MODULES:-$TARGET_DSMML_MODULE $TARGET_SMA_MODULE $TARGET_ROCM}"
     export MNRUN_UNLOAD="${MNRUN_UNLOAD-${TARGET_ROCM_UNLOAD:-}}"
     local line="${KIT_S2CHK_LINE:-$S2_LINE_DEFAULT}"
-    # shellcheck disable=SC2086
-    if ! cache_guard $line; then summary "status: FAIL (launch refused: RNS_DIST_CACHE_MN default without RNS_DIST_CACHE_FIT=1 in the launch line)"; summary ""; return; fi
     summary "  launch line: $line ECALC_INIT_TL=1 MN_WAIT_STATS=1 (nothing written; no MN_GROUPS / pool words: mnrun.sh sizes the pool from MN_PLAN_ONLY)"
     IFS=',' read -ra counts <<< "$NODES_S2"
     for n in "${counts[@]}"; do

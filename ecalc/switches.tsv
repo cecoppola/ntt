@@ -24,7 +24,6 @@ BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	bi
 BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	
-COMM_ALLTOALLV_DEPTH	int	2	2		built-in default	-	X13b.md+DESIGN_TABLE.md	Y	ecalc	binsplit.c,comm_layered.c,rns_dist.c	5	
 COMM_HOSTS	str	unset	derived	host list	launch-line	-	WP6.md+M3.md	Y	ecalc	comm_tcp.c,mn.c	2	comm_tcp.c, mn.c: TCP transport only
 COMM_INIT_EARLY	bool	1	1	0|1	built-in default	-	S16.md	Y	ecalc	ecalc.c	2	
 COMM_LAYER_INTER2	bool	0	unset	0|1	launch-line	aac7	XEFF.md+S47.md	Y	ecalc	binsplit.c,comm_layered.c,mn.c,rns_dist.c	5	binsplit.c:450 (e && atoi(e) != 0)
@@ -71,15 +70,8 @@ DIST_GATHER_RAW	int	2	2	0|1|2	built-in default	-	-	Y	ecalc	rns_dist.c	1	rns_dist
 DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	built-in default	-	-	prose	ecalc	rns_dist.c	1	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	
-DIST_LOGR_DELTA	int	0	0		built-in default	-	M11.md+G.md	Y	ecalc	rns_dist.c	1	
-DIST_MN_SYM_SLABS	int	0	0		experiment	-	P214.md+XEFF.md	Y	ecalc	binsplit.c,rns_dist.c	5	
-DIST_PW_FUSE	bool	1	1	0|1	built-in default	-	G.md	Y	ecalc	rns_dist.c	1	
 DIST_R3	int	derived	derived		experiment	-	A-grid.md+P.md	Y	ecalc	rns_dist.c	1	
-DIST_RB_WAIT	bool	1	1	0|1	built-in default	-	WM15.md	Y	ecalc	ntt_dist.c	1	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	
-DIST_SYM_SLABS	int	1	1		built-in default	-	S12.md	Y	ecalc	ntt_dist.c	2	
-DIST_TEST_LAG_MS	int	0	0		test-only	-	WM15.md	Y	ecalc	ntt_dist.c	1	
-DIST_TWREC_G	bool	1	1	0|1	built-in default	-	G515.md	Y	ecalc	rns_dist.c	1	
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	
@@ -146,11 +138,9 @@ MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1
 MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	prose	ecalc	mn_out.c	2	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	
 MN_OUT_WAVES	int	1	1		experiment	-	IO15.md+DOC15.md	Y	ecalc	ecalc.c,mn_out.c	4	
-MN_P24	int	conflict:0|2	conflict:0|2		built-in default	-	P2415.md	Y	ecalc	mn_plan.c,rns_dist.c	7	
 MN_PLAN_DEXTRA	int	0	0		test-only	-	-	Y	ecalc	mn_plan.c	1	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c	2	ecalc.c:451; prints the plan and exits
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	
-MN_REDIST_FUSE	bool	0	0	0|1	experiment	-	-	Y	ecalc	rns_dist.c	1	default 0
 MN_SELFTEST_GROW	bool	1	1	0|1	built-in default	-	P16.md	Y	ecalc	mn.c	4	
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	
 MN_TOPO_GROUP	int	0	0	0|1	launch-line	aac7	S12.md+S.md	Y	ecalc	mn.c	2	mn.c
@@ -172,12 +162,8 @@ NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newto
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton.c,newton_db.c	8	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
-RNS_AUTO_PIECE_COST	bool	1	1	0|1	built-in default	-	D213d.md+V214.md	Y	ecalc	rns_dist.c	1	
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	
-RNS_CRT_SUB	int	1	1		experiment	-	S51.md	Y	ecalc	rns_dist.c	2	
-RNS_DIST_CACHE	int	0	0		experiment	-	G.md+B13b.md	Y	ecalc	rns_dist.c	1	
-RNS_DIST_CACHE_FIT	bool	0	0	0|1	launch-line	aac7	TC15.md	Y	ecalc	rns_dist.c	1	rns_dist.c
 RNS_DIST_CACHE_FIT_RESERVE_GB	float	32	32		built-in default	-	TC15.md+DOC215.md	Y	ecalc	rns_dist.c	1	
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	
 RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	
@@ -193,13 +179,11 @@ RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	
-RNS_STRATEGY_FORM	bool	derived	derived	0|1	built-in default	-	DESIGN_TABLE.md+D13b.md	Y	ecalc	rns_dist.c	1	
-RNS_STRATEGY_GRID	bool	1	1	0|1	built-in default	-	B13b.md+V214.md	Y	ecalc	rns_dist.c	1	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	
-DIST_GBENCH	str	unset	unset		test-only	-	-	prose	tests	t_dist.c	2	
+DIST_GBENCH	str	unset	unset		test-only	-	-	N	tests	t_dist.c	2	
 DIST_H4	int	unset	unset		test-only	-	-	N	tests	t_dist.c	2	
 DIST_H4_MB	int	256	256		test-only	-	-	N	tests	t_dist.c	2	
 DIST_H4_REPS	int	10	10		test-only	-	-	N	tests	t_dist.c	2	
