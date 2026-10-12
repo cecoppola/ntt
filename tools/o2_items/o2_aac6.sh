@@ -3,7 +3,7 @@
 #   tools/gate.sh --build --nodes 1 --line none (switch off) and --env DBIG_SMALL_BOUNCE=1 (1e9, digits identical),
 #   tests/t_dbig with DBIG_SMALL_BOUNCE=1, tests/t_bounce off/on x5 alternating (the cold first copy of 27302 limbs, as one
 #   node's share in the 4-node reciprocal gather), and t_bounce at 109206 limbs (the whole T) x2 per arm.
-# Clone ~/ntt-o2 (from ~/ntt + bundle ~/o2.bundle), output ~/o2/, done-marker ~/o2/O2_AAC6_DONE, summary ~/o2/summary.txt.
+# Clone ~/ntt-o2 (from ~/ntt + bundle ~/o2/o2.bundle), output ~/o2/, done-marker ~/o2/O2_AAC6_DONE, summary ~/o2/summary.txt.
 # Start: setsid nohup bash -l ~/o2/o2_aac6.sh > ~/o2/driver.log 2>&1 < /dev/null &      (STOP: touch ~/o2/STOP before the start time)
 set -u
 O=$HOME/o2; C=$HOME/ntt-o2; S=$O/summary.txt; NODE=${O2_NODE:-aac6-spx-b}
@@ -13,7 +13,7 @@ mkdir -p $O; : > $S
 say "o2 aac6 driver; start at $(TZ=America/New_York date -d @$START '+%F %H:%M ET') on $NODE"
 while [ $(date +%s) -lt $START ]; do [ -e $O/STOP ] && { say "STOP"; touch $O/O2_AAC6_DONE; exit 0; }; s=$(( START - $(date +%s) )); sleep $(( s > 300 ? 300 : s )); done
 module load rocm >/dev/null 2>&1
-rm -rf $C; git clone -q $HOME/ntt $C && git -C $C fetch -q $HOME/o2.bundle o2:o2 && git -C $C checkout -q o2 || { say "clone failed"; touch $O/O2_AAC6_DONE; exit 1; }
+rm -rf $C; git clone -q $HOME/ntt $C && git -C $C fetch -q $HOME/o2/o2.bundle o2:o2 && git -C $C checkout -q o2 || { say "clone failed"; touch $O/O2_AAC6_DONE; exit 1; }
 say "clone $(git -C $C log --oneline -1 | cut -c1-70)"
 J=$(sbatch -p PPAC_MI300A_SPX -N1 -w $NODE --gpus=4 -t 0:40:00 -J o2 --parsable --wrap "sleep 2400" < /dev/null 2>>$O/sbatch.err); J=${J%%;*}
 [ -n "$J" ] || { say "sbatch failed: $(tail -1 $O/sbatch.err)"; touch $O/O2_AAC6_DONE; exit 1; }
