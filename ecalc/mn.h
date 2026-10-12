@@ -26,9 +26,8 @@ mn_group *mn_group_span(int l, int g0, int g);               /* the group [g0, g
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */
 int   mn_selftest_layered(int logR, int logC, int verbose);  /* the layered comm over 4 x (largest power of two <= size) ranks; 1 = ok */
 void  mn_tree(mdb *P, mdb *Q, struct dbig_s *Pleaf, struct dbig_s *Qleaf);   /* the leaves (taken over) -> shares of P, Q over all nodes */
-int   mn_ckpt_tree_level(unsigned long N);                    /* M6: the tree level every node can restart from (0: none; N = 0 after the first call) */
 void  mn_finalize(void);
-/* the top tree set in the background -- mode 0 = synchronous, 1 = background and complete,
+/* the top tree set in the background (ECALC_CKPT_TOP) -- mode 0 = none, 1 = background and complete,
  * 2 = background and budgeted (dropped when the measured disk rate would stall the critical path more than mn_ckpt_slack s);
  * mn_ckpt_top_finish (every node, after the output stage, before the device memory goes): Q released, the writer joined */
 extern int mn_ckpt_bg_mode; extern double mn_ckpt_slack;

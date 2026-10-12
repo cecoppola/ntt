@@ -9,10 +9,10 @@
 #   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_mn_grid at 2 node-processes
 #   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with archive:PLAN §28.5), cmp'd against the reference
 #   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
-#   ckpt   10^8 at size 2: BS_CKPT_ABORT=6 on every node, then BS_RESTART=1 (restart identical to the reference)
-#   sched  G6 (TASKS 1.7), 10^8 at size 4: the tree set of level 1 is written (BS_CKPT_ABORT_TREE=1, schedule 2,4), then a restart
-#          with MN_GROUPS=4 must be REFUSED on every node (nonzero rc, "written under another schedule", sets untouched), a restart at
-#          size 2 REFUSED ("another run"), and the restart with the same schedule (MN_GROUPS=2,4) identical to the reference
+#   ckpt   the top-level set (the only checkpoint; no restart inside a run, decision D11) at 10^8, size 2, in BS_CKPT_DIR:
+#          ECALC_CKPT_TOP=1 writes one tree set per node (no other set) and ECALC_RECHECK=1 reads P, Q from it (RECHECK OK);
+#          ECALC_CKPT_TOP=2 with an emulated 1 MB/s disk (BS_CKPT_BG_MBS=1) drops the set (ABANDONED, no header left);
+#          BS_CKPT_DIR alone writes nothing.  Every run VERIFY OK on both nodes and identical to the reference
 #   recheck 10^9 at size 1 and 10^8 at size 2 with the top-level P, Q set (ECALC_CKPT_TOP=1, the default <outfile>.top), then
 #          ECALC_RECHECK=1 on their files (RECHECK OK on every node, P and Q from the checkpoint) and on a copy with one
 #          digit flipped (RECHECK FAILED)
@@ -35,7 +35,7 @@
 # Phase 16 A (results/A16.md): MNRUN_MODULES (the module line of R(); mnrun.sh's default), MNRUN_CPUS_PER_TASK (srun -c for R();
 # `auto` = the node's CPUs: aac7 confines a task to 2 CPUs otherwise), MNACCEPT_TMP (the digits' directory on the node; default
 # /tmp/mnaccept_<jobid> -- aac7's /tmp is RAM, so a directory under $HOME there).
-J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,sched,recheck,corr,full,stress]"; exit 2; }
+J=$1; shift; [ -n "$J" ] || { echo "usage: $0 <jobid> [--full] [--stress] [--skip-grid] [--only unit,grid,e9,mn,ckpt,recheck,corr,full,stress]"; exit 2; }
 FULL=0; STRESS=0; ONLY=""; NOGRID=${MNACCEPT_SKIP_GRID:-0}
 while [ $# -gt 0 ]; do case $1 in --full) FULL=1;; --stress) STRESS=1;; --only) ONLY=$2; shift;; --skip-grid) NOGRID=1;; *) echo "unknown option $1"; exit 2;; esac; shift; done
 cd "$(dirname "$0")" || exit 2
@@ -144,42 +144,32 @@ if want mn; then
   for p in 2 4;   do mnrun_check mn_e9_$p $p 1000000000 29 900; done
 fi
 
-# ---- checkpoint + restart at size 2 -----------------------------------------------------------------------------
+# ---- the top-level set at size 2 (written, read by the recheck, dropped under the budget, absent without ECALC_CKPT_TOP) ----
 if want ckpt; then
-  CK=$TMP/ck8; N "rm -rf $CK"
-  log=$OUT/ckpt_abort.log; f=$TMP/ck8.txt
-  M 600 2 POOL_LOG=27 BS_CKPT_DIR=$CK BS_CKPT_EVERY=2 BS_CKPT_MIN_LEVEL=2 BS_CKPT_ABORT=6 ./ecalc 100000000 "$f" > "$log" 2>&1
-  nab=$(grep -ac 'BS_CKPT_ABORT: exiting after the level' "$log")   # the exit message only; the config: line also names BS_CKPT_ABORT
-  log2=$OUT/ckpt_restart.log
-  M 600 2 POOL_LOG=27 BS_CKPT_DIR=$CK BS_RESTART=1 ./ecalc 100000000 "$f" > "$log2" 2>&1; rc=$?
-  c=$(cmpref "$f" "$REF/e_100000000.txt")
-  rs=$(grep -a 'restart from' "$log2" | head -1 | sed 's/  */ /g' | cut -c1-80)
-  if [ "$nab" -eq 2 ] && [ $rc -eq 0 ] && grep -aq 'mn: all 2 nodes: VERIFY OK' "$log2" && [ "$c" = identical ]; then pass "ckpt e8 size 2" "2 nodes exited at leaf level 6; restart: $c; $rs"
-  else fail "ckpt e8 size 2" "$nab nodes exited; restart rc $rc; $c; $(grep -a 'VERIFY FAILED\|abort\|error\|another run' "$log2" | head -1 | cut -c1-120)"; fi
-  N "rm -rf $CK"
-fi
-
-# ---- G6: a checkpoint restart under another schedule / node count is refused (results/G6.md) ----------------------------
-# The schedule (node count, MN_GROUPS level list) is recorded in the tree set's header (ECBSCKP3, Phase 13 N); the restart scan compares it.
-if want sched; then
-  SP=${MNACCEPT_SCHED_PROCS:-4}; SG2=${MNACCEPT_SCHED_ALT:-$SP}   # SP node-processes: default schedule 2,4; the alternative MN_GROUPS=$SP (one level)
-  CK=$TMP/cks; N "rm -rf $CK"; f=$TMP/cks.txt
-  M 600 $SP POOL_LOG=27 BS_CKPT_DIR=$CK BS_CKPT_ABORT_TREE=1 ./ecalc 100000000 "$f" > "$OUT/sched_write.log" 2>&1
-  nab=$(grep -ac 'BS_CKPT_ABORT_TREE: exiting' "$OUT/sched_write.log"); nset=$(N "ls $CK 2>/dev/null | grep -c tree")
-  M 600 $SP POOL_LOG=27 BS_CKPT_DIR=$CK BS_RESTART=1 MN_GROUPS=$SG2 ./ecalc 100000000 "$f" > "$OUT/sched_neg_groups.log" 2>&1; rcn=$?
-  nrf=$(grep -ac 'written under the schedule' "$OUT/sched_neg_groups.log"); nv=$(grep -ac 'VERIFY OK' "$OUT/sched_neg_groups.log")
-  nset2=$(N "ls $CK 2>/dev/null | grep -c tree")
-  M 600 2 POOL_LOG=27 BS_CKPT_DIR=$CK BS_RESTART=1 ./ecalc 100000000 "$f" > "$OUT/sched_neg_size.log" 2>&1; rcs=$?
-  nrs=$(grep -ac 'BS_RESTART refused' "$OUT/sched_neg_size.log")
-  M 600 $SP POOL_LOG=27 BS_CKPT_DIR=$CK BS_RESTART=1 MN_GROUPS=2,$SP ./ecalc 100000000 "$f" > "$OUT/sched_pos.log" 2>&1; rcp=$?
-  c=$(cmpref "$f" "$REF/e_100000000.txt")
-  if [ "$nab" -ge 1 ] && [ "$nset" -ge 1 ] && [ $rcn -ne 0 ] && [ "$nrf" -ge 1 ] && [ "$nv" -eq 0 ] && [ "$nset2" -eq "$nset" ]; then pass "sched refuse MN_GROUPS=$SG2 (size $SP)" "rc $rcn; $nrf node message(s) naming both schedules; sets untouched ($nset2)"
-  else fail "sched refuse MN_GROUPS=$SG2 (size $SP)" "sets written by $nab nodes ($nset files); rc $rcn; $nrf messages; $nv VERIFY OK; sets $nset -> $nset2"; fi
-  if [ $rcs -ne 0 ] && [ "$nrs" -ge 1 ]; then pass "sched refuse node count (size 2 on size $SP sets)" "rc $rcs; $(grep -a 'BS_RESTART refused' "$OUT/sched_neg_size.log" | head -1 | cut -c1-110)"
-  else fail "sched refuse node count (size 2 on size $SP sets)" "rc $rcs; $nrs refusal lines"; fi
-  if [ $rcp -eq 0 ] && grep -aq "mn: all $SP nodes: VERIFY OK" "$OUT/sched_pos.log" && [ "$c" = identical ] && ! grep -aq 'BS_RESTART refused' "$OUT/sched_pos.log"; then pass "sched same MN_GROUPS restarts (size $SP)" "$c; $(grep -a 'restart from' "$OUT/sched_pos.log" | head -1 | sed 's/  */ /g' | cut -c1-80)"
-  else fail "sched same MN_GROUPS restarts (size $SP)" "rc $rcp; $c; $(grep -a 'refused\|VERIFY FAILED\|error' "$OUT/sched_pos.log" | head -1 | cut -c1-120)"; fi
-  N "rm -rf $CK"
+  CK=$TMP/ck8; f=$TMP/ck8.txt; N "rm -rf $CK $CK.2 $CK.3"
+  ckrun() { local tag=$1; shift; M 600 2 POOL_LOG=27 "$@" ./ecalc 100000000 "$f" > "$OUT/$tag.log" 2>&1; local rc=$?
+    N "$PWD/digcmp.sh $f $REF/e_100000000.txt" > "$OUT/$tag.cmp" 2>&1
+    [ $rc -eq 0 ] && grep -aq 'mn: all 2 nodes: VERIFY OK' "$OUT/$tag.log" && [ "$(cat "$OUT/$tag.cmp")" = identical ]; }
+  if ckrun ckpt_top1 BS_CKPT_DIR=$CK ECALC_CKPT_TOP=1; then
+    nh=$(N "ls $CK 2>/dev/null | grep -c 'tree_.*hdr\$'"); nall=$(N "ls $CK 2>/dev/null | grep -vc '^n00[01]_tree_'")
+    M 600 2 BS_CKPT_DIR=$CK ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$OUT/ckpt_recheck.log" 2>&1; rc=$?
+    nok=$(grep -ac 'RECHECK OK' "$OUT/ckpt_recheck.log"); nck=$(grep -ac 'from the tree level' "$OUT/ckpt_recheck.log")
+    if [ "$nh" -eq 2 ] && [ "$nall" -eq 0 ] && [ $rc -eq 0 ] && [ "$nok" -ge 2 ] && ! grep -aq 'RECHECK FAILED' "$OUT/ckpt_recheck.log" && [ "$nck" -ge 2 ]; then
+      pass "ckpt top set e8 size 2" "identical; $nh headers, no other file; recheck $nok RECHECK OK, P, Q from the set on $nck node(s)"
+    else fail "ckpt top set e8 size 2" "$nh headers, $nall other files; recheck rc $rc, $nok RECHECK OK, $nck from the set; $(grep -a 'RECHECK FAILED\|error\|another run' "$OUT/ckpt_recheck.log" | head -1 | cut -c1-120)"; fi
+  else fail "ckpt top set e8 size 2" "the run: $(cat "$OUT/ckpt_top1.cmp"); $(grep -a 'VERIFY FAILED\|abort\|error' "$OUT/ckpt_top1.log" | head -1 | cut -c1-120)"; fi
+  N "rm -rf $f $f.*"
+  if ckrun ckpt_top2 BS_CKPT_DIR=$CK.2 ECALC_CKPT_TOP=2 BS_CKPT_BG_MBS=1; then
+    na=$(grep -ac 'ABANDONED' "$OUT/ckpt_top2.log"); nh=$(N "ls $CK.2 2>/dev/null | grep -c 'hdr'")
+    if [ "$na" -eq 2 ] && [ "$nh" -eq 0 ]; then pass "ckpt budgeted drop e8 size 2" "identical; $na nodes ABANDONED, no header left"
+    else fail "ckpt budgeted drop e8 size 2" "identical; $na ABANDONED lines (2 wanted), $nh headers (0 wanted)"; fi
+  else fail "ckpt budgeted drop e8 size 2" "the run: $(cat "$OUT/ckpt_top2.cmp"); $(grep -a 'VERIFY FAILED\|abort\|error' "$OUT/ckpt_top2.log" | head -1 | cut -c1-120)"; fi
+  N "rm -rf $f $f.*"
+  if ckrun ckpt_off BS_CKPT_DIR=$CK.3; then
+    nf=$(N "ls $CK.3 2>/dev/null | wc -l")
+    if [ "$nf" -eq 0 ]; then pass "ckpt off e8 size 2" "identical; BS_CKPT_DIR alone: no file written"; else fail "ckpt off e8 size 2" "identical; $nf files in BS_CKPT_DIR (0 wanted)"; fi
+  else fail "ckpt off e8 size 2" "the run: $(cat "$OUT/ckpt_off.cmp")"; fi
+  N "rm -rf $f $f.* $CK $CK.2 $CK.3"
 fi
 
 # ---- the recheck mode (Phase 12 W, results/W.md) -----------------------------------------------------------------------------

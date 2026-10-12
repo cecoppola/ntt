@@ -3,19 +3,11 @@
 static const char *const cfg_names[] = {
     "BS_ARENA_ROOM",
     "BS_BALANCE_N",
-    "BS_CKPT_ABORT",
-    "BS_CKPT_ABORT_NODE",
-    "BS_CKPT_ABORT_TREE",
     "BS_CKPT_BG_CHUNK_MB",
     "BS_CKPT_BG_MBS",
     "BS_CKPT_DIR",
-    "BS_CKPT_EVERY",
-    "BS_CKPT_MIN_LEVEL",
-    "BS_CKPT_TREE",
-    "BS_CKPT_TREE_EVERY",
     "BS_LAYOUT_ONLY",
     "BS_MDEV_LOGL",
-    "BS_RESTART",
     "BS_SEED_CHUNK_MB",
     "BS_SEED_FILL",
     "BS_SEED_PULL",
@@ -160,4 +152,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 158
+#define CFG_NAMES_N 150

@@ -40,7 +40,7 @@ measured, modelled or assumed.
 
 ## 3. The standing regression
 
-`ecalc/mnaccept.sh <hold> [--full] [--only unit,grid,e9,mn,ckpt,sched,recheck,corr]` runs on the login node against a
+`ecalc/mnaccept.sh <hold> [--full] [--only unit,grid,e9,mn,ckpt,recheck,corr]` runs on the login node against a
 one-node allocation and prints one PASS/FAIL line per step, a summary, and exits with the number of failures. Logs go to
 `ecalc/results/mnaccept/<hold>/`.
 
@@ -50,8 +50,7 @@ one-node allocation and prints one PASS/FAIL line per step, a summary, and exits
 | `grid` | `t_mn_grid` over SHMEM |
 | `e9` | 10⁹ digits at size 1 against the reference |
 | `mn` | 10⁸ at sizes 2, 3, 4 and 10⁹ at sizes 2 and 4 (several node-processes on one node; the part files concatenated and compared) |
-| `ckpt` | 10⁸ at size 2: abort during binary splitting, restart, digits identical |
-| `sched` | a tree-level restart under another schedule or node count is refused; under the same schedule it is identical |
+| `ckpt` | 10⁸ at size 2, the top-level set in `BS_CKPT_DIR`: written (one set per node, nothing else) and read by the recheck; dropped under the budget (`ECALC_CKPT_TOP=2`, an emulated slow disk); none without `ECALC_CKPT_TOP`; digits identical |
 | `recheck` | `ECALC_RECHECK=1` on finished files: OK on intact files, FAILED on a copy with one digit flipped |
 | `corr` | forced division corrections: the deferred patch rewrites digits inside the file; digits identical, RECHECK OK |
 | `full` (`--full`) | the standard size at size 1 (`ECALC_STD_DIGITS`, default 10¹¹) against its reference, then RECHECK |
@@ -63,7 +62,7 @@ References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a
 | change touches | run |
 |---|---|
 | anything in `ecalc/` | gate, 1 node; plus 2 nodes for multi-node code (comm, `mn*`, `rns_dist.c`, `newton_db.c` sharded paths, output) |
-| the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `sched`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
+| the engine (NTT, CRT, products, binary splitting, Newton, memory layout) | `mnaccept.sh <hold> --only unit,e9` plus the touched steps (`mn`, `grid`, `ckpt`, `recheck`, `corr`); `t_newton`, `t_mul`; 4 × 10¹⁰ digits identical to the reference; `ecalc/mem_model.py --check-c` exact if sizing changed |
 | switches or defaults | `tools/switch_registry.py --check`; the switch row in `ecalc/README.md` |
 | speed claims | the timing method in section 6, on top of the above |
 

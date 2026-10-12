@@ -1,11 +1,8 @@
 # ecalc/switches_manual.tsv -- hand-checked rows (L5, 2026-10-11) for the launch-line switches; wins over the extraction in tools/switch_registry.py.
 # columns (tab separated): name, default, type, range, scope, note.   A default that is a code literal must equal it (--check fails otherwise); "auto..." marks a computed default.
 # default read at the site named in note (file:line as of main a1569d5); launch-line switches that have a plain literal default are listed too so that a change of the literal is caught.
-BS_CKPT_DIR	unset	str	path		ecalc.c:544; unset or empty = no per-level checkpoints
-BS_CKPT_EVERY	4	int	>=0		binsplit.c:37 initialiser (the env only overrides it); 0 = never
-BS_CKPT_MIN_LEVEL	16	int	>=0		binsplit.c:38 initialiser
+BS_CKPT_DIR	unset	str	path		ecalc.c; the top-level set's directory (ECALC_CKPT_TOP); unset or empty = <outfile>.top
 BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
-BS_RESTART	0	int	0|1		ecalc.c
 COMM_LAYER_INTER2	derived	bool	0|1	built-in default	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
 COMM_LAYER_VSLOT_POOL	1	bool	0|1	built-in default	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_LAYER_VSLOT_SHARE	1	bool	0|1	built-in default	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)

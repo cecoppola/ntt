@@ -298,7 +298,7 @@ that divide the size, then the odd part's prime factors in ascending order; at 5
   products, so a node holds its child's P, Q, the running pair and the new pair.
 - Uneven last groups are correct but not faster (`results/B06.md`); the group structure follows the rack layout.
 
-Tree-level checkpoints (`bs_ckpt_tree_*`, `BS_CKPT_DIR`) allow bit-identical restart under the same schedule and node count.
+The only checkpoint is the top-level set (`ECALC_CKPT_TOP`, `bs_ckpt_tree_*` / `bs_ckpt_bg_*` in `binsplit.c`): each node's P and Q after the last tree level, read by `ECALC_RECHECK`. There is no restart inside a run.
 
 ### 6.6 Sharded reciprocal and division
 

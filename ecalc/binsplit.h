@@ -18,32 +18,22 @@ struct dbig_s;
 #ifdef __cplusplus
 extern "C" {
 #endif
-typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total, t_ckpt, t_restart; int levels, school_levels, batch_levels, mdev_levels, n_ckpt, restart_level; size_t peak_pool_limbs, ckpt_bytes;
+typedef struct { double t_seed, t_school, t_batch, t_mdev, t_total; int levels, school_levels, batch_levels, mdev_levels; size_t peak_pool_limbs;
                  int n_grow; size_t grow_bytes; } bs_stats;   /* region pool growths inside the phase (count, bytes) */
 extern bs_stats bs_st;
 extern int bs_seed_terms;     /* 256 (BS_SEED_TERMS) */
 unsigned long bs_seed_terms_for(unsigned long bend);
 long bs_seed_fill(void);                                  /* the fill in limbs (BS_SEED_FILL; 128 by default; 0 = the fixed span) */   /* the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
 extern int bs_verbose;
-/* WP7: per-level checkpoints of the level loop (ecalc/README.md: BS_CKPT_DIR, BS_CKPT_EVERY, BS_RESTART) */
-extern const char *bs_ckpt_dir;  /* directory; 0 = no checkpoints */
-extern int bs_ckpt_every;        /* every this many levels (4) */
-extern int bs_ckpt_min_level;    /* from this level on (8), or once the level pool exceeds bs_ckpt_min_bytes (1 GiB) */
-extern size_t bs_ckpt_min_bytes;
-extern int bs_restart;           /* 1: resume from the latest complete set in bs_ckpt_dir */
-/* M6 (results/A-ckpt.md): the tree levels' sets, written by mn_tree -- this node's shares of P and Q and their mdb
- * descriptors desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q; multi-node names carry the node rank */
+/* the top-level set (ECALC_CKPT_TOP, read by ECALC_RECHECK): this node's P and Q (shares) and their mdb descriptors
+ * desc[10] = P.n P.N P.g0 P.g P.sh.n, the same for Q, as tree set `level` (size 1: 0; size > 1: mn_tree's top level);
+ * multi-node names carry the node rank (ecalc/README.md: BS_CKPT_DIR, ECALC_CKPT_TOP) */
+extern const char *bs_ckpt_dir;  /* directory; 0 = none */
 size_t bs_ckpt_tree_write(int level, unsigned long N, const uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);   /* bytes, 0 = failed */
-extern int bs_ckpt_own_buf;          /* 1 = checkpoint DMA buffers malloc'd (a writer that runs past rns_release_staging) */
-extern volatile int bs_ckpt_tree_pdone;   /* files of the tree set in progress whose P part is written (NR = P may be overwritten) */
 extern unsigned long bs_N;                                 /* the run's N (set by binsplit_e) */
 int    bs_ckpt_tree_find(unsigned long N);                 /* this node's highest complete tree set, 0 = none */
 int    bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], struct dbig_s *P, struct dbig_s *Q);
-void   bs_ckpt_tree_remove_below(int level);               /* the sets tree level `level` supersedes (call once every node has it) */
 void   bs_ckpt_tree_clear(int level);                      /* this node's tree sets above `level` */
-/* the restart scan -- this node's highest complete tree set (0 = none) without aborting; *err 1 = a set of
- * another run, 2 = a tree set written under another schedule (node count / MN_GROUPS level map, recorded in the v3 header); msg says which */
-int    bs_ckpt_restart_scan(unsigned long N, int *err, char *msg, size_t msz);
 /* a tree set written by a background thread (the top set at any size).  release(part 0 = P, 1 = Q)
  * returns once the writer no longer reads that part -- 1 written, 0 abandoned (budget != 0: the measured disk rate projects the
  * part past `slack` seconds; the set is then dropped, no partial files); done() does not wait; join() waits for the end (fsync,

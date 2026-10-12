@@ -22,8 +22,8 @@ int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void); int comm
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (the layout report) */
 extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (crt.c), pool 0's planes (ECALC_NP=auto: 3 or 4 by the run's largest group) */
 int newton_dkm_on(void); size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), dm_layout follows NEWTON_DKM */
-/* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
-int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
+/* the node-process rank/size (the checkpoint names and headers), from mn.c (mn.h needs the HIP headers; this is a C file) */
+int mn_rank(void); int mn_size(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
 size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t share_b, size_t share_c, size_t *qmax);
 size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT (rns_dist.c) */   /* the tree's schedule and its products' scratch (rns_dist.c / mdb.h, a C++ header) */
@@ -32,15 +32,7 @@ unsigned long bs_N = 0;                              /* M6: the run's N, for the
 bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
 int bs_verbose = 0;
-const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
-int bs_ckpt_every = 4;                               /* BS_CKPT_EVERY: a checkpoint every this many levels */
-int bs_ckpt_min_level = 16;                          /* BS_CKPT_MIN_LEVEL: only the top levels, where the time is (a snapshot costs
-                                                      * a full pass of the pools: 5.7 s per 8 GB at 10^10, RESULTS.md 61; from level
-                                                      * 16 a 24-level run writes two) */
-size_t bs_ckpt_min_bytes = (size_t)64 << 30;         /* ... unless the level's pool is already this large */
-int bs_restart = 0;                                  /* BS_RESTART=1: resume from the latest complete checkpoint in bs_ckpt_dir */
-int bs_ckpt_own_buf = 0;                             /* 1 = the checkpoint DMA buffers are malloc'd, never the pinned staging (a writer thread that outlives rns_release_staging) */
-volatile int bs_ckpt_tree_pdone = 0;                 /* files of the tree set being written whose P part is on disk (ecalc.c's background top-level write: S = P + Q may overwrite P once this reaches NR) */
+const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: the directory of the top-level set (ECALC_CKPT_TOP); 0 = none */
 
 unsigned long e_terms(unsigned long d)
 {
@@ -868,41 +860,17 @@ void binsplit_pregrow(unsigned long N)
     }
     g_in_pregrow = 0;
 }
-/* WP7: periodic snapshots of the level loop (archive:PLAN §15, WP7).  A checkpoint is the state the
- * loop needs at the top of an iteration: the node table of the current level, `which`, the
- * level number, and the used limbs of each region's pool (offr[r] limbs, laid out sequentially
- * by the level's layout pass).  The mdev-tier levels keep their results in the host pool
- * g_hpool[which] (four pointers into one block, RESULTS.md 56); the header records that so a
- * restart rebuilds the same placement.  Files in bs_ckpt_dir: level_LLL.hdr (header + node
- * table) and level_LLL.rR (region R's limbs); every file is written to a temporary name and
- * renamed, the header last, and the previous level's set is removed only after the new header
- * is in place -- at any moment a complete set exists.  Not streaming: the working set never
- * lives on storage; a snapshot every bs_ckpt_every levels costs one pass through the host
- * (mem_dev_copy from the device regions in 1 GiB chunks through the pinned staging).
- *
- * M6 (archive:PLAN §19, results/A-ckpt.md): (1) levels whose nodes are device numbers (the dev_mdev top
- * levels, WP5) are snapshotted too: file r holds, node by node, the limbs [pn r/4, pn (r+1)/4) of
- * P and the same quarter of Q -- a limb range, not a device quarter, so the reader's placement
- * (db_reserve) need not match the writer's; offr[r] is file r's limbs, so ckpt_find checks the
- * sizes as before.  (2) Multi-node: every node-process writes its own sets, named
- * n<rank>_level_LLL.* (several node-processes share a directory), the header extended (magic
- * ECBSCKP2) with size, rank and the term range; single-node runs keep the WP7 names and the v1
- * header where nothing new is needed, and read v1 sets.  (3) The tree levels (mn_tree):
- * n<rank>_tree_LLL.* holds the node's shares of P and Q (the mdb descriptors in the header, the
- * share's limbs in the four quarter files), written by mn.c through bs_ckpt_tree_*; the set it
- * supersedes (the leaf's, and the tree levels below L) is removed only after every node has written
- * level L (mn.c's barrier, taken at the next set level or at mn_finalize -- C6), so the lowest
- * "highest complete level" over the nodes exists on all of them.  BS_CKPT_TREE_EVERY=k writes the
- * tree sets at levels k, 2k, ... and the top. */
-#define CKPT_MAGIC  "ECBSCKP1"
+/* The top-level set (ECALC_CKPT_TOP, for ECALC_RECHECK): this node's P and Q (size 1: the whole numbers, written by
+ * ecalc.c as tree level 0; size > 1: the node's shares after mn_tree's top level) and their mdb descriptors.  Files in
+ * bs_ckpt_dir: tree_LLL.hdr (header) and tree_LLL.rR, R = 0..3 (quarter R by limb range of P, then of Q); multi-node names
+ * carry the rank (n<rank>_tree_LLL.*).  Every file is written to a temporary name and renamed, the header last, so a
+ * header means a complete set.  The header is v3: v1 + the extension (size, rank, the descriptors) + the schedule that
+ * wrote it (node count, MN_GROUPS levels; recorded, not compared).  No restart: the set only feeds the recheck. */
 #define CKPT_MAGIC2 "ECBSCKP2"
 #define CKPT_MAGIC3 "ECBSCKP3"
 #define CKPT_CHUNK ((size_t)1 << 30)
 struct ckpt_hdr { char magic[8]; uint64_t N; int32_t decimal, seed_terms, level, which, mdev_host, nregions; uint64_t n, off, offr[NR], node_bytes; };
-struct ckpt_ext { int32_t size, rank, dev_nodes, kind; uint64_t a0, b1; uint64_t tree[10]; };   /* v2 (follows the v1 header): kind 0 = a leaf level, 1 = a tree level (tree[] = P.n P.N P.g0 P.g P.sh.n, the same for Q) */
-/* v3 = v2 + the schedule that wrote the set -- the tree sets are indexed by the schedule's level
- * number (MN_GROUPS / the node count: level l joins groups of gs[l-1] nodes), so a tree set is a restart point only under
- * the same schedule.  Written for every tree set (kind 1); the leaf sets stay v1/v2 (they do not depend on the schedule). */
+struct ckpt_ext { int32_t size, rank, dev_nodes, kind; uint64_t a0, b1; uint64_t tree[10]; };   /* kind 1 = a tree set (tree[] = P.n P.N P.g0 P.g P.sh.n, the same for Q) */
 #define CKPT_MAXLEV 32
 struct ckpt_sched { int32_t size, nlev; int32_t gs[CKPT_MAXLEV]; };
 static void ckpt_sched_now(struct ckpt_sched *s)
@@ -910,22 +878,7 @@ static void ckpt_sched_now(struct ckpt_sched *s)
     memset(s, 0, sizeof *s); s->size = mn_size();
     if (s->size > 1) s->nlev = mn_groups_parse(s->size, s->gs, CKPT_MAXLEV - 1);
 }
-static void ckpt_sched_str(const struct ckpt_sched *s, char *buf, size_t sz)
-{
-    int o = snprintf(buf, sz, "%d node-process%s, MN_GROUPS levels ", s->size, s->size == 1 ? "" : "es");
-    if (!s->nlev) o += snprintf(buf + o, sz - o, "(none)");
-    for (int i = 0; i < s->nlev && i < CKPT_MAXLEV && o < (int)sz; i++) o += snprintf(buf + o, sz - o, "%s%d", i ? "," : "", s->gs[i]);
-}
-static int ckpt_sched_eq(const struct ckpt_sched *a, const struct ckpt_sched *b)
-{
-    if (a->size != b->size || a->nlev != b->nlev) return 0;
-    for (int i = 0; i < a->nlev && i < CKPT_MAXLEV; i++) if (a->gs[i] != b->gs[i]) return 0;
-    return 1;
-}
-/* the restart scan (bs_ckpt_restart_scan) reads headers without aborting on a foreign set: the verdict goes to mn.c,
- * which decides over all nodes (one node's abort would leave the others waiting in a collective) */
-static int g_ck_noabort = 0, g_ck_err = 0; static char g_ck_msg[1024];
-static int g_ck_node = -2;                            /* -1: single node (WP7 names); else this node-process's rank */
+static int g_ck_node = -2;                            /* -1: single node (no rank in the names); else this node-process's rank */
 static void ckpt_env(void) { if (g_ck_node == -2) g_ck_node = mn_size() > 1 ? mn_rank() : -1; }
 static void ckpt_path(char *buf, size_t sz, const char *kind, int level, const char *suffix, int r, int tmp)
 {
@@ -956,7 +909,7 @@ static uint64_t *ckpt_buf(int r, int *own, const struct ckpt_io *io)
 {
     *own = 0; void *p = 0;
     if (io) { *own = 1; if (posix_memalign(&p, (size_t)2 << 20, io->chunk)) p = 0; return (uint64_t *)p; }   /* a background writer's own chunk (aligned, for O_DIRECT) */
-    if (!bs_ckpt_own_buf && mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());   /* bs_ckpt_own_buf -> malloc */
+    if (mem_device_count() >= NR && rns_staging_bytes() >= CKPT_CHUNK) return rns_hstage(r % mem_device_count());
     *own = 1; if (posix_memalign(&p, (size_t)2 << 20, CKPT_CHUNK)) p = 0; return (uint64_t *)p;
 }
 /* a checkpoint data file -- the stdio stream as before, or with ECALC_ODIRECT=1 spill.c's sp_file: O_DIRECT
@@ -993,29 +946,6 @@ static void ckpt_abandon(ckf *c)                       /* a cancelled background
 {
     if (c->direct) spf_close(&c->sf, 0); else fclose(c->f);
     free(c);
-}
-/* region r's limbs [0, limbs) -> file (write) or file -> pool (read), through a host buffer when the pool is device memory */
-static int ckpt_region_io(int level, uint64_t *pool, size_t limbs, int r, int write)
-{
-    char tmp[4096], final[4096];
-    ckf *cf = ckpt_open("level", level, r, write, tmp, final); if (!cf) return 0;
-    int dev = mem_dev_of(pool), ok = 1, own = 0;
-    if (cf->direct) {
-        uint64_t *b = ckpt_buf(r, &own, 0); void *b2[2]; size_t bc = ck_halves(b, b2, CKPT_CHUNK);
-        ok = b && (write ? spf_write_dev(&cf->sf, dev, pool, limbs * 8, b2, bc, 0) : spf_read_dev(&cf->sf, dev, pool, limbs * 8, b2, bc));
-        if (own) free(b);
-        return ckpt_close(cf, ok, write, tmp, final);
-    }
-    FILE *f = cf->f;
-    uint64_t *buf = dev >= 0 ? ckpt_buf(r, &own, 0) : 0;
-    for (size_t lo = 0; lo < limbs && ok; lo += CKPT_CHUNK / 8) {
-        size_t cnt = limbs - lo < CKPT_CHUNK / 8 ? limbs - lo : CKPT_CHUNK / 8;
-        if (dev < 0) ok = write ? fwrite_all(f, pool + lo, cnt * 8) : fread_all(f, pool + lo, cnt * 8);
-        else if (write) { mem_dev_copy(buf, pool + lo, cnt * 8); ok = fwrite_all(f, buf, cnt * 8); }
-        else { ok = fread_all(f, buf, cnt * 8); if (ok) mem_dev_copy(pool + lo, buf, cnt * 8); }
-    }
-    if (own) free(buf);
-    return ckpt_close(cf, ok, write, tmp, final);
 }
 /* M6: the limbs [lo, hi) of a device number <-> the file, in runs inside one device quarter (limb g lives in
  * quarter (g >= qc) + (g >= 2 qc) + (g >= 3 qc), dbig.c), each run DMA'd on its quarter's device through buf */
@@ -1061,154 +991,63 @@ static int ckpt_dbig_io(ckf *cf, dbig *x, size_t lo, size_t hi, uint64_t *buf, i
     return ok;
 }
 static size_t range_lo(size_t n, int r) { return n * (size_t)r / NR; }
-/* file r of a device-number level: quarter r (by limb range) of every node's P and Q */
-static int ckpt_devnodes_io(int level, struct level *lv, int r, int write)
-{
-    char tmp[4096], final[4096];
-    ckf *f = ckpt_open("level", level, r, write, tmp, final); if (!f) return 0;
-    int ok = 1, own; uint64_t *buf = ckpt_buf(r, &own, 0);
-    for (size_t i = 0; i < lv->n && ok; i++) {
-        struct node *nd = &lv->nd[i];
-        ok = ckpt_dbig_io(f, nd->pd, range_lo(nd->pn, r), range_lo(nd->pn, r + 1), buf, write, 0, 0)
-          && ckpt_dbig_io(f, nd->qd, range_lo(nd->qn, r), range_lo(nd->qn, r + 1), buf, write, 0, 0);
-    }
-    if (own) free(buf);
-    return ckpt_close(f, ok, write, tmp, final);
-}
-static size_t devnodes_limbs(const struct level *lv, int r)
-{
-    size_t s = 0;
-    for (size_t i = 0; i < lv->n; i++) s += range_lo(lv->nd[i].pn, r + 1) - range_lo(lv->nd[i].pn, r) + range_lo(lv->nd[i].qn, r + 1) - range_lo(lv->nd[i].qn, r);
-    return s;
-}
-/* all regions of a level, in parallel when they are four device regions (each through its own staging) */
-static int ckpt_regions(int level, struct level *lv, const size_t *offr, int dev_nodes, int write)
-{
-    int oks[NR];
-    if (dev_nodes || (mem_dev_of(lv->pool[0]) >= 0 && mem_device_count() >= NR)) {
-#pragma omp parallel for num_threads(NR) schedule(static, 1)
-        for (int r = 0; r < NR; r++) oks[r] = dev_nodes ? ckpt_devnodes_io(level, lv, r, write) : ckpt_region_io(level, lv->pool[r], offr[r], r, write);
-    } else for (int r = 0; r < NR; r++) oks[r] = ckpt_region_io(level, lv->pool[r], offr[r], r, write);
-    int ok = 1; for (int r = 0; r < NR; r++) ok = ok && oks[r];
-    return ok;
-}
 static void ckpt_remove_kind(const char *kind, int level)
 {
     char p[4096];
     for (int r = 0; r < NR; r++) { ckpt_path(p, sizeof p, kind, level, "r", r, 0); unlink(p); }
     ckpt_path(p, sizeof p, kind, level, "hdr", -1, 0); unlink(p);
 }
-static void ckpt_remove(int level) { ckpt_remove_kind("level", level); }
 static void ckpt_sync_dir(void) { int dfd = open(bs_ckpt_dir, O_RDONLY | O_DIRECTORY); if (dfd >= 0) { fsync(dfd); close(dfd); } }
-/* the header (v1, or v2 with the extension) + the node table -> <kind>_LLL.hdr; the directory fsync'd after */
-static int ckpt_write_hdr(const char *kind, struct ckpt_hdr *h, const struct ckpt_ext *x, const void *nodes)
+/* the v3 header -> <kind>_LLL.hdr; the directory fsync'd after */
+static int ckpt_write_hdr(const char *kind, struct ckpt_hdr *h, const struct ckpt_ext *x)
 {
     char tmp[4096], final[4096];
-    ckpt_env();
-    if (g_ck_node >= 0 || x->dev_nodes || x->kind) memcpy(h->magic, CKPT_MAGIC2, 8); else memcpy(h->magic, CKPT_MAGIC, 8);   /* v1 whenever v1 says it all: main's restart reads it */
+    memcpy(h->magic, CKPT_MAGIC3, 8);
     struct ckpt_sched sc; ckpt_sched_now(&sc);
-    if (x->kind == 1) memcpy(h->magic, CKPT_MAGIC3, 8);   /* a tree set records its schedule */
     ckpt_path(tmp, sizeof tmp, kind, h->level, "hdr", -1, 1); ckpt_path(final, sizeof final, kind, h->level, "hdr", -1, 0);
     FILE *f = fopen(tmp, "wb");
-    int ok = f && fwrite_all(f, h, sizeof *h) && (h->magic[7] == '1' || fwrite_all(f, x, sizeof *x)) && (h->magic[7] != '3' || fwrite_all(f, &sc, sizeof sc))
-           && (!h->node_bytes || fwrite_all(f, nodes, h->node_bytes));
+    int ok = f && fwrite_all(f, h, sizeof *h) && fwrite_all(f, x, sizeof *x) && fwrite_all(f, &sc, sizeof sc);
     if (!ckpt_finish(f, ok, tmp, final)) return 0;
     ckpt_sync_dir();
     return 1;
 }
 /* the header of <kind>_LLL: 1 if it belongs to this run (another run's set aborts) and, with check_files, its
- * region files have the sizes the header names (a complete set) */
-static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct ckpt_ext *x, unsigned long N, int check_files, struct ckpt_sched *sc)
+ * region files have the sizes the header names (a complete set).  v2 sets (no schedule recorded) are read too. */
+static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct ckpt_ext *x, unsigned long N, int check_files)
 {
     char p[4096]; ckpt_env();
     ckpt_path(p, sizeof p, kind, level, "hdr", -1, 0);
     FILE *f = fopen(p, "rb"); if (!f) return 0;
     memset(x, 0, sizeof *x);
-    struct ckpt_sched s3; memset(&s3, 0, sizeof s3); s3.nlev = -1;   /* nlev -1: not recorded (a v1/v2 set) */
-    int ok = fread_all(f, h, sizeof *h) && (!memcmp(h->magic, CKPT_MAGIC, 8) || (!memcmp(h->magic, CKPT_MAGIC2, 8) && fread_all(f, x, sizeof *x))
+    struct ckpt_sched s3;
+    int ok = fread_all(f, h, sizeof *h) && ((!memcmp(h->magic, CKPT_MAGIC2, 8) && fread_all(f, x, sizeof *x))
                                             || (!memcmp(h->magic, CKPT_MAGIC3, 8) && fread_all(f, x, sizeof *x) && fread_all(f, &s3, sizeof s3)));
     fclose(f);
     if (!ok) return 0;
-    if (sc) *sc = s3;
-    int v2 = h->magic[7] >= '2', me = g_ck_node < 0 ? 0 : g_ck_node;
+    int me = g_ck_node < 0 ? 0 : g_ck_node;
     long want_st = bs_seed_fill() > 0 ? (long)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1) : bs_seed_terms;   /* BS_SEED_FILL's span, as seed_limbs sets it (RECHECK reads the set before seed_limbs runs) */
-    if (h->N != N || h->decimal != 1 || h->seed_terms != want_st || h->nregions != NR
-        || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
-        || (!v2 && mn_size() > 1)) {
-        snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
-                 p, (unsigned long long)h->N, "10^18", h->seed_terms, v2 ? x->size : 1, v2 ? x->rank : 0, N, mn_size(), me);
-        if (g_ck_noabort) { g_ck_err = 1; return 0; }  /* the restart scan reports it; mn.c fails every node together */
-        ec_fatal(EC_RC_FATAL, "%s", g_ck_msg);
-    }
+    if (h->N != N || h->decimal != 1 || h->seed_terms != want_st || h->nregions != NR || x->size != mn_size() || x->rank != me)
+        ec_fatal(EC_RC_FATAL, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d)\n",
+                 p, (unsigned long long)h->N, "10^18", h->seed_terms, x->size, x->rank, N, mn_size(), me);
     if (!check_files) return 1;
     struct stat st;
     for (int r = 0; r < NR && ok; r++) { ckpt_path(p, sizeof p, kind, level, "r", r, 0); ok = stat(p, &st) == 0 && (uint64_t)st.st_size == h->offr[r] * 8; }
     return ok;
 }
-/* the level just finished (cur, which, level) -> bs_ckpt_dir; returns bytes written (0: failed, the run goes on) */
-static size_t ckpt_write(struct level *cur, int which, int level, int mdev_host, const size_t *offr, size_t off, unsigned long N, int prev_level)
-{
-    if (sp_odirect()) sp_dev_sync_all();               /* the O_DIRECT path's DMA is on its own streams */
-    int dev_nodes = cur->nd[0].pd != 0;
-    struct ckpt_hdr h; struct ckpt_ext x; memset(&h, 0, sizeof h); memset(&x, 0, sizeof x);
-    h.N = N; h.decimal = 1; h.seed_terms = bs_seed_terms; h.level = level; h.which = which;
-    h.mdev_host = dev_nodes ? 0 : mdev_host; h.nregions = NR; h.n = cur->n; h.off = off; h.node_bytes = cur->n * sizeof(struct node);
-    size_t used[NR];
-    for (int r = 0; r < NR; r++) h.offr[r] = used[r] = dev_nodes ? devnodes_limbs(cur, r) : offr[r];
-    x.size = mn_size(); x.rank = mn_rank(); x.dev_nodes = dev_nodes; x.kind = 0; x.a0 = bs_a0; x.b1 = bs_b1;
-    mkdir(bs_ckpt_dir, 0777);
-    if (!ckpt_regions(level, cur, used, dev_nodes, 1)) return 0;
-    if (!ckpt_write_hdr("level", &h, &x, cur->nd)) return 0;
-    if (prev_level > 0 && prev_level != level) ckpt_remove(prev_level);
-    size_t bytes = sizeof h + h.node_bytes; for (int r = 0; r < NR; r++) bytes += used[r] * 8;
-    return bytes;
-}
 /* the latest complete set of a kind in bs_ckpt_dir for this run (this node-process): its level, or 0 */
 static int ckpt_find_kind(const char *kind, unsigned long N)
 {
     int best = 0; struct ckpt_hdr h; struct ckpt_ext x;
-    for (int l = 1; l < 128; l++) if (ckpt_read_hdr(kind, l, &h, &x, N, 1, 0) && l > best) best = l;
+    for (int l = 1; l < 128; l++) if (ckpt_read_hdr(kind, l, &h, &x, N, 1) && l > best) best = l;
     return best;
 }
-static int ckpt_find(unsigned long N) { return ckpt_find_kind("level", N); }
-/* load level `level` into cur, its pools placed as the level loop placed them; sets which and off */
-static int ckpt_read(struct level *cur, int *which, int level, size_t *off_out, unsigned long N)
-{
-    char p[4096]; struct ckpt_hdr h; struct ckpt_ext x;
-    if (!ckpt_read_hdr("level", level, &h, &x, N, 0, 0)) return 0;
-    ckpt_path(p, sizeof p, "level", level, "hdr", -1, 0);
-    FILE *f = fopen(p, "rb"); if (!f) return 0;
-    int ok = fseek(f, (long)(sizeof h + (h.magic[7] >= '2' ? sizeof x : 0)), SEEK_SET) == 0;   /* (a leaf set is v1 or v2) */
-    cur->n = h.n; cur->nd = (struct node *)malloc(h.node_bytes);
-    ok = ok && fread_all(f, cur->nd, h.node_bytes); fclose(f);
-    if (!ok) { fprintf(stderr, "bs: checkpoint: bad header %s\n", p); return 0; }
-    *which = h.which; *off_out = h.off;
-    size_t offr[NR]; for (int r = 0; r < NR; r++) offr[r] = h.offr[r];
-    if (x.dev_nodes) {                                   /* a device-number level: the region pools had been donated to the block pool by then; the nodes get fresh blocks */
-        donate_pools(0); donate_pools(1);
-        for (int r = 0; r < NR; r++) cur->pool[r] = 0;
-        for (size_t i = 0; i < cur->n; i++) {
-            struct node *nd = &cur->nd[i];
-            nd->pd = (dbig *)calloc(1, sizeof(dbig)); nd->qd = (dbig *)calloc(1, sizeof(dbig));
-            db_reserve(nd->pd, nd->pn + 8); nd->pd->n = nd->pn; db_reserve(nd->qd, nd->qn + 8); nd->qd->n = nd->qn;   /* (+8 as rns_mul_dist_db's results have) */
-        }
-        return ckpt_regions(level, cur, offr, 1, 0);
-    }
-    for (size_t i = 0; i < cur->n; i++) cur->nd[i].pd = cur->nd[i].qd = 0;
-    if (h.mdev_host) {                                   /* an mdev level of an older checkpoint (host mdev tier): the four regions inside one host pool */
-        uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[h.which], (h.off + 4 * NR) * 8), *q = hp;
-        for (int r = 0; r < NR; r++) { cur->pool[r] = q; q += offr[r] + 2; }
-    } else for (int r = 0; r < NR; r++) cur->pool[r] = pool_get(h.which, r, offr[r] + 2);
-    return ckpt_regions(level, cur, offr, 0, 0);
-}
-/* ---- M6: the tree levels' sets (mn.c) -- the node's shares of P and Q; file r = quarter r (by limb range) of P's share, then of Q's ---- */
+/* ---- the top-level set: the node's P and Q (shares); file r = quarter r (by limb range) of P, then of Q ---- */
 static int tree_io(int level, dbig *P, dbig *Q, int r, int write, struct ckpt_io *io)
 {
     char tmp[4096], final[4096];
     ckf *f = ckpt_open("tree", level, r, write, tmp, final); if (!f) return 0;
     int ok, own; uint64_t *buf = ckpt_buf(r, &own, write ? io : 0);
     ok = ckpt_dbig_io(f, P, range_lo(P->n, r), range_lo(P->n, r + 1), buf, write, write ? io : 0, 0);
-    if (write) __atomic_add_fetch(&bs_ckpt_tree_pdone, 1, __ATOMIC_RELEASE);   /* this file's P part is written (the fwrite returned: P's limbs are no longer read) */
     if (write && io) __atomic_add_fetch(&io->pdone, 1, __ATOMIC_RELEASE);
     ok = ok && ckpt_dbig_io(f, Q, range_lo(Q->n, r), range_lo(Q->n, r + 1), buf, write, write ? io : 0, 1);
     if (write && io) __atomic_add_fetch(&io->qdone, 1, __ATOMIC_RELEASE);        /* (after a cancel or a failure too: the file no longer reads P or Q) */
@@ -1224,12 +1063,12 @@ static size_t tree_write(int level, unsigned long N, const uint64_t desc[10], db
     x.size = mn_size(); x.rank = mn_rank(); x.kind = 1; x.a0 = bs_a0; x.b1 = bs_b1; memcpy(x.tree, desc, sizeof x.tree);
     mkdir(bs_ckpt_dir, 0777);
     char hp[4096]; ckpt_path(hp, sizeof hp, "tree", level, "hdr", -1, 0); unlink(hp);   /* a set of this level from before (a rerun of the outfile) is void from here: never its header over new files */
-    int oks[NR]; bs_ckpt_tree_pdone = 0;
+    int oks[NR];
 #pragma omp parallel for num_threads(NR) schedule(static, 1)
     for (int r = 0; r < NR; r++) oks[r] = tree_io(level, P, Q, r, 1, io);
     if (t_data) *t_data = mem_now();
     for (int r = 0; r < NR; r++) if (!oks[r]) { ckpt_remove_kind("tree", level); return 0; }   /* (a failed or dropped set leaves no files) */
-    if (!ckpt_write_hdr("tree", &h, &x, 0)) return 0;
+    if (!ckpt_write_hdr("tree", &h, &x)) return 0;
     size_t bytes = sizeof h + sizeof x + sizeof(struct ckpt_sched); for (int r = 0; r < NR; r++) bytes += h.offr[r] * 8;
     return bytes;
 }
@@ -1316,39 +1155,11 @@ size_t bs_ckpt_bg_join(struct bs_ckpt_bg *b, const char *who, const char *dir, d
     free(b);
     return bytes;
 }
-/* the restart scan -- this node's highest complete tree set of this run (0 = none) without aborting;
- * *err: 0 fine, 1 a set (tree or leaf) of another run (N, base, seeds, node count, rank or term range), 2 a tree set written
- * under another schedule (node count, MN_GROUPS level map); msg names the set and both sides.  A v2 tree set (no schedule
- * recorded, from an older version) is accepted with a warning in msg (*err 0). */
-int bs_ckpt_restart_scan(unsigned long N, int *err, char *msg, size_t msz)
-{
-    *err = 0; if (msg && msz) msg[0] = 0;
-    if (!bs_ckpt_dir) return 0;
-    struct ckpt_hdr h; struct ckpt_ext x; struct ckpt_sched sc, now; ckpt_sched_now(&now);
-    int best = 0; g_ck_noabort = 1; g_ck_err = 0;
-    for (int l = 1; l < 128 && !*err; l++) {
-        if (ckpt_read_hdr("tree", l, &h, &x, N, 1, &sc)) {
-            if (sc.nlev >= 0 && !ckpt_sched_eq(&sc, &now)) {
-                char a[256], c[256], p[4096]; ckpt_sched_str(&sc, a, sizeof a); ckpt_sched_str(&now, c, sizeof c); ckpt_path(p, sizeof p, "tree", l, "hdr", -1, 0);
-                snprintf(msg, msz, "bs: checkpoint %s (tree level %d) was written under the schedule [%s]; this run's schedule is [%s] -- tree sets are "
-                         "indexed by the schedule's level, so a restart must use the schedule that wrote them (the same MN_GROUPS and node count), or start afresh without BS_RESTART",
-                         p, l, a, c);
-                *err = 2; break;
-            }
-            if (sc.nlev < 0 && msg && !msg[0]) snprintf(msg, msz, "bs: warning: tree set level %d in %s records no schedule (written before Phase 13): assumed to match", l, bs_ckpt_dir);
-            if (l > best) best = l;
-        } else if (g_ck_err) { *err = 1; break; }
-        if (ckpt_read_hdr("level", l, &h, &x, N, 0, 0) == 0 && g_ck_err) { *err = 1; break; }   /* a leaf set of another run (its size, rank or terms) */
-    }
-    if (*err == 1 && msg) snprintf(msg, msz, "%s", g_ck_msg);
-    g_ck_noabort = 0; g_ck_err = 0;
-    return *err ? 0 : best;
-}
 int bs_ckpt_tree_find(unsigned long N) { return bs_ckpt_dir ? ckpt_find_kind("tree", N) : 0; }
 int bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], dbig *P, dbig *Q)
 {
     struct ckpt_hdr h; struct ckpt_ext x;
-    if (!ckpt_read_hdr("tree", level, &h, &x, N, 1, 0)) return 0;
+    if (!ckpt_read_hdr("tree", level, &h, &x, N, 1)) return 0;
     memcpy(desc, x.tree, sizeof x.tree);
     db_init(P); db_init(Q);
     if (desc[4]) { db_reserve(P, desc[4]); P->n = desc[4]; }
@@ -1359,15 +1170,7 @@ int bs_ckpt_tree_read(int level, unsigned long N, uint64_t desc[10], dbig *P, db
     for (int r = 0; r < NR; r++) if (!oks[r]) return 0;
     return 1;
 }
-/* after every node has tree level `level` (mn.c's barrier): the sets it supersedes go -- every tree level below it
- * (BS_CKPT_TREE_EVERY may leave gaps) and the leaf's */
-void bs_ckpt_tree_remove_below(int level)
-{
-    if (!bs_ckpt_dir) return;
-    for (int l = 1; l < level; l++) ckpt_remove_kind("tree", l);
-    for (int l = 1; l < 128; l++) ckpt_remove(l);
-}
-/* every tree set of this node above `level` (stale after a restart below them; all of them for a fresh run) */
+/* every tree set of this node above `level` (a fresh run: the sets of an earlier run in the directory go) */
 void bs_ckpt_tree_clear(int level) { if (bs_ckpt_dir) for (int l = level + 1; l < 128; l++) ckpt_remove_kind("tree", l); }
 /* the seeds of level 0 into the per-region staging: region r's spans computed by the node's threads (or by
  * every thread when unpinned) with the schoolbook, P and Q of each span side by side (per limbs each) */
@@ -1503,7 +1306,6 @@ static void *pre_seeds_run(void *a)
 }
 void binsplit_seeds_begin(unsigned long N)
 {
-    if (bs_restart && bs_ckpt_dir) return;                                 /* a restart skips the seeds */
     seed_limbs(N, &g_pre.per, &g_pre.nspan); g_pre.N = N;
     for (int r = 0; r <= NR; r++) { g_pre.r0[r] = 0; while (g_pre.r0[r] < g_pre.nspan && region_of(g_pre.r0[r], g_pre.nspan) < r) g_pre.r0[r]++; }
     /* the seeds alongside the plane pools' mapping */
@@ -1525,29 +1327,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     /* seed spans: Q(a,b) < b^S, P < S b^S: reserve (S log2(N+1) + 64 + 64) / 64 limbs each */
     seed_limbs(N, &per, &nspan); S = bs_seed_terms;           /* seed_limbs sets it (BS_SEED_TERMS, BS_SEED_FILL) */
     struct level cur, nxt;
-    int which = 0, ckpt_level = 0, resumed = 0;      /* ckpt_level: the level whose set is on disk */
-    if (bs_restart && bs_ckpt_dir && mn_size() > 1 && mn_ckpt_tree_level(N) > 0) {   /* M6: every node has a tree-level set: the leaf tree is skipped, mn_tree resumes above it */
-        mem_pool_guard = 0; binsplit_pregrow(N);
-        P->n = Q->n = 0; bs_Pd.n = bs_Qd.n = 0; bs_st.t_total = mem_now() - t0;
-        printf("bs: restart at tree level %d: the leaf tree is skipped\n", mn_ckpt_tree_level(N));
-        mem_pool_guard = 1;                          /* the tree, the reciprocal and the division follow */
-        return;
-    }
-    if (bs_restart && bs_ckpt_dir) {                 /* WP7: resume from the latest complete checkpoint, skipping the seeds and the levels below it */
-        int l = ckpt_find(N);
-        bs_ckpt_tree_clear(0);                       /* (tree sets, if any, are not agreed on by all nodes: stale) */
-        if (l) {
-            mem_pool_guard = 0; binsplit_pregrow(N);   /* the restart lays the regions out again */
-            t = mem_now(); size_t off = 0;
-            if (!ckpt_read(&cur, &which, l, &off, N)) { ec_fatal(EC_RC_FATAL, "bs: restart from %s level %d failed\n", bs_ckpt_dir, l); }
-            bs_st.levels = l; bs_st.restart_level = l; ckpt_level = l; resumed = 1;
-            if (off > bs_st.peak_pool_limbs) bs_st.peak_pool_limbs = off;
-            bs_st.t_restart = mem_now() - t;
-            printf("bs: restart from %s: level %d, %zu nodes, pool %.2f GB, loaded in %.2f s\n", bs_ckpt_dir, l, cur.n, off * 8e-9, bs_st.t_restart);
-        } else printf("bs: no checkpoint for this run in %s: full run\n", bs_ckpt_dir);
-    }
-    if (!resumed) {
-    if (bs_ckpt_dir) { mkdir(bs_ckpt_dir, 0777); for (int l = 1; l < 128; l++) ckpt_remove(l); bs_ckpt_tree_clear(0); }   /* a fresh run owns the directory (its node's names): stale sets go */
+    int which = 0;
     cur.n = nspan; cur.nd = (struct node *)calloc(nspan, sizeof *cur.nd);
     size_t r0[NR + 1];                               /* first node of each region at level 0 */
     for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
@@ -1588,7 +1368,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
     bs_st.t_seed = mem_now() - t;
     if (bs_verbose) printf("bs: %lu terms, %lu spans of %lu, seeds %.2f s%s\n", N, nspan, S, bs_st.t_seed, g_pre.N == N && !own_stage ? " (waiting for the init thread)" : "");
     if (bs_after_seeds_hook) bs_after_seeds_hook(bs_hook_arg);   /* the CPU is free from here until the top level */
-    }                                                /* !resumed */
 
     mem_pool_guard = 1;                              /* from here nothing may grow (the reciprocal and the division keep it set) */
     if (getenv("ECALC_FATAL_TEST") && atoi(getenv("ECALC_FATAL_TEST")) == 1) {   /* the four APU threads fail at once, as the in-phase guards do */
@@ -1729,17 +1508,6 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         free(cur.nd);
         cur = nxt;
         if (finished) { free(cur.nd); cur.nd = 0; break; }
-        /* WP7: snapshot the level just finished (never the top: the loop ends there); M6: levels held as device numbers too */
-        if (bs_ckpt_dir && cur.n > 1 && bs_ckpt_every > 0 && bs_st.levels % bs_ckpt_every == 0 && (bs_st.levels >= bs_ckpt_min_level || off * 8 > bs_ckpt_min_bytes)) {
-            double tc = mem_now();
-            size_t bytes = ckpt_write(&cur, which, bs_st.levels, mdev_level, offr, off, N, ckpt_level);
-            double dtc = mem_now() - tc;
-            if (bytes) { ckpt_level = bs_st.levels; bs_st.n_ckpt++; bs_st.ckpt_bytes += bytes; bs_st.t_ckpt += dtc; }
-            if (bs_verbose || !bytes) printf("bs: checkpoint level %d -> %s: %.3f GB in %.2f s (%.2f GB/s)%s\n", bs_st.levels, bs_ckpt_dir, bytes * 1e-9, dtc, bytes * 1e-9 / (dtc > 0 ? dtc : 1), bytes ? "" : "  FAILED, continuing");
-            if (bytes && getenv("BS_CKPT_ABORT") && atoi(getenv("BS_CKPT_ABORT")) == bs_st.levels && (!getenv("BS_CKPT_ABORT_NODE") || atoi(getenv("BS_CKPT_ABORT_NODE")) == mn_rank())) {   /* test hook: die here, as a failed run would (BS_CKPT_ABORT_NODE: this node-process only) */
-                printf("bs: BS_CKPT_ABORT: exiting after the level %d checkpoint\n", bs_st.levels); fflush(stdout); _exit(3);
-            }
-        }
     }
     if (cur.nd && bs_keep_dev && mn_size() > 1 && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
         /* at size > 1 a leaf that ends on the batch tier leaves P_r, Q_r in a region pool; the

@@ -459,7 +459,7 @@ int main(int argc, char **argv)
     unsigned long N = e_terms(d);
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
-    if (!getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
+    rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (2^31 by default; exits for BS_LAYOUT_ONLY) */
     { char eff[160]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
       snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1");
@@ -508,11 +508,8 @@ int main(int argc, char **argv)
     mem_report("init");                           /* device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
-    bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
+    bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* the top-level set's directory (ECALC_CKPT_TOP) */
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
-    if (getenv("BS_CKPT_EVERY")) bs_ckpt_every = atoi(getenv("BS_CKPT_EVERY"));
-    if (getenv("BS_CKPT_MIN_LEVEL")) bs_ckpt_min_level = atoi(getenv("BS_CKPT_MIN_LEVEL"));
-    bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     int ovl = mn_size_ == 1;                       /* the overlapped flow (device top levels, device dm): size 1; size > 1 runs M3's distributed flow */
     bigint P, Q, T, A, X, R, S;
@@ -535,8 +532,8 @@ int main(int argc, char **argv)
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
     /* the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
-     * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set (the only set when the directory is
-     * the default: no leaf sets were written, BS_CKPT_TREE_EVERY=64 leaves the lower tree levels out) */
+     * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set.  No other checkpoint exists
+     * (no restart inside a run: the user's decision D11, 2026-10-12) */
     /* the default is OFF.  Agent W measured the 35.6 GB top set as hidden (0-1 s of wall) on disks
      * writing at 1.13-1.59 GB/s, but on aac6's slower path it runs at 0.31 GB/s: 113 s of background write that the
      * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
@@ -562,8 +559,8 @@ int main(int argc, char **argv)
             for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
             printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
         }
-        if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }
-        mn_ckpt_bg_mode = ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
+        if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }
+        mn_ckpt_bg_mode = !ckpt_top ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         {                                           /* M4: the division over shares; X stays sharded (A-out) */
@@ -615,11 +612,6 @@ int main(int argc, char **argv)
     RESULT("bs", "s", t_bs);
     if (bs_st.n_grow) printf("      bs: region pools grew %d times inside the phase (%.1f GB of hipMalloc)\n", bs_st.n_grow, bs_st.grow_bytes / 1e9);
     mem_report("bs");
-    if (bs_st.n_ckpt || bs_st.restart_level) {
-        printf("      bs checkpoints: %d written, %.2f GB, %.2f s (%.2f s each); restart from level %d in %.2f s\n",
-               bs_st.n_ckpt, bs_st.ckpt_bytes * 1e-9, bs_st.t_ckpt, bs_st.n_ckpt ? bs_st.t_ckpt / bs_st.n_ckpt : 0.0, bs_st.restart_level, bs_st.t_restart);
-        RESULT("bs_ckpt", "s", bs_st.t_ckpt); RESULT("bs_ckpt_bytes", "GB", bs_st.ckpt_bytes * 1e-9);
-    }
     { size_t hc = 0; uint64_t *hp = binsplit_take_hpool(&hc);   /* the bs host pool (already faulted) becomes A's buffer */
       size_t need = (d + 17) / 18 + P.n + 4;
       if (hp && need && hc >= need) { A.l = hp; A.cap = hc; A.n = 0; } else if (hp) free(hp); }
