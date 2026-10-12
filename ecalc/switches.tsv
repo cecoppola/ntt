@@ -26,7 +26,6 @@ BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	bin
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	
 COMM_ALLTOALLV_DEPTH	int	2	2		built-in default	-	X13b.md+DESIGN_TABLE.md	Y	ecalc	binsplit.c,comm_layered.c,rns_dist.c	5	
 COMM_HOSTS	str	unset	derived	host list	launch-line	-	WP6.md+M3.md	Y	ecalc	comm_tcp.c,mn.c	2	comm_tcp.c, mn.c: TCP transport only
-COMM_HS_TS	bool	0	0	0|1	test-only	-	-	prose	ecalc	newton_db.c	2	newton_db.c; G1 print-only handshake time stamps
 COMM_INIT_EARLY	bool	1	1	0|1	built-in default	-	S16.md	Y	ecalc	ecalc.c	2	
 COMM_LAYER_INTER2	bool	0	unset	0|1	launch-line	aac7	XEFF.md+S47.md	Y	ecalc	binsplit.c,comm_layered.c,mn.c,rns_dist.c	5	binsplit.c:450 (e && atoi(e) != 0)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	
@@ -81,7 +80,6 @@ DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist
 DIST_SYM_SLABS	int	1	1		built-in default	-	S12.md	Y	ecalc	ntt_dist.c	2	
 DIST_TEST_LAG_MS	int	0	0		test-only	-	WM15.md	Y	ecalc	ntt_dist.c	1	
 DIST_TWREC_G	bool	1	1	0|1	built-in default	-	G515.md	Y	ecalc	rns_dist.c	1	
-DM_MN_LEAN	bool	0	0	0|1	launch-line	aac7	M615.md+R§94	Y	ecalc	newton_db.c	1	newton_db.c
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	
@@ -141,7 +139,6 @@ MN_DM	str	unset	unset		experiment	-	W.md+V.md	prose	ecalc	ecalc.c	2
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c	1	rns_dist.c:2315; unset = the automatic schedule
 MN_LAYERED_LOCAL	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
 MN_LAYERED_RAW	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
-MN_MODEL_TCP	int	0	0		experiment	-	X.md+G12.md	Y	ecalc	newton_db.c	2	
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	
 MN_OUT_DKM_HI	bool	0	unset	0|1	launch-line	aac7	EW15.md+R§93	Y	ecalc	ecalc.c	1	ecalc.c:102
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	
@@ -162,13 +159,9 @@ MN_TREE_EARLY_FREE	int	1	1		built-in default	-	T114.md+TGT15.md	Y	ecalc	binsplit
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	5	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	comm_util.c:22 (atoi > 0)
-NEWTON_ANCHOR	int	derived	derived		built-in default	-	L114.md+A37CMP.md	Y	ecalc	binsplit.c,newton.c,newton_db.c	8	
 NEWTON_DEVICE	int	1	1		built-in default	-	DKM15.md+R415.md	Y	ecalc	ecalc.c	6	
-NEWTON_DKM	bool	1	1	0|1	built-in default	-	DKM15.md+DL15.md	Y	ecalc	newton_db.c	1	
-NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	
+NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	N	ecalc	newton_db.c	1	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	
-NEWTON_HIGHPROD	bool	1	1	0|1	built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	5	
-NEWTON_LOWPROD	int	1	1		built-in default	-	G.md+DKM15.md	Y	ecalc	newton_db.c	4	
 NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	
 NEWTON_MN_FIXED	float	unset	unset		built-in default	-	X.md	Y	ecalc	newton_db.c	2	
 NEWTON_MN_GROUPS	int	1	1		built-in default	-	X.md+G13d.md	Y	ecalc	newton_db.c	2	
@@ -177,7 +170,7 @@ NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2
 NEWTON_MN_SHARE	float	unset	unset		built-in default	-	-	Y	ecalc	newton_db.c	2	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	
-NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton.c,newton_db.c	10	
+NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton.c,newton_db.c	8	
 NTT_B16_BODY	int	unset	unset		experiment	-	N-kernel.md+N3x15.md	Y	ecalc	ecalc.c	2	
 NTT_B16_STG	int	unset	unset		built-in default	-	NTT3P.md+N3x15.md	Y	ecalc	ecalc.c	2	
 NTT_B1R	int	3	3		built-in default	-	K13b.md+N3x15.md	Y	ecalc	ntt.c	1	

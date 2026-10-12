@@ -38,9 +38,8 @@ typedef struct { size_t iters, overshoots, repeats, down_corr, up_corr; double t
  * step 1's corrections.  Size 1: newton_db_divmod_shifted (and newton_db_recip when newton_db_Qd is set: the device flow's prewarm);
  * size > 1: newton_mn_divmod */
 int newton_dkm_on(void);
-void newton_dkm_set(int on);                          /* tests: override NEWTON_DKM */
+void newton_dkm_set(int on);                          /* tests: the division in two quotient halves off / on (on by default) */
 size_t newton_dkm_h(size_t k);                        /* the reciprocal's length under DKM for a quotient of k limbs */
-int newton_mn_lean(void);                             /* int15k: DM_MN_LEAN (off) -- the multi-node reciprocal / DKM division without dead copies; dm_layout counts the lean set */
 extern newton_stats newton_st;
 extern int newton_seed_perturb;      /* test hook: multiply the seed by this/16 (0 = off) */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j);

@@ -640,8 +640,8 @@ ARENA_ROOM = 0.16                                       # BS_ARENA_ROOM's code d
 DEFAULTS15C = dict(DEFAULTS15B, arena_room=ARENA_ROOM)
 # Phase 15 DL (the user's Batch 3 decisions of 2026-09-29): DEFAULTS15D = the code's defaults now -- DEFAULTS15C + NEWTON_DKM=1 with dm_layout following it
 # (binsplit.c; NEWTON_DKM=0 in the environment gives C's layout).  MN_P24=2 is the tree's scratch (opts p24; mn_model passes it).  mem_per_node's base.
-DKM_CODE = os.environ.get('NEWTON_DKM', '1') != '0'
-LEAN_CODE = os.environ.get('DM_MN_LEAN', '0') not in ('', '0')   # int15k: DM_MN_LEAN (off by default) -- the lean mn division set at size > 1 (opts lean)
+DKM_CODE = True                                                    # NEWTON_DKM: built in (switch removed 2026-10-12)
+LEAN_CODE = True                                                   # int15k: DM_MN_LEAN, built in since 2026-10-12 -- the lean mn division set at size > 1 (opts lean)
 DEFAULTS15D = dict(DEFAULTS15C, dkm=DKM_CODE, lean=LEAN_CODE)
 TARGET_LAUNCH = dict(round_mb=1024)                     # D2 (results/V114.md): the target's launch line
 TARGET_NP = 'auto'                                      # the user's decision 1 of 2026-09-28: ECALC_NP=auto on the target's launch line (four primes only for the

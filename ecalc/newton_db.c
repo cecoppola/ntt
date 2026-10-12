@@ -16,10 +16,9 @@
 #include "memsample.h"                                       /* Phase 14 S1 (E1) */
 #include "mn_plan.h"                                         /* Phase 13d L: the chain and the X1 group, asked by the plan printer too */
 #include "binsplit.h"                                        /* Phase 14 L1: dm_tight (DM_TIGHT), read once with the layout's switches */
-static int nv = -1, anchor = 1;
+static int nv = -1;
 static dbig g_r, g_r2, g_qt, g_t1, g_t2, g_mu, g_t, g_xq;
 void newton_db_free_scratch(void) { db_free(&g_r); db_free(&g_r2); db_free(&g_qt); db_free(&g_t1); db_free(&g_t2); db_free(&g_mu); db_free(&g_t); db_free(&g_xq); }
-static int env_on(const char *name) { const char *e = getenv(name); return !e || atoi(e); }   /* a switch that is on unless set to 0 */
 
 /* the seed is small: the host version, copied in */
 static void seed_db(dbig *r, const bigint *Q, const dbig *Qd, size_t nq_seed, size_t *j)   /* nq_seed (M4): Qd is only the top of a Q of nq_seed limbs; 0 = Qd is Q */
@@ -76,14 +75,13 @@ static int mid_d(dbig *r2, const dbig *ul, size_t j)
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed);
 /* Phase 13d L: the chain's next target and the sharded reciprocal's start, extracted unchanged from recip_db2 / recip_mn (the plan
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
- * after j is the smallest of them above j; NEWTON_ANCHOR=0: doubling */
-static void nv_init(void) { if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); } }
+ * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
+static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; }
 size_t newton_chain_next(size_t j, size_t k)
 {
     nv_init();
     size_t jn = k;
-    if (anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
-    else jn = 2 * j < k ? 2 * j : k;
+    while ((jn + 1) / 2 > j) jn = (jn + 1) / 2;
     return jn;
 }
 /* recip_mn: the single-node part ends at the largest target <= split (NEWTON_MN_SPLIT, 2^16), or the seed's 2 */
@@ -91,8 +89,8 @@ size_t newton_mn_chain_start(size_t k)
 {
     nv_init();
     size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
-    if (anchor) { while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2; if (kp > split) kp = 2; }
-    else { kp = 2; while (2 * kp <= split && 2 * kp < k) kp *= 2; if (kp > k) kp = k; }
+    while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2;
+    if (kp > split) kp = 2;
     return kp;
 }
 static void recip_db(dbig *mu, const dbig *Qd, const bigint *Q, size_t k) { recip_db2(mu, Qd, Q, k, 0); }
@@ -105,7 +103,7 @@ static void mul_band_db(dbig *C, const dbig *A, const dbig *B, size_t lowcut, si
 static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_t nq_seed)
 {
     double t0 = mem_now();
-    if (nv < 0) { nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) anchor = atoi(getenv("NEWTON_ANCHOR")); }
+    nv_init();
     size_t nq = Qd->n, j;
     /* scratch at its final capacity, once: r and r2 (k + 4 limbs, swapped as the iterate advances), t1 for
      * the products (max(nq + k, 2k) + 8); u, d, corr are views or land in the free one of r2 / t1 -- no
@@ -211,16 +209,14 @@ long newton_test_corr(void)                          /* Phase 15 K: ECALC_TEST_C
     return k;
 }
 /* Phase 15 DKM (newton.h): the switch and the reciprocal's length */
-static int dkm_sw = -1;
-int newton_dkm_on(void) { if (dkm_sw < 0) { const char *e = getenv("NEWTON_DKM"); dkm_sw = e ? atoi(e) != 0 : 1; } return dkm_sw; }   /* default 1 since Phase 15 Batch 3 (the user's decision, 2026-09-29) */
+static int dkm_sw = 1;
+int newton_dkm_on(void) { return dkm_sw; }   /* NEWTON_DKM: on since Phase 15 Batch 3 (2026-09-29), the switch removed 2026-10-12; newton_dkm_set: the tests' override */
 void newton_dkm_set(int on) { dkm_sw = on != 0; }
 size_t newton_dkm_h(size_t k) { return k / 2 + 1; }         /* max(k - s, s + 1) at s = floor(k/2) */
-/* Phase 15 int15k (DM_MN_LEAN, results/M615.md 1.2's target part; off by default): the multi-node reciprocal and DKM division without
+/* Phase 15 int15k (DM_MN_LEAN, results/M615.md 1.2's target part; built in since 2026-10-12): the multi-node reciprocal and DKM division without
  * their dead copies -- recip_mn frees t once u (then corr) is formed; mn_divmod_dkm takes A_h and mu's top as VIEWS of S / R1 and mu
  * (mdb_view) instead of mdb_shift copies, and Q in basis w (Qw) replaces Q once the window is formed.  Value-identical (the same
  * products on the same limbs); the layout (binsplit.c dm_layout, mem_model.dm_layout) counts the lean division set at size > 1 */
-static int lean_sw = -1;
-int newton_mn_lean(void) { if (lean_sw < 0) { const char *e = getenv("DM_MN_LEAN"); lean_sw = e ? atoi(e) != 0 : 0; } return lean_sw; }
 static long dkm_test_hi(void)                               /* NEWTON_DKM_TEST_HI=<k>: X_hi - k before step 1's corrections (a test hook) */
 {
     const char *e = getenv("NEWTON_DKM_TEST_HI"); long k = e ? atol(e) : 0;
@@ -274,11 +270,10 @@ void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, co
     int defer = newton_x_defer && newton_db_x_hook; long dxd = 0; newton_x_dx = 0;   /* Phase 15 K: the corrections deferred to the output's tail patch */
     double tc = mem_now();
     /* R = (A - low(X Q)) mod B^w over the window w = nq + 2, on the host (as the host path).  The low
-     * product: the grid with the pieces above w skipped (NEWTON_LOWPROD=0: the full X Q truncated) */
+     * product: the grid with the pieces above w skipped */
     size_t w = nq + 2;
     if (newton_db_x_hook) { db_to_bi(X, &Xd); newton_db_x_hook(X, newton_db_x_arg); }   /* Phase 8: the CPU formats X while the low product runs */
-    if (getenv("NEWTON_LOWPROD") && !atoi(getenv("NEWTON_LOWPROD"))) { rns_mul_dist_db(&xq, &Xd, &Qd); if (xq.n > w) { xq.n = w; db_norm(&xq); } }
-    else rns_mul_low_db(&xq, &Xd, &Qd, w);
+    rns_mul_low_db(&xq, &Xd, &Qd, w);
     rns_dist_cache_release();                 /* A1: the low product was the last grid product; the planes go */
     double td = mem_now();
     bigint hxq; bi_init(&hxq); db_to_bi(&hxq, &xq);
@@ -329,7 +324,7 @@ static void dkm_est_db(dbig *Xd, const dbig *S, size_t dl, size_t nq, size_t k, 
     size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
     if (!Ah.n || !mu->n) { db_set_zero(Xd); return; }
     dbig t; db_init(&t);
-    if (env_on("NEWTON_HIGHPROD")) rns_mul_high_db(&t, &Ah, mu, k + 1); else rns_mul_dist_db(&t, &Ah, mu);
+    rns_mul_high_db(&t, &Ah, mu, k + 1);
     db_shr_limbs(Xd, &t, k + 1); db_free(&t);
 }
 /* A mod B^w for A = S B^dl: (S mod B^(w - dl)) B^dl by a device shift (db_set_shifted_low copies limb by limb: a few limbs only) */
@@ -472,7 +467,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
      * last use: the block pool (the donated bs regions and the plane tails) must hold the peak, or hipMalloc costs
      * 0.057 s/GB inside the phase (RESULTS.md 70) */
     { size_t sh = nq - 1 - dl; dbig Ah = db_view(S, sh, S->n > sh ? S->n - sh : 0); db_norm(&Ah);
-      if (env_on("NEWTON_HIGHPROD")) rns_mul_high_db(&t, &Ah, &mu, k + 1); else rns_mul_dist_db(&t, &Ah, &mu); }   /* B3: the pieces below the cut skipped (rns_dist.c's grid, A5) */
+      rns_mul_high_db(&t, &Ah, &mu, k + 1); }   /* B3: the pieces below the cut skipped (rns_dist.c's grid, A5) */
     db_free(&mu);                                                     /* the reciprocal's last use */
     db_shr_limbs(&Xd, &t, k + 1);
     db_free(&t);
@@ -753,27 +748,17 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
     free(all);
 }
 /* the whole number on every node's host (small numbers: Q's top for the seed phase; the rare shrink) */
-extern int g_comm_hs_ts;   /* G1 (comm_util.c) */
-/* G1: COMM_HS_TS=1 -- one absolute CLOCK_REALTIME stamp (us) of a step of mdb_to_host_all, printed at once (print only; g_comm_hs_ts is set only inside the reciprocal's gather window) */
-#define HSP(what_) do { if (g_comm_hs_ts) { struct timespec t_; clock_gettime(CLOCK_REALTIME, &t_); printf("hs_ts pre node %d step %s t_us %lld\n", G->g0 + G->me, (what_), (long long)t_.tv_sec * 1000000LL + t_.tv_nsec / 1000); fflush(stdout); } } while (0)
 static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
 {
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); size_t ms = mshare_max(X); if (!ms) ms = 1;
     if (ms > 0x7fffffff) { ec_fatal(EC_RC_FATAL, "mdb_to_host_all: share too large\n"); }
-    HSP("start");
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
-    HSP("alloc_host");
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
-    HSP("db_to_bi_done");
     {   /* an all-gather over mesh 0 (device blocks; Phase 11 L (agent L, B7): one copy of the block instead of g) */
         MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
-        HSP("pool_alloc_done");
         MN_HIP(hipMemcpy(sb, buf, ms * 8, hipMemcpyHostToDevice));
-        HSP("h2d_done");
         comm_allgather(G->all[0], sb, rb, ms * 8);
-        HSP("allgather_done");
         MN_HIP(hipMemcpy(all, rb, (size_t)g * ms * 8, hipMemcpyDeviceToHost));
-        HSP("d2h_done");
         db_pool_free(0, sb); db_pool_free(0, rb);
     }
     bi_reserve(out, X->N + 1);
@@ -793,10 +778,8 @@ static void mdb_from_db(mdb *Y, const dbig *r, size_t N2, mn_group *G)
     *Y = Yn;
 }
 static void mdb_from_bi(mdb *Y, const bigint *h, size_t N2, mn_group *G) { dbig t; db_init(&t); db_from_bi(&t, h); mdb_from_db(Y, &t, N2, G); db_free(&t); }
-static void mn_prod(mdb *C, const mdb *A, const mdb *B, mn_group *G) { double t0 = mem_now(); rns_mul_dist_mn(C, A, B, 0, G); mn_st.t_prod += mem_now() - t0; }
 /* Phase 10 A5: the division's two products with the grid's cuts (rns_mul_dist_mn_cut): the A_h mu product without the pieces
- * below k + 1 (B3 over shares; NEWTON_HIGHPROD=0 keeps them), the low product X Q mod B^w without the pieces above w and
- * delivered in basis w (NEWTON_LOWPROD=0: the full product re-sharded into basis w) */
+ * below k + 1 (B3 over shares), the low product X Q mod B^w without the pieces above w and delivered in basis w */
 static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut) { double t0 = mem_now(); rns_mul_dist_mn_cut(C, A, B, G, lowcut, highcut); mn_st.t_prod += mem_now() - t0; }
 
 /* Phase 11 X1 (agent X; results/X.md, mn_model.py): the group a product runs on.  A product of a few million limbs over
@@ -806,7 +789,7 @@ static void mn_prod_cut(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t 
  * by mdb_shift_g.  The cost per candidate group g' (the model of mn_model.py in three constants): the pieces at the group's
  * plane cap, each T_PIECE x (points per APU / 2^29) of local work times the APU sharing, plus 15 exchanges of
  * 8 q (g' - 1) / g' bytes at NEWTON_MN_BW GB/s per APU with K (g' - 1) messages of NEWTON_MN_LAT seconds and NEWTON_MN_FIXED
- * per exchange (defaults: the target fabric, 100 GB/s, 2 us, 0; MN_MODEL_TCP=1 sets aac6's loopback numbers).
+ * per exchange (defaults: the target fabric, 100 GB/s, 2 us, 0).
  * NEWTON_MN_GROUPS=0 keeps every product on the full group.  The digits do not depend on the choice (every operation
  * is exact); size 1 never comes here. */
 static double x1_cost(size_t na, size_t nb, int gp, size_t reshard_limbs, double bw, double lat, double fixed, double share)
@@ -829,8 +812,7 @@ int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_lim
     static int on = -1; static double bw, lat, fixed, share;
     if (on < 0) {
         on = getenv("NEWTON_MN_GROUPS") ? atoi(getenv("NEWTON_MN_GROUPS")) : 1;
-        int tcp = getenv("MN_MODEL_TCP") ? atoi(getenv("MN_MODEL_TCP")) : 0;
-        bw = tcp ? 0.8 : 100.0; lat = tcp ? 0 : 2e-6; fixed = tcp ? 1e-3 : 0; share = tcp ? (double)size : 1.0;
+        bw = 100.0; lat = 2e-6; fixed = 0; share = 1.0; (void)size;
         if (getenv("NEWTON_MN_BW")) bw = atof(getenv("NEWTON_MN_BW"));
         if (getenv("NEWTON_MN_LAT")) lat = atof(getenv("NEWTON_MN_LAT"));
         if (getenv("NEWTON_MN_FIXED")) fixed = atof(getenv("NEWTON_MN_FIXED"));
@@ -891,13 +873,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     tsb = mem_now();
     bigint hq; bi_init(&hq);
-    static int hsts = -1;   /* G1: COMM_HS_TS=1 (print only, off by default): absolute CLOCK_REALTIME us stamps of the gather's handshake (comm_shmem.c) */
-    if (hsts < 0) hsts = getenv("COMM_HS_TS") ? atoi(getenv("COMM_HS_TS")) != 0 : 0;
-    if (hsts) { char hn[64] = "?"; gethostname(hn, sizeof hn); struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht);
-        printf("hs_ts node %d host %s: gather window opens t_us %lld\n", me, hn, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); g_comm_hs_ts = 1; }
     mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
-    if (hsts) { struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht); g_comm_hs_ts = 0;
-        printf("hs_ts node %d: gather window closes t_us %lld\n", me, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); }
     tsc = mem_now();
     dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
     db_init(&Qtop); db_init(&r0);
@@ -957,8 +933,8 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mfree(&u); mfree(&pw);
             mid_ok = d.n <= j + 1;                                     /* R4: as in recip_db2 */
             size_t NB = (r.n + j > t.n ? r.n + j : t.n) + 2;          /* the basis of r' (>= r << j and corr) */
-            if (newton_mn_lean()) mfree(&t);                           /* int15k (DM_MN_LEAN): t = Q_t r is dead once u is formed (NB is computed) */
-            if (d.n) { mn_prod_cut(&t, &r, &d, Gs, newton_recip_cut(j), (size_t)-1); mdb_shift(&corr, &t, (long)j, NB, Gs); if (newton_mn_lean()) mfree(&t); }   /* |corr| = r |d| >> j (E7: the pieces below j - guard skipped); lean: t dead once corr is formed */
+            mfree(&t);                                                 /* int15k (DM_MN_LEAN): t = Q_t r is dead once u is formed (NB is computed) */
+            if (d.n) { mn_prod_cut(&t, &r, &d, Gs, newton_recip_cut(j), (size_t)-1); mdb_shift(&corr, &t, (long)j, NB, Gs); mfree(&t); }   /* |corr| = r |d| >> j (E7: the pieces below j - guard skipped); lean: t dead once corr is formed */
             else { mfree(&t); mdb_shift(&corr, &r, (long)r.n + 1, NB, Gs); }              /* d = 0: corr = 0 */
             mfree(&d);
             int converged = corr.n <= j + 1;
@@ -1010,7 +986,7 @@ static void mn_dkm_est(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t k, c
     size_t sh = nq - 1 - dl;
     mdb_shift(&Ah, Sx, (long)sh, Sx->n > sh ? Sx->n - sh : 1, G);
     if (!Ah.n) { mdb_shift(Xo, &Ah, 0, 2, G); mfree(&Ah); return; }   /* X = 0 (the shift of a zero is a zero, collectively) */
-    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut_x1(&t, &Ah, mu, G, k + 1, (size_t)-1); else mn_prod(&t, &Ah, mu, G);
+    mn_prod_cut_x1(&t, &Ah, mu, G, k + 1, (size_t)-1);
     mfree(&Ah);
     mdb_shift(Xo, &t, (long)(k + 1), (t.n > k + 1 ? t.n - (k + 1) : 1) + 1, G); mfree(&t);
 }
@@ -1023,23 +999,22 @@ static void mn_dkm_est_lean(mdb *Xo, const mdb *Sx, size_t dl, size_t nq, size_t
 {
     size_t sh = nq - 1 - dl;
     mdbv a = mdb_view(Sx, sh, Sx->n > sh ? Sx->n - sh : 0, G), b = mdb_view(mu, mu->n - m, m, G);
-    int hp = env_on("NEWTON_HIGHPROD");
-    if (a.len && b.len && hp && x1_level(a.len, b.len, G, 2 * (a.len + b.len))) {   /* the X1 rule wants a subgroup: the copy path */
+    if (a.len && b.len && x1_level(a.len, b.len, G, 2 * (a.len + b.len))) {   /* the X1 rule wants a subgroup: the copy path */
         mdb mt; memset(&mt, 0, sizeof mt); mn_dkm_top(&mt, mu, m, G); mn_dkm_est(Xo, Sx, dl, nq, k, &mt, G); mfree(&mt); return; }
     mdb t; memset(&t, 0, sizeof t);
     if (!a.len) { mdb z; memset(&z, 0, sizeof z); db_init(&z.sh); z.g0 = G->g0; z.g = G->g; mdb_shift(Xo, &z, 0, 2, G); mfree(&z); return; }   /* X = 0 */
     double t0 = mem_now();
-    if (hp) rns_mul_dist_mn_cut_v(&t, &a, &b, G, k + 1, (size_t)-1); else rns_mul_dist_mn_v(&t, &a, &b, 0, G, (size_t)-1);
+    rns_mul_dist_mn_cut_v(&t, &a, &b, G, k + 1, (size_t)-1);
     mn_st.t_prod += mem_now() - t0;
     mdb_shift(Xo, &t, (long)(k + 1), (t.n > k + 1 ? t.n - (k + 1) : 1) + 1, G); mfree(&t);
 }
-/* the low product X Q mod B^w in basis w (as newton_mn_divmod: A5's cut, NEWTON_LOWPROD=0 the full product); X = 0: a zero */
+/* the low product X Q mod B^w in basis w (as newton_mn_divmod: A5's cut); X = 0: a zero */
 static void mn_dkm_low(mdb *xql, const mdb *Xn, mdb *Q, size_t w, mn_group *G)
 {
     mdb xq; memset(&xq, 0, sizeof xq);
     if (!Xn->n) { mdb_shift(xql, Xn, 0, w, G); return; }
-    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut_x1(xql, Xn, Q, G, 0, w); if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; } }
-    else { mn_prod(&xq, Xn, Q, G); mdb_shift(xql, &xq, 0, w, G); mfree(&xq); }
+    mn_prod_cut_x1(xql, Xn, Q, G, 0, w);
+    if (xql->N != w) { mdb_shift(&xq, xql, 0, w, G); mfree(xql); *xql = xq; }
 }
 /* R from the window and xq (both basis w, consumed): newton_mn_divmod's corrections; returns the change to X */
 static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, const char *who)
@@ -1079,18 +1054,16 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (mu.n < h + 1) { if (me == 0) printf("divmod(mn) DKM: mu has %zu limbs, h %zu: a fresh reciprocal\n", mu.n, h); mfree(&mu); recip_mn(&mu, Q, h, G); }
     double tb = mem_now();
     /* step 1: X_hi, R1 of A >> s = S B^(dl - s) */
-    mdb m1, Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
-    memset(&m1, 0, sizeof m1); memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
+    mdb Xh, Aw, Qw, xql, R1, Xl, Xs, Xl2, Xn, Rd;
+    memset(&Xh, 0, sizeof Xh); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&xql, 0, sizeof xql); memset(&R1, 0, sizeof R1);
     memset(&Xl, 0, sizeof Xl); memset(&Xs, 0, sizeof Xs); memset(&Xl2, 0, sizeof Xl2); memset(&Xn, 0, sizeof Xn); memset(&Rd, 0, sizeof Rd);
-    const int lean = newton_mn_lean();                                 /* int15k (DM_MN_LEAN): views instead of copies, Qw in place of Q */
-    if (lean) mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);
-    else { mn_dkm_top(&m1, &mu, k1 + 1, G); mn_dkm_est(&Xh, &S, dl - s, nq, k1, &m1, G); mfree(&m1); }
+    mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (DM_MN_LEAN): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_LIVE) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
     mdb_shift(&Aw, &S, -(long)(dl - s), w, G); mfree(&S);              /* the window (S's last use) */
     mdb_shift(&Qw, Q, 0, w, G);
-    mdb *Qd = Q;                                                       /* the low products' Q: lean = Qw (the same limbs in basis w; Q freed now, the hook as before) */
-    if (lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); Qd = &Qw; }
+    if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
+    mfree(Q); mdb *Qd = &Qw;                                           /* the low products' Q: Qw (the same limbs in basis w; Q freed now) */
     mn_dkm_low(&xql, &Xh, Qd, w, G);
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
     long dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
@@ -1103,9 +1076,7 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     double tc = mem_now();
     /* step 2: X_lo, R of A2 = R1 B^s */
     size_t na2 = R1.n + s, k2 = na2 >= nq ? na2 - nq + 1 : 0;
-    if (na2 >= nq && lean) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
-    else if (na2 >= nq) { mdb m2; memset(&m2, 0, sizeof m2); if (mu.n == k2 + 1) { m2 = mu; memset(&mu, 0, sizeof mu); } else { mn_dkm_top(&m2, &mu, k2 + 1, G); mfree(&mu); }
-                     mn_dkm_est(&Xl, &R1, s, nq, k2, &m2, G); mfree(&m2); }
+    if (na2 >= nq) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 A mu");
     mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1);
@@ -1119,7 +1090,6 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         mn_dkm_low(&xql, &Xl, Qd, w, G);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
         rns_dist_cache_release();
-        if (!lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); }   /* (lean: freed after the window) */
         double te = mem_now();
         long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
         if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
@@ -1151,7 +1121,6 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mn_dkm_low(&xql, &Xl, Qd, w, G); mfree(&Xl);
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
     rns_dist_cache_release();
-    if (!lean) { if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q); mfree(Q); }   /* (lean: freed after the window) */
     double te = mem_now();
     long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
     if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
@@ -1198,8 +1167,7 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* X = ((S >> (nq - 1 - dl)) mu) >> (k + 1) */
     mdb Ah, t, Xn; memset(&Ah, 0, sizeof Ah); memset(&t, 0, sizeof t); memset(&Xn, 0, sizeof Xn);
     { size_t sh = nq - 1 - dl; mdb_shift(&Ah, &S, (long)sh, S.n > sh ? S.n - sh : 1, G); }
-    if (env_on("NEWTON_HIGHPROD")) mn_prod_cut_x1(&t, &Ah, &mu, G, k + 1, (size_t)-1);   /* A5/B3: the pieces below the cut k + 1 skipped */
-    else mn_prod(&t, &Ah, &mu, G);
+    mn_prod_cut_x1(&t, &Ah, &mu, G, k + 1, (size_t)-1);   /* A5/B3: the pieces below the cut k + 1 skipped */
     mfree(&Ah); mfree(&mu);
     mdb_shift(&Xn, &t, (long)(k + 1), t.n > k + 1 ? t.n - (k + 1) : 1, G); mfree(&t);
     { long tk = newton_test_corr(); if (tk) mdb_add_val(&Xn, 0, (uint64_t)(tk < 0 ? -tk : tk), tk > 0, G); }   /* Phase 15 K: ECALC_TEST_CORR (X - k) */
@@ -1209,8 +1177,8 @@ void newton_mn_divmod(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, con
     /* the low product X Q mod B^w (A5: the grid with the pieces above w skipped, delivered in basis w), the window
      * A mod B^w = (S mod B^(w - dl)) B^dl, both in basis w; Q in basis w for the corrections */
     mdb xq, xql, Aw, Qw, Rd; memset(&xq, 0, sizeof xq); memset(&xql, 0, sizeof xql); memset(&Aw, 0, sizeof Aw); memset(&Qw, 0, sizeof Qw); memset(&Rd, 0, sizeof Rd);
-    if (env_on("NEWTON_LOWPROD")) { mn_prod_cut_x1(&xql, &Xn, Q, G, 0, w); if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); } }   /* (the basis is w unless the product was shorter) */
-    else { mn_prod(&xq, &Xn, Q, G); mdb_shift(&xql, &xq, 0, w, G); mfree(&xq); }
+    mn_prod_cut_x1(&xql, &Xn, Q, G, 0, w);
+    if (xql.N != w) { mdb_shift(&xq, &xql, 0, w, G); mfree(&xql); xql = xq; memset(&xq, 0, sizeof xq); }   /* (the basis is w unless the product was shorter) */
     rns_dist_cache_release();                 /* A1: Q's kept transforms served the low product; the planes go */
     mdb_shift(&Aw, &S, -(long)dl, w, G); mfree(&S);
     mdb_shift(&Qw, Q, 0, w, G);

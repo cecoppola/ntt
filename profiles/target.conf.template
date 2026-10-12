@@ -56,7 +56,6 @@ ECALC_NP=auto                         # user decision 1, 2026-09-28
 RNS_DIST_CACHE_FIT=1                  # user decision 2, 2026-09-28 (NEVER run without it)
 RNS_DIST_CACHE_PARTIAL=1              # int15j, 2026-09-29
 MN_OUT_DKM_HI=1                       # int15j, 2026-09-29 (two part files per node)
-DM_MN_LEAN=1                          # user decision 2026-10-05
 COMM_LAYER_VSLOT_SHARE=1              # user decision 2026-10-10 (S36)
 MN_T_CHUNK_MB=2048                    # T2048, user decision 2026-10-11 (aac7: S22 D2, mean -42.3 s, m; the target had 1024 -- confirm on the target when its A/B runs)
 COMM_LAYER_INTER2=1                   # X2 with VSLOT_POOL, user decision 2026-10-11 (aac7: S31, -31.7 s at 10 nodes, m)

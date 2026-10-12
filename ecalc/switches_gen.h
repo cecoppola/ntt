@@ -26,7 +26,6 @@ static const char *const cfg_names[] = {
     "BS_SEED_THREADS",
     "COMM_ALLTOALLV_DEPTH",
     "COMM_HOSTS",
-    "COMM_HS_TS",
     "COMM_INIT_EARLY",
     "COMM_LAYER_INTER2",
     "COMM_LAYER_STATS",
@@ -80,7 +79,6 @@ static const char *const cfg_names[] = {
     "DIST_SYM_SLABS",
     "DIST_TEST_LAG_MS",
     "DIST_TWREC_G",
-    "DM_MN_LEAN",
     "DM_TAIL_DEAD",
     "DM_TIGHT",
     "ECALC_ARENA_GB",
@@ -140,7 +138,6 @@ static const char *const cfg_names[] = {
     "MN_GROUPS",
     "MN_LAYERED_LOCAL",
     "MN_LAYERED_RAW",
-    "MN_MODEL_TCP",
     "MN_OUT_CHUNK_MB",
     "MN_OUT_DKM_HI",
     "MN_OUT_DKM_HI_TEST_CARRY",
@@ -161,13 +158,9 @@ static const char *const cfg_names[] = {
     "MN_TREE_LOGN_TEST",
     "MN_T_CHUNK_MB",
     "MN_WAIT_STATS",
-    "NEWTON_ANCHOR",
     "NEWTON_DEVICE",
-    "NEWTON_DKM",
     "NEWTON_DKM_TEST_HI",
     "NEWTON_DOUBLING_TS",
-    "NEWTON_HIGHPROD",
-    "NEWTON_LOWPROD",
     "NEWTON_MN_BW",
     "NEWTON_MN_FIXED",
     "NEWTON_MN_GROUPS",
@@ -218,4 +211,4 @@ static const char *const cfg_names[] = {
     "SPILL_BUFFERED",
     "SPILL_CHUNK_MB",
 };
-#define CFG_NAMES_N 216
+#define CFG_NAMES_N 209

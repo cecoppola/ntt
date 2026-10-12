@@ -21,7 +21,6 @@ size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void)
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (Phase 13b P: the layout report) */
 extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (crt.c), Phase 15 NP: pool 0's planes (ECALC_NP=auto: 3 or 4 by the run's largest group) */
 int newton_dkm_on(void); size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), Phase 15 DL: dm_layout follows NEWTON_DKM */
-int newton_mn_lean(void);                                 /* newton.h, int15k: DM_MN_LEAN -- dm_layout counts the lean mn division set at size > 1 */
 /* M6: the node-process rank/size (the checkpoint names and headers) and the tree-level restart, from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void); int mn_ckpt_tree_level(unsigned long N);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
@@ -533,8 +532,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     size_t k = nq + 1 + dl - nq + 2 + 1, tcap = (nq + k > 2 * k ? nq + k : 2 * k) + 8;   /* k_mu with P.n = n_Q + 1 (P > Q) */
     int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
     dm_switches(); int tight = dm_tight > 0, tdead = dm_tail_dead > 0 ? dm_tail_dead : 0;
-    /* Phase 14 L1 (E2): the last doubling starts at jl = ceil(k/2) (newton_chain_next's anchored targets k, ceil(k/2), ...; NEWTON_ANCHOR=0
-     * doubles from the seed and may start it anywhere below k: the bound k - 1 is taken).  Its first product Q_t r is take + (jl + 1)
+    /* Phase 14 L1 (E2): the last doubling starts at jl = ceil(k/2) (newton_chain_next's anchored targets k, ceil(k/2), ...).  Its first product Q_t r is take + (jl + 1)
      * limbs (r has j + 1 limbs), reserved + 8 by the grid: the largest block of the tight schedule, i.e. the hole */
     /* Phase 15 DL (results/DL15.md; DKM15 1.4, MS15 4): NEWTON_DKM=1 (the default since Batch 3) -- the reciprocal runs to h = floor(k/2) + 1
      * (its last doubling at ceil(h/2)) and the division forms two quotient halves (newton_db.c divmod_shifted_dkm / mn_divmod_dkm): the
@@ -545,8 +543,8 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     int logl = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : bs_mdev_logl;
     int dkm = newton_dkm_on() && k >= 5 && (size > 1 || (logl < 62 && nq >= ((size_t)1 << logl) + ((size_t)1 << logl) / 8));
     size_t kr = dkm ? newton_dkm_h(k) : k, k1 = k - k / 2;                    /* (k1: step 1's quotient limbs, s = floor(k/2) <= dl) */
-    int lean = dkm && size > 1 && newton_mn_lean();                           /* int15k (DM_MN_LEAN): the lean mn division set (size > 1 only) */
-    size_t jl = getenv("NEWTON_ANCHOR") && !atoi(getenv("NEWTON_ANCHOR")) ? kr - 1 : (kr + 1) / 2;
+    int lean = dkm && size > 1;                                               /* int15k (DM_MN_LEAN, built in): the lean mn division set (size > 1 only) */
+    size_t jl = (kr + 1) / 2;
     size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
     size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, jl_s = (jl + size - 1) / size;
     /* Phase 14 L1 (E2, third form -- jobs 21131-21134): the hole is the DIVISION's largest block, t = A_h mu of 2k + 8 limbs (xq = low(X Q)

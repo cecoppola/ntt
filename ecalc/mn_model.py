@@ -670,7 +670,7 @@ def exact_sizes(T):
     lim = lambda lg: int(math.floor(lg / LIMB_DIGITS)) + 1
     return dict(dl=(d + 17) // 18, nq=lim(lq), pn=lim(lq + math.log10(math.e - 1)), sn=lim(lq + math.log10(math.e)))
 
-DKM = os.environ.get('MN_MODEL_DKM', os.environ.get('NEWTON_DKM', '1')) == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
+DKM = os.environ.get('MN_MODEL_DKM', '1') == '1'   # default on since Phase 15 Batch 3 (the user's decision, 2026-09-29)   # Phase 15 DKM (results/DKM15.md): NEWTON_DKM=1 -- the division in two quotient halves
 DKM_LAST = {}                                        # the last division_cost_dkm's parts (the early writer's overlap reads 'hide')
 DKM_HI = os.environ.get('MN_MODEL_DKM_HI', os.environ.get('MN_OUT_DKM_HI', '0')) == '1'   # Phase 15 EW (results/EW15.md): MN_OUT_DKM_HI=1 -- the writer on X_hi's
                                                      # digits (final there) from DKM's step 1 on, X_lo's from the release before step 2's low product: early_exposed()

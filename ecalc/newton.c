@@ -5,7 +5,6 @@
 #include <string.h>
 #include "newton.h"
 static int newton_verbose = -1;
-int newton_anchor = 1;                     /* NEWTON_ANCHOR=0: the Phase 4 power-of-two sequence */
 #include "rns_mul.h"
 #include "mem.h"
 
@@ -84,7 +83,7 @@ void newton_free_scratch(void)
 void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *seed_r, size_t seed_j)
 {
     double t0 = mem_now();
-    if (newton_verbose < 0) { newton_verbose = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; if (getenv("NEWTON_ANCHOR")) newton_anchor = atoi(getenv("NEWTON_ANCHOR")); }
+    if (newton_verbose < 0) newton_verbose = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0;
     size_t nq = Q->n, j;
     bigint r = g_r, r2 = g_r2, qt = g_qt, t1 = g_t1, t2 = g_t2;
     if (seed_r) { bi_copy(&r, seed_r); j = seed_j; } else newton_seed_host(&r, Q, &j);
@@ -93,8 +92,7 @@ void newton_recip_seeded(bigint *mu, const bigint *Q, size_t k, const bigint *se
          * (near-)exact doubling and the last one lands on k -- a final step to
          * k < 2j would otherwise be computed at full 2j precision (RESULTS 53) */
         size_t jn = k;
-        if (newton_anchor) { while ((jn + 1) / 2 > j) jn = (jn + 1) / 2; }
-        else jn = 2 * j < k ? 2 * j : k;
+        while ((jn + 1) / 2 > j) jn = (jn + 1) / 2;
         for (;;) {
             /* r ~ B^(nq+j)/Q with precision jp <= j.  u = (Q r) / B^(nq - j)
              * ~ B^(2 j); d = B^(2 j) - u (signed, ~ j+1 limbs); the Newton
