@@ -24,9 +24,13 @@ import mn_model as M, mem_model, estimate as E
 
 EDGE = M.TARGET_DEVICE_EDGE_GB                                       # 373.44 GB (measured on the target)
 X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
+# L4 (2026-10-11): GT_PROFILE selects the fabric profile (target = T06's layv factor 0.655, as c09; target_l4 = the L4 refit's factor); GT_RELEASE_GB is the
+# device memory COMM_LAYER_VSLOT_RELEASE=1 returns per node (the user adopted it 2026-10-11: 8.59 GB, results/C06.md) -- subtracted from the device peak; 0 = off (c09's table)
+PROFILE = os.environ.get('GT_PROFILE', 'target')
+RELEASE_GB = float(os.environ.get('GT_RELEASE_GB', '0'))
 
-def setup(profile='target'):
-    prof = M.apply_profile(profile)
+def setup(profile=None):
+    prof = M.apply_profile(profile or PROFILE)
     design = M.Design(np=3, strategy='auto', cap=mem_model.CAPS['2^31'], chunk='both', depth=2, modmul=1, chunk_mb=1024, p15=True, out_overlap='none',
                       p15b=True, np_mn='auto', packed=True, p15c=True, arena_room=0.16, cache_fit=True)
     design.t_mb = 2048                                               # MN_T_CHUNK_MB=2048, the shift chunk stays 1024
@@ -82,7 +86,7 @@ def top_ratio(N, groups):
 def evaluate(fab, design, N, T, groups):
     try: e = E.estimate(N, T / N, 'grid', None if groups is None else ','.join(map(str, groups)), fab, 'model', design=design)
     except (ValueError, ZeroDivisionError, KeyError, AssertionError): return None
-    dev = e['device_gb']; peak = dev + X2_GB + RANK0_GB
+    dev = e['device_gb'] - RELEASE_GB; peak = dev + X2_GB + RANK0_GB
     return dict(N=N, T=T, groups=','.join(map(str, groups)) if groups else 'default', wall=e['nowrite_s'], device=dev, peak=peak, margin=EDGE - peak,
                 topratio=top_ratio(N, groups or default_sched(N)), node=e['node_gb'], pieces=e['pieces'], fits=e['node_gb'] <= M.NODE_GB_MARGIN)
 

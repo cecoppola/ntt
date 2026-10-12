@@ -1,0 +1,161 @@
+{
+ "bw_apu": 10.596939019975292,
+ "alpha_slow": 0.8151270136843266,
+ "layv_factor": 0.832199504439258,
+ "layv_factor_nopen": 0.832199504439258,
+ "mix_pen": 0.0,
+ "lat": 8.5e-06,
+ "k_other": 1.0,
+ "write_bw": 0.116,
+ "consts": {
+  "HIDE_POW2": 0.72,
+  "GEN_HIDE1": 0.011,
+  "GEN_HIDE2": 0.74,
+  "T_ROUND": 0.015,
+  "MAP_RATE": 0.07,
+  "NODE_SCALE": 0.757124509922408,
+  "INIT_SCALE": 0.9680328496464322
+ },
+ "fitted_on": {
+  "2 n [2] fast": {
+   "nodes": 2,
+   "groups": null,
+   "mode": "B",
+   "totals": [
+    144.1,
+    133.8
+   ],
+   "src": "S48"
+  },
+  "4 n [2,4] fast": {
+   "nodes": 4,
+   "groups": null,
+   "mode": "B",
+   "totals": [
+    181.5
+   ],
+   "src": "S48/S47/S50/S51/f3, 17 clean fast runs, mean"
+  },
+  "4 n [2,4] slow": {
+   "nodes": 4,
+   "groups": null,
+   "mode": "A",
+   "totals": [
+    208.0
+   ],
+   "src": "S47/S50/S51, 6 clean slow runs, mean"
+  },
+  "4 n [4] fast": {
+   "nodes": 4,
+   "groups": "4",
+   "mode": "B",
+   "totals": [
+    181.3,
+    183.0
+   ],
+   "src": "f3 single4 (group B)"
+  },
+  "4 n [4] slow": {
+   "nodes": 4,
+   "groups": "4",
+   "mode": "A",
+   "totals": [
+    209.8
+   ],
+   "src": "f3 single4 (group A)"
+  },
+  "3 n [3]": {
+   "nodes": 3,
+   "groups": null,
+   "mode": "?",
+   "totals": [
+    200.2
+   ],
+   "src": "B06 t_def 210.2, cold-adj -10"
+  },
+  "5 n [5]": {
+   "nodes": 5,
+   "groups": null,
+   "mode": "?",
+   "totals": [
+    213.2
+   ],
+   "src": "B06 5-node queue item"
+  },
+  "5 n [2,5]": {
+   "nodes": 5,
+   "groups": "2,5",
+   "mode": "?",
+   "totals": [
+    226.2
+   ],
+   "src": "B06"
+  },
+  "5 n [4,5]": {
+   "nodes": 5,
+   "groups": "4,5",
+   "mode": "?",
+   "totals": [
+    232.2
+   ],
+   "src": "B06"
+  },
+  "6 n [2,6] s48": {
+   "nodes": 6,
+   "groups": null,
+   "mode": "?",
+   "totals": [
+    282.8,
+    293.8
+   ],
+   "src": "S48 n6 r2, r1 (cold-adj -10.3)"
+  },
+  "6 n [2,6] f3": {
+   "nodes": 6,
+   "groups": null,
+   "mode": "B",
+   "totals": [
+    278.0
+   ],
+   "src": "f3 single6 A arm 304.4, cold-adj -26.4 (group B)"
+  },
+  "6 n [2,6] C09": {
+   "nodes": 6,
+   "groups": null,
+   "mode": "?",
+   "totals": [
+    335.8
+   ],
+   "src": "C09 run6 r1_A (level-1 straggler 51.7 s)"
+  },
+  "6 n [6] f3": {
+   "nodes": 6,
+   "groups": "6",
+   "mode": "B",
+   "totals": [
+    231.3,
+    234.3
+   ],
+   "src": "f3 single6 B arms (group B)"
+  },
+  "6 n [6] C09": {
+   "nodes": 6,
+   "groups": "6",
+   "mode": "?",
+   "totals": [
+    260.0
+   ],
+   "src": "C09 run6 r1_B"
+  },
+  "6 n [3,6] C09": {
+   "nodes": 6,
+   "groups": "3,6",
+   "mode": "?",
+   "totals": [
+    263.8,
+    264.1
+   ],
+   "src": "C09 run6 r1_C, r2_C"
+  }
+ }
+}

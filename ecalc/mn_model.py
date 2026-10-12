@@ -123,26 +123,28 @@ class Fabric:
     standing estimate does not move). fall_off: exponent a on a per-group-size fabric fall-off, rate x (g/2)^(-a), None/0 = off
     (CLI --fall-off <a>; WISHLIST / B2's open item 9 -- no aac7 t_comm fall-off measurement is fed in by default)."""
     def __init__(self, name, bw_apu, lat, group=64, layers=2, taper=1.0, gpu_share=1, fixed=0.0, write_bw=2.0, tcp_exp=0.0, coll_fixed=None, target=True,
-                 staging_bw=None, fall_off=0.0, v_factor=1.0):
+                 staging_bw=None, fall_off=0.0, v_factor=1.0, k_other=1.0):
+        self.k_other = k_other   # L4: the operand-redistribution / result / spill all-to-alls' rate as a fraction of the bulk (transform) exchange's; 1.0 = off (all profiles but aac7_l4)
         self.v_factor = v_factor   # T06: the layv (variable-layout, general-map) transform exchange's rate as a fraction of layeq's; 1.0 = off (all profiles but aac7_s48)
         self.name, self.bw, self.lat, self.group, self.layers, self.taper = name, bw_apu, lat, group, layers, taper
         self.gpu_share, self.fixed, self.write_bw, self.tcp_exp, self.target = gpu_share, fixed, write_bw, tcp_exp, target
         self.coll_fixed = fixed if coll_fixed is None else coll_fixed
         self.staging_bw = staging_bw; self.fall_off = fall_off or 0.0
 
-    def rate(self, bytes_apu, g=None, v=False):
+    def rate(self, bytes_apu, g=None, v=False, other=False):
         """GB/s per APU: constant on the target; the loopback transports' single stream per mesh is slower on small
         exchanges (fitted: rate = bw x (bytes / 1 GiB per APU)^tcp_exp, capped at bw); --fall-off <a>: x (g/2)^(-a) when g
         is given (the per-APU rate falling off with the group size, off by default: a = 0)"""
         r = self.bw if not self.tcp_exp else self.bw * min(1.0, (max(bytes_apu, 1.0) / (1 << 30)) ** self.tcp_exp)
         if self.fall_off and g: r *= (max(g, 2) / 2.0) ** (-self.fall_off)
+        if other: r *= self.k_other
         return r * self.v_factor if v else r
 
     def staging_cost(self, node_bytes):
         """D2H + H2D of every inter-node byte at --staging's HBM copy rate (GB/s); 0 without it (CLI --staging, off by default)"""
         return 2.0 * node_bytes / (self.staging_bw * 1e9) if self.staging_bw else 0.0
 
-    def a2a(self, bytes_apu, g, chunks=1, v=False):
+    def a2a(self, bytes_apu, g, chunks=1, v=False, other=False):
         """one all-to-all over g nodes with bytes_apu bytes per APU in the slab buffer (all destinations).
         Returns (time, nic_bytes_per_node, global_bytes_per_node, messages_per_apu)."""
         if g <= 1: return 0.0, 0.0, 0.0, 0
@@ -158,8 +160,8 @@ class Fabric:
             cross = bytes_apu * max(0, g - G) / g if g > G else 0.0
             nic = out
             msgs = chunks * (g - 1)
-        t_nic = nic / (self.rate(bytes_apu, g, v) * 1e9)
-        t_glob = cross / (self.rate(bytes_apu, g, v) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
+        t_nic = nic / (self.rate(bytes_apu, g, v, other) * 1e9)
+        t_glob = cross / (self.rate(bytes_apu, g, v, other) * 1e9 * self.taper) if cross else 0.0   # the group's aggregate to each peer group = G x 4 x bw x taper / (ng - 1), shared by its G nodes evenly
         t = max(t_nic, t_glob) + msgs * self.lat + self.fixed * chunks + self.staging_cost(nic * 4)
         return t, nic * 4, cross * 4, msgs
 
@@ -219,7 +221,16 @@ AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s
 AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 # B01 (the user's decision of 2026-10-11): 'aac7' now means the S48 refit (an alias of 'aac7_s48'); the previous aac7 profile (C16: 3.6 GB/s per
 # APU thread, AAC7_CONSTS) stays selectable by the name 'aac7_c16'.  No code default of ecalc changes (this is the model only).
-PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48}
+# L4 (2026-10-11, results/L4.md): 'aac7_l4' / 'aac7_l4a' = the aac7 profile refit to ALL of 2026-10-11's multi-node runs with the corrected structure
+# (tree level = its slowest group, TREE_CRIT; operand/result/spill exchanges at k_other of the bulk rate; layv factor on the non-pow2 groups), per NIC
+# launch group: aac7_l4 = the fast group B (bulk rate bw_apu), aac7_l4a = the slow group A (bw_apu x alpha_slow).  Read from ecalc/aac7_l4_fit.json
+# (refit_s48.py --l4 --write-profile).  'target_l4' = the target fabric (100 GB/s ASSUMED, as 'target') with the L4 layv factor instead of T06's 0.655.
+# aac7_s48 and every other profile stay selectable and unchanged.
+AAC7_L4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_l4_fit.json')
+AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_l4_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
+AAC7_L4A = Fabric("aac7 L4 refit, NIC group A (placeholder)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
+TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
+PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48, 'aac7_l4': AAC7_L4, 'aac7_l4a': AAC7_L4A, 'target_l4': TARGET_L4}
 PROFILE_ALIASES = {'aac7': 'aac7_s48'}
 def apply_profile(name):
     """Phase 16 C: select the fabric profile and set the measured constants of that machine (an env override, MN_MODEL_*, still wins).
@@ -228,7 +239,7 @@ def apply_profile(name):
     global HIDE_POW2, T_ROUND, MAP_RATE, NODE_SCALE, INIT_SCALE
     name = (name or 'target').lower()
     name = PROFILE_ALIASES.get(name, name)                                # B01: aac7 = aac7_s48
-    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s18, aac7_s48)' % name)
+    if name not in PROFILES: raise SystemExit('mn_model: unknown profile %s (target, aac7 = aac7_s48, aac7_c16 (the previous aac7), target-m, aac7_s18, aac7_s48, aac7_l4, aac7_l4a, target_l4)' % name)
     if name == 'target-m':
         if 'MN_MODEL_MAP_RATE' not in os.environ: MAP_RATE = TARGET_M_CONSTS['MAP_RATE']
     if name == 'aac7_s48':
@@ -236,9 +247,20 @@ def apply_profile(name):
         if not os.path.exists(AAC7_S48_FILE): raise SystemExit('mn_model: profile aac7_s48 needs %s (run refit_s48.py --write-profile)' % AAC7_S48_FILE)
         j = json.load(open(AAC7_S48_FILE))
         PROFILES[name] = Fabric("aac7 S48 refit (refit_s48.py)", bw_apu=j['bw_apu'], lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j.get('layv_factor', 1.0))
-    if name in ('aac7_c16', 'aac7_s18', 'aac7_s48'):
+    if name in ('aac7_l4', 'aac7_l4a', 'target_l4'):
+        import json
+        if not os.path.exists(AAC7_L4_FILE): raise SystemExit('mn_model: profile %s needs %s (run refit_s48.py --l4 --write-profile)' % (name, AAC7_L4_FILE))
+        j = json.load(open(AAC7_L4_FILE))
+        if name == 'target_l4':
+            PROFILES[name] = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=j.get('layv_factor_nopen', j['layv_factor']))   # (the factor fitted without the multi-node-children level penalty: the target runs without it)
+            return PROFILES[name]                                          # the target's constants stay as they are; only the layv factor comes from the aac7 fit
+        bw = j['bw_apu'] * (j['alpha_slow'] if name == 'aac7_l4a' else 1.0)
+        global MIX_PEN
+        if 'MN_MODEL_MIX_PEN' not in os.environ: MIX_PEN = j.get('mix_pen', 0.0)
+        PROFILES[name] = Fabric("aac7 L4 refit, NIC group %s" % ('A' if name == 'aac7_l4a' else 'B'), bw_apu=bw, lat=j['lat'], group=64, layers=2, taper=1.0, write_bw=j.get('write_bw', 0.116), v_factor=j['layv_factor'], k_other=j.get('k_other', 1.0))
+    if name in ('aac7_c16', 'aac7_s18', 'aac7_s48', 'aac7_l4', 'aac7_l4a'):
         c = dict(AAC7_CONSTS)
-        if name == 'aac7_s48': c.update(j['consts'])
+        if name in ('aac7_s48', 'aac7_l4', 'aac7_l4a'): c.update(j['consts'])
         e = os.environ
         if 'MN_MODEL_HIDE_POW2' not in e: HIDE_POW2 = c['HIDE_POW2']
         if 'MN_MODEL_GEN_HIDE1' not in e: GEN_HIDE_DEPTH[1] = c['GEN_HIDE1']
@@ -419,12 +441,12 @@ def piece_cost(fab, pts, g, na, nb, nc, fwd=2, with_x=False, form="grid", grid=F
     # the operand redistributions (A, B, X) and the result: plain all-to-alls over the group of the operands' bytes
     t_r = 0.0
     for limbs in ([na] if fwd >= 1 else []) + ([nb] if fwd >= 2 else []) + ([nc] if with_x else []) + [nc]:
-        t1, nic1, glob1, msgs1 = fab.a2a(8 * limbs / (4 * g), g, 1)
+        t1, nic1, glob1, msgs1 = fab.a2a(8 * limbs / (4 * g), g, 1, other=True)
         t_r += t1; c.nic += nic1; c.glob += glob1; c.msgs += msgs1; c.xfers += 1
     # the spills: the columns' carries (4 limbs per column) of every rank, all-gathered (flat) or exchanged exactly (grid)
     C = 1 << (mem_model.mn_shape(pts, g)[2])
     if form == "flat": t_s, nic_s, glob_s, msgs_s = fab.allgather(C * 4 * 8, g)
-    else: t_s, nic_s, glob_s, msgs_s = fab.a2a(2 * C * 4 * 8, g, 1)
+    else: t_s, nic_s, glob_s, msgs_s = fab.a2a(2 * C * 4 * 8, g, 1, other=True)
     c.nic += nic_s; c.glob += glob_s; c.msgs += msgs_s; c.xfers += 1
     t_small = 3 * fab.coll(g)
     if dz is not None and dz.t_mb:                                    # Phase 13b D: MN_T_CHUNK_MB -- the result window in rounds of W
@@ -516,7 +538,7 @@ def product_cost(fab, na, nb, g, lowcut=0, highcut=None, with_x=False, cache=Tru
     parameters, the arguments and what of the design the product depends on"""
     dz = DZ
     dk = None if dz is None else (dz.legacy, dz.np, getattr(dz, 'np_auto', False), NP_AUTO_TERMS, NP_AUTO_MIN, dz.modmul, dz.pool_log(), dz.t_mb, dz.depth, dz.gen_hide, dz.force_gen, T_ROUND, HIDE_POW2, GEN_HIDE_DEPTH[1], GEN_HIDE_DEPTH[2], T_PIECE_31_NP[dz.np], F_MM1, PIECE13, CAL13, GRID_ADD['C'], dz.p15b, TWREC_F, TWREC_G, CACHE_MODEL, cache_slots_now(), CACHE_HIT_F, cache_primes_now(), CACHE_LOOP, P24, P24_F, CACHE_P24, CACHE_PART_F)
-    k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target, fab.v_factor,
+    k = (fab.bw, fab.lat, fab.group, fab.layers, fab.taper, fab.gpu_share, fab.fixed, fab.tcp_exp, fab.coll_fixed, fab.target, fab.v_factor, fab.k_other,
          na, nb, g, lowcut, highcut, with_x, cache, form, dk)
     c = _PC.get(k)
     if c is None:
@@ -770,12 +792,17 @@ def level_top_group(g, groups=None, which='top'):
     its children (the previous level's groups inside it), as node ranges"""
     out = []; P = 1
     for S in mem_model.mn_groups(g, groups):
-        start = ((g - 1) // S) * S if which == 'top' else 0; end = min(start + S, g); ch = []; k = start
+        if which == 'top': start = ((g - 1) // S) * S
+        elif which == 'lastfull': start = max(0, (g // S - 1) * S) if g % S else ((g - 1) // S) * S   # L4: the last group of the level with its full S nodes (= 'top' when S divides g)
+        else: start = 0
+        end = min(start + S, g); ch = []; k = start
         while k < end: ch.append((k, min(k + P, end))); k += P
         out.append((S, end - start, ch)); P = S
     return out
 
-def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='top'):
+MIX_PEN = float(os.environ.get('MN_MODEL_MIX_PEN', '0'))   # L4: fractional extra cost of a tree level whose group is not a power of two AND whose children are multi-node groups (the children's pow2 layout is re-sharded onto the general map); measured on aac7 5/6 nodes ([2,5], [4,5], [2,6], [3,6]); 0 = off; set by the aac7_l4 profiles only
+TREE_CRIT = os.environ.get('MN_MODEL_TREE_TOPONLY', '0') != '1'   # L4 (2026-10-11): a tree level's time = its slowest group (the last full group vs the clipped top group); MN_MODEL_TREE_TOPONLY=1 = the previous behaviour
+def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='crit'):
     """level by level (mem_model.level_children: the level's group of S nodes and its children m_1 .. m_k, the
     previous level's groups): a k-way level is the fold the tree runs (results/L.md; tree_level for k = 2):
     (P, Q) <- (P Q_i + P_i, Q Q_i) for i = 2 .. k -- 2 (k - 1) products over the level's S nodes, the accumulated
@@ -783,7 +810,10 @@ def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='top'):
     Phase 13d D2: SHARES = 'terms' (T, the total digits, given): the operands are the top group's children's real lengths"""
     rows = []
     if SHARES == 'terms' and T is not None:
-        for S, Sg, ch in level_top_group(g, groups, which):
+        if TREE_CRIT and which == 'crit':                                  # L4: every level waits for its slowest group; with an uneven last group (S does not divide g) that is
+            tops = tree_cost(fab, nq_node, g, groups, form, T, 'top'); fulls = tree_cost(fab, nq_node, g, groups, form, T, 'lastfull')   # the last FULL group, not the clipped top one
+            return [b if b[2].t > a[2].t else a for a, b in zip(tops, fulls)]
+        for S, Sg, ch in level_top_group(g, groups, 'top' if which == 'crit' else which):
             # mn.c tree_level (2 children: A = the lower, B = the upper) and tree_level_k (Horner from the top child: the running
             # pair starts as child k-1's, then P = P_i Q + P, Q = Q_i Q for i = k-2 .. 0 -- A = child i, B = the running Q)
             c = Cost(); run_ = int(range_limbs(T, g, ch[-1][0], ch[-1][1]))
@@ -793,6 +823,7 @@ def tree_cost(fab, nq_node, g, groups=None, form="grid", T=None, which='top'):
                 c.add(product_cost(fab, m, run_, Sg, form=form))
                 run_ += m
             c.add(small_cost(fab, Sg, 2))
+            if MIX_PEN and not is_pow2(Sg) and len(ch) >= 2 and ch[0][1] - ch[0][0] > 1: c.t *= 1.0 + MIX_PEN; c.t_exposed *= 1.0 + MIX_PEN
             rows.append((len(ch), Sg, c))
         return rows
     for S, ch in mem_model.level_children(g, groups):
