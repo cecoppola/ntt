@@ -331,7 +331,6 @@ void mem_report_outside(size_t vslot_apu, size_t ofi_apu, size_t (*live)(int dev
  * pool regions (donated, borrowed, hipMalloc) + tables + other -- live/free/peak are views inside the pool */
 static size_t dev_in_use(const size_t *c) { return c[MEM_DEV_PLANES] + c[MEM_DEV_REGIONS] + c[MEM_DEV_POOL_DONATED] + c[MEM_DEV_POOL_BORROWED] + c[MEM_DEV_POOL_HIPMALLOC] + c[MEM_DEV_TABLES] + c[MEM_DEV_OTHER]; }
 static const char *dev_cat_name[MEM_DEV_NCAT] = { "planes", "regions", "pool:donated", "pool:borrowed", "pool:hipMalloc", "pool:live", "pool:free", "pool:peak-live", "tables", "other" };
-static const char *host_cat_name[MEM_HOST_NCAT] = { "staging", "registered", "X", "digits", "named", "other", "VmRSS", "VmHWM" };
 static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NCAT])
 {
     memset(dev, 0, (size_t)ndev * MEM_DEV_NCAT * sizeof(size_t)); memset(host, 0, MEM_HOST_NCAT * sizeof(size_t));

@@ -300,7 +300,6 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
     const int tt = threadIdx.x >> 4, bb = threadIdx.x & 15;
     const size_t n = (size_t)1 << logn, hmin = (size_t)1 << s_lo, slabs = hmin / 16;
     const size_t bpt = n / 2048, b = blockIdx.x % bpt, t = blockIdx.x / bpt;
-    const size_t nhi = n / ((size_t)tile * hmin);
     const size_t blk_hi = b / slabs, slab0 = b % slabs;
     constexpr int NR = R3 ? 3 : 1;
     const size_t base = t * (NR * n) + blk_hi * (size_t)tile * hmin + slab0 * 16, off0 = base - t * (NR * n);
@@ -405,7 +404,6 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #define TO_SH(ROWF)   _Pragma("unroll") for (i = 0; i < 8; i++) sh[ROWF(i) * BP + bb] = v[i]
 #define FROM_SH(ROWF) _Pragma("unroll") for (i = 0; i < 8; i++) v[i] = sh[ROWF(i) * BP + bb]
 
-    const int odd = tt & 1;
     /* N3x: the thirds in a rolled loop (unrolled, the compiler keeps each stage's twiddles live across the thirds: 185 VGPRs,
      * 2 blocks per CU); the registers rotate through static indices so nothing goes to scratch */
 #pragma unroll 1

@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <gmp.h>
 #include "../bigint.h"
+#pragma GCC diagnostic ignored "-Wunused-function"   /* each test uses a subset of these helpers */
 
 static int hv_fails = 0, hv_checks = 0;
 __attribute__((constructor)) static void hv_linebuf(void) { setvbuf(stdout, NULL, _IOLBF, 0); }

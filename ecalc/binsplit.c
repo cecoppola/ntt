@@ -1156,7 +1156,7 @@ static int ckpt_read_hdr(const char *kind, int level, struct ckpt_hdr *h, struct
         || (v2 && (x->size != mn_size() || x->rank != me || (x->kind == 0 && (x->a0 != bs_a0 || x->b1 != bs_b1))))
         || (!v2 && mn_size() > 1)) {
         snprintf(g_ck_msg, sizeof g_ck_msg, "bs: checkpoint %s is from another run (N %llu, base %s, seeds %d, %d node-processes, rank %d; this run: N %lu, %d node-processes, rank %d): refusing to restart",
-                 p, (unsigned long long)h->N, h->decimal ? "10^18" : "2^64", h->seed_terms, v2 ? x->size : 1, v2 ? x->rank : 0, N, mn_size(), me);
+                 p, (unsigned long long)h->N, "10^18", h->seed_terms, v2 ? x->size : 1, v2 ? x->rank : 0, N, mn_size(), me);
         if (g_ck_noabort) { g_ck_err = 1; return 0; }  /* Phase 13 N: the restart scan reports it; mn.c fails every node together */
         ec_fatal(EC_RC_FATAL, "%s", g_ck_msg);
     }

@@ -780,10 +780,10 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
                 int m = crt_sub; while (m > 1 && (size_t)hd[i].na / S_[i] / m < 64) m--;           /* sub-stripes of at least 64 coefficients (the interior spills must stay inside the stripe) */
                 if (m > 1) {
                     if (spsub_cap[d] < S_[i] * m * 4) { if (spsub[d]) HIP_CHECK(hipHostFree(spsub[d])); spsub_cap[d] = S_[i] * m * 4 + 4096; HIP_CHECK(hipHostMalloc((void **)&spsub[d], spsub_cap[d] * 8, 0)); }
-                    k_crt_batch_m<<<(unsigned)(S_[i] * m), CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spsub[d], 1, m);
-                    k_crt_sub_merge<<<(unsigned)((S_[i] + 63) / 64), 64, 0, v->s>>>(dd + i, 0, (int)S_[i], m, spsub[d], spall + (c0 / rows) * 4, 1);
+                    k_crt_batch_m<<<(unsigned)(S_[i] * m), CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spsub[d], m);
+                    k_crt_sub_merge<<<(unsigned)((S_[i] + 63) / 64), 64, 0, v->s>>>(dd + i, 0, (int)S_[i], m, spsub[d], spall + (c0 / rows) * 4);
                 } else
-                k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4, 1);
+                k_crt_batch<<<(unsigned)S_[i], CRT_THREADS, 0, v->s>>>(P0 + c0, P1 + c0, P2 + c0, P3 + c0, dd + i, 0, (int)S_[i], 0, gc, spall + (c0 / rows) * 4);
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
@@ -814,7 +814,7 @@ static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
     T.n = nc;
     bigint x, y; bi_init(&x); bi_init(&y); db_to_bi(&x, Cw.owner); db_to_bi(&y, &T); bi_norm(&x); bi_norm(&y);
     size_t k = 0, m = x.n < y.n ? x.n : y.n; while (k < m && x.l[k] == y.l[k]) k++;
-    int T3; int lk; size_t n = b_len(nc, &T3, &lk);
+    int T3; int lk; (void)b_len(nc, &T3, &lk);
     if (x.n != y.n || k < m) { ec_fatal(7, "RNS_STRATEGY_CHECK: %s differs from C: %zu x %zu limbs (views at %zu, %zu), nc %zu, n %s2^%d: first limb %zu of %zu / %zu\n", strat_name(f), A.n, B.n, A.lo, B.lo, nc, T3 == 3 ? "3*" : "", lk, k, x.n, y.n); }
     static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
     bi_free(&x); bi_free(&y); db_free(&T);
@@ -906,7 +906,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         struct bdesc *dd = (struct bdesc *)dpool_get(&v->desc, r, sizeof hd);
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, v->s));
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
-        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill, 1);
+        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill);
         { if (qsel_on()) k_scatter_runs<1><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); else k_scatter_runs<0><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); }
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
@@ -1200,7 +1200,6 @@ __global__ void k_scatter_mn(struct acc dst, size_t lo, const uint64_t *rb, cons
     }
 }
 #include "p24_mn.h"                                          /* Phase 15 Batch 3 P24: k_pack_mn24, k_gather_mn24, k_scatter_mn24 (the maps of p24.h) */
-static size_t max_share(const mdb *x) { return x->g ? (x->N + x->g - 1) / x->g : 0; }
 static int g_node_of(mn_group *G) { return G->g0 + G->me; }
 static size_t grp_max(mn_group *G, size_t v) { return G->g > 1 ? comm_allreduce_max(G->all[0], v) : v; }
 static int is_pow2(int g) { return g > 0 && !(g & (g - 1)); }
@@ -1831,7 +1830,7 @@ static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             unsigned fl = p24_crt_err(s);
             if (fl) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 CRT flag %u (a coefficient past 10^60: the piece's bound)\n", fl); }
         } else
-        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill, 1);
+        k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, qs, gc, v->spill);
         HIP_CHECK(hipStreamSynchronize(s));
         tc[d] = mem_now() - s2;
         /* the result's rows -> the nodes' windows: the segments of every node's window in my sequence are sent straight from

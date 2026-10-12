@@ -15,7 +15,7 @@ static rng_t rg = { 7 };
 int main(int argc, char **argv)
 {
     size_t n = argc > 1 ? (size_t)atoll(argv[1]) : 27302; int reps = argc > 2 ? atoi(argv[2]) : 9;
-    harness_meta("t_bounce"); bi_env_base(); rns_init(31);
+    harness_meta("t_bounce"); rns_init(31);
     bigint a, r; bi_init(&a); bi_init(&r); bi_reserve(&a, n); gen_limbs(a.l, n, 0, &rg); a.n = n; bi_norm(&a); n = a.n;
     dbig x, y; db_init(&x); db_init(&y); db_reserve(&x, n); x.n = n;
     for (int d = 0; d < DB_NQ; d++) {                      /* plain copies: no bounce buffer yet */
