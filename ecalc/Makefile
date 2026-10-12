@@ -81,9 +81,6 @@ ntt_nop.o: ntt.c ntt.h modarith.h
 	$(HIPC) -DNTT_NOP_MODMUL -c -o $@ $<
 tests/t_ntt_nop: tests/t_ntt.c ntt_nop.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/harness.h
 	$(HIPC) $< -x none ntt_nop.o ntt3.o bigint.o fatal.o -o $@ $(GMP_LIBS)
-# S21 (A37-R2): the CPU-only seed-leaf microbench (ecalc's decimal span against a37v1's base-2^64 sub-ranges); on demand, not in TESTS
-tests/b_seed64: tests/b_seed64.c bigint.o fatal.o bigint.h
-	$(HIPCC) -O3 -fopenmp -I. -x c $< -x none bigint.o fatal.o -o $@ -lm
 ntt3.o: ntt3.c ntt.h modarith.h
 	$(HIPC) -c -o $@ $<
 rns_mul.o: rns_mul.c rns_mul.h rns_int.h ntt.h mem.h crt.h bigint.h modarith.h
@@ -117,8 +114,6 @@ newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_pl
 	$(HIPC) -c -o $@ $<
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
-	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-tests/t_bounce: tests/t_bounce.c $(OBJS) dbig.h tests/harness.h   # O2 microbenchmark (not in TESTS: make tests/t_bounce)
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_out: tests/t_out.c $(OBJS) mn_out.h verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
@@ -215,16 +210,6 @@ tests/t_ntt: tests/t_ntt.c ntt.o ntt3.o bigint.o fatal.o ntt.h modarith.h tests/
 
 tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h tests/harness.h
 	$(HIPC) $< -x none ntt.o ntt3.o bigint.o mem.o fatal.o -o $@ $(GMP_LIBS) -lpthread
-
-tests/t_gather_probe: tests/t_gather_probe.c modarith.h     # S40: k_gather micro-test (results/S40.md); built on demand, not in TESTS; ScratchSize per kernel is printed by the compiler
-	$(HIPC) $< -o $@ -Rpass-analysis=kernel-resource-usage
-
-tests/t_gather_raw_probe: tests/t_gather_raw_probe.c modarith.h     # K1b: raw-once gather micro-test (results/K1b.md); built on demand, not in TESTS
-	$(HIPC) $< -o $@
-
-
-tests/t_gather_p2_probe: tests/t_gather_p2_probe.c     # P2: what bounds k_gather_raw (results/P2.md); built on demand, not in TESTS
-	$(HIPC) $< -o $@
 
 tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
 	$(HIPC) $< -o $@
