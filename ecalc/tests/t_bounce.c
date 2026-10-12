@@ -10,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
-static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+static double tb_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
 static rng_t rg = { 7 };
 int main(int argc, char **argv)
 {
@@ -24,11 +24,11 @@ int main(int argc, char **argv)
     }
     for (int d = 0; d < DB_NQ; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); }
     int ok = 0;
-    double t0 = now(); db_to_bi(&r, &x); double t1 = now(); ok += bi_cmp(&r, &a) == 0;
-    db_from_bi(&y, &a); double t2 = now(); bi_free(&r); bi_init(&r); db_to_bi(&r, &y); ok += bi_cmp(&r, &a) == 0;
+    double t0 = tb_now(); db_to_bi(&r, &x); double t1 = tb_now(); ok += bi_cmp(&r, &a) == 0;
+    db_from_bi(&y, &a); double t2 = tb_now(); bi_free(&r); bi_init(&r); db_to_bi(&r, &y); ok += bi_cmp(&r, &a) == 0;
     double st = 1e9, sf = 1e9;
     for (int i = 0; i < reps; i++) {
-        double u0 = now(); bi_free(&r); bi_init(&r); db_to_bi(&r, &x); double u1 = now(); db_from_bi(&y, &a); double u2 = now();
+        double u0 = tb_now(); bi_free(&r); bi_init(&r); db_to_bi(&r, &x); double u1 = tb_now(); db_from_bi(&y, &a); double u2 = tb_now();
         ok += bi_cmp(&r, &a) == 0; if (u1 - u0 < st) st = u1 - u0; if (u2 - u1 < sf) sf = u2 - u1;
     }
     const char *sw = getenv("DBIG_SMALL_BOUNCE");
