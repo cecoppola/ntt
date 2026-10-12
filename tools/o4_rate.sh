@@ -3,6 +3,7 @@
 # with the round trip checked: digcmp against the reference, the unpacked text (tools/unpack_digits -o, one file per part, concatenated)
 # byte-identical (cmp) to the reference, and ECALC_RECHECK on the packed parts.  Runs INSIDE a hold; no switch default changes.
 #   MODE=aac6|aac7  J=<hold>  NN=<nodes>  E=<ecalc dir>  U=<tools/unpack_digits>  O=<outdir>  PLAN="9 10"  ROUNDS=2  CAP_S=<seconds for new runs>
+#   FMTS="0 2" (optional: only these formats; default all three)  RECHECK=0 (skip the ECALC_RECHECK run)
 #   REF9=<exact 1e9 ASCII reference>  REF10=<exact 1e10 ASCII reference, file or empty: then the run's own ASCII (fmt 0) output is the reference>
 # Outputs: $O/rates.tsv (one row per run), $O/summary.txt, $O/log/*.log; digit files are deleted after each compare.
 set -u
@@ -42,9 +43,10 @@ for sz in $PLAN; do
   case $sz in 9) d=${D9:-1000000000}; ref=$REF9; est=240;; 10) d=10000000000; ref=$REF10; est=900;; esac
   [ $(left) -gt $est ] || { S "skip 1e$sz (budget)"; continue; }
   own=0; if [ -z "$ref" ]; then own=1; ref=$DATA/own_ascii_$sz; fi   # no external reference: the run's own ASCII output (fmt 0) is it
-  order=(0 1 2 2 1 0 1 2 0 0 2 1)
+  order=(0 1 2 2 1 0 1 2 0 0 2 1); NF=3
+  if [ -n "${FMTS:-}" ]; then fm=($FMTS); NF=${#fm[@]}; order=(); for _r in 1 2 3 4; do if [ $((_r % 2)) = 1 ]; then order+=("${fm[@]}"); else for ((_i=NF-1; _i>=0; _i--)); do order+=(${fm[_i]}); done; fi; done; fi   # FMTS="0 2": only these formats, reversed in even rounds
   for r in $(seq $ROUNDS); do
-    for k in 0 1 2; do f=${order[$(( (r-1)*3 + k ))]}
+    for k in $(seq 0 $((NF-1))); do f=${order[$(( (r-1)*NF + k ))]}
       [ $(left) -gt $est ] || { S "stop 1e$sz at round $r (budget)"; break 2; }
       tag=s${sz}_r${r}_f$f
       if [ $own = 1 ] && [ $f != 0 ] && [ ! -e $DATA/own_ascii_$sz.done ]; then   # the reference first
@@ -53,7 +55,7 @@ for sz in $PLAN; do
       run $tag $d $f || { S "run $tag failed; continuing"; rm -f $(files $tag); continue; }
       if [ $f = 0 ] && [ $own = 1 ] && [ ! -e $DATA/own_ascii_$sz.done ]; then cat $(files $tag) > $ref; touch $DATA/own_ascii_$sz.done; fi
       check $tag $ref $f
-      [ $f = 2 ] && [ $r = 1 ] && { recheck $tag $d 2; }
+      [ $f = 2 ] && [ $r = 1 ] && [ "${RECHECK:-1}" = 1 ] && { recheck $tag $d 2; }
       rm -f $(files $tag) $DATA/$tag.top* 2>/dev/null
     done
   done
