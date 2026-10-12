@@ -15,7 +15,7 @@
  *     4.16e9 > 2^31 points) through the Karatsuba split (RESULTS.md 35), twice
  *
  * Usage: t_mul [POOL (20); 0 skips part 1] [big]
- * Decimal limbs only since PLAN 28.5 (the base-2 form is archive/binary_pipeline/t_mul_base2.c).
+ * Decimal limbs only since PLAN 28.5 (the base-2 form is archive:binary_pipeline/t_mul_base2.c).
  */
 #include "harness.h"
 #include "../rns_mul.h"

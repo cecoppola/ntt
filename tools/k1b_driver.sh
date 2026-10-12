@@ -7,7 +7,7 @@
 #     RATIO4 = raw-once / now per operand at np = 4, measured by the probe); stop (SUCCESS: refuted) if < 1.5 s
 #   2 tools/gate.sh --build --nodes 1 with RNS_STRATEGY=C (1e9 is all B form by default; C forces the product that k1b changes)
 #     and DIST_GATHER_RAW=2, then without --build for =1 and =0
-#   3 ABBA at 6.441e10 (A = DIST_GATHER_RAW=0, B = 2), archive/drivers/s50/s50_abba6.sh: p<0.05 after >= 3 rounds, cap 5, or the hold's end
+#   3 ABBA at 6.441e10 (A = DIST_GATHER_RAW=0, B = 2), tools/s50_abba6.sh: p<0.05 after >= 3 rounds, cap 5, or the hold's end
 #   4 device memory per arm from the runs' mem_report lines; summary.txt, DONE marker; scancel of its own job; no step left
 # Files: ~/k1b/{summary.txt,DONE,probe.log,gate_*,abba/}.  STOP file ~/k1b/STOP: no new step starts.
 O=$HOME/k1b; WT=$HOME/ntt-k1b; mkdir -p $O; rm -f $O/DONE
@@ -49,7 +49,7 @@ done
 [ $gok = 1 ] || fin "FAILED: gate (see summary.txt)"
 stopped
 # 3 ABBA
-WT=$WT PRE="X=1" STOP_EPOCH=$STOP RUN_S=110 MINR=3 MAXR=5 bash $WT/archive/drivers/s50/s50_abba6.sh $J $O/abba "DIST_GATHER_RAW=0" "DIST_GATHER_RAW=2" $DIG
+WT=$WT PRE="X=1" STOP_EPOCH=$STOP RUN_S=110 MINR=3 MAXR=5 bash $WT/tools/s50_abba6.sh $J $O/abba "DIST_GATHER_RAW=0" "DIST_GATHER_RAW=2" $DIG
 RES=$(cat $O/abba/RESULT 2>/dev/null); say "ABBA (A = DIST_GATHER_RAW=0, B = 2, 6.441e10): $RES"
 say "runs: $(cut -f1-5 $O/abba/pairs.tsv | tr '\t' ' ' | tr '\n' ';')"
 # 4 memory per arm: the largest 'device X GB in use' and 'peak live' of the block pool over the run's mem_report lines

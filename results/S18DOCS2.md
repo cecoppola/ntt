@@ -8,12 +8,12 @@ touched. No aac6/aac7 access used.
 
 | document | lines | last change | status assigned |
 |---|---|---|---|
-| archive/docs/ALGORITHM.md | 744 | 09-17 | HISTORICAL |
-| archive/docs/CODE_REDUCTION.md | 132 | 09-22 | HISTORICAL |
-| archive/docs/DECISIONS.md | 380 | 09-20 | HISTORICAL |
-| archive/docs/DECISIONS2.md | 236 | 09-21 | HISTORICAL |
-| archive/docs/DECISIONS3.md | 175 | 09-22 | HISTORICAL |
-| archive/docs/DESIGN.md | 641 | 09-17 | HISTORICAL |
+| archive:docs/ALGORITHM.md | 744 | 09-17 | HISTORICAL |
+| archive:docs/CODE_REDUCTION.md | 132 | 09-22 | HISTORICAL |
+| archive:docs/DECISIONS.md | 380 | 09-20 | HISTORICAL |
+| archive:docs/DECISIONS2.md | 236 | 09-21 | HISTORICAL |
+| archive:docs/DECISIONS3.md | 175 | 09-22 | HISTORICAL |
+| archive:docs/DESIGN.md | 641 | 09-17 | HISTORICAL |
 | PLAN.md | 2164 | 10-03 | HISTORICAL |
 | RESULTS.md | 4568 | 10-07 | LIVING RECORD |
 | TASKS.md | 368 | 09-25 | HISTORICAL |
@@ -31,8 +31,8 @@ touched. No aac6/aac7 access used.
 - **internal index** (new, 63 lines): one row per document above (what it is / status / when to read it), a
   "start here" order (00_OVERVIEW → TARGET.md §4 → 06_EVALUATION → RESULTS latest), and a pointer to `results/` by
   prefix rather than all ≈120 rows.
-- **Status banners** (3–5 lines, below the title, body untouched) on: `archive/docs/ALGORITHM.md`, `archive/docs/DESIGN.md`, `archive/docs/DECISIONS.md`,
-  `archive/docs/DECISIONS2.md`, `archive/docs/DECISIONS3.md`, `archive/docs/CODE_REDUCTION.md`, `TASKS.md`, `PLAN.md`, internal apumult study. Each says
+- **Status banners** (3–5 lines, below the title, body untouched) on: `archive:docs/ALGORITHM.md`, `archive:docs/DESIGN.md`, `archive:docs/DECISIONS.md`,
+  `archive:docs/DECISIONS2.md`, `archive:docs/DECISIONS3.md`, `archive:docs/CODE_REDUCTION.md`, `TASKS.md`, `PLAN.md`, internal apumult study. Each says
   the period covered, what supersedes it, and that the body stays as history.
 - **the private protocol**: an 8-line "Lessons of 2026-10-06/07" section before "Gates for a code change":
   `tools/rundriver.sh` for aac7 drivers, never launch on aac7 after returning, never stop to "wait", one network

@@ -1,5 +1,5 @@
 /* bigint.h - little-endian limb arrays in base B = 10^18 (PLAN.md 8; decimal limbs since WP1, the only base since
- * PLAN 28.5: the binary 2^64 pipeline is archived under archive/binary_pipeline/, tag pre-28.5-binary).
+ * PLAN 28.5: the binary 2^64 pipeline is archived under archive:binary_pipeline/, tag pre-28.5-binary).
  *
  * A bigint owns a limb buffer; n is the used length (no leading-zero limbs
  * after bi_norm), cap the allocation.  The heavy operations (shifts, add/sub,

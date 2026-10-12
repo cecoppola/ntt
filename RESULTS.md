@@ -1,7 +1,7 @@
 # Measured results (live)
 
 Measured results of the ecalc project, newest at the end. Every number is labelled measured, modelled or assumed in its section.
-Sections 1-114 (campaigns 1-4 and Phases 1-17 up to 2026-10-06) are in `archive/RESULTS_ARCHIVE_1-114.md`, moved verbatim;
+Sections 1-114 (campaigns 1-4 and Phases 1-17 up to 2026-10-06) are in `archive:RESULTS_ARCHIVE_1-114.md`, moved verbatim;
 the full text of section 115 onward follows the index below. "RESULTS §NN" citations in other notes refer to these section
 numbers wherever the section lives. Agent reports are in `results/`.
 
@@ -484,7 +484,7 @@ Labels: m measured, mod modelled, a assumed. Branches l1-l5 merged (no conflicts
 
 ## 134. Binary limb pipeline removed: PLAN 28.5 merged (results/H4.md; evidence H1, H2, H3, H5)
 Labels: m measured, mod modelled, a assumed. User decision 2026-10-12. Branch h4 merged by mrg.
-- **Change:** decimal limbs only. About 605 net lines removed from `ecalc/`, about 160 from the tests (m, `git diff --numstat`); `todec.c/h` and `t_dec.c` moved to `archive/binary_pipeline/` (tag `pre-28.5-binary`). `LIMB_BASE` other than 10 now stops the program (rc 3). The kernels' `decimal` arguments keep their signatures (constant 1), so GPU code is unchanged.
+- **Change:** decimal limbs only. About 605 net lines removed from `ecalc/`, about 160 from the tests (m, `git diff --numstat`); `todec.c/h` and `t_dec.c` moved to `archive:binary_pipeline/` (tag `pre-28.5-binary`). `LIMB_BASE` other than 10 now stops the program (rc 3). The kernels' `decimal` arguments keep their signatures (constant 1), so GPU code is unchanged.
 - **Why (H1, H2, H5):** both bases agree in every test (H1 single node, H2 `t_mn_grid` 2-6 nodes, m). Binary is slower: 2 nodes, paired, binary - decimal +11.43 s [+8.57, +14.29] at 1e9 and +32.47 s [+30.37, +34.58] at 1e10 (1.9-2.2x, m, H5).
 - **Gates (H4):** aac7 2 nodes 1e9 PASS, `t_mn_grid` 2/3/6 nodes PASS; ABBA h4 vs main at 4e10 (2 nodes, 5 pairs, fixed build) +0.09 s [-2.08, +2.27], p 0.91 (m): no speed change. aac6 single-node timeouts were test cost, not defects (H6 in H4.md section 7); `mnaccept` t_mul 20 limit raised to 1800 s.
 

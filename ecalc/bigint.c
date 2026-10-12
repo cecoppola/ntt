@@ -16,12 +16,12 @@ uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 typedef unsigned __int128 u128;
 #define B10 BI_B10
 /* PLAN 28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (LIMB_BASE=2, todec) is archived under
- * archive/binary_pipeline/ (tag pre-28.5-binary).  A LIMB_BASE other than 10 is refused here, never silently ignored. */
+ * archive:binary_pipeline/ (tag pre-28.5-binary).  A LIMB_BASE other than 10 is refused here, never silently ignored. */
 void bi_check_base(void)
 {
     const char *e = getenv("LIMB_BASE");
     if (e && *e && atoi(e) != 10)
-        ec_fatal(EC_RC_FATAL, "LIMB_BASE=%s: only decimal limbs (10) exist since PLAN 28.5; the binary 2^64 pipeline is archived (archive/binary_pipeline/, git tag pre-28.5-binary)\n", e);
+        ec_fatal(EC_RC_FATAL, "LIMB_BASE=%s: only decimal limbs (10) exist since PLAN 28.5; the binary 2^64 pipeline is archived (archive:binary_pipeline/, git tag pre-28.5-binary)\n", e);
 }
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)

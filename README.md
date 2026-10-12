@@ -10,8 +10,8 @@ accessed).
 | every environment switch, with its default and evidence | `ecalc/README.md` |
 | what is open | `TASKS.md` |
 | the measurement log | `RESULTS.md` (agent reports in `results/`) |
-| moved drivers, old docs and raw logs | `archive/MANIFEST.md` |
+| moved drivers, old docs and raw logs | kept outside the repository (local archive; paths written `archive:...` in the notes) |
 
 Layout: `ecalc/` the program, models and launch scripts (`make`; see its README); `tools/` the watchdog driver library and the digit
-unpacker; `bench/` (with the top-level `suite`, `run`, `diff`, `isa.py`) the 2026-09 microbenchmark suite; `tests/` plan and gate notes of Phase 15; `results/` the reports; `archive/` history. Build and run
+unpacker; `bench/` (with the top-level `suite`, `run`, `diff`, `isa.py`) the 2026-09 microbenchmark suite; `tests/` plan and gate notes of Phase 15; `results/` the reports; history is kept outside the repository (paths written `archive:...`). Build and run
 recipes: `ecalc/README.md`.

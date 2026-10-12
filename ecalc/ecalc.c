@@ -1,5 +1,5 @@
 /* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18; the paper's binary-limb pipeline with the
- * radix conversion todec is archived: PLAN 28.5, archive/binary_pipeline/, git tag pre-28.5-binary).
+ * radix conversion todec is archived: PLAN 28.5, archive:binary_pipeline/, git tag pre-28.5-binary).
  *
  *   bs    P, Q = binary splitting of sum 1/k!, N = min{m : lgamma(m+1)/ln10 >= d+50}
  *   10dP  A = 10^d (P + Q): a limb shift and one small multiply

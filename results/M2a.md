@@ -17,7 +17,7 @@ Arm: file moved into `~/aac7q/queue/` (daemon already running). Outputs `~/m2a/a
 Dry run (measured, stub): both items through the daemon in STUB mode (no Slurm): syntax, binary SHMEM check, line extraction OK, rc 0 each. The real measurement path follows the 51_h4_abba2 / 61_c03_time items; it was not run before arming.
 
 ## Collection (cheap; no large agent)
-`cat ~/m2a/DONE ~/m2a/DONE_b; cat ~/m2a/a/summary.txt ~/m2a/b/summary.txt`. Then feed the `.log` files to `python3 -I ecalc/calib_table.py <logs> --tsv m2a.tsv` (calib_table reads xstats and stage times) and compare the 1- and 2-node rows with `ecalc/mn_model.py` / target_l4 predictions; raw data to `archive/results-raw/`.
+`cat ~/m2a/DONE ~/m2a/DONE_b; cat ~/m2a/a/summary.txt ~/m2a/b/summary.txt`. Then feed the `.log` files to `python3 -I ecalc/calib_table.py <logs> --tsv m2a.tsv` (calib_table reads xstats and stage times) and compare the 1- and 2-node rows with `ecalc/mn_model.py` / target_l4 predictions; raw data to `archive:results-raw/`.
 
 ## Results, 1- and 2-node points (collected 2026-10-12; all numbers measured)
 Setup: main's SHMEM build, e16 aac7 launch line, COMM_XSTATS and MN_WAIT_STATS, no digit writes, 6.441e10 digits per node (1 node 6.441e10, 2 nodes 1.2882e11), order 1 2 2 1 1 2 2 1 1 2 2 1. Item 78 (`~/m2a/b/`) collected from its summary.tsv. Item 77's summary files in `~/m2a/a/` were overwritten by a later item (7a, same output dir); item 77 was rebuilt from its saved raw logs (`~/m2a/a77_saved/log/*.plain`, all 12 runs) with the item script's own parsing (`^total`, `^bs`, `^recip`, `^dm`, `init` in the total line, xstats GB / t_wait of PE 0). 24 of 24 runs rc 0 and VERIFY OK. Item 7a will write to `~/m2a/a/` again (marker `~/m2a/DONE`).

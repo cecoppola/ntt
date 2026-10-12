@@ -26,7 +26,7 @@ Run-level model used by the driver's stop rule: saving = 174 calls x 36.5 ms x (
 - Own hold: `sbatch -p PPAC_MI300A_SPX -N1 --gpus=4 -t 0:45:00 -J k1b` (no -w), queued behind our other jobs; give-up 12:00 Eastern (cancels only its own id).
 - Step 1 probe (both shapes) -> model -> stop if < 1.5 s ("SUCCESS: refuted ...").
 - Step 2 `tools/gate.sh --build --nodes 1 --hold J --env "RNS_STRATEGY=C DIST_GATHER_RAW=2"`, then without --build for =1 and =0 (1e9 digits against the 1e9 reference; RNS_STRATEGY=C because at 1e9 every product is the B form by default (O7b) and the gate would not reach the changed code otherwise).
-- Step 3 ABBA at 6.441e10, A = DIST_GATHER_RAW=0, B = 2, no digit output, archive/drivers/s50/s50_abba6.sh (rounds ABBA / BAAB, paired t on round deltas, stop p<0.05 after >= 3 rounds, cap 5, or the hold's end); every run must print VERIFY OK.
+- Step 3 ABBA at 6.441e10, A = DIST_GATHER_RAW=0, B = 2, no digit output, archive:drivers/s50/s50_abba6.sh (rounds ABBA / BAAB, paired t on round deltas, stop p<0.05 after >= 3 rounds, cap 5, or the hold's end); every run must print VERIFY OK.
 - Step 4 memory per arm from the runs' `mem_report` lines; summary, marker, scancel of its own job, `squeue -s` shows no step.
 - Dry run with stub sbatch / srun / squeue / gate (both the "confirmed" and the "refuted" path): summary, marker, scancel of the own id only: OK.
 
