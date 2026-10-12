@@ -16,6 +16,8 @@ measured, modelled or assumed.
 
 `tools/gate.sh` is the build-and-digit gate. It builds, runs 10⁹ digits, and passes only when the return code is 0,
 `VERIFY OK` is printed on every node, the digits are identical to the reference, and nothing segfaulted.
+Every size runs the production single-node flow (the device DKM division, `results/SIMP.md`), so the one-node 10⁹ gate
+covers it; its log shows the `I3:` line.
 
     tools/gate.sh --build --nodes 1 --hold <hold>          # one node
     tools/gate.sh --build --nodes 2 --hold <hold>          # two nodes: required when multi-node code changed

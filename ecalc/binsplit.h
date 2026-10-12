@@ -61,7 +61,6 @@ void binsplit_layout_comm_size(int g);   /* MS: BS_LAYOUT_ONLY sets COMM_SIZE to
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);
 extern const char *const bs_cap_name[2];
 void binsplit_seeds_begin(unsigned long N);
-uint64_t *binsplit_take_hpool(size_t *cap_limbs);       /* WP5: a faulted host pool for A (call before binsplit_free_pools) */
 void binsplit_free_pools(void);
 /* B7ACCT (results/B7ACCT.md): the general map's v-exchange slots resident per APU thread (bytes; hipMalloc'd by comm_layered.c beside the
  * layout, alive to the run's end): the dm phase's sum (the run's largest), *tree_top = during the tree's top level, by = the terms per level.

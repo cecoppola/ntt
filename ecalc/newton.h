@@ -10,8 +10,8 @@
  *                            from the seed in the correction form.  Overshoot shrinks
  *                            r by 1/16 and retries; a step whose correction is not
  *                            below B^j repeats at the same precision.
- *   newton_db_divmod(X, R, A, Q [, mu])   X = floor(A / Q), R = A - X Q, then
- *                            down/up-corrections; the counts are reported in newton_st.
+ *   newton_db_divmod_shifted(X, S, dl, Q, ...)   X = floor(S B^dl / Q) on the device (the one single-node division),
+ *                            R's residues out; the corrections are reported in newton_st.
  */
 #ifndef EC_NEWTON_H
 #define EC_NEWTON_H
@@ -36,12 +36,10 @@ void newton_seed_host(bigint *r, const bigint *Q, size_t *j);
 void newton_seed_top(bigint *r, const uint64_t *top4, size_t top, size_t nq, size_t *j);   /* from Q's top limbs (I3) */
 /* WP5: on device-resident numbers (newton_db.c) */
 void newton_db_recip(bigint *mu, const bigint *Q, size_t k);
-void newton_db_divmod(bigint *X, bigint *R, const bigint *A, const bigint *Q, const bigint *mu_opt);
 void newton_db_free_scratch(void);
 /* the reciprocal's Q_t r as a middle product (always); counts of the rounds that took it / the whole product */
 struct newton_mid_stats { size_t mid, whole; };
 extern struct newton_mid_stats newton_mid_st;
-extern int newton_db_free_inputs;
 struct dbig_s;                                       /* declared at file scope (ROCm 7.0.3's clang warns -Wvisibility otherwise) */
 void newton_db_divmod_shifted(bigint *X, const struct dbig_s *S, size_t dl, const struct dbig_s *Qd, const uint64_t *qs, int nres, uint64_t *rres);   /* I3: A = S B^dl, all on device; R's residues out */
 extern struct dbig_s *newton_db_Qd;                  /* Q already on device (owned by the caller) */

@@ -60,7 +60,7 @@ static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->s
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
  * gets X on the host before it */
 struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; size_t t2_defer; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd: X on the device -- the writer and the residues read it there; no host X */
-static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); if (b->Xd) { s.dev = b->Xd; s.cnt = b->Xd->n; } else { s.host = b->X->l; s.cnt = b->X->n; } return s; }
+static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); s.dev = b->Xd; s.cnt = b->Xd->n; return s; }
 static void x_bg_writer(struct x_bg *b)                /* the chunked writer over X (host or device; also the redo after a correction) */
 {
     mn_out_src src = x_bg_src(b);
@@ -139,7 +139,6 @@ static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_
  * hook).  Size > 1: this node's share of the distributed division's sharded X. */
 struct out_ctx {
     unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
-    bigint *X;                                     /* the host flows: X on the host after the division (size 1 without the device dm) */
     dbig *Xd;                                      /* size 1 in the device flow: X on the device (never on the host) */
     mdb *Xm;                                       /* B1, size > 1 in the distributed division: X sharded over the nodes (A-div's mdb); this node's share is read in place */
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm); size 1: the single node's */
@@ -184,10 +183,10 @@ static int out_stage(struct out_ctx *c)
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
     mn_out_pq_combine(cm, pr, qr, Pg, Qg);
-    /* the share of X this node holds: the device X (size 1, B1), the host X (size 1, the host flow), or this node's share of
-     * the sharded X (size > 1: the distributed division's mdb, read in place) */
-    mn_out_src src; memset(&src, 0, sizeof src); size_t xn = c->Xd ? c->Xd->n : c->Xm ? c->Xm->n : c->X->n;
-    if (!multi) { if (c->Xd) { src.dev = c->Xd; src.cnt = c->Xd->n; } else { src.host = c->X->l; src.cnt = c->X->n; } }
+    /* the share of X this node holds: the device X (size 1, B1) or this node's share of the sharded X (size > 1: the distributed
+     * division's mdb, read in place) */
+    mn_out_src src; memset(&src, 0, sizeof src); size_t xn = multi ? c->Xm->n : c->Xd->n;
+    if (!multi) { src.dev = c->Xd; src.cnt = c->Xd->n; }
     else {
         size_t lo, hi; mdb_share(c->Xm, c->rank, &lo, &hi);
         src.dev = &c->Xm->sh; src.lo = lo; src.cnt = hi - lo; if (src.cnt > c->Xm->sh.n) src.cnt = c->Xm->sh.n;   /* (the share's dbig is never normalised; shorter = zeros above) */
@@ -266,7 +265,7 @@ static int out_stage(struct out_ctx *c)
     if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
-    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (X_hi) */
+    if (!multi) { db_free(c->Xd); if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (X_hi) */
     if (c->Xm) db_free(&c->Xm->sh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
                         t_dc, o->k0, o->k1, c->d + 1, src.cnt, o->nchunks, !multi && c->xb->started ? " (streamed with the low product; joined after total)" : "", !multi && c->xb->started ? c->xb->t_res : 0.0, o->t_fmt, o->t_res, o->t_t2, o->t_fetch, o->t_wait);
@@ -493,8 +492,8 @@ int main(int argc, char **argv)
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
     int ovl = mn_size_ == 1;                       /* the overlapped flow (device top levels, device dm): size 1; size > 1 runs M3's distributed flow */
-    bigint P, Q, T, A, X, R, S;
-    bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
+    bigint P, Q, X;
+    bi_init(&P); bi_init(&Q); bi_init(&X);
     dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* B1: X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
@@ -503,7 +502,7 @@ int main(int argc, char **argv)
       newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
-    oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
+    oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
     if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
@@ -526,7 +525,7 @@ int main(int argc, char **argv)
     /* the reciprocal and the division over the sharded P, Q at size > 1.  The residues of P, Q, R come from the sharded kernels;
      * X stays sharded and every node writes its part (A-out) */
     int mn_dm = mn_dist;
-    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];
     double t_recip = 0, t_10dp = 0, t_dm = 0; size_t mn_pn = 0, mn_qn = 0, mn_xn = 0;
     if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups */
         double tg = mem_now(); dbig Pl, Ql; db_init(&Pl); db_init(&Ql);
@@ -554,7 +553,7 @@ int main(int argc, char **argv)
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
-            t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
+            t_dm = mem_now() - td; mn_xn = Xm.n;
             mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
@@ -564,37 +563,22 @@ int main(int argc, char **argv)
             if (mn_rank() != 0) { int f = out_stage(&oc); mn_ckpt_top_finish(); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (after the top set's writer) */
         }
     }
-    int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
-    if (mn_size_ == 1 && ckpt_top && (ovl3 || P.n)) {   /* the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+    if (!mn_dm && !bs_Pd.n) { ec_fatal(EC_RC_FATAL, "ecalc: the top level left no device P, Q\n"); }   /* size 1: binsplit hands P, Q over as device numbers whatever tier ran the top level */
+    if (mn_size_ == 1 && ckpt_top) {                    /* the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
         if (!bs_ckpt_dir) bs_ckpt_dir = mn_out_ckpt_default(outfile);
         if (!bs_ckpt_dir) printf("      checkpoint: ECALC_CKPT_TOP needs BS_CKPT_DIR or an outfile -- the top-level set is not written\n");
-        else if (ovl3) {                                  /* the device flow: in the background (P under the reciprocal, Q under the division and the output stage) */
+        else {                                          /* in the background (P under the reciprocal, Q under the division and the output stage) */
             uint64_t desc[10] = { bs_Pd.n, bs_Pd.n, 0, 1, bs_Pd.n, bs_Qd.n, bs_Qd.n, 0, 1, bs_Qd.n };
             topbg = bs_ckpt_bg_start(0, N, desc, &bs_Pd, &bs_Qd, ckpt_top == 2, ckpt_slack);
         }
-        else {                                            /* the host flow (a leaf that ended on the batch tier): through device copies, synchronous (small runs) */
-            double tc = mem_now(); dbig tp, tq; db_init(&tp); db_init(&tq); db_from_bi(&tp, &P); db_from_bi(&tq, &Q);
-            uint64_t desc[10] = { tp.n, tp.n, 0, 1, tp.n, tq.n, tq.n, 0, 1, tq.n };
-            size_t bytes = bs_ckpt_tree_write(0, N, desc, &tp, &tq);
-            db_free(&tp); db_free(&tq);
-            printf("      checkpoint: the top-level P, Q -> %s (tree level 0): %.2f GB in %.2f s%s\n", bs_ckpt_dir, bytes * 1e-9, mem_now() - tc, bytes ? "" : "  FAILED");
-        }
     }
-    if (ovl3) { P.n = bs_Pd.n; Q.n = bs_Qd.n; }      /* sizes for the line below; the limbs come off the device in the background */
     printf("bs    %8.2f s   N %lu, P %zu limbs, Q %zu limbs (seeds %.1f school %.1f batch %.1f mdev %.1f; pool %.1f GB; dev pools %.1f GB)   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_bs, N, mn_dm ? mn_pn : P.n, mn_dm ? mn_qn : Q.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+           t_bs, N, mn_dm ? mn_pn : bs_Pd.n, mn_dm ? mn_qn : bs_Qd.n, bs_st.t_seed, bs_st.t_school, bs_st.t_batch, bs_st.t_mdev, bs_st.peak_pool_limbs * 8e-9, mem_dev_pool_bytes() / 1e9, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("bs", "s", t_bs);
     if (bs_st.n_grow) printf("      bs: region pools grew %d times inside the phase (%.1f GB of hipMalloc)\n", bs_st.n_grow, bs_st.grow_bytes / 1e9);
     mem_report("bs");
-    { size_t hc = 0; uint64_t *hp = binsplit_take_hpool(&hc);   /* the bs host pool (already faulted) becomes A's buffer */
-      size_t need = (d + 17) / 18 + P.n + 4;
-      if (hp && need && hc >= need) { A.l = hp; A.cap = hc; A.n = 0; } else if (hp) free(hp); }
     binsplit_free_pools();
 
-    /* residues of P and Q for T1 now, so P can go as soon as S = P + Q exists */
-    if (!ovl3 && !mn_dm) for (int i = 0; i < T1_NQ; i++) { Pres[i] = vf_limbs_mod(P.l, P.n, t1_q[i]); Qres[i] = vf_limbs_mod(Q.l, Q.n, t1_q[i]); }
-
-    bigint MU; bi_init(&MU);
     size_t dl = (d + 17) / 18;                        /* limbs of 10^d */
     if (mn_dm) {                                      /* M4: the dm phase ran over the nodes above; the phase lines for the summary */
         printf("recip %8.2f s   (over %d nodes; %zu iterations)\n", t_recip, mn_size_, newton_st.iters);
@@ -603,83 +587,63 @@ int main(int argc, char **argv)
                t_dm, mn_xn, t_recip, newton_st.down_corr, newton_st.up_corr, mn_size_, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
         RESULT("dm", "s", t_dm);
     } else {
-    /* dm part 1: the reciprocal of Q first, while A does not exist yet (memory peak) */
+    /* dm part 1: the reciprocal of Q first (memory peak).  I3: P, Q stay on the device -- residues by kernel, S = P + Q in place,
+     * A = S B^dl implicit */
     t = mem_now();
     memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
-    size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
-    newton_db_free_inputs = 1;                        /* Q lives on device from here; its host copy goes */
     rns_release_staging();                            /* nothing between here and dm needs the staging */
-    double t_res3 = 0;
-    if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
-        double tr = mem_now();
-        db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
-        { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that (C4) */
-        t_res3 = mem_now() - tr;
-        na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
-        P.n = Q.n = 0;
-        newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
-        /* (with the tail layout t1's quarter lands in the arena's reserved tail and the pool never grows; the line below still reports any in-phase growth) */
-        size_t hm0 = 0; for (int dv = 0; dv < 4; dv++) hm0 += db_pool_hipmalloc_bytes(dv);
-        newton_db_recip(&MU, &Q, k_mu);
-        size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
-        if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* what C3's sizing missed */
-    } else newton_db_recip(&MU, &Q, k_mu);
+    double tr = mem_now();
+    db_mod_qs(&bs_Pd, t1_q, T1_NQ, Pres); db_mod_qs(&bs_Qd, t1_q, T1_NQ, Qres);
+    { size_t don = 0; for (int dv = 0; dv < 4; dv++) don += rns_dpool_donate_tail(dv, 1, rns_pool1_default_bytes(pool_log)); if (verbose >= 2) printf("      I3: plane pool tails donated: %.1f GB\n", don / 1e9); }   /* the dist tier uses 3 q (+16 limbs) of pool 1; nothing to donate when pool 1 is sized to that (C4) */
+    double t_res3 = mem_now() - tr;
+    size_t k_mu = bs_Pd.n + 1 + dl - bs_Qd.n + 1;    /* S has at most one limb more than P */
+    newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
+    /* (with the tail layout t1's quarter lands in the arena's reserved tail and the pool never grows; the line below still reports any in-phase growth) */
+    size_t hm0 = 0; for (int dv = 0; dv < 4; dv++) hm0 += db_pool_hipmalloc_bytes(dv);
+    { bigint MU; bi_init(&MU); newton_db_recip(&MU, &Q, k_mu); bi_free(&MU); }
+    size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
+    if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* what C3's sizing missed */
     rns_free_scratch();
     t_recip = mem_now() - t;
-    printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, k_mu + 1, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report("recip");
 
     t = mem_now();
-    if (ovl3) {
-        bs_ckpt_bg_release(topbg, 0);                 /* the writer is past P (or, budgeted, has dropped the set) before P is overwritten */
-        db_add(&bs_Pd, &bs_Pd, &bs_Qd);               /* S = P + Q on the device; A = S B^dl is never formed */
-        t_10dp = mem_now() - t;
-        printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
-        T.n = dl; A.n = bs_Pd.n + dl;
-    } else {
-    bi_add(&S, &P, &Q);
-    bi_free(&P);
-    memset(&rns_st, 0, sizeof rns_st);
-    bi_shl_limbs(&A, &S, d / 18);               /* WP2: 10^d (P+Q) is a limb shift and one small multiply */
-    if (d % 18) bi_mul_pow10(&A, &A, (unsigned)(d % 18));
-    bi_set_u64(&T, 0); T.n = (d + 17) / 18;     /* for the size print only */
+    bs_ckpt_bg_release(topbg, 0);                     /* the writer is past P (or, budgeted, has dropped the set) before P is overwritten */
+    db_add(&bs_Pd, &bs_Pd, &bs_Qd);                   /* S = P + Q on the device; A = S B^dl is never formed */
     t_10dp = mem_now() - t;
-    }
-    printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, T.n, A.n, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
+    printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, dl, bs_Pd.n + dl, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
-    if (ovl3) { T.n = A.n = 0; }
-    bi_free(&S); bi_free(&T); rns_free_scratch();
+    rns_free_scratch();
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
-    if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
-    if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
-    if (dkm_hi_on()) {                                /* the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
-        if (ovl3 && newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
-        else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
+    newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb;   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
+    newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev;   /* X never leaves the device -- the writer and the residues read it there */
+    if (dkm_hi_on()) {                                /* the writer on X_hi after DKM's step 1 (the deferred corrections) */
+        if (newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
+        else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs ECALC_CORR_PATCH >= 1\n");
     }
-    if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
-    else newton_db_divmod(&X, &R, &A, &Q, &MU);
+    newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); db_free(&bs_Pd);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0; newton_db_xhi_hook = 0; newton_db_xlo_hook = 0;
     if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* X_lo0 >= B^s -- X_lo now corrected in place */
-    if (ovl3 && topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* the writer still reads Q: its block is held until after the output stage */
-    else if (ovl3) db_free(&bs_Qd);
-    if (ovl3) mem_report("division");                 /* the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
-    bi_free(&MU); newton_db_free_scratch(); rns_free_scratch();
-    if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
+    if (topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* the writer still reads Q: its block is held until after the output stage */
+    else db_free(&bs_Qd);
+    mem_report("division");                           /* the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
+    newton_db_free_scratch(); rns_free_scratch();     /* (X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
-    printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_dm, ovl3 ? (g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n) : X.n, R.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, ovl3 ? (g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device") : "", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
-    mem_report_host_item(MEM_HOST_X, X.cap * 8); mem_report("dm");
+    printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
+           t_dm, g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    mem_report("dm");
     RESULT("dm", "s", t_dm);
     }
 
     /* the output stage (M5 + C1) -- T1 from the residues, the digits streamed to the file in chunks, T2 */
-    if (!rres_ok) for (int i = 0; i < T1_NQ; i++) Rres[i] = vf_limbs_mod(R.l, R.n, t1_q[i]);   /* the host flow's R (the device flow's came from the kernel) */
     memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
     if (mn_size_ == 1) { oc.defer = newton_x_defer && xb.started; oc.dx = oc.defer ? newton_x_dx : 0; }   /* the size-1 writer started before the corrections (size > 1: set after newton_mn_divmod) */
-    bi_free(&A); bi_free(&R); bi_free(&Q);
+    bi_free(&Q);
     int fail = out_stage(&oc);
     if (topbg) {                                      /* the top set's writer -- Q released (held so far if it was still needed), then joined */
         bs_ckpt_bg_release(topbg, 1); if (topq_held) db_free(&bs_Qd);

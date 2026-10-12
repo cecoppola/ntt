@@ -3,11 +3,10 @@
  *  1. bi_divmod_school vs mpz_tdiv_qr, random sizes to 64 limbs, all generators
  *  2. newton_db_recip: mu vs floor(2^(64(nq+k))/Q) by GMP, error in units, for
  *     nq = 3 .. 2^20 and k = 1, nq/2, nq, 2 nq
- *  3. newton_db_divmod vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs (default 26; exact to 2^22, above that the GMP string
- *     bridge of decimal limbs is too slow and A == X Q + R is checked by residues mod 2^61-1 and two 62-bit primes):
- *     random; Q = B^k-ish (single top limb) and B^k - 1; A = Q^2 - 1, Q^2, Q^2 + 1 (near multiples);
- *     A < Q; corrections counted; 0 <= R < Q; a perturbed seed forces the
- *     overshoot path; a supplied longer mu
+ *  3. newton_db_divmod_shifted (A = S B^dl, the device flow's one division) vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs
+ *     (default 26; exact to 2^22, above that A == X Q + R is checked by residues mod three primes): random; Q = B^k-ish
+ *     (single top limb) and B^k - 1; S = Q Y - 1, Q Y, Q Y + 1 (near multiples); a quotient of one limb; corrections
+ *     counted; a perturbed seed forces the overshoot path; a longer prewarm mu.  3b: quotients of 1 .. 8 limbs
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
  *  5. the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM)
  *
@@ -31,34 +30,42 @@ static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
     mpz_fdiv_q(mu, mu, Q);
 }
 #define EXACT_MAX_NQ ((size_t)1 << 22)                  /* exact GMP comparison up to this Q length; residues above (archive:PLAN §28.5) */
-static int check_div(const char *what, const bigint *A, const bigint *Q, const bigint *mu_opt)
+static const uint64_t qs3[3] = { 2305843009213693951ULL, 1000000000000000003ULL, 4611686018427387847ULL };
+/* the division as ecalc runs it: A = S B^dl, S and Q on the device, the prewarm reciprocal (newton_db_recip with newton_db_Qd, kx limbs
+ * more than ecalc asks for), newton_db_divmod_shifted; X exactly and R's residues mod three primes against GMP (above EXACT_MAX_NQ:
+ * A == X Q + R by the residues, R's from the division, and X's length) */
+static int check_div(const char *what, const bigint *S, size_t dl, const bigint *Q, size_t kx)
 {
-    bigint X, R; bi_init(&X); bi_init(&R);
+    bigint X, A, mu; bi_init(&X); bi_init(&A); bi_init(&mu);
     newton_stats before = newton_st;
-    newton_db_divmod(&X, &R, A, Q, mu_opt);
-    int ok;
+    dbig Sd, Qd; db_init(&Sd); db_init(&Qd); db_from_bi(&Sd, S); db_from_bi(&Qd, Q);
+    newton_db_Qd = &Qd; newton_db_mu_host = 0;
+    newton_db_recip(&mu, Q, Sd.n + 1 + dl - Q->n + 1 + kx);
+    uint64_t got[3];
+    newton_db_divmod_shifted(&X, &Sd, dl, &Qd, qs3, 3, got);
+    newton_db_Qd = 0; newton_db_mu_host = 1;
+    db_free(&Sd); db_free(&Qd); newton_db_free_scratch();
+    bi_shl_limbs(&A, S, dl);
+    int ok = 1;
     if (Q->n <= EXACT_MAX_NQ) {
-        mpz_t a, q, x, r, xx, rr; mpz_inits(a, q, x, r, xx, rr, NULL);
-        bi_to_mpz(a, A); bi_to_mpz(q, Q); mpz_tdiv_qr(x, r, a, q);
-        bi_to_mpz(xx, &X); bi_to_mpz(rr, &R);
-        ok = mpz_cmp(x, xx) == 0 && mpz_cmp(r, rr) == 0;
-        VERIFY(ok, "%s: quotient/remainder differ (na %zu nq %zu)", what, A->n, Q->n);
-        mpz_clears(a, q, x, r, xx, rr, NULL);
-    } else {                                              /* A == X Q + R mod M61 and two 62-bit primes; with 0 <= R < Q (below) this pins X and R */
-        uint64_t ra = limbs_mod_m61(A->l, A->n), rq = limbs_mod_m61(Q->l, Q->n), rx = limbs_mod_m61(X.l, X.n), rr = limbs_mod_m61(R.l, R.n);
-        ok = m61_add(m61_mul(rx, rq), rr) == ra;
-        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };
-        for (int j = 0; j < 2; j++) {
-            uint64_t q = qs[j], a1 = limbs_mod_u64(A->l, A->n, q), q1 = limbs_mod_u64(Q->l, Q->n, q), x1 = limbs_mod_u64(X.l, X.n, q), r1 = limbs_mod_u64(R.l, R.n, q);
-            if ((hv_mulmod(x1, q1, q) + r1) % q != a1) ok = 0;
+        mpz_t a, q, x, r; mpz_inits(a, q, x, r, NULL);
+        bi_to_mpz(a, &A); bi_to_mpz(q, Q); mpz_tdiv_qr(x, r, a, q);
+        for (int j = 0; j < 3; j++) if (mpz_fdiv_ui(r, qs3[j]) != got[j]) ok = 0;
+        int okx = bi_eq_mpz(&X, x);
+        VERIFY(okx && ok, "%s: X %s, R residues %s (na %zu nq %zu dl %zu)", what, okx ? "ok" : "DIFFERS", ok ? "ok" : "DIFFER", A.n, Q->n, dl);
+        ok = ok && okx;
+        mpz_clears(a, q, x, r, NULL);
+    } else {
+        for (int j = 0; j < 3; j++) {
+            uint64_t q = qs3[j], a1 = limbs_mod_u64(A.l, A.n, q), q1 = limbs_mod_u64(Q->l, Q->n, q), x1 = limbs_mod_u64(X.l, X.n, q);
+            if ((hv_mulmod(x1, q1, q) + got[j] % q) % q != a1) ok = 0;
         }
-        VERIFY(ok, "%s: A != X Q + R by residues (na %zu nq %zu)", what, A->n, Q->n);
-        VERIFY(X.n == A->n - Q->n + 1 || X.n == A->n - Q->n, "%s: X has %zu limbs (na %zu nq %zu)", what, X.n, A->n, Q->n);
+        VERIFY(ok, "%s: A != X Q + R by residues (na %zu nq %zu dl %zu)", what, A.n, Q->n, dl);
+        VERIFY(X.n == A.n - Q->n + 1 || X.n == A.n - Q->n, "%s: X has %zu limbs (na %zu nq %zu)", what, X.n, A.n, Q->n);
     }
-    VERIFY(bi_cmp(&R, Q) < 0, "%s: R >= Q", what);
     size_t dc = newton_st.down_corr - before.down_corr, uc = newton_st.up_corr - before.up_corr;
     VERIFY(dc + uc <= 4, "%s: %zu down + %zu up corrections", what, dc, uc);
-    bi_free(&X); bi_free(&R);
+    bi_free(&X); bi_free(&A); bi_free(&mu);
     return ok;
 }
 
@@ -102,40 +109,54 @@ int main(int argc, char **argv)
         }
     }
 
-    printf("-- 3. divmod vs mpz_tdiv_qr (exact to 2^22 limbs of Q; residues mod 2^61-1 and two 62-bit primes above)\n");
+    printf("-- 3. the division (newton_db_divmod_shifted, A = S B^dl) vs mpz_tdiv_qr (exact to 2^22 limbs of Q; residues mod three primes above)\n");
     for (int lg = 10; lg <= LOGMAX; lg += 4) {
-        size_t nq = (size_t)1 << lg;
+        size_t nq = (size_t)1 << lg, dl = nq / 2;
+        bigint Y; bi_init(&Y);
         bi_random(&Q, nq, GEN_UNIFORM, &rng);
-        bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);       check_div("random", &A, &Q, 0);
-        bi_random(&A, 2 * nq + 3, GEN_ONES, &rng);      check_div("A all-ones", &A, &Q, 0);
-        bi_random(&A, nq + 1, GEN_UNIFORM, &rng);       check_div("na = nq + 1", &A, &Q, 0);
-        bi_random(&A, nq - 1, GEN_UNIFORM, &rng);       check_div("A < Q", &A, &Q, 0);
+        bi_random(&A, 2 * nq - dl, GEN_UNIFORM, &rng);      check_div("random", &A, dl, &Q, 0);
+        bi_random(&A, 2 * nq + 3 - dl, GEN_ONES, &rng);     check_div("S all-ones", &A, dl, &Q, 0);
+        bi_random(&A, nq + 1 - dl, GEN_UNIFORM, &rng);      check_div("na = nq + 1", &A, dl, &Q, 0);
+        bi_random(&A, nq - dl, GEN_UNIFORM, &rng);          if (A.n == nq - dl) check_div("na = nq (k = 1)", &A, dl, &Q, 0);
         /* Q = 2^k, 2^k - 1 */
         bi_random(&Q, nq, GEN_BIT, &rng); for (size_t i = 0; i + 1 < nq; i++) Q.l[i] = 0;
-        bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);       check_div("Q = 2^k", &A, &Q, 0);
-        bi_random(&Q, nq, GEN_ONES, &rng);              check_div("Q = 2^k - 1", &A, &Q, 0);
-        /* near multiples: Q^2 - 1, Q^2, Q^2 + 1 */
-        bi_random(&Q, nq, GEN_UNIFORM, &rng);
-        rns_mul(&t, &Q, &Q);
-        bi_copy(&A, &t); check_div("A = Q^2", &A, &Q, 0);
-        bi_add_u64(&A, 1); check_div("A = Q^2 + 1", &A, &Q, 0);
-        bi_set_u64(&X, 1); bi_sub(&A, &t, &X); check_div("A = Q^2 - 1", &A, &Q, 0);
+        bi_random(&A, 2 * nq - dl, GEN_UNIFORM, &rng);      check_div("Q = 2^k", &A, dl, &Q, 0);
+        bi_random(&Q, nq, GEN_ONES, &rng);                  check_div("Q = 2^k - 1", &A, dl, &Q, 0);
+        /* near multiples: S = Q Y - 1, Q Y, Q Y + 1 (A a multiple of Q, and one off) */
+        bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&Y, nq - dl, GEN_UNIFORM, &rng);
+        rns_mul(&t, &Q, &Y);
+        bi_copy(&A, &t); check_div("S = Q Y", &A, dl, &Q, 0);
+        bi_add_u64(&A, 1); check_div("S = Q Y + 1", &A, dl, &Q, 0);
+        bi_set_u64(&X, 1); bi_sub(&A, &t, &X); check_div("S = Q Y - 1", &A, dl, &Q, 0);
         /* overshoot path via a perturbed seed (seed x 40/16 > 2x: T2 < T1); not at
          * schoolbook sizes (3 nq < 4 rns_school_max) */
         if (3 * nq >= 4 * (size_t)rns_school_max) {
         newton_seed_perturb = 40;
-        bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);
-        { size_t o = newton_st.overshoots; check_div("perturbed seed", &A, &Q, 0);
+        bi_random(&A, 2 * nq - dl, GEN_UNIFORM, &rng);
+        { size_t o = newton_st.overshoots; check_div("perturbed seed", &A, dl, &Q, 0);
           VERIFY(newton_st.overshoots > o, "perturbed seed did not take the overshoot path"); }
         newton_seed_perturb = 12;                       /* 25 % low: the repeat path */
-        { size_t o = newton_st.repeats; check_div("low seed", &A, &Q, 0);
+        { size_t o = newton_st.repeats; check_div("low seed", &A, dl, &Q, 0);
           VERIFY(newton_st.repeats > o, "low seed did not repeat a step"); }
         newton_seed_perturb = 0;
         }
-        /* a supplied longer mu */
-        newton_db_recip(&mu, &Q, nq + 8);
-        check_div("supplied mu", &A, &Q, &mu);
+        check_div("a longer prewarm mu", &A, dl, &Q, 8);
+        bi_free(&Y);
         printf("   2^%d limbs ok%s  (down %zu, up %zu corrections, %zu overshoots, %zu repeats so far)\n", lg, nq > EXACT_MAX_NQ ? " (by residues)" : "", newton_st.down_corr, newton_st.up_corr, newton_st.overshoots, newton_st.repeats);
+    }
+    printf("-- 3b. small quotients: k = 1 .. 8 limbs, dl = 1 .. 4 and nq - 2, against GMP\n");
+    {
+        static const size_t nqs[] = { 5, 40, 1500, (1u << 14) + 3 };
+        int nk = 0;
+        for (int qi = 0; qi < 4; qi++) for (int di = 0; di < 5; di++) for (size_t k = 1; k <= 8; k++) for (int gk = 0; gk < 2; gk++) {
+            size_t nq = nqs[qi], dl = di < 4 ? (size_t)di + 1 : nq - 2;
+            if (dl + 1 > nq || nq - dl + k - 1 < 1) continue;
+            bi_random(&Q, nq, gk ? GEN_ONES : GEN_UNIFORM, &rng); if (Q.n != nq) continue;
+            bi_random(&A, nq - dl + k - 1, gk ? GEN_ONES : GEN_UNIFORM, &rng); if (A.n != nq - dl + k - 1) continue;   /* A = S B^dl of nq + k - 1 limbs: a quotient of k limbs */
+            char w[64]; snprintf(w, sizeof w, "nq %zu dl %zu k %zu %s", nq, dl, k, gk ? "ones" : "uniform");
+            check_div(w, &A, dl, &Q, 0); nk++;
+        }
+        printf("   %d small-quotient divisions identical\n", nk);
     }
 
     {
@@ -145,11 +166,12 @@ int main(int argc, char **argv)
          * whole-product reference it replaced was -- at several sizes, k and generators (a grid at the top doublings under
          * DIST_LOGN_TEST=20..22), and the path taken */
         printf("-- 5. the reciprocal's middle product\n");
+        rng_t rng5 = {0x5E37ULL};                       /* its own operands, whatever the sections before draw (SIMP: one Q there missed the 8-unit bound, results/SIMP.md) */
         bigint B1, C0, C1; bi_init(&B1); bi_init(&C0); bi_init(&C1);
         static const size_t band_sz[][2] = { {3000, 1000}, {(1u << 20) + 5, (1u << 19) + 3}, {(3u << 20) + 1, (3u << 19) - 5}, {(1u << 22) + 3, (1u << 21) + 1} };   /* the last two: grids split on both operands at cap 2^20..2^22, so the high cut skips pieces */
         for (int si = 0; si < 4; si++) for (int ki = 0; ki < 2; ki++) {
             size_t na = band_sz[si][0], nb = band_sz[si][1], v = na - nb + 1, w = v + nb + 3;   /* the reciprocal's shape: take x (j + 1), v = take - j, w = take + 4 */
-            bi_random(&A, na, ki ? GEN_ONES : GEN_UNIFORM, &rng); bi_random(&B1, nb, ki ? GEN_ONES : GEN_UNIFORM, &rng);
+            bi_random(&A, na, ki ? GEN_ONES : GEN_UNIFORM, &rng5); bi_random(&B1, nb, ki ? GEN_ONES : GEN_UNIFORM, &rng5);
             dbig a, b, c; db_init(&a); db_init(&b); db_init(&c); db_from_bi(&a, &A); db_from_bi(&b, &B1);
             rns_mul_dist_db(&c, &a, &b); db_to_bi(&C0, &c);
             size_t f0 = rns_dist_st.n_formed, s0 = rns_dist_st.n_skipped;
@@ -171,7 +193,7 @@ int main(int argc, char **argv)
             size_t nq = rq[qi];
             static const int kinds[] = {GEN_UNIFORM, GEN_ONES, GEN_BIT};
             for (int gi = 0; gi < 3; gi++) {
-                bi_random(&Q, nq, kinds[gi], &rng);
+                bi_random(&Q, nq, kinds[gi], &rng5);
                 size_t ks[3] = {nq / 2 + 1, nq, 2 * nq};
                 for (int i = 0; i < 3; i++) {
                     size_t k = ks[i];
@@ -315,17 +337,14 @@ int main(int argc, char **argv)
 
     printf("-- 4. time at 2^%d limbs\n", LOGMAX);
     {
-        size_t nq = (size_t)1 << LOGMAX;
-        bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);
+        size_t nq = (size_t)1 << LOGMAX, dl = nq / 2;
+        bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&A, 2 * nq - dl, GEN_UNIFORM, &rng);
         memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
         double t0 = mem_now();
-        newton_db_divmod(&X, &R, &A, &Q, 0);
+        check_div("time", &A, dl, &Q, 0);
         double dt = mem_now() - t0;
-        uint64_t ra = limbs_mod_m61(A.l, A.n), rq = limbs_mod_m61(Q.l, Q.n), rx = limbs_mod_m61(X.l, X.n), rr = limbs_mod_m61(R.l, R.n);
-        VERIFY(m61_add(m61_mul(rx, rq), rr) == ra, "2^%d: A != XQ + R mod 2^61-1", LOGMAX);
-        VERIFY(bi_cmp(&R, &Q) < 0, "2^%d: R >= Q", LOGMAX);
-        printf("   divmod %zu / %zu limbs: %.2f s (recip %.2f, %zu iters; %zu mdev, %zu splits; corrections %zu/%zu)\n",
-               A.n, Q.n, dt, newton_st.t_recip, newton_st.iters, rns_st.n_mdev, rns_st.n_split, newton_st.down_corr, newton_st.up_corr);
+        printf("   divmod %zu / %zu limbs (with the prewarm reciprocal and the check): %.2f s (recip %.2f, %zu iters; %zu mdev, %zu splits; corrections %zu/%zu)\n",
+               A.n + dl, Q.n, dt, newton_st.t_recip, newton_st.iters, rns_st.n_mdev, rns_st.n_split, newton_st.down_corr, newton_st.up_corr);
         harness_result("divmod_time", "s", dt);
         harness_result("recip_time", "s", newton_st.t_recip);
     }

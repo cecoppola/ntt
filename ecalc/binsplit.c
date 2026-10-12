@@ -164,15 +164,6 @@ static void region_copy(uint64_t *dst, const uint64_t *src, size_t limbs, int r)
         }
     }
 }
-static hpool g_hpool[2];                              /* host pools for the mdev levels (WP3; WP5 removes them) */
-static int g_hpool_taken[2];
-/* hand one of the (already faulted) host pools to the caller before binsplit_free_pools: a fresh 35 GB
- * allocation for A costs 4-10 s of first-touch faults (RESULTS.md 62) */
-uint64_t *binsplit_take_hpool(size_t *cap_limbs)
-{
-    for (int w = 0; w < 2; w++) if (g_hpool[w].p && !g_hpool_taken[w]) { g_hpool_taken[w] = 1; *cap_limbs = g_hpool[w].cap / 8; return (uint64_t *)g_hpool[w].p; }
-    *cap_limbs = 0; return 0;
-}
 static int g_in_pregrow;                            /* pool_get inside binsplit_pregrow (the sizing pass) */
 static uint64_t *pool_get(int which, int r, size_t limbs)
 {
@@ -516,9 +507,9 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     /* NEWTON_DKM=1 (the default since Batch 3) -- the reciprocal runs to h = floor(k/2) + 1
      * (its last doubling at ceil(h/2)) and the division forms two quotient halves (newton_db.c divmod_shifted_dkm / mn_divmod_dkm): the
      * high products t = A_h mu_1 of ~k limbs instead of 2k + 8, the low products X_hi Q / X_lo Q over w.  So the hole is DKM's largest block
-     * (below) and the division's set is DKM's.  Where the division takes DKM: size > 1 always (newton_mn_divmod: k_mu >= 5); size 1 only in
-     * the device flow (DKM has no host-flow form), i.e. when the top level runs on the device tier -- n_Q above 2^BS_MDEV_LOGL, by 1/8 for
-     * the bound (between, today's layout: larger, never short).  NEWTON_DKM=0: today's layout, byte for byte */
+     * (below) and the division's set is DKM's.  The division takes DKM at every size; the layout counts DKM's set at size > 1 and, at
+     * size 1, where the top level runs on the device tier -- n_Q above 2^BS_MDEV_LOGL, by 1/8 for the bound; below it the full-length
+     * set (larger, never short: the sizes where memory is plentiful) */
     int logl = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : bs_mdev_logl;
     int dkm = newton_dkm_on() && k >= 5 && (size > 1 || (logl < 62 && nq >= ((size_t)1 << logl) + ((size_t)1 << logl) / 8));
     size_t kr = dkm ? newton_dkm_h(k) : k, k1 = k - k / 2;                    /* (k1: step 1's quotient limbs, s = floor(k/2) <= dl) */
@@ -802,7 +793,6 @@ void binsplit_pregrow(unsigned long N)
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* the arena request without the arena */
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0);
-    int nhp = total0 > ((size_t)1 << 28) ? 1 : 0;   /* one host pool (A's buffer; the top levels run on device), allocated now (its faults come later, under A) */
     double t_pg = mem_now();
     size_t need[NR]; region_need(N, need);   /* C4: regions from the simulated layout */
     /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
@@ -846,11 +836,8 @@ void binsplit_pregrow(unsigned long N)
         if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
     }
     g_in_pregrow = 1;
-#pragma omp parallel for num_threads(NR + 1) schedule(static)
-    for (int r = 0; r <= NR; r++) {
-        if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, need[r]); }
-        else for (int w = 0; w < nhp; w++) hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);   /* I2: not touched here -- with the top levels on device this pool only serves A, formed in the background later: its faults are hidden there */
-    }
+#pragma omp parallel for num_threads(NR) schedule(static)
+    for (int r = 0; r < NR; r++) for (int w = 0; w < 2; w++) pool_get(w, r, need[r]);
     g_in_pregrow = 0;
 }
 /* The top-level set (ECALC_CKPT_TOP, for ECALC_RECHECK): this node's P and Q (size 1: the whole numbers, written by
@@ -1523,12 +1510,12 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         cur = nxt;
         if (finished) { free(cur.nd); cur.nd = 0; break; }
     }
-    if (cur.nd && bs_keep_dev && mn_size() > 1 && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
-        /* at size > 1 a leaf that ends on the batch tier leaves P_r, Q_r in a region pool; the
-         * tree (mn_tree) takes them as device numbers and its slabs and shares from the block pool, which held nothing
+    if (cur.nd && bs_keep_dev && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
+        /* a top level (size 1) or leaf (size > 1) that ends on the batch tier leaves P, Q in a region pool; the dm phase
+         * (size 1) or the tree (mn_tree) takes them as device numbers and its blocks from the block pool, which held nothing
          * yet (11-44 GB of hipMalloc per process, A-mem open issue 3).  So: the idle parity goes to the block pool,
-         * P_r and Q_r are copied into blocks from it, and the parity that held the level follows -- the same hand-over
-         * the device tier makes at its first level, one level later.  Size 1 keeps the host copies (unchanged flow). */
+         * P and Q are copied into blocks from it, and the parity that held the level follows -- the same hand-over
+         * the device tier makes at its first level, one level later.  (SIMP: size 1 too -- one single-node division flow) */
         donate_pools(which ^ 1);
         dbig vp = node_p(&cur, &cur.nd[0]), vq = node_q(&cur, &cur.nd[0]);
         db_init(&bs_Pd); db_init(&bs_Qd); db_copy(&bs_Pd, &vp); db_copy(&bs_Qd, &vq);
@@ -1557,5 +1544,4 @@ void binsplit_free_pools(void)
         g_pool[w][r] = 0; g_cap[w][r] = 0;
     }
     rns_shutdown_hook = binsplit_release_arenas;       /* the arenas stay for the block pool; released at rns_shutdown */
-    for (int w = 0; w < 2; w++) if (!g_hpool_taken[w]) hpool_free(&g_hpool[w]); else { g_hpool[w].p = 0; g_hpool[w].cap = 0; g_hpool_taken[w] = 0; }
 }

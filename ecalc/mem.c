@@ -277,16 +277,6 @@ void dpool_free(dpool *d)
     if (d->p) mem_dev_release(d->dev, d->p);
     d->p = 0; d->cap = 0;
 }
-void *hpool_get(hpool *h, size_t bytes)
-{
-    if (h->p && h->cap >= bytes) return h->p;
-    size_t cap = pow2_ceil(bytes);
-    free(h->p);
-    if (posix_memalign(&h->p, 4096, cap)) { ec_fatal(EC_RC_OOM, "hpool: %zu failed\n", cap); }
-    h->cap = cap;
-    return h->p;
-}
-void hpool_free(hpool *h) { free(h->p); h->p = 0; h->cap = 0; }
 
 static size_t proc_status_kb(const char *key)
 {

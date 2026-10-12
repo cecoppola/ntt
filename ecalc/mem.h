@@ -6,7 +6,6 @@
  *            (RESULTS.md 20), so the touch is done here, not left to OpenMP.
  *  dpool     grow-only device pools (hipMalloc, power-of-two growth, never
  *            shrink: hipFree + hipMalloc cost 0.5-1 s each, RESULTS.md 22).
- *  hpool     grow-only host pools (malloc, not calloc; 4 KiB-aligned).
  *  mem_vmhwm peak resident set in bytes, from /proc/self/status.
  */
 #ifndef EC_MEM_H
@@ -65,9 +64,6 @@ void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on
 void *dpool_get_exact(dpool *d, int dev, size_t bytes);   /* grows to exactly bytes (2 MiB-aligned), no power-of-two rounding */
 void  dpool_free(dpool *d);
 
-typedef struct { void *p; size_t cap; } hpool;
-void *hpool_get(hpool *h, size_t bytes);
-void  hpool_free(hpool *h);
 
 size_t mem_vmhwm(void);
 size_t mem_vmrss(void);
