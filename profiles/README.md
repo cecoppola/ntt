@@ -1,7 +1,8 @@
 # profiles/ -- machine profiles (draft, step one)
 
-Status: **templates only (2026-10-11, agent c01).** No script reads these files yet; nothing in `ecalc/` changed. The only
-consumer is `tools/profile_check.sh`, which reads a profile and reports; it launches nothing.
+Status (O3, 2026-10-12): step 2 on branch `o3`, not merged. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
+default); `tools/with_profile.sh NAME -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
+`gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/O3.md.
 
 ## Plan (agreed 2026-10-11)
 
