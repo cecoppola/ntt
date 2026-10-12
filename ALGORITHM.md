@@ -378,12 +378,11 @@ file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=1` writ
 default before 2026-10-12), `=0` ASCII.
 
 **Parts.** At size 1 the file is `<outfile>`. At size > 1 each node writes `<outfile>.part<k>`, k = size − 1 − rank (part 0
-holds the leading digits), so the sorted parts are the file; with `MN_OUT_DKM_HI=1` each node writes two parts (its share of
+holds the leading digits), so the sorted parts are the file; by default (`MN_OUT_DKM_HI=1`) each node writes two parts (its share of
 X_hi and of X_lo; nparts = 2·size). The converter takes the set in any order.
 
-**Early writer.** The writer is a background thread started by the division: at the division hook (X formed, before the low
-product), or, with `MN_OUT_DKM_HI=1`, right after step 1 on X_hi (final: step 2 changes only limbs below s) and later on
-X_lo. Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
+**Early writer.** The writer is a background thread started by the division: right after step 1 on X_hi (final: step 2 changes only limbs below s) and later on
+X_lo (`MN_OUT_DKM_HI=0` starts it at the division hook instead: X formed, before the low product). Writes use O_DIRECT through aligned buffers (`ECALC_ODIRECT=auto` chooses by file system). Division **corrections**
 that arrive after the writer started are not applied to X; the output stage patches only the tail the carry or borrow
 reaches (`mn_out_tail_fix`): it rewrites the 4 KiB blocks holding the changed limbs and moves the header's residues by the
 same change, so the file stays consistent.

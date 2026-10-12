@@ -15,10 +15,10 @@ project instructions). Within a class, rows are in the order to do them.
 | class | # | item | status | where |
 |---|---|---|---|---|
 | 1 | 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path): 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` fails, 24 OK | running: local diagnosis, then one 4-node aac7 item | results/A05.md, G12.md |
-| 2 | S | **Settings removal:** remove 83 settings + A5 (overlap/device flow) + B4 (TCP); registry 269 → 187 so far | running: lane A's A5 and D5 (packed output default, TASKS 40) gating; lane B done | results/W2A.md, W2B.md |
+| 2 | S | **Settings removal:** 83 settings + A5 (overlap/device flow) + B4 (TCP) removed or built in; registry 269 → 185 rows (m) | done 2026-10-12: lane A (42 settings and 1 value removed, ~1,800 lines out, m) and lane B (42 rows, D1e six built-in defaults) on main, gates PASS | results/W2A.md, W2B.md |
 | 3 | 27 | **Parameter system:** registry, profiles, six built-in defaults, size-dependent plan values (`tools/plan_values.py`) and review dates for settings (`ecalc/switches_review.tsv`) done 2026-10-12 | done except two user decisions (results/T27.md): the target launch block stops typing pool/heap (stale under the X2 default: plan 2304/2816 MiB vs typed 1536/2048), and `MN_GROUPS` at 576 - k nodes | results/C01.md, L5.md, O3.md, T27.md |
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | running: division multiply | results/P2.md, P3.md |
-| 5 | D | **Documentation:** central docs and the strict doc check done; each merge updates its docs; left: final pass after S (regenerate the settings table, re-run the `results/` prune) | waits for S | `TESTING.md` §9 |
+| 5 | D | **Documentation:** central docs and the strict doc check done; final pass after S done 2026-10-12 (settings table regenerated, stale settings and scripts removed from the docs, `results/` prune 3); each merge updates its docs | done (keep: each merge updates its docs) | `TESTING.md` §9 |
 
 Done 2026-10-12 (waves 0+1): R branch clean-up + the old archive folder moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
 
@@ -35,7 +35,7 @@ merges or drops it. Nothing is started from this section without the user's word
 
 | # | item | status | where |
 |---|---|---|---|
-| 40 | **Packed output `ECALC_OUT_PACKED=2`**: -6.25 % bytes (m); verified 2026-10-12 (O4: digits identical, round trip byte-identical, RECHECK OK, m) | decided: default on - implementation in wave 2 lane A | results/C05.md, O4.md |
+| 40 | **Packed output `ECALC_OUT_PACKED=2`**: -6.25 % bytes (m); verified 2026-10-12 (O4: digits identical, round trip byte-identical, RECHECK OK, m) | done 2026-10-12: default `ECALC_OUT_PACKED=2` (batch D5, gates PASS) | results/C05.md, O4.md, W2A.md |
 
 ## Ideas (saved, not scheduled)
 

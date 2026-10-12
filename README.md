@@ -29,7 +29,7 @@ History (the old plan, measurement logs, older reports, moved drivers) is kept o
 | path | what |
 |---|---|
 | `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts, the time and memory models, the switch registry |
-| `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and helper scripts |
+| `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and the test harness headers |
 | `tools/` | `gate.sh`, `rundriver.sh`, `unpack_digits`, the profile loader and checks, node screen |
 | `profiles/` | machine profiles: `aac7.conf`, `aac6.conf`, `target.conf.template` |
 | `tests/` | two model scripts (seed-span model, block-pool replay) |

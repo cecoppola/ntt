@@ -42,7 +42,7 @@ The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`
 assumed fabric rate (a)); the target has run only the memory and exchange benchmarks (`results/TGTBENCH2.md`). The
 largest multi-node cost today is the distributed division multiply (+94 s at 6 nodes against 1, m).
 
-**Road to the target.** Code reduction and documentation (done or in progress), then correctness defect TASKS 23, then
+**Road to the target.** Code reduction (settings removal) and documentation are done; next the correctness defect TASKS 23, then
 performance work on the test system, then the target session (section 4).
 
 ## 3. Defaults and launch lines
@@ -51,10 +51,10 @@ The code defaults are the tested configuration; nothing has to be set for a one-
 and evidence of each, is the switch table in `ecalc/README.md`.
 
 The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=shmem`, Cray contexts per thread, the
-symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, the transform-cache fit and partial cache,
-the early write after division step 1, the lean division, `MN_T_CHUNK_MB=2048`, the X2 exchange (`COMM_LAYER_INTER2`,
-`COMM_LAYER_VSLOT_POOL`) with slot sharing and release, the memory guard, the crash-trace handler and the verbose memory
-lines. The two lines are kept in:
+symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
+crash-trace handler and the verbose memory lines. The transform-cache fit and partial cache, the early write after
+division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
+`results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
 
 | system | line | source |
 |---|---|---|
@@ -65,7 +65,7 @@ lines. The two lines are kept in:
 `FI_MR_CACHE_MONITOR=userfaultfd`; it refuses `FI_MR_CACHE_MONITOR=disabled` (silent wrong exchanges, m).
 
 Profiles (`profiles/*.conf`, loaded by `tools/profile_load.py`, precedence: explicit environment > profile > code default)
-hold what is machine-specific. Settings adopted on both lines become code defaults (TASKS 27).
+hold what is machine-specific. Settings adopted on both lines are code defaults (TASKS 27).
 
 Size-dependent values are computed, never typed (TASKS 27, `results/T27.md`): the SHMEM pool (`COMM_SHMEM_POOL_MB`, from
 the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZE` (`mnrun.sh`) and the tree schedule
@@ -80,8 +80,8 @@ flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table 
 
 ## 4. Plan to the target run
 
-**Remaining work in this repository** is in `TASKS.md`: code reduction (wave 2), the forced-grid correction defect at 4
-nodes (TASKS 23), performance on aac7 (largest item: the distributed division multiply), and the documentation pass.
+**Remaining work in this repository** is in `TASKS.md`: the forced-grid correction defect at 4
+nodes (TASKS 23), performance on aac7 (largest item: the distributed division multiply).
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
