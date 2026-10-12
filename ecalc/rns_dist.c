@@ -84,6 +84,7 @@ struct rank_state {
     dpool desc; uint64_t *spill; size_t spill_cap;
     struct { dist_plan pl; int logR, logC, built; comm *cm; uint64_t *sl; } plan[EC_NP];   /* cm: the plan's communicator (the node's xGMI, or a group's layered one); sl: its slabs */
     uint64_t *ssl, *stmp; size_t ssl_q, stmp_q;          /* Phase 14 P2 (TASKS 2.4, DIST_MN_SYM_SLABS=1): mn_core's slabs and layered scratch in the transport's symmetric pool, kept */
+    hipStream_t g; hipEvent_t ega[EC_NP][2], egb[EC_NP][2], ey;   /* K6 (RNS_DIST_OVERLAP=1): the gather stream and its events (timing on): A / B gather of prime p begun / done, y consumed */
 };
 static struct rank_state RS[NR];
 static int g_init;
@@ -98,6 +99,9 @@ static void rank_init(int r)
     v->cm = comm_xgmi_create(r);
     for (int p = 0; p < EC_NP; p++) v->ctx[p] = ntt_ctx_create(p);
     HIP_CHECK(hipStreamCreate(&v->s));
+    HIP_CHECK(hipStreamCreateWithFlags(&v->g, hipStreamNonBlocking));   /* K6 */
+    for (int p = 0; p < EC_NP; p++) for (int k = 0; k < 2; k++) { HIP_CHECK(hipEventCreate(&v->ega[p][k])); HIP_CHECK(hipEventCreate(&v->egb[p][k])); }
+    HIP_CHECK(hipEventCreateWithFlags(&v->ey, hipEventDisableTiming));
 }
 /* gather rank r's rows of an operand: x[il C + j] = canon(src[R j + r rows + il]) or 0 */
 template <int QS> __global__ void k_gather(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m)
@@ -207,10 +211,11 @@ static void dist3_fwd(const struct ctx3 *c, uint64_t *x, hipStream_t s)
     k3_unpack<<<nblk(c->cols * R), 256, 0, s>>>(c->rb, x, c->rows, c->cols, size);
     ntt_fwd(c->ctx, x, c->logR, c->cols, s);
 }
-static void dist3_inv(const struct ctx3 *c, uint64_t *x, hipStream_t s)
+static void dist3_inv(const struct ctx3 *c, uint64_t *x, hipStream_t s, void (*after_cols)(void *, hipStream_t) = 0, void *hook_arg = 0)   /* after_cols: K6, as dist_plan's */
 {
     size_t C = (size_t)3 << c->logk, R = (size_t)1 << c->logR; ec_mod m = ec_mod_get(c->prime); int r = comm_rank(c->cm), size = comm_size(c->cm);
     ntt_inv(c->ctx, x, c->logR, c->cols, s);
+    if (after_cols) after_cols(hook_arg, s);
     k3_pack_cols<<<nblk(c->cols * R), 256, 0, s>>>(x, c->sb, c->rows, c->cols, size);
     HIP_CHECK(hipStreamSynchronize(s));
     comm_alltoall(c->cm, c->sb, c->rb, c->cols * c->rows * 8, s); comm_wait(c->cm);
@@ -792,6 +797,49 @@ static void b_check(int f, struct acc A, struct acc B, struct acc Cw, size_t nc)
     static size_t nchk; if (++nchk % 16 == 1 && getenv("RNS_VERBOSE")) printf("RNS_STRATEGY_CHECK: %zu products identical\n", nchk);
     bi_free(&x); bi_free(&y); db_free(&T);
 }
+/* ---- K6 (results/K6.md; RNS_DIST_OVERLAP=1, default 0): the operand gathers of prime p+1 overlapped with the transforms of prime p.
+ * The C form gathers each operand once per prime (k_gather: peer reads of the four quarters over xGMI, and the reduction mod p)
+ * and then transforms, both on the compute stream s with a host sync in between, so the gathers (xGMI-read bound, a few CUs)
+ * and the transforms (HBM bound; their pushes use the links the other way) never overlap.  With the switch on, every gather
+ * runs on a second stream g: A's plane of prime p+1 is free from the start (xa[p+1]), so its gather is enqueued when prime
+ * p begins; B's plane xb is reused by every prime, so its gather of p+1 is enqueued by a hook right after prime p's column
+ * inverse (the last reader of xb) has been enqueued on s -- or, when pool 0 has a spare plane (np < 4), into a second B
+ * plane at the start of prime p.  s waits for the gathers' events before transforming; one host sync per product instead
+ * of one per prime.  The gathers' arithmetic, the transforms and the CRT are untouched (an ordering, no arithmetic), so
+ * the digits are identical. */
+static int dist_overlap_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_OVERLAP"); v = e ? atoi(e) != 0 : 0; } return v; }
+static void gather_launch(uint64_t *x, const struct acc *src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m, size_t q, hipStream_t s)
+{
+    if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, s>>>(x, *src, R, rows, row0, C, m); else k_gather<0><<<nblk(q), 256, 0, s>>>(x, *src, R, rows, row0, C, m);
+}
+struct ovl_st {                                               /* one rank's overlap state for one product */
+    struct rank_state *v; struct acc A, B; size_t R, rows, row0, C, q; int np, ha, hb;
+    uint64_t *xa[EC_NP], *yb[EC_NP];                          /* yb[p]: B's plane of prime p (xb, the spare plane, or the cache plane) */
+    int two;                                                  /* two B planes (xb and the spare) */
+    int pending_b;                                            /* the prime whose B gather the hook enqueues (-1: none) */
+    char ga[EC_NP], gb[EC_NP];                                /* gather of A / B of prime p enqueued on g (its events recorded) */
+};
+static void ovl_gather_a(struct ovl_st *o, int p)
+{
+    if (p >= o->np || o->ha >= 0 || o->ga[p]) return;
+    HIP_CHECK(hipEventRecord(o->v->ega[p][0], o->v->g));
+    gather_launch(o->xa[p], &o->A, o->R, o->rows, o->row0, o->C, ec_mod_get(p), o->q, o->v->g);
+    HIP_CHECK(hipEventRecord(o->v->ega[p][1], o->v->g)); o->ga[p] = 1;
+}
+static void ovl_gather_b(struct ovl_st *o, int p)              /* the caller has ordered g after the last reader of yb[p] */
+{
+    if (p >= o->np || o->hb >= 0 || o->gb[p]) return;
+    HIP_CHECK(hipEventRecord(o->v->egb[p][0], o->v->g));
+    gather_launch(o->yb[p], &o->B, o->R, o->rows, o->row0, o->C, ec_mod_get(p), o->q, o->v->g);
+    HIP_CHECK(hipEventRecord(o->v->egb[p][1], o->v->g)); o->gb[p] = 1;
+}
+static void ovl_after_cols(void *arg, hipStream_t s)          /* the hook: prime p's column inverse (the last reader of xb) is enqueued on s */
+{
+    struct ovl_st *o = (struct ovl_st *)arg;
+    if (o->pending_b < 0) return;
+    HIP_CHECK(hipEventRecord(o->v->ey, s)); HIP_CHECK(hipStreamWaitEvent(o->v->g, o->v->ey, 0));
+    ovl_gather_b(o, o->pending_b); o->pending_b = -1;
+}
 /* the core: C = A B, na + nb limbs of result through accessors; nc limbs written.  sa, sb: the cache slots for A and B
  * (-1: not cached; a hit anywhere in the cache is taken regardless) */
 static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb)
@@ -835,25 +883,52 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                 v->plan[p].logR = logR; v->plan[p].logC = logC; v->plan[p].built = 1; v->plan[p].cm = v->cm; v->plan[p].sl = sl;
             }
         }
+        /* K6: the overlap state (RNS_DIST_OVERLAP=1); the second B plane is pool 0's spare plane when np < NR and the pool holds it */
+        int ovl = dist_overlap_on(); struct ovl_st o; memset(&o, 0, sizeof o);
+        if (ovl) {
+            o.v = v; o.A = A; o.B = B; o.R = R; o.rows = rows; o.row0 = (size_t)r * rows; o.C = C; o.q = q; o.np = np; o.ha = ha; o.hb = hb; o.pending_b = -1;
+            uint64_t *xb2 = 0;
+            if (hb < 0 && !cb && np < NR && rns_dpool_cap(r, 0) >= (size_t)(np + 1) * q * 8) xb2 = (uint64_t *)rns_dpool(r, 0, (size_t)(np + 1) * q * 8) + (size_t)np * q;   /* no growth: the cap holds it */
+            o.two = xb2 != 0;
+            for (int p = 0; p < np; p++) { o.xa[p] = xa[p]; o.yb[p] = cb ? cb + (size_t)p * q : (xb2 && (p & 1)) ? xb2 : xb; }
+            ovl_gather_a(&o, 0); ovl_gather_b(&o, 0);
+        }
         double s0 = mem_now(), lg = 0, lf = 0;
         for (int p = 0; p < np; p++) {
             ec_mod m = ec_mod_get(p);
             double g0 = mem_now();
             uint64_t *yb = cb ? cb + (size_t)p * q : xb;        /* B's transform: the cache plane (hit: already there) or xb */
-            if (ha < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
+            if (ovl) {
+                yb = o.yb[p];
+                if (o.ga[p]) HIP_CHECK(hipStreamWaitEvent(v->s, v->ega[p][1], 0));
+                if (o.gb[p]) HIP_CHECK(hipStreamWaitEvent(v->s, v->egb[p][1], 0));
+                if (ha >= 0) HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
+                ovl_gather_a(&o, p + 1);                        /* A's next plane is free: gather it under this prime's transforms */
+                if (o.two) { if (p > 0) { HIP_CHECK(hipEventRecord(v->ey, v->s)); HIP_CHECK(hipStreamWaitEvent(v->g, v->ey, 0)); } ovl_gather_b(&o, p + 1); }   /* the other B plane: last read by prime p-1's column inverse, already enqueued */
+                else o.pending_b = p + 1;                       /* one B plane: after this prime's column inverse (the hook) */
+            } else {
+            if (ha < 0) gather_launch(xa[p], &A, R, rows, (size_t)r * rows, C, m, q, v->s);
             else HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
-            if (hb < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
+            if (hb < 0) gather_launch(yb, &B, R, rows, (size_t)r * rows, C, m, q, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
-            if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], xb, v->s); ntt_pw(v->ctx[p], xa[p], xb, q, v->s); dist3_inv(&c3[p], xa[p], v->s); }
+            }
+            if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], yb, v->s); ntt_pw(v->ctx[p], xa[p], yb, q, v->s); dist3_inv(&c3[p], xa[p], v->s, ovl && !o.two ? ovl_after_cols : 0, &o); }
             else {
             if (ha < 0) { dist_fwd(&v->plan[p].pl, xa[p], v->s); if (ca) HIP_CHECK(hipMemcpyAsync(ca + (size_t)p * q, xa[p], q * 8, hipMemcpyDeviceToDevice, v->s)); }   /* A miss: fill its slot */
             if (hb < 0) dist_fwd(&v->plan[p].pl, yb, v->s);
+            if (ovl && !o.two) { v->plan[p].pl.after_cols = ovl_after_cols; v->plan[p].pl.after_cols_arg = &o; }
             if (dist_pw_fused()) dist_inv_pw(&v->plan[p].pl, xa[p], yb, v->s);   /* A6: the pointwise fused into the column inverse */
             else { dist_pw(&v->plan[p].pl, xa[p], yb, v->s); dist_inv(&v->plan[p].pl, xa[p], v->s); }
+            v->plan[p].pl.after_cols = 0; v->plan[p].pl.after_cols_arg = 0;
             }
-            HIP_CHECK(hipStreamSynchronize(v->s));
+            if (ovl && !o.two && o.pending_b >= 0) { HIP_CHECK(hipEventRecord(v->ey, v->s)); HIP_CHECK(hipStreamWaitEvent(v->g, v->ey, 0)); ovl_gather_b(&o, o.pending_b); o.pending_b = -1; }   /* the hook did not run (dist_pw path): after the whole inverse */
+            if (!ovl) HIP_CHECK(hipStreamSynchronize(v->s));
         }
-        double s2 = mem_now(); lf = s2 - s0 - lg;
+        if (ovl) {                                             /* one sync per product; lg = the gathers' device time (overlapped with the transforms), lf = the whole span */
+            HIP_CHECK(hipStreamSynchronize(v->s));
+            for (int p = 0; p < np; p++) { float ms; if (o.ga[p]) { HIP_CHECK(hipEventElapsedTime(&ms, v->ega[p][0], v->ega[p][1])); lg += ms * 1e-3; } if (o.gb[p]) { HIP_CHECK(hipEventElapsedTime(&ms, v->egb[p][0], v->egb[p][1])); lg += ms * 1e-3; } }
+        }
+        double s2 = mem_now(); lf = ovl ? s2 - s0 : s2 - s0 - lg;
         /* CRT over this rank's runs: transpose each plane in place (via xt), one stripe per run into xb */
         for (int p = 0; p < np; p++) {
             dim3 grid((unsigned)((C + 31) / 32), (unsigned)((rows + 31) / 32)), blk(32, 8);

@@ -89,7 +89,7 @@ void dist_plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR,
 static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int logR, int logC, int slabs)
 {
     int size = comm_size(cm);
-    p->cm = cm; p->ctx = ctx; p->prime = prime; p->logR = logR; p->logC = logC;
+    p->cm = cm; p->ctx = ctx; p->prime = prime; p->logR = logR; p->logC = logC; p->after_cols = 0; p->after_cols_arg = 0;
     p->rows = ((size_t)1 << logR) / size; p->cols = ((size_t)1 << logC) / size;
     int logn = logR + logC;
     uint64_t wn = ec_root(prime, logn), wR = ec_root(prime, logR);
@@ -368,6 +368,7 @@ static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t 
     HIP_CHECK(hipEventRecord(p->evr, s));                /* WM15 H1: the previous transform's reads of rbuf */
     if (y) TS(ST_COLS, ntt_inv_pw_y(p->ctx, x, y, NTT_Y_FULL, p->logR, p->cols, s));   /* columns: pointwise + length-R inverse, x R^-1, natural */
     else TS(ST_COLS, ntt_inv(p->ctx, x, p->logR, p->cols, s));                         /* columns: length-R inverse, x R^-1, natural */
+    if (p->after_cols) p->after_cols(p->after_cols_arg, s);   /* K6: y is consumed from here on (the caller may refill its plane on another stream) */
     for (int k = 0; k < K; k++) inv_prod(p, x, k, s);
     HIP_CHECK(hipEventRecord(p->ev, s));
     rb_free_wait(p);

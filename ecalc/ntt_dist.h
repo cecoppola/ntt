@@ -55,6 +55,7 @@ typedef struct {
     hipEvent_t ev, evt;
     hipEvent_t evr;         /* Phase 15 WM (results/WM15.md H1): recorded on s at a transform's start -- the previous transform's reads of rbuf */
     hipEvent_t *te; int nte, te_cap; unsigned char *tk;   /* C5: the timing events of one transform and their kinds */
+    void (*after_cols)(void *arg, hipStream_t s); void *after_cols_arg;   /* K6 (RNS_DIST_OVERLAP): called on the host right after the inverse's column pass is enqueued on s (0: none) */
 } dist_plan;
 /* timing of the parts (DIST_STATS=1; summed over ranks and calls; the caller resets).  Device times from events:
  * t_local1 rows, t_local2 columns, t_pack packs + unpacks, t_xfer the exchanges on the transfer stream, t_total per
