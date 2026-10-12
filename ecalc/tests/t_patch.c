@@ -37,17 +37,6 @@ static int packed_part_check(const char *pn, const uint64_t *X1, size_t nl, cons
     return bad;
 }
 static const uint64_t B = 1000000000000000000ULL;
-static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned long d)
-{
-    size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);
-    for (size_t i = 0; i < nl; i++) {
-        char buf[19]; uint64_t v = i < n ? l[i] : 0;
-        snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
-        size_t pos = (nl - 1 - i) * 18;
-        for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
-    }
-    digits[d + 1] = 0;
-}
 /* the split writer's gate -- X_lo's limbs arrive only now (the buffer held garbage); called once, after the chunks above s */
 struct ew_gate { const uint64_t *from; uint64_t *to; size_t s; int calls, bad; };
 static void ew_gate_fn(void *a, struct mn_out_s *o) { struct ew_gate *g = (struct ew_gate *)a; g->calls++; if (!o->nchunks) g->bad++; memcpy(g->to, g->from, g->s * 8); }

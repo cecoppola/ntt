@@ -10,6 +10,7 @@
  *                        exact but slow above ~2^20 limbs; the residue helpers below cover larger sizes)
  * limbs_mod_m61 / limbs_mod_u64   cheap residues of a limb array (mod 2^61-1, mod any q < 2^63)
  * META / RESULT lines in the bench/ format (harness_meta, harness_result)
+ * digits_format          the digit string of a limb array (t_out, t_patch)
  *
  * C and HIP-C++ compatible; needs -lgmp.  Decimal limbs only since archive:PLAN §28.5 (the binary base is archived).
  */
@@ -104,6 +105,18 @@ static int bi_eq_mpz(const bigint *a, const mpz_t z)
     mpz_t t; int eq;
     mpz_init(t); bi_to_mpz(t, a); eq = mpz_cmp(t, z) == 0; mpz_clear(t);
     return eq;
+}
+/* the d + 1 significant digits ("2718...") of the decimal-limb number l[0..n) (zeros above n), NUL-terminated */
+static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned long d)
+{
+    size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);
+    for (size_t i = 0; i < nl; i++) {
+        char buf[19]; uint64_t v = i < n ? l[i] : 0;
+        snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
+        size_t pos = (nl - 1 - i) * 18;
+        for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
+    }
+    digits[d + 1] = 0;
 }
 static void bi_random(bigint *a, size_t n, int kind, rng_t *r)
 {

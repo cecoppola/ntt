@@ -10,17 +10,6 @@
 #include <unistd.h>
 #include "../mn_out.h"
 #include "harness.h"
-static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned long d)
-{
-    size_t nl = (d + 1 + 17) / 18, pad = nl * 18 - (d + 1);
-    for (size_t i = 0; i < nl; i++) {
-        char buf[19]; uint64_t v = i < n ? l[i] : 0;
-        snprintf(buf, sizeof buf, "%018llu", (unsigned long long)v);
-        size_t pos = (nl - 1 - i) * 18;
-        for (int c = 0; c < 18; c++) if (pos + c >= pad) digits[pos + c - pad] = buf[c];
-    }
-    digits[d + 1] = 0;
-}
 static uint64_t rnd(void) { static uint64_t s = 0x9E3779B97F4A7C15ull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
 int main(void)
 {
