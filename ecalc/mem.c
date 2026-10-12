@@ -224,6 +224,7 @@ void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s)
     double t0 = mem_now();
     /* first touch from threads on the node: one page per stride, in parallel */
     int nt = mem_par_init ? mem_ncpus_node(node) : omp_get_max_threads();
+    (void)nt;
 #pragma omp parallel num_threads(nt)
     {
         mem_pin_to_node(node);

@@ -241,7 +241,7 @@ int comm_shmem_rank(void) { return S.me; }
 int comm_shmem_size(void) { return S.npes; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }   /* Phase 16 D */
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
-#ifndef COMM_HOST_ONLY
+#if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)   /* as its only caller below */
 /* the device buffer of a device-heap pool (COMM_SHMEM_DEVHEAP on SOS): fine-grained (host-accessible; =2 managed) on the current device */
 static void *dev_pool_alloc(size_t bytes, int kind)
 {
