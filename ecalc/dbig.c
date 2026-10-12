@@ -585,12 +585,32 @@ void db_reserve(dbig *x, size_t limbs)
 #define BOUNCE ((size_t)1 << 27)                              /* limbs: 1 GiB */
 static uint64_t *g_bounce[DB_NQ][2]; static hipStream_t g_bs[DB_NQ];
 static pthread_mutex_t g_bounce_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: copies may be issued from a background thread; one at a time per process */
+/* O2: DBIG_BOUNCE_TS=1 (print only) -- one line per first-use pinned allocation: "bounce_init dev d: <what> <bytes> B <s> s" */
+static int bounce_ts_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_BOUNCE_TS") ? atoi(getenv("DBIG_BOUNCE_TS")) : 0; return v; }
+static void bs_init(int d) { if (!g_bs[d]) HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking)); }   /* Phase 8: copies from a background thread must not serialise with the kernels on the null stream */
 static void bounce_init(int d)
 {
     if (g_bounce[d][0]) return;
-    HIP_CHECK(hipSetDevice(d));
+    HIP_CHECK(hipSetDevice(d)); double t0 = tnow();
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
-    HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking));   /* Phase 8: copies from a background thread must not serialise with the kernels on the null stream */
+    bs_init(d);
+    if (bounce_ts_on()) { printf("bounce_init dev %d: 2 x pinned %zu B %.3f s\n", d, (size_t)BOUNCE * 8, tnow() - t0); fflush(stdout); }
+}
+/* O2: DBIG_SMALL_BOUNCE=1 (off by default) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
+ * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
+ * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/O2.md); the small buffer costs milliseconds.
+ * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
+#define SBOUNCE ((size_t)1 << 20)
+static uint64_t *g_sbounce[DB_NQ];
+static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_SMALL_BOUNCE") ? atoi(getenv("DBIG_SMALL_BOUNCE")) : 0; return v; }
+static uint64_t *sbounce_get(int d)
+{
+    if (!g_sbounce[d]) {
+        HIP_CHECK(hipSetDevice(d)); double t0 = tnow();
+        HIP_CHECK(hipHostMalloc((void **)&g_sbounce[d], SBOUNCE * 8, 0)); bs_init(d);
+        if (bounce_ts_on()) { printf("bounce_init dev %d: small pinned %zu B %.3f s\n", d, (size_t)SBOUNCE * 8, tnow() - t0); fflush(stdout); }
+    }
+    return g_sbounce[d];
 }
 static void par_memcpy(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -604,6 +624,14 @@ void db_from_bi(dbig *x, const bigint *a)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= a->n) break;
         size_t len = a->n - lo < x->qc ? a->n - lo : x->qc;
+        if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
+            uint64_t *sb = sbounce_get(d); HIP_CHECK(hipSetDevice(d));
+            HIP_CHECK(hipStreamSynchronize(0));
+            memcpy(sb, a->l + lo, len * 8);
+            HIP_CHECK(hipMemcpyAsync(x->q[d], sb, len * 8, hipMemcpyHostToDevice, g_bs[d]));
+            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            continue;
+        }
         bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0;
         HIP_CHECK(hipStreamSynchronize(0));                         /* nothing of ours still runs on the target */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
@@ -623,6 +651,14 @@ void db_to_bi(bigint *r, const dbig *x)
     for (int d = 0; d < DB_NQ; d++) {
         size_t lo = (size_t)d * x->qc; if (lo >= x->n) break;
         size_t len = x->n - lo < x->qc ? x->n - lo : x->qc;
+        if (len <= SBOUNCE && small_bounce_on()) {                  /* O2: one chunk through the small pinned buffer */
+            uint64_t *sb = sbounce_get(d); HIP_CHECK(hipSetDevice(d));
+            HIP_CHECK(hipStreamSynchronize(0));                     /* the source is complete */
+            HIP_CHECK(hipMemcpyAsync(sb, x->q[d], len * 8, hipMemcpyDeviceToHost, g_bs[d]));
+            HIP_CHECK(hipStreamSynchronize(g_bs[d]));
+            memcpy(r->l + lo, sb, len * 8);
+            continue;
+        }
         bounce_init(d); HIP_CHECK(hipSetDevice(d)); int b = 0; size_t prev = 0, prevm = 0; int have = 0;
         HIP_CHECK(hipStreamSynchronize(0));                         /* the source is complete (its kernels ran on the null stream) */
         for (size_t i = 0; i < len; i += BOUNCE, b ^= 1) {
