@@ -399,7 +399,7 @@ static void cache_plan(int *sa, int *sb, int ha, int hb, const void *ka, size_t 
  * Held slots (RNS_DIST_CACHE_FIT / the default) are not allocated by the mn tier under the switch. */
 static size_t grp_max(mn_group *G, size_t v);
 static int g_node_of(mn_group *G);
-static int pc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 0; } return v; }
+static int pc_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("RNS_DIST_CACHE_PARTIAL"); v = e ? atoi(e) != 0 : 1; } return v; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29) */
 static int cache_slot_k(int si, int np) { if (si < 0) return 0; int k = g_cache.s[si].k; return k > 0 && k < np ? k : np; }   /* the primes slot si holds for an np-prime product */
 static uint64_t *cache_pl(int si, int d, int p, size_t q) { const struct dist_slot *s = &g_cache.s[si]; return g_cache.pc ? s->pp[d][p] : s->pl[d] + (size_t)p * q; }   /* slot si's plane of prime p on APU d */
 static struct { size_t products, taken, planes_max, bytes_max, planes_sum, grown; } g_pcst;   /* PC: the run's partial slots (printed at the release) */
@@ -1085,7 +1085,7 @@ static comm *lay_get(mn_group *G, int d)
 {
     if (!G->lay[d]) {
         G->lay[d] = comm_layered_create(RS[d].cm, G->all[d], d);
-        const char *e = getenv("COMM_LAYER_INTER2"); if (e && atoi(e)) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
+        if (comm_layered_inter2_on()) comm_layered_set_inter2(G->lay[d], mn_mesh2(G, d, 0));   /* X2: collective over the group's nodes (all call lay_get for the same product) */
     }
     return G->lay[d];
 }

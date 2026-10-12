@@ -25,13 +25,13 @@ BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	dbig.c; K8b+CAND,
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	
 COMM_INIT_EARLY	bool	1	1	0|1	built-in default	-	S16.md	Y	ecalc	ecalc.c	2	
-COMM_LAYER_INTER2	bool	0	unset	0|1	launch-line	aac7	XEFF.md+S47.md	Y	ecalc	binsplit.c,comm_layered.c,mn.c,rns_dist.c	5	binsplit.c:450 (e && atoi(e) != 0)
+COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	2	
-COMM_LAYER_VSLOT_POOL	bool	0	0	0|1	launch-line	aac7	XEFF.md	Y	ecalc	binsplit.c,comm_layered.c,comm_ofi.c,comm_shmem.c,ecalc.c	6	binsplit.c:426
+COMM_LAYER_VSLOT_POOL	bool	1	1	0|1	built-in default	-	XEFF.md	Y	ecalc	comm_layered.c,comm_ofi.c,comm_shmem.c	3	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_LAYER_VSLOT_PREALLOC	int	unset	unset		built-in default	-	-	prose	ecalc	binsplit.c	2	
-COMM_LAYER_VSLOT_RELEASE	bool	0	unset	0|1	launch-line	aac7	-	Y	ecalc	binsplit.c,comm_layered.c	2	binsplit.c:427; user adopted 2026-10-11 (with X2) for the launch lines; needs COMM_LAYER_VSLOT_POOL=1
-COMM_LAYER_VSLOT_SHARE	bool	0	unset	0|1	launch-line	aac7	S36.md	Y	ecalc	binsplit.c,comm_layered.c	2	binsplit.c:399
+COMM_LAYER_VSLOT_RELEASE	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	comm_layered.c; default 1 since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL
+COMM_LAYER_VSLOT_SHARE	bool	1	1	0|1	built-in default	-	S36.md	Y	ecalc	comm_layered.c	1	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_CHUNK_MB	float	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	comm_ofi.c	2	
 COMM_OFI_DEV	int	derived	derived		test-only	-	-	Y	ecalc	comm_shmem.c	2	
@@ -129,7 +129,7 @@ MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns
 MN_LAYERED_LOCAL	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
 MN_LAYERED_RAW	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	
-MN_OUT_DKM_HI	bool	0	unset	0|1	launch-line	aac7	EW15.md+R§93	Y	ecalc	ecalc.c	1	ecalc.c:102
+MN_OUT_DKM_HI	bool	1	1	0|1	built-in default	-	EW15.md+R§93	Y	ecalc	ecalc.c	2	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	
 MN_OUT_EARLY	int	1	1		built-in default	-	IO15.md	Y	ecalc	binsplit.c,ecalc.c	6	
 MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1	
@@ -165,7 +165,7 @@ RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2
 RNS_DIST_CACHE_FIT_RESERVE_GB	float	32	32		built-in default	-	TC15.md+DOC215.md	Y	ecalc	rns_dist.c	1	
 RNS_DIST_CACHE_MARGIN_GB	float	24	24		built-in default	-	TC15.md+M13.md	Y	ecalc	rns_dist.c	2	
 RNS_DIST_CACHE_MN	int	2	2		experiment	-	TC15.md	Y	ecalc	rns_dist.c	1	
-RNS_DIST_CACHE_PARTIAL	bool	0	0	0|1	launch-line	aac7	PC15.md+R§93	Y	ecalc	rns_dist.c	1	rns_dist.c
+RNS_DIST_CACHE_PARTIAL	bool	1	1	0|1	built-in default	-	PC15.md+R§93	Y	ecalc	rns_dist.c	1	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
 RNS_DIST_CACHE_PARTIAL_FORCE	bool	unset	unset	0|1	test-only	-	PC15.md	prose	ecalc	rns_dist.c	1	
 RNS_DIST_CACHE_PARTIAL_K	int	derived	derived		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	2	
 RNS_DIST_CACHE_PARTIAL_MARGIN_GB	float	0.5	0.5		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	4	

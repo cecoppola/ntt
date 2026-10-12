@@ -130,6 +130,10 @@ size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap'
 int   comm_shmem_pool_in_heap(void);           /* Phase 14 V1: 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
+int   comm_layered_vslot_pool_on(void);      /* TASKS 27 (D1e): COMM_LAYER_VSLOT_POOL, default 1 */
+int   comm_layered_inter2_on(void);          /* COMM_LAYER_INTER2, default: COMM_LAYER_VSLOT_POOL's value */
+int   comm_layered_vslot_share_on(void);     /* COMM_LAYER_VSLOT_SHARE, default 1 */
+int   comm_layered_vslot_release_on(void);   /* COMM_LAYER_VSLOT_RELEASE, default: COMM_LAYER_VSLOT_POOL's value */
 void  comm_layered_release_vslots(comm *c);   /* M3: COMM_LAYER_VSLOT_RELEASE=1 -- free the pool v-slots after a product's v-exchanges (no-op otherwise) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
 /* S (archive:PLAN §25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any

@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include "binsplit.h"
 size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void);   /* Phase 14 V1 (comm.h; comm_shmem.c): the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
+int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void); int comm_layered_vslot_share_on(void); int comm_layered_vslot_release_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 / S36 / M3 defaults */
 #include "rns_mul.h"
 #include "mem.h"
 #include "dbig.h"
@@ -388,7 +389,7 @@ static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q
     double lg = lgamma((double)N + 1.0) / log(10.0), dl10 = 18.0;
     return (size_t)ceil(lg / dl10) + 2;
 }
-static int vslot_share_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_SHARE"); return e && atoi(e) != 0; }   /* S36 (comm_layered.c): one pair of v-slots per device, handed from level to level */
+static int vslot_share_on(void) { return comm_layered_vslot_share_on(); }   /* S36 (comm_layered.c): one pair of v-slots per device, handed from level to level */
 size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *by, size_t bylen)
 {
     if (tree_top) *tree_top = 0; if (by && bylen) by[0] = 0;
@@ -415,8 +416,8 @@ size_t binsplit_vslot_bytes(unsigned long N, int size, size_t *tree_top, char *b
     return lower + top;
 }
 /* X2 (results/XEFF.md item 2): COMM_LAYER_VSLOT_POOL=1 -- the v-slots come from the comm pool (comm_sym_alloc), so the pool rule counts them and the hipMalloc'd budget does not */
-static int vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e && atoi(e) != 0; }
-static int vslot_release_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_RELEASE"); return e && atoi(e) != 0 && vslot_pool_on(); }   /* M3 (results/C06.md): the pool's v-slots are freed after each product's v-exchanges, so the staging and the slots share the pool in time */
+static int vslot_pool_on(void) { return comm_layered_vslot_pool_on(); }   /* (default 1 since 2026-10-12, TASKS 27) */
+static int vslot_release_on(void) { return comm_layered_vslot_release_on() && vslot_pool_on(); }   /* M3 (results/C06.md): the pool's v-slots are freed after each product's v-exchanges, so the staging and the slots share the pool in time */
 /* S31 (COMM_LAYER_VSLOT_POOL): each v-slot is allocated once at the model's per-slot maximum of its group size g (env COMM_LAYER_VSLOT_MB_<g>, MiB; comm_layered.c need_vslot),
  * not regrown with every larger product -- a slot regrown in the comm pool (free, then allocate) strands holes between the short-lived staging blocks (S28: 10 nodes,
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
@@ -439,7 +440,7 @@ static void vslot_prealloc_env(unsigned long N, int size)
         { const char *er = getenv("COMM_RANK"), *ve = getenv("ECALC_VERBOSE"); if (getenv("MN_PLAN_ONLY") || ((!er || atoi(er) == 0) && ve && atoi(ve) >= 2)) printf("plan vslot-prealloc  %s=%s MiB per slot (S31: each v-slot of a %d-node group allocated once)\n", nm, getenv(nm), gg[k]); } }
 #undef VS_NOTE
 }
-static int inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e && atoi(e) != 0; }
+static int inter2_on(void) { return comm_layered_inter2_on(); }
 int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 1; } return v; }   /* S18 (the user, 2026-10-07): default 1; was 0 (B7ACCT) */
 size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && !vslot_pool_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With

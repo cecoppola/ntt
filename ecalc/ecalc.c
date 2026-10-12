@@ -83,7 +83,8 @@ static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b
  * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
  * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
 static int g_dkm_hi = -1;
-static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e && atoi(e) != 0; } return g_dkm_hi; }
+static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e ? atoi(e) != 0 : 1; } return g_dkm_hi; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29); =0 the old writer */
+static int dkm_hi_explicit(void) { return getenv("MN_OUT_DKM_HI") != 0; }   /* the "ignored" notes only when the switch is set by hand */
 static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
 static struct x_hi g_xhi;
@@ -520,7 +521,7 @@ int main(int argc, char **argv)
     printf("      VmRSS %.1f GB after init (staging %.1f GB pinned + device regions %.0f GB); init %.1f s\n", mem_vmrss() / 1e9, rns_staging_bytes() * 4 / 1e9, mem_dev_pool_bytes() / 1e9, t_init);
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
-        mem_report_outside(getenv("COMM_LAYER_VSLOT_POOL") && atoi(getenv("COMM_LAYER_VSLOT_POOL")) ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
+        mem_report_outside(comm_layered_vslot_pool_on() ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
@@ -598,7 +599,7 @@ int main(int argc, char **argv)
             if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
             if (dkm_hi_on()) {                          /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
                 if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
-                else if (mn_rank() == 0) printf("mn: MN_OUT_DKM_HI ignored: it needs MN_OUT_EARLY=1 with an output file and ECALC_CORR_PATCH=2\n");
+                else if (mn_rank() == 0 && dkm_hi_explicit()) printf("mn: MN_OUT_DKM_HI ignored: it needs MN_OUT_EARLY=1 with an output file and ECALC_CORR_PATCH=2\n");
             }
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
@@ -738,7 +739,7 @@ int main(int argc, char **argv)
     if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* Phase 10 H (B1): X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
     if (dkm_hi_on()) {                                /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
         if (ovl3 && newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
-        else printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
+        else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
     }
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);

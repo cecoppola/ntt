@@ -6,9 +6,9 @@ BS_CKPT_EVERY	4	int	>=0		binsplit.c:37 initialiser (the env only overrides it); 
 BS_CKPT_MIN_LEVEL	16	int	>=0		binsplit.c:38 initialiser
 BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
 BS_RESTART	0	int	0|1		ecalc.c
-COMM_LAYER_INTER2	0	bool	0|1		binsplit.c:450 (e && atoi(e) != 0)
-COMM_LAYER_VSLOT_POOL	0	bool	0|1		binsplit.c:426
-COMM_LAYER_VSLOT_SHARE	0	bool	0|1		binsplit.c:399
+COMM_LAYER_INTER2	derived	bool	0|1	built-in default	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
+COMM_LAYER_VSLOT_POOL	1	bool	0|1	built-in default	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
+COMM_LAYER_VSLOT_SHARE	1	bool	0|1	built-in default	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
 COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)
@@ -34,15 +34,15 @@ LIMB_BASE	10	enum	10		bigint.c bi_check_base: only 10 is accepted; any other val
 MEM_REPORT_DEVS	0	bool	0|1		ecalc.c:372/537 (presence test)
 MN_COMM_MARK	0	bool	0|1		mn.c:28 (atoi > 0)
 MN_GROUPS	unset	str	group list		rns_dist.c:2315; unset = the automatic schedule
-MN_OUT_DKM_HI	0	bool	0|1		ecalc.c:102
+MN_OUT_DKM_HI	1	bool	0|1	built-in default	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_PLAN_ONLY	unset	str	D:g		ecalc.c:451; prints the plan and exits
 MN_TOPO_GROUP	0	int	0|1		mn.c
 MN_T_CHUNK_MB	1024	float	MiB		rns_dist.c:1608
 MN_WAIT_STATS	0	bool	0|1		comm_util.c:22 (atoi > 0)
 POOL_LOG	31	int	29..31		ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
-RNS_DIST_CACHE_PARTIAL	0	bool	0|1		rns_dist.c
+RNS_DIST_CACHE_PARTIAL	1	bool	0|1	built-in default	rns_dist.c; default 1 since 2026-10-12 (TASKS 27)
 RNS_VERBOSE	0	bool	0|1		dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
-COMM_LAYER_VSLOT_RELEASE	0	bool	0|1	launch-line	binsplit.c:427; user adopted 2026-10-11 (with X2) for the launch lines; needs COMM_LAYER_VSLOT_POOL=1
+COMM_LAYER_VSLOT_RELEASE	derived	bool	0|1	built-in default	comm_layered.c; default 1 since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL
 DIST_GATHER_RAW	2	int	0|1|2	built-in default	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
 DIST_GATHER_RAW_MARGIN_GB	2	float	-	built-in default	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DBIG_SMALL_BOUNCE	1	int	0|1	built-in default	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path

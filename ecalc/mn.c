@@ -280,7 +280,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
         comm *xg = comm_xgmi_create(d), *cm = getenv("MN_LAYERED_RAW") ? xg : comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
-        if (!dbg_local && cm != xg && getenv("COMM_LAYER_INTER2") && atoi(getenv("COMM_LAYER_INTER2"))) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
+        if (!dbg_local && cm != xg && comm_layered_inter2_on()) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
         if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));

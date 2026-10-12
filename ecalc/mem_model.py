@@ -480,26 +480,31 @@ def vslot_resident(nq, g, groups=None, pool_log=31, p24=None, depth=None):
         return dict(per_apu=max(maxlow, top_tree, dm), tree_top=max(maxlow, top_tree), levels=levels, dm=dm, summed=lower + max(top_tree, dm))
     return dict(per_apu=lower + max(top_tree, dm), tree_top=lower + top_tree, levels=levels, dm=dm)
 
+def _env_on(env, key, dflt):
+    """the C form `e ? atoi(e) != 0 : dflt` (TASKS 27, 2026-10-12: the X2 / S36 / M3 switches default to 1 in the code)"""
+    v = env.get(key)
+    return dflt if v is None else v not in ('', '0')
+
 def vslot_share_on(env=None):
     """S36 COMM_LAYER_VSLOT_SHARE=1 (comm_layered.c need_vslot_shared, binsplit.c vslot_share_on): the levels' v-slot pairs are one pair per device"""
     env = os.environ if env is None else env
-    return env.get('COMM_LAYER_VSLOT_SHARE', '0') not in ('', '0')
+    return _env_on(env, 'COMM_LAYER_VSLOT_SHARE', True)
 
 def vslot_pool_on(env=None):
     """X2 (results/XEFF.md item 2) COMM_LAYER_VSLOT_POOL=1: the v-slots come from the comm pool (comm_sym_alloc): counted in the pool need (shmem_pool vslot=),
     not as hipMalloc'd v-slots (binsplit.c vslot_pool_on)"""
     env = os.environ if env is None else env
-    return env.get('COMM_LAYER_VSLOT_POOL', '0') not in ('', '0')
+    return _env_on(env, 'COMM_LAYER_VSLOT_POOL', True)
 
 def vslot_release_on(env=None):
     """M3 (results/C06.md) COMM_LAYER_VSLOT_RELEASE=1 (with VSLOT_POOL): the pool v-slots are freed after each product's v-exchanges, so the staged exchanges and the slots
     share the comm pool in time (binsplit.c vslot_release_on): the pool need takes their maximum, not their sum"""
     env = os.environ if env is None else env
-    return env.get('COMM_LAYER_VSLOT_RELEASE', '0') not in ('', '0') and vslot_pool_on(env)
+    return _env_on(env, 'COMM_LAYER_VSLOT_RELEASE', vslot_pool_on(env)) and vslot_pool_on(env)
 
 def inter2_on(env=None):
     env = os.environ if env is None else env
-    return env.get('COMM_LAYER_INTER2', '0') not in ('', '0')
+    return _env_on(env, 'COMM_LAYER_INTER2', vslot_pool_on(env))
 
 def vslot_budget_on(env=None):
     """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 1 since 2026-10-07 (the user); was 0): the v-slots counted in the node budget (room, cache fit, budget check)"""

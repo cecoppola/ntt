@@ -295,7 +295,7 @@ int comm_shmem_init(void)
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
-    S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 0) > 0;   /* X2: no rounds for an exchange from and into the pool */
+    S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1 since 2026-10-12, TASKS 27) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }   /* Phase 14 V1 */
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);

@@ -664,9 +664,17 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
+/* TASKS 27 (D1e, 2026-10-12): X2 (COMM_LAYER_VSLOT_POOL, COMM_LAYER_INTER2), S36 (COMM_LAYER_VSLOT_SHARE) and M3 (COMM_LAYER_VSLOT_RELEASE),
+ * on both launch lines since 2026-10-11, are built-in defaults (1); =0 keeps each one's old form.  INTER2 and RELEASE need the pool's
+ * slots: unset, they follow COMM_LAYER_VSLOT_POOL (so COMM_LAYER_VSLOT_POOL=0 alone gives the whole old form).  binsplit.c's sizing,
+ * mn.c and rns_dist.c read the same functions. */
+int comm_layered_vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e ? atoi(e) != 0 : 1; }
+int comm_layered_inter2_on(void) { const char *e = getenv("COMM_LAYER_INTER2"); return e ? atoi(e) != 0 : comm_layered_vslot_pool_on(); }
+int comm_layered_vslot_share_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_SHARE"); return e ? atoi(e) != 0 : 1; }
+int comm_layered_vslot_release_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_RELEASE"); return e ? atoi(e) != 0 : comm_layered_vslot_pool_on(); }
 static void lay_opts(lay_priv *p) {
-    { const char *a = getenv("COMM_LAYER_VSLOT_POOL"), *b = getenv("COMM_LAYER_INTER2"); p->vpool = a && atoi(a) != 0; p->i2 = b && atoi(b) != 0; { const char *sh = getenv("COMM_LAYER_VSLOT_SHARE"); p->vshare = sh && atoi(sh) != 0; vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
-      { const char *rl = getenv("COMM_LAYER_VSLOT_RELEASE"); p->vrel = rl && atoi(rl) != 0;   /* M3 (results/C06.md): the pool slots are released after each product's v-phase */
+    { p->vpool = comm_layered_vslot_pool_on(); p->i2 = comm_layered_inter2_on(); { p->vshare = comm_layered_vslot_share_on(); vslot_attach(p); }   /* S36 */   /* X2 (results/XEFF.md item 2): both off by default */
+      { p->vrel = comm_layered_vslot_release_on();   /* M3 (results/C06.md): the pool slots are released after each product's v-phase */
         if (p->vrel && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_RELEASE=1 needs COMM_LAYER_VSLOT_POOL=1 (hipMalloc'd slots would be allocated again for every product)\n"); }
       if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");} }
 comm *comm_layered_create(comm *intra, comm *inter, int d)
