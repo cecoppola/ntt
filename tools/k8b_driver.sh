@@ -32,7 +32,7 @@ GATE=skipped
 if [ "$SKIP_GATE" != 1 ]; then
   bash -lc "module load rocm >/dev/null 2>&1; cd $WT && tools/gate.sh --build --nodes 1 --hold $J --line none --env '$SWITCH ECALC_SEGV_TRACE=1' --out $O/gate" > $O/log/gate.log 2>&1 < /dev/null
   GATE="rc $? | $(tail -1 $O/gate/gate.txt 2>/dev/null)"; say "gate: $GATE"
-  grep -q "^PASS" $O/gate/gate.txt 2>/dev/null || { VERDICT="FAILED: gate did not pass ($GATE)"; exit 1; }
+  grep -q "gate PASS" $O/gate/gate.txt 2>/dev/null || { VERDICT="FAILED: gate did not pass ($GATE)"; exit 1; }
 fi
 # 2. ABBA rounds
 run() { # tag env...
