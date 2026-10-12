@@ -4,7 +4,8 @@
 Usage: tools/doccheck.py [--warn] [--root DIR]
   Prints each failure as `file:line: [check] reason`; exit 1 on any failure (--warn: print, exit 0).
 Checks:
-  registry  tools/switch_registry.py --check passes (called, not duplicated)
+  registry  tools/switch_registry.py --check passes (called, not duplicated); its review-date WARN lines are printed as
+            `[review]` warnings and never count as failures
   scope     central docs have a "Scope:" line in their first 8 lines
   path      relative paths / links / results/X.md / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
   plan      "PLAN §N" / "PLAN.md §N" outside results/ names a section PLAN.md has
@@ -59,8 +60,13 @@ def main():
         r = subprocess.run([sys.executable, sr, "--check"], capture_output=True, text=True, cwd=root)
         if r.returncode != 0:
             out = (r.stdout + r.stderr).strip().split("\n")
-            for l in out[:15]:
+            for l in [x for x in out if not x.startswith("WARN")][:15]:
                 bad("registry", "ecalc/README.md", 1, l.strip())
+        rw = [x for x in r.stdout.split("\n") if x.startswith("WARN")]   # T27: review dates warn, never fail
+        for l in rw[:20]:
+            print("ecalc/switches_review.tsv:1: [review] " + l[5:])
+        if len(rw) > 20:
+            print("ecalc/switches_review.tsv:1: [review] ... %d more (tools/switch_registry.py --review)" % (len(rw) - 20))
     else:
         bad("registry", "tools/switch_registry.py", 1, "missing")
 

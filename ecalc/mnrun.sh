@@ -22,8 +22,24 @@
 # rocm module (rocm/7.2.4) conflicts with the default rocm/7.0.3 of the login shell (aac7env.sh sets both from AAC7_ROCM).
 # Phase 16 P (results/P16.md): MNRUN_NODES=<n> (unset by default) uses at most the first n nodes of the allocation -- 4 PEs on one node
 # (`MNRUN_NODES=1 mnrun.sh 4`) or a 2-node A/B inside a 4-node job.
+# T27 (results/T27.md): MNRUN_PRINT_ENV=1 (default 0) computes everything as for a launch -- the plan's pool, the heap, the libfabric
+# defaults, the SHMEM implementation -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
+# calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
+# launch values have one source.  Unset, nothing changes.
 set -e
 P=$1; shift
+PRINT_ENV=${MNRUN_PRINT_ENV:-0}
+if [ "$PRINT_ENV" != 0 ]; then exec 3>&1 1>&2; fi
+print_env_exit() {   # T27: the variables mnrun.sh sets or computes for the launch, as export lines on the saved stdout (fd 3)
+    local v
+    echo "# mnrun.sh MNRUN_PRINT_ENV: $P process(es), transport ${COMM_TRANSPORT:-none}, SHMEM implementation ${impl:-none}" >&3
+    for v in COMM_TRANSPORT COMM_SHMEM_POOL_MB COMM_OFI_PLAN_CXI SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE SHMEM_SYMMETRIC_HEAP_SIZE \
+             OMPI_MCA_memheap_base_max_segments FI_PROVIDER SHMEM_OFI_PROVIDER SHMEM_DISABLE_ASLR_CHECK FI_UNIVERSE_SIZE FI_LOG_LEVEL \
+             FI_MR_CACHE_MONITOR MNRUN_MODULES MNRUN_UNLOAD; do
+        [ -n "${!v+x}" ] && printf 'export %s=%q\n' "$v" "${!v}" >&3
+    done
+    exit 0
+}
 # S46 §4.6: FI_MR_CACHE_MONITOR=disabled gave wrong exchanges silently (2097152 of 2097152 points differed, VERIFY FAILED); refuse it.
 __fmc=${FI_MR_CACHE_MONITOR-}; __fmc=${__fmc,,}
 if [ "$__fmc" = disabled ]; then echo "mnrun.sh: refusing FI_MR_CACHE_MONITOR=$FI_MR_CACHE_MONITOR: it corrupts exchanges silently (S46 section 4.6). Unset it (memhooks, the default) or use userfaultfd." >&2; exit 1; fi
@@ -34,8 +50,10 @@ case "${AAC7_ROCM:-}" in ""|*/*) ;; *) AAC7_ROCM=rocm/$AAC7_ROCM;; esac   # merg
 if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODULES="cray-dsmml cray-openshmemx ${AAC7_ROCM:-rocm/7.2.4}"; else MNRUN_MODULES=rocm; fi; fi
 if [ -d /opt/cray/pe/sma ]; then MNRUN_UNLOAD=${MNRUN_UNLOAD-rocm/7.0.3}; fi
 export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
+if [ "$PRINT_ENV" != 0 ]; then nodes=$(seq -f "print-env-node%g" 1 "$P"); else   # T27: no allocation needed to print the values
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
+fi
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
 # S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/S31.md).
 # If one is in the node list: default MNRUN_EXCLUDE_MODE=warn warns on stderr and changes nothing; MNRUN_EXCLUDE_MODE=drop removes it (the run then uses the remaining nodes;
@@ -116,7 +134,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
             # Phase 17 OFIMEM: comm_ofi (on by default where a cxi NIC is present) moves the device staging out of the SHMEM pool, and
             # the plan sizes the pool by it -- but the plan runs here, on a login node that may have no cxi (aac7's aac7-login): ask the
             # first compute node once (COMM_OFI unset, no cxi here) and hand the answer to the plan as COMM_OFI_PLAN_CXI
-            if [ -z "${COMM_OFI:-}" ] && [ -z "${COMM_OFI_PLAN_CXI:-}" ] && [ ! -e /sys/class/cxi/cxi0 ] && [ -n "${SLURM_JOB_ID:-}" ]; then
+            if [ -z "${COMM_OFI:-}" ] && [ -z "${COMM_OFI_PLAN_CXI:-}" ] && [ ! -e /sys/class/cxi/cxi0 ] && [ -n "${SLURM_JOB_ID:-}" ] && [ "$PRINT_ENV" = 0 ]; then
                 if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
                 echo "mnrun.sh: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: comm_ofi's default; the plan counts its pools)"
             fi
@@ -154,6 +172,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         if [ "${COMM_SHMEM_DEVHEAP:-0}" != 0 ]; then export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-64M}; else export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}; fi
         export FI_PROVIDER=${FI_PROVIDER:-sockets} SHMEM_OFI_PROVIDER=${SHMEM_OFI_PROVIDER:-sockets} SHMEM_DISABLE_ASLR_CHECK=1
         echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE (pool $POOL MiB + 512, unless COMM_SHMEM_DEVHEAP)"
+        [ "$PRINT_ENV" = 0 ] || print_env_exit
         exec srun --jobid="$SLURM_JOB_ID" --mpi=pmi2 "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
@@ -163,14 +182,17 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
         export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
         export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
         echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
+        [ "$PRINT_ENV" = 0 ] || print_env_exit
         exec srun --jobid="$SLURM_JOB_ID" "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
              bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"
     fi
     export SHMEM_SYMMETRIC_HEAP_SIZE=${SHMEM_SYMMETRIC_HEAP_SIZE:-$((POOL + 512))M}
     export OMPI_MCA_memheap_base_max_segments=${OMPI_MCA_memheap_base_max_segments:-64}
     echo "mnrun.sh: SHMEM_SYMMETRIC_HEAP_SIZE=$SHMEM_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
+    [ "$PRINT_ENV" = 0 ] || print_env_exit
     exec srun --jobid="$SLURM_JOB_ID" --mpi=pmix "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
          bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec setarch x86_64 -L "$@"' _ "$@"
 fi
+[ "$PRINT_ENV" = 0 ] || print_env_exit
 exec srun --jobid="$SLURM_JOB_ID" "${nopt[@]}" -w "$list" --ntasks="$P" "${tpn[@]}" "${copt[@]}" --distribution=$dist --gpus-per-node=4 --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec "$@"' _ "$@"

@@ -82,6 +82,7 @@ fi
 if [ $BUILD = 1 ]; then
   command -v python3 >/dev/null 2>&1 || fail "python3 missing (needed for the registry check)"
   python3 "$ROOT/tools/switch_registry.py" --check > "$OUT/registry.log" 2>&1 || fail "switch registry stale (see registry.log; run tools/switch_registry.py)"
+  nrw=$(grep -c '^WARN' "$OUT/registry.log" || true); [ "${nrw:-0}" = 0 ] || say "registry: $nrw review-date warning(s), not a failure (registry.log; tools/switch_registry.py --review)"   # T27
   python3 "$ROOT/tools/profile_load.py" --validate-all > "$OUT/profiles.log" 2>&1 || fail "profile validation failed (see profiles.log)"
 fi
 PROF_SRC=
