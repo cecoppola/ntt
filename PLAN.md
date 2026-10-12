@@ -67,7 +67,10 @@ and evidence of each, is the switch table in `ecalc/README.md`.
 
 The multi-node launch line sets, in addition: the transport (`COMM_TRANSPORT=shmem`, Cray contexts per thread, the
 symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_CHUNK_MB=2048`, the memory guard, the
-crash-trace handler and the verbose memory lines. The transform-cache fit and partial cache, the early write after
+crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
+D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/MEAS-P24.md`: −8.9 s
+at 2 nodes, +8.6 GB per APU, m; `results/DEF.md`). The three-prime multi-node path stays selectable for A/B runs with
+`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The transform-cache fit and partial cache, the early write after
 division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
 `results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
 

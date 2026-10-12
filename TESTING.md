@@ -28,12 +28,12 @@ measured, modelled or assumed.
 - `--line` selects the launch line (the test system's is the `LAUNCH_LINE_KEYS` of `profiles/aac7.conf`, printed by
   `tools/profile_load.py aac7 --line`; the target's is supplied as a file); `--profile NAME` loads `profiles/NAME.conf`; `--env "K=V …"` adds settings; `--digits` and
   `--ref` change size and reference (only 10⁹ has a default reference).
-- `--p24 auto|on|off` (default `auto`: on for `--nodes 2`). The target's four-prime product form (P24) switches on by
-  itself only from 32 nodes, so no gate of 1 to 6 nodes ran it (`results/AUD3.md`, coverage finding 2). The forced form adds
-  `ECALC_NP_AUTO_TERMS=1000000` (a test bound of `ECALC_NP=auto`: `ec_np_planes` in `crt.c` gives pool 0 four planes when
-  2^(31 + ⌊log₂ g⌋) exceeds it, so `rns_pool0_np()` is 4 and `mn_p24_of()` in `rns_dist.c` is true for every multi-node
-  product); the gate requires `plane pool 0 for 4 primes` in the run log, and the digits must be identical as always. The
-  4-node gate and `mnaccept.sh` keep the three-prime 18-digit form under test.
+- `--mn-primes p24|3` (default `p24`; checked at `--nodes` > 1). Since the user's decision D18 (2026-10-12, `results/DEF.md`)
+  every multi-node product runs the four-prime 24-digit form P24 (`ec_np_planes` in `crt.c` gives pool 0 four planes at
+  g > 1, so `mn_p24_of()` in `rns_dist.c` is true): `p24` checks that the run log shows `plane pool 0 for 4 primes`.
+  `3` gates the three-prime multi-node path kept for A/B runs (adds `ECALC_NP_MN3=1`) and checks `plane pool 0 for 3 primes`.
+  A missing line is a FAIL; the digits must be identical as always. (Replaces `--p24`, which forced P24 through
+  `ECALC_NP_AUTO_TERMS` when it switched on only from 32 nodes.)
 - Output: `build.log`, `run.log` and one summary line `gate.txt` (`gate PASS | nodes … | digits … | total …s`). The digit
   files are deleted afterwards. The gate kills only its own processes and cancels only an allocation it submitted.
 - Exit status 0 = PASS, 1 = FAIL. A single-node system without SHMEM runs `--nodes 1` only.

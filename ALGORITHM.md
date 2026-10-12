@@ -113,8 +113,12 @@ primes give p₀p₁p₂ = 2^155.36 against (B − 1)² = 2^119.59, so three pri
 **min(na, nb) < 58 424 467 928** (`ec_np3_max_terms`). The prime count per product is `ec_np_for`:
 
 - one-node tiers use three primes (`ECALC_NP` defaults to 3 in `ecalc.c`);
-- multi-node products use `ECALC_NP=auto`: three primes, or four when a piece exceeds the three-prime bound, which the
-  target size needs at its top levels. `ec_np_check` refuses a product above the bound for its prime count.
+- multi-node products use `ECALC_NP=auto` (`ecalc.c` sets it when `ECALC_NP` is unset at size > 1): since the user's
+  decision D18 (2026-10-12, `results/DEF.md`) plane pool 0 holds four planes in every run of more than one node-process
+  (`ec_np_planes`), so every multi-node product runs four primes in the P24 form (below). `ECALC_NP_MN3=1` keeps the
+  three-prime multi-node path: three primes, or four (P24) when a piece of the run's largest group can exceed the
+  three-prime bound (from 32 node-processes, which the target size needs at its top levels). `ec_np_check` refuses a
+  product above the bound for its prime count.
 
 `mn_plan.c` (`MN_PLAN_ONLY`) checks every planned product of a run against these bounds before any device is used.
 
@@ -149,7 +153,7 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; else the 18-digit form).
+`results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
 
 ### 4.4 Product tiers
 
