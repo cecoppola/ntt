@@ -2,7 +2,7 @@
 
 `ecalc` computes ⌊10^d · e⌋ in decimal with binary splitting and a Newton division on device-resident numbers, using a four-APU
 distributed number-theoretic transform. One node does 6.441 × 10¹⁰ digits in ≈ 78 s (measured, 2026-10-10); the goal is
-3.71 × 10¹³ digits on 576 nodes (modelled: ≈ 180 s without the write, device 351.7 of 373.44 GB per node; the target itself is never
+3.82 × 10¹³ digits on 576 nodes (target size decided 2026-10-12; modelled: ≈ 182 s without the write, 3.71 × 10¹³ gave device 351.7 of 373.44 GB per node; the target itself is never
 accessed).
 
 | to find | read |

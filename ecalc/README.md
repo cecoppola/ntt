@@ -1,4 +1,4 @@
-# ecalc — e to 10¹⁰…10¹¹ digits on one MI300A node, and 3.71 × 10¹³ digits on 576 nodes
+# ecalc — e to 10¹⁰…10¹¹ digits on one MI300A node, and 3.82 × 10¹³ digits on 576 nodes
 
 *Current as of 2026-10-10 (main after the S38–S45 sessions).* This file is the **reference for every environment switch**
 (section **Switches**, one row per switch the code reads, with its default and its evidence) plus the build/run recipes.
@@ -38,7 +38,7 @@ ones changed most recently are:
 **Launch lines (not code defaults).** Same programme, different switches per system; the target's is the runbook
 (internal target notes §4), aac7's is `ecalc/e16_headline.sh`:
 
-| switch | target line (576 nodes, `ecalc 37100000000000`) | aac7 line (`e16_headline.sh`) |
+| switch | target line (576 nodes, `ecalc 38200000000000`) | aac7 line (`e16_headline.sh`) |
 |---|---|---|
 | `COMM_OFI` | 1 | default (1) |
 | `MN_T_CHUNK_MB` | *Phase 13a (M), TASKS 1.3*: a piece product's window (the temporary T and the result slab rbO of `mn_core`, and `mdb_add_shifted`'s T) in rounds of this many MB per APU instead of the whole share of C (35 GB per node at 576 × 8 × 10¹⁰); the arena request follows; bit-identical; 0 = one round (the pre-Phase-14 behaviour). **Code default 1024** since Phase 14 (RESULTS §84: the target needs it to fit; it also halves the SHMEM pool, 81.6 → 45.0 GB per node, results/P214.md). **This row is the one canonical place for the 1024-vs-2048 story:** the **target line uses 2048 since 2026-10-11** (the user's decision; it was 1024 before: modelled +6.2 GB of window temporaries per node at 3.71 × 10¹³, results/B01.md; the 1024-vs-2048 target A/B, TARGET_TASKS T11b, is still open as a measurement); the **aac7 line uses 2048 since 2026-10-08** (the user; results/S22.md D2: 24 paired rounds, mean −42.3 s, median −35.1 s, p ≈ 0.04, m). `0` against 1024 is to be tested on the target once `T_ROUND` is measured there (internal target notes §6 item 4) |
@@ -49,7 +49,7 @@ ones changed most recently are:
 | `DM_MN_LEAN` | 1 | 1 |
 | `ECALC_NP`, `RNS_DIST_CACHE_FIT`, `RNS_DIST_CACHE_PARTIAL`, `MN_OUT_DKM_HI` | auto, 1, 1, 1 (no explicit `RNS_DIST_CACHE_MN`; FIT is the decision of 2026-10-11 too) | same |
 
-**Target figures (modelled, S45; the target itself is never accessed).** 576 nodes × 3.71 × 10¹³ digits: device
+**Target size: 3.82 × 10¹³ digits (user decision 2026-10-12).** The figures below were computed at 3.71 × 10¹³ unless a size is named. **Target figures (modelled, S45; the target itself is never accessed).** 576 nodes × 3.71 × 10¹³ digits: device
 **351.7 of the 373.44 GB** edge per node (21.7 GB margin) with `MN_T_CHUNK_MB=1024`, node total ≈ **395.0 of 480 GB**; **with the launch line of 2026-10-11 (`MN_T_CHUNK_MB=2048` + X2) 357.9 GB + 0.5 GB X2 (modelled), 360.5 GB for rank 0, margin 12.9 GB at 3.71 × 10¹³; 3.82 × 10¹³ no longer keeps 10 GB (366.5 + 0.5 + 2.1 GB, margin 4.3 GB); the largest size with ≥ 10 GB rank-0 margin is ≈ 3.79 × 10¹³ (results/B01.md)**; the size history and the older
 figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no 10-node runs); aac6's SH5 nodes in CPX mode
 (6 XCDs of 22.9 GB) run up to 4 × 10⁹ digits with `RNS_INIT_POOL_LOG=29` (S44).
