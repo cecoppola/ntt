@@ -223,6 +223,9 @@ tests/t_gather_raw_probe: tests/t_gather_raw_probe.c modarith.h     # K1b: raw-o
 	$(HIPC) $< -o $@
 
 
+tests/t_gather_p2_probe: tests/t_gather_p2_probe.c     # P2: what bounds k_gather_raw (results/P2.md); built on demand, not in TESTS
+	$(HIPC) $< -o $@
+
 tests/t_edge: tests/t_edge.c     # Phase 16 C: the memory-edge probe (results/C16.md); built on demand, not in TESTS
 	$(HIPC) $< -o $@
 
