@@ -2,7 +2,7 @@
 # tools/gate.sh - the standard build-and-digit gate of ecalc on aac7 (Cray SHMEM, 1..4 nodes) and aac6 (single node).
 #
 # USAGE
-#   tools/gate.sh [--build] [--nodes 1|2|4] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
+#   tools/gate.sh [--build] [--nodes 1..6] [--digits 1e9] [--hold JOBID | --alloc] [--line aac7|target|none|file:PATH]
 #                 [--profile NAME|PATH] [--p24 auto|on|off] [--env "K=V ..."] [--out DIR] [--ref FILE] [--timeout SEC] [--wait SEC]
 #     --build     first `make -B` in the repo's ecalc/ (aac7 with Cray SHMEM: SHMEM_CRAY=1 GMP_HOME=~/gmp, the log must have
 #                 -DCOMM_SHMEM for --nodes > 1; elsewhere a plain build, and --nodes > 1 is refused)
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 case $P24 in auto|on|off) ;; *) echo "gate.sh: --p24 must be auto, on or off" >&2; exit 2;; esac
-case $NODES in 1|2|4) ;; *) echo "gate.sh: --nodes must be 1, 2 or 4" >&2; exit 2;; esac
+case $NODES in [1-6]) ;; *) echo "gate.sh: --nodes must be 1..6 (aac7 QOS)" >&2; exit 2;; esac
 [ -z "$HOLD" ] && [ "$ALLOC" = 0 ] && HOLD=${SLURM_JOB_ID:-}
 [ -n "$HOLD" ] && [ "$ALLOC" = 1 ] && { echo "gate.sh: --hold and --alloc are exclusive" >&2; exit 2; }
 [ -n "$HOLD" ] || [ "$ALLOC" = 1 ] || { echo "gate.sh: give --hold JOBID or --alloc" >&2; exit 2; }
