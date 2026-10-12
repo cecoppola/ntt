@@ -9,9 +9,8 @@ and `results/*.md`. Labels: (m) measured, (mod) modelled.
 
 ## Open work, in priority order (user 2026-10-12)
 
-Priority classes, highest first: **1** bug fixes; **2** dead code removal and consolidation (settings removal);
-**3** streamlining of parameters, arguments and scripts; **4** performance; **5** documentation. When work competes
-for aac7 nodes or agents, the higher class goes first.
+The class column is the user's priority class (1 bugs, 2 shrink, 3 simplify, 4 performance, 5 docs; defined in the
+project instructions). Within a class, rows are in the order to do them.
 
 | class | # | item | status | where |
 |---|---|---|---|---|
