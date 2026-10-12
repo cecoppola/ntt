@@ -109,7 +109,7 @@ def main():
         m = re.match(r"#{2,}\s+(\d+(?:\.\d+)*)\.?\s", l)
         if m:
             secs.add(m.group(1))
-    ref = re.compile(r"PLAN(?:\.md)?\s*§\s*(\d+(?:\.\d+)*)")
+    ref = re.compile(r"(?<!archive:)PLAN(?:\.md)?\s*§\s*(\d+(?:\.\d+)*)")
     # e, f scan
     for f in files:
         if os.path.splitext(f)[1] not in TEXT_EXT or f.startswith("tools/doccheck"):
