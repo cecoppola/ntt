@@ -49,7 +49,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `target_kit.sh` | the target session in stages (`-h`; `--dry-run` prints every command): environment, build, uffd, plan, memory edge, node screen, A3/A4 fabric tests, init check; one `KIT_SUMMARY.txt` |
 | `estimate.py`, `mn_model.py`, `mem_model.py`, `design_table.py`, `refit_s48.py`, `*_fit.json` | time and memory models and their fits |
 | `calib_table.py` | run logs → one row per run; `--fit`, `--ab` (rate-adjusted paired A/B) |
-| `run`, `ref/`, `tests/`, `tools/segv2.c` | one-program runner; reference generator; unit tests (`tests/harness.h`) and helper scripts; a crash-trace helper |
+| `run`, `ref/`, `tests/`, `tools/segv2.c` | one-program runner; reference generator; unit tests (`tests/harness.h`); a crash-trace helper |
 
 ## Switches
 
