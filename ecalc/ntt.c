@@ -403,7 +403,6 @@ struct ntt_ctx {
     double *tw1r_f, *tw1r_i;                       /* the register-blocked b1's per-stage twiddles tw[H + r] = w_2H^r, H = 1 .. 2048 */
     double ninv[NTT_LOGN_MAX + 1];
     struct plan_tw plan[NTT_LOGN_MAX + 1];
-    int adhoc_key[64]; struct pass_tw adhoc[64];   /* ntt_pass_at's twiddles (bench only) */
 };
 static void free_plan_tw(struct plan_tw *pt);
 
@@ -452,12 +451,6 @@ static void make_plan(struct plan *pl, int logn)
     }
 }
 int ntt_npass(int logn) { struct plan pl; make_plan(&pl, logn); return pl.npass + 1; }
-void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi)
-{
-    struct plan pl; make_plan(&pl, logn);
-    if (pass < pl.npass) { *s_lo = pl.s_lo[pass]; *s_hi = pl.s_hi[pass]; }
-    else { *s_lo = 0; *s_hi = pl.lb - 1; }
-}
 
 /* a context's tables (and each plan's pass twiddles) are built in one host buffer and go to the
  * device in one hipMalloc + one hipMemcpy instead of one pair per table (a context was 22 pairs, a plan 4 per pass;
@@ -495,7 +488,6 @@ void ntt_ctx_free(ntt_ctx *c)
     if (!c) return;
     HIP_CHECK(hipFree(c->tabT_f[1]));                       /* the one buffer of all the tables */
     for (int l = 0; l <= NTT_LOGN_MAX; l++) if (c->plan[l].built) free_plan_tw(&c->plan[l]);
-    for (int k = 0; k < (int)(sizeof c->adhoc / sizeof c->adhoc[0]); k++) if (c->adhoc[k].tlo) HIP_CHECK(hipFree(c->adhoc[k].tlo));
     free(c);
 }
 int ntt_ctx_prime(const ntt_ctx *c) { return c->prime; }
@@ -677,29 +669,6 @@ static void inv_common(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, in
         for (int i = pl.npass - 1; i >= 0; i--)
             launch_b16(c, x, logn, pl.s_lo[i], pl.s_hi[i] - pl.s_lo[i] + 1, &pt->i[i], 1, i == 0 ? sc : 0.0, blocks, s);
     }
-}
-/* H2 timing: one pass of the forward / inverse alone (pass < npass - 1: b16 pass `pass`; npass - 1: the b1 pass),
- * no scale, no pointwise product */
-void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass, hipStream_t s)
-{
-    struct plan pl;
-    check_logn(logn);
-    make_plan(&pl, logn);
-    struct plan_tw *pt = get_plan_tw(c, logn, &pl);
-    unsigned blocks = logn >= 11 ? (unsigned)(batch << (logn - 11)) : 0;
-    if (pass < pl.npass) launch_b16(c, x, logn, pl.s_lo[pass], pl.s_hi[pass] - pl.s_lo[pass] + 1, inv ? &pt->i[pass] : &pt->f[pass], inv, 0.0, blocks, s);
-    else launch_b1(c, x, 0, 0, 0, inv ? 1 : 0, 0.0, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
-}
-/* one b16 pass of stg stages at any row stride 2^s_lo over a batch of 2^logn transforms, with the
- * twiddles of that pass (cached in the context); the data is only overwritten, not transformed as a whole */
-void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s)
-{
-    int key = (s_lo * 8 + stg) * 2 + inv + 1, k;
-    if (s_lo < 4 || s_lo + stg > logn || logn < 11) { ec_fatal(EC_RC_FATAL, "ntt_pass_at: s_lo %d stg %d logn %d\n", s_lo, stg, logn); }
-    for (k = 0; k < 64 && c->adhoc_key[k] && c->adhoc_key[k] != key; k++) ;
-    if (k == 64) { ec_fatal(EC_RC_FATAL, "ntt_pass_at: cache full\n"); }
-    if (!c->adhoc_key[k]) { build_pass_tw(&c->adhoc[k], c->prime, s_lo, s_lo + stg - 1, inv); c->adhoc_key[k] = key; }
-    launch_b16(c, x, logn, s_lo, stg, &c->adhoc[k], inv, 0.0, (unsigned)(batch << (logn - 11)), s);
 }
 void ntt_inv(ntt_ctx *c, uint64_t *x, int logn, size_t batch, hipStream_t s) { ntt_ss_scope ss_(1, 0, logn, batch, s); inv_common(c, x, 0, 0, 0, logn, batch, s); }
 void ntt_inv_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logn, size_t batch, hipStream_t s)

@@ -35,10 +35,6 @@ extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-spli
 extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it) */
 /* The kernel choice is fixed: the register-blocked 7-stage body, the reduced-correction Barrett, the
  * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt3.c). */
-/* bench: one b16 pass of stg stages at row stride 2^s_lo (its own twiddles) over batch x 2^logn points */
-void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s);
-/* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
-void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass, hipStream_t s);
 
 /* layout of the pointwise operand y relative to x (a batch of transforms of L points each):
  *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
@@ -72,7 +68,6 @@ void ntt_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int r3, int
 /* ntt3.c's use: the 2^logk inverse of the 3 batch thirds with the pointwise product fused (Lt = 3 2^logk) */
 void ntt_inv3_core_pw(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s);
 int ntt_npass(int logn);                      /* b16 passes + 1 */
-void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi);
 
 /* host reference, O(n log n), any logn >= 1: same DIF / DIT definitions */
 void ntt_host_fwd(uint64_t *x, int logn, int prime);
