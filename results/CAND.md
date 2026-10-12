@@ -37,9 +37,9 @@ Arms: A = main binary (85d9d73f), switches unset; B = cand binary (7e7cd7da) wit
 | pooled without round-1 pair 1 (cold, A 170.0 s) | 11 | A 137.38 s, B 133.52 s | -3.86 s [-7.39, -0.33], p 0.035 | - |
 
 - B was faster in 11 of 12 pairs (pair differences, s: -24.5, -0.2, -5.5, -1.1, +3.3, -1.7, -2.1, -1.2, -9.6, -9.6, -0.6, -14.3).
-- "Chain" is the db_to_bi conversion chain: arm B 0.05-0.06 s in every run; arm A 2.0-2.4 s normally, but 6-11 s in 6 of 12 A runs (late PE up to +6.8 s on one node). Those A-arm spikes explain the large spread; the B arm has none. A single-switch effect cannot be separated here (all three on).
+- "Chain" is the db_to_bi conversion chain: arm B 0.05-0.06 s in every run; arm A 2.0-2.4 s normally, but 6.1-10.8 s in 5 of 12 A runs (late PE up to +6.8 s on one node). Those A-arm spikes explain the large spread; the B arm has none. A single-switch effect cannot be separated here (all three on).
 - The stop rule of the item (p < 0.05 on the total) was met in round 2 alone (p 0.044) and by the pooled 12 pairs (p 0.031); the p values are two-sided Student t on few pairs, round-1 total alone is not significant (CI crosses 0).
-- NIC launch groups (A/B label of each run; fgfc_M 0.0 in all): both groups occur in both arms and rounds (round 1: arm A 4 x A / 2 x B, arm B 5 x A / 1 x B; round 2: arm A 4 x A / 2 x B, arm B 5 x B / 1 x A). The A-arm chain spikes occurred in 3 group-A and 2 group-B runs (plus pair 1 of round 1, group A): no group pattern visible with this n (6 spikes in 12 runs; a group effect cannot be excluded).
+- NIC launch groups (A/B label of each run; fgfc_M 0.0 in all): both groups occur in both arms and rounds (round 1: arm A 3 x A / 3 x B, arm B 5 x A / 1 x B; round 2: arm A 5 x A / 1 x B, arm B 5 x B / 1 x A). The A-arm chain spikes occurred in 3 group-A runs and 2 group-B runs (5 spikes in 12 A runs, of which 8 were group A and 4 group B): no group pattern visible with this n ( a group effect cannot be excluded).
 - Memory, rank 0, max over 6 runs per round and arm: device in use 317.8 GB, pool peak live 201.80 GB, hipMalloc 0.00 GB, APU driver-used 82.2 GB, identical in A and B: no memory cost (m).
 
 ### aac6, 1 node (`~/cand6`), 4 pairs, stop rule met after pair 4
