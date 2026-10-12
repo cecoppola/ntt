@@ -75,7 +75,7 @@ static void part1(void)
     }
     printf("   best subset for the margin: drop c = %d (%.2fx at 2^33); the four primes share the kernels (c 2^44 + 1, 3 | c: 2^k and 3 2^k lengths, p < 2^52 for the FP64 Barrett)\n", cs[bestdrop], best);
     VERIFY(bestdrop == 3, "the pipeline's subset {0,1,2} has the best margin");
-    mpz_clears(P, D, Db, t, u, NULL);
+    mpz_clears(P, D, t, u, NULL);
 }
 
 /* ---- 2. Garner at the extremes ------------------------------------------------------------------------------------ */
