@@ -172,7 +172,6 @@ ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h
 	$(HIPC) -c $< -o $@
 crt.o: crt.c crt.h modarith.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
-	$(HIPC) -c -o $@ $<
 verify.o: verify.c verify.h bigint.h
 	$(HIPCC) -O3 -fopenmp -I. -x c -c -o $@ $<
 binsplit.o: binsplit.c binsplit.h bigint.h rns_mul.h mem.h spill.h memsample.h
