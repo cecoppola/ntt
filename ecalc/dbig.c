@@ -120,6 +120,9 @@ void db_pull_start_all(void)                             /* idempotent; the laun
 void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes)
 {
     if (!g_pull_on[dev]) db_pull_start_all();
+    db_pull_wait(dev);   /* K8c: one descriptor per APU -- the previous copy must be finished before it is overwritten (seeds_stream issues both
+                          * buffered chunks of one region to the same APU back to back; without this the blocks saw seq jump 0 -> 2, skipped copy 1
+                          * and `done` never reached 2 x DB_PULL_BLOCKS: the seed thread hung, results/K8b.md section 6) */
     const void *dsrc = 0; for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d;
     if (!dsrc) { db_pull_resolve(src); for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d; }
     if (!dsrc) dsrc = src;
