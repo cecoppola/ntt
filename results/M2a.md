@@ -40,6 +40,23 @@ Mean (sd) in seconds, per item. "excl r1" drops run 1 of the 1-node arm: in item
 
 How this feeds the model refit (not refitted here): (1) the 1-node anchor (74.3 s at 6.441e10) fixes the single-node stage terms bs 40.0, recip 5.0, dm 20.7; the cold first run must be excluded or flagged. (2) The 2-node point is the first multi-node anchor at the target per-node size: it supplies the per-stage communication step (bs +8.1, recip +12.0, dm +35.8 s) that the refit of `ecalc/mn_model.py` / target_l4 needs to separate fixed latency from per-GB volume (XSTATS 2739 GB, t_wait about 141 s). (3) Compare these three stage steps with the model's 2-node predictions before using the 4- and 6-node points; the 2-to-4 and 4-to-6 steps are still needed to fit the node-count dependence (do not extrapolate to 576 nodes from one step). Feed the `.log` files to `ecalc/calib_table.py` as planned above.
 
+## Third batch: item 7a (collected 2026-10-12, aac7; all numbers measured)
+Item 7a: same line, binary (main 0298fe2), order 1 2 2 1 1 2 2 1 1 2 2 1, 6.441e10 digits per node, marker `SUCCESS ok=12 bad=0`, 05:45-06:09 ET. It wrote `~/m2a/a/summary.txt` and `summary.tsv` (item 77's data are the saved logs in `~/m2a/a77_saved`, section above). 12 of 12 runs rc 0 and VERIFY OK.
+
+Mean (sd) in seconds. "excl r1" drops 1-node run 1 (81.42 s, bs 46.2, init 14.5: cold first run, as in 77 and 78); "excl first 2" drops 2-node run 2 (167.85 s, init 42.6, t_wait 226.5 s: the first 2-node run, the slowest of all 30 runs of the three items).
+
+| nodes | n | total | bs | recip | dm | init |
+|---|---|---|---|---|---|---|
+| 1 (all) | 6 | 75.70 (2.86) | 41.25 (2.48) | 5.11 (0.06) | 20.59 (0.07) | 13.70 (0.49) |
+| 1 (excl r1) | 5 | 74.56 (0.67) | 40.25 (0.48) | 5.13 (0.05) | 20.60 (0.08) | 13.54 (0.33) |
+| 2 (all) | 6 | 143.69 (12.64) | 49.29 (2.41) | 18.20 (3.18) | 58.70 (5.26) | 31.67 (5.50) |
+| 2 (excl first) | 5 | 138.85 (4.95) | 48.55 (1.77) | 17.20 (2.27) | 57.07 (3.82) | 29.48 (1.38) |
+
+- Agrees with items 77 and 78: 1 node 74.56 s (77: 74.39, 78: 74.23, excl r1), 2 nodes 138.85 s excl first (77: 136.41, 78: 137.97; 143.69 s with all runs). Pooled 1 node (15 runs excl r1): 74.4 s; 2 nodes, the 18 runs of the three items: 139.4 s (item means 136.4 / 138.0 / 143.7).
+- Step 1 to 2 nodes, 7a excl first/r1: total +64.3 s, bs +8.3, recip +12.1, dm +36.5, init +15.9 (77/78: bs +8.1, recip +12.0, dm +35.8, init +15.3): the same stage steps. E = T1/T2 = 74.56 / 138.85 = 0.54.
+- Comm: XSTATS GB of PE 0 2739.3 at 2 nodes in all 6 runs (as before); summed t_wait of PE 0 is 133-226 s, median 137 s (mean 158 s with the first run, 138 s without); the five later runs are 133.1-144.2 s, 77/78 had 139.8 / 142.3 s mean. NIC counters: A group in 4 of the 6 two-node runs and B in 2 (runs 2 and 11); the B runs were 167.85 s (first run) and 135.07 s, so no separation.
+- Reading: a first run after an allocation is slow at both node counts (1 node +7 s, 2 nodes +29 s over the later runs); keep it out of the fit or flag it. The three batches give 16 steady-state-quality points for the model refit; the 4- and 6-node points are still open.
+
 ## 4- and 6-node points (later)
 Same line, tooling and per-node size, 4 nodes (2.5764e11 digits) and 6 nodes (3.8646e11), with COMM_XSTATS and MN_WAIT_STATS, alternating orders, 3+ runs each, taken in the next 4/6-node window (the soak ends 08:30; existing runs in `results/L4.md` 148 rows give the default schedule at 4 and 6 for reuse). Use a queue item with NODES 4 / 6 built from item 77 (change `SEQ` and `NODES`; the MN_GROUPS default is used). Refit on all four points together.
 
@@ -48,4 +65,4 @@ Same line, tooling and per-node size, 4 nodes (2.5764e11 digits) and 6 nodes (3.
 - Slow host exclusion is done by the daemon (`-x`).
 
 ## RESUME
-Items 77 and 78 COLLECTED (section Results); item 7a (same output dir `~/m2a/a`, marker `~/m2a/DONE`) pending: its results need a separate row set. Was: wait for `~/m2a/DONE` (about 04:35) and `~/m2a/DONE_b`; collect, fill the numbers here, then plan the 4/6-node items.
+Items 77, 78 and 7a COLLECTED (Results and Third batch); nothing runs. Next: the 4- and 6-node points and the refit. Was: wait for `~/m2a/DONE` (about 04:35) and `~/m2a/DONE_b`; collect, fill the numbers here, then plan the 4/6-node items.
