@@ -152,15 +152,15 @@ Second ABBA (hold 23008, 04:21-04:44 ET, commit 228aa93, gate skipped; `~/k8b/su
   every block finished the previous copy and `seq` advances by exactly one. The two copies to one APU were serial on its
   one stream before too, so only the split between issue and DMA wait changes. The off path is untouched (no change outside
   the `BS_SEED_PULL` functions): byte-identical to main.
-- **Re-armed (05:48 ET, aac6 hold 23022, pending on priority):** `~/k8c/k8b_driver.sh` with `O=~/k8c NPRE=5 RUN_TMO=300`:
+- **Re-armed (05:48 ET, aac6 hold 23023, pending on priority; re-armed 05:51 ET with a 23:00 ET start deadline so the 45 min hold ends before the 00:00-03:30 ET aac6 quiet window):** `~/k8c/k8b_driver.sh` with `O=~/k8c NPRE=5 RUN_TMO=300`:
   gate (`--build`, 1e9, switch on), then **5 switch-on runs at 6.441e10 (each must give VERIFY OK, 300 s timeout)**, then
   ABBA rounds as in section 5 only if all 5 pass. Driver additions: `NPRE`, `RUN_TMO`, `O` (defaults keep the old behaviour).
 
-## RESUME (K8c re-armed 05:48 ET 2026-10-12; the notes below the first bullet are the original K8b ones)
+## RESUME (K8c re-armed 05:51 ET 2026-10-12; the notes below the first bullet are the original K8b ones)
 
 - **K8c (current):** collect with `ssh aac6 'cat ~/k8c/K8B_DONE; cat ~/k8c/summary.txt; cat ~/k8c/pairs.tsv; cat ~/k8c/gate/gate.txt'`
-  (gives up waiting for the hold at 06:00 ET 2026-10-13; hold 23022 cancels itself). Fill section 6 (5 pre-runs: level 1, total,
-  VERIFY; ABBA table and stats) and section 0. Remove `~/ntt-k8b` when done; `squeue -s -j 23022` must show no step.
+  (gives up waiting for the hold at 23:00 ET 2026-10-12; hold 23023 cancels itself). Fill section 6 (5 pre-runs: level 1, total,
+  VERIFY; ABBA table and stats) and section 0. Remove `~/ntt-k8b` when done; `squeue -s -j 23023` must show no step.
 
 - Branch `k8b` (worktree `../ntt-wt-k8b`), commits ca28494 (switch + probe), b740ef7 (driver, stats), then this file.
 - aac6: clone `~/ntt-k8b` at the branch head (built by `make -s -j16`; the driver rebuilds with `gate.sh --build`), probe binary
