@@ -46,3 +46,4 @@ COMM_HS_TS	0	bool	0|1	test-only	newton_db.c; G1 print-only handshake time stamps
 BS_BATCH_PIPE	0	bool	0|1	experiment	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/N3.md); off by default, the user adopts
 DM_MN_WRAP	0	int	0|1|20..62	experiment	newton_db.c dm_wrap; off by default (P1, results/P1.md); dm_layout counts it (D19, results/DEF.md)
 ECALC_NP_MN3	0	bool	0|1	built-in default	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/DEF.md)
+RNS_CRT_SCAN	0	bool	0|1	experiment	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); off by default
