@@ -56,10 +56,10 @@ static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0
     return 0; }
 static void pq_bg_start(void *a) { struct pq_bg *b = (struct pq_bg *)a; if (b->started) return; pthread_create(&b->th, 0, pq_bg_run, b); b->started = 1; }   /* O2: after the seeds */
 
-/* O4 (Phase 9 A-out, M5 + C1): X's residues and the digits -- formatted in chunks and written as they are formatted
+/* X's residues and the digits -- formatted in chunks and written as they are formatted
  * (mn_out.c), no whole digit string on the host -- in the background during the low product, from the hook that
  * gets X on the host before it */
-struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; size_t t2_defer; };   /* t2_defer: Phase 15 K */   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd (Phase 10 H, B1): X on the device -- the writer and the residues read it there; no host X */
+struct x_bg { bigint *X; dbig *Xd; unsigned long d, d_out; const char *outfile; uint64_t Xres[T1_NQ]; int verbose; pthread_t th; int started; double t_res; mn_out o; sem_t res_ready; size_t t2_defer; };   /* res_ready: X's residues are in (T1 needs only those; the writer runs on).  Xd: X on the device -- the writer and the residues read it there; no host X */
 static mn_out_src x_bg_src(const struct x_bg *b) { mn_out_src s; memset(&s, 0, sizeof s); if (b->Xd) { s.dev = b->Xd; s.cnt = b->Xd->n; } else { s.host = b->X->l; s.cnt = b->X->n; } return s; }
 static void x_bg_writer(struct x_bg *b)                /* the chunked writer over X (host or device; also the redo after a correction) */
 {
@@ -211,7 +211,7 @@ static int out_stage(struct out_ctx *c)
     if (c->defer && c->dx && src.lo == 0)             /* the uncorrected X's residues + dx (the node holding limb 0) */
         for (int i = 0; i < T1_NQ; i++) { uint64_t q = t1_q[i], a = (uint64_t)(c->dx < 0 ? -c->dx : c->dx) % q; xs[i] = vf_add_mod(xs[i], c->dx < 0 ? (a ? q - a : 0) : a, q); }
     mn_out_res_combine(cm, xs, src.lo, Xres);
-    mn_out_src shs; memset(&shs, 0, sizeof shs);     /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): X = X_hi B^s + X_lo -- X_hi's share at its offset added */
+    mn_out_src shs; memset(&shs, 0, sizeof shs);     /* MN_OUT_DKM_HI, size > 1: X = X_hi B^s + X_lo -- X_hi's share at its offset added */
     if (multi && c->hi) {
         size_t lo, hi; mdb_share(&c->Xh, c->rank, &lo, &hi);
         shs.dev = &c->Xh.sh; shs.lo = c->s + lo; shs.cnt = hi > lo ? hi - lo : 0; if (shs.cnt > c->Xh.sh.n) shs.cnt = c->Xh.sh.n;

@@ -185,7 +185,7 @@ ofi_dev *comm_ofi_dev(int d)
     pthread_mutex_lock(&G.lock);
     ofi_dev *od = G.dev[d];
     if (od) { pthread_mutex_unlock(&G.lock); return od; }
-    od = (ofi_dev *)calloc(1, sizeof *od); od->d = d; od->dc = 1;   /* delivery-complete writes (the transmit-complete diagnostic COMM_OFI_DC=0 was removed 2026-10-11: unsafe); cleared below only when the provider lacks FI_DELIVERY_COMPLETE */ pthread_mutex_init(&od->lock, 0);
+    od = (ofi_dev *)calloc(1, sizeof *od); od->d = d; od->dc = 1;   /* delivery-complete writes; cleared below only when the provider lacks FI_DELIVERY_COMPLETE */ pthread_mutex_init(&od->lock, 0);
     int cx[MAXNIC]; od->k = nic_list(d, cx);
     const char *ef = getenv("COMM_OFI_POOL");
 #ifdef COMM_HOST_ONLY
