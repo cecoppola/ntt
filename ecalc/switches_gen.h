@@ -63,6 +63,7 @@ static const char *const cfg_names[] = {
     "DIST_LOGN_TEST",
     "DIST_R3",
     "DIST_STATS",
+    "DM_MN_WRAP",
     "DM_TAIL_DEAD",
     "DM_TIGHT",
     "ECALC_ARENA_GB",
@@ -159,4 +160,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 157
+#define CFG_NAMES_N 158
