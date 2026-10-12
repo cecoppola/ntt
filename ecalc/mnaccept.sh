@@ -151,7 +151,7 @@ if want ckpt; then
   CK=$TMP/ck8; N "rm -rf $CK"
   log=$OUT/ckpt_abort.log; f=$TMP/ck8.txt
   M 600 2 POOL_LOG=27 BS_CKPT_DIR=$CK BS_CKPT_EVERY=2 BS_CKPT_MIN_LEVEL=2 BS_CKPT_ABORT=6 ./ecalc 100000000 "$f" > "$log" 2>&1
-  nab=$(grep -ac 'BS_CKPT_ABORT' "$log")
+  nab=$(grep -ac 'BS_CKPT_ABORT: exiting after the level' "$log")   # the exit message only; the config: line also names BS_CKPT_ABORT
   log2=$OUT/ckpt_restart.log
   M 600 2 POOL_LOG=27 BS_CKPT_DIR=$CK BS_RESTART=1 ./ecalc 100000000 "$f" > "$log2" 2>&1; rc=$?
   c=$(cmpref "$f" "$REF/e_100000000.txt")
