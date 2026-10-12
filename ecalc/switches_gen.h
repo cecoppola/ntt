@@ -24,7 +24,6 @@ static const char *const cfg_names[] = {
     "BS_SEED_PULL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
-    "COMM_HOSTS",
     "COMM_INIT_EARLY",
     "COMM_LAYER_INTER2",
     "COMM_LAYER_STATS",
@@ -42,7 +41,6 @@ static const char *const cfg_names[] = {
     "COMM_OFI_POOL_MB",
     "COMM_OFI_VERBOSE",
     "COMM_OFI_WINDOW",
-    "COMM_PORT",
     "COMM_SHMEM_DEVHEAP",
     "COMM_SHMEM_ORDER",
     "COMM_SHMEM_POOL_AUTO",
@@ -180,4 +178,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 178
+#define CFG_NAMES_N 176

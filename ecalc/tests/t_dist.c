@@ -10,7 +10,7 @@
 #include "../mn.h"
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { fprintf(stderr, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); exit(1); } } while (0)
 static rng_t rg = { 12345 };
-static comm *tcp;            /* set when run as one process per rank (COMM_RANK in the environment) */
+static comm *tcp;            /* set when run as one process per rank over SHMEM (COMM_RANK and COMM_TRANSPORT=shmem; the name is WP6's) */
 static int xgmi;             /* DIST_XGMI=1: four real APUs, four host threads */
 static int tinv;             /* DIST_TINV=1: the transposed inverse (result in contiguous ownership) */
 static int one_xgmi(int prime, int logR, int logC);
@@ -470,11 +470,10 @@ int main(int argc, char **argv)
         mn_barrier(); mn_finalize();
         return verify_done("t_dist");
     }
-    if (!xgmi && getenv("COMM_RANK")) {                 /* one process per rank over TCP (WP6); rank r uses APU r mod 4 */
+    if (!xgmi && getenv("COMM_RANK") && getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* one process per rank over SHMEM (mnrun.sh; WP6's TCP form removed 2026-10-12); rank r uses APU r mod 4 */
         int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
-        int shm = getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem");   /* Phase 11 S: the same mode over the SHMEM transport (mnrun.sh) */
-        tcp = shm ? comm_shmem_create_at(0, 1, comm_shmem_init(), 0) : comm_tcp_create();
-        printf("t_dist: rank %d of %d over %s\n", rk, comm_size(tcp), shm ? "SHMEM" : "TCP");
+        tcp = comm_shmem_create_at(0, 1, comm_shmem_init(), 0);
+        printf("t_dist: rank %d of %d over SHMEM\n", rk, comm_size(tcp));
         VERIFY(check_allgather(tcp, 0), "tcp allgather");
         VERIFY(check_alltoallv(tcp), "tcp alltoallv");
     }
@@ -487,6 +486,6 @@ int main(int argc, char **argv)
     if (logmax >= 26) VERIFY(one(0, 13, 13), "dist conv 2^26");
     if (logmax >= 30) VERIFY(one(1, 15, 15), "dist conv 2^30");
     if (logmax >= 31) VERIFY(one(2, 16, 15), "dist conv 2^31");
-    if (tcp) { int shm = getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"); comm_destroy(tcp); if (shm) comm_shmem_finalize(); }
+    if (tcp) { comm_destroy(tcp); comm_shmem_finalize(); }
     return verify_done("t_dist");
 }

@@ -150,7 +150,7 @@ unset SLURM_CPUS_PER_TASK SLURM_NTASKS SLURM_NPROCS SLURM_NTASKS_PER_NODE SLURM_
 OF=$OUT/e.out; RL=$OUT/run.log; rm -f "$OF" "$OF".part*
 say "run: mnrun.sh $NODES env <line> $EXTRA ECALC_SEGV_TRACE=1 ./ecalc $DIG $OF"
 t1=$(date +%s)
-SLURM_JOB_ID=$J MNRUN_NODES=$NODES MNRUN_LABEL=1 COMM_PORT=$((24000 + RANDOM % 9000)) \
+SLURM_JOB_ID=$J MNRUN_NODES=$NODES MNRUN_LABEL=1 \
   ./mnrun.sh "$NODES" env $LINE $EXTRA ECALC_SEGV_TRACE=1 ./ecalc "$DIG" "$OF" > "$RL" 2>&1 < /dev/null &
 SPID=$!
 # watchdog: its sleep runs with stdin/stdout/stderr on /dev/null (a caller piping gate.sh must not wait for it) and is

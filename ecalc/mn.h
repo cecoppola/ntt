@@ -1,10 +1,9 @@
 /* mn.h - the multi-node layer (Phase 8, archive:PLAN §17).  A process is one node driving its four APUs as the
  * single-node pipeline does; `size` node-processes are connected by four inter-node meshes, one per APU
  * thread d (its members: thread d of every node; rank = node).  A transform over the whole machine is the
- * node's four-APU exchange over xGMI composed with the mesh exchange (M3/M7).  On aac6 the meshes are TCP
- * (correctness only; several node-processes may share one node); on the target, RDMA.
- *   COMM_RANK   this node-process (0 .. size-1)        COMM_SIZE   node-processes (unset or 1: single node)
- *   COMM_HOSTS  comma list of the node of each process COMM_PORT   port base (27000); mesh d uses base + 64 d */
+ * node's four-APU exchange over xGMI composed with the mesh exchange (M3/M7).  The meshes are SHMEM PE sets
+ * (COMM_TRANSPORT=shmem, a SHMEM build; several node-processes may share one node); the TCP meshes were removed 2026-10-12.
+ *   COMM_RANK   this node-process (0 .. size-1)        COMM_SIZE   node-processes (unset or 1: single node) */
 #ifndef EC_MN_H
 #define EC_MN_H
 #include "comm.h"

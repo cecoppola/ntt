@@ -1,5 +1,5 @@
-/* mn.c - the multi-node layer: environment, one mesh per APU thread (TCP, or SHMEM PE sets with COMM_TRANSPORT=shmem --
- * Phase 11 S), the start-up self-test (archive:PLAN §17, M1) */
+/* mn.c - the multi-node layer: environment, one mesh per APU thread (SHMEM PE sets with COMM_TRANSPORT=shmem -- Phase 11 S;
+ * the TCP meshes of Phase 8 were removed 2026-10-12), the start-up self-test (archive:PLAN §17, M1) */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -15,8 +15,7 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
-static const char *g_hosts; static int g_port = 27000;
-static int g_shmem, g_topo;                           /* g_topo: MN_TOPO_GROUP (below). Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c), else TCP */
+static int g_shmem, g_topo;                           /* g_topo: MN_TOPO_GROUP (below). Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
 int mn_rank(void) { return g_rank; }
 /* Phase 16 D: MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
  * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
@@ -61,8 +60,8 @@ comm *mn_comm(int apu) { return g_size > 1 ? g_cm[apu] : 0; }
 int mn_transport_shmem(void) { return g_shmem; }
 int mn_init(void)
 {
-    const char *er = getenv("COMM_RANK"), *es = getenv("COMM_SIZE"), *eh = getenv("COMM_HOSTS"), *ep = getenv("COMM_PORT"), *et = getenv("COMM_TRANSPORT");
-    g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported, as TCP does) */
+    const char *es = getenv("COMM_SIZE"), *et = getenv("COMM_TRANSPORT");
+    g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported) */
     g_topo = getenv("MN_TOPO_GROUP") ? atoi(getenv("MN_TOPO_GROUP")) : 0;
     /* B9: the cross-group mesh of level l's id collides with level l+1's all[d] id under SHMEM's strided PE sets
      * (comm_shmem.c's "communicator id used twice" abort) -- a trap, not a remedy (products use all[d] only), so
@@ -80,17 +79,9 @@ int mn_init(void)
         mn_comm_mark("start (the meshes created)");   /* Phase 16 D: the marks' origin */
         return g_size;
     }
-    g_size = es ? atoi(es) : 1; g_rank = er ? atoi(er) : 0;
-    if (g_size <= 1) { g_size = 1; g_rank = 0; return 1; }
-    if (!eh) { ec_fatal(EC_RC_FATAL, "mn: COMM_SIZE %d needs COMM_HOSTS\n", g_size); }
-    int base = ep ? atoi(ep) : 27000;
-    g_hosts = strdup(eh); g_port = base;
-    /* mesh d joins APU thread d of every node: rank = node, size = nodes */
-    double t0 = mem_now();
-#pragma omp parallel for num_threads(NA) schedule(static)
-    for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_tcp_create_at(g_rank, g_size, eh, base + 64 * d); }
-    HIP_CHECK(hipSetDevice(0));
-    printf("mn: node %d of %d, four meshes of %d ranks on %s (port base %d): connected in %.2f s\n", g_rank, g_size, g_size, eh, base, mem_now() - t0);
+    g_size = es ? atoi(es) : 1; g_rank = 0;
+    if (g_size <= 1) { g_size = 1; return 1; }
+    ec_fatal(EC_RC_FATAL, "mn: COMM_SIZE %d needs COMM_TRANSPORT=shmem in a SHMEM build (the TCP transport was removed 2026-10-12; mnrun.sh sets it)\n", g_size);
     return g_size;
 }
 void mn_barrier(void) { if (g_size > 1) comm_barrier(g_cm[0]); }
@@ -165,36 +156,22 @@ int mn_selftest(int logR, int logC, int verbose)
 #include "dbig.h"
 #define MN_MAXL 16
 static mn_group *g_groups[MN_MAXL];
-/* the comma list of the hosts of nodes [g0, g0+g) */
-static char *hosts_of(int g0, int g)
-{
-    char *all = strdup(g_hosts), *out = (char *)malloc(strlen(g_hosts) + 2), *o = out, *sp; int i = 0; *o = 0;
-    for (char *t = strtok_r(all, ",", &sp); t; t = strtok_r(NULL, ",", &sp), i++) if (i >= g0 && i < g0 + g) { if (o != out) *o++ = ','; strcpy(o, t); o += strlen(t); }   /* (four threads at once: strtok_r) */
-    free(all); return out;
-}
-/* mesh d over the nodes [g0, g0+g): rank = node - g0; port slot s (0 = the M1 meshes): member r listens on
- * base + 512 s + 64 d + (g0 + r), unique per (slot, d, node) even when node-processes share a host */
+/* mesh d over the nodes [g0, g0+g): rank = node - g0; slot s (0 = the M1 meshes) gives the PE set its id */
 static comm *sub_mesh(int g0, int g, int slot, int d)
 {
     if (g0 == 0 && g == g_size) return g_cm[d];
-    if (g_shmem) return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
-    char *h = hosts_of(g0, g); comm *c = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * slot + 64 * d + g0); free(h); return c;
+    return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
 /* S (archive:PLAN §25): the dragonfly's third layer.  MN_TOPO_GROUP=T (nodes per dragonfly group, contiguous in the node
  * numbering): the transform nodes [g0, g0+gt) of a group, when T divides gt and gt > T, exchange through an inner
  * layered communicator in the intra-minor order (node = T a + b): intra = the T nodes of dragonfly group a (one switch
  * hop), inter = the nodes with in-group index b across the gt/T groups (the global links: one aggregated message per
  * peer group).  Its rank = node - g0, as the plain mesh's, so the callers see no difference.  The two meshes: SHMEM
- * strided PE sets, or TCP meshes on the group's slot (in-group: the same ports the plain mesh would use; cross-group:
- * the d + 4 port lanes of the slot, q b + a < 64). */
+ * strided PE sets (refused under SHMEM at init, B9: so the layer is unused since the TCP meshes were removed). */
 static comm *g_topo_mesh[MN_MAXL][NA][2];                 /* the in-group and cross-group meshes under each level's tr[d] */
 static comm *sub_mesh_strided(int start, int stride, int n, int slot, int lane, int off)
 {
-    if (g_shmem) return comm_shmem_create_at(start, stride, n, NA + NA * slot + lane);
-    char *all = strdup(g_hosts), *out = (char *)malloc(strlen(g_hosts) + 2), *o = out, *sp; int i = 0, me = -1; *o = 0;
-    for (char *t = strtok_r(all, ",", &sp); t; t = strtok_r(NULL, ",", &sp), i++) if (i >= start && (i - start) % stride == 0 && (i - start) / stride < n) { if (o != out) *o++ = ','; strcpy(o, t); o += strlen(t); if (i == g_rank) me = (i - start) / stride; }
-    free(all);
-    comm *c = comm_tcp_create_at(me, n, out, g_port + 512 * slot + 64 * lane + off); free(out); return c;
+    (void)off; return comm_shmem_create_at(start, stride, n, NA + NA * slot + lane);   /* (the TCP form removed 2026-10-12) */
 }
 static comm *topo_tr(mn_group *G, int level, int d)
 {
@@ -251,11 +228,8 @@ mn_group *mn_group_span(int l, int g0, int g)
 #pragma omp parallel for num_threads(NA) schedule(static)
     for (int d = 0; d < NA; d++) {
         HIP_CHECK(hipSetDevice(d)); G->tr[d] = 0;
-        /* SHMEM: a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d); TCP: the port lanes NA + d of the level's odd slot 2 l - 1 (the
-         * binary group of the level listens on lanes 0..3 of it, the topo meshes on the even slots), so the ports stay below the
-         * ephemeral range on aac6 (slot 2 MN_MAXL + l put them above 32768: "cannot connect", batch 2 at size 9) */
-        if (g_shmem) G->all[d] = comm_shmem_create_at(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
-        else { char *h = hosts_of(g0, g); G->all[d] = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * (2 * l - 1) + 64 * (NA + d) + g0); free(h); }
+        /* a PE-set id of its own (NA + NA (2 MN_MAXL + l) + d) */
+        G->all[d] = comm_shmem_create_at(g0, 1, g, NA + NA * (2 * MN_MAXL + l) + d);
     }
     HIP_CHECK(hipSetDevice(0));
     printf("mn: node %d: schedule level %d group [%d, %d) (%d nodes, the general map): meshes connected in %.2f s\n", g_rank, l, g0, g0 + g, g, mem_now() - t0);

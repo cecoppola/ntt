@@ -6,7 +6,6 @@ BS_CKPT_EVERY	4	int	>=0		binsplit.c:37 initialiser (the env only overrides it); 
 BS_CKPT_MIN_LEVEL	16	int	>=0		binsplit.c:38 initialiser
 BS_LAYOUT_ONLY	unset	str	D[:g],...		ecalc.c:440; layout printer, exits before rns_init
 BS_RESTART	0	int	0|1		ecalc.c
-COMM_HOSTS	unset	str	host list		comm_tcp.c, mn.c: TCP transport only
 COMM_LAYER_INTER2	0	bool	0|1		binsplit.c:450 (e && atoi(e) != 0)
 COMM_LAYER_VSLOT_POOL	0	bool	0|1		binsplit.c:426
 COMM_LAYER_VSLOT_SHARE	0	bool	0|1		binsplit.c:399
@@ -14,14 +13,13 @@ COMM_OFI	auto	bool	0|1		comm_ofi.c:98 default = a cxi NIC is present (cxi_presen
 COMM_OFI_NICS	unset	str	NIC list, ; between devices		comm_ofi.c:123; unset = automatic
 COMM_OFI_PLAN_CXI	0	bool	0|1		comm_ofi.c:92 (cxi_present() || set)
 COMM_OFI_POOL_MB	auto	int	MiB per device		binsplit.c:694 sets it from the modelled need when unset
-COMM_PORT	unset	int	TCP port		comm_tcp.c, mn.c: TCP transport only
 COMM_RANK	0	int	>=0		set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	0	bool	0|1		comm_shmem.c
 COMM_SHMEM_POOL_MB	8192	int	MiB		binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_ROUND_MB	0	float	>=0 MiB		comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	auto	bool	0|1		comm_shmem.c:284 per-build default (OSHMEM 1)
 COMM_SIZE	1	int	>=1		set per run by the launcher; code defaults are 1 (4096 only in a self-test)
-COMM_TRANSPORT	auto	enum	shmem|tcp|xgmi|local|sim4		mn.c:503; unset = the build's default transport
+COMM_TRANSPORT	unset	enum	shmem		mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 DB_POOL_VERBOSE	0	int	0|1|2		dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DM_MN_LEAN	0	bool	0|1		newton_db.c
 ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2)

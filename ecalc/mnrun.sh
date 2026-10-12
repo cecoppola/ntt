@@ -1,9 +1,9 @@
 #!/bin/bash
 # mnrun.sh - run <procs> node-processes of ecalc (or any command) connected by the inter-node
-# communicator (Phase 8 M1: TCP; Phase 11 S: SHMEM with COMM_TRANSPORT=shmem).  Correctness only on
-# aac6.  The processes are spread over the nodes of the allocation, several per node when there are
+# communicator (Phase 11 S: SHMEM, COMM_TRANSPORT=shmem -- the default for <procs> > 1; the Phase 8 TCP transport was removed
+# 2026-10-12, so a build without SHMEM runs one process only).  The processes are spread over the nodes of the allocation, several per node when there are
 # fewer nodes (they share the node's four APUs); the node count used is the largest that divides
-# <procs> (Slurm places tasks by blocks otherwise, and COMM_HOSTS must match the placement), listed explicitly.
+# <procs> (Slurm places tasks by blocks otherwise), listed explicitly.
 #   mnrun.sh <procs> <command...>          e.g.  SLURM_JOB_ID=<id> ./mnrun.sh 2 ./ecalc 1000000000 /tmp/e.txt
 # SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by srun's PMIx (OpenMPI 4.1.6 OSHMEM on aac6; the
 # target's srun likewise), rank = PE.  COMM_SHMEM_POOL_MB sizes the transport's symmetric pool (unset: the run's modelled
@@ -35,7 +35,6 @@ if [ -z "${MNRUN_MODULES+x}" ]; then if [ -d /opt/cray/pe/sma ]; then MNRUN_MODU
 if [ -d /opt/cray/pe/sma ]; then MNRUN_UNLOAD=${MNRUN_UNLOAD-rocm/7.0.3}; fi
 export MNRUN_MODULES; export MNRUN_UNLOAD=${MNRUN_UNLOAD:-}
 [ -n "$SLURM_JOB_ID" ] || { echo "set SLURM_JOB_ID to the allocation"; exit 1; }
-__user_comm_hosts=${COMM_HOSTS:-}   # a12: the caller's COMM_HOSTS (mnrun.sh overwrites it below; only used for the TCP warning)
 nodes=$(scontrol show hostnames "$(squeue -j "$SLURM_JOB_ID" -h -o %N)")
 [ -n "${MNRUN_NODELIST:-}" ] && nodes=$(echo "$MNRUN_NODELIST" | tr , "\n")   # s29: run on exactly these nodes of the allocation (unset: all, in squeue order)
 # S35 wrap-up: MNRUN_EXCLUDE_HOSTS="h1,h2" (default empty = off) names slow hosts (aac7: aac7-n01, a ~20 s host->device upload stall, results/S31.md).
@@ -72,15 +71,15 @@ case "${MNRUN_CPUS_PER_TASK:-}" in
     auto) ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && [ "$ncpu" -ge "$per" ] && copt+=(-c $((ncpu / per)));;
     *) copt+=(-c "$MNRUN_CPUS_PER_TASK");;
 esac
-hosts=$(echo "$use" | awk -v per=$per '{ for (i = 0; i < per; i++) printf "%s%s", (NR > 1 || i) ? "," : "", $1 }')
 list=$(echo "$use" | paste -sd,)
-export COMM_HOSTS="$hosts" COMM_PORT=${COMM_PORT:-$((20000 + RANDOM % 6000))}    # a per-run port base: a straggler of a failed run must not catch the next run's connections (M3 uses base .. base + 6656); below the ephemeral range 32768-60999, where a listener collides with any outgoing connection now and then (S: "bind: Address already in use" once in ~4 runs at 8 processes)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
 for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
-# a12: warning only -- cross-node TCP with the Slurm host names (aac7: the 1 GbE management network, ~110 MB/s per process, results/A01.md)
-if [ "$nn" -gt 1 ] && [ "${COMM_TRANSPORT:-tcp}" != shmem ] && [ -z "$__user_comm_hosts" ]; then echo "mnrun.sh: WARNING: cross-node TCP will use the Slurm host names (on aac7 the 1 GbE management network, ~110 MB/s per process, results/A01.md); set COMM_TRANSPORT=shmem or COMM_HOSTS with hsn0 addresses" >&2; fi
+# 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
+[ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
+if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
+[ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 if [ "$COMM_TRANSPORT" = shmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.

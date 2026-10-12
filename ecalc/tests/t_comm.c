@@ -1,4 +1,4 @@
-/* t_comm - the TCP communicator (WP6) on N forked localhost processes:
+/* t_comm - the SHMEM transport's communicator (the WP6 TCP form and its forked localhost mode were removed 2026-10-12):
  * S12: the same exchanges on buffers of the transport's symmetric pool (comm_sym_alloc: unstaged over SHMEM; malloc'd
  * where the transport has no pool), twice in a row on the same buffers.
  * all-to-all of random slabs checked against the senders, barrier, reductions, (M7) the all-gathers
@@ -6,11 +6,10 @@
  * (B7) the unequal all-to-all: per-pair counts of 0..8 units (units of 8 B, 1000 B and 3 MiB), slabs back to back
  * on the send side and in reverse rank order on the receive side, the device and the host op.
  * Point-to-point (S): small values to all before any receive, a 3 MiB message between pairs.
- * COMM_TRANSPORT=shmem (S): one PE per process under oshrun (mnrun.sh <n> ./tests/t_comm): the same checks over the SHMEM
- * transport on the full PE set, then on the strided sets of the even and the odd PEs (n >= 4).
- * Host-only build: cc -O2 -DCOMM_HOST_ONLY -I.. t_comm.c ../comm_tcp.c ../comm_shmem.c ../comm_util.c -lpthread
- * With COMM_RANK set (one process per rank, e.g. under wp6run.sh across nodes)
- * this process is that rank: it prints its own VERIFY line and exits nonzero on failure. */
+ * COMM_TRANSPORT=shmem (S): one PE per process (mnrun.sh <n> env COMM_TRANSPORT=shmem ./tests/t_comm): the checks over the SHMEM
+ * transport on the full PE set, then on the strided sets of the even and the odd PEs (n >= 4); each PE prints its own
+ * VERIFY line and exits nonzero on failure.
+ * Host-only build: make tests/t_comm (-DCOMM_HOST_ONLY; comm_shmem.c comm_ofi.c comm_util.c) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,16 +66,9 @@ static int check_p2p(comm *c, int me, int n)
 }
 static int check_all(comm *c, int me, int n);
 static int shmem_mode;
-static int run_rank(int me, int n, const char *hosts, int port)
+static int run_rank(int me, int n)
 {
-    comm *c;
-    if (shmem_mode) c = comm_shmem_create_at(0, 1, n, 0);
-    else {
-        char b[32]; snprintf(b, sizeof b, "%d", me); setenv("COMM_RANK", b, 1);
-        snprintf(b, sizeof b, "%d", n); setenv("COMM_SIZE", b, 1); setenv("COMM_HOSTS", hosts, 1);
-        snprintf(b, sizeof b, "%d", port); setenv("COMM_PORT", b, 1);
-        c = comm_tcp_create();
-    }
+    comm *c = comm_shmem_create_at(0, 1, n, 0);
     int bad = check_all(c, me, n);
     comm_destroy(c);
     if (shmem_mode && n >= 4) {                        /* the strided PE sets (the teams shim): the even and the odd PEs, both alive at once */
@@ -216,25 +208,10 @@ int main(int argc, char **argv)
         if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm %s needs COMM_TRANSPORT=shmem\n", argv[1]); return 2; }
         return run_sweep(argc, argv);
     }
-    if (getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* S: one PE per process under oshrun (mnrun.sh) */
-        shmem_mode = 1; int n = comm_shmem_init(), me = comm_shmem_rank();
-        int bad = run_rank(me, n, 0, 0);
-        printf("t_comm: PE %d of %d over SHMEM: %s (%d bad)\n", me, n, bad ? "VERIFY FAILED" : "VERIFY OK", bad);
-        comm_shmem_finalize();
-        return bad != 0;
-    }
-    if (getenv("COMM_RANK")) {
-        int me = atoi(getenv("COMM_RANK")), n = atoi(getenv("COMM_SIZE")), port = getenv("COMM_PORT") ? atoi(getenv("COMM_PORT")) : 27000;
-        int bad = run_rank(me, n, getenv("COMM_HOSTS"), port);
-        printf("t_comm: rank %d of %d: %s (%d bad)\n", me, n, bad ? "VERIFY FAILED" : "VERIFY OK", bad);
-        return bad != 0;
-    }
-    int n = argc > 1 ? atoi(argv[1]) : 4, port = argc > 2 ? atoi(argv[2]) : 27100;
-    char hosts[4096] = ""; for (int r = 0; r < n; r++) strcat(hosts, r ? ",localhost" : "localhost");
-    pid_t pid[64];
-    for (int r = 0; r < n; r++) { pid[r] = fork(); if (pid[r] == 0) _exit(run_rank(r, n, hosts, port) ? 1 : 0); }
-    int fails = 0;
-    for (int r = 0; r < n; r++) { int st; waitpid(pid[r], &st, 0); if (!WIFEXITED(st) || WEXITSTATUS(st)) fails++; }
-    printf("t_comm: %s (%d ranks, %d failed)\n", fails ? "VERIFY FAILED" : "VERIFY OK", n, fails);
-    return fails != 0;
+    if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm needs COMM_TRANSPORT=shmem (mnrun.sh <n> env COMM_TRANSPORT=shmem ./tests/t_comm)\n"); return 2; }
+    shmem_mode = 1; int n = comm_shmem_init(), me = comm_shmem_rank();   /* one PE per process (mnrun.sh) */
+    int bad = run_rank(me, n);
+    printf("t_comm: PE %d of %d over SHMEM: %s (%d bad)\n", me, n, bad ? "VERIFY FAILED" : "VERIFY OK", bad);
+    comm_shmem_finalize();
+    return bad != 0;
 }

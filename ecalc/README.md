@@ -39,7 +39,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 | `binsplit.c/h` | binary splitting: seeds, regions, levels, the top levels as device numbers, checkpoints, the layout |
 | `newton.c/h`, `newton_db.c` | the reciprocal and the two-half division on device and sharded numbers |
 | `mn.c/h`, `mn_plan.c/h` | node-processes: meshes, groups, the tree levels; `MN_PLAN_ONLY` plan and check |
-| `comm.h`, `comm_*.c`, `comm_ofi.h` | communicators: `xgmi` (the node's four APUs), `shmem`, `ofi` (libfabric, every NIC), `layered` (xGMI × fabric), `tcp`, `sim4`/`local` (tests), `util` |
+| `comm.h`, `comm_*.c`, `comm_ofi.h` | communicators: `xgmi` (the node's four APUs), `shmem`, `ofi` (libfabric, every NIC), `layered` (xGMI × fabric), `sim4`/`local` (tests), `util` |
 | `mn_out.c/h`, `packed_fmt.h`, `verify.c/h` | output per node (packed part files, the correction patch), T1 residues and T2 windows |
 | `mem.c/h`, `memsample.c/h`, `spill.c/h` | memory pools, VMM arenas, accounting and sampling; O_DIRECT file writes |
 | `fatal.c/h`, `segv_trace.c/h`, `config_line.c/h` | named exits, the crash-trace handler, the `config: hash=` line |
@@ -186,9 +186,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | switch | meaning (default) |
 |---|---|
 | `COMM_RANK`, `COMM_SIZE` | this process's rank and the number of node-processes (set by `mnrun.sh`; unset or 1 = the single-node program) |
-| `COMM_HOSTS` | the host of every rank, comma-separated in rank order (set by `mnrun.sh`) |
-| `COMM_PORT` | the TCP port base (`mnrun.sh` picks a random one per run) |
-| `COMM_TRANSPORT` | `tcp` or `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM) (tcp) |
+| `COMM_TRANSPORT` | `shmem` (Phase 11 S: the meshes as strided PE sets over SHMEM): needed for more than one process (`mnrun.sh` sets it for <procs> > 1); the `tcp` value and the TCP transport were removed 2026-10-12, so a build without SHMEM runs one process only |
 | `COMM_SHMEM_POOL_MB` | the SHMEM transport's symmetric pool (8192; *Phase 14 (V1)*: `mnrun.sh` sets it, when unset, to the run's modelled need from `MN_PLAN_ONLY=<digits>:<procs>`'s `plan pool` line, and a host heap to it + 512 MiB — `MNRUN_PLAN_POOL=0` skips that) |
 | `COMM_SHMEM_IMPL` | `mnrun.sh`: `sos`, `oshmem` or *Phase 16 (A)* `cray` — the SHMEM library the binary was built against, i.e. the launch form (`srun --mpi=pmi2`, `--mpi=pmix` + `setarch -L`, or plain `srun` with `SHMEM_SYMMETRIC_SIZE` = `XT_SYMMETRIC_HEAP_SIZE` = pool + 512 MiB for Cray OpenSHMEMX) (detected: the first executable of the command, through wrappers such as `env`, `stdbuf`, `timeout`, `numactl`, that links `libsma` (`cray` when its rpath / resolved path is under `/opt/cray/pe`) or `liboshmem`; neither: oshmem) |
 | `FI_UNIVERSE_SIZE` | *s18-target (internal target notes §4, from the TGTBENCH2 proposal)*: libfabric's address-vector size; `mnrun.sh`'s SHMEM path exports it when unset to `max(4096, 4 x the run's node-processes)` (the user's target rule ">= 4 x ntasks", kept at a 4096 floor — their largest tested value) — comm_ofi opens its AVs at the provider's default count and inserts every communicator's member (set by hand, or by a site's own profile, to use a different system's value instead) |
