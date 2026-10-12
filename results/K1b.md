@@ -31,7 +31,21 @@ Run-level model used by the driver's stop rule: saving = 174 calls x 36.5 ms x (
 - Dry run with stub sbatch / srun / squeue / gate (both the "confirmed" and the "refuted" path): summary, marker, scancel of the own id only: OK.
 
 ## 5. Results
-(pending; filled on collection)
+Collected from the aac6 summary (hold, 2026-10-12 03:03-03:19 ET; all numbers measured unless marked; marker `DONE` = SUCCESS).
+
+- Probe (`t_gather_raw_probe`, two sizes): RATIO4 0.3388 (second size 0.3408); V1 raw gather 34.26 ms vs V0 gather+canon 34.45 ms (RAWREL 0.9944), canon pass alone 3.01 ms (CANONREL 0.0873), pow2 index 0.9991, local source 0.9933; all variants identical. Modelled saving at 6.441e10: 4.20 s per run (modelled, all gather calls covered, np 4).
+- Gates (1 node, 1e9, RNS_STRATEGY=C): `DIST_GATHER_RAW=2`, `=1`, `=0` all PASS (VERIFY OK, digits identical, segv 0; ecalc total 11.24 / 15.02 / 11.86 s, single runs, not a timing comparison).
+- ABBA, A = `DIST_GATHER_RAW=0`, B = `DIST_GATHER_RAW=2`, 6.441e10 digits, total seconds, 3 rounds, stop rule p<0.05 met:
+
+| round | A (s) | B (s) | B-A (s) |
+|---|---|---|---|
+| 1 | 73.06 / 72.45 | 69.41 / 69.38 | -3.36 |
+| 2 | 72.36 / 74.76 | 68.46 / 69.88 | -4.39 |
+| 3 | 73.10 / 73.36 | 70.05 / 69.08 | -3.66 |
+
+Mean B-A = **-3.805 s**, 95 % CI half-width 1.314 s (CI -5.12 .. -2.49), p<0.05 (significant; n = 3 pairs). All 12 runs VERIFY OK. Measured gain ~3.8 s of ~73 s (5.2 %), close to the 4.20 s modelled.
+- Device memory (node, 4 APUs): in use max 284.1 GB both arms; block-pool peak live max 145.5 GB (A) vs 162.7 GB (B) (+17.2 GB); pool hipMalloc 0.0 GB; no "does not fit" notes.
+- Verdict: significant gain, digits identical; adoption is the user's decision (cost: +17 GB peak live per node, within the 284 GB in use).
 
 ## RESUME
 - State: code + probe + driver on branch k1b (pushed). aac6 clone `~/ntt-k1b` (from a full bundle; the shared clone `~/ntt` is on the pre-rewrite history), built (`module load rocm; make -s -j16`, probe built). Driver armed 2026-10-12 02:32 Eastern (`setsid nohup`, GIVEUP_EPOCH 12:00 Eastern), hold job 22989 pending third in the PPAC queue behind two of our jobs; expected start ~03:05-03:50, DONE ~03:50-04:35 Eastern (as). Output `~/k1b/`.
