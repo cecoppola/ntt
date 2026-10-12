@@ -427,11 +427,11 @@ int main(int argc, char **argv)
     } else R[2].why = "not requested";
 
 
-    /* ---- V: the library's B forms against C (rns_mul_dist_db under RNS_STRATEGY = C, B, B4, auto) ---- */
+    /* ---- V: the library's B forms against C (rns_mul_dist_db under RNS_STRATEGY = C, B, B4, B5, auto) ---- */
     if (strchr(which, 'V') && rns_dist_strategy_set) {
         int pl = logn < 31 ? logn : 31;
         if (!rns_ndev()) { rns_staging_bytes_req = (size_t)2 << 20; rns_pool1_bytes_req = rns_pool1_default_bytes(pl); rns_init(pl); }
-        const char *forms[4] = { "C", "B", "B4", "auto" };
+        const char *forms[5] = { "C", "B", "B4", "B5", "auto" };   /* O5: B5 */
         /* shapes (limbs of A, B, offsets of the views): n/2 x n/2; 3 2^k-sized; unbalanced; short (below 2^20); odd lengths at offsets */
         size_t sh[6][4] = { { na, nb, 0, 0 }, { (size_t)(0.37 * n), (size_t)(0.35 * n), 0, 0 }, { (size_t)(0.45 * n), n / 64 + 3, 0, 0 },
                             { 5000, 7001, 0, 0 }, { na - 12345, nb / 3 + 17, 999, 4097 }, { (size_t)(0.3 * n) + 1, (size_t)(0.2 * n) + 5, 3, 1 } };
@@ -440,7 +440,7 @@ int main(int argc, char **argv)
             if (oa + la > na) la = na - oa; if (ob + lb > nb) lb = nb - ob;
             dbig va = db_view(&Ad, oa, la), vb = db_view(&Bd, ob, lb); db_norm(&va); db_norm(&vb);
             dbig Cr; db_init(&Cr); uint64_t *h0 = 0; size_t n0 = 0;
-            for (int f = 0; f < 4; f++) {
+            for (int f = 0; f < 5; f++) {
                 rns_dist_strategy_set(forms[f]);
                 db_free(&Cr); db_init(&Cr);
                 double t = now(); rns_mul_dist_db(&Cr, &va, &vb); for (int d = 0; d < ND; d++) { HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipDeviceSynchronize()); } t = now() - t;
@@ -453,7 +453,7 @@ int main(int argc, char **argv)
             free(h0); db_free(&Cr);
         }
         /* the n-point product timed under each form (the planes that do not fit the pools: the forms' extra buffer) */
-        for (int f = 0; f < 4; f++) {
+        for (int f = 0; f < 5; f++) {
             struct res rr; memset(&rr, 0, sizeof rr); rr.name = 'L';
             rns_dist_strategy_set(forms[f]); dbig Cl; db_init(&Cl);
             size_t u0[ND]; for (int d = 0; d < ND; d++) u0[d] = dev_used(d);

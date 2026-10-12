@@ -327,7 +327,7 @@ void rns_dist_cache_release(void)                             /* the planes free
 {
     cache_pc_report();                                        /* Phase 15 PC: the run's partial slots */
     cache_drop();
-    b_extra_release();                                        /* Phase 13b B: the B forms' extra planes (RNS_STRATEGY=B|B4) */
+    b_extra_release();                                        /* Phase 13b B: the B forms' extra planes (RNS_STRATEGY=B|B4|B5) */
     if (!g_cache.tried) return;
     int cur; HIP_CHECK(hipGetDevice(&cur));
     for (int i = 0; i < DIST_CACHE_MAX; i++) for (int r = 0; r < NR; r++) if (g_cache.s[i].pl[r]) { HIP_CHECK(hipSetDevice(r)); HIP_CHECK(hipFree(g_cache.s[i].pl[r])); g_cache.s[i].pl[r] = 0; }
@@ -477,7 +477,15 @@ double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
  *         the three primes' upper residues ((y[j] - y[j + h]) w_m^j, Y read once); APU p multiplies its upper half by
  *         APU 3's plane (a peer read), inverts, and the CRT as in B.  1.5 n points per APU (C's 12 n bytes at P = 3),
  *         transforms 2.5 n on APUs 0-2 and 1.5 n on APU 3 (B: 3 n).
- *   auto  the B form (RNS_STRATEGY_FORM=B|B4, default B -- results/B13b.md) wherever its planes fit the plane
+ *   B5    O5 (K7-a, results/C07.md, O5.md): B4 with APU 3 given a share of the inverse.  The same planes, split and
+ *         forward as B4; the inverse of each third's 2^logk block runs as its two halves (the bit-reversed layout keeps
+ *         the halves and quarters independent until the last two DIT stages): APU p < 3 inverts the lower residue
+ *         (the pointwise against Y's lower spectrum fused, local) and quarter B of the upper residue (against APU 3's
+ *         spectrum, a peer read); APU 3 inverts quarter A of the three primes' upper residues (against X's spectra on
+ *         APUs 0-2, peer reads); then k_b5_merge on APU p does the last two DIT stages (quarter A read from APU 3), the
+ *         scale and, for 3 2^k, the radix-3 inverse stage in one pass.  Transforms 2.25 n points on every APU (B4:
+ *         2.5 n on APUs 0-2, 1.5 n on APU 3); no k_b4_pw pass (the peer reads are in the fused pointwise).
+ *   auto  the B form (RNS_STRATEGY_FORM=B|B4|B5, default B -- results/B13b.md) wherever its planes fit the plane
  *         pools as sized at init, else C.
  * B and B4 run every product in their form: the planes that do not fit the pools come from one grow-only buffer per APU
  * (hipMalloc, kept until rns_dist_cache_release at the end of the dm phase) -- the "B at more memory" row of the
@@ -487,24 +495,24 @@ double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
  * The CRT: stripes of `rows` coefficients (a power of two dividing the result's quarter length), APU d the stripes
  * [G d/4, G (d+1)/4) written straight into the result's quarters; the stripe spills (4 limbs at (g + 1) rows) go
  * through db_add_spills in the four-step's sparse layout (R = 4 rows: stripe g = 4 j + r <-> rank r, column j). */
-enum { STRAT_C = 0, STRAT_B = 1, STRAT_B4 = 2, STRAT_AUTO = 3 };
+enum { STRAT_C = 0, STRAT_B = 1, STRAT_B4 = 2, STRAT_B5 = 3, STRAT_AUTO = 4 };
 static int g_strat = -1, g_strat_form = -1;
-static const char *strat_name(int s) { return s == STRAT_B ? "B" : s == STRAT_B4 ? "B4" : s == STRAT_AUTO ? "auto" : "C"; }
-static struct { size_t n[3]; double t[3], t_alloc; size_t extra_bytes; } g_bst;      /* products and seconds by form (C, B, B4) */
+static const char *strat_name(int s) { return s == STRAT_B ? "B" : s == STRAT_B4 ? "B4" : s == STRAT_B5 ? "B5" : s == STRAT_AUTO ? "auto" : "C"; }
+static struct { size_t n[4]; double t[4], t_alloc; size_t extra_bytes; } g_bst;      /* products and seconds by form (C, B, B4, B5) */
 static void strat_report(void)
 {
-    printf("rns_dist: RNS_STRATEGY=%s%s%s: C %zu products %.2f s, B %zu products %.2f s, B4 %zu products %.2f s; extra plane memory %.2f GiB/APU (allocations %.2f s)\n",
+    printf("rns_dist: RNS_STRATEGY=%s%s%s: C %zu products %.2f s, B %zu products %.2f s, B4 %zu products %.2f s, B5 %zu products %.2f s; extra plane memory %.2f GiB/APU (allocations %.2f s)\n",
            strat_name(g_strat), g_strat == STRAT_AUTO ? " form " : "", g_strat == STRAT_AUTO ? strat_name(g_strat_form) : "",
-           g_bst.n[0], g_bst.t[0], g_bst.n[1], g_bst.t[1], g_bst.n[2], g_bst.t[2], g_bst.extra_bytes / 1073741824.0, g_bst.t_alloc);
+           g_bst.n[0], g_bst.t[0], g_bst.n[1], g_bst.t[1], g_bst.n[2], g_bst.t[2], g_bst.n[3], g_bst.t[3], g_bst.extra_bytes / 1073741824.0, g_bst.t_alloc);
 }
-/* tests: set the strategy by name ("C", "B", "B4", "auto"; 0 = RNS_STRATEGY again); returns the previous one */
+/* tests: set the strategy by name ("C", "B", "B4", "B5", "auto"; 0 = RNS_STRATEGY again); returns the previous one */
 extern "C" int rns_dist_strategy_set(const char *name);
 static int strat_get(void);
 int rns_dist_strategy_set(const char *name)
 {
     int prev = strat_get();
     if (!name) { g_strat = -1; strat_get(); return prev; }
-    g_strat = !strcmp(name, "B") ? STRAT_B : !strcmp(name, "B4") ? STRAT_B4 : !strcmp(name, "auto") ? STRAT_AUTO : STRAT_C;
+    g_strat = !strcmp(name, "B") ? STRAT_B : !strcmp(name, "B4") ? STRAT_B4 : !strcmp(name, "B5") ? STRAT_B5 : !strcmp(name, "auto") ? STRAT_AUTO : STRAT_C;
     return prev;
 }
 static int strat_get(void)
@@ -516,10 +524,11 @@ static int strat_get(void)
         if (!strcmp(e, "C") || !strcmp(e, "c")) g_strat = STRAT_C;
         else if (!strcmp(e, "B") || !strcmp(e, "b")) g_strat = STRAT_B;
         else if (!strcmp(e, "B4") || !strcmp(e, "b4")) g_strat = STRAT_B4;
+        else if (!strcmp(e, "B5") || !strcmp(e, "b5")) g_strat = STRAT_B5;                 /* O5 */
         else if (!strcmp(e, "auto")) g_strat = STRAT_AUTO;
-        else { ec_fatal(EC_RC_FATAL, "RNS_STRATEGY=%s: C, B, B4 or auto\n", e); }
+        else { ec_fatal(EC_RC_FATAL, "RNS_STRATEGY=%s: C, B, B4, B5 or auto\n", e); }
     }
-    g_strat_form = f && (!strcmp(f, "B4") || !strcmp(f, "b4")) ? STRAT_B4 : STRAT_B;   /* auto's form: B (results/B13b.md: B4 is 3-7 % slower and fits the same pools) */
+    g_strat_form = f && (!strcmp(f, "B4") || !strcmp(f, "b4")) ? STRAT_B4 : f && (!strcmp(f, "B5") || !strcmp(f, "b5")) ? STRAT_B5 : STRAT_B;   /* auto's form: B (results/B13b.md: B4 is 3-7 % slower and fits the same pools; B5: O5, off by default) */
     if (g_strat != STRAT_C) atexit(strat_report);
     return g_strat;
 }
@@ -533,7 +542,7 @@ static size_t b_len(size_t nc, int *T, int *logk)
 }
 /* two-level tables of w (entries j < cnt): t2 = w^(j & 0xffff), t1 = w^(j >> 16 << 16); w^j = t2[j & 0xffff] t1[j >> 16] */
 struct btw { const uint64_t *t1, *t2; };
-#define BTW_SLOTS 8
+#define BTW_SLOTS 12                                        /* O5: B5 holds three tables per size on APUs 0-2 (w_n, w_m^-1, w_n^-1) */
 static struct { int built; uint64_t w; size_t cnt; struct btw t; } g_btw[NR][EC_NP][BTW_SLOTS];   /* [dev][prime][slot] */
 static int g_btw_next[NR][EC_NP];                                                             /* round-robin eviction: a product's two tables never evict each other */
 static struct btw b_tables(int dev, int prime, uint64_t w, size_t cnt)
@@ -602,6 +611,45 @@ __global__ void k_b4_pw(uint64_t *x, const uint64_t *lo, const uint64_t *hi, int
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; i < n; i += stride) { size_t r = i >> logk, t = i & (m - 1); uint64_t y = t < h ? lo[r * h + t] : hi[r * h + t - h]; x[i] = ec_mmu(x[i], y, md); }
 }
+/* O5 B5: the last two DIT stages of each third's 2^logk block on APU p (T thirds of m = 2^logk points, h = m/2, hq = h/2):
+ *   lo'  = x[r m + j], j < h          the lower residue's inverse (scaled h^-1, local)
+ *   qa   = a[r h + j], j < hq         quarter A of the upper residue's inverse (scaled hq^-1; APU 3's plane, a peer read)
+ *   qb   = x[r m + h + hq + j]        quarter B (scaled hq^-1, local)
+ *   hi'[j] = (qa + qb w_h^-j) / 2, hi'[j + hq] = (qa - qb w_h^-j) / 2          (w_h^-j = w_m^-2j: the table wmi at 2 j)
+ *   z[q] = (lo'[q] + hi'[q] w_m^-q) / 2, z[q + h] = (lo'[q] - hi'[q] w_m^-q) / 2   for q = j, j + hq
+ * then (T = 3) ntt3.c's radix-3 inverse stage across the thirds at each of the four positions (w_n^-q, 3^-1), all canonical.
+ * One thread per j < hq: its reads and writes (the positions j, j + hq, j + h, j + h + hq of each third) are disjoint from
+ * every other thread's, so the pass is in place. */
+struct b5arg { const uint64_t *a; struct btw wmi, wni; uint64_t w3, w3s, inv3, inv2; ec_mod m; };
+template <int T>
+__global__ void k_b5_merge(uint64_t *x, struct b5arg g, int logk)
+{
+    const size_t m = (size_t)1 << logk, h = m / 2, hq = h / 2;
+    const ec_mod md = g.m; const uint64_t p = md.pu;
+    size_t j = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; j < hq; j += stride) {
+        uint64_t z[T][4];                                      /* [third][position: j, j + hq, j + h, j + h + hq] */
+        const uint64_t wh = btw_at(g.wmi, 2 * j, md), wm0 = btw_at(g.wmi, j, md), wm1 = btw_at(g.wmi, j + hq, md);
+        for (int r = 0; r < T; r++) {
+            uint64_t *b = x + r * m;
+            uint64_t lo0 = b[j], lo1 = b[j + hq], qa = g.a[r * h + j], qb = b[h + hq + j];
+            uint64_t t = ec_mmu(qb, wh, md), hi0 = ec_mmu(qa + t, g.inv2, md), hi1 = ec_mmu(qa + p - t, g.inv2, md);
+            uint64_t u0 = ec_mmu(hi0, wm0, md), u1 = ec_mmu(hi1, wm1, md);
+            z[r][0] = ec_mmu(lo0 + u0, g.inv2, md); z[r][2] = ec_mmu(lo0 + p - u0, g.inv2, md);
+            z[r][1] = ec_mmu(lo1 + u1, g.inv2, md); z[r][3] = ec_mmu(lo1 + p - u1, g.inv2, md);
+        }
+        for (int e = 0; e < 4; e++) {
+            const size_t q = j + (e & 1 ? hq : 0) + (e & 2 ? h : 0);
+            if (T == 1) { x[q] = z[0][e]; continue; }
+            uint64_t wi = btw_at(g.wni, q, md), wi2 = ec_mmu(wi, wi, md);
+            uint64_t a0 = z[0][e], a1 = ec_mmu(z[T > 1 ? 1 : 0][e], wi, md), a2 = ec_mmu(z[T > 2 ? 2 : 0][e], wi2, md);
+            uint64_t w3a1 = ec_mmu(a1, g.w3, md), w3sa1 = ec_mmu(a1, g.w3s, md), w3a2 = ec_mmu(a2, g.w3, md), w3sa2 = ec_mmu(a2, g.w3s, md);
+            x[q] = ec_mmu(add3u(a0, a1, a2, p), g.inv3, md);
+            x[q + m] = ec_mmu(add3u(a0, w3sa1, w3a2, p), g.inv3, md);
+            x[q + 2 * m] = ec_mmu(add3u(a0, w3a1, w3sa2, p), g.inv3, md);
+        }
+    }
+}
 /* the planes of one B-form product on APU d: first fit into pool 0, pool 1, then (forced forms only) the extra buffer */
 static uint64_t *g_bx[NR]; static size_t g_bx_cap[NR];
 static void b_acct(int ndev, size_t b[][MEM_DEV_NCAT]) { for (int d = 0; d < ndev && d < NR; d++) b[d][MEM_DEV_PLANES] += g_bx_cap[d] * 8; }   /* M9: the extra planes count as planes */
@@ -624,21 +672,21 @@ static size_t b_place(int d, int k, const size_t *sz, uint64_t **out)
     }
     return ex;
 }
-/* the planes' sizes of a product of length n on APU d (form f); returns the count */
+/* the planes' sizes of a product of length n on APU d (form f; B4 and B5 share the layout); returns the count */
 static int b_planes(int f, int d, size_t n, size_t *sz, int np)   /* np: the product's primes (Phase 15 NP) */
 {
     if (f == STRAT_B) { if (d >= np) return 0; sz[0] = n; sz[1] = n; return 2; }
     if (d < 3) { sz[0] = n; sz[1] = n / 2; return 2; }
     sz[0] = sz[1] = sz[2] = n / 2; return 3;
 }
-/* the form this product runs in (C, B or B4) */
+/* the form this product runs in (C, B, B4 or B5) */
 static int b_choose(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb, int np)
 {
     int s = strat_get();
     if (s == STRAT_C || cache_slots() || A.flat || B.flat || Cw.flat || !Cw.owner || Cw.lo || sa >= 0 || sb >= 0) return STRAT_C;
     if (Cw.owner->qc % 4096) return STRAT_C;
     int f = s == STRAT_AUTO ? g_strat_form : s;
-    if (f == STRAT_B4 && np != 3) f = STRAT_B;
+    if ((f == STRAT_B4 || f == STRAT_B5) && np != 3) f = STRAT_B;
     if (np > NR) return STRAT_C;
     if (s == STRAT_AUTO) {
         int T, lk; size_t n = b_len(nc, &T, &lk), sz[3];
@@ -721,10 +769,30 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
             } else for (int k = 0; k < 3; k++) ntt_fwd(v->ctx[k], pl[d][k], logk - 1, T, v->s);
             HIP_CHECK(hipStreamSynchronize(v->s));
 #pragma omp barrier
-            if (d < 3) {
-                k_b4_pw<<<nblk(n), 256, 0, v->s>>>(X, Y, pl[3][d], logk, n, sp.m[0]);
-                if (T == 3) ntt_inv3(v->ctx[d], X, logk, 1, v->s); else ntt_inv(v->ctx[d], X, logk, 1, v->s);
+            if (f == STRAT_B4) {
+                if (d < 3) {
+                    k_b4_pw<<<nblk(n), 256, 0, v->s>>>(X, Y, pl[3][d], logk, n, sp.m[0]);
+                    if (T == 3) ntt_inv3(v->ctx[d], X, logk, 1, v->s); else ntt_inv(v->ctx[d], X, logk, 1, v->s);
+                    HIP_CHECK(hipStreamSynchronize(v->s));
+                }
+            } else {                                           /* O5 B5: the inverse in halves and quarters (see the comment at k_b5_merge) */
+                const size_t hq = h / 2;
+                if (d < 3) for (int r = 0; r < T; r++) {
+                    ntt_inv_pw(v->ctx[d], X + r * m, Y + r * h, logk - 1, 1, v->s);                            /* the lower residue, Y's lower spectrum local */
+                    ntt_inv_pw(v->ctx[d], X + r * m + h + hq, pl[3][d] + r * h + hq, logk - 2, 1, v->s);        /* quarter B of the upper residue, Y's upper spectrum: APU 3 (peer read) */
+                } else for (int k = 0; k < 3; k++) for (int r = 0; r < T; r++)
+                    ntt_inv_pw(v->ctx[k], pl[d][k] + r * h, pl[k][0] + r * m + h, logk - 2, 1, v->s);          /* quarter A of prime k's upper residue, X's spectrum: APU k (peer read) */
                 HIP_CHECK(hipStreamSynchronize(v->s));
+#pragma omp barrier
+                if (d < 3) {
+                    const int p = d; const uint64_t P = ec_P[p];
+                    struct b5arg g; memset(&g, 0, sizeof g);
+                    g.a = pl[3][d]; g.m = sp.m[0]; g.inv2 = ec_inv(2, P);
+                    g.wmi = b_tables(d, p, ec_root_inv(p, logk), h);
+                    if (T == 3) { g.wni = b_tables(d, p, ec_root3_inv(p, logk), m); g.w3 = sp.w3[0]; g.w3s = sp.w3s[0]; g.inv3 = ec_inv(3, P); }
+                    if (T == 3) k_b5_merge<3><<<nblk(hq), 256, 0, v->s>>>(X, g, logk); else k_b5_merge<1><<<nblk(hq), 256, 0, v->s>>>(X, g, logk);
+                    HIP_CHECK(hipStreamSynchronize(v->s));
+                }
             }
             x2 = mem_now();
         }
@@ -985,7 +1053,7 @@ static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int 
 static int b_fits(size_t nc)
 {
     int np = ec_np_for(nc);                                   /* Phase 15 NP: the piece's primes */
-    int f = g_strat_form; if (f == STRAT_B4 && np != 3) f = STRAT_B; if (np > NR) return 0;
+    int f = g_strat_form; if ((f == STRAT_B4 || f == STRAT_B5) && np != 3) f = STRAT_B; if (np > NR) return 0;
     int T, lk; size_t n = b_len(nc, &T, &lk), sz[3];
     for (int d = 0; d < NR; d++) if (b_place(d, b_planes(f, d, n, sz, np), sz, 0)) return 0;
     return 1;
