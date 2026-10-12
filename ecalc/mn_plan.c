@@ -3,7 +3,7 @@
  * after the plane-cap switch has set its knobs, and exits).
  *
  * What decides is the code's own (mn_plan.h): mn_groups_parse (the tree's schedule), rns_dist_mn_plan / rns_dist_db_plan (mn_grid's
- * and mul_grid's choice of one plane or the grid, split_grid_cap / split_grid with b_fits, and the cuts' skip rule), newton_chain_next
+ * and mul_grid's choice of one plane or the grid, the grid search (grid_search, with b_fits), and the cuts' skip rule), newton_chain_next
  * and newton_mn_chain_start (the reciprocal's chain), newton_mn_x1_level (the group a reciprocal step runs on).  What the plan
  * predicts is the operand sizes, which a run only knows once it has the numbers:
  *   - Q(a, b) = a (a+1) ... (b-1) over the term range [a, b) (binsplit.c span): log10 = (lgamma(b) - lgamma(a)) / ln 10;

@@ -789,32 +789,10 @@ void rns_mul_low_db(dbig *Cd, const dbig *A, const dbig *B, size_t w)
     mul_grid(Cd, &a, &b, 0, w);
     if (Cd->n > w) { Cd->n = w; db_norm(Cd); }
 }
-/* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
-static size_t plane_pts(size_t nc)
-{
-    size_t n = (size_t)1 << 20; while (n < nc) n <<= 1;
-    return n;
-}
-/* piece counts (ka, kb) for a product too long for one plane: every piece product ceil(na/ka) + ceil(nb/kb)
- * must fit 2^31 points; choose the grid with the fewest plane points in total (then the fewest products).
- * Halving the longer operand alone -- the first version -- gave 8 planes of 2^31 for the decimal top product
- * (2.22e9 x 2.22e9 limbs: halves of 1.11e9 still exceed a plane together); 2 x 3 pieces give 6 (RESULTS.md 66) */
-static void split_grid_cap(size_t na, size_t nb, size_t cap, size_t minpts, int *ka, int *kb)   /* cap, minpts: plane points (the mn tier's differ) */
-{
-    size_t best = 0; *ka = *kb = 0;
-    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
-        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
-        if (pa + pb > cap) continue;
-        size_t pts = plane_pts(pa + pb); if (pts < minpts) pts = minpts;
-        size_t cost = (size_t)i * j * pts;
-        if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
-    }
-    if (!*ka) { ec_fatal(EC_RC_FATAL, "split_grid: %zu x %zu limbs\n", na, nb); }
-}
-/* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (RNS_STRATEGY_GRID, default 1 under auto):
+/* Phase 13b B: under RNS_STRATEGY=auto the grid knows which pieces run in the B form (default under auto):
  * a piece that fits the B form's planes costs its B-length points x 0.70 (the library's B against C per product, measured
- * 0.66-0.74 at 2^26..2^31, results/B13b.md), one that does not its C points x 1; 3 2^k lengths x 1.05 as above.  The digits do
- * not depend on the grid.  Off (or any other strategy): C's grid as before. */
+ * 0.66-0.74 at 2^26..2^31, results/B13b.md), one that does not its C points x 1; B's 3 2^k lengths x 1.05.  The digits do
+ * not depend on the grid.  Off (or any other strategy): C's grid. */
 static int b_fits(size_t nc)
 {
     int np = ec_np_for(nc);                                   /* Phase 15 NP: the piece's primes */
@@ -827,26 +805,74 @@ static int b_grid_on(void)
 {
     return strat_get() == STRAT_AUTO && !cache_slots();   /* (RNS_STRATEGY_GRID, default 1, removed 2026-10-12) */
 }
-/* Phase 14 V2 (RNS_AUTO_PIECE_COST=1, the default since Phase 15, D1; built in 2026-10-12) -- auto's grid also prices what each extra piece costs in the pipeline
- * (results/D213d.md, fit_pipe on G13d's logs: a piece of a grid adds 0.075 s per 2^31 B points of the piece + 0.079 s per
- * 2^31 limbs of the whole product, its accumulation pass over C).  In split_grid's units (C plane points; the pipeline's C
- * product costs ~0.86 s per 2^31 points, mn_model.t_prod x PIPE_ONE) that is + 0.087 x the piece's B points + 0.092 x nc per
- * piece of a grid of more than one piece.  Without it auto forms up to 7 x 10 grids of small B pieces at >= 1e11 on one node. */
-static void split_grid(size_t na, size_t nb, int *ka, int *kb)
+/* ---- the grid planner (one search for both tiers; AUD3 item 4) ------------------------------------------------------------------
+ * A product too long for one plane is cut into ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs (i, j <= 32), each piece's points
+ * within the cap.  The search takes the grid with the least cost, then the fewest pieces.  A form gives the cap and the smallest
+ * plane (points), how a piece's points are counted (pa + pb limbs, or P24's p24_pts(pa) + p24_pts(pb)) and the cost:
+ *   plane points: i j max(plane_pts(points), minpts) -- the fewest plane points in total.  Halving the longer operand alone gave
+ *     8 planes of 2^31 for the decimal top product (2.22e9 x 2.22e9 limbs); 2 x 3 pieces give 6 (RESULTS.md 66);
+ *   bcost (the single-node tier under RNS_STRATEGY=auto, b_grid_on): a piece that fits form B costs its B points x 0.70 (3 2^k x
+ *     1.05), else its C points; Phase 14 V2 (RNS_AUTO_PIECE_COST, built in 2026-10-12): every piece of a grid of more than one adds
+ *     0.087 x its B points + 0.092 x (na + nb) -- the pipeline's per-piece cost (results/D213d.md, fit_pipe on G13d's logs: 0.075 s
+ *     per 2^31 B points of the piece + 0.079 s per 2^31 limbs of the whole product, in C plane points at ~0.86 s per 2^31); without
+ *     it auto forms up to 7 x 10 grids of small B pieces at >= 1e11 on one node.  Costs within 0.1 % count as equal there. */
+enum { GP_LIMBS, GP_P24 };
+struct grid_form { size_t cap, minpts; int pts, bcost; };
+static size_t plane_pts(size_t nc)                          /* plane points for a product of nc limbs (dist_core rounds to 2^logn, at least 2^20) */
 {
-    if (!b_grid_on()) { split_grid_cap(na, nb, dist_cap(), 0, ka, kb); return; }
-    size_t cap = dist_cap(); double best = 0; *ka = *kb = 0;
+    size_t n = (size_t)1 << 20; while (n < nc) n <<= 1;
+    return n;
+}
+static size_t form_pts(const struct grid_form *f, size_t pa, size_t pb) { return f->pts == GP_P24 ? p24_pts(pa) + p24_pts(pb) : pa + pb; }
+static void grid_search(size_t na, size_t nb, const struct grid_form *f, int *ka, int *kb)
+{
+    const double lo = f->bcost ? 0.999 : 1.0, hi = f->bcost ? 1.001 : 1.0; double best = 0; *ka = *kb = 0;
     for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
-        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j;
-        if (pa + pb > cap) continue;
+        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j, np_ = form_pts(f, pa, pb);
+        if (np_ > f->cap) continue;
         double cost;
-        const int bf = b_fits(pa + pb);
-        if (bf) { int T, lk; size_t n = b_len(pa + pb, &T, &lk); cost = (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70; }
-        else cost = (double)i * j * plane_pts(pa + pb);
-        if (i * j > 1) { int T, lk; size_t n = bf ? b_len(pa + pb, &T, &lk) : 0; cost += (double)i * j * (0.087 * n + 0.092 * (na + nb)); }   /* Phase 14 V2: the per-piece cost */
-        if (!*ka || cost < best * 0.999 || (cost <= best * 1.001 && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
+        if (f->bcost) {
+            int T, lk; const int bf = b_fits(np_); size_t n = bf ? b_len(np_, &T, &lk) : 0;
+            cost = bf ? (double)i * j * n * (T == 3 ? 1.05 : 1.0) * 0.70 : (double)i * j * plane_pts(np_);
+            if (i * j > 1) cost += (double)i * j * (0.087 * n + 0.092 * (na + nb));
+        } else { size_t pts = plane_pts(np_); if (pts < f->minpts) pts = f->minpts; cost = (double)i * j * pts; }   /* (exact: < 2^53) */
+        if (!*ka || cost < best * lo || (cost <= best * hi && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
     }
-    if (!*ka) { ec_fatal(EC_RC_FATAL, "split_grid: %zu x %zu limbs\n", na, nb); }
+    if (!*ka) { ec_fatal(EC_RC_FATAL, "grid: %zu x %zu limbs at %zu points\n", na, nb, f->cap); }
+}
+/* 1 = one plane (ka = kb = 1), else the grid the search forms.  Under bcost a single plane that does not fit form B is searched too
+ * (Phase 13b B), and stays one plane when the search finds nothing cheaper */
+static int grid_shape(size_t na, size_t nb, const struct grid_form *f, int *ka, int *kb)
+{
+    *ka = *kb = 1;
+    if (form_pts(f, na, nb) <= f->cap && !(f->bcost && !b_fits(na + nb))) return 1;
+    grid_search(na, nb, f, ka, kb);
+    return *ka * *kb == 1;
+}
+/* the single-node tier's grid (mul_grid and the plan printer) */
+static int db_grid_shape(size_t na, size_t nb, int *ka, int *kb)
+{
+    struct grid_form f = { dist_cap(), 0, GP_LIMBS, b_grid_on() };
+    return grid_shape(na, nb, &f, ka, kb);
+}
+/* ---- the grid's piece loop (mul_grid, mn_grid and the plan printer; AUD3 item 4) ---------------------------------------------------
+ * j outer, i inner (lng: i outer -- along A, Phase 15 PC's longer axis); the free cache slots fs[nf] split between A's pieces (piece
+ * i < nA in slot i, reused across every j) and B's piece of the current j (the rest, cycling); under lng the roles swap.  piece()
+ * forms or skips one piece given its slots and the pieces formed so far: 1 formed, 0 skipped, -1 empty (not counted). */
+typedef int (*grid_piece_fn)(void *ctx, int i, int j, int sa, int sb, int formed);
+static void grid_loop(int ka, int kb, const int *fs, int nf, int lng, grid_piece_fn piece, void *ctx, int *formed, int *skipped)
+{
+    int nA = ka < nf - 1 ? ka : nf - 1; if (nA < 0) nA = 0;
+    int nB = nf - nA;
+    if (lng) { nB = kb < nf - 1 ? kb : nf - 1; if (nB < 0) nB = 0; nA = nf - nB; }
+    const int K_out = lng ? ka : kb, K_in = lng ? kb : ka;
+    for (int o = 0; o < K_out; o++) for (int n = 0; n < K_in; n++) {
+        const int i = lng ? o : n, j = lng ? n : o;
+        int sa = i < nA ? fs[i] : -1, sb = nB ? fs[nA + j % nB] : -1;
+        if (lng) { sb = j < nB ? fs[j] : -1; sa = nA ? fs[nB + i % nA] : -1; }
+        const int r = piece(ctx, i, j, sa, sb, *formed);
+        if (r > 0) (*formed)++; else if (r == 0) (*skipped)++;
+    }
 }
 /* device bigints: C = A B (nc limbs) in place in C's quarters; up to 2^31 points, larger products as a grid of
  * piece products (views, no copies): the first straight into C, the others through one temporary and a
@@ -855,15 +881,6 @@ static void split_grid(size_t na, size_t nb, int *ka, int *kb)
  * mn_plan.c) all ask it: a piece at (oa, ob) of la x lb limbs is skipped when nothing of it lies below w or all of it at or below
  * the low cut */
 static inline int grid_piece_skipped(size_t oa, size_t ob, size_t la, size_t lb, size_t lowcut, size_t w) { return oa + ob >= w || oa + ob + la + lb <= lowcut; }
-/* Phase 13d L: mul_grid's choice between one plane and the grid, extracted unchanged (the plan printer calls it too): 1 = one
- * plane (ka = kb = 1), 0 = the grid split_grid forms (ka x kb) */
-static int db_grid_shape(size_t na, size_t nb, int *ka, int *kb)
-{
-    size_t nc = na + nb; int one = nc <= dist_cap(); *ka = *kb = 1;
-    if (one && b_grid_on() && !b_fits(nc)) { split_grid(na, nb, ka, kb); one = *ka * *kb == 1; }   /* (Phase 13b B: under auto also a single plane that does not fit the B form) */
-    if (!one) split_grid(na, nb, ka, kb);
-    return one;
-}
 void rns_mul_dist_db(dbig *Cd, const dbig *A, const dbig *B) { mul_grid(Cd, A, B, 0, (size_t)-1); }
 /* Phase 10 A5/B3: the product of which only C >> cut is used: the grid with the pieces ending at or below the cut skipped (a
  * product that fits one plane is formed whole, as before) */
@@ -871,6 +888,23 @@ void rns_mul_high_db(dbig *Cd, const dbig *A, const dbig *B, size_t cut) { mul_g
 /* Phase 15 R4 (the reciprocal's middle product, results/R415.md): both cuts, the result mod B^w -- the formed pieces are added whole, a
  * skipped piece at oa + ob >= w is a multiple of B^w, so the low w limbs are those of A B less the low cut's pieces; truncated to w */
 void rns_mul_band_db(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size_t w) { mul_grid(Cd, A, B, lowcut, w); if (Cd->n > w) { Cd->n = w; db_norm(Cd); } }
+/* mul_grid's piece: views of A and B (normalised: an all-zero piece is empty), the cuts, and the first formed piece straight into C
+ * (shifted up if not at (0,0)), the others through the temporary t and a shifted in-place add */
+struct db_piece { const dbig *A, *B; dbig *C, *t; size_t na, nb, pa, pb, lowcut, w; };
+static int db_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
+{
+    struct db_piece *c = (struct db_piece *)ctx;
+    size_t oa = (size_t)i * c->pa, ob = (size_t)j * c->pb;
+    dbig ai = db_view(c->A, oa, c->na - oa < c->pa ? c->na - oa : c->pa), bj = db_view(c->B, ob, c->nb - ob < c->pb ? c->nb - ob : c->pb);
+    db_norm(&ai); db_norm(&bj);
+    if (!ai.n || !bj.n) return -1;
+    if (grid_piece_skipped(oa, ob, ai.n, bj.n, c->lowcut, c->w)) return 0;            /* nothing of it below w, or all of it below the low cut */
+    size_t pn = ai.n + bj.n;
+    if (!formed && !(oa + ob)) { dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->C, 0, pn), pn, sa, sb); c->C->n = pn; db_norm(c->C); return 1; }
+    db_reserve(c->t, pn + 8); dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(c->t, 0, pn), pn, sa, sb); c->t->n = pn; db_norm(c->t);
+    if (!formed) db_shl_limbs(c->C, c->t, oa + ob); else db_add_shifted(c->C, c->t, oa + ob, c->C);   /* in place */
+    return 1;
+}
 /* the grid; only the pieces whose limbs start below w are formed (w = -1: all) and, Phase 10 A5, only those whose limbs
  * do not all lie at or below lowcut (0: all; the A_h mu product of the division, results/A-div.md B3: each skipped piece
  * is < B^cut, X is low by at most their number + 1, absorbed by the up-corrections).  A1: the pieces' transforms cached
@@ -882,7 +916,7 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
     if (!na || !nb) { Cd->n = 0; return; }
     db_reserve(Cd, nc + 8);
     g_cache_mn = 0;
-    int ka, kb, one = db_grid_shape(na, nb, &ka, &kb);        /* Phase 13d L: the decision extracted (unchanged) */
+    int ka, kb, one = db_grid_shape(na, nb, &ka, &kb);
     if (cache_slots() && !one) { N = cache_avail(); for (int i = 0; i < N; i++) fs[nf++] = i; }   /* the free slots */
     if (one) {
         struct db_stats s0 = db_st; double t0 = mem_now();
@@ -892,29 +926,12 @@ static void mul_grid(dbig *Cd, const dbig *A, const dbig *B, size_t lowcut, size
                             db_st.t_shift - s0.t_shift, db_st.t_addsub - s0.t_addsub, db_st.t_maxidx - s0.t_maxidx, db_st.t_reserve - s0.t_reserve);
         return;
     }
-    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
-    /* the free slots: A's pieces (reused across every j) get up to nf - 1 and B's piece of the current j cycles through the rest */
-    int nA = ka < nf - 1 ? ka : nf - 1; if (nA < 0) nA = 0;
-    int nB = nf - nA;
-    dbig t; db_init(&t); int first = 1, formed = 0, skipped = 0; double t0 = mem_now();
-    for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
-        size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
-        dbig ai = db_view(A, oa, na - oa < pa ? na - oa : pa), bj = db_view(B, ob, nb - ob < pb ? nb - ob : pb);
-        db_norm(&ai); db_norm(&bj);
-        if (!ai.n || !bj.n) continue;
-        if (grid_piece_skipped(oa, ob, ai.n, bj.n, lowcut, w)) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
-        int sa = i < nA ? fs[i] : -1, sb = nB ? fs[nA + j % nB] : -1;
-        size_t pn = ai.n + bj.n;
-        if (first) {                                                                   /* the first formed piece straight into C (shifted up if not (0,0)) */
-            if (oa + ob) { db_reserve(&t, pn + 8); dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(&t, 0, pn), pn, sa, sb); t.n = pn; db_norm(&t); db_shl_limbs(Cd, &t, oa + ob); }
-            else { dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(Cd, 0, pn), pn, sa, sb); Cd->n = pn; db_norm(Cd); }
-            first = 0; formed++; continue;
-        }
-        db_reserve(&t, pn + 8); dist_core(acc_db(&ai, 0, ai.n), acc_db(&bj, 0, bj.n), acc_db(&t, 0, pn), pn, sa, sb); t.n = pn; db_norm(&t);
-        db_add_shifted(Cd, &t, oa + ob, Cd);                   /* in place */
-        formed++;
-    }
-    if (first) Cd->n = 0;
+    dbig t; db_init(&t);
+    struct db_piece c = { A, B, Cd, &t, na, nb, (na + ka - 1) / ka, (nb + kb - 1) / kb, lowcut, w };
+    size_t pa = c.pa, pb = c.pb;
+    int formed = 0, skipped = 0; double t0 = mem_now();
+    grid_loop(ka, kb, fs, nf, 0, db_piece_form, &c, &formed, &skipped);
+    if (!formed) Cd->n = 0;
     db_free(&t);
     rns_dist_st.n_formed += (size_t)formed; rns_dist_st.n_skipped += (size_t)skipped;   /* Phase 14 R1 (E7): the reciprocal reports its cut per doubling */
     cache_drop();
@@ -1687,15 +1704,6 @@ void mdb_norm(mdb *C, mn_group *G, size_t below)
  * lowcut (oa + ob + len_a + len_b <= lowcut: the A_h mu product's pieces below k + 1, B3) are skipped as on one node.  A
  * skipped (0,0) piece just leaves the first formed piece on the accumulating path (C's shares start zero-filled). */
 static size_t mn_logmin(int g) { int nr = 4 * g, lg = 0; while ((1 << lg) < nr) lg++; int logmin = 2 * (5 + lg); return logmin < 20 ? 20 : logmin; }
-/* Phase 13d L: mn_grid's choice, extracted unchanged (the plan printer calls it too): 1 = one plane (nc <= the group's cap), else the
- * grid split_grid_cap forms at the cap */
-static int mn_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
-{
-    size_t cap = (size_t)1 << mn_logn_cap(g); *ka = *kb = 1;
-    if (na + nb <= cap) return 1;
-    split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), ka, kb);
-    return 0;
-}
 /* ---- Phase 15 Batch 3 P24 (results/P2415.md): four primes at 24 digits per transform point in the mn tier ------------------------
  * Every mn product runs P24 when pool 0 holds four planes (ECALC_NP=4, or auto where the run's largest group can form a four-prime
  * piece); else the 18-digit form.  (MN_P24=2, the user's decision of 2026-09-29, built in 2026-10-12; its forms 0 = off and 1 = only the
@@ -1707,27 +1715,39 @@ static int mn_p24_of(size_t na, size_t nb, int g)
 }
 /* P24: the plane cap in points (the group's, at most 2^P24_CAP_LOG: the CRT's four limbs) */
 static size_t p24_cap(int g) { int c = mn_logn_cap(g); return (size_t)1 << (c < P24_CAP_LOG ? c : P24_CAP_LOG); }
-/* P24's grid: split_grid_cap's rule (the fewest plane points in all, then the fewest pieces, i, j <= 32) with the pieces' points
- * p24_pts(pa) + p24_pts(pb) <= cap */
-static void p24_split(size_t na, size_t nb, size_t cap, size_t minpts, int *ka, int *kb)
+/* the mn tier's grid (mn_grid, the scratch and staging estimates, the plan printer): the group's cap and smallest plane; P24 on the
+ * points p24_pts(pa) + p24_pts(pb) at its cap */
+static int mn_grid_shape(size_t na, size_t nb, int g, int p24, int *ka, int *kb)
 {
-    size_t best = 0; *ka = *kb = 0;
-    for (int i = 1; i <= 32; i++) for (int j = 1; j <= 32; j++) {
-        size_t pa = (na + i - 1) / i, pb = (nb + j - 1) / j, np_ = p24_pts(pa) + p24_pts(pb);
-        if (np_ > cap) continue;
-        size_t pts = plane_pts(np_); if (pts < minpts) pts = minpts;
-        size_t cost = (size_t)i * j * pts;
-        if (!*ka || cost < best || (cost == best && i * j < *ka * *kb)) { best = cost; *ka = i; *kb = j; }
-    }
-    if (!*ka) { ec_fatal(EC_RC_FATAL, "p24_split: %zu x %zu limbs at %zu points\n", na, nb, cap); }
+    struct grid_form f = { p24 ? p24_cap(g) : (size_t)1 << mn_logn_cap(g), (size_t)1 << mn_logmin(g), p24 ? GP_P24 : GP_LIMBS, 0 };
+    return grid_shape(na, nb, &f, ka, kb);
 }
-/* P24's mn_grid_shape: 1 = one plane, else the grid */
-static int p24_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
+/* mn_grid's piece: the cuts, then mn_core on the views (the first piece at shift 0 straight into the zero-filled C); the per-piece
+ * cache trace line (Phase 15 CX, instrumentation) */
+struct mn_piece { const mdbv *av, *bv; mdb *C; mn_group *G; struct mn_times *tm; size_t pa, pb, lowcut, w;   /* w: the skip bound (mn_grid's wskip) */
+    int p24, ka, kb, NS, pc, pck; };
+static int mn_piece_form(void *ctx, int i, int j, int sa, int sb, int formed)
 {
-    size_t cap = p24_cap(g); *ka = *kb = 1;
-    if (p24_pts(na) + p24_pts(nb) <= cap) return 1;
-    p24_split(na, nb, cap, (size_t)1 << mn_logmin(g), ka, kb);
-    return 0;
+    struct mn_piece *c = (struct mn_piece *)ctx;
+    const mdbv *a = &c->av[i], *b = &c->bv[j];
+    size_t oa = (size_t)i * c->pa, ob = (size_t)j * c->pb;
+    if (!a->len || !b->len) return -1;                                               /* nothing */
+    if (grid_piece_skipped(oa, ob, a->len, b->len, c->lowcut, c->w)) return 0;       /* nothing of it below w, or all of it below the low cut */
+    struct mn_times t_b = *c->tm; double tp = mem_now(); g_cache_last[0] = g_cache_last[1] = 0;
+    if (cache_trace_on() && dist_st.on) dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0;
+    mn_core(c->C, a, b, 0, c->G, oa + ob, oa + ob == 0 && !formed, c->tm, sa, sb, c->p24, 0);
+    if (cache_trace_on()) {
+        static const char *st[3] = { "-", "cached", "HIT" };
+        const struct mn_times *tm = c->tm;
+        printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
+               g_node_of(c->G), i, j, c->ka, c->kb, a->len, b->len, oa + ob, c->NS, st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
+               tm->redistribute - t_b.redistribute, tm->ntt - t_b.ntt, tm->crt - t_b.crt, tm->out - t_b.out, tm->carry - t_b.carry);
+        if (dist_st.on) { printf(" | ntt parts rows %.3f cols %.3f pack %.3f xfer %.3f a2a %.3f", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4);
+                          dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0; }
+        if (c->pc) printf(" | partial: %d prime%s per slot%s", c->pck, c->pck == 1 ? "" : "s", c->p24 ? ", P24" : "");   /* Phase 15 PC */
+        printf("\n");
+    }
+    return 1;
 }
 /* P1 (DM_MN_WRAP): wskip -- pieces starting at or above it are skipped (the callers before P1: w); basis > 0 -- C in that basis
  * (the carry out of its top dropped when the product can exceed it), else as before (nc, or w when truncated) */
@@ -1754,7 +1774,7 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         int mine = cache_avail(); int agreed = DIST_CACHE_MAX - (int)grp_max(G, (size_t)(DIST_CACHE_MAX - mine)); if (agreed < g_cache.navail) g_cache.navail = agreed;   /* (a collective: the condition is group-wide) */
         NS = g_cache.navail; for (int i = 0; i < NS; i++) fs[nf++] = i;
     }
-    int one = p24 ? p24_grid_shape(na, nb, g, &ka, &kb) : mn_grid_shape(na, nb, g, &ka, &kb);   /* Phase 13d L: the decision extracted (unchanged); P24: on the points */
+    int one = mn_grid_shape(na, nb, g, p24, &ka, &kb);
     if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
     else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }
     else {
@@ -1765,35 +1785,11 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             NS = cache_pc_take(G, na, nb, A, B, &Cn, q0, np0, &pck); nf = NS; for (int i = 0; i < NS; i++) fs[i] = i;
         }
         const int lng = pc && kb > ka;                           /* Phase 15 PC: the loop along the longer axis -- A's pieces outer, the slots' roles swapped (CX15 3.3) */
-        int nA = ka < nf - 1 ? ka : nf - 1; if (nA < 0) nA = 0;   /* the slots as in mul_grid */
-        int nB = nf - nA;
-        if (lng) { nB = kb < nf - 1 ? kb : nf - 1; if (nB < 0) nB = 0; nA = nf - nB; }   /* (PC: B's pieces j < nB inside the loop, A's piece i in slot nB + i % nA) */
         mdbv *av = (mdbv *)malloc((ka + kb) * sizeof *av), *bv = av + ka;
         for (int i = 0; i < ka; i++) av[i] = mdb_view(A->m, A->off + (size_t)i * pa, na - (size_t)i * pa < pa ? na - (size_t)i * pa : pa, G);
         for (int j = 0; j < kb; j++) bv[j] = mdb_view(B->m, B->off + (size_t)j * pb, nb - (size_t)j * pb < pb ? nb - (size_t)j * pb : pb, G);
-        const int K_out = lng ? ka : kb, K_in = lng ? kb : ka;
-        for (int o_ = 0; o_ < K_out; o_++) for (int n_ = 0; n_ < K_in; n_++) {
-            const int i = lng ? o_ : n_, j = lng ? n_ : o_;       /* (default: j outer, i inner, as before) */
-            size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
-            if (!av[i].len || !bv[j].len) continue;                                   /* nothing */
-            if (grid_piece_skipped(oa, ob, av[i].len, bv[j].len, lowcut, wskip)) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
-            int sa = i < nA ? fs[i] : -1, sb = nB ? fs[nA + j % nB] : -1;
-            if (lng) { sb = j < nB ? fs[j] : -1; sa = nA ? fs[nB + i % nA] : -1; }
-            struct mn_times t_b = tm; double tp = mem_now(); g_cache_last[0] = g_cache_last[1] = 0;
-            if (cache_trace_on() && dist_st.on) dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0;
-            mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm, sa, sb, p24, 0);   /* the first piece at shift 0 straight into the zero-filled C */
-            if (cache_trace_on()) {                                   /* Phase 15 CX: the per-piece line (instrumentation) */
-                static const char *st[3] = { "-", "cached", "HIT" };
-                printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
-                       node, i, j, ka, kb, av[i].len, bv[j].len, oa + ob, NS, st[g_cache_last[0]], st[g_cache_last[1]], mem_now() - tp,
-                       tm.redistribute - t_b.redistribute, tm.ntt - t_b.ntt, tm.crt - t_b.crt, tm.out - t_b.out, tm.carry - t_b.carry);
-                if (dist_st.on) { printf(" | ntt parts rows %.3f cols %.3f pack %.3f xfer %.3f a2a %.3f", dist_st.t_local1 / 4, dist_st.t_local2 / 4, dist_st.t_pack / 4, dist_st.t_xfer / 4, dist_st.t_a2a / 4);
-                                  dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0; }
-                if (pc) printf(" | partial: %d prime%s per slot%s", pck, pck == 1 ? "" : "s", p24 ? ", P24" : "");   /* Phase 15 PC */
-                printf("\n");
-            }
-            formed++;
-        }
+        struct mn_piece c = { av, bv, &Cn, G, &tm, pa, pb, lowcut, wskip, p24, ka, kb, NS, pc, pck };
+        grid_loop(ka, kb, fs, nf, lng, mn_piece_form, &c, &formed, &skipped);
         free(av);
         cache_pc_give();                                          /* Phase 15 PC: the partial slots back to the pool (before X's add and the norm) */
         if (X) mdb_add_shifted(&Cn, X, 0, G);
@@ -1861,10 +1857,7 @@ void rns_mul_dist_mn_cyc_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, s
 /* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
 {
-    if (mn_p24_of(na, nb, G->g)) { p24_grid_shape(na, nb, G->g, ka, kb); return; }   /* P24 (MN_P24): the grid on the points */
-    size_t cap = (size_t)1 << mn_logn_cap(G->g);
-    if (na + nb <= cap) { *ka = *kb = 1; return; }
-    split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(G->g), ka, kb);
+    mn_grid_shape(na, nb, G->g, mn_p24_of(na, nb, G->g), ka, kb);   /* P24: the grid on the points */
 }
 /* ---- Phase 13d L (archive:PLAN §32, row L): the plan printer's view of the two tiers (mn_plan.h; MN_PLAN_ONLY, mn_plan.c) ----------------
  * The same decisions the products take -- db_grid_shape / split_grid (with b_fits on the pools rns_init would make:
@@ -1902,16 +1895,23 @@ void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long 
            w, 1, first, grids_tree, grids_recip, grids_div, w, w > 1 ? "s" : "", sd / 1073741824.0, ld - 2, np0, w * NR * sd / 1e9, node_bytes / 1e9, (node_bytes + w * NR * sd) / 1e9,
            sf / 1073741824.0, lf - 2, np0, room / 1e9, budget / 1e9, cache_fit_reserve() / 1e9, nf, nf == 1 ? "" : "s", nf * NR * sf / 1e9, (node_bytes + nf * NR * sf) / 1e9);
 }
+/* the plan's piece: the same loop and cuts as the products' (a piece past the operand's end is empty and not counted) */
+struct plan_piece { size_t na, nb, pa, pb, lowcut, w; struct rns_grid_plan *p; };
+static int plan_piece_count(void *ctx, int i, int j, int sa, int sb, int formed)
+{
+    struct plan_piece *c = (struct plan_piece *)ctx; (void)sa; (void)sb; (void)formed;
+    size_t oa = (size_t)i * c->pa, ob = (size_t)j * c->pb;
+    if (oa >= c->na || ob >= c->nb) return -1;                                        /* an empty piece (mul_grid: !ai.n) */
+    size_t la = c->na - oa < c->pa ? c->na - oa : c->pa, lb = c->nb - ob < c->pb ? c->nb - ob : c->pb;
+    if (grid_piece_skipped(oa, ob, la, lb, c->lowcut, c->w)) return 0;
+    c->p->formed4 += ec_np_for(ec_np_terms(la + lb, la, lb)) == 4;                   /* NP: the piece's primes (MPB: its terms as mn_core / dist_core count them) */
+    return 1;
+}
 static void plan_pieces(size_t na, size_t nb, int ka, int kb, size_t lowcut, size_t w, struct rns_grid_plan *p)
 {
-    size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
-    p->pa = pa; p->pb = pb; p->formed = p->skipped = 0;
-    for (int j = 0; j < kb; j++) for (int i = 0; i < ka; i++) {
-        size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
-        if (oa >= na || ob >= nb) continue;                                            /* an empty piece (mul_grid: !ai.n) */
-        size_t la = na - oa < pa ? na - oa : pa, lb = nb - ob < pb ? nb - ob : pb;
-        if (grid_piece_skipped(oa, ob, la, lb, lowcut, w)) p->skipped++; else { p->formed++; p->formed4 += ec_np_for(ec_np_terms(la + lb, la, lb)) == 4; }   /* NP: the piece's primes (MPB: its terms as mn_core / dist_core count them) */
-    }
+    struct plan_piece c = { na, nb, (na + ka - 1) / ka, (nb + kb - 1) / kb, lowcut, w, p };
+    p->pa = c.pa; p->pb = c.pb; p->formed = p->skipped = 0;
+    grid_loop(ka, kb, 0, 0, 0, plan_piece_count, &c, &p->formed, &p->skipped);
 }
 void rns_dist_db_plan(size_t na, size_t nb, size_t lowcut, size_t w, struct rns_grid_plan *p)
 {
@@ -1933,7 +1933,7 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
     size_t nc = na + nb;
     if ((p->p24 = mn_p24_of(na, nb, g))) {                                            /* P24 (MN_P24): mn_grid's P24 decision -- the grid on the points, four primes */
         p->cap = p24_cap(g); p->logcap = 0; while (((size_t)1 << p->logcap) < p->cap) p->logcap++;
-        p->one = p24_grid_shape(na, nb, g, &p->ka, &p->kb);
+        p->one = mn_grid_shape(na, nb, g, 1, &p->ka, &p->kb);
         if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) p->formed = 1; else p->skipped = 1; }
         else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
         p->formed4 = p->formed;
@@ -1942,7 +1942,7 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
         (void)has_x; return;
     }
     p->logcap = mn_logn_cap(g); p->cap = (size_t)1 << p->logcap;
-    p->one = mn_grid_shape(na, nb, g, &p->ka, &p->kb);
+    p->one = mn_grid_shape(na, nb, g, 0, &p->ka, &p->kb);
     if (p->one) { p->pa = na; p->pb = nb; if (nc > lowcut) { p->formed = 1; p->formed4 = ec_np_for(ec_np_terms(nc, na, nb)) == 4; } else p->skipped = 1; }   /* mn_grid: one plane, skipped when all of it is below the low cut */
     else plan_pieces(na, nb, p->ka, p->kb, lowcut, w, p);
     (void)has_x;
@@ -1964,7 +1964,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
     if (!na || !nb || g < 2) { if (pieces) *pieces = 0; return 0; }
     if (mn_p24_of(na, nb, g)) {                               /* P24 (MN_P24): the grid on the points; the sequences are runs of limbs (rl per column at most); A's
                                                                * received sequence is freed before B's redistribution; X is added afterwards (not in the CRT) */
-        int ka = 1, kb = 1; p24_grid_shape(na, nb, g, &ka, &kb);
+        int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
         int logn, logR, logC; size_t q; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q);
         int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
@@ -1978,8 +1978,7 @@ size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t sh
 #undef RT24
         return (peak1 > peak2 ? peak1 : peak2) * 8 + 32 * (size_t)g * 8 + ((win + 3) / 4 + 4095) / 4096 * 4096 * 8;
     }
-    size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
-    if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), &ka, &kb);
+    int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 0, &ka, &kb);
     size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb; if (pieces) *pieces = ka * kb;
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q);
     int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
@@ -2037,11 +2036,10 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g)
     if (!na || !nb || g < 2 || (is_pow2(g) && !dist_gen_forced())) return 0;
     int logn, logR, logC; size_t q;
     if (mn_p24_of(na, nb, g)) {                               /* P24 (MN_P24): the grid on the points (rns_mul_dist_mn_scratch's P24 branch) */
-        int ka = 1, kb = 1; p24_grid_shape(na, nb, g, &ka, &kb);
+        int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q);
     } else {
-        size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
-        if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), &ka, &kb);
+        int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 0, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb; mn_shape(pa + pb, g, &logn, &logR, &logC, &q);
     }
     return vslot_shape(logR, logC, g);
@@ -2058,7 +2056,7 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
     if (!na || !nb || g < 2) return 0;
     const char *er0 = getenv("COMM_SHMEM_ROUND_MB"); size_t Rl0 = er0 && atof(er0) > 0 ? (size_t)(atof(er0) * 1048576.0) / 8 : 0;
     if (mn_p24_of(na, nb, g) && p24_pts(na / 32 + 1) + p24_pts(nb / 32 + 1) <= p24_cap(g)) {   /* P24 (MN_P24): the same exchanges over runs of limbs (as rns_mul_dist_mn_scratch's P24 branch) */
-        int ka = 1, kb = 1; p24_grid_shape(na, nb, g, &ka, &kb);
+        int ka = 1, kb = 1; mn_grid_shape(na, nb, g, 1, &ka, &kb);
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
         int logn, logR, logC; size_t q; mn_shape(p24_pts(pa) + p24_pts(pb), g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
         int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, rl = rows + rows / 3 + 2, qsl = rl * C;
@@ -2075,8 +2073,8 @@ size_t rns_mul_dist_mn_stage(size_t na, size_t nb, int g, size_t share_a, size_t
         size_t m = result > redist ? result : redist; return m > transform ? m : transform;
     }
     size_t cap = (size_t)1 << mn_logn_cap(g); int ka = 1, kb = 1;
-    if (na + nb > cap && (na + 31) / 32 + (nb + 31) / 32 > cap) { ka = (int)((na + cap / 2 - 1) / (cap / 2)); kb = (int)((nb + cap / 2 - 1) / (cap / 2)); }   /* beyond split_grid_cap's 32 x 32 (the product itself would stop): a sizing guess, no abort here */
-    else if (na + nb > cap) split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(g), &ka, &kb);
+    if (na + nb > cap && (na + 31) / 32 + (nb + 31) / 32 > cap) { ka = (int)((na + cap / 2 - 1) / (cap / 2)); kb = (int)((nb + cap / 2 - 1) / (cap / 2)); }   /* beyond the grid search's 32 x 32 (the product itself would stop): a sizing guess, no abort here */
+    else mn_grid_shape(na, nb, g, 0, &ka, &kb);
     size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb, nc = pa + pb;
     int logn, logR, logC; size_t q; mn_shape(nc, g, &logn, &logR, &logC, &q); if (qmax) *qmax = q;
     int nr = 4 * g; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = (R + nr - 1) / nr, qs = rows * C;
