@@ -122,7 +122,6 @@ static const char *const cfg_names[] = {
     "ECALC_SEED_ORDER",
     "ECALC_SEGV_TEST",
     "ECALC_SEGV_TRACE",
-    "ECALC_SPILL_DIR",
     "ECALC_TEST_CORR",
     "ECALC_VERBOSE",
     "ECALC_VMM_BG",
@@ -196,7 +195,5 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_FORM",
     "RNS_STRATEGY_GRID",
     "RNS_VERBOSE",
-    "SPILL_BUFFERED",
-    "SPILL_CHUNK_MB",
 };
-#define CFG_NAMES_N 197
+#define CFG_NAMES_N 194

@@ -123,7 +123,6 @@ ECALC_RES_LOG_LEVEL	int	17	17		test-only	-	V.md+R.md	Y	ecalc	binsplit.c	2
 ECALC_SEED_ORDER	bool	unset	unset	0|1	built-in default	-	MAP15.md+I.md	Y	ecalc	binsplit.c	1	
 ECALC_SEGV_TEST	int	unset	unset		test-only	-	S18W.md	Y	ecalc	segv_trace.c	2	
 ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac6,aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	segv_trace.c:146
-ECALC_SPILL_DIR	bool	derived	derived	0|1	built-in default	-	S114.md	Y	ecalc	spill.c	2	
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,rns_dist.c	20	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	
@@ -197,8 +196,6 @@ RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1
 RNS_STRATEGY_FORM	bool	derived	derived	0|1	built-in default	-	DESIGN_TABLE.md+D13b.md	Y	ecalc	rns_dist.c	1	
 RNS_STRATEGY_GRID	bool	1	1	0|1	built-in default	-	B13b.md+V214.md	Y	ecalc	rns_dist.c	1	
 RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
-SPILL_BUFFERED	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	spill.c	2	
-SPILL_CHUNK_MB	bool	256	256	0|1	built-in default	-	S114.md	Y	ecalc	spill.c	1	
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	

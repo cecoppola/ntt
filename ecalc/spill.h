@@ -1,5 +1,5 @@
-/* spill.h - Phase 14 S1 (APUMULT_STUDY E3, E4): file I/O that leaves nothing in the page cache, and the spill of a
- * device number's limb range to disk and back.
+/* spill.h - Phase 14 S1 (APUMULT_STUDY E3, E4): file I/O that leaves nothing in the page cache (the spill of a device
+ * number's limb range to disk and back, spill_*, ECALC_SPILL_DIR, was removed 2026-10-12: no production caller).
  *
  * On the APU the page cache is HBM (results/apumult/apumult_M.md: a 64 GiB buffered write took 64 GiB of MemFree and
  * kept it after fsync).  Two remedies, both measured there: O_DIRECT (never enters the cache; 2.0 GB/s write, 5.9 GB/s
@@ -12,14 +12,9 @@
  *             asked and the file system takes it, else buffered + fsync + DONTNEED at close.  The data moves by
  *             spf_write_dev / spf_read_dev from / to device memory (dev >= 0, hipMemcpyAsync through the caller's bounce
  *             buffers, double-buffered when two are given) or host memory (dev < 0, memcpy).
- *  spill_*    a dbig's limbs [lo, hi) -> ECALC_SPILL_DIR (one file per quarter, four threads, each on its APU with a
- *             bounce on its NUMA node), in the background; spill_wait = completion (and, with SPILL_FREE, the blocks
- *             returned to the pool); spill_restore = db_reserve + read back.
  *
  * Switches: ECALC_ODIRECT=1 (the checkpoint writer, the top set and the output file use this file's I/O; off = the old
- * buffered code), ECALC_SPILL_DIR=<dir> (unset: spilling disabled, spill_start returns 0), SPILL_CHUNK_MB (the bounce
- * buffers, 2 per APU, default 256), SPILL_BUFFERED=1 (test: no O_DIRECT, fsync + DONTNEED instead).  Phase 15 IO (W7):
- * ECALC_ODIRECT=auto (see sp_direct_for). */
+ * buffered code).  Phase 15 IO (W7): ECALC_ODIRECT=auto (see sp_direct_for). */
 #ifndef EC_SPILL_H
 #define EC_SPILL_H
 #include <stddef.h>
@@ -64,25 +59,6 @@ int  spf_close(sp_file *f, int ok);    /* write: the carry (padded, then ftrunca
 void sp_drop_cache(int fd);            /* fsync + posix_fadvise(DONTNEED) on a buffered file (the output writer, headers) */
 void sp_drop_cache_path(const char *path);
 void sp_dev_sync_all(void);            /* hipDeviceSynchronize on every device (the caller's device kept): before a DMA on our own streams reads what the pipeline wrote */
-
-/* ---- the spill primitive ---- */
-enum { SPILL_FREE = 1 };               /* spill_start takes the dbig (the caller's descriptor is zeroed) and frees its blocks when the data is on disk */
-typedef struct spill spill;
-spill *spill_start(dbig *x, size_t lo, size_t hi, const char *name, int flags);   /* background; 0 when ECALC_SPILL_DIR is unset or on failure to start */
-spill *spill_start_dir(dbig *x, size_t lo, size_t hi, const char *dir, const char *name, int flags);
-int    spill_done(spill *s);           /* 1 when the data is on disk (non-blocking) */
-int    spill_wait(spill *s);           /* waits; 1 ok.  With SPILL_FREE the blocks are free after it */
-int    spill_restore(spill *s, dbig *x);   /* x (empty or of cap >= the spilled number's) <- limbs [lo, hi), x->n = the spilled n; 1 ok */
-int    spill_restore_start(spill *s, dbig *x);   /* the same in the background: x's blocks reserved now, the reads started */
-int    spill_restore_wait(spill *s);   /* the restore's completion; 1 ok (x->n set here) */
-void   spill_drop(spill *s);           /* remove the files, free the handle */
-struct spill_stats { size_t bytes; double t_write, t_read, rate_w, rate_r; };
-void   spill_get_stats(const spill *s, struct spill_stats *st);
-int    spill_enabled(void);            /* ECALC_SPILL_DIR set */
-void   spill_prealloc(void);           /* the bounce buffers of the four APUs now (2 x SPILL_CHUNK_MB each, pinned, NUMA-local: 2 GiB at
-                                        * the default; from the main thread at a quiet point -- mem.c's registry is read unlocked); else
-                                        * they are allocated at the first spill */
-void   spill_fini(void);               /* release the bounce buffers */
 
 #ifdef __cplusplus
 }
