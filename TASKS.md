@@ -39,7 +39,7 @@ merges or drops it. Nothing is started from this section without the user's word
 
 ## Ideas (saved, not scheduled)
 
-- 15 `DIST_COALESCE` (message aggregation, 1.0-4.5 s at 576 n, mod; results/S52.md): dropped for now.
+Performance ideas, open or tried, are kept in `OPPORTUNITIES.md` (old item 15 `DIST_COALESCE` is there as S52).
 
 ## Target session (later)
 

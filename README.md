@@ -18,6 +18,7 @@ node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the c
 | `ecalc/README.md` | every environment switch with its default and evidence; the files of `ecalc/` |
 | `RESULTS.md` | what is in force, with the evidence file of each adopted change |
 | `TASKS.md` | open work and the user's decisions |
+| `OPPORTUNITIES.md` | every performance idea (time, memory, concurrency, algorithm), open or tried, with its evidence and a ranking |
 | `results/` | agent reports (`<ID>.md`) cited by the files above |
 
 History (the old plan, measurement logs, older reports, moved drivers) is kept outside the repository; notes cite it as

@@ -14,7 +14,7 @@ Checks:
 """
 import os, re, subprocess, sys
 
-CENTRAL = ["README.md", "ALGORITHM.md", "TESTING.md", "PLAN.md", "RESULTS.md", "TASKS.md", "ecalc/README.md", "profiles/README.md"]
+CENTRAL = ["README.md", "ALGORITHM.md", "TESTING.md", "PLAN.md", "RESULTS.md", "TASKS.md", "OPPORTUNITIES.md", "ecalc/README.md", "profiles/README.md"]
 TEXT_EXT = {".md", ".txt", ".sh", ".py", ".conf", ".template", ".c", ".h", ".cpp", ".hpp", ".cu", ".hip", ".cc", ".mk", ".csv", ""}
 
 
