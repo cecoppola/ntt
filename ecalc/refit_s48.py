@@ -222,10 +222,12 @@ def main():
     ap.add_argument('--table', nargs='*', default=[], help='nodes:total[:init] measured seconds (mean of the runs)')
     ap.add_argument('--fix-lat', action='store_true', help='keep the profile latency (8.5 us), fit bw only')
     ap.add_argument('--write-profile', action='store_true', help='write ecalc/aac7_s48_fit.json (the profile `estimate.py --fabric aac7_s48` reads)')
+    ap.add_argument('--l4', action='store_true', help='L4 (results/L4.md): refit to all of 2026-10-11\'s multi-node classes with the corrected structure; --write-profile writes ecalc/aac7_l4_fit.json')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     M.apply_profile('aac7_c16')
     if a.selftest: return selftest()
+    if a.l4: return l4_main(a)
     runs = collect(a.logs)
     table = {}
     for t in a.table:
@@ -276,6 +278,82 @@ def main():
     if a.write_profile:
         prof = dict(bw_apu=res['bw_apu'], lat=res['lat'], nonpow2_bw_factor=res.get('nonpow2_bw_factor', 1.0), layv_factor=res.get('layv_factor', 1.0), consts=res['consts'], write_bw=0.116, fitted_on={str(g): dict(total=m['total'], n=m['n']) for g, m in meas.items()})
         json.dump(prof, open(FIT_FILE, 'w'), indent=1); print('\nwrote', FIT_FILE)
+
+# ---------------------------------------------------------------- L4 (2026-10-11): refit on all multi-node run classes
+L4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_l4_fit.json')
+# (label, nodes, MN_GROUPS or None, NIC group 'B' fast / 'A' slow / '?' unknown, [measured totals, s, no digit write, 6.441e10 digits per node], source)
+# Totals are MEASURED (`total` line, VERIFY OK).  Cold-start runs (init >= 36 s) have the excess init over 30 s removed (marked 'cold-adj'); the mode of the
+# pow2 classes is the run's own all-to-all rate (fast > 12.3, slow < 11.95 GB/s per APU thread: calib_table.py); '?' classes are priced as group B (the 4 n slow
+# mode is group A, A13/T09; for '?' classes both groups are printed).
+L4_CLASSES = [
+    ('2 n [2] fast',          2, None,  'B', [144.1, 133.8], 'S48'),
+    ('4 n [2,4] fast',        4, None,  'B', [181.5], 'S48/S47/S50/S51/f3, 17 clean fast runs, mean'),
+    ('4 n [2,4] slow',        4, None,  'A', [208.0], 'S47/S50/S51, 6 clean slow runs, mean'),
+    ('4 n [4] fast',         4, '4',   'B', [181.3], 'f3 single4 r5_B (group B, chain-free)'),
+    ('4 n [4] slow',          4, '4',   'A', [209.8, 205.7, 208.8], 'f3 single4 r2_B, single4b r4_B, r6_B (group A; r1_B cold 233.7 excluded)'),
+    ('3 n [3]',               3, None,  '?', [200.2], 'B06 t_def 210.2, cold-adj -10'),
+    ('5 n [5]',               5, None,  '?', [213.2], 'B06 5-node queue item'),
+    ('5 n [2,5]',             5, '2,5', '?', [226.2], 'B06'),
+    ('5 n [4,5]',             5, '4,5', '?', [232.2], 'B06'),
+    ('6 n [2,6]',             6, None,  '?', [223.6, 271.5, 258.0, 271.5, 282.8, 293.8, 335.8], 'f3 single6 r4_A, single6b r2_A r3_A r5_A; S48 n6_r2, n6_r1 (cold-adj -10.3); C09 r1_A'),
+    ('6 n [6]',               6, '6',   '?', [231.3, 234.3, 238.2, 252.8, 260.0], 'f3 single6 r2_B r3_B r5_B, single6b r4_B; C09 r1_B'),
+    ('6 n [3,6]',             6, '3,6', '?', [263.8, 264.1], 'C09 run6 r1_C, r2_C'),
+]
+def l4_wall(g, gr, bw, v, consts, ns, isc, ko=1.0, crit=True):
+    M.TREE_CRIT = crit
+    return model(g, DPN, bw, M.AAC7.lat, ns, isc, consts, groups=gr, v_factor=v)['wall_nowrite']
+def _bis(f, lo, hi, it=16):
+    for _ in range(it):
+        m = math.sqrt(lo * hi)
+        if f(m) > 0: lo = m
+        else: hi = m
+    return math.sqrt(lo * hi)
+def l4_fit():
+    ac = dict(M.AAC7_CONSTS); j = json.load(open(FIT_FILE)); ac.update(j['consts']); ns, isc = ac['NODE_SCALE'], ac['INIT_SCALE']
+    mean_ = lambda xs: sum(xs) / len(xs)
+    lr = lambda m, t: math.log(m / t)
+    B = [(g, gr, mean_(t)) for (_, g, gr, md, t, _) in L4_CLASSES if md == 'B' and M.is_pow2(g)]
+    A = [(g, gr, mean_(t)) for (_, g, gr, md, t, _) in L4_CLASSES if md == 'A']
+    N = [(g, gr, mean_(t)) for (_, g, gr, md, t, _) in L4_CLASSES if not M.is_pow2(g)]
+    bwB = _bis(lambda b: sum(lr(l4_wall(g, gr, b, 1.0, ac, ns, isc), t) for g, gr, t in B) / len(B), 3.0, 40.0)
+    alpha = _bis(lambda a_: sum(lr(l4_wall(g, gr, bwB * a_, 1.0, ac, ns, isc), t) for g, gr, t in A) / len(A), 0.3, 1.2)
+    best = None
+    v0 = None
+    for pen in (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.45, 0.60):        # the multi-node-children level penalty (M.MIX_PEN): v by mean-log = 0 at each pen, pen by least squares
+        M.MIX_PEN = pen
+        v_ = _bis(lambda v__: sum(lr(l4_wall(g, gr, bwB, v__, ac, ns, isc), t) for g, gr, t in N) / len(N), 0.3, 1.5, 14)
+        e = sum(lr(l4_wall(g, gr, bwB, v_, ac, ns, isc), t) ** 2 for g, gr, t in N)
+        if v0 is None: v0 = v_
+        print('  pen %.2f: v %.3f, sum sq log residual (non-pow2 classes) %.4f' % (pen, v_, e), flush=True)
+        if best is None or e < best[0] - 1e-9: best = (e, v_, pen)
+    print('  (the penalty is not identified: the residual falls monotonically with it up to the grid edge while v rises to compensate; the adopted fit keeps pen = 0, best-at-edge %.2f is a sensitivity only)' % best[2])
+    v, pen = v0, 0.0; M.MIX_PEN = 0.0
+    return dict(bw_apu=bwB, alpha_slow=alpha, layv_factor=v, layv_factor_nopen=v0, mix_pen=pen, lat=M.AAC7.lat, k_other=1.0, write_bw=0.116,
+                consts={k: ac[k] for k in ('HIDE_POW2', 'GEN_HIDE1', 'GEN_HIDE2', 'T_ROUND', 'MAP_RATE', 'NODE_SCALE', 'INIT_SCALE')},
+                fitted_on={c_[0]: dict(nodes=c_[1], groups=c_[2], mode=c_[3], totals=c_[4], src=c_[5]) for c_ in L4_CLASSES}), ac, ns, isc
+def l4_main(a):
+    f, ac, ns, isc = l4_fit()
+    j0 = json.load(open(FIT_FILE)); ac0 = dict(M.AAC7_CONSTS); ac0.update(j0['consts'])
+    print('L4 fit (modelled on measured totals): bw_apu(B) %.2f GB/s (S48 %.2f)  alpha(A/B) %.3f  layv factor %.3f (S48 %.3f)  mix_pen %.2f  k_other 1.0 (tested 1.0..0.45: no gain)' % (f['bw_apu'], j0['bw_apu'], f['alpha_slow'], f['layv_factor'], j0['layv_factor'], f['mix_pen']))
+    print('%-18s %-8s %9s | %-26s | %-26s' % ('class', 'group', 'measured', 'before (S48, top-only)', 'after (L4)'))
+    rows = []
+    for (lab, g, gr, md, ts, src) in L4_CLASSES:
+        t = sum(ts) / len(ts)
+        M.TREE_CRIT = False; _mp = M.MIX_PEN; M.MIX_PEN = 0.0
+        b0 = model(g, DPN, j0['bw_apu'], j0['lat'], ac0['NODE_SCALE'], ac0['INIT_SCALE'], ac0, groups=gr, v_factor=j0['layv_factor'])['wall_nowrite']
+        M.MIX_PEN = _mp
+        out = []
+        for grp in (('B',) if md == 'B' else ('A',) if md == 'A' else ('B', 'A')):
+            bw = f['bw_apu'] * (f['alpha_slow'] if grp == 'A' else 1.0)
+            w1 = l4_wall(g, gr, bw, f['layv_factor'], ac, ns, isc)
+            out.append((grp, w1))
+        rows.append((lab, g, gr, md, t, b0, out))
+        print('%-18s %-8s %9.1f | %7.1f %+7.1f %%          | %s' % (lab, md, t, b0, 100 * (b0 / t - 1), '   '.join('%s %6.1f %+6.1f %%' % (gp, w, 100 * (w / t - 1)) for gp, w in out)))
+    M.TREE_CRIT = True
+    rb = [math.log(r[5] / r[4]) for r in rows]; ra = [math.log(r[6][0][1] / r[4]) for r in rows]
+    print('rms log residual: before %.3f  after %.3f (all %d classes; after = group B for the "?" classes)' % ((sum(x * x for x in rb) / len(rb)) ** .5, (sum(x * x for x in ra) / len(ra)) ** .5, len(rows)))
+    if a.write_profile:
+        json.dump(f, open(L4_FILE, 'w'), indent=1); print('wrote', L4_FILE)
 
 def selftest():
     import tempfile; M.apply_profile('aac7_c16')

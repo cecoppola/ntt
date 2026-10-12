@@ -95,7 +95,7 @@ def main():
     ap.add_argument("--staging", default="code", choices=("code", "sym", "resident", "per_exchange", "cached"), help="Phase 14 P2: code (the default: the measured law, mem_model.shmem_pool -- the staged exchanges' largest send + receive x 4 APU threads + the control blocks; results/P214.md), sym (DIST_MN_SYM_SLABS=1: + 3 q per APU of resident slabs); the hypotheses before: the SHMEM transport's staging in its pool: resident (Phase 12 S: the callers' slabs in the pool, no staging), per_exchange (the staging freed after each wait), cached (the code at 7aded87: kept per live communicator -- 345 GB per node at 576)")
     ap.add_argument("--as-is", action="store_true", help="the code at main 7aded87: --tree flat --staging cached")
     ap.add_argument("--rule", default="model", choices=("model", "full"))
-    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s18", "aac7_s48"), help="Phase 16 C: the fabric profile -- target (the default: the constants as before) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_s48_fit.json; the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge; S18M (2026-10-07): aac7_s18 = mn_model.AAC7_S18, AAC7_CONSTS unchanged, bw_apu refit to 6 GB/s per APU thread (S19B, results/S19B.md: matches 2-10 nodes within -8.6..+3.9 %%; was 4.25 from S18M, results/S18M.md)")
+    ap.add_argument("--fabric", default=os.environ.get("MN_MODEL_PROFILE", "target"), choices=("target", "aac7", "aac7_c16", "target-m", "aac7_s18", "aac7_s48", "aac7_l4", "aac7_l4a", "target_l4"), help="Phase 16 C: the fabric profile -- target (the default: the constants as before) or aac7 (B01, 2026-10-11: the S48 refit, an alias of aac7_s48, aac7_s48_fit.json; the previous aac7, mn_model.AAC7, is aac7_c16: the measured Slingshot-11 / Cray OpenSHMEMX rates and AAC7_CONSTS; --bw / --lat / --write-bw given explicitly still win); TGTBENCH2: target-m = the target fabric (still ASSUMED) with the constants measured on the target (mn_model.TARGET_M_CONSTS: MAP_RATE 0.010) and a line comparing the modelled device with the measured 373.44 GB/node edge; S18M (2026-10-07): aac7_s18 = mn_model.AAC7_S18, AAC7_CONSTS unchanged, bw_apu refit to 6 GB/s per APU thread (S19B, results/S19B.md: matches 2-10 nodes within -8.6..+3.9 %%; was 4.25 from S18M, results/S18M.md)")
     ap.add_argument("--bw", type=float, default=None, help="GB/s per APU injection (default 100: assumed, PLAN 25's two 400 Gb/s NICs; the profile's value under --fabric aac7)")
     ap.add_argument("--lat", type=float, default=None, help="seconds per message (default 2e-6 assumed; the profile's under --fabric aac7)")
     ap.add_argument("--group", type=int, default=64, help="nodes per dragonfly group (MN_TOPO_GROUP)")
@@ -154,7 +154,7 @@ def main():
                                             p15=not a.p13, round_mb=a.round_mb, out_overlap=a.out_overlap if not a.p13 else None,
                                             p15b=p15b, np_mn=a.np_mn if p15b else None, packed=(not a.ascii) if p15b else False,
                                             p15c=p15c, arena_room=a.room if p15c else None, cache_fit=p15c and not a.no_cache_fit)
-    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor)
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=a.write_bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)
     print("ecalc estimate -- %s; tree form %s, SHMEM staging %s, MN_GROUPS %s, fabric %.0f GB/s per APU, %.1f us per message, dragonfly group %d, %d layers, taper %.2f, part files %.2f GB/s per node%s"
           % ("legacy (Phase 12: four primes)" if design is None else "design %s, ECALC_NP=%d%s, NTT_MODMUL=%d%s" % (design.name(), design.np,
              " (%s at size > 1)" % design.np_mn if design.np_mn and design.np_mn != design.np else "", design.modmul,
@@ -198,7 +198,7 @@ def target(a, design):
     """Phase 15: the standing estimate at 576 nodes -- two walls (D3), the part file at 2.0 / 0.8 / 0.6 GB/s, the node memory, the grid step, the
     memory ceiling at 480 / 502 GB per node"""
     groups = a.groups or '2,4,8,16,32,64,192,576'
-    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor)) for bw in M.TARGET_WRITE_BWS]
+    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)) for bw in M.TARGET_WRITE_BWS]
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
@@ -242,7 +242,7 @@ def partial_row(a, design=None, groups=None):
     `design` (copied, with cache_fit forced False: partial caching is priced on its own terms, not RNS_DIST_CACHE_FIT's slot count)
     and `groups`, so the deltas the CLI asks for (e.g. --chunk-mb 2048) show up here too."""
     import io, contextlib, copy
-    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor)
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)
     pd = None
     if design is not None:
         pd = copy.copy(design); pd.cache_fit = False
