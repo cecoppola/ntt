@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""tools/switch_registry.py -- the single registry of the environment switches ecalc reads (step P1-1, task L5).
+
+  tools/switch_registry.py              regenerate ecalc/switches.tsv and ecalc/switches_gen.h from the source
+  tools/switch_registry.py --check      read-only: exit 1 if the registry is stale (a switch in the code but not in the
+                                        registry, a registry row with no code site, the code's literal default differs
+                                        from the registry's code_default, a hand default (switches_manual.tsv) that
+                                        contradicts a literal code default, or switches_gen.h differs)
+  tools/switch_registry.py --readme     print the README switch table generated from the registry (stdout; README not edited)
+  tools/switch_registry.py --readme-diff   size of the diff between that table and the table now in ecalc/README.md
+
+Sources (all in the repository, nothing else is read):
+  ecalc/*.c *.h          getenv("X"), env_int("X", d), env_on("X")    -> name, default as the code applies it, type, files
+  ecalc/tests/*.c *.h    the same, for names that ecalc itself does not read   -> source=tests, scope test-only
+  ecalc/README.md        the Switches table                           -> readme presence (Y / prose / N)
+  results/A11.md         the inventory of 2026-10-11 (status, evidence) -> scope, evidence
+  profiles/*.conf        machine profile keys                         -> profile column
+  ecalc/switches_manual.tsv   hand-checked rows (name, default, type, range, scope, note): wins over the extraction
+Defaults: 'code_default' is what the extraction reads from the source (a literal, or 'derived' when the code computes it,
+or 'unset' for a presence test); 'default' is the effective default (manual if given, else code_default).
+Type is heuristic: bool (presence or != 0 test), int (atoi family), float (atof/strtod), str (strcmp/strdup/char*).
+No timestamps are written: the output is a pure function of the tree, so --check is exact.
+"""
+import os, re, sys, glob, collections
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+E = os.path.join(ROOT, "ecalc")
+TSV = os.path.join(E, "switches.tsv")
+GEN = os.path.join(E, "switches_gen.h")
+MANUAL = os.path.join(E, "switches_manual.tsv")
+EXTERNAL = re.compile(r"^(SLURM_|PMI_|SHMEM_|FI_|OMPI_|XT_|HIP_|ROC|HSA_|OMP_|MPICH_|CRAY_|LD_|PATH$|HOME$)")
+# per-process values: never part of the configuration hash or the printed set
+PER_PROCESS = {"COMM_RANK"}
+COLS = ["name", "type", "default", "code_default", "range", "scope", "profile", "evidence", "readme", "source", "files", "sites", "note"]
+
+NUM = r"-?[0-9][0-9.eE+\-]*[UuLl]*|NULL"
+STR = r'"[^"]*"'
+LIT = r"(?:%s|%s)" % (NUM, STR)
+
+
+def src_files(sub):
+    return sorted(glob.glob(os.path.join(E, sub, "*.c")) + glob.glob(os.path.join(E, sub, "*.h")))
+
+
+def in_comment(line, pos):
+    s = line.lstrip()
+    if s.startswith("*") or s.startswith("//"):
+        return True
+    pre = line[:pos]
+    if "//" in pre and pre.rfind("//") > pre.rfind("*/"):
+        return True
+    return pre.rfind("/*") > pre.rfind("*/")
+
+
+def clean_lit(t):
+    t = t.strip()
+    if re.fullmatch(r"-?[0-9]+\.0+", t):
+        t = t.split(".")[0]
+    t = re.sub(r"[UuLl]+$", "", t) if re.match(r"^-?[0-9]", t) else t
+    return t.strip('"') if t.startswith('"') else t
+
+
+def ternary_default(expr):
+    """expr starts right after the '?' ; return the literal after the matching ':' or 'derived'."""
+    depth = 0
+    for i, c in enumerate(expr):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth < 0:
+                return "derived"
+        elif c == "?" and depth == 0:
+            return "derived"          # nested ternary
+        elif c == ":" and depth == 0:
+            m = re.match(r"\s*(%s)\s*(?:[;,)]|$)" % LIT, expr[i + 1:])
+            return clean_lit(m.group(1)) if m else "derived"
+        elif c == ";" and depth == 0:
+            return "derived"
+    return "derived"
+
+
+def classify(line, name, pos, end):
+    """-> (default, kind) for one getenv("name") site; kind in bool/int/float/str/unknown"""
+    pre, rest = line[:pos], line[end:]
+    kind = "unknown"
+    if re.search(r"(atof|strtod)\s*\(\s*$", pre[-30:]):
+        kind = "float"
+    elif re.search(r"(strdup|strcmp|strncmp|strtok|strchr|snprintf)\s*\(\s*$", pre[-30:]):
+        kind = "str"
+    elif re.search(r"(atoi|atol|atoll|strtoul|strtol|strtoull)\s*\(\s*$", pre[-30:]):
+        kind = "int"
+        if re.match(r"\s*\)\s*(!=|==)\s*0", rest):
+            kind = "bool"
+    m = re.match(r"\s*\?(.*)", rest)
+    if m and not re.search(r"!\s*$", pre):
+        return ternary_default(m.group(1)), kind
+    if re.search(r"!\s*$", pre):
+        return "derived", "bool"      # if (!getenv("X")) ... : set-if-unset or default test
+    if re.search(r"(\bif|\bwhile)\s*\(\s*$", pre) or re.search(r"(&&|\|\|)\s*$", pre):
+        return "unset", "unknown"     # a presence test: the variable overrides a value the code already has
+    vm = re.search(r"(\w+)\s*=\s*$", pre)
+    if vm and kind == "unknown":
+        v = vm.group(1)
+        r2 = re.escape(v)
+        mm = re.search(r"\b%s\s*\?(.*)" % r2, rest)
+        if mm:
+            k2 = "unknown"
+            body = mm.group(1)[:90]
+            if re.match(r"\s*(atof|strtod)\(", body):
+                k2 = "float"
+            elif re.match(r"\s*\(?\s*(atoi|atol|strtoul|strtoull)\(\s*%s\s*\)\s*(!=|==)" % r2, body) or re.match(r"\s*%s\s*(!=|==)" % r2, body) or re.match(r"\s*\(?\s*atoi\(%s\)\s*!=" % r2, body):
+                k2 = "bool"
+            elif re.match(r"\s*(atoi|atol|strtoul|strtoull)\(", body):
+                k2 = "int"
+            elif re.match(r"\s*%s\b" % r2, body):
+                k2 = "str"
+            return ternary_default(mm.group(1)), k2
+        if re.search(r"!\s*%s\s*\|\|" % r2, rest) or re.search(r"return\s*!\s*%s" % r2, rest):
+            return "1", "bool"
+        if re.search(r"\b%s\s*&&" % r2, rest) or re.search(r"\bif\s*\(\s*%s\b" % r2, rest):
+            return "unset", "bool"
+        if re.search(r"!\s*%s\b" % r2, rest):
+            return "derived", "bool"
+        return "derived", "unknown"
+    if kind == "unknown" and re.match(r"\s*(&&|\|\||\)|!=|==)", rest):
+        mm = re.match(r"\s*&&\s*(strcmp|atoi|atof)", rest)
+        if mm:
+            return "unset", ("str" if mm.group(1) == "strcmp" else "int" if mm.group(1) == "atoi" else "float")
+        return "unset", "bool"
+    if kind != "unknown":
+        return "unset", kind
+    return "derived", kind
+
+
+def merge_kind(ks):
+    ks = [k for k in ks if k != "unknown"] or ["bool"]
+    for k in ("float", "str", "int", "bool"):
+        if k in ks:
+            return k
+    return "bool"
+
+
+def extract(sub, skip_names=frozenset()):
+    """name -> dict(defaults=[], kinds=[], files=set, sites=int)"""
+    out = collections.OrderedDict()
+    for f in src_files(sub):
+        fn = os.path.basename(f)
+        for line in open(f, errors="replace"):
+            for m in re.finditer(r'getenv\s*\(\s*"([A-Z][A-Z0-9_]*)"\s*\)', line):
+                if in_comment(line, m.start()):
+                    continue
+                n = m.group(1)
+                if n in skip_names or EXTERNAL.match(n):
+                    continue
+                d, k = classify(line, n, m.start(), m.end())
+                r = out.setdefault(n, {"defaults": [], "kinds": [], "files": set(), "sites": 0})
+                r["defaults"].append(d); r["kinds"].append(k); r["files"].add(fn); r["sites"] += 1
+            for m in re.finditer(r'\b(env_int|env_on)\s*\(\s*"([A-Z][A-Z0-9_]*)"\s*(?:,\s*([^)]*))?\)', line):
+                if in_comment(line, m.start()):
+                    continue
+                n = m.group(2)
+                if n in skip_names or EXTERNAL.match(n):
+                    continue
+                if m.group(1) == "env_on":
+                    d, k = "1", "bool"
+                else:
+                    a = (m.group(3) or "").strip()
+                    d = clean_lit(a) if re.fullmatch(LIT, a) else "derived"
+                    k = "int"
+                r = out.setdefault(n, {"defaults": [], "kinds": [], "files": set(), "sites": 0})
+                r["defaults"].append(d); r["kinds"].append(k); r["files"].add(fn); r["sites"] += 1
+    return out
+
+
+def code_default(defaults):
+    lits = sorted({d for d in defaults if d not in ("derived", "unset")})
+    if len(lits) == 1:
+        return lits[0]
+    if len(lits) > 1:
+        return "conflict:" + "|".join(lits)
+    return "unset" if "unset" in defaults and "derived" not in defaults else "derived"
+
+
+def read_a11():
+    p = os.path.join(ROOT, "results", "A11.md")
+    rows = {}
+    if not os.path.exists(p):
+        return rows
+    for line in open(p, errors="replace"):
+        m = re.match(r"\|\s*`([A-Z][A-Z0-9_]*)`\s*\|(.*)", line)
+        if not m:
+            continue
+        c = [x.strip() for x in m.group(2).split("|")]
+        if len(c) >= 5 and c[2] in ("launch-line", "adopted-default", "experimental-off", "rejected", "test-only"):
+            rows[m.group(1)] = {"default": c[1], "status": c[2], "evidence": c[3].replace(", ", "+")}
+    return rows
+
+
+def readme_names():
+    p = os.path.join(E, "README.md")
+    txt = open(p, errors="replace").read()
+    rows, in_sw = set(), False
+    for line in txt.splitlines():
+        if line.startswith("## Switches"):
+            in_sw = True
+        elif line.startswith("## ") and in_sw:
+            in_sw = False
+        if in_sw:
+            m = re.match(r"\|\s*((?:`[^`|]+`[ ,/]*)+)\s*\|", line)
+            if m:
+                rows.update(re.findall(r"`([A-Z][A-Z0-9_]*)`", m.group(1)))
+    return rows, txt
+
+
+def profile_keys():
+    keys = collections.defaultdict(list)
+    for f in sorted(glob.glob(os.path.join(ROOT, "profiles", "*.conf"))):
+        for line in open(f, errors="replace"):
+            m = re.match(r"([A-Z][A-Z0-9_]*)=", line)
+            if m:
+                keys[m.group(1)].append(os.path.basename(f)[:-5])
+    return keys
+
+
+def read_manual():
+    rows = {}
+    if os.path.exists(MANUAL):
+        for line in open(MANUAL):
+            if line.startswith("#") or not line.strip():
+                continue
+            c = line.rstrip("\n").split("\t")
+            c += [""] * (6 - len(c))
+            rows[c[0]] = dict(zip(["default", "type", "range", "scope", "note"], c[1:6]))
+    return rows
+
+
+SCOPE = {"launch-line": "launch-line", "adopted-default": "built-in default", "experimental-off": "experiment",
+         "rejected": "experiment", "test-only": "test-only"}
+
+
+def build():
+    code = extract(".")
+    tests = extract("tests", skip_names=frozenset(code))
+    a11, (rnames, rtxt), prof, man = read_a11(), readme_names(), profile_keys(), read_manual()
+    rows = []
+    for src, tab in (("ecalc", code), ("tests", tests)):
+        for n in sorted(tab):
+            t = tab[n]
+            cd = code_default(t["defaults"])
+            m = man.get(n, {})
+            a = a11.get(n, {})
+            scope = m.get("scope") or ("test-only" if src == "tests" else SCOPE.get(a.get("status", ""), "unclassified"))
+            readme = "Y" if n in rnames else ("prose" if re.search(r"\b%s\b" % re.escape(n), rtxt) else "N")
+            typ = m.get("type") or merge_kind(t["kinds"])
+            rng = m.get("range") or ("0|1" if typ == "bool" else "")
+            rows.append({"name": n, "type": typ, "default": m.get("default") or cd, "code_default": cd, "range": rng,
+                         "scope": scope, "profile": ",".join(prof.get(n, [])) or "-", "evidence": a.get("evidence", "-") or "-",
+                         "readme": readme, "source": src, "files": ",".join(sorted(t["files"])), "sites": str(t["sites"]),
+                         "note": m.get("note", "")})
+    return rows
+
+
+def render_tsv(rows):
+    out = ["# ecalc/switches.tsv -- GENERATED by tools/switch_registry.py (do not edit; hand values go in ecalc/switches_manual.tsv)",
+           "# one row per environment switch read by ecalc/*.c|h (source=ecalc) or only by ecalc/tests (source=tests)",
+           "\t".join(COLS)]
+    for r in rows:
+        out.append("\t".join(r[c] for c in COLS))
+    return "\n".join(out) + "\n"
+
+
+def render_gen(rows):
+    names = [r["name"] for r in rows if r["source"] == "ecalc" and r["name"] not in PER_PROCESS]
+    out = ["/* ecalc/switches_gen.h -- GENERATED by tools/switch_registry.py from the sources; do not edit.",
+           "   The registered switches (sorted by strcmp) that the startup `config:` line looks up in the environment. */",
+           "static const char *const cfg_names[] = {"]
+    out += ['    "%s",' % n for n in names]
+    out += ["};", "#define CFG_NAMES_N %d" % len(names), ""]
+    return "\n".join(out)
+
+
+def read_tsv():
+    rows = []
+    if not os.path.exists(TSV):
+        return rows
+    for line in open(TSV):
+        if line.startswith("#") or not line.strip() or line.startswith("name\t"):
+            continue
+        c = line.rstrip("\n").split("\t")
+        c += [""] * (len(COLS) - len(c))
+        rows.append(dict(zip(COLS, c)))
+    return rows
+
+
+def readme_table(rows):
+    out = ["| switch | default | type | scope | evidence |", "|---|---|---|---|---|"]
+    for r in rows:
+        if r["source"] == "ecalc":
+            out.append("| `%s` | %s | %s | %s | %s |" % (r["name"], r["default"], r["type"], r["scope"], r["evidence"]))
+    return out
+
+
+def check():
+    built = build()
+    fresh = {r["name"]: r for r in built}
+    reg = {r["name"]: r for r in read_tsv()}
+    man = read_manual()
+    bad = []
+    for n in sorted(set(fresh) - set(reg)):
+        bad.append("MISSING in registry (in code): %s" % n)
+    for n in sorted(set(reg) - set(fresh)):
+        bad.append("STALE registry row (no code site): %s" % n)
+    for n in sorted(set(fresh) & set(reg)):
+        if fresh[n]["code_default"] != reg[n]["code_default"]:
+            bad.append("DEFAULT differs: %s registry code_default=%s code=%s" % (n, reg[n]["code_default"], fresh[n]["code_default"]))
+        cd, d = fresh[n]["code_default"], fresh[n]["default"]
+        if n in man and cd not in ("derived", "unset") and not cd.startswith("conflict") and d != cd:
+            bad.append("HAND DEFAULT contradicts the code literal: %s manual=%s code=%s" % (n, d, cd))
+    if not os.path.exists(GEN) or open(GEN).read() != render_gen(built):
+        bad.append("switches_gen.h is out of date (run tools/switch_registry.py)")
+    if not bad and (not os.path.exists(TSV) or open(TSV).read() != render_tsv(built)):
+        bad.append("switches.tsv differs in a non-default column (run tools/switch_registry.py)")
+    for b in bad:
+        print(b)
+    print("switch_registry --check: %d registry rows, %d in code, %d problems" % (len(reg), len(fresh), len(bad)))
+    return 1 if bad else 0
+
+
+def main(argv):
+    if "--check" in argv:
+        return check()
+    rows = build()
+    if "--readme" in argv:
+        print("\n".join(readme_table(rows)))
+        return 0
+    if "--readme-diff" in argv:
+        import difflib
+        new = readme_table(rows)
+        _, txt = readme_names()
+        old, on = [], False
+        for line in txt.splitlines():
+            if line.startswith("## Switches"):
+                on = True
+            elif line.startswith("## ") and on:
+                on = False
+            if on and line.startswith("|"):
+                old.append(line)
+        d = [l for l in difflib.unified_diff(old, new, lineterm="", n=0) if l[:1] in "+-" and l[:3] not in ("+++", "---")]
+        print("README switch table now: %d lines; generated: %d lines; diff: %d lines (+%d / -%d)" %
+              (len(old), len(new), len(d), sum(1 for l in d if l[0] == "+"), sum(1 for l in d if l[0] == "-")))
+        return 0
+    open(TSV, "w").write(render_tsv(rows))
+    open(GEN, "w").write(render_gen(rows))
+    c = collections.Counter(r["scope"] for r in rows)
+    print("wrote %s (%d rows: %d ecalc, %d tests) and %s; scopes: %s" % (
+        os.path.relpath(TSV, ROOT), len(rows), sum(r["source"] == "ecalc" for r in rows), sum(r["source"] == "tests" for r in rows),
+        os.path.relpath(GEN, ROOT), dict(c)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
