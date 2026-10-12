@@ -1,7 +1,7 @@
 # TASKS — live task list (open work, decisions, target session)
 
 Shrunk 2026-10-12 (user plan rev 2). Everything closed or done, and the dated status sections, are in
-`archive/TASKS_HISTORY_2026-10-12.md` (row numbers there keep their old meaning). Measurements are in `RESULTS.md`
+`archive:TASKS_HISTORY_2026-10-12.md` (local archive) (row numbers there keep their old meaning). Measurements are in `RESULTS.md`
 and `results/*.md`. Labels: (m) measured, (mod) modelled.
 
 ## Open work (2026-10-12)
@@ -10,13 +10,11 @@ and `results/*.md`. Labels: (m) measured, (mod) modelled.
 |---|---|---|---|
 | 23 | **`DIST_LOGN_TEST` 4-node correction defect** (">64 corrections", forced-grid path, A05): diagnose at 4 nodes, 1e9, `POOL_LOG=29 DIST_LOGN_TEST=23` vs 24 | open: fix approved; scheduled after all <1 h aac7 tasks | results/A05.md, G12.md |
 | 27 | **P1 parameter system:** profiles, size-dependent plan values, one entry point, registry, expiry (steps 1-2 merged 2026-10-12: L5 registry, O3 profile loader) | open: six launch-line settings become built-in defaults (approved) - wave 2 lane B | results/C01.md, L5.md, O3.md |
-| R | **Repo branch clean-up + `archive/` out of the repo** (plan rev 2, wave 1) | open | plan rev 2 |
-| F | **Unused files** (find and remove; plan rev 2, wave 1) | open | plan rev 2 |
 | S | **Switch removal** (wave 2): audit approved 2026-10-12 - remove 83 settings + A5 + B4 | open: wave 2 | `ecalc/README.md` switch table |
-| W | **Warnings + dead code** (compiler warnings, unreachable code; plan rev 2) | open | plan rev 2 |
-| C | **aac7 program folders** (clean-up of the program folders on aac7; plan rev 2) | open | plan rev 2 |
 | D | **Documentation rewrite** (wave 3) | open | plan rev 2 |
 | P | **Performance on aac7** (wave 4): distributed division multiply, `k_gather`, init mapping | open | plan rev 2 |
+
+Done 2026-10-12 (waves 0+1): R branch clean-up + `archive/` moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
 
 Closed 2026-10-12 (user decisions): 1 (mitigated by the uffd default), 16 and 29 (target size kept at 3.82e13), 22 (done by b02: engine 2 and bug C1 removed), 31 (node groups stay structured to the rack layout; uneven groups off for now). Closed 2026-10-12 (user plan rev 2), details in the archive: 2 (aac6-only hang; 0 in 2,630 runs in G2/P2), 9 (password moved to a private file, guard hooks), 10 (uffd adopted as default), 24 (not needed), 25 and 43 (soaks: not on the work list), 32 (slow-mode study: not on the work list), 35 (fixed by `DBIG_SMALL_BOUNCE`), 47 (aac6-CPX-only; `BS_SEED_PULL=0` workaround in the CPX notes), 8 (repo clean-up folded into the current plan).
 
