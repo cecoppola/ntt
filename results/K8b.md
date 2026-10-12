@@ -124,7 +124,43 @@ Collected 2026-10-12 (hold 22999 ran 04:05-04:06 ET; marker `K8B_DONE`: **FAILED
 - The driver nevertheless aborted: its check `grep -q "^PASS" gate/gate.txt` does not match the line, which starts with `gate PASS`. A driver bug, not a gate failure. The hold was cancelled at once (steps left 0), so **the ABBA at 6.441e10 never ran** (`pairs.tsv` has only the header). No timing result for `BS_SEED_PULL`; the 0.5-1 s expectation stays modelled.
 - Fix needed in `tools/k8b_driver.sh` (match `gate PASS`, e.g. `grep -q "gate PASS"`), then re-arm one hold for the ABBA (skip the gate with `SKIP_GATE=1`). No hold or driver of k8b is queued or alive now.
 
-## RESUME (armed 03:30 ET 2026-10-12)
+## 6. K8c: the ABBA hang and its fix (2026-10-12)
+
+Second ABBA (hold 23008, 04:21-04:44 ET, commit 228aa93, gate skipped; `~/k8b/summary.txt`, `~/k8b/log/`): **FAILED, 2 failed runs** (m).
+
+| run | arm | rc | result |
+|---|---|---|---|
+| r1_A1 | off | 0 | VERIFY OK, level 1 27.65 s, total 76.62 s |
+| r1_B1 | on (`BS_SEED_PULL=1`) | 124 | killed by the driver's 600 s timeout |
+| r2_A1 | off | 0 | VERIFY OK, level 1 29.29 s, total 78.69 s |
+| r2_B1 | on | 124 | killed by the driver's 600 s timeout |
+
+- **Which arm, how:** only the switch-on arm, 2 of 2, both a **hang** (no VERIFY FAIL, no segfault, no hipError, no OOM).
+  Both B logs end the same way: `seed pull kernels launched on 4 APUs` (~13-15 s), init finishes, `bs: joining the seed
+  thread`, all background mappings finish (~23-25 s), then nothing until slurm kills the step. The seed thread never prints
+  `every span computed` (the off runs print it at ~27 s). Not environmental: the off arm passed both times on the same node
+  in the same hold, and the background mapper had finished before the stall.
+- **Cause (defect in the switch, `dbig.c`):** one descriptor per APU (`dst/src/n` + `seq`). `seeds_stream` keeps two
+  buffered chunks and, once the regions exist, issues both back to back; at 6.441e10 (8 chunks, 2 per region) both go to the
+  **same APU** (`dev = r % nd`). The second `db_pull_copy_async` overwrote the descriptor and stored `seq = 2` while the
+  456 blocks were still asleep in `s_sleep` or copying copy 1. A block that first sees `seq = 2` jumps `my` from 0 to 2 and
+  adds `done` once, so `done` stays below `2 x 456` and `db_pull_wait` spins forever (its 600 s fatal never fired because
+  the driver's own 600 s timeout came first). Copy 1 is also partly lost (blocks read copy 2's descriptor). Neither the
+  probe (one copy in flight per APU) nor the 1e9 gate (no two buffered chunks for one region, assumed from its `seeds 0.0`)
+  reached this case.
+- **Fix (commit b1ff573):** `db_pull_copy_async` first calls `db_pull_wait(dev)`, so a descriptor is overwritten only after
+  every block finished the previous copy and `seq` advances by exactly one. The two copies to one APU were serial on its
+  one stream before too, so only the split between issue and DMA wait changes. The off path is untouched (no change outside
+  the `BS_SEED_PULL` functions): byte-identical to main.
+- **Re-armed (05:48 ET, aac6 hold 23022, pending on priority):** `~/k8c/k8b_driver.sh` with `O=~/k8c NPRE=5 RUN_TMO=300`:
+  gate (`--build`, 1e9, switch on), then **5 switch-on runs at 6.441e10 (each must give VERIFY OK, 300 s timeout)**, then
+  ABBA rounds as in section 5 only if all 5 pass. Driver additions: `NPRE`, `RUN_TMO`, `O` (defaults keep the old behaviour).
+
+## RESUME (K8c re-armed 05:48 ET 2026-10-12; the notes below the first bullet are the original K8b ones)
+
+- **K8c (current):** collect with `ssh aac6 'cat ~/k8c/K8B_DONE; cat ~/k8c/summary.txt; cat ~/k8c/pairs.tsv; cat ~/k8c/gate/gate.txt'`
+  (gives up waiting for the hold at 06:00 ET 2026-10-13; hold 23022 cancels itself). Fill section 6 (5 pre-runs: level 1, total,
+  VERIFY; ABBA table and stats) and section 0. Remove `~/ntt-k8b` when done; `squeue -s -j 23022` must show no step.
 
 - Branch `k8b` (worktree `../ntt-wt-k8b`), commits ca28494 (switch + probe), b740ef7 (driver, stats), then this file.
 - aac6: clone `~/ntt-k8b` at the branch head (built by `make -s -j16`; the driver rebuilds with `gate.sh --build`), probe binary
