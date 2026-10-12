@@ -7,7 +7,7 @@
 # Start: setsid nohup bash ~/cx/driver.sh > ~/cx/driver.log 2>&1 < /dev/null &
 set -u
 CX=$HOME/cx; SUMM=$CX/summary.txt; BRANCHES=${CX_BRANCHES:-"o5 k6 k1b o2 k8b o3 g6"}; NSLOT=${CX_SLOTS:-3}
-CPX="RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30"
+CPX="RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30 BS_SEED_PULL=0"
 mkdir -p $CX; rm -f $CX/DONE; : > $SUMM; printf '%s\n' $BRANCHES > $CX/queue; : > $CX/holds
 row() { ( flock 8; echo "$1 | $2 | $3 | $4 | $5 | ${6:-}" >> $SUMM ) 8>$CX/sum.lock; }
 claim() { ( flock 8; b=$(head -1 $CX/queue); [ -n "$b" ] && sed -i 1d $CX/queue; echo "$b" ) 8>$CX/q.lock; }

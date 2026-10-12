@@ -63,7 +63,8 @@ void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchro
  * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
  * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
  * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
- * to the same addresses as db_copy_h2d_async: digits identical.  Default 0 (off). */
+ * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 since 2026-10-12 (user-adopted, results/CAND.md); on a CPX
+ * XCD the 456 blocks need not all be resident and the first copy never completes (MRG, TASKS 47): CPX runs set BS_SEED_PULL=0. */
 struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
 #define DB_PULL_BLOCKS 456
 __global__ void k_pull(struct db_pullctl *c)

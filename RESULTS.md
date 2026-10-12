@@ -495,7 +495,7 @@ User decision 2026-10-12. Code defaults are now `DBIG_SMALL_BOUNCE=1`, `DIST_GAT
   - O2 `DBIG_SMALL_BOUNCE`: 4 nodes chain -10.98 s, total -30.08 s [-38.59, -21.58] (m). This removes the chain stall of TASKS 35.
   - K1b `DIST_GATHER_RAW=2`: 1 node -3.81 s [-5.12, -2.49] (m), with +17 GB pool peak live per node at 1 node. At 2 nodes the leaf is -0.98 s, with no memory cost.
   - K8b `BS_SEED_PULL`: the seed copies run without HIP runtime calls in init's mapping window. A descriptor-overwrite hang was fixed before the adoption (b1ff573). The single-switch ABBA (K8c) is still armed on aac6.
-- **Open:** CX saw a pull-kernel 600 s timeout on an aac6 CPX node. That run used the k8b build, probably from before the fix. A CPX check with the new defaults is in §145 / TASKS 47.
+- **Known limit (m, MRG):** on an aac6 CPX node (one XCD per device), the default `BS_SEED_PULL=1` stops the run with `db_pull_wait: ... did not finish copy 1 in 600 s` (rc 3). This happens at 1e9 and at 4e9 with the merged build, which includes the hang fix, and agrees with CX. The likely cause: the 456 persistent blocks per device need to be resident together, and an XCD holds fewer (a). CPX runs now set `BS_SEED_PULL=0` (README CPX note, `profiles/aac6.conf` comment, `tools/cx_aac6.sh`). SPX nodes and aac7 are not affected (gates below). Fix candidate: size the block count from the occupancy. TASKS 47.
 
 ## 136. P1 step 2: profile loader merged (results/O3.md)
 - New `tools/profile_load.py` (loads a profile with precedence explicit env > profile > code default; `--validate`, `--validate-all`, `--show`) and `tools/with_profile.sh`. `gate.sh --profile P` is new, and `gate.sh --build` now runs `switch_registry.py --check` and `profile_load.py --validate-all` first. No ecalc C change.
@@ -536,4 +536,9 @@ User decision 2026-10-12. Code defaults are now `DBIG_SMALL_BOUNCE=1`, `DIST_GAT
   - **CX**: CPX correctness sweep of the branches.
   - **G2, P2**: drivers; results pending.
   - **H1, H2, H3, H5**: see §134.
-- **Merge gate of mrg** (new defaults built in): see below.
+- **Merge gate of mrg** (7682070; new defaults built in, nothing set on the command line; m):
+  - aac7, 2 nodes: `tools/gate.sh --build --nodes 2` PASS (VERIFY OK, 1e9 digits identical, `-DCOMM_SHMEM`).
+  - aac7, one 2-node run at 6.441e10 per node: `all 2 nodes: VERIFY OK`. The total was 192.65 s, but this was one cold run (init 51 s) in the slow NIC mode (10.4-11.8 GB/s per APU thread), so it is not a timing figure. The seed pull kernels ran.
+  - aac6 PPAC SPX, 1 node: `gate.sh --build --nodes 1` PASS (1e9 identical, ecalc 10.94 s), and `mnaccept.sh --only unit,e9` 10 of 10 PASS (1373 s).
+  - aac6 CPX (information only): 1e9 and 4e9 both stop in `db_pull_wait` (see §135).
+  - After the gates, comment and doc lines only: the `dbig.c` comment and the CPX notes.

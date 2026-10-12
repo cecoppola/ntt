@@ -56,7 +56,7 @@ figures are in internal target notes §1. aac7's QOS allows 6 nodes per user (no
 
 **Model profile (B01, 2026-10-11).** `estimate.py --fabric aac7` (and `MN_MODEL_PROFILE=aac7`) is now the S48 refit (`aac7_s48`, `ecalc/aac7_s48_fit.json`, results/S48.md; the old C16 profile is `--fabric aac7_c16`). Without `--fabric` the default is now `target_l4` (user-adopted 2026-10-11, results/L4.md: the target fabric with the L4 refit layv factor; standing 576-node estimate ≈ 176.3 s at 3.71e13, 181.7 s at 3.82e13, no write, modelled); the previous default is `--fabric target`.
 
-**CPX launch note (T11, results/T11.md).** On aac6's SH5 CPX nodes, runs up to 4 × 10⁹ digits need `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (both set in the environment of the launch).
+**CPX launch note (T11, results/T11.md).** On aac6's SH5 CPX nodes, runs up to 4 × 10⁹ digits need `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30` (both set in the environment of the launch). Since 2026-10-12 they also need `BS_SEED_PULL=0`: with the default 1 the seed pull kernel stops the run (`db_pull_wait ... did not finish copy 1 in 600 s`, rc 3) at 1e9 on a CPX node (m, MRG). The likely cause is its 456 persistent blocks, which need more co-resident blocks than one XCD holds (a). See TASKS 47.
 
 
     module load rocm && make          # ref/gen_e, ntt.o mem.o crt.o bigint.o rns_mul.o, tests/t_*
