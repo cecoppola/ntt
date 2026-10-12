@@ -92,7 +92,6 @@ R() { local to=$1; shift; timeout "$to" srun --jobid="$J" -N1 -n1 --mem=0 --gpus
 N() { srun --jobid="$J" -N1 -n1 --mem=0 --overlap bash -c "$*"; }
 # M <timeout> <procs> <cmd...>: node-processes through mnrun.sh
 M() { local to=$1 p=$2; shift 2; SLURM_JOB_ID=$J timeout "$to" ./mnrun.sh "$p" env "$@"; }
-# the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS
 # the digits of a run (a file, or the concatenated part files) against the reference: prints identical / DIFFERS.
 # Phase 15: digcmp.sh -- packed parts (the default output) through tools/unpack_digits --cmp, ASCII with O_DIRECT reads
 cmpref() { N "$PWD/digcmp.sh $1 $2; rm -rf $1 $1.*"; }   # (also the .t1 sidecar and the .top directory)

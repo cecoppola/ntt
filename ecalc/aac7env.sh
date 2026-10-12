@@ -3,7 +3,7 @@
 # of ecalc (Phase 16 A, results/A16.md).  Two uses:
 #   source ecalc/aac7env.sh         the modules (cray-dsmml cray-openshmemx rocm) and the variables the scripts read on aac7:
 #                                   MNRUN_MODULES, MNRUN_CPUS_PER_TASK=auto (srun confines a task to 2 CPUs otherwise), MNACCEPT_TMP
-#                                   under $HOME (the nodes' /tmp is RAM), AAC7_PART; plus the helpers aac7_alloc / aac7_wait / aac7_log.
+#                                   under $HOME (the nodes' /tmp is RAM), AAC7_PART; plus the helper aac7_log.
 #   bash ecalc/aac7env.sh --log     the log block of TARGET_HW_REVIEW N3, printed once per node by the task that runs it (mnrun.sh's
 #                                   wrappers call it when ECALC_LOG_CLOCKS is set): the node, the task's CPU set, rocm-smi's current
 #                                   sclk / mclk / fclk per APU, and the NUMA map APU i -> NUMA node -> cxi<j> (one Cassini per socket), so
@@ -64,17 +64,7 @@ fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
 export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp}
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
-# AAC7_FI_TUNE=1: libfabric/CXI tunables that an A/B on 2 nodes (results/V16.md §3c) found worth keeping for large SHMEM puts.
-# Off by default — none of this changes the default stack, only an opt-in override.
-if [ "${AAC7_FI_TUNE:-0}" != 0 ]; then
-    : # results/V16.md §3c: none of FI_CXI_RX_MATCH_MODE=hybrid (+3.4% on the GB/s line, +3.3% slower wall),
-    # SHMEM_OFI_NIC_POLICY=ROUND-ROBIN (+3.1% / +1.0% slower) beat the >5% wall / >10% GB/s bar for a second run.
-    # No FI_CXI_RDZV_* vars are compiled into this libfabric 2.3.1 build (strings on libfabric.so: only
-    # FI_CXI_RX_MATCH_MODE is present of the set named in the task). Left empty on purpose.
-fi
+# AAC7_FI_TUNE was an empty opt-in (results/V16.md §3c: no tunable passed the bar); removed 2026-10-12.
+[ "${AAC7_FI_TUNE:-0}" = 0 ] || echo "aac7env.sh: AAC7_FI_TUNE was removed (it set nothing; results/V16.md §3c)" >&2
 [ -d "$HOME/gmp/lib" ] && export GMP_HOME=${GMP_HOME:-$HOME/gmp}
-# aac7_alloc <nodes> <h:mm:00> [name] [sbatch options...]: an exclusive allocation of whole nodes, prints the job id
-aac7_alloc() { local n=$1 t=$2 nm=${3:-p16}; shift 3 2>/dev/null; local s; s=$(echo "$t" | awk -F: '{ print $1 * 3600 + $2 * 60 + $3 }')
-    sbatch -p "$AAC7_PART" -N "$n" --exclusive -c 192 --gpus-per-node=4 -t "$t" -J "$nm" --parsable "$@" --wrap "sleep $s"; }
-# aac7_wait <jobid> [seconds]: until the job runs (prints its nodes) or the wait is over
-aac7_wait() { local j=$1 w=${2:-600} st; while [ "$w" -gt 0 ]; do st=$(squeue -j "$j" -h -o %T 2>/dev/null); [ "$st" = RUNNING ] && { squeue -j "$j" -h -o %N; return 0; }; [ -z "$st" ] && return 1; sleep 10; w=$((w - 10)); done; return 1; }
+:   # (a sourced file ends with status 0)
