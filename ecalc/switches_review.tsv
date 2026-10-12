@@ -82,9 +82,6 @@ DIST_PREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TINV	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_XGMI	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-NICBW_HHM	test	ecalc/tests/t_nicbw.c	2027-04-12	test harness setting
-NICBW_SHHEAP	test	ecalc/tests/t_nicbw.c	2027-04-12	test harness setting
-NICBW_SYS	test	ecalc/tests/t_nicbw.c	2027-04-12	test harness setting
 TSTRAT_BUDGET_GB	test	ecalc/tests/t_strategy.c	2027-04-12	test harness setting
 TSTRAT_GMP	test	ecalc/tests/t_strategy.c	2027-04-12	test harness setting
 T_ALLOC_NTT	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting

@@ -166,9 +166,6 @@ DIST_PREPS	int	5	5		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	20
 DIST_TBENCH	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_dist.c	1	ecalc/tests/t_dist.c	2027-04-12	
 DIST_TINV	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_XGMI	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
-NICBW_HHM	bool	derived	derived	0|1	test-only	-	-	prose	tests	t_nicbw.c	3	ecalc/tests/t_nicbw.c	2027-04-12	
-NICBW_SHHEAP	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_nicbw.c	1	ecalc/tests/t_nicbw.c	2027-04-12	
-NICBW_SYS	bool	derived	derived	0|1	test-only	-	-	prose	tests	t_nicbw.c	1	ecalc/tests/t_nicbw.c	2027-04-12	
 TSTRAT_BUDGET_GB	float	derived	derived		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 TSTRAT_GMP	int	unset	unset		test-only	-	-	prose	tests	t_strategy.c	2	ecalc/tests/t_strategy.c	2027-04-12	
 T_ALLOC_NTT	int	1	1		test-only	-	-	prose	tests	t_alloc.c	2	ecalc/tests/t_alloc.c	2027-04-12	

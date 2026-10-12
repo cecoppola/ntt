@@ -11,7 +11,7 @@ MTU 2112, libfabric 2.3.1 (`/opt/cray/libfabric/2.3.1`), no Slurm VNI env (defau
   from host memory or `hipMalloc` memory (93.2), with 4 threads **or a single thread** (93.3). 4.0× one NIC.
 - Coexists with Cray OpenSHMEMX in the same process (1 PE + 4 extra domains: 93.3 GB/s; SHMEM still works).
 - Cray SHMEM and Cray MPICH: one PE / rank = exactly one NIC (man pages; MPICH striping CVARs measured inert).
-- Tools/scripts on aac7 `~/nic16/`: `nicbw.c` (copy: `ecalc/tests/t_nicbw.c`), `build.sh`, `run1.sh`, `ctr.sh`,
+- Tools/scripts on aac7 `~/nic16/`: `nicbw.c` (copy: `archive:removed_2026-10-12/ecalc/tests/t_nicbw.c`), `build.sh`, `run1.sh`, `ctr.sh`,
   `cdiff.py`, `cxw.sh`, `mpibw.c`, `mrun.sh`. Binaries: `nicbw` (host), `nicbw_g` (HIP, ROCm 7.0.3), `nicbw_s` (+SHMEM).
 - Also: remote MR counters work (93.2 GB/s); VMM (`hipMemCreate`) buffers cannot be registered (EFAULT) — register the
   comm pool (hipMalloc / host) instead; 8 domains (2 per NIC) in one process work (90.4).

@@ -276,7 +276,6 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_comm.c | 2027-04-12 | `T_COMM_TRACE` |
 | test | ecalc/tests/t_dist.c | 2027-04-12 | `DIST_BIG`, `DIST_BIG_K`, `DIST_BIG_PRIMES`, `DIST_GBENCH`, `DIST_H4`, `DIST_H4_MB`, `DIST_H4_REPS`, `DIST_LAYERED`, `DIST_LBENCH`, `DIST_LREPS`, `DIST_PREPS`, `DIST_TBENCH`, `DIST_TINV`, `DIST_XGMI` |
-| test | ecalc/tests/t_nicbw.c | 2027-04-12 | `NICBW_HHM`, `NICBW_SHHEAP`, `NICBW_SYS` |
 | test | ecalc/tests/t_patch.c | 2027-04-12 | `T_PATCH_DIR`, `T_PATCH_UNPACK` |
 | test | ecalc/tests/t_strategy.c | 2027-04-12 | `TSTRAT_BUDGET_GB`, `TSTRAT_GMP` |
 
