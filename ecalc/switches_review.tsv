@@ -98,3 +98,4 @@ T_ALLOC_SEED	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
 T_COMM_TRACE	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting
 T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
+DM_MN_WRAP	experiment	P1 (results/P1.md)	2026-11-11	off by default; 2-node ABBA -11.1 s total; awaits the user (6-node A/B, memory model)
