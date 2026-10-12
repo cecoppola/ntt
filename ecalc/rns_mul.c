@@ -147,10 +147,9 @@ int rns_init(int pool_log)
     if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
     else if (ec_np == 3) { ec_np_check(0, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (archive:PLAN §18, O1): one thread per device */
-    mem_par_init = par;
+    mem_par_init = 1;                             /* Phase 8 (archive:PLAN §18, O1): one thread per device */
     double ti0 = mem_now();
-#pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
+#pragma omp parallel for num_threads(g_nd) schedule(static)
     for (int d = 0; d < g_nd; d++) {
         double tt, tr, x0 = mem_now(), x1, x2, x3;
         HIP_CHECK(hipSetDevice(d));
@@ -171,7 +170,7 @@ int rns_init(int pool_log)
      * 1 since Phase 14, was removed 2026-10-12 with the hook-first order). */
     size_t b1 = rns_pool1_bytes_req ? rns_pool1_bytes_req : bytes;   /* C4: pool 1 sized to the dist tier's 3 q when the flow is all-device (the host mdev tier needs the full 2^pool_log) */
     if (getenv("RNS_POOL1_GB")) b1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
-#pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
+#pragma omp parallel for num_threads(g_nd) schedule(static)
     for (int d = 0; d < g_nd; d++) {
         HIP_CHECK(hipSetDevice(d));
         if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, planes_3q30(), 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */

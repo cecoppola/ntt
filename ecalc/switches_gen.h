@@ -96,7 +96,6 @@ static const char *const cfg_names[] = {
     "ECALC_OUT_MODE",
     "ECALC_OUT_ODIRECT",
     "ECALC_OUT_PACKED",
-    "ECALC_OVERLAP",
     "ECALC_PLANE_CAP",
     "ECALC_PLANE_CAP_IDX",
     "ECALC_RECHECK",
@@ -128,7 +127,6 @@ static const char *const cfg_names[] = {
     "MN_TREE_LOGN_TEST",
     "MN_T_CHUNK_MB",
     "MN_WAIT_STATS",
-    "NEWTON_DEVICE",
     "NEWTON_DKM_TEST_HI",
     "NEWTON_DOUBLING_TS",
     "NEWTON_MN_BW",
@@ -161,4 +159,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 159
+#define CFG_NAMES_N 157

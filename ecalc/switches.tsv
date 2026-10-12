@@ -97,7 +97,6 @@ ECALC_ODIRECT_OTHER	int	1	1		built-in default	-	IO15.md	Y	ecalc	spill.c	1	-	-
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
-ECALC_OVERLAP	int	1	1		built-in default	-	H.md+A-out.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	8	-	-	
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	diagnostics (TESTING.md)	2027-04-12	
 ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	-	-	ecalc.c: standalone recheck of a finished run
@@ -129,7 +128,6 @@ MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnosti
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	5	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
-NEWTON_DEVICE	int	1	1		built-in default	-	DKM15.md+R415.md	Y	ecalc	ecalc.c	6	-	-	
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	-	-	
@@ -140,7 +138,7 @@ NEWTON_MN_RECIP_TS	int	0	0		test-only	-	S30.md	Y	ecalc	newton_db.c	2	diagnostics
 NEWTON_MN_SHARE	float	unset	unset		built-in default	-	-	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	ecalc	newton_db.c	2	-	-	
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
-NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton.c,newton_db.c	8	diagnostics (TESTING.md)	2027-04-12	
+NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
@@ -154,7 +152,7 @@ RNS_DIST_CACHE_PARTIAL_K	int	derived	derived		built-in default	-	PC15.md	prose	e
 RNS_DIST_CACHE_PARTIAL_MARGIN_GB	float	0.5	0.5		built-in default	-	PC15.md	prose	ecalc	rns_dist.c	4	-	-	
 RNS_DIST_CACHE_TRACE	bool	0	0	0|1	test-only	-	CX15.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
 RNS_INIT_POOL_LOG	int	unset	unset		test-only	-	T11.md+S51.md	Y	ecalc	rns_mul.c	2	diagnostics (TESTING.md)	2027-04-12	
-RNS_PLANES_3Q30	bool	0	0	0|1	experiment	-	P.md+P13b.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	7	coordinator (TASKS S)	2026-11-11	
+RNS_PLANES_3Q30	bool	0	0	0|1	experiment	-	P.md+P13b.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	5	coordinator (TASKS S)	2026-11-11	
 RNS_POOL1_GB	float	unset	unset		built-in default	-	R.md+T.md	Y	ecalc	mn_plan.c,rns_mul.c	4	-	-	
 RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	diagnostics (TESTING.md)	2027-04-12	
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	

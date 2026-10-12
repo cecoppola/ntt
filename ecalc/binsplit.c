@@ -818,8 +818,7 @@ void binsplit_pregrow(unsigned long N)
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* Phase 13a M: the arena request without the arena */
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0);
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (archive:PLAN §18, O1): regions per device and the host pool touch in parallel */
-    int nhp = total0 > ((size_t)1 << 28) ? 1 : 0;   /* one host pool (A's buffer; the top levels run on device), first-touched now */
+    int nhp = total0 > ((size_t)1 << 28) ? 1 : 0;   /* one host pool (A's buffer; the top levels run on device), allocated now (its faults come later, under A) */
     double t_pg = mem_now();
     size_t need[NR]; region_need(N, need);   /* C4: regions from the simulated layout (the earlier flat sizing BS_REGION_FLAT removed 2026-10-11) */
     /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
@@ -856,20 +855,17 @@ void binsplit_pregrow(unsigned long N)
         if (bs_verbose) printf("bs: dm layout: n_Q %zu limbs, k %zu, t1 %zu limbs; per device: need %.2f GB (v2 %.2f, v3 %.2f, division %.2f; tree %.2f), tail %.2f GB (thresh %.2f)%s%s%s%s\n", dml.nq, dml.k, dml.tcap, dml.need_dev * 1e-9, dml.v2 * 1e-9, dml.v3 * 1e-9, dml.div * 1e-9, dml.tree_dev * 1e-9, dml.hole * 1e-9, dml.thresh * 1e-9,
                                           dml.room ? "; BS_ARENA_ROOM: room in need, arenas in whole chunks" : "", dml.tight ? "; DM_TIGHT" : "", dml.tail_dead ? (dml.tail_dead >= 2 ? "; DM_TAIL_DEAD (no hole beside the top level, no P in the reciprocal)" : "; DM_TAIL_DEAD (no hole beside the top level)") : "", dml.dkm ? "; NEWTON_DKM (the reciprocal to h, the two quotient halves)" : "");
         if (dml.tight) db_pool_pack_large(1);                  /* Phase 14 L1 (DM_TIGHT): the large blocks packed at the arena's top (dbig.c ext_take) */
-#pragma omp parallel for num_threads(NR) schedule(static) if(par)
+#pragma omp parallel for num_threads(NR) schedule(static)   /* Phase 8 (PLAN 18, O1): the regions per device in parallel */
         for (int r = 0; r < NR; r++) arena_get(r, cap[r], extra[r], hole[r], dml.thresh);
         if (bs_arena_room() > 0 && db_pool_vmm_on()) for (int r = 0; r < NR; r++)   /* Phase 15 AS: the layout's promise (whole chunks, the tail at the last chunk's end) */
             if (g_arena[r].base && g_arena[r].bytes % db_pool_vmm_chunk()) fprintf(stderr, "bs: BS_ARENA_ROOM: WARNING: region %d's arena %zu bytes is not whole chunks (the tail is not at the arena's end)\n", r, g_arena[r].bytes);
         if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("bs: arenas %.1f GB allocated in %.2f s (layout pass %.2f s; dm extra %.1f GB, tails %.1f GB)\n", (g_arena[0].bytes + g_arena[1].bytes + g_arena[2].bytes + g_arena[3].bytes) / 1e9, mem_now() - ta, ta - t_pg, (extra[0] + extra[1] + extra[2] + extra[3]) / 1e9, (hole[0] + hole[1] + hole[2] + hole[3]) / 1e9);
     }
     g_in_pregrow = 1;
-#pragma omp parallel for num_threads(NR + 1) schedule(static) if(par)
+#pragma omp parallel for num_threads(NR + 1) schedule(static)
     for (int r = 0; r <= NR; r++) {
         if (r < NR) { for (int w = 0; w < 2; w++) pool_get(w, r, need[r]); }
-        else for (int w = 0; w < nhp; w++) { uint64_t *hp = (uint64_t *)hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);
-            if (par) continue;                                  /* I2: with the top levels on device this pool only serves A, formed in the background later: its faults are hidden there */
-#pragma omp parallel for schedule(static) num_threads(par ? 96 : omp_get_max_threads())
-            for (size_t i = 0; i < total0 + total0 / 8; i += 512) hp[i] = 0; }
+        else for (int w = 0; w < nhp; w++) hpool_get(&g_hpool[w], (total0 + total0 / 8 + 4 * NR) * 8);   /* I2: not touched here -- with the top levels on device this pool only serves A, formed in the background later: its faults are hidden there */
     }
     g_in_pregrow = 0;
 }
@@ -1407,7 +1403,8 @@ static void seeds_compute(struct level *cur, size_t per, unsigned long S, unsign
  * the region pools, so binsplit_seeds_begin (I2: called from rns_init once the staging exists, before the plane pools)
  * allocates them first (binsplit_pregrow, which used to run after rns_init: the same bytes, mapped earlier) and then
  * starts the seed thread; a chunk waits for the pools only if they are not there yet (they are: 4e10 measured below).
- * The same function runs synchronously in binsplit_e when the seeds were not started at init (ECALC_OVERLAP=0).  The
+ * The same function runs synchronously in binsplit_e when the seeds were not started at init (BS_RESTART, or a caller
+ * without the init hook such as tests/t_bs).  The
  * pinned staging of rns_init is no longer used by the seeds (1 GiB per APU remains for the checkpoints' chunks). ---- */
 struct seed_stream {
     uint64_t *buf[2]; size_t bytes, chunk_spans; int buf_dev[2];         /* buf_dev: the device of the copy in flight from the buffer (-1: none) */
@@ -1746,7 +1743,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
             }
         }
     }
-    if (cur.nd && bs_keep_dev && bs_donate_pools && mn_size() > 1 && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
+    if (cur.nd && bs_keep_dev && mn_size() > 1 && cur.pool[cur.nd[0].r] && mem_dev_of(cur.pool[cur.nd[0].r]) >= 0) {
         /* Phase 10 B6 (agent M): at size > 1 a leaf that ends on the batch tier leaves P_r, Q_r in a region pool; the
          * tree (mn_tree) takes them as device numbers and its slabs and shares from the block pool, which held nothing
          * yet (11-44 GB of hipMalloc per process, A-mem open issue 3).  So: the idle parity goes to the block pool,
@@ -1773,18 +1770,16 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 unsigned long bs_a0 = 1, bs_b1 = 0;                                 /* M2: this process's term range [a0, b1) (b1 = 0: all of [1, N+1)) */
 void (*bs_after_seeds_hook)(void *) = 0; void *bs_hook_arg = 0;   /* Phase 8: called once the seeds are in the regions */
 int bs_keep_dev = 0; dbig bs_Pd, bs_Qd;                             /* Phase 8: the top level's P, Q left on device */
-int bs_donate_pools = 0;                              /* WP5: hand the device regions to the dbig block allocator instead of freeing them */
 void binsplit_free_pools(void)
 {
     for (int w = 0; w < 2; w++) for (int r = 0; r < NR; r++) {
         if (g_pool[w][r]) {
             int dev = mem_dev_of(g_pool[w][r]);
-            if (dev >= 0 && bs_donate_pools) donate_one(w, r);
-            else if (dev >= 0) { if (!in_arena(r, g_pool[w][r])) mem_dev_free(g_pool[w][r]); } else mem_hreg_free(g_pool[w][r]);
+            if (dev >= 0) donate_one(w, r);           /* WP5: the device regions go to the dbig block allocator (the dm phase's blocks) */
+            else mem_hreg_free(g_pool[w][r]);
         }
         g_pool[w][r] = 0; g_cap[w][r] = 0;
     }
-    if (!bs_donate_pools) binsplit_release_arenas();
-    else rns_shutdown_hook = binsplit_release_arenas;   /* the arenas stay for the block pool; released at rns_shutdown */
+    rns_shutdown_hook = binsplit_release_arenas;       /* the arenas stay for the block pool; released at rns_shutdown */
     for (int w = 0; w < 2; w++) if (!g_hpool_taken[w]) hpool_free(&g_hpool[w]); else { g_hpool[w].p = 0; g_hpool[w].cap = 0; g_hpool_taken[w] = 0; }
 }

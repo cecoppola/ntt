@@ -84,7 +84,6 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);                   /* Phase 14 P2: COMM_SHMEM_POOL_AUTO / the warning / MN_PLAN_ONLY's line */   /* Phase 11 M (decision 5): t1's quarter in bytes -- the arena's reserved tail (the block pool's largest block) */
 void binsplit_release_arenas(void);                      /* Phase 9 C4: the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* Phase 9 C2: levels with at most this many nodes are laid out least-loaded-first (16) */
-extern int bs_donate_pools;
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;   /* Phase 8 overlap */
 extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process computes (b1 = 0: [1, N+1)) */
 extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;             /* Phase 8: P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */                          /* release the two level pools */

@@ -1,29 +1,27 @@
-/* t_newton - step 5 test: newton.h against mpz_tdiv_qr.
+/* t_newton - step 5 test: newton.h against mpz_tdiv_qr (the device forms newton_db_recip / newton_db_divmod; the host forms
+ * were removed in A5, 2026-10-12).
  *
  *  1. bi_divmod_school vs mpz_tdiv_qr, random sizes to 64 limbs, all generators
- *  2. newton_recip: mu vs floor(2^(64(nq+k))/Q) by GMP, error in units, for
+ *  2. newton_db_recip: mu vs floor(2^(64(nq+k))/Q) by GMP, error in units, for
  *     nq = 3 .. 2^20 and k = 1, nq/2, nq, 2 nq
- *  3. newton_divmod vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs (default 26; exact to 2^22, above that the GMP string
+ *  3. newton_db_divmod vs mpz_tdiv_qr at 2^10 .. 2^LOGMAX limbs (default 26; exact to 2^22, above that the GMP string
  *     bridge of decimal limbs is too slow and A == X Q + R is checked by residues mod 2^61-1 and two 62-bit primes):
  *     random; Q = B^k-ish (single top limb) and B^k - 1; A = Q^2 - 1, Q^2, Q^2 + 1 (near multiples);
  *     A < Q; corrections counted; 0 <= R < Q; a perturbed seed forces the
  *     overshoot path; a supplied longer mu
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
- *  5. (NEWTON_DEVICE=1) the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
+ *  5. the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
  *
  * Usage: t_newton [LOGMAX (26)]
  * Decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
 #include "../newton.h"
-static int use_db = -1;
 /* Phase 15 EW (section 7): the X_hi / X_lo hooks of the DKM division -- X_hi copied out and freed (taken), the X_lo hook's carry recorded */
 #include "../dbig.h"
 static struct { bigint Xh; size_t s; int hi, lo, carry, release; } h7;
 static int h7_hi_hook(dbig *Xh, size_t s, void *a) { (void)a; db_to_bi(&h7.Xh, Xh); db_free(Xh); h7.s = s; h7.hi++; return 1; }
 static int h7_lo_hook(dbig *Xl, size_t s, int carry, void *a) { (void)a; (void)Xl; (void)s; h7.lo++; h7.carry = carry; return h7.release && !carry; }
-#define newton_recip(m, q, k) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_recip(m, q, k) : newton_recip(m, q, k))
-#define newton_divmod(x, r, a, q, mu) ((use_db < 0 ? (use_db = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 0) : 0), use_db ? newton_db_divmod(x, r, a, q, mu) : newton_divmod(x, r, a, q, mu))
 #include "../rns_mul.h"
 #include "../mem.h"
 #include "../dbig.h"
@@ -38,7 +36,7 @@ static int check_div(const char *what, const bigint *A, const bigint *Q, const b
 {
     bigint X, R; bi_init(&X); bi_init(&R);
     newton_stats before = newton_st;
-    newton_divmod(&X, &R, A, Q, mu_opt);
+    newton_db_divmod(&X, &R, A, Q, mu_opt);
     int ok;
     if (Q->n <= EXACT_MAX_NQ) {
         mpz_t a, q, x, r, xx, rr; mpz_inits(a, q, x, r, xx, rr, NULL);
@@ -95,7 +93,7 @@ int main(int argc, char **argv)
             size_t ks[4] = {1, nq / 2 + 1, nq, 2 * nq};
             for (int i = 0; i < 4; i++) {
                 size_t k = ks[i];
-                newton_recip(&mu, &Q, k);
+                newton_db_recip(&mu, &Q, k);
                 bi_to_mpz(q, &Q); mpz_recip(m, q, nq, k);
                 bi_to_mpz(x, &mu); mpz_sub(x, m, x);
                 long err = mpz_fits_slong_p(x) ? mpz_get_si(x) : 1L << 40;
@@ -136,12 +134,12 @@ int main(int argc, char **argv)
         newton_seed_perturb = 0;
         }
         /* a supplied longer mu */
-        newton_recip(&mu, &Q, nq + 8);
+        newton_db_recip(&mu, &Q, nq + 8);
         check_div("supplied mu", &A, &Q, &mu);
         printf("   2^%d limbs ok%s  (down %zu, up %zu corrections, %zu overshoots, %zu repeats so far)\n", lg, nq > EXACT_MAX_NQ ? " (by residues)" : "", newton_st.down_corr, newton_st.up_corr, newton_st.overshoots, newton_st.repeats);
     }
 
-    if (use_db > 0) {
+    {
         /* Phase 15 R4 (the reciprocal's middle product, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
          * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal (always the cut
          * and middle-product form since B5, 2026-10-11) against GMP directly -- mu vs floor(B^(nq+k)/Q), within the test's 8 units, as the
@@ -322,7 +320,7 @@ int main(int argc, char **argv)
         bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&A, 2 * nq, GEN_UNIFORM, &rng);
         memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
         double t0 = mem_now();
-        newton_divmod(&X, &R, &A, &Q, 0);
+        newton_db_divmod(&X, &R, &A, &Q, 0);
         double dt = mem_now() - t0;
         uint64_t ra = limbs_mod_m61(A.l, A.n), rq = limbs_mod_m61(Q.l, Q.n), rx = limbs_mod_m61(X.l, X.n), rr = limbs_mod_m61(R.l, R.n);
         VERIFY(m61_add(m61_mul(rx, rq), rr) == ra, "2^%d: A != XQ + R mod 2^61-1", LOGMAX);

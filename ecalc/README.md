@@ -64,7 +64,6 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | switch | meaning (default) |
 |---|---|
 | `ECALC_VERBOSE` | 1: the phase lines; 2: per-level, init and memory detail; 0: quiet (1) |
-| `ECALC_OVERLAP` | the Phase 8 overlapped flow — parallel per-APU init, the seeds during init's allocations, T1's recurrence during bs, the division on the device, digits/T2 during the low product; 0 = the sequential flow (1) |
 | `ECALC_BG_THREADS` | the background OpenMP team of the recurrence and the writer (48) |
 | `ECALC_ARENA_GB` | the region arena per device, in GB, instead of the layout's own sizing (auto) |
 | `DM_TIGHT` | *Phase 14 (L1), APUMULT_STUDY E2*: the reciprocal's scratch reserved once at the last doubling's sizes instead of the final ones — r at ⌈k/2⌉ + 4 limbs, r2 at 2⌈k/2⌉ + 4, t1 at Q_t·r's size there — with r' copied into r's block (no block swap) at every doubling but the last; the device tier's top levels free each input pair as it is consumed; the block pool packs the large blocks (the top level's P, Q below the tail; t1 in the tail, r2 at the highest free end); `dm_layout` re-derived (the last doubling's set 5.2 n_Q + piece instead of 6.2, the top level 3.3 n_Q instead of 4.4, the division's own set as a term); bit-identical (on with `DB_POOL_VMM` since Phase 14) |
@@ -166,7 +165,6 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 
 | switch | meaning (default) |
 |---|---|
-| `NEWTON_DEVICE` | the reciprocal and division on device-resident numbers; the bs regions donated to the block pool, the staging released (1) |
 | `NEWTON_RECIP_GUARD` | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) |
 | `NEWTON_MN_SPLIT` | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) |
 | `NEWTON_MN_RECIP_TS` | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) |

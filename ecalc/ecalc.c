@@ -47,9 +47,10 @@ static void meta_line(const char *bench)
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
-/* ---- Phase 8 (archive:PLAN §18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
- * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
-static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */
+/* ---- Phase 8 (archive:PLAN §18): overlap of disjoint work (the only flow since A5, 2026-10-12; the sequential flow lost, RESULTS.md
+ * 68: 128.8 vs 112.1 s).  Background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each
+ * joins where its result is first needed. ---- */
+static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
 static void *pq_bg_run(void *a) { struct pq_bg *b = (struct pq_bg *)a; double t0 = mem_now(); omp_set_num_threads(g_bg_threads);
     for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(b->a0, b->b1, t1_q[i], &b->p[i], &b->qq[i]); b->t = mem_now() - t0;
@@ -467,21 +468,19 @@ int main(int argc, char **argv)
     unsigned long N = e_terms(d);
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
-    int ovl_env = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
-    if (ovl_env && !getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
+    if (!getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
     { char eff[160]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,overlap:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", "10^18", verbose, ovl_env, pc ? pc : "-", cs ? cs : "1");
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1");
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
-      int devflow = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;
-      if (devflow) rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
+      rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
        * Phase 12 I: the size rule (on below 5e10 digits at 2^31 pools) is the default; RNS_PLANES_3Q30=0/1 overrides (results/I.md) */
-      rns_planes_3q30 = devflow ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
+      rns_planes_3q30 = rns_planes_3q30_default(pool_log, (double)d);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
-      if (devflow) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+      rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* Phase 14 P2: + the SHMEM pool line */   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
@@ -518,16 +517,13 @@ int main(int argc, char **argv)
     mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
     budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
-    bs_donate_pools = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the bs regions become the dm phase's blocks (default since RESULTS.md 62b) */
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
     if (getenv("BS_CKPT_EVERY")) bs_ckpt_every = atoi(getenv("BS_CKPT_EVERY"));
     if (getenv("BS_CKPT_MIN_LEVEL")) bs_ckpt_min_level = atoi(getenv("BS_CKPT_MIN_LEVEL"));
     bs_restart = getenv("BS_RESTART") ? atoi(getenv("BS_RESTART")) : 0;
-    g_overlap = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;
     if (getenv("ECALC_BG_THREADS")) g_bg_threads = atoi(getenv("ECALC_BG_THREADS"));
-    int newton_dev = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;   /* WP5: the reciprocal and division on device-resident numbers (default) */
-    int ovl = g_overlap && newton_dev && mn_size_ == 1;   /* the overlapped flow needs the device top levels and the device dm; single-node until M3 */
+    int ovl = mn_size_ == 1;                       /* the overlapped flow (device top levels, device dm): size 1; size > 1 runs M3's distributed flow */
     bigint P, Q, T, A, X, R, S;
     bi_init(&P); bi_init(&Q); bi_init(&T); bi_init(&A); bi_init(&X); bi_init(&R); bi_init(&S);
     dbig Xdev; db_init(&Xdev); mdb Xm; memset(&Xm, 0, sizeof Xm);   /* B1: X on the device (size 1) / sharded (the distributed division) until the output stage has written it */
@@ -535,7 +531,7 @@ int main(int argc, char **argv)
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
     { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 since Phase 15 (the user's decision, 2026-09-27) */   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
-      newton_x_defer = (mn_size_ == 1 && ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);
+      newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
@@ -655,8 +651,8 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
     size_t na_est = 2 * Q.n + dl - Q.n + 2, k_mu = na_est - Q.n + 1;
-    newton_db_free_inputs = newton_dev;               /* Q lives on device from here; its host copy goes */
-    if (newton_dev) rns_release_staging();        /* nothing between here and dm needs the staging */
+    newton_db_free_inputs = 1;                        /* Q lives on device from here; its host copy goes */
+    rns_release_staging();                            /* nothing between here and dm needs the staging */
     double t_res3 = 0;
     if (ovl3) {                                       /* I3: P, Q stay on the device -- residues by kernel, S = P + Q in place, A = S B^dl implicit */
         double tr = mem_now();
@@ -673,8 +669,8 @@ int main(int argc, char **argv)
         newton_db_recip(&MU, &Q, k_mu);
         size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
         if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* Phase 10 B4 (agent M): what C3's sizing missed */
-    } else if (newton_dev) newton_db_recip(&MU, &Q, k_mu); else newton_recip(&MU, &Q, k_mu);
-    newton_free_scratch(); rns_free_scratch();
+    } else newton_db_recip(&MU, &Q, k_mu);
+    rns_free_scratch();
     t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, ovl3 ? k_mu + 1 : MU.n, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report("recip");
@@ -709,13 +705,13 @@ int main(int argc, char **argv)
         else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
     }
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
-    else if (newton_dev) newton_db_divmod(&X, &R, &A, &Q, &MU); else newton_divmod(&X, &R, &A, &Q, &MU);
+    else newton_db_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0; newton_db_xhi_hook = 0; newton_db_xlo_hook = 0;
     if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected in place */
     if (ovl3 && topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* Phase 13 N (4.1): the writer still reads Q: its block is held until after the output stage */
     else if (ovl3) db_free(&bs_Qd);
     if (ovl3) mem_report("division");                 /* Phase 10 B4 (agent M): the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
-    bi_free(&MU); newton_free_scratch(); newton_db_free_scratch(); rns_free_scratch();
+    bi_free(&MU); newton_db_free_scratch(); rns_free_scratch();
     if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs, R %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
