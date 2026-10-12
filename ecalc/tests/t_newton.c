@@ -125,12 +125,12 @@ int main(int argc, char **argv)
     }
 
     if (use_db > 0) {
-        /* Phase 15 R4 (NEWTON_RECIP_MID, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
-         * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal with the
-         * middle product bit-identical to the one without, under NEWTON_RECIP_CUT 0 and 1, at several sizes, k and generators (a grid at
-         * the top doublings under DIST_LOGN_TEST=20..22), and the path taken */
-        printf("-- 5. the reciprocal's middle product (NEWTON_RECIP_MID)\n");
-        int cut_env = getenv("NEWTON_RECIP_CUT") ? atoi(getenv("NEWTON_RECIP_CUT")) != 0 : 1, mid_env = getenv("NEWTON_RECIP_MID") ? atoi(getenv("NEWTON_RECIP_MID")) != 0 : 0;
+        /* Phase 15 R4 (the reciprocal's middle product, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
+         * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal (always the cut
+         * and middle-product form since B5, 2026-10-11) against GMP directly -- mu vs floor(B^(nq+k)/Q), within the test's 8 units, as the
+         * whole-product reference it replaced was -- at several sizes, k and generators (a grid at the top doublings under
+         * DIST_LOGN_TEST=20..22), and the path taken */
+        printf("-- 5. the reciprocal's middle product\n");
         bigint B1, C0, C1; bi_init(&B1); bi_init(&C0); bi_init(&C1);
         static const size_t band_sz[][2] = { {3000, 1000}, {(1u << 20) + 5, (1u << 19) + 3}, {(3u << 20) + 1, (3u << 19) - 5}, {(1u << 22) + 3, (1u << 21) + 1} };   /* the last two: grids split on both operands at cap 2^20..2^22, so the high cut skips pieces */
         for (int si = 0; si < 4; si++) for (int ki = 0; ki < 2; ki++) {
@@ -159,25 +159,21 @@ int main(int argc, char **argv)
             for (int gi = 0; gi < 3; gi++) {
                 bi_random(&Q, nq, kinds[gi], &rng);
                 size_t ks[3] = {nq / 2 + 1, nq, 2 * nq};
-                for (int i = 0; i < 3; i++) for (int cut = 0; cut <= 1; cut++) {
+                for (int i = 0; i < 3; i++) {
                     size_t k = ks[i];
                     if (nq > (1u << 21) && (gi > 0 || i != 1)) continue;   /* the largest size: uniform, k = nq only (time) */
-                    size_t sa = rns_dist_st.n_skipped;
-                    newton_recip_set(cut, 0); newton_db_recip(&mu, &Q, k);
-                    struct newton_mid_stats m0 = newton_mid_st; size_t s0 = rns_dist_st.n_skipped, sk0 = s0 - sa;
-                    newton_recip_set(cut, 1); newton_db_recip(&t, &Q, k);
+                    struct newton_mid_stats m0 = newton_mid_st; size_t s0 = rns_dist_st.n_skipped;
+                    newton_db_recip(&t, &Q, k);
                     size_t nm = newton_mid_st.mid - m0.mid, sk = rns_dist_st.n_skipped - s0;
-                    if (nq > (1u << 21)) VERIFY(sk > sk0, "recip mid nq %zu k %zu cut %d: the high cut skipped nothing (%zu vs %zu)", nq, k, cut, sk, sk0);
-                    VERIFY(bi_cmp(&mu, &t) == 0, "recip mid nq %zu k %zu %s cut %d: mu differs from the whole product's", nq, k, gen_name[kinds[gi]], cut);
+                    if (nq > (1u << 21) && getenv("DIST_LOGN_TEST")) VERIFY(sk > 0, "recip mid nq %zu k %zu: the cuts skipped nothing", nq, k);   /* grids need the lowered plane cap */
                     VERIFY(nm > 0, "recip mid nq %zu k %zu: the middle product was never taken", nq, k);
-                    bi_to_mpz(q, &Q); mpz_recip(m, q, nq, k); bi_to_mpz(x, &t); mpz_sub(x, m, x);
+                    bi_to_mpz(q, &Q); mpz_recip(m, q, nq, k); bi_to_mpz(x, &t); mpz_sub(x, m, x);   /* GMP's floor against the iterate */
                     long err = mpz_fits_slong_p(x) ? mpz_get_si(x) : 1L << 40;
-                    VERIFY(err >= -8 && err <= 8, "recip mid nq %zu k %zu %s cut %d: error %ld units", nq, k, gen_name[kinds[gi]], cut, err);
-                    if (gi == 0) printf("   nq %-8zu k %-8zu cut %d: identical, error %+ld, %zu rounds on the middle product, pieces skipped %zu (switch off) -> %zu (on)\n", nq, k, cut, err, nm, sk0, sk);
+                    VERIFY(err >= -8 && err <= 8, "recip mid nq %zu k %zu %s: error %ld units", nq, k, gen_name[kinds[gi]], err);
+                    if (gi == 0) printf("   nq %-8zu k %-8zu: error vs GMP %+ld, %zu rounds on the middle product, %zu pieces skipped\n", nq, k, err, nm, sk);
                 }
             }
         }
-        newton_recip_set(cut_env, mid_env);
         bi_free(&B1); bi_free(&C0); bi_free(&C1);
 
         /* Phase 15 DKM (NEWTON_DKM, results/DKM15.md 1.6): newton_db_divmod_shifted (A = S B^dl, Q on the device, the prewarm reciprocal

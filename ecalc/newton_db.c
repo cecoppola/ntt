@@ -46,24 +46,22 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
     if (!le && plus1) { db_sub(&t, &t, b); le = t.n == 1 && db_limb(&t, 0) == 1; }   /* (a << j) - b == 1: r' would be 1 */
     db_free(&t); return le;
 }
-/* Phase 14 R1 (E7, results/R114.md 1): NEWTON_RECIP_CUT=1 forms the reciprocal's two products (Q_t r, read as t1 >> (take - j); r d, read
+/* Phase 14 R1 (E7, results/R114.md 1): the reciprocal's two products (Q_t r, read as t1 >> (take - j); r d, read
  * as t1 >> j) as the grid with the pieces wholly below the read band skipped (rns_mul_high_db's low cut), NEWTON_RECIP_GUARD (1) limbs
  * below the band kept: the band is then off by at most one unit (in practice identical), the same kind of error as the floor the
- * step already makes; healed by the next doubling, absorbed by the division's corrections at the last.  0 (the default): whole */
-static int recip_cut = -1, recip_guard = 1;
-static void cut_init(void) { if (recip_cut < 0) { const char *e = getenv("NEWTON_RECIP_CUT"); recip_cut = e ? atoi(e) != 0 : 1;   /* default 1 since Phase 14 (R114) */ e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
-size_t newton_recip_cut(size_t v) { cut_init(); return recip_cut && v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
-/* Phase 15 R4 (V3 item 4 = PLAN 33 B2, results/R415.md 1): NEWTON_RECIP_MID=1 forms Q_t r as a middle product -- the grid with the
+ * step already makes; healed by the next doubling, absorbed by the division's corrections at the last.  Always on (the NEWTON_RECIP_CUT
+ * switch and its whole-product form were removed 2026-10-11) */
+static int recip_guard = 1, guard_read = 0;
+static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
+size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
+/* Phase 15 R4 (V3 item 4 = PLAN 33 B2, results/R415.md 1): Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
  * fixed by u mod B^(j+4) = t1's limbs [v, take + 4), and the reconstructed u equals the cut path's u exactly (the same bits).  The
  * first round after the seed, the round after an overshoot, and the round after one whose |d| >= B^(j+1) form the whole (cut)
- * product.  0 (the default): as before */
+ * product.  Always on (the NEWTON_RECIP_MID switch was removed 2026-10-11) */
 #define MID_HI 4
-static int recip_mid = -1;
-static void mid_init(void) { if (recip_mid < 0) { const char *e = getenv("NEWTON_RECIP_MID"); recip_mid = e ? atoi(e) != 0 : 1; } }   /* default 1 since Phase 15 (the user's decision) */
-size_t newton_recip_mid(size_t j, size_t take) { mid_init(); return recip_mid && j <= take && j >= MID_HI ? take + MID_HI : (size_t)-1; }   /* Q_t r's high cut ((size_t)-1: none; j >= MID_HI: w < take + j + 1, the top has something to skip) */
-void newton_recip_set(int cut, int mid) { cut_init(); mid_init(); if (cut >= 0) recip_cut = cut != 0; if (mid >= 0) recip_mid = mid != 0; }   /* tests: override the switches (-1: keep) */
+size_t newton_recip_mid(size_t j, size_t take) { return j <= take && j >= MID_HI ? take + MID_HI : (size_t)-1; }   /* Q_t r's high cut ((size_t)-1: none; j >= MID_HI: w < take + j + 1, the top has something to skip) */
 struct newton_mid_stats newton_mid_st;
 /* u from its low j + 4 limbs ul (u mod B^(j+4), normalised), given |u - B^(2j)| < B^(j+3): e = ul when ul < B^(j+3), e = ul - B^(j+4)
  * when ul > B^(j+4) - B^(j+3); d = |e| -> r2; returns neg (e > 0, i.e. u > B^(2j)).  Anything else means the bound failed: fatal (R415.md 1.4) */
@@ -156,10 +154,10 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
             rns_mul_high_db(&t1, &r, &r2, newton_recip_cut(j));    /* r |d| -> t1 (u is consumed); E7: the pieces below j - guard skipped */
             dbig corr = db_view(&t1, j, t1.n > j ? t1.n - j : 0); db_norm(&corr);   /* |corr| = t1 >> j */
             int converged = corr.n <= j + 1;
-            if (recip_cut && rns_dist_st.n_formed + rns_dist_st.n_skipped > f0 + s0)   /* the doublings whose products are grids */
+            if (rns_dist_st.n_formed + rns_dist_st.n_skipped > f0 + s0)   /* the doublings whose products are grids */
                 printf("newton(db) j %zu (k %zu): recip cut %zu pieces skipped, %zu formed in the step's two products\n", j, k, rns_dist_st.n_skipped - s0, rns_dist_st.n_formed - f0);
             if (neg) {                                              /* r' = (r << j) - corr; overshoot if that would be <= 0 (E7: <= 1) */
-                size_t rn = r.n + j; int over = rn < corr.n || (rn == corr.n && shifted_cmp_le(&r, j, &corr, recip_cut));
+                size_t rn = r.n + j; int over = rn < corr.n || (rn == corr.n && shifted_cmp_le(&r, j, &corr, 1));
                 if (over) { newton_st.overshoots++; shrink_db(&r); mid_ok = 0; continue; }
                 db_sub_shifted(&r2, &r, j, &corr);
             } else db_add_shifted(&r2, &r, j, &corr);
@@ -950,7 +948,7 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
             mdb_shift(&rs, &r, -(long)j, NB, Gs);                       /* r << j */
             if (neg) {
                 int over = rs.n < corr.n || (rs.n == corr.n && mdb_cmp(&rs, &corr, Gs) <= 0);
-                if (!over && recip_cut && rs.n == corr.n) {             /* E7 (R114.md 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
+                if (!over && rs.n == corr.n) {             /* E7 (R114.md 1.4): rs <= corr + 1 -- rs - corr == 1 also overshoots */
                     mdb df; memset(&df, 0, sizeof df); mdb_addsub(&df, &rs, &corr, 1, Gs); over = df.n == 1 && mdb_limb(&df, 0, Gs) == 1; mfree(&df); }
                 if (over) {                                             /* overshoot: r -= r / 16, through the host (rare) */
                     newton_st.overshoots++; bigint h, dd; bi_init(&h); bi_init(&dd); mdb_to_host_all(&h, &r, Gs);

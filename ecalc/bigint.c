@@ -155,7 +155,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
     }
     free(w1);
 }
-/* Phase 15 S1 (BI_MUL1_FAST): the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
+/* Phase 15 S1: the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
  * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
  * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
  * So s = x m - qe B + c (mod 2^64; the true value is (x m mod B) + (Q - qe) B + c, in [0, 3B) < 2^64 while c <= B) needs at
@@ -176,8 +176,6 @@ static inline uint64_t mul1_dec_fast(uint64_t *r, const uint64_t *a, size_t na, 
     }
     return c;
 }
-int bi_mul1_fast = -1;
-int bi_mul1_fast_on(void) { if (bi_mul1_fast < 0) { const char *e = getenv("BI_MUL1_FAST"); bi_mul1_fast = e ? atoi(e) != 0 : 1; } return bi_mul1_fast; }   /* default 1 since Phase 15 (the user's decision) */
 /* P += Q; Q *= k in one pass over the limbs (the seed span's Horner step; decimal, k < B, P and Q canonical; else the two
  * calls).  Q's limb is read once for both; the multiply is mul1_dec_fast's */
 void bi_span_step(bigint *P, bigint *Q, uint64_t k)
@@ -208,7 +206,7 @@ void bi_span_step(bigint *P, bigint *Q, uint64_t k)
 static uint64_t mul1_serial(uint64_t *r, const uint64_t *a, size_t na, uint64_t m, uint64_t add)
 {
     u128 c = add;
-    if (bi_decimal && m < B10 && add <= B10 && bi_mul1_fast_on()) return mul1_dec_fast(r, a, na, m, add);
+    if (bi_decimal && m < B10 && add <= B10) return mul1_dec_fast(r, a, na, m, add);
     if (bi_decimal) {                              /* m < B: a[i] m + c < B^2 + B */
         if (m < ((uint64_t)1 << 33)) {
             /* x = a[i] m + c < 2^93: q = floor(x / 10^18) by a 64-bit Barrett step -- q_est = ((x >> 30) mu) >> 64
