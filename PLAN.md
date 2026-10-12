@@ -16,6 +16,20 @@ Labels: **m** measured, **mod** modelled, **a** assumed.
   decision 2026-10-12). The target machine is never accessed from this project; the user runs the test kit there.
 - Constraints per node: device memory ≤ **373.44 GB** (the measured `hipMalloc` edge on the target, 93.36 GB per APU, m),
   host total ≤ **480 GB** (the budget check's default). Each node has 8 NICs (two per APU) on the target and one per APU on aac7.
+- What is known about the target (user-supplied 2026-10-12, a; re-assessed in `results/TGT.md`):
+
+  | item | target | aac7, for comparison |
+  |---|---|---|
+  | nodes × APUs | 576 × 4 MI300A = 2304 APUs | 6 nodes per user × 4 MI300A |
+  | NICs | 8 Slingshot NICs per node at 400 Gb/s: 2 per APU, 100 GB/s injection peak per APU, 400 GB/s per node | 1 per APU |
+  | OS, scheduler | Rocky Linux 9.6, Slurm 25.11.8 | Slurm 25.11.4 |
+  | ROCm | 7.14.0 (may be upgraded later); builds ecalc on aac7 (m), speed against 7.2.4 not measured | 7.2.4 on the line |
+  | SHMEM, compiler, libfabric | cray-shmem 12.1.0, CCE 21.0.0, libfabric 2.3.1 | OpenSHMEMX 11.8.0, CCE 21.0.0, libfabric 2.3.1 |
+  | file system | ≈ 1 TB/s cumulative write into one file at 32 processes per node | — |
+
+  Still unknown: the measured injection rate per APU (kit A3), the per-message cost, the dragonfly group size, the
+  write rate of ecalc's own writer (two part files per node from 8 threads, not the file system's measured mode;
+  OPPORTUNITIES N8), the host memory per node and the site's module names.
 - The digits must be right without a reference: every run checks itself (`ALGORITHM.md` §10).
 - Where the project stands against this goal, with the standing estimate and the memory margin: section 2.
 
@@ -38,8 +52,9 @@ The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
 
 **Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 12.9 GB of device margin
-(mod); the standing estimate for 3.82 × 10¹³ digits is about 182 s without the write (mod, profile `target_l4`, at an
-assumed fabric rate (a)); the target has run only the memory and exchange benchmarks (`results/TGTBENCH2.md`). The
+(mod); the standing estimate for 3.82 × 10¹³ digits is about 182 s without the write (mod, profile `target_l4`, at the
+user-supplied 100 GB/s injection peak per APU (a for the achieved rate)); the write adds 12.8 s at ecalc's assumed 1.0 GB/s per node
+and 1.0 s at the file system's 1 TB/s (mod, `results/TGT.md`); the target has run only the memory and exchange benchmarks (`results/TGTBENCH2.md`). The
 largest multi-node cost today is the distributed division multiply (+94 s at 6 nodes against 1, m).
 
 **Road to the target.** Code reduction (settings removal) and documentation are done; next the correctness defect TASKS 23, then
@@ -106,3 +121,5 @@ the plan-REFUSED path.
 | hangs in the ROCr / libfabric memory registration | `FI_MR_CACHE_MONITOR=userfaultfd` (0/104 hangs against 22/105, m) |
 | crash without a trace | `ECALC_SEGV_TRACE=1` on the launch line |
 | wrong digits | T1/T2 in the run, RECHECK and `unpack_digits` after it |
+| the write short of the file system's 1 TB/s (one file, 32 writers per node; ecalc: 2 files per node, 8 threads) | `tools/wbench` at scale in the kit, `MN_OUT_THREADS=32`; a shared-file writer if needed (OPPORTUNITIES N8): 12.8 s exposed at 1.0 GB/s per node (mod) |
+| SHMEM has to carry the device exchanges (cray-shmem 12.1.0 untested) | `COMM_OFI=0` A/B on aac7 first (OPPORTUNITIES N7); pool 10240 MiB then (m, planner) |

@@ -2,16 +2,25 @@
 # OUT of git: it holds site specifics) and replace every __FILL__.  Format and rules: profiles/README.md.
 # Draft 2026-10-11 (agent c01); NOT read by any script yet.  Tracked file: generic values only, no site name, no module names,
 # no paths from the private notes.  A key still at __FILL__ must make the future entry point refuse to start (validation rule).
+# 2026-10-12 (agent TGT): the keys the user-supplied target facts determine are filled (versions and generic HPE/AMD product
+# module names only); site-specific keys stay __FILL__.
+#
+# Target facts (user-supplied 2026-10-12; tagged (u)):
+#   576 nodes x 4 MI300A APUs = 2304 APUs, one process per node; 8 Slingshot NICs per node at 400 Gb/s = 2 per APU
+#   (100 GB/s injection peak per APU, 400 GB/s per node); Rocky Linux 9.6; Slurm 25.11.8; ROCm 7.14.0; cray-shmem 12.1.0;
+#   CCE 21.0.0; libfabric 2.3.1; file system: ~1 TB/s cumulative write into ONE file with 32 processes per node.
+#   Same as aac7: CCE 21.0.0, libfabric 2.3.1 (the uffd evidence, G1/S46, is on 2.3.1), Slurm 25.11 (aac7 25.11.4).
+#   Differs: ROCm 7.14.0 (aac7 line: 7.2.4), OpenSHMEMX 12.1.0 (aac7: 11.8.0; 12.x untested), 2 NICs per APU (aac7: 1).
 # Machine class assumed: Cray EX-style, 4 x MI300A per node (one process per node, four APU threads), Slingshot with cxi NICs,
 # Cray OpenSHMEMX, shared parallel file system for the output.  Evidence tags: (m) measured, (mod) modelled, (a) assumed.
 
 # ---- [modules/build] ------------------------------------------------------------------------------------------------
 # How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
 # (`module list` inside a one-node job). ecalc/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
-TARGET_ROCM=__FILL__                  # rocm module to load (e.g. rocm/<version>); the name target_kit.sh reads (TARGET_ROCM); compare with the kit's 'env' stage
-TARGET_SMA_MODULE=__FILL__            # the OpenSHMEMX module (target_kit.sh TARGET_SMA_MODULE; auto-detected newest if empty)
+TARGET_ROCM=rocm/7.14.0               # (u) ROCm 7.14.0; the module name rocm/<version> is assumed. Builds ecalc on aac7 (make all + tests, SHMEM_CRAY=1, m 2026-10-12); run time vs 7.2.4 not yet measured (OPPORTUNITIES M7d)
+TARGET_SMA_MODULE=cray-openshmemx/12.1.0  # (u) "cray-shmem 12.1.0"; the module name is assumed to be HPE's cray-openshmemx -- confirm with `module avail` (the kit's auto-detection looks only for cray-openshmemx/*)
 TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target_kit.sh TARGET_DSMML_MODULE)
-MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env)
+MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> cray-openshmemx/12.1.0 rocm/7.14.0" (kit_modules.env); needs the dsmml version
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one
@@ -20,13 +29,14 @@ COMM_SHMEM_IMPL=cray                  # the only launch form mnrun.sh supports (
 # ---- [scheduler] ----------------------------------------------------------------------------------------------------
 # How to determine: `sinfo -o '%P %c %m %D'`; the production queue name and node limit from the site's user guide.
 TARGET_PARTITION=__FILL__             # sbatch -p value for whole-node jobs
-TARGET_NODES=__FILL__                 # node count of the headline run (the plan's g)
+TARGET_NODES=576                      # (u) node count of the headline run (the plan's g; user decision 2026-10-12: 3.82e13 digits on 576 nodes)
 MNRUN_CPUS_PER_TASK=auto              # srun may confine a task to 2 CPUs otherwise (A16, m on the sister machine); mnrun.sh's 'auto' = CPUs / tasks per node
 
 # ---- [paths] --------------------------------------------------------------------------------------------------------
 # How to determine: a file system that sustains the part-file write (shared FS, not a RAM /tmp): `df -h <dir>`; `lfs getstripe <dir>` if Lustre;
 # a one-node `dd` or ecalc's write benchmark for the single-stream rate (README ECALC_ODIRECT rows).
-ECALC_OUT_DIR=__FILL__                # directory for the part files (~0.444 B per digit in all)
+ECALC_OUT_DIR=__FILL__                # directory for the part files (0.417 B per digit packed: 15.9 TB at 3.82e13, 27.6 GB per node). (u) the FS reaches ~1 TB/s
+                                      # only at 32 writers per node into one file; ecalc writes 2 files per node from 8 threads (OPPORTUNITIES N8)
 MNACCEPT_TMP=__FILL__                 # scratch for mnaccept (must not be a RAM /tmp)
 
 # ---- [transport] ----------------------------------------------------------------------------------------------------
@@ -39,11 +49,12 @@ COMM_SHMEM_ROUND_MB=1024              # exchanges staged in 1 GiB rounds: user d
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 
 # ---- [libfabric] ----------------------------------------------------------------------------------------------------
-FI_MR_CACHE_MONITOR=userfaultfd       # S46: memhooks hangs ROCr<->libfabric (22/105 vs 0/104, m on the sister machine); 'disabled' is refused. Verify with the kit's 'uffd' stage
+FI_MR_CACHE_MONITOR=userfaultfd       # (u) libfabric 2.3.1 = aac7's version, on which S46/G1 were measured. S46: memhooks hangs ROCr<->libfabric (22/105 vs 0/104, m on the sister machine); 'disabled' is refused. Verify with the kit's 'uffd' stage
 FI_LOG_LEVEL=warn                     # TGTBENCH2 L2 (the user's tested value)
 # FI_UNIVERSE_SIZE: computed by mnrun.sh = max(4096, 4 x ntasks). Not a key.
 # How to check the NIC set: `fi_info -p cxi | grep -c domain` (the kit's 'env' stage logs it); COMM_OFI_NICS only if the NICs per APU are not the default.
-COMM_OFI_NICS=__FILL__                # leave at the code default unless the kit's NIC-per-APU map differs (delete the line then); README COMM_OFI_NICS row
+# (u) 2 NICs per APU: unset, comm_ofi takes the cxi devices on each APU's NUMA node and stripes chunks over both -- the two-endpoint
+# form is the default.  Set COMM_OFI_NICS (e.g. 0,4;1,5;2,6;3,7) only if the kit's 'env' stage shows a NUMA map that is not 2 per APU.
 
 # ---- [memory pools tied to the hardware] ----------------------------------------------------------------------------
 # COMM_SHMEM_POOL_MB, SHMEM_SYMMETRIC_SIZE, XT_SYMMETRIC_HEAP_SIZE, COMM_OFI_POOL_MB: COMPUTED from MN_PLAN_ONLY=<digits>:<nodes> (pool + 512 MiB for the heap). Not typed.

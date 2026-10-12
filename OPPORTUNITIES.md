@@ -16,22 +16,26 @@ Where the time goes today (m, `results/M2a.md`, before the 2026-10-12 defaults):
 188.2 / 246.4 s; at 6 nodes the growth over 1 node is +172 s, of it division (dm) +94 s, binary splitting (bs) +60 s,
 reciprocal +22.5 s, init +14 s. Target standing estimate: about 182 s without the write (mod, fabric a; `results/L4.md`).
 
+Target facts (user-supplied 2026-10-12, re-assessed in `results/TGT.md`): 576 nodes × 4 MI300A (2304 APUs); 8 Slingshot NICs
+per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9.6, Slurm 25.11.8, ROCm 7.14.0, cray-shmem
+12.1.0, CCE 21.0.0, libfabric 2.3.1; file system ≈ 1 TB/s cumulative write into one file at 32 processes per node.
+
 ## Open
 
 | ID | area | idea | expected payoff (label, scale) | effort | needs | evidence |
 |---|---|---|---|---|---|---|
 | N1 | fabric/exchange | Distributed division multiply: find why dm grows +94 s from 1 to 6 nodes (wait vs volume vs skew) and cut it | the largest multi-node cost: +94 s at 6 n (m); 576 n share unknown | M | aac7 | `results/M2a.md`; TASKS P (running) |
 | C7 | division | Division and reciprocal overlap (S-2): overlap the division's exchanges with its compute; gate = target wait-stats run shows > 30 s exposed wait per APU thread | 576 n ceiling 25–34 s (mod), realistic 6–17 s (a); 10-node ceiling 43 s (mod) | M | target (gate), aac7 (prototype) | `results/S22.md` §2; kit stage `s2chk` |
-| M7c | fabric/exchange | Two NIC endpoints per APU (`COMM_OFI_NICS`) on the target | up to 2× injection per APU if one context does not already fill both (a); 576 n −5…−50 s range for all M7 levers (mod) | S | target | `archive:docs/OPPORTUNITIES.md` M7; target task list T8 (private) |
-| M7d | build/target | Run on the newer ROCm release on the target (7.2.4 vs 7.0.3) | +46 s at 576 n if left on the older release (mod); 22 % on local passes (m) | S (request) | target | `archive:docs/OPPORTUNITIES.md` M7 |
+| M7c | fabric/exchange | Two NIC endpoints per APU on the target: confirmed hardware (2 × 400 Gb/s per APU, user-supplied). `comm_ofi` already stripes over the cxi NICs of the APU's NUMA node when `COMM_OFI_NICS` is unset, so the gain is built in; the open part is to verify both NICs carry traffic and the striping reaches the peak (kit A3 one- vs two-NIC stage, not rehearsed on aac7) | the model's 100 GB/s per APU rests on it: with one effective NIC (50 GB/s) 222.7 against 185.5 s, +37.2 s at 576 n (mod, `target_l4`) | S | target | `results/TGT.md`; `comm_ofi.c` `nic_list`; target task list T8 (private) |
+| M7d | build/target | ROCm upgrades on the target: it runs ROCm 7.14.0 (user-supplied; may be upgraded later). 7.14.0 builds ecalc (`make all` + tests, `SHMEM_CRAY=1`, aac7 login node, m 2026-10-12; the `-fPIC` link failure of `results/V16.md` no longer reproduces); its speed against 7.2.4 is not measured: 7.14.0 is installed on aac7, so a 1 n gate and ABBA there gives it; re-measure at each target upgrade | unknown sign; the size a release can move: 7.0.3 was +22 % on the local passes, +46 s at 576 n (m, mod) | S | aac7 1 n (then target per upgrade) | `results/TGT.md`, `results/V16.md`, `archive:docs/OPPORTUNITIES.md` M7 |
 | M7a | fabric/exchange | 9-way top schedule `MN_GROUPS=…,64,576` instead of the 3·3 top `…,64,192,576` | −4.7 s at 576 n (mod, 5.276 × 10¹³ era) | S | target | `archive:docs/OPPORTUNITIES.md` M7; target task list T5 (private) |
-| M7b | output | Output file striping and write waves (`MN_OUT_STRIPE`, `MN_OUT_WAVES`) tuned to the target's parallel file system | exposed write at 576 n unknown; packed write already −6.25 % bytes (m) | S | target | `results/O4.md`; target task list T10 (private) |
+| M7b | output | Output file striping and write waves (`MN_OUT_STRIPE`, `MN_OUT_WAVES`) tuned to the target's parallel file system; now part of N8's write test | see N8; packed write already −6.25 % bytes (m) | S | target | `results/O4.md`; target task list T10 (private) |
 | C3 | fabric/exchange | Run the reciprocal's small doublings (and the division's small products) on a subgroup instead of all 576 nodes, cutting the 1.10 M reciprocal messages per APU | 0 … −18.5 s at 576 n, depends on the target's per-message cost (mod); 1 n part ≈ 0.02 s (m) | M–L | target | `results/S52.md`, `results/S21.md` (A37-R6) |
 | A37-R1 | init | GPU seed kernel (the CPU seed thread binds init on aac7 1 n); gate = target init timeline shows the seed ending > 18 s and > 2 s after the last mapping | 0–1 s at 576 n (mod, S22), 0–6 s (mod, S21) | L | target (gate) | `results/S22.md` §3, `results/S21.md` |
 | N2 | per-node compute | Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` / `k_bload` disappears (the kernel floor is the remote read) | `k_gather_raw` 2.0 s + `k_bload` 1.2 s per APU at 1 n (m); at 576 n only the per-node leaf, ≈ 1 s (mod) | L (needs scoping) | aac7 1 n | `results/P2.md`, `results/K1b.md` §6; TASKS "Proposed" |
 | N3 | per-node compute | Host gaps in the batch tier: overlap host layout and add+norm (1.4 s, m) and sync points; kernel-busy only 62–88 % in the active window | 1–3 s at 1 n (mod, half the 3.5–6 s gap removable, a) | M | aac7 1 n | `archive:results/O7b.md` §D |
 | K4b | per-node compute | `k_crt_batch` C form: restructure the serial carry chain per chunk (B-form occupancy was K4, no gain) | up to 2.0 s at 1 n (a); 4.5–4.8 s per APU today (m) | M | aac7 1 n | `archive:results/O7b.md` §D, `results/S39.md` |
-| N4 | fabric/exchange | Slow launch mode: the inter-node all-to-all rate is set per launch (NIC counter group, ≈ 50 % of launches); find what picks it, then retry at init when the first exchange measures slow | ≈ 20 s in ≈ 30 % of 4 n runs (mod); −12 % exchange rate in slow launches (m); 576 n unknown | M | aac7 4 n | `results/A13.md`, `results/A14.md`, `results/T05.md` |
+| N4 | fabric/exchange | Slow launch mode: the inter-node all-to-all rate is set per launch (NIC counter group, ≈ 50 % of launches); find what picks it, then retry at init when the first exchange measures slow | ≈ 20 s in ≈ 30 % of 4 n runs (mod); −12 % exchange rate in slow launches (m); 576 n unknown (the target's Slurm 25.11.8 is aac7's 25.11 series, a; whether the per-launch NIC group exists there is unknown) | M | aac7 4 n | `results/A13.md`, `results/A14.md`, `results/T05.md` |
 | C9 | fabric/exchange | dm "blow-ups" (dm > 290 s in 1 of 8–16 ten-node runs) and ±12–25 % job-to-job fabric noise: diagnose the cause | 50–100 s per affected 10-node run (m); 576 n unknown | M | aac7 (if it shows at ≤ 6 n) | `results/S31.md`, `results/S19B.md` |
 | N5 | division | One single-node division flow: below about 1.9 × 10¹⁰ digits size 1 takes the host flow with the full-length reciprocal, not DKM; route it through the device DKM flow (AUD3 item 1) | runs below 1.9 × 10¹⁰ get the DKM gain (DKM was −25.7 s at 10¹¹, m); 0 at 6.441 × 10¹⁰ and at 576 n | S | aac7 1 n | `results/AUD3.md` item 1, `results/DKM15.md` |
 | N6 | fabric/exchange | RCCL or MPI all-to-all across nodes as an alternative transport | worth building only if > 1.2× over `comm_ofi` at scale (a); in-node RCCL is 0.24× our push kernel (m) | L | target | target measurement list §1.8 (private) |
@@ -39,6 +43,8 @@ reciprocal +22.5 s, init +14 s. Target standing estimate: about 182 s without th
 | M4 | memory | Re-check the old Phase-12 memory items: `mdb_shift` exchange scratch (copies Q at g = 1, 29 GB at 6.44 × 10¹⁰), the O(share) window temporary | unknown; probably absorbed by DM_MN_LEAN and T_CHUNK (a) | S | local | `archive:docs/OPPORTUNITIES.md` M4, `results/AUD3.md` item 5 |
 | AUD3-6 | per-node compute | P24 (four primes, 24 digits per point) as the only multi-node product form, so aac7 runs the target's form | time ≈ equal per product (mod, unmeasured at aac7 sizes); +4 GiB per APU in pool 0 at 2–16 n (mod) | M | aac7 2 n | `results/AUD3.md` item 6, `results/P2415.md` |
 | AUD3-10 | memory | One transform cache (partial slots for `mul_grid` too) | unknown at 1 n (needs ABBA); at 576 n the full slots already get 0 slots (m) | M | aac7 1 n | `results/AUD3.md` item 10, `results/TC15.md` |
+| N7 | fabric/exchange | SHMEM as the primary transport on the target (the user expects SHMEM to be needed there and possibly primary): measure and close the SHMEM path's gap to `comm_ofi` (× 2.1 slower at 10 n), check that OpenSHMEMX 12.1.0 (untested; aac7 has 11.8.0) runs ecalc's thread-multiple contexts and the device-memory heap, and whether it can use both NICs per PE | risk: the device exchanges on SHMEM at the aac7 ratio would at least halve the fabric rate, ≥ +37 s at 576 n (mod, the 50 GB/s row); `COMM_OFI=0` raises the plan's pool from 2304 to 10240 MiB (heap 10752 MiB) and the plan check stays OK (m, planner) | M | aac7 2–6 n (A/B `COMM_OFI=0`), target (12.1.0) | `results/TGT.md`, `results/OFI17.md`, `results/A16.md` |
+| N8 | output | Writer design gap: the target's file system reaches ≈ 1 TB/s only with 32 writers per node into ONE file (user-supplied); ecalc writes two part files per node (1152 files) from one process with 8 pwrite threads per 256 MB chunk (`MN_OUT_THREADS=8`, O_DIRECT, `MN_OUT_DKM_HI`). Steps: (a) `tools/wbench` on the target at 64+ nodes with `-t 8` vs `-t 32` per-node files and striping (no code; `MN_OUT_THREADS=32` is a setting); (b) if per-node files fall short, one shared striped file with each node writing its byte range at a computed offset (the packed form makes offsets exact; the 4 KiB part headers move to a sidecar) | 15.9 TB packed: 15.9 s at 1 TB/s, 27.6 s at 1.0 GB/s per node, 63.7 s at 0.43 GB/s per node (8 of 32 writers, linear a); exposed write 1.0 / 12.8 / 48.8 s (mod, `target_l4`): −11.8 s against the 1.0 GB/s prior, up to −47.8 s | S (a), M (b) | target | `results/TGT.md`, `ALGORITHM.md` §9, `mn_out.c`, `results/IO15.md` |
 
 ## Tried — adopted
 
@@ -99,27 +105,27 @@ reciprocal +22.5 s, init +14 s. Target standing estimate: about 182 s without th
 
 ## Ranking
 
-Top 10 open for the target run, by payoff per effort (payoffs as in the Open table):
+Top 10 open for the target run, by payoff per effort (payoffs as in the Open table; re-ranked 2026-10-12 on the user-supplied target facts):
 
 | # | ID | why here |
 |---|---|---|
-| 1 | M7d | +46 s (mod) for a request, no code |
-| 2 | M7c | possibly up to 2× injection per APU for one kit line (a) |
-| 3 | N1 | the largest measured multi-node cost (+94 s at 6 n); running |
-| 4 | M7a | −4.7 s (mod) for one launch-line value |
-| 5 | C7 | −6 … −17 s realistic (mod/a); built only if the target gate opens |
-| 6 | C3 | 0 … −18.5 s (mod), depends on the target's per-message cost |
-| 7 | M7b | the write is the one stage not yet measured on the target |
-| 8 | N4 | ≈ 20 s in a third of 4-node runs (mod); unknown at 576 |
-| 9 | M2 | no seconds, but every 576 ranking depends on it |
-| 10 | A37-R1 | 0–6 s (mod), gated on one target init timeline |
+| 1 | M7c | the 100 GB/s per APU of every estimate rests on both NICs working: +37 s (mod) if one does; one kit stage |
+| 2 | N8 | write −11.8 … −47.8 s (mod) to reach the file system's 1 TB/s; step (a) is a benchmark and a setting |
+| 3 | N7 | SHMEM may become primary: ≥ +37 s risk (mod); OpenSHMEMX 12.1.0 untested |
+| 4 | N1 | the largest measured multi-node cost (+94 s at 6 n); running |
+| 5 | M7d | ROCm 7.14.0 builds; its speed is one aac7 ABBA away (a release moved +46 s before, mod) |
+| 6 | M7a | −4.7 s (mod) for one launch-line value |
+| 7 | C7 | −6 … −17 s realistic (mod/a); built only if the target gate opens |
+| 8 | C3 | 0 … −18.5 s (mod), depends on the target's per-message cost |
+| 9 | N4 | ≈ 20 s in a third of 4-node runs (mod); unknown at 576 |
+| 10 | M2 | no seconds, but every 576 ranking depends on it |
 
 Top 5 testable on ≤ 6 aac7 nodes now:
 
 | # | ID | test |
 |---|---|---|
 | 1 | N1 | division multiply: stage and wait split at 2/4/6 n with `MN_WAIT_STATS`, then a fix and ABBA |
-| 2 | N3 | host gaps in the batch tier: profile and overlap at 1 n, ABBA |
-| 3 | K4b | `k_crt_batch` C-form carry chain at 1 n, ABBA |
-| 4 | N4 | slow-mode cause: many short `t_comm --bw` launches at 4 n, then retry-at-init |
-| 5 | M2 | add 4/6-node points on the current defaults and refit the model |
+| 2 | M7d | ROCm 7.14.0 (the target's) against 7.2.4 at 1 n: gate, then ABBA |
+| 3 | N7 | `COMM_OFI=0` against the default at 2–6 n: the SHMEM path's gap today, then its fixes |
+| 4 | N3 | host gaps in the batch tier: profile and overlap at 1 n, ABBA |
+| 5 | K4b | `k_crt_batch` C-form carry chain at 1 n, ABBA |

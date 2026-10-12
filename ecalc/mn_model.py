@@ -180,14 +180,25 @@ class Fabric:
 TARGET_WRITE_BW = 1.0                  # 2026-09-29: the user's Lustre test on the target: ~1 GB/s write per node (ASSUMED to hold with 576 nodes writing at once); before: 0.6 (the apumult catalog's 0.58-0.64 single-stream)
                                        # catalog); ASSUMED to hold with 576 writers at once (the aggregate, ~350 GB/s, is not measured); was 2.0 (node-local NVMe, assumed)
 TARGET_WRITE_BWS = (2.0, 1.0, 0.6)     # the rates every target estimate prints: the old assumption, the catalog's read rate as an upper write prior, the write prior
+# Target facts (user-supplied 2026-10-12): 576 nodes x 4 MI300A (2304 APUs); 8 Slingshot NICs per node at 400 Gb/s (2 per APU); the file system writes
+# ~1 TB/s cumulative into ONE file with 32 processes per node.  TARGET_WRITE_BW stays ecalc's writer (one process per node,
+# MN_OUT_THREADS=8 pwrite threads, two part files per node: not the measured mode); TARGET_WRITE_BW_FS is the file system's
+# measured ceiling per node (1000 / 576 = 1.736 GB/s), reached only by a writer of that shape (OPPORTUNITIES N8).
+TARGET_FS_SINGLE_FILE_GBS = 1000.0     # user-supplied: aggregate GB/s into one file at 32 writers per node (all 576 nodes)
+TARGET_FS_WRITERS_PER_NODE = 32        # user-supplied: the writer count per node at which TARGET_FS_SINGLE_FILE_GBS holds
+TARGET_WRITE_BW_FS = TARGET_FS_SINGLE_FILE_GBS / 576   # 1.736 GB/s per node (modelled from the user-supplied aggregate)
+TARGET_NICS_PER_APU = 2                # user-supplied (8 NICs per node): two NIC endpoints per APU; comm_ofi stripes over the NUMA node's NICs by default
+TARGET_NIC_GBS = 50.0                  # user-supplied: 400 Gb/s per NIC (100 GB/s injection peak per APU, 400 GB/s per node); the achieved rate is still for A3 to measure
+TARGET_BW_APU = TARGET_NICS_PER_APU * TARGET_NIC_GBS   # 100 GB/s per APU: now the user-supplied peak (was the assumed design value; number unchanged)
+TARGET_WRITE_BWS = (TARGET_WRITE_BW_FS,) + TARGET_WRITE_BWS   # every target estimate also prints the file system ceiling (user-supplied 1 TB/s / 576)
 # T06 (adopted by the user 2026-10-11): the layv exchange (general-map groups, g not a power of 2) at 65.5 % of the layeq rate, part of the
 # standing 576-node estimate (aac7 fit, aac7_s48_fit.json; one parameter, modelled). Only the non-power-of-2 groups are affected.
 TARGET_LAYV_FACTOR = 0.655
-TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
+TARGET = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 TARGET_DIGITS = mem_model.TARGET_DIGITS   # Phase 15 TGT (the user's decision of 2026-09-27 23:50 EDT): 5.1e13 on 576 nodes (was 4.25e13); mem_model.py holds it
 TARGET_BELOW = mem_model.TARGET_BELOW     # the runtime one step below: 3.99e13 (B7ACCT; was 4.74e13, below the 2026-09-29 target)
 TARGET_NODES = mem_model.TARGET_NODES
-TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=2.0)   # the historical reports (e10) at the old 2 GB/s
+TARGET_W2 = Fabric("Slingshot-2 dragonfly (PLAN 25)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=2.0)   # the historical reports (e10) at the old 2 GB/s
 # Phase 16 C (results/C16.md): aac7 -- HPE Cray EX, 4 x MI300A, 4 x Slingshot-11 (one 200 Gb/s Cassini per socket), Cray OpenSHMEMX 11.8.0, ROCm
 # 7.0.3, one process per node (one NIC per PE: C16 2.1).  MEASURED on 2 nodes: 3.6 GB/s per APU thread through the put path at the exchange
 # sizes ecalc sends (13.5-14.8 GB/s per node aggregate), 8.5 us per put + signal + wait, the part file on NFS at 0.116 GB/s (A16 4).
@@ -214,7 +225,7 @@ AAC7_S18 = Fabric("aac7 Slingshot-11 / Cray OpenSHMEMX, S19B 10-node comm_ofi re
 TARGET_M_CONSTS = dict(MAP_RATE=0.010)
 TARGET_DEVICE_EDGE_GB = 373.44
 TARGET_HOST_PIN_APU_GB = 256.0
-TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
+TARGET_M = Fabric("Slingshot-2 dragonfly (PLAN 25), TGTBENCH2 measured constants", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 # S48 (2026-10-11): 'aac7_s48' = the aac7 profile refit to the 1/2/4/6-node scaling runs by ecalc/refit_s48.py; it reads ecalc/aac7_s48_fit.json
 # (written by `refit_s48.py --write-profile`; absent = the profile is refused).  Selected by --fabric aac7_s48 or its alias --fabric aac7 / MN_MODEL_PROFILE (B01, 2026-10-11: the aac7 default; the old one is aac7_c16).  The estimate.py default (no --fabric) stays the target profile.
 AAC7_S48_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_s48_fit.json')
@@ -229,7 +240,7 @@ AAC7_S48 = Fabric("aac7 S48 refit (placeholder until aac7_s48_fit.json is read)"
 AAC7_L4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'aac7_l4_fit.json')
 AAC7_L4 = Fabric("aac7 L4 refit, NIC group B (placeholder until aac7_l4_fit.json is read)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
 AAC7_L4A = Fabric("aac7 L4 refit, NIC group A (placeholder)", bw_apu=AAC7.bw, lat=AAC7.lat, group=64, layers=2, taper=1.0, write_bw=0.116)
-TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
+TARGET_L4 = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor (placeholder)", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=TARGET_LAYV_FACTOR)
 PROFILES = {'target': TARGET, 'aac7_c16': AAC7, 'target-m': TARGET_M, 'aac7_s18': AAC7_S18, 'aac7_s48': AAC7_S48, 'aac7_l4': AAC7_L4, 'aac7_l4a': AAC7_L4A, 'target_l4': TARGET_L4}
 PROFILE_ALIASES = {'aac7': 'aac7_s48'}
 def apply_profile(name):
@@ -252,7 +263,7 @@ def apply_profile(name):
         if not os.path.exists(AAC7_L4_FILE): raise SystemExit('mn_model: profile %s needs %s (run refit_s48.py --l4 --write-profile)' % (name, AAC7_L4_FILE))
         j = json.load(open(AAC7_L4_FILE))
         if name == 'target_l4':
-            PROFILES[name] = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor", bw_apu=100.0, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=j.get('layv_factor_nopen', j['layv_factor']))   # (the factor fitted without the multi-node-children level penalty: the target runs without it)
+            PROFILES[name] = Fabric("Slingshot-2 dragonfly (PLAN 25), L4 layv factor", bw_apu=TARGET_BW_APU, lat=2e-6, group=64, layers=2, taper=1.0, write_bw=TARGET_WRITE_BW, v_factor=j.get('layv_factor_nopen', j['layv_factor']))   # (the factor fitted without the multi-node-children level penalty: the target runs without it)
             return PROFILES[name]                                          # the target's constants stay as they are; only the layv factor comes from the aac7 fit
         bw = j['bw_apu'] * (j['alpha_slow'] if name == 'aac7_l4a' else 1.0)
         global MIX_PEN
