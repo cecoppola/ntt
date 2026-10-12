@@ -191,6 +191,8 @@ def main(argv):
         if a["line"]:
             if h is None:
                 v = "computed (not on the line)"
+            elif c is None and k in LAUNCH_KEYS[1:4]:
+                v = "EXTRA (a heap name this SHMEM implementation's launch does not set)"
             elif c is None:
                 v = "DIFF (the line sets it; this launch computes none)"; diffs += 1
             elif k == "MN_GROUPS":
