@@ -1469,8 +1469,10 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     int nt = getenv("BS_SEED_THREADS") ? atoi(getenv("BS_SEED_THREADS")) : omp_get_max_threads();   /* I2: fewer than all leaves cores to init's allocations */
     ss->nchunks = ss->nbuf = ss->npend = 0; ss->t_span = ss->t_wait_pool = ss->t_wait_dma = ss->t_issue = ss->t_free = 0;
     int direct = !db_pool_vmm_on();                              /* Phase 14 R1 (E8): the host cannot store into a VMM range */
-    void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : db_copy_h2d_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
-    void (*cwait)(int) = direct ? mem_dev_copy_wait : db_copy_h2d_wait;
+    int pull = !direct && db_seed_pull_on();                     /* K8b (results/K8b.md): BS_SEED_PULL=1 -- the copies by the persistent pull kernels (no runtime call in the mapping window) */
+    void (*cpy)(int, void *, const void *, size_t) = direct ? mem_dev_copy_async : pull ? db_pull_copy_async : db_copy_h2d_async;   /* into a VMM range: by a kernel (hipMemcpyAsync ran at 6 GB/s, synchronously) */
+    void (*cwait)(int) = direct ? mem_dev_copy_wait : pull ? db_pull_wait : db_copy_h2d_wait;
+    if (pull) for (int b = 0; b < 2; b++) db_pull_resolve(ss->buf[b]);   /* K8b: the buffers' device pointers once, here (the copies make no runtime call) */
     for (int r = 0; r < NR; r++) {
         size_t lo = r0[r], hi = r0[r + 1];
         for (size_t c0 = lo; c0 < hi; c0 += ss->chunk_spans) {
@@ -1504,6 +1506,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     for (int k = 0; k < ss->npend; k++) { int r = ss->pend[k].r, dev = r % nd; double ti = mem_now(); cpy(dev, ss->pool[r] + 2 * per * (ss->pend[k].c0 - r0[r]), ss->buf[ss->pend[k].b], 2 * per * (ss->pend[k].c1 - ss->pend[k].c0) * 8); ss->buf_dev[ss->pend[k].b] = dev; ti = mem_now() - ti; if (ti > ss->t_issue_max) ss->t_issue_max = ti; }
     ss->t_issue += mem_now() - tw; tw = mem_now();
     for (int b = 0; b < 2; b++) if (ss->buf_dev[b] >= 0) { cwait(ss->buf_dev[b]); ss->buf_dev[b] = -1; } ss->t_wait_dma += mem_now() - tw;
+    if (pull) db_pull_stop_all();                                /* K8b: the kernels leave before the buffers are unregistered */
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
 }
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
@@ -1534,6 +1537,7 @@ void binsplit_seeds_begin(unsigned long N)
     double tp = mem_now(); binsplit_pregrow(N);
     uint64_t *pool[NR]; for (int r = 0; r < NR; r++) pool[r] = pool_get(0, r, seed_region_limbs(g_pre.per, g_pre.r0, r));
     seed_stream_pools(&g_pre.ss, pool);
+    if (db_pool_vmm_on() && db_seed_pull_on()) db_pull_start_all();   /* K8b: BS_SEED_PULL=1 -- the pull kernels now, with no mapping in flight (the background mapping is released after the hook) */
     if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init, before the plane pools: the seeds stream into them)\n", mem_now() - tp);
     if (order == 1) { double tj = mem_now(); pthread_join(g_pre.th, 0); g_pre.joined = 1; printf("      init: seeds joined before the plane pools (ECALC_SEED_ORDER=first): %.2f s of waiting, the seeds took %.2f s\n", mem_now() - tj, g_pre.t); }
 }

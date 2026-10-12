@@ -21,6 +21,7 @@ static const char *const cfg_names[] = {
     "BS_SCHOOL_NL",
     "BS_SEED_CHUNK_MB",
     "BS_SEED_FILL",
+    "BS_SEED_PULL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
     "COMM_ALLTOALLV_DEPTH",
@@ -73,10 +74,12 @@ static const char *const cfg_names[] = {
     "COMM_XSTATS",
     "DBIG_ADDSUB2",
     "DBIG_ADDSUB3",
+    "DBIG_BOUNCE_TS",
     "DBIG_MAXIDX_TOP",
     "DBIG_MODQ_MONT",
     "DBIG_QSEL",
     "DBIG_S51_STATS",
+    "DBIG_SMALL_BOUNCE",
     "DB_POOL_TRACE",
     "DB_POOL_VERBOSE",
     "DB_POOL_VMM",
@@ -84,6 +87,8 @@ static const char *const cfg_names[] = {
     "DB_POOL_VMM_RESERVE",
     "DC_STATS",
     "DIST_CHUNKS",
+    "DIST_GATHER_RAW",
+    "DIST_GATHER_RAW_MARGIN_GB",
     "DIST_GEN",
     "DIST_LOGN_TEST",
     "DIST_LOGR_DELTA",
@@ -238,4 +243,4 @@ static const char *const cfg_names[] = {
     "SPILL_BUFFERED",
     "SPILL_CHUNK_MB",
 };
-#define CFG_NAMES_N 236
+#define CFG_NAMES_N 241

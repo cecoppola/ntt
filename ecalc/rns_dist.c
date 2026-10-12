@@ -109,6 +109,33 @@ template <int QS> __global__ void k_gather(uint64_t *x, struct acc src, size_t R
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
+/* K1b (results/K1b.md, DIST_GATHER_RAW, off by default): S39 candidate A -- gather an operand once without the canon (the strided
+ * gather is the cost, not the prime), then one coalesced elementwise canon pass per prime.  canon(raw) = what k_gather writes, bit for bit
+ * (the zero beyond src.n stays zero).  1 = A into xa[np-1] (its own plane is the staging), B into its cache plane when it has one (no memory);
+ * 2 = also B without a cache plane, through one extra q-limb plane taken from the block pool's free extents only (no growth; a margin of
+ * DIST_GATHER_RAW_MARGIN_GB per APU, default 2, must stay free) -- else B is gathered per prime as before */
+static int gather_raw(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW"); v = e ? atoi(e) : 0; } return v; }
+static double gather_raw_margin(void) { static double v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW_MARGIN_GB"); v = e ? atof(e) : 2.0; } return v; }
+template <int QS> __global__ void k_gather_raw(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C)
+{
+    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+    for (; t < total; t += stride) {
+        size_t j = t / rows, il = t % rows, mm = R * j + row0 + il;
+        x[il * C + j] = mm < src.n ? acc_get_t<QS>(src, mm) : 0;
+    }
+}
+__global__ void k_canon_pass(uint64_t *y, const uint64_t *x, size_t n, ec_mod m)
+{
+    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
+    for (; i < n; i += st) y[i] = ec_canon64(x[i], m.pu, m.mu);
+}
+/* planes[0..np-1] (q limbs each) = canon_p(rank r's rows of S); the raw gather lands in planes[np-1] and is canonicalised in place last */
+static void gather_raw_all(uint64_t *const *planes, int np, struct acc S, size_t R, size_t rows, size_t row0, size_t C, size_t q, hipStream_t s)
+{
+    uint64_t *st = planes[np - 1];
+    if (qsel_on()) k_gather_raw<1><<<nblk(q), 256, 0, s>>>(st, S, R, rows, row0, C); else k_gather_raw<0><<<nblk(q), 256, 0, s>>>(st, S, R, rows, row0, C);
+    for (int p = 0; p < np; p++) k_canon_pass<<<nblk(q), 256, 0, s>>>(planes[p], st, q, ec_mod_get(p));
+}
 __global__ void k_transpose(const uint64_t *x, uint64_t *y, size_t rows, size_t C)   /* rows x C -> C x rows */
 {
     __shared__ uint64_t tile[32][33];
@@ -836,13 +863,27 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             }
         }
         double s0 = mem_now(), lg = 0, lf = 0;
+        int pa = 0, pb = 0; uint64_t *sraw = 0;                 /* K1b (DIST_GATHER_RAW): A / B prefilled (pb 2: B's raw plane sraw, canon per prime) */
+        if (gather_raw() && np > 1) {
+            if (ha < 0) { gather_raw_all(xa, np, A, R, rows, (size_t)r * rows, C, q, v->s); pa = 1; }
+            if (hb < 0 && cb && cb != ca) { uint64_t *pb_[EC_NP]; for (int p = 0; p < np; p++) pb_[p] = cb + (size_t)p * q; gather_raw_all(pb_, np, B, R, rows, (size_t)r * rows, C, q, v->s); pb = 1; }
+            else if (hb < 0 && !cb && gather_raw() >= 2) {
+                size_t by = q * 8;
+                if (db_pool_fit_count(r, by) >= 1 && (double)db_pool_free_bytes(r) >= (double)by + gather_raw_margin() * 1e9) sraw = db_pool_alloc(r, by);
+                else { static int said; if (!said) { said = 1; printf("DIST_GATHER_RAW: APU%d: B's raw plane (%.2f GB) does not fit the pool's free extents with the %.1f GB margin; B gathered per prime\n", r, by * 1e-9, gather_raw_margin()); } }
+                if (sraw) { if (qsel_on()) k_gather_raw<1><<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); else k_gather_raw<0><<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); pb = 2; }
+            }
+            HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - s0;
+        }
         for (int p = 0; p < np; p++) {
             ec_mod m = ec_mod_get(p);
             double g0 = mem_now();
             uint64_t *yb = cb ? cb + (size_t)p * q : xb;        /* B's transform: the cache plane (hit: already there) or xb */
-            if (ha < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
+            if (pb == 2) k_canon_pass<<<nblk(q), 256, 0, v->s>>>(yb, sraw, q, m);
+            if (ha < 0 && pa) { }                               /* K1b: A prefilled above */
+            else if (ha < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
             else HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
-            if (hb < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
+            if (hb < 0 && !pb) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
             if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], xb, v->s); ntt_pw(v->ctx[p], xa[p], xb, q, v->s); dist3_inv(&c3[p], xa[p], v->s); }
             else {
@@ -853,6 +894,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
         }
+        if (sraw) db_pool_free(r, sraw);
         double s2 = mem_now(); lf = s2 - s0 - lg;
         /* CRT over this rank's runs: transpose each plane in place (via xt), one stripe per run into xb */
         for (int p = 0; p < np; p++) {

@@ -127,6 +127,8 @@ newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_pl
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
+tests/t_bounce: tests/t_bounce.c $(OBJS) dbig.h tests/harness.h   # O2 microbenchmark (not in TESTS: make tests/t_bounce)
+	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_out: tests/t_out.c $(OBJS) mn_out.h verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_patch: tests/t_patch.c $(OBJS) mn_out.h verify.h tests/harness.h
@@ -227,6 +229,9 @@ tests/t_alloc: tests/t_alloc.c ntt.o ntt3.o bigint.o mem.o fatal.o ntt.h mem.h t
 
 tests/t_gather_probe: tests/t_gather_probe.c modarith.h     # S40: k_gather micro-test (results/S40.md); built on demand, not in TESTS; ScratchSize per kernel is printed by the compiler
 	$(HIPC) $< -o $@ -Rpass-analysis=kernel-resource-usage
+
+tests/t_gather_raw_probe: tests/t_gather_raw_probe.c modarith.h     # K1b: raw-once gather micro-test (results/K1b.md); built on demand, not in TESTS
+	$(HIPC) $< -o $@
 
 tests/t_s51_probe: tests/t_s51_probe.c $(OBJS) dbig.h tests/harness.h     # S51: add/sub + k_modq micro-benchmark (results/S51.md); built on demand, not in TESTS
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)

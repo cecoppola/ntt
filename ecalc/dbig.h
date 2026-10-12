@@ -48,7 +48,13 @@ void db_tl_start(void);
 double db_tl_now(void);
 void db_tl(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes);   /* Phase 14 R1: a host -> device copy by a kernel on dev's own stream (the seeds into a VMM range) */
-void db_copy_h2d_wait(int dev);                        /* rns_init after the plane pools: the arenas' background mapping may start */      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
+void db_copy_h2d_wait(int dev);
+int db_seed_pull_on(void);                              /* K8b: BS_SEED_PULL=1 -- the seeds' copies by a persistent pull kernel per APU (no runtime call in the mapping window) */
+void db_pull_start_all(void);                           /* launch the kernels (idempotent; binsplit_seeds_begin once the region pools exist) */
+void db_pull_resolve(const void *src);                  /* the device pointer of a registered host buffer, resolved once */
+void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes);   /* as db_copy_h2d_async */
+void db_pull_wait(int dev);                             /* as db_copy_h2d_wait (a host spin) */
+void db_pull_stop_all(void);                            /* the kernels leave (before the buffers are unregistered) */                        /* rns_init after the plane pools: the arenas' background mapping may start */      /* the first `bytes` of the arena are mapped ((size_t)-1: all of it) */
 void db_vmm_arena_release(int dev);
 size_t db_pool_vmm_stats(int dev, size_t *remaps, size_t *grow_chunks);   /* chunks moved by remaps; the remap count; chunks created inside a phase */
 size_t db_pool_tail_stats(int dev, size_t *spills);  /* requests served from the tail's back; spills = small requests that had to enter the tail */

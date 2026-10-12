@@ -21,6 +21,7 @@ BS_RESTART	int	0	0	0|1	launch-line	-	A-ckpt.md+N13.md	Y	ecalc	ecalc.c	3	ecalc.c
 BS_SCHOOL_NL	int	0	0		experiment	-	R114.md+A37CMP.md	Y	ecalc	binsplit.c,dbig.c,mn_plan.c	6	
 BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	binsplit.c	4	
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	
+BS_SEED_PULL	int	0	0	0|1	experiment	-	-	Y	ecalc	dbig.c	2	dbig.c; K8b, see README row
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	
 COMM_ALLTOALLV_DEPTH	int	2	2		built-in default	-	X13b.md+DESIGN_TABLE.md	Y	ecalc	binsplit.c,comm_layered.c,rns_dist.c	5	
@@ -74,10 +75,12 @@ COMM_XGMI_STATS	int	0	0		test-only	-	X13.md+D16.md	Y	ecalc	comm_xgmi.c	1
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	
 DBIG_ADDSUB2	int	1	1		built-in default	-	S38.md	Y	ecalc	dbig.c	2	
 DBIG_ADDSUB3	int	1	1		built-in default	-	S51.md	Y	ecalc	dbig.c	2	
+DBIG_BOUNCE_TS	int	0	0	0|1	experiment	-	-	Y	ecalc	dbig.c	2	dbig.c; O2, print-only bounce allocation times
 DBIG_MAXIDX_TOP	int	1	1		built-in default	-	S40.md	Y	ecalc	dbig.c	2	
 DBIG_MODQ_MONT	int	1	1		built-in default	-	S51.md	Y	ecalc	dbig.c	2	
 DBIG_QSEL	int	1	1		built-in default	-	S41.md	Y	ecalc	dbig.c,rns_dist.c	4	
 DBIG_S51_STATS	int	0	0		test-only	-	S51.md+T11.md	Y	ecalc	dbig.c	2	
+DBIG_SMALL_BOUNCE	int	0	0	0|1	experiment	-	-	Y	ecalc	dbig.c	2	dbig.c; O2, see README row
 DB_POOL_TRACE	int	0	0		test-only	-	AS15.md	Y	ecalc	dbig.c	2	
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	8	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	
@@ -85,6 +88,8 @@ DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	
 DC_STATS	int	0	0		test-only	-	S21.md	Y	ecalc	mn_out.c	2	
 DIST_CHUNKS	int	8	8		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	8	
+DIST_GATHER_RAW	int	0	0	0|1|2	experiment	-	-	Y	ecalc	rns_dist.c	1	rns_dist.c; K1b, see README row
+DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	experiment	-	-	prose	ecalc	rns_dist.c	1	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	
 DIST_LOGR_DELTA	int	0	0		built-in default	-	M11.md+G.md	Y	ecalc	rns_dist.c	1	
