@@ -96,7 +96,7 @@ ECALC_ODIRECT_NFS	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-
 ECALC_ODIRECT_OTHER	int	1	1		built-in default	-	IO15.md	Y	ecalc	spill.c	1	-	-	
 ECALC_OUT_MODE	bool	derived	derived	0|1	built-in default	-	IO15.md	Y	ecalc	mn_out.c	2	-	-	
 ECALC_OUT_ODIRECT	int	derived	derived		built-in default	-	S114.md+KP15.md	Y	ecalc	mn_out.c	2	-	-	
-ECALC_OUT_PACKED	int	1	1		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
+ECALC_OUT_PACKED	int	2	2		built-in default	-	KP15.md+IO15.md	Y	ecalc	mn_out.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_OVERLAP	int	1	1		built-in default	-	H.md+A-out.md	Y	ecalc	binsplit.c,ecalc.c,rns_mul.c	8	-	-	
 ECALC_PLANE_CAP	bool	derived	derived	0|1	experiment	-	P13b.md+CAP17.md	Y	ecalc	ecalc.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_PLANE_CAP_IDX	int	derived	derived		test-only	-	-	Y	ecalc	binsplit.c,ecalc.c	3	diagnostics (TESTING.md)	2027-04-12	

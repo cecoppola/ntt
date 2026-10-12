@@ -16,7 +16,7 @@
  * two chunk buffers, so a chunk is written while the next one is formatted.
  *
  * Phase 15 IO (results/IO15.md): the write mode ECALC_OUT_MODE (direct, buffered, sync, drop, auto) and MN_OUT_THREADS; the
- * packed form ECALC_OUT_PACKED=1 (the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
+ * packed form ECALC_OUT_PACKED=1 / 2 (2, the 60-bit form, the default since 2026-10-12; the limbs as they are, packed_fmt.h: no ASCII formatting in the run; the T1 digit residues
  * from the packed bytes, the T2 windows from the digits they cover; tools/unpack_digits converts and checks); MN_OUT_STRIPE
  * (a Lustre layout per part file); MN_OUT_WAVES (at most ceil(size/n) nodes write at once).  ECALC_RECHECK reads packed
  * files too. */

@@ -371,11 +371,11 @@ X < 10^(d+1) has nl = ⌈(d + 1)/18⌉ limbs; the digit string is the limbs writ
 pad = 18·nl − (d + 1) leading zeros dropped; digit 0 is the "2" and digits 1…d the fraction. The ASCII file is "2." +
 digits 1…d_out + newline.
 
-**Packed form.** The default output is **packed**: each node writes its limbs as they are, 8 bytes per 18 digits
-(0.444 B/digit), most significant limb first, behind a 4096-byte `ECPACK18` header giving the part's limb and digit range,
+**Packed form.** The default output is **packed** (`ECALC_OUT_PACKED=2` since 2026-10-12): each node writes its limbs as a
+60-bit little-endian stream, 15 bytes per two limbs (0.4167 B/digit), most significant limb first, behind a 4096-byte `ECPACK18` header giving the part's limb and digit range,
 the T1 primes and the part's digit residues. No ASCII formatting happens in the run; `tools/unpack_digits` makes the ASCII
-file off the clock (`--cmp` compares without writing). With `ECALC_OUT_PACKED=2` the limbs are a 60-bit stream
-(0.4167 B/digit).
+file off the clock (`--cmp` compares without writing). `ECALC_OUT_PACKED=1` writes 8 bytes per limb (0.444 B/digit, the
+default before 2026-10-12), `=0` ASCII.
 
 **Parts.** At size 1 the file is `<outfile>`. At size > 1 each node writes `<outfile>.part<k>`, k = size − 1 − rank (part 0
 holds the leading digits), so the sorted parts are the file; with `MN_OUT_DKM_HI=1` each node writes two parts (its share of

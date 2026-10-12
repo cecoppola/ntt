@@ -34,7 +34,7 @@ digits up to 10¹¹.
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
 | 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7) | 74.4 / 138.9 / 188.2 / 246.4 s; efficiency vs 1 node 0.54 / 0.40 / 0.30 (m, 2026-10-12 overnight, before the 2026-10-12 defaults; the 6-node runs had not settled: 224.7-271.4 s) | `results/M2a.md` |
 
-The 60-bit packed output as the default (`ECALC_OUT_PACKED=2`) is decided; its batch D5 was still gating when `results/W2A.md` was written.
+The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
 
 **Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 12.9 GB of device margin

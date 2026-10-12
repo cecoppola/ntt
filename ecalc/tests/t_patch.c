@@ -53,10 +53,10 @@ static char *slurp(const char *fn, long *len) { FILE *f = fopen(fn, "r"); if (!f
 int main(int argc, char **argv)
 {
     (void)argc;
-    if (!getenv("ECALC_OUT_PACKED")) {                       /* Phase 15 KP: both forms, each in its own process (the form is read once) */
+    if (!getenv("ECALC_OUT_PACKED")) {                       /* Phase 15 KP: the three forms (ASCII, packed 1, packed 2 = the default), each in its own process (the form is read once) */
         int rc = 0; char cmd[4200];
-        for (int pk = 0; pk <= 1; pk++) { snprintf(cmd, sizeof cmd, "ECALC_OUT_PACKED=%d %s", pk, argv[0]); fflush(stdout); int r = system(cmd); printf("t_patch: ECALC_OUT_PACKED=%d: %s\n", pk, r == 0 ? "ok" : "FAILED"); fflush(stdout); rc |= r != 0; }
-        printf("t_patch: %s\n", rc ? "VERIFY FAILED (both forms)" : "VERIFY OK (both forms)");
+        for (int pk = 0; pk <= 2; pk++) { snprintf(cmd, sizeof cmd, "ECALC_OUT_PACKED=%d %s", pk, argv[0]); fflush(stdout); int r = system(cmd); printf("t_patch: ECALC_OUT_PACKED=%d: %s\n", pk, r == 0 ? "ok" : "FAILED"); fflush(stdout); rc |= r != 0; }
+        printf("t_patch: %s\n", rc ? "VERIFY FAILED (the three forms)" : "VERIFY OK (the three forms)");
         return rc;
     }
     printf("== t_patch (ECALC_OUT_PACKED=%s) ==\n", getenv("ECALC_OUT_PACKED")); harness_meta("t_patch");

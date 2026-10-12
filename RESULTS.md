@@ -48,7 +48,7 @@ setting it to 0 restores the old path; switches marked "removed" are built in.
 | `NEWTON_DKM=1`: division in two quotient halves | Phase 15 | division -25.7 s at 10¹¹ | m | results/DKM15.md |
 | `MN_P24=2`: 24 digits per transform point in multi-node products | Phase 15 | -38 % at 10¹⁰ on 2 processes | m | results/P2415.md |
 | `ECALC_CORR_PATCH=2`, `MN_OUT_EARLY=1`: write overlapped with the division, corrections patched | Phase 15 | write hidden under the division | m | results/IO15.md, IO215.md |
-| `ECALC_OUT_PACKED=1`: packed output, 0.444 B/digit | Phase 15 | ASCII made off the clock by `tools/unpack_digits` | m | results/W.md |
+| `ECALC_OUT_PACKED=2`: packed output, 60-bit, 0.4167 B/digit (=1, 0.444 B/digit, until 2026-10-12) | Phase 15; 2 since 2026-10-12 | ASCII made off the clock by `tools/unpack_digits` | m | results/W.md, results/O4.md |
 | `BS_SEED_FILL=128` | Phase 15 | the batch tier's products fill their lengths | m | results/T215.md |
 | `RNS_DIST_CACHE_FIT=1` (transform cache sized and counted) | Phase 15 | required at the target | m | results/TC15.md |
 | `DB_POOL_VMM=1`: arenas as HIP virtual memory | Phase 14 | no in-phase allocation | m | results/R114.md |
@@ -75,7 +75,7 @@ code defaults in the current code reduction (TASKS 27).
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/V114.md |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/B01.md |
 
-Decided, implementation in progress: packed 60-bit output `ECALC_OUT_PACKED=2` as the default (TASKS 40; results/C05.md, O4.md).
+Packed 60-bit output `ECALC_OUT_PACKED=2` is the default since 2026-10-12 (TASKS 40; results/C05.md, O4.md, W2A.md).
 
 ## Measured and not adopted
 
