@@ -636,6 +636,9 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
     __shared__ uint64_t C0[CRT_THREADS], C1[CRT_THREADS + 3], C2[CRT_THREADS + 3], C3[CRT_THREADS + 3];
     __shared__ uint64_t V[CRT_THREADS], CY[CRT_THREADS];
     __shared__ uint64_t carry;
+    __shared__ uint64_t GM[CRT_THREADS / 64], PM[CRT_THREADS / 64];           /* K4b: the generate / propagate masks (wave64) */
+    const int scan = g.scan && warpSize == 64;
+    uint64_t cyr = 0;                                                         /* K4b: the carry, uniform over the block */
     const size_t gs = first_stripe + blockIdx.x, pi = gs / S, s = gs % S, base = pi * Lpts;
     const struct bdesc d = P[pi];
     const uint32_t nc = d.na + d.nb;
@@ -656,6 +659,36 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
                       uint64_t d[4]; ec_words_to_dec4(c, d); c[0] = d[0]; c[1] = d[1]; c[2] = d[2]; c[3] = d[3]; }
         C0[j] = c[0]; C1[j + 3] = c[1]; C2[j + 3] = c[2]; C3[j + 3] = c[3];
         __syncthreads();
+        if (scan) {   /* K4b (RNS_CRT_SCAN): the chunk's carry chain as a carry-lookahead over ballot masks, 3 barriers instead of 5 */
+            const int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS);
+            uint64_t v = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;      /* < 5B */
+            while (v >= BB) { v -= BB; q++; }
+            CY[j] = q;                                                           /* q <= 4 */
+            __syncthreads();                                                     /* every C read done, CY complete */
+            if (j < 3) { C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }   /* tails (nobody reads C until the next chunk's barrier) */
+            /* serial form: sm_i = V_i + CY_{i-1} + o_{i-1} (CY_{-1} = the chunk's carry-in <= 5, o_{-1} = 0), o_i = sm_i >= B.
+             * With w_i = V_i + CY_{i-1} <= B + 4: o_i = gen_i | (prop_i & o_{i-1}), gen = w >= B, prop = w == B - 1 */
+            const uint64_t w = v + (j ? CY[j - 1] : cyr);
+            const int in = j < n;
+            const uint64_t gm = __ballot(in && w >= BB), pm = __ballot(in && w == BB - 1);
+            if ((j & 63) == 0) { GM[j >> 6] = gm; PM[j >> 6] = pm; }
+            __syncthreads();
+            /* o_{i-1} = bit i of (A + G) ^ A ^ G over 256 bits (A = G | P): carry-in of bit i of the sum A + G */
+            uint64_t ci = 0, mine = 0, top = 0;
+            for (int t = 0; t < CRT_THREADS / 64; t++) {
+                const uint64_t G = GM[t], A = G | PM[t], s1 = A + G, s2 = s1 + ci;
+                const uint64_t co = (s1 < A) | (s2 < s1);
+                const uint64_t cv = s2 ^ A ^ G;                                   /* carry-in of each bit */
+                if (t == (j >> 6)) mine = (cv >> (j & 63)) & 1;
+                if (t == (n >> 6)) top = (cv >> (n & 63)) & 1;                    /* o_{n-1} for n < 256 */
+                ci = co;
+            }
+            if (n == CRT_THREADS) top = ci;
+            uint64_t r = w + mine; if (r >= BB) r -= BB;
+            if (in) out[k] = r;
+            cyr = CY[n - 1] + top;                                               /* the next chunk's carry-in (CY, GM, PM rewritten only after the next chunk's first barrier) */
+            continue;
+        }
         {   /* digits < B: the sum of five digits < 5B fits a word; limb j of this chunk: C0[j] + C1[j-1] + C2[j-2] + C3[j-3] + x[k] (indices shifted by 3) */
             uint64_t sm = C0[j] + C1[j + 2] + C2[j + 1] + C3[j] + xk, q = 0;
             while (sm >= BB) { sm -= BB; q++; }
@@ -675,6 +708,7 @@ void k_crt_batch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, con
         if (j < 3) { int n = (int)(K1 - c0 < CRT_THREADS ? K1 - c0 : CRT_THREADS); C1[j] = C1[n + j]; C2[j] = C2[n + j]; C3[j] = C3[n + j]; }
         __syncthreads();
     }
+    if (scan && j == 0) carry = cyr;
     if (j == 0) {
         /* spill at K1: [C1[-1] + C2[-2] + C3[-3] + carry, C2[-1] + C3[-2], C3[-1], overflow] */
         uint64_t *sp = stripe_spill + gs * 4;
@@ -699,6 +733,7 @@ struct gconst rns_gconst(void)
     { unsigned __int128 t = g.M2[2] % ec_P[3]; t = ((t << 64) | g.M2[1]) % ec_P[3]; t = ((t << 64) | g.M2[0]) % ec_P[3];
       g.c3 = ec_inv((uint64_t)t, ec_P[3]); }
     g.np = ec_np_init();                         /* P3: the kernel's prime count */
+    { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 0; } g.scan = sc; }   /* K4b: off by default */
     return g;
 }
 
