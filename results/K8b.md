@@ -118,7 +118,11 @@ bytes to the same addresses as before: digits identical. One row in `ecalc/READM
 
 ## 5. Gate and ABBA (`tools/k8b_driver.sh`, `tools/k8b_stats.py`)
 
-(filled in from `~/k8b/summary.txt`)
+Collected 2026-10-12 (hold 22999 ran 04:05-04:06 ET; marker `K8B_DONE`: **FAILED**, measured).
+
+- Gate (1 node, 1e9, `BS_SEED_PULL=1`): **PASS** (rc 0, VERIFY OK, digits identical, segv 0, ecalc total 10.48 s, run 16 s).
+- The driver nevertheless aborted: its check `grep -q "^PASS" gate/gate.txt` does not match the line, which starts with `gate PASS`. A driver bug, not a gate failure. The hold was cancelled at once (steps left 0), so **the ABBA at 6.441e10 never ran** (`pairs.tsv` has only the header). No timing result for `BS_SEED_PULL`; the 0.5-1 s expectation stays modelled.
+- Fix needed in `tools/k8b_driver.sh` (match `gate PASS`, e.g. `grep -q "gate PASS"`), then re-arm one hold for the ABBA (skip the gate with `SKIP_GATE=1`). No hold or driver of k8b is queued or alive now.
 
 ## RESUME (armed 03:30 ET 2026-10-12)
 
