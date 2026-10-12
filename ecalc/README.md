@@ -120,6 +120,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `RNS_R3` | 3·2ᵏ transform lengths (WP8) (1 when the prime set has the radix-3 roots) |
 | `RNS_BATCH_LOCAL_MIN` | below this many products the striped batch path is used (16) |
 | `RNS_BATCH_TILE_GB` | the batch tiers' plane budget per device in GB (a + b planes), capped by the pools (15) |
+| `BS_BATCH_PIPE` | *N3, experiment*: the batch tier's host side in parallel (level layout, product scans) and each device's tiles issued back to back (pinned descriptor slots, one length read-back per level); digits identical (0) |
 | `RNS_POOL1_GB` | plane pool 1 per device in GB (auto: the dist tier's 3q + 16 limbs) |
 | `RNS_POOL_GROW` | *Phase 12 (R)*: a region pool that would grow inside bs aborts with the accounting unless 1 (the stress recipe sets it) (0) |
 | `RNS_PLANES_3Q30` | 3·2³⁰-point planes for the top levels and the dm phase, sized at init: 1 / 0 / `auto` (on below 5 × 10¹⁰ at 2³¹ pools); the mapping costs more than the products gain (0) |
@@ -267,6 +268,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | class | owner | review by | switches |
 |---|---|---|---|
 | experiment | P1 (results/P1.md) | 2026-11-11 | `DM_MN_WRAP` |
+| experiment | coordinator (N3) | 2026-11-11 | `BS_BATCH_PIPE` |
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DIST_R3`, `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_PLANES_3Q30`, `RNS_R3` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `BS_SEED_PULL`, `COMM_LAYER_INTER2`, `COMM_LAYER_VSLOT_POOL`, `COMM_LAYER_VSLOT_RELEASE`, `COMM_LAYER_VSLOT_SHARE`, `DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW`, `ECALC_OUT_PACKED`, `MN_OUT_DKM_HI`, `RNS_DIST_CACHE_PARTIAL` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `COMM_LAYER_STATS`, `COMM_OFI_DEV`, `COMM_OFI_VERBOSE`, `COMM_SHMEM_POOL_NEED_MB`, `COMM_SHMEM_STAGE_SLOT_MB`, `COMM_SHMEM_VERBOSE`, `COMM_XGMI_STATS`, `COMM_XSTATS`, `DC_STATS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_BUDGET_RANK_GB`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_LIVE`, `ECALC_MEM_GUARD_PERIOD`, `ECALC_MEM_SAMPLE`, `ECALC_MEM_SAMPLE_FILE`, `ECALC_NP_AUTO_TERMS`, `ECALC_PLANE_CAP_IDX`, `ECALC_SEGV_TEST`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_OUT_STRIPE_FORCE`, `MN_PLAN_QUIET`, `MN_SELFTEST_LOGR`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_DOUBLING_TS`, `NEWTON_MN_RECIP_TS`, `NEWTON_VERBOSE`, `NTT_SIZE_STATS`, `RNS_DIST_CACHE_PARTIAL_FORCE`, `RNS_DIST_CACHE_TRACE`, `RNS_INIT_POOL_LOG`, `RNS_POOL_GROW`, `RNS_STRATEGY_CHECK` |

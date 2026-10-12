@@ -43,3 +43,4 @@ DIST_GATHER_RAW_MARGIN_GB	2	float	-	built-in default	rns_dist.c; K1b, GB per APU
 DBIG_SMALL_BOUNCE	1	int	0|1	built-in default	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
 BS_SEED_PULL	1	int	0|1	built-in default	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 COMM_HS_TS	0	bool	0|1	test-only	newton_db.c; G1 print-only handshake time stamps
+BS_BATCH_PIPE	0	bool	0|1	experiment	rns_mul.c, binsplit.c; N3 batch-tier host overlap (results/N3.md); off by default, the user adopts

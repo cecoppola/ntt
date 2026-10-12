@@ -3,6 +3,7 @@
 static const char *const cfg_names[] = {
     "BS_ARENA_ROOM",
     "BS_BALANCE_N",
+    "BS_BATCH_PIPE",
     "BS_CKPT_BG_CHUNK_MB",
     "BS_CKPT_BG_MBS",
     "BS_CKPT_DIR",
@@ -149,4 +150,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 147
+#define CFG_NAMES_N 148
