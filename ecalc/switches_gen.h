@@ -21,6 +21,7 @@ static const char *const cfg_names[] = {
     "BS_SCHOOL_NL",
     "BS_SEED_CHUNK_MB",
     "BS_SEED_FILL",
+    "BS_SEED_PULL",
     "BS_SEED_TERMS",
     "BS_SEED_THREADS",
     "COMM_ALLTOALLV_DEPTH",
@@ -242,4 +243,4 @@ static const char *const cfg_names[] = {
     "SPILL_BUFFERED",
     "SPILL_CHUNK_MB",
 };
-#define CFG_NAMES_N 238
+#define CFG_NAMES_N 241
