@@ -57,12 +57,50 @@ Mean (sd) in seconds. "excl r1" drops 1-node run 1 (81.42 s, bs 46.2, init 14.5:
 - Comm: XSTATS GB of PE 0 2739.3 at 2 nodes in all 6 runs (as before); summed t_wait of PE 0 is 133-226 s, median 137 s (mean 158 s with the first run, 138 s without); the five later runs are 133.1-144.2 s, 77/78 had 139.8 / 142.3 s mean. NIC counters: A group in 4 of the 6 two-node runs and B in 2 (runs 2 and 11); the B runs were 167.85 s (first run) and 135.07 s, so no separation.
 - Reading: a first run after an allocation is slow at both node counts (1 node +7 s, 2 nodes +29 s over the later runs); keep it out of the fit or flag it. The three batches give 16 steady-state-quality points for the model refit; the 4- and 6-node points are still open.
 
-## 4- and 6-node points (later)
-Same line, tooling and per-node size, 4 nodes (2.5764e11 digits) and 6 nodes (3.8646e11), with COMM_XSTATS and MN_WAIT_STATS, alternating orders, 3+ runs each, taken in the next 4/6-node window (the soak ends 08:30; existing runs in `results/L4.md` 148 rows give the default schedule at 4 and 6 for reuse). Use a queue item with NODES 4 / 6 built from item 77 (change `SEQ` and `NODES`; the MN_GROUPS default is used). Refit on all four points together.
+## 4- and 6-node points (item m2b, collected 2026-10-12; all numbers measured unless marked)
+Item 7d (`~/m2b/`, hold of 6 nodes, 08:18-09:06 ET), main 0298fe2, same line and per-node size (6.441e10 digits per node: 4 nodes 2.5764e11, 6 nodes 3.8646e11 digits), COMM_XSTATS and MN_WAIT_STATS, sequence 4 6 6 4 4 6 6 4 4 6 6 4. **12 runs, all rc 0, VERIFY OK** (marker "12 runs ok, 0 not ok").
+
+Mean (sd) in seconds; "excl first" drops the first run of that node count (4 nodes: run 1, 314.97 s, init 61.5 s; 6 nodes: run 2, 271.42 s), as for the 1- and 2-node batches.
+
+| nodes | n | total | bs | recip | dm | init | PE 0 t_wait (summed) |
+|---|---|---|---|---|---|---|---|
+| 4 (all) | 6 | 209.29 (52.55) | 75.69 (10.85) | 30.22 (17.38) | 90.60 (26.07) | 37.43 (11.83) | 317.5 (91.1) |
+| 4 (excl first) | 5 | 188.15 (10.08) | 71.41 (3.13) | 23.17 (1.96) | 80.31 (7.49) | 32.62 (1.03) | 280.5 (11.5) |
+| 6 (all) | 6 | 250.53 (16.18) | 100.75 (6.68) | 28.26 (3.56) | 114.91 (9.17) | 30.60 (7.37) | 427.7 (18.7) |
+| 6 (excl first) | 5 | 246.35 (14.01) | 99.57 (6.73) | 27.57 (3.52) | 114.74 (10.24) | 27.62 (1.17) | 423.7 (17.8) |
+
+Individual totals: 4 nodes 314.97, 186.70, 184.00, 182.84, 181.38, 205.84 s (the last, run 12, is 24 s above the four steady runs: bs +5, dm +13 s); 6 nodes 271.42, 263.61, 250.88, 246.49, 246.01, 224.74 s (falls over the batch, 47 s from first to last: not converged). Bytes sent by PE 0: 4493.3 GB (4 nodes), 6051.4 GB (6 nodes), vs 2739.3 GB at 2 nodes (constant across runs). NIC groups alternate A/B within each count; the A/B counters are in `summary.tsv`.
+
+### All node counts, steady state (1 node: 15 runs excl r1 of items 77/78/7a; 2 nodes: item 7a excl first; 4 and 6 nodes: excl first)
+| nodes | total | bs | recip | dm | init | E = T1/Tn: total | bs | recip | dm | init |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 74.4 | 40.1 | 5.08 | 20.67 | 13.45 | 1 | 1 | 1 | 1 | 1 |
+| 2 | 138.85 | 48.55 | 17.20 | 57.07 | 29.48 | 0.54 | 0.83 | 0.30 | 0.36 | 0.46 |
+| 4 | 188.15 | 71.41 | 23.17 | 80.31 | 32.62 | 0.40 | 0.56 | 0.22 | 0.26 | 0.41 |
+| 6 | 246.35 | 99.57 | 27.57 | 114.74 | 27.62 | 0.30 | 0.40 | 0.18 | 0.18 | 0.49 |
+
+(Weak scaling: per-node digits constant, so ideal Tn = T1, E = 1. Stage columns for 1 node are pooled means of the batches; E computed here from the table values, modelled arithmetic on measured means.)
+
+### Stage-time growth over 1 node (s)
+| nodes | total | bs | recip | dm | init |
+|---|---|---|---|---|---|
+| 2 | +64.5 | +8.5 | +12.1 | +36.4 | +16.0 |
+| 4 | +113.8 | +31.3 | +18.1 | +59.6 | +19.2 |
+| 6 | +171.9 | +59.5 | +22.5 | +94.1 | +14.2 |
+
+- dm and bs carry most of the growth (at 6 nodes dm +94 s and bs +60 s of +172 s); recip jumps 1 -> 2 nodes (+12 s) then adds only +5-6 s per extra 2 nodes; init steps up once (1 -> 2 nodes, +16 s) and stays at 28-33 s (the 4-node init is higher than the 6-node init by 5 s, steady runs).
+- PE 0 summed t_wait is about 70 s per node (137 s at 2 nodes, 281 s at 4, 424 s at 6) and bytes sent grow 2739 -> 4493 -> 6051 GB: the communication wait grows about linearly in nodes while per-node work is constant (rate per stage from this table is the input, no fit done here).
+- Where the step from 2 to 4 and to 6 comes from is bs (+23 s, then +28 s) and dm (+23 s, then +34 s): the two stages with the all-to-all exchanges.
+
+### What the refit needs next (no refit done here)
+- Fit points: 1 node 15 steady runs, 2 nodes 17 (18 minus first), 4 nodes 5 steady-state-quality runs (4 close together, one at 205.8 s), 6 nodes 5 runs that still drift down (246 -> 225 s). The 4- and 6-node means are thinner than the 1/2-node ones; item 7g (4 nodes, cand) and the later 4/6-node runs of the queue add points.
+- Decide per node count the rule for the first run after an allocation (4 nodes +127 s over steady, 6 nodes +25 s, 2 nodes +29 s, 1 node +7 s): flag, not fit.
+- Decide whether the 4-node run 12 (205.8 s) and the 6-node drift are NIC / group effects (compare the group columns in `summary.tsv`, 2 groups, 12 runs: too few to say) before using run-to-run sd as the fit's noise.
+- The model needs a communication term per stage with an n-dependence (t_wait about 70 s x n, bytes per PE per stage), not a fixed per-step cost; 8+ nodes cannot be measured (QOS limit 6 nodes per user), so extrapolation beyond 6 is a model call.
 
 ## Open issues
 - 1-node at 6.441e10 digits: memory fit not yet confirmed on this build (4e10 ran at 1 node); a failed run shows as rc != 0 in the summary.
 - Slow host exclusion is done by the daemon (`-x`).
 
 ## RESUME
-Items 77, 78 and 7a COLLECTED (Results and Third batch); nothing runs. Next: the 4- and 6-node points and the refit. Was: wait for `~/m2a/DONE` (about 04:35) and `~/m2a/DONE_b`; collect, fill the numbers here, then plan the 4/6-node items.
+Items 77, 78, 7a and m2b (4- and 6-node points) COLLECTED; nothing of M2a runs. Next: the refit (inputs above), after item 7g adds 4-node cand points. Was: wait for `~/m2a/DONE` (about 04:35) and `~/m2a/DONE_b`; collect, fill the numbers here, then plan the 4/6-node items.
