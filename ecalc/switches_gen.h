@@ -86,6 +86,8 @@ static const char *const cfg_names[] = {
     "DB_POOL_VMM_RESERVE",
     "DC_STATS",
     "DIST_CHUNKS",
+    "DIST_GATHER_RAW",
+    "DIST_GATHER_RAW_MARGIN_GB",
     "DIST_GEN",
     "DIST_LOGN_TEST",
     "DIST_LOGR_DELTA",

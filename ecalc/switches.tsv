@@ -87,6 +87,8 @@ DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c
 DB_POOL_VMM_RESERVE	float	3	3		built-in default	-	R114.md	Y	ecalc	dbig.c	1	
 DC_STATS	int	0	0		test-only	-	S21.md	Y	ecalc	mn_out.c	2	
 DIST_CHUNKS	int	8	8		built-in default	-	S19B.md+A-comm.md	Y	ecalc	ntt_dist.c,rns_dist.c	8	
+DIST_GATHER_RAW	int	0	0	0|1|2	experiment	-	-	Y	ecalc	rns_dist.c	1	rns_dist.c; K1b, see README row
+DIST_GATHER_RAW_MARGIN_GB	float	2	2	-	experiment	-	-	prose	ecalc	rns_dist.c	1	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	
 DIST_LOGR_DELTA	int	0	0		built-in default	-	M11.md+G.md	Y	ecalc	rns_dist.c	1	
