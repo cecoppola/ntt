@@ -102,7 +102,7 @@ N "mkdir -p $TMP; rm -f $TMP/*"
 # ---- unit tests -------------------------------------------------------------------------------------------
 if want unit || want grid; then
   SKIPBS=; want unit && refneed "unit t_bs" ref/e_1000000.sha256 ref/e_10000000.sha256 || SKIPBS=1
-  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- both output forms)
+  for t in "t_ntt 24" "t_mul 20" "t_bs" "t_dbig 0" "t_newton 20" "t_verify" "t_out" "t_patch"; do   # (t_patch: Phase 15 KP -- the three output forms)
     n=${t// /_}; log=$OUT/unit_$n.log
     want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue

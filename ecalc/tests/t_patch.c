@@ -15,8 +15,8 @@
 #include "../mn_out.h"
 #include "../packed_fmt.h"
 #include "harness.h"
-/* Phase 15 KP: the packed form (ECALC_OUT_PACKED=1, the default).  Both forms are run: without ECALC_OUT_PACKED in the
- * environment t_patch runs itself twice, =0 (ASCII: K's checks) and =1 (packed: every part's limbs == the corrected X's limbs
+/* Phase 15 KP: the packed forms (ECALC_OUT_PACKED=1, and =2, the default since 2026-10-12).  Without ECALC_OUT_PACKED in the
+ * environment t_patch runs itself three times, =0 (ASCII: K's checks), =1 and =2 (packed: every part's limbs == the corrected X's limbs
  * [lo, hi) in file order, its header complete with residues == those limbs mod q, tools/unpack_digits --cmp against the corrected
  * ASCII file with its residue check; T_PATCH_UNPACK = the binary, default ../tools/unpack_digits).  Both forms: a second patch of
  * a patched part must fail (the bytes are no longer the uncorrected ones) exactly when the first one changed bytes. */
@@ -27,7 +27,10 @@ static int packed_part_check(const char *pn, const uint64_t *X1, size_t nl, cons
     if (fread(&h, sizeof h, 1, f) != 1 || memcmp(h.magic, ECP_MAGIC, 8)) { printf("it %d size %d node %d: no packed header\n", it, size, o->rank); fclose(f); return 1; }
     if (!h.complete || h.k0 != o->k0 || h.k1 != o->k1 || h.hi > nl || h.lo > h.hi) { printf("it %d size %d node %d: header fields\n", it, size, o->rank); fclose(f); return 1; }
     size_t n = h.hi - h.lo; uint64_t *l = (uint64_t *)malloc(n * 8 + 8);
-    if (fseek(f, ECP_HDR_BYTES, SEEK_SET) || fread(l, 8, n, f) != n || fgetc(f) != EOF) { printf("it %d size %d node %d: the part does not hold %zu limbs\n", it, size, o->rank, n); bad = 1; }
+    int v60 = h.version == ECP_VERSION60; size_t nb = v60 ? (size_t)ecp60_bytes(n) : n * 8; uint8_t *rb = (uint8_t *)malloc(nb + 8);   /* the 60-bit form (=2, the default since 2026-10-12) or 8 bytes per limb (=1) */
+    if (fseek(f, ECP_HDR_BYTES, SEEK_SET) || fread(rb, 1, nb, f) != nb || fgetc(f) != EOF) { printf("it %d size %d node %d: the part does not hold %zu limbs\n", it, size, o->rank, n); bad = 1; }
+    else if (v60) ecp60_unpack(rb, n, l); else memcpy(l, rb, n * 8);
+    free(rb);
     for (size_t j = 0; !bad && j < n; j++) if (l[j] != X1[h.hi - 1 - j]) { printf("it %d size %d node %d: limb %zu is not the corrected X's\n", it, size, o->rank, (size_t)(h.hi - 1 - j)); bad = 1; }
     for (int i = 0; !bad && i < T1_NQ; i++) if (h.dres[i] != vf_limbs_mod(X1 + h.lo, n, t1_q[i])) { printf("it %d size %d node %d: header residue %d is not the corrected part's\n", it, size, o->rank, i); bad = 1; }
     free(l); fclose(f);
