@@ -1,4 +1,4 @@
-/* fatal.c - one exit path for errors inside the run (Phase 14 C3; fatal.h has the rules).
+/* fatal.c - one exit path for errors inside the run (fatal.h has the rules).
  * Built with hipcc (the APU of the calling thread from hipGetDevice); -DEC_FATAL_NO_HIP for the host-only transport test. */
 #include "fatal.h"
 #include <stdio.h>

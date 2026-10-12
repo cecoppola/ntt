@@ -1,4 +1,4 @@
-/* t_copy_order.c - Phase 12 R (D5): the ordering of a device-to-device hipMemcpy against the other devices' streams.
+/* t_copy_order.c - the ordering of a device-to-device hipMemcpy against the other devices' streams.
  *
  * The level loop of binsplit.c copies the odd node of a level from one region (device) to another with hipMemcpy on
  * the destination device's null stream (mem_dev_copy_on).  This probes, on the machine itself, whether

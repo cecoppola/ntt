@@ -11,14 +11,14 @@
 #include "mem.h"
 #include <time.h>
 #include <stdarg.h>
-#include "p24.h"                                       /* Phase 15 Batch 3 P24: a P24 product's spill decode (sparse_get) */
+#include "p24.h"                                       /* a P24 product's spill decode (sparse_get) */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define CH 4096                                        /* limbs per carry chunk (256 threads x 16) */
 static const uint64_t B10 = 1000000000000000000ULL;
 struct db_stats db_st;
 static double tnow(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
-static int g_inited = 0;                               /* (the DBIG_SERIAL one-thread quarter driver was removed 2026-10-11) */
+static int g_inited = 0;                               /*  */
 static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT]);
 static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db_acct); } }
 
@@ -35,7 +35,7 @@ static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
 static void need_owner(const dbig *r, const char *what) { if (r->off || (!r->cap && r->n)) { ec_fatal(EC_RC_FATAL, "dbig: %s into a view\n", what); } }
 
-/* Phase 14 R1 (DB_POOL_VMM): a host -> device copy by a kernel on the device (pinned host memory read over the fabric) on a non-blocking
+/* a host -> device copy by a kernel on the device (pinned host memory read over the fabric) on a non-blocking
  * stream per device, and the wait: hipMemcpyAsync into a VMM range ran at 6 GB/s and blocked the seed thread for the copy's duration */
 __global__ void k_copy_h2d(uint64_t *dst, const uint64_t *src, size_t n)
 {
@@ -62,8 +62,8 @@ void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchro
  * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
  * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
  * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
- * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 since 2026-10-12 (user-adopted, results/CAND.md); on a CPX
- * XCD the 456 blocks need not all be resident and the first copy never completes (MRG, TASKS 47): CPX runs set BS_SEED_PULL=0. */
+ * to the same addresses as db_copy_h2d_async: digits identical.  Default 1 (results/CAND.md); on a CPX
+ * XCD the 456 blocks need not all be resident and the first copy never completes (CPX runs set BS_SEED_PULL=0. */
 struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
 #define DB_PULL_BLOCKS 456
 __global__ void k_pull(struct db_pullctl *c)
@@ -90,7 +90,7 @@ __global__ void k_pull(struct db_pullctl *c)
         if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->done, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
     }
 }
-int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 1; return on; }   /* default 1 since 2026-10-12 (user-adopted, results/CAND.md); 0 = the old hipMemcpy path */
+int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 1; return on; }   /* default 1; 0 = hipMemcpy */
 static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];
 static pthread_mutex_t g_pull_mx = PTHREAD_MUTEX_INITIALIZER;
 static struct { const void *h, *d; } g_pull_src[4]; static int g_pull_nsrc;   /* db_pull_resolve: the seed buffers' device pointers */
@@ -158,11 +158,11 @@ struct ext { char *p; size_t bytes; int reg; };                   /* reg: the wh
 static struct { struct ext e[8192]; int n; } g_ext[DB_NQ];
 static size_t g_pool_bytes;
 static struct { uint64_t *p; int dev; size_t bytes; int reg; } g_live[8192]; static int g_nlive;
-static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a background thread may free blocks */
+static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* a background thread may free blocks */
 static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
-static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
-static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
-/* Phase 15 MAP: ECALC_INIT_TL=1 prints init's timeline (`tl` lines on stdout: seconds since rns_init began; the arenas' mapping with
+static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* accounting: bytes handed out per device now, and the peak */
+static size_t g_win_peak[DB_NQ];                           /* the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
+/* ECALC_INIT_TL=1 prints init's timeline (`tl` lines on stdout: seconds since rns_init began; the arenas' mapping with
  * its HIP calls split, the seed thread, level 1's waits).  Print only; off by default.  =2 adds a line per background chunk */
 static int g_tl = -1; static double g_tl_t0;
 int db_tl_on(void) { if (g_tl < 0) g_tl = getenv("ECALC_INIT_TL") ? atoi(getenv("ECALC_INIT_TL")) : 0; return g_tl; }
@@ -186,7 +186,7 @@ static void ext_insert(int d, char *p, size_t bytes, int reg)
     else if (mnext) { e[i].p = p; e[i].bytes += bytes; }
     else { if (n >= 8192) { ec_fatal(EC_RC_FATAL, "dbig: extent table full\n"); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
 }
-/* Phase 11 M (archive:PLAN §26, decision 5): a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
+/* a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
  * by binsplit_pregrow to hold the largest block of the dm phase, t1's quarter).  Requests >= thresh are carved from the BACK of
  * the extent that ends at the tail's end (so the largest block lands there, contiguous); requests below it are best-fit over
  * the extents with the tail's bytes excluded, so the tail stays whole until the large request comes.  Both preferences are
@@ -200,7 +200,7 @@ void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh)
     g_tail[dev].p = (char *)p; g_tail[dev].bytes = bytes; g_tail[dev].end = (char *)p + bytes; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
     pthread_mutex_unlock(&g_pool_mx);
 }
-/* Phase 14 L1 (E5's layout half, DM_TAIL_DEAD): after the bs top level its dead inputs' blocks are free again -- the largest free extent
+/* after the bs top level its dead inputs' blocks are free again -- the largest free extent
  * of the device is where the reciprocal's largest block (t1) should land: its last `bytes` become the tail (the whole extent when it is
  * smaller, and then t1 cannot land in it whole: said on the line).  The former tail (the arena's end) is forgotten. */
 void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh)
@@ -225,14 +225,14 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
     size_t ov = (size_t)((b < tb ? b : tb) - (a > ta ? a : ta));
     return e->bytes - ov;
 }
-/* Phase 14 L1 (DM_TIGHT): large requests packed downward from the highest free end -- carved from the back of the highest-ending extent
+/* large requests packed downward from the highest free end -- carved from the back of the highest-ending extent
  * that holds them -- so the big blocks of the top level and the reciprocal (P, Q, t1, r2) stack at the arena's top and the free space
  * below them stays one extent.  With the tail rule alone the top level's P takes the tail's back, nothing ends at the tail's end any
  * more, and the reciprocal's r2 (1.0 n_Q) was best-fit into the middle: at 4e10 it found 10.8 GB free in 3 extents, largest 4.39 (job
  * 21131).  Small requests keep the best fit from the front, outside the tail. */
 static int g_pack_large;                              /* 1: bs (the top level's P, Q stay below the tail: t1 finds it whole); 2: the dm phase (the tail first, then the highest end) */
 void db_pool_pack_large(int on) { g_pack_large = on; }
-static int g_pin_tail;                                /* Phase 14 L1: while set, every request is carved from the back of the tail's free part (r right below t1: the tail is then full, nothing small can spill into it, and it is whole again once both are freed) */
+static int g_pin_tail;                                /* while set, every request is carved from the back of the tail's free part (r right below t1: the tail is then full, nothing small can spill into it, and it is whole again once both are freed) */
 void db_pool_pin_tail(int on) { g_pin_tail = on; }
 static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p + need) out of extent i (front, back or middle: the remainder above becomes a new extent) */
 {
@@ -286,7 +286,7 @@ static char *ext_take(int d, size_t need, int *reg)        /* best fit, carved f
     return p;
 }
 
-/* ---- Phase 14 R1 (E8, results/R114.md 5): the VMM-backed arena, DB_POOL_VMM=1 --------------------------------------------------
+/* ---- the VMM-backed arena, DB_POOL_VMM=1 --------------------------------------------------
  * One VA range per APU (hipMemAddressReserve, DB_POOL_VMM_RESERVE (3) x the arena), physical chunks of DB_POOL_VMM_CHUNK_GB (2) GiB
  * (hipMemCreate, pinned device memory) mapped from the range's start (hipMemMap) with read-write access for the four APUs
  * (hipMemSetAccess).  The pool's extents live over the range as over any region; a request that finds no contiguous extent is
@@ -299,14 +299,14 @@ int db_pool_vmm_on(void)
 {
     if (g_vmm_on < 0) {
         const char *e = getenv("DB_POOL_VMM");
-        g_vmm_on = e ? atoi(e) != 0 : 1;                                  /* default 1 since Phase 14 (R114) */
+        g_vmm_on = e ? atoi(e) != 0 : 1;                                  /* default 1 */
     }
     return g_vmm_on;
 }
 static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipMemGenericAllocationHandle_t *h;   /* h[slot]: the chunk mapped there, 0 = empty */
                     size_t n_remap, remap_chunks, n_grow, grow_chunks; double t_remap;
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg;
-                    double t_cr, t_mp, t_ac, t_ms; int mark_m; } g_vmm[DB_NQ];   /* Phase 15 MAP: seconds in hipMemCreate / hipMemMap / hipMemSetAccess / the zeroing, summed (ECALC_INIT_TL); mark_m: the chunk count of the parity-1 half's end */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
+                    double t_cr, t_mp, t_ac, t_ms; int mark_m; } g_vmm[DB_NQ];   /* seconds in hipMemCreate / hipMemMap / hipMemSetAccess / the zeroing, summed (ECALC_INIT_TL); mark_m: the chunk count of the parity-1 half's end */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
@@ -372,14 +372,14 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
     if (blocked >= 0) db_tl("APU%d waited %.2f s for chunks %d..%d of the arena", dev, mem_now() - tw, blocked, m - 1);
     if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
-size_t db_pool_vmm_chunk(void)                      /* Phase 15 AS: the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
+size_t db_pool_vmm_chunk(void)                      /* the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
 {
     const char *e = getenv("DB_POOL_VMM_CHUNK_GB"); double cg = e ? atof(e) : 2.0; size_t C = (size_t)(cg * 1073741824.0); if (C < ((size_t)2 << 20)) C = (size_t)2 << 20;
     return C / ((size_t)2 << 20) * ((size_t)2 << 20);
 }
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of `bytes` (rounded up to whole chunks: the rest is free pool space) as a VMM range; a borrowed region
                                                                  * record.  The first `first` bytes (the parity-0 half: the seeds' target) are mapped before returning, the rest by a thread
-                                                                 * (db_vmm_arena_wait before their first use: Phase 14 R1, the +8 s of init) */
+                                                                 * (db_vmm_arena_wait before their first use; mapping them in the background saves ~8 s of init) */
 {
     struct vmm *v = &g_vmm[dev]; double t0 = mem_now();
     size_t C = db_pool_vmm_chunk();
@@ -393,7 +393,7 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
     { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
-    v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
+    v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
     double tz = mem_now();
@@ -472,11 +472,11 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
 {
     int reg;
     char *p = ext_take(d, need, &reg);
-    if (!p && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* Phase 14 R1 (E8): the VMM arena re-stitches its free chunks */
+    if (!p && vmm_make_room(d, need)) p = ext_take(d, need, &reg);   /* the VMM arena re-stitches its free chunks */
     if (!p) {
         static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);
         if (vb) { size_t fr = 0, lg = 0; for (int i = 0; i < g_ext[d].n; i++) { fr += g_ext[d].e[i].bytes; if (g_ext[d].e[i].bytes > lg) lg = g_ext[d].e[i].bytes; }
-                  printf("dbig pool: APU%d hipMalloc %.2f GB inside the phase (free %.2f GB in %d extents, largest %.2f; live %.2f GB in %d blocks)\n", d, need / 1e9, fr / 1e9, g_ext[d].n, lg / 1e9, g_live_bytes[d] / 1e9, g_nlive); }   /* Phase 10 B4 (agent M): why the pre-sized pool still grows */
+                  printf("dbig pool: APU%d hipMalloc %.2f GB inside the phase (free %.2f GB in %d extents, largest %.2f; live %.2f GB in %d blocks)\n", d, need / 1e9, fr / 1e9, g_ext[d].n, lg / 1e9, g_live_bytes[d] / 1e9, g_nlive); }   /* why the pre-sized pool still grows */
         g_pool_bytes += need;
         int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d));
         void *m; if (hipMalloc(&m, need) != hipSuccess) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (inside a phase)", d, need); } HIP_CHECK(hipMemset(m, 0, need)); HIP_CHECK(hipDeviceSynchronize());
@@ -496,7 +496,7 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
-/* Phase 14 S1 (E1, E12): the pool's live bytes on a device now (read without the lock by the sampler thread: a size_t, one
+/* the pool's live bytes on a device now (read without the lock by the sampler thread: a size_t, one
  * value may be a moment old), and the peak since the last reset (reset = 1 restarts the window at the current value) */
 size_t db_pool_live(int dev) { return dev >= 0 && dev < DB_NQ ? __atomic_load_n(&g_live_bytes[dev], __ATOMIC_RELAXED) : 0; }
 size_t db_pool_window_peak(int dev, int reset)
@@ -510,7 +510,7 @@ size_t db_pool_window_peak(int dev, int reset)
 /* M3: per-APU scratch from the block pool (the multi-node product's packed slabs and the layered comm's transposes) */
 uint64_t *db_pool_alloc(int dev, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8; return q_alloc(dev, (bytes + al - 1) / al * al); }
 void db_pool_free(int dev, uint64_t *p) { if (p) q_free(dev, p); }
-/* grow the block pool of device dev by one region of `bytes` now (Phase 8: from a background thread while the GPUs run
+/* grow the block pool of device dev by one region of `bytes` now (from a background thread while the GPUs run
  * the levels -- hipMalloc is 0.057 s/GB of CPU-side driver work, hidden there instead of inside the Newton loop) */
 void db_pregrow(int dev, size_t bytes)
 {
@@ -530,14 +530,14 @@ void db_donate_ext(int dev, void *p, size_t bytes, int own)
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
 }
-/* Phase 9 C4: a borrowed range that is part of the same allocation as an already borrowed region next to it (the
+/* a borrowed range that is part of the same allocation as an already borrowed region next to it (the
  * two parities of a bs region arena, donated at different moments): joined into that region's record, so that
  * their extents coalesce (extents never merge across regions, a block must stay inside one allocation).  With no
  * neighbour it is an ordinary borrowed region. */
 void db_donate_adjacent(int dev, void *p, size_t bytes)
 {
     pthread_mutex_lock(&g_pool_mx);
-    { int reg; if (vmm_region_has(dev, (const char *)p, bytes, &reg)) {                                   /* Phase 14 R1 (E8): a range of the VMM arena joins its record (mapped first) */
+    { int reg; if (vmm_region_has(dev, (const char *)p, bytes, &reg)) {                                   /* a range of the VMM arena joins its record (mapped first) */
         struct vmm *v = &g_vmm[dev]; int m = (int)(((char *)p + bytes - v->base + v->chunk - 1) / v->chunk); if (m > v->m0) m = v->m0;
         if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
         while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
@@ -557,7 +557,7 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
     pthread_mutex_lock(&g_pool_mx);
     for (int i = 0; i < g_ndonated; i++) { int d = g_donated[i].dev; if (d < 0 || d >= ndev) continue;
         size_t bytes = g_donated[i].bytes;
-        if (g_vmm[d].base && i == g_vmm[d].reg) { bytes = 0; for (int k = 0; k < g_vmm[d].nslot; k++) if (g_vmm[d].h[k]) bytes += g_vmm[d].chunk; }   /* Phase 14 R1 (E8): the chunks mapped now */
+        if (g_vmm[d].base && i == g_vmm[d].reg) { bytes = 0; for (int k = 0; k < g_vmm[d].nslot; k++) if (g_vmm[d].h[k]) bytes += g_vmm[d].chunk; }   /* the chunks mapped now */
         b[d][g_donated[i].kind == 2 ? MEM_DEV_POOL_HIPMALLOC : g_donated[i].kind == 1 ? MEM_DEV_POOL_BORROWED : MEM_DEV_POOL_DONATED] += bytes; }
     for (int d = 0; d < DB_NQ && d < ndev; d++) { b[d][MEM_DEV_POOL_LIVE] += g_live_bytes[d]; b[d][MEM_DEV_POOL_PEAK_LIVE] += g_peak_live[d]; b[d][MEM_DEV_POOL_FREE] += db_pool_free_bytes(d); }
     pthread_mutex_unlock(&g_pool_mx);
@@ -565,18 +565,18 @@ static void db_acct(int ndev, size_t b[][MEM_DEV_NCAT])
 size_t db_pool_free_bytes(int d) { size_t s = 0; for (int i = 0; i < g_ext[d].n; i++) s += g_ext[d].e[i].bytes; return s; }
 int db_pool_extents(int d) { return g_ext[d].n; }
 size_t db_pool_largest_free(int d) { size_t m = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) if (g_ext[d].e[i].bytes > m) m = g_ext[d].e[i].bytes; pthread_mutex_unlock(&g_pool_mx); return m; }
-/* Phase 15 Batch 3 PC (results/PC15.md; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
+/* (results/PC15.md; RNS_DIST_CACHE_PARTIAL, rns_dist.c cache_pc_take): how many blocks of `bytes` the free extents hold as
  * they are -- no remap, no growth (each block within one extent) */
 size_t db_pool_fit_count(int d, size_t bytes) { size_t al = (size_t)DB_ALIGN * 8, b = (bytes + al - 1) / al * al, c = 0; if (!b) return 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ext[d].n; i++) c += g_ext[d].e[i].bytes / b; pthread_mutex_unlock(&g_pool_mx); return c; }
 size_t db_pool_hipmalloc_bytes(int d) { size_t s = 0; pthread_mutex_lock(&g_pool_mx); for (int i = 0; i < g_ndonated; i++) if (g_donated[i].dev == d && g_donated[i].kind == 2) s += g_donated[i].bytes; pthread_mutex_unlock(&g_pool_mx); return s; }
 void db_release_pools(void)
 {
-    { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);   /* Phase 11 M: how the reserved tails were used */
+    { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0);   /* how the reserved tails were used */
       if (vb) for (int d = 0; d < DB_NQ; d++) if (g_tail[d].bytes) printf("dbig pool: APU%d tail %.2f GB: %zu large blocks from its back, %zu small blocks spilled into it\n", d, g_tail[d].bytes / 1e9, g_tail[d].n_tail, g_tail[d].n_spill); }
     for (int d = 0; d < DB_NQ; d++) g_ext[d].n = 0;              /* every extent is a piece of a whole region */
     for (int i = 0; i < g_ndonated; i++) if (g_donated[i].own) q_release(g_donated[i].dev, (uint64_t *)g_donated[i].p);
     g_ndonated = 0; g_nlive = 0; g_pool_bytes = 0;
-    memset(g_live_bytes, 0, sizeof g_live_bytes); memset(g_win_peak, 0, sizeof g_win_peak); memset(g_tail, 0, sizeof g_tail);   /* Phase 11 M: the reserved tails go with their regions */
+    memset(g_live_bytes, 0, sizeof g_live_bytes); memset(g_win_peak, 0, sizeof g_win_peak); memset(g_tail, 0, sizeof g_tail);   /* the reserved tails go with their regions */
 }
 size_t db_pool_bytes(void) { return g_pool_bytes; }
 void db_init(dbig *x) { par_init(); memset(x, 0, sizeof *x); }
@@ -607,14 +607,14 @@ void db_reserve(dbig *x, size_t limbs)
     db_st.t_reserve += tnow() - t0;
 }
 /* (the kernels above synchronise the null stream only, not the device: a background copy on the non-blocking
- * stream below must not be waited for by every kernel of the Newton loop -- Phase 8, RESULTS.md 68) */
+ * stream below must not be waited for by every kernel of the Newton loop) */
 /* host <-> device copies through a pinned bounce buffer per device (1 GiB): hipMemcpy with pageable host
  * memory runs at ~3 GB/s, pinned at ~50 GB/s; the host side is a parallel memcpy.  Quarters one after
  * another (concurrent hipMemcpy with pageable memory faults, RESULTS.md 59), chunks pipelined by two. */
 #define BOUNCE ((size_t)1 << 27)                              /* limbs: 1 GiB */
 static uint64_t *g_bounce[DB_NQ][2]; static hipStream_t g_bs[DB_NQ];
-static pthread_mutex_t g_bounce_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: copies may be issued from a background thread; one at a time per process */
-static void bs_init(int d) { if (!g_bs[d]) HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking)); }   /* Phase 8: copies from a background thread must not serialise with the kernels on the null stream */
+static pthread_mutex_t g_bounce_mx = PTHREAD_MUTEX_INITIALIZER;   /* copies may be issued from a background thread; one at a time per process */
+static void bs_init(int d) { if (!g_bs[d]) HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking)); }   /* copies from a background thread must not serialise with the kernels on the null stream */
 static void bounce_init(int d)
 {
     if (g_bounce[d][0]) return;
@@ -622,7 +622,7 @@ static void bounce_init(int d)
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
     bs_init(d);
 }
-/* O2: DBIG_SMALL_BOUNCE=1 (default on since 2026-10-12; 0 = the old path) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
+/* DBIG_SMALL_BOUNCE=1 (default on; 0 = the two big buffers) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
  * every aac7 node, longer on one, in the reciprocal's gather of 0.2 MB, results/O2.md); the small buffer costs milliseconds.
  * The bytes copied are the same, so digits are identical; the big buffers are still allocated on the first large copy. */
@@ -698,7 +698,7 @@ void db_to_bi(bigint *r, const dbig *x)
     pthread_mutex_unlock(&g_bounce_mx);
 }
 
-/* ---- residue mod q of a device number (Phase 8 I3: the T1 residues of P, Q, R without host copies) ----
+/* ---- residue mod q of a device number (the T1 residues of P, Q, R without host copies) ----
  * coalesced: a block of MQ_T threads owns a chunk of MQ_T MQ_K limbs; thread t takes the limbs i = t (mod MQ_T)
  * of the chunk (Horner with B^MQ_T from the top), scales by B^t and the block sums mod q; the host combines
  * the chunk values with B^(MQ_T MQ_K), Horner from the top quarter down */
@@ -719,7 +719,7 @@ __global__ void k_modq(const uint64_t *x, size_t n, int nq, const uint64_t *qs, 
         __syncthreads();
     }
 }
-/* S51 K3 (adopted 2026-10-11): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
+/* k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
  * v <- montmul(v, B^MQ_T R mod q) + (x mod q) is (v B^MQ_T + x) mod q exactly, and sh <- montmul(v, B^t R mod q); the residues are those of k_modq, bit for bit. */
 __device__ __forceinline__ uint64_t mq_mm(uint64_t a, uint64_t b, uint64_t q, uint64_t qi)   /* a b / 2^64 mod q, a < 2^64, b < q, qi = q^-1 mod 2^64 */
 {
@@ -751,9 +751,9 @@ static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 #define MQ_MAXQ 16
 /* residues of x modulo nq primes (each < 2^63) at once: the quarters in parallel, one launch per quarter */
-static pthread_mutex_t g_mq_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 10 H (B1): the output stage's background thread takes X's residues while the division goes on (R's) -- the scratch above is shared */
+static pthread_mutex_t g_mq_mx = PTHREAD_MUTEX_INITIALIZER;   /* the output stage's background thread takes X's residues while the division goes on (R's) -- the scratch above is shared */
 static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);
-/* Phase 11 V (D5): ECALC_RES_LOG=1 -- every residue the kernel computes is cross-checked against the host Horner over a
+/* ECALC_RES_LOG=1 -- every residue the kernel computes is cross-checked against the host Horner over a
  * copy of the number (vf_limbs_mod) and both are printed, so a wrong residue names its side (RES lines, one per call) */
 #include "verify.h"
 int db_res_log = -1;
@@ -829,9 +829,9 @@ __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a,
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
 struct sparse { const uint64_t *sp[4]; size_t R, rows, C; int single; size_t pos; uint64_t val;
-                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (Phase 15 Batch 3 P24, results/P2415.md): the blocks at L(R j + a') of p24.h */   /* tab[d] (Phase 12 G, agent G: the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
+                size_t lo; int gt; const size_t *tab[4]; int p24; };   /* p24 (results/P2415.md): the blocks at L(R j + a') of p24.h */   /* tab[d] (the exact spill exchange): sp[d] holds only the blocks that meet this share, per source node r the columns [tab[3r], tab[3r+1]) at block offset tab[3r+2]; 0 = the full [r][j][4] layout */   /* single: one limb val at pos.  gt > 0 (M3): the node's share [lo, ..) of a number whose product ran on 4 gt ranks,
                                          * rank rho = gt d + r: sp[d] holds [r][j][4], spill (rho, j) at global limb R j + (rho + 1) rows -- or, when rows nr != R
-                                         * (Phase 11 L: gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
+                                         * (gt = g nodes of any count, rows = floor(R / nr)), at R j + R (rho + 1) / nr */
 __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
 {
     if (s.single) return i == s.pos ? s.val : 0;
@@ -844,10 +844,10 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     if (s.gt) {
         size_t m = i + s.lo, j = m / s.R, rem = m - j * s.R, q, t; int nr = 4 * s.gt, rho;
         if (s.rows * (size_t)nr == s.R) { q = rem / s.rows; t = rem - q * s.rows; }
-        else { q = ((rem + 1) * (size_t)nr + s.R - 1) / s.R - 1; t = rem - s.R * q / nr; }   /* Phase 11 L (agent L, minimal): unequal parts -- rank rho holds rows [R rho / nr, R (rho+1) / nr); q = the rank whose part starts at or below rem, i.e. rho + 1 of the spill's rank */
+        else { q = ((rem + 1) * (size_t)nr + s.R - 1) / s.R - 1; t = rem - s.R * q / nr; }   /* unequal parts -- rank rho holds rows [R rho / nr, R (rho+1) / nr); q = the rank whose part starts at or below rem, i.e. rho + 1 of the spill's rank */
         if (t >= 4) return 0; if (q == 0) { if (j < 1 || j - 1 >= s.C) return 0; rho = nr - 1; j--; } else { rho = (int)q - 1; if (j >= s.C) return 0; }
         int d = rho / s.gt, r = rho - d * s.gt;
-        if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }   /* Phase 12 G: the compact form */
+        if (s.tab[d]) { const size_t *e = s.tab[d] + 3 * (size_t)r; if (j < e[0] || j >= e[1]) return 0; return s.sp[d][(e[2] + (j - e[0])) * 4 + t]; }   /* the compact form */
         return s.sp[d][((size_t)r * s.C + j) * 4 + t];
     }
     /* i = R j + (r+1) rows + t, t < 4: j = i / R, rem = i - R j; r+1 = rem / rows if rem % rows < 4 */
@@ -856,7 +856,7 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     if (q == 0) return (j >= 1 && j - 1 < s.C) ? s.sp[3][(j - 1) * 4 + t] : 0;   /* rank 3's spill of column j-1 lands at R j */
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
-/* S51 K2 (adopted 2026-10-11; it replaced S38's k_addsub2 and the original k_addsub: same arithmetic, flags and digits): a 16 KB tile and a wave-level carry scan.
+/* 16 KB tile and a wave-level carry scan.
  * The chunk is CH = 4096 limbs with the flags (cout / prop) that the host scan and k_carry use.  Each thread owns two 8-limb segments (A: limbs 8 tid .. , B: 2048 + 8 tid ..): the block loads and stores
  * the chunk in two halves of 2048 limbs through a 16 KB XOR-swizzled tile (four blocks per CU, against two), and the (generate, propagate) pairs of the 512 segments in
  * order are scanned by __shfl_up inside each wave plus a four-entry combine, not by thread 0 over 2 x 256 entries. */
@@ -961,7 +961,7 @@ __global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t h
 }
 
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 8 ? 228 * 8 : b); }
-static uint8_t *g_flags[DB_NQ][2]; static size_t g_flags_cap[DB_NQ]; static size_t *g_red[DB_NQ];   /* per quarter, touched only by the thread driving quarter d (Phase 14 A1: the shared host reduction buffer g_hred is gone -- its first-use allocation raced between the four threads) */
+static uint8_t *g_flags[DB_NQ][2]; static size_t g_flags_cap[DB_NQ]; static size_t *g_red[DB_NQ];   /* per quarter, touched only by the thread driving quarter d (the shared host reduction buffer g_hred is gone -- its first-use allocation raced between the four threads) */
 static void flags_reserve(int d, size_t chunks)
 {
     if (g_flags_cap[d] >= chunks) return;
@@ -1057,14 +1057,14 @@ void db_share_add_spills(dbig *r, size_t n, size_t lo, const uint64_t *const sp[
     struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) s.sp[q] = sp[q]; s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
-/* Phase 12 G (agent G, minimal): the same with the compact spill buffers of the exact exchange (rns_dist.c mn_core): sp[d] holds, per
+/* the same with the compact spill buffers of the exact exchange (rns_dist.c mn_core): sp[d] holds, per
  * source node r in order, the 4-limb blocks of the columns [tab[d][3r], tab[d][3r+1]) at block offset tab[d][3r+2] (device tables) */
 void db_share_add_spills_x(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t rows, size_t C, int gt, int *cout, int *prop)
 {
     struct sparse s; memset(&s, 0, sizeof s); for (int q = 0; q < 4; q++) { s.sp[q] = sp[q]; s.tab[q] = tab[q]; } s.R = R; s.rows = rows; s.C = C; s.lo = lo; s.gt = gt;
     addsub_core2(r, r, 0, 0, &s, n, 0, n, cout, prop);
 }
-/* Phase 15 Batch 3 P24 (results/P2415.md): the same for a P24 product -- the spill of (rank rho, column j) at limb L(R j + a'), a' the
+/* the same for a P24 product -- the spill of (rank rho, column j) at limb L(R j + a'), a' the
  * next rank's first row (p24.h) */
 void db_share_add_spills_x24(dbig *r, size_t n, size_t lo, const uint64_t *const sp[4], const size_t *const tab[4], size_t R, size_t C, int gt, int *cout, int *prop)
 {
@@ -1086,7 +1086,7 @@ void db_share_add_val(dbig *r, size_t n, size_t pos, uint64_t val, int sub, int 
     struct sparse s; memset(&s, 0, sizeof s); s.single = 1; s.pos = pos; s.val = val;
     addsub_core2(r, r, 0, 0, &s, n, sub, n, cout, prop);
 }
-/* Phase 9 A3 (the grid over shares, rns_dist.c): r (n limbs, in place) += a << k; fixed length, carry out and propagate reported */
+/* r (n limbs, in place) += a << k; fixed length, carry out and propagate reported */
 void db_share_add_shifted(dbig *r, size_t n, const dbig *a, size_t k, int *cout, int *prop) { addsub_core2(r, a, k, r, 0, n, 0, n, cout, prop); }
 void db_add(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 0); }
 void db_sub(dbig *r, const dbig *a, const dbig *b) { addsub_core(r, a, 0, b, 0, b->n, 1); }
@@ -1145,7 +1145,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
             blocks = nblk(whi - wlo);
 #pragma omp critical
             k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
-        /* Phase 14 A1 (the intermittent garbage leaf length, results/A114.md): the per-block results come to this thread's own
+        /* (results/A114.md) the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in
          * one buffer read the other, uninitialised one.  The first db_norm of a process is the leaf hand-over's db_copy at
@@ -1159,7 +1159,7 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         if (m > best) best = m;
     }
     db_st.t_maxidx += tnow() - t0;
-    if (best > n) { ec_fatal(EC_RC_FATAL, "dbig: maxidx returned %zu for %zu limbs (a corrupted length reduction)\n", best, n); }   /* Phase 14 A1: a length is never garbage silently */
+    if (best > n) { ec_fatal(EC_RC_FATAL, "dbig: maxidx returned %zu for %zu limbs (a corrupted length reduction)\n", best, n); }   /* a length is never garbage silently */
     return best;
 }
 void db_norm(dbig *r) { r->n = maxidx(r, 0, r->n); }

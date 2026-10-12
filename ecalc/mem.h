@@ -22,7 +22,7 @@ int  mem_numa_node_of_device(int dev);              /* node index (== dev here) 
 void mem_pin_to_node(int node);                     /* sched_setaffinity to the node's cpulist */
 void mem_unpin(void);                               /* back to all cpus */
 int  mem_ncpus_node(int node);
-extern int mem_par_init;                 /* Phase 8: parallel per-device init (touch teams sized to the node) */
+extern int mem_par_init;                 /* parallel per-device init (touch teams sized to the node) */
 
 /* pinned staging on the device's NUMA node; bytes is rounded up to 2 MiB */
 void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s);
@@ -36,8 +36,7 @@ void  mem_hreg_free(void *p);
 int   mem_is_registered(const void *p, size_t bytes);
 /* WP3: device pools the CPU also uses (hipMalloc on dev; CPU read/write at the local rate with
  * XNACK off, RESULTS.md 55); mem_dev_of says which device holds a pointer (-1: not a device pool) */
-/* every large device allocation (planes, regions, the block pool's chunks) is a hipMalloc (the MEM_ALLOC forms of Phase 12 I,
- * results/I.md, were removed 2026-10-11).  mem_dev_malloc / mem_dev_release are the raw pair (no registry, no memset). */
+/* every large device allocation (planes, regions, the block pool's chunks) is a hipMalloc (results/I.md).  mem_dev_malloc / mem_dev_release are the raw pair (no registry, no memset). */
 void *mem_dev_malloc(int dev, size_t bytes);           /* NULL when the allocation fails */
 void  mem_dev_release(int dev, void *p);
 void *mem_dev_alloc(int dev, size_t bytes);
@@ -46,24 +45,24 @@ void  mem_dev_forget(void *p);
 void  mem_dev_free_raw(int dev, void *p);              /* hipFree of a block no longer in the registry (a forgotten arena) */
 int   mem_dev_of(const void *p);
 size_t mem_dev_pool_bytes(void);
-void mem_dev_note(int dev, void *p, size_t bytes);   /* Phase 14 R1 (E8): register a device range mapped elsewhere (the VMM arena) */
+void mem_dev_note(int dev, void *p, size_t bytes);   /* register a device range mapped elsewhere (the VMM arena) */
 int   mem_device_count(void);
 void  mem_dev_copy(void *dst, const void *src, size_t bytes);
 void  mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes);   /* hipMemcpy (DMA): CPU streaming stores into device pools run at ~8 GB/s */                    /* total in device pools (not in RSS) */
-void  mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes);   /* Phase 10 H (B2): hipMemcpyAsync on a non-blocking stream of dev (pinned host memory); mem_dev_copy_wait waits for the stream */
+void  mem_dev_copy_async(int dev, void *dst, const void *src, size_t bytes);   /* hipMemcpyAsync on a non-blocking stream of dev (pinned host memory); mem_dev_copy_wait waits for the stream */
 void  mem_dev_copy_wait(int dev);
 /* WP3: pin every OpenMP thread to its home node (thread t -> node t nnodes / nthreads) so that
  * region-aware loops touch node-local memory; mem_unpin() returns a thread to its home */
-int  mem_thread_home(void);                          /* always -1 (thread pinning removed 2026-10-11) */
+int  mem_thread_home(void);                          /* always -1 */
 int  mem_region_threads(int *rank);                 /* count of threads on this node, and this thread's rank among them */
 
-/* Phase 12 R (D5): 1 while a phase is running (set by binsplit_e over its level loop and left set for the reciprocal and the
+/* 1 while a phase is running (set by binsplit_e over its level loop and left set for the reciprocal and the
  * division that follow it; cleared around the level-0 sizing, where a fresh run legitimately lays its pools out again).
  * A pool that would grow while it is set aborts with the accounting unless RNS_POOL_GROW=1 (results/R.md). */
 extern int mem_pool_guard;
 typedef struct { void *p; size_t cap; int dev; } dpool;
 void *dpool_get(dpool *d, int dev, size_t bytes);   /* grows to pow2 >= bytes on device dev */
-void *dpool_get_exact(dpool *d, int dev, size_t bytes);   /* Phase 9 C4: grows to exactly bytes (2 MiB-aligned), no power-of-two rounding */
+void *dpool_get_exact(dpool *d, int dev, size_t bytes);   /* grows to exactly bytes (2 MiB-aligned), no power-of-two rounding */
 void  dpool_free(dpool *d);
 
 typedef struct { void *p; size_t cap; } hpool;
@@ -74,7 +73,7 @@ size_t mem_vmhwm(void);
 size_t mem_vmrss(void);
 double mem_now(void);
 
-/* Phase 9 M9: memory accounting per node-process.  Modules that own device memory register a provider
+/* memory accounting per node-process.  Modules that own device memory register a provider
  * that adds its bytes per device into a [ndev][MEM_DEV_NCAT] table (mem.c itself supplies the regions it
  * allocated); the driver names its host buffers (X, the digit string) and calls mem_report at phase
  * boundaries; mem_report_summary prints one table of every recorded phase.  Bytes as allocated (mapped),
@@ -89,10 +88,10 @@ void mem_report_host_item(int cat, size_t bytes);   /* MEM_HOST_X / MEM_HOST_DIG
 void mem_report(const char *phase);                 /* print this phase's table (and remember it) */
 void mem_report_summary(void);                      /* every recorded phase, one table */
 size_t mem_report_dev_total(void);                  /* device bytes in use at the last mem_report (all devices) */
-/* B7ACCT: MEM_REPORT_DEVS's per-APU line also prints the layout's terms outside "in use": the v-slots (binsplit_vslot_bytes, per APU),
+/* MEM_REPORT_DEVS's per-APU line also prints the layout's terms outside "in use": the v-slots (binsplit_vslot_bytes, per APU),
  * the comm_ofi pool per device, and the v-slots hipMalloc'd now (live(dev): comm_layered_vbytes) -- set once by the driver */
 void mem_report_outside(size_t vslot_apu, size_t ofi_apu, size_t (*live)(int dev));
-void mem_oom(const char *where, int dev, size_t bytes);   /* Phase 10 B4 (agent M): a failed device allocation: print the request and the accounting, then exit */
+void mem_oom(const char *where, int dev, size_t bytes);   /* a failed device allocation: print the request and the accounting, then exit */
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-/* mn_out.c - per-node output and verification: see mn_out.h (Phase 9 A-out, archive:PLAN §19 M5 + C1) */
+/* mn_out.c - per-node output and verification: see mn_out.h */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -12,9 +12,9 @@
 #include <hip/hip_runtime.h>
 #include "mn_out.h"
 #include "mem.h"
-#include "spill.h"                                    /* Phase 14 S1 (E3): ECALC_ODIRECT */
-#include <sys/stat.h>                                 /* Phase 15 K: the patch (fstat) */
-#include "packed_fmt.h"                               /* Phase 15 IO (W2): ECALC_OUT_PACKED */
+#include "spill.h"                                    /* ECALC_ODIRECT */
+#include <sys/stat.h>                                 /* the patch (fstat) */
+#include "packed_fmt.h"                               /* ECALC_OUT_PACKED */
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 /* ---- small collectives on host vectors, through comm_allgather (device buffers on APU 0) ---- */
@@ -99,7 +99,7 @@ static void fmt_limbs(char *dst, const uint64_t *l, size_t cnt)
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < cnt; i++) fmt18(dst + (cnt - 1 - i) * 18, l[i]);
 }
-/* limbs [a, a+cnt) of a device number (a relative to it; views honoured) into a pinned host buffer.  Phase 10 H (B1): the
+/* limbs [a, a+cnt) of a device number (a relative to it; views honoured) into a pinned host buffer.  the
  * writer reads X on the device while the low product runs on the GPUs -- the copies go on a non-blocking stream per APU
  * (a null-stream hipMemcpy would serialise with every kernel of the product) */
 static hipStream_t g_fs[DB_NQ]; static pthread_once_t g_fs_once = PTHREAD_ONCE_INIT;
@@ -117,7 +117,7 @@ static void dev_fetch(const dbig *x, size_t a, size_t cnt, uint64_t *host)
     }
     HIP_CHECK(hipSetDevice(dev0));
 }
-/* Phase 15 EW: the part's index, the count, the file name (nparts > 1: <outfile>.part<index>) */
+/* the part's index, the count, the file name (nparts > 1: <outfile>.part<index>) */
 static int part_idx(const mn_out *o) { return o->nparts ? o->part : o->size - 1 - o->rank; }
 static int part_cnt(const mn_out *o) { return o->nparts ? o->nparts : o->size; }
 static void part_name(const mn_out *o, char *name, size_t n) { if (part_cnt(o) > 1) snprintf(name, n, "%s.part%04d", o->outfile, part_idx(o)); else snprintf(name, n, "%s", o->outfile); }
@@ -125,7 +125,7 @@ static void part_name(const mn_out *o, char *name, size_t n) { if (part_cnt(o) >
 static void ranges(const mn_out *o, const mn_out_src *src, size_t *nl, size_t *pad, size_t *lo, size_t *hi, size_t *k0, size_t *k1)
 {
     *nl = (o->d + 1 + 17) / 18; *pad = *nl * 18 - (o->d + 1);
-    size_t top = o->lim && o->lim < *nl ? o->lim : *nl;              /* Phase 15 EW: X_lo's layer ends at lim = s */
+    size_t top = o->lim && o->lim < *nl ? o->lim : *nl;              /* X_lo's layer ends at lim = s */
     *lo = src->lo; *hi = src->lo + src->cnt; if (*hi > top) *hi = top; if (*lo > *hi) *lo = *hi;
     if (o->rank == o->size - 1 && *hi < top) *hi = top;              /* the top node covers the leading limbs even if X is shorter (zeros) */
     if (*lo >= *hi) { *k0 = *k1 = 0; return; }
@@ -133,13 +133,13 @@ static void ranges(const mn_out *o, const mn_out_src *src, size_t *nl, size_t *p
 }
 /* the T2 tails: every node's last min(49, its range) digits, all-gathered; this node's head = the tails of the
  * nodes above it (nearest first) cut to 49 */
-/* Phase 15 EW: the same with `above` (the digits before this layer's top part: X_hi's last digits for X_lo's layer) after the ranks'
+/* the same with `above` (the digits before this layer's top part: X_hi's last digits for X_lo's layer) after the ranks'
  * tails, and the layer's own last 49 digits out in bot (every rank the same; 0: not wanted) */
 static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char *above, size_t nabove, char *bot, size_t *nbot);
 void mn_out_boundaries(mn_out *o, const mn_out_src *src, comm *c) { boundaries_ex(o, src, c, 0, 0, 0, 0); }
 static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char *above, size_t nabove, char *bot, size_t *nbot)
 {
-    o->nhead = 0; o->c = c;                                       /* Phase 15 IO (W5b): the waves' barrier */
+    o->nhead = 0; o->c = c;                                       /* the waves' barrier */
     if (!c || comm_size(c) == 1) return;
     size_t nl, pad, lo, hi, k0, k1; ranges(o, src, &nl, &pad, &lo, &hi, &k0, &k1);
     char tail[64]; size_t nt = 0;
@@ -155,7 +155,7 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
     uint64_t v[8]; memset(v, 0, sizeof v); v[0] = nt; memcpy(v + 1, tail, nt);
     int n = comm_size(c), me = comm_rank(c); uint64_t *all = (uint64_t *)malloc((size_t)n * 8 * 8);
     mn_out_allgather_u64(c, v, 8, all);
-    for (int pass = 0; pass < 2; pass++) {                        /* 0: this node's head; 1 (Phase 15 EW): the layer's last digits (the head below rank 0) */
+    for (int pass = 0; pass < 2; pass++) {                        /* 0: this node's head; 1: the layer's last digits (the head below rank 0) */
         if (pass && !bot) break;
         char head[64 * 3]; size_t nh = 0;                         /* built from the nearest node above outwards */
         for (int r = pass ? 0 : me + 1; r < n && nh < 49; r++) {
@@ -171,7 +171,7 @@ static void boundaries_ex(mn_out *o, const mn_out_src *src, comm *c, const char 
 
 /* ---- the writer thread: one job at a time (a chunk of the part file), the formatter blocks only when both
  * buffers are in flight ----
- * Phase 15 IO (W1): the write mode (ECALC_OUT_MODE: direct / buffered / sync / drop / auto; unset = the Phase 14 rule) and
+ * the write mode (ECALC_OUT_MODE: direct / buffered / sync / drop / auto; unset = the rule below) and
  * the number of pwrite threads per chunk (MN_OUT_THREADS, 8).  W2: the packed form (ECALC_OUT_PACKED=1, packed_fmt.h).
  * W5: the stripe layout (MN_OUT_STRIPE) and the waves (MN_OUT_WAVES).  Functions: out_mode, out_stripe, out_open,
  * direct_job, writer_run, writer_drain, out_packed, packed_mods, packed_digits, packed_hdr_*, out_run_one, mn_out_run
@@ -182,15 +182,15 @@ struct wjob { const char *data; size_t len; size_t off; int prefix, newline, buf
 struct writer {
     int fd; pthread_t th; sem_t job_ready, job_taken, buf_free[2]; struct wjob job; int stop; double t_write; size_t bytes; int err;
     char *buf[2]; uint64_t *lbuf; size_t bufsz; int dev_src;
-    int direct; char *abuf; size_t ncarry; uint64_t apos;   /* Phase 14 S1 (E3): the O_DIRECT form -- an aligned staging copy, the < 4 KiB carry, the file offset of its first byte */
-    int mode, nt, packed, has_pend; uint64_t pend, poff; char *hdr;                         /* Phase 15 IO: OUT_*, pwrite threads, the packed form and its header (aligned, ECP_HDR_BYTES) */
+    int direct; char *abuf; size_t ncarry; uint64_t apos;   /* the O_DIRECT form -- an aligned staging copy, the < 4 KiB carry, the file offset of its first byte */
+    int mode, nt, packed, has_pend; uint64_t pend, poff; char *hdr;                         /* OUT_*, pwrite threads, the packed form and its header (aligned, ECP_HDR_BYTES) */
 };
 static void pwrite_all(int fd, const char *p, size_t n, size_t off, int *err)
 {
     while (n) { ssize_t w = pwrite(fd, p, n, (off_t)off); if (w < 0) { if (errno == EINTR) continue; *err = errno; return; } p += w; n -= (size_t)w; off += (size_t)w; }
 }
-/* Phase 15 IO (W1, W7): the write mode of a part file.  ECALC_OUT_MODE=direct|buffered|sync|drop sets it; =auto takes the file
- * system's rule (spill.c sp_direct_by_fs: O_DIRECT on local disks and Lustre [assumed], else sync); unset: the Phase 14 rule
+/* the write mode of a part file.  ECALC_OUT_MODE=direct|buffered|sync|drop sets it; =auto takes the file
+ * system's rule (spill.c sp_direct_by_fs: O_DIRECT on local disks and Lustre [assumed], else sync); unset: the same rule
  * (O_DIRECT when ECALC_ODIRECT is on [ECALC_ODIRECT=auto: by the file system] and ECALC_OUT_ODIRECT is not 0, else buffered;
  * with ECALC_ODIRECT=auto the buffered form is sync) */
 static int out_mode(const char *name)
@@ -207,7 +207,7 @@ static int out_mode(const char *name)
     if (sp_direct_for(name) && (!getenv("ECALC_OUT_ODIRECT") || atoi(getenv("ECALC_OUT_ODIRECT")))) return OUT_DIRECT;
     return sp_odirect_auto() ? OUT_SYNC : OUT_BUFFERED;
 }
-/* Phase 15 IO (W5a): MN_OUT_STRIPE=<count>[:<stripe MB>[:<OSTs>]] -- the part file created with that Lustre layout before it is
+/* MN_OUT_STRIPE=<count>[:<stripe MB>[:<OSTs>]] -- the part file created with that Lustre layout before it is
  * opened (a new file takes its directory's layout otherwise).  With <OSTs> (the file system's OST count) the first OST is
  * (part * count) mod OSTs, so the nodes' files start on distinct targets; without it Lustre's allocator places them.  Built
  * with -DMN_OUT_LLAPI (and -llustreapi) the layout is set by llapi_file_create, else by running `lfs setstripe`.  Only on a
@@ -243,7 +243,7 @@ static void out_stripe(const char *name, int part, int verbose)
 #endif
     if (verbose || part == 0 || rc) printf("mn_out: %s: stripe count %ld, size %ld MB, first OST %ld (%s)\n", name, cnt, smb, idx, rc ? "FAILED: the file takes its directory's layout" : "set");
 }
-/* Phase 14 S1 (E3): one job in the O_DIRECT form.  The jobs arrive in file order (each chunk starts where the last ended),
+/* one job in the O_DIRECT form.  The jobs arrive in file order (each chunk starts where the last ended),
  * so the bytes are appended to the aligned staging copy after the carry, the whole 4 KiB blocks written (8 threads, as
  * the buffered form), the rest carried; mn_out_finish writes the last block padded and truncates the file to size */
 static void direct_job(struct writer *w, const struct wjob *j)
@@ -284,7 +284,7 @@ static void *writer_run(void *a)
             off += j.len; w->bytes += j.len;
         }
         if (j.newline) { pwrite_all(w->fd, "\n", 1, off, &w->err); w->bytes++; off++; }
-        if (w->mode == OUT_DROP && !w->err) {            /* Phase 15 IO (W1): the chunk on the server, then out of the page cache (HBM on the APU) */
+        if (w->mode == OUT_DROP && !w->err) {            /* the chunk on the server, then out of the page cache (HBM on the APU) */
             if (fdatasync(w->fd) != 0) w->err = errno;
             posix_fadvise(w->fd, (off_t)off0, (off_t)(off - off0), POSIX_FADV_DONTNEED);
         }
@@ -293,7 +293,7 @@ static void *writer_run(void *a)
     }
     return 0;
 }
-/* Phase 15 IO (W5b): every job handed to the writer is on disk (the carry of the O_DIRECT form excepted: < 4 KiB, written at
+/* every job handed to the writer is on disk (the carry of the O_DIRECT form excepted: < 4 KiB, written at
  * finish); the buffered forms also fdatasync, so a wave's data has left the node before the next wave starts */
 static void writer_drain(struct writer *w)
 {
@@ -302,8 +302,8 @@ static void writer_drain(struct writer *w)
     for (int b = 0; b < 2; b++) sem_post(&w->buf_free[b]);
 }
 
-/* ---- Phase 15 IO (W2): the packed form (packed_fmt.h) ---- */
-static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = v < 0 ? 0 : 2; } return v; }   /* M5 (c05): 2 = the 60-bit form (ECP_VERSION60), the default since 2026-10-12 (the user's decision; 1 = the 64-bit form, the default before; 0 = ASCII) */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
+/* ---- the packed form (packed_fmt.h) ---- */
+static int out_packed(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_OUT_PACKED"); v = e ? atoi(e) : 2; if (v < 0 || v > 2) v = v < 0 ? 0 : 2; } return v; }   /* 2 = the 60-bit form (ECP_VERSION60), the default; 1 = the 64-bit form; 0 = ASCII */   /* packed since Phase 15 (the user's decision: packed on disk, converted off the clock by tools/unpack_digits) */
 static uint64_t mulmod_u(uint64_t a, uint64_t b, uint64_t q) { return (uint64_t)(((unsigned __int128)a * b) % q); }
 static uint64_t powmod_u(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1 % q; b %= q; while (e) { if (e & 1) r = mulmod_u(r, b, q); b = mulmod_u(b, b, q); e >>= 1; } return r; }
 /* the value of n limbs stored most significant first (base 10^18) mod the T1 primes, from the bytes the writer is handed */
@@ -344,7 +344,7 @@ static void packed_hdr_write(struct writer *w, const mn_out *o, size_t nl, size_
     char *h = w->hdr; memset(h, 0, ECP_HDR_BYTES);
     ecp_hdr *p = (ecp_hdr *)h;
     memcpy(p->magic, ECP_MAGIC, 8); p->version = w->packed == 2 ? ECP_VERSION60 : ECP_VERSION; p->reserved0 = w->packed == 2 ? ECP60_BITS : 0; p->hdr_bytes = ECP_HDR_BYTES; p->endian = ECP_ENDIAN;
-    p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(part_cnt(o) > 1 ? part_idx(o) : 0); p->nparts = (uint32_t)(part_cnt(o) > 1 ? part_cnt(o) : 1);   /* (Phase 15 EW: the explicit part) */
+    p->limb_bytes = 8; p->limb_digits = 18; p->order = 1; p->part = (uint32_t)(part_cnt(o) > 1 ? part_idx(o) : 0); p->nparts = (uint32_t)(part_cnt(o) > 1 ? part_cnt(o) : 1);   /* (the explicit part) */
     p->d = o->d; p->d_out = o->d_out; p->nl = nl; p->pad = pad; p->lo = lo; p->hi = hi; p->k0 = o->k0; p->k1 = o->k1; p->complete = 0;
     p->nq = T1_NQ; for (int i = 0; i < T1_NQ; i++) p->q[i] = t1_q[i];
     snprintf(h + ECP_TEXT_OFF, ECP_HDR_BYTES - ECP_TEXT_OFF,
@@ -361,7 +361,7 @@ static void out_open(struct writer *w, const mn_out *o)
     char name[4096]; part_name(o, name, sizeof name);
     out_stripe(name, part_cnt(o) > 1 ? part_idx(o) : 0, o->verbose);
     w->mode = out_mode(name);
-    if (w->mode == OUT_DIRECT) {                         /* Phase 14 S1 (E3) */
+    if (w->mode == OUT_DIRECT) {
         w->fd = open(name, O_WRONLY | O_CREAT | O_TRUNC | O_DIRECT, 0644);
         if (w->fd >= 0) w->direct = 1; else w->mode = OUT_BUFFERED;
     }
@@ -384,7 +384,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     size_t L = o->chunk_limbs; if (!L) { size_t mb = getenv("MN_OUT_CHUNK_MB") ? (size_t)atoi(getenv("MN_OUT_CHUNK_MB")) : 256; L = (mb << 20) / 18; if (L < 64) L = 64; }
     if (L > hi - lo && hi > lo) L = hi - lo;
     struct writer *w = (struct writer *)calloc(1, sizeof *w); o->priv = w; w->fd = -1; w->dev_src = src->dev != 0 || (o->split && o->src_hi && o->src_hi->dev);
-    w->nt = getenv("MN_OUT_THREADS") ? atoi(getenv("MN_OUT_THREADS")) : 8; if (w->nt < 1) w->nt = 1; if (w->nt > 64) w->nt = 64;   /* Phase 15 IO (W1) */
+    w->nt = getenv("MN_OUT_THREADS") ? atoi(getenv("MN_OUT_THREADS")) : 8; if (w->nt < 1) w->nt = 1; if (w->nt > 64) w->nt = 64;
     w->packed = out_packed(); o->packed = w->packed;
     if (o->outfile) out_open(w, o);
     sem_init(&w->job_ready, 0, 0); sem_init(&w->job_taken, 0, 0); sem_init(&w->buf_free[0], 0, 1); sem_init(&w->buf_free[1], 0, 1);
@@ -392,7 +392,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     if (w->direct && posix_memalign((void **)&w->abuf, (size_t)2 << 20, (w->bufsz + 3 * SP_ALIGN) & ~(size_t)(SP_ALIGN - 1))) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     for (int b = 0; b < 2; b++) if (posix_memalign((void **)&w->buf[b], 2u << 20, w->bufsz)) { ec_fatal(EC_RC_OOM, "mn_out: %zu bytes\n", w->bufsz); }
     if (w->dev_src) HIP_CHECK(hipHostMalloc((void **)&w->lbuf, L * 8, 0)); else w->lbuf = (uint64_t *)malloc(L * 8);
-    if (w->packed) {                                   /* Phase 15 IO (W2): the header now (complete = 0), completed by mn_out_finish */
+    if (w->packed) {                                   /* the header now (complete = 0), completed by mn_out_finish */
         if (posix_memalign((void **)&w->hdr, SP_ALIGN, ECP_HDR_BYTES)) ec_fatal(EC_RC_OOM, "mn_out: header\n");
         packed_hdr_write(w, o, nl, pad, lo, hi); w->apos = ECP_HDR_BYTES; w->poff = ECP_HDR_BYTES;
         w->bytes = w->fd >= 0 ? ECP_HDR_BYTES : 0;
@@ -403,7 +403,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     char head[64]; size_t nhead = o->nhead; memcpy(head, o->head, nhead);
     unsigned long woff[256]; int nwo = 0;
     if (w->packed) { nwo = tier2_window_offsets(woff, 256); if (nwo > 256) nwo = 256; }
-    int b = 0, gated = !(o->split && o->at_split);       /* Phase 15 EW: the gate at split (MN_OUT_DKM_HI, size 1) */
+    int b = 0, gated = !(o->split && o->at_split);       /* the gate at split (MN_OUT_DKM_HI, size 1) */
     for (size_t bb = hi;; b ^= 1) {
         if (!gated && (bb <= o->split || bb <= lo)) {       /* every limb >= split is formatted and handed to the writer thread */
             gated = 1; o->at_split(o->split_arg, o);
@@ -413,7 +413,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         size_t a = bb - lo > L ? bb - L : lo;
         if (o->split && bb > o->split && a < o->split) a = o->split;     /* (no chunk crosses split) */
         size_t cnt = bb - a;
-        const mn_out_src *cs = o->split && o->src_hi && a >= o->split ? o->src_hi : src;   /* Phase 15 EW: X_hi above split, X_lo below */
+        const mn_out_src *cs = o->split && o->src_hi && a >= o->split ? o->src_hi : src;   /* X_hi above split, X_lo below */
         double t0 = mem_now(); sem_wait(&w->buf_free[b]); double t1 = mem_now(); o->t_wait += t1 - t0;
         const uint64_t *l; size_t avail = cs->lo + cs->cnt > a ? cs->lo + cs->cnt - a : 0; if (avail > cnt) avail = cnt;   /* limbs beyond the source are zero */
         if (cs->dev || avail < cnt) { if (avail) { if (cs->dev) dev_fetch(cs->dev, a - cs->lo, avail, w->lbuf); else memcpy(w->lbuf, cs->host + (a - cs->lo), avail * 8); } memset(w->lbuf + avail, 0, (cnt - avail) * 8); l = w->lbuf; }
@@ -422,7 +422,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         if (dcs_t0) { if (t2 - t1 > dcs_fmax) dcs_fmax = t2 - t1; if (t1 - t0 > dcs_wmax) dcs_wmax = t1 - t0; }
         size_t p0 = (nl - bb) * 18, ck0 = p0 > pad ? p0 - pad : 0, ck1 = (nl - a) * 18 - pad;   /* the chunk's digits */
         size_t len = ck1 - ck0;
-        if (w->packed) {                               /* Phase 15 IO (W2): the limbs, most significant first; the checks from them */
+        if (w->packed) {                               /* the limbs, most significant first; the checks from them */
             uint64_t *pk = (uint64_t *)w->buf[b];
 #pragma omp parallel for schedule(static)
             for (size_t i = 0; i < cnt; i++) pk[i] = l[cnt - 1 - i];
@@ -438,7 +438,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
             double t4 = mem_now(); o->t_res += t4 - t3;
             if (dcs_t0 && t4 - t3 > dcs_rmax) dcs_rmax = t4 - t3;
             /* T2: the windows that end in this chunk (as tier2_range picks them), from the digits they cover and the head */
-            size_t ndig = o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), x = (size_t)-1, y = 0;   /* (Phase 15 KP: K's deferred windows -- the last t2_defer digits' -- are mn_out_tail_fix's, as in the ASCII form) */
+            size_t ndig = o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), x = (size_t)-1, y = 0;   /* (K's deferred windows -- the last t2_defer digits' -- are mn_out_tail_fix's, as in the ASCII form) */
             for (int i = 0; i < nwo; i++) { size_t e = woff[i] + 50; if (e > ndig || e <= ck0 || e > ck1 || woff[i] + nhead < ck0) continue; if (woff[i] < x) x = woff[i]; if (e > y) y = e; }
             if (y) {
                 size_t x0 = x > ck0 + 49 ? x - 49 : ck0;   /* 49 digits before the first window (tier2_range's head), inside the chunk when they are */
@@ -468,7 +468,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
         for (int i = 0; i < T1_NQ; i++) o->dres[i] = vf_digits_join(o->dres[i], len, v[i], t1_q[i]);
         o->ndig += len;
         double t4 = mem_now(); o->t_res += t4 - t3;
-        o->bad2 += tier2_range(s, ck0, ck1, head, nhead, o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), o->verbose, &o->nwin);   /* (Phase 15 K: the last t2_defer digits' windows are mn_out_tail_fix's) */
+        o->bad2 += tier2_range(s, ck0, ck1, head, nhead, o->d_out + 1 - (o->t2_defer < o->d_out + 1 ? o->t2_defer : o->d_out + 1), o->verbose, &o->nwin);   /* (the last t2_defer digits' windows are mn_out_tail_fix's) */
         { size_t t = len < 49 ? len : 49; if (t < 49 && nhead) { size_t keep = 49 - t < nhead ? 49 - t : nhead; memmove(head, head + nhead - keep, keep); memcpy(head + keep, s, t); nhead = keep + t; } else { memcpy(head, s + len - t, t); nhead = t; } }
         o->t_t2 += mem_now() - t4;
         if (bb == hi) { size_t f = len < 62 ? len : 62; memcpy(o->first, s, f); o->first[f] = 0; }
@@ -491,7 +491,7 @@ static int out_run_one(mn_out *o, const mn_out_src *src)
     }
     return 0;
 }
-/* Phase 15 IO (W5b): MN_OUT_WAVES=<n> at size > 1 (mn_out_boundaries gave the communicator) -- the ranks in waves of
+/* MN_OUT_WAVES=<n> at size > 1 (mn_out_boundaries gave the communicator) -- the ranks in waves of
  * ceil(size/n) in rank order: a wave formats, checks and writes its ranges completely (writer_drain) while the others wait
  * at the barrier (an all-gather) that ends the wave; the same number of barriers on every rank.  Unset or 1: every node at
  * once, as before. */
@@ -515,7 +515,7 @@ void mn_out_finish(mn_out *o)
 {
     struct writer *w = (struct writer *)o->priv; if (!w) return;
     w->stop = 1; sem_post(&w->job_ready); pthread_join(w->th, 0);
-    if (w->direct && w->fd >= 0) {                     /* Phase 14 S1 (E3): the last block, padded, then the file cut to size */
+    if (w->direct && w->fd >= 0) {                     /* the last block, padded, then the file cut to size */
         double t0 = mem_now();
         if (w->ncarry && !w->err) {
             size_t pad = (w->ncarry + SP_ALIGN - 1) & ~(size_t)(SP_ALIGN - 1); memset(w->abuf + w->ncarry, 0, pad - w->ncarry);
@@ -524,7 +524,7 @@ void mn_out_finish(mn_out *o)
         }
         w->t_write += mem_now() - t0;
     }
-    if (w->packed && w->fd >= 0 && !w->err) {          /* Phase 15 IO (W2): the header with the residues, complete = 1 */
+    if (w->packed && w->fd >= 0 && !w->err) {          /* the header with the residues, complete = 1 */
         ecp_hdr *h = (ecp_hdr *)w->hdr; h->complete = 1; for (int i = 0; i < T1_NQ; i++) h->dres[i] = o->dres[i];
         pwrite_all(w->fd, w->hdr, ECP_HDR_BYTES, 0, &w->err);
     }
@@ -543,17 +543,17 @@ void mn_out_finish(mn_out *o)
     sem_destroy(&w->job_ready); sem_destroy(&w->job_taken); sem_destroy(&w->buf_free[0]); sem_destroy(&w->buf_free[1]);
     free(w); o->priv = 0;
 }
-/* ---- Phase 15 IO (W5d): MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
+/* ---- MN_OUT_EARLY (mn_out.h) -- functions mn_out_early_start, early_run, mn_out_early_join, mn_out_early_free ---- */
 #include "mdb.h"
 struct mn_out_early { mn_out o; mn_out_src src; dbig sh; pthread_t th; int started; double t_run;
-                      /* Phase 15 EW (MN_OUT_DKM_HI): the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
+                      /* the X_hi part (o_hi over src_hi / sh_hi), the gate, the X_hi layer's last digits (the low layer's top head) */
                       int two; mn_out o_hi; mn_out_src src_hi; dbig sh_hi; sem_t go; char above[64]; size_t nabove; double t_hi, t_gate; };
 static void *early_run(void *a)
 {
     struct mn_out_early *e = (struct mn_out_early *)a;
     omp_set_num_threads(getenv("ECALC_BG_THREADS") ? atoi(getenv("ECALC_BG_THREADS")) : 48);   /* the background team, as the one-node writer's */
     double t0 = mem_now();
-    if (e->two) {                                      /* Phase 15 EW: the X_hi part now (finished here), then the X_lo part once released */
+    if (e->two) {                                      /* the X_hi part now (finished here), then the X_lo part once released */
         mn_out_run(&e->o_hi, &e->src_hi); mn_out_finish(&e->o_hi); e->t_hi = mem_now() - t0;
         double tg = mem_now(); sem_wait(&e->go); e->t_gate = mem_now() - tg;
         printf("mn: node %d: MN_OUT_DKM_HI: X_hi's part (%.2f GB) written in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", e->o.rank, e->o_hi.bytes / 1e9, e->t_hi, e->t_gate);
@@ -561,7 +561,7 @@ static void *early_run(void *a)
     mn_out_run(&e->o, &e->src); e->t_run = mem_now() - t0;
     return 0;
 }
-/* Phase 15 EW (mn_out.h): the two layers of MN_OUT_DKM_HI at size > 1 */
+/* the two layers of MN_OUT_DKM_HI at size > 1 */
 mn_out_early *mn_out_early_hi_start(const struct mdb_s *Xh, size_t s, unsigned long d, unsigned long d_out, const char *outfile, int rank, int size, int verbose, comm *c, size_t t2_defer)
 {
     struct mn_out_early *e = (struct mn_out_early *)calloc(1, sizeof *e);
@@ -598,7 +598,7 @@ mn_out_early *mn_out_early_start(const struct mdb_s *X, unsigned long d, unsigne
     size_t lo, hi; mdb_share(X, rank, &lo, &hi);
     e->src.dev = &e->sh; e->src.lo = lo; e->src.cnt = hi > lo ? hi - lo : 0; if (e->src.cnt > e->sh.n) e->src.cnt = e->sh.n;
     e->o.d = d; e->o.d_out = d_out; e->o.outfile = outfile; e->o.rank = rank; e->o.size = size; e->o.verbose = verbose;
-    e->o.t2_defer = t2_defer;                           /* Phase 15 integration: K's deferred windows (ECALC_CORR_PATCH=2), set before the writer starts */
+    e->o.t2_defer = t2_defer;                           /* K's deferred windows (ECALC_CORR_PATCH=2), set before the writer starts */
     mn_out_boundaries(&e->o, &e->src, c);             /* collective: every rank is at the hook */
     e->o.c = 0;                                        /* no waves in the background (their barriers would race the division's exchanges) */
     sp_dev_sync_all();                                 /* X complete on every APU before the writer's copies on its own streams */
@@ -624,7 +624,7 @@ void mn_out_digit_res(const mn_out *o, comm *c, uint64_t *Dres)
     free(all);
 }
 
-/* Phase 15 EW: J layers of parts (mn_out.h) -- the layer's own join (top node first) per layer, the layers joined in order */
+/* J layers of parts (mn_out.h) -- the layer's own join (top node first) per layer, the layers joined in order */
 void mn_out_digit_res_layers(const mn_out *const *os, int J, comm *c, uint64_t *Dres)
 {
     int n = c ? comm_size(c) : 1;
@@ -637,13 +637,13 @@ void mn_out_digit_res_layers(const mn_out *const *os, int J, comm *c, uint64_t *
     }
 }
 
-/* ---- Phase 15 K (ECALC_CORR_PATCH): the correction as a patch of the written tail (mn_out.h) ---- */
+/* ---- the correction as a patch of the written tail (mn_out.h) ---- */
 static uint64_t sub_mod(uint64_t a, uint64_t b, uint64_t q) { return vf_add_mod(a, b ? q - b : 0, q); }
 /* the bytes [off, off + len) of a part file: must hold old (else 1); become new, read back (else 1).  O_DIRECT (as the writer):
  * whole 4 KiB blocks read, changed and written, the file cut back to its size if the last block went past it */
 static int patch_bytes(const char *name, size_t off, const char *old, const char *nw, size_t len, int verbose)
 {
-    int direct = out_mode(name) == OUT_DIRECT, fd = -1, bad = 0;   /* Phase 15 KP: the writer's own rule (out_mode: ECALC_OUT_MODE, else ECALC_ODIRECT / ECALC_OUT_ODIRECT as before) */
+    int direct = out_mode(name) == OUT_DIRECT, fd = -1, bad = 0;   /* the writer's own rule (out_mode: ECALC_OUT_MODE, else ECALC_ODIRECT / ECALC_OUT_ODIRECT as before) */
     if (direct) fd = open(name, O_RDWR | O_DIRECT);
     if (fd < 0) { direct = 0; fd = open(name, O_RDWR); }
     if (fd < 0) { printf("mn_out: patch: cannot open %s: %s\n", name, strerror(errno)); return 1; }
@@ -666,7 +666,7 @@ static int patch_bytes(const char *name, size_t off, const char *old, const char
     if (verbose) printf("      patch: %s bytes [%zu, %zu) (%s, blocks [%zu, %zu))%s\n", name, off, off + len, direct ? "O_DIRECT" : "buffered", a0, a1, bad ? " FAILED" : "");
     return bad;
 }
-/* Phase 15 KP: the patch of a packed part (packed_fmt.h; ECALC_OUT_PACKED=1, the default).  The correction changes the global
+/* the patch of a packed part (packed_fmt.h; ECALC_OUT_PACKED=1, the default).  The correction changes the global
  * limbs [0, m) of X (low: the uncorrected ones, nw: the corrected); this part holds the limbs [lo, hi) (its header's), limb i at
  * the byte ECP_HDR_BYTES + 8 (hi - 1 - i) (the most significant first), so its changed limbs [lo, min(hi, m)) are one byte
  * range: checked to hold the old limbs, rewritten, read back (patch_bytes: whole 4 KiB blocks with O_DIRECT as the writer).
@@ -733,7 +733,7 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     if (c && w < nl) { free(nw); return -1; }                          /* the carry goes on above the gathered limbs */
     if (c) { free(nw); printf("mn_out: patch: the correction %+ld %s past X's top digit\n", dx, dx > 0 ? "carries" : "borrows"); return 1; }
     long sd = (long)((nl - w) * 18) - (long)pad;                       /* the digit of the strings' first char (< 0: leading pad chars) */
-    size_t n = w * 18; char *so = (char *)malloc(n + 1), *sn = (char *)malloc(n + 1); fmt_limbs(so, low, w); fmt_limbs(sn, nw, w);   /* (Phase 15 KP: nw kept for a packed part) */
+    size_t n = w * 18; char *so = (char *)malloc(n + 1), *sn = (char *)malloc(n + 1); fmt_limbs(so, low, w); fmt_limbs(sn, nw, w);   /* (nw kept for a packed part) */
     size_t j = 0; while (j < n && so[j] == sn[j]) j++;
     size_t kp = (long)j + sd < 0 ? 0 : (size_t)((long)j + sd);          /* the first digit that changes (d + 1: none) */
     if (j == n) kp = o->d + 1;
@@ -748,7 +748,7 @@ int mn_out_tail_core(mn_out *o, const uint64_t *low, size_t w, long dx, mn_out_f
     int bad = 0;
     /* this node's part: digits [a, b) of the patch */
     size_t a = kp > o->k0 ? kp : o->k0, b = o->k1 < dend ? o->k1 : dend;
-    if (o->outfile && o->packed && o->k1 > o->k0) {                    /* Phase 15 KP: a packed part -- the changed limbs and the header's residues */
+    if (o->outfile && o->packed && o->k1 > o->k0) {                    /* a packed part -- the changed limbs and the header's residues */
         char name[4096]; part_name(o, name, sizeof name);
         bad += packed_patch(o, name, low, nw, m, f);
     } else if (o->outfile && a < b) {                                    /* the ASCII part (K's byte image) */
@@ -787,7 +787,7 @@ int mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_f
     int r = -1;
     for (;;) {
         uint64_t *low = (uint64_t *)calloc(w, 8), *pin = 0;
-        for (int k = 0; k < 2; k++) {                  /* Phase 15 EW: also X_hi's share (o->src_hi), when X is held as X_hi B^s + X_lo (disjoint limbs; X_lo's are zero at and above s) */
+        for (int k = 0; k < 2; k++) {                  /* also X_hi's share (o->src_hi), when X is held as X_hi B^s + X_lo (disjoint limbs; X_lo's are zero at and above s) */
             const mn_out_src *cs = k ? o->src_hi : src; if (!cs) continue;
             size_t s0 = cs->lo < w ? cs->lo : w, s1 = cs->lo + cs->cnt < w ? cs->lo + cs->cnt : w;   /* the global limbs [s0, s1) are this node's */
             if (s1 > s0) {
@@ -809,7 +809,7 @@ int mn_out_tail_fix(mn_out *o, const mn_out_src *src, comm *c, long dx, mn_out_f
     return r;
 }
 
-/* ---- Phase 11 V: the sidecar and the recheck mode (mn_out.h) ---- */
+/* ---- the sidecar and the recheck mode (mn_out.h) ---- */
 #include "binsplit.h"
 #include "mdb.h"
 #include <sys/stat.h>
@@ -829,9 +829,9 @@ void mn_out_sidecar_write(const char *outfile, unsigned long N, unsigned long d,
     fprintf(f, "\ntail %zu %.*s\n", ntail, (int)ntail, tail);
     fclose(f);
 }
-/* Phase 12 W: the digit file's count and last 49 chars without a pass over it (stat + one read at the end): the counts and
+/* the digit file's count and last 49 chars without a pass over it (stat + one read at the end): the counts and
  * tails are all-gathered before the pass, so one read of the file serves both the residues and the windows */
-/* Phase 15 IO (W2): a packed part (packed_fmt.h) -- its header, 1 when the file is one (and complete and of this build's primes) */
+/* a packed part (packed_fmt.h) -- its header, 1 when the file is one (and complete and of this build's primes) */
 static int recheck_packed_hdr(const char *name, ecp_hdr *h)
 {
     FILE *f = fopen(name, "rb"); if (!f) return 0;
@@ -863,7 +863,7 @@ static int recheck_packed_digits(const char *name, const ecp_hdr *h, size_t x, s
 }
 static int recheck_stat(const char *name, int first_part, int last_part, size_t *ndig, char *tail49, size_t *ntail49)
 {
-    { ecp_hdr h; int pk = recheck_packed_hdr(name, &h);   /* Phase 15 IO (W2) */
+    { ecp_hdr h; int pk = recheck_packed_hdr(name, &h);
       if (pk < 0) return 0;
       if (pk) {
           size_t e = h.k1 < h.d_out + 1 ? h.k1 : h.d_out + 1, n = e > h.k0 ? e - h.k0 : 0, t = n < 49 ? n : 49;
@@ -887,8 +887,8 @@ static int recheck_stat(const char *name, int first_part, int last_part, size_t 
  * A reader thread fills the other of two 256 MB buffers while a chunk is processed (the file is the recheck's time: 40 GB
  * at 4e10), and the non-digit scan runs over the OpenMP team. */
 struct recheck_rd { FILE *f; char *buf[2]; size_t have[2]; int last[2]; sem_t full[2], empty[2]; size_t CH; volatile int stop;
-                    int packed; ecp_hdr h; uint64_t *lb; size_t pos; };   /* Phase 15 IO (W2): a packed part -- its header, a limb buffer, the next limb (file order) */
-/* Phase 15 IO (W2): the next chunk of a packed part as ASCII digits (those in [k0, min(k1, d_out + 1)): no pad, no tail) */
+                    int packed; ecp_hdr h; uint64_t *lb; size_t pos; };   /* a packed part -- its header, a limb buffer, the next limb (file order) */
+/* the next chunk of a packed part as ASCII digits (those in [k0, min(k1, d_out + 1)): no pad, no tail) */
 static void *recheck_rd_packed(struct recheck_rd *r)
 {
     const ecp_hdr *h = &r->h; size_t nlimbs = h->hi - h->lo, CHL = r->CH / 18, e = h->k1 < h->d_out + 1 ? h->k1 : h->d_out + 1;
@@ -930,7 +930,7 @@ static int recheck_pass(const char *name, int first_part, uint64_t *dres, size_t
     struct recheck_rd r; memset(&r, 0, sizeof r);
     r.f = fopen(name, "rb"); if (!r.f) { printf("recheck: cannot open %s: %s\n", name, strerror(errno)); return 0; }
     r.CH = (size_t)256 << 20; for (int k = 0; k < 2; k++) { r.buf[k] = (char *)malloc(r.CH + 64); sem_init(&r.full[k], 0, 0); sem_init(&r.empty[k], 0, 1); }
-    if (recheck_packed_hdr(name, &r.h) == 1) { r.packed = 1; r.lb = (uint64_t *)malloc(r.CH / 18 * 8); first_part = 0; }   /* Phase 15 IO (W2): no '.' in a packed part */
+    if (recheck_packed_hdr(name, &r.h) == 1) { r.packed = 1; r.lb = (uint64_t *)malloc(r.CH / 18 * 8); first_part = 0; }   /* no '.' in a packed part */
     pthread_t th; pthread_create(&th, 0, recheck_rd_run, &r);
     size_t n = 0, k = k0; char head[64]; size_t nhead = nhead0; memcpy(head, head0, nhead0); int first = first_part, ok = 1;
     for (int i = 0; i < T1_NQ; i++) dres[i] = 0;
@@ -956,7 +956,7 @@ static int recheck_pass(const char *name, int first_part, uint64_t *dres, size_t
     pthread_join(th, 0);
     for (int b = 0; b < 2; b++) { free(r.buf[b]); sem_destroy(&r.full[b]); sem_destroy(&r.empty[b]); }
     free(r.lb);
-    if (sp_odirect()) posix_fadvise(fileno(r.f), 0, 0, POSIX_FADV_DONTNEED);   /* Phase 14 S1 (E3): the digits read by the recheck leave the page cache (clean pages) */
+    if (sp_odirect()) posix_fadvise(fileno(r.f), 0, 0, POSIX_FADV_DONTNEED);   /* the digits read by the recheck leave the page cache (clean pages) */
     fclose(r.f);
     *ndig = n;
     return ok;
@@ -988,7 +988,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     ntail = (size_t)sc[4 * T1_NQ + 1]; for (size_t i = 0; i < ntail; i++) tail[i] = (char)(sc[4 * T1_NQ + 2 + i / 8] >> (8 * (i % 8)));
     const uint64_t *sX = sc, *sR = sc + T1_NQ, *sP = sc + 2 * T1_NQ, *sQ = sc + 3 * T1_NQ;
     /* 1. the digits: this node's parts -- part j size + size-1-rank for the layers j < J (the top node's part first in the file); J = 2
-     * when the run wrote X_hi and X_lo apart (Phase 15 EW, MN_OUT_DKM_HI: part 2 size-1-rank exists), else 1 */
+     * when the run wrote X_hi and X_lo apart (MN_OUT_DKM_HI: part 2 size-1-rank exists), else 1 */
     int J = 1;
     if (multi) { char nm2[4096]; struct stat st2; snprintf(nm2, sizeof nm2, "%s.part%04d", outfile, 2 * size - 1 - rank); J = mn_out_allreduce_or(c, stat(nm2, &st2) == 0) ? 2 : 1; }
     int NP = J * size;
@@ -1015,7 +1015,7 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     #undef PSLOT
     free(all);
     if (ndig_all != d_out + 1) { printf("recheck: node %d: the file holds %zu digits, d_out + 1 = %lu expected\n", rank, ndig_all, d_out + 1); fail = 1; }
-    /* 1 + 2. one pass over each part: the residues and the T2 windows (Phase 12 W: one read, not two -- 40 GB at 4e10) */
+    /* 1 + 2. one pass over each part: the residues and the T2 windows (one read, not two -- 40 GB at 4e10) */
     int nwin = 0, bad2 = 0; size_t ndig_me = 0;
     for (int j = 0; j < J; j++) {
         int nw = 0, b2 = 0; size_t nread = 0;
@@ -1031,9 +1031,9 @@ int mn_out_recheck(unsigned long N, unsigned long d, unsigned long d_out, const 
     double t2 = t1;
     /* 3. P, Q from the checkpointed top-level shares */
     uint64_t Pc[T1_NQ], Qc[T1_NQ]; int have_pq = 0;
-    if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }   /* Phase 12 W: the run's default <outfile>.top */
+    if (!bs_ckpt_dir) { const char *dd = mn_out_ckpt_default(outfile); struct stat st; if (dd && stat(dd, &st) == 0 && S_ISDIR(st.st_mode)) bs_ckpt_dir = dd; }   /* the run's default <outfile>.top */
     if (bs_ckpt_dir) {
-        int L = size > 1 ? bs_ckpt_tree_find(N) : 0;   /* Phase 13 N (1.7, minimal): the top set's level is the schedule's (MN_GROUPS, a size 3 or 6 ...), not log2 size -- the highest complete set */
+        int L = size > 1 ? bs_ckpt_tree_find(N) : 0;   /* the top set's level is the schedule's (MN_GROUPS, a size 3 or 6 ...), not log2 size -- the highest complete set */
         if (!L) while ((1 << L) < size) L++;
         uint64_t desc[10]; dbig ps, qs;
         if (bs_ckpt_tree_read(L, N, desc, &ps, &qs)) {

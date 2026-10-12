@@ -1,4 +1,4 @@
-/* mn_plan.h - Phase 13d L (archive:PLAN §32, row L): the plan printer, MN_PLAN_ONLY=<total digits>:<g> (mn_plan.c).
+/* mn_plan.h - the plan printer, MN_PLAN_ONLY=<total digits>:<g> (mn_plan.c).
  *
  * The decisions a run makes about its large products -- one plane or a grid, the grid kA x kB, the pieces the cuts skip, the
  * group a reciprocal step runs on, the Newton chain -- asked of the functions the run itself uses (rns_dist.c, newton_db.c),
@@ -19,10 +19,10 @@ struct rns_grid_plan {
     size_t pts;          /* the largest piece's transform length (points) */
     int logR, logC;      /* the mn tier's four-step split of that plane (mn_shape) */
     int form_b;          /* the dist tier under auto: the largest piece fits the B form's planes (split_grid's weight 0.70) */
-    int np;              /* Phase 15 NP: the largest piece's primes (ec_np_for: ECALC_NP=auto -- 4 over the three-prime bound) */
-    int formed4;         /* Phase 15 NP: of the formed pieces, those at four primes (every one when ec_np = 4; under auto la + lb > ec_np_auto_terms) */
+    int np;              /* the largest piece's primes (ec_np_for: ECALC_NP=auto -- 4 over the three-prime bound) */
+    int formed4;         /* of the formed pieces, those at four primes (every one when ec_np = 4; under auto la + lb > ec_np_auto_terms) */
     double plane_bytes;  /* the transform planes one node holds for the largest piece (all primes, four APUs) */
-    int p24;             /* Phase 15 Batch 3 P24 (MN_P24): the product runs at 24 digits per point (cap and pts in points, pa and pb in limbs, four primes) */
+    int p24;             /* the product runs at 24 digits per point (cap and pts in points, pa and pb in limbs, four primes) */
 };
 /* the dist tier (one node; rns_mul_dist_db / rns_mul_high_db / rns_mul_low_db): mul_grid's decision for na x nb limbs with the
  * cuts (lowcut 0: none; w = (size_t)-1: none) */
@@ -33,19 +33,19 @@ void rns_dist_mn_plan(size_t na, size_t nb, int g, int has_x, size_t lowcut, siz
 void rns_dist_plan_pools(size_t pool0_bytes, size_t pool1_bytes);
 /* MN_TREE_LOGN_TEST's cap for the plan (rns_dist_cap_test without releasing the transform cache, which needs a device) */
 void rns_dist_plan_cap_test(int logn);
-/* Phase 15 TC: the plan's `plan cache` line (the mn transform cache: where first wanted, the default's slots, RNS_DIST_CACHE_FIT's) */
+/* the plan's `plan cache` line (the mn transform cache: where first wanted, the default's slots, RNS_DIST_CACHE_FIT's) */
 void rns_dist_cache_plan(int size, int pool_log, int np0, long grids_tree, long grids_recip, long grids_div, double node_bytes);
 /* newton_db.c: the reciprocal's anchored chain (NEWTON_ANCHOR) and the sharded part's start (NEWTON_MN_SPLIT), the X1 group */
 size_t newton_chain_next(size_t j, size_t k);
 size_t newton_mn_chain_start(size_t k);
-size_t newton_recip_cut(size_t v);      /* Phase 14 R1 (E7): the low cut of a reciprocal product read as t1 >> v under NEWTON_RECIP_CUT (0 = none) */
-size_t newton_recip_mid(size_t j, size_t take);   /* Phase 15 R4: Q_t r's high cut under NEWTON_RECIP_MID ((size_t)-1 = none); the run takes it from the chain's second round on */
+size_t newton_recip_cut(size_t v);      /* the low cut of a reciprocal product read as t1 >> v under NEWTON_RECIP_CUT (0 = none) */
+size_t newton_recip_mid(size_t j, size_t take);   /* Q_t r's high cut under NEWTON_RECIP_MID ((size_t)-1 = none); the run takes it from the chain's second round on */
 int newton_mn_x1_level(size_t na, size_t nb, int g, int size, size_t reshard_limbs);   /* L: the step runs on [0, 2^L) (0: the full group of g nodes) */
-int newton_dkm_on(void);                /* Phase 15 DKM (newton.h): NEWTON_DKM=1 -- the division in two quotient halves (INT3: the plan follows it) */
+int newton_dkm_on(void);                /* NEWTON_DKM=1 -- the division in two quotient halves (INT3: the plan follows it) */
 size_t newton_dkm_h(size_t k);          /* DKM: the reciprocal's length for a quotient of k limbs (floor(k/2) + 1) */
 /* mn_plan.c: print the plan of a run of d digits (N terms) on `size` node-processes and return the exit status */
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log);
-/* Phase 15 P: every planned product against the prime set (the term bound of ECALC_NP, the roots' 2-adic limit): mn_plan_run
+/* every planned product against the prime set (the term bound of ECALC_NP, the roots' 2-adic limit): mn_plan_run
  * prints `plan check ... OK` or `plan REFUSED ...` (the first failing product) last and returns EC_RC_FATAL (3) on a refusal;
  * mn_plan_check runs the same plan silently (BS_LAYOUT_ONLY) and prints only that line */
 int mn_plan_check(unsigned long d, unsigned long N, int size, int pool_log);

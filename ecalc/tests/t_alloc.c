@@ -1,4 +1,4 @@
-/* t_alloc - Phase 12 I: every allocation form on the APU, measured the way init uses them (archive:PLAN §27 row I).
+/* t_alloc - every allocation form on the APU, measured the way init uses them (archive:PLAN §27 row I).
  *
  * For each form, GB per APU on all four APUs at once (one thread per device, as rns_init and binsplit_pregrow do):
  *   alloc     the allocation call (wall of the slowest thread; the driver serialises them)

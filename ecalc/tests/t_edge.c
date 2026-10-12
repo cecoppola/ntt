@@ -1,4 +1,4 @@
-/* t_edge - Phase 16 C (results/C16.md): the node's memory edge, measured the way the pools take it.  Allocates in steps of
+/* t_edge - the node's memory edge, measured the way the pools take it.  Allocates in steps of
  * <step> GB (default 8) up to <cap> GB (default 560) in one form, touches every page (a memset: the mapping is committed),
  * prints the cumulative GB and MemAvailable after each step, stops at the first failure (or the cap), then frees everything.
  * Forms: host (hipHostMalloc NumaUser round-robin over the four NUMA nodes -- mem.c's AF_HOST pool form), dev (hipMalloc

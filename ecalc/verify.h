@@ -23,7 +23,7 @@ void     vf_limbs_mods(const uint64_t *a, size_t n, const uint64_t *qs, int nq, 
 uint64_t vf_digits_mod(const char *s, size_t n, uint64_t q);                  /* decimal string, parallel */
 void     vf_pq_mod(unsigned long N, uint64_t q, uint64_t *p, uint64_t *qq);   /* P(1,N+1), Q(1,N+1) mod q */
 uint64_t vf_pow_mod(uint64_t b, unsigned long e, uint64_t q);
-/* Phase 9 (A-out, M5): the pieces of T1/T2 as a node holds them -- a term range, a limb share, a digit chunk.
+/* the pieces of T1/T2 as a node holds them -- a term range, a limb share, a digit chunk.
  *   vf_pq_range_mod   P(a,b), Q(a,b) mod q over the terms [a, b) (vf_pq_mod = the range [1, N+1))
  *   vf_pq_join        consecutive ranges A (lower terms) then B: P = P_A Q_B + P_B, Q = Q_A Q_B (mod q)
  *   vf_digits_mods    a digit string modulo nq primes in one pass (18 digits per modmul)
@@ -50,7 +50,7 @@ int tier2(const char *digits, size_t ndig, int verbose);
  * Returns the failing windows.  tier2(s, n) == tier2_range(s, 0, n, 0, 0, n). */
 void tier2_windows_reset(void);   /* forget the loaded window table (tests that change ECALC_WINDOWS) */
 int tier2_range(const char *s, size_t k0, size_t k1, const char *head, size_t nhead, size_t ndig, int verbose, int *nchecked);
-int tier2_window_offsets(unsigned long *off, int max);   /* Phase 15 IO (W2): the windows' first digits; returns the count */
+int tier2_window_offsets(unsigned long *off, int max);   /* the windows' first digits; returns the count */
 #ifdef __cplusplus
 }
 #endif

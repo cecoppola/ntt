@@ -1,4 +1,4 @@
-/* spill.c - see spill.h (Phase 14 S1: APUMULT_STUDY E3, E4; the spill primitive spill_* was removed 2026-10-12: no production caller) */
+/* spill.c - see spill.h  */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -22,14 +22,14 @@
 int sp_odirect(void)
 {
     static int v = -1;
-    if (v < 0) v = getenv("ECALC_ODIRECT") ? (sp_odirect_auto() ? 1 : atoi(getenv("ECALC_ODIRECT"))) : 1;   /* default 1 since Phase 14 (S114); a file system that refuses O_DIRECT falls back to buffered + dropped cache */
+    if (v < 0) v = getenv("ECALC_ODIRECT") ? (sp_odirect_auto() ? 1 : atoi(getenv("ECALC_ODIRECT"))) : 1;   /* default 1; a file system that refuses O_DIRECT falls back to buffered + dropped cache */
     return v;
 }
-/* ---- Phase 15 IO (W7): O_DIRECT by file-system type ---- */
+/* ---- O_DIRECT by file-system type ---- */
 int sp_odirect_auto(void)
 {
     static int v = -1;
-    if (v < 0) { const char *e = getenv("ECALC_ODIRECT"); v = !e || !strcmp(e, "auto"); }   /* default auto since Phase 15 (the user's decision) */
+    if (v < 0) { const char *e = getenv("ECALC_ODIRECT"); v = !e || !strcmp(e, "auto"); }   /* default auto */
     return v;
 }
 int sp_fs_kind(const char *path)

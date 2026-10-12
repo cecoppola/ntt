@@ -9,12 +9,10 @@
 
 typedef unsigned __int128 u128;
 /* the first eight primes above 2^62 (RESULTS.md, "proposed tier-1 primes": 2^62 + 135, 169, 177, 187, 189, 193, 253, 277).
- * Phase 11 V (D5): the table used until Phase 10 (2^62 + 135, 179, 183, 247, 315, 319, 349, 397) held only one prime; the
- * others were composite, and two of them (2^62 + 183 = 11 x 1847 x 41641 x 41813 x 130367, 2^62 + 349 = 1187 x 3911 x 40583 x
- * 24478063) have every factor below 2.5 x 10^7, so Q = N! and every node's Q(a, b) were 0 modulo them: at those two moduli
- * T1 checked nothing about Q or X (T (P + Q) == X Q + R reduces to T P == R) and P only through the top node's term range
- * (P = P_A Q_B + P_B with Q_B == 0).  That is the "P BAD, Q BAD at six primes, ok at q2, q6" signature of the D5 failures:
- * a wrong P or Q from a node below the top one, caught at the six moduli that could see it -- not a checker fault. */
+ * They must be prime: composite moduli with small factors (e.g. 2^62 + 183 = 11 x 1847 x 41641 x 41813 x 130367, 2^62 + 349 = 1187 x 3911 x 40583 x
+ * 24478063) have every factor below 2.5 x 10^7, so Q = N! and every node's Q(a, b) are 0 modulo them: at such moduli
+ * T1 checks nothing about Q or X (T (P + Q) == X Q + R reduces to T P == R) and P only through the top node's term range
+ * (P = P_A Q_B + P_B with Q_B == 0). */
 const uint64_t t1_q[T1_NQ] = {4611686018427388039ULL, 4611686018427388073ULL, 4611686018427388081ULL,
                               4611686018427388091ULL, 4611686018427388093ULL, 4611686018427388097ULL,
                               4611686018427388157ULL, 4611686018427388181ULL};
@@ -149,7 +147,7 @@ void vf_digits_mods(const char *s, size_t n, const uint64_t *qs, int nq, uint64_
 
 int tier1_res(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, int verbose)
 { return tier1_res_pq(N, d, Pres, Qres, X, R, 0, 0, 0, 0, verbose); }
-/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (Phase 8: in the background during bs); xres_pre: X mod q likewise */
+/* pq_pre / qq_pre: the term recurrence's P, Q mod q already computed (in the background during bs); xres_pre: X mod q likewise */
 int tier1_res_pq(unsigned long N, unsigned long d, const uint64_t *Pres, const uint64_t *Qres, const bigint *X, const bigint *R, const uint64_t *pq_pre, const uint64_t *qq_pre, const uint64_t *xres_pre, const uint64_t *rres_pre, int verbose)
 {
     int bad = 0;
@@ -239,7 +237,7 @@ int tier2_range(const char *s, size_t k0, size_t k1, const char *head, size_t nh
     if (nchecked) *nchecked += n;
     return bad;
 }
-/* Phase 15 IO (W2, ECALC_OUT_PACKED): the windows' first digits (tier2_range's indexing: a window covers the digits [o, o + 50)),
+/* the windows' first digits (tier2_range's indexing: a window covers the digits [o, o + 50)),
  * for a writer that formats only the digits the windows need.  Returns the count; at most max are stored. */
 int tier2_window_offsets(unsigned long *off, int max)
 {

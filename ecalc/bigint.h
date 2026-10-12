@@ -88,7 +88,7 @@ void bi_add_shifted(bigint *r, const bigint *a, size_t limbs);      /* r += a <<
 void bi_sub_shifted(bigint *r, const bigint *a, size_t limbs);      /* r -= a << (64 limbs), r >= that */
 void bi_mul_school(bigint *r, const bigint *a, const bigint *b);
 void bi_mul_u64(bigint *r, const bigint *a, uint64_t m);
-/* Phase 15 S1: mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */
+/* mul_1 is by a precomputed reciprocal of 10^18 (any m < 10^18, canonical limbs); the fused seed step: */
 void bi_span_step(bigint *P, bigint *Q, uint64_t k);                /* P += Q; Q *= k in one pass (k < B; else the two calls) */
 void bi_add_u64(bigint *r, uint64_t v);
 uint64_t bi_divmod_u64(bigint *q, const bigint *a, uint64_t d);     /* returns remainder */

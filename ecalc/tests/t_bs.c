@@ -1,8 +1,7 @@
 /* t_bs - step 6 test: binsplit against the GMP recursion and the reference digits.
  *
  *  1. P, Q for N = 10^3 .. 10^6 (10^7 with "long") vs binsplit_ref with the
- *     seed span lowered (8 terms) and at 512 terms (the CPU schoolbook tier,
- *     BS_SCHOOL_NL, was removed 2026-10-12)
+ *     seed span lowered (8 terms) and at 512 terms (the CPU schoolbook tier)
  *  2. e to 10^6 and 10^7 digits end to end through GMP division and
  *     mpz_get_str, compared with ref/e_<d>.txt (SHA-256 of the whole string)
  *
@@ -37,7 +36,7 @@ int main(int argc, char **argv)
     int lng = argc > 1 && !strcmp(argv[1], "long");
     printf("== t_bs ==\n");
     harness_meta("t_bs");
-    setenv("DB_POOL_VMM", "0", 0);   /* this test reads P and Q on the host; a VMM range is device-only (the VMM pool, the default since Phase 14, is covered by mnaccept's e9 and full steps) */
+    setenv("DB_POOL_VMM", "0", 0);   /* this test reads P and Q on the host; a VMM range is device-only (the VMM pool, the default, is covered by mnaccept's e9 and full steps) */
     rns_init(31);
     printf("-- 1. P, Q vs the GMP-free reference recursion\n");
     check_pq(1000, 8); check_pq(1000, 512);

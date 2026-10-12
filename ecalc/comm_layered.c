@@ -1,4 +1,4 @@
-/* comm_layered.c - the layered communicator (Phase 8 M3, archive:PLAN §17): the rank space of a whole-machine
+/* comm_layered.c - the layered communicator: the rank space of a whole-machine
  * transform is (4 APUs) x (g nodes).  APU d of node r is global rank rho = g d + r (APU-major), so the g
  * slabs bound for the APUs d' of every node are contiguous in the sender's slab buffer.  An all-to-all is
  * two exchanges with a block transpose between them:
@@ -35,7 +35,7 @@
 #include <time.h>
 #include <unistd.h>
 #define NA 4
-/* ---- Phase 13a X (archive:PLAN §29 E9 part 1): the stage timeline of every exchange, COMM_LAYER_STATS=1|2 (default 0: off,
+/* ---- the stage timeline of every exchange, COMM_LAYER_STATS=1|2 (default 0: off,
  * nothing recorded, no branch taken beyond the flag test).  Per exchange: a0 entry, [x0, x1] the xGMI stage (the intra
  * post + wait), r1 ready for the fabric (the transpose done), [f0, f1] the fabric stage (the inter post .. its completion),
  * c1 the exchange complete (the transpose back).  f1: mode 1 (passive) = when the inter wait returned in the normal
@@ -54,7 +54,7 @@ typedef struct { comm *intra, *inter; int d, g, na, dev, minor; char *tmp; size_
                  struct lay_ex ex[2]; int head, npend, nlog;                /* npend: physically pending; nlog: posted minus waited */
                  char *vtmp; size_t vcap; struct lay_v v; struct lst st;
                  comm *inter2; int vpool, i2, vshare, vrel;   /* X2: the second inter communicator (COMM_LAYER_INTER2), the v-slots from the comm pool (COMM_LAYER_VSLOT_POOL) */
-                 int tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* Phase 13b X: see below */
+                 int tker; char *vx[2]; size_t vxcap[2]; struct cpy *ctab; int ctcap; } lay_priv;   /* see below */
 #define PRIV(c) ((lay_priv *)(c)->priv)
 static inline int rho_of(const lay_priv *p, int d, int r) { return p->minor ? p->na * r + d : p->g * d + r; }   /* the global rank of (intra d, inter r) */
 /* ---- the stats (E9 part 1) ---- */
@@ -245,14 +245,13 @@ static void need_tmp(comm *c, size_t bytes)
     if (!p->own_tmp && p->tmp) { ec_fatal(EC_RC_FATAL, "comm_layered: the caller's scratch (%zu B) is smaller than the exchange (%zu B)\n", p->tmp_cap, bytes); }
     if (p->tmp) { if (p->tmp_sym) comm_sym_free(p->inter, p->tmp); else HIP_CHECK(hipFree(p->tmp)); }
     HIP_CHECK(hipSetDevice(p->dev));
-    /* Phase 12 S (a minimal change): the scratch from the inter transport's symmetric pool where it has one (the SHMEM
+    /* the scratch from the inter transport's symmetric pool where it has one (the SHMEM
      * transport then receives the inter stage straight into it, no staging), else hipMalloc'd as before */
     p->tmp = (char *)comm_sym_alloc(p->inter, bytes); p->tmp_sym = p->tmp != 0;
     if (!p->tmp) HIP_CHECK(hipMalloc((void **)&p->tmp, bytes));
     p->tmp_cap = bytes; p->own_tmp = 1;
 }
-/* ---- Phase 13b X: the block transposes (one kernel; the 4 x g hipMemcpyAsync form COMM_LAYER_TKERNEL=0 was removed 2026-10-11,
- * the copies remain only as the fallback of the size guards below) and the v-exchange's reorder copies as one kernel
+/* ---- the block transposes (one kernel; the 4 x g hipMemcpyAsync copies remain only as the fallback of the size guards below) and the v-exchange's reorder copies as one kernel
  * each instead of na x nb hipMemcpyAsync calls (2304 per transpose at g = 576).  Equal slabs: grid.y = the destination block
  * (b, a), grid.x strides over its 16-byte words (coalesced on both sides).  Unequal: a table of (dst, src, len) entries in pinned
  * host memory read by the kernel (grid.y = entry); every use is followed by a stream synchronise before the table is refilled.
@@ -467,8 +466,7 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
-/* ---- Phase 13b X (archive:PLAN §31 axis A, 29 E9 part 2): the v-exchange pipelined two deep (COMM_ALLTOALLV_DEPTH=2, the default since
- * Phase 13c, built in 2026-10-12; the one-deep path was removed)
+/* ---- the v-exchange pipelined two deep (COMM_ALLTOALLV_DEPTH=2)
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
  * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when
@@ -579,7 +577,7 @@ static void y_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     lay_priv *p = PRIV(c);
     double a0 = lst_mode ? lst_now() : 0;
     while (p->npend) complete_oldest(c);                 /* one kind at a time */
-    y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0);   /* two deep (COMM_ALLTOALLV_DEPTH=2, built in 2026-10-12; the one-deep path was removed) */
+    y_alltoallv2(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, a0);   /* two deep (COMM_ALLTOALLV_DEPTH=2) */
 }
 static void y_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {
@@ -664,8 +662,7 @@ static void y_destroy(comm *c)
 static void *y_sym_alloc(comm *c, size_t bytes) { return comm_sym_alloc(PRIV(c)->inter, bytes); }
 static void y_sym_free(comm *c, void *p) { comm_sym_free(PRIV(c)->inter, p); }
 static const struct comm_ops lay_ops = { y_rank, y_size, y_alltoall, y_wait, y_barrier, y_modq, y_max, y_destroy, 0, 0, y_allgather, y_allgather_host, y_alltoallv, y_alltoallv_host, y_sym_alloc, y_sym_free };
-/* TASKS 27 (D1e, 2026-10-12): X2 (COMM_LAYER_VSLOT_POOL, COMM_LAYER_INTER2), S36 (COMM_LAYER_VSLOT_SHARE) and M3 (COMM_LAYER_VSLOT_RELEASE),
- * on both launch lines since 2026-10-11, are built-in defaults (1); =0 keeps each one's old form.  INTER2 and RELEASE need the pool's
+/* COMM_LAYER_VSLOT_POOL, COMM_LAYER_INTER2, COMM_LAYER_VSLOT_SHARE and COMM_LAYER_VSLOT_RELEASE are on by default (1); =0 gives the plain form of each.  INTER2 and RELEASE need the pool's
  * slots: unset, they follow COMM_LAYER_VSLOT_POOL (so COMM_LAYER_VSLOT_POOL=0 alone gives the whole old form).  binsplit.c's sizing,
  * mn.c and rns_dist.c read the same functions. */
 int comm_layered_vslot_pool_on(void) { const char *e = getenv("COMM_LAYER_VSLOT_POOL"); return e ? atoi(e) != 0 : 1; }
@@ -707,7 +704,7 @@ void comm_layered_scratch(comm *c, void *p, size_t bytes)
     if (v->own_tmp && v->tmp) { HIP_CHECK(hipSetDevice(v->dev)); if (v->tmp_sym) comm_sym_free(v->inter, v->tmp); else HIP_CHECK(hipFree(v->tmp)); }
     v->tmp = (char *)p; v->tmp_cap = bytes; v->own_tmp = 0; v->tmp_sym = 0;
 }
-/* Phase 13b X: the block transpose alone, one APU: 4 x g blocks of `bytes`, the copies against the kernel (median of reps,
+/* the block transpose alone, one APU: 4 x g blocks of `bytes`, the copies against the kernel (median of reps,
  * host wall incl. the launches and the stream sync, as in the exchange); returns 1 when the two outputs differ */
 extern "C" int comm_layered_tbench(int g, size_t bytes, int reps)
 {

@@ -1,4 +1,4 @@
-/* cx_grid - Phase 15 CX (results/CX15.md): what the multi-node transform cache is worth per grid product.  The target's grid shapes
+/* cx_grid - what the multi-node transform cache is worth per grid product.  The target's grid shapes
  * (tests/cx_shapes.py --emit: the 5.1e13 run's distinct grids scaled to this run's cap) are formed over the g node-processes of
  * mnrun.sh with the cache at each slot count of the list, interleaved: for every repetition, every shape, every count -- the same
  * operands, the same node.  rns_dist_cache_test_slots sets the count in-process (the slots are allocated once, at the first product

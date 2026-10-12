@@ -99,9 +99,8 @@ static void plan_create(dist_plan *p, comm *cm, ntt_ctx *ctx, int prime, int log
     p->twc_i = dev_pow_table(prime, ec_root_inv(prime, logn), (size_t)1 << logC);
     size_t bytes = p->rows * ((size_t)1 << logC) * 8;
     p->own_slabs = slabs; p->sbuf = p->rbuf = 0;
-    /* Phase 12 S: the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the SHMEM
-     * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd.  (DIST_SYM_SLABS=0, the staged
-     * comparison form, was removed 2026-10-12.) */
+    /* the slab buffers from the transport's symmetric pool where it has one (comm_sym_alloc: the SHMEM
+     * transport puts straight from sbuf into the receivers' rbuf, no staging), else hipMalloc'd. */
     if (slabs) {
         p->sbuf = (uint64_t *)comm_sym_alloc(cm, bytes); p->rbuf = p->sbuf ? (uint64_t *)comm_sym_alloc(cm, bytes) : 0;
         if (p->sbuf && p->rbuf) p->own_slabs = 2;
@@ -189,12 +188,11 @@ __global__ void k_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t ro
         sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
     }
 }
-/* ---- Phase 13b X: the twiddled pack/unpack with the twiddle by a row recurrence (the only production form since DIST_TWREC was
- * removed 2026-10-11; the plain forms k_twpack / k_unpacktw stay as dist_pack_bench's bit-identity reference).  The plain forms
+/* ---- the twiddled pack/unpack with the twiddle by a row recurrence (the production form; the plain forms k_twpack / k_unpacktw stay as dist_pack_bench's bit-identity reference).  The plain forms
  * gather twr and twc for every point (w_n^(i j) = twr[i j >> logC] twc[i j mod C]; j = brev(jb) scatters the gathers over the
  * tables: 64 cache lines per 32-point tile row) and run at 1.2-1.5 TB/s against a 3 TB/s copy (measured).  Here a thread's four
  * rows i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in LDS):
- * two gathers per four points instead of eight (block 32 x 8; the 32 x 4 form DIST_TWREC=2 was removed with the switch).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
+ * two gathers per four points instead of eight (block 32 x 8).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
  * exactly: bit-identical (checked by dist_pack_bench). */
 __device__ static inline double tw_base(size_t e, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
 {
@@ -270,7 +268,7 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
     if (dist_st.on) st_host(tnow() - t0);
     HIP_CHECK(hipEventRecord(p->evt, p->ts)); HIP_CHECK(hipStreamWaitEvent(s, p->evt, 0));
 }
-/* Phase 15 WM (results/WM15.md, hazard H1): a transport that PUSHES into the receivers' slab buffers (comm_xgmi: a kernel on the
+/* a transport that PUSHES into the receivers' slab buffers (comm_xgmi: a kernel on the
  * sender's device stores into rbuf on the receiver's device as soon as every rank has entered the exchange) writes rbuf while
  * the receiver's compute stream may still hold the previous transform's unpacks of the same chunk: nothing on the GPU orders
  * the sender's transfer stream after the receiver's compute stream, and the exchange's barrier orders only the host threads.
@@ -280,7 +278,7 @@ static void chunk_wait(dist_plan *p, hipStream_t s)
  * and the exchange's barrier then holds every sender until every receiver has passed that point.  The later posts of the same
  * transform need nothing (each chunk has its own region of rbuf, written once per transform).  The wait is for work queued
  * before the row pass that follows it, so the GPU never idles on it; digits identical (an ordering, no arithmetic). */
-static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }   /* (DIST_RB_WAIT=0, the H1 demonstration without it, removed 2026-10-12) */
+static void rb_free_wait(dist_plan *p) { HIP_CHECK(hipEventSynchronize(p->evr)); }
 static inline int depth(const dist_plan *p) { int D = p->cm->inflight; if (D < 1) D = 1; if (D > p->K) D = p->K; return D; }
 /* forward, chunk k: the row pass of its rows, twiddle and pack into its slab region */
 static void fwd_prod(dist_plan *p, uint64_t *x, int k, hipStream_t s)
@@ -349,7 +347,7 @@ static void inv_loop(dist_plan *p, uint64_t *x, hipStream_t s, int kend)
     }
     p->k_resume = kend;
 }
-/* Phase 10 A6 (agent G, a minimal addition to this file): y != 0 fuses the pointwise product x <- x y into the column
+/* y != 0 fuses the pointwise product x <- x y into the column
  * inverse's first pass (ntt_inv_pw_y, FULL layout: y in the same column layout as x) -- the same modmul as dist_pw on the
  * same canonical operands, so bit-identical to dist_pw + dist_inv, one plane read and write per prime less */
 static void inv_pre_y(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s)
@@ -404,10 +402,9 @@ __global__ void k_unpack_t(const uint64_t *rb, uint64_t *x, size_t rows, size_t 
     size_t C = cols * size, total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) { size_t il = t / C, j = t % C, r = j / cols, jl = j % cols; x[t] = rb[r * (cols * rows) + il * cols + jl]; }
 }
-/* ---- Phase 13b X: tiled (LDS) forms of the two scattered-store packs, bit-identical copies.  k_pack (the untwiddled row ->
+/* ---- tiled (LDS) forms of the two scattered-store packs, bit-identical copies.  k_pack (the untwiddled row ->
  * slab pack, the form K13 benchmarked at 360-770 GB/s) is not on any production path -- the forward packs with the tiled, fused
- * k_twpack -- and k_pack_t is the transposed inverse's (dist_inv_t, tests only; its tiled form k_pack_t_tiled / DIST_TPACK was removed
- * 2026-10-11); dist_pack_bench() measures every pack/unpack of this file against a device copy. */
+ * k_twpack -- and k_pack_t is the transposed inverse's (dist_inv_t, tests only); dist_pack_bench() measures every pack/unpack of this file against a device copy. */
 __global__ void k_pack_tiled(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols)   /* grid (C/32, rows/32), block (32, 8) */
 {
     __shared__ uint64_t tile[32][33];
@@ -437,7 +434,7 @@ void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s)
 }
 void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_t_pre(p, x, s); dist_inv_t_post(p, x, s); }
 
-/* Phase 13b X: the pack/unpack kernels of this file on one APU (prime 0), a plane of 2^logn points split as by `size` ranks
+/* the pack/unpack kernels of this file on one APU (prime 0), a plane of 2^logn points split as by `size` ranks
  * (logR = logn/2 rows over size ranks: this rank's rows x C; the chunk = all its rows); median of `reps`; rate = 16 B x points / t
  * (one read and one write of every point).  The tiled forms are checked bit-identical against the plain ones. */
 static int cmp_dev(const uint64_t *a, const uint64_t *b, size_t n)

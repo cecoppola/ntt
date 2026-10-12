@@ -1,4 +1,4 @@
-/* t_hred_race.c - Phase 14 A1 (results/A114.md): the first-use race of dbig.c's old `maxidx` host buffer, measured.
+/* t_hred_race.c - the first-use race of dbig.c's old `maxidx` host buffer, measured.
  *
  * The old code: four OpenMP threads (one per APU) each ran `if (!g_hred) g_hred = malloc(...)` unguarded, then copied their
  * quarter's per-block results with hipMemcpy to `g_hred + d * K` and scanned `g_hred[d * K + i]` -- the global read twice.

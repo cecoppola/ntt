@@ -28,27 +28,27 @@ typedef struct {
     double t_repack, t_h2d, t_fwd, t_inv, t_d2h, t_crt, t_total;
     double tb_scatter, tb_ntt, tb_crt, tb_merge, tb_total;   /* batch tier, max over devices per tile, summed */
     size_t n_mdev, n_split, n_school, n_batch, points_mdev;
-    size_t n_batch_local, n_batch_pair;                      /* Phase 9 B1: products through the locality-aware tier, of them in paired-B tiles */
+    size_t n_batch_local, n_batch_pair;                      /* products through the locality-aware tier, of them in paired-B tiles */
 } rns_stats;
 extern rns_stats rns_st;
 extern int rns_school_max;        /* points (na+nb) below which the CPU schoolbook is used (default 1024) */
 extern int rns_crt_threads;       /* default: all */
 
 int  rns_init(int pool_log);      /* 31 (default) or 32; allocates staging + pools, returns ndev */
-extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
+extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* called inside rns_init once the pinned staging exists */
 extern size_t rns_staging_bytes_req;   /* set before rns_init: pinned staging per APU (0 = 8 << pool_log); the decimal device flow needs only the seed stage */
 size_t rns_staging_bytes(void);
-extern size_t rns_pool1_bytes_req;     /* Phase 9 C4: set before rns_init: plane pool 1 per APU (0 = 8 << pool_log); rns_pool1_default_bytes gives the dist tier's 3 q + 16 limbs */
+extern size_t rns_pool1_bytes_req;     /* set before rns_init: plane pool 1 per APU (0 = 8 << pool_log); rns_pool1_default_bytes gives the dist tier's 3 q + 16 limbs */
 size_t rns_pool1_default_bytes(int pool_log);
-/* Phase 11 B3 (agent P): plane pools sized at init for 3 2^k-point planes (pool 0 = 3 2^(pool_log-1) limbs, pool 1 = 3 q + 16 at
+/* plane pools sized at init for 3 2^k-point planes (pool 0 = 3 2^(pool_log-1) limbs, pool 1 = 3 q + 16 at
  * q = 3 2^(pool_log-3)); the dist tier's DIST_R3 default follows it.  Set rns_planes_3q30 before rns_init (the driver: on below
  * 5e10 digits at 2^31 pools only with RNS_PLANES_3Q30=auto; =1 forces it; default off, results/P.md); rns_plane_limbs() is pool 0's capacity in limbs */
 extern int rns_planes_3q30;
 int rns_planes_3q30_default(int pool_log, double digits);
 size_t rns_plane_limbs(void);
-int rns_pool0_np(void);                                              /* Phase 15 NP: the planes plane pool 0 is made for (ec_np; ECALC_NP=auto: 3 or 4 by the run's largest group, ec_np_planes) */
-size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1);   /* Phase 13b P: pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
-void rns_preinit_pool_log(int pool_log);                                                /* Phase 13b P: rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
+int rns_pool0_np(void);                                              /* the planes plane pool 0 is made for (ec_np; ECALC_NP=auto: 3 or 4 by the run's largest group, ec_np_planes) */
+size_t rns_plane_pool_bytes(int pool_log, int b3, int np, size_t *p0, size_t *p1);   /* pools 0 and 1 per APU as rns_init makes them (bytes; returns the sum) */
+void rns_preinit_pool_log(int pool_log);                                                /* rns_pool_log() before rns_init (BS_LAYOUT_ONLY without a device) */
 size_t rns_dpool_cap(int dev, int which);   /* the pool's current bytes (0 before rns_init) */
 extern void (*rns_shutdown_hook)(void);   /* called first by rns_shutdown (binsplit's region arenas) */
 int  rns_pool_log(void);
@@ -91,20 +91,20 @@ void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
 void rns_mul_dist_hd(struct dbig_s *C, const uint64_t *a, size_t na, const struct dbig_s *B);           /* registered host A x device B */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
-/* Phase 10 (agent G): the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform
+/* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform
  * cache of the grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products -- the reciprocal's last
  * doubling for the division's X Q -- and returns whether it holds; hold(0) empties them; release frees the planes) */
 void rns_mul_high_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t cut);
-void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* Phase 15 R4: both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
+void rns_mul_band_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t lowcut, size_t w);   /* both cuts -- A B mod B^w, the pieces at or above w and those ending at or below lowcut skipped */
 void rns_dist_cache_stats(size_t *hits, size_t *misses);
 void rns_dist_cache_release(void);                     /* the cache's planes freed (the end of the dm phase) */
-void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* Phase 15 TC: ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
+void rns_dist_cache_budget(double room_bytes, int ranks_on_node);   /* ECALC_BUDGET_CHECK's room for this rank and its node's rank count (RNS_DIST_CACHE_FIT) */
 void *rns_dpool(int dev, int which, size_t bytes);
-extern int rns_pool_grow; size_t rns_pool_n_grow(void);   /* Phase 12 R: RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort); the count of such growths */
+extern int rns_pool_grow; size_t rns_pool_n_grow(void);   /* RNS_POOL_GROW=1 lets a plane pool grow inside a phase (else abort); the count of such growths */
 size_t rns_dpool_donate_tail(int dev, int which, size_t used);   /* I3: the pool's unused tail to the dbig block pool */
 void rns_release_staging(void);
 void rns_ensure_staging(void);
-struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; size_t n_formed, n_skipped; };   /* n_formed / n_skipped (Phase 14 R1, E7): mul_grid's piece counts, summed (the reciprocal reports its cut) */
+struct rns_dist_stats { size_t n; double t_total, t_stage, t_load, t_ntt, t_crt, t_merge; size_t n_formed, n_skipped; };   /* n_formed / n_skipped: mul_grid's piece counts, summed (the reciprocal reports its cut) */
 extern struct rns_dist_stats rns_dist_st;                    /* device dev's pinned NUMA-local staging (2^pool_log limbs), free between products */
 
 #ifdef __cplusplus

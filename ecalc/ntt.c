@@ -14,20 +14,19 @@
 #define BP 17                      /* LDS pad: sh[128][17], conflict-free columns */
 #define THREADS 256
 #define B1_LGL 10                  /* b1 block length 2^10 (rule 3b) */
-#define B1R_TW 4096                /* Phase 13b K: the register-blocked b1's per-stage twiddle table (b1 lengths up to 2^12) */
+#define B1R_TW 4096                /* the register-blocked b1's per-stage twiddle table (b1 lengths up to 2^12) */
 
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
 int ntt_stg = 7;
 int ntt_pw_fuse = 14;
-/* ntt_stg and ntt_pw_fuse are internal (the tests' pass-split and fusion checks set them); the kernel choice is fixed since
- * 2026-10-12 (the switches NTT_B16_STG, PW_FUSE, NTT_B16_BODY, NTT_MODMUL, NTT_B1R, NTT_PLAN, NTT_R3_FUSE were removed at
- * their defaults): 7-stage passes in the register-blocked body, the reduced-correction Barrett, the register-blocked b1 pass
+/* ntt_stg and ntt_pw_fuse are internal (the tests' pass-split and fusion checks set them); the kernel choice is fixed:
+ * 7-stage passes in the register-blocked body, the reduced-correction Barrett, the register-blocked b1 pass
  * with 2^3 points per thread, the per-logn pass plan (plan_auto) */
 static int env_int(const char *nm, int dflt) { const char *e = getenv(nm); return e ? atoi(e) : dflt; }
 
-/* ---- Phase 13a K (H3): the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
+/* ---- the reduced-correction FP64 Barrett.  The quotient is taken from the exact product
  * hi + lo against the two-term reciprocal pinv + pinvl (pinvl = (1 - p pinv) / p, computed per thread):
  *   x = fl(hi pinv + fl(hi pinvl + fl(lo pinv)))  differs from ab/p by at most 0.5 + 2^-50 (ab/p < 2p < 2^53,
  *   so the final rounding is at most half an ulp <= 0.5; the other terms are below 2^-51),
@@ -58,7 +57,7 @@ __device__ static inline double mm_canon(double a, double b, double p, double pi
     r -= (r >= p ? p : 0.0);
     return r;
 }
-/* Phase 9 B1: where block `base` of x (a batch of transforms of Lt points) reads its pointwise operand:
+/* where block `base` of x (a batch of transforms of Lt points) reads its pointwise operand:
  * transform t = base / Lt, point k; y transform is t (FULL), 0 (BCAST) or t >> 1 (PAIR).  Blocks never
  * straddle a transform (Lt is a multiple of the block length). */
 __device__ static inline size_t y_base(size_t base, size_t Lt, int ymode)
@@ -163,8 +162,7 @@ void k_b16(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const d
  *   group A  h = 64, 32, 16   rows tt + 16 i
  *   group B  h = 8, 4, 2      rows ((tt>>1)<<4) | (i<<1) | (tt&1)
  *   group C  h = 1            rows 8 tt + i
- * INV runs the groups in reverse (DIT).  Phase 13a K (H3): the reduced-correction Barrett (default since Phase 13b; the
- * FP64 Barrett and Shoup variants were removed 2026-10-12): data products lazy in [0, 2p) (mm_lazy), the twiddles canonical
+ * INV runs the groups in reverse (DIT).  the reduced-correction Barrett: data products lazy in [0, 2p) (mm_lazy), the twiddles canonical
  * (mm_canon); the inverse's difference is u + 2p - vw.  Exact, so the canonical outputs equal the tile kernel's. */
 template <int INV>
 __global__ __launch_bounds__(THREADS)
@@ -256,7 +254,7 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
 #undef BFLYM
 }
 
-/* ---- Phase 13b K: the register-blocked b1 pass.  Block = one 2^LGL-point chunk (LGL 10..12), 2^(LGL-LGV)
+/* ---- the register-blocked b1 pass.  Block = one 2^LGL-point chunk (LGL 10..12), 2^(LGL-LGV)
  * threads, each keeping V = 2^LGV points in registers.  The LGL stages run in G = ceil(LGL / LGV) groups; group g
  * butterflies the index bits [Bg, Bg + Cg) (forward: g = 0 is the top bits, Bg = LGL - (g+1) LGV clipped at 0), with the
  * point of thread t, register i at
@@ -265,8 +263,8 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
  * would do one LDS round trip per stage, ten per pass).  LDS addresses are XOR-swizzled by a linear map of
  * index bits 4.. into bits 0..3 (b1r_swz), found by search to be conflict-free (16 distinct 8-byte banks per 16 lanes)
  * for every group at LGV 3 and 4, LGL 10..12.  Twiddles: tw[H + r] = w_2H^r per stage (one global table per direction,
- * 4096 entries).  The reduced-correction Barrett (mm_lazy); the final canonicalisation and scale as the former b1 pass
- * (removed 2026-10-12 with NTT_B1R), so the outputs are bit-identical to it (they are canonical, hence unique, anyway).
+ * 4096 entries).  The reduced-correction Barrett (mm_lazy); the final canonicalisation and scale as the plain b1 pass
+ * (the outputs are canonical, hence unique).
  * Built with 2^3 points per thread (LGV 3; 4 was slower, K13b). */
 __device__ static inline unsigned b1r_swz(unsigned x)
 {
@@ -402,19 +400,18 @@ struct ntt_ctx {
     int prime;
     ec_mod m;
     double *tabT_f[8], *tabT_i[8];                 /* 2^stg-th roots, stg 1..7 */
-    double *tw1r_f, *tw1r_i;                       /* Phase 13b K: the register-blocked b1's per-stage twiddles tw[H + r] = w_2H^r, H = 1 .. 2048 */
+    double *tw1r_f, *tw1r_i;                       /* the register-blocked b1's per-stage twiddles tw[H + r] = w_2H^r, H = 1 .. 2048 */
     double ninv[NTT_LOGN_MAX + 1];
     struct plan_tw plan[NTT_LOGN_MAX + 1];
-    int adhoc_key[64]; struct pass_tw adhoc[64];   /* Phase 13b K: ntt_pass_at's twiddles (bench only) */
+    int adhoc_key[64]; struct pass_tw adhoc[64];   /* ntt_pass_at's twiddles (bench only) */
 };
 static void free_plan_tw(struct plan_tw *pt);
 
 struct plan { int npass, lb, key, s_lo[NTT_MAXPASS], s_hi[NTT_MAXPASS]; };
-/* Phase 13b K: the pass boundaries.  Plan 0: b1 on stages lb-1..0 with lb = 10, b16 passes of stg stages from the top down,
+/* the pass boundaries.  Plan 0: b1 on stages lb-1..0 with lb = 10, b16 passes of stg stages from the top down,
  * the partial pass (if any) at the bottom.  10 lb + d (lb = 10, 11, 12; d = 0 top-down as plan 0, d = 1 bottom-up: the full
  * passes from lb upward, the partial one at the top), so the row strides 2^s_lo of the passes can be moved off the slow ones
- * (s_lo 17 and 24, results/K13.md).  Per logn the plan listed in plan_auto (measured, results/K13b.md; NTT_PLAN=1, the
- * default since Phase 13b, built in 2026-10-12).  Every plan computes the same canonical outputs. */
+ * (s_lo 17 and 24, results/K13.md).  Per logn the plan listed in plan_auto (measured, results/K13b.md).  Every plan computes the same canonical outputs. */
 static int plan_auto(int logn)
 {
     /* measured (results/K13b.md, t_ntt bench whole/pass, NTT_B1R 3/4): a b1 of 2^11 or 2^12 points saves a whole pass
@@ -462,7 +459,7 @@ void ntt_pass_bounds(int logn, int pass, int *s_lo, int *s_hi)
     else { *s_lo = 0; *s_hi = pl.lb - 1; }
 }
 
-/* Phase 11 I11 (agent P): a context's tables (and each plan's pass twiddles) are built in one host buffer and go to the
+/* a context's tables (and each plan's pass twiddles) are built in one host buffer and go to the
  * device in one hipMalloc + one hipMemcpy instead of one pair per table (a context was 22 pairs, a plan 4 per pass;
  * 16 contexts x 20 lengths over a run) -- the values are unchanged */
 static void host_table_pow(double *h, uint64_t w, size_t cnt, uint64_t p) { uint64_t a = 1; for (size_t k = 0; k < cnt; k++) { h[k] = (double)a; a = ec_mulmod_ref(a, w, p); } }
@@ -597,7 +594,7 @@ static void free_plan_tw(struct plan_tw *pt)
 static struct plan_tw *get_plan_tw(ntt_ctx *c, int logn, const struct plan *pl)
 {
     struct plan_tw *pt = &c->plan[logn];
-    if (pt->built && pt->key != pl->key) { HIP_CHECK(hipDeviceSynchronize()); free_plan_tw(pt); }   /* Phase 13b K: another plan (ntt_stg switched by a test) */
+    if (pt->built && pt->key != pl->key) { HIP_CHECK(hipDeviceSynchronize()); free_plan_tw(pt); }   /* another plan (ntt_stg switched by a test) */
     if (!pt->built) {
         for (int i = 0; i < pl->npass; i++) {
             build_pass_tw(&pt->f[i], c->prime, pl->s_lo[i], pl->s_hi[i], 0);
@@ -628,8 +625,7 @@ static void launch_b16(ntt_ctx *c, uint64_t *x, int logn, int s_lo, int stg, con
     else     switch (stg) { LAUNCH_B16(1, 0) LAUNCH_B16(2, 0) LAUNCH_B16(3, 0) LAUNCH_B16(4, 0) LAUNCH_B16(5, 0) LAUNCH_B16(6, 0) default: ec_fatal(EC_RC_FATAL, "ntt: the radix-16 pass of %d stages is not built", stg); }
 }
 /* the b1 pass on 2^lb-point blocks (nb of them; lb = 10, 11, 12 as the plan says): mode 0 forward, 1 inverse, 2 inverse with
- * the pointwise product (y in layout ymode, Lt points per transform; goff = x's offset in the batch, always 0 since the
- * NTT_MALL chunks were removed); the register-blocked kernel, 2^3 points per thread */
+ * the pointwise product (y in layout ymode, Lt points per transform; goff = x's offset in the batch, always 0); the register-blocked kernel, 2^3 points per thread */
 template <int LGL>
 static void launch_b1r(ntt_ctx *c, uint64_t *x, const uint64_t *y, size_t Lt, int ymode, int mode, double scale, size_t goff, unsigned nb, hipStream_t s)
 {
@@ -694,7 +690,7 @@ void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass
     if (pass < pl.npass) launch_b16(c, x, logn, pl.s_lo[pass], pl.s_hi[pass] - pl.s_lo[pass] + 1, inv ? &pt->i[pass] : &pt->f[pass], inv, 0.0, blocks, s);
     else launch_b1(c, x, 0, 0, 0, inv ? 1 : 0, 0.0, 0, pl.lb, (unsigned)(batch << (logn - pl.lb)), s);
 }
-/* Phase 13b K (bench): one b16 pass of stg stages at any row stride 2^s_lo over a batch of 2^logn transforms, with the
+/* one b16 pass of stg stages at any row stride 2^s_lo over a batch of 2^logn transforms, with the
  * twiddles of that pass (cached in the context); the data is only overwritten, not transformed as a whole */
 void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s)
 {

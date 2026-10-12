@@ -1,4 +1,4 @@
-/* p24_crt.c - Phase 15 Batch 3, agent P24 (results/P2415.md): the CRT of a P24 plane (four primes, 24 digits per point) into
+/* p24_crt.c - (results/P2415.md): the CRT of a P24 plane (four primes, 24 digits per point) into
  * base-10^18 limbs.  One block per column j of the rank's plane: its points [x0, x0 + rows), x0 = R j + a, in chunks of 256 --
  * thread k does Garner for point x0 + k0 + k (dgarner4: a copy of rns_mul.c's, static there), its four base-10^18 digits and their
  * shift by s(x) = 6 (x mod 3) digits into E[x] = e[0..3] at limbs L(x) .. L(x) + 3 (p24.h); then the chunk's limbs

@@ -1,4 +1,4 @@
-/* t_seed - Phase 15 S1: the decimal mul_1 (by a precomputed reciprocal of 10^18) and the fused seed span, against GMP (B5, 2026-10-11:
+/* t_seed - the decimal mul_1 (by a precomputed reciprocal of 10^18) and the fused seed span, against GMP (B5, 2026-10-11:
  * the former serial-path reference went with the BI_MUL1_FAST switch; the expected values are computed with mpz directly).
  *
  *   ./tests/t_seed [spans per range = 400] [threads for the timing = all]
@@ -18,7 +18,7 @@
 #ifdef __cplusplus
 extern "C"
 #endif
-void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b);   /* binsplit.c (Phase 15 S1) */
+void binsplit_span(bigint *P, bigint *Q, unsigned long a, unsigned long b);   /* binsplit.c */
 
 #define B BI_B10
 static long mism = 0;

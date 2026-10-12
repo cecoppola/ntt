@@ -1,4 +1,4 @@
-/* packed_fmt.h - Phase 15 IO (W2): the packed digit file (ECALC_OUT_PACKED=1; version 2 below, =2, the default since 2026-10-12), shared by the writer (mn_out.c) and the
+/* packed_fmt.h - the packed digit file (ECALC_OUT_PACKED=1; version 2 below, =2, the default), shared by the writer (mn_out.c) and the
  * converter / checker (tools/unpack_digits.c).
  *
  * A packed file is a 4096-byte header followed by the base-10^18 limbs of X exactly as the run holds them: 8 bytes per
@@ -16,7 +16,7 @@
  * The header is written when the file is opened (complete = 0) and rewritten when the run closes it (complete = 1, the
  * residues): dres[i] = the part's digits [k0, k1) as a decimal number mod q[i] -- computed by the run from the bytes it
  * wrote, the same values its T1 "digits == X mod q" check used -- so a converter can check its own output against them.
- * Phase 15 KP: a division correction deferred past the writer (ECALC_CORR_PATCH) is patched in place after the close: the
+ * a division correction deferred past the writer (ECALC_CORR_PATCH) is patched in place after the close: the
  * limbs it changes are rewritten at their offsets and dres is moved by the same change (mn_out.c packed_patch), so the header
  * stays the residues of the limbs the file holds.
  */

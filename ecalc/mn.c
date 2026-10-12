@@ -1,5 +1,5 @@
-/* mn.c - the multi-node layer: environment, one mesh per APU thread (SHMEM PE sets with COMM_TRANSPORT=shmem -- Phase 11 S;
- * the TCP meshes of Phase 8 were removed 2026-10-12), the start-up self-test (archive:PLAN §17, M1) */
+/* mn.c - the multi-node layer: environment, one mesh per APU thread (SHMEM PE sets with COMM_TRANSPORT=shmem);
+ * the start-up self-test */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -15,9 +15,9 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
-static int g_shmem;                                   /* Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
+static int g_shmem;                                   /* COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
 int mn_rank(void) { return g_rank; }
-/* Phase 16 D: MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
+/* MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
  * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
  * GB/s per APU thread, and the wall since the mark -- the per-phase fabric rate (E's step-below run: the step's cost vs the
  * fabric's run-to-run variance).  Reads counters only: no collective, no change to the computation. */
@@ -71,7 +71,7 @@ int mn_init(void)
         for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); }
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over SHMEM: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - t0);
-        mn_comm_mark("start (the meshes created)");   /* Phase 16 D: the marks' origin */
+        mn_comm_mark("start (the meshes created)");   /* the marks' origin */
         return g_size;
     }
     g_size = es ? atoi(es) : 1; g_rank = 0;
@@ -82,7 +82,7 @@ int mn_init(void)
 void mn_barrier(void) { if (g_size > 1) comm_barrier(g_cm[0]); }
 static void groups_finalize(void);
 extern "C" void bs_ckpt_tree_remove_below(int level);   /* binsplit.h (included below, with the tree checkpoint code) */
-static int g_ckpend = 0;                              /* C6: the tree level whose set is written but whose predecessors are not yet removed */
+static int g_ckpend = 0;                              /* the tree level whose set is written but whose predecessors are not yet removed */
 void mn_finalize(void)
 {
     if (g_size > 1 && g_ckpend) { bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; }   /* C6: after the driver's final barrier every node has this set */
@@ -102,15 +102,15 @@ int mn_selftest(int logR, int logC, int verbose)
                                                                                  * reach NTT_LOGN_MIN at only 2 ranks; past that point growth (below) still has to engage, so the knob is exercised, not skipped */
     if (logR < NTT_LOGN_MIN) logR = NTT_LOGN_MIN;   /* the column pass is ntt_fwd(..., p->logR, ...) (ntt_dist.c:327): logR itself must be a valid transform size regardless of the rows-per-rank rule below.
                                                       * Only the debug override above can drive it under NTT_LOGN_MIN (10) -- the production default 11 and everything mn_selftest_layered's growth produces
-                                                      * are already >=.  Consequence for testing at 2 ranks (documented, results/<this agent>.md): R >= 2^NTT_LOGN_MIN = 1024 always, so R / 2 >= 512 -- the
+                                                      * are already >=.  Consequence for testing at 2 ranks: R >= 2^NTT_LOGN_MIN = 1024 always, so R / 2 >= 512 -- the
                                                       * small-rows condition (R / ranks < 32) needs ranks > R_min / 32 = 32, i.e. >= 33 node-processes at this floor (>= 65 at the production logR = 11).
                                                       * Neither is reachable on the available hardware (aac7: 13 nodes, <= 4 node-processes/node by default), so the real bug cannot be reproduced end to
                                                       * end here; the growth formula was instead checked by direct arithmetic (matches mn_selftest_layered's identical, already-shipped pattern) and this
                                                       * clamp keeps the debug knob itself from crashing on an invalid override instead of silently exercising the wrong thing. */
-    /* B8 (results/P16.md's growth pattern, mirrored here): the fixed 2^11 rows give R/ranks < 32 from 128
+    /* (results/P16.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
      * ranks on (k_twpack's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
      * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
-     * = 32) so the loop never fires and behavior is unchanged.  (MN_SELFTEST_GROW, default 1, removed 2026-10-12) */
+     * = 32) so the loop never fires and behavior is unchanged. */
     while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
     int ok = 1, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest: R / ranks < 32\n"); return 0; }
@@ -146,7 +146,7 @@ int mn_selftest(int logR, int logC, int verbose)
     return ok;
 }
 
-/* ---- Phase 8 M3: node groups, the layered self-test, the distributed top levels of the tree (archive:PLAN §17) ---- */
+/* ---- node groups, the layered self-test, the distributed top levels of the tree (archive:PLAN §17) ---- */
 #include "mdb.h"
 #include "dbig.h"
 #define MN_MAXL 16
@@ -181,7 +181,7 @@ mn_group *mn_group_at(int level)
     g_groups[level] = G;
     return G;
 }
-/* Phase 12 G (agent G; the tree's schedule, archive:PLAN §27 row G): the group [g0, g0+g) of schedule level l (mn_groups_parse: MN_GROUPS).
+/* the tree's schedule: the group [g0, g0+g) of schedule level l (mn_groups_parse: MN_GROUPS).
  * A group that is one of the binary levels' -- G_l a power of two, or the whole machine -- IS mn_group_at's (the same meshes,
  * the same slots: the default schedule runs exactly as before); any other size (3, 6, 192 ...) gets its own meshes on the
  * slot 2 MN_MAXL + l (every node of the group takes part in the transform: no tr, no topo layer -- L's general map) */
@@ -235,9 +235,8 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     int L = 0; while ((1 << L) < g_size) L++;
     mn_group *G = mn_group_at(L); int gt = G->gt;
     if (g_rank >= gt) return 1;
-    /* Phase 16 P (results/P16.md): logR grows until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
-     * (4 x 32 = 128 ranks, R / ranks = 16), i.e. every launch of 32 or more node-processes stopped at init (MN_SELFTEST_GROW,
-     * default 1 since 2026-10-05, removed 2026-10-12; MN_LAYERED_RAW / MN_LAYERED_LOCAL, debug variants, removed too) */
+    /* logR grows until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
+     * (4 x 32 = 128 ranks, R / ranks = 16), so the rows grow with the rank count */
     while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
     int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
@@ -292,15 +291,15 @@ int mn_selftest_layered(int logR, int logC, int verbose)
  * operand sharded over its own group's nodes and the results over the joined group.  The other side's
  * descriptors (n, N, g0, g) come from an all-gather over the group; nothing else is exchanged outside the
  * products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares of P, Q over all nodes. */
-/* M6 (archive:PLAN §19, results/A-ckpt.md): the tree level every node restarts from -- the lowest, over the nodes, of each
+/* (results/A-ckpt.md) the tree level every node restarts from -- the lowest, over the nodes, of each
  * node's highest complete tree set (a node writes level l, then all nodes meet at a barrier, then the superseded
  * set goes: so the lowest level present is present everywhere); computed once, the sets above it discarded */
 #include "binsplit.h"
-#include "newton.h"                                   /* Phase 13 N: newton_mn_pq_hook */
+#include "newton.h"                                   /* newton_mn_pq_hook */
 #include <unistd.h>
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half);
 static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch);
-/* Phase 12 G (a V-style probe, ECALC_RES_LOG=1): after a level, the sharded P, Q of the group [g0, g0+g) against the recurrence
+/* after a level, the sharded P, Q of the group [g0, g0+g) against the recurrence
  * over the group's terms [1 + N g0 / size, 1 + N (g0+g) / size) mod the T1 primes -- every node computes its share's residues,
  * an all-gather over the group, the sum of share_r B^lo_r mod q on every node.  Names the level whose product is wrong. */
 #include "verify.h"
@@ -333,7 +332,7 @@ int mn_ckpt_tree_level(unsigned long N)
     if (g_cktree >= 0) return g_cktree;
     if (N) bs_N = N;
     if (g_size <= 1 || !bs_restart || !bs_ckpt_dir) { g_cktree = 0; return 0; }
-    /* Phase 13 N (TASKS 1.7): every node scans its sets without aborting (a foreign set, or a tree set written under another
+    /* every node scans its sets without aborting (a foreign set, or a tree set written under another
      * schedule -- the sets are indexed by the schedule's level), then all nodes see every verdict and fail together, loudly */
     int err = 0; char msg[2048];
     uint64_t v[2] = { (uint64_t)bs_ckpt_restart_scan(bs_N, &err, msg, sizeof msg), 0 }, *all = (uint64_t *)malloc((size_t)g_size * 16), mn = v[0];
@@ -356,13 +355,13 @@ int mn_ckpt_tree_level(unsigned long N)
     printf("mn: node %d: tree checkpoint sets: mine up to level %d, all nodes have level %d\n", g_rank, (int)v[0], g_cktree);
     return g_cktree;
 }
-/* Phase 13 N (TASKS 1.4, 4.1): the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 1 = complete, the division
+/* the top tree set in the background (mn_ckpt_bg_mode, set by ecalc.c: 1 = complete, the division
  * waits for P's part before S = P + Q if it must; 2 = budgeted, dropped when the measured disk rate cannot finish a part within
  * mn_ckpt_slack seconds of its release).  The writer reads the shares while the reciprocal and the division run; the hook in
  * newton_mn_divmod lets go of P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish
  * (after the output stage).  mn_ckpt_top_finish joins the writer and, once every node has the set, lets mn_finalize remove the
- * sets it supersedes (the C6 rule; a node that dropped or failed its set keeps every node's lower sets). */
-int mn_ckpt_bg_mode = 1; double mn_ckpt_slack = 1.0;   /* (0, the synchronous top set of BS_CKPT_TREE_BG=0, removed 2026-10-12) */
+ * sets it supersedes (a node that dropped or failed its set keeps every node's lower sets). */
+int mn_ckpt_bg_mode = 1; double mn_ckpt_slack = 1.0;
 static bs_ckpt_bg *g_topbg = 0; static int g_topbg_on = 0, g_toplevel = 0; static dbig g_heldQ;
 static void mn_pq_hook(int stage, mdb *x)
 {
@@ -397,7 +396,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = g_rank; P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = g_rank; Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
     dm_switches(); if (g_rank == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
-    int gs[MN_MAXL]; int L = mn_groups_parse(g_size, gs, MN_MAXL - 1);   /* Phase 12 G: the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
+    int gs[MN_MAXL]; int L = mn_groups_parse(g_size, gs, MN_MAXL - 1);   /* the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
         double t0 = mem_now(); uint64_t d[10]; dbig ps, qs;
@@ -408,8 +407,8 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         printf("mn: node %d: restart from tree level %d: P %zu limbs (share %zu), Q %zu limbs (share %zu), loaded in %.2f s\n", g_rank, lr, P->n, P->sh.n, Q->n, Q->sh.n, mem_now() - t0);
     }
     int every = getenv("BS_CKPT_TREE_EVERY") ? atoi(getenv("BS_CKPT_TREE_EVERY")) : 1; if (every < 1) every = 1;   /* C6: a set every this many tree levels (the top level always) */
-    if (ck && lr == 0 && !bs_restart) bs_ckpt_tree_clear(0);   /* Phase 13 N (1.7): a fresh run: this node's tree sets of an earlier run go (levels another schedule wrote would outlive this run's) */
-    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* Phase 12 G (tests): the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
+    if (ck && lr == 0 && !bs_restart) bs_ckpt_tree_clear(0);   /* a fresh run: this node's tree sets of an earlier run go (levels another schedule wrote would outlive this run's) */
+    int captest = getenv("MN_TREE_LOGN_TEST") ? atoi(getenv("MN_TREE_LOGN_TEST")) : 0;   /* the tree's levels at a lowered plane cap (grids at 10^10 on one node), the division at its own */
     if (captest) rns_dist_cap_test(captest);
     for (int l = lr + 1; l <= L; l++) {
         int Gl = gs[l - 1], Gp = l > 1 ? gs[l - 2] : 1;       /* this level's group size and the children's (the previous level's) */
@@ -418,7 +417,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
         else if (nch > 2) tree_level_k(P, Q, l, g0, g, Gp, nch);   /* a k-way level (nch children of Gp nodes): k - 1 combines over the level's group */
         /* (one child: no sibling group, carried up unchanged) */
         if (nch > 1 && db_res_log_on()) tree_check(P, Q, l, g0, g, mn_group_span(l, g0, g));
-        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", g_rank, l); mem_live_line(w); }   /* Phase 14 S1 (E1): the pool's live bytes per level */
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d", g_rank, l); mem_live_line(w); }   /* the pool's live bytes per level */
         if (ck && (l % every == 0 || l == L)) {              /* M6: this node's shares after level l */
             /* C6: the sets below the previous set (g_ckpend) go here, not right after its write: every node wrote
              * g_ckpend before entering the next level, so this barrier waits for the nodes' compute, never for the
@@ -427,7 +426,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
              * predecessors go at mn_finalize, after the driver's final barrier. */
             if (g_ckpend) { double tb = mem_now(); mn_barrier(); bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; bs_st.t_ckpt += mem_now() - tb; }
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
-            if (l == L) {                                    /* Phase 13 N (1.4): the top set in the background */
+            if (l == L) {                                    /* the top set in the background */
                 g_topbg = bs_ckpt_bg_start(l, bs_N, d, &P->sh, &Q->sh, mn_ckpt_bg_mode == 2, mn_ckpt_slack); g_topbg_on = 1; g_toplevel = l;
                 newton_mn_pq_hook = mn_pq_hook;
                 printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in the background%s (started in %.2f s)\n", g_rank, l, bs_ckpt_dir, (P->sh.n + Q->sh.n) * 8e-9,
@@ -453,7 +452,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
 static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
 {
     double t0 = mem_now();
-    mn_group *G = mn_group_span(l, g0, g);                   /* (Phase 12 G: = mn_group_at(l) for the binary schedule) */
+    mn_group *G = mn_group_span(l, g0, g);                   /* (= mn_group_at(l) for the binary schedule) */
     uint64_t v[8] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g }, *all = (uint64_t *)malloc((size_t)g * 8 * 8);
     mn_allgather(G->all[0], v, 8, all);
     int inA = G->me < half; const uint64_t *da = all, *dbb = all + (size_t)half * 8;   /* member 0 describes A, member `half` describes B */
@@ -464,17 +463,17 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
-    db_free(&P->sh);                                       /* Phase 14 T1 (E10a): my child's P (PA or PB) is dead once P_n is formed */
-    if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", g_rank, l); mem_live_line(w); }   /* Phase 14 T1: the first product's window; the level's line then covers the second */
+    db_free(&P->sh);                                       /* my child's P (PA or PB) is dead once P_n is formed */
+    if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", g_rank, l); mem_live_line(w); }   /* the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
     printf("mn: node %d level %d [%d, %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, P->n, Q->n, lo, hi, mem_now() - t0);
-    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }   /* Phase 16 D */
+    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
 }
-/* Phase 12 G: a k-way level (MN_GROUPS: the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
+/* a k-way level (MN_GROUPS: the 9-way top step at 576, 3-way steps ...): the group [g0, g0+g) has nch children of gp
  * nodes each (the last one cut), child i = the members [i gp, min((i+1) gp, g)) holding P_i, Q_i sharded over them.  The
- * combine is Horner's from the top child down (agent X's model prices it so: a 3-way level = 4 products):
+ * combine is Horner's from the top child down (a 3-way level = 4 products):
  *   (P, Q) = (P_{k-1}, Q_{k-1});  for i = k-2 .. 0:  P = P_i Q + P,  Q = Q_i Q
  * -- k - 1 combines of two products each, every product balanced over all g nodes by the block-cyclic map (the operands
  * sharded over the children's subgroups or over the group), the running P, Q sharded over the group; a child's shares are
@@ -498,12 +497,12 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
         if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
         mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
         rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
-        {                                                    /* Phase 14 T1 (E10a): P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
+        {                                                    /* P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
             if (ci == i || (!own && ci == nch - 1)) db_free(&P->sh);   /* my child's P_i, or the top child's P (= P_run, not owned) */
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
         }
-        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* Phase 14 T1: the first product's window */
+        if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul1", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* the first product's window */
         rns_mul_dist_mn(&Qn, &QA, &Qr, 0, G);
         if (mem_live_on() && i > 0) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d c%d mul2", g_rank, l, nch - 1 - i); mem_live_line(w); }   /* (the last combine's: the level's line) */
         if (ci == i || (!own && ci == nch - 1)) { db_free(&P->sh); db_free(&Q->sh); memset(&P->sh, 0, sizeof P->sh); memset(&Q->sh, 0, sizeof Q->sh); db_init(&P->sh); db_init(&Q->sh); }   /* my child's shares are used up */
@@ -516,7 +515,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
     *P = Pr; *Q = Qr;
     size_t lo, hi; mdb_share(P, g_rank, &lo, &hi);
     printf("mn: node %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
-    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }   /* Phase 16 D */
+    { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }
 }
 static void groups_finalize(void)
 {
@@ -531,7 +530,7 @@ static void groups_finalize(void)
         }
         free(G); g_groups[l] = 0;
     }
-    for (int l = 0; l < MN_MAXL; l++) if (g_sched[l]) {   /* Phase 12 G: the schedule's own groups */
+    for (int l = 0; l < MN_MAXL; l++) if (g_sched[l]) {   /* the schedule's own groups */
         mn_group *G = g_sched[l];
         for (int d = 0; d < NA; d++) { if (G->lay[d]) comm_destroy(G->lay[d]); if (G->in2[d]) comm_destroy(G->in2[d]); if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]); }
         free(G); g_sched[l] = 0;

@@ -1,4 +1,4 @@
-/* t_patch - Phase 15 K (ECALC_CORR_PATCH): the division's correction applied to digits already written, as a patch of the
+/* t_patch - the division's correction applied to digits already written, as a patch of the
  * tail (mn_out_tail_core / mn_out_tail_fix), against the reference path (the file written from the corrected X).
  * Random X in base 10^18 (d_out up to 6000), a correction dx in [-9, 9] \ {0} with a forced carry / borrow chain of 0 ..
  * nl - 2 whole limbs (X ending in 18k nines / zeros, and runs of 9s / 0s inside the limb where the chain ends), the string
@@ -15,7 +15,7 @@
 #include "../mn_out.h"
 #include "../packed_fmt.h"
 #include "harness.h"
-/* Phase 15 KP: the packed forms (ECALC_OUT_PACKED=1, and =2, the default since 2026-10-12).  Without ECALC_OUT_PACKED in the
+/* the packed forms (ECALC_OUT_PACKED=1, and =2, the default).  Without ECALC_OUT_PACKED in the
  * environment t_patch runs itself three times, =0 (ASCII: K's checks), =1 and =2 (packed: every part's limbs == the corrected X's limbs
  * [lo, hi) in file order, its header complete with residues == those limbs mod q, tools/unpack_digits --cmp against the corrected
  * ASCII file with its residue check; T_PATCH_UNPACK = the binary, default ../tools/unpack_digits).  Both forms: a second patch of
@@ -27,7 +27,7 @@ static int packed_part_check(const char *pn, const uint64_t *X1, size_t nl, cons
     if (fread(&h, sizeof h, 1, f) != 1 || memcmp(h.magic, ECP_MAGIC, 8)) { printf("it %d size %d node %d: no packed header\n", it, size, o->rank); fclose(f); return 1; }
     if (!h.complete || h.k0 != o->k0 || h.k1 != o->k1 || h.hi > nl || h.lo > h.hi) { printf("it %d size %d node %d: header fields\n", it, size, o->rank); fclose(f); return 1; }
     size_t n = h.hi - h.lo; uint64_t *l = (uint64_t *)malloc(n * 8 + 8);
-    int v60 = h.version == ECP_VERSION60; size_t nb = v60 ? (size_t)ecp60_bytes(n) : n * 8; uint8_t *rb = (uint8_t *)malloc(nb + 8);   /* the 60-bit form (=2, the default since 2026-10-12) or 8 bytes per limb (=1) */
+    int v60 = h.version == ECP_VERSION60; size_t nb = v60 ? (size_t)ecp60_bytes(n) : n * 8; uint8_t *rb = (uint8_t *)malloc(nb + 8);   /* the 60-bit form (=2, the default) or 8 bytes per limb (=1) */
     if (fseek(f, ECP_HDR_BYTES, SEEK_SET) || fread(rb, 1, nb, f) != nb || fgetc(f) != EOF) { printf("it %d size %d node %d: the part does not hold %zu limbs\n", it, size, o->rank, n); bad = 1; }
     else if (v60) ecp60_unpack(rb, n, l); else memcpy(l, rb, n * 8);
     free(rb);
@@ -48,7 +48,7 @@ static void digits_format(char *digits, const uint64_t *l, size_t n, unsigned lo
     }
     digits[d + 1] = 0;
 }
-/* Phase 15 EW: the split writer's gate -- X_lo's limbs arrive only now (the buffer held garbage); called once, after the chunks above s */
+/* the split writer's gate -- X_lo's limbs arrive only now (the buffer held garbage); called once, after the chunks above s */
 struct ew_gate { const uint64_t *from; uint64_t *to; size_t s; int calls, bad; };
 static void ew_gate_fn(void *a, struct mn_out_s *o) { struct ew_gate *g = (struct ew_gate *)a; g->calls++; if (!o->nchunks) g->bad++; memcpy(g->to, g->from, g->s * 8); }
 static uint64_t rnd(void) { static uint64_t s = 0x2545F4914F6CDD1Dull; s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
@@ -56,7 +56,7 @@ static char *slurp(const char *fn, long *len) { FILE *f = fopen(fn, "r"); if (!f
 int main(int argc, char **argv)
 {
     (void)argc;
-    if (!getenv("ECALC_OUT_PACKED")) {                       /* Phase 15 KP: the three forms (ASCII, packed 1, packed 2 = the default), each in its own process (the form is read once) */
+    if (!getenv("ECALC_OUT_PACKED")) {                       /* the three forms (ASCII, packed 1, packed 2 = the default), each in its own process (the form is read once) */
         int rc = 0; char cmd[4200];
         for (int pk = 0; pk <= 2; pk++) { snprintf(cmd, sizeof cmd, "ECALC_OUT_PACKED=%d %s", pk, argv[0]); fflush(stdout); int r = system(cmd); printf("t_patch: ECALC_OUT_PACKED=%d: %s\n", pk, r == 0 ? "ok" : "FAILED"); fflush(stdout); rc |= r != 0; }
         printf("t_patch: %s\n", rc ? "VERIFY FAILED (the three forms)" : "VERIFY OK (the three forms)");
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
                 if (size == 1) { mn_out_src src = { X0, 0, 0, nl }; rc = mn_out_tail_fix(o, &src, 0, dx, &fx); }
                 else { size_t wl = 4; for (;;) { rc = mn_out_tail_core(o, X0, wl, dx, &fx); if (rc >= 0 || wl >= nl) break; wl = wl * 2 < nl ? wl * 2 : nl; } }
                 badp += rc != 0;
-                { mn_out o2 = *o; mn_out_fix f2; memset(&f2, 0, sizeof f2); int r2 = mn_out_tail_core(&o2, X0, nl, dx, &f2);   /* Phase 15 KP: patching again must fail where bytes changed */
+                { mn_out o2 = *o; mn_out_fix f2; memset(&f2, 0, sizeof f2); int r2 = mn_out_tail_core(&o2, X0, nl, dx, &f2);   /* patching again must fail where bytes changed */
                   checks++; nneg += fx.parts > 0; if ((r2 != 0) != (fx.parts > 0)) { fails++; printf("it %d size %d node %d: a second patch returned %d (the first changed %d parts)\n", it, size, r, r2, fx.parts); } }
                 if (!gotadj) { memcpy(adj, fx.dres_adj, sizeof adj); gotadj = 1; } else if (memcmp(adj, fx.dres_adj, sizeof adj)) { fails++; printf("it %d size %d: the nodes' adjustments differ\n", it, size); }
                 checks++; if (fx.kp != kp) { fails++; printf("it %d size %d node %d: kp %zu, expected %zu\n", it, size, r, fx.kp, kp); }
@@ -142,7 +142,7 @@ int main(int argc, char **argv)
             checks++; if (memcmp(D, Dref, sizeof D)) { fails++; printf("it %d size %d: digit residue + adjustment != the corrected string's\n", it, size); }
             int exp = nw + (100 <= d_out + 1 ? 1 : 0), expbad = 100 <= d_out + 1 ? 1 : 0;   /* + the built-in window at 50 (not e here) */
             checks++; if (nwin != exp || bad2 != expbad) { fails++; printf("it %d size %d: %d windows checked (expected %d), %d bad (expected %d; zone %zu, kp %zu, d_out %lu)\n", it, size, nwin, exp, bad2, expbad, zone, kp, d_out); }
-            if (os[0].packed) {                               /* Phase 15 KP: the converter on the patched parts: its residue check and the ASCII */
+            if (os[0].packed) {                               /* the converter on the patched parts: its residue check and the ASCII */
                 char cmd[2400]; if (size > 1) snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s.part* > /dev/null", unpack, fn, out); else snprintf(cmd, sizeof cmd, "%s -q --cmp %s %s > /dev/null", unpack, fn, out);
                 checks++; if (system(cmd)) { fails++; printf("it %d size %d: %s on the patched packed parts: residue check or ASCII differs\n", it, size, unpack); }
                 if (size > 1) { snprintf(cmd, sizeof cmd, "rm -f %s.part*", out); if (system(cmd)) {} } else unlink(out);
@@ -154,7 +154,7 @@ int main(int argc, char **argv)
         }
         unlink(fn); unlink(wf); free(X0); free(X1); free(r0); free(ref); tier2_windows_reset();
     }
-    /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): X held as X_hi B^s + X_lo0 (the correction dx acts inside X_lo0: X_lo0 + dx < B^s).
+    /* X held as X_hi B^s + X_lo0 (the correction dx acts inside X_lo0: X_lo0 + dx < B^s).
      * Size 1: one file in two ranges (mn_out's split: limbs >= s from X_hi, the gate, then X_lo0 from a buffer that holds garbage until
      * the gate fills it), patched through mn_out_tail_fix (its gather reads src_hi too); the carry path: the gate gives the corrected
      * X_lo and dx = 0.  Sizes 2..5: two part layers (parts size-1-r over X_hi's shares in basis n_h + 1, parts 2 size-1-r over X_lo0's in

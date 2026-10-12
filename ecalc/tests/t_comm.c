@@ -1,4 +1,4 @@
-/* t_comm - the SHMEM transport's communicator (the WP6 TCP form and its forked localhost mode were removed 2026-10-12):
+/* t_comm - the SHMEM transport's communicator:
  * S12: the same exchanges on buffers of the transport's symmetric pool (comm_sym_alloc: unstaged over SHMEM; malloc'd
  * where the transport has no pool), twice in a row on the same buffers.
  * all-to-all of random slabs checked against the senders, barrier, reductions, (M7) the all-gathers
@@ -129,7 +129,7 @@ static int check_all(comm *c, int me, int n)
     if (getenv("T_COMM_TRACE")) fprintf(stderr, "t_comm: rank %d: p2p: %d bad so far\n", me, bad);
     return bad;
 }
-/* ---- Phase 16 C (results/C16.md): the bandwidth / latency sweep over the SHMEM transport ---------------------------------
+/* ---- the bandwidth / latency sweep over the SHMEM transport ---------------------------------
  * t_comm --bw  [threads (4)] [reps (5)] [max MiB (256)] [sym|host] [pairs]     slab sizes 64 KiB .. max MiB per destination
  * t_comm --lat [threads (1)] [reps (200)] [sym|host] [pairs]                   8 B .. 4 KiB
  * Each thread owns one communicator (its own SHMEM context, as ecalc's four APU threads do) and runs the equal all-to-all
@@ -204,7 +204,7 @@ static int run_sweep(int argc, char **argv)
 }
 int main(int argc, char **argv)
 {
-    if (argc > 1 && (!strcmp(argv[1], "--bw") || !strcmp(argv[1], "--lat"))) {   /* Phase 16 C: the sweep (SHMEM only) */
+    if (argc > 1 && (!strcmp(argv[1], "--bw") || !strcmp(argv[1], "--lat"))) {   /* the sweep (SHMEM only) */
         if (!(getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem"))) { fprintf(stderr, "t_comm %s needs COMM_TRANSPORT=shmem\n", argv[1]); return 2; }
         return run_sweep(argc, argv);
     }

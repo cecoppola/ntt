@@ -1,9 +1,9 @@
-/* t_mn_grid - the multi-node product tier over shares (Phase 9 A3): products of sharded random numbers against the
+/* t_mn_grid - the multi-node product tier over shares: products of sharded random numbers against the
  * host product (rns_mul, GMP-checked in t_mul), in shapes that force one plane, 1 x 2, 2 x 3 and 3 x 1 grids of piece
  * products, with the added operand X, as low products (pieces above a window skipped), with operand views, operands
  * sharded over subgroups (the tree's layout), and the shifted distributed add on its own.  DIST_LOGN_TEST=24 caps the
  * plane at 2^24 points per node, so the shapes are small multiples of the cap 2^(24 + floor(log2 g)).  Run under
- * mnrun.sh with any number of node-processes (Phase 11 L: 2, 3, 5, 6, 9 -- a group of any size balances the transform
+ * mnrun.sh with any number of node-processes (2, 3, 5, 6, 9 -- a group of any size balances the transform
  * over all its nodes; DIST_GEN=1 forces the general map at a power-of-two size too):
  * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
  * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
@@ -79,7 +79,7 @@ int main(int argc, char **argv)
             rns_mul_low_mn(&C, &A, &B, G, w); ref_low(&rl, &r, w);
             VERIFY(check(&C, &rl, "low") && C.N <= w, "%s low %zu x %zu w %zu %s (basis %zu)", sh[si].name, na, nb, w, gen_name[kind], C.N);
         }
-        {   /* Phase 10 A5: the low cut (the A_h mu product over shares): the pieces whose limbs end at or below the cut are skipped;
+        {   /* the low cut (the A_h mu product over shares): the pieces whose limbs end at or below the cut are skipped;
              * the reference is the product minus exactly those pieces (the grid from rns_mul_dist_mn_shape), with and without a high cut */
             int ka, kb; size_t an = a.n, bn = b.n; rns_mul_dist_mn_shape(an, bn, G, &ka, &kb);   /* (the normalised lengths: the grid is formed on them) */
             size_t pa = (an + ka - 1) / ka, pb = (bn + kb - 1) / kb;
@@ -117,7 +117,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    /* Phase 12 G: the same over a group that does not start at node 0 -- every node's level-1 group [2k, 2k+2) (the tree's lower
+    /* the same over a group that does not start at node 0 -- every node's level-1 group [2k, 2k+2) (the tree's lower
      * levels: A on its first node, B and X on its second), the grid forced: the product, + X, and mdb_add_shifted.  (The tree at
      * 10^9 / 4 with its levels gridded gave a wrong P = P_A Q_B + P_B on the group [2, 4) while Q and the group [0, 2) were right.) */
     if (g_size >= 4) {

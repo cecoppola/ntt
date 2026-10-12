@@ -1,4 +1,4 @@
-/* memsample.h - Phase 14 S1 (APUMULT_STUDY E1, E12): what the node's memory is doing, measured.
+/* memsample.h - what the node's memory is doing, measured.
  *
  *  E1   mem_live_line(what): one "live:" line -- the block pool's live bytes per APU now, its peak since the last line
  *       (the window: one tree level, one Newton doubling), the pool's size (live + free) and the peak's share of it,
@@ -7,13 +7,13 @@
  *       /proc/meminfo, which sees the page cache in HBM; hipMemGetInfo does not) and the pool's live bytes per APU, one
  *       line per sample to stderr or ECALC_MEM_SAMPLE_FILE (a "%d" in the name: the node-process rank); a summary line
  *       at stop (the minimum MemAvailable, the maxima of Cached, Dirty, RSS and each APU's live bytes).
- *  N3   (Phase 15 IO) a guard in the sampler: ECALC_MEM_GUARD_GB=<x> -- when MemAvailable falls below x GB the sampler stops the
+ *  N3 a guard in the sampler: ECALC_MEM_GUARD_GB=<x> -- when MemAvailable falls below x GB the sampler stops the
  *       run through ec_fatal (one line naming the rank, host, the last phase boundary passed and the figures; rc EC_RC_MEMGUARD
  *       = 9).  Without ECALC_MEM_SAMPLE the sampler runs for the guard alone, silent, every ECALC_MEM_GUARD_PERIOD s (1). */
 #ifndef EC_MEMSAMPLE_H
 #define EC_MEMSAMPLE_H
 #include <stddef.h>
-#define EC_RC_MEMGUARD 9                              /* Phase 15 IO (N3): the memory guard stopped the run (fatal.h lists the other codes) */
+#define EC_RC_MEMGUARD 9                              /* the memory guard stopped the run (fatal.h lists the other codes) */
 #ifdef __cplusplus
 extern "C" {
 #endif

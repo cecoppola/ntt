@@ -21,7 +21,7 @@ static inline uint64_t mod3(const uint64_t *x, uint64_t p)
 }
 static struct garner { uint64_t c1, c2, c3; uint64_t M1[2], M2[3]; int ready; } G;
 
-/* ---- Phase 13a P3: the prime count (modarith.h) ------------------------------------------------------------------ */
+/* ---- the prime count (modarith.h) ------------------------------------------------------------------ */
 int ec_np = EC_NP;
 size_t ec_np3_max_terms;
 static int g_np_init;
@@ -44,7 +44,7 @@ static size_t np3_max_terms(void)
 }
 int ec_np_auto;
 size_t ec_np_auto_terms;
-int ec_np_auto_min;                                 /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 -- the switch-over on min(pa, pb) (modarith.h) */
+int ec_np_auto_min;                                 /* ECALC_NP_AUTO_MIN=1 -- the switch-over on min(pa, pb) (modarith.h) */
 int ec_np_init(void)
 {
     if (g_np_init) return ec_np;
@@ -52,7 +52,7 @@ int ec_np_init(void)
     ec_np3_max_terms = np3_max_terms();
     ec_np_auto_terms = ec_np3_max_terms;
     const char *e = getenv("ECALC_NP");
-    if (e && !strcmp(e, "auto")) {                  /* Phase 15 NP: per product */
+    if (e && !strcmp(e, "auto")) {                  /* per product */
         ec_np = 3; ec_np_auto = 1;
         const char *t = getenv("ECALC_NP_AUTO_TERMS");   /* the test knob: a lower bound, so both counts occur at small sizes */
         if (t && ec_np_auto) {
@@ -60,7 +60,7 @@ int ec_np_init(void)
             if (v < 1 || v > ec_np3_max_terms) { ec_fatal(EC_RC_FATAL, "ECALC_NP_AUTO_TERMS=%s: must be in [1, %zu] (the three-prime bound)\n", t, ec_np3_max_terms); }
             ec_np_auto_terms = v;
         }
-        const char *m = getenv("ECALC_NP_AUTO_MIN");     /* Phase 15 MPB: off by default (pa + pb, NP's conservative form) */
+        const char *m = getenv("ECALC_NP_AUTO_MIN");     /* off by default (pa + pb, NP's conservative form) */
         ec_np_auto_min = ec_np_auto && m && atoi(m) != 0;
     } else if (e) {
         int v = atoi(e);
@@ -77,7 +77,7 @@ int ec_np_for(size_t nterms)
 size_t ec_np_terms(size_t nc, size_t na, size_t nb)
 {
     ec_np_init();
-    return ec_np_auto && ec_np_auto_min ? (na < nb ? na : nb) : nc;   /* Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1; else nc as before */
+    return ec_np_auto && ec_np_auto_min ? (na < nb ? na : nb) : nc;   /* min(na, nb) under ECALC_NP_AUTO_MIN=1; else nc as before */
 }
 int ec_np_prod(size_t nterms, const char *where)
 {

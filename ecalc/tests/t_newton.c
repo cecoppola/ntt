@@ -1,5 +1,4 @@
-/* t_newton - step 5 test: newton.h against mpz_tdiv_qr (the device forms newton_db_recip / newton_db_divmod; the host forms
- * were removed in A5, 2026-10-12).
+/* t_newton - step 5 test: newton.h against mpz_tdiv_qr.
  *
  *  1. bi_divmod_school vs mpz_tdiv_qr, random sizes to 64 limbs, all generators
  *  2. newton_db_recip: mu vs floor(2^(64(nq+k))/Q) by GMP, error in units, for
@@ -10,14 +9,14 @@
  *     A < Q; corrections counted; 0 <= R < Q; a perturbed seed forces the
  *     overshoot path; a supplied longer mu
  *  4. time at 2^LOGMAX limbs (A = 2 nq limbs) with the split tiers
- *  5. the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
+ *  5. the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM)
  *
  * Usage: t_newton [LOGMAX (26)]
  * Decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
 #include "../newton.h"
-/* Phase 15 EW (section 7): the X_hi / X_lo hooks of the DKM division -- X_hi copied out and freed (taken), the X_lo hook's carry recorded */
+/* the X_hi / X_lo hooks of the DKM division -- X_hi copied out and freed (taken), the X_lo hook's carry recorded */
 #include "../dbig.h"
 static struct { bigint Xh; size_t s; int hi, lo, carry, release; } h7;
 static int h7_hi_hook(dbig *Xh, size_t s, void *a) { (void)a; db_to_bi(&h7.Xh, Xh); db_free(Xh); h7.s = s; h7.hi++; return 1; }
@@ -140,9 +139,9 @@ int main(int argc, char **argv)
     }
 
     {
-        /* Phase 15 R4 (the reciprocal's middle product, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
+        /* (the reciprocal's middle product, results/R415.md): (a) the band product rns_mul_band_db against the whole product -- mod B^w
          * identical with no low cut, the band [v, w) within one unit (mod B^(w - v)) with the cut at v - 1; (b) the reciprocal (always the cut
-         * and middle-product form since B5, 2026-10-11) against GMP directly -- mu vs floor(B^(nq+k)/Q), within the test's 8 units, as the
+         * and middle-product form) against GMP directly -- mu vs floor(B^(nq+k)/Q), within the test's 8 units, as the
          * whole-product reference it replaced was -- at several sizes, k and generators (a grid at the top doublings under
          * DIST_LOGN_TEST=20..22), and the path taken */
         printf("-- 5. the reciprocal's middle product\n");
@@ -191,7 +190,7 @@ int main(int argc, char **argv)
         }
         bi_free(&B1); bi_free(&C0); bi_free(&C1);
 
-        /* Phase 15 DKM (NEWTON_DKM, results/DKM15.md 1.6): newton_db_divmod_shifted (A = S B^dl, Q on the device, the prewarm reciprocal
+        /* newton_db_divmod_shifted (A = S B^dl, Q on the device, the prewarm reciprocal
          * as ecalc's device flow takes it) with the switch off and on against GMP -- X exactly, R's residues mod three primes; the shapes:
          * ecalc's (S ~ Q, k ~ dl), k odd / even, dl < k/2 (s = dl: the kept mu too short, a fresh one), A a multiple of Q (R1 = 0, X_lo = 0),
          * Q all-ones / a power; forced corrections: ECALC_TEST_CORR +-7 (the final count moves by k) and NEWTON_DKM_TEST_HI +-7 (step 1's) */
@@ -252,7 +251,7 @@ int main(int argc, char **argv)
             mpz_clear(zr); bi_free(&S6); bi_free(&A6); bi_free(&X6); bi_free(&Y6);
         }
 
-        /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.2-1.3): the DKM division with the X_hi / X_lo hooks (no X0): the X_hi hook gets X's limbs
+        /* the DKM division with the X_hi / X_lo hooks (no X0): the X_hi hook gets X's limbs
          * >= s exactly (whatever step 2 and the forced corrections do), the division returns X_lo; released (the hook's 1): X_lo0 with the
          * corrections deferred (X_lo0 + newton_x_dx = X mod B^s); not released: X mod B^s itself, newton_x_dx = 0.  Operands: A = X Q + R
          * built from a chosen X (R = -X Q mod B^dl < Q: A a multiple of B^dl), X's low half random or B^s - 3 -- with ECALC_TEST_CORR=-7 the

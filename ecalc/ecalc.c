@@ -25,10 +25,10 @@
 #include "dbig.h"
 #include "mn.h"
 #include "mn_out.h"
-#include "mn_plan.h"                                 /* Phase 13d L: MN_PLAN_ONLY */
-#include "memsample.h"                               /* Phase 14 S1: E1, E12 */
-#include "spill.h"                                   /* Phase 14 S1: E3 (the output file under ECALC_ODIRECT) */
-#include "fatal.h"                                   /* Phase 14 C3: ec_quit, EC_RC_BUDGET */
+#include "mn_plan.h"                                 /* MN_PLAN_ONLY */
+#include "memsample.h"                               /* E1, E12 */
+#include "spill.h"                                   /* E3 (the output file under ECALC_ODIRECT) */
+#include "fatal.h"                                   /* ec_quit, EC_RC_BUDGET */
 #include "segv_trace.h"                               /* s18w task 2: ECALC_SEGV_TRACE=1 (default 0) */
 #include "comm_ofi.h"                                /* B7ACCT: comm_ofi_planned (the MEM_REPORT_DEVS comm-pool term) */
 extern "C" size_t comm_layered_vbytes(int dev);      /* B7ACCT (comm_layered.c) */
@@ -47,8 +47,7 @@ static void meta_line(const char *bench)
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
-/* ---- Phase 8 (archive:PLAN §18): overlap of disjoint work (the only flow since A5, 2026-10-12; the sequential flow lost, RESULTS.md
- * 68: 128.8 vs 112.1 s).  Background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each
+/* ---- overlap of disjoint work (RESULTS.md 68: 128.8 vs 112.1 s against sequential).  Background CPU work runs in pthreads with a bounded OpenMP team while the GPUs run the tiers; each
  * joins where its result is first needed. ---- */
 static int g_bg_threads = 48;
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
@@ -78,13 +77,13 @@ static void *x_bg_run(void *a)
     return 0;
 }
 static void x_bg_hook(bigint *X, void *a) { struct x_bg *b = (struct x_bg *)a; b->X = X; sem_init(&b->res_ready, 0, 0); pthread_create(&b->th, 0, x_bg_run, b); b->started = 1; }
-/* ---- Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3): the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
+/* ---- the writer on X_hi after DKM's step 1.  The division forms no X0: X_hi (final after step 1:
  * X's limbs >= s) comes to the X_hi hook, which starts the size-1 writer on it -- one file in two ranges (mn_out's split): the limbs >= s from
  * X_hi, then, at the gate, the limbs < s from X_lo (the division's device X, newton_db_x_dev).  The X_lo hook opens the gate before step 2's low
  * product unless X_lo0 >= B^s (or MN_OUT_DKM_HI_TEST_CARRY=1): then the division adds the corrections to X_lo in place and main opens it after
  * the division.  At size > 1 the same with two part files per rank (mn_out_early_hi_start / mn_out_early_lo_release) ---- */
 static int g_dkm_hi = -1;
-static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e ? atoi(e) != 0 : 1; } return g_dkm_hi; }   /* default 1 since 2026-10-12 (TASKS 27; on both launch lines since 2026-09-29); =0 the old writer */
+static int dkm_hi_on(void) { if (g_dkm_hi < 0) { const char *e = getenv("MN_OUT_DKM_HI"); g_dkm_hi = e ? atoi(e) != 0 : 1; } return g_dkm_hi; }   /* default 1 ; =0 the old writer */
 static int dkm_hi_explicit(void) { return getenv("MN_OUT_DKM_HI") != 0; }   /* the "ignored" notes only when the switch is set by hand */
 static int dkm_hi_test_carry(void) { const char *e = getenv("MN_OUT_DKM_HI_TEST_CARRY"); return e && atoi(e) != 0; }
 struct x_hi { int on, released; size_t s; dbig Xh; mn_out_src src_lo, src_hi; sem_t go; uint64_t res_hi[T1_NQ]; double t_gate, t_hi; };
@@ -132,7 +131,7 @@ static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_
     x_hi_release(b); return 1;
 }
 
-/* ---- the output stage (Phase 9 A-out: archive:PLAN §19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
+/* ---- the output stage (archive:PLAN §19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
  * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
  * X (device kernel, placed at the share's offset and summed over the nodes); its share of the digits formatted in
  * chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and written to its part file as it
@@ -141,17 +140,17 @@ static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_
 struct out_ctx {
     unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
     bigint *X;                                     /* the host flows: X on the host after the division (size 1 without the device dm) */
-    dbig *Xd;                                      /* Phase 10 H (B1), size 1 in the device flow: X on the device (never on the host) */
+    dbig *Xd;                                      /* size 1 in the device flow: X on the device (never on the host) */
     mdb *Xm;                                       /* B1, size > 1 in the distributed division: X sharded over the nodes (A-div's mdb); this node's share is read in place */
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm); size 1: the single node's */
     struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
-    int defer; long dx; size_t zone;                 /* Phase 15 K (ECALC_CORR_PATCH): X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
-    mn_out_early *early; double t_early;             /* Phase 15 IO (W5d): MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
+    int defer; long dx; size_t zone;                 /* X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
+    mn_out_early *early; double t_early;             /* MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
     double t00, t_init, t_bs, t_10dp, t_dm;
     int hi, hi_rel; mdb Xh; size_t s;                 /* Phase 15 EW (MN_OUT_DKM_HI) at size > 1: X_hi taken at the division's hook (Xm is then X_lo), the release done */
 };
 static void node_pfx(const struct out_ctx *c) { if (c->size > 1) printf("mn: node %d: ", c->rank); }
-/* Phase 15 IO (W5d): MN_OUT_EARLY=1 -- the division's hook (newton_mn_x_hook) starts this rank's part file on X before the low product */
+/* MN_OUT_EARLY=1 -- the division's hook (newton_mn_x_hook) starts this rank's part file on X before the low product */
 static void mn_early_hook(mdb *X, void *a)
 {
     struct out_ctx *c = (struct out_ctx *)a;
@@ -185,7 +184,7 @@ static int out_stage(struct out_ctx *c)
     if (c->pqb->started) { if (!c->pqb->joined) pthread_join(c->pqb->th, 0); c->pqb->joined = 1; memcpy(pr, c->pqb->p, sizeof pr); memcpy(qr, c->pqb->qq, sizeof qr); }
     else for (int i = 0; i < T1_NQ; i++) vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &pr[i], &qr[i]);
     int rlog = db_res_log_on();
-    if (rlog) {                                        /* Phase 11 V (D5): the recurrence recomputed here (the main thread) against the background thread's */
+    if (rlog) {                                        /* the recurrence recomputed here (the main thread) against the background thread's */
         int bad = 0; printf("RES node %d terms [%lu, %lu): pq", c->rank, c->pqb->a0, c->pqb->b1);
         for (int i = 0; i < T1_NQ; i++) { uint64_t p2, q2; vf_pq_range_mod(c->pqb->a0, c->pqb->b1, t1_q[i], &p2, &q2); if (p2 != pr[i] || q2 != qr[i]) bad++;
                                           printf(" %llu/%llu%s", (unsigned long long)pr[i], (unsigned long long)qr[i], p2 == pr[i] && q2 == qr[i] ? "" : "!=main"); }
@@ -212,11 +211,11 @@ static int out_stage(struct out_ctx *c)
      * scaled by B^lo and summed over the group); the host flows broadcast node 0's */
     if (multi && !c->Xm) { mn_out_bcast_u64(cm, c->Pres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Qres, T1_NQ, 0); mn_out_bcast_u64(cm, c->Rres, T1_NQ, 0); }
     /* T1 (c): X's residues: the share's, placed at its offset, summed over the nodes (size 1: the background thread's) */
-    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && (!c->ncorr || c->defer), joined = 0;   /* (Phase 15 K: deferred corrections -- T1 never waits for the writer) */
+    uint64_t xs[T1_NQ], Xres[T1_NQ]; int xres_bg = !multi && c->xb->started && (!c->ncorr || c->defer), joined = 0;   /* (deferred corrections -- T1 never waits for the writer) */
     if (xres_bg) { sem_wait(&c->xb->res_ready); memcpy(xs, c->xb->Xres, sizeof xs); }   /* the writer runs on: the file write is not on the timed path (as before, when the write came after `total`) */
     else if (!multi && c->xb->started) { pthread_join(c->xb->th, 0); joined = 1; mn_out_res_share(&src, xs); }
     else mn_out_res_share(&src, xs);
-    if (c->defer && c->dx && src.lo == 0)             /* Phase 15 K: the uncorrected X's residues + dx (the node holding limb 0) */
+    if (c->defer && c->dx && src.lo == 0)             /* the uncorrected X's residues + dx (the node holding limb 0) */
         for (int i = 0; i < T1_NQ; i++) { uint64_t q = t1_q[i], a = (uint64_t)(c->dx < 0 ? -c->dx : c->dx) % q; xs[i] = vf_add_mod(xs[i], c->dx < 0 ? (a ? q - a : 0) : a, q); }
     mn_out_res_combine(cm, xs, src.lo, Xres);
     mn_out_src shs; memset(&shs, 0, sizeof shs);     /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): X = X_hi B^s + X_lo -- X_hi's share at its offset added */
@@ -253,7 +252,7 @@ static int out_stage(struct out_ctx *c)
     /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
     t = mem_now();
     mn_out ow, *o = &ow; memset(&ow, 0, sizeof ow);
-    mn_out owh, *oh = 0; memset(&owh, 0, sizeof owh);  /* Phase 15 EW (MN_OUT_DKM_HI, size > 1): the X_hi part (finished in the early thread) */
+    mn_out owh, *oh = 0; memset(&owh, 0, sizeof owh);  /* the X_hi part (finished in the early thread) */
     if (!multi && c->xb->started) {
         o = &c->xb->o; if (!joined) pthread_join(c->xb->th, 0);
         if (g_xhi.on) printf("      MN_OUT_DKM_HI: X_hi's range formatted and handed to the writer in %.2f s from the division's step 1; the writer then waited %.2f s for X_lo\n", g_xhi.t_hi, g_xhi.t_gate);
@@ -261,19 +260,19 @@ static int out_stage(struct out_ctx *c)
             printf("      X corrected after the formatting started: redoing the digits\n");
             mn_out_finish(o); x_bg_writer(c->xb);
         }
-    } else if (c->early) {                            /* Phase 15 IO (W5d): the part file streamed during the low product */
+    } else if (c->early) {                            /* the part file streamed during the low product */
         double tj = mem_now(); o = mn_out_early_join(c->early, &c->t_early);
         node_pfx(c); printf("      the part file%s started in the division (MN_OUT_EARLY%s): its writer ran %.2f s, joined after %.2f s here%s\n", c->hi ? "s" : "", c->hi ? ", MN_OUT_DKM_HI: X_hi's after step 1, X_lo's at the release" : "", c->t_early, mem_now() - tj, c->ncorr && !c->defer ? "; X corrected after it started: redoing the part file" : "");
         oh = mn_out_early_hi(c->early);
-        if (c->ncorr && !c->defer) {   /* (Phase 15 integration: with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); o->c = 0; mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
+        if (c->ncorr && !c->defer) {   /* (with ECALC_CORR_PATCH=2 the corrections are deferred to the tail patch below) */ mn_out_finish(o); mn_out_boundaries(o, &src, cm); o->c = 0; mn_out_run(o, &src); }   /* (every rank: the corrections are the group's) */
     } else {
         o->d = c->d; o->d_out = c->d_out; o->outfile = c->outfile; o->rank = c->rank; o->size = c->size; o->verbose = c->verbose >= 2;
-        if (c->defer) o->t2_defer = c->zone;          /* Phase 15 K */
+        if (c->defer) o->t2_defer = c->zone;
         mn_out_boundaries(o, &src, cm);
         mn_out_run(o, &src);
     }
     mn_out_fix fx; memset(&fx, 0, sizeof fx); int badp = 0;
-    if (c->defer) {                                   /* Phase 15 K: the file complete, then the tail the corrections reach patched (collective at size > 1) */
+    if (c->defer) {                                   /* the file complete, then the tail the corrections reach patched (collective at size > 1) */
         mn_out_finish(o); badp = mn_out_tail_fix(o, &src, cm, c->dx, &fx);
         node_pfx(c); printf("      patch: X %+ld after the formatting started (ECALC_CORR_PATCH): %s; %d deferred windows; %.3f s%s\n", c->dx,
                             c->dx ? "" : "nothing to patch", fx.nwin, fx.t, badp ? "  FAILED" : "");
@@ -281,15 +280,15 @@ static int out_stage(struct out_ctx *c)
     }
     double t_dcA = mem_now();                          /* S21 (DC_STATS): the output loop (run or join) ends here */
     uint64_t Dres[T1_NQ];
-    if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* Phase 15 EW: X_hi's parts, then X_lo's */
-    if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* Phase 15 K: the patched tail's new - old (the bytes read back) */
+    if (oh) { const mn_out *os[2] = { oh, o }; mn_out_digit_res_layers(os, 2, cm, Dres); } else mn_out_digit_res(o, cm, Dres);   /* X_hi's parts, then X_lo's */
+    if (c->defer) for (int i = 0; i < T1_NQ; i++) Dres[i] = vf_add_mod(Dres[i], fx.dres_adj[i], t1_q[i]);   /* the patched tail's new - old (the bytes read back) */
     if (rlog) { printf("RES node %d digits [%zu, %zu) res", c->rank, o->k0, o->k1); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)o->dres[i]);
                 printf(" | D"); for (int i = 0; i < T1_NQ; i++) printf(" %llu", (unsigned long long)Dres[i]); printf("\n"); }
     double t_dcB = mem_now();
-    if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (Phase 15 EW: both parts' windows) */
+    if (oh) { o->bad2 += oh->bad2; o->nwin += oh->nwin; }   /* (both parts' windows) */
     int bad2 = o->bad2, bad3 = tier1_digits_cmp(Dres, Xres, c->verbose >= 2) || badp;
     double t_dc = mem_now() - t;
-    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (Phase 15 EW: X_hi) */
+    if (!multi) { if (c->Xd) db_free(c->Xd); else { free(c->X->l); c->X->l = 0; c->X->n = c->X->cap = 0; } if (g_xhi.on) { db_free(&g_xhi.Xh); sem_destroy(&g_xhi.go); g_xhi.on = 0; } }   /* (X_hi) */
     if (c->Xm) db_free(&c->Xm->sh);
     db_free(&xsh);
     node_pfx(c); printf("dc    %8.2f s   digits [%zu, %zu) of %lu formatted from %zu decimal limbs in %d chunks%s (residues %.2f, format %.2f, digit residue %.2f, T2 %.2f, fetch %.2f, waiting for the writer %.2f)\n",
@@ -309,26 +308,26 @@ static int out_stage(struct out_ctx *c)
         printf("ref A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
-    if (oh) { owh = *oh; oh = &owh; }                 /* (Phase 15 EW: kept before the early state goes) */
-    if (c->early) { ow = *o; o = &ow; mn_out_early_free(c->early); c->early = 0; }   /* Phase 15 IO (W5d): the results kept, the early writer's state freed */
-    if (c->hi) { db_free(&c->Xh.sh); memset(&c->Xh, 0, sizeof c->Xh); c->hi = 0; }   /* Phase 15 EW: X_hi's share (the patch read it) */
+    if (oh) { owh = *oh; oh = &owh; }                 /* (kept before the early state goes) */
+    if (c->early) { ow = *o; o = &ow; mn_out_early_free(c->early); c->early = 0; }   /* the results kept, the early writer's state freed */
+    if (c->hi) { db_free(&c->Xh.sh); memset(&c->Xh, 0, sizeof c->Xh); c->hi = 0; }   /* X_hi's share (the patch read it) */
     if (c->outfile) { node_pfx(c); if (multi && oh) printf("wrote %s.part%04d and .part%04d (%.2f + %.2f GB; write %.2f + %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, 2 * c->size - 1 - c->rank, oh->bytes / 1e9, o->bytes / 1e9, oh->t_write, o->t_write, mem_now() - t);
                       else if (multi) printf("wrote %s.part%04d (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, c->size - 1 - c->rank, o->bytes / 1e9, o->t_write, mem_now() - t);
                       else printf("wrote %s (%.2f GB; write %.2f s in the writer thread, %.2f s after the checks)\n", c->outfile, o->bytes / 1e9, o->t_write, mem_now() - t); }
     int fail = bad1 || bad2 || bad3;
-    if (c->outfile && c->rank == 0) mn_out_sidecar_write(c->outfile, c->N, c->d, c->d_out, c->size, Xres, c->Rres, c->Pres, c->Qres, o->tail, o->ntail);   /* Phase 11 V: <outfile>.t1 for ECALC_RECHECK */
+    if (c->outfile && c->rank == 0) mn_out_sidecar_write(c->outfile, c->N, c->d, c->d_out, c->size, Xres, c->Rres, c->Pres, c->Qres, o->tail, o->ntail);   /* <outfile>.t1 for ECALC_RECHECK */
     node_pfx(c); printf("%s\n", fail ? "VERIFY FAILED" : "VERIFY OK");
     if (multi) { int any = mn_out_allreduce_or(cm, fail); if (c->rank == 0) printf("mn: all %d nodes: %s\n", c->size, any ? "VERIFY FAILED" : "VERIFY OK"); fail = any; }
     return fail;
 }
-/* Phase 12 W: the top-level P, Q of a size-1 run as a tree set (level 0) for ECALC_RECHECK (mn_out.h), written by a background
+/* the top-level P, Q of a size-1 run as a tree set (level 0) for ECALC_RECHECK (mn_out.h), written by a background
  * thread in the device flow.  The four region files carry P's quarter then Q's (binsplit.c tree_io), so P is written under the
- * reciprocal and Q under the division.  Phase 13 N (TASKS 4.1; binsplit.c bs_ckpt_bg_*): the driver releases P before S = P + Q
- * overwrites it, and Q only after the output stage when the writer still needs it (Phase 12 joined before Q's block went, at
- * the end of the division: 113 s of wait at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
+ * reciprocal and Q under the division.  the driver releases P before S = P + Q
+ * overwrites it, and Q only after the output stage when the writer still needs it (joining before Q's block goes, at
+ * the end of the division, waited 113 s at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
  * (ECALC_CKPT_TOP_SLACK seconds, default 1): a set the disk cannot finish in time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
-/* Phase 14 C3 (APUMULT_STUDY E12, archive:PLAN §33 A3): ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
+/* ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
  * mem_report("init")), every rank models its peak and the ranks decide together whether any node is over its budget; if one
  * is, every rank stops here (rc EC_RC_BUDGET = 8) with the figures, instead of one node dying mid-run.
  *   rank peak = max(device bytes in use now [the layout just mapped], the model's plane pools + arena [binsplit_node_bytes at
@@ -345,7 +344,7 @@ static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned lon
 static uint64_t host_hash(void) { char h[256] = ""; gethostname(h, sizeof h - 1); uint64_t x = 1469598103934665603ull; for (const char *p = h; *p; p++) x = (x ^ (unsigned char)*p) * 1099511628211ull; return x; }
 static void budget_check(unsigned long N, int verbose)
 {
-    const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on since Phase 14 (C314); =0 off */
+    const char *sw = getenv("ECALC_BUDGET_CHECK"); if (sw && !atoi(sw)) return;   /* default on; =0 off */
     int me = mn_rank(), sz = mn_size(); if (sz < 1) sz = 1;
     double node_gb = getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0;
     int cap = (rns_pool_log() >= 31 ? 2 : 0) + (rns_planes_3q30 ? 1 : 0);
@@ -366,7 +365,7 @@ static void budget_check(unsigned long N, int verbose)
         double share = a[6] != (uint64_t)-1 ? (double)a[6] : node_gb * 1e9 / nr;
         int why = (double)sum > node_gb * 1e9 ? 1 : (avail && come > avail) ? 2 : (double)a[1] > share ? 3 : 0;
         over[r] = (char)why; if (why) { nover++; if (first < 0) first = r; }
-        if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* Phase 15 TC: this rank's room and its node's ranks for RNS_DIST_CACHE_FIT (rns_dist.c cache_avail) */
+        if (r == me) rns_dist_cache_budget(share - (double)a[1], nr);   /* this rank's room and its node's ranks for RNS_DIST_CACHE_FIT (rns_dist.c cache_avail) */
         if (why || (verbose >= 2 && me == 0))
             if (me == 0 || r == me)
                 printf("budget: rank %d%s: peak %.1f GB (device %.1f, host %.1f), still to take %.1f GB | node of %d rank%s: peaks %.1f of %.0f GB, to take %.1f of MemAvailable %.1f GB | rank share %.1f GB%s\n",
@@ -386,20 +385,20 @@ static void budget_check(unsigned long N, int verbose)
     if (me == 0) printf("budget: ECALC_BUDGET_CHECK ok: %d rank%s, largest rank peak %.1f GB, node budget %.0f GB\n", sz, sz > 1 ? "s" : "", mx * 1e-9, node_gb);
     free(all); free(over);
 }
-/* Phase 13b P (archive:PLAN §31, the K axis): the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
+/* the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
  * 31, 3x30) sets the three knobs that make a cap: POOL_LOG (30 or 31: the plane pools' base, the batch and mdev tiers' 2^pool_log),
  * RNS_PLANES_3Q30 (the 3 2^k planes, whose default size rule is on below 5e10 digits at POOL_LOG 31) and DIST_LOGN_TEST (the
  * single-node dist tier's 2^k cap = pool_log; without it a 2^31 product would grow a 2^30 pool inside a phase and abort).
  * ECALC_PLANE_CAP=fit takes the largest cap whose node total (binsplit_node_bytes: the plane pools at the prime count + the
- * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: 2^31 (the Phase 13c default),
+ * arena + the host init constants) fits ECALC_NODE_GB (default 480, the safe budget).  Unset: 2^31 (the default),
  * unless POOL_LOG, RNS_PLANES_3Q30 or DIST_LOGN_TEST is given; =off: the size rule as before.  A knob set in the environment that disagrees with the cap is refused.  BS_LAYOUT_ONLY is served
  * here, before rns_init, so the layout report needs no device. */
-static int g_layout_refused;                                         /* Phase 15 P: BS_LAYOUT_ONLY's prime-set check refused a point */
+static int g_layout_refused;                                         /* BS_LAYOUT_ONLY's prime-set check refused a point */
 static void layout_refused_exit(void) { fflush(stdout); _exit(EC_RC_FATAL); }
 static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 {
     const char *e = getenv("ECALC_PLANE_CAP"); int c = -1;
-    if (!e) { if (!getenv("POOL_LOG") && !getenv("RNS_PLANES_3Q30") && !getenv("DIST_LOGN_TEST")) e = "2^31"; }   /* default since Phase 13c (RESULTS 79-80): 2^31, unless a knob it sets is given */
+    if (!e) { if (!getenv("POOL_LOG") && !getenv("RNS_PLANES_3Q30") && !getenv("DIST_LOGN_TEST")) e = "2^31"; }   /* default since 2^31, unless a knob it sets is given */
     else if (!strcmp(e, "off")) e = NULL;                                  /* ECALC_PLANE_CAP=off: the pre-13c size rule (3 2^30 below 5e10 digits, else 2^31) */
     if (e && *e) {
         static const char *nm[4][3] = { { "2^30", "30", "1073741824" }, { "3*2^29", "3x29", "1610612736" }, { "2^31", "31", "2147483648" }, { "3*2^30", "3x30", "3221225472" } };
@@ -423,13 +422,13 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
         if (verbose) printf("ECALC_PLANE_CAP: %s points (POOL_LOG=%s RNS_PLANES_3Q30=%s DIST_LOGN_TEST=%s)\n", bs_cap_name[c], pl, b3, pl);
     }
     if (getenv("BS_LAYOUT_ONLY")) {
-        /* Phase 15 P: each point D:g (D digits per node) with g > 1 checked first against the prime set (mn_plan_check: the plan of
+        /* each point D:g (D digits per node) with g > 1 checked first against the prime set (mn_plan_check: the plan of
          * D g total digits; one `plan check` / `plan REFUSED` line), and a refusal turns the layout's exit status into 3 */
         char *dup = strdup(getenv("BS_LAYOUT_ONLY"));
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) {
             char *c = strchr(t, ':'); int g = c ? atoi(c + 1) : 1; double D = atof(t);
             if (g > 1 && D > 0) { unsigned long dt = (unsigned long)llround(D * g); dt = (dt + 17) / 18 * 18;
-                                  binsplit_layout_comm_size(g);   /* MS (Phase 15): the point's g as COMM_SIZE, so rns_pool0_np (MN_P24=2's decision) sees it */
+                                  binsplit_layout_comm_size(g);   /* MS: the point's g as COMM_SIZE, so rns_pool0_np (MN_P24=2's decision) sees it */
                                   if (mn_plan_check(dt, e_terms(dt), g, pool_log)) g_layout_refused = 1;
                                   binsplit_layout_comm_size(0); }
         }
@@ -442,7 +441,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 int main(int argc, char **argv)
 {
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
-    /* Phase 13d L (archive:PLAN §32): MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
+    /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
      * below are set (the plane-cap switch, the pools' sizes), before rns_init.  The digits (4.4e13 or 44000000000000) replace
      * argv[1], which may be omitted; COMM_SIZE is set to g for the switch's `fit` (nothing else reads it before the exit) */
@@ -460,7 +459,7 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
+    if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
     d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");
@@ -469,44 +468,44 @@ int main(int argc, char **argv)
     { const char *es = getenv("COMM_SIZE"), *er = getenv("COMM_RANK"); int sz = es ? atoi(es) : 1, rk = er ? atoi(er) : 0;   /* M2: this process's term range (mn_init below checks the rest) */
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
     if (!getenv("BS_RESTART")) { rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N; }   /* I2: the seeds during the pool allocations */
-    pool_log = plane_cap_switch(pool_log, N, verbose);   /* Phase 13b P: ECALC_PLANE_CAP (2^31 by default since Phase 13c; exits for BS_LAYOUT_ONLY) */
+    pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (2^31 by default; exits for BS_LAYOUT_ONLY) */
     { char eff[160]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
       snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1");
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
-                                                                                 * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
-      rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
-      /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
-       * Phase 12 I: the size rule (on below 5e10 digits at 2^31 pools) is the default; RNS_PLANES_3Q30=0/1 overrides (results/I.md) */
+                                                                                 * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */
+      rns_staging_bytes_req = 1u << 30;   /* no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
+      /* the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
+       * the size rule (on below 5e10 digits at 2^31 pools) is the default; RNS_PLANES_3Q30=0/1 overrides (results/I.md) */
       rns_planes_3q30 = rns_planes_3q30_default(pool_log, (double)d);
-      /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
+      /* plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
-    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* Phase 14 P2: + the SHMEM pool line */   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
-    if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
+    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* + the SHMEM pool line */   /* MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
+    if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
         mn_barrier(); mn_finalize(); return f;
     }
-    /* Phase 16 S (results/S16.md): the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
+    /* the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
      * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
      * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
      * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
-     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init.  (COMM_INIT_EARLY, the late order, removed 2026-10-12) */
+     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
     int mn_size_ = 1;
     {
-        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model */
-        double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;   /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
+        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* the pool from the model */
+        double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;   /* a node-process among COMM_SIZE; the meshes are opened here */
         if (verbose >= 2 && mn_size_ > 1) printf("      init: the transport opened before rns_init (%.2f s)\n", t_mn);
     }
-    mem_sampler_start();                            /* Phase 14 S1 (E12): ECALC_MEM_SAMPLE=<seconds> */
+    mem_sampler_start();                            /* ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-    int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products (M2's host combine on node 0, MN_COMBINE=host, removed 2026-10-12) */
+    int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
-    if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { mem_report("init"); printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* Phase 13b P: the ceiling probe (the allocation edge in seconds) */
+    if (getenv("ECALC_INIT_ONLY") && atoi(getenv("ECALC_INIT_ONLY"))) { mem_report("init"); printf("ECALC_INIT_ONLY: the pools and the arena of %lu digits are mapped (%.1f s); stopping\n", d, mem_now() - t00); fflush(stdout); _exit(0); }   /* the ceiling probe (the allocation edge in seconds) */
     double t_init = mem_now() - t00;
     if (verbose >= 2) printf("      init: rns_init %.2f s, region pools %.2f s, the rest %.2f s\n", t_ri, t_pg, t_init - t_ri - t_pg);   /* A-mem */
     RESULT("init", "s", t_init);
@@ -514,8 +513,8 @@ int main(int argc, char **argv)
     if (getenv("MEM_REPORT_DEVS") && mn_size_ > 1) {   /* B7ACCT: the layout's terms outside "in use" on the per-APU lines (a report only) */
         const char *eo = getenv("COMM_OFI_POOL_MB"); size_t ofi = eo && comm_ofi_planned() ? (size_t)atol(eo) << 20 : 0;
         mem_report_outside(comm_layered_vslot_pool_on() ? 0 : binsplit_vslot_bytes(N, mn_size_, 0, 0, 0), ofi, comm_layered_vbytes);   /* X2: under COMM_LAYER_VSLOT_POOL=1 the slots are in the comm pool (ofi) */ }
-    mem_report("init");                           /* Phase 9 M9 (A-mem): device and host bytes by category at each phase boundary */
-    budget_check(N, verbose);                     /* Phase 14 C3 (E12): ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
+    mem_report("init");                           /* device and host bytes by category at each phase boundary */
+    budget_check(N, verbose);                     /* ECALC_BUDGET_CHECK=1 -- every rank stops here when any node is over */
     bs_verbose = verbose >= 2;
     bs_ckpt_dir = getenv("BS_CKPT_DIR");                                             /* WP7: per-level checkpoints of bs, and restart */
     if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
@@ -530,32 +529,31 @@ int main(int argc, char **argv)
     struct pq_bg pqb; memset(&pqb, 0, sizeof pqb); pqb.N = N; pqb.a0 = bs_a0; pqb.b1 = bs_b1 ? bs_b1 : N + 1;   /* M5: the T1 recurrence over this node's terms */
     struct x_bg xb; memset(&xb, 0, sizeof xb); xb.d = d; xb.d_out = d_out; xb.outfile = outfile; xb.verbose = verbose >= 2;
     struct out_ctx oc; memset(&oc, 0, sizeof oc); oc.N = N; oc.d = d; oc.d_out = d_out; oc.outfile = outfile; oc.verbose = verbose; oc.size = mn_size_; oc.rank = mn_rank();
-    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 since Phase 15 (the user's decision, 2026-09-27) */   /* Phase 15 K: 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
+    { int cp = getenv("ECALC_CORR_PATCH") ? atoi(getenv("ECALC_CORR_PATCH")) : 2;   /* default 2 */   /* 1 = size 1 (the writer runs before the corrections), 2 = also size > 1 */
       newton_x_defer = (ovl && cp >= 1) || (mn_size_ > 1 && cp >= 2);
       oc.zone = getenv("ECALC_CORR_PATCH_ZONE") ? strtoul(getenv("ECALC_CORR_PATCH_ZONE"), 0, 10) : 4096;
       if (newton_x_defer) xb.t2_defer = oc.zone; }
     oc.X = &X; oc.pqb = &pqb; oc.xb = &xb; oc.t00 = t00; oc.t_init = t_init;
     if (mn_dist) bs_keep_dev = 1;                     /* M3: the leaf's P_r, Q_r stay on the device when the top leaf level ran there */
-    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }   /* (ECALC_POOL_GROW_GB pregrow removed 2026-10-11: hipMalloc in the background stalled the GPU levels, RESULTS.md 70) */
+    if (ovl) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; bs_keep_dev = 1; }
     else if (mn_size_ > 1) { bs_after_seeds_hook = pq_bg_start; bs_hook_arg = &pqb; }   /* M5: every node runs its range's recurrence during its leaf levels */
 
 
     comm_wst_set_phase(WST_BS);   /* D3: MN_WAIT_STATS phase */
     t = mem_now(); binsplit_e(&P, &Q, N); double t_bs = mem_now() - t;
-    /* Phase 11 V / Phase 12 W: the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
+    /* the top-level P, Q on disk for ECALC_RECHECK -- default on above 10^10 digits with an outfile
      * (ECALC_CKPT_TOP=0: off; =1: on at any size), into BS_CKPT_DIR or, unset, <outfile>.top.  Size 1: the level-0 tree set,
-     * written in the background by bs_ckpt_bg_* (binsplit.c; Phase 13 N); size > 1: mn_tree's top tree set (the only set when the directory is
+     * written in the background by bs_ckpt_bg_* (binsplit.c); size > 1: mn_tree's top tree set (the only set when the directory is
      * the default: no leaf sets were written, BS_CKPT_TREE_EVERY=64 leaves the lower tree levels out) */
-    /* Phase 12 integration: the default is OFF.  Agent W measured the 35.6 GB top set as hidden (0-1 s of wall) on disks
+    /* the default is OFF.  Agent W measured the 35.6 GB top set as hidden (0-1 s of wall) on disks
      * writing at 1.13-1.59 GB/s, but on aac6's slower path it runs at 0.31 GB/s: 113 s of background write that the
      * division waits for (dm 28 -> 113 s, the 4e10 wall 81 -> 164 s, regression job 20964).  The set is what makes
      * ECALC_RECHECK possible for a finished run, so it stays one switch away: ECALC_CKPT_TOP=1. */
     int ckpt_top = getenv("ECALC_CKPT_TOP") ? atoi(getenv("ECALC_CKPT_TOP"))
-                 : (getenv("ECALC_CHECKPOINT") && atoi(getenv("ECALC_CHECKPOINT")) ? 2 : 0);   /* Phase 15 (the user's decision): off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
-    double ckpt_slack = getenv("ECALC_CKPT_TOP_SLACK") ? atof(getenv("ECALC_CKPT_TOP_SLACK")) : 1.0;   /* Phase 13 N: ECALC_CKPT_TOP=2's budget per release */
-    bs_ckpt_bg *topbg = 0; int topq_held = 0;       /* Phase 13 N: the size-1 top set's writer; Q held past the division for it */
-    /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q at size > 1 (M3's gather to node 0 and the
-     * single-node division there, MN_DM=host, removed 2026-10-12).  The residues of P, Q, R come from the sharded kernels;
+                 : (getenv("ECALC_CHECKPOINT") && atoi(getenv("ECALC_CHECKPOINT")) ? 2 : 0);   /* off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
+    double ckpt_slack = getenv("ECALC_CKPT_TOP_SLACK") ? atof(getenv("ECALC_CKPT_TOP_SLACK")) : 1.0;   /* ECALC_CKPT_TOP=2's budget per release */
+    bs_ckpt_bg *topbg = 0; int topq_held = 0;       /* the size-1 top set's writer; Q held past the division for it */
+    /* the reciprocal and the division over the sharded P, Q at size > 1.  The residues of P, Q, R come from the sharded kernels;
      * X stays sharded and every node writes its part (A-out) */
     int mn_dm = mn_dist;
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
@@ -565,46 +563,46 @@ int main(int argc, char **argv)
         if (bs_Pd.n) { Pl = bs_Pd; Ql = bs_Qd; memset(&bs_Pd, 0, sizeof bs_Pd); memset(&bs_Qd, 0, sizeof bs_Qd); }
         else { db_from_bi(&Pl, &P); db_from_bi(&Ql, &Q); }
         printf("mn: node %d leaf P %zu limbs, Q %zu limbs (%s)\n", mn_rank(), Pl.n, Ql.n, P.n ? "host, copied in" : "device");
-        if (db_res_log_on() && pqb.started) {           /* Phase 11 V (D5): this node's leaf P_r, Q_r against the recurrence over its terms -- a wrong leaf is named before the tree */
+        if (db_res_log_on() && pqb.started) {           /* this node's leaf P_r, Q_r against the recurrence over its terms -- a wrong leaf is named before the tree */
             pthread_join(pqb.th, 0); pqb.joined = 1;
             uint64_t lp[T1_NQ], lq[T1_NQ]; db_mod_qs(&Pl, t1_q, T1_NQ, lp); db_mod_qs(&Ql, t1_q, T1_NQ, lq); int bad = 0;
             printf("RES node %d leaf P/Q vs recurrence [%lu, %lu):", mn_rank(), pqb.a0, pqb.b1);
             for (int i = 0; i < T1_NQ; i++) { int ok = lp[i] == pqb.p[i] && lq[i] == pqb.qq[i]; if (!ok) bad++; printf(" q%d %s", i, ok ? "ok" : "BAD"); }
             printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
         }
-        if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
-        mn_ckpt_bg_mode = ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* Phase 13 N (1.4): the top tree set in the background (BS_CKPT_TREE_BG=0, synchronous, removed 2026-10-12) */
+        if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }
+        mn_ckpt_bg_mode = ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* the top tree set in the background */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
         {                                           /* M4: the division over shares; X stays sharded (A-out) */
             printf("mn: node %d: tree levels %.2f s: P %zu limbs, Q %zu limbs\n", mn_rank(), tt - tg, Pm.n, Qm.n);
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
-            mem_report("tree");                     /* Phase 10 B6 (agent M): the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
+            mem_report("tree");                     /* the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
             P.n = Q.n = 0; binsplit_free_pools();
             memset(&newton_st, 0, sizeof newton_st); memset(&rns_st, 0, sizeof rns_st);
             int L = 0; while ((1 << L) < mn_size_) L++;
             mn_group *G = mn_group_at(L);
             double td = mem_now(); comm_wst_set_phase(WST_DM);   /* D3 */
-            if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 since Phase 15 (the user's decision) */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }   /* Phase 15 IO (W5d) */
-            if (dkm_hi_on()) {                          /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
+            if (outfile && (getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) : 1)) {   /* default 1 */ newton_mn_x_hook = mn_early_hook; newton_mn_x_arg = &oc; }
+            if (dkm_hi_on()) {                          /* the writer on X_hi after DKM's step 1 (needs the early writer and the deferred corrections) */
                 if (newton_mn_x_hook && newton_x_defer) { newton_mn_xhi_hook = mn_early_hi_hook; newton_mn_xlo_hook = mn_early_lo_hook; }
                 else if (mn_rank() == 0 && dkm_hi_explicit()) printf("mn: MN_OUT_DKM_HI ignored: it needs MN_OUT_EARLY=1 with an output file and ECALC_CORR_PATCH=2\n");
             }
             newton_mn_divmod(&Xm, &Pm, &Qm, (d + 17) / 18, G, t1_q, T1_NQ, Pres, Qres, Rres, &t_recip);
             newton_mn_x_hook = 0; newton_mn_xhi_hook = 0; newton_mn_xlo_hook = 0;
-            if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
+            if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; rres_ok = 1; mn_xn = Xm.n;
             mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
             newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
-            oc.defer = newton_x_defer; oc.dx = newton_x_dx;   /* Phase 15 K (ECALC_CORR_PATCH=2) */
+            oc.defer = newton_x_defer; oc.dx = newton_x_dx;
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
-            if (mn_rank() != 0) { int f = out_stage(&oc); mn_ckpt_top_finish(); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (Phase 13 N: after the top set's writer) */
+            if (mn_rank() != 0) { int f = out_stage(&oc); mn_ckpt_top_finish(); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (after the top set's writer) */
         }
     }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
-    if (mn_size_ == 1 && ckpt_top && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
+    if (mn_size_ == 1 && ckpt_top && (ovl3 || P.n)) {   /* the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */
         if (!bs_ckpt_dir) bs_ckpt_dir = mn_out_ckpt_default(outfile);
         if (!bs_ckpt_dir) printf("      checkpoint: ECALC_CKPT_TOP needs BS_CKPT_DIR or an outfile -- the top-level set is not written\n");
         else if (ovl3) {                                  /* the device flow: in the background (P under the reciprocal, Q under the division and the output stage) */
@@ -662,13 +660,11 @@ int main(int argc, char **argv)
         na_est = bs_Pd.n + 1 + dl; k_mu = na_est - bs_Qd.n + 1;   /* S has at most one limb more than P */
         P.n = Q.n = 0;
         newton_db_Qd = &bs_Qd; newton_db_mu_host = 0;
-        /* (Phase 12 I: the C3 block -- ECALC_DM_POOL, the block pool pre-grown to the reciprocal's scratch -- is gone: with M11's tail
-         * layout t1's quarter lands in the arena's reserved tail and the pool never grows (the ECALC_TAIL=0 fallback was removed
-         * 2026-10-11); the line below still reports any in-phase growth) */
+        /* (with the tail layout t1's quarter lands in the arena's reserved tail and the pool never grows; the line below still reports any in-phase growth) */
         size_t hm0 = 0; for (int dv = 0; dv < 4; dv++) hm0 += db_pool_hipmalloc_bytes(dv);
         newton_db_recip(&MU, &Q, k_mu);
         size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
-        if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* Phase 10 B4 (agent M): what C3's sizing missed */
+        if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* what C3's sizing missed */
     } else newton_db_recip(&MU, &Q, k_mu);
     rns_free_scratch();
     t_recip = mem_now() - t;
@@ -677,7 +673,7 @@ int main(int argc, char **argv)
 
     t = mem_now();
     if (ovl3) {
-        bs_ckpt_bg_release(topbg, 0);                 /* Phase 12 W / 13 N: the writer is past P (or, budgeted, has dropped the set) before P is overwritten */
+        bs_ckpt_bg_release(topbg, 0);                 /* the writer is past P (or, budgeted, has dropped the set) before P is overwritten */
         db_add(&bs_Pd, &bs_Pd, &bs_Qd);               /* S = P + Q on the device; A = S B^dl is never formed */
         t_10dp = mem_now() - t;
         printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
@@ -699,18 +695,18 @@ int main(int argc, char **argv)
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
     if (ovl) { newton_db_x_hook = x_bg_hook; newton_db_x_arg = &xb; }   /* O4: the hook starts the residues and the chunked writer (M5) on X before the low product */
-    if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* Phase 10 H (B1): X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
-    if (dkm_hi_on()) {                                /* Phase 15 EW (MN_OUT_DKM_HI): the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
+    if (ovl3) { newton_db_x_dev = &Xdev; xb.Xd = &Xdev; oc.Xd = &Xdev; }   /* X never leaves the device -- the writer and the residues read it there; its 17.8 GB host copy (4e10) is gone */
+    if (dkm_hi_on()) {                                /* the writer on X_hi after DKM's step 1 (the device flow, the deferred corrections) */
         if (ovl3 && newton_x_defer) { newton_db_xhi_hook = x_hi_hook; newton_db_xlo_hook = x_lo_hook; }
         else if (dkm_hi_explicit()) printf("MN_OUT_DKM_HI ignored: it needs the device flow and ECALC_CORR_PATCH >= 1\n");
     }
     if (ovl3) { newton_db_divmod_shifted(&X, &bs_Pd, dl, &bs_Qd, t1_q, T1_NQ, Rres); rres_ok = 1; db_free(&bs_Pd); }
     else newton_db_divmod(&X, &R, &A, &Q, &MU);
     newton_db_x_hook = 0; newton_db_Qd = 0; newton_db_x_dev = 0; newton_db_xhi_hook = 0; newton_db_xlo_hook = 0;
-    if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* Phase 15 EW: X_lo0 >= B^s -- X_lo now corrected in place */
-    if (ovl3 && topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* Phase 13 N (4.1): the writer still reads Q: its block is held until after the output stage */
+    if (g_xhi.on && !g_xhi.released) x_hi_release(&xb);   /* X_lo0 >= B^s -- X_lo now corrected in place */
+    if (ovl3 && topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* the writer still reads Q: its block is held until after the output stage */
     else if (ovl3) db_free(&bs_Qd);
-    if (ovl3) mem_report("division");                 /* Phase 10 B4 (agent M): the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
+    if (ovl3) mem_report("division");                 /* the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
     bi_free(&MU); newton_db_free_scratch(); rns_free_scratch();
     if (!ovl3) db_release_pools();                    /* (the device flow's X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
@@ -724,16 +720,16 @@ int main(int argc, char **argv)
     if (!rres_ok) for (int i = 0; i < T1_NQ; i++) Rres[i] = vf_limbs_mod(R.l, R.n, t1_q[i]);   /* the host flow's R (the device flow's came from the kernel) */
     memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);
     oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_10dp = t_10dp; oc.t_dm = t_dm;
-    if (mn_size_ == 1) { oc.defer = newton_x_defer && xb.started; oc.dx = oc.defer ? newton_x_dx : 0; }   /* Phase 15 K: the size-1 writer started before the corrections (size > 1: set after newton_mn_divmod) */
+    if (mn_size_ == 1) { oc.defer = newton_x_defer && xb.started; oc.dx = oc.defer ? newton_x_dx : 0; }   /* the size-1 writer started before the corrections (size > 1: set after newton_mn_divmod) */
     bi_free(&A); bi_free(&R); bi_free(&Q);
     int fail = out_stage(&oc);
-    if (topbg) {                                      /* Phase 13 N (4.1): the top set's writer -- Q released (held so far if it was still needed), then joined */
+    if (topbg) {                                      /* the top set's writer -- Q released (held so far if it was still needed), then joined */
         bs_ckpt_bg_release(topbg, 1); if (topq_held) db_free(&bs_Qd);
         double tw = 0, tq = 0; bs_ckpt_bg_join(topbg, "      ", bs_ckpt_dir, &tw, &tq); topbg = 0;
         RESULT("ckpt_top", "s", tw); RESULT("ckpt_top_wait", "s", tq);
     }
     mn_ckpt_top_finish();                             /* (size > 1, node 0: the top tree set's writer) */
-    /* Phase 15 int15j (the user's item 7, 2026-09-29): ECALC_FAST_EXIT=1 -- every file is closed, fsync'd and verified by here (the
+    /* ECALC_FAST_EXIT=1 -- every file is closed, fsync'd and verified by here (the
      * writers were joined in out_stage, the top set above), so the process ends with _exit after the reports and the transport's
      * barrier: the block pools' VMM release, rns_shutdown's hipFree of the planes and the HIP runtime's atexit teardown are left to
      * the kernel's exit unmapping (the same physical pages either way).  Off by default: the walls of a record run are measured with

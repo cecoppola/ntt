@@ -1,4 +1,4 @@
-/* t_out - the per-node output pieces (Phase 9 A-out, mn_out.c) on the host: random X in base 10^18, d_out up to 3000, the
+/* t_out - the per-node output pieces (mn_out.c) on the host: random X in base 10^18, d_out up to 3000, the
  * string split over 1..5 "nodes" (comm_shard) and formatted in chunks of 1..9 limbs: every part equals its range of the
  * whole-string file, cat of the parts equals it, the digit residues joined over the chunks and nodes equal the whole
  * string's, 12 random 50-digit windows (ECALC_WINDOWS) are each checked exactly once across chunk and node boundaries;
@@ -25,7 +25,7 @@ static uint64_t rnd(void) { static uint64_t s = 0x9E3779B97F4A7C15ull; s ^= s <<
 int main(void)
 {
     printf("== t_out ==\n"); harness_meta("t_out");
-    setenv("ECALC_OUT_PACKED", "0", 0);   /* this test checks the ASCII part files byte by byte; the packed form (the default since Phase 15) is checked by mnaccept's e9 / mn / full steps (digcmp.sh) and tools/test_unpack.py */
+    setenv("ECALC_OUT_PACKED", "0", 0);   /* this test checks the ASCII part files byte by byte; the packed form (the default) is checked by mnaccept's e9 / mn / full steps (digcmp.sh) and tools/test_unpack.py */
     int fails = 0, checks = 0;
     for (int it = 0; it < 60; it++) {
         unsigned long d_out = 1 + rnd() % 3000, d = ((d_out + 17) / 18) * 18;

@@ -1,4 +1,4 @@
-/* comm_shmem.c - the SHMEM transport (Phase 11 M8-s, Phase 12 S; archive:PLAN §25-27): the comm_ops of comm.h over the OpenSHMEM
+/* comm_shmem.c - the SHMEM transport: the comm_ops of comm.h over the OpenSHMEM
  * 1.4 subset that Cray OpenSHMEMX, rocSHMEM, Sandia OpenSHMEM and OpenMPI's OSHMEM share (plus put-with-signal where 1.5
  * exists).  One process per node = one PE; a communicator is a strided PE set (start, stride, size) -- the tree's node
  * groups -- with rank r = PE start + stride r.
@@ -28,7 +28,7 @@
  * The sender's roff waits: alltoall() returns before completion (the slab pipeline, M7), so under `putsig` / `fence` the
  * puts are posted inline for the peers whose roff has arrived within COMM_SHMEM_SPIN_US (2000; in lockstep pipelines all
  * of them) and a helper thread posts the rest; under `quiet` (a blocking call before the signals) the helper thread does
- * all of it, as in Phase 11.
+ * all of it.
  * all-gather, the unequal all-to-all (counts known on both sides from the descriptors: the receiver's offsets are what it
  * publishes), barrier / max / sum-mod-q (an all-to-all of 8-byte values through the val/vseq words, double-buffered by
  * the sequence's parity) and point-to-point (a ring per (dest, source) with producer / consumer counters,
@@ -58,8 +58,8 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include "comm.h"
-#include "comm_ofi.h"                             /* Phase 17: COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
-/* Phase 14 V1: the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
+#include "comm_ofi.h"                             /* COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
+/* the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
  * size from the launch line's variable (SHMEM_SYMMETRIC_HEAP_SIZE for OSHMEM, SHMEM_SYMMETRIC_SIZE for SOS and Cray; K / M / G / T
  * suffixes, else bytes), 0 when unset; *name = the variable */
 size_t comm_shmem_heap_env(const char **name)
@@ -118,18 +118,18 @@ static struct {
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
     pthread_mutex_t alloc_lock;
     struct blk *blocks;                    /* the general area's blocks */
-    struct blk *slot[4]; size_t slot_bytes; int nslot;   /* Phase 14 V1: the staging regions, one per APU (COMM_SHMEM_STAGE_SLOT_MB, set by the pool rule) */
+    struct blk *slot[4]; size_t slot_bytes; int nslot;   /* the staging regions, one per APU (COMM_SHMEM_STAGE_SLOT_MB, set by the pool rule) */
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
-    size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* Phase 14 P2: the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
-    int verbose;                           /* Phase 14 P2: COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
+    size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
+    int verbose;                           /* COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
     int xstats, vslot_pool;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
-    size_t round_bytes;                    /* Phase 14 V1: COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
-    long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* Phase 14 V1: exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
-    double tv; long nv;                    /* Phase 14 V1: all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
-    double bv;                             /* Phase 16 A: the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
+    size_t round_bytes;                    /* COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
+    long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
+    double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
+    double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
-static void site_print(void);                           /* Phase 14 P2 (below) */
+static void site_print(void);                           /* (below) */
 #define SHM_LOCK()   do { if (S.serial) pthread_mutex_lock(&S.lock); } while (0)
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
 static void die(const char *m) { ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: %s\n", S.me, m); }
@@ -148,7 +148,7 @@ const char *comm_shmem_impl(void)
 }
 
 /* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free).
- * Phase 14 V1: with the pool sized to the model's need (COMM_SHMEM_POOL_AUTO, mnrun.sh's plan) one first-fit area fragments:
+ * with the pool sized to the model's need (COMM_SHMEM_POOL_AUTO, mnrun.sh's plan) one first-fit area fragments:
  * the four APU threads allocate and free staging of different sizes out of step (4 processes at 1e10: 529 MiB not found with
  * 1441 MiB free in a 4608 MiB pool).  So the staging has one region per APU (the thread's HIP device), each the model's
  * per-APU need (COMM_SHMEM_STAGE_SLOT_MB, exported by binsplit_shmem_pool_rule): a thread's staging is its current exchange's
@@ -175,7 +175,7 @@ static size_t pool_alloc(size_t len, int kind)
         if (S.cur_all > S.peak_all) { S.peak_all = S.cur_all; memcpy(S.at_peak, S.cur, sizeof S.at_peak); S.nstage_at_peak = S.nstage; }
         pthread_mutex_unlock(&S.alloc_lock); return b->off;
     }
-    size_t used = S.cur_all, need = ((used + len + S.mb_bytes) >> 20) + 1;   /* Phase 14 P2: name the size that would have held it (first fit: at least) */
+    size_t used = S.cur_all, need = ((used + len + S.mb_bytes) >> 20) + 1;   /* name the size that would have held it (first fit: at least) */
     pthread_mutex_unlock(&S.alloc_lock);
     ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the symmetric pool (%zu MiB, COMM_SHMEM_POOL_MB) cannot hold %zu MiB more (in use %zu MiB: control %zu, staging %zu, symmetric buffers %zu): "
              "COMM_SHMEM_POOL_MB >= %zu needed now; the model's need for this run: %s MiB (COMM_SHMEM_POOL_AUTO=1 sizes it at init)\n",
@@ -222,7 +222,7 @@ static void wait_ne(long *p, long v) { double t0 = comm_wst_t0(); wait_ne_(p, v)
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
 int comm_shmem_available(void) { return 1; }
-/* Phase 14 V1: 1 when the pool will be shmem_malloc'd from the library's heap (OSHMEM, SOS without the device heap, Cray /
+/* 1 when the pool will be shmem_malloc'd from the library's heap (OSHMEM, SOS without the device heap, Cray /
  * rocSHMEM whose heap is device memory but sized by the launch line), 0 when it is SOS's external heap (COMM_SHMEM_DEVHEAP=1
  * with the patch: a HIP buffer of the pool's own size) */
 int comm_shmem_pool_in_heap(void)
@@ -239,7 +239,7 @@ int comm_shmem_pool_in_heap(void)
 }
 int comm_shmem_rank(void) { return S.me; }
 int comm_shmem_size(void) { return S.npes; }
-void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }   /* Phase 16 D */
+void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
 #if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)   /* as its only caller below */
 /* the device buffer of a device-heap pool (COMM_SHMEM_DEVHEAP on SOS): fine-grained (host-accessible; =2 managed) on the current device */
@@ -295,8 +295,8 @@ int comm_shmem_init(void)
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
-    S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1 since 2026-10-12, TASKS 27) */
-    { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }   /* Phase 14 V1 */
+    S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
+    { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
     if (!S.extheap) {
         S.pool = (char *)shmem_malloc(S.pool_bytes);
         if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
@@ -304,7 +304,7 @@ int comm_shmem_init(void)
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
 #ifndef COMM_HOST_ONLY
 #if !defined(COMM_SHMEM_SOS) && !defined(COMM_SHMEM_OSHMEM)
-    if (S.devheap && !S.extheap) {                        /* Phase 16 A (results/A16.md): the generic branch takes COMM_SHMEM_DEVHEAP=1 at its word only when the
+    if (S.devheap && !S.extheap) {                        /* the generic branch takes COMM_SHMEM_DEVHEAP=1 at its word only when the
                                                            * library's heap is device memory; Cray OpenSHMEMX 11.8's heap is host hugepages (no HIP in libsma), and
                                                            * handing that to kernels as a device pool would fault -- so it is registered like the default host pool */
         hipPointerAttribute_t pa; hipError_t pe = hipPointerGetAttributes(&pa, S.pool);
@@ -326,7 +326,7 @@ int comm_shmem_init(void)
 #endif
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
 #ifndef COMM_HOST_ONLY
-    {   /* Phase 14 V1: the four staging regions at the pool's end, when the rule sized them and the general area keeps >= 64 MiB */
+    {   /* the four staging regions at the pool's end, when the rule sized them and the general area keeps >= 64 MiB */
         const char *es = getenv("COMM_SHMEM_STAGE_SLOT_MB"); size_t sb = es ? (size_t)(atof(es) * 1048576.0) : 0; sb = (sb + ALIGN - 1) & ~(size_t)(ALIGN - 1);
         if (sb && 4 * sb + ((size_t)64 << 20) <= S.blocks->len) {
             S.nslot = 4; S.slot_bytes = sb; S.blocks->len -= 4 * sb;
@@ -349,11 +349,11 @@ void comm_shmem_finalize(void)
     shmem_barrier_all();
     if (S.me == 0 || S.verbose) {
         printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
-        /* Phase 14 P2: what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
+        /* what occupied the pool at its peak (the kinds then, the live staging blocks), the largest staging block, the mailbox */
         printf("comm_shmem: pe %d: at the peak: control %.1f, staging %.1f (%zu blocks; the largest staging block of the run %.1f), symmetric buffers %.1f MiB; mailbox %.2f MiB\n", S.me,
                S.at_peak[K_CTRL] / 1048576.0, S.at_peak[K_STAGE] / 1048576.0, S.nstage_at_peak, S.stage_blk_max / 1048576.0, S.at_peak[K_SYM] / 1048576.0, S.mb_bytes / 1048576.0);
         if (S.verbose >= 2) site_print();
-        printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread", S.me, S.nv, S.tv, S.bv / 1e9, S.tv > 0 ? S.bv / 1e9 / S.tv : 0);   /* Phase 14 V1; Phase 16 A: the bytes */
+        printf("comm_shmem: pe %d: all-to-all %ld exchanges, %.2f s post to completion (summed over the APU threads), %.2f GB received = %.2f GB/s per APU thread", S.me, S.nv, S.tv, S.bv / 1e9, S.tv > 0 ? S.bv / 1e9 / S.tv : 0);   /* the bytes */
         if (S.round_bytes) printf("; %ld through the rounds' path, %ld of them in %ld rounds (COMM_SHMEM_ROUND_MB=%.6g, the largest round's staging %.1f MiB send + recv)", S.nrpath, S.nround_ex, S.nrounds, S.round_bytes / 1048576.0, S.round_stage_max / 1048576.0);
         printf("\n");
     }
@@ -361,7 +361,7 @@ void comm_shmem_finalize(void)
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
 #endif
     if (S.xstats) xs_print();                             /* X1: every PE prints its own lines */
-    comm_ofi_finalize();                                  /* Phase 17: the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
+    comm_ofi_finalize();                                  /* the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
     if (!S.extheap) shmem_free(S.pool);
     shmem_finalize(); S.inited = 0;
 #ifndef COMM_HOST_ONLY
@@ -383,13 +383,13 @@ typedef struct {
     const char *src; const size_t *scnt, *sdsp;   /* the push's inputs: src + stride r (equal slabs; stride 0: one block to all) or src + sdsp[r], scnt[r] */
     size_t stride;
     long *sent, *got;                      /* point-to-point: bytes sent to / received from each rank */
-    /* Phase 14 V1: the words' sequences per pair -- oseq[r] my sends to r (the roff word r writes into my block, my signal
+    /* the words' sequences per pair -- oseq[r] my sends to r (the roff word r writes into my block, my signal
      * into r's), iseq[r] r's sends to me.  An ordinary exchange advances every pair by one (so they equal seq); an exchange in
      * rounds advances a pair by its round count, which both ends derive from the pair's byte count alone */
     long *oseq, *iseq;
     size_t *acnt, *adsp;                   /* an equal exchange's counts and offsets for the rounds */
     int rounds, dev, rs_made; hipStream_t rs; size_t chunk, rsb_cap; const char *vsb; char *vrb; int vsin; double t0;   /* the pending exchange in rounds (helper thread, own stream) */
-    /* Phase 17 (COMM_OFI=1): the communicator's libfabric data plane.  xo: the current exchange's data goes over it (the device ops);
+    /* the communicator's libfabric data plane.  xo: the current exchange's data goes over it (the device ops);
      * db: the base its staging offsets, the published roff offsets and the in-pool test refer to (the SHMEM pool, or the device's
      * comm pool under xo); sdb: the pool the cached staging lives in; ocnt[r]: writes to r in flight; osig[r]: r's signal to send
      * once they completed (0: none) */
@@ -434,7 +434,7 @@ static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (siz
 #define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset / count below 2^40 tagged with the sequence (< 2^23) */
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
-/* Phase 17: the data base of the current exchange -- on: a device op of an OFI communicator (its data over libfabric) */
+/* the data base of the current exchange -- on: a device op of an OFI communicator (its data over libfabric) */
 static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? comm_ofi_pool(p->od) : S.pool; }
 static int in_db(shm_priv *p, const void *x) { return p->xo ? comm_ofi_in_pool(p->od, x) : in_pool(x); }
 static size_t off_db(shm_priv *p, const void *x) { return (size_t)((const char *)x - p->db); }
@@ -448,7 +448,7 @@ static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { 
 static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
-    if (p->xo) { comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* Phase 17: the signal after delivery (ofi_flush) */
+    if (p->xo) { comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
         if (n) shmem_ctx_putmem_signal_nbi(p->ctx, S.pool + off, src, n, (uint64_t *)sw, (uint64_t)sig, SHMEM_SIGNAL_SET, p->pe[r]);
@@ -459,7 +459,7 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
     putmem(p, r, off, src, n);
     if (S.order == ORDER_FENCE) { shmem_ctx_fence(p->ctx); shmem_ctx_long_p(p->ctx, sw, sig, p->pe[r]); }
 }
-/* Phase 17: progress the device's writes; each peer whose writes have all completed (delivered) gets its signal word through SHMEM.
+/* progress the device's writes; each peer whose writes have all completed (delivered) gets its signal word through SHMEM.
  * Returns when every recorded signal is sent (the data of this exchange is in the receivers' memory) */
 static void ofi_flush(shm_priv *p)
 {
@@ -478,9 +478,9 @@ static void ofi_flush(shm_priv *p)
 static void order_ctx(shm_priv *p) { if (S.order == ORDER_FENCE) shmem_ctx_fence(p->ctx); else shmem_ctx_quiet(p->ctx); }   /* under SHM_LOCK: the words before their sequence (tiny exchange, rings) */
 
 /* the staging of one exchange (send, receive): allocated per exchange, released when it completes (staging_release) --
- * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels
- * (Q, Phase 12); pool-resident buffers (comm_sym_alloc) need none */
-/* Phase 14 P2: COMM_SHMEM_VERBOSE=2 -- every staged exchange by its call site (the return addresses of the frames above the
+ * a level's meshes live to the end of the run, and staging held per communicator would add up over the levels;
+ * pool-resident buffers (comm_sym_alloc) need none */
+/* COMM_SHMEM_VERBOSE=2 -- every staged exchange by its call site (the return addresses of the frames above the
  * transport, as object offsets for addr2line -f -e <object> <offset>): count, largest send and receive, printed at finalize */
 #define NSITE 64
 static struct site { void *key[5]; int n; long count; size_t smax, rmax; } g_site[NSITE]; static int g_nsite;
@@ -501,16 +501,16 @@ static void site_print(void)
         printf("%s\n", line);
     }
 }
-static void stage_free(shm_priv *p, size_t off) { if (p->sdb) comm_ofi_free(p->od, off); else pool_free(off); }   /* Phase 17: in the pool it came from */
+static void stage_free(shm_priv *p, size_t off) { if (p->sdb) comm_ofi_free(p->od, off); else pool_free(off); }   /* in the pool it came from */
 static void staging_drop(shm_priv *p) { if (p->sst) stage_free(p, p->sst); if (p->rst) stage_free(p, p->rst); p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0; }
 static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 {
-    if ((p->sst || p->rst) && p->sdb != p->xo) staging_drop(p);   /* Phase 17: the cached staging is in the other pool */
+    if ((p->sst || p->rst) && p->sdb != p->xo) staging_drop(p);   /* the cached staging is in the other pool */
     p->sdb = p->xo;
     if (send > p->sst_cap) { if (p->sst) stage_free(p, p->sst); p->sst = p->xo ? comm_ofi_alloc(p->od, send, 0) : pool_alloc(send, K_STAGE); p->sst_cap = send; }
     if (recv > p->rst_cap) { if (p->rst) stage_free(p, p->rst); p->rst = p->xo ? comm_ofi_alloc(p->od, recv, 0) : pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
     if (S.verbose >= 2 && (send || recv)) site_note(send, recv);
-    if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* Phase 14 P2: which exchange raises the staging peak (racy read: a report, not the accounting) */
+    if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* which exchange raises the staging peak (racy read: a report, not the accounting) */
         S.stage_rep = S.cur[K_STAGE];
         printf("comm_shmem: pe %d: staging %.1f MiB in use (%zu blocks, pool %.1f MiB): comm %d (%d PEs) %s send %.1f + recv %.1f MiB\n", S.me, S.cur[K_STAGE] / 1048576.0, S.nstage, S.cur_all / 1048576.0,
                p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
@@ -528,7 +528,7 @@ static int push_peers(shm_priv *p, int from, long spin_us)
         size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
         SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK();
     }
-    if (p->xo) ofi_flush(p);                              /* Phase 17 */
+    if (p->xo) ofi_flush(p);
     else if (S.order == ORDER_QUIET) {
         SHM_LOCK(); shmem_ctx_quiet(p->ctx);
         for (int r = from; r < p->n; r++) if (r != p->me) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
@@ -543,7 +543,7 @@ static void start_push(comm *c)
 {
     shm_priv *p = PRIV(c);
     p->next = 0;
-    if (S.order != ORDER_QUIET && !p->xo) p->next = push_peers(p, 0, S.spin_us);   /* (Phase 17: an OFI push blocks until delivery: always the thread) */
+    if (S.order != ORDER_QUIET && !p->xo) p->next = push_peers(p, 0, S.spin_us);   /* (an OFI push blocks until delivery: always the thread) */
     if (p->next < p->n) { if (pthread_create(&p->th, 0, pusher, c)) die("pthread_create"); p->thread = 1; }
 }
 /* the receiver's half: publish where every sender's slab lands: base + r * bytes, or base + the caller's / prefix offsets */
@@ -572,7 +572,7 @@ static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 }
 static int s_rank(comm *c) { return c->rank; }
 static int s_size(comm *c) { return c->size; }
-static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin);   /* Phase 14 V1 (below) */
+static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s, int sin, int rin);   /* (below) */
 static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
@@ -580,7 +580,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
     p->t0 = now_s(); if (S.xstats) xs_begin(p);
-    if (S.round_bytes) {                                  /* Phase 14 V1: the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
+    if (S.round_bytes) {                                  /* the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
         for (int r = 0; r < n; r++) { p->acnt[r] = bytes; p->adsp[r] = (size_t)r * bytes; }
         if (alltoallv_rounds(c, sb, p->acnt, p->adsp, rb, p->acnt, p->adsp, s, sin, rin)) return;
     }
@@ -593,7 +593,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
     start_push(c);
 }
-/* ---- Phase 14 V1: the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
+/* ---- the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
  * The staging of an ordinary exchange is its whole send and receive, so the pool's high-water is 4 APU threads x the largest
  * exchange's pair -- a second copy of buffers the callers already hold (results/P214.md 2).  With COMM_SHMEM_ROUND_MB = m, a
  * pair (s -> r) of b bytes goes in K = ceil(b / c) rounds of c = m / (n - 1) bytes (K = 1 when b <= c: then exactly the
@@ -638,7 +638,7 @@ static void *rounder(void *a)
             const char *src = p->vsin ? p->vsb + sdsp[r] + o : p->db + p->sst + p->spre[r];
             SHM_LOCK(); put_signalled(p, r, UNOFF(x), src, len, PACK(seq, len)); SHM_UNLOCK();
         }
-        if (p->xo) ofi_flush(p);                          /* Phase 17 */
+        if (p->xo) ofi_flush(p);
         else if (S.order == ORDER_QUIET) {
             SHM_LOCK(); shmem_ctx_quiet(p->ctx);
             for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
@@ -709,7 +709,7 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
     start_push(c);
 }
-/* Phase 16 A: the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
+/* the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
 static double recv_bytes(const shm_priv *p)
 {
     if (!p->v) return (double)(p->n - 1) * (double)p->bytes;
@@ -721,7 +721,7 @@ static void s_wait(comm *c)
     if (!p->pending) return;
     double xtw0 = S.xstats ? now_s() : 0;                 /* X1 */
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
-    if (p->rounds) {                                      /* Phase 14 V1: the rounds completed in the helper thread */
+    if (p->rounds) {                                      /* the rounds completed in the helper thread */
         p->rounds = 0; staging_drop(p); p->pending = 0;
         double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock);
         if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t);
@@ -735,14 +735,14 @@ static void s_wait(comm *c)
     }
     staging_drop(p);
     p->pending = 0;
-    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t); }   /* Phase 14 V1 */
+    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t); }
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
 static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("alltoallv_host while an exchange is pending");
-    set_xo(p, 0);                                         /* (Phase 17: host buffers stay on SHMEM) */
+    set_xo(p, 0);                                         /* (host buffers stay on SHMEM) */
     size_t tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, 0, tr + 8, "alltoallv_host");
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
@@ -851,7 +851,7 @@ static void s_recv(comm *c, int from, void *b, size_t n)
 static void *s_sym_alloc(comm *c, size_t bytes)
 {
     shm_priv *op = PRIV(c);
-    if (op->ofi) {                                        /* Phase 17: the device's comm pool (device-accessible, registered with the NICs) */
+    if (op->ofi) {                                        /* the device's comm pool (device-accessible, registered with the NICs) */
         return comm_ofi_pool(op->od) + comm_ofi_alloc(op->od, bytes, 1);
     }
 #ifndef COMM_HOST_ONLY
@@ -863,7 +863,7 @@ static void *s_sym_alloc(comm *c, size_t bytes)
 static void s_sym_free(comm *c, void *ptr)
 {
     (void)c;
-    { ofi_dev *od = comm_ofi_owner(ptr); if (od) { comm_ofi_free(od, (size_t)((char *)ptr - comm_ofi_pool(od))); return; } }   /* Phase 17 */
+    { ofi_dev *od = comm_ofi_owner(ptr); if (od) { comm_ofi_free(od, (size_t)((char *)ptr - comm_ofi_pool(od))); return; } }
     if (!in_pool(ptr)) die("sym_free of a pointer outside the pool");
     pool_free(off_of(ptr));
 }
@@ -874,7 +874,7 @@ static void s_destroy(comm *c)
     s_barrier(c);                                          /* nobody's block goes while a member may still write to it */
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
     staging_drop(p);
-    comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig);   /* Phase 17 */
+    comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig);
     pool_free(p->base);
 #ifndef COMM_HOST_ONLY
     if (p->rs_made) HIP_CHECK(hipStreamDestroy(p->rs));
@@ -910,7 +910,7 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     SHM_UNLOCK();
     for (int r = 0; r < n; r++) { long *m = mailbox(id, p->pe[r]); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
     set_xo(p, 0);
-    if (comm_ofi_enabled()) {                             /* Phase 17: the device's NICs and comm pool; the members' blobs over SHMEM */
+    if (comm_ofi_enabled()) {                             /* the device's NICs and comm pool; the members' blobs over SHMEM */
         int dev = 0;
 #ifdef COMM_HOST_ONLY
         dev = getenv("COMM_OFI_DEV") ? atoi(getenv("COMM_OFI_DEV")) : id % 4;   /* the test build: a communicator id stands for the APU thread */

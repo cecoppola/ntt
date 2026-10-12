@@ -256,9 +256,9 @@ int main(int argc, char **argv)
         }
         mpz_clears(a, b, c, d, NULL);
     }
-    /* 4b. Phase 9 B1: the locality-aware tier as the tree uses it - products in device pools, pairs
+    /* 4b. the locality-aware tier as the tree uses it - products in device pools, pairs
      * (P1 Q2 + P2, Q1 Q2) sharing B, 2^k and 3 2^k lengths, several tiles - vs GMP and the normalised lengths
-     * (the unpaired form, RNS_BATCH_PAIR=0, was removed 2026-10-12; it is still taken where a batch does not pair) */
+     * (the unpaired form is still taken where a batch does not pair) */
     printf("-- 4b. batch-local: device-pool products in pairs sharing B\n");
     {
         struct { int logL; size_t npairs; int r3; size_t tile; const char *why; } bc[] = {

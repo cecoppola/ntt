@@ -7,7 +7,7 @@
  *
  *   crt_carry_par4(res, n, out, T):  out[0 .. n+3] =
  *   sum_k value(res[0..3][k]) 2^(64 k), value < 2^206 < 2^256.
- *   Phase 13a P3: with ec_np = 3 (ECALC_NP=3, decimal limbs only) planes 0..2 are read (res[3] is not touched),
+ *   with ec_np = 3 (ECALC_NP=3, decimal limbs only) planes 0..2 are read (res[3] is not touched),
  *   value < p0 p1 p2 < 2^156 in three base-10^18 digits.
  */
 #ifndef EC_CRT_H

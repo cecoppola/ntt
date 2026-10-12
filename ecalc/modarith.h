@@ -17,7 +17,7 @@
 #define EC_MODARITH_H
 #include <stdint.h>
 #include <math.h>
-#include "fatal.h"                          /* ec_fatal: ec_root / ec_root3 beyond the prime's 2-adic order (Phase 15 P) */
+#include "fatal.h"                          /* ec_fatal: ec_root / ec_root3 beyond the prime's 2-adic order */
 
 #if defined(__HIPCC__) || defined(__HIP__)
 #include <hip/hip_runtime.h>
@@ -28,9 +28,9 @@
 
 #define EC_NP 4                             /* the size of the prime set: array bounds, and one prime per device in the mdev / striped tiers */
 #define EC_LOGN_MAX 33                      /* the order of the stored root tables ec_W33 / ec_W3X33 (2^33 | p-1 for all four primes).
-                                               Not the transform limit: ec_root derives any 2^logn up to v2(p-1) (Phase 15 P) */
+                                               Not the transform limit: ec_root derives any 2^logn up to v2(p-1) */
 
-/* Phase 13a P3 (archive:PLAN §29 E1/E3): the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
+/* the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
  * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
  * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
  * (tests/t_primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
@@ -46,7 +46,7 @@ extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
  * upper bound of it) could exceed p0 p1 p2 */
 void ec_np_check(size_t nterms, const char *where);
-/* Phase 15 NP (archive:PLAN §37 row 1, P15 option b): ECALC_NP=auto -- the prime count per product of the distributed tiers.
+/* ECALC_NP=auto -- the prime count per product of the distributed tiers.
  * ec_np stays 3 (every one-node tier, the host CRT and ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form)
  * take ec_np_for(nc): four primes when nc = pa + pb > ec_np_auto_terms, else three.  ec_np_auto_terms = ec_np3_max_terms
  * unless ECALC_NP_AUTO_TERMS=<n> lowers it (a test knob: both counts at small sizes; never above the bound).  Binary limbs:
@@ -55,7 +55,7 @@ extern int ec_np_auto;                      /* 1: ECALC_NP=auto (decimal limbs) 
 extern size_t ec_np_auto_terms;             /* auto: the largest nc a three-prime product of the distributed tiers takes */
 int ec_np_for(size_t nterms);               /* the product's prime count: ec_np, or under auto 3 / 4 by nterms (no check) */
 int ec_np_prod(size_t nterms, const char *where);   /* ec_np_for + the check of that count (ec_np_check at 3) */
-/* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 (under auto; off by default) -- the switch-over on a product's real term count.  A coefficient of
+/* ECALC_NP_AUTO_MIN=1 (under auto; off by default) -- the switch-over on a product's real term count.  A coefficient of
  * the product of operands of na and nb limbs (each < 10^18) is the sum of the pairs a_i b_j with i + j = k, 0 <= i < na, 0 <= j < nb:
  * at most min(na, nb) pairs, each <= (10^18 - 1)^2.  mn_core / dist_core form the whole product (every transform length n >= na + nb,
  * so the cyclic convolution does not wrap; the added operand X enters after the CRT, the low / band cuts skip whole pieces), so
@@ -69,7 +69,7 @@ int ec_np_planes(int pool_log, int g);      /* pool 0's planes: ec_np; auto: 4 w
 #endif
 
 #ifndef EC_PRIMES
-#define EC_PRIMES 1                         /* 1: the WP8 set (3 * 2^44 | p-1: 3*2^k lengths); 0: the Phase 3-7 set */
+#define EC_PRIMES 1                         /* 1: the WP8 set (3 * 2^44 | p-1: 3*2^k lengths); 0: the earlier prime set (used only by t_roots) */
 #endif
 #if EC_PRIMES
 /* c * 2^44 + 1 with 3 | c, c = 240, 216, 207, 147 (RESULTS.md 57); two are the old p1, p3 */
@@ -221,10 +221,10 @@ static inline uint64_t ec_powmod(uint64_t a, uint64_t e, uint64_t p)
     return r;
 }
 static inline uint64_t ec_inv(uint64_t a, uint64_t p) { return ec_powmod(a, p - 2, p); }
-/* ---- the roots of unity (Phase 15 P, archive:PLAN §36: roots above 2^33) ----------------------------------------------------------
- * Before: ec_root(i, logn) = w33^(2^(33 - logn)), a negative shift (undefined; the "root" came out 1) for logn > 33, which the
- * mn tier reaches from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  Now:
- *   logn <= EC_LOGN_MAX: the table formula as before (bit-identical by construction, the same cost);
+/* ---- the roots of unity (roots above 2^33) ----------------------------------------------------------
+ * The table formula w33^(2^(33 - logn)) has a negative shift (undefined) for logn > 33, which the mn tier reaches
+ * from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  So ec_root(i, logn) is:
+ *   logn <= EC_LOGN_MAX: the table formula;
  *   EC_LOGN_MAX < logn <= v2(p_i - 1): g^((p_i - 1) / 2^logn) from the generator ec_G.  Both are g^((p-1)/2^logn) (w33 =
  *   g^((p-1)/2^33)); tests/t_roots checks the two agree for logn 1..33 on every prime, and the order (w^(2^logn) = 1,
  *   w^(2^(logn-1)) = p - 1) and the chain root(k+1)^2 = root(k) up to v2(p - 1);

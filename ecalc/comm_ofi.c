@@ -1,4 +1,4 @@
-/* comm_ofi.c - Phase 17 (internal code notes, results/OFI17.md): the multi-NIC data plane of comm_shmem.c.
+/* comm_ofi.c - the multi-NIC data plane of comm_shmem.c.
  *
  * Per HIP device d (= APU thread d), opened at the first communicator created on d: one libfabric `cxi` fabric / domain / EP / CQ / AV
  * per NIC of d's list (COMM_OFI_NICS, else the cxi devices on d's NUMA node), and one comm pool registered in every one of those
@@ -9,7 +9,7 @@
  * at most COMM_OFI_WINDOW in flight per NIC, and counts them on the caller's counter; whoever progresses the device's CQs
  * lowers the counter of the communicator that posted (the CQ entry's context).  The caller (comm_shmem.c) sends the SHMEM signal
  * once the counter of a peer is 0.  One mutex per device around every call into its domains (FI_THREAD_DOMAIN).
- * The user's decision of 2026-10-06 (results/OFI17.md): COMM_OFI unset defaults to on wherever a cxi NIC is present (Cray
+ * COMM_OFI unset defaults to on wherever a cxi NIC is present (Cray
  * Slingshot), off elsewhere (e.g. aac6's TCP/SOS) -- no code change needed there; COMM_OFI=0 always forces the old path. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -26,7 +26,7 @@ int comm_ofi_enabled(void)
     if (e && atoi(e)) ec_fatal(EC_RC_FATAL, "comm_ofi: COMM_OFI=%s but this binary was built without libfabric (make OFI=1 LIBFABRIC=<prefix>)\n", e);
     return 0;
 }
-int comm_ofi_planned(void) { return 0; }              /* Phase 17 OFIMEM: no libfabric, no comm pools */
+int comm_ofi_planned(void) { return 0; }              /* no libfabric, no comm pools */
 ofi_dev *comm_ofi_dev(int dev) { (void)dev; return 0; }
 char *comm_ofi_pool(ofi_dev *od) { (void)od; return 0; }
 int comm_ofi_in_pool(ofi_dev *od, const void *p) { (void)od; (void)p; return 0; }
@@ -80,10 +80,10 @@ static struct { int on, verbose, window; size_t chunk; pthread_mutex_t lock; ofi
 #define CK(x) do { int r_ = (int)(x); if (r_) ec_fatal(EC_RC_FATAL, "comm_ofi: %s = %d (%s) at %s:%d\n", #x, r_, fi_strerror(-r_), __FILE__, __LINE__); } while (0)
 
 static int read_int(const char *path, int def) { FILE *f = fopen(path, "r"); int v = def; if (f) { if (fscanf(f, "%d", &v) != 1) v = def; fclose(f); } return v; }
-/* the user's decision, 2026-10-06 (results/OFI17.md): with COMM_OFI unset, on only where it applies -- a cxi NIC present
+/* with COMM_OFI unset, on only where it applies -- a cxi NIC present
  * (Cray Slingshot; aac6's TCP/SOS has none, so it stays inert there without needing to know the SHMEM backend) */
 static int cxi_present(void) { char path[64]; snprintf(path, sizeof path, "/sys/class/cxi/cxi0/device/numa_node"); return access(path, F_OK) == 0; }
-/* Phase 17 OFIMEM: the decision comm_ofi_enabled makes, without opening anything -- for the memory rule (binsplit.c: the SHMEM pool
+/* the decision comm_ofi_enabled makes, without opening anything -- for the memory rule (binsplit.c: the SHMEM pool
  * shrinks to what SHMEM still carries and the four comm pools are counted) and MN_PLAN_ONLY's `plan pool` line.  The plan runs on the
  * login node, which may have no cxi (aac7's aac7-login): mnrun.sh then passes COMM_OFI_PLAN_CXI=1 when the first compute node has one. */
 int comm_ofi_planned(void)
@@ -226,7 +226,7 @@ ofi_dev *comm_ofi_dev(int d)
 char *comm_ofi_pool(ofi_dev *od) { return od ? od->pool : 0; }
 int comm_ofi_in_pool(ofi_dev *od, const void *p) { return od && (const char *)p >= od->pool && (const char *)p < od->pool + od->bytes; }
 ofi_dev *comm_ofi_owner(const void *p) { for (int d = 0; d < MAXDEV; d++) { ofi_dev *o = (&G)->dev[d]; if (comm_ofi_in_pool(o, p)) return o; } return 0; }
-/* S31: symmetric buffers allocated top-down with COMM_LAYER_VSLOT_POOL=1 (the default since 2026-10-12; its v-slots regrow in the pool); else first fit.
+/* S31: symmetric buffers allocated top-down with COMM_LAYER_VSLOT_POOL=1 (the default; its v-slots regrow in the pool); else first fit.
  * (tests/t_ofi_alloc.c, which includes this file, sets g_sym_top directly: 1 top-down, 0 first fit) */
 static int g_sym_top = -1;
 static int sym_top(void) { if (g_sym_top < 0) { const char *vp = getenv("COMM_LAYER_VSLOT_POOL"); g_sym_top = vp ? atoi(vp) != 0 : 1; } return g_sym_top; }

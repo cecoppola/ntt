@@ -9,9 +9,7 @@
  * (each scaled by m^-1), then the mirrored stage with w_n^(-r j), w3^(-r i)
  * and 3^-1.  Twiddles w_n^j, j < m, from two tables of <= 2^16 entries
  * (w_n^(j >> 16 << 16) and w_n^(j & 0xffff)), one extra modmul per point.
- * Needs the EC_PRIMES=1 prime set (3 * 2^44 | p - 1).
- * (Phase 15 N3x's form with the radix-3 stage fused into the 2^logk engine's first / last b16 pass, NTT_R3_FUSE, was
- * removed 2026-10-12: never adopted, ~0.2 s per run.) */
+ * Needs the EC_PRIMES=1 prime set (3 * 2^44 | p - 1). */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -103,7 +101,7 @@ void ntt_inv3(ntt_ctx *c, uint64_t *x, int logk, size_t batch, hipStream_t s)
     ntt_inv(c, x, logk, 3 * batch, s);
     k_r3_inv<<<nblk(batch * m), 256, 0, s>>>(x, m, logk, batch, t->t1i, t->t2i, w3, w3s, inv3, md);
 }
-/* Phase 9 B1: the pointwise product in any y layout, fused into the first inverse pass (the 2^logk engine's
+/* the pointwise product in any y layout, fused into the first inverse pass (the 2^logk engine's
  * b1 pass over the thirds) from logk + 1 >= ntt_pw_fuse on; the same modmul either way, so bit-identical */
 void ntt_inv3_pw_y(ntt_ctx *c, uint64_t *x, const uint64_t *y, int ymode, int logk, size_t batch, hipStream_t s)
 {

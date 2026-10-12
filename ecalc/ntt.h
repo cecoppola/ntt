@@ -31,17 +31,16 @@ extern "C" {
 
 typedef struct ntt_ctx ntt_ctx;
 
-extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-split check sets it; NTT_B16_STG removed 2026-10-12) */
-extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it; PW_FUSE removed 2026-10-12) */
-/* The kernel switches NTT_B16_BODY, NTT_MODMUL, NTT_B1R, NTT_PLAN (Phase 9, 13a/b K) and NTT_R3_FUSE (Phase 15 N3x) were
- * removed 2026-10-12 at their defaults: the register-blocked 7-stage body, the reduced-correction Barrett, the
+extern int ntt_stg;        /* stages per b16 pass, 3..7 (7; the tests' pass-split check sets it) */
+extern int ntt_pw_fuse;    /* fuse pointwise into inverse for logn >= this (14; tests set it) */
+/* The kernel choice is fixed: the register-blocked 7-stage body, the reduced-correction Barrett, the
  * register-blocked b1 pass (2^3 points per thread), the per-logn plan; the radix-3 stage stays its own pass (ntt3.c). */
 /* bench: one b16 pass of stg stages at row stride 2^s_lo (its own twiddles) over batch x 2^logn points */
 void ntt_pass_at(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int s_lo, int stg, int inv, hipStream_t s);
 /* H2 timing: one pass alone (pass < ntt_npass(logn) - 1: b16 pass; the last: the b1 pass), no scale */
 void ntt_pass(ntt_ctx *c, uint64_t *x, int logn, size_t batch, int inv, int pass, hipStream_t s);
 
-/* Phase 9 B1: layout of the pointwise operand y relative to x (a batch of transforms of L points each):
+/* layout of the pointwise operand y relative to x (a batch of transforms of L points each):
  *   NTT_Y_FULL   y[i] against x[i]                                (one y per x transform)
  *   NTT_Y_BCAST  y[i mod L]                                        (one y for the whole batch, grpB)
  *   NTT_Y_PAIR   y[(t >> 1) L + k] for x transform t, point k      (one y per pair of x transforms) */

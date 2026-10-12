@@ -1,5 +1,5 @@
-/* spill.h - Phase 14 S1 (APUMULT_STUDY E3, E4): file I/O that leaves nothing in the page cache (the spill of a device
- * number's limb range to disk and back, spill_*, ECALC_SPILL_DIR, was removed 2026-10-12: no production caller).
+/* spill.h - file I/O that leaves nothing in the page cache (the spill of a device
+ * number's limb range to disk and back is not provided: no production caller).
  *
  * On the APU the page cache is HBM (results/apumult/apumult_M.md: a 64 GiB buffered write took 64 GiB of MemFree and
  * kept it after fsync).  Two remedies, both measured there: O_DIRECT (never enters the cache; 2.0 GB/s write, 5.9 GB/s
@@ -14,7 +14,7 @@
  *             buffers, double-buffered when two are given) or host memory (dev < 0, memcpy).
  *
  * Switches: ECALC_ODIRECT=1 (the checkpoint writer, the top set and the output file use this file's I/O; off = the old
- * buffered code).  Phase 15 IO (W7): ECALC_ODIRECT=auto (see sp_direct_for). */
+ * buffered code).  ECALC_ODIRECT=auto (see sp_direct_for). */
 #ifndef EC_SPILL_H
 #define EC_SPILL_H
 #include <stddef.h>
@@ -37,7 +37,7 @@ typedef struct sp_file {
 } sp_file;
 
 int  sp_odirect(void);                 /* ECALC_ODIRECT=1 (also 1 for ECALC_ODIRECT=auto: the cache-hygiene paths on, O_DIRECT per file below) */
-/* Phase 15 IO (W7): ECALC_ODIRECT=auto -- O_DIRECT chosen per file by the file system under it (statfs f_type): local disks
+/* ECALC_ODIRECT=auto -- O_DIRECT chosen per file by the file system under it (statfs f_type): local disks
  * (ext4, xfs, ...) O_DIRECT; NFS O_DIRECT (measured faster, results/IO15.md; ECALC_ODIRECT_NFS=0: buffered + fsync + DONTNEED); Lustre O_DIRECT (an ASSUMPTION
  * to be measured on the target; ECALC_ODIRECT_LUSTRE=0: buffered); tmpfs buffered (it refuses O_DIRECT; the file is memory).
  * Without auto, sp_direct_for() is sp_odirect(). */

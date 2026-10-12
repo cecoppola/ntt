@@ -1,4 +1,4 @@
-/* t_strategy - archive:PLAN §29.2 E0 (Phase 13a, agent S): one dependent product C = A B of n = 2^logn points on one node
+/* t_strategy - archive:PLAN §29.2 E0: one dependent product C = A B of n = 2^logn points on one node
  * (four APUs, K4 xGMI) under the three distribution strategies, timed, with each strategy's per-APU plane bytes and its
  * exchanges, and the three results compared limb for limb.
  *
@@ -20,11 +20,11 @@
  * (all n limbs); TSTRAT_GMP=1 also checks it against GMP.
  *
  *   b  B with a 128-bit operand load (k_load4 here) instead of ntt_load's 64-bit one -- the broadcast's cost.
- *   V  (Phase 13b B) the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
+ *   V the library's B forms (rns_dist.c, RNS_STRATEGY): products of several shapes (2^k and 3 2^k
  *      transforms, unbalanced, short, operands as views at an offset) through rns_mul_dist_db under C, B, B4 and auto,
  *      each compared limb for limb with C's; then the n-point product (na = nb = n/2) timed under each form
  *      ("STRAT ... strat=L<form>").  After C (its rns_init).
- *   4  B4 (Phase 13b, agent B): B spread over all four APUs at P = 3.  The product mod x^n - 1 splits into the residues
+ *   4  B4: B spread over all four APUs at P = 3.  The product mod x^n - 1 splits into the residues
  *      mod x^(n/2) - 1 (the lower half of the forward DIF's bit-reversed output) and mod x^(n/2) + 1 (the upper half):
  *      the n-point DIF's first stage, then two independent n/2-point DIFs.  APU p < 3 (prime p) transforms A whole (n
  *      points) and B's lower-half residue Ylo = y[j] + y[j + n/2] (n/2 points); APU 3 forms the three primes' upper-half
@@ -425,7 +425,7 @@ int main(int argc, char **argv)
     } else R[2].why = "not requested";
 
 
-    /* ---- V: the library's B form against C (rns_mul_dist_db under RNS_STRATEGY = C, B, auto; the library's B4 was removed 2026-10-12) ---- */
+    /* ---- V: the library's B form against C (rns_mul_dist_db under RNS_STRATEGY = C, B, auto) ---- */
     if (strchr(which, 'V') && rns_dist_strategy_set) {
         int pl = logn < 31 ? logn : 31;
         if (!rns_ndev()) { rns_staging_bytes_req = (size_t)2 << 20; rns_pool1_bytes_req = rns_pool1_default_bytes(pl); rns_init(pl); }

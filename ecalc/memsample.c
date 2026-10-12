@@ -1,4 +1,4 @@
-/* memsample.c - see memsample.h (Phase 14 S1: E1, E12) */
+/* memsample.c - see memsample.h (E1, E12) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +8,7 @@
 #include "memsample.h"
 #include "mem.h"
 #include "dbig.h"
-#include "fatal.h"                                   /* Phase 15 IO (N3): the guard stops through ec_fatal (rank, host, phase) */
+#include "fatal.h"                                   /* the guard stops through ec_fatal (rank, host, phase) */
 int mn_rank(void);
 static int rank_now(void) { const char *e = getenv("COMM_RANK"); return e ? atoi(e) : mn_rank(); }   /* (the sampler starts before mn_init) */
 
@@ -53,7 +53,7 @@ void mem_live_line(const char *what)
 
 /* ---- E12: the sampler ---- */
 static struct {
-    pthread_t th; int on, stop, quiet; double period, t0, guard; FILE *out;   /* Phase 15 IO (N3): quiet = the guard alone (no lines); guard = ECALC_MEM_GUARD_GB in bytes */
+    pthread_t th; int on, stop, quiet; double period, t0, guard; FILE *out;   /* quiet = the guard alone (no lines); guard = ECALC_MEM_GUARD_GB in bytes */
     size_t min_avail, max_cached, max_dirty, max_rss, max_live[DB_NQ]; long n;
     pthread_mutex_t mx; pthread_cond_t cv;
 } S = { .mx = PTHREAD_MUTEX_INITIALIZER, .cv = PTHREAD_COND_INITIALIZER };
@@ -67,7 +67,7 @@ static void sample_once(void)
     if (m.dirty > S.max_dirty) S.max_dirty = m.dirty;
     if (rss > S.max_rss) S.max_rss = rss;
     S.n++;
-    if (S.guard > 0 && m.avail && (double)m.avail < S.guard) {   /* Phase 15 IO (N3): a clean stop, rank and phase named by ec_fatal's header */
+    if (S.guard > 0 && m.avail && (double)m.avail < S.guard) {   /* a clean stop, rank and phase named by ec_fatal's header */
         if (!S.quiet) fflush(S.out);
         ec_fatal(EC_RC_MEMGUARD, "memory guard (ECALC_MEM_GUARD_GB=%.1f): MemAvailable %.2f GB is below it on rank %d at %.1f s (MemFree %.2f, Cached %.2f, Dirty %.2f GB; RSS %.2f GB; pool live %.2f %.2f %.2f %.2f GB); the run stops, rc %d",
                  S.guard * 1e-9, m.avail * 1e-9, rank_now(), mem_now() - S.t0, m.free * 1e-9, m.cached * 1e-9, m.dirty * 1e-9, rss * 1e-9, live[0] * 1e-9, live[1] * 1e-9, live[2] * 1e-9, live[3] * 1e-9, EC_RC_MEMGUARD);
@@ -111,7 +111,7 @@ void mem_sampler_stop(void)
 void mem_sampler_start(void)
 {
     const char *e = getenv("ECALC_MEM_SAMPLE"), *g = getenv("ECALC_MEM_GUARD_GB");
-    double guard = g ? atof(g) * 1e9 : 0;                /* Phase 15 IO (N3): the guard runs the sampler without its lines when ECALC_MEM_SAMPLE is unset */
+    double guard = g ? atof(g) * 1e9 : 0;                /* the guard runs the sampler without its lines when ECALC_MEM_SAMPLE is unset */
     if (S.on || ((!e || atof(e) <= 0) && guard <= 0)) return;
     S.quiet = !e || atof(e) <= 0; S.guard = guard;
     S.period = S.quiet ? (getenv("ECALC_MEM_GUARD_PERIOD") ? atof(getenv("ECALC_MEM_GUARD_PERIOD")) : 1.0) : atof(e); if (S.period <= 0) S.period = 1.0;

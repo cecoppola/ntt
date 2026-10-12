@@ -1,4 +1,4 @@
-/* newton.c - see newton.h: the host schoolbook division and the reciprocal seed (the host reciprocal and division, NEWTON_DEVICE=0, removed in A5 2026-10-12; newton_db.c is the only flow) */
+/* newton.c - see newton.h: the host schoolbook division and the reciprocal seed */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -56,7 +56,7 @@ void bi_divmod_school(bigint *X, bigint *R, const bigint *A, const bigint *Q)
 /* ---- reciprocal ------------------------------------------------------------ */
 /* seed: j = 2 limbs of precision by schoolbook on the top 4 limbs of Q */
 void newton_seed_host(bigint *r, const bigint *Q, size_t *j) { size_t top = Q->n < 4 ? Q->n : 4; newton_seed_top(r, Q->l + (Q->n - top), top, Q->n, j); }
-/* the seed from Q's top limbs only (Phase 8 I3: Q may live on the device; top4 = its top `top` limbs, nq its length) */
+/* the seed from Q's top limbs only (Q may live on the device; top4 = its top `top` limbs, nq its length) */
 void newton_seed_top(bigint *r, const uint64_t *top4, size_t top, size_t nq, size_t *j)
 {
     bigint qt, num, rem; bi_init(&qt); bi_init(&num); bi_init(&rem);

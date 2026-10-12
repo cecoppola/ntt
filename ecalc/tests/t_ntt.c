@@ -15,9 +15,8 @@
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
  * Usage: t_ntt [LOGMAX (31)]
- *        t_ntt hash [KMAX2 KMAX3]   (Phase 15 N3x: output hashes of every transform, for old / new diffs)
- *        t_ntt bench [LOGMAX [h2,h7,stride,slo,q4,q4sweep]]   (rates; the kernel variants' benches were removed with their
- *                                   switches 2026-10-12: NTT_MODMUL, NTT_B1R, NTT_PLAN, NTT_B16_BODY, NTT_R3_FUSE)
+ *        t_ntt hash [KMAX2 KMAX3]   (output hashes of every transform, for old / new diffs)
+ *        t_ntt bench [LOGMAX [h2,h7,stride,slo,q4,q4sweep]]   (rates)
  */
 #include "harness.h"
 #include "../ntt.h"
@@ -41,7 +40,7 @@ static size_t count_diff(const uint64_t *a, const uint64_t *b, size_t n, size_t 
     return bad;
 }
 
-/* ---- Phase 13a K: device-side compare and the benchmarks for H2 (MALL), H3 (modmul), H7 (non-temporal stores) */
+/* ---- device-side compare and the benchmarks for H2 (MALL), H3 (modmul), H7 (non-temporal stores) */
 __global__ void k_cmp(const uint64_t *a, const uint64_t *b, size_t n, unsigned long long *bad)
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, st = (size_t)gridDim.x * blockDim.x;
@@ -113,7 +112,7 @@ __global__ void kb_read(const uint64_t *a, size_t n, uint64_t *sink)     /* a co
     for (; i < n; i += st) acc ^= a[i];
     if (acc == 0x5A5A5A5A5A5A5A5AULL) *sink = acc;
 }
-/* Phase 13b K: the stride microbench (see bench "stride") */
+/* the stride microbench (see bench "stride") */
 template <int ROT>
 __global__ __launch_bounds__(256) void kb_strd(uint64_t *x, size_t S, size_t slabs, size_t rot)
 {
@@ -209,7 +208,7 @@ static int bench(int LOGMAX, const char *what)
     }
 
     if (strstr(what, "stride")) {
-        /* Phase 13b K: the stride penalty, memory only.  kb_strd moves 128 rows x 16 columns per block like k_b16r
+        /* the stride penalty, memory only.  kb_strd moves 128 rows x 16 columns per block like k_b16r
          * (load rows tt + 16 i, store rows 8 tt + i, x + 1 in between), row stride S = 2^s + pad points; rot > 0 shifts
          * row j's slab by j rot slabs (mod the row) - a rotated layout.  If the power-of-two strides 17 / 24 are slow and
          * the padded / rotated ones are not, the penalty is address aliasing */
@@ -233,7 +232,7 @@ static int bench(int LOGMAX, const char *what)
         }
     }
     if (strstr(what, "slo")) {
-        /* Phase 13b K: one b16 pass at every row stride 2^s_lo (k_b16r for 7 stages, the tile kernel for 5 and 6), in
+        /* one b16 pass at every row stride 2^s_lo (k_b16r for 7 stages, the tile kernel for 5 and 6), in
          * one transform of 2^L points: the pass-rate table the plan choice needs */
         printf("-- K13b per-s_lo pass rates: L stg s_lo fwd ms GB/s | inv ms GB/s\n");
         static const int Ls3[] = {31, 28, 24}, Lsw[] = {24, 25, 26, 27, 28, 29, 30, 31};   /* S22: bench <LOGMAX> q4sweep = every L from 24 to 31 */
@@ -251,7 +250,7 @@ static int bench(int LOGMAX, const char *what)
         }
     }
     if (strstr(what, "q4")) {
-        /* S21 (A37-Q4): the production configuration (the only one since 2026-10-12), whole forward / inverse and every pass, at 2^31, 2^28 and
+        /* the production configuration, whole forward / inverse and every pass, at 2^31, 2^28 and
          * 2^24 single.  Run by tests/t_ntt (real modmul) and tests/t_ntt_nop (ntt.c built with -DNTT_NOP_MODMUL: every modmul one FMA, the data movement
          * left; its outputs are wrong by design and are not checked here).  The two outputs side by side say what share of the time is the arithmetic. */
         printf("-- S21 Q4: production plan; L, fwd ms, inv ms, then per pass [s_lo..s_hi] fwd ms (median of 5)\n");
@@ -278,7 +277,7 @@ static int bench(int LOGMAX, const char *what)
     return verify_done("t_ntt bench");
 }
 
-/* ---- Phase 15 N3x: `t_ntt hash [KMAX2 (31)] [KMAX3 (29)]` and `t_ntt r3bench [KMIN (10)] [KMAX (29)]`.
+/* ---- `t_ntt hash [KMAX2 (31)] [KMAX3 (29)]` and `t_ntt r3bench [KMIN (10)] [KMAX (29)]`.
  * hash: every transform the code uses -- 2^k (k = 10 .. KMAX2) and 3 2^k (k = 10 .. KMAX3), every prime, batch 1 and 3 (3
  * while the batch fits 3 2^29 points), forward, inverse and the inverse with the pointwise product in the three y layouts,
  * fused into the b1 pass (PW_FUSE 10) and not (99) -- on deterministic canonical inputs; one line per case with a
@@ -350,8 +349,8 @@ static int n3x_hash_mode(int kmax2, int kmax3)
 }
 int main(int argc, char **argv)
 {
-    if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);   /* Phase 15 N3x */
-    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,h7");   /* Phase 13b K: stride, slo; S21 q4 */
+    if (argc > 1 && !strcmp(argv[1], "hash")) return n3x_hash_mode(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? atoi(argv[3]) : 29);
+    if (argc > 1 && !strcmp(argv[1], "bench")) return bench(argc > 2 ? atoi(argv[2]) : 31, argc > 3 ? argv[3] : "h2,h7");   /* stride, slo; S21 q4 */
     int LOGMAX = argc > 1 ? atoi(argv[1]) : 31;
     int nd = 0, pr, logn;
     HIP_CHECK(hipGetDeviceCount(&nd));
@@ -513,7 +512,7 @@ int main(int argc, char **argv)
         ntt_stg = 7;
     }
 
-    /* 4b. Phase 9 B1: the pointwise operand's layouts (FULL, BCAST, PAIR), fused into the b1 pass and not,
+    /* 4b. the pointwise operand's layouts (FULL, BCAST, PAIR), fused into the b1 pass and not,
      * for 2^k and 3 2^k transforms: a batch of 6 x transforms against 6 / 1 / 3 y transforms must equal
      * the per-transform product + inverse (bit-identical) */
     printf("-- 4b. pointwise layouts (full / bcast / pair, fused and unfused, 2^k and 3 2^k)\n");

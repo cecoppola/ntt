@@ -11,9 +11,8 @@
  *     96, 192; best of 3.  Paper: CPU CRT must keep up with the multiply
  *     (RESULTS.md 27, 34: 0.29 s / 2^30 tight window, clang).
  *
- * Phase 13a P3: ECALC_NP=3 runs every part with three primes (the value mod p0 p1 p2, crt3_stripe); ECALC_NP=4 the
- * four-prime garner with the base-B digit window.  Decimal limbs only since archive:PLAN §28.5 (part 3 runs in decimal; it was
- * binary-only before).  Run it twice, ECALC_NP=3 and ECALC_NP=4, to cover both CRT forms.
+ * ECALC_NP=3 runs every part with three primes (the value mod p0 p1 p2, crt3_stripe); ECALC_NP=4 the
+ * four-prime garner with the base-B digit window.  Decimal limbs only (part 3 runs in decimal).  Run it twice, ECALC_NP=3 and ECALC_NP=4, to cover both CRT forms.
  *
  * Usage: t_crt [log2 n for part 3 (30); 0 skips part 3]
  */
@@ -75,7 +74,7 @@ int main(int argc, char **argv)
     harness_meta("t_crt");
     crt_gmp_init();
     printf("   %d primes, decimal limbs\n", ec_np);
-    /* 0. Phase 15 NP: ECALC_NP=auto (ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
+    /* 0. ECALC_NP=auto (ECALC_NP_AUTO_TERMS lowers the switch-over) -- the per-product count
      *    and pool 0's planes, and the two CRTs agree on every value three primes hold: v = k (B-1)^2 + random < p0 p1 p2 for k up
      *    to the bound gives garner3(v mod p0..p2) == garner4(v mod p0..p3) == v, and at the bound + 1 garner3 wraps (the bound is exact) */
     if (ec_np_auto) {
@@ -84,7 +83,7 @@ int main(int argc, char **argv)
         VERIFY(ec_np == 3, "auto: ec_np %d", ec_np);
         VERIFY(ec_np_for(1) == 3 && ec_np_for(bt) == 3 && ec_np_for(bt + 1) == 4 && ec_np_for(b3 + 1) == 4 && ec_np_for((size_t)1 << 40) == 4, "ec_np_for around %zu", bt);
         VERIFY(ec_np_prod(bt, "t_crt") == 3 && ec_np_prod(bt + 1, "t_crt") == 4, "ec_np_prod");
-        /* Phase 15 MPB: ECALC_NP_AUTO_MIN=1 -- the term count min(na, nb) (a product with min <= bt < na + nb runs three primes); off: nc */
+        /* ECALC_NP_AUTO_MIN=1 -- the term count min(na, nb) (a product with min <= bt < na + nb runs three primes); off: nc */
         printf("   ECALC_NP_AUTO_MIN=%d\n", ec_np_auto_min);
         if (ec_np_auto_min) {
             VERIFY(ec_np_terms(2 * bt, bt, bt) == bt && ec_np_terms(bt + 7, 7, bt) == 7 && ec_np_terms(bt + 7, bt, 7) == 7, "ec_np_terms (min)");

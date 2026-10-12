@@ -6,17 +6,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-/* host numbers: realloc (the 2 MiB-aligned THP form, BI_HUGE, was removed 2026-10-11: measured harmful) */
+/* host numbers: realloc (no huge-page form: measured harmful) */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 {
-    uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8);   /* BI_HUGE (THP) removed 2026-10-11: measured harmful (defrag stalls) */
+    uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8);   /* plain realloc: a 2 MiB-aligned (THP) form stalled in defrag */
     return p;
 }
 
 typedef unsigned __int128 u128;
 #define B10 BI_B10
 /* archive:PLAN §28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (todec) is archived under
- * archive:binary_pipeline/ (tag pre-28.5-binary).  (LIMB_BASE and its refusal, bi_check_base, removed 2026-10-12.) */
+ * archive:binary_pipeline/ (tag pre-28.5-binary). */
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)
 {
@@ -107,7 +107,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
         free(w1);
     }
 }
-/* Phase 15 S1: the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
+/* the decimal mul_1 by a precomputed reciprocal of 10^18, for any m < B and add <= B, limbs
  * canonical (< B).  mh = floor(m 2^64 / B) (< 2^64 because m < B).  For x = a[i] < 2^64 the true quotient Q = floor(x m / B)
  * satisfies qe = floor(x mh / 2^64) in {Q - 1, Q}: x mh <= x m 2^64 / B, and x mh > x m 2^64 / B - x > (x m / B - 1) 2^64.
  * So s = x m - qe B + c (mod 2^64; the true value is (x m mod B) + (Q - qe) B + c, in [0, 3B) < 2^64 while c <= B) needs at

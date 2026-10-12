@@ -47,11 +47,11 @@ struct comm_ops {
     void (*recv)(comm *c, int from, void *buf, size_t bytes);
     /* all-gather: every rank's block of `bytes` (device memory) into recvbuf[size][bytes] in rank order, complete on
      * return (the synthetic communicator: when its fourth rank has called); sendbuf may be recvbuf + rank * bytes.
-     * 0 = not implemented: comm_allgather falls back to an all-to-all of `size` copies (Phase 9 day 0) */
+     * 0 = not implemented: comm_allgather falls back to an all-to-all of `size` copies */
     void (*allgather)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
     /* the same for host buffers (M7: the descriptors, carry flags and residues the tree gathers -- k u64 per node) */
     void (*allgather_host)(comm *c, const void *sendbuf, void *recvbuf, size_t bytes);
-    /* B7 (Phase 10): all-to-all of unequal slabs.  Rank r receives scnt[r] bytes from sendbuf + sdsp[r] of every
+    /* B7: all-to-all of unequal slabs.  Rank r receives scnt[r] bytes from sendbuf + sdsp[r] of every
      * rank; they land at recvbuf + rdsp[src] of the receiver, which supplies rcnt[src] (= the sender's scnt[me]:
      * both sides compute the sizes from the same descriptors; every transport aborts on a mismatch).  Device
      * memory; the same completion rule as alltoall (may return before completion, comm_wait completes it; the
@@ -60,7 +60,7 @@ struct comm_ops {
     void (*alltoallv)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp, hipStream_t s);
     /* the same for host buffers, complete on return */
     void (*alltoallv_host)(comm *c, const void *sendbuf, const size_t *scnt, const size_t *sdsp, void *recvbuf, const size_t *rcnt, const size_t *rdsp);
-    /* Phase 12 S: symmetric memory for the callers' slabs.  A transport that puts straight from and into buffers of its own
+    /* symmetric memory for the callers' slabs.  A transport that puts straight from and into buffers of its own
      * pool (SHMEM: the symmetric pool, device-accessible) hands out such buffers here; an exchange whose send / receive
      * buffer lies in the pool is not staged.  0 (the field or the result): the caller allocates the buffer itself
      * (hipMalloc) and the transport stages it.  The layered communicator forwards to its inter transport. */
@@ -114,7 +114,7 @@ comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four AP
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
 comm *comm_layered_create(comm *intra, comm *inter, int d);
-/* Phase 11 S (archive:PLAN §25-26): the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
+/* the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
  * per node-process; a communicator is a strided PE set {pe_start + pe_stride r : r < n} -- the shim for OpenSHMEM 1.5
  * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
  * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
@@ -123,11 +123,11 @@ const char *comm_shmem_impl(void);             /* S12: the library the binary wa
 int   comm_shmem_init(void);                   /* returns the PE count */
 int   comm_shmem_rank(void);
 int   comm_shmem_size(void);
-void  comm_shmem_counters(double *t, long *n, double *bytes);   /* Phase 16 D: the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */
+void  comm_shmem_counters(double *t, long *n, double *bytes);   /* the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
 void  comm_shmem_finalize(void);
-size_t comm_shmem_heap_env(const char **name);   /* Phase 14 V1: the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
-int   comm_shmem_pool_in_heap(void);           /* Phase 14 V1: 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
+size_t comm_shmem_heap_env(const char **name);   /* the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
+int   comm_shmem_pool_in_heap(void);           /* 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 int   comm_layered_vslot_pool_on(void);      /* TASKS 27 (D1e): COMM_LAYER_VSLOT_POOL, default 1 */

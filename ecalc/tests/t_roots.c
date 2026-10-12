@@ -1,6 +1,6 @@
-/* t_roots - Phase 15 P (archive:PLAN §36): the roots of unity above 2^33 (modarith.h ec_root / ec_root3), host only.
+/* t_roots - the roots of unity above 2^33 (modarith.h ec_root / ec_root3), host only.
  *
- * Before Phase 15 P, ec_root(i, logn) = w33^(2^(33 - logn)): a negative shift for logn > 33 (agent L8 measured the "root" = 1
+ * ec_root(i, logn) = w33^(2^(33 - logn)): a negative shift for logn > 33 (agent L8 measured the "root" = 1
  * for logn 34..41 on p0, p1, p2), reached by the mn tier's planes from 8 nodes on (2^40 at 576).  Checks, for every prime:
  *   1. bit-identity: ec_root(i, logn) == the old formula for logn 0..33, ec_root3(i, logk) == the old one for logk 0..33
  *      (the old code copied here: the values every transform so far has used);

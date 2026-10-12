@@ -1,4 +1,4 @@
-/* comm_util.c - operations built on the transports' ops (Phase 9, archive:PLAN §19).
+/* comm_util.c - operations built on the transports' ops.
  * comm_allgather: the transport's allgather (every transport has one since M7); otherwise an all-to-all of `size`
  * copies of the block (a device temporary of size x bytes).  comm_allgather_host: the transport's host op, else
  * the device op through temporaries. */

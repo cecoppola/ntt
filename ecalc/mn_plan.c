@@ -1,4 +1,4 @@
-/* mn_plan.c - Phase 13d L (archive:PLAN §32, row L): MN_PLAN_ONLY=<total digits>:<g> -- the large products of a run, as the code
+/* mn_plan.c - MN_PLAN_ONLY=<total digits>:<g> -- the large products of a run, as the code
  * would form them, printed without a device or a communicator (a login-node tool; ecalc.c calls mn_plan_run before rns_init,
  * after the plane-cap switch has set its knobs, and exits).
  *
@@ -48,16 +48,16 @@ static unsigned long term0(unsigned long N, int r, int size) { unsigned __int128
 /* d = |B^(2j) - u| at the step to target j: r carries j + 1 limbs, so its error is about one unit of its last limb -- d ~ B^j.
  * The run's value is data-dependent (validated against real runs: results/L13d.md); it sets only the second product's
  * second operand, whose grid it can move only at a boundary */
-static size_t D_EST(size_t j) { return j > 1 ? j : 1; }   /* (MN_PLAN_DEXTRA, a model-test offset of default 0, removed 2026-10-12) */
+static size_t D_EST(size_t j) { return j > 1 ? j : 1; }
 
 /* ---- the products ------------------------------------------------------------------------------------------------------ */
 enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
 static const char *ph_name[PH_N] = { "leaf", "tree", "recip1", "recip", "div" };
-static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* g_pieces4: Phase 15 NP -- the pieces at four primes */
-static long g_pieces24[PH_N];                                     /* Phase 15 Batch 3 P24 (MN_P24): the pieces at 24 digits per point */
+static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* g_pieces4: the pieces at four primes */
+static long g_pieces24[PH_N];                                     /* the pieces at 24 digits per point */
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
-/* ---- Phase 15 P (archive:PLAN §36): the plan-time check -- every planned product against the prime set's limits ------------------------
+/* ---- the plan-time check -- every planned product against the prime set's limits ------------------------
  * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
  * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms (p0 p1 p2 > nterms (10^18-1)^2), and
  * binary limbs refused -- and plan_create / plan3_get take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)
@@ -76,10 +76,10 @@ static void chk_init(int np)
 {
     memset(&g_chk, 0, sizeof g_chk);
     g_chk.np = np; g_chk.lim = ec_logn_limit(ec_np_auto ? 4 : np);
-    g_chk.bound = np == 3 && !ec_np_auto ? ec_np3_max_terms : 0;   /* Phase 15 NP: under ECALC_NP=auto a piece over the bound runs four primes (no refusal) */
+    g_chk.bound = np == 3 && !ec_np_auto ? ec_np3_max_terms : 0;   /* under ECALC_NP=auto a piece over the bound runs four primes (no refusal) */
 }
 static const char *np_name(void) { static char b[48]; if (ec_np_auto) snprintf(b, sizeof b, "auto"); else snprintf(b, sizeof b, "%d", ec_np); return b; }
-static const char *np_by(void) { return ec_np_auto && ec_np_auto_min ? " by min(pa, pb) (ECALC_NP_AUTO_MIN=1)" : ""; }   /* Phase 15 MPB: the switch-over's term count ("": pa + pb) */
+static const char *np_by(void) { return ec_np_auto && ec_np_auto_min ? " by min(pa, pb) (ECALC_NP_AUTO_MIN=1)" : ""; }   /* the switch-over's term count ("": pa + pb) */
 static const char *np_tag(int np) { return !ec_np_auto ? "" : np == 4 ? ", 4 primes" : ", 3 primes"; }   /* NP: the printed lines under auto */
 /* one product's largest piece: nc = pa + pb limbs (what mn_core / dist_core pass to ec_np_check), a transform of 2^logk (r3 = 0)
  * or 3 2^logk points (r3 = 1: ec_root3(prime, logk)) */
@@ -112,7 +112,7 @@ static int chk_report(double d, int size)
     fflush(stdout);
     return EC_RC_FATAL;
 }
-/* Phase 15 Batch 3 P24 (results/P2415.md): a P24 piece against its own limits -- min(Pa, Pb) <= 10^12 points (the CRT's four limbs:
+/* a P24 piece against its own limits -- min(Pa, Pb) <= 10^12 points (the CRT's four limbs:
  * c < 10^60) and its plane at most 2^40 points (and the roots' limit); pa, pb in limbs, the points p24_pts of them */
 static void chk24(const char *what, int g, size_t pa, size_t pb, int logk)
 {
@@ -154,8 +154,8 @@ static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcu
 static void plan_leaf(unsigned long a0, unsigned long b1)
 {
     /* the tier knobs read as binsplit.c reads them (seed_limbs, binsplit_e): BS_SEED_TERMS 256, BS_MDEV_LOGL
-     * RNS_BATCH_LOGL_MAX; the top levels always run on device (BS_DEV_MDEV / BS_DEVICE_POOLS removed 2026-10-11) */
-    unsigned long S = bs_seed_terms_for(b1);                      /* Phase 15 T2: BS_SEED_FILL's per-run span, else BS_SEED_TERMS (256) */
+     * RNS_BATCH_LOGL_MAX; the top levels always run on device */
+    unsigned long S = bs_seed_terms_for(b1);                      /* BS_SEED_FILL's per-run span, else BS_SEED_TERMS (256) */
     int mlog = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : RNS_BATCH_LOGL_MAX;
     unsigned long nspan = (b1 - a0 + S - 1) / S;
     int lvl = 0, nbatch = 0; size_t n = nspan;
@@ -240,7 +240,7 @@ static void plan_recip_mn(size_t nq, size_t k, int size)
     /* the single-node part: recip_db2 on the top T limbs of Q, from the seed's j = 2 */
     size_t j = 2; char w[96];
     while (j < kp) { size_t jn = newton_chain_next(j, kp), take = 2 * j + 2 < T ? 2 * j + 2 : T;
-        snprintf(w, sizeof w, "chain j %zu -> %zu Q_t r", j, jn); show_db(PH_RCHAIN, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, j > 2 ? newton_recip_mid(j, take) : (size_t)-1);   /* R4: the middle product from the second round */   /* Phase 14 R1 (E7): the cuts as newton_db.c takes them */
+        snprintf(w, sizeof w, "chain j %zu -> %zu Q_t r", j, jn); show_db(PH_RCHAIN, w, take, j + 1, j <= take ? newton_recip_cut(take - j) : 0, j > 2 ? newton_recip_mid(j, take) : (size_t)-1);   /* R4: the middle product from the second round */   /* the cuts as newton_db.c takes them */
         snprintf(w, sizeof w, "chain j %zu -> %zu r d", j, jn); show_db(PH_RCHAIN, w, j + 1, D_EST(j), newton_recip_cut(j), (size_t)-1);
         j = jn; }
     if (!g_quiet) printf("plan recip  recip(mn): the single-node chain to %zu limbs, then the sharded steps to %zu over %d nodes\n", kp, k, size);
@@ -267,7 +267,7 @@ static void plan_recip_db(size_t nq, size_t k)
         j = jn; }
 }
 
-/* INT3 (Phase 15 Batch 3): NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
+/* INT3: NEWTON_DKM=1 (results/DKM15.md 1.2) -- the reciprocal to h = floor(k_mu/2) + 1, then two shifted divisions:
  * s = min(floor(k/2), dl), k1 = k - s; step 1 A_h mu ((k1 + 1)-limb mu, cut below k1 + 1) and X_hi Q mod B^w; step 2 R1's top mu
  * (s + 1 x s + 2, cut below s + 2: R1 < Q, so k2 <= s + 1) and X_lo Q mod B^w.  The lengths are newton_db.c's (mn_divmod_dkm at size > 1,
  * divmod_shifted_dkm at size 1) at the predicted S; X_hi ~ k1 limbs, X_lo ~ s (upper bounds, as the default plan's xn = dl + 1).
@@ -302,8 +302,8 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     memset(g_pieces24, 0, sizeof g_pieces24);
     rns_preinit_pool_log(pool_log);                               /* rns_pool_log() as rns_init would set it (mn_logn_cap reads it) */
     int np = ec_np_init();
-    chk_init(np);                                                 /* Phase 15 P: the plan-time check */
-    size_t p0, p1; rns_plane_pool_bytes(pool_log, rns_planes_3q30 > 0, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; Phase 15 NP: pool 0 at rns_pool0_np's planes) */
+    chk_init(np);                                                 /* the plan-time check */
+    size_t p0, p1; rns_plane_pool_bytes(pool_log, rns_planes_3q30 > 0, ec_np_planes(pool_log, size), &p0, &p1);   /* rns_init's pools (the device flow; pool 0 at rns_pool0_np's planes) */
     if (rns_pool1_bytes_req) p1 = rns_pool1_bytes_req;
     if (getenv("RNS_POOL1_GB")) p1 = (size_t)(atof(getenv("RNS_POOL1_GB")) * 1e9);
     rns_dist_plan_pools(p0, p1);
@@ -345,10 +345,10 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
            g_grids[PH_TREE], g_grids[PH_RECIP], g_grids[PH_DIV], g_pieces[PH_LEAF], g_grids[PH_LEAF], g_pieces[PH_RCHAIN], g_lvl[0] ? g_lvl : "-");
     if (!silent && ec_np_auto) printf("plan primes %.4g digits g %d, ECALC_NP=auto (four over %zu terms%s): pieces at four primes tree %ld of %ld, recip %ld of %ld, div %ld of %ld | leaf dist_db %ld of %ld, recip single-node chain %ld of %ld\n",
            (double)d, size, ec_np_auto_terms, np_by(), g_pieces4[PH_TREE], g_pieces[PH_TREE], g_pieces4[PH_RECIP], g_pieces[PH_RECIP], g_pieces4[PH_DIV], g_pieces[PH_DIV], g_pieces4[PH_LEAF], g_pieces[PH_LEAF], g_pieces4[PH_RCHAIN], g_pieces[PH_RCHAIN]);
-    if (!silent)   /* Phase 15 Batch 3 P24: the pieces at 24 digits per point (MN_P24=2 built in 2026-10-12) */
+    if (!silent)   /* the pieces at 24 digits per point */
         printf("plan p24   %.4g digits g %d, MN_P24=%d: pieces at 24 digits per point (four primes) tree %ld of %ld, recip %ld of %ld, div %ld of %ld\n",
                (double)d, size, 2, g_pieces24[PH_TREE], g_pieces[PH_TREE], g_pieces24[PH_RECIP], g_pieces[PH_RECIP], g_pieces24[PH_DIV], g_pieces[PH_DIV]);
-    if (size > 1) {                                               /* Phase 15 TC: the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
+    if (size > 1) {                                               /* the mn transform cache against the layout's node (rank 0's range, as BS_LAYOUT_ONLY) */
         unsigned long a0 = bs_a0, b1 = bs_b1; unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / size);
         int cap = (pool_log >= 31 ? 2 : 0) + (rns_planes_3q30 > 0 ? 1 : 0);
         double nb = (double)binsplit_node_bytes(N, size, cap, np, 0, 0, 0);
@@ -362,9 +362,9 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     }
     if (!g_quiet) printf("plan note   pieces = products formed (a one-plane product is 1 piece), in mn_model.py's categories (run()['pieces'] = tree + recip + div);"
                          " size 1: the dist tier's (the model counts none there)\n");
-    return chk_report((double)d, size);                          /* Phase 15 P: the verdict line; EC_RC_FATAL when a product exceeds the primes */
+    return chk_report((double)d, size);                          /* the verdict line; EC_RC_FATAL when a product exceeds the primes */
 }
 int mn_plan_run(unsigned long d, unsigned long N, int size, int pool_log) { return plan_run(d, N, size, pool_log, 0); }
-/* Phase 15 P: the check alone (BS_LAYOUT_ONLY): the plan of d total digits (N terms) on `size` node-processes, silently, then the
+/* the check alone (BS_LAYOUT_ONLY): the plan of d total digits (N terms) on `size` node-processes, silently, then the
  * verdict line; returns 0 or EC_RC_FATAL */
 int mn_plan_check(unsigned long d, unsigned long N, int size, int pool_log) { return plan_run(d, N, size, pool_log, 1); }

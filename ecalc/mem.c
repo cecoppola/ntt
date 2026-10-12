@@ -45,7 +45,7 @@ void mem_pin_to_node(int node)
     cpu_set_t set;
     if (node_cpuset(node, &set) > 0) sched_setaffinity(0, sizeof set, &set);
 }
-static __thread int t_home = -1;                    /* WP3: always -1 since MEM_PIN (mem_pin_threads) was removed 2026-10-11 */
+static __thread int t_home = -1;                    /* always -1 (no thread pinning) */
 void mem_unpin(void)
 {
     if (t_home >= 0) { mem_pin_to_node(t_home); return; }
@@ -67,7 +67,7 @@ int mem_region_threads(int *rank)                    /* this thread's rank and c
 static struct { void *p; size_t bytes; int dev; int stage; } *reg;   /* stage: a pinned NUMA-local staging block (M9 accounting) */
 static int nreg = 0, reg_cap = 0;
 static void reg_grow(void) { if (nreg >= reg_cap) { reg_cap = reg_cap ? 2 * reg_cap : 256; reg = (typeof(reg))realloc(reg, reg_cap * sizeof *reg); } }
-int mem_par_init = 0;                                 /* Phase 8: init runs per device in parallel; touch teams sized to the node */
+int mem_par_init = 0;                                 /* init runs per device in parallel; touch teams sized to the node */
 static void reg_add(void *p, size_t bytes) {
 #pragma omp critical(memreg)
     { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = -1; reg[nreg].stage = 0; nreg++; } }
@@ -98,7 +98,7 @@ int mem_dev_of(const void *p)
 void *mem_dev_malloc(int dev, size_t bytes)
 {
     void *p = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* the other forms (MEM_ALLOC=fine|uncached|managed|host|mmap, results/I.md) were removed 2026-10-11 */
+    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* plain hipMalloc only (results/I.md) */
     HIP_CHECK(hipSetDevice(cur));
     return p;
 }
@@ -111,7 +111,7 @@ void mem_dev_release(int dev, void *p)
 }
 void mem_oom(const char *where, int dev, size_t bytes)
 {
-    ec_fatal_begin(EC_RC_OOM, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, "hipMalloc", bytes / 1e9, dev);   /* Phase 14 C3: the first failing thread reports, the others wait for the _exit */
+    ec_fatal_begin(EC_RC_OOM, "%s: allocation (%s) of %.2f GB on APU %d failed (out of memory)\n", where, "hipMalloc", bytes / 1e9, dev);   /* the first failing thread reports, the others wait for the _exit */
     mem_report("OOM"); mem_report_summary(); ec_fatal_end(EC_RC_OOM);
 }
 void *mem_dev_alloc(int dev, size_t bytes)
@@ -127,7 +127,7 @@ void *mem_dev_alloc(int dev, size_t bytes)
     { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 0; nreg++; }
     return p;
 }
-void mem_dev_note(int dev, void *p, size_t bytes)    /* Phase 14 R1 (E8): a device range mapped elsewhere (the VMM arena) enters the registry: mem_dev_of / in_arena work as for hipMalloc'd memory */
+void mem_dev_note(int dev, void *p, size_t bytes)    /* a device range mapped elsewhere (the VMM arena) enters the registry: mem_dev_of / in_arena work as for hipMalloc'd memory */
 {
 #pragma omp critical(memreg)
     { reg_grow(); reg[nreg].p = p; reg[nreg].bytes = bytes; reg[nreg].dev = dev; reg[nreg].stage = 2; nreg++; }   /* stage 2: a noted VMM arena (its borrowed part is the pool's) */
@@ -140,12 +140,12 @@ void mem_dev_free(void *p)
     reg_del(p);
 }
 void mem_dev_free_raw(int dev, void *p) { mem_dev_release(dev, p); }
-void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine; complete when it returns (Phase 12 R) */
+void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA copy on device dev's engine; complete when it returns */
 {
     int cur; HIP_CHECK(hipGetDevice(&cur));
     HIP_CHECK(hipSetDevice(dev));
     HIP_CHECK(hipMemcpy(dst, src, bytes, hipMemcpyDefault));
-    /* Phase 12 R (D5): a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
+    /* a device-to-device hipMemcpy returns before the copy is done (it is only queued on this device's null
      * stream; tests/t_copy_order measures it), and the other devices' streams are not ordered against that null stream:
      * the level loop's odd-node copy was read by the next level's scatter kernels on the other three APUs, and its source
      * overwritten by their CRT, while it was still in flight (results/R.md).  Every caller assumes the copy is complete
@@ -153,7 +153,7 @@ void mem_dev_copy_on(int dev, void *dst, const void *src, size_t bytes)   /* DMA
     HIP_CHECK(hipStreamSynchronize(0));
     HIP_CHECK(hipSetDevice(cur));
 }
-/* Phase 10 H (B2): an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
+/* an asynchronous copy on a non-blocking stream of device dev (pinned host memory), and the wait for
  * every copy issued on it -- the seeds' chunks go to the regions while init's hipMemset of the plane pools runs on the
  * same devices' null streams (a hipMemcpy there queues behind them: 4 GB/s measured) */
 static hipStream_t g_cs[MEM_MAX_DEV]; static int g_cs_init[MEM_MAX_DEV];
@@ -235,10 +235,10 @@ void mem_hstage_free(void *p)
     free(p);
 }
 
-int mem_pool_guard = 0;                               /* Phase 12 R (D5): see mem.h */
+int mem_pool_guard = 0;                               /* see mem.h */
 static size_t pow2_ceil(size_t x) { size_t c = 1; while (c < x) c <<= 1; return c; }
 
-/* Phase 11 V (D5, a test knob): MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at
+/* MEM_DPOOL_FILL=1 fills a plane pool with 0xA5 bytes when it is grown inside a phase, =2 at
  * every allocation -- a tier that relied on fresh device memory being zero would fail deterministically instead of once in
  * twenty runs (the grown pool may be recycled, dirty memory) */
 static void dpool_fill(dpool *d, int grew)
@@ -299,7 +299,7 @@ static size_t proc_status_kb(const char *key)
 size_t mem_vmhwm(void) { return proc_status_kb("VmHWM:") << 10; }
 size_t mem_vmrss(void) { return proc_status_kb("VmRSS:") << 10; }
 
-/* ---- Phase 9 M9: memory accounting (mem.h) ---- */
+/* ---- memory accounting (mem.h) ---- */
 static mem_acct_fn g_acct[16]; static int g_nacct;
 static size_t g_host_item[MEM_HOST_NCAT];
 #define MEM_MAX_PHASES 32
@@ -327,7 +327,7 @@ static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NC
         if (reg[i].dev >= 0 && reg[i].dev < ndev) { dev[reg[i].dev][MEM_DEV_REGIONS] += reg[i].bytes; if (reg[i].stage == 2 && reg[i].dev < 64) noted[reg[i].dev] += reg[i].bytes; }
         else if (reg[i].dev < 0) host[reg[i].stage ? MEM_HOST_STAGING : MEM_HOST_REGISTERED] += reg[i].bytes;
     }
-    /* Phase 14: a VMM arena (DB_POOL_VMM) stays in the registry while the pool borrows parts of it; count those bytes once
+    /* a VMM arena (DB_POOL_VMM) stays in the registry while the pool borrows parts of it; count those bytes once
      * (as pool:borrowed / donated), not also as regions -- the budget check and the mem tables read this total (it had double-counted:
      * 488 GB "in use" at 1e11 against ~363 real) */
     for (int d = 0; d < ndev && d < 64; d++) if (noted[d]) { size_t pooled = dev[d][MEM_DEV_POOL_BORROWED] + dev[d][MEM_DEV_POOL_DONATED], sub = pooled < noted[d] ? pooled : noted[d]; dev[d][MEM_DEV_REGIONS] -= sub; }   /* under VMM every pool byte is the arena's */
@@ -339,7 +339,7 @@ static void gather(size_t dev[][MEM_DEV_NCAT], int ndev, size_t host[MEM_HOST_NC
 static const char *rank_prefix(void) { static char b[24]; const char *r = getenv("COMM_RANK"), *s = getenv("COMM_SIZE"); if (r && s && atoi(s) > 1) snprintf(b, sizeof b, "mem[%s] ", r); else snprintf(b, sizeof b, "mem "); return b; }
 void mem_report(const char *phase)
 {
-    ec_fatal_phase(phase);                        /* Phase 14 C3: a fatal error names the last boundary passed */
+    ec_fatal_phase(phase);                        /* a fatal error names the last boundary passed */
     int ndev = mem_device_count(); if (ndev > MEM_MAX_DEV) ndev = MEM_MAX_DEV;
     size_t dev[MEM_MAX_DEV][MEM_DEV_NCAT], host[MEM_HOST_NCAT];
     gather(dev, ndev, host);

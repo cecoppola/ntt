@@ -40,7 +40,7 @@ template <typename T> __global__ void k_push3(struct push3 a)
     size_t i = b * blockDim.x + threadIdx.x, stride = nb * blockDim.x;
     for (; i < n; i += stride) dst[i] = src[i];
 }
-/* Phase 13a X (archive:PLAN §29 H4): the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
+/* the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
  * each link (= each peer's blocks) is active can be read back.  map 0: block b serves peer b % 3 (the push's own order);
  * map 1: contiguous thirds of the grid (the H4 ordering variant).  COMM_XGMI_STATS=1 runs the exchanges through it. */
 template <typename T> __global__ void k_push3_ts(struct push3 a, unsigned long long *ts, int map)

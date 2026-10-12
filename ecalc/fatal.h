@@ -1,12 +1,12 @@
-/* fatal.h - one exit path for errors inside the run (Phase 14 C3, archive:PLAN §33 A3).
+/* fatal.h - one exit path for errors inside the run.
  *
- * Before: a check that failed inside a phase called exit(1) (or abort()) from whichever thread found it.  The four APU worker
+ * A check that fails inside a phase must not call exit(1) (or abort()) from whichever thread found it.  The four APU worker
  * threads (OpenMP) often find the same condition together (the in-phase pool guards, an allocation that fails on every APU);
  * several exit() calls at once run the atexit handlers and the C++ destructors of the HIP runtime concurrently with each other
  * and with the threads still computing, and the process died with SIGSEGV (rc 139) instead of the message (G13d §(c),
  * results/L114.md batch 6).
  *
- * Now every such site calls ec_fatal() (or ec_fatal_begin() ... ec_fatal_end() when it prints more, e.g. the memory report):
+ * Every such site calls ec_fatal() (or ec_fatal_begin() ... ec_fatal_end() when it prints more, e.g. the memory report):
  *   - the FIRST caller in the process prints one line "ecalc: FATAL [rank r/n host h, APU d, thread t, after <phase>, rc c]:
  *     <what failed, with the sizes>", runs its extra reporting, flushes stdout and stderr and leaves with _exit(code): no
  *     atexit handler, no destructor, no race;
@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-#define EC_RC_FATAL  3   /* a check failed inside the run (was exit(1) or abort()): an internal error, a HIP call, a transport */
+#define EC_RC_FATAL  3   /* a check failed inside the run (not exit(1) or abort()): an internal error, a HIP call, a transport */
 #define EC_RC_OOM    6   /* an allocation failed, or a pool would grow inside a phase (the in-phase guards) */
 #define EC_RC_BUDGET 8   /* ECALC_BUDGET_CHECK=1: a node's modelled peak exceeds its budget; every rank stops before compute */
 

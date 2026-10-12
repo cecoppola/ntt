@@ -105,7 +105,7 @@ static int check_alltoallv(comm *c)
     if (bad) printf("  alltoallv over %d ranks: rank %d: %d words wrong\n", n, me, bad);
     return bad == 0;
 }
-/* Phase 13b X: three v-exchanges posted back to back (distinct buffers), then three waits -- the pipelined v-exchange
+/* three v-exchanges posted back to back (distinct buffers), then three waits -- the pipelined v-exchange
  * (COMM_ALLTOALLV_DEPTH=2: each post runs its intra stage under the previous one's inter stage and completes it) */
 static int check_alltoallv_pipe(comm *c)
 {
@@ -247,7 +247,7 @@ static int one_xgmi(int prime, int logR, int logC)
     free(hx); free(hy); free(ref); free(got);
     return bad == 0 && !bad_ag;
 }
-/* ---- Phase 15 P (archive:PLAN §36): one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
+/* ---- one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
  * DIST_BIG=<logn> [DIST_BIG_PRIMES=0,2] [DIST_BIG_K=64]: four real APUs over xGMI (ntt_dist.c plan_create: ec_root(prime, logn)), no
  * single-device reference (2^34 points = 128 GiB per plane).  Per prime: (1) forward + inverse of a dense plane x[m] = h(m) mod p
  * must give x back (the inverse scales by n^-1); (2) the square of a sparse plane (K random points, random values: fwd, pw(x, x),
@@ -319,7 +319,7 @@ static int big_xgmi(int prime, int logn, int K)
     free(pos); free(val); free(cpos); free(cval);
     return bad[0] == 0 && bad[1] == 0;
 }
-/* ---- Phase 13a X (archive:PLAN §29 E9 part 1, H4): the measurement drivers ---- */
+/* ---- the measurement drivers ---- */
 extern "C" void comm_layered_stats_report(const char *tag);
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
 /* H4 (DIST_H4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at DIST_H4_MB per pair (default 256) */
@@ -407,20 +407,20 @@ int main(int argc, char **argv)
     int logmax = argc > 1 ? atoi(argv[1]) : 24;
     harness_meta("t_dist");
     if (getenv("DIST_H4") && atoi(getenv("DIST_H4"))) { h4_bench(); return 0; }
-    if (getenv("DIST_TBENCH")) {                        /* Phase 13b X: the layered exchange's block transpose, copies vs one kernel, one APU */
+    if (getenv("DIST_TBENCH")) {                        /* the layered exchange's block transpose, copies vs one kernel, one APU */
 
         int gs[] = { 2, 3, 4, 16, 64, 192, 576 }; size_t bs[] = { 4096, 65536, 1 << 20 }; HIP_CHECK(hipSetDevice(0));
         for (int i = 0; i < 7; i++) for (int j = 0; j < 3; j++) VERIFY(comm_layered_tbench(gs[i], bs[j], 7) == 0, "tbench g %d, %zu B: identical", gs[i], bs[j]);
         return verify_done("t_dist");
     }
-    if (getenv("DIST_PBENCH")) {                        /* Phase 13b X: the pack/unpack kernels of ntt_dist.c, one APU: DIST_PBENCH=24,26,28 [DIST_PSIZE=4 DIST_PREPS=5] */
+    if (getenv("DIST_PBENCH")) {                        /* the pack/unpack kernels of ntt_dist.c, one APU: DIST_PBENCH=24,26,28 [DIST_PSIZE=4 DIST_PREPS=5] */
         extern int dist_pack_bench(int logn, int size, int reps);
         int sz = getenv("DIST_PSIZE") ? atoi(getenv("DIST_PSIZE")) : 4, reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
         char *dup = strdup(getenv("DIST_PBENCH")); HIP_CHECK(hipSetDevice(0));
         for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(dist_pack_bench(atoi(t), sz, reps) == 0, "pack-bench 2^%s: the tiled packs bit-identical", t);
         free(dup); return verify_done("t_dist");
     }
-    if (getenv("DIST_GBENCH")) {                        /* Phase 15 G5: the general map's pack kernels (rns_dist.c), one APU: DIST_GBENCH=logR:logC:g:rho,... [DIST_PREPS=5] */
+    if (getenv("DIST_GBENCH")) {                        /* the general map's pack kernels (rns_dist.c), one APU: DIST_GBENCH=logR:logC:g:rho,... [DIST_PREPS=5] */
         extern int gen_pack_bench(int logR, int logC, int g, int rho, int reps);
         int reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
         char *dup = strdup(getenv("DIST_GBENCH")); HIP_CHECK(hipSetDevice(0));
@@ -428,7 +428,7 @@ int main(int argc, char **argv)
             VERIFY(gen_pack_bench(a, b, g, r, reps) == 0, "gen-bench %s: the recurrence packs bit-identical", t); }
         free(dup); return verify_done("t_dist");
     }
-    if (getenv("DIST_BIG")) {                           /* Phase 15 P: DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
+    if (getenv("DIST_BIG")) {                           /* DIST_BIG=34 [DIST_BIG_PRIMES=0,2 DIST_BIG_K=64] -- above 2^33, four APUs */
         int lg = atoi(getenv("DIST_BIG")), K = getenv("DIST_BIG_K") ? atoi(getenv("DIST_BIG_K")) : 64;
         char *dup = strdup(getenv("DIST_BIG_PRIMES") ? getenv("DIST_BIG_PRIMES") : "0,2");
         char *sv = 0;                                   /* strtok_r: the transforms below call strtok (the first run had only the first prime) */
@@ -470,7 +470,7 @@ int main(int argc, char **argv)
         mn_barrier(); mn_finalize();
         return verify_done("t_dist");
     }
-    if (!xgmi && getenv("COMM_RANK") && getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* one process per rank over SHMEM (mnrun.sh; WP6's TCP form removed 2026-10-12); rank r uses APU r mod 4 */
+    if (!xgmi && getenv("COMM_RANK") && getenv("COMM_TRANSPORT") && !strcmp(getenv("COMM_TRANSPORT"), "shmem")) {   /* one process per rank over SHMEM (mnrun.sh); rank r uses APU r mod 4 */
         int rk = atoi(getenv("COMM_RANK")), nd = 1; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipSetDevice(rk % nd));
         tcp = comm_shmem_create_at(0, 1, comm_shmem_init(), 0);
         printf("t_dist: rank %d of %d over SHMEM\n", rk, comm_size(tcp));

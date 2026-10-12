@@ -28,9 +28,7 @@
  * earlier chunks under the last exchange; inverse -- the unpack-twiddle and row inverse of chunk k under the
  * exchange of chunk k+1.  Over a communicator with inflight 2 (the layered one) two chunks are on the wire.
  * The synthetic communicator (inflight 0) runs one exchange.  The values are the same in either mode.
- * (Phase 10 C4's two-plane forms dist_fwd2 / dist_inv2, DIST_PLANE2, were measured and rejected -- results/C.md -- and
- * deleted in Phase 11, E1.)
- * Phase 10 C5 -- DIST_STATS measures the parts with events on the two streams, so the row passes and packs are
+ * DIST_STATS measures the parts with events on the two streams, so the row passes and packs are
  * timed even when they run under the exchange: t_local1/t_local2/t_pack are the kernels' device times, t_xfer the
  * exchanges' device time (the push kernel, or the copies of a staged transport), t_a2a the host time blocked in
  * post + wait (the exposed exchange), t_total the transform's first event to its last.
@@ -53,7 +51,7 @@ typedef struct {
     int K, k_resume;        /* M7: chunks of the slab pipeline; the inverse's loop index between _pre and _post */
     hipStream_t ts;         /* the transfer stream (the exchanges), events: pack done (s -> ts), exchange done (ts -> s) */
     hipEvent_t ev, evt;
-    hipEvent_t evr;         /* Phase 15 WM (results/WM15.md H1): recorded on s at a transform's start -- the previous transform's reads of rbuf */
+    hipEvent_t evr;         /* recorded on s at a transform's start -- the previous transform's reads of rbuf */
     hipEvent_t *te; int nte, te_cap; unsigned char *tk;   /* C5: the timing events of one transform and their kinds */
 } dist_plan;
 /* timing of the parts (DIST_STATS=1; summed over ranks and calls; the caller resets).  Device times from events:
@@ -70,7 +68,7 @@ void dist_fwd(dist_plan *p, uint64_t *x, hipStream_t s);
 void dist_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);
 /* x in column layout -> row layout, natural order, canonical, scaled by n^-1 */
 void dist_inv(dist_plan *p, uint64_t *x, hipStream_t s);
-void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);   /* Phase 10 A6 (G): dist_pw + dist_inv with the pointwise fused into the column inverse (bit-identical) */
+void dist_inv_pw(dist_plan *p, uint64_t *x, const uint64_t *y, hipStream_t s);   /* dist_pw + dist_inv with the pointwise fused into the column inverse (bit-identical) */
 /* the halves around the all-to-all (pre posts it, post waits for it): for slab pipelining, and for the
  * synthetic communicator, whose ranks are driven by one thread and must all post before any waits */
 /* the transposed inverse: the same algorithm as the forward run backwards on the column layout (which is

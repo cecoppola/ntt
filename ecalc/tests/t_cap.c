@@ -1,4 +1,4 @@
-/* t_cap - archive:PLAN §29.2 E2 (Phase 13a, agent S): the plane cap against the grid's cost.  Pure arithmetic, no node time.
+/* t_cap - archive:PLAN §29.2 E2: the plane cap against the grid's cost.  Pure arithmetic, no node time.
  *
  * 1. Each strategy's plane bytes per APU for a plane of n points and P primes -- the forms t_strategy (E0) measured
  *    (plane_GiB/APU there, exact at P = 4):

@@ -1,7 +1,6 @@
-/* comm_ofi.h - Phase 17 (internal code notes): the multi-NIC data plane of the SHMEM transport.  COMM_OFI=1 moves the data of
+/* comm_ofi.h - the multi-NIC data plane of the SHMEM transport.  COMM_OFI=1 moves the data of
  * comm_shmem.c's device-buffer exchanges onto libfabric fi_writes over the NICs of the calling APU thread's device; SHMEM keeps the
- * control words.  Built with -DCOMM_OFI (Makefile OFI=1); without it comm_ofi_enabled() is 0 (and COMM_OFI=1 aborts).  The user's
- * decision of 2026-10-06: with COMM_OFI unset, on by default wherever a cxi NIC is present (Cray Slingshot), off elsewhere (e.g.
+ * control words.  Built with -DCOMM_OFI (Makefile OFI=1); without it comm_ofi_enabled() is 0 (and COMM_OFI=1 aborts).  With COMM_OFI unset, on by default wherever a cxi NIC is present (Cray Slingshot), off elsewhere (e.g.
  * aac6's TCP/SOS); COMM_OFI=0 always forces the old SHMEM-only path. */
 #ifndef EC_COMM_OFI_H
 #define EC_COMM_OFI_H
@@ -14,7 +13,7 @@ extern "C" {
 typedef struct ofi_dev ofi_dev;                /* per device: the NICs (a domain / EP / CQ / AV each) and the registered comm pool */
 typedef struct ofi_peers ofi_peers;            /* per communicator: the members' pool VAs, addresses and keys */
 int      comm_ofi_enabled(void);               /* COMM_OFI=1 (aborts when set on a build without libfabric) */
-int      comm_ofi_planned(void);               /* Phase 17 OFIMEM: what comm_ofi_enabled will decide (COMM_OFI, else a cxi NIC here or COMM_OFI_PLAN_CXI=1), opening nothing; 0 without libfabric */
+int      comm_ofi_planned(void);               /* what comm_ofi_enabled will decide (COMM_OFI, else a cxi NIC here or COMM_OFI_PLAN_CXI=1), opening nothing; 0 without libfabric */
 ofi_dev *comm_ofi_dev(int dev);                /* the context of HIP device dev, opened at the first call (thread-safe) */
 char    *comm_ofi_pool(ofi_dev *od);           /* the pool's base */
 int      comm_ofi_in_pool(ofi_dev *od, const void *p);
