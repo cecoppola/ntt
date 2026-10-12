@@ -127,6 +127,8 @@ newton_db.o: newton_db.c newton.h dbig.h rns_mul.h mem.h mdb.h mn.h comm.h mn_pl
 
 tests/t_dbig: tests/t_dbig.c $(OBJS) dbig.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
+tests/t_bounce: tests/t_bounce.c $(OBJS) dbig.h tests/harness.h   # O2 microbenchmark (not in TESTS: make tests/t_bounce)
+	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_out: tests/t_out.c $(OBJS) mn_out.h verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_patch: tests/t_patch.c $(OBJS) mn_out.h verify.h tests/harness.h
