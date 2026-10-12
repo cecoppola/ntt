@@ -181,7 +181,7 @@ piece products:
 - the pieces are views of the operands; the first writes straight into C, the others into a temporary window and a shifted
   add with carry (`mn_round_add`, rounds of `MN_T_CHUNK_MB`);
 - the shape minimises the total transform points under a cost model that prices form B pieces at 0.70 (3·2^k
-  form B lengths at 1.05 per point) and adds a per-piece pipeline cost (`split_grid_cap`, `split_grid`, `mn_grid_shape`);
+  form B lengths at 1.05 per point) and adds a per-piece pipeline cost (one search, `grid_search` in `rns_dist.c`, over a form per tier; one piece loop, `grid_loop`);
 - the shape jumps at some sizes (a "grid step", e.g. about +20 s of modelled wall above 3.82 × 10¹³, mod;
   `results/S52.md`); the target size is chosen just below a step;
 - **cuts** skip pieces that cannot contribute: `grid_piece_skipped(oa, ob, la, lb, lowcut, w)` skips a piece that starts at
