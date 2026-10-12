@@ -216,7 +216,9 @@ reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one nod
 
 With S = P + Q (formed in place in P's basis), A = S·B^dl and k = len(A) − n_Q + 1, the division X = ⌊A/Q⌋ is done as
 GMP's `mu_div`: s = min(⌊k/2⌋, dl), k₁ = k − s, h = max(k₁, s + 1), so the reciprocal needs only h ≈ k/2 limbs (one
-doubling fewer than a full-length reciprocal; −25.7 s at 10¹¹ digits, m).
+doubling fewer than a full-length reciprocal; −25.7 s at 10¹¹ digits, m). It is the only division, at every size and node
+count: at one node P and Q always reach it as device numbers (`binsplit.c` hands a top level that ended on the batch tier
+over to the block pool), and for k = 1, s = 0 and step 1 is the whole division. Several nodes need k_mu ≥ 5.
 
 1. **Step 1.** X_hi = ((top limbs of A ≫ s) · μ_top) ≫ (k₁ + 1) limbs, a high product with the low pieces skipped (the
    estimate is low by at most the number of skipped pieces + 1). The remainder is computed modulo B^w, w = n_Q + 2:

@@ -321,24 +321,9 @@ static int plan_run(unsigned long d, unsigned long N, int size, int pool_log, in
     /* the leaf (node 0's range) */
     plan_leaf(1, size > 1 ? term0(N, 1, size) : N + 1);
     long tree_max = 0;
-    size_t k_mu = pn + 1 + dl - nq + 1, sn = limbs_of(all.lq + log10l(expl(1.0L)));   /* k from S's largest possible length; S = P + Q = Q e (P / Q = e - 1 over [1, N+1)) */
+    size_t k_mu = pn + 1 + dl - nq + 1;   /* k from S's largest possible length */
     if (size > 1) plan_tree(N, size, &tree_max);
-    int dkm = newton_dkm_on() && dl >= 1 && (size > 1 ? k_mu >= 5 : sn + dl - nq + 1 >= 4);   /* INT3: NEWTON_DKM=1 -- newton_db.c's dispatch (mn_divmod_dkm / divmod_shifted_dkm) */
-    if (dkm) plan_div_dkm(nq, dl, k_mu, all.lq, size);
-    else if (size > 1) {
-        /* newton_mn_divmod: the reciprocal, S = P + Q, the two cut products (X1 groups) */
-        plan_recip_mn(nq, k_mu, size);
-        size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
-        int La = newton_mn_x1_level(ahn, k + 1, size, size, 2 * (ahn + k + 1)), Lx = newton_mn_x1_level(xn, nq, size, size, 2 * (xn + nq));
-        show_mn(PH_DIV, "A_h mu", ahn, k + 1, La ? 1 << La : size, 0, k + 1, (size_t)-1, 1, 0);
-        show_mn(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, Lx ? 1 << Lx : size, 0, 0, w, 1, 0);
-    } else {
-        /* ecalc.c's device flow (ovl3): k_mu from P's device length, the prewarm reciprocal, S = P + Q, newton_db_divmod_shifted */
-        plan_recip_db(nq, k_mu);
-        size_t na = sn + dl, k = na - nq + 1, w = nq + 2, sh = nq - 1 - dl, ahn = sn - sh, xn = dl + 1;
-        show_db(PH_DIV, "A_h mu", ahn, k + 1, k + 1, (size_t)-1);
-        show_db(PH_DIV, "X Q mod B^w", xn < w ? xn : w, nq < w ? nq : w, 0, w);
-    }
+    plan_div_dkm(nq, dl, k_mu, all.lq, size);   /* newton_db.c's one division (mn_divmod_dkm / divmod_shifted_dkm) */
     long tot = g_pieces[PH_TREE] + g_pieces[PH_RECIP] + g_pieces[PH_DIV];
     if (!silent) printf("plan summary %.4g digits g %d: pieces tree %ld recip %ld div %ld total %ld | tree with each level's largest group %ld, total %ld | grids tree %ld recip %ld div %ld | leaf dist_db %ld (%ld grids) recip single-node chain %ld | levels (node 0 / largest) %s\n",
            (double)d, size, g_pieces[PH_TREE], g_pieces[PH_RECIP], g_pieces[PH_DIV], tot, size > 1 ? tree_max : 0, (size > 1 ? tree_max : 0) + g_pieces[PH_RECIP] + g_pieces[PH_DIV],

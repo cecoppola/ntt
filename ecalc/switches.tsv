@@ -100,7 +100,7 @@ ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,newton_db.c,rns_dist.c	20	-	-	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-	
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
-MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	6	-	-	
+MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	4	-	-	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTING.md)	2027-04-12	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	-	-	mn.c:28 (atoi > 0)
@@ -117,7 +117,7 @@ MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnostics (TESTING.md)	2027-04-12	
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
-MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	5	-	-	rns_dist.c:1608
+MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
@@ -149,7 +149,7 @@ RNS_POOL_GROW	int	0	0		test-only	-	B16.md+R.md	Y	ecalc	binsplit.c,rns_mul.c	6	di
 RNS_R3	int	derived	derived		experiment	-	P.md	Y	ecalc	rns_mul.c	2	coordinator (TASKS S)	2026-11-11	
 RNS_STRATEGY	bool	derived	derived	0|1	built-in default	-	B13b.md+G13d.md	Y	ecalc	rns_dist.c	1	-	-	
 RNS_STRATEGY_CHECK	int	0	0		test-only	-	B13b.md	Y	ecalc	rns_dist.c	1	diagnostics (TESTING.md)	2027-04-12	
-RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	33	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
+RNS_VERBOSE	bool	0	0	0|1	launch-line	-	PS15.md+M.md	Y	ecalc	dbig.c,mem.c,newton_db.c,rns_dist.c,rns_mul.c	32	-	-	dbig.c, mem.c, newton_db.c, rns_dist.c, rns_mul.c
 DIST_BIG	int	derived	derived		test-only	-	-	Y	tests	t_dist.c,t_mul.c	3	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_K	int	64	64		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_BIG_PRIMES	str	0,2	0,2		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
