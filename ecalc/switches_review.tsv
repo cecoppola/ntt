@@ -78,9 +78,7 @@ DIST_H4_REPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LAYERED	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_PBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_PREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_PSIZE	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TINV	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_XGMI	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting

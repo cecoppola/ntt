@@ -162,9 +162,7 @@ DIST_H4_REPS	int	10	10		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.
 DIST_LAYERED	int	unset	unset		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_LBENCH	str	unset	unset		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_LREPS	int	3	3		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
-DIST_PBENCH	str	unset	unset		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
-DIST_PREPS	int	5	5		test-only	-	-	prose	tests	t_dist.c	4	ecalc/tests/t_dist.c	2027-04-12	
-DIST_PSIZE	int	4	4		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
+DIST_PREPS	int	5	5		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_TBENCH	bool	unset	unset	0|1	test-only	-	-	prose	tests	t_dist.c	1	ecalc/tests/t_dist.c	2027-04-12	
 DIST_TINV	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	
 DIST_XGMI	int	derived	derived		test-only	-	-	prose	tests	t_dist.c	2	ecalc/tests/t_dist.c	2027-04-12	

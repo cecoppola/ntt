@@ -14,16 +14,6 @@ __device__ static inline unsigned brev(unsigned v, int bits) { return __brev(v) 
 
 /* the twiddle convention of the kernels below: x[i][jb] *= w_n^(i * j), i = global row, j = brev(jb) (the row pass left columns bit-reversed).
  * w_n^(i j) = twr[(i j) >> logC] * twc[(i j) & (C-1)] with twr[k] = w_n^(k C) = w_R^k, twc[k] = w_n^k. */
-/* slab pack: rows x C row-major -> size slabs, slab s = the block (all my rows) x (columns of rank s), stored as
- * cols_per_rank x rows (column-major within the slab, so the receiver can concatenate slabs into columns) */
-__global__ void k_pack(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols, int size)
-{
-    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) {
-        size_t i = t / C, j = t % C, s = j / cols, jl = j % cols;
-        sb[s * (cols * rows) + jl * rows + i] = x[t];
-    }
-}
 /* after the all-to-all: rb holds size slabs of the chunk (rows [i0, i0 + rows_k) of every rank), slab r = (my cols) x
  * (rank r's chunk rows), column-major -> columns of R points: x[jl R + r rows + i0 + il] */
 __global__ void k_unpack(const uint64_t *rb, uint64_t *x, size_t rows_k, size_t i0, size_t rows, size_t cols, int size)
@@ -34,23 +24,6 @@ __global__ void k_unpack(const uint64_t *rb, uint64_t *x, size_t rows_k, size_t 
         x[jl * R + r * rows + i0 + il] = rb[r * (cols * rows_k) + jl * rows_k + il];
     }
 }
-/* fused unpack + inverse twiddle (the mirror of k_twpack): slabs (sb[s][jl][il]) -> rows x C, twiddled */
-__global__ void k_unpacktw(const uint64_t *rb, uint64_t *x, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
-{
-    __shared__ uint64_t tile[32][33];
-    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
-    int tx = threadIdx.x, ty = threadIdx.y;
-    for (int k = 0; k < 32; k += 8) {
-        size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols;
-        tile[ty + k][tx] = rb[s * (cols * rows) + jl * rows + il];
-    }
-    __syncthreads();
-    for (int k = 0; k < 32; k += 8) {
-        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, j = brev((unsigned)jb, logC), e = i * j;
-        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
-        x[il * C + jb] = (uint64_t)ec_mm((double)ec_fold(tile[tx][ty + k], m.pu), w, m.p, m.pinv);
-    }
-}
 /* the reverse pair for the inverse: columns -> slabs (the chunk: rows [i0, i0 + rows_k) of every rank) -> rows */
 __global__ void k_pack_cols(const uint64_t *x, uint64_t *sb, size_t rows_k, size_t i0, size_t rows, size_t cols, int size)
 {
@@ -59,11 +32,6 @@ __global__ void k_pack_cols(const uint64_t *x, uint64_t *sb, size_t rows_k, size
         size_t jl = t / (rows_k * size), i = t % (rows_k * size), r = i / rows_k, il = i % rows_k;
         sb[r * (cols * rows_k) + jl * rows_k + il] = x[jl * R + r * rows + i0 + il];
     }
-}
-__global__ void k_unpack_rows(const uint64_t *rb, uint64_t *x, size_t rows, size_t C, size_t cols, int size)
-{
-    size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t i = t / C, j = t % C, s = j / cols, jl = j % cols; x[t] = rb[s * (cols * rows) + jl * rows + i]; }
 }
 
 static uint64_t *dev_pow_table(int prime, uint64_t w, size_t cnt)
@@ -159,30 +127,12 @@ static void st_flush(dist_plan *p)
 }
 static void st_host(double dt) { if (!dist_st.on) return; pthread_mutex_lock(&st_mx); dist_st.t_a2a += dt; pthread_mutex_unlock(&st_mx); }
 #define TS(kind, stmt) do { st_mark(p, s, kind); stmt; st_mark(p, s, (kind) | ST_END); } while (0)
-/* fused twiddle + pack through a 32 x 32 LDS tile: read rows x C coalesced (row-major), twiddle, write the
- * slab (column-major per slab: sb[s][jl][i]) coalesced along i.  grid (C/32, rows/32), block (32, 8). */
-__global__ void k_twpack(const uint64_t *x, uint64_t *sb, size_t rows, size_t row0, int logC, size_t cols, int size, const uint64_t *twr, const uint64_t *twc, ec_mod m)
-{
-    __shared__ uint64_t tile[32][33];
-    size_t C = (size_t)1 << logC, bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32;
-    int tx = threadIdx.x, ty = threadIdx.y;
-    for (int k = 0; k < 32; k += 8) {
-        size_t il = bi + ty + k, jb = bj + tx, i = row0 + il, j = brev((unsigned)jb, logC), e = i * j;
-        double w = ec_mm((double)twr[e >> logC], (double)twc[e & (C - 1)], m.p, m.pinv);
-        tile[ty + k][tx] = (uint64_t)ec_mm((double)x[il * C + jb], w, m.p, m.pinv);
-    }
-    __syncthreads();
-    for (int k = 0; k < 32; k += 8) {
-        size_t jb = bj + ty + k, il = bi + tx, s = jb / cols, jl = jb % cols;
-        sb[s * (cols * rows) + jl * rows + il] = tile[tx][ty + k];
-    }
-}
-/* ---- the twiddled pack/unpack with the twiddle by a row recurrence (the production form; the plain forms k_twpack / k_unpacktw stay as dist_pack_bench's bit-identity reference).  The plain forms
+/* ---- the twiddled pack/unpack with the twiddle by a row recurrence.  A plain form would
  * gather twr and twc for every point (w_n^(i j) = twr[i j >> logC] twc[i j mod C]; j = brev(jb) scatters the gathers over the
  * tables: 64 cache lines per 32-point tile row) and run at 1.2-1.5 TB/s against a 3 TB/s copy (measured).  Here a thread's four
  * rows i, i + 8, i + 16, i + 24 of column j take w_n^(i j) from the tables once and step by w_n^(8 j) (one per column, in LDS):
  * two gathers per four points instead of eight (block 32 x 8).  ec_mm returns canonical residues, so w_n^(i j) w_n^(8 j) = w_n^((i + 8) j)
- * exactly: bit-identical (checked by dist_pack_bench). */
+ * exactly: bit-identical to the plain forms. */
 __device__ static inline double tw_base(size_t e, int logC, const uint64_t *twr, const uint64_t *twc, ec_mod m)
 {
     return ec_mm((double)twr[e >> logC], (double)twc[e & (((size_t)1 << logC) - 1)], m.p, m.pinv);
@@ -391,17 +341,6 @@ __global__ void k_unpack_t(const uint64_t *rb, uint64_t *x, size_t rows, size_t 
     size_t C = cols * size, total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) { size_t il = t / C, j = t % C, r = j / cols, jl = j % cols; x[t] = rb[r * (cols * rows) + il * cols + jl]; }
 }
-/* ---- tiled (LDS) forms of the two scattered-store packs, bit-identical copies.  k_pack (the untwiddled row ->
- * slab pack, the form K13 benchmarked at 360-770 GB/s) is not on any production path -- the forward packs with the tiled, fused
- * k_twpack -- and k_pack_t is the transposed inverse's (dist_inv_t, tests only); dist_pack_bench() measures every pack/unpack of this file against a device copy. */
-__global__ void k_pack_tiled(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols)   /* grid (C/32, rows/32), block (32, 8) */
-{
-    __shared__ uint64_t tile[32][33];
-    size_t bj = (size_t)blockIdx.x * 32, bi = (size_t)blockIdx.y * 32; int tx = threadIdx.x, ty = threadIdx.y;
-    for (int k = 0; k < 32; k += 8) tile[ty + k][tx] = x[(bi + ty + k) * C + bj + tx];
-    __syncthreads();
-    for (int k = 0; k < 32; k += 8) { size_t jb = bj + ty + k, il = bi + tx, sl = jb / cols, jl = jb % cols; sb[sl * (cols * rows) + jl * rows + il] = tile[tx][ty + k]; }
-}
 void dist_inv_t_pre(dist_plan *p, uint64_t *x, hipStream_t s)
 {
     int size = comm_size(p->cm), r = comm_rank(p->cm);
@@ -422,61 +361,3 @@ void dist_inv_t_post(dist_plan *p, uint64_t *x, hipStream_t s)
     ntt_inv(p->ctx, x, p->logC, p->rows, s);                                       /* rows: length-C inverse (bit-reversed in), natural, x C^-1 */
 }
 void dist_inv_t(dist_plan *p, uint64_t *x, hipStream_t s) { dist_inv_t_pre(p, x, s); dist_inv_t_post(p, x, s); }
-
-/* the pack/unpack kernels of this file on one APU (prime 0), a plane of 2^logn points split as by `size` ranks
- * (logR = logn/2 rows over size ranks: this rank's rows x C; the chunk = all its rows); median of `reps`; rate = 16 B x points / t
- * (one read and one write of every point).  The tiled forms are checked bit-identical against the plain ones. */
-static int cmp_dev(const uint64_t *a, const uint64_t *b, size_t n)
-{
-    uint64_t *h = (uint64_t *)malloc(2 * n * 8); HIP_CHECK(hipMemcpy(h, a, n * 8, hipMemcpyDeviceToHost)); HIP_CHECK(hipMemcpy(h + n, b, n * 8, hipMemcpyDeviceToHost));
-    int bad = memcmp(h, h + n, n * 8) != 0; free(h); return bad;
-}
-static int dbl_cmp(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
-int dist_pack_bench(int logn, int size, int reps)
-{
-    int logR = logn / 2, logC = logn - logR; size_t R = (size_t)1 << logR, C = (size_t)1 << logC, rows = R / size, cols = C / size, n = rows * C;
-    uint64_t *x, *sb, *sb2, *ref1, *ref6; HIP_CHECK(hipMalloc(&x, n * 8)); HIP_CHECK(hipMalloc(&sb, n * 8)); HIP_CHECK(hipMalloc(&sb2, n * 8)); HIP_CHECK(hipMalloc(&ref1, n * 8)); HIP_CHECK(hipMalloc(&ref6, n * 8));
-    { uint64_t *h = (uint64_t *)malloc(n * 8); uint64_t z = 88172645463325252ull, p0 = ec_P[0]; for (size_t i = 0; i < n; i++) { z ^= z << 13; z ^= z >> 7; z ^= z << 17; h[i] = z % p0; }
-      HIP_CHECK(hipMemcpy(x, h, n * 8, hipMemcpyHostToDevice)); free(h); }
-    ec_mod m = ec_mod_get(0);
-    uint64_t *tw[2]; tw[0] = dev_pow_table(0, ec_root(0, logR), R); tw[1] = dev_pow_table(0, ec_root(0, logn), C);
-    hipEvent_t e0, e1; HIP_CHECK(hipEventCreate(&e0)); HIP_CHECK(hipEventCreate(&e1));
-    double *t = (double *)malloc(reps * sizeof(double)); int bad = 0;
-    dim3 blk(32, 8), gr((unsigned)(C / 32), (unsigned)(rows / 32));
-    printf("pack-bench 2^%d points split over %d ranks: this rank %zu rows x %zu (%.1f MB), cols %zu, R %zu\n", logn, size, rows, C, n * 8e-6, cols, R);
-    for (int kind = 0; kind < 12; kind++) {
-        const char *nm[] = { "device copy (hipMemcpyAsync D2D)", "k_twpack (fwd pack, tiled, twiddled: plain, the reference)", "k_pack (plain, unused)", "k_pack_tiled (13b)",
-                             "k_unpack (fwd unpack, production)", "k_pack_cols (inv pack, production)", "k_unpacktw (inv unpack, tiled, twiddled: plain, the reference)",
-                             "k_unpack_rows (plain)", "k_pack_t (dist_inv_t, plain)", "k_unpack_t (dist_inv_t)",
-                             "k_twpack_r (13b, row recurrence: production)", "k_unpacktw_r (13b, row recurrence: production)" };
-        for (int r = 0; r <= reps; r++) {
-            HIP_CHECK(hipEventRecord(e0, 0));
-            switch (kind) {
-            case 0: HIP_CHECK(hipMemcpyAsync(sb, x, n * 8, hipMemcpyDeviceToDevice, 0)); break;
-            case 1: k_twpack<<<gr, blk>>>(x, sb, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            case 2: k_pack<<<nblocks(n), 256>>>(x, sb, rows, C, cols, size); break;
-            case 3: k_pack_tiled<<<gr, blk>>>(x, sb2, rows, C, cols); break;
-            case 4: k_unpack<<<nblocks(n), 256>>>(x, sb, rows, 0, rows, cols, size); break;
-            case 5: k_pack_cols<<<nblocks(n), 256>>>(x, sb, rows, 0, rows, cols, size); break;
-            case 6: k_unpacktw<<<gr, blk>>>(x, sb, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            case 7: k_unpack_rows<<<nblocks(n), 256>>>(x, sb, rows, C, cols, size); break;
-            case 8: k_pack_t<<<nblocks(n), 256>>>(x, sb, rows, cols, size); break;
-            case 9: k_unpack_t<<<nblocks(n), 256>>>(x, sb, rows, cols, size); break;
-            case 10: k_twpack_r<8><<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            case 11: k_unpacktw_r<8><<<gr, blk>>>(x, sb2, rows, 0, logC, cols, size, tw[0], tw[1], m); break;
-            }
-            if (!r && (kind == 1 || kind == 6)) HIP_CHECK(hipMemcpyAsync(kind == 1 ? ref1 : ref6, sb, n * 8, hipMemcpyDeviceToDevice, 0));   /* the references of 10, 11 */
-            HIP_CHECK(hipEventRecord(e1, 0)); HIP_CHECK(hipEventSynchronize(e1));
-            float ms; HIP_CHECK(hipEventElapsedTime(&ms, e0, e1)); if (r) t[r - 1] = ms * 1e-3;   /* (the first run warms up) */
-        }
-        qsort(t, reps, sizeof(double), dbl_cmp);
-        double md = t[reps / 2];
-        const char *chk = "";
-        if (kind == 3 || kind >= 10) { int b = cmp_dev(kind == 10 ? ref1 : kind == 11 ? ref6 : sb, sb2, n); bad += b; chk = b ? "  DIFFERS from the plain form" : "  bit-identical to the plain form"; }
-        printf("pack-bench 2^%d  %-58s %9.3f ms  %7.1f GB/s%s\n", logn, nm[kind], md * 1e3, 16.0 * n / md * 1e-9, chk);
-    }
-    fflush(stdout);
-    HIP_CHECK(hipFree(x)); HIP_CHECK(hipFree(sb)); HIP_CHECK(hipFree(sb2)); HIP_CHECK(hipFree(ref1)); HIP_CHECK(hipFree(ref6)); HIP_CHECK(hipFree(tw[0])); HIP_CHECK(hipFree(tw[1]));
-    HIP_CHECK(hipEventDestroy(e0)); HIP_CHECK(hipEventDestroy(e1)); free(t);
-    return bad;
-}

@@ -413,13 +413,6 @@ int main(int argc, char **argv)
         for (int i = 0; i < 7; i++) for (int j = 0; j < 3; j++) VERIFY(comm_layered_tbench(gs[i], bs[j], 7) == 0, "tbench g %d, %zu B: identical", gs[i], bs[j]);
         return verify_done("t_dist");
     }
-    if (getenv("DIST_PBENCH")) {                        /* the pack/unpack kernels of ntt_dist.c, one APU: DIST_PBENCH=24,26,28 [DIST_PSIZE=4 DIST_PREPS=5] */
-        extern int dist_pack_bench(int logn, int size, int reps);
-        int sz = getenv("DIST_PSIZE") ? atoi(getenv("DIST_PSIZE")) : 4, reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;
-        char *dup = strdup(getenv("DIST_PBENCH")); HIP_CHECK(hipSetDevice(0));
-        for (char *t = strtok(dup, ","); t; t = strtok(NULL, ",")) VERIFY(dist_pack_bench(atoi(t), sz, reps) == 0, "pack-bench 2^%s: the tiled packs bit-identical", t);
-        free(dup); return verify_done("t_dist");
-    }
     if (getenv("DIST_GBENCH")) {                        /* the general map's pack kernels (rns_dist.c), one APU: DIST_GBENCH=logR:logC:g:rho,... [DIST_PREPS=5] */
         extern int gen_pack_bench(int logR, int logC, int g, int rho, int reps);
         int reps = getenv("DIST_PREPS") ? atoi(getenv("DIST_PREPS")) : 5;

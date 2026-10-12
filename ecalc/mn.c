@@ -105,7 +105,7 @@ int mn_selftest(int logR, int logC, int verbose)
                                                       * end here; the growth formula was instead checked by direct arithmetic (matches mn_selftest_layered's identical, already-shipped pattern) and this
                                                       * clamp keeps the debug knob itself from crashing on an invalid override instead of silently exercising the wrong thing. */
     /* (results/P16.md's growth pattern) the fixed 2^11 rows give R/ranks < 32 from 128
-     * ranks on (k_twpack's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
+     * ranks on (k_twpack_r's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
      * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
      * = 32) so the loop never fires and behavior is unchanged. */
     while (((size_t)1 << logR) / (size_t)nr < 32) logR++;

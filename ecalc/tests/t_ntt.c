@@ -83,7 +83,7 @@ static void dev_fill(uint64_t *x, size_t n, uint64_t p, uint64_t seed) { k_fill<
         HIP_CHECK(hipEventDestroy(e0_)); HIP_CHECK(hipEventDestroy(e1_));                              \
     } while (0)
 
-/* H7: the slab pack / unpack of ntt_dist.c (k_pack, k_unpack: the same index maps), with plain and with
+/* H7: the slab pack / unpack index maps of ntt_dist.c (as k_unpack), with plain and with
  * non-temporal stores */
 template <int NT>
 __global__ void kb_pack(const uint64_t *x, uint64_t *sb, size_t rows, size_t C, size_t cols, int size)
