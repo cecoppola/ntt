@@ -55,6 +55,95 @@ void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
     HIP_CHECK(hipSetDevice(cur));
 }
 void db_copy_h2d_wait(int dev) { if (g_h2d_init[dev]) HIP_CHECK(hipStreamSynchronize(g_h2d_s[dev])); }
+/* K8b (results/K8b.md): BS_SEED_PULL=1 -- the seeds' host -> device copies without a HIP runtime call inside init's mapping window.
+ * K8 measured the seed thread blocked 3.1 s at 6.441e10 inside db_copy_h2d_async (its launch and hipSetDevice queue behind the
+ * background mappers' hipMemCreate / hipMemMap / hipMemSetAccess, 0.24 s with no mapper).  Here one persistent kernel per APU
+ * (k_pull, 456 blocks, launched by db_pull_start_all from binsplit_seeds_begin once the region pools exist and before the
+ * background mapping is released) polls a control block in coherent pinned host memory; a copy is a descriptor plus a release
+ * store of `seq` (db_pull_copy_async), its completion a host spin on the kernel's `done` counter (db_pull_wait), and the kernels
+ * leave on `quit` (db_pull_stop_all, at the end of seeds_stream, before the buffers are unregistered).  The source's device
+ * pointer is resolved once per buffer (db_pull_resolve, from the seed thread right after the buffers are registered).  Same bytes
+ * to the same addresses as db_copy_h2d_async: digits identical.  Default 0 (off). */
+struct db_pullctl { unsigned long long seq, done, exited, quit; unsigned long long dst, src, n; };
+#define DB_PULL_BLOCKS 456
+__global__ void k_pull(struct db_pullctl *c)
+{
+    unsigned long long my = 0;
+    for (;;) {
+        unsigned long long s;
+        while ((s = __hip_atomic_load(&c->seq, __ATOMIC_ACQUIRE, __HIP_MEMORY_SCOPE_SYSTEM)) == my) {
+            if (__hip_atomic_load(&c->quit, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_SYSTEM)) {
+                __syncthreads();
+                if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->exited, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
+                return;
+            }
+            __builtin_amdgcn_s_sleep(127);
+        }
+        my = s;
+        uint64_t *dst = (uint64_t *)__hip_atomic_load(&c->dst, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_SYSTEM);
+        const uint64_t *src = (const uint64_t *)__hip_atomic_load(&c->src, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_SYSTEM);
+        size_t n = __hip_atomic_load(&c->n, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_SYSTEM);
+        size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
+        for (; i < n; i += stride) dst[i] = src[i];
+        __threadfence_system();
+        __syncthreads();
+        if (threadIdx.x == 0) __hip_atomic_fetch_add(&c->done, 1ull, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_SYSTEM);
+    }
+}
+int db_seed_pull_on(void) { static int on = -1; if (on < 0) on = getenv("BS_SEED_PULL") ? atoi(getenv("BS_SEED_PULL")) : 0; return on; }
+static hipStream_t g_pull_s[DB_NQ]; static struct db_pullctl *g_pull[DB_NQ]; static int g_pull_on[DB_NQ]; static unsigned long long g_pull_seq[DB_NQ];
+static pthread_mutex_t g_pull_mx = PTHREAD_MUTEX_INITIALIZER;
+static struct { const void *h, *d; } g_pull_src[4]; static int g_pull_nsrc;   /* db_pull_resolve: the seed buffers' device pointers */
+void db_pull_resolve(const void *src)
+{
+    pthread_mutex_lock(&g_pull_mx);
+    for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) { pthread_mutex_unlock(&g_pull_mx); return; }
+    void *d = 0; if (hipHostGetDevicePointer(&d, (void *)src, 0) != hipSuccess || !d) d = (void *)src;
+    if (g_pull_nsrc < 4) { g_pull_src[g_pull_nsrc].h = src; g_pull_src[g_pull_nsrc].d = d; g_pull_nsrc++; }
+    pthread_mutex_unlock(&g_pull_mx);
+}
+void db_pull_start_all(void)                             /* idempotent; the launches cost nothing when no mapping is in flight */
+{
+    pthread_mutex_lock(&g_pull_mx);
+    int nd = mem_device_count(), cur; HIP_CHECK(hipGetDevice(&cur)); double t0 = mem_now(); int n = 0;
+    for (int d = 0; d < nd && d < DB_NQ; d++) if (!g_pull_on[d]) {
+        HIP_CHECK(hipSetDevice(d));
+        HIP_CHECK(hipStreamCreateWithFlags(&g_pull_s[d], hipStreamNonBlocking));
+        HIP_CHECK(hipHostMalloc((void **)&g_pull[d], sizeof *g_pull[d], hipHostMallocCoherent)); memset(g_pull[d], 0, sizeof *g_pull[d]);
+        k_pull<<<DB_PULL_BLOCKS, 256, 0, g_pull_s[d]>>>(g_pull[d]); HIP_CHECK(hipGetLastError());
+        g_pull_on[d] = 1; g_pull_seq[d] = 0; n++;
+    }
+    HIP_CHECK(hipSetDevice(cur));
+    if (n) db_tl("seed pull kernels launched on %d APUs (%.3f s; BS_SEED_PULL)", n, mem_now() - t0);
+    pthread_mutex_unlock(&g_pull_mx);
+}
+void db_pull_copy_async(int dev, void *dst, const void *src, size_t bytes)
+{
+    if (!g_pull_on[dev]) db_pull_start_all();
+    const void *dsrc = 0; for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d;
+    if (!dsrc) { db_pull_resolve(src); for (int i = 0; i < g_pull_nsrc; i++) if (g_pull_src[i].h == src) dsrc = g_pull_src[i].d; }
+    if (!dsrc) dsrc = src;
+    size_t n = bytes / 8; struct db_pullctl *c = g_pull[dev];
+    __atomic_store_n(&c->dst, (unsigned long long)(uintptr_t)dst, __ATOMIC_RELAXED); __atomic_store_n(&c->src, (unsigned long long)(uintptr_t)dsrc, __ATOMIC_RELAXED); __atomic_store_n(&c->n, (unsigned long long)n, __ATOMIC_RELAXED);
+    __atomic_store_n(&c->seq, ++g_pull_seq[dev], __ATOMIC_RELEASE);
+    if (bytes & 7) { db_pull_wait(dev); db_copy_h2d_async(dev, (char *)dst + n * 8, (const char *)src + n * 8, bytes & 7); db_copy_h2d_wait(dev); }   /* never for the seeds (whole limbs) */
+}
+void db_pull_wait(int dev)
+{
+    if (!g_pull_on[dev]) return;
+    unsigned long long want = g_pull_seq[dev] * DB_PULL_BLOCKS; double t0 = mem_now();
+    while (__atomic_load_n(&g_pull[dev]->done, __ATOMIC_ACQUIRE) < want) { usleep(20); if (mem_now() - t0 > 600) { ec_fatal(EC_RC_FATAL, "db_pull_wait: APU%d's pull kernel did not finish copy %llu in 600 s\n", dev, g_pull_seq[dev]); } }
+}
+void db_pull_stop_all(void)                              /* the kernels leave; no runtime call (the streams stay) */
+{
+    pthread_mutex_lock(&g_pull_mx);
+    int nd = mem_device_count(), left = 0; double t0 = mem_now();
+    for (int d = 0; d < nd && d < DB_NQ; d++) if (g_pull_on[d]) { db_pull_wait(d); __atomic_store_n(&g_pull[d]->quit, 1ull, __ATOMIC_RELEASE); }
+    for (int d = 0; d < nd && d < DB_NQ; d++) if (g_pull_on[d]) { while (__atomic_load_n(&g_pull[d]->exited, __ATOMIC_ACQUIRE) < DB_PULL_BLOCKS && mem_now() - t0 < 60) usleep(50); if (__atomic_load_n(&g_pull[d]->exited, __ATOMIC_ACQUIRE) < DB_PULL_BLOCKS) left++; g_pull_on[d] = 0; }
+    if (left) { for (int d = 0; d < nd && d < DB_NQ; d++) HIP_CHECK(hipStreamSynchronize(g_pull_s[d])); }   /* not expected: the fallback is the runtime */
+    db_tl("seed pull kernels stopped (%.3f s%s)", mem_now() - t0, left ? ", by stream sync" : "");
+    pthread_mutex_unlock(&g_pull_mx);
+}
 /* quarter blocks come from per-device free lists by size class (hipMalloc costs ~0.06 s/GB and the Newton
  * loop allocates and frees temporaries every iteration); db_release_pools gives everything back */
 /* Block pool per device: address-ordered free extents with coalescing (best fit, carve from the front,
