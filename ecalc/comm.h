@@ -119,7 +119,7 @@ comm *comm_layered_create(comm *intra, comm *inter, int d);
  * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
  * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
 int   comm_shmem_available(void);              /* 1 when built with SHMEM (make SHMEM=1) */
-const char *comm_shmem_impl(void);             /* S12: the library the binary was built against ("sos", "oshmem", "shmem"); "none" without SHMEM */
+const char *comm_shmem_impl(void);             /* "shmem" in a SHMEM build, "none" without */
 int   comm_shmem_init(void);                   /* returns the PE count */
 int   comm_shmem_rank(void);
 void  comm_shmem_counters(double *t, long *n, double *bytes);   /* the all-to-all totals so far (post-to-completion s summed over the APU threads, count, bytes received); 0 without SHMEM */

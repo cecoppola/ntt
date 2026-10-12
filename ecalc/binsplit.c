@@ -643,8 +643,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
 /* the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
  * It sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default).  Returns the need in MiB
  * (0: not a SHMEM run).  always.  When the pool is carved
- * from the library's heap (comm_shmem_pool_in_heap: OSHMEM, SOS without the device heap, a device heap sized by the launch
- * line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
+ * from the library's heap (comm_shmem_pool_in_heap: always, the heap sized by the launch line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
  * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; internal target notes 4. */
 size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
 {

@@ -7,19 +7,15 @@ CFLAGS   = -O2 -Wall -fopenmp -I.
 ifeq ($(origin CC),default)
 CC       = gcc                       # Phase 16 A: tests/t_comm with gcc unless CC is given (make's built-in `cc` is Cray's wrapper on aac7)
 endif
-# Phase 11 S: the SHMEM transport (comm_shmem.c) is compiled in when SHMEM=1 (the default where oshcc exists: aac6's
-# compute nodes, OpenMPI 4.1.6 OSHMEM; on the target, SHMEM_CFLAGS / SHMEM_LIBS from the vendor's compiler wrapper).
-# make SHMEM=0 builds without it (COMM_TRANSPORT=shmem then aborts at start).
-# Phase 12 S: SHMEM_HOME=<prefix> builds against Sandia OpenSHMEM (SOS, ~/sos on aac6: OpenSHMEM 1.5, thread-multiple
-# contexts, put-with-signal, the external heap patch of results/S12.md) instead of oshcc; the binary is then launched
-# by mnrun.sh with srun --mpi=pmi2 (it detects libsma in the binary).  make SHMEM_HOME=~/sos; make clean between the two.
-# Phase 16 A (results/A16.md): SHMEM_CRAY=1 builds against Cray OpenSHMEMX (aac7: `module load cray-dsmml cray-openshmemx`,
+# The SHMEM transport (comm_shmem.c) is compiled in with SHMEM_CRAY=1, or with SHMEM=1 and SHMEM_CFLAGS (-DCOMM_SHMEM and the
+# include path) / SHMEM_LIBS given on the make line (another Cray-compatible OpenSHMEM 1.5); without either the build has no
+# SHMEM (COMM_TRANSPORT=shmem then aborts at start).  Only Cray OpenSHMEMX is launched by mnrun.sh (D14, 2026-10-12).
+# SHMEM_CRAY=1 builds against Cray OpenSHMEMX (aac7: `module load cray-dsmml cray-openshmemx`,
 # OpenSHMEM 1.5, SHMEM_THREAD_MULTIPLE, contexts, put-with-signal) through comm_shmem.c's generic branch (-DCOMM_SHMEM only);
 # the prefixes come from the modules (CRAY_OPENSHMEMX_PREFIX, CRAY_DSMML_PREFIX) or CRAY_SMA / CRAY_DSMML on the make line.
 # The link is the minimum of `cc --cray-print-opts=libs` (-lsma -lpmi -lpmi2 -ldsmml; PMI from /opt/cray/pe/lib64) with rpaths,
 # so the binary runs without the modules; mnrun.sh launches it with plain srun (it detects /opt/cray/pe/sma in the binary).
 # GMP_HOME=<prefix> points the tests, tools and ref/gen_e at a GMP built from source (aac7 has libgmp.so.10 but no headers).
-SHMEM_HOME ?=
 SHMEM_CRAY ?= 0
 GMP_HOME   ?=
 ifneq ($(GMP_HOME),)
@@ -35,16 +31,8 @@ CRAY_SMA   ?= $(if $(CRAY_OPENSHMEMX_PREFIX),$(CRAY_OPENSHMEMX_PREFIX),/opt/cray
 CRAY_DSMML ?= $(if $(CRAY_DSMML_PREFIX),$(CRAY_DSMML_PREFIX),/opt/cray/pe/dsmml/0.3.1/dsmml)
 SHMEM_CFLAGS ?= -DCOMM_SHMEM -I$(CRAY_SMA)/include -I$(CRAY_DSMML)/include
 SHMEM_LIBS   ?= -L$(CRAY_SMA)/lib64 -L$(CRAY_DSMML)/lib -L/opt/cray/pe/lib64 -lsma -lpmi -lpmi2 -ldsmml -Wl,-rpath,$(CRAY_SMA)/lib64 -Wl,-rpath,$(CRAY_DSMML)/lib -Wl,-rpath,/opt/cray/pe/lib64
-else ifneq ($(SHMEM_HOME),)
-SHMEM = 1
-SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_SOS -I$(SHMEM_HOME)/include
-SHMEM_LIBS   ?= -L$(SHMEM_HOME)/lib -lsma -Wl,-rpath,$(SHMEM_HOME)/lib
 else
-SHMEM ?= $(shell command -v oshcc > /dev/null 2>&1 && echo 1 || echo 0)
-ifeq ($(SHMEM),1)
-SHMEM_CFLAGS ?= -DCOMM_SHMEM -DCOMM_SHMEM_OSHMEM $(shell oshcc --showme:compile)
-SHMEM_LIBS   ?= $(shell oshcc --showme:link) -lopen-rte -lopen-pal
-endif
+SHMEM ?= 0
 endif
 # Phase 17 (internal code notes): comm_ofi.c, the libfabric data plane of the SHMEM transport (COMM_OFI=1 at run time, off by
 # default).  OFI=1 (automatic where $(LIBFABRIC)/include/rdma/fabric.h exists: aac7's /opt/cray/libfabric/2.3.1) compiles it in;

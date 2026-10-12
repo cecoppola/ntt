@@ -188,9 +188,9 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `MNACCEPT_TMP` | *Phase 16 (A)*: the directory on the node where `mnaccept.sh` writes the digits (`/tmp/mnaccept_<jobid>`; aac7's `/tmp` is RAM, so a directory under `$HOME` there) |
 | `ECALC_LOG_CLOCKS` | *Phase 16 (A)*: `mnrun.sh`'s wrappers run `aac7env.sh --log` on every node before the command — the task's CPU set, `rocm-smi --showclocks` per APU, the APU → NUMA node → `cxi<j>` map (TARGET_HW_REVIEW N3) (0) |
 | `MNRUN_SHOW_IMPL` | *Phase 14 (N4), test*: `mnrun.sh` prints the SHMEM implementation it chose; `only` prints it and exits without launching (unset) |
-| `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (default: 1 on OSHMEM, or whenever the library does not provide `SHMEM_THREAD_MULTIPLE`; 0 on Cray OpenSHMEMX / SOS, comm_shmem.c:282-289) |
-| `COMM_SHMEM_DEVHEAP` | the symmetric heap in device memory: 1 on an implementation whose `shmem_malloc` is device memory or SOS with the external-heap patch, 2 managed (0; *Phase 12 (S)*) |
-| `COMM_SHMEM_ORDER` | *Phase 12 (S)*: how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (OSHMEM 4.1) (putsig on 1.5 headers, else quiet) |
+| `COMM_SHMEM_SERIAL` | every SHMEM call under one process-wide lock; 0 = per-thread contexts on a `SHMEM_THREAD_MULTIPLE` library (default: 1 whenever the library does not provide `SHMEM_THREAD_MULTIPLE`; 0 on Cray OpenSHMEMX) |
+| `COMM_SHMEM_DEVHEAP` | the symmetric pool used as device memory: 1 on an implementation whose `shmem_malloc` returns device memory (checked at init; Cray OpenSHMEMX's heap is host memory, so the pool is then HIP-registered as by default) (0) |
+| `COMM_SHMEM_ORDER` | *Phase 12 (S)*: how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (putsig on 1.5 headers, else quiet) |
 | `COMM_SHMEM_SPIN_US` | *Phase 12 (S)*: how long the sender spins for a peer's receive offset before handing the put to the helper thread (2000) |
 | `COMM_LAYER_STATS` | *Phase 13a X (archive:PLAN §29 E9 part 1)*: 1 prints, per layered exchange, the stage timeline (the push kernel's link-active interval, the fence/fabric phases); 2 adds more detail (`comm_layered.c:38,227`). Reads timers only; digits unchanged (0) |
 | `COMM_XGMI_STATS` | *H4*: 1 runs the xGMI push through per-link byte and active-time accounting and prints, per node, the xGMI stage vs its link time (GB/s per APU) at exit (`comm_xgmi.c:79,97`). Reads counters only; digits unchanged (0) |
@@ -253,7 +253,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 
 The tests alone read `DIST_XGMI`, `DIST_LAYERED`, `DIST_BIG`, `DIST_TINV` (`t_dist`'s modes), `T_COMM_TRACE` (`t_comm`) and
 *Phase 12 (I)* `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` (`t_alloc`). The SHMEM transport also reads the launcher's
-`SLURM_NTASKS` / `PMI_SIZE` (a PE-count hint) and the Makefile `SHMEM_HOME` (Phase 12 S: the SOS build). `mnaccept.sh`
+`SLURM_NTASKS` / `PMI_SIZE` (a PE-count hint). `mnaccept.sh`
 reads `ECALC_REF` and `ECALC_REF_4E10` (the reference files).
 
 **Review dates (owner and expiry of every non-default setting; TASKS 27, results/T27.md)**

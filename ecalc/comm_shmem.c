@@ -1,16 +1,15 @@
 /* comm_shmem.c - the SHMEM transport: the comm_ops of comm.h over the OpenSHMEM
- * 1.4 subset that Cray OpenSHMEMX, rocSHMEM, Sandia OpenSHMEM and OpenMPI's OSHMEM share (plus put-with-signal where 1.5
- * exists).  One process per node = one PE; a communicator is a strided PE set (start, stride, size) -- the tree's node
+ * 1.4 subset (plus put-with-signal where 1.5 exists), built and launched against Cray OpenSHMEMX (the only form mnrun.sh
+ * launches since D14, 2026-10-12; another implementation of the same subset builds with SHMEM=1 and its SHMEM_CFLAGS).  One process per node = one PE; a communicator is a strided PE set (start, stride, size) -- the tree's node
  * groups -- with rank r = PE start + stride r.
  *
  * Memory.  One symmetric pool (COMM_SHMEM_POOL_MB) holds everything remote PEs write: a fixed mailbox table at its start,
  * then a per-PE first-fit allocator for the communicators' control blocks, their staging, and -- comm_sym_alloc -- the
- * callers' slab buffers.  Three forms of the pool (results/S12.md):
- *   - shmem_malloc'd host memory registered with hipHostRegister (OSHMEM, SOS: the default) -- on the APU the same HBM;
- *   - COMM_SHMEM_DEVHEAP=1 with an implementation whose shmem_malloc returns device memory (Cray / rocSHMEM): no
- *     registration, every copy D2D;
- *   - COMM_SHMEM_DEVHEAP=1 on SOS built with the external-heap patch (SHMEMX_EXTERNAL_HEAP_HOST): the pool is a HIP
- *     fine-grained device buffer (=2: hipMallocManaged) that the transport registers as SOS's external symmetric heap.
+ * callers' slab buffers.  Two forms of the pool (results/S12.md):
+ *   - shmem_malloc'd host memory registered with hipHostRegister (the default; Cray OpenSHMEMX's heap is host memory) --
+ *     on the APU the same HBM;
+ *   - COMM_SHMEM_DEVHEAP=1 with an implementation whose shmem_malloc returns device memory (rocSHMEM): no
+ *     registration, every copy D2D.
  * Offsets in the pool are what the PEs exchange: a put targets pool + offset, and the offset is one the RECEIVER chose
  * (its slab buffer, its staging, its control block), so nothing has to be allocated collectively after init -- creation
  * is the only handshake (each member posts its control block's offset into every member's mailbox[id][me]; ids come from
@@ -20,8 +19,8 @@
  * sender's slab lands (roff[sender] = seq | offset, in the sender's control block); the sender waits for that word and
  * puts its slab there, then the signal word sig[sender] = seq | byte count into the receiver's block, ordered after the
  * data by (COMM_SHMEM_ORDER) `putsig`: shmem_putmem_signal_nbi (1.5; one call, nothing blocks: the default where the
- * headers are 1.5), `fence`: shmem_fence + shmem_long_p (1.4, the spec's form), `quiet`: shmem_quiet + long_p (the OSHMEM
- * 4.1 form: its fence does not order an nbi put before a later put -- results/S.md; the default on 1.4 headers).  The
+ * headers are 1.5), `fence`: shmem_fence + shmem_long_p (1.4, the spec's form), `quiet`: shmem_quiet + long_p (the default on
+ * 1.4 headers; some 1.4 libraries' fence does not order an nbi put before a later put -- results/S.md).  The
  * receiver's wait() polls the signals, checks the counts, and quiets its own context (its send buffer is free again).
  * Buffers in the pool (comm_sym_alloc: ntt_dist's slabs, the layered communicator's scratch) are put from and into
  * directly; others are staged through the pool (D2H / H2D on the caller's stream, a copy per direction).
@@ -35,13 +34,12 @@
  * COMM_SHMEM_RING_KB) are the same words and puts.
  *
  * Threads.  The four APU threads drive four communicators at once.  COMM_SHMEM_SERIAL=0 (the target form; the default
- * on a library that provides SHMEM_THREAD_MULTIPLE other than OSHMEM 4.1): every communicator has its own context, the
- * waits are shmem_wait_until, no lock.  COMM_SHMEM_SERIAL=1 (the default on OSHMEM, whose UCX progress crashes under
- * concurrent wait_until): one process-wide mutex around every library call, the waits polled shmem_test under short
+ * on a library that provides SHMEM_THREAD_MULTIPLE): every communicator has its own context, the
+ * waits are shmem_wait_until, no lock.  COMM_SHMEM_SERIAL=1 (the default below MULTIPLE): one process-wide mutex around every library call, the waits polled shmem_test under short
  * holds, the default context throughout.  Collectives of the library (shmem_barrier_all, reductions, teams) are used
  * nowhere except init/finalize: they are process-level and would need all four threads to agree; the strided PE set
  * is the shim for shmem_team_split_strided.
- * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM=1 with oshcc, or SHMEM_HOME=<SOS prefix>); without it the
+ * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM_CRAY=1); without it the
  * entry points abort.  The exact call list is in results/S12.md (the portability contract). */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE                                       /* dladdr (COMM_SHMEM_VERBOSE=2) */
@@ -60,15 +58,11 @@
 #include "comm.h"
 #include "comm_ofi.h"                             /* COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
 /* the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
- * size from the launch line's variable (SHMEM_SYMMETRIC_HEAP_SIZE for OSHMEM, SHMEM_SYMMETRIC_SIZE for SOS and Cray; K / M / G / T
+ * size from the launch line's variable (SHMEM_SYMMETRIC_SIZE; K / M / G / T
  * suffixes, else bytes), 0 when unset; *name = the variable */
 size_t comm_shmem_heap_env(const char **name)
 {
-#if defined(COMM_SHMEM_OSHMEM)
-    const char *nm = "SHMEM_SYMMETRIC_HEAP_SIZE";
-#else
     const char *nm = "SHMEM_SYMMETRIC_SIZE";
-#endif
     if (name) *name = nm;
     const char *e = getenv(nm); if (!e || !*e) return 0;
     char *end; double v = strtod(e, &end);
@@ -77,7 +71,7 @@ size_t comm_shmem_heap_env(const char **name)
 }
 #ifndef COMM_SHMEM
 int comm_shmem_pool_in_heap(void) { return 0; }
-static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM=1 with oshcc / SHMEM_HOME=<SOS prefix> / the target's SHMEM)\n"); }
+static void no_shmem(void) { ec_fatal(EC_RC_FATAL, "comm_shmem: built without SHMEM (make SHMEM_CRAY=1)\n"); }
 int   comm_shmem_init(void) { no_shmem(); return 0; }
 int   comm_shmem_rank(void) { return 0; }
 void  comm_shmem_counters(double *t, long *n, double *b) { *t = 0; *n = 0; *b = 0; }
@@ -87,9 +81,6 @@ int   comm_shmem_available(void) { return 0; }
 const char *comm_shmem_impl(void) { return "none"; }
 #else
 #include <shmem.h>
-#ifdef COMM_SHMEM_SOS
-#include <shmemx.h>
-#endif
 #if SHMEM_MAJOR_VERSION > 1 || (SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 5)
 #define HAVE_PUT_SIGNAL 1                  /* shmem_ctx_putmem_signal_nbi (OpenSHMEM 1.5) */
 #else
@@ -111,7 +102,7 @@ enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 /* ---- the process state ---- */
 struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap, order, registered, extheap, prov;
+    int inited, me, npes, serial, devheap, order, registered, prov;
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
@@ -137,13 +128,7 @@ static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t
 static void xs_print(void);   /* X1 (below) */
 const char *comm_shmem_impl(void)
 {
-#if defined(COMM_SHMEM_SOS)
-    return "sos";
-#elif defined(COMM_SHMEM_OSHMEM)
-    return "oshmem";
-#else
     return "shmem";
-#endif
 }
 
 /* the pool's first-fit allocator (offsets; a block list sorted by offset, coalesced on free).
@@ -221,34 +206,11 @@ static void wait_ne(long *p, long v) { double t0 = comm_wst_t0(); wait_ne_(p, v)
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
 int comm_shmem_available(void) { return 1; }
-/* 1 when the pool will be shmem_malloc'd from the library's heap (OSHMEM, SOS without the device heap, Cray /
- * rocSHMEM whose heap is device memory but sized by the launch line), 0 when it is SOS's external heap (COMM_SHMEM_DEVHEAP=1
- * with the patch: a HIP buffer of the pool's own size) */
-int comm_shmem_pool_in_heap(void)
-{
-#if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)
-#ifdef COMM_SHMEM_DEVICE_HEAP
-    return 0;
-#else
-    return !(getenv("COMM_SHMEM_DEVHEAP") && atoi(getenv("COMM_SHMEM_DEVHEAP")));
-#endif
-#else
-    return 1;
-#endif
-}
+/* 1: the pool is shmem_malloc'd from the library's heap (sized by the launch line) */
+int comm_shmem_pool_in_heap(void) { return 1; }
 int comm_shmem_rank(void) { return S.me; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
-#if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)   /* as its only caller below */
-/* the device buffer of a device-heap pool (COMM_SHMEM_DEVHEAP on SOS): fine-grained (host-accessible; =2 managed) on the current device */
-static void *dev_pool_alloc(size_t bytes, int kind)
-{
-    void *p = 0;
-    if (kind == 2) HIP_CHECK(hipMallocManaged(&p, bytes, hipMemAttachGlobal));
-    else HIP_CHECK(hipExtMallocWithFlags(&p, bytes, hipDeviceMallocFinegrained));
-    return p;
-}
-#endif
 int comm_shmem_init(void)
 {
     if (S.inited) return S.npes;
@@ -265,26 +227,13 @@ int comm_shmem_init(void)
     if (npes_hint < 1) npes_hint = 4096;
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 + ALIGN - 1) & ~(size_t)(ALIGN - 1);
     S.pool_bytes = (mb << 20) + S.mb_bytes;
-#if defined(COMM_SHMEM_SOS) && defined(SHMEMX_EXTERNAL_HEAP_HOST) && !defined(COMM_HOST_ONLY)
-    if (S.devheap) {                                      /* SOS with the external-heap patch: the pool is a HIP device buffer registered as the symmetric heap */
-        shmemx_heap_preinit_thread(SHMEM_THREAD_MULTIPLE, &prov);
-        S.pool = (char *)dev_pool_alloc(S.pool_bytes, S.devheap);
-        shmemx_heap_create(S.pool, S.pool_bytes, SHMEMX_EXTERNAL_HEAP_HOST, -1);
-        shmemx_heap_postinit();
-        S.extheap = 1;
-    } else
-#endif
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     S.prov = prov;
     S.me = shmem_my_pe(); S.npes = shmem_n_pes();
     if (S.npes > npes_hint) { fprintf(stderr, "comm_shmem: %d PEs but the mailbox was sized for %d (set COMM_SIZE)\n", S.npes, npes_hint); shmem_global_exit(1); }
     pthread_mutex_init(&S.lock, 0); pthread_mutex_init(&S.alloc_lock, 0);
     const char *e = getenv("COMM_SHMEM_SERIAL");
-#if defined(COMM_SHMEM_OSHMEM)
-    int serial_default = 1;                               /* OSHMEM 4.1's MULTIPLE is nominal (see the header) */
-#else
     int serial_default = prov < SHMEM_THREAD_MULTIPLE;
-#endif
     S.serial = e ? atoi(e) != 0 : serial_default;
     if (prov < SHMEM_THREAD_MULTIPLE && !S.serial) { if (S.me == 0) fprintf(stderr, "comm_shmem: the library provides thread level %d, not MULTIPLE: serialising the calls\n", prov); S.serial = 1; }
     const char *eo = getenv("COMM_SHMEM_ORDER");
@@ -295,14 +244,11 @@ int comm_shmem_init(void)
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
-    if (!S.extheap) {
-        S.pool = (char *)shmem_malloc(S.pool_bytes);
-        if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_HEAP_SIZE / SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
-    }
+    S.pool = (char *)shmem_malloc(S.pool_bytes);
+    if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
 #ifndef COMM_HOST_ONLY
-#if !defined(COMM_SHMEM_SOS) && !defined(COMM_SHMEM_OSHMEM)
-    if (S.devheap && !S.extheap) {                        /* the generic branch takes COMM_SHMEM_DEVHEAP=1 at its word only when the
+    if (S.devheap) {                                      /* the transport takes COMM_SHMEM_DEVHEAP=1 at its word only when the
                                                            * library's heap is device memory; Cray OpenSHMEMX 11.8's heap is host hugepages (no HIP in libsma), and
                                                            * handing that to kernels as a device pool would fault -- so it is registered like the default host pool */
         hipPointerAttribute_t pa; hipError_t pe = hipPointerGetAttributes(&pa, S.pool);
@@ -310,16 +256,11 @@ int comm_shmem_init(void)
         (void)hipGetLastError();
         if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
     }
-#endif
     if (!S.devheap) {
         hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable);
         S.registered = he == hipSuccess;
         if (!S.registered) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(he)); }
         else { void *dp = 0; if (hipHostGetDevicePointer(&dp, S.pool, 0) != hipSuccess || dp != S.pool) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n"); S.registered = 2; } }
-    } else if (S.extheap) {                               /* the other APUs of this process reach the device buffer through peer access */
-        int nd = 0, cur = 0; HIP_CHECK(hipGetDeviceCount(&nd)); HIP_CHECK(hipGetDevice(&cur));
-        for (int d = 0; d < nd; d++) if (d != cur) { HIP_CHECK(hipSetDevice(d)); hipError_t pe = hipDeviceEnablePeerAccess(cur, 0); if (pe != hipSuccess && pe != hipErrorPeerAccessAlreadyEnabled) { ec_fatal(EC_RC_FATAL, "comm_shmem: peer access %d -> %d: %s\n", d, cur, hipGetErrorString(pe)); } (void)hipGetLastError(); }
-        HIP_CHECK(hipSetDevice(cur));
     }
 #endif
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
@@ -337,7 +278,7 @@ int comm_shmem_init(void)
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
-                          S.extheap ? (S.devheap == 2 ? " (HIP managed, SOS external heap)" : " (HIP fine-grained device, SOS external heap)") : S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
+                          S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us);
     return S.npes;
 }
@@ -360,11 +301,8 @@ void comm_shmem_finalize(void)
 #endif
     if (S.xstats) xs_print();                             /* X1: every PE prints its own lines */
     comm_ofi_finalize();                                  /* the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
-    if (!S.extheap) shmem_free(S.pool);
+    shmem_free(S.pool);
     shmem_finalize(); S.inited = 0;
-#ifndef COMM_HOST_ONLY
-    if (S.extheap) HIP_CHECK(hipFree(S.pool));
-#endif
 }
 
 /* ---- a communicator ---- */
