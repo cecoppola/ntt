@@ -130,7 +130,7 @@ Raw logs stay on the cluster or in the local archive; the report cites their nam
 
 `tools/doccheck.py` (read-only, about 1 s) checks that the docs match the tree: the switch registry is current, the central
 docs have a `Scope:` line, every cited `results/`, `tools/`, `ecalc/`, `tests/`, `profiles/` path and markdown link exists,
-`PLAN §N` references name an existing section, no "the paper"/"epaper" outside `results/`, and no `archive/` path
-(write `archive:`). Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
-first: `GATE_DOCCHECK=warn` (default) prints the problems and goes on, `strict` fails the gate, `off` skips it.
+`PLAN §N` references name an existing section, no citation of the old paper outside `results/`, and archive paths are
+written `archive:<path>` (not as a repository folder). Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
+first: `GATE_DOCCHECK=strict` (default) fails the gate, `warn` prints the problems and goes on, `off` skips it.
 

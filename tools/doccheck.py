@@ -6,7 +6,7 @@ Usage: tools/doccheck.py [--warn] [--root DIR]
 Checks:
   registry  tools/switch_registry.py --check passes (called, not duplicated)
   scope     central docs have a "Scope:" line in their first 8 lines
-  path      relative paths / links / results/X.md / tools/x / ecalc/x cited in central docs and results/*.md exist
+  path      relative paths / links / results/X.md / tools/x / ecalc/x cited in the central docs exist (results/*.md are dated records, not checked)
   plan      "PLAN §N" / "PLAN.md §N" outside results/ names a section PLAN.md has
   paper     no "the paper" / "epaper" in tracked files outside results/
   archive   no `archive/` path references (use `archive:`)
@@ -75,7 +75,10 @@ def main():
     # c. cited paths
     pat = re.compile(r"(?<![\w/.:~-])((?:results|tools|ecalc|profiles|tests)/[A-Za-z0-9_./+-]*[A-Za-z0-9_+/-])")
     link = re.compile(r"\]\(([^)\s]+)\)")
-    targets = [f for f in CENTRAL if f in fileset] + [f for f in files if f.startswith("results/") and f.endswith(".md")]
+    # results/*.md are dated evidence records (frozen when written); only the central docs must cite live paths.
+    targets = [f for f in CENTRAL if f in fileset]
+    # files the docs name before they exist (planned) or that runs create (generated)
+    PLANNED = {"profiles/target.conf", "tools/target_probe.sh", "ecalc/results/mnaccept"}
     for f in targets:
         L = lines(f) or []
         d = os.path.dirname(f)
@@ -95,6 +98,8 @@ def main():
                 if any(c in t for c in "<>*{}$?|") or t.startswith("archive") or "..." in t or "/." in t or t.endswith((".out", ".log", ".bin", ".o")):
                     continue
                 t = t.rstrip("/")
+                if t in PLANNED or t.endswith("_") or "NAME" in t:
+                    continue
                 opts = {os.path.normpath(os.path.join(d, t)), os.path.normpath(t)}
                 if not islink:
                     opts.add(os.path.normpath(os.path.join("ecalc", t)))
@@ -126,7 +131,7 @@ def main():
                         bad("plan", f, i, f"PLAN §{n} does not exist (PLAN.md has {', '.join(sorted(secs, key=lambda x: [int(p) for p in x.split('.')]))})")
                 if re.search(r"\bthe paper\b|\bepaper\b", l, re.I):
                     bad("paper", f, i, '"the paper"/"epaper" reference')
-            if re.search(r"(?<![\w:])archive/", l):
+            if not inres and re.search(r"(?<![\w:])archive/(?!<)", l):
                 bad("archive", f, i, "`archive/` reference (write `archive:<path>`)")
 
     total = 0

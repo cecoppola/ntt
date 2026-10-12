@@ -4,6 +4,9 @@ Scope: an index of the evidence for what is in force: adopted changes, launch-li
 open measurement questions. | Maintained: updated in the same merge as any change to a default, a launch-line setting or an
 adopted result.
 
+Reports in `results/` are dated records, frozen when written; where one differs from the code or the central docs, the code
+and the central docs win.
+
 This file is a short index: the current measured figures, every adopted change with the file that holds its evidence,
 and the changes that were measured and not adopted. The full measurement log is kept outside the repository:
 sections §1-§114 in `archive:RESULTS_ARCHIVE_1-114.md` and §115-§145 (to 2026-10-12) in

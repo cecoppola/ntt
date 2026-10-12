@@ -18,8 +18,8 @@
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
-#   doccheck: tools/doccheck.py (docs match the tree, <5 s) runs first. GATE_DOCCHECK=warn (default) prints its problems and goes on;
-#     GATE_DOCCHECK=strict fails the gate on any problem; GATE_DOCCHECK=off skips it.
+#   doccheck: tools/doccheck.py (docs match the tree, <5 s) runs first. GATE_DOCCHECK=strict (default) fails the gate on any problem;
+#     GATE_DOCCHECK=warn prints the problems and goes on; GATE_DOCCHECK=off skips it.
 #   Exit 0 = PASS (rc 0, VERIFY OK, digits identical, no segfault), 1 = FAIL.  Kills only its own srun PID and its own sbatch id.
 #   Examples:  tools/gate.sh --build --nodes 1 --hold 12463        tools/gate.sh --nodes 2 --alloc --line aac7
 #              tools/gate.sh --build --nodes 1 --alloc --line none          (aac6, single node)
@@ -69,8 +69,8 @@ if ! type module >/dev/null 2>&1 && [ -z "$GATE_LOGIN" ]; then export GATE_LOGIN
 if ! type module >/dev/null 2>&1; then for f in /usr/share/lmod/lmod/init/bash /etc/profile.d/modules.sh /usr/share/Modules/init/bash /opt/cray/pe/lmod/lmod/init/bash; do [ -r $f ] && { . $f; break; }; done; fi
 [ -f "$E/aac7env.sh" ] && [ $CRAY = 1 ] && { cd "$E" && . ./aac7env.sh >/dev/null 2>&1; }
 
-# ---- docs check (cheap, read-only; default warn-only until the coordinator sets GATE_DOCCHECK=strict as default)
-GATE_DOCCHECK=${GATE_DOCCHECK:-warn}
+# ---- docs check (cheap, read-only; strict by default)
+GATE_DOCCHECK=${GATE_DOCCHECK:-strict}
 if [ "$GATE_DOCCHECK" != off ] && command -v python3 >/dev/null 2>&1 && [ -f "$ROOT/tools/doccheck.py" ]; then
   if ! python3 "$ROOT/tools/doccheck.py" > "$OUT/doccheck.log" 2>&1; then
     if [ "$GATE_DOCCHECK" = strict ]; then fail "docs do not match the repository (see doccheck.log; run tools/doccheck.py)"

@@ -48,7 +48,7 @@ void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
 size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the default) */
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
-size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
+size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log; the device flow needs 3 q + 16 limbs) */
 /* Phase 11 B3 (agent P): plane pool 0 sized at init to 3 2^(pool_log-1) limbs (24 GiB at 2^31) and pool 1 to the dist tier's
  * 3 q + 16 at q = 3 2^(pool_log-3) (18 GiB), so the top levels and the dm phase run their products on 3 2^28 .. 3 2^30-point
  * planes (rns_dist.c's DIST_R3, whose default follows this switch) with nothing mapped inside a phase (A-grid's C5 paid 15 s

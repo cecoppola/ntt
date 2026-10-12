@@ -17,7 +17,7 @@ and `results/*.md`. Labels: (m) measured, (mod) modelled.
 | D | **Documentation rewrite** (wave 3) | open | plan rev 2 |
 | P | **Performance on aac7** (wave 4): distributed division multiply, `k_gather`, init mapping | open | plan rev 2 |
 
-Done 2026-10-12 (waves 0+1): R branch clean-up + `archive/` moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
+Done 2026-10-12 (waves 0+1): R branch clean-up + the old archive folder moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
 
 Closed 2026-10-12 (user decisions): 1 (mitigated by the uffd default), 16 and 29 (target size kept at 3.82e13), 22 (done by b02: engine 2 and bug C1 removed), 31 (node groups stay structured to the rack layout; uneven groups off for now). Closed 2026-10-12 (user plan rev 2), details in the archive: 2 (aac6-only hang; 0 in 2,630 runs in G2/P2), 9 (password moved to a private file, guard hooks), 10 (uffd adopted as default), 24 (not needed), 25 and 43 (soaks: not on the work list), 32 (slow-mode study: not on the work list), 35 (fixed by `DBIG_SMALL_BOUNCE`), 47 (aac6-CPX-only; `BS_SEED_PULL=0` workaround in the CPX notes), 8 (repo clean-up folded into the current plan).
 
