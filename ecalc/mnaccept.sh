@@ -151,7 +151,7 @@ if want ckpt; then
     N "$PWD/digcmp.sh $f $REF/e_100000000.txt" > "$OUT/$tag.cmp" 2>&1
     [ $rc -eq 0 ] && grep -aq 'mn: all 2 nodes: VERIFY OK' "$OUT/$tag.log" && [ "$(cat "$OUT/$tag.cmp")" = identical ]; }
   if ckrun ckpt_top1 BS_CKPT_DIR=$CK ECALC_CKPT_TOP=1; then
-    nh=$(N "ls $CK 2>/dev/null | grep -c 'tree_.*hdr\$'"); nall=$(N "ls $CK 2>/dev/null | grep -vc '^n00[01]_tree_'")
+    nh=$(N "ls $CK 2>/dev/null | grep -c 'tree_.*hdr\$'; true"); nall=$(N "ls $CK 2>/dev/null | grep -vc '^n00[01]_tree_'; true")
     M 600 2 BS_CKPT_DIR=$CK ECALC_RECHECK=1 ./ecalc 100000000 "$f" > "$OUT/ckpt_recheck.log" 2>&1; rc=$?
     nok=$(grep -ac 'RECHECK OK' "$OUT/ckpt_recheck.log"); nck=$(grep -ac 'from the tree level' "$OUT/ckpt_recheck.log")
     if [ "$nh" -eq 2 ] && [ "$nall" -eq 0 ] && [ $rc -eq 0 ] && [ "$nok" -ge 2 ] && ! grep -aq 'RECHECK FAILED' "$OUT/ckpt_recheck.log" && [ "$nck" -ge 2 ]; then
@@ -160,7 +160,7 @@ if want ckpt; then
   else fail "ckpt top set e8 size 2" "the run: $(cat "$OUT/ckpt_top1.cmp"); $(grep -a 'VERIFY FAILED\|abort\|error' "$OUT/ckpt_top1.log" | head -1 | cut -c1-120)"; fi
   N "rm -rf $f $f.*"
   if ckrun ckpt_top2 BS_CKPT_DIR=$CK.2 ECALC_CKPT_TOP=2 BS_CKPT_BG_MBS=1; then
-    na=$(grep -ac 'ABANDONED' "$OUT/ckpt_top2.log"); nh=$(N "ls $CK.2 2>/dev/null | grep -c 'hdr'")
+    na=$(grep -ac 'ABANDONED' "$OUT/ckpt_top2.log"); nh=$(N "ls $CK.2 2>/dev/null | grep -c 'hdr'; true")
     if [ "$na" -eq 2 ] && [ "$nh" -eq 0 ]; then pass "ckpt budgeted drop e8 size 2" "identical; $na nodes ABANDONED, no header left"
     else fail "ckpt budgeted drop e8 size 2" "identical; $na ABANDONED lines (2 wanted), $nh headers (0 wanted)"; fi
   else fail "ckpt budgeted drop e8 size 2" "the run: $(cat "$OUT/ckpt_top2.cmp"); $(grep -a 'VERIFY FAILED\|abort\|error' "$OUT/ckpt_top2.log" | head -1 | cut -c1-120)"; fi
