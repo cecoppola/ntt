@@ -125,3 +125,12 @@ A branch merges to `main` when:
     **RESUME.** The state needed to continue: branch, last commit, what is done, the next command.
 
 Raw logs stay on the cluster or in the local archive; the report cites their names, not their contents.
+
+## 9. Documentation check
+
+`tools/doccheck.py` (read-only, about 1 s) checks that the docs match the tree: the switch registry is current, the central
+docs have a `Scope:` line, every cited `results/`, `tools/`, `ecalc/`, `tests/`, `profiles/` path and markdown link exists,
+`PLAN §N` references name an existing section, no "the paper"/"epaper" outside `results/`, and no `archive/` path
+(write `archive:`). Failures print as `file:line: [check] reason`; exit 1, or exit 0 with `--warn`. `tools/gate.sh` runs it
+first: `GATE_DOCCHECK=warn` (default) prints the problems and goes on, `strict` fails the gate, `off` skips it.
+
