@@ -105,3 +105,11 @@ Decided, implementation in progress: packed 60-bit output `ECALC_OUT_PACKED=2` a
 
 Add one short section per merged experiment below this line: date, what changed, the numbers with labels, and the
 `results/<ID>.md` file.
+
+### 2026-10-12
+
+- W2A, settings removal wave 2 lane A (A1, A3, A4, A2 merged or gating; D5 packed-output default gating): no timing change at the defaults; `results/W2A.md`.
+- W2B, settings removal wave 2 lane B (transport, NTT kernels, distributed products, TCP transport; six launch-line settings built in): digits identical, gates PASS; `results/W2B.md`.
+- Three speed settings adopted as defaults (`DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL`): measured at 1 and 2 nodes in `results/CAND.md` (current times in `PLAN.md` §2).
+- Binary-limb pipeline removal (decimal limbs only): evidence in the "Adopted changes" row above (`results/H4.md`, `H5.md`); the code is in `archive:binary_pipeline/`.
+- P3, init mapping evaluated and not pursued (no plausible saving of 1 s at 1 node): `results/P3.md`.

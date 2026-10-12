@@ -21,7 +21,7 @@ void bi_check_base(void)
 {
     const char *e = getenv("LIMB_BASE");
     if (e && *e && atoi(e) != 10)
-        ec_fatal(EC_RC_FATAL, "LIMB_BASE=%s: only decimal limbs (10) exist since PLAN 28.5; the binary 2^64 pipeline is archived (archive:binary_pipeline/, git tag pre-28.5-binary)\n", e);
+        ec_fatal(EC_RC_FATAL, "LIMB_BASE=%s: only decimal limbs (10) exist since archive:PLAN §28.5; the binary 2^64 pipeline is archived (archive:binary_pipeline/, git tag pre-28.5-binary)\n", e);
 }
 
 static uint64_t add_serial(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, uint64_t cin)

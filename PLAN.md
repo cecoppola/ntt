@@ -28,9 +28,14 @@ digits up to 10¹¹.
 
 | scale | measured time | source |
 |---|---|---|
-| 1 node, 6.441 × 10¹⁰ digits | 76-78 s (m, before the 2026-10-12 defaults) | `RESULTS.md`, `results/S48.md` |
-| 1 node, 10¹¹ digits | 129.3 s (m) | `results/L2.md` |
-| 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node | 139.0 / 181.8 / 293.5 s (m) | `results/S48.md` |
+| 1 node (aac6), 6.441 × 10¹⁰ digits, with the three speed defaults adopted 2026-10-12 (`DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL`) | 66.59 s against 73.74 s without them (paired -7.16 s [-8.08, -6.23]) (m, 2026-10-12) | `results/CAND.md` |
+| 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/W2B.md` |
+| 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/S48.md` |
+| 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
+| 4 / 6 nodes at 6.441 × 10¹⁰ digits per node | 181.8 / 293.5 s (m, before the 2026-10-12 defaults) | `results/S48.md` |
+
+The 60-bit packed output as the default (`ECALC_OUT_PACKED=2`) is decided; its batch D5 was still gating when `results/W2A.md` was written.
+The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
 
 **Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 12.9 GB of device margin
 (mod); the standing estimate for 3.82 × 10¹³ digits is about 182 s without the write (mod, profile `target_l4`, at an

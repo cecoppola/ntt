@@ -248,7 +248,7 @@ static int out_stage(struct out_ctx *c)
                total, c->t_bs, c->t_10dp, c->t_dm, t_t1, 0.0, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
-        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+        printf("ref A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     /* the digits: the node's share of X in chunks -> its part file; residue and windows per chunk */
     t = mem_now();
@@ -306,7 +306,7 @@ static int out_stage(struct out_ctx *c)
                total, c->t_bs, c->t_10dp, c->t_dm, t_t1, t_dc, 0.0, phases, c->t_init, total - phases - c->t_init, mem_vmhwm() / 1e9);
         RESULT("total", "s", total); RESULT("phases", "s", phases); RESULT("other", "s", total - phases - c->t_init);
         RESULT("vmhwm", "GB", mem_vmhwm() / 1e9);
-        printf("paper A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
+        printf("ref A22 (4e10): 285.7 = bs 112.2 + 10dP 12.6 + dm 46.8 + T1 ~3 + dc 110.3\n");
     }
     t = mem_now(); mn_out_finish(o);                  /* the last chunk's write */
     if (oh) { owh = *oh; oh = &owh; }                 /* (Phase 15 EW: kept before the early state goes) */

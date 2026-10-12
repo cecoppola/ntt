@@ -118,7 +118,7 @@ ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	
 ECALC_VSLOT_BUDGET	bool	1	1	0|1	built-in default	-	B7ACCT.md+R§116	Y	ecalc	binsplit.c	1	
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	
-LIMB_BASE	enum	10	derived	10	launch-line	-	P3.md+L114.md	Y	ecalc	bigint.c	1	bigint.c bi_check_base: only 10 is accepted; any other value is refused at start (PLAN 28.5 archived the binary pipeline)
+LIMB_BASE	enum	10	derived	10	launch-line	-	P3.md+L114.md	Y	ecalc	bigint.c	1	bigint.c bi_check_base: only 10 is accepted; any other value is refused at start (archive:PLAN §28.5 archived the binary pipeline)
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	6	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	ecalc.c:372/537 (presence test)
