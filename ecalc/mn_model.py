@@ -1700,6 +1700,11 @@ CAL15C_RUNS = [   # fin15e (job 21670, s24-16): B1 (main f184d51's defaults) aga
 TWREC_F = 0.98                         # the pieces' local passes x this with DIST_TWREC=1: MODELLED from the measured -1.8 s of dm at 1e11 on ~90 s of four-step products
                                        # (results/C215.md 2: -2.8 +- 0.8 s of total); X13b measured the pack x1.65, the unpack x1.43 (bench); ASSUMED to carry to the mn tier
 PACKED_BPD = 8.0 / 18.0                # ECALC_OUT_PACKED=1: 8 bytes per 18 digits (0.444 B/digit; 1.0 for ASCII) -- exact (results/IO15.md W2)
+# O8 (2026-10-11): K2 + K3 (DBIG_ADDSUB3, DBIG_MODQ_MONT; default ON since T08) as a per-node saving on the wall.  MEASURED at 1 node, 6.441e10 digits (the 576-node
+# per-node size at 3.71e13): -2.03 s (aac7, CI half 1.38) / -1.22 s (aac6 PPAC, 0.84), results/S51.md; kernel-metric sum at 4 nodes -8.4 s (run totals not significant).
+# The base takes the aac7 1-node figure (the serial db_mod_qs / add-sub calls run once per node, so the same per-node figure is ASSUMED to carry to 576).  estimate.py applies it
+# AFTER mn_model.run(), so the calibrations (which fit pre-K2/K3 runs) are untouched; --k23-s 0 / MN_MODEL_K23_S=0 gives the previous estimate.
+K23_S = float(os.environ.get('MN_MODEL_K23_S', '2.03'))
 EXIT_S = 2.4                           # MEASURED: the process's elapsed wall less `total` less dc, every run of RESULTS 86's series (2.15-2.64 s: the pools' release, exit)
 CAL15B_RUNS = [   # RESULTS 86's paired 1e11 series: arm, file, runs (total, elapsed), node, the design's switches -- the D3 walls are the elapsed times
     dict(arm='B0', file=True, total=(239.08, 233.96, 241.05), wall=(297.71, 292.71, 300.24), node='s24-16', corr=2),

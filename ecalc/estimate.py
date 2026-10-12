@@ -63,6 +63,8 @@ def estimate(g, D, tree="grid", groups=None, fabric=None, rule="model", transpor
     fab = fabric or M.TARGET
     r = M.run(fab, D, g, rule, verbose=verbose, groups=groups, form=tree, transport=transport, staging=staging, design=design, corrections=corrections)
     m = r["mem"]
+    k23 = M.K23_S                                                      # O8: K2 + K3 per-node saving (mn_model.K23_S, measured at 1 node, assumed to carry)
+    r = dict(r, wall=r["wall"] - k23, wall_nowrite=r["wall_nowrite"] - k23)
     out = dict(g=g, D=D, digits=r["digits"], wall_s=r["wall"], minutes=r["wall"] / 60, nowrite_s=r["wall_nowrite"], nowrite_min=r["wall_nowrite"] / 60,
                t1_wait=r["t1_wait"], seed_wait=r["seed_wait"], total_line=r["total_line"], write_bw=fab.write_bw, out_write=r["out_write"],
                other=r["other"], init=r["init"], batch=r["batch"], top=r["top"], levels=r["levels"], recip=r["recip"], div=r["div"], out=r["out"],
@@ -88,6 +90,7 @@ def table(gs, Ds, tree, groups, fab, rule, staging="code", design=M.DEFAULT, cor
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--k23-s", type=float, default=None, help="O8: the K2 + K3 (DBIG_ADDSUB3 / DBIG_MODQ_MONT, default ON) per-node saving in seconds (default mn_model.K23_S = 2.03, S51 aac7 1 node, measured; 0 = the estimate before K2/K3)")
     ap.add_argument("--g", type=int, nargs="*", default=[1, 4, 64, 576])
     ap.add_argument("--D", type=float, nargs="*", default=[4e10, 7.7e10, 1e11])
     ap.add_argument("--tree", default="grid", choices=("grid", "flat"), help="the top product's memory form: grid (Phase 12 G) or flat (the code at 7aded87)")
@@ -133,7 +136,9 @@ def main():
     ap.add_argument("--fall-off", type=float, default=0.0, metavar="A", help="06 EVALUATION item 13 / 04 WISHLIST 1.4 / B2 open item 9 (model terms, behind a CLI flag): a per-group-size fabric fall-off -- the per-APU injection rate x (g/2)^(-A) (mn_model.Fabric.fall_off), fed by an aac7 t_comm all-to-all measurement at 2/4/8/12 nodes when one exists; 0 (default) = off, the flat rate assumed elsewhere in this file")
     ap.add_argument("--dkm1-fix", action="store_true", help="06 EVALUATION item 13 / 04 D15 (model terms, behind a CLI flag): a size-1 NEWTON_DKM calibration ratio (mn_model.B3_DIV1) so the one-node model matches V6's measured 166.7 s at 1e11 (183.8 s without it) -- P15B_DIV1 / P15C_DIV1 both predate DKM becoming the default (Batch 3) and carry no ratio of their own for it; off by default (MN_MODEL_B3_DIV1=1) since the ratio is fitted to close this one gap, not an independent measurement")
     a = ap.parse_args()
+    if a.k23_s is not None: M.K23_S = a.k23_s
     prof = M.apply_profile(a.fabric)                                      # Phase 16 C: the profile's fabric and constants (target = as before)
+    a.k_other = prof.k_other                                              # O8: target() and the helpers below read it from a (prof is local to main)
     if a.layv_factor is None: a.layv_factor = prof.v_factor               # T06: the profile's layv factor unless --layv-factor is given
     if a.hide_pow2 is not None: M.HIDE_POW2 = a.hide_pow2                 # Phase 16 F: the CLI's constants win over the profile and the environment
     if a.t_round is not None: M.T_ROUND = a.t_round
@@ -198,7 +203,7 @@ def target(a, design):
     """Phase 15: the standing estimate at 576 nodes -- two walls (D3), the part file at 2.0 / 0.8 / 0.6 GB/s, the node memory, the grid step, the
     memory ceiling at 480 / 502 GB per node"""
     groups = a.groups or '2,4,8,16,32,64,192,576'
-    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)) for bw in M.TARGET_WRITE_BWS]
+    fabs = [(bw, M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=bw, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=a.k_other)) for bw in M.TARGET_WRITE_BWS]
     print("the standing estimate, 576 nodes, MN_GROUPS %s (modelled; the fabric assumed: %.0f GB/s per APU, %.1f us per message; the part file at %s GB/s per node --"
           " 2.0 the old assumption, 0.6 / 0.8 the target's Lustre prior: 0.58-0.64 GB/s single-stream write measured there, 0.78-0.86 read):" % (groups, a.bw, a.lat * 1e6, ' / '.join('%g' % b for b, f in fabs)))
     print("  %-10s %-44s | %9s | %s | %s | %s" % ("digits", "", "no write", " | ".join("write @%.1f" % b for b, f in fabs), "pieces tree_max + recip + div", "node GB (device + host; pool) [mn cache slots]"))
@@ -242,7 +247,7 @@ def partial_row(a, design=None, groups=None):
     `design` (copied, with cache_fit forced False: partial caching is priced on its own terms, not RNS_DIST_CACHE_FIT's slot count)
     and `groups`, so the deltas the CLI asks for (e.g. --chunk-mb 2048) show up here too."""
     import io, contextlib, copy
-    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=prof.k_other)
+    fab = M.Fabric(M.TARGET.name, a.bw, a.lat, group=a.group, layers=a.layers, taper=a.taper, write_bw=M.TARGET_WRITE_BW, staging_bw=a.staging_copy, fall_off=a.fall_off, v_factor=a.layv_factor, k_other=a.k_other)
     pd = None
     if design is not None:
         pd = copy.copy(design); pd.cache_fit = False
