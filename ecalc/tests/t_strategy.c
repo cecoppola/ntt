@@ -244,7 +244,7 @@ int main(int argc, char **argv)
                     ntt_inv_pw(ctx[p], xp, Y, logn, 1, s);
                 }
                 HIP_CHECK(hipStreamSynchronize(s)); double b = now();
-                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, NP > 3 ? X + 3 * n : X, dd, 0, S, Lseg, G, sp, 1);
+                k_crt_batch<<<(unsigned)(M * S), CRT_THREADS, 0, s>>>(X, X + n, X + 2 * n, NP > 3 ? X + 3 * n : X, dd, 0, S, Lseg, G, sp);
                 HIP_CHECK(hipStreamSynchronize(s)); double c = now();
                 merge_spills(&ov, n, sp, M, Lseg, S); double e = now();
                 if (it) { r->t[it - 1] = e - a; r->tn += (b - a) / reps; r->tc += (c - b) / reps; r->tm += (e - c) / reps; }
@@ -299,7 +299,7 @@ int main(int argc, char **argv)
                     }
 #pragma omp barrier
                     double x3 = now();
-                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3] ? X[3] : X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, 1);
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[3] ? X[3] : X[0], dd[d], (size_t)d * S, S, Lseg, G, sp);
                     HIP_CHECK(hipStreamSynchronize(st[d]));
                     tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
                 }
@@ -367,7 +367,7 @@ int main(int argc, char **argv)
                     x2 = now();
 #pragma omp barrier
                     double x3 = now();
-                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[0], dd[d], (size_t)d * S, S, Lseg, G, sp, 1);
+                    k_crt_batch<<<(unsigned)S, CRT_THREADS, 0, st[d]>>>(X[0], X[1], X[2], X[0], dd[d], (size_t)d * S, S, Lseg, G, sp);
                     HIP_CHECK(hipStreamSynchronize(st[d]));
                     tl[d] = x1 - x0; tn[d] = x2 - x1; tc[d] = now() - x3;
                 }
