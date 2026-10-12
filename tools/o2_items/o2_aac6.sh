@@ -6,8 +6,9 @@
 # Clone ~/ntt-o2 (from ~/ntt + bundle ~/o2/o2.bundle), output ~/o2/, done-marker ~/o2/O2_AAC6_DONE, summary ~/o2/summary.txt.
 # Start: setsid nohup bash -l ~/o2/o2_aac6.sh > ~/o2/driver.log 2>&1 < /dev/null &      (STOP: touch ~/o2/STOP before the start time)
 set -u
-O=$HOME/o2; C=$HOME/ntt-o2; S=$O/summary.txt; NODE=${O2_NODE:-aac6-spx-b}
-START=${O2_START:-$(TZ=America/New_York date -d "2026-10-12 03:31" +%s)}
+O=$HOME/o2; C=$HOME/ntt-o2; S=$O/summary.txt; NODE=${O2_NODE:-}   # empty = any free node
+PEND_MAX=${O2_PEND_MAX:-21600}   # seconds to wait for the hold (default 6 h)
+START=${O2_START:-$(date +%s)}
 say() { echo "$(TZ=America/New_York date '+%m-%d %H:%M:%S ET') $*" | tee -a $S; }
 mkdir -p $O; : > $S
 say "o2 aac6 driver; start at $(TZ=America/New_York date -d @$START '+%F %H:%M ET') on $NODE"
@@ -15,9 +16,9 @@ while [ $(date +%s) -lt $START ]; do [ -e $O/STOP ] && { say "STOP"; touch $O/O2
 module load rocm >/dev/null 2>&1
 rm -rf $C; git clone -q $HOME/ntt $C && git -C $C fetch -q $HOME/o2/o2.bundle o2:o2 && git -C $C checkout -q o2 || { say "clone failed"; touch $O/O2_AAC6_DONE; exit 1; }
 say "clone $(git -C $C log --oneline -1 | cut -c1-70)"
-J=$(sbatch -p PPAC_MI300A_SPX -N1 -w $NODE --gpus=4 -t 0:40:00 -J o2 --parsable --wrap "sleep 2400" < /dev/null 2>>$O/sbatch.err); J=${J%%;*}
+J=$(sbatch -p PPAC_MI300A_SPX -N1 ${NODE:+-w $NODE} --gpus=4 -t 0:40:00 -J o2 --parsable --wrap "sleep 2400" < /dev/null 2>>$O/sbatch.err); J=${J%%;*}
 [ -n "$J" ] || { say "sbatch failed: $(tail -1 $O/sbatch.err)"; touch $O/O2_AAC6_DONE; exit 1; }
-w=0; while [ "$(squeue -j $J -h -o %T)" != RUNNING ]; do sleep 15; w=$((w + 15)); [ $w -ge 600 ] && { scancel $J; say "hold $J pending 10 min, cancelled"; touch $O/O2_AAC6_DONE; exit 1; }; done
+w=0; while [ "$(squeue -j $J -h -o %T)" != RUNNING ]; do sleep 15; w=$((w + 15)); [ $w -ge $PEND_MAX ] && { scancel $J; say "hold $J pending $PEND_MAX s, cancelled"; touch $O/O2_AAC6_DONE; exit 1; }; done
 say "hold $J on $(squeue -j $J -h -o %N)"
 T0=$(date +%s); cd $C/ecalc
 bash $C/tools/gate.sh --build --nodes 1 --hold $J --line none --out $O/gate_off --timeout 900 < /dev/null > $O/gate_off.out 2>&1; say "gate_off rc=$? $(cut -c1-180 $O/gate_off/gate.txt 2>/dev/null)"
