@@ -149,7 +149,7 @@ coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and th
 to 3 points, so a view of n limbs has ⌈3n/4⌉ points and a piece is 3/4 as long. A coefficient is then at most
 min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P24_MIN_MAX`); the coefficient of point x, shifted by
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
-`results/P2415.md`). `MN_P24` (default 2) applies it to every multi-node product whose plane pool holds four primes.
+`results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; else the 18-digit form).
 
 ### 4.4 Product tiers
 
@@ -163,7 +163,7 @@ Every product goes to the cheapest tier that can hold it:
 | **mn** | products over a group of g nodes (tree top, reciprocal, division) | four-step over 4g ranks, prime by prime, layered all-to-all (§6.3) | `mn_core`, `mn_grid` |
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
-With three primes form B transforms on three APUs and the fourth only takes part in the CRT (form B4 spreads the work).
+With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
 ### 4.5 Plane cap and grids
 
@@ -183,7 +183,7 @@ piece products:
   discarded). Entry points: `rns_mul_dist_db`, `rns_mul_low_db` (A·B mod B^w), `rns_mul_high_db` (only C ≫ cut used),
   `rns_mul_band_db` (both cuts), and the `_mn` counterparts;
 - a **transform cache** keeps the forward transform of an operand reused by several pieces (or by the reciprocal's last
-  doubling and the division's X·Q), sized and counted in the memory budget (`RNS_DIST_CACHE_FIT`).
+  doubling and the division's X·Q), sized to the cap and counted in the memory budget (built in).
 
 ## 5. Reciprocal and division
 
@@ -278,7 +278,6 @@ budget).
 | `comm_shmem.c` | OpenSHMEM: a communicator is a strided PE set; one symmetric pool holds every remote-writable buffer; the sender puts a slab at an offset the receiver chose, then a signal word; the receiver polls signals. Setup, collectives and the fallback data path |
 | `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over SHMEM at 10 nodes (m; `results/OFI17.md`) |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
-| `comm_tcp.c` | sockets between processes: tests on systems without SHMEM (approved for removal) |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
 
 Multi-node builds need SHMEM (`make SHMEM_CRAY=1`; a plain build refuses multi-node runs). SHMEM, the meshes and the

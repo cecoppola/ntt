@@ -259,7 +259,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 
 | switch | meaning (default) |
 |---|---|
-| `COMM_OFI_DEV` | *test*: the APU a communicator id stands for in the single-process `tests/lay_host` build (id % 4) |
+| `COMM_OFI_DEV` | *test*: the APU a communicator id stands for in a host-only build (`COMM_HOST_ONLY`; id % 4) |
 | `COMM_SHMEM_POOL_NEED_MB` | *internal*: exported by `binsplit.c` (the sizing pass) so that `comm_shmem`'s pool-full error can print the modelled need; do not set |
 | `DC_STATS` | *S21, print only*: the output stage's fine timers (setup, pinned fetch buffer, writer) (0) |
 | `ECALC_ODIRECT_OTHER` | `O_DIRECT` for a file system of unknown type, like `ECALC_ODIRECT_NFS` / `_LUSTRE` (1; `ECALC_ODIRECT=auto` picks per file system) |
