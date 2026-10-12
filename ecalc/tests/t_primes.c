@@ -1,4 +1,4 @@
-/* t_primes - Phase 13a P3 (PLAN 29 E1): three primes instead of four for base-10^18 limbs.
+/* t_primes - Phase 13a P3 (archive:PLAN §29 E1): three primes instead of four for base-10^18 limbs.
  *
  *  1. the bound, exact (GMP): for every 3-prime subset of c 2^44 + 1, c = 240, 216, 207, 147, the product and the
  *     margin prod p / (n (B-1)^2) at n = 2^20 .. 2^33 terms and at the 3 2^k lengths 3 2^31 .. 3 2^33; binary 2^64 limbs

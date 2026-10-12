@@ -1,4 +1,4 @@
-/* mn_plan.h - Phase 13d L (PLAN.md 32, row L): the plan printer, MN_PLAN_ONLY=<total digits>:<g> (mn_plan.c).
+/* mn_plan.h - Phase 13d L (archive:PLAN §32, row L): the plan printer, MN_PLAN_ONLY=<total digits>:<g> (mn_plan.c).
  *
  * The decisions a run makes about its large products -- one plane or a grid, the grid kA x kB, the pieces the cuts skip, the
  * group a reciprocal step runs on, the Newton chain -- asked of the functions the run itself uses (rns_dist.c, newton_db.c),

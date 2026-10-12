@@ -1,4 +1,4 @@
-/* binsplit.h - bottom-up binary splitting of e = sum 1/k! (PLAN.md 8, step 6).
+/* binsplit.h - bottom-up binary splitting of e = sum 1/k! (ALGORITHM.md §3).
  *
  * Two-variable recursion over [a, b): Q = a (a+1) ... (b-1), P = sum_{k=a}^{b-1}
  * (k+1) ... (b-1), so P/Q = sum_{k=a}^{b-1} 1/(a ... k) and e = 1 + P(1,N+1)/Q(1,N+1);
@@ -68,7 +68,7 @@ unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */
 void binsplit_pregrow(unsigned long N);
 void binsplit_layout_comm_size(int g);   /* MS (Phase 15): BS_LAYOUT_ONLY sets COMM_SIZE to a point's g (0: restore) */
-/* Phase 13b P (PLAN 31 step 0.3, the K axis): the node's bytes at plane cap `cap` (0 2^30, 1 3 2^29, 2 2^31, 3 3 2^30) and np primes
+/* Phase 13b P (archive:PLAN §31 step 0.3, the K axis): the node's bytes at plane cap `cap` (0 2^30, 1 3 2^29, 2 2^31, 3 3 2^30) and np primes
  * for N terms over g node-processes (the caller sets rank 0's range): plane pools + tables, the arena, the host init constants;
  * before rns_init only (it switches rns_pool_log per cap) */
 size_t binsplit_node_bytes(unsigned long N, int g, int cap, int np, size_t *planes, size_t *arena, size_t *host);

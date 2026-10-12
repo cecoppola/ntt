@@ -1,4 +1,4 @@
-/* mn_out.h - per-node output and verification (Phase 9 A-out: PLAN.md 19, M5 + C1).
+/* mn_out.h - per-node output and verification (Phase 9 A-out: archive:PLAN §19, M5 + C1).
  *
  * X < 10^(d+1) in base 10^18 has nl = ceil((d+1)/18) limbs; the digit string is the limbs written from the top,
  * 18 digits each, the leading pad = 18 nl - (d+1) zeros dropped: digit k (0 = the "2", k = 1..d the fraction) is

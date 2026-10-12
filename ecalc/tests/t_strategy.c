@@ -1,4 +1,4 @@
-/* t_strategy - PLAN.md 29.2 E0 (Phase 13a, agent S): one dependent product C = A B of n = 2^logn points on one node
+/* t_strategy - archive:PLAN §29.2 E0 (Phase 13a, agent S): one dependent product C = A B of n = 2^logn points on one node
  * (four APUs, K4 xGMI) under the three distribution strategies, timed, with each strategy's per-APU plane bytes and its
  * exchanges, and the three results compared limb for limb.
  *
@@ -10,7 +10,7 @@
  *      from wherever their quarters live (dbig: quarter j on APU j -- a pull "broadcast" over xGMI), then APU d forms
  *      quarter d of the result by the CRT over the four APUs' planes (peer reads -- the gather).  Two xGMI phases, no
  *      all-to-all.  Built here from the per-prime transforms (the library's mdev tier is this strategy through host
- *      staging; there is no device-resident form in the library -- that is PLAN 29.3 E4).
+ *      staging; there is no device-resident form in the library -- that is archive:PLAN §29.3 E4).
  *   C  four-step distributed: the library's rns_mul_dist_db (the dm phase's product): primes one after another, each
  *      transform split over the four APUs with one all-to-all per transform (3 per prime), planes 7 n/4 points per APU;
  *      above the 2^31 plane cap the grid of 2^31 pieces.

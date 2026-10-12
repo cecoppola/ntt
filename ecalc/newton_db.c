@@ -53,7 +53,7 @@ static int shifted_cmp_le(const dbig *a, size_t j, const dbig *b, int plus1)
 static int recip_guard = 1, guard_read = 0;
 static void cut_init(void) { if (!guard_read) { guard_read = 1; const char *e = getenv("NEWTON_RECIP_GUARD"); if (e) recip_guard = atoi(e); if (recip_guard < 0) recip_guard = 0; } }
 size_t newton_recip_cut(size_t v) { cut_init(); return v > (size_t)recip_guard ? v - (size_t)recip_guard : 0; }
-/* Phase 15 R4 (V3 item 4 = PLAN 33 B2, results/R415.md 1): Q_t r is formed as a middle product -- the grid with the
+/* Phase 15 R4 (V3 item 4 = archive:PLAN §33 B2, results/R415.md 1): Q_t r is formed as a middle product -- the grid with the
  * pieces at or above w = take + MID_HI skipped too (mul_grid's / mn_grid's high cut), the result taken mod B^w.  The step reads
  * u = t1 >> v (v = take - j) only through e = u - B^(2j); when the previous round of the chain bounds |e| < B^(j+3) (mid_ok), u is
  * fixed by u mod B^(j+4) = t1's limbs [v, take + 4), and the reconstructed u equals the cut path's u exactly (the same bits).  The
@@ -516,7 +516,7 @@ void newton_db_divmod_shifted(bigint *X, const dbig *S, size_t dl, const dbig *Q
 }
 
 
-/* ==== Phase 9 M4 (A-div, PLAN.md 17/19): the reciprocal and the division over sharded numbers ====================
+/* ==== Phase 9 M4 (A-div, archive:PLAN §17/19): the reciprocal and the division over sharded numbers ====================
  * After the tree P and Q are mdb over the whole machine (the top-level group G).  Every big product is
  * rns_mul_dist_mn over G; everything else is one of a few share-level primitives:
  *   mdb_shift    Y = X >> s (s < 0: <<) in a chosen basis N2 -- one all-to-all per APU thread of the pieces

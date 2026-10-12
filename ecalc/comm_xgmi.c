@@ -40,7 +40,7 @@ template <typename T> __global__ void k_push3(struct push3 a)
     size_t i = b * blockDim.x + threadIdx.x, stride = nb * blockDim.x;
     for (; i < n; i += stride) dst[i] = src[i];
 }
-/* Phase 13a X (PLAN.md 29 H4): the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
+/* Phase 13a X (archive:PLAN §29 H4): the same push with each block's start and end stamped (wall_clock64, 100 MHz), so the time
  * each link (= each peer's blocks) is active can be read back.  map 0: block b serves peer b % 3 (the push's own order);
  * map 1: contiguous thirds of the grid (the H4 ordering variant).  COMM_XGMI_STATS=1 runs the exchanges through it. */
 template <typename T> __global__ void k_push3_ts(struct push3 a, unsigned long long *ts, int map)
@@ -225,7 +225,7 @@ comm *comm_xgmi_create(int rank)
     return c;
 }
 
-/* ---- H4 (PLAN.md 29): the xGMI push's link concurrency.  comm_xgmi_h4 is called by the four APU threads at once (each
+/* ---- H4 (archive:PLAN §29): the xGMI push's link concurrency.  comm_xgmi_h4 is called by the four APU threads at once (each
  * after comm_xgmi_create), `bytes` per (sender, peer) pair, `blocks` per peer, `reps` repetitions after one warm-up.
  * Modes: 0 all-to-all (the exchange: every APU pushes to its three peers, one kernel, block b -> peer b % 3);
  * 1 the same, contiguous thirds of the grid per peer; 2 fan-out (APU 0 alone, three links); 3 one link (APU 0 -> 1,

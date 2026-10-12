@@ -1,7 +1,7 @@
 #!/bin/bash
-# Phase 4 acceptance sweep (PLAN.md 9): every unit test, the end-to-end ladder
+# Phase 4 acceptance sweep (TESTING.md §3): every unit test, the end-to-end ladder
 # with all checks, per-phase times vs Table I, peak RSS.  Run on the node:
-#   srun --jobid=<id> -N1 --gpus=4 bash accept.sh        -> results/accept/  (the standing regression is mnaccept.sh; decimal limbs only since PLAN 28.5)
+#   srun --jobid=<id> -N1 --gpus=4 bash accept.sh        -> results/accept/  (the standing regression is mnaccept.sh; decimal limbs only since archive:PLAN §28.5)
 module load rocm; cd "$(dirname "$0")" || exit 1      # any clone
 OUT=results/accept; mkdir -p $OUT
 echo "== acceptance sweep, $(hostname), $(date -Is), $(git -C .. rev-parse --short HEAD) ==" | tee $OUT/summary.txt

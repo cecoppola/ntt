@@ -1,4 +1,4 @@
-/* mn.h - the multi-node layer (Phase 8, PLAN.md 17).  A process is one node driving its four APUs as the
+/* mn.h - the multi-node layer (Phase 8, archive:PLAN §17).  A process is one node driving its four APUs as the
  * single-node pipeline does; `size` node-processes are connected by four inter-node meshes, one per APU
  * thread d (its members: thread d of every node; rank = node).  A transform over the whole machine is the
  * node's four-APU exchange over xGMI composed with the mesh exchange (M3/M7).  On aac6 the meshes are TCP
@@ -21,7 +21,7 @@ comm *mn_comm(int apu);           /* mesh apu: this node among the nodes (rank =
 int   mn_transport_shmem(void);   /* Phase 11 S: 1 when the meshes are SHMEM PE sets (COMM_TRANSPORT=shmem) */
 int   mn_selftest(int logR, int logC, int verbose);   /* a distributed convolution over each mesh against the one-rank engine; 1 = ok */
 void  mn_barrier(void);
-/* M3 (PLAN.md 17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
+/* M3 (archive:PLAN §17): node groups per tree level, the layered communicator's self-test, the distributed top levels */
 mn_group *mn_group_at(int level);                            /* this node's group of 2^level nodes (meshes created collectively on first use) */
 mn_group *mn_group_span(int l, int g0, int g);               /* Phase 12 G: the group [g0, g0+g) of schedule level l (MN_GROUPS) -- mn_group_at's when it is a binary group, its own meshes otherwise */
 void  mn_allgather(comm *c, const uint64_t *v, int k, uint64_t *out);   /* k u64 per rank -> out[rank k + i] */

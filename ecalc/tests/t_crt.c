@@ -12,7 +12,7 @@
  *     (RESULTS.md 27, 34: 0.29 s / 2^30 tight window, clang).
  *
  * Phase 13a P3: ECALC_NP=3 runs every part with three primes (the value mod p0 p1 p2, crt3_stripe); ECALC_NP=4 the
- * four-prime garner with the base-B digit window.  Decimal limbs only since PLAN 28.5 (part 3 runs in decimal; it was
+ * four-prime garner with the base-B digit window.  Decimal limbs only since archive:PLAN §28.5 (part 3 runs in decimal; it was
  * binary-only before).  Run it twice, ECALC_NP=3 and ECALC_NP=4, to cover both CRT forms.
  *
  * Usage: t_crt [log2 n for part 3 (30); 0 skips part 3]
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
         check("boundary M-1", res, n, 96); check("boundary M-1", res, n, 192);
         for (int i = 0; i < 4; i++) free(res[i]);
     }
-    /* 3. throughput (decimal since PLAN 28.5; 0 skips it) */
+    /* 3. throughput (decimal since archive:PLAN §28.5; 0 skips it) */
     if (LOG > 0) {
         size_t n = (size_t)1 << LOG;
         uint64_t *res[4], *out = (uint64_t *)malloc((n + 4) * 8);

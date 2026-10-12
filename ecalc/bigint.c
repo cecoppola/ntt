@@ -15,7 +15,7 @@ uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 
 typedef unsigned __int128 u128;
 #define B10 BI_B10
-/* PLAN 28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (LIMB_BASE=2, todec) is archived under
+/* archive:PLAN §28.5: the limbs are decimal (base 10^18) only; the binary 2^64 pipeline (LIMB_BASE=2, todec) is archived under
  * archive:binary_pipeline/ (tag pre-28.5-binary).  A LIMB_BASE other than 10 is refused here, never silently ignored. */
 void bi_check_base(void)
 {

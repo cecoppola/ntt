@@ -1,4 +1,4 @@
-/* mdb.h - a big number sharded over a node group (Phase 8 M3, PLAN.md 17).
+/* mdb.h - a big number sharded over a node group (Phase 8 M3, archive:PLAN §17).
  *
  * The number has n limbs (normalised: limb n-1 != 0 or n == 0) and is held by the nodes [g0, g0+g) of the
  * machine: node g0 + k holds the contiguous share [N k/g, N (k+1)/g) in its dbig `sh` (sh.n = the share's

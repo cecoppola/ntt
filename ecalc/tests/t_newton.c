@@ -12,7 +12,7 @@
  *  5. (NEWTON_DEVICE=1) the reciprocal's middle product; 6. the division in two quotient halves (NEWTON_DKM, Phase 15 DKM)
  *
  * Usage: t_newton [LOGMAX (26)]
- * Decimal limbs only since PLAN 28.5.
+ * Decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
 #include "../newton.h"
@@ -33,7 +33,7 @@ static void mpz_recip(mpz_t mu, const mpz_t Q, size_t nq, size_t k)
     mpz_ui_pow_ui(mu, BI_B10, nq + k);
     mpz_fdiv_q(mu, mu, Q);
 }
-#define EXACT_MAX_NQ ((size_t)1 << 22)                  /* exact GMP comparison up to this Q length; residues above (PLAN 28.5) */
+#define EXACT_MAX_NQ ((size_t)1 << 22)                  /* exact GMP comparison up to this Q length; residues above (archive:PLAN §28.5) */
 static int check_div(const char *what, const bigint *A, const bigint *Q, const bigint *mu_opt)
 {
     bigint X, R; bi_init(&X); bi_init(&R);

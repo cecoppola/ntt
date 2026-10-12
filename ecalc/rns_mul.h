@@ -1,8 +1,8 @@
-/* rns_mul.h - the multiply tiers (PLAN.md 8, step 3).
+/* rns_mul.h - the multiply tiers (ALGORITHM.md §4.4).
  *
  * mdev: one product, one prime per device.  Per device d (prime d): the host
  * threads of NUMA node d copy A and B into the device's pinned staging buffer
- * (paper: "repack to hstage_buf"), a kernel canonicalises them into the
+ * (the "repack to hstage_buf" step), a kernel canonicalises them into the
  * device pools ch_da / ch_db (2^POOL_LOG points each), forward NTT x 2,
  * pointwise fused into the inverse, and a kernel stores the
  * residue plane back into the staging buffer (rule 5: kernel store, not
@@ -34,7 +34,7 @@ extern rns_stats rns_st;
 extern int rns_school_max;        /* points (na+nb) below which the CPU schoolbook is used (default 1024) */
 extern int rns_crt_threads;       /* default: all */
 
-int  rns_init(int pool_log);      /* 31 (default, paper) or 32; allocates staging + pools, returns ndev */
+int  rns_init(int pool_log);      /* 31 (default) or 32; allocates staging + pools, returns ndev */
 extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* Phase 8 I2: called inside rns_init once the pinned staging exists */
 extern size_t rns_staging_bytes_req;   /* set before rns_init: pinned staging per APU (0 = 8 << pool_log); the decimal device flow needs only the seed stage */
 size_t rns_staging_bytes(void);
@@ -80,7 +80,7 @@ void rns_mul_pair(bigint *C1, const bigint *A1, bigint *C2, const bigint *A2, co
 typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uint64_t *c; const uint64_t *x; size_t nx;
                  size_t ncn; /* out: normalised length of c when the device-local path ran (0: not computed) */ } rns_prod;
 #define RNS_BATCH_LOGL_MAX 30
-extern size_t rns_batch_tile_bytes;   /* default 15e9 (paper) */
+extern size_t rns_batch_tile_bytes;   /* default 15e9 */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
 extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */

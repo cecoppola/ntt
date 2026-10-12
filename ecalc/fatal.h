@@ -1,4 +1,4 @@
-/* fatal.h - one exit path for errors inside the run (Phase 14 C3, PLAN.md §33 A3).
+/* fatal.h - one exit path for errors inside the run (Phase 14 C3, archive:PLAN §33 A3).
  *
  * Before: a check that failed inside a phase called exit(1) (or abort()) from whichever thread found it.  The four APU worker
  * threads (OpenMP) often find the same condition together (the in-phase pool guards, an allocation that fails on every APU);

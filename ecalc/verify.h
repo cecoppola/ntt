@@ -1,4 +1,4 @@
-/* verify.h - tier-1 residue identities and tier-2 digit windows (PLAN.md 8, step 8).
+/* verify.h - tier-1 residue identities and tier-2 digit windows (ALGORITHM.md §10).
  *
  * T1: eight fixed 62-bit primes q_i (the first primes above 2^62, results/
  * 0_params.txt).  P(1,N+1), Q(1,N+1) mod q by the recursion in Z/q (OpenMP

@@ -11,7 +11,7 @@
  *  4. forward output and round trip bit-identical for 3 .. 7 stages per b16 pass (ntt_stg)
  *     at 2^24 (STG 8 would need a 256-row tile: LDS 34 KB, 1 block/CU - not
  *     built, RESULTS.md 33)
- *  5. rate: ms per pass at 2^LOGMAX on all APUs (paper 1.08 TB/s effective =
+ *  5. rate: ms per pass at 2^LOGMAX on all APUs (reference 1.08 TB/s effective =
  *     16 B x n per pass; bench/16: 1.17); batched log L = 14, 17
  *
  * Usage: t_ntt [LOGMAX (31)]

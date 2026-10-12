@@ -1,4 +1,4 @@
-# ecalc - the paper's pipeline (PLAN.md 8).   module load rocm && make
+# ecalc - the pipeline (ALGORITHM.md).   module load rocm && make
 ARCH   ?= gfx942
 HIPCC  ?= hipcc
 HIPFLAGS = -g -O3 --offload-arch=$(ARCH) -fopenmp -I. -I../bench

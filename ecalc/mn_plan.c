@@ -1,4 +1,4 @@
-/* mn_plan.c - Phase 13d L (PLAN.md 32, row L): MN_PLAN_ONLY=<total digits>:<g> -- the large products of a run, as the code
+/* mn_plan.c - Phase 13d L (archive:PLAN §32, row L): MN_PLAN_ONLY=<total digits>:<g> -- the large products of a run, as the code
  * would form them, printed without a device or a communicator (a login-node tool; ecalc.c calls mn_plan_run before rns_init,
  * after the plane-cap switch has set its knobs, and exits).
  *
@@ -57,7 +57,7 @@ static long g_pieces[PH_N], g_prods[PH_N], g_grids[PH_N], g_pieces4[PH_N];   /* 
 static long g_pieces24[PH_N];                                     /* Phase 15 Batch 3 P24 (MN_P24): the pieces at 24 digits per point */
 static int g_quiet;                                               /* MN_PLAN_QUIET=1: the summary lines only (the sweep) */
 static char g_lvl[1024];                                          /* per tree level: node 0's group / the level's largest, for the summary */
-/* ---- Phase 15 P (PLAN 36): the plan-time check -- every planned product against the prime set's limits ------------------------
+/* ---- Phase 15 P (archive:PLAN §36): the plan-time check -- every planned product against the prime set's limits ------------------------
  * The run stops (loudly, after hours at the target) where a product exceeds what the primes allow: mn_core / dist_core call
  * ec_np_check(nc = pa + pb of the piece) -- with ECALC_NP=3 at most ec_np3_max_terms terms (p0 p1 p2 > nterms (10^18-1)^2), and
  * binary limbs refused -- and plan_create / plan3_get take ec_root(prime, logn) / ec_root3, which exist only up to v2(p - 1)

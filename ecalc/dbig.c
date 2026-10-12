@@ -186,7 +186,7 @@ static void ext_insert(int d, char *p, size_t bytes, int reg)
     else if (mnext) { e[i].p = p; e[i].bytes += bytes; }
     else { if (n >= 8192) { ec_fatal(EC_RC_FATAL, "dbig: extent table full\n"); } memmove(&e[i + 1], &e[i], (n - i) * sizeof *e); e[i].p = p; e[i].bytes = bytes; e[i].reg = reg; g_ext[d].n++; }
 }
-/* Phase 11 M (PLAN 26, decision 5): a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
+/* Phase 11 M (archive:PLAN §26, decision 5): a reserved tail per device -- the last `bytes` of a region (the bs arena's end, laid out
  * by binsplit_pregrow to hold the largest block of the dm phase, t1's quarter).  Requests >= thresh are carved from the BACK of
  * the extent that ends at the tail's end (so the largest block lands there, contiguous); requests below it are best-fit over
  * the extents with the tail's bytes excluded, so the tail stays whole until the large request comes.  Both preferences are

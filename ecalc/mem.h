@@ -1,4 +1,4 @@
-/* mem.h - memory placement for the pipeline (PLAN.md 8, step 3; rule 4).
+/* mem.h - memory placement for the pipeline (ALGORITHM.md §8).
  *
  *  hstage    per-device pinned host staging: malloc + first-touch by threads
  *            pinned to the APU's NUMA node + hipHostRegister.  On this node

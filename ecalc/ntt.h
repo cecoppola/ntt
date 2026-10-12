@@ -1,5 +1,5 @@
-/* ntt.h - the paper's tiled single-transform NTT as library code (PLAN.md 8,
- * step 2).  One context per (device, prime); the caller selects the device.
+/* ntt.h - the tiled single-transform NTT as library code (ALGORITHM.md
+ * §4.2).  One context per (device, prime); the caller selects the device.
  *
  *   ntt_fwd      natural order, canonical in  -> bit-reversed, canonical out
  *   ntt_inv      bit-reversed, lazy [0,2p) in -> natural, canonical, x n^-1

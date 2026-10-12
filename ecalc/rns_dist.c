@@ -152,7 +152,7 @@ __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size
  * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
  * pathological on long carry chains */
 
-/* ---- Phase 9 C5 (PLAN 16, I10; DIST_R3=1, measured only): planes of 3 2^k points for the single-node products of
+/* ---- Phase 9 C5 (archive:PLAN §16, I10; DIST_R3=1, measured only): planes of 3 2^k points for the single-node products of
  * 2^30 points and above (n = 3 2^(logn-2) when nc fits it: 3 2^28, 3 2^29, 3 2^30 -- the last above the 2^31 cap, so
  * the top product's grid has fewer, fuller planes).  The four-step with rows of length C = 3 2^logk through the
  * radix-3 layer (ntt3.c: position t of third r holds X[3 brev(t) + r]) and columns of R = 2^logR; the twiddle
@@ -242,7 +242,7 @@ static void dist3_inv(const struct ctx3 *c, uint64_t *x, hipStream_t s)
     k3_unpacktw<<<grid, blk, 0, s>>>(c->rb, x, c->rows, (size_t)r * c->rows, c->logk, c->cols, c->pl->twr_i, c->pl->twc_i, m);
     ntt_inv3(c->ctx, x, c->logk, c->rows, s);
 }
-/* ---- Phase 10 A1 (PLAN 20, I4; results/A-div.md "B2"): the transform cache ---------------------------------------
+/* ---- Phase 10 A1 (archive:PLAN §20, I4; results/A-div.md "B2"): the transform cache ---------------------------------------
  * A slot holds the forward transform of one device operand (a dbig view, identified by its quarters, offset and length)
  * on planes of q limbs per prime per rank.  dist_core looks every device
  * operand up in all slots (a hit skips its gather and forward transform and reads the cached planes in the pointwise
@@ -486,7 +486,7 @@ void rns_dist_cache_test_slots(int n)
     if (g_cache.tried) { int k = 0; while (k < DIST_CACHE_MAX && g_cache.s[k].pl[0]) k++; g_cache.navail = n < k ? n : k; }
 }
 double rns_dist_cache_alloc_s(void) { return g_cache.t_alloc; }
-/* ---- Phase 13b B (PLAN 29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
+/* ---- Phase 13b B (archive:PLAN §29 E4, 31 axis S): the prime-per-APU product ("B form") ------------------------------------
  * RNS_STRATEGY selects the product strategy of dist_core, the single-node product under every size-1 dist product (the
  * top tree levels, the reciprocal's doublings, the division's products) and the node-local products at size > 1:
  *   C     the four-step over the four APUs (dist_core below; the original behaviour, used today where auto falls back)
@@ -2107,7 +2107,7 @@ void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
     if (na + nb <= cap) { *ka = *kb = 1; return; }
     split_grid_cap(na, nb, cap, (size_t)1 << mn_logmin(G->g), 0, ka, kb);   /* mn tier: no radix-3 planes (Phase 11 P) */
 }
-/* ---- Phase 13d L (PLAN 32, row L): the plan printer's view of the two tiers (mn_plan.h; MN_PLAN_ONLY, mn_plan.c) ----------------
+/* ---- Phase 13d L (archive:PLAN §32, row L): the plan printer's view of the two tiers (mn_plan.h; MN_PLAN_ONLY, mn_plan.c) ----------------
  * The same decisions the products take -- db_grid_shape / split_grid (with b_fits on the pools rns_init would make:
  * rns_dist_plan_pools) for the dist tier, mn_grid_shape for the mn tier, grid_piece_skipped for the cuts -- over the piece loop
  * of mul_grid / mn_grid (a piece past the operand's end is empty and not counted, as there), without a device.  The one thing

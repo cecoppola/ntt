@@ -1,4 +1,4 @@
-/* comm_shmem.c - the SHMEM transport (Phase 11 M8-s, Phase 12 S; PLAN.md 25-27): the comm_ops of comm.h over the OpenSHMEM
+/* comm_shmem.c - the SHMEM transport (Phase 11 M8-s, Phase 12 S; archive:PLAN §25-27): the comm_ops of comm.h over the OpenSHMEM
  * 1.4 subset that Cray OpenSHMEMX, rocSHMEM, Sandia OpenSHMEM and OpenMPI's OSHMEM share (plus put-with-signal where 1.5
  * exists).  One process per node = one PE; a communicator is a strided PE set (start, stride, size) -- the tree's node
  * groups -- with rank r = PE start + stride r.

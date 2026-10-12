@@ -1,12 +1,12 @@
-/* modarith.h - the paper's arithmetic engine (PLAN.md 8, step 1).
+/* modarith.h - the modular arithmetic engine (ALGORITHM.md §4.2).
  *
  * Four primes p < 2^52 with 2^33 | p-1 (verified by tests/t_params, results/
  * 0_params.txt), the eight-line FP64-Barrett modmul with a Dekker split and
  * two corrections each way, canon64 (Barrett with mu115 = floor(2^115/p) for
  * a 64-bit limb), and an integer Shoup modmul behind the same names as the
- * alternative engine for Phase 5.  Everything here is host + device.
+ * alternative engine for experiments.  Everything here is host + device.
  *
- * Binding rules (PLAN.md 8, "Rules learned in Phase 1"):
+ * Binding rules (ALGORITHM.md §4.2):
  *   1. ec_mm takes at most ONE lazy operand in [0,2p); the other must be
  *      canonical in [0,p).  Both lazy, or either in [0,4p), is wrong in
  *      0.4-21 % of cases (RESULTS.md 19, 30).  Fold with ec_fold first.
@@ -30,12 +30,12 @@
 #define EC_LOGN_MAX 33                      /* the order of the stored root tables ec_W33 / ec_W3X33 (2^33 | p-1 for all four primes).
                                                Not the transform limit: ec_root derives any 2^logn up to v2(p-1) (Phase 15 P) */
 
-/* Phase 13a P3 (PLAN 29 E1/E3): the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
+/* Phase 13a P3 (archive:PLAN §29 E1/E3): the number of primes a product uses, ec_np = 3 or 4 -- ECALC_NP (default 4: every
  * default unchanged).  A product uses the first ec_np primes of ec_P.  Three suffice for base-10^18 limbs: a convolution
  * coefficient is at most nterms (B-1)^2 and p0 p1 p2 = 2^155.36 against (B-1)^2 = 2^119.59, so nterms < 2^35.76
  * (tests/t_primes: the margin is 27x at 2^31 terms, 6.8x at 2^33, the largest 2^k length the primes allow).  {c = 240,
  * 216, 207} is the subset with the largest product (dropping 147, t_primes prints all four).  Four stay required for
- * (binary 2^64 limbs, which held only below 2^27 terms, are archived: PLAN 28.5). */
+ * (binary 2^64 limbs, which held only below 2^27 terms, are archived: archive:PLAN §28.5). */
 #include <stddef.h>
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +46,7 @@ extern size_t ec_np3_max_terms;             /* floor((p0 p1 p2 - 1) / (10^18 - 1
 /* abort with a message when ec_np == 3 and the limbs are binary, or a product of nterms terms (min(na, nb), or any
  * upper bound of it) could exceed p0 p1 p2 */
 void ec_np_check(size_t nterms, const char *where);
-/* Phase 15 NP (PLAN 37 row 1, P15 option b): ECALC_NP=auto -- the prime count per product of the distributed tiers.
+/* Phase 15 NP (archive:PLAN §37 row 1, P15 option b): ECALC_NP=auto -- the prime count per product of the distributed tiers.
  * ec_np stays 3 (every one-node tier, the host CRT and ec_np_check as with ECALC_NP=3); mn_core / dist_core (and the B form)
  * take ec_np_for(nc): four primes when nc = pa + pb > ec_np_auto_terms, else three.  ec_np_auto_terms = ec_np3_max_terms
  * unless ECALC_NP_AUTO_TERMS=<n> lowers it (a test knob: both counts at small sizes; never above the bound).  Binary limbs:
@@ -147,7 +147,7 @@ static inline ec_mod ec_mod_get(int i)
     return m;
 }
 
-/* ---- the paper's modmul: a * b mod p, exact for a in [0,2p), b in [0,p) --- */
+/* ---- the modmul: a * b mod p, exact for a in [0,2p), b in [0,p) --- */
 EC_HD static inline double ec_mm(double a, double b, double p, double pinv)
 {
     double hi = a * b;                  /* rounded product */
@@ -221,7 +221,7 @@ static inline uint64_t ec_powmod(uint64_t a, uint64_t e, uint64_t p)
     return r;
 }
 static inline uint64_t ec_inv(uint64_t a, uint64_t p) { return ec_powmod(a, p - 2, p); }
-/* ---- the roots of unity (Phase 15 P, PLAN 36: roots above 2^33) ----------------------------------------------------------
+/* ---- the roots of unity (Phase 15 P, archive:PLAN §36: roots above 2^33) ----------------------------------------------------------
  * Before: ec_root(i, logn) = w33^(2^(33 - logn)), a negative shift (undefined; the "root" came out 1) for logn > 33, which the
  * mn tier reaches from 8 nodes on (mn_logn_cap = 31 + floor(log2 g): 2^40 at 576).  Now:
  *   logn <= EC_LOGN_MAX: the table formula as before (bit-identical by construction, the same cost);

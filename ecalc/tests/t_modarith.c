@@ -4,7 +4,7 @@
  *     2^logn for logn in {1, 2, 10, 20, 31, 32, 33}; ec_root_inv is its inverse
  *  2. device modmul: NPAIRS random pairs per prime for canonical x canonical
  *     and lazy [0,2p) x canonical vs (a*b) % p in 128-bit; two corrections
- *     must be exact; the one-correction failure rate is reported (paper: 0.57 %
+ *     must be exact; the one-correction failure rate is reported (measured: 0.57 %
  *     for P[1]); both-lazy is measured: inexact for P0, P1 (> 2^51.7), exact
  *     for P2, P3 (< 2^51.4) -- rule 1 stays binding for every plane
  *  3. edge values, all pairs: 0, 1, 2, p-2, p-1, p, p+1, 2p-2, 2p-1, 2^51,

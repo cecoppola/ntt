@@ -1,5 +1,5 @@
-/* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18; the paper's binary-limb pipeline with the
- * radix conversion todec is archived: PLAN 28.5, archive:binary_pipeline/, git tag pre-28.5-binary).
+/* ecalc - e to d decimal digits on one MI300A node (decimal limbs of 10^18; the former binary-limb pipeline with the
+ * radix conversion todec is archived: archive:PLAN §28.5, archive:binary_pipeline/, git tag pre-28.5-binary).
  *
  *   bs    P, Q = binary splitting of sum 1/k!, N = min{m : lgamma(m+1)/ln10 >= d+50}
  *   10dP  A = 10^d (P + Q): a limb shift and one small multiply
@@ -47,7 +47,7 @@ static void meta_line(const char *bench)
 }
 #define RESULT(name, unit, v) printf("RESULT ecalc %s %s %.6g\n", name, unit, (double)(v))
 
-/* ---- Phase 8 (PLAN.md 18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
+/* ---- Phase 8 (archive:PLAN §18): overlap of disjoint work, ECALC_OVERLAP=1.  Background CPU work runs in pthreads with
  * a bounded OpenMP team while the GPUs run the tiers; each joins where its result is first needed. ---- */
 static int g_overlap = 1, g_bg_threads = 48;   /* ECALC_OVERLAP=0: the sequential flow (RESULTS.md 68: 128.8 vs 112.1 s) */
 struct pq_bg { unsigned long N, a0, b1; uint64_t p[T1_NQ], qq[T1_NQ]; pthread_t th; int started, joined; double t; };   /* [a0, b1): this node's term range (M5: the recurrence is rank-local; size 1: [1, N+1)) */
@@ -130,7 +130,7 @@ static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_
     x_hi_release(b); return 1;
 }
 
-/* ---- the output stage (Phase 9 A-out: PLAN.md 19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
+/* ---- the output stage (Phase 9 A-out: archive:PLAN §19, M5 + C1).  Every node: T1 with the P, Q recurrence over its own
  * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
  * X (device kernel, placed at the share's offset and summed over the nodes); its share of the digits formatted in
  * chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and written to its part file as it
@@ -327,7 +327,7 @@ static int out_stage(struct out_ctx *c)
  * the end of the division: 113 s of wait at 0.31 GB/s); ECALC_CKPT_TOP=2 budgets both releases by the measured disk rate
  * (ECALC_CKPT_TOP_SLACK seconds, default 1): a set the disk cannot finish in time is dropped instead of waited for. */
 static void binsplit_seeds_begin_v(void *a) { binsplit_seeds_begin((unsigned long)(uintptr_t)a); }
-/* Phase 14 C3 (APUMULT_STUDY E12, PLAN §33 A3): ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
+/* Phase 14 C3 (APUMULT_STUDY E12, archive:PLAN §33 A3): ECALC_BUDGET_CHECK=1 -- before the run computes (after init's allocations and
  * mem_report("init")), every rank models its peak and the ranks decide together whether any node is over its budget; if one
  * is, every rank stops here (rc EC_RC_BUDGET = 8) with the figures, instead of one node dying mid-run.
  *   rank peak = max(device bytes in use now [the layout just mapped], the model's plane pools + arena [binsplit_node_bytes at
@@ -385,7 +385,7 @@ static void budget_check(unsigned long N, int verbose)
     if (me == 0) printf("budget: ECALC_BUDGET_CHECK ok: %d rank%s, largest rank peak %.1f GB, node budget %.0f GB\n", sz, sz > 1 ? "s" : "", mx * 1e-9, node_gb);
     free(all); free(over);
 }
-/* Phase 13b P (PLAN 31, the K axis): the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
+/* Phase 13b P (archive:PLAN §31, the K axis): the plane cap as one switch.  ECALC_PLANE_CAP = 2^30 | 3*2^29 | 2^31 | 3*2^30 (also 30, 3x29,
  * 31, 3x30) sets the three knobs that make a cap: POOL_LOG (30 or 31: the plane pools' base, the batch and mdev tiers' 2^pool_log),
  * RNS_PLANES_3Q30 (the 3 2^k planes, whose default size rule is on below 5e10 digits at POOL_LOG 31) and DIST_LOGN_TEST (the
  * single-node dist tier's 2^k cap = pool_log; without it a 2^31 product would grow a 2^30 pool inside a phase and abort).
@@ -441,7 +441,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 int main(int argc, char **argv)
 {
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
-    /* Phase 13d L (PLAN 32): MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
+    /* Phase 13d L (archive:PLAN §32): MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
      * below are set (the plane-cap switch, the pools' sizes), before rns_init.  The digits (4.4e13 or 44000000000000) replace
      * argv[1], which may be omitted; COMM_SIZE is set to g for the switch's `fit` (nothing else reads it before the exit) */
@@ -459,7 +459,7 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    bi_check_base();                                  /* PLAN 28.5: decimal limbs only (RESULTS.md 63, 67); LIMB_BASE=2 (the archived binary pipeline) is refused loudly */
+    bi_check_base();                                  /* archive:PLAN §28.5: decimal limbs only (RESULTS.md 63, 67); LIMB_BASE=2 (the archived binary pipeline) is refused loudly */
     if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
     d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
@@ -477,7 +477,7 @@ int main(int argc, char **argv)
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
       int devflow = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;
-      int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the paper's staging and pools */
+      int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the default staging and pools */
       if (devflow && !host_combine) rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
        * Phase 12 I: the size rule (on below 5e10 digits at 2^31 pools) is the default; RNS_PLANES_3Q30=0/1 overrides (results/I.md) */

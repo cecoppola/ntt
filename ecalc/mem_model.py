@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mem_model.py - the per-node memory model of ecalc (Phase 11, agent M; PLAN.md 26 row M, item 3).
+"""mem_model.py - the per-node memory model of ecalc (Phase 11, agent M; archive:PLAN §26 row M, item 3).
 
 Device and host bytes of one node-process as functions of the digits per node D and of the group size g
 (the number of node-processes the run is spread over), built from the same formulas the code sizes its
@@ -30,7 +30,7 @@ from the file's `plan` lines.
 
 Agent X's mn_model.py and Q's estimate.py import mem_per_node for their memory rows.  Every number is "modelled"
 unless the calibration table says "measured"; the tables' sources are named in results/M11.md.  Phase 12 (agent Q):
-the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, PLAN 27) --
+the tree's g-terms in both forms -- 'flat' (the code at 7aded87) and 'grid' (agent G's gridded top product, archive:PLAN §27) --
 and L's level schedule (mn_groups, MN_GROUPS); see results/Q.md.
 """
 import math, sys, functools, os
@@ -525,7 +525,7 @@ def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS):
     return 4 if (1 << (c + lg)) > auto_terms else 3
 
 # ---------------------------------------------------------------- Phase 13b agent D: the plane cap and the product strategy
-CAPS = {'2^30': 1 << 30, '3*2^29': 3 << 29, '2^31': 1 << 31, '3*2^30': 3 << 30}   # the four plane caps of PLAN 31 (points)
+CAPS = {'2^30': 1 << 30, '3*2^29': 3 << 29, '2^31': 1 << 31, '3*2^30': 3 << 30}   # the four plane caps of archive:PLAN §31 (points)
 
 def cap_name(cap):
     for k, v in CAPS.items():
@@ -707,7 +707,7 @@ def pool_mb_of(need, pool, pool_mb=8192):
     return pool_mb << 20                                               # 'off'
 
 def exchange_scratch(nq_total, g, alltoallv, shift_chunk_mb=0):
-    """the sharded division's exchange scratch per APU (rns_dist.c mdb_shift / mdb_add_shifted; PLAN 23-4):
+    """the sharded division's exchange scratch per APU (rns_dist.c mdb_shift / mdb_add_shifted; archive:PLAN §23-4):
     before B7 the padded g x share / 4 limbs per APU (mdb_shift) + g x 512 MB (mdb_add_shifted); after: the counts' own sizes.
     Phase 13a M (TASKS 1.2): MDB_SHIFT_CHUNK_MB=m -- mdb_shift in K rounds (newton_db.c), sb and rb about m MB each per APU"""
     if g == 1: return 0

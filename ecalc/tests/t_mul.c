@@ -4,18 +4,18 @@
  *     small sizes: products crossing 2^10 (schoolbook -> mdev), 2^POOL
  *     (mdev -> Karatsuba), unbalanced (chunked), all five generators, vs
  *     mpz_mul exactly
- *  2. pool 2^31 (the paper): sizes crossing 2^17, 2^18, 2^27, 2^28 limbs per
+ *  2. pool 2^31 (the default): sizes crossing 2^17, 2^18, 2^27, 2^28 limbs per
  *     operand vs mpz_mul (<= 2^20: the GMP string bridge of decimal limbs is slow above) or residues mod 2^61-1 and
  *     two 62-bit primes (above; the length too),
  *     per-phase times of the mdev multiply at 2^31 points
  *  4. batch tier: products of <= 2^logL points for logL 10 .. 18, GPU CRT (N >= 8)
  *     and CPU CRT, registered and unregistered (staged) operands, vs mpz_mul (every product for groups up to 2^24
  *     limbs; larger groups: four products vs mpz_mul and every product by residues mod three primes, see batch_sampled)
- *  3. optional (arg "big"): 2.08e9 x 2.08e9 limbs (the paper's 10dP product,
+ *  3. optional (arg "big"): 2.08e9 x 2.08e9 limbs (the 10dP product of the 4e10-digit run,
  *     4.16e9 > 2^31 points) through the Karatsuba split (RESULTS.md 35), twice
  *
  * Usage: t_mul [POOL (20); 0 skips part 1] [big]
- * Decimal limbs only since PLAN 28.5 (the base-2 form is archive:binary_pipeline/t_mul_base2.c).
+ * Decimal limbs only since archive:PLAN §28.5 (the base-2 form is archive:binary_pipeline/t_mul_base2.c).
  */
 #include "harness.h"
 #include "../rns_mul.h"
@@ -33,7 +33,7 @@ static void check_product(const char *what, const bigint *A, const bigint *B, co
     } else {
         uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
         VERIFY(m61_mul(ra, rb) == rc, "%s: residue mod 2^61-1 differs", what);
-        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                      /* two more residues (PLAN 28.5: the exact check stops at 2^20) */
+        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                      /* two more residues (archive:PLAN §28.5: the exact check stops at 2^20) */
         for (int j = 0; j < 2; j++) {
             uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
             VERIFY(hv_mulmod(xa, xb, qs[j]) == xc, "%s: residue mod %llu differs", what, (unsigned long long)qs[j]);
@@ -145,7 +145,7 @@ int main(int argc, char **argv)
     rns_shutdown();
     }
 
-    /* 2. the paper's pool */
+    /* 2. the default pool */
     printf("-- 2. pool 2^%d: paper's boundaries and the 2^31-point mdev\n", big32 ? 32 : 31);
     rns_init(big32 ? 32 : 31);
     if (!only_batch) {

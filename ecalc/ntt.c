@@ -261,11 +261,11 @@ void k_b16r(uint64_t *x, int logn, int s_lo, ec_mod m, const double *tlo, const 
  * butterflies the index bits [Bg, Bg + Cg) (forward: g = 0 is the top bits, Bg = LGL - (g+1) LGV clipped at 0), with the
  * point of thread t, register i at
  *   idx = t[0, Bg) | i_lo << Bg | t[Bg, ..) << (Bg + Cg) | i_hi << (LGL - (LGV - Cg))      (i_lo = i's low Cg bits),
- * so the first group's load (and the last inverse group's store) is coalesced.  Between groups one LDS exchange (the
- * paper's kernel does one LDS round trip per stage, ten per pass).  LDS addresses are XOR-swizzled by a linear map of
+ * so the first group's load (and the last inverse group's store) is coalesced.  Between groups one LDS exchange (a plain kernel
+ * would do one LDS round trip per stage, ten per pass).  LDS addresses are XOR-swizzled by a linear map of
  * index bits 4.. into bits 0..3 (b1r_swz), found by search to be conflict-free (16 distinct 8-byte banks per 16 lanes)
  * for every group at LGV 3 and 4, LGL 10..12.  Twiddles: tw[H + r] = w_2H^r per stage (one global table per direction,
- * 4096 entries).  The reduced-correction Barrett (mm_lazy); the final canonicalisation and scale as the paper's b1 pass
+ * 4096 entries).  The reduced-correction Barrett (mm_lazy); the final canonicalisation and scale as the former b1 pass
  * (removed 2026-10-12 with NTT_B1R), so the outputs are bit-identical to it (they are canonical, hence unique, anyway).
  * Built with 2^3 points per thread (LGV 3; 4 was slower, K13b). */
 __device__ static inline unsigned b1r_swz(unsigned x)

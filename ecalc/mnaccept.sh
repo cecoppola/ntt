@@ -1,5 +1,5 @@
 #!/bin/bash
-# mnaccept.sh <jobid> [--full] [--only <step,...>] - the standing regression of ecalc (PLAN.md §21 D3:
+# mnaccept.sh <jobid> [--full] [--only <step,...>] - the standing regression of ecalc (archive:PLAN §21 D3:
 # the integrator's verify*.sh scripts made permanent).  Run on the login node from the ecalc/ of any
 # clone against a one-node allocation (sbatch ... --wrap "sleep 2700"); everything runs on the node
 # through srun / mnrun.sh, the digits go to the node's local /tmp, the logs to results/mnaccept/<jobid>/.
@@ -7,7 +7,7 @@
 #
 # Steps (--only picks a subset; --full adds the last):
 #   unit   t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20, t_verify, t_out, t_patch (Phase 15 KP), t_mn_grid at 2 node-processes
-#   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with PLAN 28.5), cmp'd against the reference
+#   e9     10^9 at size 1 (decimal limbs; the binary-limb run was archived with archive:PLAN §28.5), cmp'd against the reference
 #   mn     10^8 at sizes 2, 3, 4 and 10^9 at sizes 2, 4 on one node (the part files concatenated and cmp'd)
 #   ckpt   10^8 at size 2: BS_CKPT_ABORT=6 on every node, then BS_RESTART=1 (restart identical to the reference)
 #   sched  G6 (TASKS 1.7), 10^8 at size 4: the tree set of level 1 is written (BS_CKPT_ABORT_TREE=1, schedule 2,4), then a restart
@@ -122,7 +122,7 @@ if want unit || want grid; then
   fi
 fi
 
-# ---- 10^9 at size 1 (decimal limbs; PLAN 28.5 archived the LIMB_BASE=2 run) -----------------------------------
+# ---- 10^9 at size 1 (decimal limbs; archive:PLAN §28.5 archived the LIMB_BASE=2 run) -----------------------------------
 if want e9 && refneed "e9" "$REF/e_1000000000.txt"; then
   log=$OUT/e9.log; f=$TMP/e9.txt
   R 900 "./ecalc 1000000000 $f" > "$log" 2>&1; rc=$?

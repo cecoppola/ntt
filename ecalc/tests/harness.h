@@ -1,4 +1,4 @@
-/* harness.h - shared test scaffolding for ecalc/tests (PLAN.md 8, step 0).
+/* harness.h - shared test scaffolding for ecalc/tests (TESTING.md §5).
  *
  * VERIFY(cond, ...)      counts a check; prints only failures
  * verify_done(name)      prints "VERIFY OK (n checks)" / "VERIFY FAILED (k of n)",
@@ -11,7 +11,7 @@
  * limbs_mod_m61 / limbs_mod_u64   cheap residues of a limb array (mod 2^61-1, mod any q < 2^63)
  * META / RESULT lines in the bench/ format (harness_meta, harness_result)
  *
- * C and HIP-C++ compatible; needs -lgmp.  Decimal limbs only since PLAN 28.5 (the binary base is archived).
+ * C and HIP-C++ compatible; needs -lgmp.  Decimal limbs only since archive:PLAN §28.5 (the binary base is archived).
  */
 #ifndef EC_HARNESS_H
 #define EC_HARNESS_H
@@ -117,7 +117,7 @@ static void harness_meta(const char *bench)
     char host[128] = "?"; char date[64];
     time_t t = time(0);
     hv_bench = bench;
-    bi_check_base();                                     /* PLAN 28.5: LIMB_BASE other than 10 is refused loudly */
+    bi_check_base();                                     /* archive:PLAN §28.5: LIMB_BASE other than 10 is refused loudly */
     printf("META limb_base=10^18\n");
     gethostname(host, sizeof host);
     strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));

@@ -29,7 +29,7 @@ size_t rns_mul_dist_mn_vslot(size_t na, size_t nb, int g);   /* B7ACCT (rns_dist
 unsigned long bs_N = 0;                              /* M6: the run's N, for the tree sets written by mn.c */
 
 bs_stats bs_st;
-int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the paper-era value */
+int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
 int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU schoolbook tier below this many limbs; 0 = never (WP4: the device batch tier is faster at any size, and the pools are device memory) */
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
@@ -329,7 +329,7 @@ static void region_need(unsigned long N, size_t need[NR])
     }
     free(cur_r);
 }
-/* Phase 11 M (PLAN 26, decision 5): the dm phase's block-pool need per device from N alone, the way the driver's formulas
+/* Phase 11 M (archive:PLAN §26, decision 5): the dm phase's block-pool need per device from N alone, the way the driver's formulas
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
  * newton_db_recip: r, r2 of k + 4 limbs, t1 of max(n_Q + k, 2k) + 8; rns_dist's piece temporary of at most 2^pool_log + 8
  * limbs; Q and S = P + Q live from the top of bs with their bound's margin).  Every device holds a quarter of each.  The
@@ -723,7 +723,7 @@ static size_t layout_arena(unsigned long N, int g, size_t *bs2_)
     if (bs2_) *bs2_ = bs2;
     return arena;
 }
-/* Phase 13b P (PLAN 31 step 0.3, the K axis): the plane caps, their settings and the node's device and host bytes at a cap.
+/* Phase 13b P (archive:PLAN §31 step 0.3, the K axis): the plane caps, their settings and the node's device and host bytes at a cap.
  * cap c: 0 = 2^30 (POOL_LOG 30), 1 = 3 2^29 (POOL_LOG 30 + the 3 2^k planes), 2 = 2^31 (POOL_LOG 31), 3 = 3 2^30 (POOL_LOG 31 +
  * the 3 2^k planes).  Device = the plane pools at the prime count (rns_plane_pool_bytes) + the arena + the transform contexts
  * (0.61 GB measured at 2^31, taken for every cap); host = the init peak's constants (runtime 7.0 GB, the checkpoint staging
@@ -831,10 +831,10 @@ void binsplit_pregrow(unsigned long N)
     if (getenv("BS_LAYOUT_ONLY")) { binsplit_layout_only(getenv("BS_LAYOUT_ONLY")); exit(0); }   /* Phase 13a M: the arena request without the arena */
     if (getenv("BS_BALANCE_N")) bs_balance_n = atoi(getenv("BS_BALANCE_N"));
     size_t total0 = seed_limbs(N, 0, 0);
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): regions per device and the host pool touch in parallel */
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (archive:PLAN §18, O1): regions per device and the host pool touch in parallel */
     int nhp = total0 > ((size_t)1 << 28) ? 1 : 0;   /* one host pool (A's buffer; the top levels run on device), first-touched now */
     double t_pg = mem_now();
-    size_t need[NR]; region_need(N, need);   /* C4: regions from the simulated layout (the flat paper-era sizing BS_REGION_FLAT removed 2026-10-11) */
+    size_t need[NR]; region_need(N, need);   /* C4: regions from the simulated layout (the earlier flat sizing BS_REGION_FLAT removed 2026-10-11) */
     /* the arena also serves the dm phase as the block pool (the regions are donated to it); its size is the bs need alone
      * (ECALC_DM_POOL_K, a k x n_Q floor, was removed 2026-10-11: same wall clock within the spread, results/A-mem.md).
      * ECALC_ARENA_GB sets the arena per APU outright. */
@@ -886,7 +886,7 @@ void binsplit_pregrow(unsigned long N)
     }
     g_in_pregrow = 0;
 }
-/* WP7: periodic snapshots of the level loop (PLAN.md 15, WP7).  A checkpoint is the state the
+/* WP7: periodic snapshots of the level loop (archive:PLAN §15, WP7).  A checkpoint is the state the
  * loop needs at the top of an iteration: the node table of the current level, `which`, the
  * level number, and the used limbs of each region's pool (offr[r] limbs, laid out sequentially
  * by the level's layout pass).  The mdev-tier levels keep their results in the host pool
@@ -898,7 +898,7 @@ void binsplit_pregrow(unsigned long N)
  * lives on storage; a snapshot every bs_ckpt_every levels costs one pass through the host
  * (mem_dev_copy from the device regions in 1 GiB chunks through the pinned staging).
  *
- * M6 (PLAN.md 19, results/A-ckpt.md): (1) levels whose nodes are device numbers (the dev_mdev top
+ * M6 (archive:PLAN §19, results/A-ckpt.md): (1) levels whose nodes are device numbers (the dev_mdev top
  * levels, WP5) are snapshotted too: file r holds, node by node, the limbs [pn r/4, pn (r+1)/4) of
  * P and the same quarter of Q -- a limb range, not a device quarter, so the reader's placement
  * (db_reserve) need not match the writer's; offr[r] is file r's limbs, so ckpt_find checks the
@@ -1508,7 +1508,7 @@ static void seeds_stream(struct seed_stream *ss, struct level *cur, size_t per, 
     tw = mem_now(); for (int b = 0; b < 2; b++) { mem_hstage_free(ss->buf[b]); ss->buf[b] = 0; } ss->t_free = mem_now() - tw;
 }
 static size_t seed_region_limbs(size_t per, const size_t *r0, int r) { return 2 * per * (r0[r + 1] - r0[r]) + 2; }
-/* Phase 8 I2: the seeds computed in a background thread during init's device allocations (PLAN.md 16); binsplit_e
+/* Phase 8 I2: the seeds computed in a background thread during init's device allocations (archive:PLAN §16); binsplit_e
  * joins and takes the level-0 table from here.  B2: streamed to the regions as they are computed (above) */
 static struct { int active, joined; pthread_t th; unsigned long N, nspan; size_t per, r0[NR + 1]; struct node *nd; double t; struct seed_stream ss; } g_pre;
 static void *pre_seeds_run(void *a)

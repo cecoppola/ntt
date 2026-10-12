@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""mn_model.py - the fabric model of the multi-node run (Phase 11 agent X, PLAN.md 25/26: X2; Phase 12 agent Q: the
+"""mn_model.py - the fabric model of the multi-node run (Phase 11 agent X, archive:PLAN §25/26: X2; Phase 12 agent Q: the
 real level schedule, both memory forms, the calibration on every aac6 point, estimate()).
 
 Per node, for D digits per node over g nodes: the wall by phase, the bytes on the fabric (per NIC and on the
 dragonfly's global links), the exposed (un-hidden) communication, the memory, and the total digits.  The
 single-node phases come from the measured table below; the distributed levels, the sharded reciprocal and the
 sharded division are built product by product (the same grids, chains and cuts the code forms) from the measured
-2^31-point piece product and the target fabric (PLAN 25: 100 GB/s per APU, two-tier dragonfly, ~2 us per message).
+2^31-point piece product and the target fabric (archive:PLAN §25: 100 GB/s per APU, two-tier dragonfly, ~2 us per message).
 
     ./mn_model.py                  the tables: D in {4e10, 8e10, 1e11} x g in {4, 64, 576} (+ the headline)
     ./mn_model.py --calib          the aac6 calibration (sizes 2, 3, 4, 6, 9 at 10^8-10^10 on one node, TCP and OSHMEM loopback)
@@ -2332,7 +2332,7 @@ def main():
 
 
 # ============================================================================================================
-# Phase 14 R1 (PLAN 34 row R1, results/R114.md): E7 the reciprocal's products cut to the band read, E9 Karatsuba over
+# Phase 14 R1 (archive:PLAN §34 row R1, results/R114.md): E7 the reciprocal's products cut to the band read, E9 Karatsuba over
 # the device grid, E10 the 576-node tree-level spill.  Model terms only: the calibrated path (run / node_phases) is
 # untouched; every function here is evaluated on demand (--e7 / --e9 / --e10).  Labels: the pipeline law's constants
 # are FITTED (D2), the Karatsuba add rate and the spill's hidden writes are ASSUMED (said where used).

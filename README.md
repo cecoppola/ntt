@@ -56,7 +56,7 @@ Multi-node, one process per node:
 
     SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env <settings> ./ecalc <digits> [outfile]
 
-`mnrun.sh` sets the communicator environment. The launch lines (test system and target) are in `PLAN.md` §3;
+`mnrun.sh` sets the communicator environment. The launch lines (test system and target) are in `PLAN.md` section 3;
 `ecalc/target_kit.sh -h` describes the target session. Cluster access is described in the private protocol.
 
 ## Test

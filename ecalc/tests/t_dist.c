@@ -247,7 +247,7 @@ static int one_xgmi(int prime, int logR, int logC)
     free(hx); free(hy); free(ref); free(got);
     return bad == 0 && !bad_ag;
 }
-/* ---- Phase 15 P (PLAN 36): one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
+/* ---- Phase 15 P (archive:PLAN §36): one distributed transform above 2^33 points (the roots from the generator, modarith.h) ----------
  * DIST_BIG=<logn> [DIST_BIG_PRIMES=0,2] [DIST_BIG_K=64]: four real APUs over xGMI (ntt_dist.c plan_create: ec_root(prime, logn)), no
  * single-device reference (2^34 points = 128 GiB per plane).  Per prime: (1) forward + inverse of a dense plane x[m] = h(m) mod p
  * must give x back (the inverse scales by n^-1); (2) the square of a sparse plane (K random points, random values: fwd, pw(x, x),
@@ -319,7 +319,7 @@ static int big_xgmi(int prime, int logn, int K)
     free(pos); free(val); free(cpos); free(cval);
     return bad[0] == 0 && bad[1] == 0;
 }
-/* ---- Phase 13a X (PLAN.md 29 E9 part 1, H4): the measurement drivers ---- */
+/* ---- Phase 13a X (archive:PLAN §29 E9 part 1, H4): the measurement drivers ---- */
 extern "C" void comm_layered_stats_report(const char *tag);
 extern "C" void comm_xgmi_h4(int me, int mode, size_t bytes, int blocks, int reps, double *out);
 /* H4 (DIST_H4=1): the xGMI push's link concurrency, comm_xgmi_h4's modes at DIST_H4_MB per pair (default 256) */

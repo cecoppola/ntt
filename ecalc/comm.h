@@ -1,4 +1,4 @@
-/* comm.h - the rank abstraction of design A (PLAN.md 15, WP5).
+/* comm.h - the rank abstraction of design A (archive:PLAN §15, WP5).
  *
  * A "rank" is one APU slot p (prime p) of one node.  The communicator groups
  * the ranks that hold the same prime across nodes: every distributed
@@ -117,7 +117,7 @@ comm *comm_tcp_create_at(int me, int n, const char *hosts_csv, int port_base);  
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the
  * g nodes, rank = node); this APU thread d is global rank g d + node, size 4 g (comm_layered.c) */
 comm *comm_layered_create(comm *intra, comm *inter, int d);
-/* Phase 11 S (PLAN.md 25-26): the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
+/* Phase 11 S (archive:PLAN §25-26): the SHMEM transport (comm_shmem.c; COMM_TRANSPORT=shmem, launched by oshrun / srun).  One PE
  * per node-process; a communicator is a strided PE set {pe_start + pe_stride r : r < n} -- the shim for OpenSHMEM 1.5
  * teams -- created by all its members with a run-unique id (mn.c: per level slot and APU thread).  comm_shmem_init
  * (shmem_init_thread, the symmetric pool) is called once per process, by mn_init or the first create. */
@@ -135,7 +135,7 @@ void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 void  comm_layered_release_vslots(comm *c);   /* M3: COMM_LAYER_VSLOT_RELEASE=1 -- free the pool v-slots after a product's v-exchanges (no-op otherwise) */
 size_t comm_layered_vbytes(int dev);   /* B7ACCT: the v-exchange scratch hipMalloc'd now on device dev (all layered communicators) */
-/* S (PLAN.md 25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
+/* S (archive:PLAN §25, MN_TOPO_GROUP): the same in the intra-minor rank order, rank = size(intra) rank(inter) + rank(intra), any
  * intra size, on device dev -- the dragonfly's third layer: intra = the nodes of one group, inter = across the groups */
 comm *comm_layered_create_minor(comm *intra, comm *inter, int dev);   /* a device scratch of one slab buffer for the block transposes (else hipMalloc'd) */
 

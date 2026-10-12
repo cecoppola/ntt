@@ -1,4 +1,4 @@
-/* mn_out.c - per-node output and verification: see mn_out.h (Phase 9 A-out, PLAN.md 19 M5 + C1) */
+/* mn_out.c - per-node output and verification: see mn_out.h (Phase 9 A-out, archive:PLAN §19 M5 + C1) */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>

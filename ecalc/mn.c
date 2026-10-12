@@ -1,5 +1,5 @@
 /* mn.c - the multi-node layer: environment, one mesh per APU thread (TCP, or SHMEM PE sets with COMM_TRANSPORT=shmem --
- * Phase 11 S), the start-up self-test (PLAN.md 17, M1) */
+ * Phase 11 S), the start-up self-test (archive:PLAN §17, M1) */
 #include <stdio.h>
 #include "fatal.h"
 #include <stdlib.h>
@@ -160,7 +160,7 @@ int mn_selftest(int logR, int logC, int verbose)
     return ok;
 }
 
-/* ---- Phase 8 M3: node groups, the layered self-test, the distributed top levels of the tree (PLAN.md 17) ---- */
+/* ---- Phase 8 M3: node groups, the layered self-test, the distributed top levels of the tree (archive:PLAN §17) ---- */
 #include "mdb.h"
 #include "dbig.h"
 #define MN_MAXL 16
@@ -180,7 +180,7 @@ static comm *sub_mesh(int g0, int g, int slot, int d)
     if (g_shmem) return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
     char *h = hosts_of(g0, g); comm *c = comm_tcp_create_at(g_rank - g0, g, h, g_port + 512 * slot + 64 * d + g0); free(h); return c;
 }
-/* S (PLAN.md 25): the dragonfly's third layer.  MN_TOPO_GROUP=T (nodes per dragonfly group, contiguous in the node
+/* S (archive:PLAN §25): the dragonfly's third layer.  MN_TOPO_GROUP=T (nodes per dragonfly group, contiguous in the node
  * numbering): the transform nodes [g0, g0+gt) of a group, when T divides gt and gt > T, exchange through an inner
  * layered communicator in the intra-minor order (node = T a + b): intra = the T nodes of dragonfly group a (one switch
  * hop), inter = the nodes with in-group index b across the gt/T groups (the global links: one aggregated message per
@@ -229,7 +229,7 @@ mn_group *mn_group_at(int level)
     g_groups[level] = G;
     return G;
 }
-/* Phase 12 G (agent G; the tree's schedule, PLAN 27 row G): the group [g0, g0+g) of schedule level l (mn_groups_parse: MN_GROUPS).
+/* Phase 12 G (agent G; the tree's schedule, archive:PLAN §27 row G): the group [g0, g0+g) of schedule level l (mn_groups_parse: MN_GROUPS).
  * A group that is one of the binary levels' -- G_l a power of two, or the whole machine -- IS mn_group_at's (the same meshes,
  * the same slots: the default schedule runs exactly as before); any other size (3, 6, 192 ...) gets its own meshes on the
  * slot 2 MN_MAXL + l (every node of the group takes part in the transform: no tr, no topo layer -- L's general map) */
@@ -344,7 +344,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
  * operand sharded over its own group's nodes and the results over the joined group.  The other side's
  * descriptors (n, N, g0, g) come from an all-gather over the group; nothing else is exchanged outside the
  * products.  In: this node's leaf P_r, Q_r (device numbers, taken over); out: shares of P, Q over all nodes. */
-/* M6 (PLAN.md 19, results/A-ckpt.md): the tree level every node restarts from -- the lowest, over the nodes, of each
+/* M6 (archive:PLAN §19, results/A-ckpt.md): the tree level every node restarts from -- the lowest, over the nodes, of each
  * node's highest complete tree set (a node writes level l, then all nodes meet at a barrier, then the superseded
  * set goes: so the lowest level present is present everywhere); computed once, the sets above it discarded */
 #include "binsplit.h"

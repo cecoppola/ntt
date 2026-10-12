@@ -1,4 +1,4 @@
-/* comm_layered.c - the layered communicator (Phase 8 M3, PLAN.md 17): the rank space of a whole-machine
+/* comm_layered.c - the layered communicator (Phase 8 M3, archive:PLAN §17): the rank space of a whole-machine
  * transform is (4 APUs) x (g nodes).  APU d of node r is global rank rho = g d + r (APU-major), so the g
  * slabs bound for the APUs d' of every node are contiguous in the sender's slab buffer.  An all-to-all is
  * two exchanges with a block transpose between them:
@@ -35,7 +35,7 @@
 #include <time.h>
 #include <unistd.h>
 #define NA 4
-/* ---- Phase 13a X (PLAN.md 29 E9 part 1): the stage timeline of every exchange, COMM_LAYER_STATS=1|2 (default 0: off,
+/* ---- Phase 13a X (archive:PLAN §29 E9 part 1): the stage timeline of every exchange, COMM_LAYER_STATS=1|2 (default 0: off,
  * nothing recorded, no branch taken beyond the flag test).  Per exchange: a0 entry, [x0, x1] the xGMI stage (the intra
  * post + wait), r1 ready for the fabric (the transpose done), [f0, f1] the fabric stage (the inter post .. its completion),
  * c1 the exchange complete (the transpose back).  f1: mode 1 (passive) = when the inter wait returned in the normal
@@ -467,7 +467,7 @@ static void complete_v(comm *c)
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
-/* ---- Phase 13b X (PLAN.md 31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (the default since Phase 13c; 1 = the one-deep path) -- the v-exchange pipelined two deep
+/* ---- Phase 13b X (archive:PLAN §31 axis A, 29 E9 part 2): COMM_ALLTOALLV_DEPTH=2 (the default since Phase 13c; 1 = the one-deep path) -- the v-exchange pipelined two deep
  * like the equal-slab one: the intra stage and the transpose of exchange k run while exchange k-1's inter stage is on the
  * wire; then k-1 is completed (its inter wait and scatter: "posting k completes k-1" still holds, which gen_inv_pw relies on)
  * and k's inter stage is posted (the inter transport takes one at a time).  The x0 area (the send slabs reordered, only when

@@ -1,4 +1,4 @@
-/* t_school - CPU limb arithmetic throughput, decimal limbs (WP1 attribution item 1; the binary base is archived, PLAN 28.5):
+/* t_school - CPU limb arithmetic throughput, decimal limbs (WP1 attribution item 1; the binary base is archived, archive:PLAN §28.5):
  * schoolbook (ns per limb^2), mul_1, and the big passes the Newton loop uses
  * (add, sub, cmp, shr by limbs) at 2^26 limbs.
  * Build: cc -O3 -fopenmp -I.. t_school.c ../bigint.c -o t_school */

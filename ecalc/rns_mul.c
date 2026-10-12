@@ -45,7 +45,7 @@ __global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
 }
 
 void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
-size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the paper's) */
+size_t rns_staging_bytes_req = 0;                                  /* Phase 8 step 3: the pinned staging per APU (0 = 8 << pool_log, the default) */
 static size_t g_staging_bytes;
 size_t rns_staging_bytes(void) { return g_staging_bytes; }
 size_t rns_pool1_bytes_req = 0;                                    /* Phase 9 C4: plane pool 1 per APU (0 = 8 << pool_log, the paper's; the device flow needs 3 q + 16 limbs) */
@@ -84,7 +84,7 @@ int rns_pool0_np(void)
     const char *e = getenv("COMM_SIZE"); int g = e ? atoi(e) : 1; if (g < 1) g = 1;
     return ec_np_planes(g_pool_log ? g_pool_log : 31, g);
 }
-/* Phase 13b P (PLAN 31 step 0.3): the plane pools' bytes per APU as rns_init makes them, from (pool_log, the 3 2^k planes,
+/* Phase 13b P (archive:PLAN §31 step 0.3): the plane pools' bytes per APU as rns_init makes them, from (pool_log, the 3 2^k planes,
  * the prime count) alone -- the one formula for rns_init, rns_pool1_default_bytes and binsplit's BS_LAYOUT_ONLY report (and
  * mem_model.py's port).  q = the dist tier's rank plane per prime: 2^(pool_log-2), or 3 2^(pool_log-3) with the 3 2^k planes
  * (the plane cap n = 4 q: 2^pool_log or 3 2^(pool_log-1)).  Pool 0 = np q limbs (the np planes xa[]; four primes without the
@@ -120,7 +120,7 @@ size_t rns_plane_limbs(void)                                       /* plane pool
 }
 size_t rns_dpool_cap(int dev, int which) { return which ? D[dev].db.cap : D[dev].da.cap; }
 size_t rns_pool1_default_bytes(int pool_log)                       /* what the dist tier uses of pool 1 at 2^pool_log points: xb (q + 16) | sbuf (q) | rbuf (q), 2 MiB-aligned;
-                                                                    * never below the paper's full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
+                                                                    * never below the full pool for pool_log <= 30, where the batch tier's 2^30 tile needs it (so the pool never grows inside a phase there);
                                                                     * B3: q = 3 2^(pool_log-3) with the 3 2^k planes */
 {
     size_t b; rns_plane_pool_bytes(pool_log, planes_3q30(), ec_np_init(), 0, &b); return b;   /* Phase 13b P: the one formula.  Phase 15 PS: at the one-node tiers' prime count (four: 4 q, the batch-local tier's B planes; three / auto: 3 q + 16 as before) */
@@ -142,13 +142,13 @@ int rns_init(int pool_log)
     if (g_nd < EC_NP) { ec_fatal(EC_RC_FATAL, "rns_init: need %d devices, have %d\n", EC_NP, g_nd); }
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
-    if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the paper's), capped by the pools */
-    bi_check_base();                              /* PLAN 28.5: LIMB_BASE other than 10 is refused loudly */
+    if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the default), capped by the pools */
+    bi_check_base();                              /* archive:PLAN §28.5: LIMB_BASE other than 10 is refused loudly */
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
     if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
     else if (ec_np == 3) { ec_np_check(0, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }
     size_t bytes = (size_t)8 << g_pool_log, sbytes = rns_staging_bytes_req ? rns_staging_bytes_req : bytes; g_staging_bytes = sbytes;
-    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (PLAN 18, O1): one thread per device */
+    int par = getenv("ECALC_OVERLAP") ? atoi(getenv("ECALC_OVERLAP")) : 1;   /* Phase 8 (archive:PLAN §18, O1): one thread per device */
     mem_par_init = par;
     double ti0 = mem_now();
 #pragma omp parallel for num_threads(g_nd) schedule(static) if(par)
@@ -178,7 +178,7 @@ int rns_init(int pool_log)
         if (ec_np == 3 && rns_pool0_np() == 4) { size_t p0; rns_plane_pool_bytes(g_pool_log, planes_3q30(), 4, &p0, 0); dpool_get_exact(&D[d].da, d, p0); }   /* NP (ECALC_NP=auto): four planes where a product may need them */
         else if (ec_np == 3) dpool_get_exact(&D[d].da, d, pool0_np3_bytes());   /* P3: the dist tier's 3 q (3/4 of the four-prime pool) */
         else if (planes_3q30()) dpool_get_exact(&D[d].da, d, ((size_t)3 << (g_pool_log - 1)) * 8);   /* B3: 3 2^(pool_log-1) limbs exactly (24 GiB), not the power of two above it */
-        else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log (paper) */
+        else dpool_get(&D[d].da, d, bytes);      /* pregrow to 2^pool_log */
         dpool_get_exact(&D[d].db, d, b1);
     }
     db_tl("plane pools done (%.2f s)", mem_now() - ti1);

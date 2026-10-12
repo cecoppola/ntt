@@ -1,4 +1,4 @@
-/* crt.h - CRT of the four residue planes into limbs (PLAN.md 8, step 4).
+/* crt.h - CRT of the four residue planes into limbs (ALGORITHM.md §4.3).
  *
  * CPU: Garner with M1 = P0 P1 (128-bit) and M2 = M1 P2 (192-bit) precomputed,
  * __int128 % for the modular steps (rule 7: 1.8x faster than FP64 Barrett on

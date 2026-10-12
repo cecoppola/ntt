@@ -1,16 +1,15 @@
-/* gen_e - reference digits of e by GMP binary splitting (PLAN.md 8, step 0).
+/* gen_e - reference digits of e by GMP binary splitting (TESTING.md §5).
  *
- * e = sum 1/k!, k = 0..N, with N = min{m : lgamma(m+1)/ln10 >= d + 50} as the
- * paper chooses.  Two-variable recursion over [a,b):  Q = a(a+1)...(b-1),
+ * e = sum 1/k!, k = 0..N, with N = min{m : lgamma(m+1)/ln10 >= d + 50} (the same N as ecalc).  Two-variable recursion over [a,b):  Q = a(a+1)...(b-1),
  * P = sum_{k=a}^{b-1} (k+1)...(b-1), so P/Q = sum_{k=a}^{b-1} 1/(a...k) and
- * e = 1 + P(1,N+1)/Q(1,N+1).  Combine: P = P1 Q2 + P2, Q = Q1 Q2 (the paper's
- * bs).  The top levels of the tree run as OpenMP tasks.
+ * e = 1 + P(1,N+1)/Q(1,N+1).  Combine: P = P1 Q2 + P2, Q = Q1 Q2 (the same recursion as
+ * ecalc's bs).  The top levels of the tree run as OpenMP tasks.
  *
  * Output (in DIR, default ref/):
  *   e_<d>.txt      "2." followed by d fractional digits and a newline
  *   e_<d>.sha256   one line per 10^6-digit block of the fractional digits:
  *                  "<block> <sha256>", plus a final line for the whole string
- * Also prints the 50-digit windows at the paper's tier-2 offsets.
+ * Also prints the 50-digit windows at the tier-2 offsets.
  *
  * Usage: gen_e <digits> [DIR]        e.g. gen_e 1000000000 ref
  */
