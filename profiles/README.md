@@ -4,7 +4,7 @@ Scope: the machine profiles (`*.conf`, the template), their format, what belongs
 Maintained: updated in the same merge as any change to a profile, the loader/checker or the settings they hold.
 
 Status (O3, merged 2026-10-12): step 2 done. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
-default); `tools/with_profile.sh NAME -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
+default); `tools/profile_load.py NAME --run -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
 `gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/O3.md.
 T27 (2026-10-12): the computed values have one source. `ecalc/mnrun.sh` computes them for every launch (the pool from the planner,
 `MN_PLAN_ONLY`; the heap; `FI_UNIVERSE_SIZE`), the code computes `MN_GROUPS` (its default schedule); `tools/plan_values.py
@@ -59,8 +59,8 @@ Switches slated for removal (tiers A and B of `results/A11.md`) are never put in
 ## Checking a profile
 
 ```
-tools/profile_check.sh profiles/aac7.conf          # compare with the aac7 launch lines (e16_headline.sh LINE, aac7env.sh exports)
-tools/profile_check.sh profiles/aac6.conf -q       # problems only; --launch=aac7 forces the aac7 comparison, --strict exits 1 on MISMATCH/UNKNOWN
+tools/profile_load.py aac7 --check                 # compare with the aac7 launch lines (e16_headline.sh LINE, aac7env.sh exports)
+tools/profile_load.py aac6 --check -q              # problems only; --launch=aac7 forces the aac7 comparison, --strict exits 1 on MISMATCH/UNKNOWN
 ```
 
 Statuses: MATCH (a launch line sets the same value), MISMATCH (it sets a different one), PROFILE-ONLY (no launch line sets it; the

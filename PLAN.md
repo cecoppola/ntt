@@ -84,7 +84,7 @@ flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table 
 nodes (TASKS 23), performance on aac7 (largest item: the distributed division multiply), and the documentation pass.
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
-1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_check.sh`.
+1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_load.py target --check`.
 2. Kit preflight: environment record, build (`-DCOMM_SHMEM`), libfabric memory monitor (uffd), plan check
    (`MN_PLAN_ONLY` must end with `plan check ... OK`), the memory edge, a node screen (`tools/nodescreen.sh`).
 3. Measurements: A3 (`comm_ofi` injection per NIC, one vs two NICs per APU) and A4 (all-to-all scaling with node count).
