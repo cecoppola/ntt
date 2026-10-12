@@ -20,7 +20,7 @@ say() { echo "$(TZ=America/New_York date '+%Y-%m-%d %H:%M:%S %Z') $*" | tee -a "
 want() { [[ ",$STEPS," == *",$1,"* ]]; }
 finish() { say "finish: $1"; { echo "$1"; tail -n 60 "$LOG"; } > "$O/DONE"; exit 0; }
 NODES=$(scontrol show hostnames "$(squeue -j "$J" -h -o %N)")
-BASE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 MN_COMM_MARK=1 COMM_OFI_VERBOSE=1"
+BASE="COMM_TRANSPORT=shmem COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MEM_REPORT_DEVS=1 MN_COMM_MARK=1 COMM_OFI_VERBOSE=1"
 onn() { local g=$1; shift; srun --jobid="$J" -N "$g" -w "$(echo "$NODES" | head -n "$g" | paste -sd,)" --ntasks="$g" --ntasks-per-node=1 -c 4 --overlap --export=ALL bash -c "$1"; }
 ctr() { onn "$1" 'h=$(hostname -s); for i in 0 1 2 3; do t=/sys/class/cxi/cxi$i/device/telemetry; echo "$h cxi$i $(cat $t/hni_sts_tx_ok_octets 2>/dev/null | cut -d@ -f1) $(cat $t/hni_sts_rx_ok_octets 2>/dev/null | cut -d@ -f1)"; done' 2>/dev/null | sort; }
 ctrdiff() { join <(awk '{print $1"_"$2, $3, $4}' "$1") <(awk '{print $1"_"$2, $3, $4}' "$2") | awk '{ printf "%s tx %.2f GB rx %.2f GB; ", $1, ($4 - $2) / 1e9, ($5 - $3) / 1e9 } END { print "" }'; }

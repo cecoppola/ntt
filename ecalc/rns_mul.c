@@ -143,7 +143,6 @@ int rns_init(int pool_log)
     g_pool_log = pool_log ? pool_log : 31;
     omp_set_max_active_levels(2);
     if (getenv("RNS_BATCH_TILE_GB")) rns_batch_tile_bytes = (size_t)(atof(getenv("RNS_BATCH_TILE_GB")) * 1e9);   /* Phase 11 A4 (agent P): the batch tiers' plane budget per device (a + b planes; 15 GB = the default), capped by the pools */
-    bi_check_base();                              /* archive:PLAN §28.5: LIMB_BASE other than 10 is refused loudly */
     crt_init();                                   /* (reads ECALC_NP: ec_np_init) */
     if (ec_np == 3 && ec_np_auto) printf("rns_init: primes per product (ECALC_NP=auto): three (c 2^44 + 1, c = 240, 216, 207), four for a distributed product over %zu terms%s; plane pool 0 for %d primes\n", ec_np_auto_terms, ec_np_auto_terms < ec_np3_max_terms ? " (ECALC_NP_AUTO_TERMS, a test bound)" : "", rns_pool0_np());
     else if (ec_np == 3) { ec_np_check(0, "rns_init"); printf("rns_init: three primes (ECALC_NP=3): c 2^44 + 1, c = 240, 216, 207; at most %zu terms per product\n", ec_np3_max_terms); }

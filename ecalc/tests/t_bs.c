@@ -1,8 +1,8 @@
 /* t_bs - step 6 test: binsplit against the GMP recursion and the reference digits.
  *
  *  1. P, Q for N = 10^3 .. 10^6 (10^7 with "long") vs binsplit_ref with the
- *     tier thresholds lowered (seed 8 terms, school 4 limbs) so every tier
- *     runs, and at the defaults
+ *     seed span lowered (8 terms) and at 512 terms (the CPU schoolbook tier,
+ *     BS_SCHOOL_NL, was removed 2026-10-12)
  *  2. e to 10^6 and 10^7 digits end to end through GMP division and
  *     mpz_get_str, compared with ref/e_<d>.txt (SHA-256 of the whole string)
  *
@@ -15,19 +15,19 @@
 #include "../rns_mul.h"
 #include "../mem.h"
 
-static int check_pq(unsigned long N, int seed, int school)
+static int check_pq(unsigned long N, int seed)
 {
     bigint P, Q, Pr, Qr; bi_init(&P); bi_init(&Q); bi_init(&Pr); bi_init(&Qr);
-    bs_seed_terms = seed; bs_school_nl = school;
+    bs_seed_terms = seed;
     binsplit_e(&P, &Q, N);
     mpz_t p, q; mpz_inits(p, q, NULL);
     double t0 = now();
     binsplit_ref(&Pr, &Qr, 1, N + 1);
     double tr = now() - t0;
     int ok = bi_cmp(&P, &Pr) == 0 && bi_cmp(&Q, &Qr) == 0;
-    VERIFY(ok, "N = %lu seed %d school %d: P/Q differ (P %zu vs %zu limbs, Q %zu vs %zu)", N, seed, school, P.n, Pr.n, Q.n, Qr.n);
-    printf("   N %-9lu seed %-4d school %-4d: %.2f s (levels %d: school %d batch %d mdev %d; seeds %.2f) ref %.2f s  Q %zu limbs\n",
-           N, seed, school, bs_st.t_total, bs_st.levels, bs_st.school_levels, bs_st.batch_levels, bs_st.mdev_levels, bs_st.t_seed, tr, Q.n);
+    VERIFY(ok, "N = %lu seed %d: P/Q differ (P %zu vs %zu limbs, Q %zu vs %zu)", N, seed, P.n, Pr.n, Q.n, Qr.n);
+    printf("   N %-9lu seed %-4d: %.2f s (levels %d: batch %d mdev %d; seeds %.2f) ref %.2f s  Q %zu limbs\n",
+           N, seed, bs_st.t_total, bs_st.levels, bs_st.batch_levels, bs_st.mdev_levels, bs_st.t_seed, tr, Q.n);
     mpz_clears(p, q, NULL); bi_free(&P); bi_free(&Q); bi_free(&Pr); bi_free(&Qr);
     return ok;
 }
@@ -40,17 +40,17 @@ int main(int argc, char **argv)
     setenv("DB_POOL_VMM", "0", 0);   /* this test reads P and Q on the host; a VMM range is device-only (the VMM pool, the default since Phase 14, is covered by mnaccept's e9 and full steps) */
     rns_init(31);
     printf("-- 1. P, Q vs the GMP-free reference recursion\n");
-    check_pq(1000, 8, 4); check_pq(1000, 512, 160);
-    check_pq(100000, 8, 4); check_pq(100000, 512, 160);
-    check_pq(1000000, 8, 4); check_pq(1000000, 512, 160);
-    if (lng) check_pq(10000000, 32, 16);
+    check_pq(1000, 8); check_pq(1000, 512);
+    check_pq(100000, 8); check_pq(100000, 512);
+    check_pq(1000000, 8); check_pq(1000000, 512);
+    if (lng) check_pq(10000000, 32);
 
     printf("-- 2. e end to end vs ref/\n");
     static const unsigned long ds[] = {1000000, 10000000};
     for (int i = 0; i < 2; i++) {
         unsigned long d = ds[i], N = e_terms(d);
         bigint P, Q; bi_init(&P); bi_init(&Q);
-        bs_seed_terms = 512; bs_school_nl = 160; bs_verbose = 1;
+        bs_seed_terms = 512; bs_verbose = 1;
         binsplit_e(&P, &Q, N);
         bs_verbose = 0;
         mpz_t p, q, x; mpz_inits(p, q, x, NULL);

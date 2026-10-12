@@ -31,7 +31,6 @@ unsigned long bs_N = 0;                              /* M6: the run's N, for the
 
 bs_stats bs_st;
 int bs_seed_terms = 256;                             /* BS_SEED_TERMS: seed span; 256 measured best in both bases (RESULTS.md 58), 512 was the earlier value */
-int bs_school_nl = 0;                                /* BS_SCHOOL_NL: CPU schoolbook tier below this many limbs; 0 = never (WP4: the device batch tier is faster at any size, and the pools are device memory) */
 int bs_verbose = 0;
 const char *bs_ckpt_dir = 0;                         /* BS_CKPT_DIR: WP7 per-level checkpoints of the level loop; unset = none */
 int bs_ckpt_every = 4;                               /* BS_CKPT_EVERY: a checkpoint every this many levels */
@@ -267,7 +266,6 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
 {
     if (getenv("BS_SEED_TERMS")) bs_seed_terms = atoi(getenv("BS_SEED_TERMS"));
     if (bs_seed_fill() > 0) bs_seed_terms = (int)bs_seed_terms_for(bs_b1 ? bs_b1 : N + 1);   /* Phase 15 T2 (default 128 since Phase 15) */
-    if (getenv("BS_SCHOOL_NL")) bs_school_nl = atoi(getenv("BS_SCHOOL_NL"));
     if (getenv("BS_MDEV_LOGL")) bs_mdev_logl = atoi(getenv("BS_MDEV_LOGL"));
     unsigned long S = bs_seed_terms, nterms = bs_b1 ? bs_b1 - bs_a0 : N, nspan = (nterms + S - 1) / S;
     size_t per = (S * (size_t)ceil(log2((double)N + 2.0)) + 128) / 59 + 2;   /* a decimal limb holds 59.8 bits */
@@ -290,8 +288,7 @@ static size_t seed_limbs(unsigned long N, size_t *per_out, unsigned long *nspan_
  * lgamma(b) - lgamma(a) in limbs, the measure bs_seed_terms_for uses -- so a level is skipped only when even that bound is
  * over the limit (the run then takes it through the mdev tier for sure); the bound is 0.97-0.99 of the real size, so at
  * most one more level than before is counted, and only where the old rule would have aborted the run or came within 3 %
- * of it.  BS_POOL_RULE=0 keeps the old rule (byte-identical layout).  mem_model.py region_need follows it. */
-static int bs_pool_rule(void) { static int v = -1; if (v < 0) v = getenv("BS_POOL_RULE") ? atoi(getenv("BS_POOL_RULE")) : 1; return v; }
+ * of it.  (BS_POOL_RULE=0, the old rule, removed 2026-10-12.)  mem_model.py region_need follows it. */
 static size_t level_q_lower(unsigned long a0, unsigned long nterms, unsigned long S, size_t m_full, unsigned long nspan)
 {
     unsigned long nfull = nspan / m_full; if (!nfull) return 0;
@@ -309,9 +306,8 @@ static void region_need(unsigned long N, size_t need[NR])
     int *cur_r = 0, *nxt_r = 0;
     for (int l = 0; ; l++) {
         size_t n_in = (nspan + ((size_t)1 << l) - 1) >> l; if (n_in <= 1) break;
-        size_t m_full = (size_t)1 << l, max_nl = m_full * per + l;                 /* the bound on any node of level l */
-        int mdev_level = 2 * (size_t)(0.9 * max_nl) + 1 > ((size_t)1 << bs_mdev_logl);   /* the real sizes are 0.90-0.945 of the bound at the levels below the top (measured 10^6..4x10^10); a miss costs one pool growth, not a failure; 0.85 pulled the 3-node level in at 4e10 and doubled the regions */
-        if (bs_pool_rule()) mdev_level = 2 * level_q_lower(a0, nterms, S, m_full, nspan) + 1 > ((size_t)1 << bs_mdev_logl);   /* Phase 16 R: from the lower bound (a miss was an abort since Phase 12 R) */
+        size_t m_full = (size_t)1 << l;
+        int mdev_level = 2 * level_q_lower(a0, nterms, S, m_full, nspan) + 1 > ((size_t)1 << bs_mdev_logl);   /* Phase 16 R: from the lower bound (a miss was an abort since Phase 12 R) */
         if (mdev_level) break;                                                    /* the mdev levels use device numbers */
         size_t npairs = n_in / 2, odd = n_in & 1, n = npairs + odd, offr[NR] = {0};
         if (n <= (size_t)bs_balance_n) nxt_r = (int *)malloc(n * sizeof *nxt_r);
@@ -345,9 +341,8 @@ static size_t quarter_bytes(size_t limbs) { return ((limbs + 3) / 4 + 4095) / 40
  * consumed; dm_layout's v2 / v3 follow (E2: -1 n_Q of arena).  DM_TAIL_DEAD=1 -- v3 no longer reserves the hole beside the top level:
  * after the top level its dead inputs' space becomes the block pool's tail (db_pool_retarget_tail); =2 -- also v2 without the P term
  * (E5: P spilled during the reciprocal), which needs the spill (W2): refused at init until dm_p_spill_wired says it is there. */
-int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0, mn_tree_early_free = -1;
-void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (Phase 14; it places DM_TIGHT's blocks) */ dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0;
-                                            mn_tree_early_free = getenv("MN_TREE_EARLY_FREE") ? atoi(getenv("MN_TREE_EARLY_FREE")) : 1;   /* default 1 since Phase 14 (T114) */ } }
+int dm_tight = -1, dm_tail_dead = -1, dm_p_spill_wired = 0;
+void dm_switches(void) { if (dm_tight < 0) { dm_tight = getenv("DM_TIGHT") ? atoi(getenv("DM_TIGHT")) : db_pool_vmm_on();   /* default: on with the VMM pool (Phase 14; it places DM_TIGHT's blocks) */ dm_tail_dead = getenv("DM_TAIL_DEAD") ? atoi(getenv("DM_TAIL_DEAD")) : 0; } }
 static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_scratch)
 {
     /* Phase 12 G (agent G, minimal: the body): the tree's levels follow the MN_GROUPS schedule (mn_groups_parse; default the binary
@@ -365,8 +360,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
         size_t share_child = nq_leaf + 8, share_run = (nb + g - 1) / g, share_new = (nc + g - 1) / g;
         int pieces = 0; size_t scratch = rns_mul_dist_mn_scratch(na, nb, 1, g, share_child, share_run, share_new, &pieces);
         size_t c = quarter_bytes(share_child + share_child / 8), r = nch > 2 ? quarter_bytes(share_run + share_run / 8) : 0, n = quarter_bytes(share_new + share_new / 8);
-        size_t live = 2 * c + 2 * r + 2 * n;
-        if (mn_tree_early_free > 0) { size_t m1 = 2 * c + 2 * r + n, m2 = c + r + 2 * n; live = m1 > m2 ? m1 : m2; }   /* Phase 14 T1 (E10a): P_i, P_run freed after P_n = P_i Q_run + P_run, before Q_n = Q_i Q_run */
+        size_t m1 = 2 * c + 2 * r + n, m2 = c + r + 2 * n, live = m1 > m2 ? m1 : m2;   /* Phase 14 T1 (E10a): P_i, P_run freed after P_n = P_i Q_run + P_run, before Q_n = Q_i Q_run (MN_TREE_EARLY_FREE, default 1, removed 2026-10-12) */
         size_t tot = live + scratch; if (tot > best) best = tot; if (top_scratch) *top_scratch = scratch;   /* the top level's: the sharded division's products carry the same */
         if (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) > 1) printf("bs: tree layout: level %d group %d (%d children of %d): %zu x %zu limbs, %d pieces, scratch %.2f GB + live %.2f GB per device\n", l, g, nch, Gp, na, nb, pieces, scratch * 1e-9, live * 1e-9);
     }
@@ -382,7 +376,7 @@ static size_t tree_need_dev(size_t nq_leaf, int size, int pool_log, size_t *top_
  * A level whose last group is cut by the size (MN_GROUPS: 512 -> 576) counts the larger of the two group shapes.  Returns the resident
  * sum from the dm phase on (the run's largest); *tree_top: the resident sum during the tree's top level; by: the per-level terms.
  * Not in the arena request nor in any allocation: the layout reports it (BS_LAYOUT_ONLY `vslot:`, MN_PLAN_ONLY `plan vslot`,
- * MEM_REPORT_DEVS); ECALC_VSLOT_BUDGET (on by default since 2026-10-07) also counts it in the node budget (binsplit_node_bytes, as_room_fits,
+ * MEM_REPORT_DEVS); the node budget (always since 2026-10-07; ECALC_VSLOT_BUDGET removed 2026-10-12) also counts it in the node budget (binsplit_node_bytes, as_room_fits,
  * ecalc.c budget_check), which can change the room / cache-fit / plane-cap decisions. */
 static size_t dm_nq_of(unsigned long N)                    /* dm_layout's n_Q (Q's limbs), without the rest of the layout (no room decision) */
 {
@@ -423,7 +417,7 @@ static int vslot_release_on(void) { return comm_layered_vslot_release_on() && vs
  * COMM_OFI_POOL_MB 4096 "too small" with 1432 MiB free but no 1023 MiB hole).  A hand-set COMM_LAYER_VSLOT_MB or COMM_LAYER_VSLOT_MB_<g> wins.  Called by the pool rule on every rank. */
 static void vslot_prealloc_env(unsigned long N, int size)
 {
-    if (!vslot_pool_on() || size < 2 || (getenv("COMM_LAYER_VSLOT_PREALLOC") && !atoi(getenv("COMM_LAYER_VSLOT_PREALLOC")))) return;
+    if (!vslot_pool_on() || size < 2) return;   /* (COMM_LAYER_VSLOT_PREALLOC=0, the regrown slots, removed 2026-10-12) */
     const int slots = 2;                                    /* the v-exchange two deep (COMM_ALLTOALLV_DEPTH=2, built in 2026-10-12) */
     size_t nq = dm_nq_of(N), nq_leaf = (nq + size - 1) / size; int gs[32]; int L = mn_groups_parse(size, gs, 31);
     size_t mx[40]; int gg[40], n = 0;
@@ -441,7 +435,7 @@ static void vslot_prealloc_env(unsigned long N, int size)
 #undef VS_NOTE
 }
 static int inter2_on(void) { return comm_layered_inter2_on(); }
-int binsplit_vslot_budget_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("ECALC_VSLOT_BUDGET"); v = e ? atoi(e) != 0 : 1; } return v; }   /* S18 (the user, 2026-10-07): default 1; was 0 (B7ACCT) */
+int binsplit_vslot_budget_on(void) { return 1; }   /* S18 (the user, 2026-10-07): always 1 (ECALC_VSLOT_BUDGET=0, the B7ACCT form, removed 2026-10-12); kept for the `vslot:` line's budget field */
 size_t binsplit_vslot_budget_node(unsigned long N, int size) { return binsplit_vslot_budget_on() && !vslot_pool_on() && size > 1 ? NR * binsplit_vslot_bytes(N, size, 0, 0, 0) : 0; }
 /* Phase 15 AS (results/AS15.md): BS_ARENA_ROOM=<f> (0 = off, the default; f > 0 with the VMM pool) -- the division's room.  With
  * BS_SEED_FILL=128 the dm phase's large blocks (the division's t and xq, 2 n_Q quarters) missed a contiguous extent of the arenas at
@@ -498,9 +492,8 @@ static size_t as_shmem_pool(unsigned long N, int size, size_t *ofi)
     if (size < 2 || !(tr && !strcmp(tr, "shmem"))) return 0;
     size_t need = binsplit_shmem_pool_need(N, size, 0, 0), mb = (need + ((size_t)1 << 20) - 1) >> 20; mb = (mb + 255) / 256 * 256;
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset under OFI = the need (the rule sets it) */
-    int autoset = getenv("COMM_SHMEM_POOL_AUTO") ? atoi(getenv("COMM_SHMEM_POOL_AUTO")) != 0 : 1;
     if (ofi) *ofi = 4 * (ofi_pool_mb() << 20);
-    return (autoset && mb > have ? mb : have) << 20;
+    return (mb > have ? mb : have) << 20;   /* the pool rule always raises the pool to the need (COMM_SHMEM_POOL_AUTO=0 removed 2026-10-12) */
 }
 static int as_room_fits(unsigned long N, int size, size_t room)
 {
@@ -658,10 +651,8 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     return stg0 + control + mailbox + sym + ((size_t)256 << 20);
 }
 /* Phase 14 P2: the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
- * COMM_SHMEM_POOL_AUTO=1 sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default);
- * otherwise a pool below the need gets a warning naming the size (the run goes on as before: the model can overestimate, and a
- * pool that runs out stops with comm_shmem's error, which names the size too).  Returns the need in MiB (0: not a SHMEM run).
- * Phase 14 V1: COMM_SHMEM_POOL_AUTO=1 is the default (the user's decision; =0 restores the warning).  When the pool is carved
+ * It sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default).  Returns the need in MiB
+ * (0: not a SHMEM run).  Phase 14 V1: always (COMM_SHMEM_POOL_AUTO, default 1, and its =0 warning-only form removed 2026-10-12).  When the pool is carved
  * from the library's heap (comm_shmem_pool_in_heap: OSHMEM, SOS without the device heap, a device heap sized by the launch
  * line) and the launch line's heap variable is set, a heap below the pool + 512 MiB stops every rank here, before shmem_init,
  * naming both sizes (rc EC_RC_BUDGET): mnrun.sh sizes the heap from MN_PLAN_ONLY's `plan pool` line; internal target notes 4. */
@@ -673,7 +664,6 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     char by[256]; size_t need = binsplit_shmem_pool_need(N, size, by, sizeof by), mb = (need + ((size_t)1 << 20) - 1) >> 20;
     mb = (mb + 255) / 256 * 256;                          /* whole 256 MiB */
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: under COMM_OFI unset = the need */
-    int autoset = getenv("COMM_SHMEM_POOL_AUTO") ? atoi(getenv("COMM_SHMEM_POOL_AUTO")) != 0 : 1;   /* Phase 14 V1: on by default */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_NEED_MB", v, 1); }   /* for comm_shmem's pool-full error */
     if (!g_ofi_dev_mb) { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* Phase 14 V1: comm_shmem's staging regions (one per APU; + 1 MiB of alignment); OFIMEM: none under COMM_OFI (the staging is in the comm pools) */
@@ -684,14 +674,11 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
         if (!getenv("COMM_SHMEM_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1); have = mb; }
         if (!getenv("COMM_OFI_POOL_MB")) { char v[32]; snprintf(v, sizeof v, "%zu", g_ofi_dev_mb); setenv("COMM_OFI_POOL_MB", v, 1); }
         else if ((size_t)atol(getenv("COMM_OFI_POOL_MB")) < g_ofi_dev_mb && rank0) fprintf(stderr, "comm_ofi pool: WARNING: COMM_OFI_POOL_MB=%s is below the modelled need of this run, %zu MiB per device\n", getenv("COMM_OFI_POOL_MB"), g_ofi_dev_mb);
-        if (rank0) printf("comm_shmem pool: COMM_OFI: the SHMEM pool %zu MiB (need %zu MiB) + 4 comm_ofi pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have && autoset ? mb : have, mb, ofi_pool_mb(), by);
+        if (rank0) printf("comm_shmem pool: COMM_OFI: the SHMEM pool %zu MiB (need %zu MiB) + 4 comm_ofi pools of COMM_OFI_POOL_MB=%zu (%s)\n", mb > have ? mb : have, mb, ofi_pool_mb(), by);
     }
-    if (mb > have && autoset) {
+    if (mb > have) {
         char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_MB", v, 1);
         if (rank0) printf("comm_shmem pool: COMM_SHMEM_POOL_AUTO=1 -- COMM_SHMEM_POOL_MB %zu -> %zu (%s)\n", have, mb, by);
-    } else if (mb > have) {
-        if (rank0) fprintf(stderr, "comm_shmem pool: WARNING: COMM_SHMEM_POOL_MB=%zu is below the modelled need of this run, %zu MiB (%s): set COMM_SHMEM_POOL_MB=%zu "
-                                   "(and the SHMEM heap >= %zu MiB with a host heap) or COMM_SHMEM_POOL_AUTO=1; the run continues and stops if the pool runs out\n", have, mb, by, mb, mb + 512);
     } else if (rank0 && getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2) printf("comm_shmem pool: COMM_SHMEM_POOL_MB=%zu holds the modelled need %zu MiB (%s)\n", have, mb, by);
     {   /* Phase 14 V1: the heap must hold the pool (+ 512 MiB: the mailbox, the library's own) -- every rank decides alike, before shmem_init */
         size_t pool = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : 8192; const char *hn = "";
@@ -790,9 +777,9 @@ static void binsplit_layout_only(const char *spec)
             arena += as_arena(base + extra); bs2 += base;   /* Phase 15 AS */
         }
         printf("layout: D %.4g g %d d %lu N %lu nq %zu k %zu tcap %zu | hole %zu dm_need %zu (top scratch %zu) tree_need %zu want %zu | bs regions %zu arena %zu (node, bytes) | tight %d tail_dead %d jl %zu v2 %zu v3 %zu div %zu early_free %d room %zu chunk %zu room_planes %zu%s\n",
-               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, mn_tree_early_free > 0,
+               D, g, d, N, L.nq, L.k, L.tcap, L.hole, L.need_dev, top, L.tree_dev, want, bs2, arena, L.tight, L.tail_dead, L.jl, L.v2, L.v3, L.div, 1,
                L.room, bs_arena_room() > 0 && db_pool_vmm_on() ? db_pool_vmm_chunk() : (size_t)0, bs_arena_room() > 0 && db_pool_vmm_on() ? g_room_planes : (size_t)0,
-               L.dkm ? (L.lean ? " dkm 1 lean 1" : " dkm 1") : "");   /* Phase 15 AS: BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* int15k: lean 1 = DM_MN_LEAN's division set */   /* Phase 14 T1: MN_TREE_EARLY_FREE */   /* Phase 14 L1: the variant and its terms (per device) */   /* DL: dkm 1 = the layout follows NEWTON_DKM (absent: today's; the line is then unchanged) */
+               L.dkm ? (L.lean ? " dkm 1 lean 1" : " dkm 1") : "");   /* Phase 15 AS: BS_ARENA_ROOM's term (in dm_need) and the chunk the arenas are rounded to (0: not rounded) */   /* int15k: lean 1 = DM_MN_LEAN's division set */   /* Phase 14 T1: early_free 1 (always since 2026-10-12) */   /* Phase 14 L1: the variant and its terms (per device) */   /* DL: dkm 1 = the layout follows NEWTON_DKM (absent: today's; the line is then unchanged) */
         if (bs_arena_room() > 0 && db_pool_vmm_on() && g_room_fit >= 0)       /* DL: the room's decision, term by term (bytes; mem_model.py --check-c compares them) */
             printf("room: D %.4g g %d | planes %zu arena_with_room %zu bs_grow %zu host %zu (seedbuf %zu shmem_pool %zu ofi_pool %zu) | node %zu budget %.0f fits %d\n",
                    D, g, g_room_planes, g_room_arena, AS_VMM_BS_GROW, g_room_host, g_room_seedbuf, g_room_pool, g_room_ofi, g_room_planes + g_room_arena + AS_VMM_BS_GROW + g_room_host,
@@ -1523,11 +1510,8 @@ void binsplit_seeds_begin(unsigned long N)
     if (bs_restart && bs_ckpt_dir) return;                                 /* a restart skips the seeds */
     seed_limbs(N, &g_pre.per, &g_pre.nspan); g_pre.N = N;
     for (int r = 0; r <= NR; r++) { g_pre.r0[r] = 0; while (g_pre.r0[r] < g_pre.nspan && region_of(g_pre.r0[r], g_pre.nspan) < r) g_pre.r0[r]++; }
-    /* Phase 12 I: ECALC_SEED_ORDER = overlap (the seeds alongside the plane pools' mapping, the default) | first (the regions,
-     * then the seeds joined here, then the plane pools: nothing maps while the seeds run) | after (only the regions here; the
-     * seeds run synchronously in binsplit_e, with everything mapped).  Measured in results/I.md: the overlap wins. */
-    const char *ord = getenv("ECALC_SEED_ORDER"); int order = ord && !strcmp(ord, "first") ? 1 : ord && !strcmp(ord, "after") ? 2 : 0;
-    if (order == 2) { double tp = mem_now(); binsplit_pregrow(N); if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init; the seeds after init: ECALC_SEED_ORDER=after)\n", mem_now() - tp); return; }
+    /* Phase 12 I: the seeds alongside the plane pools' mapping (measured in results/I.md: the overlap wins; ECALC_SEED_ORDER's
+     * first / after orders removed 2026-10-12) */
     g_pre.nd = (struct node *)calloc(g_pre.nspan, sizeof *g_pre.nd);
     memset(&g_pre.ss, 0, sizeof g_pre.ss); pthread_mutex_init(&g_pre.ss.mx, 0); pthread_cond_init(&g_pre.ss.cv, 0);
     pthread_create(&g_pre.th, 0, pre_seeds_run, 0); g_pre.active = 1;
@@ -1537,7 +1521,6 @@ void binsplit_seeds_begin(unsigned long N)
     seed_stream_pools(&g_pre.ss, pool);
     if (db_pool_vmm_on() && db_seed_pull_on()) db_pull_start_all();   /* K8b: BS_SEED_PULL=1 -- the pull kernels now, with no mapping in flight (the background mapping is released after the hook) */
     if (bs_verbose || (getenv("ECALC_VERBOSE") && atoi(getenv("ECALC_VERBOSE")) >= 2)) printf("      init: region pools %.2f s (inside rns_init, before the plane pools: the seeds stream into them)\n", mem_now() - tp);
-    if (order == 1) { double tj = mem_now(); pthread_join(g_pre.th, 0); g_pre.joined = 1; printf("      init: seeds joined before the plane pools (ECALC_SEED_ORDER=first): %.2f s of waiting, the seeds took %.2f s\n", mem_now() - tj, g_pre.t); }
 }
 void binsplit_e(bigint *P, bigint *Q, unsigned long N)
 {
@@ -1635,7 +1618,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         }
         if (odd) { struct node *a = &cur.nd[cur.n - 1], *o = &nxt.nd[npairs]; o->r = place_node(npairs, nxt.n, offr, a->r, -1); o->po = offr[o->r]; offr[o->r] += a->pn; o->qo = offr[o->r]; offr[o->r] += a->qn; o->pn = a->pn; o->qn = a->qn; }
         which ^= 1;
-        int mdev_level = max_nl > (size_t)bs_school_nl && 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);
+        int mdev_level = 2 * max_nl + 1 > ((size_t)1 << bs_mdev_logl);   /* (BS_SCHOOL_NL's CPU schoolbook tier, default 0 = never, removed 2026-10-12) */
         int dev_mdev = mdev_level;
         int top_direct = nxt.n == 1 && mdev_level;                     /* mdev top level: straight to P, Q */
         for (int r = 0; r < NR; r++) off += offr[r];
@@ -1645,21 +1628,7 @@ void binsplit_e(bigint *P, bigint *Q, unsigned long N)
         if (bs_st.levels < 3) db_tl("bs: level %d starts (its pools are there)", bs_st.levels + 1);   /* Phase 15 MAP: ECALC_INIT_TL=1 */
         double tl0 = mem_now(), tl1 = 0, tl2 = 0;
         const char *tier; int normed = 0, finished = 0;
-        if (max_nl <= (size_t)bs_school_nl) {
-            tier = "school"; bs_st.school_levels++;
-#pragma omp parallel
-            {
-                int rk, cnt = mem_region_threads(&rk), home = mem_thread_home();
-                for (size_t i = (size_t)rk; i < npairs; i += (size_t)cnt) {
-                    struct node *a = &cur.nd[2 * i], *b = &cur.nd[2 * i + 1], *o = &nxt.nd[i];
-                    if (home >= 0 && o->r % NR != home % NR) continue;
-                    uint64_t *pp = NODE_P(nxt, o), *qq = NODE_Q(nxt, o);
-                    limb_mul_school(pp, NODE_P(cur, a), a->pn, NODE_Q(cur, b), b->qn);
-                    pp[a->pn + b->qn] = limb_add(pp, pp, a->pn + b->qn, NODE_P(cur, b), b->pn);
-                    limb_mul_school(qq, NODE_Q(cur, a), a->qn, NODE_Q(cur, b), b->qn);
-                }
-            }
-        } else if (2 * max_nl + 1 <= ((size_t)1 << bs_mdev_logl)) {
+        if (2 * max_nl + 1 <= ((size_t)1 << bs_mdev_logl)) {
             tier = "batch"; bs_st.batch_levels++;
             rns_prod *pr = (rns_prod *)calloc(1, 2 * npairs * sizeof *pr);
             for (size_t i = 0; i < npairs; i++) {

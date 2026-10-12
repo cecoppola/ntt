@@ -5,7 +5,7 @@ M() { local p=$1; shift; SLURM_JOB_ID=$J timeout ${STO:-1500} ./mnrun.sh $p "$@"
 step() { local tag=$1; shift; local el=$(( $(date +%s) - T0 )); [ $el -gt ${TMAX:-2400} ] && { echo "SKIP $tag (time $el)"; return; }
          echo "== $tag $(date +%T)"; local t1=$(date +%s); "$@" > $D/$tag.log 2>&1; local rc=$?
          echo "   rc $rc, $(( $(date +%s) - t1 )) s; $(grep -a '^total\|VERIFY\|IDENTICAL\|identical\|differ\|RECHECK OK\|RECHECK FAILED\|FATAL\|^rc=\|^wrote\|unpack_digits:\|^wall' $D/$tag.log | head -8 | cut -c1-220 | tr '\n' '|')"; }
-# Batch A: functional -- gates at 1e9 (decimal limbs; the LIMB_BASE=2 step went with archive:PLAN §28.5), packed at 1e9 (direct, sync, small chunks) vs ASCII, RECHECK on packed,
+# Batch A: functional -- gates at 1e9 (decimal limbs; the binary-limb step went with archive:PLAN §28.5), packed at 1e9 (direct, sync, small chunks) vs ASCII, RECHECK on packed,
 # size 2-4 on one node (packed, waves), the stripe command path (fake lfs), W7 auto on /tmp and NFS, the memory guard
 R=$HOME/ntt/ecalc/ref/e_1000000000.txt; F='^VERIFY\|^total\|^wrote\|^mn_out\|^T2 \|^dc \|^mn: node .*: T2\|^mn: all\|^mn: node .*: wrote\|MN_OUT_WAVES\|stripe\|FATAL\|^memsample: ECALC'
 N "hostname; df -h /tmp | tail -1; free -g | head -2" > $D/node.txt 2>&1

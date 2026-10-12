@@ -12,24 +12,19 @@ BS_CKPT_DIR	str	unset	derived	path	launch-line	-	W.md+WP7.md	Y	ecalc	ecalc.c	2	e
 BS_CKPT_EVERY	int	4	unset	>=0	launch-line	-	A-ckpt.md+WP7.md	Y	ecalc	ecalc.c	2	binsplit.c:37 initialiser (the env only overrides it); 0 = never
 BS_CKPT_MIN_LEVEL	int	16	unset	>=0	launch-line	-	WP7.md+T.md	Y	ecalc	ecalc.c	2	binsplit.c:38 initialiser
 BS_CKPT_TREE	int	1	1		built-in default	-	A-ckpt.md+T.md	Y	ecalc	mn.c	2	
-BS_CKPT_TREE_BG	int	derived	derived		experiment	-	N13.md	Y	ecalc	ecalc.c	2	
 BS_CKPT_TREE_EVERY	int	1	1		built-in default	-	T.md+W.md	Y	ecalc	mn.c	2	
 BS_LAYOUT_ONLY	str	unset	derived	D[:g],...	launch-line	-	MS15.md+B7ACCT.md	Y	ecalc	binsplit.c,ecalc.c	5	ecalc.c:440; layout printer, exits before rns_init
 BS_MDEV_LOGL	int	derived	derived		built-in default	-	M3.md+A-ckpt.md	Y	ecalc	binsplit.c,mn_plan.c	6	
-BS_POOL_RULE	int	1	1		built-in default	-	R16.md	Y	ecalc	binsplit.c	2	
 BS_RESTART	int	0	0	0|1	launch-line	-	A-ckpt.md+N13.md	Y	ecalc	ecalc.c	3	ecalc.c
-BS_SCHOOL_NL	int	0	0		experiment	-	R114.md+A37CMP.md	Y	ecalc	binsplit.c,dbig.c,mn_plan.c	6	
 BS_SEED_CHUNK_MB	int	derived	derived		built-in default	-	H.md+R114.md	Y	ecalc	binsplit.c	4	
 BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	binsplit.c	1	
 BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	
-COMM_INIT_EARLY	bool	1	1	0|1	built-in default	-	S16.md	Y	ecalc	ecalc.c	2	
 COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	2	
 COMM_LAYER_VSLOT_POOL	bool	1	1	0|1	built-in default	-	XEFF.md	Y	ecalc	comm_layered.c,comm_ofi.c,comm_shmem.c	3	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
-COMM_LAYER_VSLOT_PREALLOC	int	unset	unset		built-in default	-	-	prose	ecalc	binsplit.c	2	
 COMM_LAYER_VSLOT_RELEASE	bool	derived	derived	0|1	built-in default	-	-	Y	ecalc	comm_layered.c	1	comm_layered.c; default 1 since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL
 COMM_LAYER_VSLOT_SHARE	bool	1	1	0|1	built-in default	-	S36.md	Y	ecalc	comm_layered.c	1	comm_layered.c; default 1 since 2026-10-12 (TASKS 27)
 COMM_OFI	bool	auto	derived	0|1	launch-line	aac7	OFI17.md	Y	ecalc	comm_ofi.c	3	comm_ofi.c:98 default = a cxi NIC is present (cxi_present())
@@ -44,7 +39,6 @@ COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	c
 COMM_RANK	int	0	conflict:0|1	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	9	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	3	comm_shmem.c
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
-COMM_SHMEM_POOL_AUTO	bool	1	1	0|1	built-in default	-	V114.md+P214.md	Y	ecalc	binsplit.c	4	
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	2	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	
@@ -53,7 +47,7 @@ COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecal
 COMM_SHMEM_SPIN_US	int	2000	2000		built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	
 COMM_SHMEM_STAGE_SLOT_MB	bool	0	0	0|1	test-only	-	V114.md+STD17.md	N	ecalc	comm_shmem.c	1	
 COMM_SHMEM_VERBOSE	int	0	0		test-only	-	P214.md+V114.md	Y	ecalc	comm_shmem.c	1	
-COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	18	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
+COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,fatal.c,mem.c,mn.c,rns_mul.c,segv_trace.c	16	set per run by the launcher; code defaults are 1 (4096 only in a self-test)
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12
 COMM_XGMI_STATS	int	0	0		test-only	-	X13.md+D16.md	Y	ecalc	comm_xgmi.c	1	
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	
@@ -110,24 +104,17 @@ ECALC_RECHECK	bool	0	unset	0|1	launch-line	-	V.md+KP15.md	Y	ecalc	ecalc.c	2	ecal
 ECALC_RES_LOG	int	0	0		test-only	-	S51.md+V.md	Y	ecalc	dbig.c	2	
 ECALC_RES_LOG_CPU	int	0	0		test-only	-	V.md	Y	ecalc	binsplit.c	2	
 ECALC_RES_LOG_LEVEL	int	17	17		test-only	-	V.md+R.md	Y	ecalc	binsplit.c	2	
-ECALC_SEED_ORDER	bool	unset	unset	0|1	built-in default	-	MAP15.md+I.md	Y	ecalc	binsplit.c	1	
 ECALC_SEGV_TEST	int	unset	unset		test-only	-	S18W.md	Y	ecalc	segv_trace.c	2	
 ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac6,aac7	S18W.md+S30.md	Y	ecalc	segv_trace.c	1	segv_trace.c:146
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
-ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,rns_dist.c	20	ecalc.c
+ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,rns_dist.c	18	ecalc.c
 ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	
-ECALC_VSLOT_BUDGET	bool	1	1	0|1	built-in default	-	B7ACCT.md+R§116	Y	ecalc	binsplit.c	1	
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	
-LIMB_BASE	enum	10	derived	10	launch-line	-	P3.md+L114.md	Y	ecalc	bigint.c	1	bigint.c bi_check_base: only 10 is accepted; any other value is refused at start (archive:PLAN §28.5 archived the binary pipeline)
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	6	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	ecalc.c:372/537 (presence test)
-MN_COMBINE	str	derived	derived		experiment	-	W.md+M3.md	prose	ecalc	ecalc.c	4	
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	mn.c:28 (atoi > 0)
-MN_DM	str	unset	unset		experiment	-	W.md+V.md	prose	ecalc	ecalc.c	2	
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c	1	rns_dist.c:2315; unset = the automatic schedule
-MN_LAYERED_LOCAL	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
-MN_LAYERED_RAW	bool	derived	derived	0|1	test-only	-	-	Y	ecalc	mn.c	1	
 MN_OUT_CHUNK_MB	int	256	256		built-in default	-	IO15.md+A-out.md	Y	ecalc	mn_out.c	2	
 MN_OUT_DKM_HI	bool	1	1	0|1	built-in default	-	EW15.md+R§93	Y	ecalc	ecalc.c	2	ecalc.c; default 1 since 2026-10-12 (TASKS 27)
 MN_OUT_DKM_HI_TEST_CARRY	bool	unset	unset	0|1	test-only	-	EW15.md	prose	ecalc	ecalc.c	1	
@@ -136,13 +123,9 @@ MN_OUT_STRIPE	bool	1	1	0|1	built-in default	-	IO15.md+SC15.md	Y	ecalc	mn_out.c	1
 MN_OUT_STRIPE_FORCE	int	derived	derived		test-only	-	IO15.md	prose	ecalc	mn_out.c	2	
 MN_OUT_THREADS	int	8	8		built-in default	-	IO15.md+TARGET_HW_REVIEW.md	Y	ecalc	mn_out.c	3	
 MN_OUT_WAVES	int	1	1		experiment	-	IO15.md+DOC15.md	Y	ecalc	ecalc.c,mn_out.c	4	
-MN_PLAN_DEXTRA	int	0	0		test-only	-	-	Y	ecalc	mn_plan.c	1	
 MN_PLAN_ONLY	str	unset	derived	D:g	launch-line	-	P15.md+T215.md	Y	ecalc	binsplit.c,ecalc.c	2	ecalc.c:451; prints the plan and exits
 MN_PLAN_QUIET	int	unset	unset		test-only	-	L13d.md	Y	ecalc	mn_plan.c	2	
-MN_SELFTEST_GROW	bool	1	1	0|1	built-in default	-	P16.md	Y	ecalc	mn.c	4	
 MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	
-MN_TOPO_GROUP	int	0	0	0|1	launch-line	aac7	S12.md+S.md	Y	ecalc	mn.c	2	mn.c
-MN_TREE_EARLY_FREE	int	1	1		built-in default	-	T114.md+TGT15.md	Y	ecalc	binsplit.c	2	
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	5	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	comm_util.c:22 (atoi > 0)

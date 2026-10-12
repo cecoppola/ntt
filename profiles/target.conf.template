@@ -35,8 +35,7 @@ COMM_SHMEM_SERIAL=0                   # per-thread contexts on a SHMEM_THREAD_MU
 COMM_SHMEM_DEVHEAP=1                  # symmetric heap in device memory on the APU (S12, A16)
 COMM_OFI=1                            # device exchanges over libfabric on the cxi NICs: user decision 2026-10-06, OFI17.md (code default where a cxi NIC exists)
 COMM_SHMEM_ROUND_MB=1024              # exchanges staged in 1 GiB rounds: user decision D2 (V114.md; pool 45.0 -> 9.8 GB, mod)
-MN_TOPO_GROUP=0                       # third all-to-all layer OFF until the group size is measured; then the nodes per network group
-# How to determine MN_TOPO_GROUP / MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
+# How to determine MN_GROUPS: the site's topology (nodes per dragonfly group) and a TARGET_TASKS timing A/B; the
 # code default of MN_GROUPS at the headline size is the plan's pick, so leave MN_GROUPS unset unless a measurement says otherwise.
 
 # ---- [libfabric] ----------------------------------------------------------------------------------------------------

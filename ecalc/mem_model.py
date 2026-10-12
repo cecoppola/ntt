@@ -20,7 +20,7 @@ Phase 15 (agent DOC, 2026-09-27): the base is DEFAULTS15B -- + BS_SEED_FILL=128 
 more batch level; --check-c exact against BS_LAYOUT_ONLY at 4e10, 1e11 and the target's share) and MN_OUT_EARLY (HOST_EARLY at size > 1);
 DEFAULTS15 is B0.  TARGET_NP = 4: the target's launch line (ECALC_NP=4).
 B7ACCT (2026-10-06): vslot_resident -- the general map's v-exchange slots (comm_layered.c, hipMalloc'd beside the arena) on dev_bs / dev_dm;
---check-c compares the C `vslot:` line (per APU, the tree top, device / node with them); ECALC_VSLOT_BUDGET as the C.
+--check-c compares the C `vslot:` line (per APU, the tree top, device / node with them); the budget as the C (always on).
 Phase 15 (agent DOC2, the user's decisions of 2026-09-28): the base is DEFAULTS15C = DEFAULTS15B + BS_ARENA_ROOM=0.16 (ARENA_ROOM, the code's
 default since be2eec3); DEFAULTS15B / DEFAULTS15 / OLD13 carry arena_room 0 (B1, B0 and before).  TARGET_NP = 'auto' (the launch line's
 ECALC_NP=auto, decision 1).  The mn transform cache: cache_fit_slots follows the code's RNS_DIST_CACHE_FIT rule (rns_dist.c
@@ -81,7 +81,7 @@ def seed_limbs(N, nterms, S=256, decimal=True):
 def region_of(i, n): r = i * NR // n; return r if r < NR else NR - 1
 def place_node(i, n, balance_n=16): return region_of(i, n) if n > balance_n else i % NR
 
-POOL_RULE = int(os.environ.get('BS_POOL_RULE', '1'))     # Phase 16 R: 1 = the tier prediction from the lower bound on the level's largest Q (binsplit.c level_q_lower); 0 = 0.9 x the bound
+POOL_RULE = 1     # (BS_POOL_RULE removed 2026-10-12: binsplit.c has rule 1 only) Phase 16 R: 1 = the tier prediction from the lower bound on the level's largest Q (binsplit.c level_q_lower); 0 = 0.9 x the bound
 
 def level_q_lower(a0, nterms, S, m_full, nspan, decimal=True):
     """binsplit.c level_q_lower: a lower bound (limbs) on the largest Q of a level whose nodes cover m_full spans of S terms --
@@ -95,7 +95,7 @@ def level_q_lower(a0, nterms, S, m_full, nspan, decimal=True):
 def region_need(N, nterms, mdev_logl=30, decimal=True, S=256, a0=1, rule=None):
     """binsplit.c region_need: the limbs each region must hold over the batch levels (the simulated layout).
     Closed forms per region instead of the C loop over the nodes: every node but the last covers full spans.
-    a0: the node's first term (rank 0: 1); rule: BS_POOL_RULE (Phase 16 R; None = the environment's, default 1)"""
+    a0: the node's first term (rank 0: 1); rule: Phase 16 R's tier prediction (None = the code's, 1; 0 = the old rule, for comparison only)"""
     if rule is None: rule = POOL_RULE
     per, nspan = seed_limbs(N, nterms, S, decimal=decimal)
     r0 = [min(nspan, -(-r * nspan // NR)) for r in range(NR + 1)]           # the first span of region r
@@ -507,9 +507,9 @@ def inter2_on(env=None):
     return _env_on(env, 'COMM_LAYER_INTER2', vslot_pool_on(env))
 
 def vslot_budget_on(env=None):
-    """ECALC_VSLOT_BUDGET (binsplit.c binsplit_vslot_budget_on; default 1 since 2026-10-07 (the user); was 0): the v-slots counted in the node budget (room, cache fit, budget check)"""
+    """binsplit.c binsplit_vslot_budget_on (always 1 since 2026-10-07; ECALC_VSLOT_BUDGET removed 2026-10-12): the v-slots counted in the node budget (room, cache fit, budget check)"""
     env = os.environ if env is None else env
-    return env.get('ECALC_VSLOT_BUDGET', '1') not in ('', '0') and not vslot_pool_on(env)   # X2: under VSLOT_POOL the pool counts them
+    return not vslot_pool_on(env)   # X2: under VSLOT_POOL the pool counts them
 
 # ---------------------------------------------------------------- the other pools (measured constants where the code has them)
 def planes_3q30(pool_log=31, digits=0):
@@ -1161,7 +1161,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu'] if vslot_pool_on(env) else 0))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
-            pool_b = (mb if env.get('COMM_SHMEM_POOL_AUTO', '1') != '0' and mb > have else have) << 20
+            pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)
             if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
         rh = room_host(N, g, pool_b + ofi_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
         ar_room = None

@@ -100,7 +100,7 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     # Phase 14 V1: the pool (and with it the heap below) from the run's own model when COMM_SHMEM_POOL_MB is not set by hand: the
     # command's SHMEM-linked executable followed by a digit count (ecalc <digits> ...) is asked first, on this host, with the
     # command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device is touched), and its `plan pool` line gives
-    # COMM_SHMEM_POOL_MB -- so COMM_SHMEM_POOL_AUTO (on in ecalc by default) finds the pool already at the need, and a host heap
+    # COMM_SHMEM_POOL_MB -- so ecalc's pool rule (binsplit_shmem_pool_rule) finds the pool already at the need, and a host heap
     # (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE = pool + 512 MiB) holds it.  Other commands: 8192 as before.
     # MNRUN_PLAN_POOL=0 skips the plan.
     if [ -z "${COMM_SHMEM_POOL_MB:-}" ] && [ "${MNRUN_PLAN_POOL:-1}" != 0 ]; then

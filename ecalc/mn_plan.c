@@ -48,7 +48,7 @@ static unsigned long term0(unsigned long N, int r, int size) { unsigned __int128
 /* d = |B^(2j) - u| at the step to target j: r carries j + 1 limbs, so its error is about one unit of its last limb -- d ~ B^j.
  * The run's value is data-dependent (validated against real runs: results/L13d.md); it sets only the second product's
  * second operand, whose grid it can move only at a boundary */
-static size_t D_EST(size_t j) { const char *e = getenv("MN_PLAN_DEXTRA"); long x = e ? atol(e) : 0; return (size_t)((long)j + x > 1 ? (long)j + x : 1); }
+static size_t D_EST(size_t j) { return j > 1 ? j : 1; }   /* (MN_PLAN_DEXTRA, a model-test offset of default 0, removed 2026-10-12) */
 
 /* ---- the products ------------------------------------------------------------------------------------------------------ */
 enum { PH_LEAF, PH_TREE, PH_RCHAIN, PH_RECIP, PH_DIV, PH_N };
@@ -153,10 +153,9 @@ static void show_db(int ph, const char *what, size_t na, size_t nb, size_t lowcu
  * above 2^bs_mdev_logl: P = P_a Q_b + P_b, Q = Q_a Q_b as two dist_db products per pair) -------------------------------------- */
 static void plan_leaf(unsigned long a0, unsigned long b1)
 {
-    /* the tier knobs read as binsplit.c reads them (seed_limbs, binsplit_e): BS_SEED_TERMS 256, BS_SCHOOL_NL 0, BS_MDEV_LOGL
+    /* the tier knobs read as binsplit.c reads them (seed_limbs, binsplit_e): BS_SEED_TERMS 256, BS_MDEV_LOGL
      * RNS_BATCH_LOGL_MAX; the top levels always run on device (BS_DEV_MDEV / BS_DEVICE_POOLS removed 2026-10-11) */
     unsigned long S = bs_seed_terms_for(b1);                      /* Phase 15 T2: BS_SEED_FILL's per-run span, else BS_SEED_TERMS (256) */
-    size_t school = getenv("BS_SCHOOL_NL") ? (size_t)atol(getenv("BS_SCHOOL_NL")) : 0;
     int mlog = getenv("BS_MDEV_LOGL") ? atoi(getenv("BS_MDEV_LOGL")) : RNS_BATCH_LOGL_MAX;
     unsigned long nspan = (b1 - a0 + S - 1) / S;
     int lvl = 0, nbatch = 0; size_t n = nspan;
@@ -167,7 +166,7 @@ static void plan_leaf(unsigned long a0, unsigned long b1)
         /* the level's largest node: a term's factor grows with the term, so it is the last full node (or the cut last one):
          * the last two nodes are all binsplit's max over the level can be (a full scan costs 10^8 lgammal calls at 4.4e13) */
         for (size_t i = n >= 2 ? n - 2 : 0; i < n; i++) { unsigned long lo, hi; NODE_RANGE(i, lo, hi); struct pq x = pq_of(lo, hi); if (x.pn > max_nl) max_nl = x.pn; if (x.qn > max_nl) max_nl = x.qn; }
-        int mdev = max_nl > school && 2 * max_nl + 1 > ((size_t)1 << mlog);
+        int mdev = 2 * max_nl + 1 > ((size_t)1 << mlog);
         if (!mdev) { nbatch++; n = npairs + (n & 1); continue; }
         lvl++;
         for (size_t i = 0; i < npairs; i++) {

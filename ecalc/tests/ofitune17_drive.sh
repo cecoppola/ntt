@@ -80,7 +80,7 @@ if want nic2; then
     b=$(best nic2_form | head -1 | cut -f4); [ -n "$b" ] && { eval "BETTER=\$FORM${b#nic2_form}"; say "nic2: the better form is ${b#nic2_form} ($BETTER)"; }
 fi
 
-BASE="COMM_TRANSPORT=shmem COMM_OFI=1 COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 MN_TOPO_GROUP=0 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MN_COMM_MARK=1 COMM_OFI_VERBOSE=1"
+BASE="COMM_TRANSPORT=shmem COMM_OFI=1 COMM_SHMEM_SERIAL=0 COMM_SHMEM_DEVHEAP=1 ECALC_NP=auto RNS_DIST_CACHE_FIT=1 RNS_DIST_CACHE_PARTIAL=1 MN_OUT_DKM_HI=1 MN_T_CHUNK_MB=1024 COMM_SHMEM_ROUND_MB=1024 ECALC_MEM_GUARD_GB=6 ECALC_VERBOSE=2 MN_COMM_MARK=1 COMM_OFI_VERBOSE=1"
 run() {   # run <tag> <nodes> <digits> <extra env words...> (template: ofi17_drive.sh run)
     local tag=$1 g=$2 d=$3; shift 3; local of=$O/ab/$tag/e.out lg=$O/$tag.log t0=$SECONDS rc tot ver dig base=$O/ab/base_$g.sha1
     mkdir -p "$O/ab/$tag"; say "run $tag: mnrun.sh $g env $BASE $* ./ecalc $d"

@@ -5,7 +5,6 @@
  * combine P = P1 Q2 + P2, Q = Q1 Q2.  Seeds: spans of bs_seed_terms terms by
  * schoolbook (OpenMP over spans).  Each level pairs adjacent nodes; the tier
  * is chosen per level from the largest node length max_nl:
- *   max_nl <= bs_school_nl (160)                  CPU schoolbook, OpenMP over pairs
  *   2 max_nl + 1 <= 2^RNS_BATCH_LOGL_MAX (2^18)   one rns_mul_batch of 2 npairs products
  *   otherwise                                      rns_mul_pair per pair (Q2 transformed once)
  * Nodes live in two alternating registered level pools (grow-only), so the
@@ -25,7 +24,6 @@ extern bs_stats bs_st;
 extern int bs_seed_terms;     /* 256 (BS_SEED_TERMS) */
 unsigned long bs_seed_terms_for(unsigned long bend);
 long bs_seed_fill(void);                                  /* Phase 15: the fill in limbs (BS_SEED_FILL; 128 by default; 0 = the fixed span) */   /* Phase 15 T2: the run's seed span for terms ending at bend (BS_SEED_FILL, else BS_SEED_TERMS / 256) */
-extern int bs_school_nl;      /* 160 limbs */
 extern int bs_verbose;
 /* WP7: per-level checkpoints of the level loop (ecalc/README.md: BS_CKPT_DIR, BS_CKPT_EVERY, BS_RESTART) */
 extern const char *bs_ckpt_dir;  /* directory; 0 = no checkpoints */
@@ -60,9 +58,8 @@ size_t bs_ckpt_bg_join(bs_ckpt_bg *b, const char *who, const char *dir, double *
  * DM_TAIL_DEAD (1: no hole reserved beside the top level, the tail re-laid over its dead inputs; 2: + the layout without P in the
  * reciprocal, which needs the P spill: dm_p_spill_wired = 1 once it is there).  Read once by dm_switches(); -1 before */
 extern int dm_tight, dm_tail_dead, dm_p_spill_wired;
-/* Phase 14 T1 (APUMULT_STUDY E10a): MN_TREE_EARLY_FREE=1 -- mn.c's tree levels free the dead P_i / P_run shares between a level's two
- * products and tree_need_dev counts max(2c + 2r + n, c + r + 2n) instead of 2c + 2r + 2n.  Read by dm_switches(); -1 before */
-extern int mn_tree_early_free;
+/* Phase 14 T1 (APUMULT_STUDY E10a): mn.c's tree levels free the dead P_i / P_run shares between a level's two products and
+ * tree_need_dev counts max(2c + 2r + n, c + r + 2n) (MN_TREE_EARLY_FREE, default 1, removed 2026-10-12) */
 void dm_switches(void);
 unsigned long e_terms(unsigned long digits);            /* N = min{m : lgamma(m+1)/ln10 >= d + 50} */
 void binsplit_e(bigint *P, bigint *Q, unsigned long N); /* P(1,N+1), Q(1,N+1) */

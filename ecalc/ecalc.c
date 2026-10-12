@@ -135,15 +135,14 @@ static int x_lo_hook(dbig *Xl, size_t s, int carry, void *a)   /* newton_db_xlo_
  * term range joined across the nodes (P = P_A Q_B + P_B, Q = Q_A Q_B in node order) and the residues of its share of
  * X (device kernel, placed at the share's offset and summed over the nodes); its share of the digits formatted in
  * chunks, residue-checked (Horner over the chunks and the nodes), T2-windowed and written to its part file as it
- * goes; node 0 the summary.  Size 1: the same code over the host X (the writer ran in the background from the hook).
- * Until A-div lands, X exists on node 0's host after its division and is scattered here as a stand-in for the
- * sharded X of the distributed division (the HOOK comments below say what plugs in). */
+ * goes; node 0 the summary.  Size 1: the same code over the device or host X (the writer ran in the background from the
+ * hook).  Size > 1: this node's share of the distributed division's sharded X. */
 struct out_ctx {
     unsigned long N, d, d_out; const char *outfile; int verbose, size, rank;
-    bigint *X;                                     /* the host flows: X on the host after the division (size 1 without the device dm; node 0 with MN_DM=host / MN_COMBINE=host) */
+    bigint *X;                                     /* the host flows: X on the host after the division (size 1 without the device dm) */
     dbig *Xd;                                      /* Phase 10 H (B1), size 1 in the device flow: X on the device (never on the host) */
     mdb *Xm;                                       /* B1, size > 1 in the distributed division: X sharded over the nodes (A-div's mdb); this node's share is read in place */
-    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm), else node 0's, broadcast (the host flows) */
+    uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ];   /* the residues of P, Q, R: every node's own from the sharded kernels (Xm); size 1: the single node's */
     struct pq_bg *pqb; struct x_bg *xb; int ncorr;   /* the recurrence thread; the size-1 writer thread; corrections to X after the hook */
     int defer; long dx; size_t zone;                 /* Phase 15 K (ECALC_CORR_PATCH): X's corrections (dx) not applied -- the output patches the tail; zone: the deferred T2 windows */
     mn_out_early *early; double t_early;             /* Phase 15 IO (W5d): MN_OUT_EARLY -- the part file started in the division (mn_out.h) */
@@ -460,7 +459,6 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    bi_check_base();                                  /* archive:PLAN §28.5: decimal limbs only (RESULTS.md 63, 67); LIMB_BASE=2 (the archived binary pipeline) is refused loudly */
     if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* Phase 13b step 0: three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
     d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
@@ -478,39 +476,34 @@ int main(int argc, char **argv)
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * Phase 10 H (B2): the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU (the modes ECALC_STAGING=0/2 were removed 2026-10-11) */
       int devflow = getenv("NEWTON_DEVICE") ? atoi(getenv("NEWTON_DEVICE")) : 1;
-      int host_combine = getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host");   /* M2's host combine multiplies on the host mdev tier: it keeps the default staging and pools */
-      if (devflow && !host_combine) rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
+      if (devflow) rns_staging_bytes_req = 1u << 30;   /* Phase 10 B4 (agent M): no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* Phase 11 B3 (agent P): the 3 2^k-point planes for the top levels and the dm phase, sized at init (+14 GiB per APU).
        * Phase 12 I: the size rule (on below 5e10 digits at 2^31 pools) is the default; RNS_PLANES_3Q30=0/1 overrides (results/I.md) */
-      rns_planes_3q30 = devflow && !host_combine ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
+      rns_planes_3q30 = devflow ? rns_planes_3q30_default(pool_log, (double)d) : (getenv("RNS_PLANES_3Q30") ? atoi(getenv("RNS_PLANES_3Q30")) != 0 : 0);
       /* Phase 9 C4 (A-mem): plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
-      if (devflow && !host_combine) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
+      if (devflow) rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
     if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* Phase 14 P2: + the SHMEM pool line */   /* Phase 13d L: MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* Phase 11 V: the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);
         mn_barrier(); mn_finalize(); return f;
     }
-    /* Phase 16 S (results/S16.md): COMM_INIT_EARLY=1 opens the transport (the pool rule, mn_init: shmem_init_thread, the symmetric
+    /* Phase 16 S (results/S16.md): the transport is opened (the pool rule, mn_init: shmem_init_thread, the symmetric
      * pool, the four meshes) BEFORE rns_init -- i.e. before the VMM arenas and plane pools are mapped and before the seed thread
      * runs its kernels and DMAs (binsplit_seeds_begin inside rns_init).  Cray OpenSHMEMX's shmem_init_thread segfaulted in task 1
      * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
-     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init.  0 (the default): the order below. */
-    int init_early = getenv("COMM_INIT_EARLY") ? atoi(getenv("COMM_INIT_EARLY")) != 0 : 1,   /* default 1: the user, 2026-10-05 */ mn_size_ = 1;
-    if (init_early) {
-        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);
-        double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;
-        if (verbose >= 2 && mn_size_ > 1) printf("      init: COMM_INIT_EARLY=1: the transport opened before rns_init (%.2f s)\n", t_mn);
+     * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init.  (COMM_INIT_EARLY, the late order, removed 2026-10-12) */
+    int mn_size_ = 1;
+    {
+        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model */
+        double t_mn = mem_now(); mn_size_ = mn_init(); t_mn = mem_now() - t_mn;   /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
+        if (verbose >= 2 && mn_size_ > 1) printf("      init: the transport opened before rns_init (%.2f s)\n", t_mn);
     }
     mem_sampler_start();                            /* Phase 14 S1 (E12): ECALC_MEM_SAMPLE=<seconds> */
     double t_ri = mem_now(); rns_init(pool_log); t_ri = mem_now() - t_ri;
-    if (!init_early) {
-        binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* Phase 14 P2: the pool from the model (COMM_SHMEM_POOL_AUTO=1) or a warning */
-        mn_size_ = mn_init();                       /* Phase 8 M1: a node-process among COMM_SIZE; the meshes are opened here */
-    }
     if (mn_size_ > 1 && !mn_selftest(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
-    int mn_dist = mn_size_ > 1 && !(getenv("MN_COMBINE") && !strcmp(getenv("MN_COMBINE"), "host"));   /* M3: the top levels as distributed products (MN_COMBINE=host: M2's combine on node 0) */
+    int mn_dist = mn_size_ > 1;                      /* M3: the top levels as distributed products (M2's host combine on node 0, MN_COMBINE=host, removed 2026-10-12) */
     if (mn_dist && !mn_selftest_layered(11, 11, verbose >= 2)) { printf("VERIFY FAILED\n"); return 1; }
     if (mn_size_ > 1) printf("mn: node %d computes terms [%lu, %lu) of %lu\n", mn_rank(), bs_a0, bs_b1, N);
     double t_pg = mem_now(); binsplit_pregrow(N); t_pg = mem_now() - t_pg;   /* WP3: region pools at init, like the device pools */
@@ -565,10 +558,10 @@ int main(int argc, char **argv)
                  : (getenv("ECALC_CHECKPOINT") && atoi(getenv("ECALC_CHECKPOINT")) ? 2 : 0);   /* Phase 15 (the user's decision): off for record runs; ECALC_CHECKPOINT=1 (development and testing) = the budgeted top set (=2); ECALC_CKPT_TOP overrides both */
     double ckpt_slack = getenv("ECALC_CKPT_TOP_SLACK") ? atof(getenv("ECALC_CKPT_TOP_SLACK")) : 1.0;   /* Phase 13 N: ECALC_CKPT_TOP=2's budget per release */
     bs_ckpt_bg *topbg = 0; int topq_held = 0;       /* Phase 13 N: the size-1 top set's writer; Q held past the division for it */
-    /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q (default; MN_DM=host: M3's gather to node 0
-     * and the single-node division there).  The residues of P, Q, R come from the sharded kernels; X is gathered to node 0
-     * for the existing output (A-out writes it per node) */
-    int mn_dm = mn_dist && !(getenv("MN_DM") && !strcmp(getenv("MN_DM"), "host"));
+    /* Phase 9 M4 (A-div): the reciprocal and the division over the sharded P, Q at size > 1 (M3's gather to node 0 and the
+     * single-node division there, MN_DM=host, removed 2026-10-12).  The residues of P, Q, R come from the sharded kernels;
+     * X stays sharded and every node writes its part (A-out) */
+    int mn_dm = mn_dist;
     uint64_t Pres[T1_NQ], Qres[T1_NQ], Rres[T1_NQ]; int rres_ok = 0;
     double t_recip = 0, t_10dp = 0, t_dm = 0; size_t mn_pn = 0, mn_qn = 0, mn_xn = 0;
     if (mn_dist) {                                  /* M3: the top log2(size) levels as distributed products over node groups */
@@ -584,10 +577,10 @@ int main(int argc, char **argv)
             printf("%s\n", bad ? "  LEAF MISMATCH" : "  (leaf agrees)");
         }
         if (ckpt_top && !bs_ckpt_dir && outfile) { bs_ckpt_dir = mn_out_ckpt_default(outfile); setenv("BS_CKPT_TREE_EVERY", "64", 0); printf("mn: node %d: the top tree set -> %s (ECALC_CKPT_TOP)\n", mn_rank(), bs_ckpt_dir); }   /* Phase 12 W */
-        if (mn_dm) { mn_ckpt_bg_mode = getenv("BS_CKPT_TREE_BG") && !atoi(getenv("BS_CKPT_TREE_BG")) ? 0 : ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack; }   /* Phase 13 N (1.4): the top tree set in the background (BS_CKPT_TREE_BG=0: synchronous) */
+        mn_ckpt_bg_mode = ckpt_top == 2 ? 2 : 1; mn_ckpt_slack = ckpt_slack;   /* Phase 13 N (1.4): the top tree set in the background (BS_CKPT_TREE_BG=0, synchronous, removed 2026-10-12) */
         mdb Pm, Qm; mn_tree(&Pm, &Qm, &Pl, &Ql);
         double tt = mem_now();
-        if (mn_dm) {                                /* M4: the division over shares; X gathered to node 0 until A-out */
+        {                                           /* M4: the division over shares; X stays sharded (A-out) */
             printf("mn: node %d: tree levels %.2f s: P %zu limbs, Q %zu limbs\n", mn_rank(), tt - tg, Pm.n, Qm.n);
             t_bs += tt - tg; mn_pn = Pm.n; mn_qn = Qm.n;
             mem_report("tree");                     /* Phase 10 B6 (agent M): the tree's slabs and shares should show under the pool's donated bytes, not hipMalloc */
@@ -612,33 +605,7 @@ int main(int argc, char **argv)
             oc.defer = newton_x_defer; oc.dx = newton_x_dx;   /* Phase 15 K (ECALC_CORR_PATCH=2) */
             printf("mn: node %d: dm over %d nodes %.2f s (reciprocal %.2f), X %zu limbs, sharded%s\n", mn_rank(), mn_size_, t_dm, t_recip, mn_xn, mn_rank() ? "; to the output stage" : "");
             if (mn_rank() != 0) { int f = out_stage(&oc); mn_ckpt_top_finish(); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: every node writes its part of X and checks its residues; its device memory goes before the final barrier (Phase 13 N: after the top set's writer) */
-        } else {
-        mn_gather_host(&P, &Pm); mn_gather_host(&Q, &Qm); db_free(&Pm.sh); db_free(&Qm.sh);
-        printf("mn: node %d: tree levels %.2f s, gather to node 0 %.2f s%s\n", mn_rank(), tt - tg, mem_now() - tt, mn_rank() ? "; done" : "");
-        mem_report("tree");
-        if (mn_rank() != 0) { int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f; }   /* M5 + A-mem: the part file and the residues, then the device memory goes before the final barrier */
-        printf("mn: node 0: P %zu limbs, Q %zu limbs\n", P.n, Q.n);
-        t_bs += mem_now() - tg;
         }
-    } else if (mn_size_ > 1) {                      /* M2: node 0 gathers P_r, Q_r (host, over the thread-0 mesh) and combines them in order; the other nodes are done */
-        comm *c = mn_comm(0); double tg = mem_now();
-        if (mn_rank() != 0) {
-            uint64_t n2[2] = { P.n, Q.n }; comm_send(c, 0, n2, 16); comm_send(c, 0, P.l, P.n * 8); comm_send(c, 0, Q.l, Q.n * 8);
-            printf("mn: node %d sent P (%zu limbs), Q (%zu limbs) to node 0 in %.2f s\n", mn_rank(), P.n, Q.n, mem_now() - tg);
-            bi_free(&P); bi_free(&Q);
-            int f = out_stage(&oc); db_release_pools(); rns_shutdown(); mem_report("released"); mem_report_summary(); mn_barrier(); mn_finalize(); return f;
-        }
-        bigint Pr, Qr, tt; bi_init(&Pr); bi_init(&Qr); bi_init(&tt);
-        for (int r = 1; r < mn_size_; r++) {
-            uint64_t n2[2]; comm_recv(c, r, n2, 16);
-            bi_reserve(&Pr, n2[0] + 1); bi_reserve(&Qr, n2[1] + 1); Pr.n = n2[0]; Qr.n = n2[1];
-            comm_recv(c, r, Pr.l, Pr.n * 8); comm_recv(c, r, Qr.l, Qr.n * 8);
-            rns_mul(&tt, &P, &Qr); bi_add(&P, &tt, &Pr);        /* P = P Q_r + P_r,  Q = Q Q_r */
-            rns_mul(&tt, &Q, &Qr); bi_copy(&Q, &tt);
-        }
-        bi_free(&Pr); bi_free(&Qr); bi_free(&tt);
-        printf("mn: node 0 combined %d ranges in %.2f s: P %zu limbs, Q %zu limbs\n", mn_size_, mem_now() - tg, P.n, Q.n);
-        t_bs += mem_now() - tg;
     }
     int ovl3 = ovl && bs_Pd.n;                       /* the top level left P, Q on device (it does when it ran on the device tier); otherwise the host flow */
     if (mn_size_ == 1 && ckpt_top && (ovl3 || P.n)) {   /* Phase 11 V / 12 W: the top-level P, Q as a tree set (level 0) for ECALC_RECHECK at size 1 */

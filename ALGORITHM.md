@@ -42,7 +42,7 @@ At d = 3.82 × 10¹³ the series has N ≈ 3.17 × 10¹² terms, and Q has n_Q �
 
 **Decimal limbs.** An integer is an array of 64-bit words, each holding a base-10¹⁸ digit (< 2⁶⁰), least significant
 first. The limbs of X, written from the top, *are* 18 decimal digits each, so there is no radix conversion at the end;
-the price is that a limb carries 59.79 bits of a 64-bit word. `LIMB_BASE` other than 10 is refused (`bi_check_base`).
+the price is that a limb carries 59.79 bits of a 64-bit word. There is no other limb base.
 
 **Host numbers** (`bigint`, `bigint.c/h`): a malloc'd limb array; used for seeds, small values, tests and references.
 
@@ -312,8 +312,7 @@ cross-node carry scan (`mdb_addsub`), compare (`mdb_cmp`) and residues (`mdb_mod
 §5.2 on shares; X is never gathered.
 
 **Gather.** Beyond descriptors and residues (a few words per node, `mn_allgather`) nothing is gathered in a normal run.
-`mn_gather_host` (node 0 assembles a number on the host) with `MN_DM=host` / `MN_COMBINE=host` keeps an older gathered flow
-for tests; the T2 head tails (the 49 digits before each node's range) are all-gathered before the run.
+The T2 head tails (the 49 digits before each node's range) are all-gathered before the run.
 
 ## 7. The run, in order
 

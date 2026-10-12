@@ -16,12 +16,11 @@
 typedef struct { uint64_t *l; size_t n, cap; } bigint;
 
 /* Limb base (WP1, archive:PLAN §15): every limb is < BI_B10 = 10^18 (60 bits); shifts are by whole limbs (powers of B).
- * LIMB_BASE=2 (the archived binary pipeline) is refused loudly by bi_check_base. */
+ * (The binary pipeline is archived: archive:PLAN §28.5.) */
 #define BI_B10 1000000000000000000ULL
 #ifdef __cplusplus
 extern "C" {
 #endif
-void bi_check_base(void);               /* ec_fatal if LIMB_BASE is set to anything but 10 (the binary pipeline is archived) */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap);   /* >= 64 MiB: 2 MiB-aligned + MADV_HUGEPAGE (first-touch faults are the 10dP/T1 variance, RESULTS.md 62) */
 #ifdef __cplusplus
 }

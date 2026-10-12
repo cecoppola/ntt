@@ -122,7 +122,7 @@ if want unit || want grid; then
   fi
 fi
 
-# ---- 10^9 at size 1 (decimal limbs; archive:PLAN §28.5 archived the LIMB_BASE=2 run) -----------------------------------
+# ---- 10^9 at size 1 (decimal limbs; archive:PLAN §28.5 archived the binary-limb run) -----------------------------------
 if want e9 && refneed "e9" "$REF/e_1000000000.txt"; then
   log=$OUT/e9.log; f=$TMP/e9.txt
   R 900 "./ecalc 1000000000 $f" > "$log" 2>&1; rc=$?

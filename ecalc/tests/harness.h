@@ -117,7 +117,6 @@ static void harness_meta(const char *bench)
     char host[128] = "?"; char date[64];
     time_t t = time(0);
     hv_bench = bench;
-    bi_check_base();                                     /* archive:PLAN §28.5: LIMB_BASE other than 10 is refused loudly */
     printf("META limb_base=10^18\n");
     gethostname(host, sizeof host);
     strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S", localtime(&t));

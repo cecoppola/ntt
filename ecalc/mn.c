@@ -15,7 +15,7 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) { ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 #define NA 4
 static int g_rank, g_size = 1; static comm *g_cm[NA];
-static int g_shmem, g_topo;                           /* g_topo: MN_TOPO_GROUP (below). Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
+static int g_shmem;                                   /* Phase 11 S: COMM_TRANSPORT=shmem -- the meshes are strided PE sets over SHMEM (comm_shmem.c) */
 int mn_rank(void) { return g_rank; }
 /* Phase 16 D: MN_COMM_MARK=1 (default 0: off) -- at the end of each tree level, of the reciprocal and of the division, node 0 prints
  * this PE's all-to-all traffic since the previous mark: exchanges, GB received, post-to-completion s summed over the APU threads,
@@ -62,11 +62,6 @@ int mn_init(void)
 {
     const char *es = getenv("COMM_SIZE"), *et = getenv("COMM_TRANSPORT");
     g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported) */
-    g_topo = getenv("MN_TOPO_GROUP") ? atoi(getenv("MN_TOPO_GROUP")) : 0;
-    /* B9: the cross-group mesh of level l's id collides with level l+1's all[d] id under SHMEM's strided PE sets
-     * (comm_shmem.c's "communicator id used twice" abort) -- a trap, not a remedy (products use all[d] only), so
-     * refuse at init with a clear message instead of letting the first group formation hit that abort. */
-    if (g_shmem && g_topo > 1) { ec_fatal(EC_RC_FATAL, "mn: MN_TOPO_GROUP=%d > 1 is not supported under COMM_TRANSPORT=shmem (the cross-group mesh ids collide with the next level's -- see internal code notes B9); leave MN_TOPO_GROUP unset (0) under SHMEM\n", g_topo); }
     if (g_shmem) {                                       /* rank and size from the SHMEM runtime (srun --mpi=pmix / oshrun); COMM_RANK is not needed */
         if (!comm_shmem_available()) { ec_fatal(EC_RC_FATAL, "mn: COMM_TRANSPORT=shmem but built without SHMEM (make SHMEM=1)\n"); }
         double t0 = mem_now();
@@ -112,11 +107,11 @@ int mn_selftest(int logR, int logC, int verbose)
                                                       * Neither is reachable on the available hardware (aac7: 13 nodes, <= 4 node-processes/node by default), so the real bug cannot be reproduced end to
                                                       * end here; the growth formula was instead checked by direct arithmetic (matches mn_selftest_layered's identical, already-shipped pattern) and this
                                                       * clamp keeps the debug knob itself from crashing on an invalid override instead of silently exercising the wrong thing. */
-    /* B8 (results/P16.md's MN_SELFTEST_GROW pattern, mirrored here): the fixed 2^11 rows give R/ranks < 32 from 128
+    /* B8 (results/P16.md's growth pattern, mirrored here): the fixed 2^11 rows give R/ranks < 32 from 128
      * ranks on (k_twpack's grid is rk/32 blocks, 0 at R/ranks = 16: a silent no-op, not a HIP error).  Grow logR until
-     * R/ranks >= 32, same switch and default as the layered test; below 128 ranks R/ranks is already >= 32 (2048/64
-     * = 32) so the loop never fires and behavior is unchanged. */
-    if ((getenv("MN_SELFTEST_GROW") ? atoi(getenv("MN_SELFTEST_GROW")) != 0 : 1)) while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
+     * R/ranks >= 32, as the layered test does; below 128 ranks R/ranks is already >= 32 (2048/64
+     * = 32) so the loop never fires and behavior is unchanged.  (MN_SELFTEST_GROW, default 1, removed 2026-10-12) */
+    while (((size_t)1 << logR) / (size_t)nr < 32) logR++;
     int ok = 1, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest: R / ranks < 32\n"); return 0; }
     double t0 = mem_now();
@@ -162,25 +157,6 @@ static comm *sub_mesh(int g0, int g, int slot, int d)
     if (g0 == 0 && g == g_size) return g_cm[d];
     return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
-/* S (archive:PLAN §25): the dragonfly's third layer.  MN_TOPO_GROUP=T (nodes per dragonfly group, contiguous in the node
- * numbering): the transform nodes [g0, g0+gt) of a group, when T divides gt and gt > T, exchange through an inner
- * layered communicator in the intra-minor order (node = T a + b): intra = the T nodes of dragonfly group a (one switch
- * hop), inter = the nodes with in-group index b across the gt/T groups (the global links: one aggregated message per
- * peer group).  Its rank = node - g0, as the plain mesh's, so the callers see no difference.  The two meshes: SHMEM
- * strided PE sets (refused under SHMEM at init, B9: so the layer is unused since the TCP meshes were removed). */
-static comm *g_topo_mesh[MN_MAXL][NA][2];                 /* the in-group and cross-group meshes under each level's tr[d] */
-static comm *sub_mesh_strided(int start, int stride, int n, int slot, int lane, int off)
-{
-    (void)off; return comm_shmem_create_at(start, stride, n, NA + NA * slot + lane);   /* (the TCP form removed 2026-10-12) */
-}
-static comm *topo_tr(mn_group *G, int level, int d)
-{
-    int T = g_topo, gt = G->gt, me = G->me, a = me / T, b = me % T, q = gt / T;
-    comm *in = sub_mesh_strided(G->g0 + a * T, 1, T, 2 * level, d, a * T);          /* the in-group mesh: node b of group a */
-    comm *cross = sub_mesh_strided(G->g0 + b, T, q, 2 * level, NA + d, q * b);      /* the cross-group mesh: group a of in-group index b */
-    g_topo_mesh[level][d][0] = in; g_topo_mesh[level][d][1] = cross;
-    return comm_layered_create_minor(in, cross, d);
-}
 static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 /* this node's group at level l >= 1: the nodes [k 2^l, min((k+1) 2^l, size)), k = rank >> l; its meshes are
  * created on first use by all its members together (a singleton group has none) */
@@ -197,11 +173,10 @@ mn_group *mn_group_at(int level)
         for (int d = 0; d < NA; d++) {
             HIP_CHECK(hipSetDevice(d));
             G->all[d] = sub_mesh(G->g0, G->g, 2 * level - 1, d);
-            if (g_topo > 1 && G->gt > g_topo && G->gt % g_topo == 0) G->tr[d] = G->me < G->gt ? topo_tr(G, level, d) : 0;
-            else G->tr[d] = G->gt == G->g ? G->all[d] : (G->me < G->gt ? sub_mesh(G->g0, G->gt, 2 * level, d) : 0);
+            G->tr[d] = G->gt == G->g ? G->all[d] : (G->me < G->gt ? sub_mesh(G->g0, G->gt, 2 * level, d) : 0);
         }
         HIP_CHECK(hipSetDevice(0));
-        printf("mn: node %d: level %d group [%d, %d) (transform nodes %d%s): meshes connected in %.2f s\n", g_rank, level, G->g0, G->g0 + G->g, G->gt, g_topo_mesh[level][0][0] ? ", three-layer exchange" : "", mem_now() - t0);
+        printf("mn: node %d: level %d group [%d, %d) (transform nodes %d): meshes connected in %.2f s\n", g_rank, level, G->g0, G->g0 + G->g, G->gt, mem_now() - t0);
     }
     g_groups[level] = G;
     return G;
@@ -259,12 +234,11 @@ int mn_selftest_layered(int logR, int logC, int verbose)
     if (g_size <= 1) return 1;
     int L = 0; while ((1 << L) < g_size) L++;
     mn_group *G = mn_group_at(L); int gt = G->gt;
-    int dbg_local = getenv("MN_LAYERED_LOCAL") != 0;         /* debug: the layered comm over a size-1 inter comm (4 ranks, intra only) */
-    if (dbg_local) gt = 1;
     if (g_rank >= gt) return 1;
-    /* Phase 16 P (results/P16.md): MN_SELFTEST_GROW=1 grows logR until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
-     * (4 x 32 = 128 ranks, R / ranks = 16), i.e. every launch of 32 or more node-processes stops at init; unset: as before */
-    if ((getenv("MN_SELFTEST_GROW") ? atoi(getenv("MN_SELFTEST_GROW")) != 0 : 1) && !dbg_local)   /* default 1: the user, 2026-10-05 */ while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
+    /* Phase 16 P (results/P16.md): logR grows until R / ranks >= 32 -- the fixed 2^11 rows refuse from 32 PEs on
+     * (4 x 32 = 128 ranks, R / ranks = 16), i.e. every launch of 32 or more node-processes stopped at init (MN_SELFTEST_GROW,
+     * default 1 since 2026-10-05, removed 2026-10-12; MN_LAYERED_RAW / MN_LAYERED_LOCAL, debug variants, removed too) */
+    while (((size_t)1 << logR) / ((size_t)NA * gt) < 32) logR++;
     int ok = 1, nr = NA * gt, logn = logR + logC; size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC, rr = R / nr, rows = n / nr;
     if (rr < 32) { fprintf(stderr, "mn_selftest_layered: R / ranks < 32\n"); return 0; }
     double t0 = mem_now();
@@ -279,8 +253,8 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         HIP_CHECK(hipMemcpy(dx, hx, n * 8, hipMemcpyHostToDevice)); HIP_CHECK(hipMemcpy(dy, hy, n * 8, hipMemcpyHostToDevice));
         ntt_fwd(ctx, dx, logn, 1, s); ntt_fwd(ctx, dy, logn, 1, s); ntt_pw(ctx, dx, dy, n, s); ntt_inv(ctx, dx, logn, 1, s);
         HIP_CHECK(hipStreamSynchronize(s)); HIP_CHECK(hipMemcpy(ref, dx, n * 8, hipMemcpyDeviceToHost));
-        comm *xg = comm_xgmi_create(d), *cm = getenv("MN_LAYERED_RAW") ? xg : comm_layered_create(xg, dbg_local ? comm_local_create() : G->tr[d], d);
-        if (!dbg_local && cm != xg && comm_layered_inter2_on()) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
+        comm *xg = comm_xgmi_create(d), *cm = comm_layered_create(xg, G->tr[d], d);
+        if (comm_layered_inter2_on()) comm_layered_set_inter2(cm, mn_mesh2(G, d, G->tr[d] != G->all[d]));   /* X2 */
         if (comm_rank(cm) != r || comm_size(cm) != nr) { ec_fatal(EC_RC_FATAL, "mn_selftest_layered: rank %d/%d, expected %d/%d\n", comm_rank(cm), comm_size(cm), r, nr); }
         dist_plan pl; dist_plan_create(&pl, cm, ctx, prime, logR, logC);
         uint64_t *rx, *ry; HIP_CHECK(hipMalloc(&rx, rows * 8)); HIP_CHECK(hipMalloc(&ry, rows * 8));
@@ -305,7 +279,7 @@ int mn_selftest_layered(int logR, int logC, int verbose)
         for (size_t il = 0; il < rr; il++) for (size_t j = 0; j < C; j++) if (tmp[il * C + j] != ref[(r * rr + il) + R * j]) bad++;
         if (bad || verbose) printf("mn: node %d layered rank %d of %d, 2^%d points: %zu of %zu differ\n", g_rank, r, nr, logn, bad, rows);
         if (bad) ok = 0;
-        dist_plan_free(&pl); if (cm != xg) comm_destroy(cm); comm_destroy(xg);
+        dist_plan_free(&pl); comm_destroy(cm); comm_destroy(xg);
         HIP_CHECK(hipFree(rx)); HIP_CHECK(hipFree(ry)); HIP_CHECK(hipFree(dx)); HIP_CHECK(hipFree(dy)); HIP_CHECK(hipStreamDestroy(s)); ntt_ctx_free(ctx);
         free(hx); free(hy); free(ref); free(tmp);
     }
@@ -388,7 +362,7 @@ int mn_ckpt_tree_level(unsigned long N)
  * newton_mn_divmod lets go of P before S = P + Q and takes Q's share, when the writer still needs it, until mn_ckpt_top_finish
  * (after the output stage).  mn_ckpt_top_finish joins the writer and, once every node has the set, lets mn_finalize remove the
  * sets it supersedes (the C6 rule; a node that dropped or failed its set keeps every node's lower sets). */
-int mn_ckpt_bg_mode = 0; double mn_ckpt_slack = 1.0;
+int mn_ckpt_bg_mode = 1; double mn_ckpt_slack = 1.0;   /* (0, the synchronous top set of BS_CKPT_TREE_BG=0, removed 2026-10-12) */
 static bs_ckpt_bg *g_topbg = 0; static int g_topbg_on = 0, g_toplevel = 0; static dbig g_heldQ;
 static void mn_pq_hook(int stage, mdb *x)
 {
@@ -422,7 +396,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
     memset(P, 0, sizeof *P); memset(Q, 0, sizeof *Q);
     P->sh = *Pleaf; P->n = P->N = Pleaf->n; P->g0 = g_rank; P->g = 1; memset(Pleaf, 0, sizeof *Pleaf);
     Q->sh = *Qleaf; Q->n = Q->N = Qleaf->n; Q->g0 = g_rank; Q->g = 1; memset(Qleaf, 0, sizeof *Qleaf);
-    dm_switches(); if (mn_tree_early_free > 0 && g_rank == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
+    dm_switches(); if (g_rank == 0) printf("mn: MN_TREE_EARLY_FREE: the tree levels free P_i, P_run between their two products\n");   /* Phase 14 T1 (E10a) */
     int gs[MN_MAXL]; int L = mn_groups_parse(g_size, gs, MN_MAXL - 1);   /* Phase 12 G: the level -> group-size schedule (MN_GROUPS; default 2, 4, ..., size: the binary tree as before) */
     int lr = mn_ckpt_tree_level(0), ck = bs_ckpt_dir && (getenv("BS_CKPT_TREE") ? atoi(getenv("BS_CKPT_TREE")) : 1);   /* M6: resume above level lr; BS_CKPT_TREE=0: no tree sets */
     if (lr > 0) {                                            /* the shares of P, Q after tree level lr, from this node's set */
@@ -453,7 +427,7 @@ void mn_tree(mdb *P, mdb *Q, dbig *Pleaf, dbig *Qleaf)
              * predecessors go at mn_finalize, after the driver's final barrier. */
             if (g_ckpend) { double tb = mem_now(); mn_barrier(); bs_ckpt_tree_remove_below(g_ckpend); g_ckpend = 0; bs_st.t_ckpt += mem_now() - tb; }
             double tc = mem_now(); uint64_t d[10] = { P->n, P->N, (uint64_t)P->g0, (uint64_t)P->g, P->sh.n, Q->n, Q->N, (uint64_t)Q->g0, (uint64_t)Q->g, Q->sh.n };
-            if (l == L && mn_ckpt_bg_mode) {                 /* Phase 13 N (1.4): the top set in the background */
+            if (l == L) {                                    /* Phase 13 N (1.4): the top set in the background */
                 g_topbg = bs_ckpt_bg_start(l, bs_N, d, &P->sh, &Q->sh, mn_ckpt_bg_mode == 2, mn_ckpt_slack); g_topbg_on = 1; g_toplevel = l;
                 newton_mn_pq_hook = mn_pq_hook;
                 printf("mn: node %d: checkpoint tree level %d -> %s: %.3f GB in the background%s (started in %.2f s)\n", g_rank, l, bs_ckpt_dir, (P->sh.n + Q->sh.n) * 8e-9,
@@ -490,7 +464,7 @@ static void tree_level(mdb *P, mdb *Q, int l, int g0, int g, int half)
     free(all);
     mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
     rns_mul_dist_mn(&Pn, &PA, &QB, &PB, G);
-    if (mn_tree_early_free > 0) db_free(&P->sh);             /* Phase 14 T1 (E10a): my child's P (PA or PB) is dead once P_n is formed */
+    db_free(&P->sh);                                       /* Phase 14 T1 (E10a): my child's P (PA or PB) is dead once P_n is formed */
     if (mem_live_on()) { char w[64]; snprintf(w, sizeof w, "mn node %d tree level %d mul1", g_rank, l); mem_live_line(w); }   /* Phase 14 T1: the first product's window; the level's line then covers the second */
     rns_mul_dist_mn(&Qn, &QA, &QB, 0, G);
     db_free(&P->sh); db_free(&Q->sh); *P = Pn; *Q = Qn;
@@ -524,7 +498,7 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
         if (ci == i) { PA.sh = P->sh; QA.sh = Q->sh; }
         mdb Pn, Qn; memset(&Pn, 0, sizeof Pn); memset(&Qn, 0, sizeof Qn);
         rns_mul_dist_mn(&Pn, &PA, &Qr, &Pr, G);
-        if (mn_tree_early_free > 0) {                        /* Phase 14 T1 (E10a): P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
+        {                                                    /* Phase 14 T1 (E10a): P_i and P_run are dead once P_n = P_i Q_run + P_run is formed */
             if (ci == i || (!own && ci == nch - 1)) db_free(&P->sh);   /* my child's P_i, or the top child's P (= P_run, not owned) */
             if (own) db_free(&Pr.sh); else memset(&Pr.sh, 0, sizeof Pr.sh);
             memset(&PA.sh, 0, sizeof PA.sh);
@@ -544,18 +518,6 @@ static void tree_level_k(mdb *P, mdb *Q, int l, int g0, int g, int gp, int nch)
     printf("mn: node %d level %d [%d, %d) (%d children of %d): P %zu limbs, Q %zu limbs (my share of P [%zu, %zu)) in %.2f s\n", g_rank, l, g0, g0 + g, nch, gp, P->n, Q->n, lo, hi, mem_now() - t0);
     { char w[48]; snprintf(w, sizeof w, "tree level %d", l); mn_comm_mark(w); }   /* Phase 16 D */
 }
-/* M3's end: node 0 assembles the whole number on the host from the shares (over mesh 0); the others send theirs */
-void mn_gather_host(bigint *out, const mdb *X)
-{
-    comm *c = g_cm[0]; size_t lo, hi; mdb_share(X, g_rank, &lo, &hi);
-    bigint h; bi_init(&h);
-    if (hi > lo) db_to_bi(&h, &X->sh);                       /* sh.n = hi - lo limbs */
-    if (g_rank) { if (hi > lo) comm_send(c, 0, h.l, (hi - lo) * 8); bi_free(&h); return; }
-    bi_reserve(out, X->N + 1);
-    if (hi > lo) memcpy(out->l + lo, h.l, (hi - lo) * 8);
-    for (int r = 1; r < g_size; r++) { mdb_share(X, r, &lo, &hi); if (hi > lo) comm_recv(c, r, out->l + lo, (hi - lo) * 8); }
-    out->n = X->n; bi_free(&h);
-}
 static void groups_finalize(void)
 {
     for (int l = 0; l < MN_MAXL; l++) if (g_groups[l]) {
@@ -565,7 +527,6 @@ static void groups_finalize(void)
             if (G->in2[d]) comm_destroy(G->in2[d]);
             if (G->tr2[d]) comm_destroy(G->tr2[d]);
             if (G->tr[d] && G->tr[d] != G->all[d]) comm_destroy(G->tr[d]);
-            for (int k = 0; k < 2; k++) if (g_topo_mesh[l][d][k]) { comm_destroy(g_topo_mesh[l][d][k]); g_topo_mesh[l][d][k] = 0; }
             if (G->all[d] && G->all[d] != g_cm[d]) comm_destroy(G->all[d]);
         }
         free(G); g_groups[l] = 0;
