@@ -1,5 +1,5 @@
 /* t_gather_raw_probe - K1b micro-test (results/K1b.md) of S39 candidate A ("pull the operand once raw, canonicalise per prime").
- * No product code is touched; the kernels are copies of k_gather<1> (rns_dist.c, DBIG_QSEL=1 form) at the product's shape
+ * No product code is touched; the kernels are copies of k_gather (rns_dist.c, the S41 select form) at the product's shape
  * (rows x C = 2^29 points per rank, R = 4 rows, source = 4 quarters of 2^29 limbs, one per APU; the gather runs on APU 0).
  *   V0 gather + canon (the product, one prime)          V1 gather raw (no canon)          V2 canon pass plane -> plane (local, coalesced)
  *   V3 canon pass in place                               V4 gather + canon, power-of-two index (shift / mask instead of / and %; information only)

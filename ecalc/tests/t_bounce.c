@@ -1,6 +1,6 @@
 /* t_bounce - O2 microbenchmark: the first (cold) and steady db_to_bi / db_from_bi of a small number, as in the reciprocal's
  * gather (one node's share of 2 kp + 2 = 109206 limbs at 4 nodes: 27302 limbs).  Run once per arm in a fresh process:
- *   tests/t_bounce [limbs] [reps]                     (DBIG_SMALL_BOUNCE=0 / 1 picks the arm; DBIG_BOUNCE_TS=1 prints the allocations)
+ *   tests/t_bounce [limbs] [reps]                     (DBIG_SMALL_BOUNCE=0 / 1 picks the arm)
  * The device copy is filled with plain hipMemcpy so the first db_to_bi is the process's first bounce use (as in a multi-node run).
  * Prints one line "BOUNCE limbs n small s first_to_bi t first_from_bi t steady_to_bi t steady_from_bi t ok k". */
 #include "harness.h"

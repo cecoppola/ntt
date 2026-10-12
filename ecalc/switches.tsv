@@ -61,15 +61,7 @@ COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsp
 COMM_TRANSPORT	enum	auto	derived	shmem|tcp|xgmi|local|sim4	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	mn.c:503; unset = the build's default transport
 COMM_XGMI_STATS	int	0	0		test-only	-	X13.md+D16.md	Y	ecalc	comm_xgmi.c	1	
 COMM_XSTATS	int	0	0		test-only	-	XEFF.md	Y	ecalc	comm_shmem.c	1	
-DBIG_ADDSUB2	int	1	1		built-in default	-	S38.md	Y	ecalc	dbig.c	2	
-DBIG_ADDSUB3	int	1	1		built-in default	-	S51.md	Y	ecalc	dbig.c	2	
-DBIG_BOUNCE_TS	int	0	0	0|1	experiment	-	-	Y	ecalc	dbig.c	2	dbig.c; O2, print-only bounce allocation times
-DBIG_MAXIDX_TOP	int	1	1		built-in default	-	S40.md	Y	ecalc	dbig.c	2	
-DBIG_MODQ_MONT	int	1	1		built-in default	-	S51.md	Y	ecalc	dbig.c	2	
-DBIG_QSEL	int	1	1		built-in default	-	S41.md	Y	ecalc	dbig.c,rns_dist.c	4	
-DBIG_S51_STATS	int	0	0		test-only	-	S51.md+T11.md	Y	ecalc	dbig.c	2	
 DBIG_SMALL_BOUNCE	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
-DB_POOL_TRACE	int	0	0		test-only	-	AS15.md	Y	ecalc	dbig.c	2	
 DB_POOL_VERBOSE	int	0	derived	0|1|2	launch-line	-	T215.md+S18KITFIX.md	Y	ecalc	dbig.c	8	dbig.c:123: defaults to 1 when RNS_VERBOSE is set, else 0
 DB_POOL_VMM	bool	derived	derived	0|1	built-in default	-	R114.md	Y	ecalc	dbig.c	1	
 DB_POOL_VMM_CHUNK_GB	float	2	2		built-in default	-	S46.md+R114.md	Y	ecalc	dbig.c	1	
@@ -136,16 +128,11 @@ ECALC_SEGV_TRACE	bool	0	derived	0|1	launch-line	aac6,aac7	S18W.md+S30.md	Y	ecalc
 ECALC_SPILL_DIR	bool	derived	derived	0|1	built-in default	-	S114.md	Y	ecalc	spill.c	2	
 ECALC_TEST_CORR	int	0	0		test-only	-	DKM15.md+KP15.md	prose	ecalc	newton_db.c	1	
 ECALC_VERBOSE	int	1	1	0|1|2	launch-line	aac7	PC15.md+M13.md	Y	ecalc	binsplit.c,comm_shmem.c,ecalc.c,memsample.c,mn.c,rns_dist.c	20	ecalc.c
-ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	2	
-ECALC_VMM_REPRO	int	0	0		built-in default	-	S46.md	Y	ecalc	dbig.c	1	
-ECALC_VMM_REPRO_SPIN	int	0	0		built-in default	-	S46.md	Y	ecalc	dbig.c	1	
-ECALC_VMM_SAFE	int	0	0		built-in default	-	S38.md+S34.md	Y	ecalc	dbig.c	2	
+ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	
 ECALC_VSLOT_BUDGET	bool	1	1	0|1	built-in default	-	B7ACCT.md+R§116	Y	ecalc	binsplit.c	1	
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	
 LIMB_BASE	enum	10	derived	10	launch-line	-	P3.md+L114.md	Y	ecalc	bigint.c	1	bigint.c bi_check_base: only 10 is accepted; any other value is refused at start (PLAN 28.5 archived the binary pipeline)
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	6	
-MEM_COPY_WAIT_POLL	int	0	0		test-only	-	WM15.md+A114.md	Y	ecalc	mem.c	2	
-MEM_COPY_WAIT_REPORT_S	int	unset	unset		test-only	-	-	prose	ecalc	mem.c	2	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	ecalc.c:372/537 (presence test)
 MN_COMBINE	str	derived	derived		experiment	-	W.md+M3.md	prose	ecalc	ecalc.c	4	

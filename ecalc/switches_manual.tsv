@@ -50,6 +50,5 @@ MN_REDIST_FUSE	0	bool	0|1	experiment	default 0
 DIST_GATHER_RAW	2	int	0|1|2	built-in default	rns_dist.c; K1b+CAND, user-adopted 2026-10-12; 0 = old gather
 DIST_GATHER_RAW_MARGIN_GB	2	float	-	built-in default	rns_dist.c; K1b, GB per APU kept free when DIST_GATHER_RAW=2 takes its plane
 DBIG_SMALL_BOUNCE	1	int	0|1	built-in default	dbig.c; O2+CAND, user-adopted 2026-10-12; 0 = old path
-DBIG_BOUNCE_TS	0	int	0|1	experiment	dbig.c; O2, print-only bounce allocation times
 BS_SEED_PULL	1	int	0|1	built-in default	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 COMM_HS_TS	0	bool	0|1	test-only	newton_db.c; G1 print-only handshake time stamps

@@ -5,7 +5,7 @@
 #include <string.h>
 #include <omp.h>
 #include <pthread.h>
-#include <unistd.h>                                    /* S46: usleep (ECALC_VMM_REPRO_SPIN) */
+#include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "dbig.h"
 #include "mem.h"
@@ -25,12 +25,11 @@ static void par_init(void) { if (!g_inited) { g_inited = 1; mem_acct_register(db
 struct dv { const uint64_t *q[DB_NQ]; size_t qc, off, shift; };     /* shift: the operand as a << shift limbs; qc: limbs per quarter (any multiple of DB_ALIGN) */
 /* the quarter of global limb g: the number of quarter boundaries at or below g (no division: qc is any size) */
 __device__ static inline size_t dq(size_t g, size_t qc) { return (g >= qc) + (g >= 2 * qc) + (g >= 3 * qc); }
-/* S41 (DBIG_QSEL=1): the quarter's base pointer by a select over constant indices (no runtime-indexed pointer array: such an index put the by-value struct in
- * per-lane scratch, 112 B/lane in k_gather); QS = 0 is the original indexed form */
-template <int QS> __device__ static inline const uint64_t *qsel_p(const uint64_t *const *q, size_t d) { if (!QS) return q[d]; const uint64_t *p = q[0]; if (d == 1) p = q[1]; if (d == 2) p = q[2]; if (d == 3) p = q[3]; return p; }
-template <int QS> __device__ static inline uint64_t dget_t(const struct dv &v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return qsel_p<QS>(v.q, d)[g - d * v.qc]; }
-__device__ static inline uint64_t dget(const struct dv v, size_t i) { return dget_t<0>(v, i); }
-static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 1; return v; }   /* S41: scalar-select quarter pointers in the device kernels (default 1 since 2026-10-10; 0 = old) */
+/* S41: the quarter's base pointer by a select over constant indices (a runtime-indexed pointer array put the by-value struct in per-lane
+ * scratch, 112 B/lane in k_gather); dget_s for the gather_shift / addsub3 / maxidx kernels, dget (indexed) for k_complement */
+__device__ static inline const uint64_t *qsel_p(const uint64_t *const *q, size_t d) { const uint64_t *p = q[0]; if (d == 1) p = q[1]; if (d == 2) p = q[2]; if (d == 3) p = q[3]; return p; }
+__device__ static inline uint64_t dget_s(const struct dv &v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return qsel_p(v.q, d)[g - d * v.qc]; }
+__device__ static inline uint64_t dget(const struct dv v, size_t i) { if (i < v.shift) return 0; size_t g = v.off + i - v.shift, d = dq(g, v.qc); return v.q[d][g - d * v.qc]; }
 static struct dv view_of(const dbig *a) { struct dv v; for (int d = 0; d < DB_NQ; d++) v.q[d] = a->q[d]; v.qc = a->qc; v.off = a->off; v.shift = 0; return v; }
 static inline size_t hq(const dbig *a, size_t g) { return (g >= a->qc) + (g >= 2 * a->qc) + (g >= 3 * a->qc); }   /* host: quarter of global limb g */
 #define DB_ALIGN 4096                                   /* limbs: quarters are multiples of the carry chunk */
@@ -163,11 +162,6 @@ static pthread_mutex_t g_pool_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: a ba
 static struct { void *p; int dev; size_t bytes; int own; int kind; } g_donated[256]; static int g_ndonated;   /* whole hipMalloc'd or donated regions (own: freed by db_release_pools; kind: M9 accounting -- 0 donated by a caller, 1 borrowed, 2 the pool's own hipMalloc) */
 static size_t g_live_bytes[DB_NQ], g_peak_live[DB_NQ];   /* M9 accounting: bytes handed out per device now, and the peak */
 static size_t g_win_peak[DB_NQ];                           /* Phase 14 S1 (E1): the peak since the last db_pool_window_peak(dev, 1) -- one level or one doubling */
-/* Phase 15 AS: DB_POOL_TRACE=1 prints every pool event (`dbtrace:` lines on stdout: donations, blocks taken and freed, the tail, the
- * pack / pin flags, VMM remaps) with offsets from the device's VMM base, for tests/as_pool_replay.py (print only; off by default) */
-static int g_trace = -1;
-static int db_trace_on(void) { if (g_trace < 0) g_trace = getenv("DB_POOL_TRACE") ? atoi(getenv("DB_POOL_TRACE")) : 0; return g_trace; }
-static long long db_trace_off(int d, const void *p);
 /* Phase 15 MAP: ECALC_INIT_TL=1 prints init's timeline (`tl` lines on stdout: seconds since rns_init began; the arenas' mapping with
  * its HIP calls split, the seed thread, level 1's waits).  Print only; off by default.  =2 adds a line per background chunk */
 static int g_tl = -1; static double g_tl_t0;
@@ -204,7 +198,6 @@ void db_pool_set_tail(int dev, void *p, size_t bytes, size_t thresh)
     if (dev < 0 || dev >= DB_NQ) return;
     pthread_mutex_lock(&g_pool_mx);
     g_tail[dev].p = (char *)p; g_tail[dev].bytes = bytes; g_tail[dev].end = (char *)p + bytes; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
-    if (db_trace_on()) printf("dbtrace: T %d %lld %zu %zu\n", dev, db_trace_off(dev, p), bytes, thresh);
     pthread_mutex_unlock(&g_pool_mx);
 }
 /* Phase 14 L1 (E5's layout half, DM_TAIL_DEAD): after the bs top level its dead inputs' blocks are free again -- the largest free extent
@@ -217,8 +210,7 @@ void db_pool_retarget_tail(int dev, size_t bytes, size_t thresh)
     pthread_mutex_lock(&g_pool_mx);
     int best = -1; size_t fr = 0; for (int i = 0; i < g_ext[dev].n; i++) { fr += g_ext[dev].e[i].bytes; if (best < 0 || g_ext[dev].e[i].bytes > g_ext[dev].e[best].bytes) best = i; }
     size_t lg = best >= 0 ? g_ext[dev].e[best].bytes : 0, tb = lg < bytes ? lg : bytes;
-    if (best >= 0) { g_tail[dev].end = g_ext[dev].e[best].p + lg; g_tail[dev].p = g_tail[dev].end - tb; g_tail[dev].bytes = tb; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0;
-                     if (db_trace_on()) printf("dbtrace: T %d %lld %zu %zu\n", dev, db_trace_off(dev, g_tail[dev].p), tb, thresh); }
+    if (best >= 0) { g_tail[dev].end = g_ext[dev].e[best].p + lg; g_tail[dev].p = g_tail[dev].end - tb; g_tail[dev].bytes = tb; g_tail[dev].thresh = thresh; g_tail[dev].n_tail = g_tail[dev].n_spill = 0; }
     pthread_mutex_unlock(&g_pool_mx);
     if (vb || lg < bytes) printf("dbig pool: APU%d tail moved to the top level's dead inputs: %.2f GB at the back of the largest free extent (%.2f GB; free %.2f GB in %d extents, live %.2f GB)%s\n",
                                  dev, tb / 1e9, lg / 1e9, fr / 1e9, g_ext[dev].n, g_live_bytes[dev] / 1e9, lg < bytes ? "  SHORT: t1's quarter will not fit it whole" : "");
@@ -239,9 +231,9 @@ static size_t ext_outside_tail(int d, const struct ext *e)   /* the extent's byt
  * more, and the reciprocal's r2 (1.0 n_Q) was best-fit into the middle: at 4e10 it found 10.8 GB free in 3 extents, largest 4.39 (job
  * 21131).  Small requests keep the best fit from the front, outside the tail. */
 static int g_pack_large;                              /* 1: bs (the top level's P, Q stay below the tail: t1 finds it whole); 2: the dm phase (the tail first, then the highest end) */
-void db_pool_pack_large(int on) { g_pack_large = on; if (db_trace_on()) printf("dbtrace: P %d\n", on); }
+void db_pool_pack_large(int on) { g_pack_large = on; }
 static int g_pin_tail;                                /* Phase 14 L1: while set, every request is carved from the back of the tail's free part (r right below t1: the tail is then full, nothing small can spill into it, and it is whole again once both are freed) */
-void db_pool_pin_tail(int on) { g_pin_tail = on; if (db_trace_on()) printf("dbtrace: N %d\n", on); }
+void db_pool_pin_tail(int on) { g_pin_tail = on; }
 static char *carve_at(int d, int i, char *p, size_t need)   /* the block [p, p + need) out of extent i (front, back or middle: the remainder above becomes a new extent) */
 {
     struct ext *e = g_ext[d].e; int n = g_ext[d].n; char *a = e[i].p, *b = e[i].p + e[i].bytes; int reg = e[i].reg;
@@ -323,42 +315,7 @@ static struct vmm { char *base; size_t reserved, chunk; int nslot, nd, reg; hipM
                     int m0, mapped, bg_on; pthread_t bg; size_t bytes; double t_bg;
                     double t_cr, t_mp, t_ac, t_ms; int mark_m; } g_vmm[DB_NQ];   /* Phase 15 MAP: seconds in hipMemCreate / hipMemMap / hipMemSetAccess / the zeroing, summed (ECALC_INIT_TL); mark_m: the chunk count of the parity-1 half's end */   /* m0: the arena's chunks; mapped: how many of them are (the first `mapped` slots), the rest by the background thread */
 static pthread_cond_t g_vmm_cv = PTHREAD_COND_INITIALIZER;
-static long long db_trace_off(int d, const void *p) { const char *c = (const char *)p; return g_vmm[d].base && c >= g_vmm[d].base && c < g_vmm[d].base + g_vmm[d].reserved ? (long long)(c - g_vmm[d].base) : (long long)(uintptr_t)c + (1LL << 60); }   /* Phase 15 AS: the trace's offsets (outside the VMM range: the address + 2^60) */
 static pthread_mutex_t g_vmm_map_mx = PTHREAD_MUTEX_INITIALIZER;   /* the background mappers one at a time: four at once hold the runtime's lock while blocked on each other in the driver, and the seed thread's launches wait behind them */
-static int vmm_safe(void) { static int sf = -1; if (sf < 0) sf = getenv("ECALC_VMM_SAFE") ? atoi(getenv("ECALC_VMM_SAFE")) : 0; return sf; }   /* S32: ECALC_VMM_SAFE=1: the mapper thread's stream destroy / device restore under g_vmm_map_mx and BEFORE the last chunk is published (a waiter released by mapped >= m0 never overlaps the tail); =2 also joins the thread in every arena wait (level 1 starts after the mapper has left) */
-/* S35: ECALC_VMM_BG=2 -- the process-wide HIP memory-management lock (hipmm.c wraps ecalc's HIP memory / VMM / stream create-destroy
- * calls with it; the background mapper holds it around each chunk's create + map + access).  Recursive: a wrapped call inside a held
- * section nests.  Off (any other value): db_hipmm_on() = 0 and nothing locks. */
-static pthread_mutex_t g_hipmm_mx = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-static volatile int g_hipmm_on = -1;
-int db_hipmm_on(void) { int o = g_hipmm_on; if (o < 0) { const char *e = getenv("ECALC_VMM_BG"); o = e && atoi(e) == 2; g_hipmm_on = o; } return o; }
-void db_hipmm_lock(void) { if (db_hipmm_on()) pthread_mutex_lock(&g_hipmm_mx); }
-void db_hipmm_unlock(void) { if (db_hipmm_on()) pthread_mutex_unlock(&g_hipmm_mx); }
-static int vmm_repro(void) { static int n = -1; if (n < 0) { const char *e = getenv("ECALC_VMM_REPRO"); n = e ? atoi(e) : 0; if (n < 0) n = 0; } return n; }   /* S46: extra remaps per background chunk (crash reproducer; 0 = off) */
-/* S46: ECALC_VMM_REPRO_SPIN=us -- the crash reproducer, part 2: once an APU's background mapper has mapped its chunks, a thread of its
- * own keeps mapping, granting access to and unmapping ONE spare chunk in a VA range of its own (never the arena, so the digits cannot
- * change) every `us` microseconds until db_vmm_arena_release, under the mapper's locks (g_vmm_map_mx, and db_hipmm_lock under
- * ECALC_VMM_BG=2): the background mapper's hipMemMap concurrent with the rest of the run.  Only where a background mapper runs (not
- * under ECALC_VMM_BG=0).  0 = off (default). */
-static int vmm_spin_us(void) { static int n = -1; if (n < 0) { const char *e = getenv("ECALC_VMM_REPRO_SPIN"); n = e ? atoi(e) : 0; if (n < 0) n = 0; } return n; }
-static pthread_t g_spin[DB_NQ]; static int g_spin_on[DB_NQ]; static volatile int g_spin_stop[DB_NQ]; static long g_spin_n[DB_NQ];
-static void *vmm_spin(void *arg)
-{
-    int dev = (int)(intptr_t)arg; size_t C = g_vmm[dev].chunk; int nd = g_vmm[dev].nd; char *va = 0; hipMemGenericAllocationHandle_t h = 0;
-    hipMemAllocationProp prop; memset(&prop, 0, sizeof prop); prop.type = hipMemAllocationTypePinned; prop.location.type = hipMemLocationTypeDevice; prop.location.id = dev;
-    if (hipMemAddressReserve((void **)&va, C, 0, 0, 0) != hipSuccess || hipMemCreate(&h, C, &prop, 0) != hipSuccess) { fprintf(stderr, "dbig: ECALC_VMM_REPRO_SPIN: APU%d: reserve/create failed\n", dev); return 0; }
-    hipMemAccessDesc ad[DB_NQ]; memset(ad, 0, sizeof ad);
-    for (int c = 0; c < nd; c++) { ad[c].location.type = hipMemLocationTypeDevice; ad[c].location.id = c; ad[c].flags = hipMemAccessFlagsProtReadWrite; }
-    while (!g_spin_stop[dev]) {
-        pthread_mutex_lock(&g_vmm_map_mx); db_hipmm_lock();
-        int ok = hipMemMap(va, C, 0, h, 0) == hipSuccess && hipMemSetAccess(va, C, ad, nd) == hipSuccess && hipMemUnmap(va, C) == hipSuccess;
-        db_hipmm_unlock(); pthread_mutex_unlock(&g_vmm_map_mx);
-        if (!ok) { fprintf(stderr, "dbig: ECALC_VMM_REPRO_SPIN: APU%d: map/access/unmap failed after %ld cycles\n", dev, g_spin_n[dev]); break; }
-        g_spin_n[dev]++; usleep(vmm_spin_us());
-    }
-    (void)hipMemRelease(h); (void)hipMemAddressFree(va, C);
-    return 0;
-}
 static int g_vmm_go;                                   /* the background mapping starts when init's plane pools are allocated (db_vmm_bg_release from rns_init), so that the seeds get their half first and the pools their turn */
 void db_vmm_bg_release(void) { db_tl("the background mapping is released"); pthread_mutex_lock(&g_pool_mx); g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx); }
 static int vmm_vb(void) { static int vb = -1; if (vb < 0) vb = getenv("DB_POOL_VERBOSE") ? atoi(getenv("DB_POOL_VERBOSE")) : (getenv("RNS_VERBOSE") ? 1 : 0); return vb; }
@@ -394,27 +351,21 @@ static void *vmm_bg_map(void *arg)                       /* the arena's chunks a
         double tq = mem_now();
         pthread_mutex_lock(&g_vmm_map_mx);
         double tg = mem_now(); tlk += tg - tq;
-        db_hipmm_lock();   /* S35: ECALC_VMM_BG=2: the chunk's create + map + access as one section against every other HIP memory call */
         if (!vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (background chunk)", dev, v->chunk);
-        for (int r = 0; r < vmm_repro(); r++)   /* S46: ECALC_VMM_REPRO=n -- the crash reproducer: n more unmap + map + access cycles of the same chunk (same handle, same address; zeroed below as always) */
-            if (hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk) != hipSuccess || !vmm_map_run(dev, k, 1, h)) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, v->chunk);
-        db_hipmm_unlock();
         double tz = mem_now();
         HIP_CHECK(hipMemsetAsync(v->base + (size_t)k * v->chunk, 0, v->chunk, st)); HIP_CHECK(hipStreamSynchronize(st));
         v->t_ms += mem_now() - tz;
         pthread_mutex_unlock(&g_vmm_map_mx);
         if (db_tl_on() >= 2) db_tl("APU%d chunk %d mapped (%.3f s held, %.3f s queued)", dev, k, mem_now() - tg, tg - tq);
         if (k + 1 == v->mark_m) db_tl("APU%d background: the parity-1 half is mapped (chunk %d)", dev, k);
-        if (vmm_safe() && k + 1 == v->m0) { pthread_mutex_lock(&g_vmm_map_mx); HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur)); st = 0; pthread_mutex_unlock(&g_vmm_map_mx); }   /* S32 */
         pthread_mutex_lock(&g_pool_mx); v->mapped = k + 1; pthread_cond_broadcast(&g_vmm_cv); pthread_mutex_unlock(&g_pool_mx);
     }
     db_tl("APU%d background mapping done: %d chunks in %.2f s (create %.2f, map %.2f, access %.2f, zero %.2f, queued for the mapper lock %.2f)", dev, v->m0 - k0, mem_now() - t0, v->t_cr - c0, v->t_mp - p0, v->t_ac - a0, v->t_ms - s0, tlk);
-    if (st) { if (vmm_safe()) pthread_mutex_lock(&g_vmm_map_mx); HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur)); if (vmm_safe()) pthread_mutex_unlock(&g_vmm_map_mx); }
+    HIP_CHECK(hipStreamDestroy(st)); HIP_CHECK(hipSetDevice(cur));
     pthread_mutex_lock(&g_pool_mx);
-    if ((size_t)v->m0 * v->chunk > v->bytes) { ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); }   /* the last chunk's remainder: free at once */
+    if ((size_t)v->m0 * v->chunk > v->bytes) { ext_insert(dev, v->base + v->bytes, (size_t)v->m0 * v->chunk - v->bytes, v->reg); }   /* the last chunk's remainder: free at once */
     v->n_grow = 0; v->grow_chunks = 0; v->t_bg = mem_now() - t0;
     pthread_mutex_unlock(&g_pool_mx);
-    if (vmm_spin_us() > 0) { g_spin_stop[dev] = 0; g_spin_n[dev] = 0; if (!pthread_create(&g_spin[dev], 0, vmm_spin, (void *)(intptr_t)dev)) g_spin_on[dev] = 1; }   /* S46 (joined in db_vmm_arena_release, after this thread) */
     return 0;
 }
 void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes` are mapped (the parity-1 half before level 1, everything before the halves are donated / released) */
@@ -426,7 +377,7 @@ void db_vmm_arena_wait(int dev, size_t bytes)       /* the arena's first `bytes`
     blocked = v->mapped < m ? v->mapped : -1;
     while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx); pthread_mutex_unlock(&g_pool_mx);
     if (blocked >= 0) db_tl("APU%d waited %.2f s for chunks %d..%d of the arena", dev, mem_now() - tw, blocked, m - 1);
-    if ((m >= v->m0 || vmm_safe() >= 2) && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
+    if (m >= v->m0 && v->bg_on) { pthread_join(v->bg, 0); v->bg_on = 0; if (vmm_vb()) printf("dbig pool: APU%d VMM arena: the background thread mapped chunks %d..%d in %.2f s\n", dev, (int)(v->bytes ? 0 : 0), v->m0 - 1, v->t_bg); }
 }
 size_t db_pool_vmm_chunk(void)                      /* Phase 15 AS: the VMM arena's chunk (DB_POOL_VMM_CHUNK_GB, 2 GiB), as db_vmm_arena_alloc takes it; binsplit.c's BS_ARENA_ROOM rounds the arenas to it */
 {
@@ -447,13 +398,11 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     size_t gran = 0; if (hipMemGetAllocationGranularity(&gran, &prop, hipMemAllocationGranularityRecommended) != hipSuccess || !gran) gran = (size_t)2 << 20;
     if (hipMemAddressReserve((void **)&v->base, v->reserved, gran, 0, 0) != hipSuccess) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: APU %d: cannot reserve %.1f GB of VA\n", dev, v->reserved / 1e9); }
     int m1 = (int)((first + C - 1) / C); if (m1 > m0 || first == 0) m1 = m0;
-    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */   /* S35: =2 keeps the mapper, under db_hipmm_lock (hipmm.c) */
+    { const char *eb = getenv("ECALC_VMM_BG"); if (eb && atoi(eb) == 0) m1 = m0; }   /* s34: ECALC_VMM_BG=0 maps every chunk here, in the calling thread, and starts no background mapper (the rc139 crash is hipMemMap inside vmm_bg_map); default 1 = unchanged */
     v->m0 = m0; v->bytes = bytes; v->mapped = 0; v->bg_on = 0;
     v->mark_m = first ? (int)((2 * first + C - 1) / C) : m0; if (v->mark_m > m0) v->mark_m = m0;   /* Phase 15 MAP (the timeline): binsplit.c's arena_get passes the parity half as `first`; level 1 waits for 2 first */
     double tm = mem_now(); db_tl("APU%d arena: mapping chunks 0..%d of %d (the parity-0 half)", dev, m1 - 1, m0);
     if (!vmm_map_run(dev, 0, m1, v->h)) mem_oom("db_vmm_arena_alloc (chunks)", dev, bytes);
-    for (int r = 0; r < vmm_repro(); r++) for (int k = 0; k < m1; k++)   /* S46: ECALC_VMM_REPRO=n also here (the synchronous part; all of it under ECALC_VMM_BG=0): n more unmap + map + access cycles per chunk, zeroed below */
-        if (hipMemUnmap(v->base + (size_t)k * C, C) != hipSuccess || !vmm_map_run(dev, k, 1, &v->h[k])) mem_oom("db_vmm_arena_alloc (ECALC_VMM_REPRO remap)", dev, C);
     double tz = mem_now();
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev)); HIP_CHECK(hipMemset(v->base, 0, (size_t)m1 * C)); HIP_CHECK(hipDeviceSynchronize()); HIP_CHECK(hipSetDevice(cur));
     v->t_ms += mem_now() - tz;
@@ -462,19 +411,17 @@ void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first)   /* the arena of 
     if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: too many regions\n"); }
     v->reg = g_ndonated; g_donated[g_ndonated].p = v->base; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = (size_t)m0 * C; g_donated[g_ndonated].own = 0; g_donated[g_ndonated].kind = 1; g_ndonated++;
     v->mapped = m1;
-    if (db_trace_on()) printf("dbtrace: V %d %zu %zu %d %d %d\n", dev, bytes, C, m0, nslot, v->reg);
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
     if (vmm_vb() || getenv("RNS_VERBOSE")) printf("dbig pool: APU%d VMM arena %.2f GB = %d chunks of %.2f GiB, the first %d mapped in %.2f s (%.3f s/GB)%s, VA %.1f GB reserved at %p\n", dev, (double)m0 * C / 1e9, m0, C / 1073741824.0, m1, mem_now() - t0, (mem_now() - t0) / ((double)m1 * C / 1e9), m1 < m0 ? ", the rest in the background" : "", v->reserved / 1e9, (void *)v->base);
     if (m1 < m0) { v->bg_on = 1; if (pthread_create(&v->bg, 0, vmm_bg_map, (void *)(intptr_t)dev)) { ec_fatal(EC_RC_FATAL, "db_vmm_arena_alloc: pthread_create\n"); } }
-    else { v->n_grow = 0; v->grow_chunks = 0; if ((size_t)m0 * C > bytes) { pthread_mutex_lock(&g_pool_mx); ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg); if (db_trace_on()) printf("dbtrace: I %d %zu %zu %d\n", dev, bytes, (size_t)m0 * C - bytes, v->reg); pthread_mutex_unlock(&g_pool_mx); } }
+    else { v->n_grow = 0; v->grow_chunks = 0; if ((size_t)m0 * C > bytes) { pthread_mutex_lock(&g_pool_mx); ext_insert(dev, v->base + bytes, (size_t)m0 * C - bytes, v->reg); pthread_mutex_unlock(&g_pool_mx); } }
     return v->base;
 }
 void db_vmm_arena_release(int dev)                     /* after the pool is done with it (rns_shutdown): every chunk unmapped and released, the VA freed */
 {
     struct vmm *v = &g_vmm[dev]; if (!v->base) return;
     db_vmm_arena_wait(dev, (size_t)-1);
-    if (g_spin_on[dev]) { g_spin_stop[dev] = 1; pthread_join(g_spin[dev], 0); g_spin_on[dev] = 0; printf("dbig pool: APU%d ECALC_VMM_REPRO_SPIN: %ld spare-chunk map/access/unmap cycles\n", dev, g_spin_n[dev]); }   /* S46 */
     for (int k = 0; k < v->nslot; k++) if (v->h[k]) { (void)hipMemUnmap(v->base + (size_t)k * v->chunk, v->chunk); (void)hipMemRelease(v->h[k]); v->h[k] = 0; }
     (void)hipMemAddressFree(v->base, v->reserved); free(v->h);
     if (vmm_vb()) printf("dbig pool: APU%d VMM arena released (%zu remaps of %zu chunks in %.2f s, %zu growths of %zu chunks)\n", dev, v->n_remap, v->remap_chunks, v->t_remap, v->n_grow, v->grow_chunks);
@@ -519,7 +466,6 @@ static int vmm_make_room(int d, size_t need)           /* (the pool lock held) a
     if (!vmm_map_run(d, slot0, m, hs)) { pthread_mutex_unlock(&g_pool_mx); mem_oom("dbig block pool (VMM chunks)", d, (size_t)(m - nf) * C); }
     ext_insert(d, v->base + (size_t)slot0 * C, (size_t)m * C, v->reg);
     v->n_remap++; v->remap_chunks += (size_t)nf; v->t_remap += mem_now() - t0;
-    if (db_trace_on()) printf("dbtrace: R %d %zu %d %d %d %.3f\n", d, need, slot0, nf, m, mem_now() - t0);
     if (vmm_vb()) { size_t fb = 0; for (int i = 0; i < g_ext[d].n; i++) fb += g_ext[d].e[i].bytes;
                     printf("dbig pool: APU%d VMM remap for a %.2f GB request: %d free chunks moved%s to slot %d (%.2f GB contiguous) in %.3f s; free %.2f GB in %d extents, live %.2f GB\n",
                            d, need / 1e9, nf, m > nf ? " + new chunks mapped" : "", slot0, (double)m * C / 1e9, mem_now() - t0, fb / 1e9, g_ext[d].n, g_live_bytes[d] / 1e9);
@@ -546,7 +492,6 @@ static uint64_t *q_alloc_locked(int d, size_t need)                 /* need: byt
         p = (char *)m;
     }
     live_add((uint64_t *)p, d, need, reg);
-    if (db_trace_on()) printf("dbtrace: A %d %zu %lld %d\n", d, need, db_trace_off(d, p), reg);
     return (uint64_t *)p;
 }
 static void q_release(int d, uint64_t *p) { int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(d)); HIP_CHECK(hipFree(p)); HIP_CHECK(hipSetDevice(cur)); }
@@ -555,7 +500,6 @@ static void q_free(int d, uint64_t *p)
     pthread_mutex_lock(&g_pool_mx);
     int reg; size_t bytes = live_take(p, &reg); if (!bytes) { ec_fatal(EC_RC_FATAL, "dbig: freeing an unknown block\n"); }
     ext_insert(d, (char *)p, bytes, reg);
-    if (db_trace_on()) printf("dbtrace: F %d %lld %zu\n", d, db_trace_off(d, p), bytes);
     pthread_mutex_unlock(&g_pool_mx);
 }
 void db_donate(int dev, void *p, size_t bytes) { db_donate_ext(dev, p, bytes, 1); }
@@ -590,7 +534,6 @@ void db_donate_ext(int dev, void *p, size_t bytes, int own)
     if (g_ndonated >= 256) { ec_fatal(EC_RC_FATAL, "db_donate: too many regions\n"); }
     g_donated[g_ndonated].p = p; g_donated[g_ndonated].dev = dev; g_donated[g_ndonated].bytes = bytes; g_donated[g_ndonated].own = own; g_donated[g_ndonated].kind = own ? 0 : 1; g_ndonated++;
     ext_insert(dev, (char *)p, bytes, g_ndonated - 1);
-    if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, g_ndonated - 1);
     pthread_mutex_unlock(&g_pool_mx);
     mem_acct_register(db_acct);
 }
@@ -605,12 +548,12 @@ void db_donate_adjacent(int dev, void *p, size_t bytes)
         struct vmm *v = &g_vmm[dev]; int m = (int)(((char *)p + bytes - v->base + v->chunk - 1) / v->chunk); if (m > v->m0) m = v->m0;
         if (v->mapped < m && !g_vmm_go) { g_vmm_go = 1; pthread_cond_broadcast(&g_vmm_cv); }
         while (v->mapped < m) pthread_cond_wait(&g_vmm_cv, &g_pool_mx);
-        ext_insert(dev, (char *)p, bytes, reg); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
+        ext_insert(dev, (char *)p, bytes, reg); pthread_mutex_unlock(&g_pool_mx); return; } }
     for (int i = 0; i < g_ndonated; i++) {
         if (g_donated[i].dev != dev || g_donated[i].own) continue;
         char *rp = (char *)g_donated[i].p; size_t rb = g_donated[i].bytes;
-        if ((char *)p == rp + rb) { g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
-        if ((char *)p + bytes == rp) { g_donated[i].p = p; g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); if (db_trace_on()) printf("dbtrace: I %d %lld %zu %d\n", dev, db_trace_off(dev, p), bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+        if ((char *)p == rp + rb) { g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
+        if ((char *)p + bytes == rp) { g_donated[i].p = p; g_donated[i].bytes += bytes; ext_insert(dev, (char *)p, bytes, i); pthread_mutex_unlock(&g_pool_mx); return; }
     }
     pthread_mutex_unlock(&g_pool_mx);
     db_donate_ext(dev, p, bytes, 0);
@@ -678,16 +621,13 @@ void db_reserve(dbig *x, size_t limbs)
 #define BOUNCE ((size_t)1 << 27)                              /* limbs: 1 GiB */
 static uint64_t *g_bounce[DB_NQ][2]; static hipStream_t g_bs[DB_NQ];
 static pthread_mutex_t g_bounce_mx = PTHREAD_MUTEX_INITIALIZER;   /* Phase 8: copies may be issued from a background thread; one at a time per process */
-/* O2: DBIG_BOUNCE_TS=1 (print only) -- one line per first-use pinned allocation: "bounce_init dev d: <what> <bytes> B <s> s" */
-static int bounce_ts_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_BOUNCE_TS") ? atoi(getenv("DBIG_BOUNCE_TS")) : 0; return v; }
 static void bs_init(int d) { if (!g_bs[d]) HIP_CHECK(hipStreamCreateWithFlags(&g_bs[d], hipStreamNonBlocking)); }   /* Phase 8: copies from a background thread must not serialise with the kernels on the null stream */
 static void bounce_init(int d)
 {
     if (g_bounce[d][0]) return;
-    HIP_CHECK(hipSetDevice(d)); double t0 = tnow();
+    HIP_CHECK(hipSetDevice(d));
     HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][0], BOUNCE * 8, 0)); HIP_CHECK(hipHostMalloc((void **)&g_bounce[d][1], BOUNCE * 8, 0));
     bs_init(d);
-    if (bounce_ts_on()) { printf("bounce_init dev %d: 2 x pinned %zu B %.3f s\n", d, (size_t)BOUNCE * 8, tnow() - t0); fflush(stdout); }
 }
 /* O2: DBIG_SMALL_BOUNCE=1 (default on since 2026-10-12; 0 = the old path) -- a quarter of at most SBOUNCE limbs (8 MiB) goes through one small pinned buffer
  * per device instead of the two 1 GiB ones.  The first host copy of a run allocated 4 x 2 GiB of pinned host memory (≈2.2 s on
@@ -699,9 +639,8 @@ static int small_bounce_on(void) { static int v = -1; if (v < 0) v = getenv("DBI
 static uint64_t *sbounce_get(int d)
 {
     if (!g_sbounce[d]) {
-        HIP_CHECK(hipSetDevice(d)); double t0 = tnow();
+        HIP_CHECK(hipSetDevice(d));
         HIP_CHECK(hipHostMalloc((void **)&g_sbounce[d], SBOUNCE * 8, 0)); bs_init(d);
-        if (bounce_ts_on()) { printf("bounce_init dev %d: small pinned %zu B %.3f s\n", d, (size_t)SBOUNCE * 8, tnow() - t0); fflush(stdout); }
     }
     return g_sbounce[d];
 }
@@ -787,7 +726,7 @@ __global__ void k_modq(const uint64_t *x, size_t n, int nq, const uint64_t *qs, 
         __syncthreads();
     }
 }
-/* S51 K3 (DBIG_MODQ_MONT=1, default 1 since 2026-10-11): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
+/* S51 K3 (adopted 2026-10-11): k_modq with Montgomery products (R = 2^64) in place of the 128-bit `%`.  Needs q odd and 2^62 <= q < 2^63 (the T1 primes; the host falls back to k_modq otherwise):
  * v <- montmul(v, B^MQ_T R mod q) + (x mod q) is (v B^MQ_T + x) mod q exactly, and sh <- montmul(v, B^t R mod q); the residues are those of k_modq, bit for bit. */
 __device__ __forceinline__ uint64_t mq_mm(uint64_t a, uint64_t b, uint64_t q, uint64_t qi)   /* a b / 2^64 mod q, a < 2^64, b < q, qi = q^-1 mod 2^64 */
 {
@@ -814,12 +753,6 @@ __global__ void k_modq_m(const uint64_t *x, size_t n, int nq, const uint64_t *qs
         __syncthreads();
     }
 }
-static int modq_mont_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MODQ_MONT") ? atoi(getenv("DBIG_MODQ_MONT")) : 1; return v; }   /* S51 K3: default 1 since 2026-10-11 (0 = old k_modq) */
-/* S51: DBIG_S51_STATS=1 -- at exit one line "S51STAT addsub n t modq n t crtb n t" (host wall seconds of db add/sub calls, db_mod_qs calls and the B-form CRT stage; summed over the process) */
-static double g_s51_t[3]; static long g_s51_n[3]; static int g_s51_on = -1; static pthread_mutex_t g_s51_mx = PTHREAD_MUTEX_INITIALIZER;
-static void s51_report(void) { printf("S51STAT addsub %ld %.4f modq %ld %.4f crtb %ld %.4f\n", g_s51_n[0], g_s51_t[0], g_s51_n[1], g_s51_t[1], g_s51_n[2], g_s51_t[2]); fflush(stdout); }
-int s51_stats_on(void) { if (g_s51_on < 0) { g_s51_on = getenv("DBIG_S51_STATS") ? atoi(getenv("DBIG_S51_STATS")) : 0; if (g_s51_on) atexit(s51_report); } return g_s51_on; }
-void s51_stat(int k, double t) { pthread_mutex_lock(&g_s51_mx); g_s51_n[k]++; g_s51_t[k] += t; pthread_mutex_unlock(&g_s51_mx); }
 static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
@@ -851,9 +784,7 @@ void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
     if (nq > MQ_MAXQ) { ec_fatal(EC_RC_FATAL, "db_mod_qs: %d primes\n", nq); }
     for (int j = 0; j < nq; j++) res[j] = 0;
     if (!x->n) return;
-    double t51 = s51_stats_on() ? tnow() : 0;
     pthread_mutex_lock(&g_mq_mx); db_mod_qs_locked(x, qs, nq, res); pthread_mutex_unlock(&g_mq_mx);
-    if (t51) s51_stat(1, tnow() - t51);
     if (db_res_log_on()) db_mod_qs_check(x, qs, nq, res);
 }
 static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t *res)
@@ -863,7 +794,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         uint64_t q = qs[j]; Bq[j] = BI_B10 % q; Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
         powt[j * MQ_T] = 1; for (int t = 1; t < MQ_T; t++) powt[j * MQ_T + t] = (uint64_t)((unsigned __int128)powt[j * MQ_T + t - 1] * Bq[j] % q);
     }
-    int mont = modq_mont_on();
+    int mont = 1;   /* S51 K3 (k_modq_m); k_modq when a q is even or outside [2^62, 2^63) */
     for (int j = 0; j < nq; j++) if (!(qs[j] & 1) || qs[j] < (1ULL << 62) || qs[j] >= (1ULL << 63)) mont = 0;
     uint64_t Btm[MQ_MAXQ], powtm[MQ_MAXQ * MQ_T];
     if (mont) for (int j = 0; j < nq; j++) {
@@ -894,14 +825,13 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
 }
 uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */
-template <int QS> __global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
+__global__ void k_gather_shift(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, long shift)   /* out[i] = a[i + shift] or 0 */
 {
     size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; i < hi; i += stride) { long s = (long)i + shift; out[i - lo] = (s >= 0 && (size_t)s < an) ? dget_t<QS>(a, (size_t)s) : 0; }
+    for (; i < hi; i += stride) { long s = (long)i + shift; out[i - lo] = (s >= 0 && (size_t)s < an) ? dget_s(a, (size_t)s) : 0; }
 }
-/* add/sub of one chunk (CH = 256 threads x SEG limbs) with a block-level carry scan: thread t sums its
- * SEG limbs with carry-in 0 (generate g, propagate p over the segment), a scan over the 256 (g, p) gives
- * every segment's carry-in, the segment is redone with it.  r may be a or b (same layout: a thread only
+/* add/sub of one chunk (CH = 4096 limbs, k_addsub3 below) with a block-level carry scan: each segment's generate / propagate with carry-in 0, a scan
+ * gives every segment's carry-in, the segment is redone with it.  r may be a or b (same layout: a thread only
  * touches its own limbs).  cout/prop per chunk for the host scan across chunks and quarters.
  * The b operand is either a dbig or a sparse set of 4-limb spills (sp != 0): spill j sits at limb
  * R j + row0 + rows for row0 in {0, rows, 2 rows, 3 rows} (four ranks' spill arrays). */
@@ -933,109 +863,8 @@ __device__ static inline uint64_t sparse_get(const struct sparse s, size_t i)
     if (q == 0) return (j >= 1 && j - 1 < s.C) ? s.sp[3][(j - 1) * 4 + t] : 0;   /* rank 3's spill of column j-1 lands at R j */
     return j < s.C ? s.sp[q - 1][j * 4 + t] : 0;
 }
-#define SEG 16
-static int addsub3_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB3") ? atoi(getenv("DBIG_ADDSUB3")) : 1; return v; }   /* S51 K2: 16 KB tile + wave-level carry scan (default 1 since 2026-10-11; 0 = k_addsub2) */
-static int addsub2_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_ADDSUB2") ? atoi(getenv("DBIG_ADDSUB2")) : 1; return v; }   /* S38: the coalesced add/sub kernel (default 1 since 2026-10-10; 0 = old k_addsub) */
-__global__ void k_addsub(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, uint8_t *cout, uint8_t *prop)
-{
-    __shared__ uint8_t G[256], P[256];
-    size_t c0 = lo + (size_t)blockIdx.x * CH; if (c0 >= hi) return;
-    size_t c1 = c0 + CH < hi ? c0 + CH : hi, s0 = c0 + (size_t)threadIdx.x * SEG, s1 = s0 + SEG < c1 ? s0 + SEG : c1;
-    uint64_t x[SEG], y[SEG]; int g = 0, p = 1;
-    for (int k = 0; k < SEG; k++) {
-        size_t i = s0 + k;
-        x[k] = (i < s1 && i < an) ? dget(a, i) : 0;
-        y[k] = (i < s1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget(b, i) : 0)) : 0;
-    }
-    {   /* pass 1: carry-in 0 -> generate / propagate of the segment */
-        uint64_t cy = 0; int pr = 1;
-        for (int k = 0; k < SEG; k++) { if (s0 + k >= s1) break;
-            uint64_t xx = x[k], yy = y[k], s;
-            { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; pr &= (xx == yy); } else { s = xx + yy + cy; cy = s >= B10; pr &= (xx + yy == B10 - 1); } }
-        }
-        g = (int)cy; p = (s0 < s1) ? pr : 1;
-    }
-    G[threadIdx.x] = (uint8_t)g; P[threadIdx.x] = (uint8_t)p;
-    __syncthreads();
-    if (threadIdx.x == 0) {                                   /* serial scan over 256 segments (cheap) */
-        uint8_t cy = 0;
-        for (int t = 0; t < 256; t++) { uint8_t gg = G[t], pp = P[t]; G[t] = cy; cy = gg | (pp & cy); }
-        cout[blockIdx.x] = cy; prop[blockIdx.x] = 1;
-        for (int t = 0; t < 256; t++) if (!P[t]) { prop[blockIdx.x] = 0; break; }
-    }
-    __syncthreads();
-    {   /* pass 2: with the segment's carry-in */
-        uint64_t cy = G[threadIdx.x];
-        for (int k = 0; k < SEG; k++) { size_t i = s0 + k; if (i >= s1) break;
-            uint64_t xx = x[k], yy = y[k], s;
-            { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; s = cy ? s : s - B10; } else { s = xx + yy + cy; cy = s >= B10; s = cy ? s - B10 : s; } }
-            out[i - lo] = s;
-        }
-    }
-}
-/* S38 (DBIG_ADDSUB2=1, the default since 2026-10-10; 0 = the old k_addsub): k_addsub with coalesced loads and stores.  k_addsub gives each thread SEG=16 CONSECUTIVE limbs, so a wave's
- * loads (and stores) of limb k sit 128 B apart: measured at 6.441e10 digits, 10.4 s of GPU time per APU at 36-84 GB/s (results/S38.md).  Here the
- * block's 4096 limbs move coalesced (limb e = j 256 + tid) through a 32 KB LDS tile in the thread-major order the carry scan wants (thread t, limb k at
- * t 16 + (k ^ (t & 15)): conflict-free both ways); the arithmetic, the flags (cout / prop) and the output are those of k_addsub, limb for limb.
- * G / P live in the tile once it is dead (between the operand loads and the result stores), so the block takes exactly 32 KB of LDS (two per CU). */
-template <int QS> __global__ void __launch_bounds__(256) k_addsub2(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, uint8_t *cout, uint8_t *prop)
-{
-    __shared__ uint64_t T[256 * 16];
-    uint8_t *G = (uint8_t *)T, *P = G + 256;
-    const int tid = threadIdx.x;
-    size_t c0 = lo + (size_t)blockIdx.x * CH; if (c0 >= hi) return;
-    size_t c1 = c0 + CH < hi ? c0 + CH : hi;
-    size_t s0 = c0 + (size_t)tid * SEG;
-    uint64_t x[SEG], y[SEG]; int g = 0, p = 1;
-#define S2_IDX(e) ((((e) >> 4) << 4) + (((e) & 15) ^ (((e) >> 4) & 15)))
-#pragma unroll
-    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1 && i < an) ? dget_t<QS>(a, i) : 0; }
-    __syncthreads();
-#pragma unroll
-    for (int k = 0; k < SEG; k++) x[k] = T[tid * 16 + (k ^ (tid & 15))];
-    __syncthreads();
-#pragma unroll
-    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; T[S2_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget_t<QS>(b, i) : 0)) : 0; }
-    __syncthreads();
-#pragma unroll
-    for (int k = 0; k < SEG; k++) y[k] = T[tid * 16 + (k ^ (tid & 15))];
-    __syncthreads();                                          /* the tile is dead: G / P take its first 512 bytes */
-    {   /* pass 1: carry-in 0 -> generate / propagate of the segment (as k_addsub) */
-        uint64_t cy = 0; int pr = 1;
-        for (int k = 0; k < SEG; k++) { if (s0 + k >= c1) break;
-            uint64_t xx = x[k], yy = y[k], s;
-            { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; pr &= (xx == yy); } else { s = xx + yy + cy; cy = s >= B10; pr &= (xx + yy == B10 - 1); } }
-        }
-        g = (int)cy; p = (s0 < c1) ? pr : 1;
-    }
-    G[tid] = (uint8_t)g; P[tid] = (uint8_t)p;
-    __syncthreads();
-    if (tid == 0) {                                           /* serial scan over 256 segments (cheap) */
-        uint8_t cy = 0;
-        for (int t = 0; t < 256; t++) { uint8_t gg = G[t], pp = P[t]; G[t] = cy; cy = gg | (pp & cy); }
-        cout[blockIdx.x] = cy; prop[blockIdx.x] = 1;
-        for (int t = 0; t < 256; t++) if (!P[t]) { prop[blockIdx.x] = 0; break; }
-    }
-    __syncthreads();
-    uint64_t o[SEG];
-    {   /* pass 2: with the segment's carry-in */
-        uint64_t cy = G[tid];
-        for (int k = 0; k < SEG; k++) { o[k] = 0; if (s0 + k >= c1) break;
-            uint64_t xx = x[k], yy = y[k], s;
-            { if (sub) { s = xx + B10 - yy - cy; cy = s < B10; s = cy ? s : s - B10; } else { s = xx + yy + cy; cy = s >= B10; s = cy ? s - B10 : s; } }
-            o[k] = s;
-        }
-    }
-    __syncthreads();                                          /* everyone has read G */
-#pragma unroll
-    for (int k = 0; k < SEG; k++) T[tid * 16 + (k ^ (tid & 15))] = o[k];
-    __syncthreads();
-#pragma unroll
-    for (int j = 0; j < SEG; j++) { int e = j * 256 + tid; size_t i = c0 + e; if (i < c1) out[i - lo] = T[S2_IDX(e)]; }
-#undef S2_IDX
-}
-/* S51 K2 (DBIG_ADDSUB3=1, default 1 since 2026-10-11): k_addsub2 with a 16 KB tile and a wave-level carry scan.  The chunk is still CH = 4096 limbs with the same flags (cout / prop), so
- * the host scan, k_carry and the digits are those of k_addsub2.  Each thread owns two 8-limb segments (A: limbs 8 tid .. , B: 2048 + 8 tid ..): the block loads and stores
+/* S51 K2 (adopted 2026-10-11; it replaced S38's k_addsub2 and the original k_addsub: same arithmetic, flags and digits): a 16 KB tile and a wave-level carry scan.
+ * The chunk is CH = 4096 limbs with the flags (cout / prop) that the host scan and k_carry use.  Each thread owns two 8-limb segments (A: limbs 8 tid .. , B: 2048 + 8 tid ..): the block loads and stores
  * the chunk in two halves of 2048 limbs through a 16 KB XOR-swizzled tile (four blocks per CU, against two), and the (generate, propagate) pairs of the 512 segments in
  * order are scanned by __shfl_up inside each wave plus a four-entry combine, not by thread 0 over 2 x 256 entries. */
 __device__ __forceinline__ void a3_gp(const uint64_t *x, const uint64_t *y, size_t s0, size_t c1, int sub, unsigned &g, unsigned &p)
@@ -1070,7 +899,7 @@ __device__ __forceinline__ void a3_scan(unsigned g, unsigned p, unsigned cinit, 
     unsigned prev = __shfl_up(co, 1);
     cin = lane ? prev : cw; cend = c; pall = pa;
 }
-template <int QS> __global__ void __launch_bounds__(256) k_addsub3(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, uint8_t *cout, uint8_t *prop)
+__global__ void __launch_bounds__(256) k_addsub3(uint64_t *out, size_t lo, size_t hi, struct dv a, size_t an, struct dv b, size_t bn, struct sparse sp, int has_sp, int sub, uint8_t *cout, uint8_t *prop)
 {
     __shared__ uint64_t T[2048];
     __shared__ unsigned W[4][8];
@@ -1082,13 +911,13 @@ template <int QS> __global__ void __launch_bounds__(256) k_addsub3(uint64_t *out
 #pragma unroll
     for (int h = 0; h < 2; h++) {
 #pragma unroll
-        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1 && i < an) ? dget_t<QS>(a, i) : 0; }
+        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1 && i < an) ? dget_s(a, i) : 0; }
         __syncthreads();
 #pragma unroll
         for (int k = 0; k < 8; k++) x[h * 8 + k] = T[tid * 8 + (k ^ (tid & 7))];
         __syncthreads();
 #pragma unroll
-        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget_t<QS>(b, i) : 0)) : 0; }
+        for (int j = 0; j < 8; j++) { int e = j * 256 + tid; size_t i = c0 + h * 2048 + e; T[S3_IDX(e)] = (i < c1) ? (has_sp ? (i < bn ? sparse_get(sp, i) : 0) : (i < bn ? dget_s(b, i) : 0)) : 0; }
         __syncthreads();
 #pragma unroll
         for (int k = 0; k < 8; k++) y[h * 8 + k] = T[tid * 8 + (k ^ (tid & 7))];
@@ -1126,12 +955,12 @@ __global__ void k_carry(uint64_t *out, size_t lo, size_t hi, const uint8_t *cin,
         { if (sub) { if (v) { o[i - c0] = v - 1; return; } o[i - c0] = B10 - 1; } else { if (v + 1 < B10) { o[i - c0] = v + 1; return; } o[i - c0] = 0; } }
     }
 }
-template <int QS> __global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t hi, size_t *res)   /* 1 + highest i in [lo,hi) with a[i] != b[i] (or != 0), per block */
+__global__ void k_maxidx(struct dv a, struct dv b, int hasb, size_t lo, size_t hi, size_t *res)   /* 1 + highest i in [lo,hi) with a[i] != b[i] (or != 0), per block */
 {
     __shared__ size_t sm[256];
     size_t best = 0; int found = 0;
     for (size_t i = lo + (size_t)blockIdx.x * blockDim.x + threadIdx.x; i < hi; i += (size_t)gridDim.x * blockDim.x)
-        if (hasb ? dget_t<QS>(a, i) != dget_t<QS>(b, i) : dget_t<QS>(a, i) != 0) { if (!found || i > best) best = i; found = 1; }
+        if (hasb ? dget_s(a, i) != dget_s(b, i) : dget_s(a, i) != 0) { if (!found || i > best) best = i; found = 1; }
     sm[threadIdx.x] = found ? best + 1 : 0;
     __syncthreads();
     for (int s = 128; s > 0; s >>= 1) { if (threadIdx.x < s && sm[threadIdx.x + s] > sm[threadIdx.x]) sm[threadIdx.x] = sm[threadIdx.x + s]; __syncthreads(); }
@@ -1168,7 +997,7 @@ static void shift_into(dbig *r, const dbig *a, long shift, size_t n)      /* r[i
         size_t lo, hi; qrange(r, d, n, &lo, &hi); if (lo >= hi) continue;
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        if (qsel_on()) k_gather_shift<1><<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift); else k_gather_shift<0><<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
+        k_gather_shift<<<nblk(hi - lo), 256>>>(r->q[d], lo, hi, v, a->n, shift);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     r->n = n; db_norm(r);
@@ -1201,11 +1030,7 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
         flags_reserve(d, chunks[d]);
         HIP_CHECK(hipSetDevice(d));
 #pragma omp critical
-        if (addsub3_on() && addsub2_on() && qsel_on()) k_addsub3<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
-        else if (addsub3_on() && addsub2_on()) k_addsub3<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
-        else if (addsub2_on() && qsel_on()) k_addsub2<1><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
-        else if (addsub2_on()) k_addsub2<0><<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
-        else k_addsub<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
+        k_addsub3<<<(unsigned)chunks[d], 256>>>(out->q[d], lo[d], hi[d], va, an, vb, bn, sp, spx != 0, sub, g_flags[d][0], g_flags[d][1]);
         HIP_CHECK(hipStreamSynchronize(0));
     }
     /* scan the chunk flags in order: carry-in of chunk = carry-out of the previous, or its carry-in if it propagates */
@@ -1231,7 +1056,6 @@ static void addsub_core2(dbig *r, const dbig *a, size_t ashift, const dbig *b, c
     out->n = n; if (!nfix) db_norm(out);
     if (inplace && !same) { dbig sw = *r; *r = tmp; tmp = sw; db_free(&tmp); }
     db_st.t_addsub += tnow() - t0;
-    if (s51_stats_on()) s51_stat(0, tnow() - t0);
 }
 /* M3: r (n limbs, a node's share, in place) += the spills of a product over 4 gt ranks, sp[d] = [r][j][4] on APU d;
  * fixed length, carry out and propagate reported */
@@ -1311,7 +1135,6 @@ void db_pow_sub(dbig *r, size_t e, const dbig *a)
     addsub_core(r, r, 0, 0, &s, 1, 0);
 }
 
-static int maxidx_top_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_MAXIDX_TOP") ? atoi(getenv("DBIG_MAXIDX_TOP")) : 1; return v; }   /* S40: top-down windowed k_maxidx (default 1 since 2026-10-10; 0 = full scan) */
 static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest index i < n with a[i] != b[i] (b null: != 0), or 0 */
 {
     double t0 = tnow(); db_st.n_maxidx++;
@@ -1321,14 +1144,14 @@ static size_t maxidx(const dbig *a, const dbig *b, size_t n)      /* 1 + highest
         size_t lo, hi; qrange(a, d, n, &lo, &hi); if (lo >= hi) continue;
         flags_reserve(d, 1);
         HIP_CHECK(hipSetDevice(d));
-        /* S40 (DBIG_MAXIDX_TOP=1): scan windows from the top of the quarter (4096 limbs, then x16 wider), stop at the first window with a hit; the last
+        /* S40: scan windows from the top of the quarter (4096 limbs, then x16 wider), stop at the first window with a hit; the last
          * window reaches lo, so the answer is exactly that of the single full scan (the highest differing index is in the topmost window that has one) */
-        size_t whi = hi, wsz = 4096; int top = maxidx_top_on(); size_t m = 0; unsigned blocks;
+        size_t whi = hi, wsz = 4096; size_t m = 0; unsigned blocks;
         for (;;) {
-            size_t wlo = (!top || whi - lo <= wsz) ? lo : whi - wsz;
+            size_t wlo = whi - lo <= wsz ? lo : whi - wsz;
             blocks = nblk(whi - wlo);
 #pragma omp critical
-            { if (qsel_on()) k_maxidx<1><<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]); else k_maxidx<0><<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]); }
+            k_maxidx<<<blocks, 256>>>(va, vb, b != 0, wlo, whi, g_red[d]);
         /* Phase 14 A1 (the intermittent garbage leaf length, results/A114.md): the per-block results come to this thread's own
          * buffer.  They went to a process-wide malloc'd g_hred whose first-use allocation (`if (!g_hred) g_hred = malloc()`)
          * ran unguarded inside this four-thread region: two threads could allocate, and a thread whose hipMemcpy landed in

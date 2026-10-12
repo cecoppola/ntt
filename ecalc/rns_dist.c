@@ -59,23 +59,20 @@ __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
     if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); return a.w[d] + (m - d * a.qc);
 }
-/* S41 (DBIG_QSEL=1): the same by a select over constant quarter indices -- no runtime-indexed pointer array, so the by-value struct stays in registers
- * (the indexed form costs 112 B/lane of scratch in k_gather); QS = 0 is the form above */
-template <int QS> __device__ static inline uint64_t acc_get_t(const struct acc &a, size_t i)
+/* S41: the same by a select over constant quarter indices -- no runtime-indexed pointer array, so the by-value struct stays in registers
+ * (the indexed form costs 112 B/lane of scratch in k_gather); used by k_gather, k_gather_raw, k_scatter_runs, k_bload */
+__device__ static inline uint64_t acc_get_s(const struct acc &a, size_t i)
 {
-    if (!QS) return acc_get(a, i);
     size_t m = a.lo + i;
     if (a.flat) return a.q[0][m];
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); const uint64_t *p = a.q[0]; if (d == 1) p = a.q[1]; if (d == 2) p = a.q[2]; if (d == 3) p = a.q[3]; return p[m - d * a.qc];
 }
-template <int QS> __device__ static inline uint64_t *acc_ptr_t(const struct acc &a, size_t i)
+__device__ static inline uint64_t *acc_ptr_s(const struct acc &a, size_t i)
 {
-    if (!QS) return acc_ptr(a, i);
     size_t m = a.lo + i;
     if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); uint64_t *p = a.w[0]; if (d == 1) p = a.w[1]; if (d == 2) p = a.w[2]; if (d == 3) p = a.w[3]; return p + (m - d * a.qc);
 }
-static int qsel_on(void) { static int v = -1; if (v < 0) v = getenv("DBIG_QSEL") ? atoi(getenv("DBIG_QSEL")) : 1; return v; }   /* S41 (default 1 since 2026-10-10) */
 static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
 static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
 
@@ -100,12 +97,12 @@ static void rank_init(int r)
     HIP_CHECK(hipStreamCreate(&v->s));
 }
 /* gather rank r's rows of an operand: x[il C + j] = canon(src[R j + r rows + il]) or 0 */
-template <int QS> __global__ void k_gather(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m)
+__global__ void k_gather(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C, ec_mod m)
 {
     size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) {
         size_t j = t / rows, il = t % rows, mm = R * j + row0 + il;
-        x[il * C + j] = mm < src.n ? ec_canon64(acc_get_t<QS>(src, mm), m.pu, m.mu) : 0;
+        x[il * C + j] = mm < src.n ? ec_canon64(acc_get_s(src, mm), m.pu, m.mu) : 0;
     }
 }
 static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (unsigned)(b > 228 * 16 ? 228 * 16 : b); }
@@ -116,12 +113,12 @@ static unsigned nblk(size_t total) { size_t b = (total + 255) / 256; return (uns
  * DIST_GATHER_RAW_MARGIN_GB per APU, default 2, must stay free) -- else B is gathered per prime as before */
 static int gather_raw(void) { static int v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW"); v = e ? atoi(e) : 2; } return v; }   /* default 2 since 2026-10-12 (user-adopted, results/CAND.md); 0 = the old gather */
 static double gather_raw_margin(void) { static double v = -1; if (v < 0) { const char *e = getenv("DIST_GATHER_RAW_MARGIN_GB"); v = e ? atof(e) : 2.0; } return v; }
-template <int QS> __global__ void k_gather_raw(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C)
+__global__ void k_gather_raw(uint64_t *x, struct acc src, size_t R, size_t rows, size_t row0, size_t C)
 {
     size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; t < total; t += stride) {
         size_t j = t / rows, il = t % rows, mm = R * j + row0 + il;
-        x[il * C + j] = mm < src.n ? acc_get_t<QS>(src, mm) : 0;
+        x[il * C + j] = mm < src.n ? acc_get_s(src, mm) : 0;
     }
 }
 __global__ void k_canon_pass(uint64_t *y, const uint64_t *x, size_t n, ec_mod m)
@@ -133,7 +130,7 @@ __global__ void k_canon_pass(uint64_t *y, const uint64_t *x, size_t n, ec_mod m)
 static void gather_raw_all(uint64_t *const *planes, int np, struct acc S, size_t R, size_t rows, size_t row0, size_t C, size_t q, hipStream_t s)
 {
     uint64_t *st = planes[np - 1];
-    if (qsel_on()) k_gather_raw<1><<<nblk(q), 256, 0, s>>>(st, S, R, rows, row0, C); else k_gather_raw<0><<<nblk(q), 256, 0, s>>>(st, S, R, rows, row0, C);
+    k_gather_raw<<<nblk(q), 256, 0, s>>>(st, S, R, rows, row0, C);
     for (int p = 0; p < np; p++) k_canon_pass<<<nblk(q), 256, 0, s>>>(planes[p], st, q, ec_mod_get(p));
 }
 __global__ void k_transpose(const uint64_t *x, uint64_t *y, size_t rows, size_t C)   /* rows x C -> C x rows */
@@ -146,10 +143,10 @@ __global__ void k_transpose(const uint64_t *x, uint64_t *y, size_t rows, size_t 
     for (int k = 0; k < 32; k += 8) { size_t j = bj + ty + k, i = bi + tx; if (i < rows && j < C) y[j * rows + i] = tile[tx][ty + k]; }
 }
 /* run j of the local CRT output -> result limbs R j + row0 .. (within nc) */
-template <int QS> __global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size_t rows, size_t row0, size_t C)
+__global__ void k_scatter_runs(const uint64_t *loc, struct acc c, size_t R, size_t rows, size_t row0, size_t C)
 {
     size_t total = rows * C, t = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; t < total; t += stride) { size_t j = t / rows, il = t % rows, mm = R * j + row0 + il; if (mm < c.n) *acc_ptr_t<QS>(c, mm) = loc[t]; }
+    for (; t < total; t += stride) { size_t j = t / rows, il = t % rows, mm = R * j + row0 + il; if (mm < c.n) *acc_ptr_s(c, mm) = loc[t]; }
 }
 /* this rank's run spills into a sparse temporary S (4 limbs at limb R j + (r+1) rows for every column j);
  * C += S is then one chunked-carry addition (db_add) -- an atomic ripple was serial per run and
@@ -581,10 +578,10 @@ static struct btw b_tables(int dev, int prime, uint64_t w, size_t cnt)
 }
 __device__ static inline uint64_t btw_at(const struct btw t, size_t j, ec_mod m) { return ec_mmu(t.t2[j & 0xffff], t.t1[j >> 16], m); }
 /* the operand's n points, canonical, zero beyond its length */
-template <int QS> __global__ void k_bload(uint64_t *dst, struct acc src, size_t n, ec_mod m)
+__global__ void k_bload(uint64_t *dst, struct acc src, size_t n, ec_mod m)
 {
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; i < n; i += stride) dst[i] = i < src.n ? ec_canon64(acc_get_t<QS>(src, i), m.pu, m.mu) : 0;
+    for (; i < n; i += stride) dst[i] = i < src.n ? ec_canon64(acc_get_s(src, i), m.pu, m.mu) : 0;
 }
 /* B4's residues of Y, h = m/2 points per third (T thirds of m = 2^logk points; T = 1: m = n):
  *   z_r[j'] = the radix-3 stage's third r at j' < m (T = 1: y[j'])   (ntt3.c: (a0 + w3^r a1 + w3^2r a2) w_n^(r j'))
@@ -722,7 +719,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
         if (f == STRAT_B) {
             if (d < np) {
                 ec_mod md = ec_mod_get(d);
-                { if (qsel_on()) k_bload<1><<<nblk(n), 256, 0, v->s>>>(X, A, n, md); else k_bload<0><<<nblk(n), 256, 0, v->s>>>(X, A, n, md); } { if (qsel_on()) k_bload<1><<<nblk(n), 256, 0, v->s>>>(Y, B, n, md); else k_bload<0><<<nblk(n), 256, 0, v->s>>>(Y, B, n, md); }
+                { k_bload<<<nblk(n), 256, 0, v->s>>>(X, A, n, md); } { k_bload<<<nblk(n), 256, 0, v->s>>>(Y, B, n, md); }
                 HIP_CHECK(hipStreamSynchronize(v->s)); x1 = mem_now();
                 if (T == 3) { ntt_fwd3(v->ctx[d], X, logk, 1, v->s); ntt_fwd3(v->ctx[d], Y, logk, 1, v->s); ntt_inv3_pw(v->ctx[d], X, Y, logk, 1, v->s); }
                 else { ntt_fwd(v->ctx[d], X, logk, 1, v->s); ntt_fwd(v->ctx[d], Y, logk, 1, v->s); ntt_inv_pw(v->ctx[d], X, Y, logk, 1, v->s); }
@@ -739,7 +736,7 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
                 if (d == 3) sp.wm[i] = b_tables(d, p, ec_root(p, logk), h);
                 if (T == 3) { uint64_t wn = ec_root3(p, logk); sp.wn[i] = b_tables(d, p, wn, m); sp.w3[i] = ec_powmod(wn, m, ec_P[p]); sp.w3s[i] = ec_mulmod_ref(sp.w3[i], sp.w3[i], ec_P[p]); }
             }
-            if (d < 3) { if (qsel_on()) k_bload<1><<<nblk(n), 256, 0, v->s>>>(X, A, n, sp.m[0]); else k_bload<0><<<nblk(n), 256, 0, v->s>>>(X, A, n, sp.m[0]); }
+            if (d < 3) { k_bload<<<nblk(n), 256, 0, v->s>>>(X, A, n, sp.m[0]); }
             if (T == 3) k_bsplit<3><<<nblk(h), 256, 0, v->s>>>(sp, B, logk, h); else k_bsplit<1><<<nblk(h), 256, 0, v->s>>>(sp, B, logk, h);
             HIP_CHECK(hipStreamSynchronize(v->s)); x1 = mem_now();
             if (d < 3) {
@@ -799,7 +796,6 @@ static int b_core(int f, struct acc A, struct acc B, struct acc Cw, size_t nc, c
     double ml = 0, mf = 0, mc = 0; for (int r = 0; r < NR; r++) { if (tl[r] > ml) ml = tl[r]; if (tf[r] > mf) mf = tf[r]; if (tc[r] > mc) mc = tc[r]; }
     rns_dist_st.t_merge += mem_now() - tsp; rns_dist_st.n++; rns_dist_st.t_total += mem_now() - t0;
     rns_dist_st.t_load += ml; rns_dist_st.t_ntt += mf; rns_dist_st.t_crt += mc;
-    if (s51_stats_on()) s51_stat(2, mc);
     g_bst.n[f] += 1; g_bst.t[f] += mem_now() - t0;
     if (getenv("RNS_VERBOSE")) printf("dist %s %s2^%d (%zu limbs = %zu x %zu%s): load %.3f ntt %.3f crt %.3f spills %.3f total %.3f s\n", strat_name(f), T == 3 ? "3*" : "", logk, nc, A.n, B.n, ec_np_auto ? (np == 4 ? ", 4 primes" : ", 3 primes") : "", ml, mf, mc, mem_now() - tsp, mem_now() - t0);
     return 1;
@@ -871,7 +867,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                 size_t by = q * 8;
                 if (db_pool_fit_count(r, by) >= 1 && (double)db_pool_free_bytes(r) >= (double)by + gather_raw_margin() * 1e9) sraw = db_pool_alloc(r, by);
                 else { static int said; if (!said) { said = 1; printf("DIST_GATHER_RAW: APU%d: B's raw plane (%.2f GB) does not fit the pool's free extents with the %.1f GB margin; B gathered per prime\n", r, by * 1e-9, gather_raw_margin()); } }
-                if (sraw) { if (qsel_on()) k_gather_raw<1><<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); else k_gather_raw<0><<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); pb = 2; }
+                if (sraw) { k_gather_raw<<<nblk(q), 256, 0, v->s>>>(sraw, B, R, rows, (size_t)r * rows, C); pb = 2; }
             }
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - s0;
         }
@@ -881,9 +877,9 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
             uint64_t *yb = cb ? cb + (size_t)p * q : xb;        /* B's transform: the cache plane (hit: already there) or xb */
             if (pb == 2) k_canon_pass<<<nblk(q), 256, 0, v->s>>>(yb, sraw, q, m);
             if (ha < 0 && pa) { }                               /* K1b: A prefilled above */
-            else if (ha < 0) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
+            else if (ha < 0) { k_gather<<<nblk(q), 256, 0, v->s>>>(xa[p], A, R, rows, (size_t)r * rows, C, m); }
             else HIP_CHECK(hipMemcpyAsync(xa[p], ca + (size_t)p * q, q * 8, hipMemcpyDeviceToDevice, v->s));   /* A hit: the product forms over a copy */
-            if (hb < 0 && !pb) { if (qsel_on()) k_gather<1><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); else k_gather<0><<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
+            if (hb < 0 && !pb) { k_gather<<<nblk(q), 256, 0, v->s>>>(yb, B, R, rows, (size_t)r * rows, C, m); }
             HIP_CHECK(hipStreamSynchronize(v->s)); lg += mem_now() - g0;
             if (r3) { dist3_fwd(&c3[p], xa[p], v->s); dist3_fwd(&c3[p], xb, v->s); ntt_pw(v->ctx[p], xa[p], xb, q, v->s); dist3_inv(&c3[p], xa[p], v->s); }
             else {
@@ -907,7 +903,7 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         HIP_CHECK(hipMemcpyAsync(dd, &hd, sizeof hd, hipMemcpyHostToDevice, v->s));
         if (v->spill_cap < C) { if (v->spill) HIP_CHECK(hipFree(v->spill)); v->spill_cap = C + 16; HIP_CHECK(hipMalloc(&v->spill, v->spill_cap * 4 * 8)); }
         k_crt_batch<<<(unsigned)C, CRT_THREADS, 0, v->s>>>(xa[0], xa[1], xa[2], xa[3], dd, 0, (int)C, q, gc, v->spill);
-        { if (qsel_on()) k_scatter_runs<1><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); else k_scatter_runs<0><<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); }
+        { k_scatter_runs<<<nblk(q), 256, 0, v->s>>>(xb, Cw, R, rows, (size_t)r * rows, C); }
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
         if (p1_pool) db_pool_free(r, p1);

@@ -42,7 +42,6 @@ size_t db_pool_vmm_chunk(void);                      /* Phase 15 AS: the VMM are
 void *db_vmm_arena_alloc(int dev, size_t bytes, size_t first);   /* the arena's VA (a borrowed region of the pool; the seed thread must not store into it directly); the first `first` bytes mapped now, the rest by a thread */
 void db_vmm_arena_wait(int dev, size_t bytes);
 void db_vmm_bg_release(void);
-int db_hipmm_on(void); void db_hipmm_lock(void); void db_hipmm_unlock(void);   /* S35: ECALC_VMM_BG=2, the process-wide HIP memory-management lock (hipmm.c) */
 int db_tl_on(void);                                   /* Phase 15 MAP: ECALC_INIT_TL=1 -- init's timeline (print only) */
 void db_tl_start(void);
 double db_tl_now(void);
@@ -79,7 +78,6 @@ void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
 uint64_t db_limb(const dbig *a, size_t i);
 uint64_t db_mod_q(const dbig *x, uint64_t q);
-int s51_stats_on(void); void s51_stat(int k, double t);   /* S51: DBIG_S51_STATS=1 */
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
 int  db_res_log_on(void);                             /* Phase 11 V (D5): ECALC_RES_LOG=1 -- every residue printed and cross-checked (RES lines) */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* Phase 8 I3: x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */
