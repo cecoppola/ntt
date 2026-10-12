@@ -1,38 +1,48 @@
 # ntt — ecalc: digits of e on AMD MI300A nodes
 
-`ecalc` computes ⌊10^d · e⌋ in decimal. It uses binary splitting of Σ 1/k!, a Newton reciprocal and a two-half
-division, on numbers held in device memory as base-10¹⁸ limbs (the limbs are the digits; no radix conversion). Products
-are number-theoretic transforms modulo three or four primes, distributed over the four APUs of a node and over node
-groups. The goal is **3.82 × 10¹³ digits on 576 nodes** of four MI300A APUs each (≈ 182 s without the write, modelled).
-One node does 6.441 × 10¹⁰ digits in ≈ 76-78 s (measured on the aac7 test system).
+Scope: what the project is, the repository layout, the shortest build/run/test commands, and the map of the documents. |
+Maintained: updated in the same merge as any change to the layout, the entry commands or the document set.
+
+`ecalc` computes ⌊10^d · e⌋ in decimal. It splits the series Σ 1/k! by binary splitting, takes a Newton reciprocal and
+divides in two halves, on numbers held in device memory as base-10¹⁸ limbs (the limbs are the digits; no radix
+conversion). Products are number-theoretic transforms modulo three or four primes, distributed over the four APUs of a
+node and over node groups. The goal is 3.82 × 10¹³ digits on 576 nodes; the current status is in `PLAN.md`.
+
+## Documentation
+
+| file | holds |
+|---|---|
+| `ALGORITHM.md` | how ecalc works: series, products, division, distribution, memory, output, verification |
+| `PLAN.md` | the goal, the current status, launch lines, the road to the target run |
+| `TESTING.md` | how to check a change: gate, regression, unit tests, timing method, merge criteria, report template |
+| `ecalc/README.md` | every environment switch with its default and evidence; the files of `ecalc/` |
+| `RESULTS.md` | what is in force, with the evidence file of each adopted change |
+| `TASKS.md` | open work and the user's decisions |
+| `results/` | agent reports (`<ID>.md`) cited by the files above |
+
+History (the old plan, measurement logs, older reports, moved drivers) is kept outside the repository; notes cite it as
+`archive:<path>`.
 
 ## Layout
 
 | path | what |
 |---|---|
-| `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts (`mnrun.sh`, `mnaccept.sh`, `e16_headline.sh`, `target_kit.sh`, `digcmp.sh`), the models (`estimate.py`, `mn_model.py`, `mem_model.py`, `calib_table.py`), the switch registry (`switches.tsv`) and `README.md` (every switch) |
+| `ecalc/` | the program (C/HIP), its `Makefile`, launch and test scripts, the time and memory models, the switch registry |
 | `ecalc/tests/` | one GMP-checked test program per module (`t_ntt`, `t_mul`, `t_dbig`, `t_newton`, `t_mn_grid`, …) and helper scripts |
-| `tools/` | `gate.sh` (build-and-digit gate), `rundriver.sh` (watchdog for driver scripts), `unpack_digits` (packed → ASCII), profile loader and checks, node screen, work-queue runner |
+| `tools/` | `gate.sh`, `rundriver.sh`, `unpack_digits`, the profile loader and checks, node screen |
 | `profiles/` | machine profiles: `aac7.conf`, `aac6.conf`, `target.conf.template` |
 | `tests/` | two model scripts (seed-span model, block-pool replay) |
-| `PLAN.md` | the design: algorithm, distribution, memory, verification, the plan to the target run |
-| `RESULTS.md` | what is in force, with the evidence file of each adopted change |
-| `TASKS.md` | open work, user decisions, target-session items |
-| `results/` | agent reports (`<ID>.md`) cited by the code, `ecalc/README.md` and the files above |
-
-History (the old plan and measurement log, older reports, moved drivers and raw logs) is kept outside the repository;
-notes cite it as `archive:<path>`.
 
 ## Build
 
-One node (aac6 or any ROCm system with GMP):
+One node (any ROCm system with GMP):
 
     cd ecalc && module load rocm && make
 
-Multi-node (aac7; Cray OpenSHMEMX, GMP built from source):
+Multi-node (Cray OpenSHMEMX, GMP built from source); the build log must show `-DCOMM_SHMEM`:
 
     cd ecalc && source aac7env.sh && module load cray-dsmml cray-openshmemx
-    make -B SHMEM_CRAY=1 GMP_HOME=~/gmp      # the build log must show -DCOMM_SHMEM
+    make -B SHMEM_CRAY=1 GMP_HOME=~/gmp
 
 ## Run
 
@@ -40,23 +50,19 @@ One node, inside an allocation of one node with 4 GPUs:
 
     ./ecalc 1000000000 /tmp/e9.out                  # 10^9 digits, packed output, prints VERIFY OK
     ./digcmp.sh /tmp/e9.out ref/e_1000000000.txt    # compare with a reference: "identical"
-    ../tools/unpack_digits -o /tmp/e9.txt /tmp/e9.out
+    ../tools/unpack_digits -o /tmp/e9.txt /tmp/e9.out    # packed -> ASCII
 
-Multi-node, one process per node (the launch line of the test system is the `LINE` of `e16_headline.sh`):
+Multi-node, one process per node:
 
     SLURM_JOB_ID=<hold> ./mnrun.sh <nodes> env <settings> ./ecalc <digits> [outfile]
 
-`mnrun.sh` sets the communicator environment and the libfabric defaults. The target's launch line is
-`profiles/target.conf.template`; `ecalc/target_kit.sh -h` describes the target session.
+`mnrun.sh` sets the communicator environment. The launch lines (test system and target) are in `PLAN.md` §3;
+`ecalc/target_kit.sh -h` describes the target session. Cluster access is described in the private protocol.
 
 ## Test
 
-- `tools/gate.sh --build --nodes 1` (and `--nodes 2` for multi-node code): build, 10⁹ digits, VERIFY OK, digits identical.
-  Every code change passes it before merge.
-- `ecalc/mnaccept.sh <hold> [--only unit,e9,mn,grid,ckpt,sched,recheck,corr] [--full]`: the standing regression (unit
-  tests, 10⁸-10⁹ digits at 1-4 processes, checkpoint restart, recheck, forced corrections); one PASS/FAIL line per step.
+    tools/gate.sh --build --nodes 1 --hold <hold>      # every change; add --nodes 2 for multi-node code
+    ecalc/mnaccept.sh <hold> --only unit,e9            # the standing regression (more steps: TESTING.md)
 
-## Results and decisions
-
-What is in force and its evidence: `RESULTS.md`. Every switch with its default and evidence: `ecalc/README.md`.
-Open work and the user's decisions: `TASKS.md`. Each experiment writes `results/<ID>.md`.
+Every change passes the gate before merge. The full list of checks, the timing method and the merge criteria are in
+`TESTING.md`.
