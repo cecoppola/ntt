@@ -62,7 +62,7 @@ if [ -d /opt/cray/pe/sma ]; then
     module load $MNRUN_MODULES > /dev/null 2>&1 || true
 fi
 export MNRUN_CPUS_PER_TASK=${MNRUN_CPUS_PER_TASK:-auto}
-export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp}
+export MNACCEPT_TMP=${MNACCEPT_TMP:-$HOME/p16/mnaccept_tmp${SLURM_JOB_ID:+_$SLURM_JOB_ID}}   # one directory per job: concurrent queue items deleted each other's digits (results/W2A.md)
 export AAC7_PART=${AAC7_PART:-192C4G1H_MI300A_RHEL9_A1}
 # AAC7_FI_TUNE was an empty opt-in (results/V16.md §3c: no tunable passed the bar); removed 2026-10-12.
 [ "${AAC7_FI_TUNE:-0}" = 0 ] || echo "aac7env.sh: AAC7_FI_TUNE was removed (it set nothing; results/V16.md §3c)" >&2
