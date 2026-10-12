@@ -103,7 +103,8 @@ if want unit || want grid; then
     n=${t// /_}; log=$OUT/unit_$n.log
     want unit || continue
     [ "$t" = t_bs ] && [ -n "$SKIPBS" ] && continue
-    R 1200 "./tests/$t" > "$log" 2>&1; rc=$?
+    to=1200; [ "$t" = "t_mul 20" ] && to=1800   # H7 (measured): t_mul 20 takes 896 s on an aac6 CPX node; 1200 s left 1.3x margin
+    R $to "./tests/$t" > "$log" 2>&1; rc=$?
     v=$(grep -a 'VERIFY' "$log" | tail -1)
     if [ $rc -eq 0 ] && grep -aq 'VERIFY OK' "$log" && ! grep -aq 'VERIFY FAILED' "$log"; then pass "unit $t" "$v"; else fail "unit $t" "rc $rc; ${v:-no VERIFY line}"; fi
   done
