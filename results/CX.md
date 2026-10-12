@@ -1,7 +1,6 @@
 # CX: correctness sweep of the 2026-10-11/12 branches on aac6's CPX nodes
 
-Armed 2026-10-12 (Eastern, early morning). Driver `tools/cx_aac6.sh` (copied to `~/cx/driver.sh` on aac6). Nothing here is measured yet:
-the tables below are filled at collection from `~/cx/summary.txt`.
+Armed 2026-10-12 (Eastern, early morning). Driver `tools/cx_aac6.sh` (copied to `~/cx/driver.sh` on aac6). Collected; see Results.
 
 ## What runs
 - One git bundle of the seven branches (`o2 o5 k6 k1b k8b o3 g6`, tips of GitHub after tonight's rewrite) -> clone + `make -j12` per
@@ -28,8 +27,27 @@ the tables below are filled at collection from `~/cx/summary.txt`.
 logs `~/cx/<branch>/out/`, build logs `~/cx/<branch>.build.log`.
 
 ## Results
-(pending: filled at collection)
+Collected 2026-10-12 from `~/cx/summary.txt` and `driver.txt` (all measured). Driver ran 02:37-03:40 ET (three slots, one 45-min hold each, reused or renewed; no leftover steps). 7 of 7 builds PASS. "off/on" = the switch off/on; o3 and g6 have no switch (std). Times are the ecalc total of the run.
+
+| branch | switch (on) | mnaccept e9 (1e9, LIMB_BASE 10 and 2) off / on | ecalc 4e9 off / on | 4e9 digit files cmp off vs on | unit sweep off / on |
+|---|---|---|---|---|---|
+| o5 | RNS_STRATEGY_FORM=B5 | PASS (2/2) / PASS (2/2) | PASS 20.43 s / PASS 19.73 s | PASS (identical) | t_ntt 24 FAIL (CPX speed check), 7 others PASS / same |
+| k6 | RNS_DIST_OVERLAP=1 (RNS_STRATEGY=C) | PASS / PASS | PASS 21.15 / PASS 22.43 s | PASS | same as o5 |
+| k1b | DIST_GATHER_RAW=1 (RNS_STRATEGY=C) | PASS / PASS | PASS 21.01 / PASS 20.63 s | PASS | same as o5 |
+| o2 | DBIG_SMALL_BOUNCE=1 | PASS / PASS | PASS 18.98 / PASS 18.45 s | PASS | same as o5 |
+| k8b | BS_SEED_PULL=1 | PASS / **FAIL (2/2)** | PASS 19.56 s / **FAIL** | FAIL (on run produced no digits) | off: same as o5; on: t_ntt 24 FAIL, t_patch rc 143 (see below), others PASS |
+| o3 | none (std) | PASS (2/2) | PASS 19.11 s | n/a | same as o5 |
+| g6 | none (std) | PASS (2/2) | PASS 19.00 s | n/a | same as o5; `--only sched` 3 of 3 FAIL (environment, below) |
+
+o5 extras (arm on): `t_strategy 24 1 V` and `t_strategy 26 1 V` (LIMB_BASE=10 ECALC_NP=3) PASS; ecalc with RNS_STRATEGY_CHECK=1 at 1e9 (10.93 s) and 4e9 (30.02 s) VERIFY OK, 4 check lines each, so the B form was chosen and exercised at both sizes (no digit change).
+
+Failures, classified:
+- **t_ntt 24 (every branch, both arms, 12 of 12 unit runs): CPX limit, not a code defect.** "VERIFY FAILED (4 of 2360 checks)"; the same failure is on the `off` arms, and S44 shows it is the speed check (a CPX XCD has 1/6 of the APU bandwidth). All other 7 unit tests (t_mul 20 185 checks, t_bs, t_dbig 0 555, t_newton 20 620, t_verify 334, t_out, t_patch) PASS on every branch and arm except k8b/on t_patch.
+- **k8b with BS_SEED_PULL=1: FAIL, a possible defect (or a CPX-specific hang), needs a look.** Both mnaccept e9 runs and ecalc 4e9 exit rc 3 after init with `ecalc: FATAL ... after init, rc 3: db_pull_wait: APU0's pull kernel did not finish copy 1 in 600 s` (the pull kernel's own 600 s watchdog), so each failing run cost 600 s (the e9 step took 1211 s, 4e9 607 s). The off arm of the same build is clean, so the switch is the cause. Not known whether it is CPX-only: the pull kernel waits on the XCD devices of one APU; run it on a 4-APU node before judging. In the unit sweep with the switch on, t_patch was killed (rc 143, after printing "VERIFY OK (1 checks)") when the step ran out of time.
+- **g6 `--only sched` (MNACCEPT_SCHED_PROCS=4 on one CPX node): 3 of 3 FAIL, environment limit.** "sets written by 0 nodes", "0 refusal lines", restart step "Exited with exit code" from the launcher: 4 node-processes need 4 nodes; not a G6 defect (expected in the plan above).
+
+Summary: digits identical on o5, k6, k1b, o2 (switch on vs off, 4e9 files cmp, 1e9 mnaccept) and o3, g6 (std); the only switch failure is k8b BS_SEED_PULL=1. Speed on CPX (4e9, off to on): o5 -0.70 s, k1b -0.38 s, o2 -0.53 s, k6 +1.28 s: single runs, not timing claims.
+
 
 ## RESUME
-Collect: `ssh <cluster> 'ls ~/cx/DONE && cat ~/cx/summary.txt ~/cx/driver.txt'`; copy the table above, mark each FAIL as a code
-defect or a CPX limit (compare off vs on), then remove `~/cx/<branch>` clones. Re-run one branch: `CX_BRANCHES=<b> CX_SLOTS=1 bash ~/cx/driver.sh`.
+COLLECTED 2026-10-12 (Results). Open: k8b BS_SEED_PULL=1 pull-kernel 600 s timeout on CPX (re-run on a 4-APU node; ask the k8b owner). Remove the `~/cx/<branch>` clones. Re-run one branch: `CX_BRANCHES=<b> CX_SLOTS=1 bash ~/cx/driver.sh`.
