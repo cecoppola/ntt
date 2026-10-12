@@ -32,9 +32,9 @@ setting it to 0 restores the old path; switches marked "removed" are built in.
 |---|---|---|---|---|
 | decimal limbs 10¹⁸ only; binary pipeline removed | 2026-10-12 | binary was 1.9-2.2 × slower at 2 nodes (+32.47 s at 10¹⁰) | m | results/H4.md, H5.md, H1.md, H2.md |
 | `DBIG_SMALL_BOUNCE=1`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL=1` | 2026-10-12 | -7.16 s [-8.08, -6.23] 1 node (aac6); -5.58 s [-10.54, -0.63] 2 nodes (aac7); reciprocal chain 4.57 → 0.06 s | m | results/CAND.md, O2.md, K1b.md, K8b.md |
-| `DBIG_ADDSUB3=1`, `DBIG_MODQ_MONT=1` (kernels K2, K3) | 2026-10-11 | 1 node -2.03 s ± 1.38 (aac7) | m | results/S51.md, T08.md |
+| kernels K2, K3 (`DBIG_ADDSUB3`, `DBIG_MODQ_MONT`; switches removed, built in) | 2026-10-11 | 1 node -2.03 s ± 1.38 (aac7) | m | results/S51.md, T08.md |
 | `FI_MR_CACHE_MONITOR=userfaultfd` set by `mnrun.sh`; `disabled` refused | 2026-10-11 | reproducer hangs 22/105 → 0/104; 46 four-node runs, 0 segfaults, 0 hangs | m | results/S46.md, T12.md |
-| `DBIG_ADDSUB2=1`, `DBIG_MAXIDX_TOP=1`, `DBIG_QSEL=1` | 2026-10-10 | together -50.0 s at 4 nodes [-71.7, -28.3] | m | results/S38.md, S40.md, S41.md, S43.md |
+| kernels `DBIG_ADDSUB2`, `DBIG_MAXIDX_TOP`, `DBIG_QSEL` (switches removed, built in) | 2026-10-10 | together -50.0 s at 4 nodes [-71.7, -28.3] | m | results/S38.md, S40.md, S41.md, S43.md |
 | `DIST_CHUNKS=8` (was 4) | 2026-10-07 | device -13.4 GB at 576 nodes for +2.4 s | mod | results/S45.md |
 | `ECALC_VSLOT_BUDGET=1` (exchange slots in the node budget) | 2026-10-07 | no measured cost | m | results/B7ACCT.md, S18M.md |
 | `COMM_OFI=1` where a cxi NIC is present | 2026-10-06 | × 2.1 over SHMEM at 10 nodes | m | results/OFI17.md, STD17.md |
@@ -81,7 +81,7 @@ digits identical, round trip byte-identical; results/C05.md, O4.md).
 | uneven node groups | correct, not faster (5 nodes, one run each) | m | results/B06.md |
 | B5 product form | +0.08 s [-0.75, +0.91] | m | results/O5.md |
 | `RNS_DIST_OVERLAP` (K6) | -0.11 ± 0.15 s of 73.4 s | m | results/K6.md |
-| `COMM_SHMEM_RPIPE`, `MN_REDIST_FUSE` | +1.82 s [-14.35, +17.99], -0.78 s [-40.89, +39.34] | m | results/O2.md |
+| `COMM_SHMEM_RPIPE` (removed), `MN_REDIST_FUSE` | +1.82 s [-14.35, +17.99], -0.78 s [-40.89, +39.34] | m | results/O2.md |
 | init reorderings (K8) | each +2.0 .. +11.5 s | m | results/K8.md |
 | `DIST_GATHER_TILE` | -0.08 s ± 0.88 at 1 node | m | results/S50.md |
 | result-exchange rebalancing | about -7 s at 10 nodes, below noise | mod | results/A07.md |
