@@ -1467,6 +1467,7 @@ static int mn_logn_cap(int g)
     return logn;
 }
 int rns_mul_dist_mn_logcap(mn_group *G) { return mn_logn_cap(G->g); }
+int rns_mul_dist_mn_logcap_g(int g) { return mn_logn_cap(g); }   /* D19 (binsplit.c dm_layout: DM_MN_WRAP's plane by the group size) */
 struct mn_times { double redistribute, ntt, crt, out, carry, total; };
 size_t rns_dist_tscratch_max;                                 /* Phase 13a M: the largest window temporary + result slabs of one product or shifted add (bytes per node-process, measured) */
 /* ---- Phase 13a M (TASKS 1.3): the accumulating piece's window in rounds (MN_T_CHUNK_MB) ------------------------------ */
@@ -1931,6 +1932,7 @@ void rns_mul_dist_mn_low_basis_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group
 /* P1: C = sum_k c_k B^k over one cyclic plane of P points (A B mod (x^P - 1) as coefficients; C == A B mod (B^P - 1), C < B^(P + 4)),
  * in basis `basis` (>= P + 4); P a power of two between the group's smallest plane and its cap; na, nb <= P, non-zero */
 int rns_mul_dist_mn_logmin(mn_group *G) { return (int)mn_logmin(G->g); }
+int rns_mul_dist_mn_logmin_g(int g) { return (int)mn_logmin(g); }    /* D19 (binsplit.c dm_layout) */
 void rns_mul_dist_mn_cyc_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis)
 {
     int g = G->g, node = g_node_of(G);

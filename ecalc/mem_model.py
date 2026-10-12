@@ -154,7 +154,27 @@ def arena_of(base, want, chunk=0):
     ex = max(0, want - base); a = base + (ex + (2 << 20) - 1) // (2 << 20) * (2 << 20)
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
-def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False):
+def dm_mn_wrap(env=None):
+    """P1 / D19 (results/DEF.md): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the default; 1 the cap's plane; k >= 20 a plane of 2^k)"""
+    v = (env if env is not None else os.environ).get('DM_MN_WRAP', '0') or '0'
+    try: return max(0, int(v))
+    except ValueError: return 0
+
+def wrap_bytes(nq, k, g, pool_log=31, wrap=None):
+    """D19 (results/DEF.md; binsplit.c dm_wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
+    (newton_db.c mn_wrap_step): Q B^-h folded (Qpp, basis P + 4, held over both steps) and the folded A' (T1, basis P + 4) beside the
+    assembly's Rc + Tt (basis w each, the moment Aw + xql was) -- 2 quarters of P + 4 limbs; 0 when the wrap is off or not used
+    (mn_wrap_plane: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1, X_hi Q (k1 + 1 + n_Q limbs) over one plane)"""
+    v = dm_mn_wrap() if wrap is None else wrap
+    if not v or g < 2: return 0
+    cap = mn_cap_log(g, pool_log); lmin = mn_logmin(g); lg = cap if v == 1 else v
+    if lg < lmin or lg > cap or lg > 62: return 0
+    P = 1 << lg; w = nq + 2
+    if w < P + 2: return 0
+    if v == 1 and (k - k // 2 + 1) + nq <= (1 << cap): return 0
+    return 2 * quarter_bytes(-(-(P + 4) // g))
+
+def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=True, room=0.0, dkm=False, mdev_logl=30, lean=False, wrap=None):
     """binsplit.c dm_layout: n_Q, k_mu, t1, the hole (t1's quarter), the dm need per device (bytes).
     Phase 14 L1 (APUMULT_STUDY E2 / E5): tight = DM_TIGHT (the reciprocal's r2 at 2 jl + 4 and t1 at Q_t r's size at the last doubling
     jl = ceil(k/2), the top level's pairs freed as consumed), tail_dead = DM_TAIL_DEAD (1: v3 without the hole; 2: v2 without P too, the
@@ -192,6 +212,8 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
         hi = max(2 * qp + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8), qp + quarter_bytes(h_s) + quarter_bytes(nq_s + 2) + quarter_bytes(h_s + 1) + quarter_bytes(k_s + 8))
         lo = qp + quarter_bytes(k_s) + quarter_bytes(nq_s + 2) + quarter_bytes(nq_s + h_s + 8) + quarter_bytes(h_s)   # X, Aw, X_lo Q (n_Q + k/2), X_lo
         if lean: lo = 3 * quarter_bytes(nq_s + 2) + quarter_bytes(k_s + 1) + quarter_bytes(h_s + 1)   # int15k (DM_MN_LEAN, size > 1): Qw + Aw + xql (w each) + X (k; the X0 form) + X_lo (h)
+    wr = wrap_bytes(nq, k, g, pool_log, wrap) if lean else 0                  # D19: DM_MN_WRAP's Qpp + T1 (env DM_MN_WRAP when wrap is None, as the C reads it)
+    lo += wr
     div = quarter_bytes(piece) + max(hi, lo)
     v2 = max(v2, div)
     v2 += min(v2 // 8, 1 << 30)
@@ -201,7 +223,7 @@ def dm_layout(N, g, pool_log=31, decimal=True, tight=False, tail_dead=0, anchor=
     need = max(v2, top)
     room_b = int(room * float(hole)) if room > 0 else 0                  # Phase 15 AS: BS_ARENA_ROOM=<room> (with the VMM pool): room x the hole in the dm need
     need += room_b
-    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap), room=room_b, dkm=dkm, lean=lean)
+    return dict(nq=nq, k=k, tcap=tcap, hole=hole, thresh=hole - hole * 3 // 8, need_dev=need, need_v2=v2, v2=v2, v3=top, div=div, jl=jl, t1_quarter=quarter_bytes(tcap), room=room_b, dkm=dkm, lean=lean, wrap=wr)
 
 def mn_groups(g, spec=None):
     """rns_dist.c mn_groups_parse: the group size per tree level from MN_GROUPS (a list, or the string), default the
@@ -520,11 +542,19 @@ def planes_3q30(pool_log=31, digits=0):
 EC_NP = 3                                # Phase 13b step 0: three primes are the default for decimal limbs (ECALC_NP; binary limbs need 4)
 NP3_MAX_TERMS = 58424467928              # crt.c ec_np3_max_terms: floor((p0 p1 p2 - 1) / (10^18 - 1)^2), the largest nc = pa + pb three primes hold
 
-def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS):
+def np_mn3(env=None):
+    """D18 (results/DEF.md): ECALC_NP_MN3=1 -- the three-prime multi-node path (crt.c ec_np_mn3; read from the environment as the C does)"""
+    v = (env if env is not None else os.environ).get('ECALC_NP_MN3', '0') or '0'
+    try: return int(v) != 0
+    except ValueError: return False
+
+def np_planes(np, g=1, pool_log=31, auto_terms=NP3_MAX_TERMS, mn3=None):
     """Phase 15 NP (crt.c ec_np_planes, rns_mul.c rns_pool0_np): the planes plane pool 0 is made for under ECALC_NP=np -- np itself, or for
-    'auto' (the prime count per product) 4 when the largest plane a run of g node-processes forms, 2^(min(31, pool_log) + floor(log2 g)) points,
-    exceeds the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3: at the target 4 (pool 0 as ECALC_NP=4), at size 1 3"""
+    'auto' (the prime count per product): D18 (the default since 2026-10-12) 4 at every g > 1 (every multi-node product in P24), 3 at size 1;
+    with ECALC_NP_MN3=1 (mn3; None = the environment) the rule before D18: 4 when the largest plane a run of g node-processes forms,
+    2^(min(31, pool_log) + floor(log2 g)) points, exceeds the switch-over (ECALC_NP_AUTO_TERMS, default the three-prime bound), else 3"""
     if np != 'auto': return np
+    if g > 1 and not (np_mn3() if mn3 is None else mn3): return 4
     c = pool_log if 0 < pool_log < 31 else 31
     lg = g.bit_length() - 1 if g > 1 else 0
     return 4 if (1 << (c + lg)) > auto_terms else 3
@@ -1185,6 +1215,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
         if 'v2' in v: rows[3:3] = [('v2 / dev', v['v2'], L['v2']), ('v3 / dev', v['v3'], L['v3']), ('division / dev', v['div'], L['div']), ('jl (limbs)', v['jl'], L['jl'])]
+        if 'wrap' in v or L.get('wrap'): rows[3:3] = [('wrap / dev', v.get('wrap', 0), L['wrap'])]   # D19: DM_MN_WRAP's term (env DM_MN_WRAP, as the C)
         if 'room' in v: rows[3:3] = [('room / dev', v['room'], L['room']), ('chunk', v['chunk'], ch)]   # Phase 15 AS (DL: the room decided on this model's node, below)
         if rl is not None and ar_room is not None:                              # Phase 15 DL: the room's node, term by term (binsplit.c as_room_fits)
             rows += [('room planes', rl['planes'], room_planes), ('room arena', rl['arena_with_room'], ar_room), ('room seedbuf', rl['seedbuf'], sb),

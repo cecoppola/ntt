@@ -45,6 +45,7 @@ static size_t np3_max_terms(void)
 int ec_np_auto;
 size_t ec_np_auto_terms;
 int ec_np_auto_min;                                 /* ECALC_NP_AUTO_MIN=1 -- the switch-over on min(pa, pb) (modarith.h) */
+int ec_np_mn3;                                      /* D18 (results/DEF.md): ECALC_NP_MN3=1 -- the three-prime multi-node path (the rule before D18) */
 int ec_np_init(void)
 {
     if (g_np_init) return ec_np;
@@ -62,6 +63,8 @@ int ec_np_init(void)
         }
         const char *m = getenv("ECALC_NP_AUTO_MIN");     /* off by default (pa + pb, NP's conservative form) */
         ec_np_auto_min = ec_np_auto && m && atoi(m) != 0;
+        const char *m3 = getenv("ECALC_NP_MN3");         /* D18: off by default (every multi-node product in the four-prime P24 form) */
+        ec_np_mn3 = ec_np_auto && m3 && atoi(m3) != 0;
     } else if (e) {
         int v = atoi(e);
         if (v != 3 && v != 4) { ec_fatal(EC_RC_FATAL, "ECALC_NP=%s: the prime count must be 3, 4 or auto\n", e); }
@@ -85,10 +88,15 @@ int ec_np_prod(size_t nterms, const char *where)
     if (np == 3) ec_np_check(nterms, where);
     return np;
 }
+/* D18 (the user's decision of 2026-10-12, results/DEF.md): under ECALC_NP=auto pool 0 holds four planes in every run of more than one
+ * node-process, so every multi-node product runs the four-prime 24-digit form P24 (rns_dist.c mn_p24_of).  ECALC_NP_MN3=1 keeps the rule
+ * before D18 -- four planes only where the run's largest group can form a piece over the switch-over (2^(31 + floor(log2 g)) > the bound:
+ * from 32 node-processes), else the three-prime 18-digit form */
 int ec_np_planes(int pool_log, int g)
 {
     ec_np_init();
     if (!ec_np_auto) return ec_np;
+    if (g > 1 && !ec_np_mn3) return 4;
     int c = pool_log > 0 && pool_log < 31 ? pool_log : 31, lg = 0; while (g > 1 && (2 << lg) <= g) lg++;
     return ((size_t)1 << (c + lg)) > ec_np_auto_terms ? 4 : 3;   /* (an upper bound of mn_logn_cap / dist_cap: no product of the run exceeds it) */
 }

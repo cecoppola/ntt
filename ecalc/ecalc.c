@@ -436,7 +436,7 @@ int main(int argc, char **argv)
     int verbose = getenv("ECALC_VERBOSE") ? atoi(getenv("ECALC_VERBOSE")) : 1;
     int pool_log = getenv("POOL_LOG") ? atoi(getenv("POOL_LOG")) : 31;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    if (!getenv("ECALC_NP")) setenv("ECALC_NP", "3", 1);   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB) */
+    if (!getenv("ECALC_NP")) { const char *cs = getenv("COMM_SIZE"); setenv("ECALC_NP", cs && atoi(cs) > 1 ? "auto" : "3", 1); }   /* three primes for decimal limbs (RESULTS 78: -17 % wall, -25.8 GB); D18 (results/DEF.md): auto at size > 1, so every multi-node product runs P24 (crt.c ec_np_planes) */
     d = ((d_out + 17) / 18) * 18;
     printf("== ecalc: e to %lu digits (decimal limbs, base 10^18)%s ==\n", d_out, d != d_out ? " [computed to the next multiple of 18]" : "");
     meta_line("ecalc");

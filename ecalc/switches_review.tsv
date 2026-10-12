@@ -89,3 +89,4 @@ T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	experiment	P1 (results/P1.md)	2026-11-11	off by default; 2-node ABBA -11.1 s total; awaits the user (6-node A/B, memory model)
 BS_BATCH_PIPE	experiment	coordinator (N3)	2026-11-11	off by default; remove or adopt at review (results/N3.md)
+ECALC_NP_MN3	fallback	coordinator (D18, results/DEF.md)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default

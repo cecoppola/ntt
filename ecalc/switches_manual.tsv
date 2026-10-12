@@ -23,7 +23,7 @@ ECALC_CHECKPOINT	0	bool	0|1		ecalc.c:580; 1 = budgeted top set (ECALC_CKPT_TOP=2
 ECALC_CKPT_TOP	auto	int	0|1|2		ecalc.c:579: ECALC_CHECKPOINT ? 2 : 0
 ECALC_INIT_TL	0	bool	0|1		dbig.c
 ECALC_MEM_GUARD_GB	0	float	>=0 GB		memsample.c:113; 0 = guard off
-ECALC_NP	auto	enum	auto|3|4		ecalc.c: unset becomes 3; crt.c reads auto
+ECALC_NP	auto	enum	auto|3|4		ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_RECHECK	0	bool	0|1		ecalc.c: standalone recheck of a finished run
 ECALC_SEGV_TRACE	0	bool	0|1		segv_trace.c:146
 ECALC_VERBOSE	1	int	0|1|2		ecalc.c
