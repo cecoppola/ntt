@@ -15,7 +15,7 @@ and `results/*.md`. Labels: (m) measured, (mod) modelled.
 | 27 | **P1 parameter system:** profiles, size-dependent plan values, one entry point, registry, expiry (steps 1-2 merged 2026-10-12: L5 registry, O3 profile loader) | open: six launch-line settings become built-in defaults (approved) - wave 2 lane B | results/C01.md, L5.md, O3.md |
 | S | **Switch removal** (wave 2): audit approved 2026-10-12 - remove 83 settings + A5 + B4 | open: wave 2 | `ecalc/README.md` switch table |
 | D | **Documentation rewrite** (wave 3): central docs, `tools/doccheck.py` (strict in the gate) done; left: regenerate the switch table after S, remove old text from print labels and registry notes (`results/` prune pass 2, `report.html` move and the `spill.c` check done: still used) | open: after S | `TESTING.md` §9 |
-| P | **Performance on aac7** (wave 4): distributed division multiply (P1), `k_gather` (P2); init mapping evaluated 2026-10-12 — best candidate ≈1-1.5 s at 1 node, ≈0 at 2+ nodes (mod), not pursued | open: P1, P2 running | results/P3.md |
+| P | **Performance on aac7** (wave 4): distributed division multiply (P1, running); `k_gather` evaluated 2026-10-12 — limited by the remote read, kernel headroom ≈0.6 s/run (mod), not pursued (results/P2.md); init mapping evaluated — ≈1-1.5 s at 1 node, ≈0 at 2+ nodes (mod), not pursued (results/P3.md) | open: P1 | results/P2.md, P3.md |
 
 Done 2026-10-12 (waves 0+1): R branch clean-up + the old archive folder moved to the local archive (27 branches deleted, kept as `archive/<name>` tags); F 161 unused files removed; W compiler warnings 0, dead code and unused kernel arguments removed; C aac7 program folders tidied (raw data in `~/results_raw/`).
 
@@ -26,7 +26,7 @@ Closed 2026-10-12 (user decisions): 1 (mitigated by the uffd default), 16 and 29
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
 
-- (none)
+- Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s/APU at 1 node (m), floor is the remote read (results/P2.md). Algorithm change, size unknown — needs a scoping pass.
 
 ## Decisions (user)
 
