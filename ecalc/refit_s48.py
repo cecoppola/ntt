@@ -289,18 +289,15 @@ L4_CLASSES = [
     ('2 n [2] fast',          2, None,  'B', [144.1, 133.8], 'S48'),
     ('4 n [2,4] fast',        4, None,  'B', [181.5], 'S48/S47/S50/S51/f3, 17 clean fast runs, mean'),
     ('4 n [2,4] slow',        4, None,  'A', [208.0], 'S47/S50/S51, 6 clean slow runs, mean'),
-    ('4 n [4] fast',          4, '4',   'B', [181.3, 183.0], 'f3 single4 (group B)'),
-    ('4 n [4] slow',          4, '4',   'A', [209.8], 'f3 single4 (group A)'),
+    ('4 n [4] fast',         4, '4',   'B', [181.3], 'f3 single4 r5_B (group B, chain-free)'),
+    ('4 n [4] slow',          4, '4',   'A', [209.8, 205.7, 208.8], 'f3 single4 r2_B, single4b r4_B, r6_B (group A; r1_B cold 233.7 excluded)'),
     ('3 n [3]',               3, None,  '?', [200.2], 'B06 t_def 210.2, cold-adj -10'),
     ('5 n [5]',               5, None,  '?', [213.2], 'B06 5-node queue item'),
     ('5 n [2,5]',             5, '2,5', '?', [226.2], 'B06'),
     ('5 n [4,5]',             5, '4,5', '?', [232.2], 'B06'),
-    ('6 n [2,6] s48',         6, None,  '?', [282.8, 293.8], 'S48 n6 r2, r1 (cold-adj -10.3)'),
-    ('6 n [2,6] f3',          6, None,  'B', [278.0], 'f3 single6 A arm 304.4, cold-adj -26.4 (group B)'),
-    ('6 n [2,6] C09',         6, None,  '?', [335.8], 'C09 run6 r1_A (level-1 straggler 51.7 s)'),
-    ('6 n [6] f3',            6, '6',   'B', [231.3, 234.3], 'f3 single6 B arms (group B)'),
-    ('6 n [6] C09',           6, '6',   '?', [260.0], 'C09 run6 r1_B'),
-    ('6 n [3,6] C09',         6, '3,6', '?', [263.8, 264.1], 'C09 run6 r1_C, r2_C'),
+    ('6 n [2,6]',             6, None,  '?', [223.6, 271.5, 258.0, 271.5, 282.8, 293.8, 335.8], 'f3 single6 r4_A, single6b r2_A r3_A r5_A; S48 n6_r2, n6_r1 (cold-adj -10.3); C09 r1_A'),
+    ('6 n [6]',               6, '6',   '?', [231.3, 234.3, 238.2, 252.8, 260.0], 'f3 single6 r2_B r3_B r5_B, single6b r4_B; C09 r1_B'),
+    ('6 n [3,6]',             6, '3,6', '?', [263.8, 264.1], 'C09 run6 r1_C, r2_C'),
 ]
 def l4_wall(g, gr, bw, v, consts, ns, isc, ko=1.0, crit=True):
     M.TREE_CRIT = crit

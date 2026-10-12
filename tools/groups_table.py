@@ -28,6 +28,7 @@ X2_GB, RANK0_GB, RULE_GB = 0.5, 2.1, 10.0
 # device memory COMM_LAYER_VSLOT_RELEASE=1 returns per node (the user adopted it 2026-10-11: 8.59 GB, results/C06.md) -- subtracted from the device peak; 0 = off (c09's table)
 PROFILE = os.environ.get('GT_PROFILE', 'target')
 RELEASE_GB = float(os.environ.get('GT_RELEASE_GB', '0'))
+LAYV = os.environ.get('GT_LAYV')                                       # L4: override the profile's layv factor (sensitivity)
 
 def setup(profile=None):
     prof = M.apply_profile(profile or PROFILE)
@@ -39,7 +40,7 @@ def setup(profile=None):
         d = orig(self, g); d.t_mb = self.t_mb; return d
     M.Design.at_g = at_g
     M.TWREC_G = True; M.CACHE_FORCE = None
-    fab = M.Fabric(M.TARGET.name, prof.bw, prof.lat, group=64, layers=2, taper=1.0, write_bw=prof.write_bw, staging_bw=None, fall_off=0.0, v_factor=prof.v_factor)
+    fab = M.Fabric(M.TARGET.name, prof.bw, prof.lat, group=64, layers=2, taper=1.0, write_bw=prof.write_bw, staging_bw=None, fall_off=0.0, v_factor=float(LAYV) if LAYV else prof.v_factor)
     return fab, design
 
 def chains(N, extra=3, maxratio=12, maxpow=256):
