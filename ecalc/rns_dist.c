@@ -1511,21 +1511,27 @@ static void mn_round_add(struct mn_rounds *rd, mdb *Cn, dbig *T, size_t wlo, siz
  * the rows go straight into C's zero-filled shares (M3's path, bit for bit).  Otherwise the rows go into a temporary T
  * of this node's window [tlo, thi) of the piece (in piece coordinates), the spills are added there, and C's share
  * += T << (tlo + shift - clo).  Np = the piece's basis (na + nb, + 1 with X). */
-static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB, int p24)
+/* P1 (DM_MN_WRAP, results/P1.md): cyc = P > 0 -- the cyclic product on a plane of exactly P points (a power of two, na, nb <= P): the
+ * pointwise product of the two length-P transforms is the cyclic convolution, so C = sum_k c_k B^k (k < P, c_k the coefficients
+ * mod x^P - 1), at most P + 4 limbs, congruent to A B mod (B^P - 1); every term count stays <= min(na, nb) <= P (the prime count is
+ * chosen for P).  No added operand, no P24. */
+static void mn_core(mdb *Cn, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t shift, int direct, struct mn_times *tm, int slA, int slB, int p24, size_t cyc)
 {
     int g = G->g, me = G->me, nr = 4 * g, node = G->g0 + me, verbose = getenv("RNS_VERBOSE") != 0;
     int gen = !is_pow2(g) || dist_gen_forced();                /* the general transform (unequal parts) or ntt_dist's pipelined one */
-    size_t na = A->len, nb = B->len, nc = na + nb, Np = nc + (X ? 1 : 0);
+    size_t na = A->len, nb = B->len, nc = na + nb, Np = cyc ? cyc + 4 : nc + (X ? 1 : 0);   /* P1: the cyclic plane's value spans [0, P + 4) */
     if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
+    if (cyc && (X || p24 || na > cyc || nb > cyc || (cyc & (cyc - 1)))) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: cyclic plane %zu with %zu x %zu limbs%s%s\n", cyc, na, nb, X ? ", an added operand" : "", p24 ? ", P24" : ""); }
     if (X && X->n > nc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand (%zu limbs) exceeds the product (%zu)\n", X->n, nc); }
     /* Phase 15 Batch 3 P24 (results/P2415.md): the plane holds 24-digit points, p24_pts(na) + p24_pts(nb) of them, at four primes;
      * the operands' sequences are the ranks' in-runs of limbs (p24.h), the result's their out-runs; X is added by the caller */
-    const size_t npt = p24 ? p24_pts(na) + p24_pts(nb) : nc;
+    const size_t npt = cyc ? cyc : p24 ? p24_pts(na) + p24_pts(nb) : nc;
     if (p24 && X) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 with an added operand\n"); }
     if (p24 && (p24_pts(na) < p24_pts(nb) ? p24_pts(na) : p24_pts(nb)) > P24_MIN_MAX) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: P24 piece %zu x %zu limbs: min(Pa, Pb) > 10^12 points (the CRT's four limbs)\n", na, nb); }
     int logn, logR, logC; size_t q; mn_shape(npt, g, &logn, &logR, &logC, &q);
+    if (cyc && ((size_t)1 << logn) != cyc) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: cyclic plane %zu below the group's smallest (2^%d)\n", cyc, logn); }
     if (logn > mn_logn_cap(g) || (p24 && logn > P24_CAP_LOG)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: %zu %s > 2^%d points over %d nodes\n", npt, p24 ? "P24 points" : "limbs", p24 && mn_logn_cap(g) > P24_CAP_LOG ? P24_CAP_LOG : mn_logn_cap(g), g); }
-    const int np = p24 ? 4 : ec_np_prod(ec_np_terms(nc, na, nb), "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc; P24: four (INT3: the two composed) */
+    const int np = p24 ? 4 : ec_np_prod(ec_np_terms(cyc ? cyc : nc, na, nb), "mn_core");   /* Phase 13a P3: three primes -- decimal limbs, within the bound; Phase 15 NP: ECALC_NP=auto -- four over the bound; Phase 15 MPB: min(na, nb) under ECALC_NP_AUTO_MIN=1, else nc; P24: four (INT3: the two composed) */
     size_t n = (size_t)1 << logn, R = (size_t)1 << logR, C = (size_t)1 << logC;
     double t0 = mem_now();
     if (!g_init) { for (int r = 0; r < NR; r++) rank_init(r); g_init = 1; dist_st.on = getenv("DIST_STATS") != 0; }
@@ -1812,13 +1818,16 @@ static int p24_grid_shape(size_t na, size_t nb, int g, int *ka, int *kb)
     p24_split(na, nb, cap, (size_t)1 << mn_logmin(g), ka, kb);
     return 0;
 }
-static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t lowcut, size_t w)
+/* P1 (DM_MN_WRAP): wskip -- pieces starting at or above it are skipped (the callers before P1: w); basis > 0 -- C in that basis
+ * (the carry out of its top dropped when the product can exceed it), else as before (nc, or w when truncated) */
+static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t lowcut, size_t w, size_t wskip, size_t basis)
 {
     int g = G->g, node = g_node_of(G), verbose = getenv("RNS_VERBOSE") != 0;
     size_t na = A->len, nb = B->len, nc = na + nb, N = nc + (X ? 1 : 0), cap = (size_t)1 << mn_logn_cap(g);
     if (!na || !nb) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: a zero operand\n"); }
     if (X && (w < N || lowcut)) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn: the added operand with a cut\n"); }
     int trunc = w < N; if (trunc) N = w;                       /* the result in basis w: the limbs at or above w are never formed */
+    if (basis) { trunc = trunc || N > basis; N = basis; }       /* P1: a given basis */
     double t0 = mem_now();
     mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = N; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
     size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); size_t cn = chi - clo;
@@ -1835,8 +1844,8 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
         NS = g_cache.navail; for (int i = 0; i < NS; i++) fs[nf++] = i;
     }
     int one = p24 ? p24_grid_shape(na, nb, g, &ka, &kb) : mn_grid_shape(na, nb, g, &ka, &kb);   /* Phase 13d L: the decision extracted (unchanged); P24: on the points */
-    if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
-    else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0); formed = 1; } else skipped = 1; }
+    if (one && p24) { if (nc > lowcut) { mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 1, 0); formed = 1; if (X) mdb_add_shifted(&Cn, X, 0, G); } else skipped = 1; }   /* P24: X added afterwards */
+    else if (one) { if (nc > lowcut) { mn_core(&Cn, A, B, X, G, 0, 1, &tm, -1, -1, 0, 0); formed = 1; } else skipped = 1; }
     else {
         size_t pa = (na + ka - 1) / ka, pb = (nb + kb - 1) / kb;
         if (pc && cache_slots()) {                                /* Phase 15 PC: this product's slots from the pool, at its largest piece's plane (every node the same: a collective) */
@@ -1856,12 +1865,12 @@ static void mn_grid(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_grou
             const int i = lng ? o_ : n_, j = lng ? n_ : o_;       /* (default: j outer, i inner, as before) */
             size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
             if (!av[i].len || !bv[j].len) continue;                                   /* nothing */
-            if (grid_piece_skipped(oa, ob, av[i].len, bv[j].len, lowcut, w)) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
+            if (grid_piece_skipped(oa, ob, av[i].len, bv[j].len, lowcut, wskip)) { skipped++; continue; }   /* nothing of it below w, or all of it below the low cut */
             int sa = i < nA ? fs[i] : -1, sb = nB ? fs[nA + j % nB] : -1;
             if (lng) { sb = j < nB ? fs[j] : -1; sa = nA ? fs[nB + i % nA] : -1; }
             struct mn_times t_b = tm; double tp = mem_now(); g_cache_last[0] = g_cache_last[1] = 0;
             if (cache_trace_on() && dist_st.on) dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_xfer = dist_st.t_a2a = dist_st.t_total = 0;
-            mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm, sa, sb, p24);   /* the first piece at shift 0 straight into the zero-filled C */
+            mn_core(&Cn, &av[i], &bv[j], 0, G, oa + ob, oa + ob == 0 && !formed, &tm, sa, sb, p24, 0);   /* the first piece at shift 0 straight into the zero-filled C */
             if (cache_trace_on()) {                                   /* Phase 15 CX: the per-piece line (instrumentation) */
                 static const char *st[3] = { "-", "cached", "HIT" };
                 printf("cache_trace node %d: piece (%d, %d) of %d x %d, %zu + %zu limbs at %zu, slots %d: A %s B %s | %.3f s: redistribute %.3f ntt %.3f crt %.3f out %.3f carry %.3f",
@@ -1892,24 +1901,51 @@ static void mdb_empty(mdb *Cm, mn_group *G) { if (Cm->sh.cap) db_free(&Cm->sh); 
 void rns_mul_dist_mn(mdb *Cm, const mdb *A, const mdb *B, const mdb *X, mn_group *G)
 {
     mdbv a = { A, 0, A->n }, b = { B, 0, B->n };
-    mn_grid(Cm, &a, &b, X, G, 0, (size_t)-1);
+    mn_grid(Cm, &a, &b, X, G, 0, (size_t)-1, (size_t)-1, 0);
 }
-void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, 0, w); }
+void rns_mul_dist_mn_v(mdb *Cm, const mdbv *A, const mdbv *B, const mdb *X, mn_group *G, size_t w) { mn_grid(Cm, A, B, X, G, 0, w, w, 0); }
 void rns_mul_dist_mn_cut(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t lowcut, size_t highcut)
 {
     if (!highcut) { mdb_empty(Cm, G); return; }
     mdbv a = mdb_view(A, 0, highcut, G), b = mdb_view(B, 0, highcut, G);   /* only the limbs below the high cut can reach the result */
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
-    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut);
+    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut, highcut, 0);
 }
 void rns_mul_dist_mn_cut_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t lowcut, size_t highcut)   /* int15k (DM_MN_LEAN): the cuts on views */
 {
     if (!highcut || !A->len || !B->len) { mdb_empty(Cm, G); return; }
     mdbv a = mdb_view(A->m, A->off, A->len < highcut ? A->len : highcut, G), b = mdb_view(B->m, B->off, B->len < highcut ? B->len : highcut, G);
     if (!a.len || !b.len) { mdb_empty(Cm, G); return; }
-    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut);
+    mn_grid(Cm, &a, &b, 0, G, lowcut, highcut, highcut, 0);
 }
 void rns_mul_low_mn(mdb *Cm, const mdb *A, const mdb *B, mn_group *G, size_t w) { rns_mul_dist_mn_cut(Cm, A, B, G, 0, w); }
+/* P1 (DM_MN_WRAP, results/P1.md): the pieces starting at or above wskip skipped, C in basis `basis` (limbs at or above it dropped):
+ * congruent to A B mod B^wskip (the caller clears the limbs in [wskip, basis)).  Operands non-zero views. */
+void rns_mul_dist_mn_low_basis_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t wskip, size_t basis)
+{
+    if (!A->len || !B->len || !wskip || basis < wskip) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn_low_basis_v: %zu x %zu limbs, cut %zu, basis %zu\n", A->len, B->len, wskip, basis); }
+    mdbv a = mdb_view(A->m, A->off, A->len < wskip ? A->len : wskip, G), b = mdb_view(B->m, B->off, B->len < wskip ? B->len : wskip, G);
+    if (!a.len || !b.len) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn_low_basis_v: a zero operand\n"); }
+    mn_grid(Cm, &a, &b, 0, G, 0, (size_t)-1, wskip, basis);
+}
+/* P1: C = sum_k c_k B^k over one cyclic plane of P points (A B mod (x^P - 1) as coefficients; C == A B mod (B^P - 1), C < B^(P + 4)),
+ * in basis `basis` (>= P + 4); P a power of two between the group's smallest plane and its cap; na, nb <= P, non-zero */
+int rns_mul_dist_mn_logmin(mn_group *G) { return (int)mn_logmin(G->g); }
+void rns_mul_dist_mn_cyc_v(mdb *Cm, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis)
+{
+    int g = G->g, node = g_node_of(G);
+    if (!A->len || !B->len || basis < P + 4 || P > ((size_t)1 << mn_logn_cap(g)) || P < ((size_t)1 << mn_logmin(g))) { ec_fatal(EC_RC_FATAL, "rns_mul_dist_mn_cyc_v: %zu x %zu limbs on %zu points, basis %zu\n", A->len, B->len, P, basis); }
+    mdb Cn; memset(&Cn, 0, sizeof Cn); Cn.N = basis; Cn.g0 = G->g0; Cn.g = g; db_init(&Cn.sh);
+    size_t clo, chi; mdb_share(&Cn, node, &clo, &chi); db_zero_fill(&Cn.sh, chi - clo);
+    struct mn_times tm; memset(&tm, 0, sizeof tm);
+    g_top_ok = 0; g_cache_mn = 1;
+    mn_core(&Cn, A, B, 0, G, 0, 1, &tm, -1, -1, 0, P);
+    cache_drop();
+    if (getenv("RNS_VERBOSE") || getenv("ECALC_VERBOSE")) printf("dist_mn node %d: %zu x %zu limbs on one cyclic plane of 2^%d points over %d x 4 ranks (DM_MN_WRAP)\n", node, A->len, B->len, (int)log2((double)P), g);
+    mdb_norm(&Cn, G, basis);
+    if (Cm->sh.cap) db_free(&Cm->sh);
+    *Cm = Cn;
+}
 /* the grid (ka x kb pieces of ceil(na/ka) + ceil(nb/kb) limbs) mn_grid forms for na x nb limbs over G; 1 x 1 = one plane (tests) */
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb)
 {

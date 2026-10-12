@@ -66,6 +66,11 @@ void rns_mul_dist_mn_cut_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, si
 void rns_mul_low_mn(mdb *C, const mdb *A, const mdb *B, mn_group *G, size_t w);
 void rns_mul_dist_mn_shape(size_t na, size_t nb, mn_group *G, int *ka, int *kb);   /* the grid the product forms (tests: the cut references) */
 int  rns_mul_dist_mn_logcap(mn_group *G);                     /* log2 of the plane cap over G (one plane per node pool; tests) */
+/* P1 (DM_MN_WRAP, results/P1.md): the division's low product in two parts -- the pieces at or above wskip skipped, C in a given basis;
+ * and one cyclic plane of P points (C == A B mod (B^P - 1), C < B^(P + 4), basis >= P + 4); the group's smallest plane (log2) */
+void rns_mul_dist_mn_low_basis_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t wskip, size_t basis);
+void rns_mul_dist_mn_cyc_v(mdb *C, const mdbv *A, const mdbv *B, mn_group *G, size_t P, size_t basis);
+int  rns_mul_dist_mn_logmin(mn_group *G);
 /* Phase 12 G: the block-pool bytes per device at the peak of C = A B (+ X) of na x nb limbs over g nodes (the grid's largest piece
  * at the group's cap; the plane pools stay at their init size), for shares of share_a, share_b, share_c limbs; *pieces = the grid */
 size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);

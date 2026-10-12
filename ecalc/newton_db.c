@@ -574,13 +574,15 @@ static int piece_of(const mdb *X, long s, const mdb *Y, size_t n2, int r, int rt
  * limbs (mod B^N2) and re-normalised.  Y is a fresh number (its share zero-filled, fixed length) */
 /* Phase 11 X1: the same with Y sharded over the group Gt (a subgroup of the mesh's group G, or a group containing X's:
  * the pieces of nodes outside Gt or outside X's group are empty; every node of G takes part in the exchange) */
-static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, int tg0, int tg)
+/* P1 (DM_MN_WRAP): T -- the result truncated to T <= N2 limbs (mod B^T) in basis N2 (mdb_shift_g: T = N2, as before) */
+static void mdb_shift_gt(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, int tg0, int tg, size_t T)
 {
     double t0 = mem_now(); mn_st.n_shift++;
     ms_init();
     int g = G->g, me = G->me, node = G->g0 + me;
     size_t n2 = s >= 0 ? (X->n > (size_t)s ? X->n - (size_t)s : 0) : X->n + (size_t)(-s);
-    int trunc = n2 > N2; if (trunc) n2 = N2;
+    if (T > N2) T = N2;
+    int trunc = n2 > T; if (trunc) n2 = T;
     mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = tg0; Yn.g = tg; Yn.n = n2; db_init(&Yn.sh);
     size_t lo2, hi2; mdb_share(&Yn, node, &lo2, &hi2); size_t cn = hi2 - lo2;
     db_zero_fill(&Yn.sh, cn);
@@ -643,6 +645,7 @@ static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, in
     if (shift_bytes > mn_st.shift_max) mn_st.shift_max = shift_bytes;
     mn_st.t_shift += mem_now() - t0;
 }
+static void mdb_shift_g(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G, int tg0, int tg) { mdb_shift_gt(Y, X, s, N2, G, tg0, tg, N2); }
 static void mdb_shift(mdb *Y, const mdb *X, long s, size_t N2, mn_group *G) { mdb_shift_g(Y, X, s, N2, G, G->g0, G->g); }
 /* the node-level carry scan: my (carry-out, propagate) with everyone's -> my carry-in; the top node's carry-out in *top_out */
 static int node_scan(mn_group *G, int c, int p, int *top_out)
@@ -1031,6 +1034,109 @@ static long mn_dkm_corr(mdb *Rd, mdb *Aw, mdb *xql, const mdb *Qw, mn_group *G, 
     return dx;
 }
 static void mn_dkm_add(mdb *Y, long dx, mn_group *G) { if (dx) mdb_add_val(Y, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G); }
+/* ---- P1 (DM_MN_WRAP, results/P1.md): the low product X Q mod B^w in two parts ------------------------------------------------
+ * Each DKM step needs R = A' - X Q exactly (|R| < 65 Q < B^(w - 1), w = nq + 2), today from X Q mod B^w: a grid of pieces of the
+ * cap's plane.  With P = a plane of the cap (2^k points) and h = w - P, M = B^h (B^P - 1) > 2 |R|, and R is fixed by R mod B^h and
+ * R mod (B^P - 1) (CRT; the factors are coprime):
+ *   L  = X Q mod B^h                      the low product of X's and Q's low h limbs (the grid, pieces at or above h skipped)
+ *   U  = X~ Q'' mod (B^P - 1)             ONE cyclic plane: X~ = X folded mod B^P - 1, Q'' = Q B^-h folded (once per division)
+ *   rL = (A' - L) mod B^h,  beta = [A' mod B^h < L]
+ *   t  = (A' >> h) folded + L B^-h folded - beta - U   mod (B^P - 1)     (= (R - rL) / B^h mod (B^P - 1))
+ *   Rc = rL + B^h t  (in [0, M), basis w);  R = Rc when Rc < B^(w - 1), else R = Rc - M (negative: X too large)
+ * B^-h mod (B^P - 1) is a rotation: a fold whose chunks start at h mod P.  The corrections then run as before (mn_dkm_corr).
+ * X Q's pieces at 6 nodes: 13 planes of 2^33 -> 7 + one cyclic (modelled); the folds and the assembly are ~10 shifts per step. */
+static int dm_wrap(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_MN_WRAP"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }   /* 0 off (default), 1 the cap's plane, k >= 20: 2^k (tests) */
+static void mdb_zero(mdb *Y, size_t N2, mn_group *G)          /* Y = 0 in basis N2 */
+{
+    mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = 0; db_init(&Yn.sh);
+    size_t lo, hi; mdb_share(&Yn, G->g0 + G->me, &lo, &hi); db_zero_fill(&Yn.sh, hi - lo); Yn.sh.n = hi - lo;
+    if (Y->sh.cap) db_free(&Y->sh);
+    *Y = Yn;
+}
+/* Y mod (B^P - 1) in place, to fewer than P + 1 limbs (any representative below B^P): the limbs at P and above added at 0 and up */
+static void mn_modm1(mdb *Y, size_t P, mn_group *G)
+{
+    while (Y->n > P) {
+        size_t top = Y->n;
+        for (size_t i = P; i < top; i++) { uint64_t v = mdb_limb(Y, i, G); if (v) { mdb_add_val(Y, i, v, 1, G); mdb_add_val(Y, i - P, v, 0, G); } }
+    }
+}
+/* Y = sum over c = c0, c0 + P, ... < X.n of (X >> c) mod B^P (c < 0: X << -c), reduced mod (B^P - 1), in basis NB (>= P + 2) */
+static void mn_fold(mdb *Y, const mdb *X, long c0, size_t P, size_t NB, mn_group *G)
+{
+    mdb T; memset(&T, 0, sizeof T); int any = 0;
+    mdb_zero(Y, NB, G);
+    for (long c = c0; c < (long)X->n; c += (long)P) {
+        if (c + (long)P <= 0) continue;
+        mdb_shift_gt(any ? &T : Y, X, c, NB, G, G->g0, G->g, P);
+        if (any) { mdb_addsub(Y, Y, &T, 0, G); mfree(&T); }
+        any = 1;
+    }
+    mn_modm1(Y, P, G);
+}
+/* the plane P of the wrap (0: not used) for a division with Q of nq limbs, w = nq + 2, X_hi of nx limbs */
+static size_t mn_wrap_plane(size_t nq, size_t w, size_t nx, mn_group *G)
+{
+    int v = dm_wrap(); if (!v || G->g < 2) return 0;
+    int cap = rns_mul_dist_mn_logcap(G), lmin = rns_mul_dist_mn_logmin(G), lg = v == 1 ? cap : v;
+    if (lg < lmin || lg > cap || lg > 62) { if (G->me == 0) printf("divmod(mn, DKM): DM_MN_WRAP=%d: the plane 2^%d is outside the group's [2^%d, 2^%d]: not used\n", v, lg, lmin, cap); return 0; }
+    size_t P = (size_t)1 << lg;
+    if (w < P + 2) return 0;                                   /* h = w - P >= 2 */
+    if (v == 1 && nx + nq <= ((size_t)1 << cap)) return 0;     /* the low product is one plane already */
+    return P;
+}
+/* A' = Y B^e's two parts: *Ah = A' mod B^h (basis h + 1: room for + B^h), *T1 = (A' >> h) folded (basis P + 4); Y consumed */
+static void mn_wrap_a(mdb *Ah, mdb *T1, mdb *Y, size_t e, size_t P, size_t w, mn_group *G)
+{
+    size_t h = w - P;
+    mdb_shift_gt(Ah, Y, -(long)e, h + 1, G, G->g0, G->g, h);
+    mn_fold(T1, Y, (long)h - (long)e, P, P + 4, G);
+    mfree(Y);
+}
+/* one step's R = A' - X Q and the corrections (mn_dkm_corr's contract: *Rd = R in basis w, returns the change to X); Ah, T1 from
+ * mn_wrap_a (consumed); Qw = Q in basis w; Qpp = Q B^-h folded (basis P + 4) */
+static long mn_wrap_step(mdb *Rd, const mdb *X, mdb *Ah_, mdb *T1_, const mdb *Qw, const mdb *Qpp, size_t P, size_t w, mn_group *G, const char *who)
+{
+    size_t h = w - P, NBP = P + 4;
+    mdb Ah = *Ah_, T1 = *T1_, L, T2, Xf, U, Rc, Tt, Z; memset(Ah_, 0, sizeof *Ah_); memset(T1_, 0, sizeof *T1_); memset(&L, 0, sizeof L); memset(&T2, 0, sizeof T2);
+    memset(&Xf, 0, sizeof Xf); memset(&U, 0, sizeof U); memset(&Rc, 0, sizeof Rc); memset(&Tt, 0, sizeof Tt); memset(&Z, 0, sizeof Z);
+    {   /* L = X Q mod B^h */
+        mdbv xv = mdb_view(X, 0, X->n < h ? X->n : h, G), qv = mdb_view(Qw, 0, Qw->n < h ? Qw->n : h, G);
+        if (xv.len && qv.len) { double t0 = mem_now(); rns_mul_dist_mn_low_basis_v(&L, &xv, &qv, G, h, h + 1); mn_st.t_prod += mem_now() - t0;
+                                uint64_t v = mdb_limb(&L, h, G); if (v) mdb_add_val(&L, h, v, 1, G); }   /* limb h cleared: mod B^h */
+        else mdb_zero(&L, h + 1, G);
+    }
+    int beta = mdb_cmp(&Ah, &L, G) < 0;
+    if (beta) mdb_add_val(&Ah, h, 1, 0, G);
+    mdb_addsub(&Ah, &Ah, &L, 1, G);                              /* rL = (A' - L) mod B^h */
+    mn_fold(&T2, &L, (h % P) ? (long)(h % P) - (long)P : 0, P, NBP, G); mfree(&L);   /* L B^-h folded */
+    mdb_addsub(&T1, &T1, &T2, 0, G); mfree(&T2);
+    {   /* U = X~ Q'' mod (B^P - 1): one cyclic plane */
+        const mdb *Xc = X; if (X->n > P) { mn_fold(&Xf, X, 0, P, NBP, G); Xc = &Xf; }
+        mdbv a = mdb_view(Xc, 0, Xc->n, G), b = mdb_view(Qpp, 0, Qpp->n, G);
+        if (a.len && b.len) { double t0 = mem_now(); rns_mul_dist_mn_cyc_v(&U, &a, &b, G, P, NBP); mn_st.t_prod += mem_now() - t0; } else mdb_zero(&U, NBP, G);
+        mfree(&Xf);
+        mn_modm1(&U, P, G);
+    }
+    mdb_add_val(&T1, P, 2, 0, G); mdb_add_val(&T1, 0, 2 + (uint64_t)beta, 1, G);   /* + 2 (B^P - 1) - beta: no borrow below */
+    mdb_addsub(&T1, &T1, &U, 1, G); mfree(&U);
+    mn_modm1(&T1, P, G);                                         /* t, below B^P */
+    mdb_add_val(&T1, 0, 1, 0, G);                                /* t = B^P - 1 is t = 0 */
+    if (T1.n > P) mdb_add_val(&T1, P, 1, 1, G); else mdb_add_val(&T1, 0, 1, 1, G);
+    mdb_shift(&Rc, &Ah, 0, w, G); mfree(&Ah);                    /* Rc = rL + B^h t, basis w */
+    mdb_shift(&Tt, &T1, -(long)h, w, G); mfree(&T1);
+    mdb_addsub(&Rc, &Rc, &Tt, 0, G); mfree(&Tt);
+    mdb_zero(&Z, w, G);
+    if (Rc.n < w) return mn_dkm_corr(Rd, &Rc, &Z, Qw, G, who);  /* R = Rc >= 0 */
+    {   /* R = Rc - M < 0: D = M - Rc (basis w + 1, then w) */
+        mdb Mv, R1, D; memset(&Mv, 0, sizeof Mv); memset(&R1, 0, sizeof R1); memset(&D, 0, sizeof D);
+        mdb_pow(&Mv, w, w + 1, G); mdb_add_val(&Mv, h, 1, 1, G);
+        mdb_shift(&R1, &Rc, 0, w + 1, G); mfree(&Rc);
+        mdb_addsub(&Mv, &Mv, &R1, 1, G); mfree(&R1);
+        mdb_shift(&D, &Mv, 0, w, G); mfree(&Mv);
+        return mn_dkm_corr(Rd, &Z, &D, Qw, G, who);
+    }
+}
 static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G, const uint64_t *qs, int nres, uint64_t *pres, uint64_t *qres, uint64_t *rres, double *t_recip)
 {
     double t0 = mem_now(); int me = G->me;
@@ -1060,13 +1166,25 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     mn_dkm_est_lean(&Xh, &S, dl - s, nq, k1, &mu, k1 + 1, G);          /* int15k (DM_MN_LEAN): views instead of copies, Qw in place of Q */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 A mu");   /* int15k: the division's moments (ECALC_LIVE) */
     { long th = dkm_test_hi(); if (th) mn_dkm_add(&Xh, -th, G); }     /* NEWTON_DKM_TEST_HI (a borrow out of X_hi is fatal in mdb_add_val) */
-    mdb_shift(&Aw, &S, -(long)(dl - s), w, G); mfree(&S);              /* the window (S's last use) */
+    const size_t Pw = Xh.n ? mn_wrap_plane(nq, w, Xh.n, G) : 0;      /* P1 (DM_MN_WRAP): the low products as L + one cyclic plane */
+    mdb Qpp, Ah, T1; memset(&Qpp, 0, sizeof Qpp); memset(&Ah, 0, sizeof Ah); memset(&T1, 0, sizeof T1);
+    if (Pw) mn_wrap_a(&Ah, &T1, &S, dl - s, Pw, w, G);                 /* (S's last use) */
+    else { mdb_shift(&Aw, &S, -(long)(dl - s), w, G); mfree(&S); }    /* the window (S's last use) */
     mdb_shift(&Qw, Q, 0, w, G);
     if (newton_mn_pq_hook) newton_mn_pq_hook(1, Q);
     mfree(Q); mdb *Qd = &Qw;                                           /* the low products' Q: Qw (the same limbs in basis w; Q freed now) */
-    mn_dkm_low(&xql, &Xh, Qd, w, G);
-    if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
-    long dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
+    long dx1;
+    if (Pw) {
+        size_t hw = w - Pw;
+        mn_fold(&Qpp, &Qw, (hw % Pw) ? (long)(hw % Pw) - (long)Pw : 0, Pw, Pw + 4, G);   /* Q B^-h folded, for both steps */
+        if (me == 0 && getenv("ECALC_VERBOSE")) printf("divmod(mn, DKM): DM_MN_WRAP: X Q from the low %zu limbs + one cyclic plane of 2^%d (w %zu)\n", hw, (int)log2((double)Pw), w);
+        dx1 = mn_wrap_step(&R1, &Xh, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 1 (wrap)");
+        if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
+    } else {
+        mn_dkm_low(&xql, &Xh, Qd, w, G);
+        if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 1 X_hi Q");
+        dx1 = mn_dkm_corr(&R1, &Aw, &xql, &Qw, G, "step 1");
+    }
     mn_dkm_add(&Xh, dx1, G);                                           /* X_hi exact (no one has seen it) */
     newton_st.dkm_corr += (size_t)(dx1 < 0 ? -dx1 : dx1);
     /* Phase 15 EW (MN_OUT_DKM_HI, results/EW15.md 1.3) -- the X_hi hook (every rank, the same point: the hook runs a collective): X_hi is
@@ -1079,7 +1197,8 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     if (na2 >= nq) { mn_dkm_est_lean(&Xl, &R1, s, nq, k2, &mu, k2 + 1, G); mfree(&mu); }
     else { mfree(&mu); mdb_shift(&Xl, &R1, (long)R1.n + 1, 2, G); }      /* A2 < Q: X_lo = 0 */
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 A mu");
-    mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1);
+    if (Pw) mn_wrap_a(&Ah, &T1, &R1, s, Pw, w, G);                    /* P1: A2 = R1 B^s's parts (R1's last use) */
+    else { mdb_shift(&Aw, &R1, -(long)s, w, G); mfree(&R1); }
     { long tk = newton_test_corr(); if (tk) mn_dkm_add(&Xl, -tk, G); }  /* Phase 15 K: ECALC_TEST_CORR on X_lo (X - k; a borrow out of X_lo is fatal) */
     if (xhi) {   /* Phase 15 EW -- the X_lo hook (every rank; carry = X_lo0 >= B^s is the group's): released onto X_lo0 unless carry, then the
                   * corrections deferred as today; else added to X_lo0 in place.  X_lo is kept (the division's result) */
@@ -1087,14 +1206,16 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
         newton_x_dx = 0;
         int rel = newton_mn_xlo_hook(&Xl, s, carry, newton_mn_x_arg);
         double td = mem_now();
-        mn_dkm_low(&xql, &Xl, Qd, w, G);
+        long dx = 0;
+        if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
+        else mn_dkm_low(&xql, &Xl, Qd, w, G);
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
         rns_dist_cache_release();
         double te = mem_now();
-        long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
+        if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
         if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
         if (dx && rel) newton_x_dx = dx; else mn_dkm_add(&Xl, dx, G);
-        mfree(&Qw);
+        mfree(&Qw); mfree(&Qpp);
         double tf = mem_now();
         if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) end");
         mdb_mod_qs(&Rd, qs, nres, rres, G);
@@ -1118,15 +1239,18 @@ static void mn_divmod_dkm(mdb *X, mdb *P, mdb *Q, size_t dl, struct mn_group *G,
     newton_x_dx = 0;
     if (newton_mn_x_hook) newton_mn_x_hook(&Xn, newton_mn_x_arg);     /* Phase 15 IO (W5d): the writer starts on X0, before step 2's low product */
     double td = mem_now();
-    mn_dkm_low(&xql, &Xl, Qd, w, G); mfree(&Xl);
+    long dx = 0;
+    if (Pw) dx = mn_wrap_step(&Rd, &Xl, &Ah, &T1, &Qw, &Qpp, Pw, w, G, "step 2 (wrap)");   /* P1 */
+    else mn_dkm_low(&xql, &Xl, Qd, w, G);
+    mfree(&Xl);
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) step 2 X_lo Q");
     rns_dist_cache_release();
     double te = mem_now();
-    long dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
+    if (!Pw) dx = mn_dkm_corr(&Rd, &Aw, &xql, &Qw, G, "step 2");
     if (dx < 0) newton_st.down_corr += (size_t)(-dx); else newton_st.up_corr += (size_t)dx;
     if (dx && newton_x_defer) newton_x_dx = dx;                       /* Phase 15 K (ECALC_CORR_PATCH=2) */
     else if (dx) mdb_add_val(&Xn, 0, (uint64_t)(dx < 0 ? -dx : dx), dx < 0, G);
-    mfree(&Qw);
+    mfree(&Qw); mfree(&Qpp);
     double tf = mem_now();
     if (mem_live_on() && me == 0) mem_live_line("divmod(mn, DKM) end");
     mdb_mod_qs(&Rd, qs, nres, rres, G);
