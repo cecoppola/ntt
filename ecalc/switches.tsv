@@ -64,7 +64,7 @@ DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostic
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_R3	int	derived	derived		experiment	-	A-grid.md+P.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
-DM_MN_WRAP	int	0	0		unclassified	-	-	N	ecalc	newton_db.c	1	-	-	
+DM_MN_WRAP	int	0	0		unclassified	-	-	Y	ecalc	newton_db.c	1	-	-	
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	coordinator (TASKS S)	2026-11-11	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
