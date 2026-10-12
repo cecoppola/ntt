@@ -66,8 +66,23 @@ Labels: **m** measured, **mod** modelled, **as** assumed.
 - Dry run with STUB=1 (fake logs) locally and on aac7: summary, rounds, stop rule, marker OK.
 - Queue: a 6-node item (72) was running at arm time; 79 starts when 2 nodes are free (expected 05:00-05:45, DONE about 05:35-06:20 Eastern, as).
 
+**6.4 Result of the aac7 2-node item (collected 2026-10-12 05:14 Eastern; all numbers m)**
+- Gate: `tools/gate.sh --build --nodes 2 --env "DIST_GATHER_RAW=2"` PASS: SHMEM build, VERIFY OK, 1e9 digits identical, segv 0, ecalc total 20.78 s.
+- ABBA, A = `=0`, B = `=2`, 1.2882e11 digits on 2 nodes, 3 rounds (round 4 skipped by the 40 min budget), 0 FAIL, every run VERIFY OK:
+
+| round | order | total A (s) | total B (s) | B-A total (s) | leaf mdev max A (s) | B (s) | B-A mdev (s) |
+|---|---|---|---|---|---|---|---|
+| 1 | ABBA | 133.00 | 132.47 | -0.52 | 7.20 | 6.10 | -1.10 |
+| 2 | BAAB | 134.22 | 140.69 | +6.46 | 7.20 | 6.25 | -0.95 |
+| 3 | ABBA | 142.51 | 138.03 | -4.48 | 7.15 | 6.25 | -0.90 |
+
+- Total: mean +0.49 s, 95% CI half-width 13.76 s (t 0.15, crit 4.30): no effect resolved (the wall is dominated by bs 44-49 s and dm 54-68 s run-to-run noise; round 3 arm A had one 148.7 s run).
+- Leaf mdev (max over nodes, the phase the change acts on): mean **-0.983 s, CI half-width 0.259 s** (t -16.4): significant, -13.7 % of 7.2 s. Matches the 6.2 model (-15.5 % of the leaf, 1.1-1.4 s).
+- Memory, rank 0, max over 6 runs per arm: arm 0 and arm 2 are identical: device in use 317.8 GB, pool peak live 201.8 GB, **pool hipMalloc 0.0 GB**, largest APU driver-used 82.2 GB, not-fit notes 0. The raw plane fits the leaf's free extents; the 6.1 margin rule is unaffected at 2 nodes (the 576-node margins 21.5 / 12.9 GB stand, condition met).
+- Verdict: `=2` saves about 1.0 s in the multi-node leaf with no memory cost, but the saving is below the noise of the 2-node total; no whole-run claim. Adoption is the user's call.
+
 ## RESUME
 - State: code + probe + driver on branch k1b (pushed). aac6 clone `~/ntt-k1b` (from a full bundle; the shared clone `~/ntt` is on the pre-rewrite history), built (`module load rocm; make -s -j16`, probe built). Driver armed 2026-10-12 02:32 Eastern (`setsid nohup`, GIVEUP_EPOCH 12:00 Eastern), hold job 22989 pending third in the PPAC queue behind two of our jobs; expected start ~03:05-03:50, DONE ~03:50-04:35 Eastern (as). Output `~/k1b/`.
 - Collect: `ssh aac6 'cat ~/k1b/DONE; cat ~/k1b/summary.txt'` (one bounded command). Marker text: `SUCCESS: refuted by the probe ...` (write up: section 5 + verdict), `SUCCESS: probe ... gates PASS; DONE rounds=...` (copy the ABBA line, memory lines and probe numbers into section 5), or `FAILED: ...` (see summary.txt; probe.log, gate_*/, abba/log/).
-- K1c (6.3): collect `ssh aac7 'cat ~/k1c/DONE; cat ~/k1c/summary.txt'` (marker `SUCCESS rounds=N` or `FAILED ...`; runs.tsv, rounds.tsv, log/, gate/); copy the ABBA lines and the two memory lines into 6.3. aac7 worktree `~/ntt-wt/k1b` (remove when the branch is decided).
+- K1c (6.3) COLLECTED into 6.4 (done). Was: collect `ssh aac7 'cat ~/k1c/DONE; cat ~/k1c/summary.txt'` (marker `SUCCESS rounds=N` or `FAILED ...`; runs.tsv, rounds.tsv, log/, gate/); copy the ABBA lines and the two memory lines into 6.3. aac7 worktree `~/ntt-wt/k1b` (remove when the branch is decided).
 - After collection: remove `~/ntt-k1b` and `~/k1b.bundle` on aac6 when the branch is decided; local worktree `../ntt-wt-k1b`.
