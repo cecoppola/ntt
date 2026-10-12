@@ -481,3 +481,59 @@ Labels: m measured, mod modelled, a assumed. Branches l1-l5 merged (no conflicts
 - **G1 (stall timestamps, `COMM_HS_TS=1`, print-only, off):** two 4-node runs (189.6 s, 184.8 s, gather stalls 4.9 and 6.0 s, m): the handshake and transfer are not the stall (peers' waits end within 0.3 ms, transfers within 3 ms of the last PE publishing); one PE (a different node each run) enters the allgather 2.6-3.7 s late, i.e. local work before it (host/device prelude of `mdb_to_host_all`) on one node. Prelude step stamps added, one more queue item needed to localise.
 - **Final gate (queue 95, merged l1-l5, d25bdb5):** `tools/gate.sh --build --nodes 2` PASS (VERIFY OK, digits identical, `-DCOMM_SHMEM`), `mnaccept --only unit,e9,grid` 11 of 11 passed, 705 s (m). Re-gated with g1 merged (queue 96, bedc991): gate PASS (VERIFY OK, digits identical), mnaccept 11 of 11, 729 s (m).
 
+
+## 134. Binary limb pipeline removed: PLAN 28.5 merged (results/H4.md; evidence H1, H2, H3, H5)
+Labels: m measured, mod modelled, a assumed. User decision 2026-10-12. Branch h4 merged by mrg.
+- **Change:** decimal limbs only. About 605 net lines removed from `ecalc/`, about 160 from the tests (m, `git diff --numstat`); `todec.c/h` and `t_dec.c` moved to `archive/binary_pipeline/` (tag `pre-28.5-binary`). `LIMB_BASE` other than 10 now stops the program (rc 3). The kernels' `decimal` arguments keep their signatures (constant 1), so GPU code is unchanged.
+- **Why (H1, H2, H5):** both bases agree in every test (H1 single node, H2 `t_mn_grid` 2-6 nodes, m). Binary is slower: 2 nodes, paired, binary - decimal +11.43 s [+8.57, +14.29] at 1e9 and +32.47 s [+30.37, +34.58] at 1e10 (1.9-2.2x, m, H5).
+- **Gates (H4):** aac7 2 nodes 1e9 PASS, `t_mn_grid` 2/3/6 nodes PASS; ABBA h4 vs main at 4e10 (2 nodes, 5 pairs, fixed build) +0.09 s [-2.08, +2.27], p 0.91 (m): no speed change. aac6 single-node timeouts were test cost, not defects (H6 in H4.md section 7); `mnaccept` t_mul 20 limit raised to 1800 s.
+
+## 135. Three speed switches adopted as code defaults (results/CAND.md; O2.md, K1b.md, K8b.md)
+User decision 2026-10-12. Code defaults are now `DBIG_SMALL_BOUNCE=1`, `DIST_GATHER_RAW=2` and `BS_SEED_PULL=1`. Setting a switch to 0 restores the old path. Registry rows are `built-in default`; README rows are updated. No launch line or profile set these switches.
+- **All three on vs main (CAND, paired, m):** aac6 1 node at 6.441e10: -7.16 s [-8.08, -6.23], p 0.0001 (73.74 -> 66.59 s, 4 pairs). aac7 2 nodes at 6.441e10 per node: -5.58 s [-10.54, -0.63], p 0.031 (12 pairs pooled). The reciprocal chain fell from 4.57 s to 0.06 s. Rank-0 memory was identical. Digits were identical in every run (aac7 24/24, aac6 8/8).
+- **Single switches:**
+  - O2 `DBIG_SMALL_BOUNCE`: 4 nodes chain -10.98 s, total -30.08 s [-38.59, -21.58] (m). This removes the chain stall of TASKS 35.
+  - K1b `DIST_GATHER_RAW=2`: 1 node -3.81 s [-5.12, -2.49] (m), with +17 GB pool peak live per node at 1 node. At 2 nodes the leaf is -0.98 s, with no memory cost.
+  - K8b `BS_SEED_PULL`: the seed copies run without HIP runtime calls in init's mapping window. A descriptor-overwrite hang was fixed before the adoption (b1ff573). The single-switch ABBA (K8c) is still armed on aac6.
+- **Open:** CX saw a pull-kernel 600 s timeout on an aac6 CPX node. That run used the k8b build, probably from before the fix. A CPX check with the new defaults is in §145 / TASKS 47.
+
+## 136. P1 step 2: profile loader merged (results/O3.md)
+- New `tools/profile_load.py` (loads a profile with precedence explicit env > profile > code default; `--validate`, `--validate-all`, `--show`) and `tools/with_profile.sh`. `gate.sh --profile P` is new, and `gate.sh --build` now runs `switch_registry.py --check` and `profile_load.py --validate-all` first. No ecalc C change.
+- Gates (m): aac7 2 nodes, 1e9: plain line PASS and `--profile aac7` PASS (the profile replaces the hard-wired line, digits identical). aac6 1 node PASS. TASKS 44 is done.
+
+## 137. TASKS grooming, K2/K3 in the time model, estimate fix (results/O8.md)
+- `mn_model.K23_S` (2.03 s per node) puts the S51 kernels into `estimate.py` (`--k23-s`). 576 nodes at 3.71e13 digits: 181.7 -> 179.7 s without the write (mod, fabric a).
+- `estimate.py --target` crashed on main with `NameError: prof`; this is fixed. TASKS rows 3, 4, 5, 11, 14, 19, 20, 30 and 38 were groomed.
+
+## 138. Checkpoint restart under another schedule: mnaccept step `sched` (results/G6.md)
+- The check already existed (Phase 13 N). G6 adds `mnaccept.sh --only sched` (10^8 digits at 4 node-processes). A restart under another `MN_GROUPS` is refused (rc 5), and so is a restart under another node count (rc 4). A restart under the same schedule gives identical digits. All 3 tests pass on aac7 (2 nodes) and aac6 (m). The `ckpt` step's false FAIL is fixed: its counter matched the `config:` line.
+
+## 139. TASKS 12 closed: the non-power-of-2 `layv` exchange (results/O9.md)
+- The S48 figure of "2.3x slower per thread" came mostly from how it was measured: `t_post` counts the X2 overlap twice. The span rate is 0.70-0.84 of `layeq` (derived).
+- At equal group size there is no `layv` penalty: 4 nodes on the general map (`layv`) vs `layeq`, warm runs, -0.36 s (m, item 65; one A run each, not an ABBA). The 6-node slowdown follows the group size g = 6 (smaller slabs, more peers, more skew). No code change.
+
+## 140. `MN_GROUPS` default kept (results/O1.md, TASKS 42)
+- aac7, 6 nodes, 6.441e10 per node, paired ABBA/BAAB, 23 valid runs: `MN_GROUPS=6` - default `2,6` = +2.4 s [-3.9, +8.7], p 0.35 (m). The earlier -17 to -24 s finding (C09) is not confirmed. Decision: keep the default. The 576-node default is unaffected (L4 model, mod).
+
+## 141. Not adopted: O5 B5 form, K7-a (results/O5.md, TASKS 37/39)
+- B5 is correct (gates 1 and 2 nodes PASS, 8 B5 products in `t_strategy V`, m). It brings no gain: 1e10, 8 pairs, B5 - B total +0.08 s [-0.75, +0.91] (m). The code is not merged; tag `archive/o5-b5` keeps the branch head.
+
+## 142. Not adopted: K6 `RNS_DIST_OVERLAP` (results/K6.md)
+- The single-node C-tier gathers of prime p+1 run under the transforms of prime p. Digits are identical, but there is no gain: 6.441e10, 3 rounds, -0.11 +/- 0.15 s of 73.4 s; 1e10, 8 rounds, -0.32 +/- 0.55 s (m). The code is not merged; tag `archive/k6-overlap`.
+
+## 143. Not adopted: C4 `COMM_SHMEM_RPIPE` and C5 `MN_REDIST_FUSE` (results/O2.md, TASKS 36)
+- These were re-timed with the stall fix on (aac7, 4 nodes, 3 rotating rounds). C4 total +1.82 s [-14.35, +17.99], C5 -0.78 s [-40.89, +39.34] (m). Neither has a measurable effect, and both stay off.
+
+## 144. Not adopted: K8 init reorderings (results/K8.md)
+- Three ways to reorder or parallelise init were each slower at 6.441e10 than the default. Seeds earlier (`RNS_HOOK_CONCUR`): +11.5 s at level 1. `ECALC_VMM_FILL`: +3.4 / +4.3 s. The existing knobs: +2.0 to +4.6 s (m, single runs, differences above the 1.7 s spread). Diagnosis only; the patches are kept in K8.md. The follow-up K8b led to `BS_SEED_PULL` (§135).
+
+## 145. Overnight records merged to main (2026-10-11/12) and the merge gate
+- Results files and helper tools merged from branches whose code is not adopted:
+  - **O4** (packed output, TASKS 40): `ECALC_OUT_PACKED=2` is identical at 1e9 and 1e10 on 4 nodes. The unpack round trip is byte-identical and RECHECK is OK (m). It stays off by default.
+  - **O7b**: kernel profile of main at 6.441e10 (aac6; k_gather 15 %, k_crt_batch 11 %, k_push3 10 % of GPU time, m).
+  - **T12/O6**: 46 uffd runs at 4 nodes with 0 segfaults and 0 hangs (95 % bound 6.3 % per run, m).
+  - **M2a**: scaling points at 1, 2, 4 and 6 nodes.
+  - **CX**: CPX correctness sweep of the branches.
+  - **G2, P2**: drivers; results pending.
+  - **H1, H2, H3, H5**: see §134.
+- **Merge gate of mrg** (new defaults built in): see below.
