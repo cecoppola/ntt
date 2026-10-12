@@ -753,17 +753,27 @@ static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, 
     free(all);
 }
 /* the whole number on every node's host (small numbers: Q's top for the seed phase; the rare shrink) */
+extern int g_comm_hs_ts;   /* G1 (comm_util.c) */
+/* G1: COMM_HS_TS=1 -- one absolute CLOCK_REALTIME stamp (us) of a step of mdb_to_host_all, printed at once (print only; g_comm_hs_ts is set only inside the reciprocal's gather window) */
+#define HSP(what_) do { if (g_comm_hs_ts) { struct timespec t_; clock_gettime(CLOCK_REALTIME, &t_); printf("hs_ts pre node %d step %s t_us %lld\n", G->g0 + G->me, (what_), (long long)t_.tv_sec * 1000000LL + t_.tv_nsec / 1000); fflush(stdout); } } while (0)
 static void mdb_to_host_all(bigint *out, const mdb *X, mn_group *G)
 {
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); size_t ms = mshare_max(X); if (!ms) ms = 1;
     if (ms > 0x7fffffff) { ec_fatal(EC_RC_FATAL, "mdb_to_host_all: share too large\n"); }
+    HSP("start");
     uint64_t *buf = (uint64_t *)calloc(ms, 8), *all = (uint64_t *)malloc((size_t)g * ms * 8);
+    HSP("alloc_host");
     if (hi > lo) { bigint h; bi_init(&h); dbig v = X->sh; v.n = hi - lo; db_to_bi(&h, &v); memcpy(buf, h.l, (hi - lo) * 8); bi_free(&h); }
+    HSP("db_to_bi_done");
     {   /* an all-gather over mesh 0 (device blocks; Phase 11 L (agent L, B7): one copy of the block instead of g) */
         MN_HIP(hipSetDevice(0)); uint64_t *sb = db_pool_alloc(0, ms * 8), *rb = db_pool_alloc(0, (size_t)g * ms * 8);
+        HSP("pool_alloc_done");
         MN_HIP(hipMemcpy(sb, buf, ms * 8, hipMemcpyHostToDevice));
+        HSP("h2d_done");
         comm_allgather(G->all[0], sb, rb, ms * 8);
+        HSP("allgather_done");
         MN_HIP(hipMemcpy(all, rb, (size_t)g * ms * 8, hipMemcpyDeviceToHost));
+        HSP("d2h_done");
         db_pool_free(0, sb); db_pool_free(0, rb);
     }
     bi_reserve(out, X->N + 1);
@@ -880,7 +890,14 @@ static void recip_mn_body(mdb *mu, const mdb *Q, size_t k, mn_group *G)
     double tsa = mem_now(), tsb, tsc, tsd;
     mdb Qt; memset(&Qt, 0, sizeof Qt); mdb_shift(&Qt, Q, (long)(nq - T), T, G);
     tsb = mem_now();
-    bigint hq; bi_init(&hq); mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    bigint hq; bi_init(&hq);
+    static int hsts = -1;   /* G1: COMM_HS_TS=1 (print only, off by default): absolute CLOCK_REALTIME us stamps of the gather's handshake (comm_shmem.c) */
+    if (hsts < 0) hsts = getenv("COMM_HS_TS") ? atoi(getenv("COMM_HS_TS")) != 0 : 0;
+    if (hsts) { char hn[64] = "?"; gethostname(hn, sizeof hn); struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht);
+        printf("hs_ts node %d host %s: gather window opens t_us %lld\n", me, hn, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); g_comm_hs_ts = 1; }
+    mdb_to_host_all(&hq, &Qt, G); mfree(&Qt);
+    if (hsts) { struct timespec ht; clock_gettime(CLOCK_REALTIME, &ht); g_comm_hs_ts = 0;
+        printf("hs_ts node %d: gather window closes t_us %lld\n", me, (long long)ht.tv_sec * 1000000LL + ht.tv_nsec / 1000); fflush(stdout); }
     tsc = mem_now();
     dbig Qtop, r0; double tsi0 = mem_now(), tsi1 = 0, tsi2 = 0, tsi3 = 0;
     db_init(&Qtop); db_init(&r0);

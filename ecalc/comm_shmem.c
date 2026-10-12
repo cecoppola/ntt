@@ -135,6 +135,17 @@ static void site_print(void);                           /* Phase 14 P2 (below) *
 #define SHM_UNLOCK() do { if (S.serial) pthread_mutex_unlock(&S.lock); } while (0)
 static void die(const char *m) { ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: %s\n", S.me, m); }
 static double now_s(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + 1e-9 * t.tv_nsec; }
+
+/* G1 (COMM_HS_TS=1, print only, off by default): absolute CLOCK_REALTIME microsecond stamps of one allgather's handshake -- entry, publish, each
+ * peer's offset arrival / put, each sender's signal arrival, quiet, exit -- buffered per thread and printed when the allgather returns.  The window
+ * (newton_db.c, the reciprocal's gather to host) switches g_comm_hs_ts on; elsewhere hs_buf.on stays 0 (one branch per event). */
+extern int g_comm_hs_ts;
+#define HS_MAX 1024
+static __thread struct { int on, n; struct { long long us; short ev, peer; } e[HS_MAX]; } hs_buf;
+static long long hs_us(void) { struct timespec t; clock_gettime(CLOCK_REALTIME, &t); return (long long)t.tv_sec * 1000000LL + t.tv_nsec / 1000; }
+#define HS(ev_, peer_) do { if (hs_buf.on && hs_buf.n < HS_MAX) { hs_buf.e[hs_buf.n].us = hs_us(); hs_buf.e[hs_buf.n].ev = (ev_); hs_buf.e[hs_buf.n].peer = (short)(peer_); hs_buf.n++; } } while (0)
+enum { HS_ENTRY, HS_STAGED, HS_SYNCED, HS_PUB0, HS_PUB1, HS_WROFF, HS_ROFF_OK, HS_PUT, HS_PUSHED, HS_WSIG, HS_SIG_OK, HS_QUIET, HS_COPIED, HS_EXIT };
+static const char *const hs_nm[] = { "entry", "staged", "synced", "pub0", "pub1", "wait_roff", "roff_ok", "put_done", "pushed", "wait_sig", "sig_ok", "quiet_done", "copied", "exit" };
 static void xs_print(void);   /* X1 (below) */
 const char *comm_shmem_impl(void)
 {
@@ -565,20 +576,23 @@ static long rf_seq_plain(const shm_priv *p, int r, long a) { (void)a; return p->
 static int rf_need_all(const shm_priv *p, int r, long a) { (void)p; (void)r; (void)a; return 1; }
 static void rf_post_plain(shm_priv *p, int r, long xw, long a)
 {
-    (void)a; long seq = p->oseq[r];
+    (void)a; long seq = p->oseq[r]; HS(HS_ROFF_OK, r);
     size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
-    SHM_LOCK(); put_signalled(p, r, UNOFF(xw), s, n, PACK(seq, n)); SHM_UNLOCK();
+    SHM_LOCK(); put_signalled(p, r, UNOFF(xw), s, n, PACK(seq, n)); SHM_UNLOCK(); HS(HS_PUT, r);
 }
 static int push_peers(shm_priv *p, int from, long spin_us)
 {
     if (S.porder && spin_us < 0 && from == 0) ready_first(p, rf_seq_plain, 0, rf_need_all, rf_post_plain, 0);
     else for (int r = from; r < p->n; r++) if (r != p->me) {
         long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
+        HS(HS_WROFF, r);
         if (spin_us < 0) XWAIT(p, xroff, w, PACK(seq, 0));
         else { double t0 = 0; for (unsigned spins = 0; !test_ge(w, PACK(seq, 0)); spins++) { if (spins > 32) { double t = now_s(); if (!t0) t0 = t; else if ((t - t0) * 1e6 > (double)spin_us) return r; sched_yield(); } } }
         long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
+        HS(HS_ROFF_OK, r);
         size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
         SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK();
+        HS(HS_PUT, r);
     }
     if (p->xo) ofi_flush(p);                              /* Phase 17 */
     else if (S.order == ORDER_QUIET) {
@@ -615,7 +629,7 @@ static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
     for (int r = 0; r < p->n; r++) if (r != p->me) {
-        long *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0));
+        long *sw = W(p, p->base, W_SIG, r); HS(HS_WSIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0)); HS(HS_SIG_OK, r);
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
         if ((long)UNOFF(x) != want) { ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); }
@@ -947,6 +961,14 @@ static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const 
     for (int r = 0; r < n; r++) if (r != me && rcnt[r]) memcpy((char *)rb + rdsp[r], S.pool + p->rst + p->rpre[r], rcnt[r]);
     staging_release(p);
 }
+static void hs_begin(void) { hs_buf.on = g_comm_hs_ts != 0; hs_buf.n = 0; }
+static void hs_flush(const shm_priv *p, const char *what)
+{
+    if (!hs_buf.on) return;
+    char line[160]; hs_buf.on = 0;
+    for (int i = 0; i < hs_buf.n; i++) { snprintf(line, sizeof line, "hs_ts pe %d c %p n %d seq %ld %s %s peer %d t_us %lld\n", S.me, (const void *)p, p->n, p->seq, what, hs_nm[hs_buf.e[i].ev], hs_buf.e[i].peer, hs_buf.e[i].us); fputs(line, stdout); }
+    fflush(stdout);
+}
 static void s_allgather_host(comm *c, const void *sb, void *rb, size_t bytes)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
@@ -965,18 +987,27 @@ static void s_allgather(comm *c, const void *sb, void *rb, size_t bytes)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (p->pending) die("allgather while an exchange is pending");
+    hs_begin(); HS(HS_ENTRY, -1);
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
     staging(p, sin ? 0 : bytes, rin ? 0 : bytes * n, "allgather");
+    HS(HS_STAGED, -1);
     char *self = (char *)rb + (size_t)me * bytes; if (self != sb) COPY(self, sb, bytes, 0);
     if (!sin) COPY(p->db + p->sst, sb, bytes, 0);
     SYNC(0);
+    HS(HS_SYNCED, -1);
     seq_next(p); p->src = sin ? (const char *)sb : p->db + p->sst; p->scnt = p->sdsp = 0; p->stride = 0; p->bytes = bytes;
+    HS(HS_PUB0, -1);
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
+    HS(HS_PUB1, -1);
     push_peers(p, 0, -1);
+    HS(HS_PUSHED, -1);
     arrive(p, bytes, 0);
+    HS(HS_QUIET, -1);
     if (!rin) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)rb + (size_t)r * bytes, p->db + p->rst + (size_t)r * bytes, bytes, 0); SYNC(0); }
+    HS(HS_COPIED, -1);
     staging_release(p);
+    HS(HS_EXIT, -1); hs_flush(p, "allgather");
 }
 /* the tiny exchange: every rank's 8-byte value to every rank (val, then fence, then the sequence word; the slot
  * alternates with the parity of the sequence so a fast rank's next value cannot overwrite one not yet read) */

@@ -1,0 +1,131 @@
+hs_ts node 3 host aac7-n21: gather window opens t_us 1791766419585863
+hs_ts node 1 host aac7-n11: gather window opens t_us 1791766419591437
+hs_ts node 2 host aac7-n20: gather window opens t_us 1791766419591778
+hs_ts node 0 host aac7-n10: gather window opens t_us 1791766419592226
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather entry peer -1 t_us 1791766421811039
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather staged peer -1 t_us 1791766421811043
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather synced peer -1 t_us 1791766421811105
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather pub0 peer -1 t_us 1791766421811106
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather pub1 peer -1 t_us 1791766421811127
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_roff peer 0 t_us 1791766421811128
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather roff_ok peer 0 t_us 1791766421811131
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather put_done peer 0 t_us 1791766421811143
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_roff peer 2 t_us 1791766421811143
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather roff_ok peer 2 t_us 1791766424440021
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather put_done peer 2 t_us 1791766424440023
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_roff peer 3 t_us 1791766424440023
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather entry peer -1 t_us 1791766424440075
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather roff_ok peer 3 t_us 1791766424440023
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather put_done peer 3 t_us 1791766424440024
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather pushed peer -1 t_us 1791766424440052
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_sig peer 0 t_us 1791766424440052
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather sig_ok peer 0 t_us 1791766424440052
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_sig peer 2 t_us 1791766424440052
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather sig_ok peer 2 t_us 1791766424440077
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather wait_sig peer 3 t_us 1791766424440077
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather sig_ok peer 3 t_us 1791766424440077
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather quiet_done peer -1 t_us 1791766424440104
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather copied peer -1 t_us 1791766424440133
+hs_ts pe 1 c 0xb55c670 n 4 seq 604 allgather exit peer -1 t_us 1791766424440134
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather staged peer -1 t_us 1791766424440078
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather synced peer -1 t_us 1791766424440137
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather pub0 peer -1 t_us 1791766424440138
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather pub1 peer -1 t_us 1791766424440192
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather entry peer -1 t_us 1791766421756068
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather staged peer -1 t_us 1791766421756071
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather synced peer -1 t_us 1791766421756131
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather pub0 peer -1 t_us 1791766421756131
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather pub1 peer -1 t_us 1791766421756161
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_roff peer 1 t_us 1791766421756161
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather roff_ok peer 1 t_us 1791766421811634
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather put_done peer 1 t_us 1791766421811652
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_roff peer 2 t_us 1791766421811652
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather roff_ok peer 2 t_us 1791766424440543
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather put_done peer 2 t_us 1791766424440546
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_roff peer 3 t_us 1791766424440546
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather entry peer -1 t_us 1791766421745644
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather staged peer -1 t_us 1791766421745647
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather synced peer -1 t_us 1791766421745693
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather pub0 peer -1 t_us 1791766421745694
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather pub1 peer -1 t_us 1791766421745715
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_roff peer 0 t_us 1791766421745716
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather roff_ok peer 0 t_us 1791766421753526
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather put_done peer 0 t_us 1791766421753542
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_roff peer 1 t_us 1791766421753542
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather roff_ok peer 1 t_us 1791766421809000
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather put_done peer 1 t_us 1791766421809002
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_roff peer 2 t_us 1791766421809002
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather roff_ok peer 3 t_us 1791766424440546
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather put_done peer 3 t_us 1791766424440548
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather pushed peer -1 t_us 1791766424440588
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_sig peer 1 t_us 1791766424440588
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather sig_ok peer 1 t_us 1791766424440589
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_sig peer 2 t_us 1791766424440589
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather sig_ok peer 2 t_us 1791766424440598
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather wait_sig peer 3 t_us 1791766424440598
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather sig_ok peer 3 t_us 1791766424440598
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather quiet_done peer -1 t_us 1791766424440637
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather copied peer -1 t_us 1791766424440665
+hs_ts pe 0 c 0xb7952c0 n 4 seq 604 allgather exit peer -1 t_us 1791766424440665
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather roff_ok peer 2 t_us 1791766424437894
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather put_done peer 2 t_us 1791766424437896
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather pushed peer -1 t_us 1791766424437928
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_sig peer 0 t_us 1791766424437928
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather sig_ok peer 0 t_us 1791766424437936
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_sig peer 1 t_us 1791766424437936
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather sig_ok peer 1 t_us 1791766424437936
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather wait_sig peer 2 t_us 1791766424437936
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather sig_ok peer 2 t_us 1791766424437952
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather quiet_done peer -1 t_us 1791766424437977
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather copied peer -1 t_us 1791766424438003
+hs_ts pe 3 c 0x9be4fa0 n 4 seq 604 allgather exit peer -1 t_us 1791766424438004
+hs_ts node 0: gather window closes t_us 1791766424440990
+hs_ts node 1: gather window closes t_us 1791766424440555
+hs_ts node 3: gather window closes t_us 1791766424438347
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_roff peer 0 t_us 1791766424440193
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather roff_ok peer 0 t_us 1791766424440197
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather put_done peer 0 t_us 1791766424440216
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_roff peer 1 t_us 1791766424440216
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather roff_ok peer 1 t_us 1791766424440217
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather put_done peer 1 t_us 1791766424440219
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_roff peer 3 t_us 1791766424440219
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather roff_ok peer 3 t_us 1791766424440219
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather put_done peer 3 t_us 1791766424440221
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather pushed peer -1 t_us 1791766424440250
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_sig peer 0 t_us 1791766424440250
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather sig_ok peer 0 t_us 1791766424440251
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_sig peer 1 t_us 1791766424440251
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather sig_ok peer 1 t_us 1791766424440251
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather wait_sig peer 3 t_us 1791766424440251
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather sig_ok peer 3 t_us 1791766424440252
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather quiet_done peer -1 t_us 1791766424440291
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather copied peer -1 t_us 1791766424440320
+hs_ts pe 2 c 0xb81c8a0 n 4 seq 604 allgather exit peer -1 t_us 1791766424440320
+hs_ts node 2: gather window closes t_us 1791766424441236
+recip ts2 node 3 host aac7-n21: at run 1370.660 s: db_init +0.0000 first_pool_get(db_reserve) +0.000 db_from_bi(upload) +0.001 total +0.001
+recip ts2 node 2 host aac7-n20: at run 1357.394 s: db_init +0.0000 first_pool_get(db_reserve) +0.000 db_from_bi(upload) +0.000 total +0.000
+recip ts2 node 0 host aac7-n10: at run 1367.854 s: db_init +0.0000 first_pool_get(db_reserve) +0.000 db_from_bi(upload) +0.001 total +0.001
+recip ts2 node 1 host aac7-n11: at run 1370.929 s: db_init +0.0000 first_pool_get(db_reserve) +0.000 db_from_bi(upload) +0.001 total +0.001
+recip ts node 3: wall 424.463; at run 1365.793 s: shift +0.015 gather +4.852 chain +0.024 (since this node entered recip_mn)
+recip ts node 0: wall 424.467; at run 1362.986 s: shift +0.018 gather +4.849 chain +0.026 (since this node entered recip_mn)
+recip(mn): the single-node chain to 54602 limbs (4.89 s), then the sharded steps to 7156666669 over 4 nodes
+recip ts node 2: wall 424.468; at run 1352.526 s: shift +0.018 gather +4.849 chain +0.026 (since this node entered recip_mn)
+recip ts node 1: wall 424.468; at run 1366.062 s: shift +0.018 gather +4.849 chain +0.027 (since this node entered recip_mn)
+live: recip(mn) j 54602 -> 109203    pool live 14.31 14.31 14.31 14.31 | window peak 14.32 14.32 14.32 14.32 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 109203 -> 218405   pool live 14.31 14.31 14.31 14.31 | window peak 14.32 14.32 14.32 14.32 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 218405 -> 436809   pool live 14.31 14.31 14.31 14.31 | window peak 14.32 14.32 14.32 14.32 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 436809 -> 873617   pool live 14.31 14.31 14.31 14.31 | window peak 14.32 14.32 14.32 14.32 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 873617 -> 1747234  pool live 14.32 14.32 14.32 14.32 | window peak 14.32 14.32 14.32 14.32 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 1747234 -> 3494467 pool live 14.32 14.32 14.32 14.32 | window peak 14.33 14.33 14.33 14.33 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 3494467 -> 6988933 pool live 14.32 14.32 14.32 14.32 | window peak 14.34 14.34 14.34 14.34 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.7 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 6988933 -> 13977865 pool live 14.33 14.33 14.33 14.33 | window peak 14.36 14.36 14.36 14.36 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.8 %; MemAvailable 138.2 GB, Cached 51.5 GB
+live: recip(mn) j 13977865 -> 27955730 pool live 14.34 14.34 14.34 14.34 | window peak 14.41 14.41 14.41 14.41 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 24.9 %; MemAvailable 138.1 GB, Cached 51.5 GB
+live: recip(mn) j 27955730 -> 55911459 pool live 14.37 14.37 14.37 14.37 | window peak 14.51 14.51 14.51 14.51 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 25.0 %; MemAvailable 138.1 GB, Cached 51.5 GB
+live: recip(mn) j 55911459 -> 111822917 pool live 14.43 14.43 14.43 14.43 | window peak 14.70 14.70 14.70 14.70 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 25.4 %; MemAvailable 138.1 GB, Cached 51.5 GB
+live: recip(mn) j 111822917 -> 223645834 pool live 14.54 14.54 14.54 14.54 | window peak 15.09 15.09 15.09 15.09 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 26.0 %; MemAvailable 138.1 GB, Cached 51.5 GB
+live: recip(mn) j 223645834 -> 447291667 pool live 14.76 14.76 14.76 14.76 | window peak 15.86 15.86 15.86 15.86 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 27.3 %; MemAvailable 138.1 GB, Cached 51.6 GB
+live: recip(mn) j 447291667 -> 894583334 pool live 15.21 15.21 15.21 15.21 | window peak 17.40 17.40 17.40 17.40 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 30.0 %; MemAvailable 138.0 GB, Cached 51.7 GB
+live: recip(mn) j 894583334 -> 1789166668 pool live 16.10 16.10 16.10 16.10 | window peak 20.49 20.49 20.49 20.49 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 35.3 %; MemAvailable 138.0 GB, Cached 51.8 GB
+live: recip(mn) j 1789166668 -> 3578333335 pool live 17.89 17.89 17.89 17.89 | window peak 26.66 26.66 26.66 26.66 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 46.0 %; MemAvailable 137.9 GB, Cached 52.0 GB
+live: recip(mn) j 3578333335 -> 7156666669 pool live 21.47 21.47 21.47 21.47 | window peak 45.81 45.81 45.81 45.81 | pool 57.98 57.98 57.98 57.98 GB per APU; peak/pool 79.0 %; MemAvailable 137.6 GB, Cached 52.5 GB
+total   189.58 s   (bs 69.8 + 10dP 0.0 + dm 77.9 + T1 0.0 + dc 2.7 + T2 0.0 = 150.4; init 37.8; other 1.4); VmHWM 28.8 GB
