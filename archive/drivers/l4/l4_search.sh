@@ -12,4 +12,4 @@ python3 -I tools/groups_table.py table --out $OUT > $OUT/table.log 2>&1
 date > $OUT/DONE
 EOF
 chmod +x $OUT/run.sh
-sbatch -p MI250 -N1 -t 0:40:00 -J l4_$TAG --parsable -o $OUT/slurm.out --wrap "$OUT/run.sh" < /dev/null
+sbatch -p MI250 -N1 --exclusive -t 0:40:00 -J l4_$TAG --parsable -o $OUT/slurm.out --wrap "$OUT/run.sh" < /dev/null
