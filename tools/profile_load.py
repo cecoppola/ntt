@@ -24,7 +24,8 @@ import os, re, sys, glob, shlex, subprocess, difflib, locale
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTERNAL = re.compile(r"^(SLURM_|PMI_|SHMEM_|FI_|OMPI_|XT_|HIP_|ROC|HSA_|OMP_|MPICH_|CRAY_|LD_)")
 UNSET_MARK = "__UNSET__"
-META_KEYS = ("LAUNCH_LINE_KEYS",)           # profile keys that describe the profile, not a setting: never exported
+# profile keys that describe the profile or the site (read by people and the target kit docs, by no script): accepted, never exported
+META_KEYS = ("LAUNCH_LINE_KEYS", "TARGET_PARTITION", "TARGET_NODES", "ECALC_OUT_DIR")
 
 
 def registry():

@@ -17,10 +17,11 @@
 # ---- [modules/build] ------------------------------------------------------------------------------------------------
 # How to determine: `module avail rocm cray-openshmemx cray-dsmml` on a login node; the ROCm version of the compute image
 # (`module list` inside a one-node job). ecalc/target_kit.sh stage 'build' picks them and writes kit_modules.env -- copy from there.
-TARGET_ROCM=rocm/7.14.0               # (u) ROCm 7.14.0; the module name rocm/<version> is assumed. Builds ecalc on aac7 (make all + tests, SHMEM_CRAY=1, m 2026-10-12); run time vs 7.2.4 not yet measured (OPPORTUNITIES M7d)
-TARGET_SMA_MODULE=cray-openshmemx/12.1.0  # (u) "cray-shmem 12.1.0"; the module name is assumed to be HPE's cray-openshmemx -- confirm with `module avail` (the kit's auto-detection looks only for cray-openshmemx/*)
+# target libraries: ROCm 7.14.0, cray-shmem 12.1.0, libfabric 2.3.1, CCE 21.0.0 -- user-supplied; module names are determined on the target
+TARGET_ROCM=__FILL__               # the ROCm module name/version on the target (aac7 build with SHMEM_CRAY=1 passed, m 2026-10-12; run time vs 7.2.4 not yet measured, OPPORTUNITIES M7d)
+TARGET_SMA_MODULE=__FILL__         # the OpenSHMEM module on the target (confirm with `module avail`; the kit auto-detects only cray-openshmemx/*)
 TARGET_DSMML_MODULE=__FILL__          # the dsmml module (target_kit.sh TARGET_DSMML_MODULE)
-MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> cray-openshmemx/12.1.0 rocm/7.14.0" (kit_modules.env); needs the dsmml version
+MNRUN_MODULES=__FILL__                # the full module line: "<TARGET_DSMML_MODULE> <TARGET_SMA_MODULE> <TARGET_ROCM>" (kit_modules.env); needs the dsmml version
 MNRUN_UNLOAD=__FILL__                 # modules to unload first (a versioned rocm conflicts with a login default); empty if none conflicts
 SHMEM_CRAY=1                          # build flag: make -B SHMEM_CRAY=1 (Cray OpenSHMEMX); the build log must show -DCOMM_SHMEM (gate.sh)
 GMP_HOME=__FILL__                     # a GMP built from source if the site has no gmp.h: `ls $GMP_HOME/include/gmp.h`; remove the key if the site provides one

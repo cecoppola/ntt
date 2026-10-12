@@ -52,7 +52,7 @@ The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
 
 **Not yet done.** ecalc has not run on the target machine. The 576-node layout fits with 12.9 GB of device margin
-(mod); the standing estimate for 3.82 × 10¹³ digits is about 182 s without the write (mod, profile `target_l4`, at the
+(mod); the standing estimate for 3.82 × 10¹³ digits is 185.5 s without the write (mod, profile `target_l4`, `results/TGT.md`; at the
 user-supplied 100 GB/s injection peak per APU (a for the achieved rate)); the write adds 12.8 s at ecalc's assumed 1.0 GB/s per node
 and 1.0 s at the file system's 1 TB/s (mod, `results/TGT.md`); the target has run only the memory and exchange benchmarks (`results/TGTBENCH2.md`). The
 largest multi-node cost today is the distributed division multiply (+94 s at 6 nodes against 1, m).

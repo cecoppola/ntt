@@ -653,7 +653,8 @@ TARGET_NP = 'auto'                                      # the user's decision 1 
                                                         # products over the three-prime bound; pool 0 at four planes at 576, pool 1 at three); history: 4 (the decision
                                                         # of 2026-09-27: three primes cannot hold the target's mn pieces, MN_PLAN_ONLY refuses them, results/P15.md;
                                                         # ECALC_NP=4 is +17.2 GB per node over auto with RNS_POOL1_4Q); the code's default stays 3 (decimal)
-TARGET_DIGITS = 3.71e13                                 # CURRENT (2026-10-06, s18-target, the user's decision 2026-10-06 ~19:30 EDT: "3.71e13 is fine", the size
+TARGET_DIGITS = 3.82e13                                 # CURRENT: the user decision of 2026-10-12 (3.82e13 digits on 576 nodes, results/TGT.md). Before it (3.71e13):
+                                                        # (2026-10-06, s18-target, the user's decision 2026-10-06 ~19:30 EDT: "3.71e13 is fine", the size
                                                         # is not important while the implementation is built) -- from results/TGTBENCH2.md section 4's lower
                                                         # candidate (the device edge's margin over the proposed 3.76e13): login-node MN_PLAN_ONLY / BS_LAYOUT_ONLY
                                                         # at 576 (verified here 2026-10-06, b7-vslot aa86cac): device_with 363.526 GB vs the 373.44 GB measured

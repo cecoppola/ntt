@@ -67,10 +67,8 @@ shape against the file system's measured mode (N8), measure the SHMEM path and 1
 **Open issues.**
 - The module name behind "cray-shmem 12.1.0" is assumed to be `cray-openshmemx/12.1.0`; the kit's auto-detection looks
   only for `cray-openshmemx/*`.
-- `tools/plan_values.py --profile` refuses the template's meta keys `TARGET_PARTITION`, `TARGET_NODES` and `ECALC_OUT_DIR`
-  ("unknown switch": no consumer in `ecalc/` or `tools/`); a filled `profiles/target.conf` cannot be passed to it until a
-  script reads them or the loader accepts meta keys. The plan run above dropped those three lines.
-- `estimate.py --target` still prints 3.71 × 10¹³ as "the target" (the size before 2026-10-12).
+- Fixed (FIX1): the loader accepts `TARGET_PARTITION`, `TARGET_NODES` and `ECALC_OUT_DIR` as profile meta keys (never exported), and
+  `estimate.py --target` / `mem_model.TARGET_DIGITS` now use 3.82 × 10¹³ (3.71 × 10¹³ stays as a history row).
 
 **RESUME.** Branch `tgt` merged to `main`. Next: the M7d ABBA on aac7 (1 node, `rocm/7.14.0` vs `rocm/7.2.4`), the N7
 `COMM_OFI=0` A/B at 2–6 nodes, and for the target kit a `tools/wbench` run at scale with `-t 8` and `-t 32`.
