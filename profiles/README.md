@@ -1,6 +1,9 @@
 # profiles/ -- machine profiles (draft, step one)
 
-Status (O3, 2026-10-12): step 2 on branch `o3`, not merged. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
+Scope: the machine profiles (`*.conf`, the template), their format, what belongs in a profile and how to check one. |
+Maintained: updated in the same merge as any change to a profile, the loader/checker or the settings they hold.
+
+Status (O3, merged 2026-10-12): step 2 done. `tools/profile_load.py` validates and loads a profile (explicit environment > profile > code
 default); `tools/with_profile.sh NAME -- cmd` runs a command under it and prints a `config-src:` line; `tools/gate.sh --profile NAME` uses it, and
 `gate.sh --build` runs `switch_registry.py --check` and `profile_load.py --validate-all` first. Nothing reads a profile unless asked. Details: results/O3.md.
 
@@ -14,7 +17,7 @@ validates, and prints the effective configuration and its hash. Size-dependent v
 
 | file | machine | status |
 |---|---|---|
-| `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, `e16_headline.sh`, the README launch table |
+| `aac7.conf` | aac7 (Cray EX, 4 x MI300A, Slingshot-11, Cray OpenSHMEMX) | filled from `ecalc/aac7env.sh`, `mnrun.sh`, `e16_headline.sh`, the launch lines in `PLAN.md` §3 |
 | `aac6.conf` | aac6 (MI300A, InfiniBand, OSHMEM, single node standard) | filled, small: aac6 is a correctness machine |
 | `target.conf.template` | the production machine | every unknown is `__FILL__` with "how to determine"; copy to `target.conf` (not tracked: add it to `.git/info/exclude`) |
 
@@ -32,7 +35,7 @@ generic values only; the filled copy stays out of git.
 * `__FILL__` is the value of an unknown. The validator must refuse a profile that still has one (the checker lists them as UNFILLED).
 * A key to be **unset** is not expressible yet (the target's record run unsets `ECALC_CHECKPOINT ECALC_CKPT_TOP BS_CKPT_DIR`): the
   entry point needs an `unset` section; open question in `results/C01.md`.
-* Each key carries its evidence in the trailing comment: the README switch row, `results/<ID>.md`, or the user's decision with its
+* Each key carries its evidence in the trailing comment: the `ecalc/README.md` switch row, `results/<ID>.md`, or the user's decision with its
   date. Numbers are labelled (m) measured, (mod) modelled, (a) assumed. A line without evidence is a bug in the profile.
 
 ## What belongs where

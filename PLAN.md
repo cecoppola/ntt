@@ -64,14 +64,8 @@ hold what is machine-specific. Settings adopted on both lines become code defaul
 
 ## 4. Plan to the target run
 
-**Remaining work in this repository** (`TASKS.md`):
-1. Code reduction (wave 2): remove the switches whose losing paths are off at the current defaults (83 approved), make the
-   six launch-line settings code defaults, packed 60-bit output as the default.
-2. Fix the forced-grid correction defect at 4 nodes (TASKS 23), which may be a latent scale defect in the sharded
-   division with many pieces.
-3. Performance on aac7 (wave 4), profile-driven, one change at a time: the distributed division multiply (+94 s at 6
-   nodes against 1, m, the largest multi-node cost), `k_gather`, the init mapping.
-4. Documentation that matches the code (ALGORITHM.md, TESTING.md, README.md; a final pass after wave 2).
+**Remaining work in this repository** is in `TASKS.md`: code reduction (wave 2), the forced-grid correction defect at 4
+nodes (TASKS 23), performance on aac7 (largest item: the distributed division multiply), and the documentation pass.
 
 **Target session** (the user runs it; the steps are in `ecalc/target_kit.sh -h`):
 1. Fill `profiles/target.conf` from the template (modules, ROCm, NICs, partition, memory); `tools/profile_check.sh`.

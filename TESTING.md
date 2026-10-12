@@ -64,7 +64,7 @@ References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a
 
 Local unit tests are `ecalc/tests/t_*.c`, built by `make` in `ecalc/` (`make tests/t_<name>`), one GMP-checked program per
 module (`t_ntt`, `t_ntt3`, `t_modarith`, `t_primes`, `t_crt`, `t_mul`, `t_dbig`, `t_bs`, `t_newton`, `t_dist`, `t_mn_grid`,
-`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_spill`, `t_comm`, …). Run one inside a one-node allocation with 4 GPUs:
+`t_p24`, `t_verify`, `t_out`, `t_patch`, `t_comm`, …). Run one inside a one-node allocation with 4 GPUs:
 
     ./run tests/t_ntt 24            # arguments are the test's size
     ./run ref/gen_e 1000000000 ref  # reference digits by GMP

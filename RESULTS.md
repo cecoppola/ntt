@@ -1,5 +1,9 @@
 # RESULTS — what is in force, and the evidence for it
 
+Scope: an index of the evidence for what is in force: adopted changes, launch-line settings, changes measured and not adopted,
+open measurement questions. | Maintained: updated in the same merge as any change to a default, a launch-line setting or an
+adopted result.
+
 This file is a short index: the current measured figures, every adopted change with the file that holds its evidence,
 and the changes that were measured and not adopted. The full measurement log is kept outside the repository:
 sections §1-§114 in `archive:RESULTS_ARCHIVE_1-114.md` and §115-§145 (to 2026-10-12) in
@@ -13,9 +17,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 
 | what | figure | label | evidence |
 |---|---|---|---|
-| 1 node, 6.441 × 10¹⁰ digits | ≈ 76-78 s (S48: 76.3 s mean, before the 2026-10-12 defaults) | m | results/S48.md, S43.md |
-| 1 node, 10¹¹ digits | 129.3 s, VERIFY OK, digits identical to the reference (aac6) | m | results/L2.md |
-| 2 / 4 / 6 nodes, 6.441 × 10¹⁰ digits/node | 139.0 / 181.8 / 293.5 s (mean totals) | m | results/S48.md |
+| headline timings (1 node at 6.441 × 10¹⁰ and 10¹¹ digits; 2 / 4 / 6 nodes) | kept in `PLAN.md` §2 (Current status), with their evidence files | m | PLAN.md §2 |
 | 4-node run-to-run modes | fast ≈ 181-185 s, slow ≈ 208-214 s: the inter-node all-to-all rate is set per launch | m | results/T05.md, T09.md, A13.md |
 | 4-node calibration | total ≈ 80.8 s + 1388 / r (r = all-to-all GB/s per APU thread), residual sd 1.6 s | m/mod | results/B07.md |
 | target: 576 nodes, 3.82 × 10¹³ digits | ≈ 182 s without the write (profile `target_l4`) | mod (fabric a) | results/L4.md, O8.md |
@@ -70,8 +72,7 @@ code defaults in the current code reduction (TASKS 27).
 | `COMM_SHMEM_ROUND_MB=1024` | SHMEM pool 45.0 → 9.8 GB per node | mod | results/V114.md |
 | `ECALC_SEGV_TRACE=1` | crash-trace handler only | - | results/B01.md |
 
-Decided, implementation in progress: packed 60-bit output `ECALC_OUT_PACKED=2` as the default (-6.25 % bytes, m;
-digits identical, round trip byte-identical; results/C05.md, O4.md).
+Decided, implementation in progress: packed 60-bit output `ECALC_OUT_PACKED=2` as the default (TASKS 40; results/C05.md, O4.md).
 
 ## Measured and not adopted
 

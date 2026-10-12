@@ -1,5 +1,8 @@
 # TASKS — live task list (open work, decisions, target session)
 
+Scope: open work, user decisions awaiting implementation, saved ideas and target-session items; closed items are in the
+archive. | Maintained: updated in the same merge as any change that opens, closes or reschedules a task.
+
 Shrunk 2026-10-12 (user plan rev 2). Everything closed or done, and the dated status sections, are in
 `archive:TASKS_HISTORY_2026-10-12.md` (local archive) (row numbers there keep their old meaning). Measurements are in `RESULTS.md`
 and `results/*.md`. Labels: (m) measured, (mod) modelled.

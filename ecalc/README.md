@@ -1,20 +1,13 @@
 # ecalc — digits of e on MI300A nodes
 
-This file is the reference for building and running ecalc and for **every environment switch** (section **Switches**,
-one row per switch the code reads, with its default and its evidence). The design is described in `../PLAN.md`; what
-is in force and its evidence in `../RESULTS.md`.
+Scope: the settings reference (the **Switches** table: one row per environment switch the code reads, with its default
+and evidence), the notes that belong to single settings, and the file map of `ecalc/`. | Maintained: updated in the same
+merge as any change to a switch, its default or its evidence, or to the files of `ecalc/`.
 
-**What it does.** `ecalc <digits> [outfile]` writes ⌊10^d · e⌋. Numbers are base-10¹⁸ limbs (the limbs are the
-digits); binary splitting and the Newton division run on device-resident numbers through NTT products modulo three or
-four primes (lengths 2ᵏ and 3 · 2ᵏ), distributed over the node's four APUs. Several node-processes (one per node) run
-the same program over SHMEM, with the device exchanges over libfabric (`comm_ofi`) wherever a cxi NIC is present.
-Output is packed (0.444 B/digit); `tools/unpack_digits` makes the ASCII file off the clock. `LIMB_BASE` other than 10
-is refused.
-
-**Defaults and launch lines.** The code defaults are the tested configuration; nothing has to be set for a one-node
-run. The multi-node launch lines add the settings in `e16_headline.sh` (`LINE`, aac7) and
-`../profiles/target.conf.template` (the target); `../profiles/aac7.conf` holds the same aac7 values as a profile
-(`tools/profile_load.py`). The switch table below gives each value and its evidence.
+Elsewhere: what ecalc does and the build/run quick start are in `../README.md`; how it computes in `../ALGORITHM.md`;
+how to check a change (gate, standing regression, unit tests, timing) in `../TESTING.md`; the defaults, launch lines
+and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`; machine profiles in
+`../profiles/README.md`.
 
 **Machine notes.**
 - aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user.
@@ -22,25 +15,20 @@ run. The multi-node launch lines add the settings in `e16_headline.sh` (`LINE`, 
   `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30 BS_SEED_PULL=0` (the seed pull kernel needs more co-resident blocks than
   one XCD holds, a; results/CAND.md).
 
-## Build and test on one node
-
-    module load rocm && make          # ecalc, ref/gen_e, tests/t_*
-    make -B SHMEM_CRAY=1 GMP_HOME=~/gmp   # multi-node build (aac7: source aac7env.sh; module load cray-dsmml cray-openshmemx);
-                                          # the log must show -DCOMM_SHMEM; GMP_HOME = a GMP built from source
-    make -C ../tools                  # tools/unpack_digits
-
-Inside an allocation of one node with 4 GPUs:
-
-    ./run tests/t_ntt 24              # one GMP-checked test per module (t_ntt, t_mul, t_crt, t_dbig, t_newton, t_dist, ...)
-    ./run ref/gen_e 1000000000 ref    # reference digits (GMP)
-    ./ecalc 1000000000 /tmp/e9.out && ./digcmp.sh /tmp/e9.out ref/e_1000000000.txt   # VERIFY OK, then "identical"
-    ../tools/unpack_digits -o /tmp/e9.txt /tmp/e9.out    # ASCII; --cmp <ref> compares without writing, -n only checks
+**Notes on single settings.**
+- `mnrun.sh` (the multi-node launcher; usage in `../README.md`) sets `COMM_RANK`, `COMM_SIZE` and the transport from
+  Slurm, exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and `FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses
+  `disabled`), and `MNRUN_EXCLUDE_HOSTS` drops flagged nodes. `MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the
+  memory check on the login node (`../ALGORITHM.md` §7, §11).
+- Part files, the packed format and `ECALC_OUT_PACKED`: `../ALGORITHM.md` §9. Verification and `ECALC_RECHECK`:
+  `../ALGORITHM.md` §10.
+- Checkpoints: `BS_CKPT_DIR=<dir>` writes snapshots of the binary-splitting levels every `BS_CKPT_EVERY` levels and, at size > 1, the tree levels (`n<rank>_level_LLL.*`, `n<rank>_tree_LLL.*`); `BS_RESTART=1` with the same directory, digits, node count and `MN_GROUPS` resumes bit-identically (another schedule or node count is refused). A snapshot is about the size of the level's pools (≈ 35 GB per node at 4 × 10¹⁰ / size); put it on local disk.
 
 ## Files
 
 | file | what |
 |---|---|
-| `ecalc.c` | the driver: sizing, init, the run in order (PLAN §5) |
+| `ecalc.c` | the driver: sizing, init, the run in order (`../ALGORITHM.md` §7) |
 | `modarith.h` | the primes c · 2⁴⁴ + 1, FP64-Barrett modmul, roots for 2ᵏ and 3 · 2ᵏ lengths |
 | `ntt.c/h`, `ntt3.c` | the tiled NTT kernels (DIF forward, DIT inverse, fused pointwise and scale); the radix-3 layer |
 | `crt.c/h`, `p24.h`, `p24_crt.c`, `p24_mn.h` | CRT reconstruction; 24 digits per point in four-prime products |
@@ -63,56 +51,12 @@ Inside an allocation of one node with 4 GPUs:
 | `calib_table.py` | run logs → one row per run; `--fit`, `--ab` (rate-adjusted paired A/B) |
 | `run`, `ref/`, `tests/`, `tools/segv2.c` | one-program runner; reference generator; unit tests (`tests/harness.h`) and helper scripts; a crash-trace helper |
 
-## The multi-node run
-
-    SLURM_JOB_ID=<hold> ./mnrun.sh <procs> env <settings> ./ecalc <digits> [outfile]
-
-`mnrun.sh` spreads the processes over the allocation's nodes with `srun` (one per node on aac7 and the target),
-sets `COMM_RANK`, `COMM_SIZE` and the transport from Slurm, and exports `FI_UNIVERSE_SIZE`, `FI_LOG_LEVEL=warn` and
-`FI_MR_CACHE_MONITOR=userfaultfd` when unset (it refuses `disabled`). `MNRUN_EXCLUDE_HOSTS` drops flagged nodes.
-`MN_PLAN_ONLY=<digits>:<nodes>` prints the plan and the memory check on the login node.
-
-Each node computes the leaf tree of its own terms, the top levels combine node groups (`MN_GROUPS`), and the reciprocal
-and division run on the sharded numbers. Every node prints its own `T1`/`T2`/`VERIFY` lines (prefix `mn: node r:`);
-node 0 prints `mn: all n nodes: VERIFY OK`.
-
-**Part files.** At size > 1 every node writes `<outfile>.part<k>` (k = size − 1 − rank, four digits; part 0000 holds
-the leading digits); with `MN_OUT_DKM_HI=1` each node writes two parts. At size 1 the file is `<outfile>` itself.
-Packed files carry a 4096-byte `ECPACK18` header with the part's digit residues, then the limbs, most significant first.
-`tools/unpack_digits <parts…>` takes the whole set in any order, checks every part against its residues and writes the
-ASCII file; `digcmp.sh <outfile> <ASCII reference>` prints `identical` / `DIFFERS`. `ECALC_OUT_PACKED=0` writes ASCII.
-
-**Verification.** T1 reduces P, Q, X, R and the digits modulo the first eight primes above 2⁶² and checks them against
-the term recurrence, joined over the nodes; T2 checks 50-digit windows. Late ±1 corrections of the division are patched
-into the file's tail. `ECALC_RECHECK=1 ./ecalc <digits> <outfile>` (through `mnrun.sh` at size > 1) re-verifies
-finished files from the `<outfile>.t1` sidecar, without pools or computation, and with the top-level P, Q set when the
-run wrote it (`ECALC_CKPT_TOP=1`, off by default; delete `<outfile>.top` afterwards).
-
-**Checkpoints.** `BS_CKPT_DIR=<dir>` writes snapshots of the binary-splitting levels every `BS_CKPT_EVERY` levels and,
-at size > 1, the tree levels (`n<rank>_level_LLL.*`, `n<rank>_tree_LLL.*`); `BS_RESTART=1` with the same directory,
-digits, node count and `MN_GROUPS` resumes bit-identically (another schedule or node count is refused). A snapshot
-is about the size of the level's pools (≈ 35 GB per node at 4 × 10¹⁰ / size); put it on local disk.
-
-## The standing regression (`mnaccept.sh`)
-
-    sbatch -p <partition> -N1 --gpus=4 -t 0:45:00 -J acc --wrap "sleep 2700"    # then, on the login node, from ecalc/:
-    ./mnaccept.sh <jobid> [--full] [--skip-grid] [--only unit,grid,e9,mn,ckpt,sched,recheck,corr,full]
-
-Steps: `unit` (`t_ntt 24`, `t_mul 20`, `t_bs`, `t_dbig 0`, `t_newton 20`, `t_verify`, `t_out`, `t_patch`, `t_mn_grid`
-at 2 processes); `grid` (`t_mn_grid` over SHMEM); `e9` (10⁹ at size 1 against the reference); `mn` (10⁸ at sizes 2-4
-and 10⁹ at sizes 2 and 4); `ckpt` (abort and restart at 10⁸, size 2); `sched` (restart under another schedule or size is
-refused, the same schedule is identical); `recheck` (RECHECK OK, and FAILED on a copy with one digit flipped); `corr`
-(forced division corrections where the patch rewrites digits inside the file); `--full` adds 10¹¹ at size 1
-(`ECALC_STD_DIGITS`). One PASS/FAIL line per step, a summary, exit status = the number of failures; logs in
-`results/mnaccept/<jobid>/`. References: the clone's `ref/`, else `ECALC_REF`. The build-and-digit gate for every
-change is `../tools/gate.sh` (see `../PLAN.md` §8).
-
 ## Switches
 
 Every environment variable the code reads (`grep -ho 'getenv("[A-Z0-9_]*")\|env_int("[A-Z0-9_]*"' *.c *.h`), one line
 each, the default in parentheses; `on/off` switches take 1/0. Those marked *debug* or *test* change no result. The digits
 never depend on any of them — everything is bit-identical by construction and checked so by the regression (the GMP
-reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks since the binary pipeline's archive, PLAN 28.5). Switches marked *Phase 12* were added by the other agents of that session
+reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, `../TESTING.md` §3, §5). Switches marked *Phase 12* were added by the other agents of that session
 (their `results/<agent>.md` has the measurements); the integrator's merge is the final word on those lines.
 
 **The run (`ECALC_`)**
