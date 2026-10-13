@@ -5,8 +5,8 @@ chunked split, the CPU schoolbook, `rns_mul_low`, `rns_mul_pair`; no production 
 (it must catch injected faults and agree with the old reference on every existing `t_mul` case), then move the tests and
 remove the tier. No switch, no default, no digit changed.
 
-**Change / branch.** Branch `tref` (from main b80ee2e). Commits (after the rebase on bb4daa7): f3b1145 + 017ab22 (the reference and `t_mul`'s proof mode,
-against the old tier), ee86e21 (the removal and the tests moved), then docs. Files: `ecalc/tests/tref.h` (new),
+**Change / branch.** Branch `tref` (from main b80ee2e). Commits (after the final rebase on 740bfc6): d465b08 + 06978b9 (the reference and `t_mul`'s proof mode,
+against the old tier), 14eb7c6 (the removal and the tests moved), then docs. Files: `ecalc/tests/tref.h` (new),
 `ecalc/tests/harness.h`, `t_mul.c`, `t_dbig.c`, `t_newton.c`, `t_mn_grid.c`, `t_primes.c`; `ecalc/rns_mul.c/h`,
 `ecalc/rns_dist.c`, `ecalc/ecalc.c` (three `rns_free_scratch()` calls dropped), the registry (a count).
 
@@ -29,7 +29,7 @@ against the old tier), ee86e21 (the removal and the tests moved), then docs. Fil
 ## Method
 
 aac7 queue items (2 nodes; logs on aac7 under `~/tref/q1/`, `~/tref/q2/`, raw, not in git; drivers in `archive:drivers/tref/`):
-- **Proof** (the old tier still present): `t_mul 20 tref` at commit 3e1b35b (017ab22 after the rebase). On every product of the old sections 1 (pool 2^20:
+- **Proof** (the old tier still present): `t_mul 20 tref` at commit 3e1b35b (06978b9 after the rebase). On every product of the old sections 1 (pool 2^20:
   tiers and boundaries, 13 shapes x 5 generators), the low products, 2 (2^16 .. 2^30 limbs per operand) and the pair section:
   `tref_mul`'s value == `rns_mul`'s; the old check (GMP / three residues) accepts `tref_mul`'s value; `tref_check` accepts
   `rns_mul`'s (exact, and also the residue form at small sizes); one limb changed at the low end, the middle and the top must
@@ -50,7 +50,7 @@ aac7 queue items (2 nodes; logs on aac7 under `~/tref/q1/`, `~/tref/q2/`, raw, n
 | `t_dbig 24 prod` (products to 2^27 against the reference) | 67 s, VERIFY OK (565 checks) |
 | `t_primes gpu 26` (both plane sizes, closed form) | 45 s, VERIFY OK (89 checks) |
 | gate `--build --nodes 2` / `--nodes 1` | PASS / PASS (item 2, branch a5ad2cd: 10⁹ digits identical, VERIFY OK; ecalc total 21.84 s at 2 nodes with P24, 9.76 s at 1 node) |
-| `mnaccept.sh --only unit` (item 1, branch 3e8665c, ee86e21 after the rebase) | 9 passed, 0 failed: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20 (2756 checks), t_verify, t_out, t_patch, t_mn_grid at 2 processes (244 checks; its reference is now `tref_mul`) |
+| `mnaccept.sh --only unit` (item 1, branch 3e8665c, 14eb7c6 after the rebase) | 9 passed, 0 failed: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20 (2756 checks), t_verify, t_out, t_patch, t_mn_grid at 2 processes (244 checks; its reference is now `tref_mul`) |
 
 Reference cost inside `t_mul` §2 (with the three injected faults): exact 2^20 x 2^20 8.2 s; residue form 2^24 x 2^24 0.07 s,
 2^30 x 2^30 2.7 s (m). The device product at 2^30 x 2^30 took 2.9 s.
