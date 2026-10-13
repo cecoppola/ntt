@@ -625,8 +625,10 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, "");
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
-    if (!ofi && vslot_release_on()) { size_t vs4 = 4 * vsp; if (vs4 > stg0) stg0 = vs4; }   /* M3: the slots are released between products: the staging and the slots share the pool in time */
-    else if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads) */
+    if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHM.md): always the sum, also under M3's release --
+                                  * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
+                                  * from the general area, so the two never share space; M3's max(staging, slots) left the general area at control + margin
+                                  * (6 nodes, 1e10, COMM_OFI=0: 452 MiB for 8 slots of 87 MiB, rc 3 after init) */
     return stg0 + control + mailbox + sym + ((size_t)256 << 20);
 }
 /* the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).

@@ -882,8 +882,8 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
         stg = max(best * 8, SHMEM_SELFTEST)
         ofi_dev_mb = round256_mb((max(stg, vslot) if vslot_release_on() else stg + vslot) + sym // 4 + SHMEM_MARGIN); staging = 0; sym = 0   # M3: release -> the larger, not the sum
     stg0 = max(staging, SHMEM_SELFTEST)
-    if not ofi and vslot_release_on(): stg0 = max(stg0, NR * vslot)   # M3: the slots are released between products
-    elif not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread
+    if not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (comm_shmem's
+                                    # staging regions are staging-only, the slots come from the general area: binsplit.c binsplit_shmem_pool_need)
     need = stg0 + control + mailbox + sym + SHMEM_MARGIN
     if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
     return need
