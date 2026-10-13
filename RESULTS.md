@@ -35,6 +35,7 @@ setting it to 0 restores the old path; a setting named "built in" no longer exis
 
 | change | since | effect | label | evidence |
 |---|---|---|---|---|
+| one single-node division flow, DKM the only division, no 3*2^k planes in the distributed tier, one grid planner | 2026-10-12 | digits identical at all sizes tested; 1e10 at 1 node -8.31 s [-9.68, -6.93] (4 rounds) | m | results/SIMP.md |
 | decimal limbs 10¹⁸ only; binary pipeline removed | 2026-10-12 | binary was 1.9-2.2 × slower at 2 nodes (+32.47 s at 10¹⁰) | m | results/H4.md, H5.md, H1.md, H2.md |
 | `DBIG_SMALL_BOUNCE=1`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL=1` | 2026-10-12 | -7.16 s [-8.08, -6.23] 1 node (aac6); -5.58 s [-10.54, -0.63] 2 nodes (aac7); reciprocal chain 4.57 → 0.06 s | m | results/CAND.md, O2.md, K1b.md, K8b.md |
 | kernels K2, K3 (`DBIG_ADDSUB3`, `DBIG_MODQ_MONT`; built in) | 2026-10-11 | 1 node -2.03 s ± 1.38 (aac7) | m | results/S51.md, T08.md |

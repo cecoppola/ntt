@@ -68,4 +68,10 @@ it in a run). `t_newton` now seeds section 5 separately (`rng5`).
 - `tests/t_cap.c` keeps its own mirror of the old 3·2^k caps (a pure-arithmetic model of the design space; not a test of the code).
 - AUD3 items 5–10 (size 1 through the sharded driver, P24 everywhere, …) are not part of SIMP.
 
+**Final gate on the merged commit (rebased onto main 68a9d69 with the P24 default and DM_MN_WRAP; measured, aac7, 2026-10-12).**
+`tools/gate.sh --build --nodes 2` (default P24, log shows "pool 0: 4 primes") PASS, 1e9 digits identical, ecalc 22.27 s;
+`--nodes 1` PASS, identical, 10.63 s; `mnaccept.sh --only unit,e9,grid,mn,corr`: 18 passed, 0 failed (unit tests, 1e9 at 1 node,
+2 and 4 processes, corrections at sizes 1, 2, 4); `MN_PLAN_ONLY=38200000000000:576` prints its plan; the rebase had no
+conflicts, the registry regenerated unchanged, `mem_model.py --check-c` exits 0, doccheck 0.
+
 **RESUME.** Merged to main (items 3, 4, 1, 2 and this report as separate commits); worktrees removed; nothing running.
