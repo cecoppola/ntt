@@ -103,6 +103,8 @@ cost (modelled; the 1-node gate with it passes, measured). Adoption is the user'
 
 - The 2-node gate with the switch on is not run (the item budget was 1 node); the sharded chain (`recip_mn_body`,
   `newton_mn_chain_start`) follows the switch. Needed before a default flip.
+- The gated commit is 24446df (on SIMP + ADOPT); the merge is rebased once more onto SH3 + K4c (dfac293), whose changes
+  (rns_dist.c, rns_mul.c, p24_crt.c, tests) do not touch this branch's files except the generated switch tables; not re-gated.
 - `mem_model.py` does not mirror the switch's +1 limb in `dm_layout`'s jl (off by default; within the hole's slack).
 - The fatal case was not provoked on the GPU through the division (it would abort the test); section 8 (c) computes the
   off-path step-1 estimates from the device μ instead (3 of 900 beyond the 64 limit, measured).
