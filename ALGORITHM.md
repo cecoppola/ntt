@@ -144,7 +144,9 @@ digits (`ec_words_to_dec`, at most four). Limb k of the product is
 
     limb_k = C0[k] + C1[k-1] + C2[k-2] + C3[k-3] + x_k + carry,
 
-where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS.
+where Cj are the j-th base-10¹⁸ digits of the coefficients and x_k the added operand; the carry chain is resolved in LDS
+(by one thread per 256-coefficient chunk; with `RNS_CRT_SCAN=1`, off by default, as a carry-lookahead over the waves'
+ballot masks, `results/K4b.md`).
 On the GPU (`k_crt_batch`) a product's coefficients are cut into S stripes (a block per stripe, coalesced reads, 256
 coefficients per chunk); each stripe emits a 4-limb *spill* past its end, and the spills are merged into the limbs
 (`k_spill_merge`, or chunked-carry adds in the distributed tiers). A CPU Garner is kept for small products and tests.
