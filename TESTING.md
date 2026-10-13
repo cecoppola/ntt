@@ -45,6 +45,9 @@ covers it; its log shows the `I3:` line.
 `ecalc/mnaccept.sh <hold> [--full] [--only unit,grid,e9,mn,ckpt,recheck,corr]` runs on the login node against a
 one-node allocation and prints one PASS/FAIL line per step, a summary, and exits with the number of failures. Logs go to
 `ecalc/results/mnaccept/<hold>/`.
+Durations on aac7 (measured 2026-10-13, results/HANG.md): `--only unit` ≈ 25 min on a 2-node hold, `grid` ≈ 2 min,
+`t_mul 20` ≈ 12 min. Give a queue item running `unit` a step timeout of at least 2400 s and `# EST_MIN=` of at least 45
+(the runner stops an item at 1.5 × EST_MIN + 5 min); a shorter limit looks like a hang.
 
 | step | what it checks |
 |---|---|
