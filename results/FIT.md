@@ -75,6 +75,9 @@ Gates (aac7 queue items `20_fit_gates.sh`, `21_fit_gates2.sh`, commit 54f62a1 fo
 
 The first gate attempt (`20_`) failed at doccheck before building: the untracked stand-in `profiles/target.conf` was present in the
 aac7 worktree and changed the registry's profile column. The stand-in was moved out and the two gates were run again (`21_`).
+After rebasing onto main (SHM, STAT merged meanwhile; their changes touch the COMM_OFI=0 pool and static-analysis fixes) the
+branch was rebuilt with `make -B SHMEM_CRAY=1` (`-DCOMM_SHMEM`): the target and aac7 6-node fit figures are unchanged, and
+`--check-c` on 4e10:1, 6.632e10:576, 6.441e10:6, 1e9:2 has 0 inexact terms at both device limits (m). The gates were not rerun after the rebase.
 
 **Verdict.** Done as decided (D26): the fit is computed before every launch and a run that does not fit is refused; the wrap is
 automatic. The target at 3.82 × 10¹³ on 576 nodes fits with the wrap off (+14.48 GB device margin, m planner).
