@@ -44,7 +44,37 @@ queue item (see Results).
 
 **Results.**
 
-GATES_PLACEHOLDER
+Memory fit (the planner's `plan fit` verdicts; m = computed by the planner on the aac7 login node, the figures themselves modelled
+by the C layout):
+
+| run | profile | device per node (per APU) vs limit | device margin | node vs 480 GB | node margin | DM_MN_WRAP |
+|---|---|---|---|---|---|---|
+| 3.82 × 10¹³ on 576 | target | 358.96 (89.74) / 373.44 | +14.48 | 395.85 | +84.15 | 0 (fit): with it 384.73 > 368.44 |
+| 3.82 × 10¹³ on 576, `DM_MN_WRAP=1` set | target | 384.73 / 373.44 | −11.29 | 421.62 | +58.38 | 1 (set): WARNING, REFUSED |
+| 6.441 × 10¹⁰ on 1 | aac7 | 290.09 / 444.00 | +153.91 | 316.44 | +163.56 | not used at size 1 |
+| 1.2882 × 10¹¹ on 2 | aac7 | 402.83 / 444.00 | +41.17 | 437.84 | +42.16 | 1 (fit): without 368.47 |
+| 2.5764 × 10¹¹ on 4 | aac7 | 402.83 / 444.00 | +41.17 | 437.84 | +42.16 | 1 (fit) |
+| 3.8646 × 10¹¹ on 6 | aac7 | 374.22 / 444.00 | +69.78 | 409.24 | +70.76 | 1 (fit): without 348.45 |
+
+Target terms at 3.82 × 10¹³ on 576 (the peak is the bs phase; the dm phase 352.96 GB): planes 120.88 + arena 214.75 + comm_ofi
+pools 9.66 + bs growth 6.00 + v-slots 7.67 GB; per APU the arena 53.69 GB (the dm need 51.73: reciprocal set 38.53, division
+37.45; the tree 50.93), plane pools 30.22. The wrap's term there is 7.64 GB per APU (the arena 214.75 → 240.52 GB per node).
+NIGHT's 375.1 / 345.0 GB were mem_model's `dev_max`, which leaves out the comm_ofi pools (9.66 GB per node).
+
+`mem_model.py --check-c` on BS_LAYOUT_ONLY at 4e10:1, 1e11:1, 6.632e10:576, 6.441e10:6, 1e9:2, 5e10:4 with the launch line's
+settings (`COMM_SHMEM_ROUND_MB=1024 MN_T_CHUNK_MB=2048`, `ECALC_DEVICE_GB=444`): 0 terms not exact, the wrap decision equal at
+every point (m).
+
+Gates (aac7 queue items `20_fit_gates.sh`, `21_fit_gates2.sh`, commit 54f62a1 for the gates; m):
+
+| check | result |
+|---|---|
+| `tools/gate.sh --build --nodes 2` | PASS: rc 0, VERIFY OK, digits identical, P24 in use; fit FITS 137.61 / 444.00 GB; config `dm_mn_wrap:0(fit)` (1e9 on 2: the wrap is not used at this size) |
+| `tools/gate.sh --nodes 1` | PASS: rc 0, VERIFY OK, digits identical; fit FITS 120.44 / 444.00 GB |
+| 6 nodes, 3.8646 × 10¹¹ digits, aac7 line through `mnrun.sh` (no digit output) | rc 0, VERIFY OK on all 7 lines; `mnrun.sh: plan fit FITS ... DM_MN_WRAP=1 (auto)` before srun and `memory fit:` in the run; config `dm_mn_wrap:1(fit)`; ecalc total 238.5 s (one run, not a timing claim) |
+
+The first gate attempt (`20_`) failed at doccheck before building: the untracked stand-in `profiles/target.conf` was present in the
+aac7 worktree and changed the registry's profile column. The stand-in was moved out and the two gates were run again (`21_`).
 
 **Verdict.** Done as decided (D26): the fit is computed before every launch and a run that does not fit is refused; the wrap is
 automatic. The target at 3.82 × 10¹³ on 576 nodes fits with the wrap off (+14.48 GB device margin, m planner).
@@ -59,7 +89,5 @@ automatic. The target at 3.82 × 10¹³ on 576 nodes fits with the wrap off (+14
   with the wrap off against the C's 358.96 GB); the C is the source of truth.
 - aac7 without its profile gets the target's 373.44 GB edge (the code default): stricter, never looser.
 
-**RESUME.** Branch `fit` (pushed; aac7 worktree `~/ntt-wt/fit` at the branch head, untracked stand-in `profiles/target.conf`
-there to delete). Gates queued as aac7 queue item `20_fit_gates.sh` (6 nodes, EST 25 min; behind the day plan's 01/02 items):
-marker `~/fit/DONE`, summary `~/fit/SUMMARY.txt` (`ssh <cluster> 'cat ~/fit/SUMMARY.txt'`; access: see the private protocol).
-Next: fill the gate table above from the summary, merge `fit` to main, push, update aac7 `~/ntt-acc`, remove both worktrees.
+**RESUME.** Done: merged to main, pushed; aac7 `~/ntt-acc` updated; worktrees removed. Gate logs: `ssh <cluster> 'cat ~/fit/SUMMARY.txt ~/fit/SUMMARY1.txt'`
+(access: see the private protocol).
