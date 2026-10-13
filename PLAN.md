@@ -46,7 +46,8 @@ digits up to 10¹¹.
 | 2 nodes (aac7), 6.441 × 10¹⁰ digits per node, same three defaults | 134.51 s against 140.10 s without them (pooled 12 pairs, -5.58 s [-10.54, -0.63]) (m, 2026-10-12); one gate run after the wave 2 removals: 134.0 s (m) | `results/CAND.md`, `results/W2B.md` |
 | 1 node, 6.441 × 10¹⁰ digits, before the 2026-10-12 defaults | 76-78 s (m) | `RESULTS.md`, `results/S48.md` |
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
-| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7) | 74.4 / 138.9 / 188.2 / 246.4 s; efficiency vs 1 node 0.54 / 0.40 / 0.30 (m, 2026-10-12 overnight, before the 2026-10-12 defaults; the 6-node runs had not settled: 224.7-271.4 s) | `results/M2a.md` |
+| 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/M2a.md`) | `results/NIGHT.md` §4 |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT.md` §5 |
 
 The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).

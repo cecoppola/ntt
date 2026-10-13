@@ -27,6 +27,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | target device memory, rank 0, 3.82 × 10¹³ | margin 12.9 GB under the 373.44 GB/node edge (launch line with `MN_T_CHUNK_MB=2048`, X2, slot release) | mod | results/L1.md, B01.md, S52.md |
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TGTBENCH2.md |
 | `comm_ofi` vs SHMEM, 10 nodes, 8.1 × 10¹¹ | 1669.98 s vs 3532.05 s (× 2.1) | m | results/OFI17.md, STD17.md |
+| overnight 2026-10-13 (commit 4ae95ec1): sweep 60/60 and fallbacks 17/18 digit-identical; 6-node repeat 202.1 s mean; open bugs: `COMM_OFI=0` at 6 nodes (pool), large run timed out on the slow file system | m | results/NIGHT.md |
 
 ## Adopted changes in force (code defaults)
 
