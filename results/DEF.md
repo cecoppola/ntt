@@ -62,11 +62,34 @@ MEAS-P24 measured 88.1 GB per APU in use at init at 2 nodes (m).
 
 ## 3. 6-node A/B of DM_MN_WRAP with the P24 default (m)
 
-PENDING
+Method (TESTING.md §6): queue item `87_def_abba6` (6 nodes, exclusive, user-approved D19 b), driver `~/def/def_abba.sh`,
+2026-10-12 20:55–21:50 ET. Build `main` f232085 (P24 default, SHMEM) in `~/ntt-wt/defm`; 6 × 6.441 × 10¹⁰ = 3.8646 × 10¹¹
+digits, no digit output; the aac7 launch line (`tools/profile_load.py aac7 --line`) + `COMM_XSTATS=1 MN_WAIT_STATS=1`;
+A = `DM_MN_WRAP=0`, B = `DM_MN_WRAP=1`; rounds A B B A, cap 4 rounds, 60 min budget. All 16 runs rc 0 and VERIFY OK
+(7 lines per log); every log `plane pool 0 for 4 primes`; B logs `DM_MN_WRAP: X Q from the low 12880065414 limbs + one
+cyclic plane of 2^33 (w 21470000006)`. Runs took 181–229 s of `total`.
+
+| quantity | A mean (8 runs) | B mean (8 runs) | B − A per round | **B − A mean, 95 % CI, 4 rounds** |
+|---|---|---|---|---|
+| `total` (s) | 199.40 | 196.54 | −4.13, −2.62, −6.89, +2.19 | **−2.86 [−8.92, +3.19], p 0.23** (round cap reached, stop rule not met) |
+| division phase dm (s, `RESULT ecalc dm s`) | 84.88 | 78.63 | −3.46, −8.92, −9.26, −3.36 | **−6.25 [−11.47, −1.03], p 0.032** |
+
+Device memory per APU (m, `mem[…] [init]` and `live:` lines, all runs alike per arm):
+
+| | A (`DM_MN_WRAP=0`) | B (`=1`) | B − A |
+|---|---|---|---|
+| in use at init (planes 30.1 + arena + block pool) | 81.6 GB | 88.1 GB | +6.5 (the arena request now counts the wrap: `dm_layout`) |
+| block pool at the division | 51.54 GB | 57.98 GB (60.13 on some APUs) | +6.44 (+8.59) |
+| the division's window peak (step 2 X_lo Q) | 46.88 GB | 52.25 GB | **+5.37** (model's wrap term 5.73 GB, mod) |
+| driver-reported peak used (of 137.4 GB) | 84.4 GB | 92.9 GB | +8.5 |
 
 ## Verdict
 
-PENDING
+Needs the user's decision; the switch stays off. At 6 nodes with the P24 default `DM_MN_WRAP=1` saves **6.25 s of the
+division (95 % CI 1.0–11.5 s, p 0.032, 4 rounds, m)** but the `total` difference, −2.86 s [−8.92, +3.19], is not
+significant after the 4-round cap (bs and init vary ±15 s between runs in both arms). It costs +5.4 GB per APU at the
+division's peak (+6.4 to +8.6 GB of block pool, m), which the memory model now counts (5.73 GB per APU, mod; at 3.82 × 10¹³
+on 576 the node with the room 386.8 → 412.6 GB, fits 480 GB, mod/m layout). D18 (P24 the multi-node default) is merged.
 
 ## Open issues
 
@@ -74,6 +97,13 @@ PENDING
   does); with it unset a multi-node layout point shows three planes although the run would take four.
 - P24 at a non-power-of-two group below 32 nodes (e.g. 3 nodes in `mnaccept.sh`) is not gated here.
 
+- The 6-node `total` difference is not significant after 4 rounds; a further 4 rounds (another 6-node hour) could settle it.
+- Measured at 6 nodes only with P24; the model's wrap term was checked against one measured peak (6 nodes: 5.37 vs 5.73 GB
+  per APU) and P1's 2-node pool growth (4.3 GB per APU against 8.59 modelled, 3-prime form).
+
 ## RESUME
 
-Branch `def`; aac7 worktree `~/ntt-wt/def`; login-node outputs `~/def/login/`.
+Done: merged to `main` (D18 default on; `DM_MN_WRAP` off), worktrees removed. Raw outputs on aac7: `~/def/login/` (plans,
+layouts, `--check-c`), `~/def/{gates,gate4,gates3}/` (gates), `~/def/abba/` (`totals.tsv`: round, arm, seq, total, ok, dm,
+rc, VERIFY lines, driver peak GB, pool GB, window peak GB; `stats.txt`, `log/`; driver `~/def/def_abba.sh <budget-min>`).
+Next (user's call): adopt `DM_MN_WRAP=1` or not; optionally 4 more 6-node rounds for `total`.
