@@ -268,7 +268,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 
 | class | owner | review by | switches |
 |---|---|---|---|
-| experiment | P1 (results/P1.md) | 2026-11-11 | `DM_MN_WRAP` |
+| experiment | P1/DEF (results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | experiment | coordinator (N3) | 2026-11-11 | `BS_BATCH_PIPE` |
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DIST_R3`, `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_PLANES_3Q30`, `RNS_R3` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |

@@ -57,7 +57,7 @@ DIST_GEN	bool	0	0	0|1	test-only	-	X13b.md+S36.md	Y	ecalc	rns_dist.c	1	diagnostic
 DIST_LOGN_TEST	int	derived	derived		test-only	-	G12.md+P13b.md	Y	ecalc	ecalc.c,rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
 DIST_R3	int	derived	derived		experiment	-	A-grid.md+P.md	Y	ecalc	rns_dist.c	1	coordinator (TASKS S)	2026-11-11	
 DIST_STATS	bool	derived	derived	0|1	test-only	-	G515.md+CX15.md	Y	ecalc	rns_dist.c	2	diagnostics (TESTING.md)	2027-04-12	
-DM_MN_WRAP	int	0	0		unclassified	-	-	Y	ecalc	binsplit.c,newton_db.c	2	P1 (results/P1.md)	2026-11-11	
+DM_MN_WRAP	int	0	0	0|1|20..62	experiment	-	-	Y	ecalc	binsplit.c,newton_db.c	2	P1/DEF (results/P1.md, results/DEF.md)	2026-11-11	newton_db.c dm_wrap; off by default (P1, results/P1.md); dm_layout counts it (D19, results/DEF.md)
 DM_TAIL_DEAD	int	0	0		experiment	-	L114.md	Y	ecalc	binsplit.c	2	coordinator (TASKS S)	2026-11-11	
 DM_TIGHT	int	derived	derived		built-in default	-	L114.md+T114.md	Y	ecalc	binsplit.c	2	-	-	
 ECALC_ARENA_GB	float	0	0		built-in default	-	M11.md+A-mem.md	Y	ecalc	binsplit.c	2	-	-	
@@ -84,7 +84,7 @@ ECALC_NODE_GB	float	480	480		built-in default	-	P16.md+C314.md	prose	ecalc	binsp
 ECALC_NP	enum	auto	derived	auto|3|4	launch-line	aac7	P15.md+DOC215.md	Y	ecalc	crt.c,ecalc.c	3	-	-	ecalc.c: unset becomes auto at size > 1 (D18), 3 at size 1; crt.c reads auto
 ECALC_NP_AUTO_MIN	bool	derived	derived	0|1	experiment	-	MPB15.md	Y	ecalc	crt.c	1	coordinator (TASKS S)	2026-11-11	
 ECALC_NP_AUTO_TERMS	bool	derived	derived	0|1	test-only	-	NP15.md	Y	ecalc	crt.c	1	diagnostics (TESTING.md)	2027-04-12	
-ECALC_NP_MN3	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/DEF.md)	2026-11-11	
+ECALC_NP_MN3	bool	0	derived	0|1	built-in default	-	-	Y	ecalc	crt.c	1	coordinator (D18, results/DEF.md)	2026-11-11	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/DEF.md)
 ECALC_ODIRECT	int	1	1		built-in default	-	S114.md+KP15.md	Y	ecalc	spill.c	3	-	-	
 ECALC_ODIRECT_LUSTRE	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
 ECALC_ODIRECT_NFS	int	1	1		built-in default	-	IO15.md	prose	ecalc	spill.c	1	-	-	
