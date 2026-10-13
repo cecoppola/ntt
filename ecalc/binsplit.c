@@ -623,7 +623,7 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
     }
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
-    else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB%s", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, "");
+    else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB, v-slots %.0f MiB = 4 x %.1f MiB", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, 4 * vsp / 1048576.0, vsp / 1048576.0);   /* SHM: the slots named */
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
     if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHM.md): always the sum, also under M3's release --
                                   * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
