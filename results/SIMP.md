@@ -34,10 +34,11 @@ values of `ECALC_PLANE_CAP` (2^30, 2^31 and `fit` stay; `off` now means "`POOL_L
 | check | result |
 |---|---|
 | plan sweep, items 3+4 against main d1d19bf | 5 × 238 files, **0 differ** (measured) |
-| plan sweep, the final tip against main 89318ae | see the RESUME line (run at the end) |
-| gate 2 nodes, P24 forced (items 1–4, 4003968) | PASS: VERIFY OK, digits identical, ecalc total 19.41 s |
+| plan sweep, the merged tip 62064f2 against main 89318ae | 5 × 238 files, **0 differ** (measured) |
+| **merge gates on 62064f2** (items 1–4 rebased on N3; job 12734) | gate 2 nodes P24 forced PASS (ecalc total 23.81 s); gate 1 node PASS (10.80 s); mnaccept unit (t_ntt 24, t_mul 20, t_bs, t_dbig, **t_newton 20: 1648 checks OK**, t_verify, t_out, t_patch, t_mn_grid 2 procs), e9, mn (10⁸ at 2/3/4, 10⁹ at 2/4), corr (sizes 1/2/4): **all PASS**, digits identical |
+| gate 2 nodes, P24 forced (items 1–4 before the N3 rebase, 4003968) | PASS: VERIFY OK, digits identical, ecalc total 19.41 s |
 | gate 1 node (4003968) | PASS: VERIFY OK, digits identical, ecalc total 9.55 s; the log has `I3: P, Q residues by kernel …` and `divmod(dev, DKM) end`: the gate now runs the production division (coverage gap (a) closed) |
-| mnaccept unit, e9, grid, mn, corr (4003968) | all PASS except `t_newton 20` (1 of 1648 checks; see below) |
+| mnaccept unit, e9, grid, mn, corr (4003968) | all PASS except `t_newton 20` (1 of 1648 checks; fixed by `rng5`, see below) |
 | t_newton 20 with section 5 on its own RNG, main 740ac38 and SIMP 4003968 | both VERIFY OK (1098 / 1648 checks); identical reciprocal errors on identical Q (+1, +0, +1 units at nq 131075) |
 | t_newton 3b (quotients of 1–8 limbs, dl 1–4 and nq − 2, nq 5 … 16387) | 320 divisions identical to GMP (X exact, R's residues) |
 | ecalc 1 … 10⁵ digits (20 sizes) | all prefix-identical to the reference, VERIFY OK |
@@ -67,6 +68,4 @@ it in a run). `t_newton` now seeds section 5 separately (`rng5`).
 - `tests/t_cap.c` keeps its own mirror of the old 3·2^k caps (a pure-arithmetic model of the design space; not a test of the code).
 - AUD3 items 5–10 (size 1 through the sharded driver, P24 everywhere, …) are not part of SIMP.
 
-**RESUME.** Branch `simp` rebased on main 89318ae (N3); final gate item `54_simp_gG` (~/simp/gG/summary.txt) on 62064f2 and
-the final plan sweep (main 89318ae vs 62064f2) run before the merge; then merge to main, push, sync aac7 `~/ntt-acc`, remove
-the worktrees (local `ntt-wt-simp`; aac7 `~/ntt-wt/simp*`).
+**RESUME.** Merged to main (items 3, 4, 1, 2 and this report as separate commits); worktrees removed; nothing running.
