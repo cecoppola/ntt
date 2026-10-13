@@ -68,14 +68,12 @@ RNS_STRATEGY_CHECK	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or 
 DIST_BIG	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_BIG_K	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_BIG_PRIMES	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_GBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_H4	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_H4_MB	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_H4_REPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LAYERED	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_LREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
-DIST_PREPS	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TBENCH	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_TINV	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting
 DIST_XGMI	test	ecalc/tests/t_dist.c	2027-04-12	test harness setting

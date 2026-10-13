@@ -42,6 +42,7 @@ __global__ void k_copy_h2d(uint64_t *dst, const uint64_t *src, size_t n)
     size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
     for (; i < n; i += stride) dst[i] = src[i];
 }
+void db_copy_kernel(unsigned blocks, hipStream_t s, uint64_t *dst, const uint64_t *src, size_t n) { k_copy_h2d<<<blocks, 256, 0, s>>>(dst, src, n); }   /* the copy kernel for rns_mul.c (one definition) */
 static hipStream_t g_h2d_s[DB_NQ]; static int g_h2d_init[DB_NQ];
 void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes)
 {

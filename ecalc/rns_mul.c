@@ -48,12 +48,6 @@ static struct dev {
 } D[EC_NP];
 int rns_batch_local_min = 16;    /* RNS_BATCH_LOCAL_MIN: below this many products the striped path is used */
 
-__global__ void k_store(uint64_t *dst, const uint64_t *src, size_t n)
-{
-    size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x, stride = (size_t)gridDim.x * blockDim.x;
-    for (; i < n; i += stride) dst[i] = src[i];
-}
-
 void (*rns_after_staging_hook)(void *) = 0; void *rns_hook_arg = 0;
 size_t rns_staging_bytes_req = 0;                                  /* the pinned staging per APU (0 = 8 << pool_log, the default) */
 static size_t g_staging_bytes;
@@ -362,12 +356,12 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
                 }
 #pragma omp barrier                                    /* copy done before the staging is reused */
             } else if (j == np - 1) {
-                if (act) k_store<<<228 * 8, 256, 0, v->s>>>(v->hstage, da, nc[j]);
+                if (act) db_copy_kernel(228 * 8, v->s, v->hstage, da, nc[j]);
             } else {
                 /* first product of a pair: keep the result plane in the staging area above the operands
                  * is impossible (operands still needed): store into db? no - db holds B's transform.
                  * Use the top of the staging buffer if it fits, else stage through the host CRT now. */
-                if (act) k_store<<<228 * 8, 256, 0, v->s>>>(v->hstage + (((size_t)1 << g_pool_log) - nc[j]), da, nc[j]);
+                if (act) db_copy_kernel(228 * 8, v->s, v->hstage + (((size_t)1 << g_pool_log) - nc[j]), da, nc[j]);
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
             HIP_CHECK(hipEventElapsedTime(&m1, e0, e1)); HIP_CHECK(hipEventElapsedTime(&m2, e1, e2));
@@ -1108,7 +1102,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
 #pragma omp barrier                                    /* before anyone overwrites a plane */
             } else {
-                if (act) k_store<<<228 * 8, 256, 0, v->s>>>(v->hstage, da, total);
+                if (act) db_copy_kernel(228 * 8, v->s, v->hstage, da, total);
                 HIP_CHECK(hipStreamSynchronize(v->s));
             }
             HIP_CHECK(hipEventElapsedTime(&ms1, e0, e1)); HIP_CHECK(hipEventElapsedTime(&ms2, e1, e2));

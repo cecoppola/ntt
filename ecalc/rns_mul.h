@@ -87,7 +87,6 @@ uint64_t *rns_hstage(int dev);
 /* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform */
 void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
-void rns_mul_dist_hd(struct dbig_s *C, const uint64_t *a, size_t na, const struct dbig_s *B);           /* registered host A x device B */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
 /* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform
  * cache of the grid's pieces (RNS_DIST_CACHE slots; hold(1) keeps the planes across products -- the reciprocal's last
