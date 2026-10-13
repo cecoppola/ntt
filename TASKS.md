@@ -30,6 +30,7 @@ Closed 2026-10-12 (user decisions): 1 (mitigated by the uffd default), 16 and 29
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
 
+- (class 1) Newton reciprocal error bound: t_newton found one quotient whose reciprocal is −22 units off, beyond the test's ±8 bound; identical on main (not caused by SIMP). Either the bound or the reciprocal is wrong. Local analysis first (S–M); results/SIMP.md.
 - Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s/APU at 1 node (m), floor is the remote read (results/P2.md). Algorithm change, size unknown — needs a scoping pass.
 
 ## Decisions (user)
