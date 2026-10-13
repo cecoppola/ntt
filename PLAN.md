@@ -48,6 +48,7 @@ digits up to 10¹¹.
 | 1 node, 10¹¹ digits | 129.3 s (m, before the 2026-10-12 defaults) | `results/L2.md` |
 | 1 / 2 / 4 / 6 nodes at 6.441 × 10¹⁰ digits per node (scaling, aac7, mean of 2 runs per count, 2026-10-13 overnight, defaults of 4ae95ec1) | 67.6 / 119.4 / 172.2 / 204.6 s; efficiency vs 1 node (T1/Tn) 0.57 / 0.39 / 0.33 (m, 2026-10-13; before tonight's runs: 74.4 / 138.9 / 188.2 / 246.4 s, `results/M2a.md`) | `results/NIGHT.md` §4 |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT.md` §5 |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/DAY.md` §4 |
 
 The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).
