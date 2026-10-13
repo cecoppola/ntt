@@ -226,7 +226,6 @@ static void harness_result(const char *metric, const char *unit, double v)
 {
     printf("RESULT %s %s %s %.6g\n", hv_bench, metric, unit, v);
 }
-#endif
 
 /* value of a limb array mod 2^61 - 1: cheap residue check (B = 10^18 reduced once) */
 #define HV_M61 0x1FFFFFFFFFFFFFFFULL
@@ -260,3 +259,4 @@ static uint64_t limbs_mod_u64(const uint64_t *a, size_t n, uint64_t q)
 /* the two 62-bit primes the residue checks use beside M61 (prime: both are T1 / DKM primes of the pipeline's tests) */
 #define HV_Q1 1000000000000000003ULL
 #define HV_Q2 4611686018427387847ULL
+#endif

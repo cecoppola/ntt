@@ -69,7 +69,7 @@ static void proof_case(const char *what, const bigint *A, const bigint *B, const
         int m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_AUTO, &g_prng); pf_new_missed += m; pf_faults += 3;
         VERIFY(m == 0, "proof %s: %d faults missed by the new check", what, m);
         if (small) { m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_RES, &g_prng); pf_res_missed += m; VERIFY(m == 0, "proof %s: %d faults missed by the residue form", what, m); }
-        size_t pos[3] = { F.n > 1 ? 1 : 0, F.n / 2, F.n - 1 }; int om = 0;
+        size_t pos[3] = { (size_t)(F.n > 1), F.n / 2, F.n - 1 }; int om = 0;
         for (int i = 0; i < 3; i++) { uint64_t o = tref_flip(F.l, pos[i], &g_prng); bigint G = F; bi_norm(&G); if (old_ok(A, B, &G, exact)) om++; F.l[pos[i]] = o; }
         pf_old_missed += om;
         VERIFY(om == 0, "proof %s: %d faults missed by the old check", what, om);
