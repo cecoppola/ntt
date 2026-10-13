@@ -445,7 +445,7 @@ int main(int argc, char **argv)
     rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (2^31 by default; exits for BS_LAYOUT_ONLY) */
     { char eff[256]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap());
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d,p24_crt_scan:%d,chain_guard:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), p24_crt_scan_on(), newton_chain_guard());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */

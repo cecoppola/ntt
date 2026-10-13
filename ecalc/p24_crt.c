@@ -19,18 +19,7 @@
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 
-/* ---- a copy of rns_mul.c's device Garner (static there) ------------------------------------------------------------------ */
-__device__ static inline uint64_t p24_dmod128(uint64_t hi, uint64_t lo, const ec_mod m, uint64_t c64)
-{
-    uint64_t r = (uint64_t)ec_mm((double)ec_canon64(hi, m.pu, m.mu), (double)c64, m.p, m.pinv) + ec_canon64(lo, m.pu, m.mu);
-    return ec_fold(r, m.pu);
-}
-__device__ static inline uint64_t p24_dmod192(uint64_t x2, uint64_t x1, uint64_t x0, const ec_mod m, uint64_t c64)
-{
-    uint64_t r = p24_dmod128(x2, x1, m, c64);
-    r = (uint64_t)ec_mm((double)r, (double)c64, m.p, m.pinv) + ec_canon64(x0, m.pu, m.mu);
-    return ec_fold(r, m.pu);
-}
+/* ---- the device Garner (dmod128 / dmod192 are shared with rns_mul.c through rns_int.h) -------------------------------------- */
 __device__ static inline void p24_dgarner4(const struct gconst *g, const uint64_t r[4], uint64_t out[4])
 {
     uint64_t x0 = r[0], x1, x2;
@@ -38,14 +27,14 @@ __device__ static inline void p24_dgarner4(const struct gconst *g, const uint64_
       uint64_t t1 = (uint64_t)ec_mm((double)df, (double)g->c1, g->m[1].p, g->m[1].pinv);
       uint64_t lo = t1 * g->m[0].pu, hi = __umul64hi(t1, g->m[0].pu);
       uint64_t s = lo + x0; hi += s < lo; x0 = s; x1 = hi; }
-    { uint64_t xm = p24_dmod128(x1, x0, g->m[2], g->c64[2]), df = ec_fold(r[2] + g->m[2].pu - xm, g->m[2].pu);
+    { uint64_t xm = dmod128(x1, x0, g->m[2], g->c64[2]), df = ec_fold(r[2] + g->m[2].pu - xm, g->m[2].pu);
       uint64_t t2 = (uint64_t)ec_mm((double)df, (double)g->c2, g->m[2].p, g->m[2].pinv);
       uint64_t l0 = t2 * g->M1[0], h0 = __umul64hi(t2, g->M1[0]);
       uint64_t l1 = t2 * g->M1[1], h1 = __umul64hi(t2, g->M1[1]);
       uint64_t s0 = l0 + x0, c0 = s0 < l0;
       uint64_t s1 = h0 + l1, c1 = s1 < h0; s1 += x1; c1 += s1 < x1; s1 += c0; c1 += s1 < c0;
       x0 = s0; x1 = s1; x2 = h1 + c1; }
-    { uint64_t xm = p24_dmod192(x2, x1, x0, g->m[3], g->c64[3]), df = ec_fold(r[3] + g->m[3].pu - xm, g->m[3].pu);
+    { uint64_t xm = dmod192(x2, x1, x0, g->m[3], g->c64[3]), df = ec_fold(r[3] + g->m[3].pu - xm, g->m[3].pu);
       uint64_t t3 = (uint64_t)ec_mm((double)df, (double)g->c3, g->m[3].p, g->m[3].pinv);
       uint64_t l0 = t3 * g->M2[0], h0 = __umul64hi(t3, g->M2[0]);
       uint64_t l1 = t3 * g->M2[1], h1 = __umul64hi(t3, g->M2[1]);
@@ -149,13 +138,17 @@ void k_crt24(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const u
 
 __device__ unsigned p24_err_flag;                          /* per device (no allocation: a module variable) */
 static unsigned *err_dev(void) { void *p = 0; HIP_CHECK(hipGetSymbolAddress(&p, HIP_SYMBOL(p24_err_flag))); return (unsigned *)p; }
+int p24_crt_scan_on(void)                          /* K4c: default 1 since D24, =0 the serial chain; read per launch (one per product) so tests/t_crt24k can switch it */
+{
+    const char *e = getenv("P24_CRT_SCAN");
+    return e ? atoi(e) != 0 : 1;
+}
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
                     size_t R, size_t C, size_t a, size_t rows, uint64_t *out, uint64_t *spill, hipStream_t s)
 {
     if (gc->np != 4) { ec_fatal(EC_RC_FATAL, "p24_crt: %d primes (P24 needs four)\n", gc->np); }
     struct p24_run om = p24_run_make(R, C, a, rows, 0);
-    const char *e = getenv("P24_CRT_SCAN");           /* K4c: off by default; read per launch (one per product) so tests/t_crt24k can switch it */
-    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev(), e && atoi(e) != 0);
+    k_crt24<<<(unsigned)C, P24_T, 0, s>>>(p0, p1, p2, p3, *gc, om, out, spill, err_dev(), p24_crt_scan_on());
 }
 unsigned p24_crt_err(hipStream_t s)
 {

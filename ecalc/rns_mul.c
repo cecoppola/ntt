@@ -272,18 +272,7 @@ __global__ void k_scatter1(uint64_t *da, uint64_t *db, size_t L, int pair, const
     }
 }
 
-/* device Garner: FP64-Barrett for the modular steps */
-__device__ static inline uint64_t dmod128(uint64_t hi, uint64_t lo, const ec_mod m, uint64_t c64)
-{
-    uint64_t r = (uint64_t)ec_mm((double)ec_canon64(hi, m.pu, m.mu), (double)c64, m.p, m.pinv) + ec_canon64(lo, m.pu, m.mu);
-    return ec_fold(r, m.pu);
-}
-__device__ static inline uint64_t dmod192(uint64_t x2, uint64_t x1, uint64_t x0, const ec_mod m, uint64_t c64)
-{
-    uint64_t r = dmod128(x2, x1, m, c64);
-    r = (uint64_t)ec_mm((double)r, (double)c64, m.p, m.pinv) + ec_canon64(x0, m.pu, m.mu);
-    return ec_fold(r, m.pu);
-}
+/* device Garner: dmod128 / dmod192 (FP64-Barrett for the modular steps) are in rns_int.h, shared with p24_crt.c */
 __device__ static inline void dgarner4(const struct gconst *g, const uint64_t r[4], uint64_t out[4])
 {
     uint64_t x0 = r[0], x1, x2;

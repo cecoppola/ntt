@@ -77,12 +77,12 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
  * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
 static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; }
-/* NEWTON_CHAIN_GUARD=1 (RECIP, results/RECIP.md; off by default): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
+/* NEWTON_CHAIN_GUARD=1 (RECIP, results/RECIP.md; the default since D25, =0 the fallback): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
  * instead of ceil(t/2), so every doubling j -> jn has jn <= 2j - 1 and its output is cut by >= 1 limb (>= 2 above the seed's 2 -> 3).
  * Without it a doubling with jn = 2j keeps its own error, up to ~2 M units (M = B^nq / Q, 1..B: the decimal limbs are not normalised;
  * -22 units at M 42.6 in SIMP), and a run of such doublings squares it (k = 2^m: up to two limbs lost, model) */
 static int g_chain_guard = -1;
-int newton_chain_guard(void) { if (g_chain_guard < 0) { const char *e = getenv("NEWTON_CHAIN_GUARD"); g_chain_guard = e && atoi(e) > 0; } return g_chain_guard; }
+int newton_chain_guard(void) { if (g_chain_guard < 0) { const char *e = getenv("NEWTON_CHAIN_GUARD"); g_chain_guard = e ? atoi(e) > 0 : 1; } return g_chain_guard; }
 void newton_chain_guard_set(int on) { g_chain_guard = on != 0; }   /* tests */
 static size_t chain_g(size_t t) { return (t + 1) / 2 + (size_t)newton_chain_guard(); }
 size_t newton_chain_next(size_t j, size_t k)
@@ -602,13 +602,12 @@ static int mdb_nonzero_below(const mdb *X, size_t e, mn_group *G)
     return comm_allreduce_max(G->all[0], nz) != 0;
 }
 /* residues of X mod nq primes: each share's residue scaled by B^lo mod q, summed over the group */
-static uint64_t mn_powmod(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static void mdb_mod_qs(const mdb *X, const uint64_t *qs, int nq, uint64_t *res, mn_group *G)
 {
     int g = G->g, node = G->g0 + G->me; size_t lo, hi; mdb_share(X, node, &lo, &hi); if (hi > X->n) hi = X->n;
     uint64_t v[16]; memset(v, 0, sizeof v);
     if (hi > lo) { dbig s = X->sh; s.n = hi - lo; db_mod_qs(&s, qs, nq, v);
-                   for (int j = 0; j < nq; j++) { uint64_t q = qs[j], Bq = BI_B10 % q; v[j] = (uint64_t)((unsigned __int128)v[j] * mn_powmod(Bq, lo, q) % q); } }
+                   for (int j = 0; j < nq; j++) { uint64_t q = qs[j], Bq = BI_B10 % q; v[j] = (uint64_t)((unsigned __int128)v[j] * db_powmod_h(Bq, lo, q) % q); } }
     uint64_t *all = (uint64_t *)malloc((size_t)g * nq * 8);
     mn_allgather(G->all[0], v, nq, all);
     for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int k = 0; k < g; k++) { r += all[(size_t)k * nq + j]; if (r >= qs[j]) r -= qs[j]; } res[j] = r; }

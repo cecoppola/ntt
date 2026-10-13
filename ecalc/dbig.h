@@ -73,6 +73,7 @@ void db_shl_limbs(dbig *r, const dbig *a, size_t k);
 void db_shr_limbs(dbig *r, const dbig *a, size_t k);
 uint64_t db_top(const dbig *a);                       /* limb n-1 (0 if n == 0) */
 uint64_t db_limb(const dbig *a, size_t i);
+uint64_t db_powmod_h(uint64_t b, uint64_t e, uint64_t q);   /* b^e mod q (host, 128-bit; the Montgomery-free helper of the host references) */
 uint64_t db_mod_q(const dbig *x, uint64_t q);
 void db_mod_qs(const dbig *x, const uint64_t *qs, int nq, uint64_t *res);   /* several primes (<= 16) in one pass */
 void db_set_shifted_low(dbig *r, const dbig *a, size_t m, size_t k, size_t n);   /* r = (a mod B^m) B^k as an n-limb number (zeros + a few limbs) */        /* x mod q (q < 2^63) by a device kernel; the number must start at a chunk boundary (no odd views) */

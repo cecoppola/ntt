@@ -130,6 +130,7 @@ static inline void p24_c18(int prime, uint64_t c[3]) { for (int i = 0; i < 3; i+
 struct gconst;
 void p24_crt_launch(const uint64_t *p0, const uint64_t *p1, const uint64_t *p2, const uint64_t *p3, const struct gconst *gc,
                     size_t R, size_t C, size_t a, size_t rows, uint64_t *out, uint64_t *spill, hipStream_t s);
+int p24_crt_scan_on(void);                         /* P24_CRT_SCAN (K4c; default 1 since D24) */
 unsigned p24_crt_err(hipStream_t s);                  /* the device flag of the calls on this device since the last read (0: none), cleared */
 #endif
 #endif

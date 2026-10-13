@@ -732,7 +732,7 @@ __global__ void k_modq_m(const uint64_t *x, size_t n, int nq, const uint64_t *qs
         __syncthreads();
     }
 }
-static uint64_t powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
+uint64_t db_powmod_h(uint64_t b, uint64_t e, uint64_t q) { uint64_t r = 1; b %= q; while (e) { if (e & 1) r = (uint64_t)((unsigned __int128)r * b % q); b = (uint64_t)((unsigned __int128)b * b % q); e >>= 1; } return r; }
 static uint64_t *g_mq_out[DB_NQ], *g_mq_pow[DB_NQ]; static size_t g_mq_cap[DB_NQ];
 static void qrange(const dbig *x, int d, size_t n, size_t *lo, size_t *hi);
 #define MQ_MAXQ 16
@@ -750,7 +750,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
 {
     uint64_t Bq[MQ_MAXQ], Bt[MQ_MAXQ], Bch[MQ_MAXQ], powt[MQ_MAXQ * MQ_T];
     for (int j = 0; j < nq; j++) {
-        uint64_t q = qs[j]; Bq[j] = BI_B10 % q; Bt[j] = powmod_h(Bq[j], MQ_T, q); Bch[j] = powmod_h(Bq[j], MQ_CH, q);
+        uint64_t q = qs[j]; Bq[j] = BI_B10 % q; Bt[j] = db_powmod_h(Bq[j], MQ_T, q); Bch[j] = db_powmod_h(Bq[j], MQ_CH, q);
         powt[j * MQ_T] = 1; for (int t = 1; t < MQ_T; t++) powt[j * MQ_T + t] = (uint64_t)((unsigned __int128)powt[j * MQ_T + t - 1] * Bq[j] % q);
     }
     int mont = 1;   /* S51 K3 (k_modq_m); k_modq when a q is even or outside [2^62, 2^63) */
@@ -780,7 +780,7 @@ static void db_mod_qs_locked(const dbig *x, const uint64_t *qs, int nq, uint64_t
         for (int j = 0; j < nq; j++) { uint64_t v = 0; for (size_t c = nc; c-- > 0;) v = (uint64_t)(((unsigned __int128)v * Bch[j] + hv[c * nq + j]) % qs[j]); vq[d][j] = v; }
         free(hv);
     }
-    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = DB_NQ; d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
+    for (int j = 0; j < nq; j++) { uint64_t r = 0; for (int d = DB_NQ; d-- > 0;) if (qlen[d]) r = (uint64_t)(((unsigned __int128)r * db_powmod_h(Bq[j], qlen[d], qs[j]) + vq[d][j]) % qs[j]); res[j] = r; }
 }
 uint64_t db_mod_q(const dbig *x, uint64_t q) { uint64_t r; db_mod_qs(x, &q, 1, &r); return r; }
 /* ---- kernels: one per quarter, over the result's limbs [lo, hi) of that quarter ---- */

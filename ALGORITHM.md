@@ -157,7 +157,7 @@ min·(10²⁴ − 1)², which fits four primes while min(Pa, Pb) ≤ 10¹² (`P2
 s = 6·(x mod 3) digits, lands on limbs L(x) … L(x)+3 with L(x) = ⌊4x/3⌋. Gain: −38 % at 10¹⁰ digits on 2 processes (m;
 `results/P2415.md`). It applies to every multi-node product whose plane pool holds four primes (built in; since D18 every multi-node product; with `ECALC_NP_MN3=1` the 18-digit form below 32 node-processes).
 Its CRT kernel `k_crt24` (`p24_crt.c`, one block per column, 256 points per chunk) sums the at most three points meeting
-each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (off by default,
+each of a chunk's up to 342 limbs and resolves the chunk's carry chain on one thread; with `P24_CRT_SCAN=1` (the default since D24, `=0` the serial chain;
 `results/K4c.md`) as the same carry-lookahead over wave ballot masks as `RNS_CRT_SCAN` (two limbs per thread, 512-bit masks).
 
 ### 4.4 Product tiers
@@ -222,8 +222,8 @@ reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one nod
 error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
 keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
 absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
-step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (off by
-default) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/RECIP.md).
+step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (the default
+since D25, `=0` the old chain) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/RECIP.md).
 
 ### 5.2 Division in two quotient halves ("DKM")
 

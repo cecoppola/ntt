@@ -119,7 +119,7 @@ MN_SELFTEST_LOGR	int	unset	unset		test-only	-	FIX117.md	Y	ecalc	mn.c	2	diagnosti
 MN_TREE_LOGN_TEST	int	0	0		test-only	-	G12.md+M13.md	Y	ecalc	mn.c,mn_plan.c	4	diagnostics (TESTING.md)	2027-04-12	
 MN_T_CHUNK_MB	float	1024	1024	MiB	launch-line	aac7	P214.md+S22.md	Y	ecalc	newton_db.c,rns_dist.c	3	-	-	rns_dist.c:1608
 MN_WAIT_STATS	bool	0	unset	0|1	launch-line	-	S27.md+S22.md	Y	ecalc	comm_util.c	1	-	-	comm_util.c:22 (atoi > 0)
-NEWTON_CHAIN_GUARD	int	0	unset	0|1	experiment	-	-	Y	ecalc	newton_db.c	1	RECIP (results/RECIP.md)	2026-11-11	newton_db.c newton_chain_guard; off by default (RECIP, results/RECIP.md); dm_layout follows it
+NEWTON_CHAIN_GUARD	int	1	1	0|1	built-in default	-	-	Y	ecalc	newton_db.c	1	coordinator (D25, results/RECIP.md)	2026-11-11	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/RECIP.md); dm_layout and mem_model.py follow it
 NEWTON_DKM_TEST_HI	int	0	0		test-only	-	DKM15.md+EW15.md	prose	ecalc	newton_db.c	1	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_DOUBLING_TS	int	0	0		test-only	-	S22.md+S21.md	Y	ecalc	newton_db.c	2	diagnostics (TESTING.md)	2027-04-12	
 NEWTON_MN_BW	float	unset	unset		built-in default	-	X.md+Q.md	Y	ecalc	newton_db.c	2	-	-	
@@ -132,7 +132,7 @@ NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	eca
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
-P24_CRT_SCAN	bool	0	derived	0|1	experiment	-	-	Y	ecalc	p24_crt.c	1	coordinator (TASKS S)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_launch); off by default
+P24_CRT_SCAN	bool	1	derived	0|1	built-in default	-	-	Y	ecalc	p24_crt.c	1	coordinator (D24, results/K4c.md)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	

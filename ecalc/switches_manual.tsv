@@ -47,5 +47,5 @@ BS_BATCH_PIPE	1	bool	0|1	built-in default	rns_mul.c, binsplit.c; N3 batch-tier h
 DM_MN_WRAP	1	int	0|1|20..62	built-in default	newton_db.c dm_wrap; default 1 since D22, =0 kept fallback (P1, results/P1.md); dm_layout counts it (D19, results/DEF.md)
 ECALC_NP_MN3	0	bool	0|1	built-in default	crt.c ec_np_init; =1 the three-prime multi-node path, kept fallback after D18 (results/DEF.md)
 RNS_CRT_SCAN	1	bool	0|1	built-in default	K4b: k_crt_batch parallel carry (rns_mul.c rns_gconst); default 1 since D21, =0 kept fallback
-P24_CRT_SCAN	0	bool	0|1	experiment	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_launch); off by default
-NEWTON_CHAIN_GUARD	0	int	0|1	experiment	newton_db.c newton_chain_guard; off by default (RECIP, results/RECIP.md); dm_layout follows it
+P24_CRT_SCAN	1	bool	0|1	built-in default	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_scan_on); default 1 since D24, =0 kept fallback
+NEWTON_CHAIN_GUARD	1	int	0|1	built-in default	newton_db.c newton_chain_guard; default 1 since D25, =0 kept fallback (RECIP, results/RECIP.md); dm_layout and mem_model.py follow it

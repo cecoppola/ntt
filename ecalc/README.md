@@ -129,7 +129,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `ECALC_PLANE_CAP` | *Phase 13b (P)*: the plane cap, `2^30` or `2^31` (or `30`, `31`) or `fit` (the larger whose node total fits `ECALC_NODE_GB`, default 480); sets `POOL_LOG` and `DIST_LOGN_TEST` and refuses a conflicting one; `off` = those two as given (`2^31` since Phase 13c, unless one of them is given). The 3·2ᵏ caps went with SIMP (`results/SIMP.md`) |
 | `RNS_STRATEGY_CHECK` | *Phase 13b (B), test*: every B-form product formed again by C and compared, abort on a difference (0) |
 | `RNS_CRT_SCAN` | ***Built-in default 1 since 2026-10-12 (user decision D21; `=0` keeps the serial carry chain).*** *K4b*: 1 = `k_crt_batch` resolves each 256-coefficient chunk's carry chain as a carry-lookahead over wave ballot masks (3 barriers instead of 5 and a 256-step serial loop by one thread); digits identical (`tests/t_crtk`); `results/K4b.md` (1) |
-| `P24_CRT_SCAN` | *K4c, experiment*: 1 = `k_crt24` (the P24 CRT of every multi-node product, `p24_crt.c`) resolves each 256-point chunk's carry chain (up to 342 limbs) as a carry-lookahead over wave ballot masks instead of a serial loop by one thread; separate from `RNS_CRT_SCAN` (`k_crt_batch`); digits identical (`tests/t_crt24k`); `results/K4c.md` (0) |
+| `P24_CRT_SCAN` | ***Built-in default 1 since 2026-10-13 (user decision D24; `=0` keeps the serial chain).*** *K4c*: 1 = `k_crt24` (the P24 CRT of every multi-node product, `p24_crt.c`) resolves each 256-point chunk's carry chain (up to 342 limbs) as a carry-lookahead over wave ballot masks instead of a serial loop by one thread; separate from `RNS_CRT_SCAN` (`k_crt_batch`); digits identical (`tests/t_crt24k`); `results/K4c.md` (1) |
 | `RNS_DIST_CACHE_MARGIN_GB` | free device memory kept when sizing the cache (24) |
 | `RNS_DIST_CACHE_FIT_RESERVE_GB` | with the transform-cache fit (built in): GB per node kept out of the budget room for what the init peak does not hold (the SHMEM pool, the VMM seed buffers, the phases' growth: 28.8 GB at the target by `mem_model.py`) (32) |
 | `RNS_DIST_CACHE_TRACE` | *Phase 15 (CX), results/CX15.md*: 1 = instrumentation -- `mn_grid` prints one `cache_trace` line per piece of an mn grid product (its (i, j), limbs, the operands' cache state `HIT` / `cached` / `-`, the piece's wall and `redistribute / ntt / crt / out / carry`; with `DIST_STATS=1` also the transforms' event-timed parts); `archive:removed_2026-10-12/scr/ecalc/tests/cx_fit.py` read them; bit-identical (0) |
@@ -161,7 +161,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | switch | meaning (default) |
 |---|---|
 | `NEWTON_RECIP_GUARD` | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) |
-| `NEWTON_CHAIN_GUARD` | *RECIP (results/RECIP.md)*: `1` = the reciprocal's anchored chain keeps one guard limb per doubling (targets k, ⌈k/2⌉ + 1, …), so every doubling is cut by ≥ 1 limb; without it a doubling j → 2j keeps its error (up to ~2·B^n_Q/Q units, and squared over a run of such doublings, e.g. k = 2^m). Digits identical either way (0) |
+| `NEWTON_CHAIN_GUARD` | ***Built-in default 1 since 2026-10-13 (user decision D25; `=0` keeps the old chain).*** *RECIP (results/RECIP.md)*: `1` = the reciprocal's anchored chain keeps one guard limb per doubling (targets k, ⌈k/2⌉ + 1, …), so every doubling is cut by ≥ 1 limb; without it a doubling j → 2j keeps its error (up to ~2·B^n_Q/Q units, and squared over a run of such doublings, e.g. k = 2^m). Digits identical either way; `dm_layout` (`binsplit.c`) and `mem_model.py` (`CHAIN_GUARD_CODE`, read from the same variable) count its +1 limb in the last doubling's start (`--check-c` exact) (1) |
 | `NEWTON_MN_SPLIT` | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) |
 | `NEWTON_MN_RECIP_TS` | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) |
 | `NEWTON_MN_GROUPS` | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) |
@@ -269,12 +269,13 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 
 | class | owner | review by | switches |
 |---|---|---|---|
-| experiment | RECIP (results/RECIP.md) | 2026-11-11 | `NEWTON_CHAIN_GUARD` |
-| experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `P24_CRT_SCAN`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
+| experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |
 | fallback | coordinator (D20, results/N3.md) | 2026-11-11 | `BS_BATCH_PIPE` |
 | fallback | coordinator (D21, results/K4b.md) | 2026-11-11 | `RNS_CRT_SCAN` |
+| fallback | coordinator (D24, results/K4c.md) | 2026-11-11 | `P24_CRT_SCAN` |
+| fallback | coordinator (D25, results/RECIP.md) | 2026-11-11 | `NEWTON_CHAIN_GUARD` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `BS_SEED_PULL`, `COMM_LAYER_INTER2`, `COMM_LAYER_VSLOT_POOL`, `COMM_LAYER_VSLOT_RELEASE`, `COMM_LAYER_VSLOT_SHARE`, `DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW`, `ECALC_OUT_PACKED`, `MN_OUT_DKM_HI`, `RNS_DIST_CACHE_PARTIAL` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `COMM_LAYER_STATS`, `COMM_OFI_DEV`, `COMM_OFI_VERBOSE`, `COMM_SHMEM_POOL_NEED_MB`, `COMM_SHMEM_STAGE_SLOT_MB`, `COMM_SHMEM_VERBOSE`, `COMM_XGMI_STATS`, `COMM_XSTATS`, `DC_STATS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_BUDGET_RANK_GB`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_LIVE`, `ECALC_MEM_GUARD_PERIOD`, `ECALC_MEM_SAMPLE`, `ECALC_MEM_SAMPLE_FILE`, `ECALC_NP_AUTO_TERMS`, `ECALC_PLANE_CAP_IDX`, `ECALC_SEGV_TEST`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_OUT_STRIPE_FORCE`, `MN_PLAN_QUIET`, `MN_SELFTEST_LOGR`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_DOUBLING_TS`, `NEWTON_MN_RECIP_TS`, `NEWTON_VERBOSE`, `NTT_SIZE_STATS`, `RNS_DIST_CACHE_PARTIAL_FORCE`, `RNS_DIST_CACHE_TRACE`, `RNS_INIT_POOL_LOG`, `RNS_POOL_GROW`, `RNS_STRATEGY_CHECK` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
