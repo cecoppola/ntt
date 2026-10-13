@@ -67,6 +67,8 @@ static const char *const cfg_names[] = {
     "ECALC_CKPT_TOP_SLACK",
     "ECALC_CORR_PATCH",
     "ECALC_CORR_PATCH_ZONE",
+    "ECALC_DEVICE_GB",
+    "ECALC_DEVICE_MARGIN_GB",
     "ECALC_FAST_EXIT",
     "ECALC_FATAL_ABORT",
     "ECALC_FATAL_TEST",
@@ -152,4 +154,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 150
+#define CFG_NAMES_N 152

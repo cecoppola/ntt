@@ -71,7 +71,7 @@ symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_
 crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
 D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/MEAS-P24.md`: −8.9 s
 at 2 nodes, +8.6 GB per APU, m; `results/DEF.md`). The three-prime multi-node path stays selectable for A/B runs with
-`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/P1.md`, `results/DEF.md`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback; so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/K4c.md`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/RECIP.md`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
+`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) and the division's low product as one cyclic plane `DM_MN_WRAP` (D22, `results/P1.md`, `results/DEF.md`: 6 nodes dm −6.25 s, +5.4 GB per APU, counted by the memory model, m) are code defaults since 2026-10-12, each with a `=0` fallback (`DM_MN_WRAP` automatic since 2026-10-13, D26, `results/FIT.md`: on only where the device with it fits the device limit less a 5 GB margin -- on at aac7's 1 to 6 nodes, off at 3.82 × 10¹³ on 576 nodes); so are the P24 CRT carry-lookahead `P24_CRT_SCAN` (D24, `results/K4c.md`) and the reciprocal chain guard `NEWTON_CHAIN_GUARD` (D25, `results/RECIP.md`, counted by the memory model) since 2026-10-13. The transform-cache fit and partial cache, the early write after
 division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
 `results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
 
@@ -92,6 +92,15 @@ the planner `MN_PLAN_ONLY`), the library heap (pool + 512 MiB), `FI_UNIVERSE_SIZ
 them without launching, checks a hand-typed line against them, and prints `export` lines for a launch without `mnrun.sh`.
 At 3.82 × 10¹³ digits on 576 nodes the plan asks for a pool of 2304 MiB and a heap of 2816 MiB with the current defaults
 (m, planner on the aac7 login node); a typed 1536 / 2048 MiB is right only with `COMM_LAYER_VSLOT_POOL=0`. User decision D9 (a), 2026-10-12: the target launch block does not type pool or heap; it takes them from `tools/plan_values.py --profile target --exports <digits> <nodes>`.
+
+**Memory fit before every launch (FIT, user decision D26, `results/FIT.md`).** Only runs whose memory fits are launched. The
+planner (`MN_PLAN_ONLY`, C, the source of truth) reports for (digits, nodes, profile) the device peak per node and per APU
+against the machine's device edge `ECALC_DEVICE_GB` (target 373.44 GB per node, m; aac7 444.0, m, in `profiles/aac7.conf`),
+the node against `ECALC_NODE_GB`, the margins and the largest consumers; `tools/plan_values.py --fit <digits> <nodes>` prints
+it, `mnrun.sh` and `tools/gate.sh` print it and refuse a run that does not fit before any node time is used, and
+`ecalc/target_kit.sh`'s plan stage shows it. At 3.82 × 10¹³ digits on 576 nodes with the target profile: device 358.96 GB per
+node (89.74 per APU), margin +14.48 GB; node 395.85 GB, margin +84.15 GB; `DM_MN_WRAP` off (with it: 384.73 GB, over the edge)
+(m, planner on the aac7 login node).
 
 Every setting that is not a plain default (experiments, diagnostics, test-harness switches, fallbacks kept after a default
 flipped) has an owner and a review date (`ecalc/switches_review.tsv`; the table in `ecalc/README.md`);

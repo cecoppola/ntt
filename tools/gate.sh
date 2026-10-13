@@ -24,6 +24,8 @@
 #     --ref FILE  reference digits (default ~/ref/e_1000000000.txt, else ecalc/results/e_1000000000.out, else ~/ntt/ecalc/results/...); only 1e9 has a default
 #     --out DIR   output dir (default ~/gate/<timestamp>): build.log, run.log, gate.txt (one line), digit files are deleted after
 #     --timeout   seconds allowed for the run (default 1500); --wait seconds to wait for an --alloc job to start (default 1800)
+#   FIT (D26, results/FIT.md): before the allocation the run's memory fit is printed (tools/plan_values.py --fit, file fit.txt) and a run
+#     that does not fit is refused (FAIL, no node time used); GATE_FIT=0 skips it (deliberate edge tests only). mnrun.sh checks again.
 #   doccheck: tools/doccheck.py (docs match the tree, <5 s) runs first. GATE_DOCCHECK=strict (default) fails the gate on any problem;
 #     GATE_DOCCHECK=warn prints the problems and goes on; GATE_DOCCHECK=off skips it.
 #   Exit 0 = PASS (rc 0, VERIFY OK, digits identical, no segfault), 1 = FAIL.  Kills only its own srun PID and its own sbatch id.
@@ -138,6 +140,15 @@ if [ $CHECK_NP = 1 ]; then
 fi
 ENVSHOW="line=${LINE_SEL%%:*}${PROFILE:+ profile=$PROFILE} $EXTRA ECALC_SEGV_TRACE=1"
 ENVSHOW=$(echo $ENVSHOW)
+
+# ---- FIT (user decision D26, results/FIT.md): the memory fit of this run (tools/plan_values.py --fit: the planner's `plan fit` lines),
+# before any node time is used; a run that does not fit is refused here (GATE_FIT=0 skips: deliberate edge tests only)
+if [ "${GATE_FIT:-1}" != 0 ]; then
+  printf '%s\n' $LINE $EXTRA ECALC_SEGV_TRACE=1 > "$OUT/fit_line.env"
+  python3 "$ROOT/tools/plan_values.py" --fit --line "$OUT/fit_line.env" --ecalc "$E/ecalc" "$DIG" "$NODES" > "$OUT/fit.txt" 2>&1; frc=$?
+  sed 's/^/gate.sh: /' "$OUT/fit.txt"
+  [ $frc = 0 ] || fail "memory does not fit (refused before launch; see fit.txt): $(grep -m1 -E 'REFUSED|plan_values:' "$OUT/fit.txt" | cut -c1-200)"
+fi
 
 # ---- allocation
 if [ "$ALLOC" = 1 ]; then

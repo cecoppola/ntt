@@ -23,6 +23,8 @@
 # defaults, the SHMEM implementation -- but prints the computed variables as `export K=V` lines on stdout and exits 0 instead of
 # calling srun (no allocation needed; mnrun's own messages go to stderr).  tools/plan_values.py uses it, so the size-dependent
 # launch values have one source.  Unset, nothing changes.
+# FIT (D26, results/FIT.md): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
+# (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
 set -e
 P=$1; shift
 PRINT_ENV=${MNRUN_PRINT_ENV:-0}
@@ -167,6 +169,40 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
 fi
 [ "$PRINT_ENV" = 0 ] || print_env_exit
+# ---- FIT (user decision D26, results/FIT.md): the pre-launch memory fit.  A block of its own (the pool block above belongs to the
+# SHMEM pool sizing; nothing here changes the pool).  The command's ecalc (the first executable whose name starts with `ecalc`, followed by
+# a digit count) is planned on this host with the command's VAR=value words and MN_PLAN_ONLY=<digits>:<procs> (no device touched); its
+# `plan fit` lines (device per node and per APU vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, the margins, the largest consumers, the
+# DM_MN_WRAP decision) are printed, and a run that does not fit -- or any `plan REFUSED` -- is refused HERE, before srun: exit 4.
+# MNRUN_FIT=0 (default 1) skips the check (deliberate edge tests only).  The plan counts the comm_ofi pools when a cxi NIC is on the
+# compute node (asked once, as the pool block does, when COMM_OFI / COMM_OFI_PLAN_CXI are unset and this host has none).
+if [ "${MNRUN_FIT:-1}" != 0 ]; then
+    fbin=; fd=; fas=()
+    for a in "$@"; do
+        if [ -n "$fbin" ]; then case "$a" in -*) continue;; esac; case "$a" in *[!0-9]*|"") ;; *) fd=$a;; esac; break; fi
+        case "$a" in [A-Za-z_]*=*) fas+=("$a"); continue;; -*) continue;; esac
+        f=$(command -v -- "$a" 2>/dev/null) || continue; [ -f "$f" ] && [ -x "$f" ] || continue
+        case "$(basename -- "$f")" in ecalc*) head -c 4 "$f" 2>/dev/null | grep -q ELF && fbin=$f;; esac
+    done
+    if [ -n "$fbin" ] && [ -n "$fd" ]; then
+        if [ "$P" -gt 1 ] && [ -z "${COMM_OFI:-}" ] && [ -z "${COMM_OFI_PLAN_CXI:-}" ] && [ ! -e /sys/class/cxi/cxi0 ]; then
+            if timeout 120 srun --jobid="$SLURM_JOB_ID" -N 1 -n 1 -w "$(echo "$use" | head -1)" --overlap test -e /sys/class/cxi/cxi0 2>/dev/null; then export COMM_OFI_PLAN_CXI=1; else export COMM_OFI_PLAN_CXI=0; fi
+            echo "mnrun.sh: FIT: COMM_OFI_PLAN_CXI=$COMM_OFI_PLAN_CXI (a cxi NIC on the compute node: the plan counts the comm_ofi pools)"
+        fi
+        ftr=(); [ "$P" -gt 1 ] && ftr=(COMM_TRANSPORT=shmem)
+        fout=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${fas[@]}" "${ftr[@]}" MN_PLAN_ONLY="$fd:$P" "$fbin" 2>&1) || true
+        flines=$(echo "$fout" | grep -aE '^plan (fit|REFUSED)' || true)
+        if [ -z "$flines" ]; then
+            echo "mnrun.sh: FIT: MN_PLAN_ONLY=$fd:$P of $fbin printed no fit report (a binary before FIT?): the memory fit is not checked" >&2
+        else
+            echo "$flines" | sed 's/^/mnrun.sh: /'
+            if echo "$flines" | grep -q '^plan REFUSED'; then
+                echo "mnrun.sh: REFUSED before launch (no node time used): $(echo "$flines" | grep '^plan REFUSED' | head -1 | cut -c1-240)" >&2
+                exit 4
+            fi
+        fi
+    fi
+fi
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
 exec srun --jobid="$SLURM_JOB_ID" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"

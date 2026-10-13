@@ -36,6 +36,13 @@ covers it; its log shows the `I3:` line.
   `3` gates the three-prime multi-node path kept for A/B runs (adds `ECALC_NP_MN3=1`) and checks `plane pool 0 for 3 primes`.
   A missing line is a FAIL; the digits must be identical as always. (Replaces `--p24`, which forced P24 through
   `ECALC_NP_AUTO_TERMS` when it switched on only from 32 nodes.)
+- **Memory fit (FIT, user decision D26, `results/FIT.md`).** Before any node time is used (before `--alloc`'s sbatch and before
+  the run in a hold) the gate prints the run's memory fit, `tools/plan_values.py --fit` on the launch line (`fit.txt`): the
+  planner's device peak per node and per APU against the device limit `ECALC_DEVICE_GB` (the profile's measured edge; code
+  default 373.44, the target's), the node against `ECALC_NODE_GB`, both margins, the largest consumers and the `DM_MN_WRAP`
+  decision. A run that does not fit is a FAIL ("memory does not fit"), nothing is launched. `mnrun.sh` repeats the check
+  before its srun (exit 4) and `ecalc` prints the same report as `memory fit:` lines in `run.log`. `GATE_FIT=0` /
+  `MNRUN_FIT=0` skip it, for deliberate edge tests only.
 - Output: `build.log`, `run.log` and one summary line `gate.txt` (`gate PASS | nodes … | digits … | total …s`). The digit
   files are deleted afterwards. The gate kills only its own processes and cancels only an allocation it submitted.
 - Exit status 0 = PASS, 1 = FAIL. A single-node system without SHMEM runs `--nodes 1` only.

@@ -74,6 +74,8 @@
 #            with FI_LOG_LEVEL=info and looks for "memory monitor is: uffd"; it also tries the userfaultfd syscall on a compute node.
 #            PASS = the log line is seen.  FAIL names the monitor libfabric chose instead; then set FI_MR_CACHE_MONITOR=memhooks.
 #   plan   (< 1 min per point, no device; default on): MN_PLAN_ONLY=<digits>:<procs> for every a4 node count (and --plan-digits/--plan-procs).
+#          FIT (D26): the plan includes the memory fit (`plan fit` lines: device vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, DM_MN_WRAP's
+#          decision), shown in the summary; a point that does not fit is refused (`plan REFUSED`), like a prime-set refusal.
 #            PASS only if the last plan line is `plan check ... OK`.  Stages a4 and s2chk run the same check before each long run and
 #            refuse the run on `plan REFUSED`.  Run it before anything long.
 #   initchk (seconds; default on after a4): runs tools/initchk.py (slow-host check: flag a node > 3x the median and >= 2 s above it; exit 0 ok, 3 flagged, 2 cannot parse)
@@ -547,6 +549,9 @@ stage_plan() {
     for c in "${pts[@]}"; do
         if plan_check "$lf" "${c%%:*}" "${c##*:}"; then summary "  ${c%%:*} digits on ${c##*:}: plan check OK"
         else summary "  ${c%%:*} digits on ${c##*:}: NOT OK -- $(grep -aE '^plan (check|REFUSED)' "$LOGDIR/plan_${c%%:*}_${c##*:}.log" 2>/dev/null | tail -1 | cut -c1-160)"; bad=1; fi
+        # FIT (D26, results/FIT.md): the planner's memory fit (device vs ECALC_DEVICE_GB, node vs ECALC_NODE_GB, DM_MN_WRAP's decision);
+        # a run that does not fit ends its plan in `plan REFUSED` (plan_check above fails it)
+        grep -aE '^plan fit +(FITS|REFUSED|DM_MN_WRAP)' "$LOGDIR/plan_${c%%:*}_${c##*:}.log" 2>/dev/null | cut -c1-220 | sed 's/^/    /' >> "$SUMMARY"
     done
     if [ "$DRY_RUN" = 1 ]; then summary "status: DRY-RUN (not executed)"; elif [ $bad -eq 0 ]; then summary "status: PASS"; else summary "status: FAIL (a long run at a refused point must not be started)"; fi
     summary "  full log: $lf"

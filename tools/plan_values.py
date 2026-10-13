@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/plan_values.py -- the size-dependent launch values of a run, computed in one place (TASKS 27 part A, results/T27.md).
 
-  tools/plan_values.py [--profile NAME|PATH] [--line FILE] [--ecalc PATH] [--exports] DIGITS NODES
+  tools/plan_values.py [--profile NAME|PATH] [--line FILE] [--ecalc PATH] [--exports | --fit] DIGITS NODES
 
 What it computes, from (digits, node-processes, machine profile + the line's settings), with nothing typed:
   - the SHMEM pool COMM_SHMEM_POOL_MB, the library heap (SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE, Cray) and FI_UNIVERSE_SIZE: ecalc/mnrun.sh with MNRUN_PRINT_ENV=1 (mnrun.sh asks the
@@ -15,9 +15,16 @@ Nothing is launched: the planner touches no device (a login node is enough; the 
                 settings are applied over the profile (they shape the plan), its size-dependent values are removed, computed
                 again and compared: MATCH / DIFF per key, NO-CONSUMER for a key nothing reads.  Exit 1 on any DIFF.
   --ecalc PATH  the binary (default ecalc/ecalc of this tree)
+  --fit         FIT (user decision D26, results/FIT.md): the pre-launch memory-fit report only -- the planner's `plan fit` lines
+                (device GB per node and per APU against the device limit ECALC_DEVICE_GB, the node against ECALC_NODE_GB, the margins,
+                the largest consumers, the DM_MN_WRAP decision and why).  Exit 0 = fits, 1 = does not fit (or a plan REFUSED): a
+                launch is refused.  ecalc/mnrun.sh and tools/gate.sh print the same lines before every launch.
+                (Every mode: when neither COMM_OFI nor COMM_OFI_PLAN_CXI is set, COMM_OFI_PLAN_CXI=1 is assumed -- the compute nodes of
+                aac7 and the target have cxi NICs, as mnrun.sh finds at a launch -- so the comm_ofi pools are counted.)
   --exports     print only `export K=V` lines of the computed launcher values (for an srun launch without mnrun.sh:
                 eval "$(tools/plan_values.py --profile target --exports 38200000000000 576)")
-Exit: 0 values computed (and every compared key matches), 1 a DIFF or `plan REFUSED`, 2 usage or planner failure.
+Exit: 0 values computed (and every compared key matches, and the memory fits), 1 a DIFF, `plan REFUSED` or a memory that does not fit,
+2 usage or planner failure.
 """
 import os, re, sys, shlex, subprocess, decimal
 
@@ -98,7 +105,7 @@ def mib(v):
 
 
 def main(argv):
-    a = {"profile": None, "line": None, "ecalc": os.path.join(ROOT, "ecalc", "ecalc"), "exports": False}
+    a = {"profile": None, "line": None, "ecalc": os.path.join(ROOT, "ecalc", "ecalc"), "exports": False, "fit": False}
     pos = []
     i = 0
     while i < len(argv):
@@ -109,13 +116,15 @@ def main(argv):
             a[x[2:]] = argv[i + 1]; i += 2; continue
         if x == "--exports":
             a["exports"] = True
+        elif x == "--fit":
+            a["fit"] = True
         elif x in ("-h", "--help"):
             print(__doc__); return 0
         else:
             pos.append(x)
         i += 1
     if len(pos) != 2:
-        die("usage: plan_values.py [--profile P] [--line FILE] [--ecalc PATH] [--exports] DIGITS NODES")
+        die("usage: plan_values.py [--profile P] [--line FILE] [--ecalc PATH] [--exports | --fit] DIGITS NODES")
     d, g = digits_int(pos[0]), int(pos[1])
     ecalc = os.path.abspath(os.path.expanduser(a["ecalc"]))
     if not os.access(ecalc, os.X_OK):
@@ -140,6 +149,10 @@ def main(argv):
         for k in COMPUTED:
             env.pop(k, None)
 
+    cxi_note = ""
+    if g > 1 and "COMM_OFI" not in env and "COMM_OFI_PLAN_CXI" not in env:   # FIT: the compute nodes' cxi NICs (mnrun.sh asks a compute node at a launch)
+        env["COMM_OFI_PLAN_CXI"] = "1"; cxi_note = "COMM_OFI_PLAN_CXI=1 assumed (cxi NICs on the compute nodes: the comm_ofi pools counted)"
+
     # 1. the launcher values: mnrun.sh's own computation, printed instead of launched
     cmd = [os.path.join(ROOT, "ecalc", "mnrun.sh"), str(g), ecalc, str(d)]
     r = subprocess.run(cmd, env=dict(env, MNRUN_PRINT_ENV="1"), capture_output=True, text=True)
@@ -159,12 +172,29 @@ def main(argv):
     r = subprocess.run(["bash", "-lc", PRE, "_", "env", ecalc], env=penv, capture_output=True, text=True)
     out = r.stdout
     head = re.search(r"^== MN_PLAN_ONLY: .*?pool_log (\d+),.*?MN_GROUPS (.*?) ==$", out, re.M)
-    chk = [l for l in out.splitlines() if l.startswith("plan check")]
+    chk = [l for l in out.splitlines() if l.startswith("plan check") or l.startswith("plan REFUSED")]
     if not head or not chk:
         die("the planner gave no plan (rc %d): %s" % (r.returncode, (r.stderr or out).strip()[-300:]))
     groups = head.group(2).strip()
     groups = "-" if groups.startswith("-") else groups
     verdict = chk[-1]
+    fit = [l for l in out.splitlines() if l.startswith("plan fit") or (l.startswith("plan REFUSED") and "memory" in l)]
+    fits = any(re.match(r"^plan fit +FITS:", l) for l in fit)
+    fit_last = next((l for l in reversed(fit) if re.match(r"^plan fit +(FITS|REFUSED)", l)), None)
+    if not fit:
+        die("the planner printed no `plan fit` lines (a binary before FIT? rebuild %s)" % ecalc)
+
+    if a["fit"]:
+        print("memory fit: %d digits on %d node-process%s%s%s" % (d, g, "es" if g > 1 else "", "; profile " + a["profile"] if a["profile"] else "",
+                                                             "; line " + a["line"] if a["line"] else ""))
+        for l in fit:
+            print("  " + l)
+        if cxi_note:
+            print("  note: " + cxi_note)
+        if "REFUSED" in verdict:
+            print("  " + verdict)
+        print("  verdict: %s" % ("FITS -- the launch may proceed" if fits and "REFUSED" not in verdict else "DOES NOT FIT -- a launch is refused"))
+        return 0 if fits and "REFUSED" not in verdict else 1
     comp = {k: ex[k] for k in LAUNCH_KEYS if k in ex}
     comp["MN_GROUPS"] = groups
 
@@ -174,7 +204,8 @@ def main(argv):
             if k not in ("MNRUN_MODULES", "MNRUN_UNLOAD", "COMM_OFI_PLAN_CXI"):
                 print("export %s=%s" % (k, shlex.quote(v)))
         print("# MN_GROUPS: the code's default schedule (%s) -- nothing to export" % groups)
-        return 1 if "REFUSED" in verdict else 0
+        print("# %s" % (fit_last or "plan fit: -"))
+        return 1 if "REFUSED" in verdict or not fits else 0
 
     print("plan values: %d digits on %d node-process%s%s%s" % (d, g, "es" if g > 1 else "", "; profile " + a["profile"] if a["profile"] else "",
                                                              "; line " + a["line"] if a["line"] else ""))
@@ -209,11 +240,14 @@ def main(argv):
             if k not in words:
                 print("  %-28s %-26s %-26s %s" % (k, "-", val, "NO-CONSUMER (no code or script reads it: drop it from the line)"))
     print("  pool_log %s; %s" % (head.group(1), verdict))
+    print("  %s" % (fit_last or "plan fit: -").strip())
     for l in note:
         print("  " + l.strip())
     if caller:
         print("  note: the caller's environment set %s; ignored here (computed), a launch would take the typed value" % ",".join(sorted(caller)))
-    return 1 if diffs or "REFUSED" in verdict else 0
+    if cxi_note:
+        print("  note: " + cxi_note)
+    return 1 if diffs or "REFUSED" in verdict or not fits else 0
 
 
 if __name__ == "__main__":

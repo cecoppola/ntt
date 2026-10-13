@@ -444,15 +444,25 @@ int main(int argc, char **argv)
       if (sz > 1) { unsigned __int128 nn = N; bs_a0 = 1 + (unsigned long)(nn * rk / sz); bs_b1 = 1 + (unsigned long)(nn * (rk + 1) / sz); } }
     rns_after_staging_hook = (void (*)(void *))binsplit_seeds_begin_v; rns_hook_arg = (void *)N;   /* I2: the seeds during the pool allocations */
     pool_log = plane_cap_switch(pool_log, N, verbose);   /* ECALC_PLANE_CAP (2^31 by default; exits for BS_LAYOUT_ONLY) */
-    { char eff[256]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
-      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d,p24_crt_scan:%d,chain_guard:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), p24_crt_scan_on(), newton_chain_guard());
+    struct bs_fit fit; int fit_g = getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1; if (fit_g < 1) fit_g = 1;
+    { int pl0 = rns_pool_log(); rns_preinit_pool_log(pool_log); binsplit_fit(N, fit_g, &fit); rns_preinit_pool_log(pl0); }   /* FIT (D26): the memory fit at rank 0's layout; decides DM_MN_WRAP when unset (every rank alike) */
+    if (!plan && verbose && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0)) binsplit_fit_print(&fit, (double)d_out, fit_g, "memory fit: ");
+    if (!plan && !fit.fits && (!getenv("COMM_RANK") || atoi(getenv("COMM_RANK")) == 0))
+        fprintf(stderr, "ecalc: WARNING: this run does not fit the modelled memory (device %.2f / %.2f GB, node %.2f / %.0f GB); launchers refuse it (mnrun.sh, tools/plan_values.py --fit)\n",
+                fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9);
+    { char eff[320]; const char *np = getenv("ECALC_NP"), *pc = getenv("ECALC_PLANE_CAP_IDX"), *cs = getenv("COMM_SIZE");   /* L5: the resolved values (print-only) */
+      snprintf(eff, sizeof eff, "pool_log:%d,np:%s,base:%s,verbose:%d,plane_cap:%s,comm_size:%s,batch_pipe:%d,crt_scan:%d,dm_mn_wrap:%d(%s),p24_crt_scan:%d,chain_guard:%d", pool_log, np ? np : "-", "10^18", verbose, pc ? pc : "-", cs ? cs : "1", rns_batch_pipe_on(), rns_crt_scan_on(), newton_dm_wrap(), binsplit_dm_wrap_src(), p24_crt_scan_on(), newton_chain_guard());
       cfg_print(eff); }
     { /* step 3: in the decimal device flow the pinned staging only serves the seeds (and checkpoints): size it to them.
                                                                                  * the seeds stream through their own two 2 GiB buffers (binsplit.c) -- the staging is the checkpoints' 1 GiB chunk per APU */
       rns_staging_bytes_req = 1u << 30;   /* no cap at 2^pool_log limbs -- at 8e10 the seed stage of a region is 19.5 GB > 16 GiB and the run aborted at the seeds ("seed region larger than the staging buffer") */
       /* plane pool 1 at the dist tier's 3 q + 16 limbs (the host mdev tier, which needs the full 2^pool_log, is not used in this flow) */
       rns_pool1_bytes_req = rns_pool1_default_bytes(pool_log); }
-    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1); fflush(stdout); _exit(f); }   /* + the SHMEM pool line */   /* MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
+    if (plan) { int f = mn_plan_run(d, N, plan_g, pool_log); binsplit_shmem_pool_rule(N, plan_g, 1);
+                binsplit_fit_print(&fit, (double)d_out, plan_g, "plan fit    ");   /* FIT (D26): the memory fit; a run that does not fit is refused (the last plan line) */
+                if (!fit.fits) { printf("plan REFUSED %.4g digits g %d: the memory does not fit (device %.2f GB vs ECALC_DEVICE_GB %.2f, node %.2f GB vs ECALC_NODE_GB %.0f): see the plan fit lines\n",
+                                        (double)d_out, plan_g, fit.device * 1e-9, fit.limit * 1e-9, fit.node * 1e-9, fit.budget * 1e-9); if (!f) f = EC_RC_BUDGET; }
+                fflush(stdout); _exit(f); }   /* + the SHMEM pool line */   /* MN_PLAN_ONLY (no device was touched; _exit: no atexit reports) */
     if (getenv("ECALC_RECHECK") && atoi(getenv("ECALC_RECHECK"))) {   /* the standalone recheck of a finished run (mn_out.h) -- no pools, no computation */
         int sz = mn_init(); bs_ckpt_dir = getenv("BS_CKPT_DIR"); if (bs_ckpt_dir && !*bs_ckpt_dir) bs_ckpt_dir = 0;
         int f = mn_out_recheck(N, d, d_out, outfile, mn_comm(0), mn_rank(), sz, bs_a0, bs_b1 ? bs_b1 : N + 1, verbose);

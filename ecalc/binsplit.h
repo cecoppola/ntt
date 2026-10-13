@@ -73,6 +73,19 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan);           
 void binsplit_release_arenas(void);                      /* the region arenas (hooked into rns_shutdown when the block pool borrowed them) */
 extern int bs_balance_n;                                 /* levels with at most this many nodes are laid out least-loaded-first (16) */
 extern void (*bs_after_seeds_hook)(void *); extern void *bs_hook_arg;
+/* FIT (D26, results/FIT.md): the pre-launch memory fit of (N, g) at rank 0's layout, and DM_MN_WRAP automatic (binsplit.c) */
+struct bs_fit {
+    size_t planes, arena, bs2, ofi, ofi_all, pool, seedbuf, host, vslot, vslot_top, grow;   /* per node (vslot, vslot_top: per APU) */
+    size_t dev_dm, dev_bs, device, node, dev_wrap1, dev_wrap0;                                  /* per node; the device with / without the wrap (g > 1) */
+    size_t need_dev, tree_dev, v2, v3, div, room, wrapb, wrapb1, hole;                          /* the layout's terms per APU (wrapb1: the wrap's, with it on) */
+    double limit, margin, budget;                                                               /* ECALC_DEVICE_GB, ECALC_DEVICE_MARGIN_GB, ECALC_NODE_GB (bytes) */
+    int wrap, wrap_env, fits_dev, fits_node, fits;
+};
+int  binsplit_fit(unsigned long N, int g, struct bs_fit *F);     /* fills F, decides the run's DM_MN_WRAP when unset; returns F->fits */
+void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre);
+int  binsplit_dm_wrap(void);                                      /* the run's DM_MN_WRAP: set > the fit's decision > 1 */
+int  binsplit_dm_wrap_auto(void);                                 /* 1: the value is the fit's decision */
+const char *binsplit_dm_wrap_src(void);                           /* "fit" / "set" / "default" (not decided: 1) */
 extern unsigned long bs_a0, bs_b1;   /* M2: the term range [a0, b1) this process computes (b1 = 0: [1, N+1)) */
 extern int bs_keep_dev; extern struct dbig_s bs_Pd, bs_Qd;             /* P, Q stay on device (bs_keep_dev = 1); P->n = Q->n = 0 then */                          /* release the two level pools */
 /* reference: the same recursion on the CPU with schoolbook products, any N */

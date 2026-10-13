@@ -376,6 +376,13 @@ everything is allocated once, up front, and sized by a model that the C layout r
   launch lines 2048); `mdb_shift` slabs are bounded by `MDB_SHIFT_CHUNK_MB`.
 - **Exchange memory.** Staging for SHMEM/OFI and the general map's v-slots are counted in the node budget
   (`binsplit_vslot_bytes`, `binsplit_shmem_pool_need`); `COMM_LAYER_VSLOT_*` share and release them in time.
+- **Memory fit (FIT, `results/FIT.md`).** `binsplit_fit` (`binsplit.c`) puts the node's device peak -- the larger of the dm
+  phase (planes + arena + comm_ofi pools + the v-slots) and the bs phase (the same + the VMM pool's bs growth, 6.0 GB m, + the
+  tree top's v-slots) -- against the device edge `ECALC_DEVICE_GB` and the node (planes + arena + bs growth + host + v-slots)
+  against `ECALC_NODE_GB`, at rank 0's layout, so every rank computes the same numbers. `MN_PLAN_ONLY` prints it (`plan fit`),
+  a run prints it (`memory fit:`), `BS_LAYOUT_ONLY` prints a `fit:` line that `mem_model.py --check-c` compares; the launchers
+  refuse a run that does not fit. With `DM_MN_WRAP` unset the same function decides the division's cyclic-plane low product:
+  on only when the device with its two extra numbers stays within `ECALC_DEVICE_GB` − `ECALC_DEVICE_MARGIN_GB` (5 GB).
 - **Budget and guard.** `budget_check` (before compute) compares the modelled peak with 480 GB and MemAvailable (rc 8).
   During the run `ECALC_MEM_GUARD_GB` stops with rc 9 when MemAvailable falls below it.
 - **Layout and models.** `binsplit.c` (`dm_layout`, `layout_arena`, `binsplit_node_bytes`, `tree_need_dev`) computes the
@@ -437,7 +444,8 @@ A run is good only with `VERIFY OK` on every node (`verify.c/h`, `out_stage` in 
 | `mem_model.py` | the memory layout per node; `--check-c` compares with the C layout |
 | `calib_table.py` | run logs → one row per run; `--fit`, `--ab` (rate-adjusted paired A/B) |
 | `tools/groups_table.py` | `MN_GROUPS` schedules and node counts at a fixed size |
-| `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout) without a device |
+| `MN_PLAN_ONLY`, `BS_LAYOUT_ONLY` | the code's own decisions (grids, pieces, prime counts, layout, the memory fit) without a device |
+| `tools/plan_values.py` | the launch values of a size; `--fit`: the memory-fit report, exit 1 when a run does not fit |
 
 Fabric profiles: `target_l4` (default; the target fabric with the L4 refit, `results/L4.md`) and `aac7` (the S48 refit,
 `results/S48.md`). The model is calibrated on the test system up to 6 nodes; the target's per-NIC rate and its fall-off are

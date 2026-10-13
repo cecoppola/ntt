@@ -962,6 +962,19 @@ def cache_report():
 
 # ---------------------------------------------------------------- the model
 def mem_per_node(D, g=1, opts=None):
+    """FIT (D26, results/FIT.md): DM_MN_WRAP automatic as the C decides it (binsplit.c binsplit_fit) -- when opts has no 'wrap' and the
+    environment no DM_MN_WRAP, at g > 1: the wrap's arm if its device peak (dev_max) is within ECALC_DEVICE_GB (373.44) less
+    ECALC_DEVICE_MARGIN_GB (5.0), else the arm without it; r['wrap'] says which.  (This model's dev_max is not the C's device: the C
+    also counts the comm_ofi pools as device memory; the C's `plan fit` lines are the source of truth.)"""
+    o = dict(opts or {})
+    if o.get('wrap') is not None or 'DM_MN_WRAP' in os.environ or g < 2:
+        r = _mem_per_node(D, g, o); r['wrap'] = o['wrap'] if o.get('wrap') is not None else dm_mn_wrap(); return r
+    r1 = _mem_per_node(D, g, dict(o, wrap=1))
+    lim = (float(os.environ.get('ECALC_DEVICE_GB', '373.44') or 373.44) - float(os.environ.get('ECALC_DEVICE_MARGIN_GB', '5.0') or 5.0)) * GB
+    if r1['dev_max'] <= lim: r1['wrap'] = 1; return r1
+    r0 = _mem_per_node(D, g, dict(o, wrap=0)); r0['wrap'] = 0; r0['dev_max_wrap1'] = r1['dev_max']; return r0
+
+def _mem_per_node(D, g=1, opts=None):
     """bytes per node-process (one per node, four APUs) for D digits per node in a run of g node-processes.
     opts: pool_log (31), tail (True: decision 5's layout, item 1), alltoallv (True: L's B7, merged in Phase 11),
           decimal (True), margin (0.0: a fraction added to the device total), logr_delta (DIST_LOGR_DELTA),
@@ -983,7 +996,7 @@ def mem_per_node(D, g=1, opts=None):
     S = seed_span(N, g, o['seed_fill']) if o['decimal'] else 256                # Phase 15 (2026-09-27): BS_SEED_FILL (128 by default; 0 = 256)
     bs = arena_bs_bytes(N, nterms, decimal=o['decimal'], S=S); bs_total = sum(bs)
     aroom = o['arena_room'] if o['vmm'] else 0.0                            # Phase 15 AS: BS_ARENA_ROOM (needs the VMM pool)
-    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
+    L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=aroom, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))   # dkm: NEWTON_DKM (Phase 15 DL: built -- binsplit.c dm_layout follows it; the code's default since Batch 3); lean: DM_MN_LEAN (int15k)
     p24 = (o.get('p24', 0), o['np'], g, o.get('np_auto_min', False)) if o.get('p24', 0) else None   # MS: MN_P24 (0 = off, the default)
     sc = []; tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, o['logr_delta'], o['form'], o['pool_log'], o['groups'], o['t_chunk_mb'], o['early_free'], p24) if g > 1 else 0
     if g > 1: L['need_dev'] += sc[0]                                       # the sharded division's products: the same slabs and spills
@@ -1032,7 +1045,7 @@ def mem_per_node(D, g=1, opts=None):
         rh = room_host(N, g, pool, seedbuf, o['out_early'])               # counted as binsplit.c as_room_fits counts it (this model's bs-phase node)
         room_node = planes + sum(arena) + VMM_BS_GROW + rh
         if not as_room_fits(planes, sum(arena), rh + vb, o.get('node_gb', 480.0)):   # (B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET=1)
-            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False))
+            aroom = 0.0; L = dm_layout(N, g, o['pool_log'], o['decimal'], o['tight'], o['tail_dead'], room=0.0, dkm=o.get('dkm', False), mdev_logl=o.get('mdev_logl', 30), lean=o.get('lean', False), wrap=o.get('wrap'))
             if g > 1: L['need_dev'] += sc[0]
             want = max(L['need_dev'], tree); arena = [arena_of(b, want, VMM_CHUNK) for b in bs]; arena_mapped = list(arena); pool_total = sum(arena)
     if g > 1 and sc[1] > (1 << o['pool_log']) // 4:                       # (never with the mn tier's cap: kept for a lowered cap)
@@ -1203,15 +1216,32 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         vs = vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, p24_) if g > 1 else dict(per_apu=0, tree_top=0)
         vb = NR * vs['per_apu'] if vslot_budget_on() else 0                       # ECALC_VSLOT_BUDGET=1: in as_room_fits' node
         bs = arena_bs_bytes(N, (N + g - 1) // g, S=seed_span(N, g, seed_fill))
-        for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
-            L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean); sc = []
-            p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 / ECALC_NP_AUTO_MIN (the layout line does not print them)
-            p24 = (p24m, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m else None
-            tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
-            need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
-            ar = sum(arena_of(b, want, ch) for b in bs)
-            if rm > 0: ar_room = ar
-            if rm == 0 or as_room_fits(room_planes, ar, rh + vb, float(env.get('ECALC_NODE_GB', '480'))): break   # (B7ACCT: the budget the C reads -- was 480 always)
+        def arm(w):                                                           # FIT (D26): one wrap arm, the room decided as below (binsplit.c fit_arm)
+            ar_room = None
+            for rm in ([arena_room, 0.0] if arena_room > 0 else [0.0]):             # Phase 15 AS: the room, dropped when the node with it is over the budget
+                L = dm_layout(N, g, pool_log, True, tight, tdead, room=rm, dkm=dkm, mdev_logl=mdev_logl, lean=lean, wrap=w); sc = []
+                p24m = int(os.environ.get('MN_P24', '2') or 0)                 # (DL: '2', the code's default since Batch 3)  MS: the run's MN_P24 / ECALC_NP_AUTO_MIN (the layout line does not print them)
+                p24 = (p24m, np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if p24m else None
+                tree = tree_need_dev((L['nq'] + g - 1) // g, g, sc, 0, 'grid', pool_log, None, t_chunk_mb, ef, p24) if g > 1 else 0
+                need = L['need_dev'] + (sc[0] if g > 1 else 0); want = max(need, tree)
+                ar = sum(arena_of(b, want, ch) for b in bs)
+                if rm > 0: ar_room = ar
+                if rm == 0 or as_room_fits(room_planes, ar, rh + vb, float(env.get('ECALC_NODE_GB', '480'))): break   # (B7ACCT: the budget the C reads -- was 480 always)
+            dev_ = room_planes + ar + ofi_dev                                    # FIT: binsplit.c fit_arm -- device = max(dm, bs phase), node
+            return dict(L=L, sc=sc, tree=tree, need=need, ar=ar, ar_room=ar_room, dev=max(dev_ + NR * vs['per_apu'], dev_ + int(VMM_BS_GROW) + NR * vs['tree_top']),
+                        node=room_planes + ar + int(VMM_BS_GROW) + rh + NR * vs['per_apu'])
+        ofi_dev = 0 if env.get('COMM_OFI_POOL') == 'host' else ofi_b
+        lim_ = float(env.get('ECALC_DEVICE_GB', '373.44') or 373.44) * 1e9; mrg_ = float(env.get('ECALC_DEVICE_MARGIN_GB', '5.0') or 5.0) * 1e9
+        if g < 2: w_ = dm_mn_wrap(env); A1 = A0 = A = arm(w_)
+        else:
+            A1, A0 = arm(1), arm(0)
+            if 'DM_MN_WRAP' in env: w_ = dm_mn_wrap(env); A = A1 if w_ == 1 else A0 if w_ == 0 else arm(w_)
+            else: w_ = 1 if A1['L']['wrap'] > 0 and A1['dev'] <= lim_ - mrg_ else 0; A = A1 if w_ else A0   # the automatic rule (binsplit_fit)
+        L, sc, tree, need, ar, ar_room = A['L'], A['sc'], A['tree'], A['need'], A['ar'], A['ar_room']
+        fl = None                                                                 # FIT: the C `fit:` line of this point, if any
+        for l2 in lines[i + 1:]:
+            if l2.startswith('fit:'): fl = dict((k, float(x)) for k, x in re.findall(r'(\w+) ([0-9.e+]+)(?!\w)', l2.replace('|', ' '))); break
+            if l2.startswith('layout:'): break
         rows = [('nq (limbs)', v['nq'], L['nq']), ('hole', v['hole'], L['hole']), ('dm need / dev', v['dm_need'], need),
                 ('top scratch / dev', v['top scratch'], sc[0] if g > 1 else 0), ('tree need / dev', v['tree_need'], tree),
                 ('bs regions / node', v['bs regions'], sum(bs)), ('arena / node', v['arena'], ar)]
@@ -1227,6 +1257,10 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
             if rl is not None and ar_room is not None:
                 rows += [('device + vslots', vl['device_with'], room_planes + ar_room + ofi_b + NR * vs['per_apu']),
                          ('node + vslots', vl['node_with'], room_planes + ar_room + int(VMM_BS_GROW) + rh + NR * vs['per_apu'])]
+        if fl is not None:                                                      # FIT (D26): the fit's device / node and the wrap decision, term by term
+            rows += [('fit wrap', fl['wrap'], w_), ('fit device', fl['device'], A['dev']), ('fit node', fl['node'], A['node']),
+                     ('fit fits', fl['fits'], 1 if A['dev'] <= lim_ and A['node'] <= float(env.get('ECALC_NODE_GB', '480')) * 1e9 else 0)]
+            if g > 1: rows += [('fit device wrap 1', fl['device_wrap1'], A1['dev']), ('fit device wrap 0', fl['device_wrap0'], A0['dev'])]
         print('D %.3g g %d (N %d) tight %d tail_dead %d early_free %d dkm %d:' % (D, g, N, tight, tdead, ef, dkm))
         for name, c, py in rows:
             rel = (py - c) / c if c else 0.0

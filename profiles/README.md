@@ -11,6 +11,10 @@ T27 (2026-10-12): the computed values have one source. `ecalc/mnrun.sh` computes
 [--profile P] [--line FILE] [--exports] DIGITS NODES` prints them without launching (`MNRUN_PRINT_ENV=1`), compares a hand line
 with them (MATCH / DIFF / NO-CONSUMER) and gives `export` lines for a launch that does not go through `mnrun.sh`. Details: results/T27.md.
 
+FIT (D26, 2026-10-13, `results/FIT.md`): `ECALC_DEVICE_GB` -- the device edge per node, measured per machine -- is a profile key
+(aac7 444.0, target 373.44 = the code default); the planner's memory fit (`tools/plan_values.py --fit`) puts the run's device peak
+against it, and `mnrun.sh` / `tools/gate.sh` refuse a run that does not fit. aac7 carries it on its launch line (`LAUNCH_LINE_KEYS`).
+
 ## Plan (agreed 2026-10-11)
 
 Adopted settings become built-in defaults in the code. What stays machine-specific lives in a named profile here. One entry

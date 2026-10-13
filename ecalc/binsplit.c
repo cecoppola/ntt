@@ -263,6 +263,12 @@ static void region_need(unsigned long N, size_t need[NR])
 {
     size_t per; unsigned long nspan; seed_limbs(N, &per, &nspan);
     unsigned long S = bs_seed_terms, a0 = bs_b1 ? bs_a0 : 1, nterms = bs_b1 ? bs_b1 - bs_a0 : N;   /* this node's own terms */
+    /* FIT: the last two results kept (a pure function of these inputs; ~0.18 s at the target's share, and the fit lays out two arms) */
+    struct rn_memo { unsigned long N, a0, nterms, S, nspan; size_t per; int logl, bal; size_t need[NR]; int ok; };
+    static struct rn_memo memo[2]; static int next;
+    for (int m = 0; m < 2; m++) if (memo[m].ok && memo[m].N == N && memo[m].a0 == a0 && memo[m].nterms == nterms && memo[m].S == S && memo[m].nspan == nspan
+                                    && memo[m].per == per && memo[m].logl == bs_mdev_logl && memo[m].bal == bs_balance_n) { memcpy(need, memo[m].need, sizeof memo[m].need); return; }
+    struct rn_memo *mm = &memo[next]; next ^= 1; mm->ok = 0;
     for (int r = 0; r < NR; r++) need[r] = 0;
     { size_t r0[NR + 1]; for (int r = 0; r <= NR; r++) { r0[r] = 0; while (r0[r] < nspan && region_of(r0[r], nspan) < r) r0[r]++; }
       for (int r = 0; r < NR; r++) need[r] = 2 * per * (r0[r + 1] - r0[r]) + 2; }
@@ -288,6 +294,8 @@ static void region_need(unsigned long N, size_t need[NR])
         free(cur_r); cur_r = nxt_r; nxt_r = 0;
     }
     free(cur_r);
+    mm->N = N; mm->a0 = a0; mm->nterms = nterms; mm->S = S; mm->nspan = nspan; mm->per = per; mm->logl = bs_mdev_logl; mm->bal = bs_balance_n;
+    memcpy(mm->need, need, sizeof mm->need); mm->ok = 1;
 }
 /* the dm phase's block-pool need per device from N alone, the way the driver's formulas
  * size it (ecalc.c: n_Q = Q's limbs, Q = N! in the chosen base; dl = the limbs of 10^d; k_mu = P.n + 1 + dl - n_Q + 1;
@@ -429,6 +437,7 @@ static size_t as_arena(size_t bytes)                  /* an arena's bytes as BS_
 #define AS_VMM_BS_GROW ((size_t)6000000000)
 static size_t layout_arena(unsigned long N, int g, size_t *bs2_);
 static int g_room_probe;                              /* 1: dm_layout keeps the room without deciding (the probe's own layout_arena) */
+static int g_fit_probe;                               /* FIT: 1 while binsplit_fit lays out an arm (the room's drop message is not printed) */
 static size_t g_room_planes, g_room_arena, g_room_host, g_room_pool, g_room_seedbuf, g_room_ofi;   /* the terms of the last decision (the layout's `room:` line: mem_model.py --check-c decides alike) */
 static int g_room_fit = -1;
 static size_t as_seedbuf(unsigned long N)             /* seeds_stream's two pinned seed buffers (bytes): min(BS_SEED_CHUNK_MB, the largest region's spans) in whole spans */
@@ -460,27 +469,36 @@ static size_t as_shmem_pool(unsigned long N, int size, size_t *ofi)
     if (ofi) *ofi = 4 * (ofi_pool_mb() << 20);
     return (mb > have ? mb : have) << 20;   /* the pool rule always raises the pool to the need */
 }
-static int as_room_fits(unsigned long N, int size, size_t room)
+/* the host term of the node (bytes) as the room decision counts it (FIT: also the fit report's host; see the comment above) */
+static size_t as_host_bytes(unsigned long N, int size, size_t pool, size_t ofi, size_t *sb_)
 {
-    static unsigned long cN; static int cs, cfit = -1, cpl = -1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31;
-    if (cfit >= 0 && cN == N && cs == size && cpl == pl) return cfit;
-    int np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, size);   /* DL: pool 0's planes under ECALC_NP=auto (as binsplit_node_bytes) */
-    size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
-    size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
     size_t sb = size > 1 ? as_seedbuf(N) : 0, host;
     if (size == 1) { double D = lgamma((double)N + 1.0) / log(10.0) / 1e9 - 40.0; host = (size_t)((25.85 + 0.0208 * (D > 0 ? D : 0.0)) * 1e9); }
     else { size_t base = (size_t)7000000000 + ((size_t)4 << 30) + (size_t)6000000000 + pool + ofi;   /* OFIMEM: + the comm_ofi pools */
            int early = getenv("MN_OUT_EARLY") ? atoi(getenv("MN_OUT_EARLY")) != 0 : 1;
            size_t hi = base + sb, hd = base + (size_t)650000000 + (early ? (size_t)900000000 : 0); host = hi > hd ? hi : hd; }
+    if (sb_) *sb_ = sb;
+    return host;
+}
+static int dm_wrap_req(void);
+static unsigned long g_room_cN; static int g_room_cfit = -1;   /* as_room_fits' cache (FIT: file scope, keyed also by the term range and the wrap) */
+static int as_room_fits(unsigned long N, int size, size_t room)
+{
+    static int cs, cpl = -1, cw = -1; static unsigned long ca0, cb1; int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, w = dm_wrap_req();
+    if (g_room_cfit >= 0 && g_room_cN == N && cs == size && cpl == pl && cw == w && ca0 == bs_a0 && cb1 == bs_b1) return g_room_cfit;   /* FIT: the fit lays out both wraps on rank 0's range */
+    int np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, size);   /* DL: pool 0's planes under ECALC_NP=auto (as binsplit_node_bytes) */
+    size_t planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + ((size_t)610000000);   /* BS_TABLES_BYTES */
+    size_t ofi = 0; g_room_probe = 1; size_t ar = layout_arena(N, size, 0), pool = as_shmem_pool(N, size, &ofi); g_room_probe = 0;
+    size_t sb, host = as_host_bytes(N, size, pool, ofi, &sb);
     size_t node = planes + ar + AS_VMM_BS_GROW + host + binsplit_vslot_budget_node(N, size);   /* B7ACCT: + the v-slots under ECALC_VSLOT_BUDGET (1 by default) */
     double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
-    cN = N; cs = size; cpl = pl; cfit = (double)node <= budget;
-    g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = cfit;
+    g_room_cN = N; cs = size; cpl = pl; cw = w; ca0 = bs_a0; cb1 = bs_b1; g_room_cfit = (double)node <= budget;
+    g_room_planes = planes; g_room_arena = ar; g_room_host = host; g_room_pool = pool; g_room_seedbuf = sb; g_room_ofi = ofi; g_room_fit = g_room_cfit;
     const char *er = getenv("COMM_RANK");
-    if (!cfit && (!er || atoi(er) == 0) && !getenv("BS_LAYOUT_ONLY"))
+    if (!g_room_cfit && (!er || atoi(er) == 0) && !getenv("BS_LAYOUT_ONLY") && !g_fit_probe)
         printf("bs: BS_ARENA_ROOM: the room (%.2f GB per APU) is dropped -- the node with it, %.1f GB (planes %.1f + arena %.1f + the bs growth %.1f + host %.1f), exceeds ECALC_NODE_GB %.0f; the arenas stay in whole chunks\n",
                room * 1e-9, node * 1e-9, planes * 1e-9, ar * 1e-9, AS_VMM_BS_GROW * 1e-9, host * 1e-9, budget * 1e-9);
-    return cfit;
+    return g_room_cfit;
 }
 /* D19 (results/DEF.md; mem_model.py wrap_bytes): DM_MN_WRAP's extra bytes per device in the mn division's low-product moment
  * (newton_db.c mn_wrap_step) -- Q B^-h folded (Qpp, basis P + 4, held over both steps) and the folded A' (T1, basis P + 4) beside
@@ -488,7 +506,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
  * (mn_wrap_plane's rule: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1 not when X_hi Q fits one plane) */
 static size_t dm_wrap_bytes(size_t nq, size_t k, int size)
 {
-    const char *e = getenv("DM_MN_WRAP"); int v = e ? atoi(e) : 1;   /* D22: default 1 (as newton_db.c dm_wrap) */
+    int v = dm_wrap_req();   /* FIT (D26): DM_MN_WRAP if set, else the run's automatic decision (binsplit_fit), else 1 (D22) */
     if (v <= 0 || size < 2) return 0;
     int cap = rns_mul_dist_mn_logcap_g(size), lmin = rns_mul_dist_mn_logmin_g(size), lg = v == 1 ? cap : v;
     if (lg < lmin || lg > cap || lg > 62) return 0;
@@ -737,6 +755,104 @@ void binsplit_layout_comm_size(int g)
     if (old) { setenv("COMM_SIZE", old, 1); free(old); old = 0; } else unsetenv("COMM_SIZE");
     saved = 0;
 }
+/* ---- FIT (user decision D26, results/FIT.md): the pre-launch memory fit, and DM_MN_WRAP automatic --------------------------------
+ * The device memory of a node against the machine's device edge (ECALC_DEVICE_GB, the profile's measured figure; code default
+ * 373.44 = the target's, 93.36 GB per APU, results/TGTBENCH2.md) and the node against the node budget (ECALC_NODE_GB, 480), from the
+ * layout's own terms at rank 0's range (the BS_LAYOUT_ONLY convention, so every rank decides alike):
+ *   device = max(the dm phase: planes + arena + comm_ofi pools + 4 v-slots,  the bs phase: planes + arena + comm_ofi pools + the VMM
+ *            pool's bs growth (AS_VMM_BS_GROW, 6.0 GB measured) + 4 v-slots of the tree's top level)   (mem_model.py dev_max's form)
+ *   node   = planes + arena + the bs growth + host (as_host_bytes: the room's host, the comm pools in it) + 4 v-slots
+ * DM_MN_WRAP unset: the run takes the wrap (1) when the device with it is at most ECALC_DEVICE_GB - ECALC_DEVICE_MARGIN_GB (5.0 GB per
+ * node by default), else 0; an explicit DM_MN_WRAP wins (a warning when its device is over the edge).  Size 1: the wrap is not used
+ * (the mn division only), the value stays 1 as before.  The comm_ofi pools are device memory unless COMM_OFI_POOL=host. */
+static int g_wrap_force = -1;                          /* the arm binsplit_fit lays out (-1: none) */
+static int g_wrap_run = -1;                            /* the run's automatic decision (-1: not decided: 1, D22's default) */
+static int dm_wrap_env(int *v)
+{
+    const char *e = getenv("DM_MN_WRAP"); if (!e) return 0;
+    *v = atoi(e); if (*v < 0) *v = 0; return 1;
+}
+static int dm_wrap_req(void)
+{
+    int v; if (g_wrap_force >= 0) return g_wrap_force;
+    if (dm_wrap_env(&v)) return v;
+    return g_wrap_run >= 0 ? g_wrap_run : 1;
+}
+int binsplit_dm_wrap(void) { int v; if (dm_wrap_env(&v)) return v; return g_wrap_run >= 0 ? g_wrap_run : 1; }   /* newton_db.c dm_wrap, the config line */
+int binsplit_dm_wrap_auto(void) { int v; return !dm_wrap_env(&v) && g_wrap_run >= 0; }                                   /* 1: the value is the fit's decision */
+const char *binsplit_dm_wrap_src(void) { int v; return dm_wrap_env(&v) ? "set" : g_wrap_run >= 0 ? "fit" : "default"; }     /* the config line's word */
+static void fit_arm(unsigned long N, int g, int wrap, struct bs_fit *F)
+{
+    g_wrap_force = wrap; g_fit_probe = 1;
+    int pl = rns_pool_log() > 0 ? rns_pool_log() : 31, np = ec_np_init(); if (np == 3 && ec_np_auto) np = ec_np_planes(pl, g);
+    struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
+    F->planes = NR * rns_plane_pool_bytes(pl, np, 0, 0) + BS_TABLES_BYTES;
+    F->arena = layout_arena(N, g, &F->bs2);
+    size_t ofi = 0; F->pool = as_shmem_pool(N, g, &ofi);
+    const char *op = getenv("COMM_OFI_POOL"); F->ofi = op && !strcmp(op, "host") ? 0 : ofi; F->ofi_all = ofi;
+    F->host = as_host_bytes(N, g, F->pool, ofi, &F->seedbuf);
+    F->vslot = g > 1 ? binsplit_vslot_bytes(N, g, &F->vslot_top, 0, 0) : 0; if (g < 2) F->vslot_top = 0;
+    F->grow = db_pool_vmm_on() ? AS_VMM_BS_GROW : 0;
+    F->dev_dm = F->planes + F->arena + F->ofi + NR * F->vslot;
+    F->dev_bs = F->planes + F->arena + F->ofi + F->grow + NR * F->vslot_top;
+    F->device = F->dev_dm > F->dev_bs ? F->dev_dm : F->dev_bs;
+    F->node = F->planes + F->arena + F->grow + F->host + NR * F->vslot;
+    F->need_dev = L.need_dev; F->tree_dev = L.tree_dev; F->v2 = L.v2; F->v3 = L.v3; F->div = L.div; F->room = L.room; F->wrapb = L.wrap; F->hole = L.hole;
+    g_wrap_force = -1; g_fit_probe = 0;
+}
+int binsplit_fit(unsigned long N, int g, struct bs_fit *F)
+{
+    static unsigned long cN; static int cg; static struct bs_fit cF; static int have;
+    memset(F, 0, sizeof *F);
+    int v, env = dm_wrap_env(&v);
+    if (have && cN == N && cg == g && cF.wrap_env == env && (!env || cF.wrap == v)) { *F = cF; if (!env) g_wrap_run = F->wrap; return F->fits; }
+    unsigned long a0 = bs_a0, b1 = bs_b1;
+    if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }   /* rank 0's range (BS_LAYOUT_ONLY's) */
+    double limit = (getenv("ECALC_DEVICE_GB") ? atof(getenv("ECALC_DEVICE_GB")) : 373.44) * 1e9;            /* the device edge per node (the target's, m) */
+    double margin = (getenv("ECALC_DEVICE_MARGIN_GB") ? atof(getenv("ECALC_DEVICE_MARGIN_GB")) : 5.0) * 1e9;  /* the wrap's safety margin per node */
+    double budget = (getenv("ECALC_NODE_GB") ? atof(getenv("ECALC_NODE_GB")) : 480.0) * 1e9;
+    struct bs_fit A, B; memset(&A, 0, sizeof A); memset(&B, 0, sizeof B);
+    if (g < 2) { fit_arm(N, g, env ? v : 1, F); F->wrap = env ? v : 1; }
+    else {
+        fit_arm(N, g, 1, &A); fit_arm(N, g, 0, &B);
+        if (env) { if (v == 0) *F = B; else if (v == 1) *F = A; else fit_arm(N, g, v, F); F->wrap = v; }
+        else { int on = A.wrapb > 0 && (double)A.device <= limit - margin; *F = on ? A : B; F->wrap = on; }
+        F->dev_wrap1 = A.device; F->dev_wrap0 = B.device; F->wrapb1 = A.wrapb;
+    }
+    F->wrap_env = env; F->limit = limit; F->margin = margin; F->budget = budget;
+    F->fits_dev = (double)F->device <= limit; F->fits_node = (double)F->node <= budget; F->fits = F->fits_dev && F->fits_node;
+    bs_a0 = a0; bs_b1 = b1;
+    g_room_cfit = -1;                                  /* the runtime decides its room again on its own range (as before FIT) */
+    if (!env) g_wrap_run = F->wrap;
+    cF = *F; cN = N; cg = g; have = 1;
+    return F->fits;
+}
+/* the fit report: `<pre>` starts every line ("plan fit   " for MN_PLAN_ONLY, "fit: " in the run's log); D = the run's digits */
+void binsplit_fit_print(const struct bs_fit *F, double D, int g, const char *pre)
+{
+    const double G = 1e-9;
+    printf("%s%.4g digits on %d node-process%s (rank 0's layout): device %.2f GB per node = %.2f GB per APU vs the device limit %.2f GB (ECALC_DEVICE_GB): margin %+.2f GB; "
+           "node %.2f GB vs the node budget %.0f GB (ECALC_NODE_GB): margin %+.2f GB; host %.2f GB\n",
+           pre, D, g, g > 1 ? "es" : "", F->device * G, F->device * G / NR, F->limit * G, (F->limit - F->device) * G, F->node * G, F->budget * G, (F->budget - F->node) * G, F->host * G);
+    int bs = F->dev_bs > F->dev_dm;
+    printf("%sdevice at the %s phase (the peak; the %s phase %.2f GB) = planes %.2f + arena %.2f + comm_ofi pools %.2f%s + v-slots %.2f GB\n",
+           pre, bs ? "bs" : "dm", bs ? "dm" : "bs", (bs ? F->dev_dm : F->dev_bs) * G, F->planes * G, F->arena * G, F->ofi * G, bs && F->grow ? " + the bs growth 6.00" : "",
+           (bs ? NR * F->vslot_top : NR * F->vslot) * G);
+    if (g > 1) printf("%shost %.2f GB = runtime 7.00 + staging 4.29 + transport 6.00 + SHMEM pool %.2f + comm_ofi pools %.2f + the larger of the seed buffers %.2f and the writer's 0.65 (+ 0.90 MN_OUT_EARLY) GB\n",
+                      pre, F->host * G, F->pool * G, F->ofi_all * G, F->seedbuf * G);
+    else printf("%shost %.2f GB (the measured size-1 host high-water mark, mem_model host_size1_vmm)\n", pre, F->host * G);
+    printf("%sthe consumers per APU (largest first): arena %.2f GB (the dm need %.2f: reciprocal set v2 %.2f, division %.2f%s, the bs top levels v3 %.2f, the hole %.2f, the room %.2f; the tree %.2f; "
+           "the bs regions %.2f), plane pools %.2f, v-slots %.2f, comm_ofi pool %.2f\n",
+           pre, F->arena * G / NR, F->need_dev * G, F->v2 * G, F->div * G, F->wrapb ? "" : "", F->v3 * G, F->hole * G, F->room * G, F->tree_dev * G, F->bs2 * G / NR, F->planes * G / NR, F->vslot * G, F->ofi * G / NR);
+    if (g > 1)
+        printf("%sDM_MN_WRAP=%d (%s): device with the wrap %.2f GB, without %.2f GB (the wrap's term %.2f GB per APU); %s\n", pre, F->wrap, F->wrap_env ? "set" : "automatic",
+               F->dev_wrap1 * G, F->dev_wrap0 * G, F->wrapb1 * G,
+               F->wrap_env ? ((double)F->device > F->limit ? "WARNING: the set value does not fit the device limit" : "the set value wins")
+                           : F->wrap ? "on: the device with it is within the limit less the margin" : (F->dev_wrap1 == F->dev_wrap0 ? "off: the wrap is not used at this size" : "off: the device with it exceeds the limit less the margin"));
+    if (g > 1 && !F->wrap_env) printf("%s(the rule: on when the device with the wrap <= ECALC_DEVICE_GB %.2f - ECALC_DEVICE_MARGIN_GB %.2f = %.2f GB)\n", pre, F->limit * G, F->margin * G, (F->limit - F->margin) * G);
+    printf("%s%s: %.4g digits on %d: device %.2f / %.2f GB (%+.2f), node %.2f / %.0f GB (%+.2f), DM_MN_WRAP=%d%s\n", pre, F->fits ? "FITS" : "REFUSED (does not fit)", D, g,
+           F->device * G, F->limit * G, (F->limit - F->device) * G, F->node * G, F->budget * G, (F->budget - F->node) * G, F->wrap, F->wrap_env ? " (set)" : g > 1 ? " (auto)" : " (not used at size 1)");
+}
 static void binsplit_layout_only(const char *spec)
 {
     unsigned long a0 = bs_a0, b1 = bs_b1;
@@ -747,6 +863,7 @@ static void binsplit_layout_only(const char *spec)
         unsigned long d = (unsigned long)(D * g + 0.5); d = (d + 17) / 18 * 18; unsigned long N = e_terms(d);
         if (g > 1) { unsigned __int128 nn = N; bs_a0 = 1; bs_b1 = 1 + (unsigned long)(nn / g); } else { bs_a0 = 1; bs_b1 = 0; }
         binsplit_layout_comm_size(g);                                   /* MS: COMM_SIZE = g for this point (restored below) */
+        struct bs_fit F; binsplit_fit(N, g, &F); bs_a0 = 1; bs_b1 = g > 1 ? 1 + (unsigned long)((unsigned __int128)N / g) : 0;   /* FIT: the point's wrap decided first (its layout follows it) */
         size_t need[NR]; region_need(N, need);
         struct dm_layout L; memset(&L, 0, sizeof L); dm_layout(N, g, &L);
         size_t top = 0; if (g > 1) { size_t nq_s = (L.nq + g - 1) / g; tree_need_dev(nq_s, g, rns_pool_log() > 0 ? rns_pool_log() : 31, &top); }
@@ -789,6 +906,8 @@ static void binsplit_layout_only(const char *spec)
               printf("vslot: D %.4g g %d | per_apu %zu tree_top %zu node_vslot %zu | device %zu device_with %zu node %zu node_with %zu | budget %d | %s\n",
                      D, g, v, tt, NR * v, dev0, dev0 + NR * v, node0, node0 + NR * v, binsplit_vslot_budget_on(), by);
           } }
+        printf("fit: D %.4g g %d | wrap %d set %d | device_wrap1 %zu device_wrap0 %zu | planes %zu arena %zu ofi %zu grow %zu vslot %zu vslot_top %zu host %zu | dev_dm %zu dev_bs %zu device %zu node %zu | limit %.0f margin %.0f budget %.0f | fits %d\n",
+               D, g, F.wrap, F.wrap_env, F.dev_wrap1, F.dev_wrap0, F.planes, F.arena, F.ofi, F.grow, F.vslot, F.vslot_top, F.host, F.dev_dm, F.dev_bs, F.device, F.node, F.limit, F.margin, F.budget, F.fits);   /* FIT: mem_model.py --check-c compares it */
         binsplit_layout_comm_size(0);
     }
     fflush(stdout);
