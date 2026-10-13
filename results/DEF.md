@@ -43,7 +43,22 @@ form): the term is an upper bound (the assembly moment has no product scratch be
 
 ## 2. Gates (aac7 queue, m)
 
-PENDING
+`tools/gate.sh` at 10⁹ digits, aac7 launch line, digits compared with the reference. Items `84_def_gates2` (build `def`
+ee85f5e, 20:15 ET), `85_def_gate4` (exclusive, build 5c84efb on the login node) and `86_def_regate` (after the rebase on
+main 89318ae: `--build`, 5c84efb, 20:19 ET). Outputs `~/def/{gates,gate4,gates3}/` on aac7.
+
+| gate | command | result | log check | device per APU, max (driver) |
+|---|---|---|---|---|
+| p24n2 (ee85f5e) | `--build --nodes 2` | PASS: rc 0, VERIFY OK, digits identical, 18.79 s | `plane pool 0 for 4 primes` (P24 in use) | 33.1 of 137.4 GB |
+| p24n1 (ee85f5e) | `--nodes 1` | PASS, 12.27 s | `plane pool 0 for 3 primes` (size 1, unchanged) | 30.3 GB |
+| mn3n2 (ee85f5e) | `--nodes 2 --mn-primes 3` (`ECALC_NP_MN3=1`) | PASS, 17.09 s | `plane pool 0 for 3 primes` | 28.8 GB |
+| p24n4 (5c84efb) | `--nodes 4` | PASS, 20.30 s | `plane pool 0 for 4 primes` | 33.1 GB (in use 32.2: planes 120.3 GB per node + block pool 8.6) |
+| p24n2 (5c84efb, rebased) | `--build --nodes 2` | PASS, 20.96 s | P24 in use | 33.1 GB |
+| mn3n2 (5c84efb, rebased) | `--nodes 2 --mn-primes 3` | PASS, 17.03 s | three-prime path | 28.8 GB |
+
+Memory headroom at 4 nodes: at 10⁹ digits 33.1 of 137.4 GB per APU (m). At the standard 6.441 × 10¹⁰ digits per node the
+model gives the 4-node node peak 423.3 GB with P24 (`mem_per_node`, `ECALC_NP=auto`, shmem; mod), inside 480 GB;
+MEAS-P24 measured 88.1 GB per APU in use at init at 2 nodes (m).
 
 ## 3. 6-node A/B of DM_MN_WRAP with the P24 default (m)
 
