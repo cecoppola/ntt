@@ -900,7 +900,8 @@ static void mn_dkm_add(mdb *Y, long dx, mn_group *G) { if (dx) mdb_add_val(Y, 0,
  *   Rc = rL + B^h t  (in [0, M), basis w);  R = Rc when Rc < B^(w - 1), else R = Rc - M (negative: X too large)
  * B^-h mod (B^P - 1) is a rotation: a fold whose chunks start at h mod P.  The corrections then run as before (mn_dkm_corr).
  * X Q's pieces at 6 nodes: 13 planes of 2^33 -> 7 + one cyclic (modelled); the folds and the assembly are ~10 shifts per step. */
-static int dm_wrap(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_MN_WRAP"); v = e ? atoi(e) : 0; if (v < 0) v = 0; } return v; }   /* 0 off (default), 1 the cap's plane, k >= 20: 2^k (tests) */
+static int dm_wrap(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_MN_WRAP"); v = e ? atoi(e) : 1; if (v < 0) v = 0; } return v; }   /* 0 off (the fallback), 1 the cap's plane (default since D22), k >= 20: 2^k (tests) */
+int newton_dm_wrap(void) { return dm_wrap(); }   /* the effective value, for ecalc.c's config line */
 static void mdb_zero(mdb *Y, size_t N2, mn_group *G)          /* Y = 0 in basis N2 */
 {
     mdb Yn; memset(&Yn, 0, sizeof Yn); Yn.N = N2; Yn.g0 = G->g0; Yn.g = G->g; Yn.n = 0; db_init(&Yn.sh);

@@ -155,8 +155,8 @@ def arena_of(base, want, chunk=0):
     return (a + chunk - 1) // chunk * chunk if chunk else a
 
 def dm_mn_wrap(env=None):
-    """P1 / D19 (results/DEF.md): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the default; 1 the cap's plane; k >= 20 a plane of 2^k)"""
-    v = (env if env is not None else os.environ).get('DM_MN_WRAP', '0') or '0'
+    """P1 / D19 (results/DEF.md): DM_MN_WRAP's value (newton_db.c dm_wrap: 0 off, the fallback; 1 the cap's plane, the default since D22; k >= 20 a plane of 2^k)"""
+    v = (env if env is not None else os.environ).get('DM_MN_WRAP', '1') or '1'
     try: return max(0, int(v))
     except ValueError: return 0
 

@@ -485,7 +485,7 @@ static int as_room_fits(unsigned long N, int size, size_t room)
  * (mn_wrap_plane's rule: P = 2^cap or 2^k in [2^logmin, 2^cap]; w = n_Q + 2 >= P + 2; at 1 not when X_hi Q fits one plane) */
 static size_t dm_wrap_bytes(size_t nq, size_t k, int size)
 {
-    const char *e = getenv("DM_MN_WRAP"); int v = e ? atoi(e) : 0;
+    const char *e = getenv("DM_MN_WRAP"); int v = e ? atoi(e) : 1;   /* D22: default 1 (as newton_db.c dm_wrap) */
     if (v <= 0 || size < 2) return 0;
     int cap = rns_mul_dist_mn_logcap_g(size), lmin = rns_mul_dist_mn_logmin_g(size), lg = v == 1 ? cap : v;
     if (lg < lmin || lg > cap || lg > 62) return 0;
