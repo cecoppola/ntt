@@ -215,6 +215,13 @@ Two products per doubling. If the correction is larger than expected the step re
 ⌈k/4⌉, … read downward), so the last doubling lands exactly on k with no wasted precision. The seed is a schoolbook
 reciprocal of Q's top limbs (`newton_seed_top`). Functions: `recip_db2` (one node, device), `recip_mn_body` (sharded).
 
+**Error.** μ's unit scales with M = B^n_Q/Q (1 … B: decimal limbs are not normalised). A doubling j → jn < 2j cuts its own
+error (≤ 2M + 3 units at 2j) by ≥ 1 limb; a doubling with jn = 2j (the anchored chain does this whenever the target is even)
+keeps it, and a run of such doublings squares it (k = 2^m: up to two limbs lost, modelled). The division's corrections
+absorb it unless the run is long and μ's top limbs are used uncut (DKM with h = k₁, i.e. an odd quotient length); then the
+step-1 estimate can be off by more than the 64-correction limit (fatal, never wrong digits). `NEWTON_CHAIN_GUARD=1` (off by
+default) anchors the chain at k, ⌈k/2⌉ + 1, … so every doubling is cut: |error| ≤ 8 units at any M (results/RECIP.md).
+
 ### 5.2 Division in two quotient halves ("DKM")
 
 With S = P + Q (formed in place in P's basis), A = S·B^dl and k = len(A) − n_Q + 1, the division X = ⌊A/Q⌋ is done as

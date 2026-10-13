@@ -88,3 +88,4 @@ T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 DM_MN_WRAP	fallback	P1/DEF (D22, results/P1.md, results/DEF.md)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
 BS_BATCH_PIPE	fallback	coordinator (D20, results/N3.md)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
 ECALC_NP_MN3	fallback	coordinator (D18, results/DEF.md)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default
+NEWTON_CHAIN_GUARD	experiment	RECIP (results/RECIP.md)	2026-11-11	off by default; the reciprocal chain with a guard limb per doubling; digits identical (the division is exact either way); awaits the user

@@ -161,6 +161,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | switch | meaning (default) |
 |---|---|
 | `NEWTON_RECIP_GUARD` | the reciprocal's cut (always on): limbs kept below the read band (the cut is at band − guard; ≥ 1 makes the band's error ≤ 1 unit for any number of pieces) (1) |
+| `NEWTON_CHAIN_GUARD` | *RECIP (results/RECIP.md)*: `1` = the reciprocal's anchored chain keeps one guard limb per doubling (targets k, ⌈k/2⌉ + 1, …), so every doubling is cut by ≥ 1 limb; without it a doubling j → 2j keeps its error (up to ~2·B^n_Q/Q units, and squared over a run of such doublings, e.g. k = 2^m). Digits identical either way (0) |
 | `NEWTON_MN_SPLIT` | at size > 1 the reciprocal starts single-node on the top limbs of Q up to this many limbs (65536) |
 | `NEWTON_MN_RECIP_TS` | S30, print only (off): one line per node, `recip ts node N: ...`, with the stages of recip_mn's single-node part (shift, gather, chain, broadcast) and the wall clock (s mod 1000) |
 | `NEWTON_MN_GROUPS` | at size > 1 the reciprocal's early doublings on the smallest subgroup the model prefers (X1); 0 = the full group (1) |
@@ -268,6 +269,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 
 | class | owner | review by | switches |
 |---|---|---|---|
+| experiment | RECIP (results/RECIP.md) | 2026-11-11 | `NEWTON_CHAIN_GUARD` |
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `P24_CRT_SCAN`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |

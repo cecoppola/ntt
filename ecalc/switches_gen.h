@@ -118,6 +118,7 @@ static const char *const cfg_names[] = {
     "MN_TREE_LOGN_TEST",
     "MN_T_CHUNK_MB",
     "MN_WAIT_STATS",
+    "NEWTON_CHAIN_GUARD",
     "NEWTON_DKM_TEST_HI",
     "NEWTON_DOUBLING_TS",
     "NEWTON_MN_BW",
@@ -151,4 +152,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 149
+#define CFG_NAMES_N 150

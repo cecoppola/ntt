@@ -21,7 +21,7 @@ int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void); int comm
 #include "memsample.h"
 int ec_np_init(void);                                     /* modarith.h (crt.c): the prime count (the layout report) */
 extern int ec_np_auto; int ec_np_planes(int pool_log, int g);   /* modarith.h (crt.c), pool 0's planes (ECALC_NP=auto: 3 or 4 by the run's largest group) */
-size_t newton_dkm_h(size_t k);   /* newton.h (newton_db.c), dm_layout's DKM set */
+size_t newton_dkm_h(size_t k); int newton_chain_guard(void);   /* newton.h (newton_db.c), dm_layout's DKM set and NEWTON_CHAIN_GUARD */
 /* the node-process rank/size (the checkpoint names and headers), from mn.c (mn.h needs the HIP headers; this is a C file) */
 int mn_rank(void); int mn_size(void);
 int mn_groups_parse(int size, int *out, int max); size_t rns_mul_dist_mn_scratch(size_t na, size_t nb, int has_x, int g, size_t share_a, size_t share_b, size_t share_c, int *pieces);
@@ -514,7 +514,7 @@ static void dm_layout(unsigned long N, int size, struct dm_layout *L)
     int dkm = k >= 5 && (size > 1 || (logl < 62 && nq >= ((size_t)1 << logl) + ((size_t)1 << logl) / 8));
     size_t kr = dkm ? newton_dkm_h(k) : k, k1 = k - k / 2;                    /* (k1: step 1's quotient limbs, s = floor(k/2) <= dl) */
     int lean = dkm && size > 1;                                               /* (DM_MN_LEAN): the lean mn division set (size > 1 only) */
-    size_t jl = (kr + 1) / 2;
+    size_t jl = (kr + 1) / 2 + (size_t)newton_chain_guard();                 /* NEWTON_CHAIN_GUARD (RECIP): the last doubling starts at ceil(kr/2) + 1 */
     size_t take = 2 * jl + 2 < nq ? 2 * jl + 2 : nq, t1a = take + (jl + 2) + 8;   /* r has j + 2 limbs (measured at 4e10, job 21131: r 555555559 at j 555555557) */
     size_t nq_s = (nq + size - 1) / size, k_s = (k + size - 1) / size, jl_s = (jl + size - 1) / size;
     /* the hole is the DIVISION's largest block, t = A_h mu of 2k + 8 limbs (xq = low(X Q)

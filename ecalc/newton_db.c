@@ -77,10 +77,19 @@ static void recip_db2(dbig *mu, const dbig *Qd, const bigint *Q, size_t k, size_
  * printer, mn_plan.c, asks them too).  Anchored (the default): the targets k, ceil(k/2), ... read from the top -- the next target
  * after j is the smallest of them above j (anchored; the power-of-two doubling, NEWTON_ANCHOR=0, was removed 2026-10-12) */
 static void nv_init(void) { if (nv < 0) nv = getenv("NEWTON_VERBOSE") ? atoi(getenv("NEWTON_VERBOSE")) : 0; }
+/* NEWTON_CHAIN_GUARD=1 (RECIP, results/RECIP.md; off by default): the anchored targets k, g(k), g(g(k)), ... with g(t) = ceil(t/2) + 1
+ * instead of ceil(t/2), so every doubling j -> jn has jn <= 2j - 1 and its output is cut by >= 1 limb (>= 2 above the seed's 2 -> 3).
+ * Without it a doubling with jn = 2j keeps its own error, up to ~2 M units (M = B^nq / Q, 1..B: the decimal limbs are not normalised;
+ * -22 units at M 42.6 in SIMP), and a run of such doublings squares it (k = 2^m: up to two limbs lost, model) */
+static int g_chain_guard = -1;
+int newton_chain_guard(void) { if (g_chain_guard < 0) { const char *e = getenv("NEWTON_CHAIN_GUARD"); g_chain_guard = e && atoi(e) > 0; } return g_chain_guard; }
+void newton_chain_guard_set(int on) { g_chain_guard = on != 0; }   /* tests */
+static size_t chain_g(size_t t) { return (t + 1) / 2 + (size_t)newton_chain_guard(); }
 size_t newton_chain_next(size_t j, size_t k)
 {
     nv_init();
     size_t jn = k;
+    if (newton_chain_guard()) { for (;;) { size_t g = chain_g(jn); if (g >= jn || g <= j) break; jn = g; } return jn; }   /* (g(t) >= t only at t <= 3) */
     while ((jn + 1) / 2 > j) jn = (jn + 1) / 2;
     return jn;
 }
@@ -89,7 +98,7 @@ size_t newton_mn_chain_start(size_t k)
 {
     nv_init();
     size_t split = getenv("NEWTON_MN_SPLIT") ? strtoull(getenv("NEWTON_MN_SPLIT"), 0, 10) : ((size_t)1 << 16), kp = k;
-    while (kp > split && (kp + 1) / 2 > 2) kp = (kp + 1) / 2;
+    while (kp > split && chain_g(kp) > 2 && chain_g(kp) < kp) kp = chain_g(kp);   /* (unguarded: chain_g = (kp + 1) / 2, as before) */
     if (kp > split) kp = 2;
     return kp;
 }
