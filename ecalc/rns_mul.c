@@ -30,6 +30,8 @@ static int g_mdev_S;
  * same arguments, same order on each stream: digits identical.  binsplit_e reads it too (its level layout in parallel). */
 int rns_batch_pipe = -1;
 int rns_batch_pipe_on(void) { if (rns_batch_pipe < 0) { const char *e = getenv("BS_BATCH_PIPE"); rns_batch_pipe = e ? atoi(e) != 0 : 1; } return rns_batch_pipe; }
+/* K4b (RNS_CRT_SCAN, default 1 since D21; =0 = the serial carry chain): k_crt_batch's carry-lookahead */
+int rns_crt_scan_on(void) { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 1; } return sc; }
 static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
@@ -709,7 +711,7 @@ struct gconst rns_gconst(void)
     { unsigned __int128 t = g.M2[2] % ec_P[3]; t = ((t << 64) | g.M2[1]) % ec_P[3]; t = ((t << 64) | g.M2[0]) % ec_P[3];
       g.c3 = ec_inv((uint64_t)t, ec_P[3]); }
     g.np = ec_np_init();                         /* P3: the kernel's prime count */
-    { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 1; } g.scan = sc; }   /* K4b: on by default since D21; RNS_CRT_SCAN=0 = the serial chain */
+    g.scan = rns_crt_scan_on();                  /* K4b */
     return g;
 }
 
