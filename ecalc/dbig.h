@@ -43,7 +43,7 @@ int db_tl_on(void);                                   /* ECALC_INIT_TL=1 -- init
 void db_tl_start(void);
 double db_tl_now(void);
 void db_tl(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-void db_copy_kernel(unsigned blocks, hipStream_t s, uint64_t *dst, const uint64_t *src, size_t n);   /* a grid-stride copy kernel launch (dst, src device-visible) */
+void db_copy_kernel(unsigned blocks, void *stream, uint64_t *dst, const uint64_t *src, size_t n);   /* a grid-stride copy kernel launch (dst, src device-visible) */
 void db_copy_h2d_async(int dev, void *dst, const void *src, size_t bytes);   /* a host -> device copy by a kernel on dev's own stream (the seeds into a VMM range) */
 void db_copy_h2d_wait(int dev);
 int db_seed_pull_on(void);                              /* K8b: BS_SEED_PULL=1 -- the seeds' copies by a persistent pull kernel per APU (no runtime call in the mapping window) */

@@ -356,12 +356,12 @@ static void mdev_core(int np, bigint *C[2], const uint64_t *a[2], size_t na[2], 
                 }
 #pragma omp barrier                                    /* copy done before the staging is reused */
             } else if (j == np - 1) {
-                if (act) db_copy_kernel(228 * 8, v->s, v->hstage, da, nc[j]);
+                if (act) db_copy_kernel(228 * 8, (void *)v->s, v->hstage, da, nc[j]);
             } else {
                 /* first product of a pair: keep the result plane in the staging area above the operands
                  * is impossible (operands still needed): store into db? no - db holds B's transform.
                  * Use the top of the staging buffer if it fits, else stage through the host CRT now. */
-                if (act) db_copy_kernel(228 * 8, v->s, v->hstage + (((size_t)1 << g_pool_log) - nc[j]), da, nc[j]);
+                if (act) db_copy_kernel(228 * 8, (void *)v->s, v->hstage + (((size_t)1 << g_pool_log) - nc[j]), da, nc[j]);
             }
             HIP_CHECK(hipStreamSynchronize(v->s));
             HIP_CHECK(hipEventElapsedTime(&m1, e0, e1)); HIP_CHECK(hipEventElapsedTime(&m2, e1, e2));
@@ -1102,7 +1102,7 @@ void rns_mul_batch(rns_prod *P, size_t N)
                 HIP_CHECK(hipEventElapsedTime(&ms3, e2, e3));
 #pragma omp barrier                                    /* before anyone overwrites a plane */
             } else {
-                if (act) db_copy_kernel(228 * 8, v->s, v->hstage, da, total);
+                if (act) db_copy_kernel(228 * 8, (void *)v->s, v->hstage, da, total);
                 HIP_CHECK(hipStreamSynchronize(v->s));
             }
             HIP_CHECK(hipEventElapsedTime(&ms1, e0, e1)); HIP_CHECK(hipEventElapsedTime(&ms2, e1, e2));
