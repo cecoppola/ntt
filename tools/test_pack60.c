@@ -13,6 +13,7 @@ int main(void)
     int fails = 0;
     for (size_t n = 0; n <= 70; n++) {
         uint64_t *l = malloc((n + 1) * 8), *u = calloc(n + 1, 8); uint8_t *b = calloc(ecp60_bytes(n) + 16, 1);
+        if (!l || !u || !b) { printf("out of memory\n"); return 1; }
         for (size_t i = 0; i < n; i++) l[i] = limb();
         ecp60_pack(l, n, b); ecp60_unpack(b, n, u);
         if (memcmp(l, u, n * 8) || ecp60_bytes(n) != (n * 60 + 7) / 8) { printf("round trip n=%zu FAIL\n", n); fails++; }
@@ -21,6 +22,7 @@ int main(void)
     }
     for (int it = 0; it < 3000; it++) {
         size_t n = 1 + rnd() % 3000; uint64_t *l = malloc(n * 8), *u = malloc(n * 8); uint8_t *one = malloc(ecp60_bytes(n) + 16), *st = malloc(ecp60_bytes(n) + 64), *ob = malloc(ecp60_bytes(n) + 64);
+        if (!l || !u || !one || !st || !ob) { printf("out of memory\n"); return 1; }
         for (size_t i = 0; i < n; i++) l[i] = limb();
         ecp60_pack(l, n, one);
         size_t pos = 0, tot = 0; int hp = 0; uint64_t pend = 0;

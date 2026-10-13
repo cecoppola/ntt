@@ -450,8 +450,8 @@ int main(int argc, char **argv)
         double t0 = mem_now();
         check_div("time", &A, dl, &Q, 0);
         double dt = mem_now() - t0;
-        printf("   divmod %zu / %zu limbs (with the prewarm reciprocal and the check): %.2f s (recip %.2f, %zu iters; %zu mdev, %zu splits; corrections %zu/%zu)\n",
-               A.n + dl, Q.n, dt, newton_st.t_recip, newton_st.iters, rns_st.n_mdev, rns_st.n_split, newton_st.down_corr, newton_st.up_corr);
+        printf("   divmod %zu / %zu limbs (with the prewarm reciprocal and the check): %.2f s (recip %.2f, %zu iters; corrections %zu/%zu)\n",
+               A.n + dl, Q.n, dt, newton_st.t_recip, newton_st.iters, newton_st.down_corr, newton_st.up_corr);
         harness_result("divmod_time", "s", dt);
         harness_result("recip_time", "s", newton_st.t_recip);
     }

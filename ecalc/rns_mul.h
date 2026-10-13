@@ -13,9 +13,9 @@ extern "C" {
 #endif
 
 typedef struct {
-    double t_repack, t_h2d, t_fwd, t_inv, t_d2h, t_crt, t_total;   /* (t_* and n_mdev, n_split, n_school, points_mdev: the removed host tier's; stay 0) */
+    double t_total;
     double tb_scatter, tb_ntt, tb_crt, tb_merge, tb_total;   /* batch tier, max over devices per tile, summed */
-    size_t n_mdev, n_split, n_school, n_batch, points_mdev;
+    size_t n_batch;
     size_t n_batch_local, n_batch_pair;                      /* products through the locality-aware tier, of them in paired-B tiles */
 } rns_stats;
 extern rns_stats rns_st;

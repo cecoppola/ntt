@@ -9,6 +9,7 @@
 /* host numbers: realloc (no huge-page form: measured harmful) */
 uint64_t *bi_alloc_huge(uint64_t *old, size_t oldn, size_t cap)
 {
+    (void)oldn;
     uint64_t *p = (uint64_t *)realloc(old, cap * 8); if (!p) ec_fatal(EC_RC_OOM, "bigint: realloc of %zu bytes (host) failed", cap * 8);   /* plain realloc: a 2 MiB-aligned (THP) form stalled in defrag */
     return p;
 }
@@ -84,6 +85,7 @@ void limb_mul_school(uint64_t *r, const uint64_t *a, size_t na, const uint64_t *
          * spilling), reduced mod B once per column with the carry rippled: two 128-bit
          * divisions per column instead of one per product */
         uint64_t *w1 = (uint64_t *)malloc(2 * n * sizeof *w1), *w2 = w1 + n;
+        if (!w1) ec_fatal(EC_RC_OOM, "bigint: malloc of %zu bytes failed", 2 * n * sizeof *w1);
 #pragma omp parallel for schedule(dynamic, 64) if (!omp_in_parallel() && n > 4096)
         for (k = 0; k < n; k++) {
             size_t i0 = k >= nb - 1 ? k - (nb - 1) : 0, i1 = k < na ? k : na - 1, i;

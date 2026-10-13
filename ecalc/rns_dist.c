@@ -42,18 +42,16 @@ void rns_dist_cap_test(int logn) { rns_dist_cache_release(); g_cap_test = logn; 
 /* Phase 10 A6: the pointwise product fused into the column inverse's first pass (bit-identical), and the four-step split
  * logR = logn / 2 (DIST_PW_FUSE=1 and DIST_LOGR_DELTA=0, the defaults, built in 2026-10-12; results/G.md) */
 
-/* a limb accessor: either one flat array or four quarters (a dbig view) */
-struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; int flat; dbig *owner; };
+/* a limb accessor: four quarters (a dbig view) */
+struct acc { const uint64_t *q[NR]; uint64_t *w[NR]; size_t qc, lo, n; dbig *owner; };
 __device__ static inline uint64_t acc_get(const struct acc a, size_t i)      /* i < n */
 {
     size_t m = a.lo + i;
-    if (a.flat) return a.q[0][m];
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); return a.q[d][m - d * a.qc];
 }
 __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
 {
     size_t m = a.lo + i;
-    if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); return a.w[d] + (m - d * a.qc);
 }
 /* S41: the same by a select over constant quarter indices -- no runtime-indexed pointer array, so the by-value struct stays in registers
@@ -61,13 +59,11 @@ __device__ static inline uint64_t *acc_ptr(const struct acc a, size_t i)
 __device__ static inline uint64_t acc_get_s(const struct acc &a, size_t i)
 {
     size_t m = a.lo + i;
-    if (a.flat) return a.q[0][m];
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); const uint64_t *p = a.q[0]; if (d == 1) p = a.q[1]; if (d == 2) p = a.q[2]; if (d == 3) p = a.q[3]; return p[m - d * a.qc];
 }
 __device__ static inline uint64_t *acc_ptr_s(const struct acc &a, size_t i)
 {
     size_t m = a.lo + i;
-    if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); uint64_t *p = a.w[0]; if (d == 1) p = a.w[1]; if (d == 2) p = a.w[2]; if (d == 3) p = a.w[3]; return p + (m - d * a.qc);
 }
 static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
@@ -267,7 +263,7 @@ static int cache_lookup(const void *key, size_t lo, size_t n, size_t q, int mn, 
     for (int i = 0; i < g_cache.navail; i++) { const struct dist_slot *s = &g_cache.s[i]; if (s->key == key && s->lo == lo && s->n == n && s->q == q && s->mn == mn && s->np == np && s->p24 == p24) return i; }
     return -1;
 }
-static int cache_find(const struct acc *a, size_t q, int np) { return a->flat || !cache_slots() ? -1 : cache_lookup(a->q[0], a->lo, a->n, q, 0, np, 0); }
+static int cache_find(const struct acc *a, size_t q, int np) { return !cache_slots() ? -1 : cache_lookup(a->q[0], a->lo, a->n, q, 0, np, 0); }
 /* the slots of the two operands of one product: hits taken anywhere, misses filled in the designated slots (never the slot
  * the other operand hits in); the misses' keys set here (the planes are allocated by the ranks) */
 static int g_cache_last[2];                                   /* Phase 15 CX (RNS_DIST_CACHE_TRACE): the last product's operands A, B: 2 hit, 1 cached (a miss into a slot), 0 not cached */
@@ -493,7 +489,7 @@ static int b_planes(int d, size_t n, size_t *sz, int np)   /* np: the product's 
 static int b_choose(struct acc A, struct acc B, struct acc Cw, size_t nc, int sa, int sb, int np)
 {
     int s = strat_get();
-    if (s == STRAT_C || cache_slots() || A.flat || B.flat || Cw.flat || !Cw.owner || Cw.lo || sa >= 0 || sb >= 0) return STRAT_C;
+    if (s == STRAT_C || cache_slots() || !Cw.owner || Cw.lo || sa >= 0 || sb >= 0) return STRAT_C;
     if (Cw.owner->qc % 4096) return STRAT_C;
     if (np > NR) return STRAT_C;
     if (s == STRAT_AUTO) {
@@ -629,7 +625,6 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
     { int f = b_choose(A, B, Cw, nc, sa, sb, np); if (f != STRAT_C && b_core(f, A, B, Cw, nc, np)) { if (b_check_on()) b_check(f, A, B, Cw, nc); return; } }   /* Phase 13b B: RNS_STRATEGY */
     /* A1: the cache slots -- hits anywhere, misses filled in the designated slots (never the slot the other operand hits in) */
     int ha = cache_find(&A, q, np), hb = cache_find(&B, q, np);
-    if (A.flat) sa = -1; if (B.flat) sb = -1;
     cache_plan(&sa, &sb, ha, hb, A.q[0], A.lo, A.n, B.q[0], B.lo, B.n, q, 0, np, 0);
     struct gconst gc = rns_gconst(); gc.np = np;               /* NP: the CRT of this product's primes */
     double tl[NR], tf[NR], tc[NR];
@@ -695,21 +690,9 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
         HIP_CHECK(hipStreamSynchronize(v->s));
         tl[r] = lg; tf[r] = lf; tc[r] = mem_now() - s2;
     }
-    /* the spills: device results add them as a sparse operand of the carry kernel; host results add them on the host */
+    /* the spills: added as a sparse operand of the carry kernel */
     double tsp = mem_now();
-    if (Cw.flat) {
-        const uint64_t BB = EC_1E18; uint64_t *cc = Cw.w[0];
-        uint64_t *hs = (uint64_t *)malloc(C * 4 * 8);
-        for (int r = 0; r < NR; r++) {
-            HIP_CHECK(hipSetDevice(r)); HIP_CHECK(hipMemcpy(hs, RS[r].spill, C * 4 * 8, hipMemcpyDeviceToHost));
-            for (size_t j = 0; j < C; j++) {
-                size_t k = R * j + (size_t)(r + 1) * rows; const uint64_t *w = hs + j * 4; uint64_t cy = 0;
-                if (k >= nc) continue;
-                for (int t = 0; t < 4 && k < nc; t++, k++) { uint64_t sm = cc[k] + w[t] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; } while (cy && k < nc) { uint64_t sm = cc[k] + cy; cy = sm >= BB; cc[k] = cy ? sm - BB : sm; k++; }
-            }
-        }
-        free(hs);
-    } else {
+    {
         dbig *Cd = Cw.owner; Cd->n = nc;
         const uint64_t *sp[4] = { RS[0].spill, RS[1].spill, RS[2].spill, RS[3].spill };
         db_add_spills(Cd, Cd, sp, R, rows, C, nc);               /* in place, one chunked-carry pass */

@@ -60,7 +60,7 @@ static struct {
 static void sample_once(void)
 {
     struct meminfo m; mem_meminfo(&m);
-    size_t rss = mem_vmrss(), live[DB_NQ];
+    size_t rss = mem_vmrss(), live[DB_NQ] = {0};
     for (int d = 0; d < DB_NQ; d++) { live[d] = db_pool_live(d); if (live[d] > S.max_live[d]) S.max_live[d] = live[d]; }
     if (!S.n || m.avail < S.min_avail) S.min_avail = m.avail;
     if (m.cached > S.max_cached) S.max_cached = m.cached;

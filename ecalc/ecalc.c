@@ -604,7 +604,7 @@ int main(int argc, char **argv)
     size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
     if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* what C3's sizing missed */
     t_recip = mem_now() - t;
-    printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, k_mu + 1, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("recip %8.2f s   mu %zu limbs (%zu iterations)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, k_mu + 1, newton_st.iters, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report("recip");
 
     t = mem_now();
@@ -612,7 +612,7 @@ int main(int argc, char **argv)
     db_add(&bs_Pd, &bs_Pd, &bs_Qd);                   /* S = P + Q on the device; A = S B^dl is never formed */
     t_10dp = mem_now() - t;
     printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
-    printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, dl, bs_Pd.n + dl, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("10dP  %8.2f s   T %zu limbs, A %zu limbs   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, dl, bs_Pd.n + dl, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
 
     t = mem_now();
@@ -631,8 +631,8 @@ int main(int argc, char **argv)
     mem_report("division");                           /* the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
     newton_db_free_scratch();     /* (X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
-    printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
-           t_dm, g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
+    printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
+           t_dm, g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n, t_recip, newton_st.down_corr, newton_st.up_corr, g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report("dm");
     RESULT("dm", "s", t_dm);
     }

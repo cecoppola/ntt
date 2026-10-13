@@ -138,6 +138,7 @@ int main(int argc, char **argv)
 {
     const char *outname = 0, *cmpname = 0; int nores = 0, quiet = 0, none = 0; size_t chunk_mb = 256;
     struct part *p = calloc((size_t)argc, sizeof *p); int np = 0;
+    if (!p) { fprintf(stderr, "unpack_digits: out of memory\n"); return 1; }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) outname = argv[++i];
         else if (!strcmp(argv[i], "--cmp") && i + 1 < argc) cmpname = argv[++i];
