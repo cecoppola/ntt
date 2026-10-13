@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include "rns_int.h"
 #include "p24.h"
+#include "rns_mul.h"                                 /* p24_crt_scan_on (C linkage, as the config line reads it) */
 #include "fatal.h"
 
 #define P24_T 256
