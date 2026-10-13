@@ -70,7 +70,6 @@ __device__ static inline uint64_t *acc_ptr_s(const struct acc &a, size_t i)
     if (a.flat) return a.w[0] + m;
     size_t d = (m >= a.qc) + (m >= 2 * a.qc) + (m >= 3 * a.qc); uint64_t *p = a.w[0]; if (d == 1) p = a.w[1]; if (d == 2) p = a.w[2]; if (d == 3) p = a.w[3]; return p + (m - d * a.qc);
 }
-static struct acc acc_flat(const uint64_t *p, size_t n) { struct acc a; memset(&a, 0, sizeof a); a.q[0] = p; a.w[0] = (uint64_t *)p; a.n = n; a.flat = 1; return a; }
 static struct acc acc_db(const dbig *x, size_t lo, size_t n) { struct acc a; memset(&a, 0, sizeof a); for (int d = 0; d < NR; d++) { a.q[d] = x->q[d]; a.w[d] = x->q[d]; } a.qc = x->qc; a.lo = x->off + lo; a.n = n; a.owner = (dbig *)x; return a; }
 
 struct rank_state {
@@ -80,7 +79,6 @@ struct rank_state {
 };
 static struct rank_state RS[NR];
 static int g_init;
-static uint64_t *g_stage; static size_t g_stage_cap;      /* registered host staging for unregistered host operands/result */
 struct rns_dist_stats rns_dist_st;
 
 static void rank_init(int r)
@@ -726,31 +724,6 @@ static void dist_core(struct acc A, struct acc B, struct acc Cw, size_t nc, int 
                       dist_st.t_local1 = dist_st.t_local2 = dist_st.t_tw = dist_st.t_pack = dist_st.t_a2a = 0; }
 }
 
-/* host bigints: stage unregistered operands into registered memory */
-void rns_mul_dist(bigint *Cout, const bigint *A, const bigint *B)
-{
-    size_t na = A->n, nb = B->n, nc = na + nb;
-    if (!na || !nb) { Cout->n = 0; return; }
-    double t0 = mem_now();
-    const uint64_t *a = A->l, *b = B->l; uint64_t *c;
-    int stage_a = !mem_is_registered(a, na * 8), stage_b = !mem_is_registered(b, nb * 8);
-    bi_reserve(Cout, nc + 8);
-    int stage_c = !mem_is_registered(Cout->l, (nc + 8) * 8);
-    size_t need = (stage_a ? na : 0) + (stage_b ? nb : 0) + (stage_c ? nc + 8 : 0);
-    if (need) {
-        if (g_stage_cap < need) { if (g_stage) mem_hreg_free(g_stage); g_stage_cap = need + need / 8; g_stage = (uint64_t *)mem_hreg_alloc(g_stage_cap * 8); }
-        uint64_t *s = g_stage;
-        if (stage_a) { memcpy(s, a, na * 8); a = s; s += na; }
-        if (stage_b) { memcpy(s, b, nb * 8); b = s; s += nb; }
-        c = stage_c ? s : Cout->l;
-    } else c = Cout->l;
-    rns_dist_st.t_stage += mem_now() - t0;
-    dist_core(acc_flat(a, na), acc_flat(b, nb), acc_flat(c, nc), nc, -1, -1);
-    double t2 = mem_now();
-    if (c != Cout->l) memcpy(Cout->l, c, nc * 8);
-    Cout->n = nc; bi_norm(Cout);
-    rns_dist_st.t_merge += mem_now() - t2;
-}
 /* the low w limbs of A B (device operands): the grid below with the pieces above w skipped, then truncated
  * (the earlier halving recursion is no cheaper than the grid: for decimal's X Q at 4e10 both need 6 planes,
  * the skip makes it 5) */

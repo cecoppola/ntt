@@ -80,7 +80,13 @@ module (`t_ntt`, `t_ntt3`, `t_modarith`, `t_primes`, `t_crt`, `t_mul`, `t_dbig`,
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./tests/t_ntt 24            # arguments are the test's size
     srun --jobid=<hold> -N1 --gpus=4 --overlap ./ref/gen_e 1000000000 ref  # reference digits by GMP
 
-`tests/harness.h` provides the assertions. `tests/` at the repository root holds two model scripts
+`tests/harness.h` provides the assertions. `tests/tref.h` is the tests' reference product (TREF, `results/TREF.md`):
+`tref_check` compares a product exactly with GMP up to 2^21 product limbs (product-tree conversions of decimal limbs,
+OpenMP-parallel) and above that by the residue form -- every limb below B, the length, residues modulo three 62-bit primes,
+the low 64 limbs exactly and the top limbs within the exact bounds of the leading 64 x 64 limb product; `tref_mul` gives a
+reference value (GMP, or the one-node device product at the default plane checked by the residue form); `tref_faults`
+checks the reference itself (one limb changed low, in the middle or at the top must fail; `t_mul` runs it on every product
+of sections 1 and 2). `tests/` at the repository root holds two model scripts
 (`t2_seed_model.py`, `as_pool_replay.py`); `tools/test_unpack.py` and `tools/test_pack60.c` test the packed format.
 
 Digits against a reference:

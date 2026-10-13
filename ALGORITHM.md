@@ -172,6 +172,9 @@ Every product goes to the cheapest tier that can hold it:
 | **mn** | products over a group of g nodes (tree top, reciprocal, division) | four-step over 4g ranks, prime by prime, layered all-to-all (§6.3) | `mn_core`, `mn_grid` |
 
 `RNS_STRATEGY=auto` (default) picks B where its planes fit the plane pools sized at init, else C, and never allocates.
+The host product tier (`rns_mul`: one product per prime per APU from host operands, a Karatsuba split above the pool, a CPU
+schoolbook below 2¹⁰ points) had no production caller and was removed (TREF, `results/TREF.md`); the tests check products
+against `ecalc/tests/tref.h` instead.
 With three primes form B transforms on three APUs and the fourth only takes part in the CRT.
 
 ### 4.5 Plane cap and grids

@@ -1,82 +1,59 @@
-/* t_mul - step 3 test: rns_mul against mpz_mul, every tier and boundary.
+/* t_mul - the product tiers against the test reference (tests/tref.h: GMP exact up to 2^21 product limbs, the residue form above).
  *
- *  1. pool 2^POOL (default 20 for the first part) so the split tiers run at
- *     small sizes: products crossing 2^10 (schoolbook -> mdev), 2^POOL
- *     (mdev -> Karatsuba), unbalanced (chunked), all five generators, vs
- *     mpz_mul exactly
- *  2. pool 2^31 (the default): sizes crossing 2^17, 2^18, 2^27, 2^28 limbs per
- *     operand vs mpz_mul (<= 2^20: the GMP string bridge of decimal limbs is slow above) or residues mod 2^61-1 and
- *     two 62-bit primes (above; the length too),
- *     per-phase times of the mdev multiply at 2^31 points
+ *  0. the reference itself: the product-tree GMP conversions (harness.h) against the 18-digit string forms
+ *  1. the device path (rns_mul_dist_db) at small and boundary sizes -- tiny, around 2^10 and 2^20 points, unbalanced, x * 0,
+ *     x * 1, all five generators -- against GMP exactly, at two plane caps (the default, one plane; DIST_LOGN_TEST=20, the grid
+ *     split) which must also agree with each other; low products (rns_mul_low_db) against GMP mod B^w
+ *  2. sizes 2^16 .. 2^30 limbs per operand (crossing 2^17, 2^18, 2^27, 2^28) through the device path: exact up to 2^20, the
+ *     residue form above; at 2^20, 2^24, 2^26 also at half the plane (a 2-piece grid), which must agree
+ *     every product of 1 and 2 also checks the reference: one limb changed low / middle / top must fail it (tref_faults)
  *  4. batch tier: products of <= 2^logL points for logL 10 .. 18, GPU CRT (N >= 8)
  *     and CPU CRT, registered and unregistered (staged) operands, vs mpz_mul (every product for groups up to 2^24
  *     limbs; larger groups: four products vs mpz_mul and every product by residues mod three primes, see batch_sampled)
- *  3. optional (arg "big"): 2.08e9 x 2.08e9 limbs (the 10dP product of the 4e10-digit run,
- *     4.16e9 > 2^31 points) through the Karatsuba split (RESULTS.md 35), twice
+ *  4b. the locality-aware batch tier (pairs sharing B in device pools)
  *
- * Usage: t_mul [POOL (20); 0 skips part 1] [big]
- * Decimal limbs only since archive:PLAN §28.5 (the base-2 form is archive:binary_pipeline/t_mul_base2.c).
+ * Usage: t_mul [POOL (20; 0 skips sections 0-2)] [batch | dist]   (dist: only the distributed tier, 6e5 .. 2^27 limbs; DIST_BIG=1
+ *        2^29, 2^30, time only).  The host product tier (rns_mul, Karatsuba split, mdev) and its sections were removed by TREF
+ *        (results/TREF.md); decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
 #include "tref.h"
 #include "../rns_mul.h"
+#include "../dbig.h"
 #include "../mem.h"
 #include <hip/hip_runtime.h>
 
-static int old_ok(const bigint *A, const bigint *B, const bigint *C, int exact)
+/* C = A B on the device path (host operands staged through dbig); returns the product's seconds */
+static double dev_mul(bigint *C, const bigint *A, const bigint *B)
 {
-    if (exact) {
-        mpz_t a, b, c; mpz_inits(a, b, c, NULL);
-        bi_to_mpz(a, A); bi_to_mpz(b, B); mpz_mul(c, a, b);
-        int ok = bi_eq_mpz(C, c);
-        mpz_clears(a, b, c, NULL);
-        return ok;
-    }
-    uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
-    if (m61_mul(ra, rb) != rc) return 0;
-    static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                          /* two more residues (archive:PLAN §28.5: the exact check stops at 2^20) */
-    for (int j = 0; j < 2; j++) {
-        uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
-        if (hv_mulmod(xa, xb, qs[j]) != xc) return 0;
-    }
-    return C->n == A->n + B->n || C->n == A->n + B->n - 1;
+    dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);
+    db_from_bi(&x, A); db_from_bi(&y, B);
+    double t0 = now(); rns_mul_dist_db(&z, &x, &y); double t = now() - t0;
+    db_to_bi(C, &z); db_free(&x); db_free(&y); db_free(&z);
+    return t;
 }
-static void check_product(const char *what, const bigint *A, const bigint *B, const bigint *C, int exact)
+static void dev_low(bigint *C, const bigint *A, const bigint *B, size_t w)
 {
-    VERIFY(old_ok(A, B, C, exact), "%s: product differs (%s, C has %zu limbs)", what, exact ? "mpz_mul" : "residues", C->n);
+    dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);
+    db_from_bi(&x, A); db_from_bi(&y, B); rns_mul_low_db(&z, &x, &y, w); db_to_bi(C, &z);
+    db_free(&x); db_free(&y); db_free(&z);
 }
-/* TREF proof mode (argument "tref"): on every product of the old sections, the new reference (tests/tref.h) against the old one --
- * tref_mul's value == rns_mul's, the old check accepts tref_mul's value, tref_check accepts rns_mul's (exact and residue form), and
- * one limb changed low / middle / top is caught by the new check (both forms) and by the old one */
-static int g_proof; static rng_t g_prng = { 0x7EF };
-static size_t pf_cases, pf_agree, pf_faults, pf_new_missed, pf_res_missed, pf_old_missed, pf_res_cases;
-static void proof_case(const char *what, const bigint *A, const bigint *B, const bigint *C, int exact)
+static void set_cap(int logn)                        /* the plane cap of the device path: 0 = the default */
 {
-    if (!g_proof) return;
-    double t0 = now();
-    pf_cases++;
-    bigint R, F; bi_init(&R); bi_init(&F);
-    tref_mul(&R, A, B);
-    int agree = bi_cmp(&R, C) == 0; pf_agree += agree;
-    VERIFY(agree, "proof %s: tref_mul differs from rns_mul", what);
-    VERIFY(old_ok(A, B, &R, exact), "proof %s: the old check rejects tref_mul's value", what);
-    tref_check(what, A, B, C);
-    char why[160];
-    int small = A->n + B->n <= TREF_EXACT_LIMBS;
-    if (small) { VERIFY(tref_ok(A->l, A->n, B->l, B->n, C->l, C->n, TREF_RES, why, sizeof why), "proof %s: residue form rejects (%s)", what, why); pf_res_cases++; }
-    if (C->n) {
-        bi_copy(&F, C);
-        int m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_AUTO, &g_prng); pf_new_missed += m; pf_faults += 3;
-        VERIFY(m == 0, "proof %s: %d faults missed by the new check", what, m);
-        if (small) { m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_RES, &g_prng); pf_res_missed += m; VERIFY(m == 0, "proof %s: %d faults missed by the residue form", what, m); }
-        size_t pos[3] = { (size_t)(F.n > 1), F.n / 2, F.n - 1 }; int om = 0;
-        for (int i = 0; i < 3; i++) { uint64_t o = tref_flip(F.l, pos[i], &g_prng); bigint G = F; bi_norm(&G); if (old_ok(A, B, &G, exact)) om++; F.l[pos[i]] = o; }
-        pf_old_missed += om;
-        VERIFY(om == 0, "proof %s: %d faults missed by the old check", what, om);
-    }
-    printf("   proof %-44s agree %d  (%.2f s)\n", what, agree, now() - t0);
-    bi_free(&R); bi_free(&F);
+    if (!logn) { unsetenv("DIST_LOGN_TEST"); return; }
+    char b[16]; snprintf(b, sizeof b, "%d", logn); setenv("DIST_LOGN_TEST", b, 1);
 }
+/* the product checked by the reference, and the reference checked by the product: one limb changed must fail it */
+static rng_t g_frng = { 0xFA17 };
+static size_t g_fault_sets, g_fault_missed;
+static void check_dev(const char *what, const bigint *A, const bigint *B, bigint *C, int faults)
+{
+    if (!tref_check(what, A, B, C) || !faults || !C->n) return;
+    int m = tref_faults(A->l, A->n, B->l, B->n, C->l, C->n, TREF_AUTO, &g_frng);   /* (flips and restores limbs of C in place) */
+    g_fault_sets++; g_fault_missed += (size_t)m;
+    VERIFY(m == 0, "%s: the reference missed %d of 3 injected faults", what, m);
+}
+
 /* batch groups (sections 4, 4b): the GMP string bridge of decimal limbs costs about as much per product as a 2^17-limb
  * multiply, so a group of thousands of products took > 700 s (results/H4.md 7).  Groups up to BATCH_EXACT_LIMBS operand and
  * product limbs are still checked exactly for every product; larger groups check four products exactly (the first two, the
@@ -110,12 +87,8 @@ static size_t batch_residues_bad(const rns_prod *P, size_t N)
 int main(int argc, char **argv)
 {
     int pool = argc > 1 ? atoi(argv[1]) : 20;
-    int big = argc > 2 && !strcmp(argv[2], "big");
-    int big32 = argc > 2 && !strcmp(argv[2], "big32");     /* Q1 (ii): 2^32 pools, the 10dP product as one mdev */
-    if (big32) big = 1;
     int only_batch = argc > 2 && !strcmp(argv[2], "batch");
-    int only_dist = argc > 2 && !strcmp(argv[2], "dist");     /* WP5: the distributed tier against GMP, and against mdev for time */
-    g_proof = argc > 2 && !strcmp(argv[2], "tref");           /* TREF: the new reference against the old on every case (sections 1, 2, pair) */
+    int only_dist = argc > 2 && !strcmp(argv[2], "dist");     /* WP5: the distributed tier against the reference, with times */
     rng_t rng = {0xB1B0ULL};
     bigint A, B, C; bi_init(&A); bi_init(&B); bi_init(&C);
     printf("== t_mul ==\n");
@@ -128,18 +101,18 @@ int main(int argc, char **argv)
         size_t ndc = big ? 7 : 5;
         for (size_t i = big ? 5 : 0; i < ndc; i++) for (int kind = 0; kind < (big ? 1 : 2); kind++) {
             bi_random(&A, dc[i].na, kind, &rng); bi_random(&B, dc[i].nb, kind, &rng);
-            rns_mul_dist(&C, &A, &B);                          /* first call builds the plans */
-            double t0 = now(); rns_mul_dist(&C, &A, &B); double t1 = now();
+            dev_mul(&C, &A, &B);                               /* first call builds the plans */
+            double dt = dev_mul(&C, &A, &B);
             char what[96]; snprintf(what, sizeof what, "dist %zux%zu %s", dc[i].na, dc[i].nb, gen_name[kind]);
-            if (!big) check_product(what, &A, &B, &C, 1);
-            if (kind == 0) { bigint D; bi_init(&D); double t2 = now(); rns_mul(&D, &A, &B); double t3 = now();
-                             VERIFY(bi_cmp(&C, &D) == 0, "dist == rns_mul %zux%zu", dc[i].na, dc[i].nb);
-                             printf("   %-40s dist %.3f s   rns_mul %.3f s\n", what, t1 - t0, t3 - t2); bi_free(&D); }
+            if (!big) check_dev(what, &A, &B, &C, 0);
+            if (kind == 0) printf("   %-40s dist %.3f s\n", what, dt);
         }
         bi_free(&A); bi_free(&B); bi_free(&C);
         return verify_done("t_mul");
     }
-    /* 0. the product-tree conversions (harness.h) against the 18-digit string forms */
+    rns_init(31);
+    if (pool && !only_batch) {
+    /* 0. the reference's GMP conversions */
     printf("-- 0. GMP conversions: product tree == string form\n");
     {
         static const size_t cn[] = { 1, 2, 16, 17, 33, 1000, 4097, 65537 };
@@ -154,108 +127,71 @@ int main(int argc, char **argv)
         }
         mpz_clears(x, y, NULL);
     }
-    /* 1. small pool: every tier */
-    printf("-- 1. pool 2^%d: tiers and boundaries\n", pool);
-    if (pool) {
-    rns_init(pool);
-        size_t P = (size_t)1 << pool;
+    /* 1. small and boundary sizes, exact, at two plane caps */
+    printf("-- 1. device path, small and boundary sizes vs GMP, plane caps default and 2^20\n");
+    {
+        const size_t M = (size_t)1 << 19;                    /* 2 M = 2^20 points: the smallest plane */
         struct { size_t na, nb; const char *why; } cases[] = {
-            {3, 5, "tiny"}, {511, 512, "school below 2^10"}, {512, 512, "exactly 2^10 -> mdev"},
-            {513, 512, "just over 2^10"}, {1000, 30, "unbalanced small"},
-            {P / 2, P / 2, "exactly the pool"}, {P / 2 + 1, P / 2, "one over the pool -> karatsuba"},
-            {P / 2 + 7, P / 2 - 3, "over, uneven"}, {P, P, "2x pool -> karatsuba"},
-            {3 * P, P / 8, "chunked 24:1"}, {P / 8, 3 * P, "chunked 1:24 (swapped)"},
-            {2 * P + 5, P / 2 + 3, "ratio 4: karatsuba 2-piece"}, {5 * P, 5 * P, "10x pool, two levels"},
+            {1, 1, "one limb"}, {3, 5, "tiny"}, {511, 512, "below 2^10"}, {512, 512, "exactly 2^10"}, {513, 512, "just over 2^10"},
+            {1000, 30, "unbalanced small"}, {1, 100000, "one limb x 1e5"}, {65535, 65537, "2^16 -+ 1"},
+            {M, M, "exactly 2^20 points"}, {M + 1, M, "2^20 + 1 points"}, {3 * M, 1u << 12, "unbalanced 384:1"},
+            {2 * M - 3, 2 * M + 3, "2^21 limbs (the exact limit)"},
         };
+        bigint D; bi_init(&D);
         for (size_t i = 0; i < sizeof cases / sizeof *cases; i++)
             for (int kind = 0; kind < GEN_KINDS; kind++) {
                 bi_random(&A, cases[i].na, kind, &rng); bi_random(&B, cases[i].nb, kind == GEN_KINDS - 1 ? GEN_UNIFORM : kind, &rng);
-                memset(&rns_st, 0, sizeof rns_st);
-                rns_mul(&C, &A, &B);
                 char what[128]; snprintf(what, sizeof what, "%s %zux%zu %s", cases[i].why, cases[i].na, cases[i].nb, gen_name[kind]);
-                check_product(what, &A, &B, &C, 1);
-                proof_case(what, &A, &B, &C, 1);
-                if (kind == 0) printf("   %-44s mdev %zu split %zu school %zu  %.3f s\n", what, rns_st.n_mdev, rns_st.n_split, rns_st.n_school, rns_st.t_total);
+                set_cap(0); double t0 = dev_mul(&C, &A, &B);
+                check_dev(what, &A, &B, &C, kind == 0);
+                set_cap(20); double t1 = dev_mul(&D, &A, &B); set_cap(0);
+                VERIFY(bi_cmp(&C, &D) == 0, "%s: the plane caps 2^20 and default differ", what);
+                if (kind == 0) printf("   %-44s %.3f s (cap 2^20: %.3f s)\n", what, t0, t1);
             }
-        /* low products (A B) mod 2^(64 w) across the split tiers */
+        /* low products (A B) mod B^w at the 2^20 cap (the grid with the pieces above w skipped) */
         {
             mpz_t a, b, c, m; mpz_inits(a, b, c, m, NULL);
-            struct { size_t na, nb, w; } lc[] = { {P, P, P + 2}, {P, P, P / 2 + 1}, {P + 7, P - 3, P + 2}, {3 * P, P / 2, P / 2 + 2},
-                                                  {2 * P + 5, 2 * P + 5, 2 * P + 7}, {2 * P, 2 * P, 3}, {5 * P, 5 * P, 5 * P + 2}, {P / 2, P / 2, 100} };
+            struct { size_t na, nb, w; } lc[] = { {M, M, M + 2}, {M, M, M / 2 + 1}, {M + 7, M - 3, M + 2}, {3 * M, M / 2, M / 2 + 2},
+                                                  {2 * M + 5, 2 * M + 5, 2 * M + 7}, {2 * M, 2 * M, 3}, {M / 2, M / 2, 100} };
+            set_cap(20);
             for (size_t i = 0; i < sizeof lc / sizeof *lc; i++) for (int kind = 0; kind < GEN_KINDS; kind += 2) {
                 bi_random(&A, lc[i].na, kind, &rng); bi_random(&B, lc[i].nb, kind == GEN_ZEROS ? GEN_ONES : kind, &rng);
-                rns_mul_low(&C, A.l, A.n, B.l, B.n, lc[i].w);
+                dev_low(&C, &A, &B, lc[i].w);
                 bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b);
                 mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m);
                 VERIFY(bi_eq_mpz(&C, c), "low product %zux%zu w %zu %s", lc[i].na, lc[i].nb, lc[i].w, gen_name[kind]);
-                if (g_proof) { bigint R; bi_init(&R); tref_mul(&R, &A, &B); if (R.n > lc[i].w) { R.n = lc[i].w; bi_norm(&R); }
-                               VERIFY(bi_cmp(&R, &C) == 0, "proof low product %zux%zu w %zu: tref_mul truncated != rns_mul_low", lc[i].na, lc[i].nb, lc[i].w); pf_cases++; pf_agree += bi_cmp(&R, &C) == 0; bi_free(&R); }
             }
+            set_cap(0);
             mpz_clears(a, b, c, m, NULL);
         }
         /* zero and one */
-        bi_random(&A, 5000, GEN_UNIFORM, &rng); bi_set_zero(&B); rns_mul(&C, &A, &B); VERIFY(C.n == 0, "x * 0");
-        bi_set_u64(&B, 1); rns_mul(&C, &A, &B); VERIFY(bi_cmp(&C, &A) == 0, "x * 1");
-    rns_shutdown();
+        bi_random(&A, 5000, GEN_UNIFORM, &rng); bi_set_zero(&B); dev_mul(&C, &A, &B); VERIFY(C.n == 0, "x * 0");
+        bi_set_u64(&B, 1); dev_mul(&C, &A, &B); VERIFY(bi_cmp(&C, &A) == 0, "x * 1");
+        bi_free(&D);
     }
 
-    /* 2. the default pool */
-    printf("-- 2. pool 2^%d: paper's boundaries and the 2^31-point mdev\n", big32 ? 32 : 31);
-    rns_init(big32 ? 32 : 31);
-    if (!only_batch) {
+    /* 2. large sizes */
+    printf("-- 2. device path, 2^16 .. 2^30 limbs per operand (exact to 2^20, the residue form above)\n");
+    {
         static const size_t sizes[] = {1 << 16, (1 << 17) - 1, 1 << 17, (1 << 18) - 1, 1 << 18, 1 << 20, 1 << 24, 1 << 26, 1 << 27, 1 << 28, 1 << 30};
+        bigint D; bi_init(&D);
         for (size_t i = 0; i < sizeof sizes / sizeof *sizes; i++) {
             size_t n = sizes[i];
             bi_random(&A, n, GEN_UNIFORM, &rng); bi_random(&B, n, GEN_UNIFORM, &rng);
-            memset(&rns_st, 0, sizeof rns_st);
-            rns_mul(&C, &A, &B);
-            char what[64]; snprintf(what, sizeof what, "2^31 pool %zu x %zu limbs", n, n);
-            check_product(what, &A, &B, &C, n <= (1 << 20));   /* the GMP string bridge is slow above 2^20: residues there */
-            proof_case(what, &A, &B, &C, n <= (1 << 20));
-            printf("   %-36s %.3f s: repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total,
-                   rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
-            if (n == (1 << 30)) {
-                harness_result("mdev_2e31_total", "s", rns_st.t_total);
-                harness_result("mdev_2e31_crt", "s", rns_st.t_crt);
-                harness_result("mdev_2e31_ntt", "s", rns_st.t_fwd + rns_st.t_inv);
+            double dt = dev_mul(&C, &A, &B);
+            char what[64]; snprintf(what, sizeof what, "%zu x %zu limbs", n, n);
+            double t0 = now(); check_dev(what, &A, &B, &C, 1); double tc = now() - t0;
+            printf("   %-36s %.3f s (reference %s %.2f s with the faults)\n", what, dt, 2 * n <= TREF_EXACT_LIMBS ? "exact" : "residues", tc);
+            if (n == (1 << 20) || n == (1 << 24) || n == (1 << 26)) {
+                int lg = 0; while (((size_t)1 << lg) < 2 * n) lg++;
+                set_cap(lg - 1); dev_mul(&D, &A, &B); set_cap(0);
+                VERIFY(bi_cmp(&C, &D) == 0, "%s: the plane caps 2^%d and 2^%d differ", what, lg - 1, lg);
             }
+            if (n == (1 << 30)) harness_result("dist_2e31_total", "s", dt);
         }
+        bi_free(&D);
     }
-    /* mdev_pair vs two products */
-    if (!only_batch) {
-        bigint A2, C2; bi_init(&A2); bi_init(&C2);
-        static const size_t ps[] = {1 << 12, 1 << 20, (1 << 27) + 5};
-        for (size_t i = 0; i < 3; i++) {
-            bi_random(&A, ps[i], GEN_UNIFORM, &rng); bi_random(&A2, ps[i] - 3, GEN_ONES, &rng); bi_random(&B, ps[i] + 1, GEN_UNIFORM, &rng);
-            memset(&rns_st, 0, sizeof rns_st);
-            rns_mul_pair(&C, &A, &C2, &A2, &B);
-            check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
-            proof_case("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); proof_case("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
-            printf("   pair %zu limbs: %.3f s, %zu mdev (fwd %.3f)\n", ps[i], rns_st.t_total, rns_st.n_mdev, rns_st.t_fwd);
-        }
-        bi_free(&A2); bi_free(&C2);
-    }
-    if (g_proof) {
-        printf("TREF proof: %zu cases, %zu agree (tref_mul == rns_mul); %zu faults injected: missed new %zu, residue form %zu (on %zu small cases), old %zu\n",
-               pf_cases, pf_agree, pf_faults, pf_new_missed, pf_res_missed, pf_res_cases, pf_old_missed);
-        rns_shutdown(); return verify_done("t_mul");
-    }
-    if (big) {
-        printf("-- 3. 2.08e9 x 2.08e9 limbs (the 10dP product, > 2^31 points) through the split\n");
-        size_t n = 2080000000;
-        bi_random(&A, n, GEN_UNIFORM, &rng); bi_random(&B, n, GEN_UNIFORM, &rng);
-        memset(&rns_st, 0, sizeof rns_st);
-        double t0 = mem_now();
-        rns_mul(&C, &A, &B);
-        double dt = mem_now() - t0;
-        check_product("10dP-size split product", &A, &B, &C, 0);
-        printf("   %.2f s: %zu mdev, %zu splits; VmHWM %.1f GB\n", dt, rns_st.n_mdev, rns_st.n_split, mem_vmhwm() / 1e9);
-        harness_result("split_10dP_total_first", "s", dt);
-        memset(&rns_st, 0, sizeof rns_st); t0 = mem_now(); rns_mul(&C, &A, &B); dt = mem_now() - t0;
-        check_product("10dP-size split product (2nd)", &A, &B, &C, 0);
-        printf("   %.2f s second run: mdev total %.2f (repack %.2f h2d %.2f ntt %.2f d2h %.2f crt %.2f)\n", dt, rns_st.t_total,
-               rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd + rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
-        harness_result("split_10dP_total", "s", dt);
+    printf("   the reference caught every injected fault: %zu sets of 3, %zu missed\n", g_fault_sets, g_fault_missed);
     }
     /* 4. batch tier */
     printf("-- 4. batch: N products of <= 2^logL points, GPU and CPU CRT, registered and staged operands\n");

@@ -555,7 +555,7 @@ int main(int argc, char **argv)
             if (oc.hi && !oc.hi_rel) { mn_out_early_lo_release(oc.early, &Xm, mn_comm(0)); oc.hi_rel = 1; }   /* X_lo0 >= B^s -- X_lo now corrected (every rank: collective) */
             t_dm = mem_now() - td; mn_xn = Xm.n;
             mn_wait_stats_print(); comm_wst_set_phase(WST_OTHER);   /* D3: one line per node, then the rest of the run is 'other' */
-            newton_db_free_scratch(); rns_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
+            newton_db_free_scratch(); oc.Xm = &Xm;   /* B1 (H): X stays sharded; the output stage reads this node's share in place (the block pool is released after it) */
             memcpy(oc.Pres, Pres, sizeof Pres); memcpy(oc.Qres, Qres, sizeof Qres); memcpy(oc.Rres, Rres, sizeof Rres);   /* every node's own residues (the sharded kernels) -- the non-zero ranks go to the output stage from here */
             oc.ncorr = (int)(newton_st.down_corr + newton_st.up_corr); oc.t_bs = t_bs; oc.t_dm = t_dm;
             oc.defer = newton_x_defer; oc.dx = newton_x_dx;
@@ -603,7 +603,6 @@ int main(int argc, char **argv)
     { bigint MU; bi_init(&MU); newton_db_recip(&MU, &Q, k_mu); bi_free(&MU); }
     size_t hm1 = 0; for (int dv = 0; dv < 4; dv++) hm1 += db_pool_hipmalloc_bytes(dv);
     if (hm1 > hm0) printf("      recip: the block pool grew by %.1f GB of hipMalloc inside the phase\n", (hm1 - hm0) / 1e9);   /* what C3's sizing missed */
-    rns_free_scratch();
     t_recip = mem_now() - t;
     printf("recip %8.2f s   mu %zu limbs (%zu iterations, %zu mdev)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_recip, k_mu + 1, newton_st.iters, rns_st.n_mdev, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     mem_report("recip");
@@ -615,7 +614,6 @@ int main(int argc, char **argv)
     printf("      I3: P, Q residues by kernel %.2f s (before the reciprocal), S = P + Q on device %.2f s; no host A\n", t_res3, t_10dp);
     printf("10dP  %8.2f s   T %zu limbs, A %zu limbs (%zu mdev, %zu splits)   VmRSS %.1f GB, VmHWM %.1f GB\n", t_10dp, dl, bs_Pd.n + dl, rns_st.n_mdev, rns_st.n_split, mem_vmrss() / 1e9, mem_vmhwm() / 1e9);
     RESULT("10dP", "s", t_10dp);
-    rns_free_scratch();
 
     t = mem_now();
     memset(&rns_st, 0, sizeof rns_st);
@@ -631,7 +629,7 @@ int main(int argc, char **argv)
     if (topbg && !bs_ckpt_bg_done(topbg, 1)) topq_held = 1;   /* the writer still reads Q: its block is held until after the output stage */
     else db_free(&bs_Qd);
     mem_report("division");                           /* the pool at the end of the division, before it is released (its growth inside the phase and the peak) */
-    newton_db_free_scratch(); rns_free_scratch();     /* (X lives in the block pool until the output stage has written it: released after out_stage) */
+    newton_db_free_scratch();     /* (X lives in the block pool until the output stage has written it: released after out_stage) */
     t_dm = mem_now() - t + t_recip;
     printf("dm    %8.2f s   X %zu limbs (recip %.1f s; corrections %zu/%zu; %zu mdev)%s   VmRSS %.1f GB, VmHWM %.1f GB\n",
            t_dm, g_xhi.on ? g_xhi.s + g_xhi.Xh.n : Xdev.n, t_recip, newton_st.down_corr, newton_st.up_corr, rns_st.n_mdev, g_xhi.on ? "; X on the device as X_hi B^s + X_lo (MN_OUT_DKM_HI)" : "; X on the device", mem_vmrss() / 1e9, mem_vmhwm() / 1e9);

@@ -1,18 +1,6 @@
-/* rns_mul.h - the multiply tiers (ALGORITHM.md §4.4).
- *
- * mdev: one product, one prime per device.  Per device d (prime d): the host
- * threads of NUMA node d copy A and B into the device's pinned staging buffer
- * (the "repack to hstage_buf" step), a kernel canonicalises them into the
- * device pools ch_da / ch_db (2^POOL_LOG points each), forward NTT x 2,
- * pointwise fused into the inverse, and a kernel stores the
- * residue plane back into the staging buffer (rule 5: kernel store, not
- * hipMemcpy).  Then the CPU CRT (crt.h) over the four planes gives the limbs.
- *
- * split: any product over 2^POOL_LOG points is a Karatsuba over halves
- * (Q1 decision (i), RESULTS.md 35); unbalanced operands are chunked instead.
- * POOL_LOG = 32 (alternative (ii)) is a runtime switch: rns_init(32).
- *
- * school: products under RNS_SCHOOL_MAX points on the CPU.
+/* rns_mul.h - the batch product tiers of binary splitting, the GPU CRT and the plane pools (ALGORITHM.md §4.4); the
+ * distributed tier (rns_dist.c) is declared here too.  The host product tier (rns_mul: mdev, Karatsuba split, schoolbook) was
+ * removed by TREF (results/TREF.md): no production caller; the tests' reference product is tests/tref.h.
  */
 #ifndef EC_RNS_MUL_H
 #define EC_RNS_MUL_H
@@ -25,14 +13,12 @@ extern "C" {
 #endif
 
 typedef struct {
-    double t_repack, t_h2d, t_fwd, t_inv, t_d2h, t_crt, t_total;
+    double t_repack, t_h2d, t_fwd, t_inv, t_d2h, t_crt, t_total;   /* (t_* and n_mdev, n_split, n_school, points_mdev: the removed host tier's; stay 0) */
     double tb_scatter, tb_ntt, tb_crt, tb_merge, tb_total;   /* batch tier, max over devices per tile, summed */
     size_t n_mdev, n_split, n_school, n_batch, points_mdev;
     size_t n_batch_local, n_batch_pair;                      /* products through the locality-aware tier, of them in paired-B tiles */
 } rns_stats;
 extern rns_stats rns_st;
-extern int rns_school_max;        /* points (na+nb) below which the CPU schoolbook is used (default 1024) */
-extern int rns_crt_threads;       /* default: all */
 
 int  rns_init(int pool_log);      /* 31 (default) or 32; allocates staging + pools, returns ndev */
 extern void (*rns_after_staging_hook)(void *); extern void *rns_hook_arg;   /* called inside rns_init once the pinned staging exists */
@@ -51,17 +37,6 @@ int  rns_pool_log(void);
 int  rns_ndev(void);
 void rns_shutdown(void);
 
-/* C = A * B (any sizes; C may not alias A or B) */
-void rns_mul(bigint *C, const bigint *A, const bigint *B);
-void rns_free_scratch(void);      /* release the split tiers' grow-only temporaries */
-/* C = (A B) mod 2^(64 w): the low product, split so nothing above w limbs is formed */
-void rns_mul_low(bigint *C, const uint64_t *a, size_t na, const uint64_t *b, size_t nb, size_t w);
-/* C = A * B by one mdev product; na + nb must fit 2^pool_log points, >= 2^10 */
-void rns_mul_mdev(bigint *C, const uint64_t *a, size_t na, const uint64_t *b, size_t nb);
-
-/* mdev_pair: C1 = A1 B and C2 = A2 B, B transformed once (falls back to two rns_mul) */
-void rns_mul_pair(bigint *C1, const bigint *A1, bigint *C2, const bigint *A2, const bigint *B);
-
 /* batch: N independent products a_i * b_i -> c_i (na_i + nb_i limbs each, not
  * normalised), all with na_i + nb_i <= L_sub = 2^logL, logL <= RNS_BATCH_LOGL_MAX.
  * Tiles of M = min(N, rns_batch_tile_bytes / (3 L_sub 8)) products: a
@@ -79,13 +54,11 @@ typedef struct { const uint64_t *a; size_t na; const uint64_t *b; size_t nb; uin
 extern size_t rns_batch_tile_bytes;   /* default 15e9 */
 extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per product so M S >= rns_gpucrt_blocks (912) */
 extern int rns_gpucrt_blocks;
-extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */
 void rns_mul_batch(rns_prod *P, size_t N);
 int rns_crt_scan_on(void);           /* K4b: RNS_CRT_SCAN (default 1 since D21; =0 = the serial carry chain) */
 int rns_batch_pipe_on(void);          /* N3: BS_BATCH_PIPE (default 1 since D20; =0 = the old host side): the batch tier's host side in parallel and its tiles back to back */
 uint64_t *rns_hstage(int dev);
-/* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform */
-void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);
+/* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform (dbig operands) */
 struct dbig_s; void rns_mul_dist_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B);   /* dbig operands (dbig.h) */
 void rns_mul_low_db(struct dbig_s *C, const struct dbig_s *A, const struct dbig_s *B, size_t w);        /* low w limbs of A B */
 /* the high product (only C >> cut used: the grid's pieces below the cut skipped) and the transform

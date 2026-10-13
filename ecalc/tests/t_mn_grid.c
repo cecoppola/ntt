@@ -1,5 +1,5 @@
 /* t_mn_grid - the multi-node product tier over shares: products of sharded random numbers against the
- * host product (rns_mul, GMP-checked in t_mul), in shapes that force one plane, 1 x 2, 2 x 3 and 3 x 1 grids of piece
+ * test reference (tref_mul, tests/tref.h: GMP, or the one-node device product at the default plane checked by residues), in shapes that force one plane, 1 x 2, 2 x 3 and 3 x 1 grids of piece
  * products, with the added operand X, as low products (pieces above a window skipped), with operand views, operands
  * sharded over subgroups (the tree's layout), and the shifted distributed add on its own.  DIST_LOGN_TEST=24 caps the
  * plane at 2^24 points per node, so the shapes are small multiples of the cap 2^(24 + floor(log2 g)).  Run under
@@ -8,6 +8,7 @@
  * SLURM_JOB_ID=<id> ./mnrun.sh 3 ./tests/t_mn_grid [scale] [pool_log]  (scale: the shapes' unit as a fraction of the
  * cap, default 1; 0.25 for a quick run).  Every node checks its own share and the length. */
 #include "harness.h"
+#include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
 #include "../mdb.h"
@@ -69,7 +70,7 @@ int main(int argc, char **argv)
         make_mdb(&B, &b, nb + 2, sub ? half : 0, sub ? g_size - half : g_size);
         make_mdb(&X, &x, nb, sub ? half : 0, sub ? g_size - half : g_size);
         double t0 = now();
-        rns_mul_dist_mn(&C, &A, &B, 0, G); rns_mul(&r, &a, &b);
+        rns_mul_dist_mn(&C, &A, &B, 0, G); tref_mul(&r, &a, &b);
         VERIFY(check(&C, &r, "product"), "%s %zu x %zu %s", sh[si].name, na, nb, gen_name[kind]);
         if (g_me == 0 && kind == 0) printf("   %s %zu x %zu: %.2f s\n", sh[si].name, na, nb, now() - t0);
         rns_mul_dist_mn(&C, &A, &B, &X, G); bi_add(&t, &r, &x);
@@ -92,7 +93,7 @@ int main(int argc, char **argv)
                     size_t oa = (size_t)i * pa, ob = (size_t)j * pb;
                     bigint ha = { a.l + oa, an - oa < pa ? an - oa : pa, 0 }, hb = { b.l + ob, bn - ob < pb ? bn - ob : pb, 0 }; bi_norm(&ha); bi_norm(&hb);
                     if (!ha.n || !hb.n || oa + ob + ha.n + hb.n > cut) continue;
-                    rns_mul(&rl, &ha, &hb); bi_shl_limbs(&rl, &rl, oa + ob); bi_sub(&t, &t, &rl); skipped++;
+                    tref_mul(&rl, &ha, &hb); bi_shl_limbs(&rl, &rl, oa + ob); bi_sub(&t, &t, &rl); skipped++;
                 }
                 if (hc) ref_low(&rl, &t, w); else bi_copy(&rl, &t);
                 VERIFY(check(&C, &rl, "lowcut") && (!hc || C.N <= w), "%s lowcut %zu%s: %d x %d pieces, %d skipped %s", sh[si].name, cut, hc ? " + highcut" : "", ka, kb, skipped, gen_name[kind]);
@@ -103,7 +104,7 @@ int main(int argc, char **argv)
             mdbv av = mdb_view(&A, oa, la, G), bv = mdb_view(&B, ob, lb, G);
             bigint ha = { a.l + oa, la, 0 }, hb = { b.l + ob, lb, 0 }; bi_norm(&ha); bi_norm(&hb);
             VERIFY(av.len == ha.n && bv.len == hb.n, "%s view lengths %zu/%zu vs %zu/%zu", sh[si].name, av.len, bv.len, ha.n, hb.n);
-            rns_mul_dist_mn_v(&C, &av, &bv, 0, G, (size_t)-1); rns_mul(&t, &ha, &hb);
+            rns_mul_dist_mn_v(&C, &av, &bv, 0, G, (size_t)-1); tref_mul(&t, &ha, &hb);
             VERIFY(check(&C, &t, "views"), "%s views %zu x %zu %s", sh[si].name, la, lb, gen_name[kind]);
             size_t w = la + 3; rns_mul_dist_mn_v(&C, &av, &bv, 0, G, w); ref_low(&rl, &t, w);
             VERIFY(check(&C, &rl, "views low"), "%s views low w %zu %s", sh[si].name, w, gen_name[kind]);
@@ -128,7 +129,7 @@ int main(int argc, char **argv)
             size_t na = (size_t)(u1 * (si == 0 ? 0.6 : si == 1 ? 1.03 : 0.3)), nb = (size_t)(u1 * (si == 0 ? 0.5 : si == 1 ? 1.03 : 0.25));
             rnd_bi(&a, na, kind); rnd_bi(&b, nb, kind); rnd_bi(&x, nb - 3, kind);
             make_mdb(&A, &a, na + 5, g0, 1); make_mdb(&B, &b, nb + 2, g0 + 1, 1); make_mdb(&X, &x, nb, g0 + 1, 1);
-            rns_mul_dist_mn(&C, &A, &B, 0, G1); rns_mul(&r, &a, &b);
+            rns_mul_dist_mn(&C, &A, &B, 0, G1); tref_mul(&r, &a, &b);
             VERIFY(check(&C, &r, "subgroup product"), "group [%d, %d) product %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);
             rns_mul_dist_mn(&C, &A, &B, &X, G1); bi_add(&t, &r, &x);
             VERIFY(check(&C, &t, "subgroup product + x"), "group [%d, %d) product + x %zu x %zu %s", g0, g0 + g1, na, nb, gen_name[kind]);

@@ -1,6 +1,7 @@
 /* t_dbig - the device bigint against the host bigint: shifts, add, sub, cmp, norm, set_base_pow,
  * from/to host, across quarter boundaries (decimal limbs). */
 #include "harness.h"
+#include "tref.h"
 #include <hip/hip_runtime.h>
 #include "../dbig.h"
 #include "../verify.h"
@@ -46,7 +47,7 @@ int main(int argc, char **argv)
           rnd_bi(&a, ns[i], kind); db_from_bi(&x, &a);
           for (int j = 0; j < T1_NQ; j += 3) VERIFY(db_mod_q(&x, t1_q[j]) == vf_limbs_mod(a.l, a.n, t1_q[j]), "mod q n %zu %s q%d", ns[i], gen_name[kind], j);
       } }
-    /* products on device operands against rns_mul (which is GMP-checked in t_mul) */
+    /* products on device operands against the test reference (tests/tref.h: GMP to 2^21 limbs, the residue form above) */
     if (argc > 2) {
         int big = !strcmp(argv[2], "big");                    /* include the products that split (> 2^31 points) */
         struct { size_t na, nb; } pc[] = { {1000, 1000}, {600000, 500000}, {1u << 20, (1u << 20) + 7}, {(1u << 24) + 3, 1u << 23}, {1u << 27, 1u << 27}, {(size_t)1 << 30, ((size_t)1 << 30) + 5}, {(size_t)1 << 31, (size_t)1 << 30} };
@@ -55,8 +56,8 @@ int main(int argc, char **argv)
             rnd_bi(&a, pc[i].na, kind); rnd_bi(&b, pc[i].nb, kind);
             db_from_bi(&x, &a); db_from_bi(&y, &b);
             double t0 = now(); rns_mul_dist_db(&z, &x, &y); double t1 = now();
-            rns_mul(&r, &a, &b);
-            VERIFY(same(&z, &r, "dist_db"), "dist_db %zux%zu %s", pc[i].na, pc[i].nb, gen_name[kind]);
+            db_to_bi(&r, &z); char what[64]; snprintf(what, sizeof what, "dist_db %zux%zu %s", pc[i].na, pc[i].nb, gen_name[kind]);
+            tref_check(what, &a, &b, &r);
             if (kind == 0) printf("   dist_db %zux%zu: %.3f s\n", pc[i].na, pc[i].nb, t1 - t0);
         }
         /* the grid split at small sizes: DIST_LOGN_TEST=24 caps the plane at 2^24, so 9.3e6 x 9.3e6 is the shape of
@@ -67,8 +68,11 @@ int main(int argc, char **argv)
             for (size_t i = 0; i < 5; i++) for (int kind = 0; kind < 2; kind++) {
                 rnd_bi(&a, gc[i].na, kind); rnd_bi(&b, gc[i].nb, kind);
                 db_from_bi(&x, &a); db_from_bi(&y, &b);
-                rns_mul_dist_db(&z, &x, &y); rns_mul(&r, &a, &b);
-                VERIFY(same(&z, &r, "grid"), "grid %zux%zu %s", gc[i].na, gc[i].nb, gen_name[kind]);
+                rns_mul_dist_db(&z, &x, &y); db_to_bi(&r, &z);                  /* the grid's product, checked by the reference; then r is */
+                char what[64]; snprintf(what, sizeof what, "grid %zux%zu %s", gc[i].na, gc[i].nb, gen_name[kind]);   /* the reference of the low products */
+                tref_check(what, &a, &b, &r);
+                { bigint r1; bi_init(&r1); tref_mul(&r1, &a, &b);                 /* the default plane (one plane): the same value */
+                  VERIFY(bi_cmp(&r, &r1) == 0, "%s: the grid at 2^24 differs from the one-plane product", what); bi_free(&r1); }
                 for (int wv = 0; wv < 3; wv++) {                              /* low products: pieces above w skipped */
                     size_t w = wv == 0 ? gc[i].na + 2 : wv == 1 ? gc[i].na / 2 + 1 : r.n - 1;
                     rns_mul_low_db(&z, &x, &y, w);

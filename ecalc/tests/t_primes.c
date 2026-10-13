@@ -12,9 +12,10 @@
  *     three-prime result against the four-prime one on the same coefficients
  *  4. (argument gpu [log2 of the largest dist operand, 30]) end to end on the GPUs at the ec_np of the environment
  *     (ECALC_NP=3 or 4, decimal limbs): all-(B-1) operands (every coefficient at its maximum, the worst case) n x n
- *     through rns_mul (mdev / Karatsuba) and rns_mul_dist up to n = 2^30 (2^31 points, peak coefficient 2^30 (B-1)^2),
- *     checked against the closed form B^2n - 2 B^n + 1 (GMP-checked itself at n <= 2^20); random operands through the
- *     same tiers and the batch tier against mpz_mul (<= 2^20 limbs) or the mod 2^61-1 residue (above)
+ *     through the device path (rns_mul_dist_db) up to n = 2^30 (2^31 points, peak coefficient 2^30 (B-1)^2) at two plane
+ *     sizes -- the default (one plane) and, to n = 2^29, half of it (DIST_LOGN_TEST: a 2-piece grid; TREF replaced the removed
+ *     host tier rns_mul by it) -- checked against the closed form B^2n - 2 B^n + 1 (GMP-checked itself at n <= 2^20) and
+ *     against each other; random operands through both and the batch tier against the test reference (tests/tref.h)
  *
  * Usage: t_primes [gpu [LOGMAX (30)]]      (parts 1-3 need no GPU; ECALC_NP is read by part 4 only)
  */
@@ -26,6 +27,8 @@
 #include <omp.h>
 #ifdef T_PRIMES_GPU
 #include "../rns_mul.h"
+#include "../dbig.h"
+#include "tref.h"
 #endif
 
 static const uint64_t B = BI_B10;
@@ -196,15 +199,15 @@ static int allmax_ok(const bigint *C, size_t n)
     for (size_t k = n + 1; k < 2 * n; k++) if (C->l[k] != B - 1) return 0;
     return 1;
 }
-static void check_rand(const char *what, const bigint *A, const bigint *Bb, const bigint *C)
+static void check_rand(const char *what, const bigint *A, const bigint *Bb, const bigint *C) { tref_check(what, A, Bb, C); }
+/* C = A B on the device path; cap = the plane cap 2^cap (DIST_LOGN_TEST), 0 = the default */
+static void dev_mul(bigint *C, const bigint *A, const bigint *Bb, int cap)
 {
-    if (A->n + Bb->n <= ((size_t)1 << 21)) {
-        mpz_t a, b, c; mpz_inits(a, b, c, NULL); bi_to_mpz(a, A); bi_to_mpz(b, Bb); mpz_mul(c, a, b);
-        VERIFY(bi_eq_mpz(C, c), "%s: product differs from mpz_mul", what); mpz_clears(a, b, c, NULL);
-    } else {
-        uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(Bb->l, Bb->n), rc = limbs_mod_m61(C->l, C->n);
-        VERIFY(m61_mul(ra, rb) == rc, "%s: residue mod 2^61-1 differs", what);
-    }
+    char cb[16]; if (cap) { snprintf(cb, sizeof cb, "%d", cap); setenv("DIST_LOGN_TEST", cb, 1); }
+    dbig x, y, z; db_init(&x); db_init(&y); db_init(&z);
+    db_from_bi(&x, A); db_from_bi(&y, Bb); rns_mul_dist_db(&z, &x, &y); db_to_bi(C, &z);
+    db_free(&x); db_free(&y); db_free(&z);
+    if (cap) unsetenv("DIST_LOGN_TEST");
 }
 static void part4(int logmax)
 {
@@ -213,26 +216,29 @@ static void part4(int logmax)
     bigint A, Bb, C; bi_init(&A); bi_init(&Bb); bi_init(&C);
     rng_t rng = { 0x3B1ULL };
     /* the closed form itself against GMP */
-    { size_t n = (size_t)1 << 20; bi_random(&A, n, GEN_ONES, &rng); bi_random(&Bb, n, GEN_ONES, &rng); rns_mul(&C, &A, &Bb);
+    { size_t n = (size_t)1 << 20; bi_random(&A, n, GEN_ONES, &rng); bi_random(&Bb, n, GEN_ONES, &rng); dev_mul(&C, &A, &Bb, 0);
       mpz_t a, b, c; mpz_inits(a, b, c, NULL); bi_to_mpz(a, &A); bi_to_mpz(b, &Bb); mpz_mul(c, a, b);
-      VERIFY(bi_eq_mpz(&C, c) && allmax_ok(&C, n), "all-(B-1) 2^20 x 2^20: rns_mul == mpz_mul == closed form"); mpz_clears(a, b, c, NULL); }
-    for (int tier = 0; tier < 2; tier++) {
+      VERIFY(bi_eq_mpz(&C, c) && allmax_ok(&C, n), "all-(B-1) 2^20 x 2^20: the device product == mpz_mul == closed form"); mpz_clears(a, b, c, NULL); }
+    bigint D; bi_init(&D);
+    for (int tier = 0; tier < 2; tier++) {                                   /* tier 0: half the plane (a 2-piece grid), tier 1: the default */
         for (int lg = 19; lg <= logmax; lg++) {
             size_t n = (size_t)1 << lg;
-            if (tier == 0 && lg > 29) break;                                 /* rns_mul: mdev up to the pool, Karatsuba above (2^29: 2 x 2^30 host) */
+            if (tier == 0 && lg > 29) break;                                 /* (as the removed host tier: to 2^29) */
+            int cap = tier == 0 ? (lg < 20 ? 20 : lg) : 0;                    /* 2 n = 2^(lg+1) points under a 2^lg cap */
+            const char *nm = tier ? "dist" : "grid";
             bi_random(&A, n, GEN_ONES, &rng); bi_random(&Bb, n, GEN_ONES, &rng);
-            double t0 = now();
-            if (tier == 0) rns_mul(&C, &A, &Bb); else rns_mul_dist(&C, &A, &Bb);
-            double t1 = now();
-            VERIFY(allmax_ok(&C, n), "%s all-(B-1) 2^%d x 2^%d (peak coefficient 2^%d (B-1)^2)", tier ? "dist" : "rns_mul", lg, lg, lg);
-            printf("   %-8s all-(B-1) 2^%d x 2^%d (2^%d points): %s  %.2f s\n", tier ? "dist" : "rns_mul", lg, lg, lg + 1, allmax_ok(&C, n) ? "exact" : "WRONG", t1 - t0);
-            if (lg <= 25 || lg == logmax) {                                   /* random operands, the same sizes (uneven) */
+            double t0 = now(); dev_mul(&C, &A, &Bb, cap); double t1 = now();
+            VERIFY(allmax_ok(&C, n), "%s all-(B-1) 2^%d x 2^%d (peak coefficient 2^%d (B-1)^2)", nm, lg, lg, lg);
+            printf("   %-8s all-(B-1) 2^%d x 2^%d (2^%d points, cap %s): %s  %.2f s\n", nm, lg, lg, lg + 1, cap ? "half" : "default", allmax_ok(&C, n) ? "exact" : "WRONG", t1 - t0);
+            if (lg <= 25 || lg == logmax) {                                   /* random operands, the same sizes (uneven): both caps agree */
                 bi_random(&A, n + 3, GEN_UNIFORM, &rng); bi_random(&Bb, n - 5, GEN_UNIFORM, &rng);
-                if (tier == 0) rns_mul(&C, &A, &Bb); else rns_mul_dist(&C, &A, &Bb);
-                char what[64]; snprintf(what, sizeof what, "%s random 2^%d", tier ? "dist" : "rns_mul", lg); check_rand(what, &A, &Bb, &C);
+                dev_mul(&C, &A, &Bb, cap);
+                char what[64]; snprintf(what, sizeof what, "%s random 2^%d", nm, lg); check_rand(what, &A, &Bb, &C);
+                if (tier == 0) { dev_mul(&D, &A, &Bb, 0); VERIFY(bi_cmp(&C, &D) == 0, "%s: half and default plane differ", what); }
             }
         }
     }
+    bi_free(&D);
     /* the batch tier (striped, staged operands: host memory): 16 products each of 2^k x 2^k limbs */
     for (int lg = 10; lg <= 18; lg += 4) {
         size_t n = (size_t)1 << lg, N = 16; rns_prod P[16]; bigint As[16], Bs[16]; uint64_t *cs[16];

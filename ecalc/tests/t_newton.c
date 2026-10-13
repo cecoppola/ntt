@@ -15,6 +15,7 @@
  * Decimal limbs only since archive:PLAN §28.5.
  */
 #include "harness.h"
+#include "tref.h"
 #include "../newton.h"
 /* the X_hi / X_lo hooks of the DKM division -- X_hi copied out and freed (taken), the X_lo hook's carry recorded */
 #include "../dbig.h"
@@ -142,13 +143,13 @@ int main(int argc, char **argv)
         bi_random(&Q, nq, GEN_ONES, &rng);                  check_div("Q = 2^k - 1", &A, dl, &Q, 0);
         /* near multiples: S = Q Y - 1, Q Y, Q Y + 1 (A a multiple of Q, and one off) */
         bi_random(&Q, nq, GEN_UNIFORM, &rng); bi_random(&Y, nq - dl, GEN_UNIFORM, &rng);
-        rns_mul(&t, &Q, &Y);
+        tref_mul(&t, &Q, &Y);
         bi_copy(&A, &t); check_div("S = Q Y", &A, dl, &Q, 0);
         bi_add_u64(&A, 1); check_div("S = Q Y + 1", &A, dl, &Q, 0);
         bi_set_u64(&X, 1); bi_sub(&A, &t, &X); check_div("S = Q Y - 1", &A, dl, &Q, 0);
         /* overshoot path via a perturbed seed (seed x 40/16 > 2x: T2 < T1); not at
-         * schoolbook sizes (3 nq < 4 rns_school_max) */
-        if (3 * nq >= 4 * (size_t)rns_school_max) {
+         * schoolbook sizes (3 nq < 4 x 1024, the removed host tier's schoolbook limit, kept as the test's bound) */
+        if (3 * nq >= 4 * (size_t)1024) {
         newton_seed_perturb = 40;
         bi_random(&A, 2 * nq - dl, GEN_UNIFORM, &rng);
         { size_t o = newton_st.overshoots; check_div("perturbed seed", &A, dl, &Q, 0);
@@ -250,7 +251,7 @@ int main(int argc, char **argv)
                 case 2: dl = nq / 4; sn = 2 * nq; break;           /* dl < k/2: s = dl, a fresh reciprocal */
                 default: dl = nq - 3 - (shape & 1); sn = nq; break;
                 }
-                if (shape == 3) { bi_random(&Y6, 2, GEN_UNIFORM, &rng); rns_mul(&S6, &Q, &Y6); }   /* A = Q Y B^dl: R1 = 0, X_lo = 0 */
+                if (shape == 3) { bi_random(&Y6, 2, GEN_UNIFORM, &rng); tref_mul(&S6, &Q, &Y6); }   /* A = Q Y B^dl: R1 = 0, X_lo = 0 */
                 else bi_random(&S6, sn, GEN_UNIFORM, &rng);
                 bi_shl_limbs(&A6, &S6, dl);
                 bi_to_mpz(a, &A6); bi_to_mpz(q, &Q); mpz_tdiv_qr(x, zr, a, q);
