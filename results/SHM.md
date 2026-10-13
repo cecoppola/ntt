@@ -49,18 +49,23 @@ At the target the `COMM_OFI=0` pool grows by 7424 MiB (7.25 GiB) per node (mod);
 The base value 10240 MiB at the target (results/TGT.md) would have failed the same way: a general area of about 2 GiB
 for 1.6 GiB of control and 7.1 GiB of slots (mod).
 
-Runs (aac7, m): PENDING -- queue item `50_shm_pool.sh`, results in `~/shm/summary.txt`.
+Runs (aac7, measured, 1e10 digits, `COMM_OFI=0`, aac7 launch line; queue item `50_shm_pool.sh`, summary `~/shm/summary.txt`; times ET):
 
-| run | nodes | rc | VERIFY | digits | total |
-|---|---|---|---|---|---|
-| base `COMM_OFI=0` (reproduction) | 6 | | | not written | |
-| fix `COMM_OFI=0` | 6 | | | | |
-| fix `COMM_OFI=0` | 4 | | | | |
-| fix `COMM_OFI=0` | 2 | | | | |
-| `gate.sh --build --nodes 2` (defaults) | 2 | | | | |
-| `gate.sh --nodes 1` (defaults) | 1 | | | | |
+| run | nodes | rc | VERIFY | digits | total | pool (MiB) |
+|---|---|---|---|---|---|---|
+| base `COMM_OFI=0` (reproduction, 09:50) | 6 | 3 | NO | not written (init failed) | - | 2816 |
+| fix `COMM_OFI=0` (09:53) | 6 | 0 | OK | identical | 40.28 s | 3328 |
+| fix `COMM_OFI=0` (09:55) | 4 | 0 | OK | identical | 39.20 s | 3584 |
+| fix `COMM_OFI=0` (09:57) | 2 | 0 | OK | identical | 47.66 s | 4608 |
+| `gate.sh --build --nodes 2` (defaults, 1e9, 09:58) | 2 | 0 | OK | identical | 91 s gate (ecalc total 19.10 s) | - |
+| `gate.sh --nodes 1` (defaults, 1e9, 09:59) | 1 | 0 | OK | identical | 24 s gate (ecalc total 10.80 s) | - |
 
-**Verdict.** PENDING the runs. Merge when the four fix rows and both gates pass.
+The base run reproduces the NIGHT failure (rc 3 on every rank after init, pool 2816 MiB). The fix passes at 6, 4 and 2
+nodes with byte-identical digits. Timings are single runs per node count (measured; no ABBA pair, so no timing claim).
+
+**Verdict.** Fixed. The 6-node `COMM_OFI=0` run that failed on main now completes with VERIFY OK and identical digits,
+and the 4- and 2-node runs and both gates pass. The fix changes only the model's pool size (digits cannot change); no
+switch was needed. Merged to `main` 2026-10-13.
 
 **Open issues.**
 - Memory cost under `COMM_OFI=0`: the slots and the staging no longer share space (+7.25 GiB host per node at the target,
@@ -69,7 +74,5 @@ Runs (aac7, m): PENDING -- queue item `50_shm_pool.sh`, results in `~/shm/summar
 - The model's control (14 MiB at 6 nodes) is below the measured in-use control (24 MiB); the 256 MiB margin covers it.
 - 3 and 5 nodes (cut groups, slots present) not run.
 
-**RESUME.** Branch `shm` (local worktree `../ntt-wt-shm`; aac7 worktrees `~/ntt-wt/shm` and `~/ntt-wt/shm-base`,
-outputs in `~/shm/`). Queue item `50_shm_pool.sh` writes `~/shm/summary.txt` and the marker `~/shm/DONE`. Next: read the
-summary, fill the runs table and the verdict, doccheck 0, merge `shm` to `main`, push, sync aac7 `~/ntt-acc`, remove the
-worktrees (local and both on aac7) and `~/shm/bin`, check no job steps are left.
+**RESUME.** Done: runs in, merged to `main`, branch `shm` deleted (local and GitHub), worktrees and `~/shm/bin` removed.
+Nothing open except the 3- and 5-node runs and the memory cost above (not blocking).

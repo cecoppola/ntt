@@ -28,6 +28,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | target device edge | 93.36 GB per APU = 373.44 GB per node (n = 5, 0 % spread) | m (target) | results/TGTBENCH2.md |
 | `comm_ofi` vs SHMEM, 10 nodes, 8.1 × 10¹¹ | 1669.98 s vs 3532.05 s (× 2.1) | m | results/OFI17.md, STD17.md |
 | overnight 2026-10-13 (commit 4ae95ec1): sweep 60/60 and fallbacks 17/18 digit-identical; 6-node repeat 202.1 s mean; open bugs: `COMM_OFI=0` at 6 nodes (pool), large run timed out on the slow file system | m | results/NIGHT.md |
+| `COMM_OFI=0` pool at 6 nodes (NIGHT bug A): the v-slots now count in the SHMEM pool; 1e10 6-node run rc 3 -> VERIFY OK, digits identical; 4 and 2 nodes OK (pool 2816 -> 3328 MiB at 6 nodes) | 40.28 / 39.20 / 47.66 s total (single runs) | m | results/SHM.md |
 
 ## Adopted changes in force (code defaults)
 
