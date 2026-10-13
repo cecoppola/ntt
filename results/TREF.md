@@ -5,8 +5,8 @@ chunked split, the CPU schoolbook, `rns_mul_low`, `rns_mul_pair`; no production 
 (it must catch injected faults and agree with the old reference on every existing `t_mul` case), then move the tests and
 remove the tier. No switch, no default, no digit changed.
 
-**Change / branch.** Branch `tref` (from main b80ee2e). Commits: faaf8f2 + 3e1b35b (the reference and `t_mul`'s proof mode,
-against the old tier), 3e8665c (the removal and the tests moved), then docs. Files: `ecalc/tests/tref.h` (new),
+**Change / branch.** Branch `tref` (from main b80ee2e). Commits (after the rebase on bb4daa7): f3b1145 + 017ab22 (the reference and `t_mul`'s proof mode,
+against the old tier), ee86e21 (the removal and the tests moved), then docs. Files: `ecalc/tests/tref.h` (new),
 `ecalc/tests/harness.h`, `t_mul.c`, `t_dbig.c`, `t_newton.c`, `t_mn_grid.c`, `t_primes.c`; `ecalc/rns_mul.c/h`,
 `ecalc/rns_dist.c`, `ecalc/ecalc.c` (three `rns_free_scratch()` calls dropped), the registry (a count).
 
@@ -29,7 +29,7 @@ against the old tier), 3e8665c (the removal and the tests moved), then docs. Fil
 ## Method
 
 aac7 queue items (2 nodes; logs on aac7 under `~/tref/q1/`, `~/tref/q2/`, raw, not in git; drivers in `archive:drivers/tref/`):
-- **Proof** (the old tier still present): `t_mul 20 tref` at commit 3e1b35b. On every product of the old sections 1 (pool 2^20:
+- **Proof** (the old tier still present): `t_mul 20 tref` at commit 3e1b35b (017ab22 after the rebase). On every product of the old sections 1 (pool 2^20:
   tiers and boundaries, 13 shapes x 5 generators), the low products, 2 (2^16 .. 2^30 limbs per operand) and the pair section:
   `tref_mul`'s value == `rns_mul`'s; the old check (GMP / three residues) accepts `tref_mul`'s value; `tref_check` accepts
   `rns_mul`'s (exact, and also the residue form at small sizes); one limb changed at the low end, the middle and the top must
@@ -44,20 +44,20 @@ aac7 queue items (2 nodes; logs on aac7 under `~/tref/q1/`, `~/tref/q2/`, raw, n
 | item | result |
 |---|---|
 | proof, run 1 (sections 1, low products, 2 up to 2^24 x 2^24) | 72 products: value `tref_mul` == `rns_mul` on all 72; 0 VERIFY failures; every injected fault caught (new check, residue form, old check). The run was OOM-killed at 2^26 x 2^26 (one process holding the host tier's pinned staging and pools and the device tier's; VmHWM of the old `t_mul` alone 114.6 GB, of the new 128.1 GB) |
-| proof, run 2 (sections 2 + pair, value agreement to 2^25 product limbs, above it cross-acceptance) | PROOF2 |
+| proof, run 2 (sections 2 + pair, value agreement to 2^25 product limbs, above it cross-acceptance) | 17 products (11 by value: 2^16 .. 2^24 x 2^24 and the pair cases at 2^12, 2^20; 6 by cross-acceptance: 2^26, 2^27, 2^28, 2^30 and pair 2^27+5): 11 of 11 agree, the new check accepts all 17 of `rns_mul`'s products; 51 faults injected: 0 missed by the new check, 0 by the residue form (9 small cases), 0 by the old check; VERIFY OK (150 checks), 330 s |
 | `t_mul 20` before (main b80ee2e) | 737 s, VERIFY OK (169 checks) |
 | `t_mul 20` after (branch) | **187 s** (−550 s, −75 %), VERIFY OK (260 checks); 23 fault sets x 3 injected, 0 missed |
 | `t_dbig 24 prod` (products to 2^27 against the reference) | 67 s, VERIFY OK (565 checks) |
 | `t_primes gpu 26` (both plane sizes, closed form) | 45 s, VERIFY OK (89 checks) |
-| gate `--build --nodes 2` / `--nodes 1` | GATES |
-| `mnaccept.sh --only unit` (item 1, branch 3e8665c) | 9 passed, 0 failed: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20 (2756 checks), t_verify, t_out, t_patch, t_mn_grid at 2 processes (244 checks; its reference is now `tref_mul`) |
+| gate `--build --nodes 2` / `--nodes 1` | PASS / PASS (item 2, branch a5ad2cd: 10⁹ digits identical, VERIFY OK; ecalc total 21.84 s at 2 nodes with P24, 9.76 s at 1 node) |
+| `mnaccept.sh --only unit` (item 1, branch 3e8665c, ee86e21 after the rebase) | 9 passed, 0 failed: t_ntt 24, t_mul 20, t_bs, t_dbig 0, t_newton 20 (2756 checks), t_verify, t_out, t_patch, t_mn_grid at 2 processes (244 checks; its reference is now `tref_mul`) |
 
 Reference cost inside `t_mul` §2 (with the three injected faults): exact 2^20 x 2^20 8.2 s; residue form 2^24 x 2^24 0.07 s,
 2^30 x 2^30 2.7 s (m). The device product at 2^30 x 2^30 took 2.9 s.
 
 **Lines** (`git diff --numstat b80ee2e..tref`, m): production code −404 / +10 (`rns_mul.c` −341 / +3, `rns_mul.h` −32 / +5,
 `rns_dist.c` −27, `ecalc.c` −4 / +2); tests +393 / −148 (`tref.h` +148 new, `harness.h` +93 / −6, `t_mul.c` +102 / −105, the
-other four tests +49 / −37); docs +10 / −1. Net: LINES.
+other four tests +49 / −37); docs +10 / −1. Net over code, tests and central docs: −141.
 
 Removed (byte-identical pre-change files in `archive:removed_2026-10-13/tref/ecalc/`): `rns_mul`, `rns_mul_low`, `rns_mul_mdev`,
 `rns_mul_pair`, `mdev_core`, `mul_karatsuba`, `mul_chunked`, `mul_rec`, `rns_free_scratch`, `mdev_gpu_crt`, `mdev_pts`,
@@ -66,7 +66,7 @@ bigints), `acc_flat` and its staging in `rns_dist.c`. `t_mul`'s sections 1-3 (th
 `big32`) are replaced by the device-path sections; `t_primes` tier 0 (`rns_mul`) is now the device path at half the plane.
 
 **Verdict.** The reference catches every injected fault (0 missed of all sets, both forms) and agrees with the old reference on
-every case it was run on; the host tier is removed. `t_mul 20` is 3.9x faster.
+every case: 83 products by value, 6 large ones by cross-acceptance; the host tier is removed. `t_mul 20` is 3.9x faster.
 
 **Open issues.**
 - `struct acc`'s `flat` branches in `rns_dist.c` (the host-result spill merge, `A.flat` tests) are now dead: about 25 lines, left
@@ -78,4 +78,4 @@ every case it was run on; the host tier is removed. `t_mul 20` is 3.9x faster.
 
 ## RESUME
 
-State: RESUME_STATE
+State: done; merged to main. Nothing open but the open issues above.
