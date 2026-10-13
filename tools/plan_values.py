@@ -191,7 +191,7 @@ def main(argv):
             print("  " + l)
         if cxi_note:
             print("  note: " + cxi_note)
-        if "REFUSED" in verdict:
+        if "REFUSED" in verdict and verdict not in fit:
             print("  " + verdict)
         print("  verdict: %s" % ("FITS -- the launch may proceed" if fits and "REFUSED" not in verdict else "DOES NOT FIT -- a launch is refused"))
         return 0 if fits and "REFUSED" not in verdict else 1
