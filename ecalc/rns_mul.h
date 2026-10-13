@@ -81,7 +81,7 @@ extern int rns_gpucrt_min;            /* default 1: GPU CRT with S stripes per p
 extern int rns_gpucrt_blocks;
 extern int rns_mdev_gpucrt;          /* 1: mdev's CRT on the GPUs (striped, peer reads) into device 0's staging; 0: CPU Garner */
 void rns_mul_batch(rns_prod *P, size_t N);
-int rns_batch_pipe_on(void);          /* N3: BS_BATCH_PIPE=1 (default 0): the batch tier's host side in parallel and its tiles back to back */
+int rns_batch_pipe_on(void);          /* N3: BS_BATCH_PIPE (default 1 since D20; =0 = the old host side): the batch tier's host side in parallel and its tiles back to back */
 uint64_t *rns_hstage(int dev);
 /* WP5: the distributed product tier (rns_dist.c): C = A B over the four APUs' four-step transform */
 void rns_mul_dist(bigint *C, const bigint *A, const bigint *B);

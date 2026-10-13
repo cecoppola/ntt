@@ -23,13 +23,13 @@ int rns_gpucrt_min = 1;
 int rns_gpucrt_blocks = 912;      /* GPUCRT_MIN_BLOCKS: stripes so that M S >= this */
 static uint64_t *g_spill; static size_t g_spill_cap;
 static int g_mdev_S;
-/* N3 (BS_BATCH_PIPE=1, default 0): the batch tier's host side without needless gaps -- the per-product scans of
+/* N3 (BS_BATCH_PIPE, default 1 since D20; =0 keeps the old host side): the batch tier's host side without needless gaps -- the per-product scans of
  * rns_mul_batch in parallel (one device lookup per product, reused), and in rns_mul_batch_local the tiles of a device
  * issued back to back: descriptors through two pinned slots, the spill merge on the stream (VMM pools), the lengths of
  * all the device's tiles read back once at the end, so the GPU never waits for the host between tiles.  Same kernels,
  * same arguments, same order on each stream: digits identical.  binsplit_e reads it too (its level layout in parallel). */
 int rns_batch_pipe = -1;
-int rns_batch_pipe_on(void) { if (rns_batch_pipe < 0) { const char *e = getenv("BS_BATCH_PIPE"); rns_batch_pipe = e ? atoi(e) != 0 : 0; } return rns_batch_pipe; }
+int rns_batch_pipe_on(void) { if (rns_batch_pipe < 0) { const char *e = getenv("BS_BATCH_PIPE"); rns_batch_pipe = e ? atoi(e) != 0 : 1; } return rns_batch_pipe; }
 static struct bdesc *g_hdp[EC_NP][2]; static size_t g_hdp_cap[EC_NP];   /* N3: the pinned descriptor slots per device */
 
 static int g_nd = 0, g_pool_log = 31;
@@ -709,7 +709,7 @@ struct gconst rns_gconst(void)
     { unsigned __int128 t = g.M2[2] % ec_P[3]; t = ((t << 64) | g.M2[1]) % ec_P[3]; t = ((t << 64) | g.M2[0]) % ec_P[3];
       g.c3 = ec_inv((uint64_t)t, ec_P[3]); }
     g.np = ec_np_init();                         /* P3: the kernel's prime count */
-    { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 0; } g.scan = sc; }   /* K4b: off by default */
+    { static int sc = -1; if (sc < 0) { const char *e = getenv("RNS_CRT_SCAN"); sc = e ? atoi(e) != 0 : 1; } g.scan = sc; }   /* K4b: on by default since D21; RNS_CRT_SCAN=0 = the serial chain */
     return g;
 }
 

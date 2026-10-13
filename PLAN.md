@@ -70,7 +70,7 @@ symmetric heap in device memory, SHMEM rounds of 1 GiB), `ECALC_NP=auto`, `MN_T_
 crash-trace handler and the verbose memory lines. Every multi-node product runs the four-prime 24-digit form P24 (user decision
 D18, 2026-10-12: the code default at every size > 1, as the target always had from 32 nodes; `results/MEAS-P24.md`: −8.9 s
 at 2 nodes, +8.6 GB per APU, m; `results/DEF.md`). The three-prime multi-node path stays selectable for A/B runs with
-`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The transform-cache fit and partial cache, the early write after
+`ECALC_NP_MN3=1` (`tools/gate.sh --mn-primes 3` gates it). The batch tier's host overlap `BS_BATCH_PIPE` (D20, `results/N3.md`: −0.99 s at 1 node, m) and the carry-lookahead in `k_crt_batch` `RNS_CRT_SCAN` (D21, `results/K4b.md`: −2.52 s at 1 node, m) are code defaults since 2026-10-12, each with a `=0` fallback. The transform-cache fit and partial cache, the early write after
 division step 1, the lean division and the X2 exchange with slot sharing and release are code defaults (TASKS 27,
 `results/W2B.md`; each has a `=0` fallback). The two lines are kept in:
 

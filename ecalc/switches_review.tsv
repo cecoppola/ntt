@@ -55,7 +55,7 @@ NEWTON_DOUBLING_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or 
 NEWTON_MN_RECIP_TS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NEWTON_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 NTT_SIZE_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
-RNS_CRT_SCAN	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review (K4b)
+RNS_CRT_SCAN	fallback	coordinator (D21, results/K4b.md)	2026-11-11	on by default since D21; =0 keeps the serial carry chain; remove the serial path at review
 RNS_DIST_CACHE_MN	experiment	coordinator (TASKS S)	2026-11-11	off by default; remove or adopt at review
 RNS_DIST_CACHE_PARTIAL	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (W2B D1e)
 RNS_DIST_CACHE_PARTIAL_FORCE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
@@ -86,6 +86,6 @@ T_ALLOC_SEED	test	ecalc/tests/t_alloc.c	2027-04-12	test harness setting
 T_COMM_TRACE	test	ecalc/tests/t_comm.c	2027-04-12	test harness setting
 T_PATCH_DIR	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
 T_PATCH_UNPACK	test	ecalc/tests/t_patch.c	2027-04-12	test harness setting
-DM_MN_WRAP	experiment	P1/DEF (results/P1.md, results/DEF.md)	2026-11-11	off by default; 2-node ABBA -11.1 s total; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF); awaits the user
-BS_BATCH_PIPE	experiment	coordinator (N3)	2026-11-11	off by default; remove or adopt at review (results/N3.md)
+DM_MN_WRAP	fallback	P1/DEF (D22, results/P1.md, results/DEF.md)	2026-11-11	on by default since D22; =0 keeps the old low-product form; 6-node (P24) dm -6.25 s, total -2.86 s n.s., +5.4 GB/APU, in the memory model (DEF)
+BS_BATCH_PIPE	fallback	coordinator (D20, results/N3.md)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
 ECALC_NP_MN3	fallback	coordinator (D18, results/DEF.md)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default
