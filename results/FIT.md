@@ -59,5 +59,7 @@ automatic. The target at 3.82 × 10¹³ on 576 nodes fits with the wrap off (+14
   with the wrap off against the C's 358.96 GB); the C is the source of truth.
 - aac7 without its profile gets the target's 373.44 GB edge (the code default): stricter, never looser.
 
-**RESUME.** Branch `fit` merged to main (see the commit). Collect again: `ssh <cluster> 'cat ~/fit/SUMMARY.txt'` (access: see the
-private protocol).
+**RESUME.** Branch `fit` (pushed; aac7 worktree `~/ntt-wt/fit` at the branch head, untracked stand-in `profiles/target.conf`
+there to delete). Gates queued as aac7 queue item `20_fit_gates.sh` (6 nodes, EST 25 min; behind the day plan's 01/02 items):
+marker `~/fit/DONE`, summary `~/fit/SUMMARY.txt` (`ssh <cluster> 'cat ~/fit/SUMMARY.txt'`; access: see the private protocol).
+Next: fill the gate table above from the summary, merge `fit` to main, push, update aac7 `~/ntt-acc`, remove both worktrees.
