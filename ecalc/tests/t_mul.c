@@ -18,30 +18,65 @@
  * Decimal limbs only since archive:PLAN §28.5 (the base-2 form is archive:binary_pipeline/t_mul_base2.c).
  */
 #include "harness.h"
+#include "tref.h"
 #include "../rns_mul.h"
 #include "../mem.h"
 #include <hip/hip_runtime.h>
 
-static void check_product(const char *what, const bigint *A, const bigint *B, const bigint *C, int exact)
+static int old_ok(const bigint *A, const bigint *B, const bigint *C, int exact)
 {
     if (exact) {
         mpz_t a, b, c; mpz_inits(a, b, c, NULL);
         bi_to_mpz(a, A); bi_to_mpz(b, B); mpz_mul(c, a, b);
         int ok = bi_eq_mpz(C, c);
-        VERIFY(ok, "%s: product differs from mpz_mul (C has %zu limbs)", what, C->n);
         mpz_clears(a, b, c, NULL);
-    } else {
-        uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
-        VERIFY(m61_mul(ra, rb) == rc, "%s: residue mod 2^61-1 differs", what);
-        static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                      /* two more residues (archive:PLAN §28.5: the exact check stops at 2^20) */
-        for (int j = 0; j < 2; j++) {
-            uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
-            VERIFY(hv_mulmod(xa, xb, qs[j]) == xc, "%s: residue mod %llu differs", what, (unsigned long long)qs[j]);
-        }
-        VERIFY(C->n == A->n + B->n || C->n == A->n + B->n - 1, "%s: length %zu", what, C->n);
+        return ok;
     }
+    uint64_t ra = limbs_mod_m61(A->l, A->n), rb = limbs_mod_m61(B->l, B->n), rc = limbs_mod_m61(C->l, C->n);
+    if (m61_mul(ra, rb) != rc) return 0;
+    static const uint64_t qs[2] = { HV_Q1, HV_Q2 };                          /* two more residues (archive:PLAN §28.5: the exact check stops at 2^20) */
+    for (int j = 0; j < 2; j++) {
+        uint64_t xa = limbs_mod_u64(A->l, A->n, qs[j]), xb = limbs_mod_u64(B->l, B->n, qs[j]), xc = limbs_mod_u64(C->l, C->n, qs[j]);
+        if (hv_mulmod(xa, xb, qs[j]) != xc) return 0;
+    }
+    return C->n == A->n + B->n || C->n == A->n + B->n - 1;
 }
-
+static void check_product(const char *what, const bigint *A, const bigint *B, const bigint *C, int exact)
+{
+    VERIFY(old_ok(A, B, C, exact), "%s: product differs (%s, C has %zu limbs)", what, exact ? "mpz_mul" : "residues", C->n);
+}
+/* TREF proof mode (argument "tref"): on every product of the old sections, the new reference (tests/tref.h) against the old one --
+ * tref_mul's value == rns_mul's, the old check accepts tref_mul's value, tref_check accepts rns_mul's (exact and residue form), and
+ * one limb changed low / middle / top is caught by the new check (both forms) and by the old one */
+static int g_proof; static rng_t g_prng = { 0x7EF };
+static size_t pf_cases, pf_agree, pf_faults, pf_new_missed, pf_res_missed, pf_old_missed, pf_res_cases;
+static void proof_case(const char *what, const bigint *A, const bigint *B, const bigint *C, int exact)
+{
+    if (!g_proof) return;
+    double t0 = now();
+    pf_cases++;
+    bigint R, F; bi_init(&R); bi_init(&F);
+    tref_mul(&R, A, B);
+    int agree = bi_cmp(&R, C) == 0; pf_agree += agree;
+    VERIFY(agree, "proof %s: tref_mul differs from rns_mul", what);
+    VERIFY(old_ok(A, B, &R, exact), "proof %s: the old check rejects tref_mul's value", what);
+    tref_check(what, A, B, C);
+    char why[160];
+    int small = A->n + B->n <= TREF_EXACT_LIMBS;
+    if (small) { VERIFY(tref_ok(A->l, A->n, B->l, B->n, C->l, C->n, TREF_RES, why, sizeof why), "proof %s: residue form rejects (%s)", what, why); pf_res_cases++; }
+    if (C->n) {
+        bi_copy(&F, C);
+        int m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_AUTO, &g_prng); pf_new_missed += m; pf_faults += 3;
+        VERIFY(m == 0, "proof %s: %d faults missed by the new check", what, m);
+        if (small) { m = tref_faults(A->l, A->n, B->l, B->n, F.l, F.n, TREF_RES, &g_prng); pf_res_missed += m; VERIFY(m == 0, "proof %s: %d faults missed by the residue form", what, m); }
+        size_t pos[3] = { F.n > 1 ? 1 : 0, F.n / 2, F.n - 1 }; int om = 0;
+        for (int i = 0; i < 3; i++) { uint64_t o = tref_flip(F.l, pos[i], &g_prng); bigint G = F; bi_norm(&G); if (old_ok(A, B, &G, exact)) om++; F.l[pos[i]] = o; }
+        pf_old_missed += om;
+        VERIFY(om == 0, "proof %s: %d faults missed by the old check", what, om);
+    }
+    printf("   proof %-44s agree %d  (%.2f s)\n", what, agree, now() - t0);
+    bi_free(&R); bi_free(&F);
+}
 /* batch groups (sections 4, 4b): the GMP string bridge of decimal limbs costs about as much per product as a 2^17-limb
  * multiply, so a group of thousands of products took > 700 s (results/H4.md 7).  Groups up to BATCH_EXACT_LIMBS operand and
  * product limbs are still checked exactly for every product; larger groups check four products exactly (the first two, the
@@ -80,6 +115,7 @@ int main(int argc, char **argv)
     if (big32) big = 1;
     int only_batch = argc > 2 && !strcmp(argv[2], "batch");
     int only_dist = argc > 2 && !strcmp(argv[2], "dist");     /* WP5: the distributed tier against GMP, and against mdev for time */
+    g_proof = argc > 2 && !strcmp(argv[2], "tref");           /* TREF: the new reference against the old on every case (sections 1, 2, pair) */
     rng_t rng = {0xB1B0ULL};
     bigint A, B, C; bi_init(&A); bi_init(&B); bi_init(&C);
     printf("== t_mul ==\n");
@@ -103,6 +139,21 @@ int main(int argc, char **argv)
         bi_free(&A); bi_free(&B); bi_free(&C);
         return verify_done("t_mul");
     }
+    /* 0. the product-tree conversions (harness.h) against the 18-digit string forms */
+    printf("-- 0. GMP conversions: product tree == string form\n");
+    {
+        static const size_t cn[] = { 1, 2, 16, 17, 33, 1000, 4097, 65537 };
+        mpz_t x, y; mpz_inits(x, y, NULL);
+        for (size_t i = 0; i < sizeof cn / sizeof *cn; i++) for (int kind = 0; kind < GEN_KINDS; kind++) {
+            size_t n = cn[i]; uint64_t *a = (uint64_t *)malloc(n * 8), *b = (uint64_t *)malloc((n + 2) * 8), *c = (uint64_t *)malloc((n + 2) * 8);
+            gen_limbs(a, n, kind, &rng);
+            mpz_from_limbs(x, a, n); mpz_from_limbs_str(y, a, n);
+            size_t m = mpz_to_limbs(b, n + 2, x), m2 = mpz_to_limbs_str(c, n + 2, y);
+            VERIFY(mpz_cmp(x, y) == 0 && m == m2 && m == tref_norm(a, n) && !memcmp(a, b, m * 8) && !memcmp(b, c, m * 8), "conversions n %zu %s", n, gen_name[kind]);
+            free(a); free(b); free(c);
+        }
+        mpz_clears(x, y, NULL);
+    }
     /* 1. small pool: every tier */
     printf("-- 1. pool 2^%d: tiers and boundaries\n", pool);
     if (pool) {
@@ -123,6 +174,7 @@ int main(int argc, char **argv)
                 rns_mul(&C, &A, &B);
                 char what[128]; snprintf(what, sizeof what, "%s %zux%zu %s", cases[i].why, cases[i].na, cases[i].nb, gen_name[kind]);
                 check_product(what, &A, &B, &C, 1);
+                proof_case(what, &A, &B, &C, 1);
                 if (kind == 0) printf("   %-44s mdev %zu split %zu school %zu  %.3f s\n", what, rns_st.n_mdev, rns_st.n_split, rns_st.n_school, rns_st.t_total);
             }
         /* low products (A B) mod 2^(64 w) across the split tiers */
@@ -136,6 +188,8 @@ int main(int argc, char **argv)
                 bi_to_mpz(a, &A); bi_to_mpz(b, &B); mpz_mul(c, a, b);
                 mpz_ui_pow_ui(m, BI_B10, lc[i].w); mpz_fdiv_r(c, c, m);
                 VERIFY(bi_eq_mpz(&C, c), "low product %zux%zu w %zu %s", lc[i].na, lc[i].nb, lc[i].w, gen_name[kind]);
+                if (g_proof) { bigint R; bi_init(&R); tref_mul(&R, &A, &B); if (R.n > lc[i].w) { R.n = lc[i].w; bi_norm(&R); }
+                               VERIFY(bi_cmp(&R, &C) == 0, "proof low product %zux%zu w %zu: tref_mul truncated != rns_mul_low", lc[i].na, lc[i].nb, lc[i].w); pf_cases++; pf_agree += bi_cmp(&R, &C) == 0; bi_free(&R); }
             }
             mpz_clears(a, b, c, m, NULL);
         }
@@ -157,6 +211,7 @@ int main(int argc, char **argv)
             rns_mul(&C, &A, &B);
             char what[64]; snprintf(what, sizeof what, "2^31 pool %zu x %zu limbs", n, n);
             check_product(what, &A, &B, &C, n <= (1 << 20));   /* the GMP string bridge is slow above 2^20: residues there */
+            proof_case(what, &A, &B, &C, n <= (1 << 20));
             printf("   %-36s %.3f s: repack %.3f h2d %.3f fwd %.3f inv %.3f d2h %.3f crt %.3f\n", what, rns_st.t_total,
                    rns_st.t_repack, rns_st.t_h2d, rns_st.t_fwd, rns_st.t_inv, rns_st.t_d2h, rns_st.t_crt);
             if (n == (1 << 30)) {
@@ -175,9 +230,15 @@ int main(int argc, char **argv)
             memset(&rns_st, 0, sizeof rns_st);
             rns_mul_pair(&C, &A, &C2, &A2, &B);
             check_product("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); check_product("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
+            proof_case("pair C1", &A, &B, &C, ps[i] <= (1 << 20)); proof_case("pair C2", &A2, &B, &C2, ps[i] <= (1 << 20));
             printf("   pair %zu limbs: %.3f s, %zu mdev (fwd %.3f)\n", ps[i], rns_st.t_total, rns_st.n_mdev, rns_st.t_fwd);
         }
         bi_free(&A2); bi_free(&C2);
+    }
+    if (g_proof) {
+        printf("TREF proof: %zu cases, %zu agree (tref_mul == rns_mul); %zu faults injected: missed new %zu, residue form %zu (on %zu small cases), old %zu\n",
+               pf_cases, pf_agree, pf_faults, pf_new_missed, pf_res_missed, pf_res_cases, pf_old_missed);
+        rns_shutdown(); return verify_done("t_mul");
     }
     if (big) {
         printf("-- 3. 2.08e9 x 2.08e9 limbs (the 10dP product, > 2^31 points) through the split\n");

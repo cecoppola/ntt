@@ -6,8 +6,8 @@
  * now()                  wall seconds
  * rng_t / rng_next       splitmix64
  * gen_limbs(kind)        uniform, all-ones (B-1), zeros, single-bit, sparse limb arrays (decimal limbs < 10^18)
- * mpz_from_limbs / mpz_to_limbs / bi_from_mpz / bi_to_mpz / bi_eq_mpz   (GMP through an 18-digit string per limb:
- *                        exact but slow above ~2^20 limbs; the residue helpers below cover larger sizes)
+ * mpz_from_limbs / mpz_to_limbs / bi_from_mpz / bi_to_mpz / bi_eq_mpz   (GMP by a product tree, O(M(n) log n); the
+ *                        18-digit string forms mpz_from_limbs_str / mpz_to_limbs_str check them; tref.h is the product reference)
  * limbs_mod_m61 / limbs_mod_u64   cheap residues of a limb array (mod 2^61-1, mod any q < 2^63)
  * META / RESULT lines in the bench/ format (harness_meta, harness_result)
  * digits_format          the digit string of a limb array (t_out, t_patch)
@@ -23,6 +23,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <gmp.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "../bigint.h"
 #pragma GCC diagnostic ignored "-Wunused-function"   /* each test uses a subset of these helpers */
 
@@ -72,15 +75,15 @@ static void gen_limbs(uint64_t *a, size_t n, int kind, rng_t *r)
     if (a[n - 1] == 0) a[n - 1] = 1;
 }
 
-static void mpz_from_limbs(mpz_t z, const uint64_t *a, size_t n)
+static void mpz_from_limbs_str(mpz_t z, const uint64_t *a, size_t n)
 {
     if (!n) { mpz_set_ui(z, 0); return; }
     char *s = (char *)malloc(n * 18 + 1);               /* decimal limbs: 18 digits each, via a string */
     for (size_t i = 0; i < n; i++) snprintf(s + 18 * i, 19, "%018llu", (unsigned long long)a[n - 1 - i]);
     mpz_set_str(z, s, 10); free(s);
 }
-/* returns limbs written; cap must be large enough */
-static size_t mpz_to_limbs(uint64_t *a, size_t cap, const mpz_t z)
+/* the string form (returns limbs written; cap must be large enough) */
+static size_t mpz_to_limbs_str(uint64_t *a, size_t cap, const mpz_t z)
 {
     size_t n = 0;
     if (mpz_sgn(z) == 0) return 0;
@@ -92,6 +95,90 @@ static size_t mpz_to_limbs(uint64_t *a, size_t cap, const mpz_t z)
         a[i] = v;
     }
     free(s); return n;
+}
+/* GMP <-> decimal limbs by a product tree (TREF, results/TREF.md): value = lo + hi B^h with h = 2^k, the powers B^(2^k) kept;
+ * O(M(n) log n) both ways like GMP's own string conversion (mpz_set_str / mpz_get_str, as fast single-threaded), but the halves
+ * run as OpenMP tasks.  The 18-digit string forms (mpz_from_limbs_str / mpz_to_limbs_str) stay as their check (t_mul section 0). */
+#define HV_TREE_LEAF 16
+#define HV_TASK_MIN 8192
+static mpz_t hv_pw[48]; static int hv_npw = 0;
+static const mpz_t *hv_pow2k(int k)                       /* B^(2^k) */
+{
+    while (hv_npw <= k) {
+        mpz_init(hv_pw[hv_npw]);
+        if (!hv_npw) mpz_set_ui(hv_pw[0], BI_B10); else mpz_mul(hv_pw[hv_npw], hv_pw[hv_npw - 1], hv_pw[hv_npw - 1]);
+        hv_npw++;
+    }
+    return (const mpz_t *)&hv_pw[k];
+}
+static int hv_split(size_t n) { int k = 0; while (((size_t)2 << k) < n) k++; return k; }   /* h = 2^k: n/2 <= h < n */
+static void hv_from_rec(mpz_t z, const uint64_t *a, size_t n, int par)
+{
+    if (n <= HV_TREE_LEAF) {
+        mpz_set_ui(z, 0);
+        for (size_t i = n; i-- > 0;) { mpz_mul_ui(z, z, BI_B10); mpz_add_ui(z, z, a[i]); }
+        return;
+    }
+    int k = hv_split(n); size_t h = (size_t)1 << k;
+    mpz_t t; mpz_init(t);
+#pragma omp task shared(t) if (par && n >= HV_TASK_MIN)
+    hv_from_rec(t, a, h, par);
+    hv_from_rec(z, a + h, n - h, par);
+#pragma omp taskwait
+    mpz_mul(z, z, *hv_pow2k(k)); mpz_add(z, z, t);
+    mpz_clear(t);
+}
+static void hv_to_rec(uint64_t *a, size_t n, const mpz_t z, int par)   /* exactly n limbs of z mod B^n */
+{
+    if (n <= HV_TREE_LEAF) {
+        mpz_t t; mpz_init_set(t, z);
+        for (size_t i = 0; i < n; i++) a[i] = mpz_fdiv_q_ui(t, t, BI_B10);
+        mpz_clear(t); return;
+    }
+    int k = hv_split(n); size_t h = (size_t)1 << k;
+    mpz_t q, r; mpz_inits(q, r, NULL);
+    mpz_tdiv_qr(q, r, z, *hv_pow2k(k));
+#pragma omp task shared(r) if (par && n >= HV_TASK_MIN)
+    hv_to_rec(a, h, r, par);
+    hv_to_rec(a + h, n - h, q, par);
+#pragma omp taskwait
+    mpz_clears(q, r, NULL);
+}
+/* the two directions; above HV_TASK_MIN limbs (outside a parallel region) the halves are OpenMP tasks.  The powers are made first */
+static int hv_par(size_t n)
+{
+    if (n > HV_TREE_LEAF) hv_pow2k(hv_split(n));
+#ifdef _OPENMP
+    return n >= HV_TASK_MIN && !omp_in_parallel();
+#else
+    return 0;
+#endif
+}
+static void mpz_from_limbs(mpz_t z, const uint64_t *a, size_t n)
+{
+    if (hv_par(n)) {
+#pragma omp parallel
+#pragma omp single
+        hv_from_rec(z, a, n, 1);
+    } else hv_from_rec(z, a, n, 0);
+}
+static void hv_to_limbs_n(uint64_t *a, size_t n, const mpz_t z)
+{
+    if (hv_par(n)) {
+#pragma omp parallel
+#pragma omp single
+        hv_to_rec(a, n, z, 1);
+    } else hv_to_rec(a, n, z, 0);
+}
+/* returns limbs written (normalised); cap must be large enough */
+static size_t mpz_to_limbs(uint64_t *a, size_t cap, const mpz_t z)
+{
+    if (mpz_sgn(z) == 0) return 0;
+    size_t n = (mpz_sizeinbase(z, 10) + 17) / 18;          /* (sizeinbase may be one digit high: the top limb is then 0) */
+    if (n > cap) { fprintf(stderr, "mpz_to_limbs: cap %zu < %zu\n", cap, n); abort(); }
+    hv_to_limbs_n(a, n, z);
+    while (n && a[n - 1] == 0) n--;
+    return n;
 }
 static void bi_from_mpz(bigint *a, const mpz_t z)
 {
