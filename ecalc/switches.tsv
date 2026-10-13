@@ -131,6 +131,7 @@ NEWTON_MN_SPLIT	int	derived	derived		built-in default	-	A37CMP.md+A-div.md	Y	eca
 NEWTON_RECIP_GUARD	bool	unset	unset	0|1	built-in default	-	R114.md	Y	ecalc	newton_db.c	1	-	-	
 NEWTON_VERBOSE	int	0	0		test-only	-	L114.md+L13d.md	Y	ecalc	newton_db.c	6	diagnostics (TESTING.md)	2027-04-12	
 NTT_SIZE_STATS	int	0	0		test-only	-	S22.md+NTT3P.md	Y	ecalc	ntt.c	1	diagnostics (TESTING.md)	2027-04-12	
+P24_CRT_SCAN	bool	0	derived	0|1	experiment	-	-	Y	ecalc	p24_crt.c	1	coordinator (TASKS S)	2026-11-11	K4c: k_crt24 parallel carry (p24_crt.c p24_crt_launch); off by default
 POOL_LOG	int	31	31	29..31	launch-line	-	A-mem.md+M13.md	Y	ecalc	ecalc.c	3	-	-	ecalc.c:rewritten by ECALC_PLANE_CAP; 31 default (2^31 pools)
 RNS_BATCH_LOCAL_MIN	int	unset	unset		built-in default	-	P3.md+R.md	Y	ecalc	rns_mul.c	2	-	-	
 RNS_BATCH_TILE_GB	float	unset	unset		built-in default	-	P.md	Y	ecalc	rns_mul.c	2	-	-	

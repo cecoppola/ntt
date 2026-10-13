@@ -130,6 +130,7 @@ static const char *const cfg_names[] = {
     "NEWTON_RECIP_GUARD",
     "NEWTON_VERBOSE",
     "NTT_SIZE_STATS",
+    "P24_CRT_SCAN",
     "POOL_LOG",
     "RNS_BATCH_LOCAL_MIN",
     "RNS_BATCH_TILE_GB",
@@ -150,4 +151,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 148
+#define CFG_NAMES_N 149

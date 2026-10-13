@@ -129,6 +129,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `ECALC_PLANE_CAP` | *Phase 13b (P)*: the plane cap, `2^30` or `2^31` (or `30`, `31`) or `fit` (the larger whose node total fits `ECALC_NODE_GB`, default 480); sets `POOL_LOG` and `DIST_LOGN_TEST` and refuses a conflicting one; `off` = those two as given (`2^31` since Phase 13c, unless one of them is given). The 3·2ᵏ caps went with SIMP (`results/SIMP.md`) |
 | `RNS_STRATEGY_CHECK` | *Phase 13b (B), test*: every B-form product formed again by C and compared, abort on a difference (0) |
 | `RNS_CRT_SCAN` | ***Built-in default 1 since 2026-10-12 (user decision D21; `=0` keeps the serial carry chain).*** *K4b*: 1 = `k_crt_batch` resolves each 256-coefficient chunk's carry chain as a carry-lookahead over wave ballot masks (3 barriers instead of 5 and a 256-step serial loop by one thread); digits identical (`tests/t_crtk`); `results/K4b.md` (1) |
+| `P24_CRT_SCAN` | *K4c, experiment*: 1 = `k_crt24` (the P24 CRT of every multi-node product, `p24_crt.c`) resolves each 256-point chunk's carry chain (up to 342 limbs) as a carry-lookahead over wave ballot masks instead of a serial loop by one thread; separate from `RNS_CRT_SCAN` (`k_crt_batch`); digits identical (`tests/t_crt24k`); `results/K4c.md` (0) |
 | `RNS_DIST_CACHE_MARGIN_GB` | free device memory kept when sizing the cache (24) |
 | `RNS_DIST_CACHE_FIT_RESERVE_GB` | with the transform-cache fit (built in): GB per node kept out of the budget room for what the init peak does not hold (the SHMEM pool, the VMM seed buffers, the phases' growth: 28.8 GB at the target by `mem_model.py`) (32) |
 | `RNS_DIST_CACHE_TRACE` | *Phase 15 (CX), results/CX15.md*: 1 = instrumentation -- `mn_grid` prints one `cache_trace` line per piece of an mn grid product (its (i, j), limbs, the operands' cache state `HIT` / `cached` / `-`, the piece's wall and `redistribute / ntt / crt / out / carry`; with `DIST_STATS=1` also the transforms' event-timed parts); `archive:removed_2026-10-12/scr/ecalc/tests/cx_fit.py` read them; bit-identical (0) |
@@ -267,7 +268,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 
 | class | owner | review by | switches |
 |---|---|---|---|
-| experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
+| experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `P24_CRT_SCAN`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |
 | fallback | coordinator (D20, results/N3.md) | 2026-11-11 | `BS_BATCH_PIPE` |
