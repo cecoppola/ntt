@@ -31,6 +31,7 @@ the node count. Test machines: aac7 (MI300A nodes with Slingshot, the main test 
 | `COMM_OFI=0` pool at 6 nodes (NIGHT bug A): the v-slots now count in the SHMEM pool; 1e10 6-node run rc 3 -> VERIFY OK, digits identical; 4 and 2 nodes OK (pool 2816 -> 3328 MiB at 6 nodes) | 40.28 / 39.20 / 47.66 s total (single runs) | m | results/SHM.md |
 | Pre-launch memory fit (D26): the planner reports device/node memory vs the machine limits before every launch and refuses a run that does not fit; `DM_MN_WRAP` automatic (on only with ≥5 GB device margin). Target 3.82e13:576: 358.96 GB device vs 373.44 (wrap off; with wrap 384.73, refused); aac7 6 nodes 374.22 vs 444 (wrap on) | planner values | mod/m | results/FIT.md |
 | day plan 2026-10-13 (commit 209712f): large run 3.8646e11 digits, 6 nodes, VERIFY OK, first 1e11 digits identical (recheck not run, follow-up); sweep 48/48 and SHMEM sweep 21/24 digit-identical (3 node faults); gates 1/2/4/6 nodes PASS; 6-node repeat 197.1 s mean over 34 runs (m, no speed claim); D27 (a) | 1793.37 s large run; 197.06 s repeat mean (m) | m | results/DAY.md |
+| Node screen NIC check: `tools/nodescreen.sh --want-nics N` (default `$SHMEM_OFI_NUM_NICS`) excludes nodes whose runtime sees fewer cxi NICs; 4-node check: 4 seen, ok at want 4, all flagged at want 8 (positive control) | 4 NICs/node seen | m | results/NIC.md |
 
 ## Adopted changes in force (code defaults)
 

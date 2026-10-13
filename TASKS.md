@@ -14,7 +14,7 @@ project instructions). Within a class, rows are in the order to do them.
 
 | class | # | item | status | where |
 |---|---|---|---|---|
-| 1 | NIC | **Node screen checks the NIC count each node's runtime sees** (3 SHMEM runs aborted 2026-10-13: 1 NIC visible, 4 requested) | in progress 2026-10-13 | results NIC, planned |
+| 1 | NIC | **Node screen checks the NIC count each node's runtime sees** (3 SHMEM runs aborted 2026-10-13: 1 NIC visible, 4 requested) | done 2026-10-13 (7de81c7): `--want-nics`, verified on 4 nodes; not yet seen on a real 1-NIC node | results/NIC.md |
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | adopted 2026-10-12 (D20-D22): `BS_BATCH_PIPE=1` (N3, −0.99 s at 1 n, m), `RNS_CRT_SCAN=1` (K4b, −2.52 s at 1 n, m) and `DM_MN_WRAP=1` (P1, D22; +5.4 GB per APU, mod) are code defaults, `=0` fallbacks; nothing running | results/P2.md, P3.md, P1.md, DEF.md, N3.md, K4b.md |
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
