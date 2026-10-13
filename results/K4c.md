@@ -42,7 +42,7 @@ the serial path; the 342-step one-thread loop is gone. The tails and the spill a
 | `t_p24` against the GMP model, switch 0 / 1 | VERIFY OK (78594 checks) both (m) |
 | kernel, 2^30 points per rank, rows 4096 / 8192 / 16384 | scan 0 157.96 / 158.39 / 158.76 ms → scan 1 101.95 / 101.95 / 101.26 ms median; 1.55–1.57× (290 → 450 GB/s) (m) |
 | gates on 5d54994: 2 n off / on, 1 n off / on | PASS ×4: VERIFY OK, digits identical, segv 0, P24 in use at 2 n (m) |
-| gates after the rebase on main 4ec5ab5 | see the RESUME note's gates3 line (filled at merge) |
+| gates after the rebase on main 4ec5ab5 (branch ba34ba2): 2 n off / on, 1 n off / on; `t_crt24k 0`, `t_p24` with the switch on | PASS ×4: VERIFY OK, digits identical, segv 0, P24 in use at 2 n; `t_crt24k` VERIFY OK (276 checks), `t_p24` VERIFY OK (78594) (m) |
 | profiling round (RNS_VERBOSE=1), node-0 `crt` sum per run | A 4.13 / 4.25 s → B 2.95 / 2.94 s: −1.24 s per run (m, 1 round); total in that round −2.5 s (m, one round, not a result) |
 | **ABBA 2 n, 6.441e10/node, 4 rounds (16 runs)** | **total B − A = −1.89 s, 95 % CI [−7.51, +3.73]** (per-round −2.8, +2.0, −6.3, −0.5 s; not significant); arm means A 126.28 s, B 124.39 s; all 16 VERIFY OK (m) |
 | phases, same 4 rounds | dm −0.55 s [−3.00, +1.90]; bs −0.43 s [−1.67, +0.82] (m) |
