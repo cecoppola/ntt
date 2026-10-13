@@ -81,6 +81,7 @@ GPU (aac7, 1 node, queue item `50_recip_gpu`, job 12775, commit e475e29; logs in
 | check | guard off | guard on | label |
 |---|---|---|---|
 | `t_newton 20` (sections 1–8, 4 at 2^20) | **VERIFY OK (2206 checks)**, the new bound in sections 2 and 5 | sections 1–5 passed, then the step hit the item's 300 s timeout in section 6 (not a failure; sections 6–7 with the guard on not run) | measured |
+| after the rebase onto SIMP + ADOPT (24446df, item `51_recip_rebased`): gate 1 node; `t_newton 20` | gate **PASS** (VERIFY OK, digits identical, ecalc total 13.29 s); **VERIFY OK (2756 checks)**, section 8 identical to the above | `t_newton 20` with `NEWTON_CHAIN_GUARD=1`: **VERIFY OK (2756 checks)**, all sections | measured |
 | 8 (a) SIMP's Q, n_Q 131075, k 65538 (top limb 23490058283511592) | **−22 units** (bound [−92, 8]) | **0** | measured |
 | 8 (b) n_Q 1027, k 1024, 100 uniform Q | **15** beyond ±8, largest \|error\| **9.9·10²⁴** units | 0 beyond ±8, largest 0 | measured |
 | 8 (b) n_Q 1027, k 2048, 100 uniform Q | **9** beyond ±8, largest **2.0·10²⁷** units | 0, largest 0 | measured |
@@ -105,8 +106,6 @@ cost (modelled; the 1-node gate with it passes, measured). Adoption is the user'
 - `mem_model.py` does not mirror the switch's +1 limb in `dm_layout`'s jl (off by default; within the hole's slack).
 - The fatal case was not provoked on the GPU through the division (it would abort the test); section 8 (c) computes the
   off-path step-1 estimates from the device μ instead (3 of 900 beyond the 64 limit, measured).
-- `t_newton 20` with `NEWTON_CHAIN_GUARD=1` for the whole program: sections 6–7 not run (the item's step timeout); the 1-node
-  gate with the guard covers the production division, section 8 the guarded reciprocal and division.
 - The `newton_mn_chain_start` rewrite is identical with the switch off (all k < 2·10⁵ and 2³³ compared against the old
   loop, measured on the host); the off path's 2-node gate was not rerun.
 
@@ -114,4 +113,4 @@ cost (modelled; the 1-node gate with it passes, measured). Adoption is the user'
 
 Merged to main (branch `recip` deleted). Done: analysis, model, switch (off), test, docs, 1-node gates off/on, t_newton on
 the GPU. Next, if the user wants the guard as the default: the 2-node gate with `--env NEWTON_CHAIN_GUARD=1`, `t_newton 20`
-under the switch (10 min step timeout), `mnaccept.sh --only unit,e9,mn`, and a 1-node 10¹⁰ ABBA to show no cost.
+under the switch is done (VERIFY OK), `mnaccept.sh --only unit,e9,mn`, and a 1-node 10¹⁰ ABBA to show no cost.
