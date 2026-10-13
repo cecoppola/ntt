@@ -39,6 +39,7 @@ Barriers per chunk: 3 instead of 5. The serial path is the reference: `t_crtk` c
 | C form 2^27 / 16384, three / four primes | 8.02 → 3.95 ms (2.03×) / 12.54 → 8.56 ms (1.47×) (m) |
 | gates before the rebase: 2 n off / on, 1 n off / on | PASS ×4: VERIFY OK, digits identical, segv 0 (ecalc total 18.67 / 17.54 s at 2 n, 12.39 / 12.15 s at 1 n; single runs, not timings) (m) |
 | gates after the rebase on main 89318ae (branch 0b3c36e), 2 n off / on, 1 n off / on; `t_crtk` | PASS ×4: VERIFY OK, digits identical, segv 0; `t_crtk` VERIFY OK (48 checks) (m) |
+| gates after the second rebase on main f232085 (DEF: P24 for every multi-node product; branch e385355), same four + `t_crtk` | PASS ×4, digits identical, segv 0 (2 n: P24 in use); `t_crtk` VERIFY OK (m) |
 | `t_mul 20`, scan 0 / scan 1 | VERIFY OK (169 checks) both, 727 / 731 s (m) |
 | `t_strategy 24 2 V`, scan 0 / scan 1 | VERIFY OK (12 checks) both (m) |
 | **ABBA 1 n, 6.441e10, 4 rounds (16 runs)** | **B − A = −2.52 s, 95 % CI [−4.19, −0.85]** (per-round deltas −3.6, −1.4, −3.2, −1.9 s; p < 0.05), all 16 runs VERIFY OK; arm means A 71.47 s, B 68.95 s (−3.5 %) (m) |
@@ -54,6 +55,6 @@ the user decides adoption (a default flip is one line in `rns_gconst`).
 divisions, not by the chain; a cheaper four-word-to-decimal conversion is the next step there. Multi-node timing not
 measured (the 2-node gates only show digits). `k_crt24` (`p24_crt.c`, the multi-node four-prime 24-digit CRT) has the same serial chain; not touched.
 
-**RESUME.** Branch `k4b` merged to main with the switch off; worktrees removed. Raw logs: aac7 `~/k4b/{ubench,gates,gates2,tmul,abba}`
+**RESUME.** Branch `k4b` merged to main with the switch off; worktrees removed. Raw logs: aac7 `~/k4b/{ubench,gates,gates2,gates3,tmul,abba}`
 (`abba/pairs.tsv`, `abba/stats.txt`). Next (for the user): adopt `RNS_CRT_SCAN=1` as the default, then remove the serial path;
 optionally the same carry-lookahead in `k_crt24` and a faster `ec_words_to_dec4`.
