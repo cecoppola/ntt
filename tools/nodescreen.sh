@@ -15,20 +15,22 @@
 #
 #   tools/nodescreen.sh --hold JOBID [--out DIR] [--cold-gb 4] [--local-digits 1e8] [--mn-digits-per-node 1e8] [--no-mn] [--no-local]
 #                       [--timeout-local 120] [--timeout-mn 240] [--thr 3] [--min-excess 2] [--min-avail-gb 0] [--exclude-hosts LIST]
-#                       [--flagged-file FILE] [--ecalc-dir DIR]
+#                       [--flagged-file FILE] [--ecalc-dir DIR] [--want-nics N]
 #   --flagged-file FILE  append the EXCLUDE hosts to FILE (target_kit.sh's $OUT/flagged_hosts.txt: later kit stages then drop them)
 #   --exclude-hosts LIST hosts of the allocation never used by the screen (srun -x), reported as such
+#   --want-nics N        flag a node whose runtime sees fewer than N cxi NICs (fi_info -p cxi domains; a node with 1 NIC aborts a SHMEM launch with
+#                        SHMEM_OFI_NUM_NICS=4, results/NIC.md); default $SHMEM_OFI_NUM_NICS, 0 = report only
 #   --min-avail-gb G     also flag MemAvailable < G GB (default 0 = off: a low MemAvailable alone was not a stall, results/S49.md)
 # Runs inside an existing hold (srun --overlap, no -w, --mem=0 -c1 as the session rules say); kills only its own srun PIDs; never cancels a job.
 # No credentials or target values in this file.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); ROOT=$(cd "$HERE/.." && pwd); E=${NS_ECALC_DIR:-$ROOT/ecalc}
-HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF=
+HOLD=${SLURM_JOB_ID:-} OUT= COLD=4 LDIG=1e8 MDIG=1e8 DO_MN=1 DO_LOCAL=1 TMO_L=120 TMO_M=240 THR=3 MINEX=2 MINAV=0 EXCL= FLAGF= WANT=${SHMEM_OFI_NUM_NICS:-0}
 while [ $# -gt 0 ]; do
   case $1 in
     --hold) HOLD=$2; shift;; --out) OUT=$2; shift;; --cold-gb) COLD=$2; shift;; --local-digits) LDIG=$2; shift;;
     --mn-digits-per-node) MDIG=$2; shift;; --no-mn) DO_MN=0;; --no-local) DO_LOCAL=0;;
     --timeout-local) TMO_L=$2; shift;; --timeout-mn) TMO_M=$2; shift;; --thr) THR=$2; shift;; --min-excess) MINEX=$2; shift;;
-    --min-avail-gb) MINAV=$2; shift;; --exclude-hosts) EXCL=$2; shift;; --flagged-file) FLAGF=$2; shift;; --ecalc-dir) E=$2; shift;;
+    --min-avail-gb) MINAV=$2; shift;; --exclude-hosts) EXCL=$2; shift;; --flagged-file) FLAGF=$2; shift;; --ecalc-dir) E=$2; shift;; --want-nics) WANT=$2; shift;;
     -h|--help) sed -n '2,/^# No credentials/p' "$0" | cut -c3-; exit 0;;
     *) echo "nodescreen.sh: unknown option $1" >&2; exit 2;;
   esac; shift
@@ -63,6 +65,7 @@ ED=$1; COLD=$2; DIG=$3; TMO=$4; H=$(hostname -s)
 [ -n "${NS_UNLOAD:-}" ] && module unload $NS_UNLOAD >/dev/null 2>&1; module load $NS_MODULES >/dev/null 2>&1
 now() { date +%s.%N; }
 echo "NS host $H"
+echo "NS nics have=$(fi_info -p cxi 2>/dev/null | awk '$1=="domain:"{print $2}' | sort -u | grep -c .) want=${NS_WANT_NICS:-0}"
 a=$(now); timeout "$TMO" "$ED/tests/t_nodechk" 1 3 "$COLD" 2>&1 | grep -a '^NODECHK'; rc=${PIPESTATUS[0]}; b=$(now)
 echo "NS step nodechk rc=$rc wall=$(awk -v a=$a -v b=$b 'BEGIN{printf "%.2f", b-a}')"
 OF=${TMPDIR:-/tmp}/ns_${H}_$$.out
@@ -78,7 +81,7 @@ chmod +x "$OUT/node_local.sh"
 if [ "$DO_LOCAL" = 1 ]; then
   rm -f "$OUT"/local/*.log
   S=$(date +%s.%N)
-  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL" -N"$N" --ntasks="$N" --ntasks-per-node=1 --gpus-per-node=4 --mem=0 -c1 --overlap \
+  timeout -s TERM "$((TMO_L * 2 + 30))" srun --jobid="$HOLD" --export=ALL,NS_MODULES="$MODS",NS_UNLOAD="$UNL",NS_WANT_NICS="$WANT" -N"$N" --ntasks="$N" --ntasks-per-node=1 --gpus-per-node=4 --mem=0 -c1 --overlap \
       --nodelist="$NODELIST" --output="$OUT/local/%N.log" --error="$OUT/local/%N.err" bash -l "$OUT/node_local.sh" "$E" "$COLD" "$DIGL" "$TMO_L" < /dev/null &
   SPID=$!; wait "$SPID"; RC_L=$?; SPID=
   W_L=$(awk -v a="$S" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')

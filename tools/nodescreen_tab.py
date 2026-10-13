@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """nodescreen_tab.py -- tabulate and apply the exclusion rule for tools/nodescreen.sh (results/B04.md).
-Reads OUT/local/<host>.log (lines 'NS ...', 'NODECHK ...', 'NODECHK_COLD ...', ecalc 'tl' lines), OUT/mn.log + OUT/mn.meta (initchk.py
+Reads OUT/local/<host>.log (lines 'NS ...' incl. 'NS nics have= want=' (fewer NICs than wanted = failed), 'NODECHK ...', 'NODECHK_COLD ...', ecalc 'tl' lines), OUT/mn.log + OUT/mn.meta (initchk.py
 parses the labelled multi-node log).  Rule: a time metric > THR x reference and >= MINEX s above it, or a failed step, flags the node.
 Reference = median over nodes (>= 3 values), else the smaller value.  Writes OUT/screen_table.txt and OUT/EXCLUDE.
 Exit 0 none flagged, 3 flagged, 2 nothing could be parsed."""
@@ -24,6 +24,9 @@ def parse_local(path):
         l = l.rstrip('\n')
         if l.startswith('NS host '):
             r['host'] = l.split()[2]
+        elif l.startswith('NS nics '):
+            d = kv(l); r['nics'] = int(d['have'])
+            if int(d['have']) < int(d['want']): r['fail'].append('NICs %s < %s wanted (SHMEM_OFI_NUM_NICS would abort)' % (d['have'], d['want']))
         elif l.startswith('NS done'):
             seen_done = True
         elif l.startswith('NS step '):
