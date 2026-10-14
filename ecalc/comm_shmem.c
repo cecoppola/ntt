@@ -245,7 +245,10 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
             if (sfd >= 0) { close(sfd); unlink(g_heap_path); }
         }
     }
-    return (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
+    typedef void *(*mmap_fn)(void *, size_t, int, int, int, off_t);
+    static mmap_fn next;                                  /* every other call: libc's own mmap, as without the wrapper */
+    if (!next) { mmap_fn f = (mmap_fn)dlsym(RTLD_NEXT, "mmap"); if (!f) return (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o); __atomic_store_n(&next, f, __ATOMIC_RELEASE); }
+    return next(a, l, prot, fl, fd, o);
 }
 #ifdef __cplusplus
 #define HEAP_THROW __THROW                                /* (C++: the headers' noexcept; C: attributes may not follow a definition's declarator) */
