@@ -32,11 +32,14 @@ No switch: a correctness fix of the reader (reads that come back whole return th
 | 2 nodes, 10¹⁰, main + diagnostics | 4.44 GB, 4 × 1.1 GB | 8/8 equal | RECHECK OK, 0 short reads, 281 s | 164–170 s (12.5 MB/s per node) | 102–108 s (41–44 MB/s) | m |
 | 2 nodes, 2 × 10¹⁰, main + diagnostics | 8.89 GB, 4 × 2.2 GB | 8/8 equal | RECHECK OK, 0 short reads, 527 s | 332–336 s (12.5 MB/s) | 180–185 s (48–49 MB/s) | m |
 | 2 nodes, 2 × 10¹⁰, 16 MiB cap | 8.89 GB | — | RECHECK OK, 0 short reads, 0 retries, 679 s | 317–370 s | 300–353 s | m |
-| 2 nodes, 2 × 10¹⁰, 64 MiB cap | 8.89 GB | — | (pending) | | | m |
+| 2 nodes, 2 × 10¹⁰, 64 MiB cap (merged) | 8.89 GB | — | RECHECK OK, 0 short reads, 0 retries, 693 s | 480–481 s | 203–204 s | m |
 | 6 nodes, 3.8646 × 10¹¹ (2026-10-13) | 57.25 GB, 4 × 14.3 GB | equal (found by the size check) | 16 of 24 files short read, killed at 1800 s | | | m |
 | 6 nodes, 3.8646 × 10¹¹, the recheck's need | | | ≈ 1 h at the 2-node rates (26.8 GB of parts at 12.5 MB/s ≈ 2140 s + 57.25 GB at 48 MB/s ≈ 1190 s); slower when 6 nodes share the server | | | mod |
 
-Gates on the fix (16 MiB, commit e339948): 2 nodes PASS (10⁹, VERIFY OK, digits identical, P24 in use), 1 node PASS (m).
+Gates: 16 MiB (commit e339948) and 64 MiB (commit 544b863): 2 nodes PASS (10⁹, VERIFY OK, digits identical, P24 in use) and
+1 node PASS, both times (m). Single runs on a shared file system (other queue items ran beside them): the part-file pass,
+whose code did not change, took 317–481 s across the three 2 × 10¹⁰ rechecks, so read times compare only roughly; 16 MiB
+read the set ≈ 1.7 × slower than 512 MiB while the part pass was unchanged, 64 MiB ≈ 1.1 × (m, one run each, no CI).
 
 The cause: the compute nodes mount the home file system NFS **soft** (`timeo=600,retrans=2`, NFSv3, rsize 64 KiB; the
 login node mounts it hard). A soft mount fails an RPC that gets no answer within its timeouts with EIO. The reader had
@@ -63,5 +66,5 @@ smaller reads plus retries, merged as a correctness fix. The recheck of a large 
 - The writer waited 499 s for P before S = P + Q at 3.8646 × 10¹¹ (the 57 GB set at 56 MB/s per node): `ECALC_CKPT_TOP=1`
   costs run time on this file system; `=2` (budgeted) drops the set instead.
 
-**RESUME.** Branch `ckpt`, worktree `../ntt-wt-ckpt`. Done: diagnosis, fix, gates (16 MiB), docs. Pending: item
-`43_ckpt_gate2` (64 MiB: gates + 2-node write/recheck), then merge to `main`, push, `~/ntt-acc` pull.
+**RESUME.** Merged to `main` (branch `ckpt`, last code commit 544b863). Next: the next 6-node large run's recheck with a
+≥ 3 h timeout confirms the fix at scale (look for RECHECK OK and any `spill: read at offset` retry lines).
