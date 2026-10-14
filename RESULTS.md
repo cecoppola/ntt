@@ -129,3 +129,8 @@ Add one short section per merged experiment below this line: date, what changed,
 - Three speed settings adopted as defaults (`DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW=2`, `BS_SEED_PULL`): measured at 1 and 2 nodes in `results/CAND.md` (current times in `PLAN.md` §2).
 - Binary-limb pipeline removal (decimal limbs only): evidence in the "Adopted changes" row above (`results/H4.md`, `H5.md`); the code is in `archive:binary_pipeline/`.
 - P3, init mapping evaluated and not pursued (no plausible saving of 1 s at 1 node): `results/P3.md`.
+
+### 2026-10-14
+
+- ROCM, ROCm 7.14.0 against 7.2.4 at 1 node, 1e10 digits: digits identical, B - A +4.74 s [-17.02, +26.49] (4 pairs; -2.01 s [-8.62, +4.59] without the cold first run) (m); first 7.14.0 launch is slow (cold start); `results/ROCM.md`.
+- SCALE35, scaling at 3 and 5 nodes (6.441e10 digits per node): 147.7 s and 182.1 s (mean of 3, VERIFY OK) (m); `results/SCALE35.md`.
