@@ -115,17 +115,28 @@ static int pwrite_full(sp_file *f, const void *p, size_t n, uint64_t off)
     f->t_io += mem_now() - t;
     return 1;
 }
-/* reads until `need` bytes are in (the rest of `n` may be past the end of the file) */
+/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  O_DIRECT: a read may come back
+ * short at a byte count that is not a whole block before the end of the file (NFS returns what the server sent); the
+ * next read then starts again at the last whole block (p and off are block-aligned, so p + got and off + got stay
+ * aligned).  The same partial count twice in a row is the end of the file. */
 static int pread_need(sp_file *f, void *p, size_t n, uint64_t off, size_t need)
 {
     double t = mem_now();
-    char *c = (char *)p; size_t got = 0;
+    char *c = (char *)p; size_t got = 0, part = 0; int tries = 0;
     while (got < need) {
+        if (f->direct && (got & (SP_ALIGN - 1))) {      /* a partial block below `need`: again from its start (CKPT) */
+            if (got == part) break;                     /* (the end of the file) */
+            part = got; got &= ~(size_t)(SP_ALIGN - 1);
+        }
         ssize_t r = pread(f->fd, c + got, n - got, (off_t)(off + got));
-        if (r < 0) { if (errno == EINTR) continue; if (!f->err) { f->err = errno; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0 && (errno == EIO || errno == ETIMEDOUT || errno == EAGAIN || errno == ENOMEM) && tries < 3) {   /* a read is idempotent: again after 1, 4, 16 s, said on stderr (CKPT) */
+            int e = errno; tries++; fprintf(stderr, "spill: read at offset %llu: %s -- retry %d of 3\n", (unsigned long long)(off + got), strerror(e), tries);
+            sleep(1u << (2 * (tries - 1))); continue;
+        }
+        if (r < 0) { if (!f->err) { f->err = errno; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
         if (r == 0) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }   /* short file */
         got += (size_t)r;
-        if (f->direct && (got & (SP_ALIGN - 1))) break;     /* O_DIRECT: a partial block is the end of the file */
     }
     f->t_io += mem_now() - t;
     if (got < need) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
