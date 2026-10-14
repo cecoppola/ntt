@@ -300,6 +300,7 @@ budget).
 | `comm_ofi.c` | libfabric (`cxi`): the device exchanges' data plane over every NIC of the node, one domain per APU thread, chunks striped over the NICs; completion is signalled through SHMEM. On by default wherever a cxi NIC is present; `COMM_OFI=0` forces the SHMEM path. ×2.1 over SHMEM at 10 nodes (m; `results/OFI17.md`) |
 | `comm_layered.c` | the layered composition of an intra (xGMI) and an inter (SHMEM/OFI) communicator, §6.3 |
 | `comm_sim4.c`, `comm_util.c` | a synthetic four-rank layout in one APU's memory for tests; shared helpers |
+| `comm_copy.c` | N7D: the GPU copy kernel for copies that touch the SHMEM proxies' host-registered pool (`COMM_SHMEM_PX_KCOPY=1`, called from `comm_shmem.c`'s `COPY`) |
 
 Multi-node builds need SHMEM (`make SHMEM_CRAY=1`; a plain build refuses multi-node runs). SHMEM, the meshes and the
 communicators are opened before any HIP thread exists, because opening them after the arenas crashed in a vendor

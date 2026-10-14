@@ -46,7 +46,7 @@ SHMEM_LIBS += $(OFI_LIBS)
 endif
 
 TESTS = tests/t_modarith tests/t_roots tests/t_ntt tests/t_mul tests/t_crt tests/t_newton tests/t_bs tests/t_verify tests/t_dist tests/t_comm tests/t_ntt3 tests/t_dbig tests/t_out tests/t_mn_grid tests/t_alloc tests/t_copy_order tests/t_hred_race tests/t_strategy tests/t_cap tests/t_primes tests/t_seed tests/t_patch tests/t_p24 tests/t_crtk tests/t_crt24k
-OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
+OBJS  = ntt.o ntt3.o mem.o crt.o comm_local.o comm_sim4.o comm_xgmi.o comm_copy.o comm_shmem.o comm_ofi.o comm_layered.o comm_util.o ntt_dist.o mn.o mn_out.o bigint.o rns_mul.o rns_dist.o dbig.o newton_db.o newton.o binsplit.o verify.o mn_plan.o spill.o memsample.o fatal.o segv_trace.o p24_crt.o config_line.o
 REF   = ref/gen_e
 
 all: $(REF) $(OBJS) $(TESTS) ecalc tools
@@ -137,6 +137,9 @@ mn.o: mn.c mn.h mdb.h comm.h ntt_dist.h ntt.h mem.h dbig.h
 	$(HIPC) -c $< -o $@
 
 mn_out.o: mn_out.c mn_out.h verify.h dbig.h comm.h mem.h
+	$(HIPC) -c $< -o $@
+
+comm_copy.o: comm_copy.c comm.h
 	$(HIPC) -c $< -o $@
 
 comm_util.o: comm_util.c comm.h
