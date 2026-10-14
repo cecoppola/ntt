@@ -45,8 +45,8 @@
  * N7b (COMM_SHMEM_PE_PER_APU=1, default 0 = off; needs COMM_OFI=0; docs: ecalc/README.md): a node runs 1 + 4 PEs (mnrun.sh launches
  * them): local PEs 0..3 are proxies, one per APU (SHMEM_OFI_NIC_POLICY=ROUND-ROBIN puts proxy d on NIC d), the last local PE is the ecalc
  * node-process.  Ranks, meshes and every control word stay on the node-processes (logical PE = node; phys_pe maps it); only the data of the
- * device exchanges moves, as under comm_ofi: APU thread d's staging and symmetric slabs live in proxy d's symmetric pool (attached here with
- * shmem_ptr, HIP-registered when the driver allows), and the puts are posted by proxy d through its own NIC from a command ring in that pool;
+ * device exchanges moves, as under comm_ofi: APU thread d's staging and symmetric slabs live in proxy d's symmetric pool (mapped here from
+ * the proxy's heap file, heap_mmap below, or shmem_ptr; HIP-registered when the driver allows), and the puts are posted by proxy d through its own NIC from a command ring in that pool;
  * the node-process sends each peer's signal once the proxy reports the puts complete (ofi_flush).  Proxies serve in comm_shmem_init and
  * never return.  The pool per PE is the rule's (binsplit_shmem_pool_rule); every PE's heap is the same size. */
 #ifndef _GNU_SOURCE
