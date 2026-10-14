@@ -38,6 +38,7 @@ COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	bins
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	
 COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_NUMA	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7C	2026-11-14	
+COMM_SHMEM_PX_SEND	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
 COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	4	-	-	comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)

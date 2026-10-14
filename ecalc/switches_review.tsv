@@ -93,3 +93,4 @@ COMM_SHMEM_PEER_ORDER	experiment	N7	2026-11-12	shift = shifted-ring peer order (
 COMM_SHMEM_PE_PER_APU	experiment	N7b	2026-11-14	1 = one proxy PE per APU (COMM_OFI=0); adopt, extend to 2, or remove after the 6-node A/B (B3)
 COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU
 COMM_SHMEM_PX_NUMA	experiment	N7C	2026-11-14	1 = proxy heaps NUMA-local to their NIC/APU; adopt with COMM_SHMEM_PE_PER_APU or remove after the 2-node A/B
+COMM_SHMEM_PX_SEND	experiment	N7D	2026-11-14	2 = chunked put-with-signal into the receiving proxy, per-peer contexts (F4); adopt with COMM_SHMEM_PE_PER_APU or remove after the 6-node A/B
