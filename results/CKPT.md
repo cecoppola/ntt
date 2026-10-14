@@ -66,5 +66,25 @@ smaller reads plus retries, merged as a correctness fix. The recheck of a large 
 - The writer waited 499 s for P before S = P + Q at 3.8646 × 10¹¹ (the 57 GB set at 56 MB/s per node): `ECALC_CKPT_TOP=1`
   costs run time on this file system; `=2` (budgeted) drops the set instead.
 
-**RESUME.** Merged to `main` (branch `ckpt`, last code commit 544b863). Next: the next 6-node large run's recheck with a
-≥ 3 h timeout confirms the fix at scale (look for RECHECK OK and any `spill: read at offset` retry lines).
+**RESUME.** Merged to `main` (branch `ckpt`, last code commit 544b863). Confirmed at scale on 2026-10-14 (section
+below; commit 34175cf). Nothing open for this item; the part-file pass rate is a TASKS "Proposed" candidate.
+
+## 2026-10-14 proof at scale
+
+The same 6-node 3.8646 × 10¹¹ digits as on 2026-10-13, with the fix (commit 34175cf, `ECALC_CKPT_TOP=1`, 6 nodes,
+one run each, measured):
+
+| step | result | label |
+|---|---|---|
+| write (the whole run's time) | 1473.26 s total; VERIFY OK; first 10¹¹ digits identical to the reference | m |
+| standalone `ECALC_RECHECK=1` on the written files | RECHECK OK on all nodes (7 OK lines, 0 FAILED) | m |
+| `spill: read at offset` retries during the recheck | 0 | m |
+| recheck wall time | 7380 s (2 h 3 min) | m |
+| recheck, model of 2026-10-13 (≈ 1 h at the 2-node rates) | ≈ 3330 s (2140 s parts + 1190 s set) | mod |
+
+The recheck took about 2.2 × the model, so the model is low for this size: the file-system rates at 6 nodes are
+lower than the 2-node rates it was built on (mod). The fix holds at this size: the 16 short reads of 2026-10-13 did not
+recur, and no read needed a retry.
+
+TESTING.md §3 asks for a recheck timeout of at least twice the model. Twice the model is 2 h, which the measured
+2 h 3 min would exceed, so TESTING.md §3 keeps ≥ 3 h for the 6-node large run.

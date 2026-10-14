@@ -71,8 +71,9 @@ References are `ecalc/ref/e_<digits>.txt` of the clone, else `ECALC_REF`; make a
 
 A recheck of a large run is bound by the file system, not the node: it reads every part file and the top-level set
 again. On aac7 (NFS) that is ≈ 12.5 MB/s per node for the parts and ≈ 45 MB/s for the set (measured at 2 nodes,
-results/CKPT.md): 281 s at 10¹⁰ and 527 s at 2 × 10¹⁰ on 2 nodes (measured), ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled).
-Give it a timeout of at least twice the model (3 h for the 6-node large run); a recheck killed at its timeout leaves the
+results/CKPT.md): 281 s at 10¹⁰ and 527 s at 2 × 10¹⁰ on 2 nodes (measured), ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled),
+7380 s (2 h 3 min) there (measured, 2026-10-14).
+Give it a timeout of at least 3 h for the 6-node large run (the model is about half the measured time); a recheck killed at its timeout leaves the
 question open, and killed runs have been followed by nodes draining for a reboot.
 
 ## 4. Which checks for which change
