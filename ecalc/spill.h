@@ -34,6 +34,7 @@ typedef struct sp_file {
     int err;                           /* errno of the first failure */
     double t_io, t_dma;                /* seconds in pwrite/pread, in waiting for the DMA */
     uint64_t bytes;                    /* payload bytes moved */
+    uint64_t eoff; size_t egot, eneed; /* read: the failed read's file offset, the bytes it got and needed (the short-read message) */
 } sp_file;
 
 int  sp_odirect(void);                 /* ECALC_ODIRECT=1 (also 1 for ECALC_ODIRECT=auto: the cache-hygiene paths on, O_DIRECT per file below) */

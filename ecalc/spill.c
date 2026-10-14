@@ -122,13 +122,13 @@ static int pread_need(sp_file *f, void *p, size_t n, uint64_t off, size_t need)
     char *c = (char *)p; size_t got = 0;
     while (got < need) {
         ssize_t r = pread(f->fd, c + got, n - got, (off_t)(off + got));
-        if (r < 0) { if (errno == EINTR) continue; if (!f->err) f->err = errno; return 0; }
-        if (r == 0) { if (!f->err) f->err = EIO; return 0; }   /* short file */
+        if (r < 0) { if (errno == EINTR) continue; if (!f->err) { f->err = errno; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
+        if (r == 0) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }   /* short file */
         got += (size_t)r;
         if (f->direct && (got & (SP_ALIGN - 1))) break;     /* O_DIRECT: a partial block is the end of the file */
     }
     f->t_io += mem_now() - t;
-    if (got < need) { if (!f->err) f->err = EIO; return 0; }
+    if (got < need) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
     return 1;
 }
 /* device -> buffer (async on the file's stream of dev), with the guard; host: memcpy */

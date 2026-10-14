@@ -1041,11 +1041,15 @@ static ckf *ckpt_open(const char *kind, int level, int r, int write, char *tmp, 
 static int ckpt_close(ckf *c, int ok, int write, const char *tmp, const char *final)
 {
     if (c->direct) {
-        int e = c->sf.err; ok = spf_close(&c->sf, ok) && ok; free(c);
+        int e = c->sf.err; sp_file sf = c->sf; ok = spf_close(&c->sf, ok) && ok; free(c);
         if (write) {
             if (ok && rename(tmp, final) != 0) { e = errno; ok = 0; }
             if (!ok) { fprintf(stderr, "bs: checkpoint write failed for %s: %s\n", final, strerror(e ? e : EIO)); unlink(tmp); }
-        } else if (!ok) fprintf(stderr, "bs: checkpoint: short read from %s\n", final);
+        } else if (!ok) {                               /* the failed read named: errno, where, how much (CKPT) */
+            struct stat st; long long fsz = stat(final, &st) == 0 ? (long long)st.st_size : -1;
+            fprintf(stderr, "bs: checkpoint: short read from %s: %s at offset %llu (that read got %zu of %zu bytes; %llu payload bytes read before; file %lld bytes)\n",
+                    final, strerror(e ? e : EIO), (unsigned long long)sf.eoff, sf.egot, sf.eneed, (unsigned long long)sf.bytes, fsz);
+        }
         return ok;
     }
     FILE *f = c->f; free(c);
