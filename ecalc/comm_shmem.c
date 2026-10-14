@@ -324,7 +324,7 @@ static void px_attach(void)
 #ifndef COMM_HOST_ONLY
         hipError_t he = hipHostRegister(x->base, S.pool_bytes, hipHostRegisterPortable);
         if (he != hipSuccess) { (void)hipGetLastError(); x->reg = 0; }
-        else { void *dp = 0; if (hipHostGetDevicePointer(&dp, x->base, 0) != hipSuccess || dp != x->base) { (void)hipGetLastError(); x->reg = 0; hipHostUnregister(x->base); (void)hipGetLastError(); } }
+        else { void *dp = 0; if (hipHostGetDevicePointer(&dp, x->base, 0) != hipSuccess || dp != x->base) { (void)hipGetLastError(); x->reg = 0; (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
         if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=1: the proxy pools %s (%s)\n", x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
 #endif
         __atomic_store_n(&px_hdr_of(x->base)->pid, (long)getpid(), __ATOMIC_RELEASE);
