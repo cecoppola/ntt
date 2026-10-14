@@ -457,17 +457,22 @@ static void px_serve(void)
 #define MADV_POPULATE_WRITE 23
 #endif
 static double g_t0, g_t_own, g_t_pop, g_t_shinit;   /* entry of comm_shmem_init; own pool's registration (PX_INIT=1); pre-fault; shmem_init */
-struct pop_job { char *p; size_t n; };
-static void *pop_thread(void *a) { struct pop_job *j = (struct pop_job *)a; const size_t C = (size_t)256 << 20;
-    for (size_t o = 0; o < j->n; o += C) { size_t l = j->n - o < C ? j->n - o : C; if (madvise(j->p + o, l, MADV_POPULATE_WRITE)) break; } return 0; }
-static void pool_populate(char *p, size_t n, int nt)    /* nt threads over page-aligned slices; an error (old kernel) leaves the rest to the registration's own faults */
+struct pop_job { char *p; size_t n; int err; };   /* err: errno of the first failed madvise (0 = none) */
+static int g_pop_err;                                /* errno of MADV_POPULATE_WRITE in the last pool_populate (0 = it worked) */
+static void *pop_thread(void *a) { struct pop_job *j = (struct pop_job *)a; const size_t C = (size_t)256 << 20; size_t o = 0; j->err = 0;
+    for (; o < j->n; o += C) { size_t l = j->n - o < C ? j->n - o : C; if (madvise(j->p + o, l, MADV_POPULATE_WRITE)) { j->err = errno ? errno : -1; break; } }
+    /* fallback (madvise unsupported or refused): fault the rest by an atomic no-op write per 4 KiB page (no byte changes, safe under concurrent puts) */
+    for (; o < j->n; o += 4096) __atomic_fetch_or((volatile unsigned long *)(j->p + o), 0UL, __ATOMIC_RELAXED);
+    return 0; }
+static void pool_populate(char *p, size_t n, int nt)    /* nt threads over page-aligned slices; COMM_SHMEM_VERBOSE prints a madvise error (then the pages were touched) */
 {
     if (nt < 1) nt = 1; if (nt > 16) nt = 16;
     pthread_t th[16]; struct pop_job jb[16]; size_t sl = ((n / nt) + 4095) & ~(size_t)4095; int k = 0;
-    uintptr_t b = (uintptr_t)p & ~(uintptr_t)4095; n = (n + 4095) & ~(size_t)4095;
-    for (int i = 0; i < nt && (size_t)i * sl < n; i++) { jb[i].p = (char *)b + (size_t)i * sl; jb[i].n = n - (size_t)i * sl < sl ? n - (size_t)i * sl : sl;
-        if (pthread_create(&th[i], 0, pop_thread, &jb[i])) { pop_thread(&jb[i]); th[i] = 0; jb[i].n = 0; } k++; }
-    for (int i = 0; i < k; i++) if (jb[i].n && th[i]) pthread_join(th[i], 0);
+    uintptr_t b = (uintptr_t)p & ~(uintptr_t)4095; n = (n + ((uintptr_t)p - b) + 4095) & ~(size_t)4095;
+    for (int i = 0; i < nt && (size_t)i * sl < n; i++) { jb[i].p = (char *)b + (size_t)i * sl; jb[i].n = n - (size_t)i * sl < sl ? n - (size_t)i * sl : sl; jb[i].err = 0;
+        if (pthread_create(&th[i], 0, pop_thread, &jb[i])) { pop_thread(&jb[i]); th[i] = 0; } k++; }
+    g_pop_err = 0;
+    for (int i = 0; i < k; i++) { if (th[i]) pthread_join(th[i], 0); if (jb[i].err && !g_pop_err) g_pop_err = jb[i].err; }
 }
 #ifndef COMM_HOST_ONLY
 struct reg_job { char *p; size_t n; hipError_t he; int dpok; double t; };
@@ -622,7 +627,8 @@ int comm_shmem_init(void)
         memset(S.pool + S.mb_bytes, 0, PXCTL); px_hdr_of(S.pool)->pad[0] = 0x4e374250;   /* the mark the node-process checks after mapping */
         *mailbox(MAXID - 1, 1) = (long)(S.pool - (char *)g_heap_addr);              /* the pool's offset in the heap file */
         if (g_heap_numa >= 0 && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_NUMA=1: heap prefers NUMA node %d (mbind %s)\n", S.pme, g_heap_numa, g_heap_mbind ? strerror(g_heap_mbind) : "ok");
-        if (g_pxinit) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: its pages faulted here, by the NUMA policy of the heap file */ }
+        if (g_pxinit) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: its pages faulted here, by the NUMA policy of the heap file */
+            if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.pme, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline (s since entry): shmem_init %.2f, pool pre-fault %.2f, barrier next at %.2f\n", S.pme, g_t_shinit, g_t_pop, now_s() - g_t0);
         shmem_barrier_all(); S.inited = 1;
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline: barrier passed at %.2f\n", S.pme, now_s() - g_t0);
@@ -640,7 +646,8 @@ int comm_shmem_init(void)
         (void)hipGetLastError();
         if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
     }
-    if (g_pxinit && !S.devheap) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp; }   /* N7D: pre-faulted here; registered after the barrier with the proxy pools */
+    if (g_pxinit && !S.devheap) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: pre-faulted here; registered after the barrier with the proxy pools */
+        if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.me, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
     else if (!S.devheap) {
         double tr = now_s(); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable);
         S.registered = he == hipSuccess;
