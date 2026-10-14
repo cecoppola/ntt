@@ -64,6 +64,12 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include <signal.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include "comm.h"
 #include "comm_ofi.h"                             /* COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
 /* the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
@@ -217,6 +223,43 @@ static void wait_ne_(long *p, long v)
 static void wait_ne(long *p, long v) { double t0 = comm_wst_t0(); wait_ne_(p, v); comm_wst_ready_end(t0); }
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
+/* ---- N7b: the proxies' heaps as named shared memory ----
+ * Cray OpenSHMEMX 11.8 on aac7 maps the symmetric heap as shared anonymous memory (/proc maps: "/dev/zero (deleted)", rw-s) and has no
+ * on-node path between PEs there (no /dev/xpmem: shmem_ptr gives NULL; SHMEM_LOCALITY_ONNODE=1 segfaults; B2 probe 2026-10-14).  So a proxy
+ * arms this mmap wrapper around its shmem_init: the one MAP_SHARED anonymous (or /dev/zero) mapping at least the heap's size becomes the same
+ * mapping of a file /dev/shm/ecalc_px_<job>_<step>_<PE> -- the same kind of pages (shmem), the same address and flags -- and the node-process
+ * maps that file (px_attach), then unlinks it.  The wrapper is a pass-through everywhere else (not armed: every other process and call). */
+static volatile int g_heap_arm; static char g_heap_path[160]; static void *g_heap_addr; static size_t g_heap_min;
+static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
+{
+    if (g_heap_arm && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
+        int zero = (fl & MAP_ANONYMOUS) != 0;
+        if (!zero && fd >= 0) { struct stat st; zero = fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && major(st.st_rdev) == 1 && minor(st.st_rdev) == 5; }
+        if (zero) {
+            int sfd = open(g_heap_path, O_RDWR | O_CREAT | O_EXCL, 0600);
+            if (sfd >= 0 && ftruncate(sfd, (off_t)l) == 0) {
+                void *r = (void *)syscall(SYS_mmap, a, l, prot, fl & ~(MAP_ANONYMOUS | MAP_HUGETLB | (MAP_HUGE_MASK << MAP_HUGE_SHIFT)), sfd, (off_t)0); close(sfd);
+                if (r != MAP_FAILED) g_heap_addr = r; else unlink(g_heap_path);
+                return r;
+            }
+            if (sfd >= 0) { close(sfd); unlink(g_heap_path); }
+        }
+    }
+    return (void *)syscall(SYS_mmap, a, l, prot, fl, fd, o);
+}
+#ifdef __cplusplus
+#define HEAP_THROW __THROW                                /* (C++: the headers' noexcept; C: attributes may not follow a definition's declarator) */
+extern "C" {
+#else
+#define HEAP_THROW
+#endif
+void *mmap(void *a, size_t l, int prot, int fl, int fd, off_t o) HEAP_THROW { return heap_mmap(a, l, prot, fl, fd, o); }
+void *mmap64(void *a, size_t l, int prot, int fl, int fd, off64_t o) HEAP_THROW { return heap_mmap(a, l, prot, fl, fd, (off_t)o); }
+#ifdef __cplusplus
+}
+#endif
+static void heap_path(char *buf, size_t n, int pe) { snprintf(buf, n, "/dev/shm/ecalc_px_%s_%s_%d", getenv("SLURM_JOB_ID") ? getenv("SLURM_JOB_ID") : "0", getenv("SLURM_STEP_ID") ? getenv("SLURM_STEP_ID") : "0", pe); }
+
 /* ---- N7b: the proxy data plane (COMM_SHMEM_PE_PER_APU=1) ----
  * Proxy d's pool, as seen by both processes: [0, mb_bytes) unused (the mailbox's place), then PXCTL bytes of control -- a header
  * (head: commands posted by the node-process, done: commands whose puts are complete, quit, the two pids) and a ring of PXRING
@@ -304,7 +347,7 @@ static void px_serve(void)
             struct timespec ts = { 0, 20000 }; nanosleep(&ts, 0);
             double tn = now_s();
             if (tn - tchk > 1.0) { tchk = tn; long pid = __atomic_load_n(&h->pid, __ATOMIC_ACQUIRE);
-                if (pid > 0 && kill((pid_t)pid, 0) != 0) { fprintf(stderr, "comm_shmem: proxy pe %d: the node-process (pid %ld) is gone: exiting\n", S.pme, pid); _exit(3); } }
+                if (pid > 0 && kill((pid_t)pid, 0) != 0) { fprintf(stderr, "comm_shmem: proxy pe %d: the node-process (pid %ld) is gone: exiting\n", S.pme, pid); unlink(g_heap_path); _exit(3); } }
         }
     }
     if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): %ld puts, %.2f GB in %ld batches, %.2f s posting + quiet = %.2f GB/s while busy\n",
@@ -316,8 +359,18 @@ static void px_attach(void)
     for (int d = 0; d < 4; d++) {
         px_dev *x = (px_dev *)calloc(1, sizeof *x); g_px[d] = x; x->d = d;
         x->pe = S.me * S.ppn + d;                         /* proxy d of my node (ppa 1: local PE d) */
-        x->base = (char *)shmem_ptr(S.pool, x->pe);
-        if (!x->base) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: shmem_ptr gives no address for the proxy PE %d on this node (the library's on-node XPMEM is needed)\n", S.me, x->pe);
+        x->base = (char *)shmem_ptr(S.pool, x->pe);       /* (a library with an on-node path; aac7's has none) */
+        if (!x->base) {                                   /* the proxy's heap file (heap_mmap), at the pool's offset in the heap (the proxy's mailbox word) */
+            char path[160]; heap_path(path, sizeof path, x->pe);
+            long off = shmem_long_g(mailbox(MAXID - 1, 1), x->pe);
+            int fd = open(path, O_RDWR); struct stat st;
+            if (fd < 0 || fstat(fd, &st) != 0 || off < 0 || (size_t)off + S.pool_bytes > (size_t)st.st_size)
+                ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the heap of proxy PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe, path, fd < 0 ? strerror(errno) : "too small", off);
+            char *m = (char *)mmap(0, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); close(fd); unlink(path);
+            if (m == MAP_FAILED) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: mmap of %s: %s\n", S.me, path, strerror(errno));
+            x->base = m + off;
+        }
+        if (px_hdr_of(x->base)->pad[0] != 0x4e374250) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the proxy PE %d's pool is not the memory mapped here (no mark)\n", S.me, x->pe);
         pthread_mutex_init(&x->lock, 0);
         x->blocks = (struct blk *)malloc(sizeof *x->blocks); x->blocks->off = S.mb_bytes + PXCTL; x->blocks->len = S.pool_bytes - S.mb_bytes - PXCTL; x->blocks->used = 0; x->blocks->next = 0;
         x->reg = 1;
@@ -370,12 +423,19 @@ int comm_shmem_init(void)
     if (npes_hint < 1) npes_hint = 4096;
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 + ALIGN - 1) & ~(size_t)(ALIGN - 1);
     S.pool_bytes = (mb << 20) + S.mb_bytes;
+    { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
+        g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
+        heap_path(g_heap_path, sizeof g_heap_path, getenv("SLURM_PROCID") ? atoi(getenv("SLURM_PROCID")) : -1); unlink(g_heap_path); g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
+    g_heap_arm = 0;
     S.prov = prov;
     S.pme = S.me = shmem_my_pe(); S.pnpes = S.npes = shmem_n_pes();
     if (S.ppa) {                                          /* N7b: logical PE = node; the last PE of a node's block is its node-process */
         if (S.pnpes % S.ppn) { fprintf(stderr, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d: %d PEs are not whole nodes of %d (launch with mnrun.sh)\n", S.ppa, S.pnpes, S.ppn); shmem_global_exit(1); }
         S.me = S.pme / S.ppn; S.npes = S.pnpes / S.ppn; S.proxy = S.pme % S.ppn != S.ppn - 1;
+        if (S.npes < 2) { fprintf(stderr, "comm_shmem: COMM_SHMEM_PE_PER_APU needs at least 2 nodes\n"); shmem_global_exit(1); }
+        if (!getenv("SLURM_PROCID") || atoi(getenv("SLURM_PROCID")) != S.pme) { fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU needs PE = SLURM_PROCID (srun, block placement; got %s)\n", S.pme, getenv("SLURM_PROCID") ? getenv("SLURM_PROCID") : "unset"); shmem_global_exit(1); }
+        if (S.proxy && !g_heap_addr) { fprintf(stderr, "comm_shmem: proxy pe %d: the symmetric heap was not mapped through the named file (no shared anonymous mapping >= SHMEM_SYMMETRIC_SIZE seen)\n", S.pme); shmem_global_exit(1); }
         const char *ex = getenv("COMM_SHMEM_PROXY"); if (ex && (atoi(ex) != 0) != S.proxy) { fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_PROXY=%s but the PE's place in its node makes it %s (block placement expected)\n", S.pme, ex, S.proxy ? "a proxy" : "the node-process"); shmem_global_exit(1); }
     }
     if (S.npes > npes_hint) { fprintf(stderr, "comm_shmem: %d PEs but the mailbox was sized for %d (set COMM_SIZE)\n", S.npes, npes_hint); shmem_global_exit(1); }
@@ -398,12 +458,13 @@ int comm_shmem_init(void)
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
     if (S.ppa && !S.proxy) *mailbox(MAXID - 1, 0) = (long)getpid();   /* N7b: the node-process's pid in the reserved mailbox row, for its proxies */
     if (S.proxy) {                                        /* N7b: a proxy -- its control zeroed before the barrier; it serves until the node-process's finalize */
-        memset(S.pool + S.mb_bytes, 0, PXCTL);
+        memset(S.pool + S.mb_bytes, 0, PXCTL); px_hdr_of(S.pool)->pad[0] = 0x4e374250;   /* the mark the node-process checks after mapping */
+        *mailbox(MAXID - 1, 1) = (long)(S.pool - (char *)g_heap_addr);              /* the pool's offset in the heap file */
         shmem_barrier_all(); S.inited = 1;
         px_hdr_of(S.pool)->pid = shmem_long_g(mailbox(MAXID - 1, 0), phys_pe(S.me));   /* (the liveness check: no shared memory needed) */
         px_serve();
         shmem_barrier_all();                              /* (comm_shmem_finalize's) */
-        shmem_free(S.pool); shmem_finalize(); fflush(stdout); fflush(stderr); _exit(0);
+        shmem_free(S.pool); shmem_finalize(); unlink(g_heap_path); fflush(stdout); fflush(stderr); _exit(0);
     }
 #ifndef COMM_HOST_ONLY
     if (S.devheap) {                                      /* the transport takes COMM_SHMEM_DEVHEAP=1 at its word only when the
