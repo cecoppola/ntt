@@ -93,4 +93,6 @@ COMM_SHMEM_PEER_ORDER	experiment	N7	2026-11-12	shift = shifted-ring peer order (
 COMM_SHMEM_PE_PER_APU	experiment	N7b	2026-11-14	1 = one proxy PE per APU (COMM_OFI=0); adopt, extend to 2, or remove after the 6-node A/B (B3)
 COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU
 COMM_SHMEM_PX_KCOPY	experiment	N7D	2026-11-14	1 = copies touching a proxy pool run as a kernel (replaces HSA_ENABLE_SDMA=0); adopt as the COMM_OFI=0 default with PX_NUMA or remove after the 2-node A/B
+COMM_SHMEM_PX_INIT	experiment	N7D	2026-11-14	1 = pre-fault and register the proxy-mode pools in parallel; adopt with config C or remove after the 2-node A/B
+COMM_SHMEM_PX_INIT_THREADS	experiment	N7D	2026-11-14	pre-fault threads of COMM_SHMEM_PX_INIT
 COMM_SHMEM_PX_NUMA	experiment	N7C	2026-11-14	1 = proxy heaps NUMA-local to their NIC/APU; adopt with COMM_SHMEM_PE_PER_APU or remove after the 2-node A/B
