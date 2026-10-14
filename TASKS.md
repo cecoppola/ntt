@@ -16,6 +16,7 @@ project instructions). Within a class, rows are in the order to do them.
 |---|---|---|---|---|
 | 1 | NIC | **Node screen checks the NIC count each node's runtime sees** (3 SHMEM runs aborted 2026-10-13: 1 NIC visible, 4 requested) | done 2026-10-13 (7de81c7): `--want-nics`, verified on 4 nodes; not yet seen on a real 1-NIC node | results/NIC.md |
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | adopted 2026-10-12 (D20-D22): `BS_BATCH_PIPE=1` (N3, −0.99 s at 1 n, m), `RNS_CRT_SCAN=1` (K4b, −2.52 s at 1 n, m) and `DM_MN_WRAP=1` (P1, D22; +5.4 GB per APU, mod) are code defaults, `=0` fallbacks; nothing running | results/P2.md, P3.md, P1.md, DEF.md, N3.md, K4b.md |
+| 4 | N7b | **One SHMEM PE per APU (D29 (a)); target: 2 NICs per APU → PEs per APU parameter 1 or 2** (one PE per node uses one of four NICs; Fix A `COMM_SHMEM_PEER_ORDER=shift` is measured, off by default) | planned | results/N7.md |
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
 
@@ -26,6 +27,7 @@ Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details i
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
 
+- Node drain after killed runs: nodes went to `needs_reboot` straight after our SHMEM runs were killed at their timeout (2026-10-13 21:07 ET and 2026-10-14 02:05 ET, twice); cause unknown; investigate (results/N7.md §6). Size unknown.
 - Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s/APU at 1 node (m), floor is the remote read (results/P2.md). Algorithm change, size unknown — needs a scoping pass.
 
 ## Decisions (user)
