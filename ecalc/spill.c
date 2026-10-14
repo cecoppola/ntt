@@ -105,41 +105,54 @@ static hipStream_t sp_stream(sp_file *f, int dev)
 static int pwrite_full(sp_file *f, const void *p, size_t n, uint64_t off)
 {
     double t = mem_now();
-    const char *c = (const char *)p;
+    const char *c = (const char *)p; int tries = 0;
     while (n) {
         ssize_t w = pwrite(f->fd, c, n, (off_t)off);
-        if (w < 0) { if (errno == EINTR) continue; if (!f->err) f->err = errno; return 0; }
+        if (w < 0 && errno == EINTR) continue;
+        if (w < 0 && (errno == EIO || errno == ETIMEDOUT || errno == EAGAIN || errno == ENOMEM) && tries < 3) {   /* as pread_need: the same bytes to the same offset again */
+            int e = errno; tries++;
+            fprintf(stderr, "spill: write at offset %llu: %s -- again in %u s (%d of 3)\n", (unsigned long long)off, strerror(e), 1u << (2 * (tries - 1)), tries);
+            sleep(1u << (2 * (tries - 1))); continue;
+        }
+        if (w < 0) { if (!f->err) f->err = errno; return 0; }
         if (w == 0) { if (!f->err) f->err = EIO; return 0; }
-        c += w; n -= (size_t)w; off += (uint64_t)w;
+        c += w; n -= (size_t)w; off += (uint64_t)w; tries = 0;
     }
     f->t_io += mem_now() - t;
     return 1;
 }
-/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  O_DIRECT: a read may come back
- * short at a byte count that is not a whole block before the end of the file (NFS returns what the server sent); the
- * next read then starts again at the last whole block (p and off are block-aligned, so p + got and off + got stay
- * aligned).  The same partial count twice in a row is the end of the file. */
+/* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  CKPT (results/CKPT.md): the home
+ * file system of the test cluster is NFS mounted `soft` on the compute nodes, so a read whose RPCs wait longer than the
+ * mount's timeouts fails with EIO; four 512 MiB O_DIRECT reads per node on 6 nodes queued enough to fail 16 of 24 top-set
+ * files.  So: (1) one pread asks for at most SP_READ_MAX bytes (few RPCs in flight per thread); (2) EIO / ETIMEDOUT /
+ * EAGAIN / ENOMEM: the same read again after 1, 4, 16 s (a read is idempotent; said on stderr), 3 failures in a row fail
+ * it; (3) O_DIRECT: a read that comes back short at a byte count that is not a whole block before `need` is read again
+ * from that block (p and off are block-aligned, so p + got and off + got stay aligned); the same partial count twice in
+ * a row is the end of the file. */
+#define SP_READ_MAX ((size_t)16 << 20)
 static int pread_need(sp_file *f, void *p, size_t n, uint64_t off, size_t need)
 {
     double t = mem_now();
     char *c = (char *)p; size_t got = 0, part = 0; int tries = 0;
     while (got < need) {
-        if (f->direct && (got & (SP_ALIGN - 1))) {      /* a partial block below `need`: again from its start (CKPT) */
+        if (f->direct && (got & (SP_ALIGN - 1))) {      /* a partial block below `need`: again from its start */
             if (got == part) break;                     /* (the end of the file) */
             part = got; got &= ~(size_t)(SP_ALIGN - 1);
         }
-        ssize_t r = pread(f->fd, c + got, n - got, (off_t)(off + got));
+        size_t want = n - got < SP_READ_MAX ? n - got : SP_READ_MAX;
+        ssize_t r = pread(f->fd, c + got, want, (off_t)(off + got));
         if (r < 0 && errno == EINTR) continue;
-        if (r < 0 && (errno == EIO || errno == ETIMEDOUT || errno == EAGAIN || errno == ENOMEM) && tries < 3) {   /* a read is idempotent: again after 1, 4, 16 s, said on stderr (CKPT) */
-            int e = errno; tries++; fprintf(stderr, "spill: read at offset %llu: %s -- retry %d of 3\n", (unsigned long long)(off + got), strerror(e), tries);
+        if (r < 0 && (errno == EIO || errno == ETIMEDOUT || errno == EAGAIN || errno == ENOMEM) && tries < 3) {
+            int e = errno; tries++;
+            fprintf(stderr, "spill: read at offset %llu: %s -- again in %u s (%d of 3)\n", (unsigned long long)(off + got), strerror(e), 1u << (2 * (tries - 1)), tries);
             sleep(1u << (2 * (tries - 1))); continue;
         }
-        if (r < 0) { if (!f->err) { f->err = errno; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
-        if (r == 0) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }   /* short file */
-        got += (size_t)r;
+        if (r < 0) { if (!f->err) { f->err = errno; f->eoff = off + got; f->egot = got; f->eneed = need; } return 0; }
+        if (r == 0) { if (!f->err) { f->err = EIO; f->eoff = off + got; f->egot = got; f->eneed = need; } return 0; }   /* short file */
+        got += (size_t)r; tries = 0;
     }
     f->t_io += mem_now() - t;
-    if (got < need) { if (!f->err) { f->err = EIO; f->eoff = off; f->egot = got; f->eneed = need; } return 0; }
+    if (got < need) { if (!f->err) { f->err = EIO; f->eoff = off + got; f->egot = got; f->eneed = need; } return 0; }
     return 1;
 }
 /* device -> buffer (async on the file's stream of dev), with the guard; host: memcpy */
