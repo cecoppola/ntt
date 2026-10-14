@@ -96,3 +96,4 @@ COMM_SHMEM_PX_KCOPY	experiment	N7D	2026-11-14	1 = copies touching a proxy pool r
 COMM_SHMEM_PX_INIT	experiment	N7D	2026-11-14	1 = pre-fault and register the proxy-mode pools in parallel; adopt with config C or remove after the 2-node A/B
 COMM_SHMEM_PX_INIT_THREADS	experiment	N7D	2026-11-14	pre-fault threads of COMM_SHMEM_PX_INIT
 COMM_SHMEM_PX_NUMA	experiment	N7C	2026-11-14	1 = proxy heaps NUMA-local to their NIC/APU; adopt with COMM_SHMEM_PE_PER_APU or remove after the 2-node A/B
+COMM_SHMEM_PX_SEND	experiment	N7D	2026-11-14	2 = chunked put-with-signal into the receiving proxy, per-peer contexts (F4); adopt with COMM_SHMEM_PE_PER_APU or remove after the 6-node A/B

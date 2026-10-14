@@ -201,6 +201,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `COMM_SHMEM_PX_NUMA` | *N7C*: under `COMM_SHMEM_PE_PER_APU=1`, 1 makes proxy d's heap prefer the NUMA node of its NIC (cxi d, that of APU d on aac7): an `mbind` (preferred) on the heap file's mapping before any page is touched, so the node-process's GPU kernels, copies and the NIC use local memory. 0 (default) = first touch decides. The node-process prints where 64 sampled pages of each proxy pool lie and their page size (pe 0). Digits unchanged |
 | `COMM_SHMEM_PX_INIT` | *N7D*: under `COMM_SHMEM_PE_PER_APU=1`, 1 shortens the proxy mode's init: every PE pre-faults its pool with `MADV_POPULATE_WRITE` (a proxy before the barrier, in its own process, so the faults of the four proxies and the node-process overlap and follow `COMM_SHMEM_PX_NUMA`'s policy), and the node-process then registers the four proxy pools and its own with HIP in five threads instead of one after the other. 0 (default) = the serial path. `COMM_SHMEM_VERBOSE=1` prints every PE's init timeline either way. Digits unchanged |
 | `COMM_SHMEM_PX_INIT_THREADS` | *N7D*: threads per pool for the pre-fault of `COMM_SHMEM_PX_INIT=1` (default 4, 1..16) |
+| `COMM_SHMEM_PX_SEND` | *N7D (F4)*: under `COMM_SHMEM_PE_PER_APU=1`, how a proxy sends. 1 (default) = posts every queued command as one put, one `shmem_quiet` per batch, then the node-process sends each peer's signal. 2 = each command in 4 MiB chunks of `shmem_ctx_putmem_signal_nbi` straight into the receiving proxy's pool (the signal words in its mailbox place, which doubles), chunks of the queued commands interleaved, one context per peer node (up to 8) whose own quiet retires its commands, new commands taken between quiets. Digits unchanged |
 | `COMM_SHMEM_PROXY` | *N7b*: set by mnrun.sh (1 on the proxy PEs under `COMM_SHMEM_PE_PER_APU=1`); comm_shmem checks it against the PE's place in its node. Not a user setting (unset) |
 | `COMM_LAYER_STATS` | *Phase 13a X (archive:PLAN §29 E9 part 1)*: 1 prints, per layered exchange, the stage timeline (the push kernel's link-active interval, the fence/fabric phases); 2 adds more detail (`comm_layered.c:38,227`). Reads timers only; digits unchanged (0) |
 | `COMM_XGMI_STATS` | *H4*: 1 runs the xGMI push through per-link byte and active-time accounting and prints, per node, the xGMI stage vs its link time (GB/s per APU) at exit (`comm_xgmi.c:79,97`). Reads counters only; digits unchanged (0) |
@@ -281,7 +282,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | experiment | N7 | 2026-11-12 | `COMM_SHMEM_PEER_ORDER` |
 | experiment | N7C | 2026-11-14 | `COMM_SHMEM_PX_NUMA` |
-| experiment | N7D | 2026-11-14 | `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_INIT_THREADS`, `COMM_SHMEM_PX_KCOPY` |
+| experiment | N7D | 2026-11-14 | `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_INIT_THREADS`, `COMM_SHMEM_PX_KCOPY`, `COMM_SHMEM_PX_SEND` |
 | experiment | N7b | 2026-11-14 | `COMM_SHMEM_PE_PER_APU`, `COMM_SHMEM_PROXY` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |
