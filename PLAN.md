@@ -50,7 +50,7 @@ digits up to 10¹¹.
 | 3 / 5 nodes at 6.441 × 10¹⁰ digits per node (aac7, comm_ofi default, 2026-10-14): 147.7 s (3 runs, sd 4.5) and 182.1 s (3 runs, sd 9.7); with the 1/2/4/6 points the curve reads 67.6 / 119.4 / 147.7 / 172.2 / 182.1 / 204.6 s for 1 to 6 nodes (m, 2026-10-14) | `results/SCALE35.md` |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, aac7, defaults, no writes, 2026-10-13) | mean 202.1 s, sd 8.6 s, min 192.0 s, max 230.9 s over 47 runs; 0 hangs (m) | `results/NIGHT.md` §5 |
 | 6 nodes, 3.8646 × 10¹¹ digits (repeat, test cluster, defaults of 209712f, no writes, 2026-10-13 day plan) | mean 197.1 s, sd 12.0 s, min 181.1 s, max 224.8 s over 34 runs; 0 hangs (m) | `results/DAY.md` §4 |
-| 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; no results file on main yet |
+| 6 nodes, 3.8646 × 10¹¹ digits (repeat on main 1aa2b80, after the CKPT, N7 and N7b merges, aac7, 2026-10-14, no writes) | mean 190.70 s, sd 12.03 s, min 175.38 s, max 217.78 s over 31 runs; 0 hangs; gates at 1/2/4/6 nodes PASS (digits identical); SHMEM-path sweep 24/24 digits identical at 1 to 6 nodes (m; not a paired speed claim) | 2026-10-14 repeat; results/NIGHT2.md |
 
 The 60-bit packed output (`ECALC_OUT_PACKED=2`) is the default since 2026-10-12 (batch D5, `results/W2A.md`).
 The wave 2 settings removals changed no timing at the defaults (`results/W2A.md`, `results/W2B.md`).

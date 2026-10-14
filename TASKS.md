@@ -27,7 +27,7 @@ Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details i
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
 
-- Node drain after killed runs: nodes went to `needs_reboot` straight after our SHMEM runs were killed at their timeout (2026-10-13 21:07 ET and 2026-10-14 02:05 ET, twice); cause unknown; investigate (results/N7.md §6). Size unknown.
+- Node drain after our jobs: the 6 nodes of a job went to `needs_reboot` ("reboot timed out") right after three of our jobs ended: 2026-10-13 21:07 ET and 2026-10-14 02:05 ET (both runs killed at their timeout) and 2026-10-14 09:06 ET (a job that ended normally); other normal ends had no drain; cause unknown, site-side; investigate (results/N7.md §6, results/NIGHT2.md). Size unknown.
 - Gather layout: each rank holds its own rows so the 3/4 remote pull in `k_gather` disappears; `k_gather_raw` is 2.0 s/APU at 1 node (m), floor is the remote read (results/P2.md). Algorithm change, size unknown — needs a scoping pass.
 
 ## Decisions (user)
