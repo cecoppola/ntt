@@ -40,7 +40,15 @@
  * nowhere except init/finalize: they are process-level and would need all four threads to agree; the strided PE set
  * is the shim for shmem_team_split_strided.
  * Build: -DCOMM_SHMEM with the SHMEM headers (Makefile: SHMEM_CRAY=1); without it the
- * entry points abort.  The exact call list is in results/S12.md (the portability contract). */
+ * entry points abort.  The exact call list is in results/S12.md (the portability contract).
+ *
+ * N7b (COMM_SHMEM_PE_PER_APU=1, default 0 = off; needs COMM_OFI=0; docs: ecalc/README.md): a node runs 1 + 4 PEs (mnrun.sh launches
+ * them): local PEs 0..3 are proxies, one per APU (SHMEM_OFI_NIC_POLICY=ROUND-ROBIN puts proxy d on NIC d), the last local PE is the ecalc
+ * node-process.  Ranks, meshes and every control word stay on the node-processes (logical PE = node; phys_pe maps it); only the data of the
+ * device exchanges moves, as under comm_ofi: APU thread d's staging and symmetric slabs live in proxy d's symmetric pool (attached here with
+ * shmem_ptr, HIP-registered when the driver allows), and the puts are posted by proxy d through its own NIC from a command ring in that pool;
+ * the node-process sends each peer's signal once the proxy reports the puts complete (ofi_flush).  Proxies serve in comm_shmem_init and
+ * never return.  The pool per PE is the rule's (binsplit_shmem_pool_rule); every PE's heap is the same size. */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE                                       /* dladdr (COMM_SHMEM_VERBOSE=2) */
 #endif
@@ -55,6 +63,7 @@
 #include <time.h>
 #include <execinfo.h>
 #include <dlfcn.h>
+#include <signal.h>
 #include "comm.h"
 #include "comm_ofi.h"                             /* COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
 /* the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
@@ -79,6 +88,7 @@ void  comm_shmem_finalize(void) { }
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id) { (void)pe_start; (void)pe_stride; (void)n; (void)id; no_shmem(); return 0; }
 int   comm_shmem_available(void) { return 0; }
 const char *comm_shmem_impl(void) { return "none"; }
+int   comm_shmem_pe_per_apu(void) { return 0; }
 #else
 #include <shmem.h>
 #if SHMEM_MAJOR_VERSION > 1 || (SHMEM_MAJOR_VERSION == 1 && SHMEM_MINOR_VERSION >= 5)
@@ -117,6 +127,7 @@ static struct {
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
+    int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* (below) */
@@ -178,7 +189,8 @@ static void pool_free(size_t off)
     }
     pthread_mutex_unlock(&S.alloc_lock);
 }
-static long *mailbox(int id, int pe) { return (long *)S.pool + (size_t)id * S.npes + pe; }
+static long *mailbox(int id, int pe) { return (long *)S.pool + (size_t)id * S.npes + pe; }   /* pe: logical (the node) */
+static int phys_pe(int l) { return S.ppn > 1 ? l * S.ppn + S.ppn - 1 : l; }   /* N7b: the node-process of node l (the last PE of its block) */
 static int in_pool(const void *p) { return (const char *)p >= S.pool && (const char *)p < S.pool + S.pool_bytes; }
 static size_t off_of(const void *p) { return (size_t)((const char *)p - S.pool); }
 
@@ -205,6 +217,135 @@ static void wait_ne_(long *p, long v)
 static void wait_ne(long *p, long v) { double t0 = comm_wst_t0(); wait_ne_(p, v); comm_wst_ready_end(t0); }
 static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SHMEM_CMP_GE, v); SHM_UNLOCK(); return ok; }
 
+/* ---- N7b: the proxy data plane (COMM_SHMEM_PE_PER_APU=1) ----
+ * Proxy d's pool, as seen by both processes: [0, mb_bytes) unused (the mailbox's place), then PXCTL bytes of control -- a header
+ * (head: commands posted by the node-process, done: commands whose puts are complete, quit, the two pids) and a ring of PXRING
+ * commands -- then the general area, a first-fit allocator kept by the node-process (APU thread d's staging and slabs).  Offsets in
+ * the pool are the same in every proxy (the pools are symmetric), so a receiver's published offset is where the sender's proxy puts. */
+#define PXCTL ((size_t)1 << 20)
+#define PXRING 16384
+struct px_hdr { long head, done, quit, pid, ppid, pad[27]; };
+struct px_ent { long pe; size_t roff, soff, n; };
+typedef struct px_dev { char *base; int pe, reg, d; pthread_mutex_t lock; struct blk *blocks; long retired; double tlast; size_t cur, peak; long *cnt[PXRING]; } px_dev;
+static px_dev *g_px[4];
+static struct px_hdr *px_hdr_of(char *base) { return (struct px_hdr *)(base + S.mb_bytes); }
+static struct px_ent *px_ring_of(char *base) { return (struct px_ent *)(base + S.mb_bytes + sizeof(struct px_hdr)); }
+static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + S.pool_bytes; }
+static size_t px_alloc(px_dev *x, size_t len, int sym)
+{
+    (void)sym;
+    len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
+    pthread_mutex_lock(&x->lock);
+    for (struct blk *b = x->blocks; b; b = b->next) if (!b->used && b->len >= len) {
+        if (b->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
+        b->used = 1; x->cur += len; if (x->cur > x->peak) x->peak = x->cur;
+        pthread_mutex_unlock(&x->lock); return b->off;
+    }
+    size_t cur = x->cur; pthread_mutex_unlock(&x->lock);
+    ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: proxy pool of APU %d (%zu MiB, COMM_SHMEM_POOL_MB per PE under COMM_SHMEM_PE_PER_APU) cannot hold %zu MiB more (in use %zu MiB); the model's need: %s MiB\n",
+             S.me, x->d, S.pool_bytes >> 20, len >> 20, cur >> 20, getenv("COMM_SHMEM_POOL_NEED_MB") ? getenv("COMM_SHMEM_POOL_NEED_MB") : "?");
+}
+static void px_free(px_dev *x, size_t off)
+{
+    pthread_mutex_lock(&x->lock);
+    struct blk *p = 0;
+    for (struct blk *b = x->blocks; b; p = b, b = b->next) if (b->off == off) {
+        b->used = 0; x->cur -= b->len;
+        if (b->next && !b->next->used) { struct blk *n = b->next; b->len += n->len; b->next = n->next; free(n); }
+        if (p && !p->used) { p->len += b->len; p->next = b->next; free(b); }
+        break;
+    }
+    pthread_mutex_unlock(&x->lock);
+}
+/* retire the commands the proxy has completed: each lowers its exchange's per-peer count (ofi_flush then sends that peer's signal) */
+static void px_progress(px_dev *x)
+{
+    struct px_hdr *h = px_hdr_of(x->base);
+    pthread_mutex_lock(&x->lock);
+    long d = __atomic_load_n(&h->done, __ATOMIC_ACQUIRE);
+    if (d > x->retired) { for (; x->retired < d; x->retired++) __atomic_sub_fetch(x->cnt[x->retired % PXRING], 1, __ATOMIC_RELEASE); x->tlast = now_s(); }
+    else if (x->retired < __atomic_load_n(&h->head, __ATOMIC_ACQUIRE)) {   /* commands outstanding, none completed: is the proxy still there? */
+        double t = now_s(); if (!x->tlast) x->tlast = t;
+        if (t - x->tlast > 30) { long pid = __atomic_load_n(&h->ppid, __ATOMIC_ACQUIRE); x->tlast = t;
+            if (pid > 0 && kill((pid_t)pid, 0) != 0) { pthread_mutex_unlock(&x->lock); ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the proxy of APU %d (pid %ld) is gone\n", S.me, x->d, pid); } }
+    }
+    pthread_mutex_unlock(&x->lock);
+}
+/* post n bytes from src (inside proxy x's pool) to the pool offset roff of PE dst_pe (another node's proxy of the same APU) */
+static void px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt)
+{
+    if (!px_in(x, src) || !px_in(x, (const char *)src + (n ? n - 1 : 0))) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: a proxy put's source is outside the proxy pool\n", S.me);
+    struct px_hdr *h = px_hdr_of(x->base); struct px_ent *ring = px_ring_of(x->base);
+    pthread_mutex_lock(&x->lock);
+    while (h->head - x->retired >= PXRING) { pthread_mutex_unlock(&x->lock); px_progress(x); sched_yield(); pthread_mutex_lock(&x->lock); }
+    long k = h->head; struct px_ent *e = &ring[k % PXRING];
+    e->pe = dst_pe; e->roff = roff; e->soff = (size_t)((const char *)src - x->base); e->n = n;
+    x->cnt[k % PXRING] = cnt; __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
+    __atomic_store_n(&h->head, k + 1, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&x->lock);
+}
+/* a proxy's life: post every command in its ring, quiet, report them done; leave on quit (or when the node-process is gone) */
+static void px_serve(void)
+{
+    struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool);
+    __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
+    long t = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
+    for (;;) {
+        long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
+        if (hd > t) {
+            double t0 = now_s();
+            for (; t < hd; t++) { struct px_ent e = ring[t % PXRING]; if (e.n) { shmem_putmem_nbi(S.pool + e.roff, S.pool + e.soff, e.n, (int)e.pe); nput++; bytes += (double)e.n; } }
+            shmem_quiet(); nq++;
+            __atomic_store_n(&h->done, hd, __ATOMIC_RELEASE);
+            tbusy += now_s() - t0; idle = 0; continue;
+        }
+        if (__atomic_load_n(&h->quit, __ATOMIC_ACQUIRE)) break;
+        if (++idle > 4096) {
+            struct timespec ts = { 0, 20000 }; nanosleep(&ts, 0);
+            double tn = now_s();
+            if (tn - tchk > 1.0) { tchk = tn; long pid = __atomic_load_n(&h->pid, __ATOMIC_ACQUIRE);
+                if (pid > 0 && kill((pid_t)pid, 0) != 0) { fprintf(stderr, "comm_shmem: proxy pe %d: the node-process (pid %ld) is gone: exiting\n", S.pme, pid); _exit(3); } }
+        }
+    }
+    if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): %ld puts, %.2f GB in %ld batches, %.2f s posting + quiet = %.2f GB/s while busy\n",
+                                           S.pme, S.pme / S.ppn, S.pme % S.ppn, nput, bytes / 1e9, nq, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
+}
+/* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
+static void px_attach(void)
+{
+    for (int d = 0; d < 4; d++) {
+        px_dev *x = (px_dev *)calloc(1, sizeof *x); g_px[d] = x; x->d = d;
+        x->pe = S.me * S.ppn + d;                         /* proxy d of my node (ppa 1: local PE d) */
+        x->base = (char *)shmem_ptr(S.pool, x->pe);
+        if (!x->base) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: shmem_ptr gives no address for the proxy PE %d on this node (the library's on-node XPMEM is needed)\n", S.me, x->pe);
+        pthread_mutex_init(&x->lock, 0);
+        x->blocks = (struct blk *)malloc(sizeof *x->blocks); x->blocks->off = S.mb_bytes + PXCTL; x->blocks->len = S.pool_bytes - S.mb_bytes - PXCTL; x->blocks->used = 0; x->blocks->next = 0;
+        x->reg = 1;
+#ifndef COMM_HOST_ONLY
+        hipError_t he = hipHostRegister(x->base, S.pool_bytes, hipHostRegisterPortable);
+        if (he != hipSuccess) { (void)hipGetLastError(); x->reg = 0; }
+        else { void *dp = 0; if (hipHostGetDevicePointer(&dp, x->base, 0) != hipSuccess || dp != x->base) { (void)hipGetLastError(); x->reg = 0; hipHostUnregister(x->base); (void)hipGetLastError(); } }
+        if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=1: the proxy pools %s (%s)\n", x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
+#endif
+        __atomic_store_n(&px_hdr_of(x->base)->pid, (long)getpid(), __ATOMIC_RELEASE);
+    }
+}
+static void px_shutdown(void)
+{
+    for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; if (!x) continue;
+        struct px_hdr *h = px_hdr_of(x->base);
+        while (__atomic_load_n(&h->done, __ATOMIC_ACQUIRE) < __atomic_load_n(&h->head, __ATOMIC_ACQUIRE)) { px_progress(x); sched_yield(); }
+        px_progress(x);
+        if (S.verbose || S.me == 0) printf("comm_shmem: pe %d: proxy pool of APU %d: peak %zu MiB of %zu\n", S.me, d, x->peak >> 20, S.pool_bytes >> 20);
+        __atomic_store_n(&h->quit, 1, __ATOMIC_RELEASE);
+    }
+}
+int comm_shmem_pe_per_apu(void)
+{
+    const char *e = getenv("COMM_SHMEM_PE_PER_APU"); int v = e ? atoi(e) : 0;
+    if (v < 0 || v > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%s: 0 (off) or 1 (one proxy PE per APU); 2 (two NICs per APU) is designed, not built (docs: N7b)\n", e);
+    return v;
+}
 int comm_shmem_available(void) { return 1; }
 /* 1: the pool is shmem_malloc'd from the library's heap (sized by the launch line) */
 int comm_shmem_pool_in_heap(void) { return 1; }
@@ -222,14 +363,21 @@ int comm_shmem_init(void)
 #else
     S.devheap = env_int("COMM_SHMEM_DEVHEAP", 0);
 #endif
-    /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs */
-    int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
+    S.ppa = comm_shmem_pe_per_apu(); S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
+    if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
+    /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
+    int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 + ALIGN - 1) & ~(size_t)(ALIGN - 1);
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     S.prov = prov;
-    S.me = shmem_my_pe(); S.npes = shmem_n_pes();
+    S.pme = S.me = shmem_my_pe(); S.pnpes = S.npes = shmem_n_pes();
+    if (S.ppa) {                                          /* N7b: logical PE = node; the last PE of a node's block is its node-process */
+        if (S.pnpes % S.ppn) { fprintf(stderr, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d: %d PEs are not whole nodes of %d (launch with mnrun.sh)\n", S.ppa, S.pnpes, S.ppn); shmem_global_exit(1); }
+        S.me = S.pme / S.ppn; S.npes = S.pnpes / S.ppn; S.proxy = S.pme % S.ppn != S.ppn - 1;
+        const char *ex = getenv("COMM_SHMEM_PROXY"); if (ex && (atoi(ex) != 0) != S.proxy) { fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_PROXY=%s but the PE's place in its node makes it %s (block placement expected)\n", S.pme, ex, S.proxy ? "a proxy" : "the node-process"); shmem_global_exit(1); }
+    }
     if (S.npes > npes_hint) { fprintf(stderr, "comm_shmem: %d PEs but the mailbox was sized for %d (set COMM_SIZE)\n", S.npes, npes_hint); shmem_global_exit(1); }
     pthread_mutex_init(&S.lock, 0); pthread_mutex_init(&S.alloc_lock, 0);
     const char *e = getenv("COMM_SHMEM_SERIAL");
@@ -248,6 +396,13 @@ int comm_shmem_init(void)
     S.pool = (char *)shmem_malloc(S.pool_bytes);
     if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
+    if (S.proxy) {                                        /* N7b: a proxy -- its control zeroed before the barrier; it serves until the node-process's finalize */
+        memset(S.pool + S.mb_bytes, 0, PXCTL);
+        shmem_barrier_all(); S.inited = 1;
+        px_serve();
+        shmem_barrier_all();                              /* (comm_shmem_finalize's) */
+        shmem_free(S.pool); shmem_finalize(); fflush(stdout); fflush(stderr); _exit(0);
+    }
 #ifndef COMM_HOST_ONLY
     if (S.devheap) {                                      /* the transport takes COMM_SHMEM_DEVHEAP=1 at its word only when the
                                                            * library's heap is device memory; Cray OpenSHMEMX 11.8's heap is host hugepages (no HIP in libsma), and
@@ -276,9 +431,10 @@ int comm_shmem_init(void)
 #endif
     shmem_barrier_all();                                  /* every mailbox is zeroed before anyone posts */
     S.inited = 1;
+    if (S.ppa) px_attach();                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
-    if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
+    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)" : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
     return S.npes;
@@ -286,6 +442,7 @@ int comm_shmem_init(void)
 void comm_shmem_finalize(void)
 {
     if (!S.inited) return;
+    if (S.ppa) px_shutdown();                             /* N7b: the proxies' last puts complete, then they leave for the barrier */
     shmem_barrier_all();
     if (S.me == 0 || S.verbose) {
         printf("comm_shmem: pe %d: pool peak %zu MiB of %zu (control %zu, staging %zu, symmetric buffers %zu MiB peaks)\n", S.me, S.peak_all >> 20, S.pool_bytes >> 20, S.peak[K_CTRL] >> 20, S.peak[K_STAGE] >> 20, S.peak[K_SYM] >> 20);
@@ -299,6 +456,7 @@ void comm_shmem_finalize(void)
     }
 #ifndef COMM_HOST_ONLY
     if (S.registered) HIP_CHECK(hipHostUnregister(S.pool));
+    for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg) { (void)hipHostUnregister(g_px[d]->base); (void)hipGetLastError(); }
 #endif
     if (S.xstats) xs_print();                             /* X1: every PE prints its own lines */
     comm_ofi_finalize();                                  /* the per-NIC bytes (COMM_OFI_VERBOSE), then the domains and pools */
@@ -332,6 +490,7 @@ typedef struct {
      * once they completed (0: none) */
     int xk, xph, xapu; long xK; double xroff, xsig;   /* X1 xstats: the pending exchange's kind, phase, APU, rounds, and the seconds blocked on offset words (skew) / signal words (transfer, tail) */
     int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
+    px_dev *px; int *pxpe;                 /* N7b: the proxy data plane (ofi = 1 with px set): my APU's proxy, the members' proxies (physical PEs) */
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
 /* ---- X1: COMM_XSTATS=1 (results/XEFF.md M1): per (phase, kind) sums over the completed exchanges of this PE (all APU threads) ---- */
@@ -372,8 +531,8 @@ static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (siz
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
 /* the data base of the current exchange -- on: a device op of an OFI communicator (its data over libfabric) */
-static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? comm_ofi_pool(p->od) : S.pool; }
-static int in_db(shm_priv *p, const void *x) { return p->xo ? comm_ofi_in_pool(p->od, x) : in_pool(x); }
+static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? (p->px ? p->px->base : comm_ofi_pool(p->od)) : S.pool; }
+static int in_db(shm_priv *p, const void *x) { return p->xo ? (p->px ? px_in(p->px, x) : comm_ofi_in_pool(p->od, x)) : in_pool(x); }
 static size_t off_db(shm_priv *p, const void *x) { return (size_t)((const char *)x - p->db); }
 
 static void put_word(shm_priv *p, int r, int w, int idx, long v)   /* word (w, idx) of rank r's block = v (ordered after the context's earlier puts by the caller's fence) */
@@ -385,7 +544,7 @@ static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { 
 static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
-    if (p->xo) { comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* the signal after delivery (ofi_flush) */
+    if (p->xo) { if (p->px) { if (n) px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r]); } else comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
         if (n) shmem_ctx_putmem_signal_nbi(p->ctx, S.pool + off, src, n, (uint64_t *)sw, (uint64_t)sig, SHMEM_SIGNAL_SET, p->pe[r]);
@@ -408,7 +567,7 @@ static void ofi_flush(shm_priv *p)
             p->osig[r] = 0;
         }
         if (!left) return;
-        comm_ofi_progress(p->od);
+        if (p->px) px_progress(p->px); else comm_ofi_progress(p->od);
         if (spins > 1024) sched_yield();
     }
 }
@@ -438,14 +597,14 @@ static void site_print(void)
         printf("%s\n", line);
     }
 }
-static void stage_free(shm_priv *p, size_t off) { if (p->sdb) comm_ofi_free(p->od, off); else pool_free(off); }   /* in the pool it came from */
+static void stage_free(shm_priv *p, size_t off) { if (p->sdb) { if (p->px) px_free(p->px, off); else comm_ofi_free(p->od, off); } else pool_free(off); }   /* in the pool it came from */
 static void staging_drop(shm_priv *p) { if (p->sst) stage_free(p, p->sst); if (p->rst) stage_free(p, p->rst); p->sst = p->rst = 0; p->sst_cap = p->rst_cap = 0; }
 static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
 {
     if ((p->sst || p->rst) && p->sdb != p->xo) staging_drop(p);   /* the cached staging is in the other pool */
     p->sdb = p->xo;
-    if (send > p->sst_cap) { if (p->sst) stage_free(p, p->sst); p->sst = p->xo ? comm_ofi_alloc(p->od, send, 0) : pool_alloc(send, K_STAGE); p->sst_cap = send; }
-    if (recv > p->rst_cap) { if (p->rst) stage_free(p, p->rst); p->rst = p->xo ? comm_ofi_alloc(p->od, recv, 0) : pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
+    if (send > p->sst_cap) { if (p->sst) stage_free(p, p->sst); p->sst = p->xo ? (p->px ? px_alloc(p->px, send, 0) : comm_ofi_alloc(p->od, send, 0)) : pool_alloc(send, K_STAGE); p->sst_cap = send; }
+    if (recv > p->rst_cap) { if (p->rst) stage_free(p, p->rst); p->rst = p->xo ? (p->px ? px_alloc(p->px, recv, 0) : comm_ofi_alloc(p->od, recv, 0)) : pool_alloc(recv, K_STAGE); p->rst_cap = recv; }
     if (S.verbose >= 2 && (send || recv)) site_note(send, recv);
     if (S.verbose && S.cur[K_STAGE] > S.stage_rep + S.stage_rep / 20 && (send || recv)) {   /* which exchange raises the staging peak (racy read: a report, not the accounting) */
         S.stage_rep = S.cur[K_STAGE];
@@ -792,6 +951,7 @@ static void s_recv(comm *c, int from, void *b, size_t n)
 static void *s_sym_alloc(comm *c, size_t bytes)
 {
     shm_priv *op = PRIV(c);
+    if (op->px) return op->px->reg ? op->px->base + px_alloc(op->px, bytes, 1) : 0;   /* N7b: the proxy's pool (when HIP could register it) */
     if (op->ofi) {                                        /* the device's comm pool (device-accessible, registered with the NICs) */
         return comm_ofi_pool(op->od) + comm_ofi_alloc(op->od, bytes, 1);
     }
@@ -804,6 +964,7 @@ static void *s_sym_alloc(comm *c, size_t bytes)
 static void s_sym_free(comm *c, void *ptr)
 {
     (void)c;
+    for (int d = 0; d < 4; d++) if (px_in(g_px[d], ptr)) { px_free(g_px[d], (size_t)((char *)ptr - g_px[d]->base)); return; }   /* N7b */
     { ofi_dev *od = comm_ofi_owner(ptr); if (od) { comm_ofi_free(od, (size_t)((char *)ptr - comm_ofi_pool(od))); return; } }
     if (!in_pool(ptr)) die("sym_free of a pointer outside the pool");
     pool_free(off_of(ptr));
@@ -815,7 +976,7 @@ static void s_destroy(comm *c)
     s_barrier(c);                                          /* nobody's block goes while a member may still write to it */
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
     staging_drop(p);
-    comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig);
+    comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig); free(p->pxpe);
     pool_free(p->base);
 #ifndef COMM_HOST_ONLY
     if (p->rs_made) HIP_CHECK(hipStreamDestroy(p->rs));
@@ -830,11 +991,11 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
 {
     if (!S.inited) comm_shmem_init();
     if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID) die("bad PE set");
-    int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == S.me) me = r;
+    int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == S.me) me = r;   /* (logical PEs = nodes; p->pe[] physical) */
     if (me < 0) die("this PE is not in the set");
     comm *c = (comm *)calloc(1, sizeof *c); shm_priv *p = (shm_priv *)calloc(1, sizeof *p);
     c->ops = &shm_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
-    p->n = n; p->me = me; p->id = id; p->pe = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = pe_start + r * pe_stride;
+    p->n = n; p->me = me; p->id = id; p->pe = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = phys_pe(pe_start + r * pe_stride);
     p->ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10; if (p->ring < 4096) p->ring = 4096;
     p->ctrl_bytes = (size_t)W_N * n * 8 + (size_t)n * p->ring;
     p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
@@ -849,7 +1010,7 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     for (int r = 0; r < n; r++) shmem_ctx_long_p(p->ctx, mailbox(id, S.me), (long)p->base + 1, p->pe[r]);   /* my block's offset into every member's row (mine included), indexed by PE */
     shmem_ctx_quiet(p->ctx);
     SHM_UNLOCK();
-    for (int r = 0; r < n; r++) { long *m = mailbox(id, p->pe[r]); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
+    for (int r = 0; r < n; r++) { long *m = mailbox(id, pe_start + r * pe_stride); wait_ne(m, 0); p->rbase[r] = (size_t)(*(volatile long *)m - 1); }
     set_xo(p, 0);
     if (comm_ofi_enabled()) {                             /* the device's NICs and comm pool; the members' blobs over SHMEM */
         int dev = 0;
@@ -862,6 +1023,19 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
         char *blobs = (char *)malloc((size_t)n * COMM_OFI_BLOB); comm_ofi_blob(p->od, blobs + (size_t)me * COMM_OFI_BLOB);
         s_allgather_host(c, blobs + (size_t)me * COMM_OFI_BLOB, blobs, COMM_OFI_BLOB);
         p->op = comm_ofi_peers_new(p->od, n, me, blobs); free(blobs);
+        p->ocnt = (long *)calloc(n, sizeof(long)); p->osig = (long *)calloc(n, sizeof(long));
+        p->ofi = 1;
+    } else if (S.ppa) {                                   /* N7b: my APU's proxy carries the data; the members' proxies of the same APU (physical PEs) over SHMEM */
+        int dev = 0;
+#ifdef COMM_HOST_ONLY
+        dev = getenv("COMM_OFI_DEV") ? atoi(getenv("COMM_OFI_DEV")) : id % 4;
+#else
+        HIP_CHECK(hipGetDevice(&dev));
+#endif
+        if (dev < 0 || dev > 3) die("COMM_SHMEM_PE_PER_APU: device outside 0..3");
+        p->px = g_px[dev];
+        long *pes = (long *)malloc((size_t)n * sizeof(long)), mine = p->px->pe; s_allgather_host(c, &mine, pes, sizeof(long));
+        p->pxpe = (int *)malloc((size_t)n * sizeof(int)); for (int r = 0; r < n; r++) p->pxpe[r] = (int)pes[r]; free(pes);
         p->ocnt = (long *)calloc(n, sizeof(long)); p->osig = (long *)calloc(n, sizeof(long));
         p->ofi = 1;
     }

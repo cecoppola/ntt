@@ -12,7 +12,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "binsplit.h"
-size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void);   /* the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
+size_t comm_shmem_heap_env(const char **name); int comm_shmem_pool_in_heap(void); int comm_shmem_pe_per_apu(void);   /* the pool rule's heap check -- declared here, comm.h needs HIP's headers and this file is plain C */
 int comm_layered_vslot_pool_on(void); int comm_layered_inter2_on(void); int comm_layered_vslot_share_on(void); int comm_layered_vslot_release_on(void);   /* TASKS 27 (comm.h; comm_layered.c): the X2 / S36 / M3 defaults */
 #include "rns_mul.h"
 #include "mem.h"
@@ -452,6 +452,7 @@ static size_t as_seedbuf(unsigned long N)             /* seeds_stream's two pinn
 }
 size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t bylen);
 static size_t g_ofi_dev_mb;                           /* the last need's comm_ofi pool per device (MiB; 0 = not an OFI run) */
+static size_t g_px_dev_mb;                            /* N7b: the last need's proxy pool per APU (MiB; 0 = COMM_SHMEM_PE_PER_APU off) */
 static size_t ofi_pool_mb(void)                       /* the comm_ofi pool per device this run will have (MiB): COMM_OFI_POOL_MB, else the need */
 {
     const char *e = getenv("COMM_OFI_POOL_MB");
@@ -467,6 +468,7 @@ static size_t as_shmem_pool(unsigned long N, int size, size_t *ofi)
     size_t need = binsplit_shmem_pool_need(N, size, 0, 0), mb = (need + ((size_t)1 << 20) - 1) >> 20; mb = (mb + 255) / 256 * 256;
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: unset under OFI = the need (the rule sets it) */
     if (ofi) *ofi = 4 * (ofi_pool_mb() << 20);
+    if (g_px_dev_mb && ofi) *ofi = 4 * ((mb > have ? mb : have) << 20);   /* N7b: the four proxies' pools, each as large as the node-process's (symmetric heaps) */
     return (mb > have ? mb : have) << 20;   /* the pool rule always raises the pool to the need */
 }
 /* the host term of the node (bytes) as the room decision counts it (FIT: also the fit report's host; see the comment above) */
@@ -624,7 +626,8 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
       if (st > best) { best = st; who = "the division's mdb_shift"; } }
     g_stage_apu = best * 8;
     int ofi = comm_ofi_planned();                         /* under COMM_OFI the device staging and the symmetric slabs are in the comm_ofi pools */
-    size_t staging = ofi ? 0 : 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
+    int px = !ofi && comm_shmem_pe_per_apu() > 0;         /* N7b: under COMM_SHMEM_PE_PER_APU they are in the proxies' pools -- the comm_ofi law, one pool per APU */
+    size_t staging = ofi || px ? 0 : 4 * best * 8, ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10, members = (size_t)size;
     if (ring < 4096) ring = 4096;
     for (int l = 0; l < nl; l++) if (gs[l] < size) members += (size_t)gs[l];
     size_t control = 4 * members * (ring + 64), mailbox = (size_t)1024 * size * 8;
@@ -634,20 +637,24 @@ size_t binsplit_shmem_pool_need(unsigned long N, int size, char *by, size_t byle
     }
     size_t vsp = vslot_pool_on() ? binsplit_vslot_bytes(N, size, 0, 0, 0) : 0;   /* X2 COMM_LAYER_VSLOT_POOL: the v-slots per APU thread, resident to the run's end */
     size_t sym = 0;
-    g_ofi_dev_mb = 0;
-    if (ofi) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
+    g_ofi_dev_mb = 0; g_px_dev_mb = 0;
+    if (ofi || px) {   /* a comm_ofi pool per device: one APU's staging (at least the self-tests' 128 MiB) + its slabs + a 256 MiB margin, in whole 256 MiB */
         size_t stg = best * 8 > ((size_t)128 << 20) ? best * 8 : ((size_t)128 << 20);
         size_t dv = (vslot_release_on() ? (stg > vsp ? stg : vsp) : stg + vsp) + ((size_t)256 << 20);   /* M3: staged exchanges and the slots are not live together: the larger, not the sum */
         g_ofi_dev_mb = ((dv + ((size_t)1 << 20) - 1) >> 20); g_ofi_dev_mb = (g_ofi_dev_mb + 255) / 256 * 256;
+        if (px) { g_px_dev_mb = g_ofi_dev_mb + 1; g_ofi_dev_mb = 0; }   /* (+ 1 MiB: the proxy's command ring) */
     }
     if (by && ofi) snprintf(by, bylen, "COMM_OFI: SHMEM staging 128 MiB (host ops), control %.1f MiB; the device staging in 4 comm_ofi pools of %zu MiB = %.1f MiB by %s + margin%s", control / 1048576.0, g_ofi_dev_mb, best * 8 / 1048576.0, who, "");
+    else if (by && px) snprintf(by, bylen, "COMM_SHMEM_PE_PER_APU: per PE (1 + 4 per node, all alike): the node-process's control %.1f MiB + 128 MiB host staging; a proxy's %zu MiB = one APU's staging %.1f MiB by %s, v-slots %.1f MiB, margin", control / 1048576.0, g_px_dev_mb, best * 8 / 1048576.0, who, vsp / 1048576.0);
     else if (by) snprintf(by, bylen, "staging %.0f MiB = 4 x %.1f MiB by %s, control %.1f MiB, v-slots %.0f MiB = 4 x %.1f MiB", staging / 1048576.0, best * 8 / 1048576.0, who, control / 1048576.0, 4 * vsp / 1048576.0, vsp / 1048576.0);   /* SHM: the slots named */
     size_t stg0 = staging > ((size_t)128 << 20) ? staging : ((size_t)128 << 20);
-    if (!ofi) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHM.md): always the sum, also under M3's release --
+    if (!ofi && !px) sym += 4 * vsp;   /* (no comm_ofi: the slots are in the SHMEM pool, 4 APU threads).  SHM (results/SHM.md): always the sum, also under M3's release --
                                   * comm_shmem carves the staging into one region per APU at the pool's end (COMM_SHMEM_STAGE_SLOT_MB) and the slots (K_SYM) come only
                                   * from the general area, so the two never share space; M3's max(staging, slots) left the general area at control + margin
                                   * (6 nodes, 1e10, COMM_OFI=0: 452 MiB for 8 slots of 87 MiB, rc 3 after init) */
-    return stg0 + control + mailbox + sym + ((size_t)256 << 20);
+    size_t need = stg0 + control + mailbox + sym + ((size_t)256 << 20);
+    if (px && (g_px_dev_mb << 20) > need) need = g_px_dev_mb << 20;   /* N7b: every PE's pool is the larger of the node-process's need and a proxy's */
+    return need;
 }
 /* the pool rule before the transport starts (ecalc.c, after rns_init, before mn_init; plan = MN_PLAN_ONLY's line).
  * It sets COMM_SHMEM_POOL_MB to the model's need when that exceeds the pool asked for (8192 by default).  Returns the need in MiB
@@ -664,8 +671,8 @@ size_t binsplit_shmem_pool_rule(unsigned long N, int size, int plan)
     size_t have = getenv("COMM_SHMEM_POOL_MB") ? (size_t)atol(getenv("COMM_SHMEM_POOL_MB")) : g_ofi_dev_mb ? mb : 8192;   /* OFIMEM: under COMM_OFI unset = the need */
     const char *er = getenv("COMM_RANK"); int rank0 = !er || atoi(er) == 0;
     { char v[32]; snprintf(v, sizeof v, "%zu", mb); setenv("COMM_SHMEM_POOL_NEED_MB", v, 1); }   /* for comm_shmem's pool-full error */
-    if (!g_ofi_dev_mb) { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* comm_shmem's staging regions (one per APU; + 1 MiB of alignment); OFIMEM: none under COMM_OFI (the staging is in the comm pools) */
-    if (plan) { printf("plan pool   the SHMEM pool per node-process: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB", mb, by, mb + 512);
+    if (!g_ofi_dev_mb && !g_px_dev_mb) { char v[32]; snprintf(v, sizeof v, "%zu", ((g_stage_apu + ((size_t)1 << 20) - 1) >> 20) + 1); setenv("COMM_SHMEM_STAGE_SLOT_MB", v, 1); }   /* comm_shmem's staging regions (one per APU; + 1 MiB of alignment); OFIMEM: none under COMM_OFI (the staging is in the comm pools) */
+    if (plan) { printf("plan pool   the SHMEM pool per %s: COMM_SHMEM_POOL_MB=%zu (%s); the SHMEM heap (SHMEM_SYMMETRIC_SIZE / SHMEM_SYMMETRIC_HEAP_SIZE) >= %zu MiB", g_px_dev_mb ? "PE (COMM_SHMEM_PE_PER_APU=1: 5 PEs per node)" : "node-process", mb, by, mb + 512);
                 if (g_ofi_dev_mb) printf("; the comm_ofi pools 4 x COMM_OFI_POOL_MB=%zu", ofi_pool_mb());
                 printf("\n"); return mb; }
     if (g_ofi_dev_mb) {   /* the comm pools sized by the rule (comm_ofi.c's own default, COMM_SHMEM_POOL_MB / 4 + 256, assumed the full pool) */

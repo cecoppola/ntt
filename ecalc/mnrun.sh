@@ -25,6 +25,11 @@
 # launch values have one source.  Unset, nothing changes.
 # FIT (D26, results/FIT.md): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
+# N7b: COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 0 = off) launches 1 + 4 PEs per node under
+# COMM_TRANSPORT=shmem: local PEs 0..3 are comm_shmem's proxies (one per APU and NIC: SHMEM_OFI_NIC_POLICY=ROUND-ROBIN and
+# SHMEM_OFI_NUM_NICS=4 unless set), the last one the node-process; <procs> is still the node count (one node-process per node), COMM_RANK
+# and COMM_SIZE count nodes, the proxies' stdout goes to /dev/null, every task may use all of the step's CPUs (--cpu-bind=none).
+# It needs COMM_OFI=0 (set here when unset; COMM_OFI=1 is refused).
 set -e
 P=$1; shift
 PRINT_ENV=${MNRUN_PRINT_ENV:-0}
@@ -87,11 +92,27 @@ list=$(echo "$use" | paste -sd,)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
 [ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
 if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
+PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)
+case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1)
+    if [ "${COMM_TRANSPORT:-}" = shmem ]; then
+        [ "$per" = 1 ] || { echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs one node-process per node (<procs> = nodes; here $per per node)" >&2; exit 1; }
+        case "${COMM_OFI:-}" in 0) ;; "") export COMM_OFI=0; echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1: COMM_OFI=0 (the proxies carry the data)";; *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs COMM_OFI=0 (got COMM_OFI=$COMM_OFI)" >&2; exit 1;; esac
+        export COMM_SHMEM_PE_PER_APU; PPN=$((1 + 4 * COMM_SHMEM_PE_PER_APU))
+        export SHMEM_OFI_NIC_POLICY=${SHMEM_OFI_NIC_POLICY:-ROUND-ROBIN} SHMEM_OFI_NUM_NICS=${SHMEM_OFI_NUM_NICS:-4}
+        echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1: $PPN PEs per node (4 proxies + the node-process), SHMEM_OFI_NIC_POLICY=$SHMEM_OFI_NIC_POLICY SHMEM_OFI_NUM_NICS=$SHMEM_OFI_NUM_NICS"
+    fi;;
+  *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=$COMM_SHMEM_PE_PER_APU: 0 or 1 (2 is designed, not built)" >&2; exit 1;; esac
+export MNRUN_PPN=$PPN
+if [ "$PPN" -gt 1 ]; then   # the CPUs: -c the node's CPUs / PEs per node (auto) and no per-task binding, so the node-process's threads use the whole step
+    for i in "${!copt[@]}"; do [ "${copt[$i]}" = -c ] && unset 'copt[i]' 'copt[i+1]'; done; copt=("${copt[@]}")
+    ncpu=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$ncpu" ] && copt+=(-c $((ncpu / PPN)))
+    copt+=(--cpu-bind=none)
+fi
 if [ "$COMM_TRANSPORT" = shmem ]; then
     # s18-target Part 2 (TGTBENCH2 L2, internal target notes §4; the user: "use the flags that optimize performance but allow us to
     # adjust to a different system later"): two libfabric knobs, overridable per system by exporting them before the call.
@@ -204,5 +225,5 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
     fi
 fi
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
-exec srun --jobid="$SLURM_JOB_ID" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$P" --ntasks-per-node="$per" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
-     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; export COMM_RANK=$SLURM_PROCID COMM_SIZE=$SLURM_NTASKS; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"
+exec srun --jobid="$SLURM_JOB_ID" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
+     bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); if [ "$k" -gt 1 ] && [ $((SLURM_PROCID % k)) -ne $((k - 1)) ]; then export COMM_SHMEM_PROXY=1 ECALC_LOG_CLOCKS=0; exec > /dev/null; fi; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"

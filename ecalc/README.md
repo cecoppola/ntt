@@ -196,6 +196,8 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `COMM_SHMEM_ORDER` | *Phase 12 (S)*: how the signal is ordered after the data — `putsig` (`shmem_putmem_signal_nbi`, 1.5), `fence` (1.4, the spec), `quiet` (putsig on 1.5 headers, else quiet) |
 | `COMM_SHMEM_SPIN_US` | *Phase 12 (S)*: how long the sender spins for a peer's receive offset before handing the put to the helper thread (2000) |
 | `COMM_SHMEM_PEER_ORDER` | *N7*: `rank` (default) walks a communicator's peers in rank order; `shift` walks them as a shifted ring (step k sends to (me + k) mod n, so every step is a one-to-one pairing and a receiver has one sender at a time). Order of the puts only: digits and memory unchanged. Applies to every peer loop of comm_shmem.c, including the push shared with `COMM_OFI=1` (its writes are then reordered too) |
+| `COMM_SHMEM_PE_PER_APU` | *N7b (D29 (a))*: under `COMM_TRANSPORT=shmem` with `COMM_OFI=0`, 1 runs one SHMEM proxy PE per APU beside the node-process (mnrun.sh launches 1 + 4 PEs per node; `SHMEM_OFI_NIC_POLICY=ROUND-ROBIN`, `SHMEM_OFI_NUM_NICS=4` unless set): each APU thread's staging and slabs live in its proxy's symmetric pool (attached with `shmem_ptr`) and the proxy posts the puts through its own NIC; ranks, meshes and control words stay on the node-processes. The pool rule gives the pool per PE (all five alike). 2 (two NICs per APU) is designed, not built. Digits unchanged (0) |
+| `COMM_SHMEM_PROXY` | *N7b*: set by mnrun.sh (1 on the proxy PEs under `COMM_SHMEM_PE_PER_APU=1`); comm_shmem checks it against the PE's place in its node. Not a user setting (unset) |
 | `COMM_LAYER_STATS` | *Phase 13a X (archive:PLAN §29 E9 part 1)*: 1 prints, per layered exchange, the stage timeline (the push kernel's link-active interval, the fence/fabric phases); 2 adds more detail (`comm_layered.c:38,227`). Reads timers only; digits unchanged (0) |
 | `COMM_XGMI_STATS` | *H4*: 1 runs the xGMI push through per-link byte and active-time accounting and prints, per node, the xGMI stage vs its link time (GB/s per APU) at exit (`comm_xgmi.c:79,97`). Reads counters only; digits unchanged (0) |
 | `MN_COMM_MARK` | *Phase 16 D (results/D16.md §1b)*: 1 prints, on node 0, a `comm-mark` line at the meshes' creation, the end of each tree level, the reciprocal and the division: this PE's all-to-all exchanges, GB received, post-to-completion seconds (summed over the APU threads), GB/s per APU thread and the wall since the previous mark — the per-phase fabric rate. Reads counters only (SHMEM transport); digits unchanged (0) |
@@ -274,6 +276,7 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 |---|---|---|---|
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | experiment | N7 | 2026-11-12 | `COMM_SHMEM_PEER_ORDER` |
+| experiment | N7b | 2026-11-14 | `COMM_SHMEM_PE_PER_APU`, `COMM_SHMEM_PROXY` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |
 | fallback | coordinator (D20, results/N3.md) | 2026-11-11 | `BS_BATCH_PIPE` |
