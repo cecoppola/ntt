@@ -32,6 +32,7 @@ COMM_OFI_WINDOW	int	unset	unset		built-in default	-	TUNE17.md+OFI17.md	Y	ecalc	c
 COMM_RANK	int	0	conflict:0|1	>=0	launch-line	-	A-comm.md+WP6.md	Y	ecalc	binsplit.c,config_line.c,ecalc.c,fatal.c,mem.c,memsample.c,segv_trace.c	13	-	-	set per process by the launcher (mnrun.sh); excluded from the config hash
 COMM_SHMEM_DEVHEAP	bool	0	0	0|1	launch-line	aac7	S12.md+A16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c
 COMM_SHMEM_ORDER	bool	derived	derived	0|1	built-in default	-	S12.md+S13d.md	Y	ecalc	comm_shmem.c	1	-	-	
+COMM_SHMEM_PEER_ORDER	str	rank	unset	rank|shift	experiment	-	XEFF.md	Y	ecalc	comm_shmem.c	1	N7	2026-11-12	comm_shmem.c; N7 peer order of the puts
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	2	diagnostics (TESTING.md)	2027-04-12	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	

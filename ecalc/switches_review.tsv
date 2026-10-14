@@ -89,3 +89,4 @@ DM_MN_WRAP	fallback	P1/DEF (D22, results/P1.md, results/DEF.md)	2026-11-11	on by
 BS_BATCH_PIPE	fallback	coordinator (D20, results/N3.md)	2026-11-11	on by default since D20; =0 keeps the old batch-tier host side; remove it at review
 ECALC_NP_MN3	fallback	coordinator (D18, results/DEF.md)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default
 NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/RECIP.md)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
+COMM_SHMEM_PEER_ORDER	experiment	N7	2026-11-12	shift = shifted-ring peer order (order of puts only); adopt or remove after the 6-node test

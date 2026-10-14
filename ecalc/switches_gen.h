@@ -31,6 +31,7 @@ static const char *const cfg_names[] = {
     "COMM_OFI_WINDOW",
     "COMM_SHMEM_DEVHEAP",
     "COMM_SHMEM_ORDER",
+    "COMM_SHMEM_PEER_ORDER",
     "COMM_SHMEM_POOL_MB",
     "COMM_SHMEM_POOL_NEED_MB",
     "COMM_SHMEM_RING_KB",
@@ -154,4 +155,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 152
+#define CFG_NAMES_N 153

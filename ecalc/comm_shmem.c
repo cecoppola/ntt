@@ -102,7 +102,7 @@ enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 /* ---- the process state ---- */
 struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap, order, registered, prov;
+    int inited, me, npes, serial, devheap, order, registered, prov, shift;
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
@@ -241,6 +241,7 @@ int comm_shmem_init(void)
     else S.order = HAVE_PUT_SIGNAL ? ORDER_PUTSIG : ORDER_QUIET;
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
+    { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
@@ -277,9 +278,9 @@ int comm_shmem_init(void)
     S.inited = 1;
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
-    if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
+    if (S.me == 0) printf("comm_shmem: %s, %d PEs, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
-                          S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us);
+                          S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
     return S.npes;
 }
 void comm_shmem_finalize(void)
@@ -452,14 +453,18 @@ static void staging(shm_priv *p, size_t send, size_t recv, const char *what)
                p->id, p->n, what, send / 1048576.0, recv / 1048576.0);
     }
 }
-/* the sender's half of an exchange for the peers from `from`: wait for each receiver's offset (at most spin_us when
- * >= 0: returns the first peer not ready), put, signal.  Returns n when every peer is done. */
+/* the order the peers are walked in: step k of a send loop goes to rank k (COMM_SHMEM_PEER_ORDER=rank) or to (me + k) mod n (shift: every
+ * step is a one-to-one pairing, so a receiver has one sender at a time); dir -1 is the receive side (the sender at step k).  Step 0 is me. */
+static inline int peer_at(const shm_priv *p, int k, int dir) { return S.shift ? ((p->me + dir * k) % p->n + p->n) % p->n : k; }
+#define PEERS(p, k, r, from, dir) for (int k = (from), r; k < (p)->n && ((r = peer_at(p, k, dir)), 1); k++) if (r != (p)->me)
+/* the sender's half of an exchange for the peers from step `from`: wait for each receiver's offset (at most spin_us when
+ * >= 0: returns the first step not ready), put, signal.  Returns n when every peer is done. */
 static int push_peers(shm_priv *p, int from, long spin_us)
 {
-    for (int r = from; r < p->n; r++) if (r != p->me) {
+    PEERS(p, k, r, from, 1) {
         long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r);
         if (spin_us < 0) XWAIT(p, xroff, w, PACK(seq, 0));
-        else { double t0 = 0; for (unsigned spins = 0; !test_ge(w, PACK(seq, 0)); spins++) { if (spins > 32) { double t = now_s(); if (!t0) t0 = t; else if ((t - t0) * 1e6 > (double)spin_us) return r; sched_yield(); } } }
+        else { double t0 = 0; for (unsigned spins = 0; !test_ge(w, PACK(seq, 0)); spins++) { if (spins > 32) { double t = now_s(); if (!t0) t0 = t; else if ((t - t0) * 1e6 > (double)spin_us) return k; sched_yield(); } } }
         long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch");
         size_t n = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
         SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, n, PACK(seq, n)); SHM_UNLOCK();
@@ -467,7 +472,7 @@ static int push_peers(shm_priv *p, int from, long spin_us)
     if (p->xo) ofi_flush(p);
     else if (S.order == ORDER_QUIET) {
         SHM_LOCK(); shmem_ctx_quiet(p->ctx);
-        for (int r = from; r < p->n; r++) if (r != p->me) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
+        PEERS(p, k, r, from, 1) put_word(p, r, W_SIG, p->me, PACK(p->oseq[r], p->scnt ? p->scnt[r] : p->bytes));
         SHM_UNLOCK();
     }
     return p->n;
@@ -492,13 +497,13 @@ static void seq_next(shm_priv *p)
 static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 {
     SHM_LOCK();
-    for (int r = 0; r < p->n; r++) if (r != p->me) put_word(p, r, W_ROFF, p->me, PACK(p->iseq[r], base + (dsp ? dsp[r] : bytes * (size_t)r)));
+    PEERS(p, k, r, 0, -1) put_word(p, r, W_ROFF, p->me, PACK(p->iseq[r], base + (dsp ? dsp[r] : bytes * (size_t)r)));
     SHM_UNLOCK();
 }
 /* wait for every sender's signal (and count), then the context's completion (my send buffer is free again) */
 static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
-    for (int r = 0; r < p->n; r++) if (r != p->me) {
+    PEERS(p, k, r, 0, -1) {
         long *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0));
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
@@ -559,7 +564,7 @@ static void *rounder(void *a)
     for (long j = 0; j < K; j++) {
         size_t o = (size_t)j * c;
         SHM_LOCK();                                       /* the receiver's half: where each active sender's chunk j lands */
-        for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c))
+        PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c))
             put_word(p, r, W_ROFF, me, PACK(p->iseq[r] + 1 + j, p->rin ? off_db(p, p->vrb) + rdsp[r] + o : p->rst + p->rpre[r]));
         SHM_UNLOCK();
         if (!p->vsin) {                                   /* my chunks j into the send staging (free: round j - 1's quiet) */
@@ -567,7 +572,7 @@ static void *rounder(void *a)
             for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c) && scnt[r] > o) { size_t len = scnt[r] - o < c ? scnt[r] - o : c; COPY(p->db + p->sst + p->spre[r], p->vsb + sdsp[r] + o, len, p->rs); any = 1; }
             if (any) SYNC(p->rs);
         }
-        for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) {   /* the sender's half */
+        PEERS(p, k, r, 0, 1) if (j < round_count(scnt[r], c)) {   /* the sender's half */
             long seq = p->oseq[r] + 1 + j, *w = W(p, p->base, W_ROFF, r); XWAIT(p, xroff, w, PACK(seq, 0));
             long x = *(volatile long *)w; if (UNSEQ(x) != seq) die("round sequence mismatch");
             size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0;
@@ -577,10 +582,10 @@ static void *rounder(void *a)
         if (p->xo) ofi_flush(p);
         else if (S.order == ORDER_QUIET) {
             SHM_LOCK(); shmem_ctx_quiet(p->ctx);
-            for (int r = 0; r < n; r++) if (r != me && j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
+            PEERS(p, k, r, 0, 1) if (j < round_count(scnt[r], c)) { size_t len = scnt[r] > o ? (scnt[r] - o < c ? scnt[r] - o : c) : 0; put_word(p, r, W_SIG, me, PACK(p->oseq[r] + 1 + j, len)); }
             SHM_UNLOCK();
         }
-        for (int r = 0; r < n; r++) if (r != me && j < round_count(rcnt[r], c)) {   /* the signals of round j */
+        PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c)) {   /* the signals of round j */
             long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(seq, 0));
             long x = *(volatile long *)sw; size_t want = rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0;
             if (UNSEQ(x) != seq) die("round signal sequence mismatch");
