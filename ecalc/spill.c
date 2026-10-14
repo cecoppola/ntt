@@ -124,12 +124,13 @@ static int pwrite_full(sp_file *f, const void *p, size_t n, uint64_t off)
 /* reads until `need` bytes are in (the rest of `n` may be past the end of the file).  CKPT (results/CKPT.md): the home
  * file system of the test cluster is NFS mounted `soft` on the compute nodes, so a read whose RPCs wait longer than the
  * mount's timeouts fails with EIO; four 512 MiB O_DIRECT reads per node on 6 nodes queued enough to fail 16 of 24 top-set
- * files.  So: (1) one pread asks for at most SP_READ_MAX bytes (few RPCs in flight per thread); (2) EIO / ETIMEDOUT /
+ * files.  So: (1) one pread asks for at most SP_READ_MAX bytes (64 MiB: 1.5 GiB in flight over 6 nodes, seconds of queue
+ * at the server's ~0.3 GB/s against its 60 s timeout; 16 MiB read the set 1.7x slower at 2 nodes); (2) EIO / ETIMEDOUT /
  * EAGAIN / ENOMEM: the same read again after 1, 4, 16 s (a read is idempotent; said on stderr), 3 failures in a row fail
  * it; (3) O_DIRECT: a read that comes back short at a byte count that is not a whole block before `need` is read again
  * from that block (p and off are block-aligned, so p + got and off + got stay aligned); the same partial count twice in
  * a row is the end of the file. */
-#define SP_READ_MAX ((size_t)16 << 20)
+#define SP_READ_MAX ((size_t)64 << 20)
 static int pread_need(sp_file *f, void *p, size_t n, uint64_t off, size_t need)
 {
     double t = mem_now();

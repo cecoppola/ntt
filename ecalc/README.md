@@ -100,7 +100,7 @@ reference digits up to 10¹¹ and T1/T2/digit residues are the standing checks, 
 | `ECALC_SEGV_TEST` | *s18w task 2, test hook*: with `ECALC_SEGV_TRACE=1`, raise a SIGSEGV immediately after the handler is installed (host-only, no GPU touched) so the trace can be checked without a real fault; run directly on a login node, no srun (0) |
 | `ECALC_VMM_BG` | *s34 (results/S34.md)*: `0` = with `DB_POOL_VMM`, map the whole arena synchronously in the calling thread (no `vmm_bg_map` thread; init is slower by the mapping time the thread hid); default `1` = unchanged. The rc139 segfaults of multi-node runs fault inside `hipMemMap` called from `vmm_bg_map` |
 | `NEWTON_MN_RECIP_TS=2` | *S32* (extends S30's `=1`): print only, adds one line `recip ts2 node N host H` per node in `recip_mn_body`: db_init, the first pool get (`db_reserve`), `db_from_bi` upload, apart, with the host name (is the S30 node-1 stall host- or rank-bound?). Default 0 |
-| `ECALC_RECHECK` | 1: the standalone recheck of a finished run's files instead of a run (0) |
+| `ECALC_RECHECK` | 1: the standalone recheck of a finished run's files instead of a run (0). It reads every part file and, when written, the top-level set: on aac7's NFS ≈ 12.5 MB/s per node for the parts and ≈ 45 MB/s for the set (measured, 2 nodes), so ≈ 1 h at 3.86 × 10¹¹ on 6 nodes (modelled): give it a timeout of ≥ 3 h there. The set is read in 64 MiB requests and a failed read is retried (the compute nodes mount NFS `soft`: results/CKPT.md) |
 | `ECALC_WINDOWS` | a file of extra T2 windows (`<offset> <digits>` per line) added to the built-in table (unset) |
 
 **Limbs and pools (`POOL_LOG`, `BI_`, `MEM_`)**
