@@ -845,7 +845,7 @@ def ofi_planned(env=None):
 
 def round256_mb(b): mb = -(-b // (1 << 20)); return -(-mb // 256) * 256
 
-def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False, vslot=0):
+def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_mb=1024, sym_slabs=False, ring=SHMEM_RING, detail=None, round_mb=0, ofi=False, vslot=0, px=False):
     """Phase 14 P2: the symmetric pool a run of g node-processes needs, bytes per node-process (the measured law; P214 section 2):
       staging  = NR x 8 x the largest mn_stage over the run's products (and the division's mdb_shift of t (2 nq) to X (nq): a quarter of
                  my share of each, each at most MDB_SHIFT_CHUNK_MB)
@@ -857,6 +857,8 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
       ofi (Phase 17 OFIMEM, COMM_OFI): the device staging and the slabs move to one comm_ofi pool per device (detail['ofi_dev_mb']: one
       APU's staging, at least the self-tests' 128 MiB, + its slabs + 256 MiB, in whole 256 MiB); the SHMEM pool keeps 128 MiB of host-op
       staging, the control blocks, the mailbox and the margin (binsplit.c binsplit_shmem_pool_need).
+      px (N7b, COMM_SHMEM_PE_PER_APU=1 with COMM_OFI off): the comm_ofi law in one proxy pool per APU; every PE's pool (1 + 4 per node)
+      is the larger of the node-process's need and a proxy's (ofi_dev_mb + 1 MiB of command ring); detail['px_pes'] = 5.
     detail (a dict) receives the parts and the product that sets the staging."""
     if g <= 1: return 0
     best, who, qmax = 0, '', 0
@@ -878,14 +880,16 @@ def shmem_pool(nq_total, g, groups=None, pool_log=31, t_chunk_mb=0, shift_chunk_
     mailbox = SHMEM_MAXID * g * 8
     sym = NR * 3 * qmax * 8 if sym_slabs else 0
     ofi_dev_mb = 0
-    if ofi:
+    px = px and not ofi
+    if ofi or px:
         stg = max(best * 8, SHMEM_SELFTEST)
         ofi_dev_mb = round256_mb((max(stg, vslot) if vslot_release_on() else stg + vslot) + sym // 4 + SHMEM_MARGIN); staging = 0; sym = 0   # M3: release -> the larger, not the sum
     stg0 = max(staging, SHMEM_SELFTEST)
-    if not ofi: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (comm_shmem's
+    if not ofi and not px: sym += NR * vslot   # X2: (no comm_ofi) the slots in the SHMEM pool, one set per APU thread; SHM: the sum also under M3's release (comm_shmem's
                                     # staging regions are staging-only, the slots come from the general area: binsplit.c binsplit_shmem_pool_need)
     need = stg0 + control + mailbox + sym + SHMEM_MARGIN
-    if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb)
+    if px: need = max(need, (ofi_dev_mb + 1) << 20); ofi_dev_mb = 0          # N7b: binsplit.c binsplit_shmem_pool_need (g_px_dev_mb)
+    if detail is not None: detail.update(staging=staging, control=control, mailbox=mailbox, sym=sym, need=need, by=who, per_apu=best * 8, ofi_dev_mb=ofi_dev_mb, px_pes=5 if px else 1)
     return need
 
 MEASURED_POOL = [  # (total digits, g, the cap's log (POOL_LOG, or DIST_LOGN_TEST when lower), MN_T_CHUNK_MB, the staging peak MiB of the largest PE, source) -- P214 section 1
@@ -1203,11 +1207,13 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         pool_b = 0; ofi_b = 0
         if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
             pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
-            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi,
+            px = not ofi and env.get('COMM_SHMEM_PE_PER_APU', '0') not in ('', '0')   # N7b: four proxy pools, each the size of the pool
+            nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu'] if vslot_pool_on(env) else 0))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
             pool_b = (mb if mb > have else have) << 20   # (the pool rule always raises the pool: COMM_SHMEM_POOL_AUTO removed 2026-10-12)
             if ofi: ofi_b = NR * (int(env.get('COMM_OFI_POOL_MB', str(pd_['ofi_dev_mb']))) << 20)
+            if px: ofi_b = 4 * pool_b                                               # N7b: binsplit.c as_shmem_pool
         rh = room_host(N, g, pool_b + ofi_b, sb, env.get('MN_OUT_EARLY', '1') != '0')
         ar_room = None
         ch = VMM_CHUNK if arena_room > 0 else 0
