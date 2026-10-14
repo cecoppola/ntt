@@ -287,11 +287,19 @@ _Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING *
 static long *px_dn_of(char *base) { return (long *)(base + S.mb_bytes + sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent)); }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
 static size_t px_last_len(size_t n) { return n ? n - ((n - 1) / PXCH) * PXCH : 0; }
-typedef struct px_dev { char *base; int pe, reg, d, he; double treg; pthread_mutex_t lock; struct blk *blocks; long retired; double tlast; size_t cur, peak; long *cnt[PXRING]; } px_dev;
+/* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
+ * range `base` (span bytes) mapped by the node-process: [0, PXDATA) is helper 0's control, then 4 MiB blocks (PXCH) alternate between the
+ * helpers' heaps (block b of the data area = helper b & 1, local offset PXDATA + (b >> 1) PXCH + ...).  Every offset in the protocol is a
+ * virtual one; px_write cuts a put at the blocks' ends of its source and of its destination and gives each piece to the helper that holds the
+ * source, aimed at the helper (of the receiving node) that holds the destination.  So both NICs of the APU carry one exchange, each helper
+ * receives into its own heap, and the callers, the rounds and the signals are unchanged. */
+typedef struct px_hl { char *base; pthread_mutex_t lock; long retired; double tlast; long *cnt[PXRING]; } px_hl;   /* one helper: its heap's control, its ring's state */
+typedef struct px_dev { char *base; size_t span; int pe, reg, d, he, nh; double treg; pthread_mutex_t lock; struct blk *blocks; size_t cur, peak; px_hl hl[2]; } px_dev;   /* lock: the allocator */
 static px_dev *g_px[4];
+static int px_in(const px_dev *x, const void *q);
 #ifndef COMM_HOST_ONLY
 static int g_kcopy = -1;                                /* N7D COMM_SHMEM_PX_KCOPY=1: copies touching a proxy pool run as a kernel, not on the SDMA engine */
-static int px_reg_in(const void *p) { for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg && (const char *)p >= g_px[d]->base && (const char *)p < g_px[d]->base + S.pool_bytes) return 1; return 0; }
+static int px_reg_in(const void *p) { for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg && px_in(g_px[d], p)) return 1; return 0; }
 static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
 {
     if (g_kcopy < 0) { const char *e = getenv("COMM_SHMEM_PX_KCOPY"); g_kcopy = e ? atoi(e) > 0 : S.ppa > 0; }   /* D31: default on in the proxy mode */
@@ -301,7 +309,7 @@ static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
 #endif
 static struct px_hdr *px_hdr_of(char *base) { return (struct px_hdr *)(base + S.mb_bytes); }
 static struct px_ent *px_ring_of(char *base) { return (struct px_ent *)(base + S.mb_bytes + sizeof(struct px_hdr)); }
-static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + S.pool_bytes; }
+static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + x->span; }
 static size_t px_alloc(px_dev *x, size_t len, int sym)
 {
     (void)sym;
@@ -329,41 +337,59 @@ static void px_free(px_dev *x, size_t off)
     pthread_mutex_unlock(&x->lock);
 }
 /* retire the commands the proxy has completed: each lowers its exchange's per-peer count (ofi_flush then sends that peer's signal) */
-static void px_progress(px_dev *x)
+static void px_progress_hl(px_dev *x, px_hl *l)
 {
-    struct px_hdr *h = px_hdr_of(x->base);
-    pthread_mutex_lock(&x->lock);
+    struct px_hdr *h = px_hdr_of(l->base);
+    pthread_mutex_lock(&l->lock);
     int any = 0; long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
     if (S.pxsend == 2) {                                  /* N7D: each command as soon as its own stamp says done (out of order) */
-        long *dn = px_dn_of(x->base);
-        for (long k = x->retired; k < hd; k++) { long **c = &x->cnt[k % PXRING];
+        long *dn = px_dn_of(l->base);
+        for (long k = l->retired; k < hd; k++) { long **c = &l->cnt[k % PXRING];
             if (*c && __atomic_load_n(&dn[k % PXRING], __ATOMIC_ACQUIRE) == k + 1) { __atomic_sub_fetch(*c, 1, __ATOMIC_RELEASE); *c = 0; any = 1; } }
-        while (x->retired < hd && !x->cnt[x->retired % PXRING]) x->retired++;
+        while (l->retired < hd && !l->cnt[l->retired % PXRING]) l->retired++;
     } else {
         long d = __atomic_load_n(&h->done, __ATOMIC_ACQUIRE);
-        for (; x->retired < d; x->retired++) { __atomic_sub_fetch(x->cnt[x->retired % PXRING], 1, __ATOMIC_RELEASE); any = 1; }
+        for (; l->retired < d; l->retired++) { __atomic_sub_fetch(l->cnt[l->retired % PXRING], 1, __ATOMIC_RELEASE); any = 1; }
     }
-    if (any) x->tlast = now_s();
-    else if (x->retired < hd) {                           /* commands outstanding, none completed: is the proxy still there? */
-        double t = now_s(); if (!x->tlast) x->tlast = t;
-        if (t - x->tlast > 30) { long pid = __atomic_load_n(&h->ppid, __ATOMIC_ACQUIRE); x->tlast = t;
-            if (pid > 0 && kill((pid_t)pid, 0) != 0) { pthread_mutex_unlock(&x->lock); ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the proxy of APU %d (pid %ld) is gone\n", S.me, x->d, pid); } }
+    if (any) l->tlast = now_s();
+    else if (l->retired < hd) {                           /* commands outstanding, none completed: is the proxy still there? */
+        double t = now_s(); if (!l->tlast) l->tlast = t;
+        if (t - l->tlast > 30) { long pid = __atomic_load_n(&h->ppid, __ATOMIC_ACQUIRE); l->tlast = t;
+            if (pid > 0 && kill((pid_t)pid, 0) != 0) { pthread_mutex_unlock(&l->lock); ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: the proxy of APU %d (pid %ld) is gone\n", S.me, x->d, pid); } }
     }
-    pthread_mutex_unlock(&x->lock);
+    pthread_mutex_unlock(&l->lock);
 }
+static void px_progress(px_dev *x) { for (int h = 0; h < x->nh; h++) px_progress_hl(x, &x->hl[h]); }
 /* post n bytes from src (inside proxy x's pool) to the pool offset roff of PE dst_pe (another node's proxy of the same APU);
  * under COMM_SHMEM_PX_SEND=2 also the receiver's signal words (sigidx = id * npes + my rank) and the final value sig (n may be 0) */
+static size_t px_d0(void) { return (S.mb_bytes + PXCTL + 4095) & ~(size_t)4095; }   /* the data area of the interleaved range starts on a page */
+static void px_post(px_dev *x, int hh, int dst_pe, size_t roff, size_t soff, size_t n, long *cnt, long sigidx, long sig)   /* one command to helper hh's ring (offsets local to the heaps) */
+{
+    px_hl *l = &x->hl[hh]; struct px_hdr *h = px_hdr_of(l->base); struct px_ent *ring = px_ring_of(l->base);
+    pthread_mutex_lock(&l->lock);
+    while (h->head - l->retired >= PXRING) { pthread_mutex_unlock(&l->lock); px_progress_hl(x, l); sched_yield(); pthread_mutex_lock(&l->lock); }
+    long k = h->head; struct px_ent *e = &ring[k % PXRING];
+    e->pe = dst_pe; e->roff = roff; e->soff = soff; e->n = n; e->sigidx = sigidx; e->sig = sig;
+    l->cnt[k % PXRING] = cnt; __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
+    __atomic_store_n(&h->head, k + 1, __ATOMIC_RELEASE);
+    pthread_mutex_unlock(&l->lock);
+}
+/* dst_pe: the receiving node's helper 0 (helper hd is dst_pe + hd) */
 static void px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t n, long *cnt, long sigidx, long sig)
 {
     if (n && (!px_in(x, src) || !px_in(x, (const char *)src + n - 1))) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: a proxy put's source is outside the proxy pool\n", S.me);
-    struct px_hdr *h = px_hdr_of(x->base); struct px_ent *ring = px_ring_of(x->base);
-    pthread_mutex_lock(&x->lock);
-    while (h->head - x->retired >= PXRING) { pthread_mutex_unlock(&x->lock); px_progress(x); sched_yield(); pthread_mutex_lock(&x->lock); }
-    long k = h->head; struct px_ent *e = &ring[k % PXRING];
-    e->pe = dst_pe; e->roff = roff; e->soff = n ? (size_t)((const char *)src - x->base) : 0; e->n = n; e->sigidx = sigidx; e->sig = sig;
-    x->cnt[k % PXRING] = cnt; __atomic_add_fetch(cnt, 1, __ATOMIC_RELAXED);
-    __atomic_store_n(&h->head, k + 1, __ATOMIC_RELEASE);
-    pthread_mutex_unlock(&x->lock);
+    if (x->nh == 1) { px_post(x, 0, dst_pe, roff, n ? (size_t)((const char *)src - x->base) : 0, n, cnt, sigidx, sig); return; }
+    const size_t d0 = px_d0(); size_t sv = n ? (size_t)((const char *)src - x->base) : 0;
+    if (sig || sigidx) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=2 does not carry signals with the data\n");
+    while (n) {
+        if (sv < d0 || roff < d0) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: a proxy put outside the data area (COMM_SHMEM_PE_PER_APU=2)\n", S.me);
+        size_t us = sv - d0, ud = roff - d0, len = n;
+        if (len > PXCH - us % PXCH) len = PXCH - us % PXCH;
+        if (len > PXCH - ud % PXCH) len = PXCH - ud % PXCH;
+        int hs = (int)((us / PXCH) & 1), hd = (int)((ud / PXCH) & 1);
+        px_post(x, hs, dst_pe + hd, d0 + (ud / PXCH / 2) * PXCH + ud % PXCH, d0 + (us / PXCH / 2) * PXCH + us % PXCH, len, cnt, 0, 0);
+        sv += len; roff += len; n -= len;
+    }
 }
 /* N7D COMM_SHMEM_PX_SEND=2: a proxy's life without batch-then-quiet.  Every command is cut into PXCH chunks, posted round robin over the
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
@@ -484,12 +510,40 @@ static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; doub
 #endif
 static int g_pxinit, g_pxthr = 4;                       /* COMM_SHMEM_PX_INIT, COMM_SHMEM_PX_INIT_THREADS */
 /* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
+/* N7E (COMM_SHMEM_PE_PER_APU=2): map APU x->d's two helper heaps (named files) as the interleaved virtual range of px_dev */
+static void px_map2(px_dev *x)
+{
+    const size_t d0 = px_d0(), dsz = (S.pool_bytes - d0) / PXCH * PXCH;
+    x->span = d0 + 2 * dsz;
+    int fd[2]; long off[2];
+    for (int h = 0; h < 2; h++) {
+        char path[160]; heap_path(path, sizeof path, x->pe + h); struct stat st;
+        if (shmem_ptr(S.pool, x->pe + h)) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2 maps the helpers' heap files (a library with an on-node pointer path is not supported)\n", S.me);
+        off[h] = shmem_long_g(mailbox(MAXID - 1, 1), x->pe + h);
+        fd[h] = open(path, O_RDWR);
+        if (fd[h] < 0 || fstat(fd[h], &st) != 0 || off[h] < 0 || (off[h] & 4095) || (size_t)off[h] + S.pool_bytes > (size_t)st.st_size)
+            ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2: the heap of helper PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe + h, path, fd[h] < 0 ? strerror(errno) : "too small or unaligned", off[h]);
+        unlink(path);
+    }
+    char *v = (char *)mmap(0, x->span, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    int bad = v == MAP_FAILED;
+    if (!bad) bad = mmap(v, d0, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd[0], off[0]) == MAP_FAILED;
+    char *c1 = bad ? (char *)MAP_FAILED : (char *)mmap(0, d0, PROT_READ | PROT_WRITE, MAP_SHARED, fd[1], off[1]);
+    if (c1 == MAP_FAILED) bad = 1;
+    for (size_t b = 0; !bad && b < 2 * dsz / PXCH; b++)
+        bad = mmap(v + d0 + b * PXCH, PXCH, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd[b & 1], off[b & 1] + (long)(d0 + (b >> 1) * PXCH)) == MAP_FAILED;
+    if (bad) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2: mapping the helpers' heaps of APU %d: %s\n", S.me, x->d, strerror(errno));
+    close(fd[0]); close(fd[1]);
+    x->base = v; x->hl[0].base = v; x->hl[1].base = c1;
+}
 static void px_attach(void)
 {
     for (int d = 0; d < 4; d++) {
         px_dev *x = (px_dev *)calloc(1, sizeof *x); g_px[d] = x; x->d = d;
-        x->pe = S.me * S.ppn + d;                         /* proxy d of my node (ppa 1: local PE d) */
-        x->base = (char *)shmem_ptr(S.pool, x->pe);       /* (a library with an on-node path; aac7's has none) */
+        x->pe = S.me * S.ppn + d * S.ppa;                 /* APU d's helper 0 on my node (local PE d ppa; helper h is +h) */
+        x->nh = S.ppa; x->span = S.pool_bytes;
+        if (S.ppa == 2) px_map2(x);
+        else x->base = (char *)shmem_ptr(S.pool, x->pe);  /* (a library with an on-node path; aac7's has none) */
         if (!x->base) {                                   /* the proxy's heap file (heap_mmap), at the pool's offset in the heap (the proxy's mailbox word) */
             char path[160]; heap_path(path, sizeof path, x->pe);
             long off = shmem_long_g(mailbox(MAXID - 1, 1), x->pe);
@@ -498,18 +552,22 @@ static void px_attach(void)
                 ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the heap of proxy PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe, path, fd < 0 ? strerror(errno) : "too small", off);
             char *m = (char *)mmap(0, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); close(fd); unlink(path);
             if (m == MAP_FAILED) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: mmap of %s: %s\n", S.me, path, strerror(errno));
-            x->base = m + off;
+            x->base = m + off; x->hl[0].base = x->base;
         }
-        if (px_hdr_of(x->base)->pad[0] != 0x4e374250) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the proxy PE %d's pool is not the memory mapped here (no mark)\n", S.me, x->pe);
+        for (int h = 0; h < x->nh; h++) {
+            if (px_hdr_of(x->hl[h].base)->pad[0] != 0x4e374250) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the proxy PE %d's pool is not the memory mapped here (no mark)\n", S.me, x->pe + h);
+            pthread_mutex_init(&x->hl[h].lock, 0);
+        }
         pthread_mutex_init(&x->lock, 0);
-        x->blocks = (struct blk *)malloc(sizeof *x->blocks); x->blocks->off = S.mb_bytes + PXCTL; x->blocks->len = S.pool_bytes - S.mb_bytes - PXCTL; x->blocks->used = 0; x->blocks->next = 0;
+        x->blocks = (struct blk *)malloc(sizeof *x->blocks); x->blocks->off = S.ppa == 2 ? px_d0() : S.mb_bytes + PXCTL; x->blocks->used = 0; x->blocks->next = 0;
+        x->blocks->len = S.ppa == 2 ? x->span - x->blocks->off : S.pool_bytes - S.mb_bytes - PXCTL;
         x->reg = 1;
     }
 #ifndef COMM_HOST_ONLY
     double t_reg = now_s();
     if (g_pxinit) {                                       /* N7D: the four proxy pools and the node-process's own pool (registered later than in the serial path) at once */
         pthread_t th[5]; struct reg_job jb[5];
-        for (int i = 0; i < 5; i++) { jb[i].p = i < 4 ? g_px[i]->base : S.pool; jb[i].n = S.pool_bytes;
+        for (int i = 0; i < 5; i++) { jb[i].p = i < 4 ? g_px[i]->base : S.pool; jb[i].n = i < 4 ? g_px[i]->span : S.pool_bytes;
             if (pthread_create(&th[i], 0, reg_thread, &jb[i])) { reg_thread(&jb[i]); th[i] = 0; } }
         for (int i = 0; i < 5; i++) if (th[i]) pthread_join(th[i], 0);
         for (int i = 0; i < 4; i++) { g_px[i]->he = (int)jb[i].he; g_px[i]->reg = jb[i].he == hipSuccess && jb[i].dpok; g_px[i]->treg = jb[i].t;
@@ -517,12 +575,12 @@ static void px_attach(void)
         S.registered = jb[4].he == hipSuccess ? (jb[4].dpok ? 1 : 2) : 0; g_t_own = jb[4].t;
         if (!S.registered) { if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(jb[4].he)); }
         else if (S.registered == 2 && S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n");
-    } else for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, S.pool_bytes, hipSuccess, 0, 0 }; reg_thread(&j);
+    } else for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; reg_thread(&j);
         x->he = (int)j.he; x->reg = j.he == hipSuccess && j.dpok; x->treg = j.t; if (j.he == hipSuccess && !j.dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
     if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, g_pxinit ? "in parallel" : "one by one", now_s() - t_reg,
                           g_px[0]->treg, g_px[1]->treg, g_px[2]->treg, g_px[3]->treg, g_t_own, g_pxinit ? "in the same threads" : "before the barrier", now_s() - g_t0);
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; hipError_t he = (hipError_t)x->he;
-        if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=1: the proxy pools %s (%s)\n", x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
+        if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=%d: the proxy pools %s (%s)\n", S.ppa, x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
         if (S.me == 0 || S.verbose) {                     /* N7C: where the pool's pages are (64 sampled pages, after the registration faulted them) vs APU d's node */
             enum { NS = 64 }; void *pg[NS]; int st[NS], cnt[9] = { 0 }; size_t step = (S.pool_bytes / NS) & ~(size_t)4095;
             for (int i = 0; i < NS; i++) pg[i] = x->base + (size_t)i * step;
@@ -539,22 +597,22 @@ static void px_attach(void)
         }
     }
 #endif
-    for (int d = 0; d < 4; d++) __atomic_store_n(&px_hdr_of(g_px[d]->base)->pid, (long)getpid(), __ATOMIC_RELEASE);
+    for (int d = 0; d < 4; d++) for (int h = 0; h < g_px[d]->nh; h++) __atomic_store_n(&px_hdr_of(g_px[d]->hl[h].base)->pid, (long)getpid(), __ATOMIC_RELEASE);
 }
 static void px_shutdown(void)
 {
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; if (!x) continue;
-        struct px_hdr *h = px_hdr_of(x->base);
-        while (__atomic_load_n(&h->done, __ATOMIC_ACQUIRE) < __atomic_load_n(&h->head, __ATOMIC_ACQUIRE)) { px_progress(x); sched_yield(); }
+        for (int hh = 0; hh < x->nh; hh++) { struct px_hdr *h = px_hdr_of(x->hl[hh].base);
+            while (__atomic_load_n(&h->done, __ATOMIC_ACQUIRE) < __atomic_load_n(&h->head, __ATOMIC_ACQUIRE)) { px_progress(x); sched_yield(); } }
         px_progress(x);
-        if (S.verbose || S.me == 0) printf("comm_shmem: pe %d: proxy pool of APU %d: peak %zu MiB of %zu\n", S.me, d, x->peak >> 20, S.pool_bytes >> 20);
-        __atomic_store_n(&h->quit, 1, __ATOMIC_RELEASE);
+        if (S.verbose || S.me == 0) printf("comm_shmem: pe %d: proxy pool of APU %d: peak %zu MiB of %zu\n", S.me, d, x->peak >> 20, x->span >> 20);
+        for (int hh = 0; hh < x->nh; hh++) __atomic_store_n(&px_hdr_of(x->hl[hh].base)->quit, 1, __ATOMIC_RELEASE);
     }
 }
 int comm_shmem_pe_per_apu(void)
 {
     const char *e = getenv("COMM_SHMEM_PE_PER_APU"); int v = e ? atoi(e) : 0;
-    if (v < 0 || v > 1) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%s: 0 (off) or 1 (one proxy PE per APU); 2 (two NICs per APU) is designed, not built (docs: N7b)\n", e);
+    if (v < 0 || v > 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%s: 0 (off), 1 (one helper PE per APU) or 2 (two helper PEs per APU, one per NIC; docs: N7b, N7E)\n", e);
     return v;
 }
 int comm_shmem_available(void) { return 1; }
@@ -582,6 +640,7 @@ int comm_shmem_init(void)
     if (npes_hint < 1) npes_hint = 4096;
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", 1);
     if (S.pxsend < 1 || S.pxsend > 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet) or 2 (chunked put-with-signal)\n", S.pxsend);
+    if (S.pxsend == 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 is not built for COMM_SHMEM_PE_PER_APU=2\n");
     if (S.pxsend == 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 needs COMM_SHMEM_PE_PER_APU=1 and OpenSHMEM 1.5 put-with-signal\n");
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 2 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
@@ -589,7 +648,7 @@ int comm_shmem_init(void)
         g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
         heap_path(g_heap_path, sizeof g_heap_path, getenv("SLURM_PROCID") ? atoi(getenv("SLURM_PROCID")) : -1); unlink(g_heap_path);
         if (env_int("COMM_SHMEM_PX_NUMA", 1) > 0) {        /* D31: default 1 (proxy mode only). N7C: proxy d (local PE d, on cxi d) -> cxi d's NUMA node (that of APU d on aac7; checked in px_attach) */
-            int d = getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
+            int d = (getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0) / S.ppa; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
             FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
         g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);

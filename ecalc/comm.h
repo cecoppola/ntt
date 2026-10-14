@@ -130,7 +130,7 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id);
 void  comm_shmem_finalize(void);
 size_t comm_shmem_heap_env(const char **name);   /* the SHMEM heap's size from the launch line's variable (0: unset); *name = the variable */
 int   comm_shmem_pool_in_heap(void);
-int   comm_shmem_pe_per_apu(void);           /* N7b: COMM_SHMEM_PE_PER_APU (0 off, 1 one proxy PE per APU; checked); 0 without SHMEM */           /* 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
+int   comm_shmem_pe_per_apu(void);           /* N7b: COMM_SHMEM_PE_PER_APU (0 off, 1 one proxy PE per APU, 2 two helper PEs per APU (N7E); checked); 0 without SHMEM */           /* 1 when the pool is carved from the library's heap (a host heap, or a device heap sized by the launch line) */
 void  comm_layered_scratch(comm *c, void *p, size_t bytes);
 void  comm_layered_set_inter2(comm *c, comm *inter2);   /* X2: COMM_LAYER_INTER2=1 -- a second inter communicator over the same PE set (the v-exchanges alternate) */
 int   comm_layered_vslot_pool_on(void);      /* TASKS 27 (D1e): COMM_LAYER_VSLOT_POOL, default 1 */
