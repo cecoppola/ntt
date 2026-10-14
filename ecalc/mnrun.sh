@@ -99,7 +99,7 @@ if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_T
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)
 case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1)
-    if [ "${COMM_TRANSPORT:-}" = shmem ]; then
+    if [ "${COMM_TRANSPORT:-}" = shmem ] && [ "$P" -gt 1 ]; then   # (one process: no SHMEM PEs at all -- ecalc runs single-node, the setting has no effect)
         [ "$per" = 1 ] || { echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs one node-process per node (<procs> = nodes; here $per per node)" >&2; exit 1; }
         case "${COMM_OFI:-}" in 0) ;; "") export COMM_OFI=0; echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1: COMM_OFI=0 (the proxies carry the data)";; *) echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs COMM_OFI=0 (got COMM_OFI=$COMM_OFI)" >&2; exit 1;; esac
         export COMM_SHMEM_PE_PER_APU; PPN=$((1 + 4 * COMM_SHMEM_PE_PER_APU))
