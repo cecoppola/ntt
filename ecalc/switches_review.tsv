@@ -90,10 +90,10 @@ BS_BATCH_PIPE	fallback	coordinator (D20, results/N3.md)	2026-11-11	on by default
 ECALC_NP_MN3	fallback	coordinator (D18, results/DEF.md)	2026-11-11	the three-prime multi-node path kept for the A/B on the target after D18 made P24 the multi-node default
 NEWTON_CHAIN_GUARD	fallback	coordinator (D25, results/RECIP.md)	2026-11-11	on by default since D25; =0 keeps the old chain; digits identical (the division is exact either way); removes a rare fatal (chains of exact doublings)
 COMM_SHMEM_PEER_ORDER	experiment	N7	2026-11-12	shift = shifted-ring peer order (order of puts only); adopt or remove after the 6-node test
-COMM_SHMEM_PE_PER_APU	experiment	N7b	2026-11-14	1 = one proxy PE per APU (COMM_OFI=0); adopt, extend to 2, or remove after the 6-node A/B (B3)
+COMM_SHMEM_PE_PER_APU	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 with COMM_OFI=0 restores the plain SHMEM data path; 1 is the COMM_OFI=0 default since D31 (2026-10-14)
 COMM_SHMEM_PROXY	experiment	N7b	2026-11-14	goes with COMM_SHMEM_PE_PER_APU
-COMM_SHMEM_PX_KCOPY	experiment	N7D	2026-11-14	1 = copies touching a proxy pool run as a kernel (replaces HSA_ENABLE_SDMA=0); adopt as the COMM_OFI=0 default with PX_NUMA or remove after the 2-node A/B
+COMM_SHMEM_PX_KCOPY	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 restores hipMemcpyAsync (SDMA) for proxy-pool copies; default in the proxy mode since D31 (2026-10-14)
 COMM_SHMEM_PX_INIT	experiment	N7D	2026-11-14	1 = pre-fault and register the proxy-mode pools in parallel; adopt with config C or remove after the 2-node A/B
 COMM_SHMEM_PX_INIT_THREADS	experiment	N7D	2026-11-14	pre-fault threads of COMM_SHMEM_PX_INIT
-COMM_SHMEM_PX_NUMA	experiment	N7C	2026-11-14	1 = proxy heaps NUMA-local to their NIC/APU; adopt with COMM_SHMEM_PE_PER_APU or remove after the 2-node A/B
+COMM_SHMEM_PX_NUMA	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 = first touch; default since D31 (2026-10-14)
 COMM_SHMEM_PX_SEND	experiment	N7D	2026-11-14	2 = chunked put-with-signal into the receiving proxy, per-peer contexts (F4); adopt with COMM_SHMEM_PE_PER_APU or remove after the 6-node A/B

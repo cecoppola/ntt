@@ -294,7 +294,7 @@ static int g_kcopy = -1;                                /* N7D COMM_SHMEM_PX_KCO
 static int px_reg_in(const void *p) { for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg && (const char *)p >= g_px[d]->base && (const char *)p < g_px[d]->base + S.pool_bytes) return 1; return 0; }
 static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
 {
-    if (g_kcopy < 0) g_kcopy = getenv("COMM_SHMEM_PX_KCOPY") && atoi(getenv("COMM_SHMEM_PX_KCOPY")) > 0;
+    if (g_kcopy < 0) { const char *e = getenv("COMM_SHMEM_PX_KCOPY"); g_kcopy = e ? atoi(e) > 0 : S.ppa > 0; }   /* D31: default on in the proxy mode */
     if (g_kcopy && (px_reg_in(d) || px_reg_in(s))) return comm_copy_async(d, s, n, st);
     return hipMemcpyAsync(d, s, n, hipMemcpyDefault, st);
 }
@@ -588,7 +588,7 @@ int comm_shmem_init(void)
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
         g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
         heap_path(g_heap_path, sizeof g_heap_path, getenv("SLURM_PROCID") ? atoi(getenv("SLURM_PROCID")) : -1); unlink(g_heap_path);
-        if (env_int("COMM_SHMEM_PX_NUMA", 0) > 0) {        /* N7C: proxy d (local PE d, on cxi d) -> cxi d's NUMA node (that of APU d on aac7; checked in px_attach) */
+        if (env_int("COMM_SHMEM_PX_NUMA", 1) > 0) {        /* D31: default 1 (proxy mode only). N7C: proxy d (local PE d, on cxi d) -> cxi d's NUMA node (that of APU d on aac7; checked in px_attach) */
             int d = getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
             FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
         g_heap_arm = 1; } }
