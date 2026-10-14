@@ -108,7 +108,8 @@ int   comm_shmem_pe_per_apu(void) { return 0; }
 #else
 #define HIP_CHECK(x) do { hipError_t e_ = (x); if (e_ != hipSuccess) {                    \
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
-#define COPY(d, s, n, st) HIP_CHECK(hipMemcpyAsync(d, s, n, hipMemcpyDefault, st))
+static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: COMM_SHMEM_PX_KCOPY (below) */
+#define COPY(d, s, n, st) HIP_CHECK(pcopy(d, s, n, st))
 #define SYNC(st) HIP_CHECK(hipStreamSynchronize(st))
 #endif
 #define MAXID 1024                         /* communicator ids (mailbox rows) */
@@ -278,6 +279,16 @@ struct px_hdr { long head, done, quit, pid, ppid, pad[27]; };
 struct px_ent { long pe; size_t roff, soff, n; };
 typedef struct px_dev { char *base; int pe, reg, d; pthread_mutex_t lock; struct blk *blocks; long retired; double tlast; size_t cur, peak; long *cnt[PXRING]; } px_dev;
 static px_dev *g_px[4];
+#ifndef COMM_HOST_ONLY
+static int g_kcopy = -1;                                /* N7D COMM_SHMEM_PX_KCOPY=1: copies touching a proxy pool run as a kernel, not on the SDMA engine */
+static int px_reg_in(const void *p) { for (int d = 0; d < 4; d++) if (g_px[d] && g_px[d]->reg && (const char *)p >= g_px[d]->base && (const char *)p < g_px[d]->base + S.pool_bytes) return 1; return 0; }
+static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
+{
+    if (g_kcopy < 0) g_kcopy = getenv("COMM_SHMEM_PX_KCOPY") && atoi(getenv("COMM_SHMEM_PX_KCOPY")) > 0;
+    if (g_kcopy && (px_reg_in(d) || px_reg_in(s))) return comm_copy_async(d, s, n, st);
+    return hipMemcpyAsync(d, s, n, hipMemcpyDefault, st);
+}
+#endif
 static struct px_hdr *px_hdr_of(char *base) { return (struct px_hdr *)(base + S.mb_bytes); }
 static struct px_ent *px_ring_of(char *base) { return (struct px_ent *)(base + S.mb_bytes + sizeof(struct px_hdr)); }
 static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + S.pool_bytes; }
