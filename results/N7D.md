@@ -83,6 +83,15 @@ Round 4 did not complete: during R4's B run a node failed (Slurm: node failure, 
 comm_ofi run timed out on the broken allocation; the item stopped there (its rule: any timeout). No digit check failed. Cause unknown
 (site-side; the pre-fault adds 4 x 2.5 GiB per node of host pages, which the plan already counts).
 
+**D31 (b): config C as the `COMM_OFI=0` default (branch `n7d-def`).** Condition: the copy kernel's exchange stage equals config C with
+`HSA_ENABLE_SDMA=0` (2-node pair above: fabric −0.36 s, total −0.66 s, inside the spread) and its gates pass (1/2/6 n above): met. Change: under an
+explicit `COMM_OFI=0`, `mnrun.sh` launches the proxy mode (`COMM_SHMEM_PE_PER_APU=1`) for a multi-node SHMEM run of one node-process per node, and
+`COMM_SHMEM_PX_NUMA` and `COMM_SHMEM_PX_KCOPY` default to 1 in the proxy mode; explicit settings win (`COMM_SHMEM_PE_PER_APU=0` = the plain SHMEM
+path); `COMM_OFI` unset or 1 (comm_ofi) is unchanged; `ecalc/mem_model.py` mirrors the default. The LAYER switches stay at their defaults (no gain
+in the one-factor run). Check (aac7 item `23_n7d_d31`, 2 nodes, commit f50d57f, m): `tools/gate.sh --nodes 1` and `--nodes 2` with plain
+`COMM_OFI=0` PASS, digits identical; `--nodes 2` at the defaults PASS; 1e10 write + compare at 2 n with plain `COMM_OFI=0`: identical (44.2 s), the
+log shows the proxy mode launched and 8 of 8 proxies with NUMA placement; `/dev/shm` files left 0.
+
 **Verdict.** Merge the three switches, default off (gates and digits pass). The proxy mode is still slower than comm_ofi at 6 n (+83 s, CI excludes
 0): comm_ofi stays the default. The copy kernel equals `HSA_ENABLE_SDMA=0`, so config C can be expressed without a process-wide environment setting
 (D31 (b)). The LAYER switches are not needed.
@@ -90,5 +99,4 @@ comm_ofi run timed out on the broken allocation; the item stopped there (its rul
 **Open issues.** The remaining +83 s is in bs and dm exchange waits (xw0 +260 s summed over phases of pe 0, m), not in transposes or init; PX_SEND=2
 vs 1 and LAYER on/off need paired runs; the node failure in R4 is unexplained; 4 KiB pool pages remain (admin change).
 
-**RESUME.** `n7d` merged to main (switches off). Raw logs on the cluster (queue item 22 output). Next: D31 (config C as the `COMM_OFI=0` default, its own gates), then
-more pairs of B vs comm_ofi if the user wants a decision on the proxy mode.
+**RESUME.** `n7d` merged to main (switches off); D31 merged (`n7d-def`). Raw logs on the cluster (queue item 22 output). Next: more pairs of B vs comm_ofi if the user wants a decision on the proxy mode.

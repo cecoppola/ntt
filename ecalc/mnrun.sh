@@ -25,7 +25,7 @@
 # launch values have one source.  Unset, nothing changes.
 # FIT (D26, results/FIT.md): before srun, the planner's memory fit of the command's ecalc run is printed and a run that does not fit
 # (device over ECALC_DEVICE_GB, node over ECALC_NODE_GB) is refused with exit 4; MNRUN_FIT=0 skips it (see the FIT block below).
-# N7b: COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 0 = off) launches 1 + 4 PEs per node under
+# N7b: COMM_SHMEM_PE_PER_APU=1 (exported or a VAR=value word of the command; default 1 under an explicit COMM_OFI=0 (D31), else 0) launches 1 + 4 PEs per node under
 # COMM_TRANSPORT=shmem: local PEs 0..3 are comm_shmem's proxies (one per APU and NIC: SHMEM_OFI_NIC_POLICY=ROUND-ROBIN and
 # SHMEM_OFI_NUM_NICS=4 unless set), the last one the node-process; <procs> is still the node count (one node-process per node), COMM_RANK
 # and COMM_SIZE count nodes, the proxies' stdout goes to /dev/null, every task may use all of the step's CPUs (--cpu-bind=none).
@@ -98,6 +98,10 @@ for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPO
 if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
 [ -n "${COMM_TRANSPORT:-}" ] && export COMM_TRANSPORT
 PPN=1   # N7b: PEs per node (1 + 4 COMM_SHMEM_PE_PER_APU under SHMEM)
+# D31: an explicit COMM_OFI=0 makes the proxy mode the default (COMM_SHMEM_PE_PER_APU=1) for a multi-node SHMEM run of one node-process
+# per node; an explicit COMM_SHMEM_PE_PER_APU (exported or a word of the command) wins; comm_ofi runs (COMM_OFI unset or 1) are unchanged
+if [ -z "${COMM_SHMEM_PE_PER_APU+x}" ] && [ "${COMM_OFI:-}" = 0 ] && [ "${COMM_TRANSPORT:-}" = shmem ] && [ "$P" -gt 1 ] && [ "$per" = 1 ]; then
+    COMM_SHMEM_PE_PER_APU=1; echo "mnrun.sh: COMM_OFI=0: COMM_SHMEM_PE_PER_APU=1 (the default under COMM_OFI=0, D31)"; fi
 case "${COMM_SHMEM_PE_PER_APU:-0}" in 0|"") ;; 1)
     if [ "${COMM_TRANSPORT:-}" = shmem ] && [ "$P" -gt 1 ]; then   # (one process: no SHMEM PEs at all -- ecalc runs single-node, the setting has no effect)
         [ "$per" = 1 ] || { echo "mnrun.sh: COMM_SHMEM_PE_PER_APU=1 needs one node-process per node (<procs> = nodes; here $per per node)" >&2; exit 1; }

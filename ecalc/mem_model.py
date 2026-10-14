@@ -1207,7 +1207,7 @@ def c_layout_check(path, pool_log=31, t_chunk_mb=1024, seed_fill=SEED_FILL, aren
         pool_b = 0; ofi_b = 0
         if g > 1 and env.get('COMM_TRANSPORT') == 'shmem':                        # binsplit.c as_shmem_pool: binsplit_shmem_pool_rule's pool
             pd_ = {}; ofi = ofi_planned(env)                                       # Phase 17 OFIMEM: the comm_ofi pools beside the SHMEM pool
-            px = not ofi and env.get('COMM_SHMEM_PE_PER_APU', '0') not in ('', '0')   # N7b: four proxy pools, each the size of the pool
+            px = not ofi and env.get('COMM_SHMEM_PE_PER_APU', '1' if env.get('COMM_OFI') == '0' else '0') not in ('', '0')   # N7b: four proxy pools, each the size of the pool (D31: default under COMM_OFI=0, as mnrun.sh)
             nd = shmem_pool(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, None, pool_log, t_chunk_mb, int(env.get('MDB_SHIFT_CHUNK_MB', '1024')), False, round_mb=int(float(env.get('COMM_SHMEM_ROUND_MB', '0') or 0)), detail=pd_, ofi=ofi, px=px,
                             vslot=(vslot_resident(dm_layout(N, g, pool_log, True, tight, tdead)['nq'], g, os.environ.get('MN_GROUPS') or None, pool_log, ((int(os.environ.get('MN_P24', '2') or 0), np_mode if np_mode is not None else EC_NP, g, os.environ.get('ECALC_NP_AUTO_MIN', '0') == '1') if int(os.environ.get('MN_P24', '2') or 0) else None))['per_apu'] if vslot_pool_on(env) else 0))
             mb = -(-nd // (1 << 20)); mb = -(-mb // 256) * 256; have = int(env.get('COMM_SHMEM_POOL_MB', str(mb) if ofi else '8192'))
