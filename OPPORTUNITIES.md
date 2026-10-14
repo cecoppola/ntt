@@ -129,6 +129,6 @@ Top 5 testable on ≤ 6 aac7 nodes now:
 |---|---|---|
 | 1 | N1 | division multiply: stage and wait split at 2/4/6 n with `MN_WAIT_STATS`, then a fix and ABBA |
 | 2 | M7d | ROCm 7.14.0 (the target's) against 7.2.4 at 1 n: gate, then ABBA |
-| 3 | N7 | `COMM_OFI=0` at 2–6 n: done (results/N7.md); N7b one SHMEM PE per APU measured (results/N7B.md): correct, 2.9 × slower than comm_ofi at 6 n, not adopted |
+| 3 | N7 | `COMM_OFI=0` at 2–6 n: done (results/N7.md); N7b one SHMEM PE per APU measured (results/N7B.md): correct, 2.9 × slower than comm_ofi at 6 n, not adopted; N7C (results/N7C.md): NUMA placement + SDMA off cut it to 2.1 × (+242.4 s, m), still not adopted; open: 5-peer batch-then-quiet, init skew |
 | 4 | N3 | host gaps in the batch tier: profile and overlap at 1 n, ABBA — done, adopted (D20) |
 | 5 | K4b | `k_crt_batch` C-form carry chain at 1 n, ABBA — done: −2.52 s [−4.19, −0.85] (`results/K4b.md`); adopted (D21) |
