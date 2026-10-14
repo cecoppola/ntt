@@ -396,9 +396,11 @@ int comm_shmem_init(void)
     S.pool = (char *)shmem_malloc(S.pool_bytes);
     if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
+    if (S.ppa && !S.proxy) *mailbox(MAXID - 1, 0) = (long)getpid();   /* N7b: the node-process's pid in the reserved mailbox row, for its proxies */
     if (S.proxy) {                                        /* N7b: a proxy -- its control zeroed before the barrier; it serves until the node-process's finalize */
         memset(S.pool + S.mb_bytes, 0, PXCTL);
         shmem_barrier_all(); S.inited = 1;
+        px_hdr_of(S.pool)->pid = shmem_long_g(mailbox(MAXID - 1, 0), phys_pe(S.me));   /* (the liveness check: no shared memory needed) */
         px_serve();
         shmem_barrier_all();                              /* (comm_shmem_finalize's) */
         shmem_free(S.pool); shmem_finalize(); fflush(stdout); fflush(stderr); _exit(0);
@@ -990,7 +992,7 @@ static const struct comm_ops shm_ops = { s_rank, s_size, s_alltoall, s_wait, s_b
 comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
 {
     if (!S.inited) comm_shmem_init();
-    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID) die("bad PE set");
+    if (n < 1 || pe_stride < 1 || pe_start < 0 || pe_start + (n - 1) * pe_stride >= S.npes || id < 0 || id >= MAXID - (S.ppa ? 1 : 0)) die("bad PE set");   /* (N7b reserves the last row) */
     int me = -1; for (int r = 0; r < n; r++) if (pe_start + r * pe_stride == S.me) me = r;   /* (logical PEs = nodes; p->pe[] physical) */
     if (me < 0) die("this PE is not in the set");
     comm *c = (comm *)calloc(1, sizeof *c); shm_priv *p = (shm_priv *)calloc(1, sizeof *p);
