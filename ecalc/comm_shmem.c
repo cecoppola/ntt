@@ -230,6 +230,7 @@ static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SH
  * mapping of a file /dev/shm/ecalc_px_<job>_<step>_<PE> -- the same kind of pages (shmem), the same address and flags -- and the node-process
  * maps that file (px_attach), then unlinks it.  The wrapper is a pass-through everywhere else (not armed: every other process and call). */
 static volatile int g_heap_arm; static char g_heap_path[160]; static void *g_heap_addr; static size_t g_heap_min;
+static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NUMA=1: the NUMA node a proxy's heap prefers (-1: off), the mbind result */
 static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
 {
     if (g_heap_arm && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
@@ -239,6 +240,9 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
             int sfd = open(g_heap_path, O_RDWR | O_CREAT | O_EXCL, 0600);
             if (sfd >= 0 && ftruncate(sfd, (off_t)l) == 0) {
                 void *r = (void *)syscall(SYS_mmap, a, l, prot, fl & ~(MAP_ANONYMOUS | MAP_HUGETLB | (MAP_HUGE_MASK << MAP_HUGE_SHIFT)), sfd, (off_t)0); close(sfd);
+                if (r != MAP_FAILED && g_heap_numa >= 0 && g_heap_numa < 64) {   /* N7C: the file's shared policy, before any page is touched (the
+                    * node-process's faults through its own mapping follow it too); preferred, not bound: a full node falls back */
+                    unsigned long mask = 1UL << g_heap_numa; g_heap_mbind = (int)syscall(SYS_mbind, r, l, 1 /* MPOL_PREFERRED */, &mask, 64, 0) ? errno : 0; }
                 if (r != MAP_FAILED) g_heap_addr = r; else unlink(g_heap_path);
                 return r;
             }
@@ -382,6 +386,20 @@ static void px_attach(void)
         if (he != hipSuccess) { (void)hipGetLastError(); x->reg = 0; }
         else { void *dp = 0; if (hipHostGetDevicePointer(&dp, x->base, 0) != hipSuccess || dp != x->base) { (void)hipGetLastError(); x->reg = 0; (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
         if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=1: the proxy pools %s (%s)\n", x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
+        if (S.me == 0 || S.verbose) {                     /* N7C: where the pool's pages are (64 sampled pages, after the registration faulted them) vs APU d's node */
+            enum { NS = 64 }; void *pg[NS]; int st[NS], cnt[9] = { 0 }; size_t step = (S.pool_bytes / NS) & ~(size_t)4095;
+            for (int i = 0; i < NS; i++) pg[i] = x->base + (size_t)i * step;
+            long rc = syscall(SYS_move_pages, 0, (unsigned long)NS, pg, (const int *)0, st, 0);
+            for (int i = 0; i < NS; i++) cnt[rc == 0 && st[i] >= 0 && st[i] < 8 ? st[i] : 8]++;
+            char bus[64] = { 0 }, path[160]; int dn = -1;
+            if (hipDeviceGetPCIBusId(bus, sizeof bus, d) == hipSuccess) { for (char *c = bus; *c; c++) if (*c >= 'A' && *c <= 'F') *c += 'a' - 'A';
+                snprintf(path, sizeof path, "/sys/bus/pci/devices/%s/numa_node", bus); FILE *f = fopen(path, "r"); if (f) { if (fscanf(f, "%d", &dn) != 1) dn = -1; fclose(f); } } else (void)hipGetLastError();
+            long kps = -1, pmd = -1; FILE *sm = fopen("/proc/self/smaps", "r");   /* the mapping's page size and its huge-page part (kB) */
+            if (sm) { char ln[512]; int in = 0; while (fgets(ln, sizeof ln, sm)) { unsigned long lo, hi;
+                if (sscanf(ln, "%lx-%lx ", &lo, &hi) == 2 && strchr(ln, '-') < strchr(ln, ' ')) { if (in) break; in = (unsigned long)x->base >= lo && (unsigned long)x->base < hi; continue; }
+                if (in) { sscanf(ln, "KernelPageSize: %ld", &kps); sscanf(ln, "ShmemPmdMapped: %ld", &pmd); } } fclose(sm); }
+            printf("comm_shmem: pe %d: proxy pool of APU %d (NUMA node %d): sampled pages on nodes 0..7 %d %d %d %d %d %d %d %d, unknown %d; page %ld kB, huge %ld kB\n", S.me, d, dn, cnt[0], cnt[1], cnt[2], cnt[3], cnt[4], cnt[5], cnt[6], cnt[7], cnt[8], kps, pmd);
+        }
 #endif
         __atomic_store_n(&px_hdr_of(x->base)->pid, (long)getpid(), __ATOMIC_RELEASE);
     }
@@ -428,7 +446,11 @@ int comm_shmem_init(void)
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
         g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
-        heap_path(g_heap_path, sizeof g_heap_path, getenv("SLURM_PROCID") ? atoi(getenv("SLURM_PROCID")) : -1); unlink(g_heap_path); g_heap_arm = 1; } }
+        heap_path(g_heap_path, sizeof g_heap_path, getenv("SLURM_PROCID") ? atoi(getenv("SLURM_PROCID")) : -1); unlink(g_heap_path);
+        if (env_int("COMM_SHMEM_PX_NUMA", 0) > 0) {        /* N7C: proxy d (local PE d, on cxi d) -> cxi d's NUMA node (that of APU d on aac7; checked in px_attach) */
+            int d = getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0; char p[96]; snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d);
+            FILE *f = fopen(p, "r"); g_heap_numa = d; if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) g_heap_numa = n; fclose(f); } }
+        g_heap_arm = 1; } }
     shmem_init_thread(SHMEM_THREAD_MULTIPLE, &prov);
     g_heap_arm = 0;
     S.prov = prov;
@@ -463,6 +485,7 @@ int comm_shmem_init(void)
     if (S.proxy) {                                        /* N7b: a proxy -- its control zeroed before the barrier; it serves until the node-process's finalize */
         memset(S.pool + S.mb_bytes, 0, PXCTL); px_hdr_of(S.pool)->pad[0] = 0x4e374250;   /* the mark the node-process checks after mapping */
         *mailbox(MAXID - 1, 1) = (long)(S.pool - (char *)g_heap_addr);              /* the pool's offset in the heap file */
+        if (g_heap_numa >= 0 && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_NUMA=1: heap prefers NUMA node %d (mbind %s)\n", S.pme, g_heap_numa, g_heap_mbind ? strerror(g_heap_mbind) : "ok");
         shmem_barrier_all(); S.inited = 1;
         px_hdr_of(S.pool)->pid = shmem_long_g(mailbox(MAXID - 1, 0), phys_pe(S.me));   /* (the liveness check: no shared memory needed) */
         px_serve();
