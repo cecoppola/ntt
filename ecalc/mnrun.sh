@@ -161,9 +161,11 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
             # N7F fix A: COMM_SHMEM_OFFS_WITH_DATA=<MiB> (a VAR=value word or exported) puts that inbox in every proxy communicator, outside the plan's pool:
             # add MiB x the communicators one node is a member of (comm_shmem_create_at in mn.c: the base mesh + one group mesh per tree level
-            # 1..L - 1 + one transform-nodes mesh when <procs> is no power of two; L = ceil(log2 <procs>); COMM_LAYER_INTER2=1 doubles the group meshes)
-            ibx=${COMM_SHMEM_OFFS_WITH_DATA:-}; ncm=1; inter2=${COMM_LAYER_INTER2:-0}
-            for a in "${pas[@]}"; do case "$a" in COMM_SHMEM_OFFS_WITH_DATA=*) ibx=${a#*=};; COMM_LAYER_INTER2=*) inter2=${a#*=};; esac; done
+            # 1..L - 1 + one transform-nodes mesh when <procs> is no power of two; L = ceil(log2 <procs>); COMM_LAYER_INTER2 doubles the group meshes --
+            # built in: unset follows COMM_LAYER_VSLOT_POOL, default 1 (comm_layered_inter2_on); counting it 0 gave 4 of the 6 meshes at 6 n, the 1_F stop)
+            ibx=${COMM_SHMEM_OFFS_WITH_DATA:-}; ncm=1; inter2=${COMM_LAYER_INTER2:-}; vsp=${COMM_LAYER_VSLOT_POOL:-1}
+            for a in "${pas[@]}"; do case "$a" in COMM_SHMEM_OFFS_WITH_DATA=*) ibx=${a#*=};; COMM_LAYER_INTER2=*) inter2=${a#*=};; COMM_LAYER_VSLOT_POOL=*) vsp=${a#*=};; esac; done
+            [ -z "$inter2" ] && inter2=$vsp
             if [ -n "$pmb" ] && [ "${ibx:-0}" -gt 0 ] 2>/dev/null && [ "${COMM_SHMEM_PE_PER_APU:-0}" != 0 ]; then
                 L=0; while [ $((1 << L)) -lt "$P" ]; do L=$((L + 1)); done
                 [ $((1 << L)) -ne "$P" ] && ncm=$((ncm + 1)); [ "$L" -gt 1 ] && ncm=$((ncm + (L - 1) * (1 + (inter2 != 0 ? 1 : 0))))

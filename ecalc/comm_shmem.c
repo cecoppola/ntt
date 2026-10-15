@@ -311,10 +311,20 @@ static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
 static struct px_hdr *px_hdr_of(char *base) { return (struct px_hdr *)(base + S.mb_bytes); }
 static struct px_ent *px_ring_of(char *base) { return (struct px_ent *)(base + S.mb_bytes + sizeof(struct px_hdr)); }
 static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + x->span; }
-static size_t px_alloc_q(px_dev *x, size_t len, int quiet)   /* quiet (FA): (size_t)-1 instead of the stop when it does not fit */
+static size_t px_alloc_q(px_dev *x, size_t len, int quiet)   /* quiet (FA): (size_t)-1 instead of the stop when it does not fit; FA's inbox: from the top */
 {
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
     pthread_mutex_lock(&x->lock);
+    if (quiet) {                                          /* N7F: an inbox (kept for the communicator's life) is carved from the END of the last free block that holds
+                                                           * it, so the inboxes stack at the pool's top and the staging/slabs (first fit from the bottom, freed and
+                                                           * regrown) keep one contiguous range below them; first fit put an inbox between them (1_F: 1023 MiB did
+                                                           * not fit with 947 of 2816 in use) */
+        struct blk *t = 0; for (struct blk *b = x->blocks; b; b = b->next) if (!b->used && b->len >= len) t = b;
+        if (!t) { pthread_mutex_unlock(&x->lock); return (size_t)-1; }
+        if (t->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = t->off + t->len - len; nb->len = len; nb->used = 0; nb->next = t->next; t->next = nb; t->len -= len; t = nb; }
+        t->used = 1; x->cur += len; if (x->cur > x->peak) x->peak = x->cur;
+        pthread_mutex_unlock(&x->lock); return t->off;
+    }
     for (struct blk *b = x->blocks; b; b = b->next) if (!b->used && b->len >= len) {
         if (b->len > len) { struct blk *nb = (struct blk *)malloc(sizeof *nb); nb->off = b->off + len; nb->len = b->len - len; nb->used = 0; nb->next = b->next; b->next = nb; b->len = len; }
         b->used = 1; x->cur += len; if (x->cur > x->peak) x->peak = x->cur;
@@ -853,7 +863,7 @@ static size_t off_db(shm_priv *p, const void *x) { return (size_t)((const char *
  * Today a sender posts to a receiver only after the receiver's W_ROFF word for this exchange (where its slab lands) arrives, and walks its
  * peers in order: one late receiver holds the transfer to it until it enters the exchange AND the transfers to every later peer (roff_wait
  * x5-6 in the slow runs).  Under the switch every member of a proxy communicator keeps an INBOX in its proxy pool (<MiB> per communicator,
- * a slot of MiB / (n - 1) per sender, allocated at the first device exchange) and GRANTS each sender its slot for the next exchange in the
+ * a slot of MiB / (n - 1) per sender, allocated at the first device exchange, from the pool's top) and GRANTS each sender its slot for the next exchange in the
  * word W_IBX of the sender's block = PACK(seq, slot offset) -- at once at the first exchange, then when an exchange's s_wait has copied the
  * inbox out, so long before the receiver's next publish.  The sender (push_any) polls every pending peer, and posts to whichever is ready:
  * the receiver's roff when it is there (no copy: an on-time receiver costs nothing), else its granted slot when the message fits; the
