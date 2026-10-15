@@ -310,9 +310,8 @@ static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st)
 static struct px_hdr *px_hdr_of(char *base) { return (struct px_hdr *)(base + S.mb_bytes); }
 static struct px_ent *px_ring_of(char *base) { return (struct px_ent *)(base + S.mb_bytes + sizeof(struct px_hdr)); }
 static int px_in(const px_dev *x, const void *q) { return x && (const char *)q >= x->base && (const char *)q < x->base + x->span; }
-static size_t px_alloc(px_dev *x, size_t len, int sym)
+static size_t px_alloc_q(px_dev *x, size_t len, int quiet)   /* quiet (FA): (size_t)-1 instead of the stop when it does not fit */
 {
-    (void)sym;
     len = (len + ALIGN - 1) & ~(size_t)(ALIGN - 1); if (!len) len = ALIGN;
     pthread_mutex_lock(&x->lock);
     for (struct blk *b = x->blocks; b; b = b->next) if (!b->used && b->len >= len) {
@@ -321,9 +320,11 @@ static size_t px_alloc(px_dev *x, size_t len, int sym)
         pthread_mutex_unlock(&x->lock); return b->off;
     }
     size_t cur = x->cur; pthread_mutex_unlock(&x->lock);
+    if (quiet) return (size_t)-1;
     ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: proxy pool of APU %d (%zu MiB, COMM_SHMEM_POOL_MB per PE under COMM_SHMEM_PE_PER_APU) cannot hold %zu MiB more (in use %zu MiB); the model's need: %s MiB\n",
              S.me, x->d, S.pool_bytes >> 20, len >> 20, cur >> 20, getenv("COMM_SHMEM_POOL_NEED_MB") ? getenv("COMM_SHMEM_POOL_NEED_MB") : "?");
 }
+static size_t px_alloc(px_dev *x, size_t len, int sym) { (void)sym; return px_alloc_q(x, len, 0); }
 static void px_free(px_dev *x, size_t off)
 {
     pthread_mutex_lock(&x->lock);
@@ -766,7 +767,7 @@ void comm_shmem_finalize(void)
 
 /* ---- a communicator ---- */
 /* the control block of a member (offsets from its base): the words other members write */
-enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_N };
+enum { W_ROFF, W_SIG, W_VAL0, W_VAL1, W_VSEQ0, W_VSEQ1, W_PROD, W_CONS, W_N, W_IBX = W_N };   /* W_IBX: FA's inbox grant, a word past W_N only under COMM_SHMEM_OFFS_WITH_DATA (nw) */
 typedef struct {
     int n, me, id, *pe;                    /* pe[r]: the PE of rank r */
     shmem_ctx_t ctx; int own_ctx;
@@ -791,6 +792,7 @@ typedef struct {
     int xk, xph, xapu; long xK; double xroff, xsig;   /* X1 xstats: the pending exchange's kind, phase, APU, rounds, and the seconds blocked on offset words (skew) / signal words (transfer, tail) */
     int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
     px_dev *px; int *pxpe;                 /* N7b: the proxy data plane (ofi = 1 with px set): my APU's proxy, the members' proxies (physical PEs) */
+    int nw, ibon, ibtried; size_t ib, ibcap; unsigned char *ibf;   /* FA: control words per rank (W_N, + 1 under the switch); my inbox (offset in db), bytes per sender, which senders' messages of the pending exchange are in it */
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
 /* ---- X1: COMM_XSTATS=1 (results/XEFF.md M1): per (phase, kind) sums over the completed exchanges of this PE (all APU threads) ---- */
@@ -826,7 +828,7 @@ static void xs_print(void)
 /* a timed wait on a peer's offset word (skew) or signal word (transfer, tail) when COMM_XSTATS is on */
 #define XWAIT(p, acc, w, v) do { if (S.xstats) { double xt_ = now_s(); wait_ge((w), (v)); (p)->acc += now_s() - xt_; } else wait_ge((w), (v)); } while (0)
 static long *W(shm_priv *p, size_t base, int w, int r) { return (long *)(S.pool + base + ((size_t)w * p->n + r) * 8); }   /* word w of rank r in the block at base */
-static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (size_t)W_N * p->n * 8 + (size_t)r * p->ring; }
+static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (size_t)p->nw * p->n * 8 + (size_t)r * p->ring; }
 #define PACK(seq, off) (((long)(seq) << 40) | (long)(off))   /* a byte offset / count below 2^40 tagged with the sequence (< 2^23) */
 #define UNSEQ(x) ((x) >> 40)
 #define UNOFF(x) ((size_t)((x) & (((long)1 << 40) - 1)))
@@ -834,6 +836,35 @@ static char *RING(shm_priv *p, size_t base, int r) { return S.pool + base + (siz
 static void set_xo(shm_priv *p, int on) { p->xo = on && p->ofi; p->db = p->xo ? (p->px ? p->px->base : comm_ofi_pool(p->od)) : S.pool; }
 static int in_db(shm_priv *p, const void *x) { return p->xo ? (p->px ? px_in(p->px, x) : comm_ofi_in_pool(p->od, x)) : in_pool(x); }
 static size_t off_db(shm_priv *p, const void *x) { return (size_t)((const char *)x - p->db); }
+/* ---- FA COMM_SHMEM_OFFS_WITH_DATA=<MiB> (default 0 = off; docs/N7E_T2.md fix 2): the proxy exchange without the late offset word ----
+ * Today a sender posts to a receiver only after the receiver's W_ROFF word for this exchange (where its slab lands) arrives, and walks its
+ * peers in order: one late receiver holds the transfer to it until it enters the exchange AND the transfers to every later peer (roff_wait
+ * x5-6 in the slow runs).  Under the switch every member of a proxy communicator keeps an INBOX in its proxy pool (<MiB> per communicator,
+ * a slot of MiB / (n - 1) per sender, allocated at the first device exchange) and GRANTS each sender its slot for the next exchange in the
+ * word W_IBX of the sender's block = PACK(seq, slot offset) -- at once at the first exchange, then when an exchange's s_wait has copied the
+ * inbox out, so long before the receiver's next publish.  The sender (push_any) polls every pending peer, and posts to whichever is ready:
+ * the receiver's roff when it is there (no copy: an on-time receiver costs nothing), else its granted slot when the message fits; the
+ * signal value carries the choice (IBF in the count field), so the receiver learns with the data where it is, and s_wait copies the inbox
+ * slot to the caller's buffer before the next grant.  Not in the rounds path (COMM_SHMEM_ROUND_MB): a slot message there stops the run.
+ * The inbox is outside the pool rule (an inbox that does not fit is left off for that communicator, a line on stderr: its senders use roff) */
+#define IBF ((long)1 << 39)                                   /* in the count field of a signal: the data is in my inbox slot */
+static size_t offs_mb(void) { static long v = -1; if (v < 0) { const char *e = getenv("COMM_SHMEM_OFFS_WITH_DATA"); v = e && atol(e) > 0 ? atol(e) : 0; } return (size_t)v; }
+static size_t ibx_slot(const shm_priv *p, int r) { return p->ib + (size_t)(r < p->me ? r : r - 1) * p->ibcap; }   /* sender r's slot in my inbox */
+static void ibx_grant(shm_priv *p, long d)            /* every sender may write its message of the exchange iseq + d into its slot */
+{
+    SHM_LOCK();
+    for (int r = 0; r < p->n; r++) if (r != p->me) shmem_ctx_long_p(p->ctx, W(p, p->rbase[r], W_IBX, p->me), PACK(p->iseq[r] + d, ibx_slot(p, r)), p->pe[r]);
+    SHM_UNLOCK();
+}
+static void ibx_setup(shm_priv *p)                    /* at a device exchange, after seq_next and before publish: the inbox once, the first grant */
+{
+    if (p->ibtried || !p->xo || !p->px || p->n < 2 || !offs_mb()) return;
+    p->ibtried = 1; p->ibcap = ((offs_mb() << 20) / (size_t)(p->n - 1)) & ~(size_t)(ALIGN - 1);
+    p->ibf = (unsigned char *)calloc(p->n, 1);
+    size_t off = p->ibcap ? px_alloc_q(p->px, p->ibcap * (size_t)(p->n - 1), 1) : (size_t)-1;
+    if (off == (size_t)-1) { fprintf(stderr, "comm_shmem: pe %d: COMM_SHMEM_OFFS_WITH_DATA: no room for a %zu MiB inbox in the proxy pool of APU %d (comm %d): its senders use the offset word\n", S.me, offs_mb(), p->px->d, p->id); return; }
+    p->ib = off; p->ibon = 1; ibx_grant(p, 0);
+}
 
 static void put_word(shm_priv *p, int r, int w, int idx, long v)   /* word (w, idx) of rank r's block = v (ordered after the context's earlier puts by the caller's fence) */
 {
@@ -888,6 +919,7 @@ static void px_arrive(shm_priv *p, int r, long seq, size_t want, long round)
     px_spin_ge(b, PACK(seq, 0));
     long x = __atomic_load_n(b, __ATOMIC_ACQUIRE);
     if (UNSEQ(x) != seq) die("signal sequence mismatch (COMM_SHMEM_PX_SEND=2)");
+    if (p->ibf) { if ((x & IBF) && (!p->ibon || p->rounds)) die("an inbox message outside an ordinary exchange (COMM_SHMEM_OFFS_WITH_DATA)"); p->ibf[r] = (x & IBF) != 0; x &= ~IBF; }   /* FA */
     if (UNOFF(x) != want) ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch (round %ld): rank %d sends %zu bytes to rank %d, which expects %zu\n", round, r, UNOFF(x), p->me, want);
     long rest = (long)(want - px_last_len(want));
     if (rest) { px_spin_ge(a, rest); long v = __atomic_load_n(a, __ATOMIC_ACQUIRE);
@@ -960,7 +992,31 @@ static int push_peers(shm_priv *p, int from, long spin_us)
     }
     return p->n;
 }
-static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); push_peers(p, p->next, -1); return 0; }
+/* FA (COMM_SHMEM_OFFS_WITH_DATA): the sender's half of a proxy exchange -- every pending peer polled, each posted as soon as its roff
+ * (preferred: no copy) or, for a message that fits, its inbox grant of this exchange is there; no peer waits behind a late one */
+static void push_any(shm_priv *p)
+{
+    int n = p->n, left = n - 1; unsigned spins = 0;
+    unsigned char *dn = (unsigned char *)calloc(n, 1); dn[p->me] = 1;
+    double tw = S.xstats ? now_s() : 0;
+    while (left) {
+        int any = 0;
+        PEERS(p, k, r, 0, 1) if (!dn[r]) {
+            long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r), *g = W(p, p->base, W_IBX, r), x, f = 0;
+            size_t nb = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
+            if (test_ge(w, PACK(seq, 0))) { x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch"); }
+            else if (nb <= p->ibcap && test_ge(g, PACK(seq, 0)) && UNSEQ(x = *(volatile long *)g) == seq) f = IBF;
+            else continue;
+            SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, nb, PACK(seq, nb) | f); SHM_UNLOCK();
+            dn[r] = 1; left--; any = 1;
+        }
+        if (any) { spins = 0; if (S.xstats) tw = now_s(); }
+        else if (++spins > 32) { sched_yield(); if (S.xstats) { double t = now_s(); p->xroff += t - tw; tw = t; } }
+    }
+    free(dn);
+    ofi_flush(p);
+}
+static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); if (p->ibcap && p->xo && p->px) push_any(p); else push_peers(p, p->next, -1); return 0; }
 /* post the pending exchange's puts: inline for the peers ready within the spin (only where nothing blocks: putsig /
  * fence), a helper thread for the rest */
 static void start_push(comm *c)
@@ -991,6 +1047,7 @@ static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
         long *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0));
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
+        if (p->ibf) { if ((x & IBF) && !p->ibon) die("an inbox message without an inbox (COMM_SHMEM_OFFS_WITH_DATA)"); p->ibf[r] = (x & IBF) != 0; x &= ~IBF; }   /* FA */
         if ((long)UNOFF(x) != want) { ec_fatal(EC_RC_FATAL, "comm_shmem: alltoallv count mismatch: rank %d sends %ld bytes to rank %d, which expects %ld\n", r, (long)UNOFF(x), p->me, want); }
     }
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); SHM_UNLOCK();
@@ -1015,6 +1072,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
     SYNC(s);                                              /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
     start_push(c);
 }
@@ -1132,6 +1190,7 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(p->db + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
     SYNC(s);
+    ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
     start_push(c);
 }
@@ -1154,11 +1213,19 @@ static void s_wait(comm *c)
         return;
     }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
+    int ibn = 0;                                          /* FA: the messages that came into my inbox, to the caller's buffer */
+    if (p->ibon) for (int r = 0; r < n; r++) if (r != me && p->ibf[r]) {
+        size_t nb = p->v ? p->rcnt[r] : p->bytes;
+        if (nb) { COPY((char *)p->rb + (p->v ? p->rdsp[r] : (size_t)r * p->bytes), p->db + ibx_slot(p, r), nb, p->st); }
+        ibn++;
+    }
+    if (ibn && p->rin) { SYNC(p->st); }
     if (!p->rin) {
-        if (!p->v) { for (int r = 0; r < n; r++) if (r != me) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
-        else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r]) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
+        if (!p->v) { for (int r = 0; r < n; r++) if (r != me && !(ibn && p->ibf[r])) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
+        else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r] && !(ibn && p->ibf[r])) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
         SYNC(p->st);
     }
+    if (p->ibon) ibx_grant(p, 1);                        /* FA: the inbox is free for the next exchange */
     staging_drop(p);
     p->pending = 0;
     { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t); }
@@ -1302,6 +1369,8 @@ static void s_destroy(comm *c)
     s_barrier(c);                                          /* nobody's block goes while a member may still write to it */
     SHM_LOCK(); shmem_ctx_quiet(p->ctx); if (p->own_ctx) shmem_ctx_destroy(p->ctx); SHM_UNLOCK();
     staging_drop(p);
+    if (p->ibon) { px_free(p->px, p->ib); }
+    free(p->ibf);                                         /* FA */
     comm_ofi_peers_free(p->op); free(p->ocnt); free(p->osig); free(p->pxpe);
     pool_free(p->base);
 #ifndef COMM_HOST_ONLY
@@ -1323,8 +1392,9 @@ comm *comm_shmem_create_at(int pe_start, int pe_stride, int n, int id)
     c->ops = &shm_ops; c->priv = p; c->rank = me; c->size = n; c->inflight = 1;
     p->n = n; p->me = me; p->id = id; p->pe = (int *)malloc(n * sizeof(int)); for (int r = 0; r < n; r++) p->pe[r] = phys_pe(pe_start + r * pe_stride);
     p->ring = (getenv("COMM_SHMEM_RING_KB") ? (size_t)atol(getenv("COMM_SHMEM_RING_KB")) : 256) << 10; if (p->ring < 4096) p->ring = 4096;
-    p->ctrl_bytes = (size_t)W_N * n * 8 + (size_t)n * p->ring;
-    p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)W_N * n * 8);
+    p->nw = W_N + (offs_mb() ? 1 : 0);                    /* FA: the grant word (every PE alike: the switch is on the launch line) */
+    p->ctrl_bytes = (size_t)p->nw * n * 8 + (size_t)n * p->ring;
+    p->base = pool_alloc(p->ctrl_bytes, K_CTRL); memset(S.pool + p->base, 0, (size_t)p->nw * n * 8);
     p->rbase = (size_t *)calloc(n, sizeof(size_t)); p->rpre = (size_t *)calloc(n, sizeof(size_t)); p->spre = (size_t *)calloc(n, sizeof(size_t));
     p->sent = (long *)calloc(n, sizeof(long)); p->got = (long *)calloc(n, sizeof(long));
     p->oseq = (long *)calloc(n, sizeof(long)); p->iseq = (long *)calloc(n, sizeof(long));
