@@ -76,6 +76,7 @@ per node at 400 Gb/s (2 per APU: 100 GB/s injection peak per APU); Rocky Linux 9
 
 | ID | idea | measured result (why not) | evidence |
 |---|---|---|---|
+| N7E | `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PX_INIT=1` on the proxy mode (6 n, 3.8646e11): paired repeat, B − A +129.3 s [+92.9, +165.7] (28 pairs, 1.68 × comm_ofi); the N7D 1.43 × is not reproduced; PX_SEND 2 vs 1 +69.9 s [−217.8, +357.6] (4 pairs); PX_INIT 1 vs 0 +107.2 s [−50.5, +264.9] (3 pairs) | m | results/N7E.md |
 | K1 / P2 | `k_gather` tiled / coalesced write (`DIST_GATHER_TILE`, removed) and a kernel rewrite | S50 −0.08 ± 0.88 s at 1 n; P2 probe: floor is the remote read, ≤ 0.6 s headroom (m, mod) → N2 | `results/S50.md`, `results/P2.md` |
 | P3 / K8 | Shorter init mapping: early publish of mapped chunks to the seed DMA (`ECALC_VMM_PUBLISH`, not built); K8 init reorderings | P3: ≤ 1–1.5 s at 1 n, 0 at 2–6 n and at the target (mod); K8: each reordering +2.0 … +11.5 s (m) | `results/P3.md`, `results/K8.md` |
 | S52 / C3 | `DIST_COALESCE` message aggregation | 1.0–4.5 s at 576 n (mod); dropped for now by the user; reopen if the target's per-message cost is ≥ 8.5 µs | `results/S52.md` |

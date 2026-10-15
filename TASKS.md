@@ -16,6 +16,7 @@ project instructions). Within a class, rows are in the order to do them.
 |---|---|---|---|---|
 | 1 | NIC | **Node screen checks the NIC count each node's runtime sees** (3 SHMEM runs aborted 2026-10-13: 1 NIC visible, 4 requested) | done 2026-10-13 (7de81c7): `--want-nics`, verified on 4 nodes; not yet seen on a real 1-NIC node | results/NIC.md |
 | 4 | P | **Performance on aac7:** distributed division multiply (+94 s at 6 nodes vs 1, m); `k_gather` and init mapping evaluated, not pursued | adopted 2026-10-12 (D20-D22): `BS_BATCH_PIPE=1` (N3, −0.99 s at 1 n, m), `RNS_CRT_SCAN=1` (K4b, −2.52 s at 1 n, m) and `DM_MN_WRAP=1` (P1, D22; +5.4 GB per APU, mod) are code defaults, `=0` fallbacks; nothing running | results/P2.md, P3.md, P1.md, DEF.md, N3.md, K4b.md |
+| 4 | N7E | **Paired repeat of the N7D proxy switches at 6 n** (`COMM_SHMEM_PX_SEND=2`, `COMM_SHMEM_PX_INIT=1`) against comm_ofi | done 2026-10-14 (commit 2f34f01 run, 83/83 ok): B − A +129.3 s [+92.9, +165.7], 1.68 × (28 pairs, m); the N7D 1.43 × gap is not reproduced; PX_SEND 2 vs 1 and PX_INIT 1 vs 0 n.s.; both stay off, no default change | results/N7E.md |
 | 4 | N7b | **One SHMEM PE per APU (D29 (a)); target: 2 NICs per APU → PEs per APU parameter 1 or 2** (one PE per node uses one of four NICs; Fix A `COMM_SHMEM_PEER_ORDER=shift` is measured, off by default) | B3 done 2026-10-14: digits identical at 1/2/6 n; 6-n full run 656.7 s vs comm_ofi 224.0 s (+432.7 s, CI [+174.3, +691.1], 4 pairs, m): mode stays off; N7C 2026-10-14: diagnosed (pool on a random NUMA node, SDMA copies); `COMM_SHMEM_PX_NUMA=1` + `HSA_ENABLE_SDMA=0` merged off by default, digits identical, 6-n +242.4 s vs comm_ofi (CI [+127.1, +357.7], m), still 2.1 x slower; N7D 2026-10-14: `COMM_SHMEM_PX_KCOPY`, `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_SEND` merged off by default, gates 1/2/6 n PASS, 6-n +83.2 s vs comm_ofi (CI [+37.7, +128.7], 3 pairs, m), 1.43 x | results/N7B.md, results/N7C.md, results/N7D.md |
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
@@ -23,6 +24,8 @@ Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch mem
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
 
 ## Proposed (needs the user's priority)
+
+- N7F: find the source of the 111 s run-to-run spread of the proxy arm at 6 n (N7E, sd 111.1 s vs 15.1 s comm_ofi, m) and more pairs for PX_SEND=2 / PX_INIT=1 (CI half-widths 288 s and 157 s, m); aac7 runs, needs the user's word.
 
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
 merges or drops it. Nothing is started from this section without the user's word.
