@@ -30,12 +30,15 @@ static const char *const cfg_names[] = {
     "COMM_OFI_VERBOSE",
     "COMM_OFI_WINDOW",
     "COMM_SHMEM_DEVHEAP",
+    "COMM_SHMEM_MESH_PAR",
+    "COMM_SHMEM_OFFS_WITH_DATA",
     "COMM_SHMEM_ORDER",
     "COMM_SHMEM_PEER_ORDER",
     "COMM_SHMEM_PE_PER_APU",
     "COMM_SHMEM_POOL_MB",
     "COMM_SHMEM_POOL_NEED_MB",
     "COMM_SHMEM_PROXY",
+    "COMM_SHMEM_PX_BLOCK_MB",
     "COMM_SHMEM_PX_INIT",
     "COMM_SHMEM_PX_INIT_THREADS",
     "COMM_SHMEM_PX_KCOPY",
@@ -162,4 +165,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 160
+#define CFG_NAMES_N 163
