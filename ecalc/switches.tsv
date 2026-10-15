@@ -38,13 +38,15 @@ COMM_SHMEM_PEER_ORDER	str	rank	unset	rank|shift	experiment	-	N7.md	Y	ecalc	comm_
 COMM_SHMEM_PE_PER_APU	int	0	0	0|1|2	experiment	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	comm_shmem.c, mnrun.sh, binsplit.c; N7b one SHMEM proxy PE per APU under COMM_OFI=0; N7E 2 = two helper PEs per APU (one per NIC)
 COMM_SHMEM_POOL_MB	int	8192	8192	MiB	launch-line	-	STD17.md+P214.md	Y	ecalc	binsplit.c,comm_ofi.c,comm_shmem.c	11	-	-	binsplit.c:684: 8192 unless COMM_OFI (then the modelled need)
 COMM_SHMEM_POOL_NEED_MB	bool	?	?	0|1	test-only	-	-	Y	ecalc	comm_shmem.c	4	diagnostics (TESTING.md)	2027-04-12	
-COMM_SHMEM_PROXY	bool	unset	unset	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	2	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
+COMM_SHMEM_PROXY	bool	unset	derived	0|1	experiment	-	-	Y	ecalc	comm_shmem.c	3	N7b	2026-11-14	comm_shmem.c; set by mnrun.sh on the proxy PEs (N7b), checked at init
 COMM_SHMEM_PX_BLOCK_MB	float	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7F	2026-11-15	
 COMM_SHMEM_PX_INIT	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
 COMM_SHMEM_PX_INIT_THREADS	int	4	4		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
 COMM_SHMEM_PX_KCOPY	int	derived	derived		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
 COMM_SHMEM_PX_NUMA	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	coordinator (D31, results/N7D.md)	2026-11-14	
+COMM_SHMEM_PX_PIN	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7G	2026-11-15	
 COMM_SHMEM_PX_SEND	int	1	1		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7D	2026-11-14	
+COMM_SHMEM_PX_THP	int	0	0		unclassified	-	-	Y	ecalc	comm_shmem.c	1	N7G	2026-11-15	
 COMM_SHMEM_RING_KB	int	256	256		built-in default	-	S12.md+S.md	Y	ecalc	binsplit.c,comm_shmem.c	4	-	-	
 COMM_SHMEM_ROUND_MB	float	0	0	>=0 MiB	launch-line	aac7	V114.md	Y	ecalc	binsplit.c,comm_shmem.c,rns_dist.c	4	-	-	comm_shmem.c:305; 0 = no rounds
 COMM_SHMEM_SERIAL	bool	auto	derived	0|1	launch-line	aac6,aac7	S.md+S16.md	Y	ecalc	comm_shmem.c	1	-	-	comm_shmem.c:284 per-build default (OSHMEM 1)
