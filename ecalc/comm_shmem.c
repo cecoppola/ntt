@@ -135,6 +135,7 @@ static struct {
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
+    size_t pxch;                           /* COMM_SHMEM_PX_BLOCK_MB: the chunk of a PX_SEND=2 put (default PXCH = 4 MiB; the same on every PE) */
     int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (default) the proxy's batch-then-quiet, 2 chunked put-with-signal into the receiving proxy (px_serve2) */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
@@ -286,7 +287,7 @@ struct px_ent { long pe; size_t roff, soff, n; long sigidx, sig; };   /* sigidx,
 _Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING * sizeof(long) <= PXCTL, "proxy control");
 static long *px_dn_of(char *base) { return (long *)(base + S.mb_bytes + sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent)); }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
-static size_t px_last_len(size_t n) { return n ? n - ((n - 1) / PXCH) * PXCH : 0; }
+static size_t px_last_len(size_t n) { return n ? n - ((n - 1) / S.pxch) * S.pxch : 0; }   /* (PX_SEND=2 only: S.pxch, COMM_SHMEM_PX_BLOCK_MB, is PXCH by default) */
 /* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
  * range `base` (span bytes) mapped by the node-process: [0, PXDATA) is helper 0's control, then 4 MiB blocks (PXCH) alternate between the
  * helpers' heaps (block b of the data area = helper b & 1, local offset PXDATA + (b >> 1) PXCH + ...).  Every offset in the protocol is a
@@ -415,7 +416,7 @@ static void px_serve2(void)
                 for (long k = tp; k < t; k++) { int s = (int)(k % PXRING); if (fp[s]) continue;
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; continue; }
-                    size_t o = posted[s], len = e->n - o < PXCH ? e->n - o : PXCH; int last = o + len == e->n;
+                    size_t o = posted[s], len = e->n - o < S.pxch ? e->n - o : S.pxch; int last = o + len == e->n;
                     shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (uint64_t *)px_sigw(S.pool, last, e->sigidx),
                                                 last ? (uint64_t)e->sig : (uint64_t)len, last ? SHMEM_SIGNAL_SET : SHMEM_SIGNAL_ADD, (int)e->pe);
                     posted[s] = o + len; nput++; bytes += (double)len;
@@ -643,6 +644,10 @@ int comm_shmem_init(void)
     if (S.pxsend < 1 || S.pxsend > 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet) or 2 (chunked put-with-signal)\n", S.pxsend);
     if (S.pxsend == 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 is not built for COMM_SHMEM_PE_PER_APU=2\n");
     if (S.pxsend == 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 needs COMM_SHMEM_PE_PER_APU=1 and OpenSHMEM 1.5 put-with-signal\n");
+    { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=2 chunk (fewer chunks and signal adds per peer); value 2's 4 MiB heap alternation keeps PXCH */
+      if (!(mb >= 1 && mb <= 1024)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB=%s: 1..1024 (MiB; default 4)\n", e ? e : "");
+      S.pxch = (size_t)(mb * 1048576.0);
+      if (S.pxch != PXCH && S.pxsend != 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=2 (COMM_SHMEM_PE_PER_APU=1); value 2 keeps the 4 MiB heap blocks\n"); }
     S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 2 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
