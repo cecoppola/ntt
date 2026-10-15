@@ -241,6 +241,9 @@ if [ "${MNRUN_FIT:-1}" != 0 ]; then
         fi
     fi
 fi
+# D34 (user 2026-10-15): multi-node runs launch with srun --kill-on-bad-exit=1 (a dead rank ends the step in seconds, not at the timeout);
+# COMM_KILL_ON_BAD_EXIT=0 is the only override.
+kopt=(); [ "$nn" -gt 1 ] && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
-exec srun --jobid="$SLURM_JOB_ID" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
+exec srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); if [ "$k" -gt 1 ] && [ $((SLURM_PROCID % k)) -ne $((k - 1)) ]; then export COMM_SHMEM_PROXY=1 ECALC_LOG_CLOCKS=0; exec > /dev/null; fi; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"
