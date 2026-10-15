@@ -70,6 +70,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
+#include <dirent.h>
 #include "comm.h"
 #include "comm_ofi.h"                             /* COMM_OFI=1, the data of the device exchanges over libfabric (internal code notes) */
 /* the library heap the pool is carved from, for the pool rule before init (binsplit_shmem_pool_rule): the heap's
@@ -233,6 +234,28 @@ static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SH
  * maps that file (px_attach), then unlinks it.  The wrapper is a pass-through everywhere else (not armed: every other process and call). */
 static volatile int g_heap_arm; static char g_heap_path[160]; static void *g_heap_addr; static size_t g_heap_min;
 static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NUMA=1: the NUMA node a proxy's heap prefers (-1: off), the mbind result */
+/* N7G COMM_SHMEM_PX_THP=1 (default 0): the helper pools in 2 MiB pages.  aac7 (probe 34_n7g_probe, 2026-10-15): shmem_enabled = never, /dev/shm without
+ * huge=, no reserved hugepages -- so MADV_HUGEPAGE does nothing on shmem and MFD_HUGETLB fails -- but MADV_COLLAPSE works on /dev/shm files (1 GiB
+ * fully PMD-mapped in 0.29 s).  So the heap file is mapped at an address = its offset mod 2 MiB (helper and node-process: a PMD maps only there) and
+ * the helper pre-faults its pool and collapses it to 2 MiB pages before the barrier (pool_collapse).  Raw syscalls: no wrapper recursion. */
+static int g_thp, g_thp_err, g_thp_thr = 4; static double g_thp_t; static void *g_heap_hint; static int g_heap_fl;
+static void pool_populate(char *p, size_t n, int nt); static int pool_collapse(char *p, size_t n, int nt);
+#define THP_SZ ((size_t)2 << 20)
+#ifndef MADV_COLLAPSE
+#define MADV_COLLAPSE 25
+#endif
+static void *thp_mmap(size_t l, int prot, int fl, int fd, off_t o)
+{
+    size_t lp = (l + 4095) & ~(size_t)4095, r = lp + THP_SZ;
+    char *v = (char *)syscall(SYS_mmap, (void *)0, r, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, (off_t)0);
+    if (v == MAP_FAILED) return MAP_FAILED;
+    char *a = v + (((uintptr_t)o - (uintptr_t)v) & (THP_SZ - 1));
+    void *m = (void *)syscall(SYS_mmap, a, l, prot, fl | MAP_FIXED, fd, o);
+    if (m == MAP_FAILED) { syscall(SYS_munmap, v, r); return MAP_FAILED; }
+    if (a > v) syscall(SYS_munmap, v, (size_t)(a - v));
+    if (a + lp < v + r) syscall(SYS_munmap, a + lp, (size_t)(v + r - (a + lp)));
+    return m;
+}
 static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
 {
     if (g_heap_arm && !g_heap_addr && (fl & MAP_SHARED) && l >= g_heap_min) {
@@ -241,10 +264,14 @@ static void *heap_mmap(void *a, size_t l, int prot, int fl, int fd, off_t o)
         if (zero) {
             int sfd = open(g_heap_path, O_RDWR | O_CREAT | O_EXCL, 0600);
             if (sfd >= 0 && ftruncate(sfd, (off_t)l) == 0) {
-                void *r = (void *)syscall(SYS_mmap, a, l, prot, fl & ~(MAP_ANONYMOUS | MAP_HUGETLB | (MAP_HUGE_MASK << MAP_HUGE_SHIFT)), sfd, (off_t)0); close(sfd);
+                int ff = fl & ~(MAP_ANONYMOUS | MAP_HUGETLB | (MAP_HUGE_MASK << MAP_HUGE_SHIFT)); g_heap_hint = a; g_heap_fl = fl;
+                void *r = g_thp && !a && !(fl & MAP_FIXED) ? thp_mmap(l, prot, ff, sfd, (off_t)0)   /* N7G: 2 MiB aligned (a library hint is kept) */
+                                                           : (void *)syscall(SYS_mmap, a, l, prot, ff, sfd, (off_t)0); close(sfd);
                 if (r != MAP_FAILED && g_heap_numa >= 0 && g_heap_numa < 64) {   /* N7C: the file's shared policy, before any page is touched (the
                     * node-process's faults through its own mapping follow it too); preferred, not bound: a full node falls back */
                     unsigned long mask = 1UL << g_heap_numa; g_heap_mbind = (int)syscall(SYS_mbind, r, l, 1 /* MPOL_PREFERRED */, &mask, 64, 0) ? errno : 0; }
+                if (r != MAP_FAILED && g_thp) { double tc = now_s(); pool_populate((char *)r, l, g_thp_thr); g_thp_err = pool_collapse((char *)r, l, g_thp_thr); g_thp_t = now_s() - tc; }
+                    /* N7G: the whole heap in 2 MiB pages before the library registers it with the NIC (pinned small pages would not collapse) */
                 if (r != MAP_FAILED) g_heap_addr = r; else unlink(g_heap_path);
                 return r;
             }
@@ -500,6 +527,69 @@ static void pool_populate(char *p, size_t n, int nt)    /* nt threads over page-
     g_pop_err = 0;
     for (int i = 0; i < k; i++) { if (th[i]) pthread_join(th[i], 0); if (jb[i].err && !g_pop_err) g_pop_err = jb[i].err; }
 }
+/* N7G COMM_SHMEM_PX_THP=1: the pool's whole 2 MiB pages collapsed to huge pages (MADV_COLLAPSE) in nt threads after pool_populate; returns the
+ * first errno (0 = all collapsed).  The new huge pages stay on the node of the small pages they replace (COMM_SHMEM_PX_NUMA's policy). */
+static void *col_thread(void *a) { struct pop_job *j = (struct pop_job *)a; const size_t C = (size_t)64 << 20; j->err = 0;
+    for (size_t o = 0; o < j->n; o += C) if (madvise(j->p + o, j->n - o < C ? j->n - o : C, MADV_COLLAPSE) && !j->err) j->err = errno ? errno : -1;
+    return 0; }
+static int pool_collapse(char *p, size_t n, int nt)
+{
+    nt = nt < 1 ? 1 : nt > 16 ? 16 : nt;
+    uintptr_t b = ((uintptr_t)p + THP_SZ - 1) & ~(uintptr_t)(THP_SZ - 1), e = ((uintptr_t)p + n) & ~(uintptr_t)(THP_SZ - 1);
+    if (e <= b) return 0;
+    size_t m = (e - b) / THP_SZ, per = (m + nt - 1) / nt; pthread_t th[16]; struct pop_job jb[16]; int k = 0, err = 0;
+    for (size_t i = 0; i * per < m; i++) { size_t c = m - i * per < per ? m - i * per : per; jb[k].p = (char *)b + i * per * THP_SZ; jb[k].n = c * THP_SZ; jb[k].err = 0;
+        if (pthread_create(&th[k], 0, col_thread, &jb[k])) { col_thread(&jb[k]); th[k] = 0; } k++; }
+    for (int i = 0; i < k; i++) { if (th[i]) pthread_join(th[i], 0); if (jb[i].err && !err) err = jb[i].err; }
+    return err;
+}
+static long smaps_kb(const void *p, const char *key)    /* N7G: a field (kB) of the mapping holding p in /proc/self/smaps (-1: not found) */
+{
+    FILE *f = fopen("/proc/self/smaps", "r"); char ln[512]; int in = 0; long v = -1; size_t kl = strlen(key);
+    while (f && fgets(ln, sizeof ln, f)) { unsigned long lo, hi;
+        if (sscanf(ln, "%lx-%lx ", &lo, &hi) == 2 && strchr(ln, '-') < strchr(ln, ' ')) { if (in) break; in = (uintptr_t)p >= lo && (uintptr_t)p < hi; continue; }
+        if (in && !strncmp(ln, key, kl) && ln[kl] == ':') sscanf(ln + kl + 1, "%ld", &v); }
+    if (f) fclose(f);
+    return v;
+}
+/* N7G COMM_SHMEM_PX_PIN=1 (default 0): helper h of APU d runs on one CPU of its own -- the (h+1)-th highest allowed CPU of the NUMA node of cxi d (as
+ * COMM_SHMEM_PX_NUMA), set for all its threads before shmem_init (the library's threads inherit it) -- and the node-process removes those CPUs from
+ * the masks of all its threads (its OpenMP workers and later threads inherit that).  The launch stays --cpu-bind=none: every PE sees the same mask. */
+static int g_pin;
+static int pin_cpu_of(int d, int h, const cpu_set_t *ok)
+{
+    char p[96], buf[1024]; int nd = d, lo, hi; cpu_set_t s; CPU_ZERO(&s);
+    snprintf(p, sizeof p, "/sys/class/cxi/cxi%d/device/numa_node", d); FILE *f = fopen(p, "r"); if (f) { int n = -1; if (fscanf(f, "%d", &n) == 1 && n >= 0) nd = n; fclose(f); }
+    snprintf(p, sizeof p, "/sys/devices/system/node/node%d/cpulist", nd); f = fopen(p, "r"); if (!f) return -1;
+    if (fgets(buf, sizeof buf, f)) for (char *t = strtok(buf, ",\n"); t; t = strtok(0, ",\n")) {
+        int k = sscanf(t, "%d-%d", &lo, &hi); if (k == 1) hi = lo; if (k >= 1) for (int c = lo; c <= hi && c < CPU_SETSIZE; c++) CPU_SET(c, &s); }
+    fclose(f);
+    for (int c = CPU_SETSIZE - 1, k = 0; c >= 0; c--) if (CPU_ISSET(c, &s) && CPU_ISSET(c, ok) && k++ == h) return c;
+    return -1;
+}
+static int pin_tasks(const cpu_set_t *only, const cpu_set_t *drop)   /* every thread of this process: mask = only, or its mask minus drop; returns threads set */
+{
+    int n = 0; DIR *dd = opendir("/proc/self/task"); struct dirent *de;
+    if (!dd) return -1;
+    while ((de = readdir(dd))) { pid_t t = (pid_t)atoi(de->d_name); cpu_set_t m; if (t <= 0) continue;
+        if (only) m = *only; else { if (sched_getaffinity(t, sizeof m, &m)) continue; for (int c = 0; c < CPU_SETSIZE; c++) if (CPU_ISSET(c, drop)) CPU_CLR(c, &m); if (!CPU_COUNT(&m)) continue; }
+        if (!sched_setaffinity(t, sizeof m, &m)) n++; }
+    closedir(dd);
+    return n;
+}
+static void pin_start(void)   /* before shmem_init: a helper pins itself, the node-process gives the helpers' CPUs up */
+{
+    cpu_set_t ok, drop; char list[256] = ""; int nd = 0;
+    if (sched_getaffinity(0, sizeof ok, &ok)) return;
+    const char *ex = getenv("COMM_SHMEM_PROXY"); int lid = getenv("SLURM_LOCALID") ? atoi(getenv("SLURM_LOCALID")) : 0;
+    if (ex && atoi(ex)) { int c = pin_cpu_of(lid / S.ppa, lid % S.ppa, &ok); if (c < 0) return; CPU_ZERO(&drop); CPU_SET(c, &drop);
+        int n = pin_tasks(&drop, 0); if (S.verbose || !(getenv("SLURM_NODEID") && atoi(getenv("SLURM_NODEID")))) fprintf(stderr, "comm_shmem: helper (local %d, APU %d): COMM_SHMEM_PX_PIN=1: %d threads pinned to cpu %d\n", lid, lid / S.ppa, n, c); return; }
+    CPU_ZERO(&drop);
+    for (int d = 0; d < 4; d++) for (int h = 0; h < S.ppa; h++) { int c = pin_cpu_of(d, h, &ok); if (c >= 0 && !CPU_ISSET(c, &drop)) { CPU_SET(c, &drop); nd++; size_t l = strlen(list); snprintf(list + l, sizeof list - l, "%s%d", l ? "," : "", c); } }
+    if (!nd) return;
+    int n = pin_tasks(0, &drop);
+    if (S.verbose || !(getenv("SLURM_NODEID") && atoi(getenv("SLURM_NODEID")))) fprintf(stderr, "comm_shmem: node-process: COMM_SHMEM_PX_PIN=1: the helpers' cpus %s removed from %d threads (%d cpus left)\n", list, n, CPU_COUNT(&ok) - nd);
+}
 #ifndef COMM_HOST_ONLY
 struct reg_job { char *p; size_t n; hipError_t he; int dpok; double t; };
 static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; double t = now_s(); void *dp = 0;
@@ -525,8 +615,9 @@ static void px_map2(px_dev *x)
             ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2: the heap of helper PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe + h, path, fd[h] < 0 ? strerror(errno) : "too small or unaligned", off[h]);
         unlink(path);
     }
-    char *v = (char *)mmap(0, x->span, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    char *v = (char *)mmap(0, x->span + (g_thp ? THP_SZ : 0), PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     int bad = v == MAP_FAILED;
+    if (!bad && g_thp) v = (char *)(((uintptr_t)v + THP_SZ - 1) & ~(uintptr_t)(THP_SZ - 1));   /* N7G: the heaps' offsets are 2 MiB multiples (shmem_align) */
     if (!bad) bad = mmap(v, d0, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd[0], off[0]) == MAP_FAILED;
     char *c1 = bad ? (char *)MAP_FAILED : (char *)mmap(0, d0, PROT_READ | PROT_WRITE, MAP_SHARED, fd[1], off[1]);
     if (c1 == MAP_FAILED) bad = 1;
@@ -550,7 +641,8 @@ static void px_attach(void)
             int fd = open(path, O_RDWR); struct stat st;
             if (fd < 0 || fstat(fd, &st) != 0 || off < 0 || (size_t)off + S.pool_bytes > (size_t)st.st_size)
                 ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU: the heap of proxy PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe, path, fd < 0 ? strerror(errno) : "too small", off);
-            char *m = (char *)mmap(0, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); close(fd); unlink(path);
+            char *m = g_thp ? (char *)thp_mmap((size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)   /* N7G: PMD-mappable */
+                            : (char *)mmap(0, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0); close(fd); unlink(path);
             if (m == MAP_FAILED) ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: mmap of %s: %s\n", S.me, path, strerror(errno));
             x->base = m + off; x->hl[0].base = x->base;
         }
@@ -635,6 +727,8 @@ int comm_shmem_init(void)
     S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
+    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 0) > 0; g_pin = S.ppa && env_int("COMM_SHMEM_PX_PIN", 0) > 0; g_thp_thr = g_pxthr;   /* N7G (default 0 both) */
+    if (g_pin) pin_start();
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
@@ -690,6 +784,9 @@ int comm_shmem_init(void)
         if (g_heap_numa >= 0 && (S.verbose || S.pme < S.ppn)) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_NUMA=1: heap prefers NUMA node %d (mbind %s)\n", S.pme, g_heap_numa, g_heap_mbind ? strerror(g_heap_mbind) : "ok");
         if (g_pxinit) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: its pages faulted here, by the NUMA policy of the heap file */
             if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.pme, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
+        if (g_thp) { long pmd = smaps_kb(S.pool, "ShmemPmdMapped"); int ce = g_thp_err; double tc = g_thp_t;   /* N7G: done in heap_mmap */
+            if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d: COMM_SHMEM_PX_THP=1: heap at %s2 MiB + %zu kB (library hint %p, flags 0x%x), pool %zu MiB; %ld MiB of the heap mapping in 2 MiB pages (heap collapse %s, %.2f s incl. pre-fault)\n",
+                S.pme, ((uintptr_t)g_heap_addr & (THP_SZ - 1)) ? "" : "a multiple of ", (size_t)((uintptr_t)g_heap_addr & (THP_SZ - 1)) >> 10, g_heap_hint, (unsigned)g_heap_fl, S.pool_bytes >> 20, pmd >> 10, ce ? strerror(ce > 0 ? ce : EINVAL) : "ok", tc); }
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline (s since entry): shmem_init %.2f, pool pre-fault %.2f, barrier next at %.2f\n", S.pme, g_t_shinit, g_t_pop, now_s() - g_t0);
         shmem_barrier_all(); S.inited = 1;
         if (S.verbose) fprintf(stderr, "comm_shmem: proxy pe %d: init timeline: barrier passed at %.2f\n", S.pme, now_s() - g_t0);
