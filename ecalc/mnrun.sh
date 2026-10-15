@@ -8,7 +8,7 @@
 # SHMEM (COMM_TRANSPORT=shmem): the same placement, launched by plain srun (Cray's PMI), rank = PE.  COMM_SHMEM_POOL_MB sizes the
 # transport's symmetric pool (unset: the run's modelled need from MN_PLAN_ONLY for ecalc, else 8192; Phase 14 V1); the host heap is set
 # 512 MiB above it.  Only Cray OpenSHMEMX is launched (D14, 2026-10-12: the SOS and OpenMPI OSHMEM launch forms were removed;
-# the archived forms are in the local archive removed_2026-10-12/).
+# the archived forms are in the local archive removed_2026-10-12/).  A COMM_SHMEM_POOL_MB word of the command wins over the plan (the heap follows it); COMM_SHMEM_OFFS_WITH_DATA adds its inboxes to the planned pool.
 # Phase 16 A (results/A16.md): `cray` (Cray OpenSHMEMX on aac7 / the target: libsma under /opt/cray/pe/sma,
 # COMM_SHMEM_IMPL=cray): plain srun (Cray's PMI), the heap SHMEM_SYMMETRIC_SIZE = XT_SYMMETRIC_HEAP_SIZE = pool + 512 MiB (its heap is
 # host hugepages; COMM_SHMEM_DEVHEAP=1 falls back to the registered host pool there).  MNRUN_MODULES is the module line of every
@@ -159,10 +159,21 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
             fi
             pline=$(bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES > /dev/null 2>&1; exec "$@"' _ env "${pas[@]}" COMM_TRANSPORT=shmem MN_PLAN_ONLY="$pd:$P" "$pbin" 2>/dev/null | grep '^plan pool' || true)
             pmb=$(echo "$pline" | sed -n 's/.*COMM_SHMEM_POOL_MB=\([0-9][0-9]*\).*/\1/p')
+            # N7F fix A: COMM_SHMEM_OFFS_WITH_DATA=<MiB> (a VAR=value word or exported) puts that inbox in every proxy communicator, outside the plan's pool:
+            # add MiB x the communicators one node is a member of (comm_shmem_create_at in mn.c: the base mesh + one group mesh per tree level
+            # 1..L - 1 + one transform-nodes mesh when <procs> is no power of two; L = ceil(log2 <procs>); COMM_LAYER_INTER2=1 doubles the group meshes)
+            ibx=${COMM_SHMEM_OFFS_WITH_DATA:-}; ncm=1; inter2=${COMM_LAYER_INTER2:-0}
+            for a in "${pas[@]}"; do case "$a" in COMM_SHMEM_OFFS_WITH_DATA=*) ibx=${a#*=};; COMM_LAYER_INTER2=*) inter2=${a#*=};; esac; done
+            if [ -n "$pmb" ] && [ "${ibx:-0}" -gt 0 ] 2>/dev/null && [ "${COMM_SHMEM_PE_PER_APU:-0}" != 0 ]; then
+                L=0; while [ $((1 << L)) -lt "$P" ]; do L=$((L + 1)); done
+                [ $((1 << L)) -ne "$P" ] && ncm=$((ncm + 1)); [ "$L" -gt 1 ] && ncm=$((ncm + (L - 1) * (1 + (inter2 != 0 ? 1 : 0))))
+                pmb=$((pmb + ibx * ncm)); echo "mnrun.sh: COMM_SHMEM_OFFS_WITH_DATA=$ibx MiB x $ncm communicators per APU added to the pool"
+            fi
             if [ -n "$pmb" ]; then export COMM_SHMEM_POOL_MB=$pmb; echo "mnrun.sh: COMM_SHMEM_POOL_MB=$pmb from MN_PLAN_ONLY=$pd:$P ($(echo "$pline" | sed 's/^plan pool *//'))"
             else echo "mnrun.sh: MN_PLAN_ONLY=$pd:$P of $pbin gave no 'plan pool' line: the pool stays at COMM_SHMEM_POOL_MB=8192" >&2; fi
         fi
     fi
+    for a in "$@"; do case "$a" in COMM_SHMEM_POOL_MB=*) COMM_SHMEM_POOL_MB=${a#*=};; esac; done   # a VAR=value word of the command wins over the plan (the heap follows it)
     POOL=${COMM_SHMEM_POOL_MB:-8192}
     export COMM_SHMEM_POOL_MB=$POOL
     # The implementation the binary was built against: only Cray OpenSHMEMX is launched (D14, 2026-10-12).  The detection looks
