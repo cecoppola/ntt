@@ -189,12 +189,9 @@ if [ "$COMM_TRANSPORT" = shmem ]; then
     mpi=(); pre=                                                              # the srun --mpi option and the exec prefix (none for Cray)
     # Cray OpenSHMEMX: srun's PMI (no --mpi option), the host hugepage heap at pool + 512 MiB under both of its names;
     # the libfabric provider is cxi on aac7 (nothing to set); SHMEM_OFI_* knobs (NIC policy, progress) are the caller's.
-    # N7E value 2: a helper's heap file must hold its pool at the pool's offset in the heap (measured 530 MiB at 2 nodes, 9 PEs/node: the
-    # library's own use exceeds 512 MiB), so the node-process's mapping check needs more than pool + 512: pool + 1024 MiB for value 2
-    HEAPX=512; [ "${COMM_SHMEM_PE_PER_APU:-0}" = 2 ] && HEAPX=1024
-    export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + HEAPX))M}
+    export SHMEM_SYMMETRIC_SIZE=${SHMEM_SYMMETRIC_SIZE:-$((POOL + 512))M}
     export XT_SYMMETRIC_HEAP_SIZE=${XT_SYMMETRIC_HEAP_SIZE:-$SHMEM_SYMMETRIC_SIZE}
-    echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + $HEAPX)"
+    echo "mnrun.sh: SHMEM_SYMMETRIC_SIZE=$SHMEM_SYMMETRIC_SIZE XT_SYMMETRIC_HEAP_SIZE=$XT_SYMMETRIC_HEAP_SIZE (pool $POOL MiB + 512)"
 fi
 [ "$PRINT_ENV" = 0 ] || print_env_exit
 # ---- FIT (user decision D26, results/FIT.md): the pre-launch memory fit.  A block of its own (the pool block above belongs to the

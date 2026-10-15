@@ -522,7 +522,7 @@ static void px_map2(px_dev *x)
         off[h] = shmem_long_g(mailbox(MAXID - 1, 1), x->pe + h);
         fd[h] = open(path, O_RDWR);
         if (fd[h] < 0 || fstat(fd[h], &st) != 0 || off[h] < 0 || (off[h] & 4095) || (size_t)off[h] + S.pool_bytes > (size_t)st.st_size)
-            ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2: the heap of helper PE %d is not reachable (%s: %s; pool offset %ld + pool %zu > file %ld bytes; the heap SHMEM_SYMMETRIC_SIZE needs more than pool + 512 MiB: mnrun.sh gives pool + 1024 MiB for value 2)\n", S.me, x->pe + h, path, fd[h] < 0 ? strerror(errno) : "too small or unaligned", off[h], S.pool_bytes, fd[h] < 0 ? -1L : (long)st.st_size);
+            ec_fatal(EC_RC_FATAL, "comm_shmem: pe %d: COMM_SHMEM_PE_PER_APU=2: the heap of helper PE %d is not reachable (%s: %s; pool offset %ld)\n", S.me, x->pe + h, path, fd[h] < 0 ? strerror(errno) : "too small or unaligned", off[h]);
         unlink(path);
     }
     char *v = (char *)mmap(0, x->span, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
