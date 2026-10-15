@@ -510,6 +510,7 @@ static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; doub
     else { j->dpok = hipHostGetDevicePointer(&dp, j->p, 0) == hipSuccess && dp == (void *)j->p; if (!j->dpok) (void)hipGetLastError(); }
     j->t = now_s() - t; return 0; }
 #endif
+static int g_meshpar;                                  /* N7F-C: COMM_SHMEM_MESH_PAR */
 static int g_pxinit, g_pxthr = 4;                       /* COMM_SHMEM_PX_INIT, COMM_SHMEM_PX_INIT_THREADS */
 /* the node-process: attach the proxies' pools (shmem_ptr: Cray's on-node XPMEM), register them with HIP, start the allocators */
 /* N7E (COMM_SHMEM_PE_PER_APU=2): map APU x->d's two helper heaps (named files) as the interleaved virtual range of px_dev */
@@ -577,9 +578,16 @@ static void px_attach(void)
         S.registered = jb[4].he == hipSuccess ? (jb[4].dpok ? 1 : 2) : 0; g_t_own = jb[4].t;
         if (!S.registered) { if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(jb[4].he)); }
         else if (S.registered == 2 && S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n");
+    } else if (g_meshpar) {                               /* N7F-C: COMM_SHMEM_MESH_PAR=1: the four proxy pools registered at once (the own pool stays where it is) */
+        pthread_t th[4]; struct reg_job jb[4];
+        for (int i = 0; i < 4; i++) { jb[i].p = g_px[i]->base; jb[i].n = g_px[i]->span; jb[i].he = hipSuccess; jb[i].dpok = 0; jb[i].t = 0;
+            if (pthread_create(&th[i], 0, reg_thread, &jb[i])) { reg_thread(&jb[i]); th[i] = 0; } }
+        for (int i = 0; i < 4; i++) if (th[i]) pthread_join(th[i], 0);
+        for (int i = 0; i < 4; i++) { px_dev *x = g_px[i]; x->he = (int)jb[i].he; x->reg = jb[i].he == hipSuccess && jb[i].dpok; x->treg = jb[i].t;
+            if (jb[i].he == hipSuccess && !jb[i].dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
     } else for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; struct reg_job j = { x->base, x->span, hipSuccess, 0, 0 }; reg_thread(&j);
         x->he = (int)j.he; x->reg = j.he == hipSuccess && j.dpok; x->treg = j.t; if (j.he == hipSuccess && !j.dpok) { (void)hipHostUnregister(x->base); (void)hipGetLastError(); } }
-    if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, g_pxinit ? "in parallel" : "one by one", now_s() - t_reg,
+    if (S.verbose) printf("comm_shmem: pe %d: init timeline (s since entry): shmem_init %.2f, own pool pre-fault %.2f, proxy pools registered %s in %.2f s (pools %.2f %.2f %.2f %.2f; own pool %.2f %s), px_attach done at %.2f\n", S.me, g_t_shinit, g_t_pop, g_pxinit || g_meshpar ? "in parallel" : "one by one", now_s() - t_reg,
                           g_px[0]->treg, g_px[1]->treg, g_px[2]->treg, g_px[3]->treg, g_t_own, g_pxinit ? "in the same threads" : "before the barrier", now_s() - g_t0);
     for (int d = 0; d < 4; d++) { px_dev *x = g_px[d]; hipError_t he = (hipError_t)x->he;
         if (S.me == 0 && d == 0) printf("comm_shmem: COMM_SHMEM_PE_PER_APU=%d: the proxy pools %s (%s)\n", S.ppa, x->reg ? "are HIP-registered: symmetric slabs in them" : "could not be HIP-registered: every device exchange is staged (pageable copies)", x->reg ? "zero-copy" : hipGetErrorString(he));
@@ -634,7 +642,7 @@ int comm_shmem_init(void)
 #else
     S.devheap = env_int("COMM_SHMEM_DEVHEAP", 0);
 #endif
-    S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4);
+    S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4); g_meshpar = S.ppa && env_int("COMM_SHMEM_MESH_PAR", 0) > 0;
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
