@@ -678,7 +678,9 @@ int comm_shmem_init(void)
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
-    S.pool = (char *)shmem_malloc(S.pool_bytes);
+    /* N7E value 2: the node-process maps the helpers' heap files page by page (px_map2): the pool must start on a page of the file (measured: shmem_malloc
+     * gave offset = 1920 mod 4096 in the heap), so the pool is shmem_align'ed to 2 MiB (every PE alike: symmetric) */
+    S.pool = S.ppa == 2 ? (char *)shmem_align((size_t)2 << 20, S.pool_bytes) : (char *)shmem_malloc(S.pool_bytes);
     if (!S.pool) { fprintf(stderr, "comm_shmem: pe %d: shmem_malloc of %zu MiB failed: the SHMEM heap (SHMEM_SYMMETRIC_SIZE) must be >= %zu MiB (the pool + 512)\n", S.me, S.pool_bytes >> 20, (S.pool_bytes >> 20) + 512); shmem_global_exit(1); }
     memset(S.pool, 0, S.mb_bytes);                        /* the mailbox: 0 = empty */
     if (S.ppa && !S.proxy) *mailbox(MAXID - 1, 0) = (long)getpid();   /* N7b: the node-process's pid in the reserved mailbox row, for its proxies */
