@@ -37,7 +37,7 @@ merges or drops it. Nothing is started from this section without the user's word
 
 ## Decisions (user)
 
-- D35 (open): make the N7G switches (`COMM_SHMEM_PX_THP`, `COMM_SHMEM_PX_PIN`) defaults? Recommendation: no, both stay 0; the 3 pairs are not significant (−124.9 s, CI [−460.6, +210.8], m). Default if no answer: stays 0.
+- D35 (answered NO, user 2026-10-15): `COMM_SHMEM_PX_THP` and `COMM_SHMEM_PX_PIN` stay default 0 (3 pairs not significant, results/N7G.md). Closed.
 
 ## Ideas (saved, not scheduled)
 
