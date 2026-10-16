@@ -35,3 +35,12 @@ separated from THP.
 **RESUME.** Branch `n7g`, commit 006a80f plus the N7G docs commit. Done: results, RESULTS row, OPPORTUNITIES note, TASKS
 rows. Next (not run): 4 more pairs, THP only against the default, at 6 nodes (queue via the aac7 runner, paired ABBA,
 ≤ 4 paired rounds per the project rule). Decision D35: merge defaults? No; both switches stay off.
+
+## Item 37 (2026-10-15, gated): THP only, 4 pairs at 3.8646e11
+
+Four interleaved pairs at 3.8646e11 digits. Arm A: default SHMEM. Arm B: `COMM_SHMEM_PX_THP=1` only (PIN left at 0).
+Measured wall times: A mean 576.5 s (sd 155.5), B mean 288.8 s (sd 63.0). Paired B − A = −287.8 s, 95 % CI [−507, −68],
+n = 4; B faster in 4 of 4 pairs (m).
+
+Gates PASS: 1 and 2 nodes with THP, kill default on and off, comm_ofi 2-node gate, 6-node 1e10 compare identical (m).
+Switch stays default 0 pending user decision D36.
