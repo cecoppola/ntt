@@ -62,3 +62,13 @@ Build aedc13c, no PX_* variables set. Ran 20:52 to 21:18 ET (27 min, measured).
 Mean B - A +207.7 s (sd 152.5, n = 2, 95 % CI [-1162, +1578]; not significant alone). Direction matches item 37 (4 of 4 pairs). THP was active in A (huge helper pools 2562 MiB per node) and absent in B (m).
 
 Verdict: PASS. D36 (a) applied: COMM_SHMEM_PX_THP defaults to 1 in the COMM_OFI=0 proxy mode.
+
+## Items 39 and 41 (2026-10-15/16): huge-page pairs, 6 nodes, 3.8646e11 (measured)
+
+- Item 39: 4 pairs, default on vs COMM_SHMEM_PX_THP=0: B - A +28.4 s (95 % CI -27 to +84).
+- Item 41: 4 pairs, same design: B - A +163.5 s (95 % CI -45 to +372). Default on: 290 s mean; off: 475 s.
+- Both drivers hit their timeouts after the last run; tables are from the summary files, not DONE markers.
+- Pooled over the 14 pairs of items 37, 38, 39 and 41 (the mean of the pair means, weighted by pairs): about 167 s saved by the default (modelled; the runs mix conditions).
+- Item 40 (heap switch, COMM_SHMEM_HEAP_THP=1): gates PASS at 1 and 2 nodes and 6-node 1e10 identical; 2 pairs B - A +24.8 s (CI -179 to +229): no gain, stays 0.
+- Item 40 task-3 arm (COMM_SHMEM_OFFS_WITH_DATA=64 COMM_SHMEM_MESH_PAR=1): 2 pairs, +49 s: no gain, stays 0.
+- Verdict: huge-page default stays on; heap and task-3 switches stay off.
