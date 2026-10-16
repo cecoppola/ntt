@@ -38,6 +38,7 @@ merges or drops it. Nothing is started from this section without the user's word
 ## Decisions (user)
 
 - D35 (answered NO, user 2026-10-15): `COMM_SHMEM_PX_THP` and `COMM_SHMEM_PX_PIN` stay default 0 (3 pairs not significant, results/N7G.md). Closed.
+- D36 (answered (a), user 2026-10-15): `COMM_SHMEM_PX_THP=1` is the default of the COMM_OFI=0 proxy mode (4 pairs at 3.8646e11, B − A −287.8 s, CI [−507, −68]); `COMM_SHMEM_PX_THP=0` restores 4 KiB pages; PX_PIN stays 0. Applied on branch `thp`, gate item 38_thp_gate. Closed.
 
 ## Ideas (saved, not scheduled)
 

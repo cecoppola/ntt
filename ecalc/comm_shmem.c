@@ -235,7 +235,7 @@ static int test_ge(long *p, long v) { SHM_LOCK(); int ok = shmem_long_test(p, SH
  * maps that file (px_attach), then unlinks it.  The wrapper is a pass-through everywhere else (not armed: every other process and call). */
 static volatile int g_heap_arm; static char g_heap_path[160]; static void *g_heap_addr; static size_t g_heap_min;
 static int g_heap_numa = -1, g_heap_mbind = -2;          /* N7C COMM_SHMEM_PX_NUMA=1: the NUMA node a proxy's heap prefers (-1: off), the mbind result */
-/* N7G COMM_SHMEM_PX_THP=1 (default 0): the helper pools in 2 MiB pages.  aac7 (probe 34_n7g_probe, 2026-10-15): shmem_enabled = never, /dev/shm without
+/* N7G COMM_SHMEM_PX_THP (default 1 since D36, 2026-10-15; =0 restores 4 KiB pages): the helper pools in 2 MiB pages.  aac7 (probe 34_n7g_probe, 2026-10-15): shmem_enabled = never, /dev/shm without
  * huge=, no reserved hugepages -- so MADV_HUGEPAGE does nothing on shmem and MFD_HUGETLB fails -- but MADV_COLLAPSE works on /dev/shm files (1 GiB
  * fully PMD-mapped in 0.29 s).  So the heap file is mapped at an address = its offset mod 2 MiB (helper and node-process: a PMD maps only there) and
  * the helper pre-faults its pool and collapses it to 2 MiB pages before the barrier (pool_collapse).  Raw syscalls: no wrapper recursion. */
@@ -747,7 +747,7 @@ int comm_shmem_init(void)
     S.ppa = comm_shmem_pe_per_apu(); g_pxinit = S.ppa && env_int("COMM_SHMEM_PX_INIT", 0) > 0; g_pxthr = env_int("COMM_SHMEM_PX_INIT_THREADS", 4); g_meshpar = S.ppa && env_int("COMM_SHMEM_MESH_PAR", 0) > 0;
     S.ppn = S.ppa ? 1 + 4 * S.ppa : 1;   /* N7b: 1 + 4 ppa PEs per node */
     if (S.ppa && comm_ofi_enabled()) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PE_PER_APU=%d needs COMM_OFI=0 (the proxies carry the data instead of comm_ofi)\n", S.ppa);
-    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 0) > 0; g_pin = S.ppa && env_int("COMM_SHMEM_PX_PIN", 0) > 0; g_thp_thr = g_pxthr;   /* N7G (default 0 both) */
+    g_thp = S.ppa && env_int("COMM_SHMEM_PX_THP", 1) > 0; g_pin = S.ppa && env_int("COMM_SHMEM_PX_PIN", 0) > 0; g_thp_thr = g_pxthr;   /* N7G: THP default 1 (D36), PIN default 0 */
     if (g_pin) pin_start();
     /* the mailbox needs the PE count, known only after init; sized for the launcher's count when it tells us, else for 4096 PEs (N7b: nodes) */
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
