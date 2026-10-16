@@ -285,13 +285,14 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 
 | class | owner | review by | switches |
 |---|---|---|---|
+| experiment | N7F | 2026-10-15 | `COMM_SHMEM_OFFS_WITH_DATA`, `COMM_SHMEM_PX_BLOCK_MB` |
+| experiment | N7G | 2026-10-15 | `COMM_SHMEM_PX_PIN` |
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | experiment | N7 | 2026-11-12 | `COMM_SHMEM_PEER_ORDER` |
 | experiment | N7D | 2026-11-14 | `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_INIT_THREADS`, `COMM_SHMEM_PX_SEND` |
 | experiment | N7F | 2026-11-14 | `COMM_SHMEM_MESH_PAR` |
 | experiment | N7b | 2026-11-14 | `COMM_SHMEM_PROXY` |
-| experiment | N7F | 2026-11-15 | `COMM_SHMEM_OFFS_WITH_DATA`, `COMM_SHMEM_PX_BLOCK_MB` |
-| experiment | N7G | 2026-11-15 | `COMM_SHMEM_PX_PIN` |
+| fallback | coordinator (D36, results/N7G.md) | 2026-10-15 | `COMM_SHMEM_PX_THP` |
 | fallback | P1/DEF (D22, results/P1.md, results/DEF.md) | 2026-11-11 | `DM_MN_WRAP` |
 | fallback | coordinator (D18, results/DEF.md) | 2026-11-11 | `ECALC_NP_MN3` |
 | fallback | coordinator (D20, results/N3.md) | 2026-11-11 | `BS_BATCH_PIPE` |
@@ -300,7 +301,6 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 | fallback | coordinator (D25, results/RECIP.md) | 2026-11-11 | `NEWTON_CHAIN_GUARD` |
 | fallback | coordinator (TASKS S) | 2026-11-11 | `BS_SEED_PULL`, `COMM_LAYER_INTER2`, `COMM_LAYER_VSLOT_POOL`, `COMM_LAYER_VSLOT_RELEASE`, `COMM_LAYER_VSLOT_SHARE`, `DBIG_SMALL_BOUNCE`, `DIST_GATHER_RAW`, `ECALC_OUT_PACKED`, `MN_OUT_DKM_HI`, `RNS_DIST_CACHE_PARTIAL` |
 | fallback | coordinator (D31, results/N7D.md) | 2026-11-14 | `COMM_SHMEM_PE_PER_APU`, `COMM_SHMEM_PX_KCOPY`, `COMM_SHMEM_PX_NUMA` |
-| fallback | coordinator (D36, results/N7G.md) | 2026-11-15 | `COMM_SHMEM_PX_THP` |
 | diagnostic | diagnostics (TESTING.md) | 2027-04-12 | `BS_CKPT_BG_MBS`, `COMM_LAYER_STATS`, `COMM_OFI_DEV`, `COMM_OFI_VERBOSE`, `COMM_SHMEM_POOL_NEED_MB`, `COMM_SHMEM_STAGE_SLOT_MB`, `COMM_SHMEM_VERBOSE`, `COMM_XGMI_STATS`, `COMM_XSTATS`, `DC_STATS`, `DIST_GEN`, `DIST_LOGN_TEST`, `DIST_STATS`, `ECALC_BUDGET_RANK_GB`, `ECALC_FATAL_TEST`, `ECALC_INIT_ONLY`, `ECALC_LIVE`, `ECALC_MEM_GUARD_PERIOD`, `ECALC_MEM_SAMPLE`, `ECALC_MEM_SAMPLE_FILE`, `ECALC_NP_AUTO_TERMS`, `ECALC_PLANE_CAP_IDX`, `ECALC_SEGV_TEST`, `ECALC_TEST_CORR`, `ECALC_WINDOWS`, `MEM_DPOOL_FILL`, `MN_OUT_DKM_HI_TEST_CARRY`, `MN_OUT_STRIPE_FORCE`, `MN_PLAN_QUIET`, `MN_SELFTEST_LOGR`, `MN_TREE_LOGN_TEST`, `NEWTON_DKM_TEST_HI`, `NEWTON_DOUBLING_TS`, `NEWTON_MN_RECIP_TS`, `NEWTON_VERBOSE`, `NTT_SIZE_STATS`, `RNS_DIST_CACHE_PARTIAL_FORCE`, `RNS_DIST_CACHE_TRACE`, `RNS_INIT_POOL_LOG`, `RNS_POOL_GROW`, `RNS_STRATEGY_CHECK` |
 | test | ecalc/tests/t_alloc.c | 2027-04-12 | `T_ALLOC_NTT`, `T_ALLOC_PROBE`, `T_ALLOC_SEED` |
 | test | ecalc/tests/t_comm.c | 2027-04-12 | `T_COMM_TRACE` |

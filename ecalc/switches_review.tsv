@@ -96,9 +96,9 @@ COMM_SHMEM_PX_KCOPY	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 res
 COMM_SHMEM_PX_INIT	experiment	N7D	2026-11-14	1 = pre-fault and register the proxy-mode pools in parallel; adopt with config C or remove after the 2-node A/B
 COMM_SHMEM_PX_INIT_THREADS	experiment	N7D	2026-11-14	pre-fault threads of COMM_SHMEM_PX_INIT
 COMM_SHMEM_MESH_PAR	experiment	N7F	2026-11-14	1 = register the four proxy pools in parallel in px_attach; adopt after the 2-node A/B or remove
-COMM_SHMEM_PX_THP	fallback	coordinator (D36, results/N7G.md)	2026-11-15	=0 restores 4 KiB helper heaps; default 1 in the proxy mode since D36 (2026-10-15)
-COMM_SHMEM_PX_PIN	experiment	N7G	2026-11-15	1 = each helper PE on a CPU of its own, removed from the node-process; adopt or remove after the 6-node A/B
+COMM_SHMEM_PX_THP	fallback	coordinator (D36, results/N7G.md)	2026-10-15	=0 restores 4 KiB helper heaps; default 1 in the proxy mode since D36 (2026-10-15)
+COMM_SHMEM_PX_PIN	experiment	N7G	2026-10-15	1 = each helper PE on a CPU of its own, removed from the node-process; adopt or remove after the 6-node A/B
 COMM_SHMEM_PX_NUMA	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 = first touch; default since D31 (2026-10-14)
-COMM_SHMEM_PX_BLOCK_MB	experiment	N7F	2026-11-15	MiB chunk of a PX_SEND=2 put (default 4 = PXCH, no change); fewer chunks and signal adds per peer (fix B); adopt or remove after the 6-node A/B
+COMM_SHMEM_PX_BLOCK_MB	experiment	N7F	2026-10-15	MiB chunk of a PX_SEND=2 put (default 4 = PXCH, no change); fewer chunks and signal adds per peer (fix B); adopt or remove after the 6-node A/B
 COMM_SHMEM_PX_SEND	experiment	N7D	2026-11-14	2 = chunked put-with-signal into the receiving proxy, per-peer contexts (F4); adopt with COMM_SHMEM_PE_PER_APU or remove after the 6-node A/B
-COMM_SHMEM_OFFS_WITH_DATA	experiment	N7F	2026-11-15	<MiB> per-communicator inbox in the proxy pool, granted early, so a sender need not wait for the late offset word (fix A); adopt or remove after the 6-node A/B
+COMM_SHMEM_OFFS_WITH_DATA	experiment	N7F	2026-10-15	<MiB> per-communicator inbox in the proxy pool, granted early, so a sender need not wait for the late offset word (fix A); adopt or remove after the 6-node A/B

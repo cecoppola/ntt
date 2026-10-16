@@ -44,3 +44,21 @@ n = 4; B faster in 4 of 4 pairs (m).
 
 Gates PASS: 1 and 2 nodes with THP, kill default on and off, comm_ofi 2-node gate, 6-node 1e10 compare identical (m).
 Switch stays default 0 pending user decision D36.
+
+## Item 38 (2026-10-15, gated): default flip, D36 (a)
+
+Build aedc13c, no PX_* variables set. Ran 20:52 to 21:18 ET (27 min, measured).
+
+- 1 node, COMM_OFI=0: gate PASS, digits identical (m).
+- 2 nodes, COMM_OFI=0: gate PASS, digits identical (m).
+- 6 nodes, 1e10 digits: VERIFY OK, compare identical (m).
+- 6 nodes, 3.8646e11 digits, 2 interleaved pairs: A = default (THP on), B = COMM_SHMEM_PX_THP=0.
+
+| pair | A (default) | B (THP=0) | B - A |
+|---|---|---|---|
+| 1 | 237.4 s | 337.3 s | +99.9 s |
+| 2 | 228.8 s | 544.3 s | +315.5 s |
+
+Mean B - A +207.7 s (sd 152.5, n = 2, 95 % CI [-1162, +1578]; not significant alone). Direction matches item 37 (4 of 4 pairs). THP was active in A (huge helper pools 2562 MiB per node) and absent in B (m).
+
+Verdict: PASS. D36 (a) applied: COMM_SHMEM_PX_THP defaults to 1 in the COMM_OFI=0 proxy mode.
