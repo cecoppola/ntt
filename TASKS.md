@@ -22,11 +22,13 @@ project instructions). Within a class, rows are in the order to do them.
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
 
+Closed 2026-10-16 (SHMEM plan, results/N7G.md): huge-page default kept (items 37, 38, 39, 41); heap switch `COMM_SHMEM_HEAP_THP` (item 40: gates PASS, no gain, stays 0); merged fixes A and C timed (no gain, stays off). Open: slow-mode trace (item 43) and layered exchange (task 5, needs the trace first); libfabric baseline under the same conditions (item 44).
+
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
 
 ## Proposed (needs the user's priority)
 
-- N7G next: 4 more paired ABBA rounds, THP only against the default at 6 n (assumed: 8 full 6-node runs); tests whether the 3-pair gain of −125 s is real. Not run.
+- N7G next: done 2026-10-16 (item 41, 4 more pairs: B − A +163.5 s, CI [−45, +372]; results/N7G.md, D36 default kept). Closed.
 - N7F: find the source of the 111 s run-to-run spread of the proxy arm at 6 n (N7E, sd 111.1 s vs 15.1 s comm_ofi, m) and more pairs for PX_SEND=2 / PX_INIT=1 (CI half-widths 288 s and 157 s, m); aac7 runs, needs the user's word.
 
 New work found by agents or the coordinator goes here first, one line each (what, why, size), until the user schedules,
