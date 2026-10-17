@@ -24,6 +24,8 @@ Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch mem
 
 Closed 2026-10-16 (SHMEM plan, results/N7G.md): huge-page default kept (items 37, 38, 39, 41); heap switch `COMM_SHMEM_HEAP_THP` (item 40: gates PASS, no gain, stays 0); merged fixes A and C timed (no gain, stays off). Open: slow-mode trace (item 43) and layered exchange (task 5, needs the trace first); libfabric baseline under the same conditions (item 44).
 
+Open 2026-10-17 (SHMEM plan, results/N7G.md): task 5 switch `COMM_SHMEM_LAYV_ANY` (default 0; commit 8f90012 on branch layv, not merged): digit gates PASS at 1 and 2 nodes and 6-node 1e10 identical; 2 pairs B - A -10.5 s, CI [-127, +106] (not significant); 2 more pairs queued (`50_layv2`). Timestamp switch `COMM_PHASE_TS` (default 0; commit 73705c4 on branch ts, not merged): queued as `51_ts`, to locate the straggler node and step. Libfabric baseline 184 s mean (4 runs). Default spread 221-397 s.
+
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
 
 ## Proposed (needs the user's priority)
