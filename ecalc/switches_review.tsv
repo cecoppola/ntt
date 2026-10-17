@@ -103,3 +103,4 @@ COMM_SHMEM_PX_NUMA	fallback	coordinator (D31, results/N7D.md)	2026-11-14	=0 = fi
 COMM_SHMEM_PX_BLOCK_MB	experiment	N7F	2026-10-15	MiB chunk of a PX_SEND=2 put (default 4 = PXCH, no change); fewer chunks and signal adds per peer (fix B); adopt or remove after the 6-node A/B
 COMM_SHMEM_PX_SEND	experiment	N7D	2026-11-14	2 = chunked put-with-signal into the receiving proxy, per-peer contexts (F4); adopt with COMM_SHMEM_PE_PER_APU or remove after the 6-node A/B
 COMM_SHMEM_OFFS_WITH_DATA	experiment	N7F	2026-10-15	<MiB> per-communicator inbox in the proxy pool, granted early, so a sender need not wait for the late offset word (fix A); adopt or remove after the 6-node A/B
+COMM_SHMEM_LAYV_ANY	experiment	N8 task5	2026-10-17	1 = the proxy push polls all pending peers (push_any without an inbox), so none waits behind a late receiver offset word; adopt or remove after the 6-node A/B

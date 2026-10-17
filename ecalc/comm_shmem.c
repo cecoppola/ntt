@@ -120,7 +120,7 @@ enum { ORDER_QUIET, ORDER_FENCE, ORDER_PUTSIG };
 /* ---- the process state ---- */
 struct blk { size_t off, len; int used, kind; struct blk *next; };
 static struct {
-    int inited, me, npes, serial, devheap, order, registered, prov, shift;
+    int inited, me, npes, serial, devheap, order, registered, prov, shift, layv_any;
     long spin_us;
     char *pool; size_t pool_bytes, mb_bytes;   /* the symmetric pool; the mailbox at [0, mb_bytes) */
     pthread_mutex_t lock;                  /* SHM_LOCK: the library in serial mode; the allocator always (alloc_lock) */
@@ -793,6 +793,7 @@ int comm_shmem_init(void)
     if (S.order == ORDER_PUTSIG && !HAVE_PUT_SIGNAL) { if (S.me == 0) fprintf(stderr, "comm_shmem: putsig needs OpenSHMEM 1.5 headers: using quiet\n"); S.order = ORDER_QUIET; }
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
+    S.layv_any = env_int("COMM_SHMEM_LAYV_ANY", 0) > 0;   /* N8 task 5: the proxy push polls every pending peer (push_any) with no inbox, so no peer waits behind a late receiver's offset word */
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
     S.pts = env_int("COMM_PHASE_TS", 0) > 0; S.xsany = S.xstats || S.pts;   /* N8 ts: per-PE phase enter/exit timestamps */
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
@@ -1135,7 +1136,7 @@ static void push_any(shm_priv *p)
             long seq = p->oseq[r], *w = W(p, p->base, W_ROFF, r), *g = W(p, p->base, W_IBX, r), x, f = 0;
             size_t nb = p->scnt ? p->scnt[r] : p->bytes; const char *s = p->scnt ? p->src + p->sdsp[r] : p->src + p->stride * (size_t)r;
             if (test_ge(w, PACK(seq, 0))) { x = *(volatile long *)w; if (UNSEQ(x) != seq) die("exchange sequence mismatch"); }
-            else if (nb <= p->ibcap && test_ge(g, PACK(seq, 0)) && UNSEQ(x = *(volatile long *)g) == seq) f = IBF;
+            else if (p->ibcap && nb <= p->ibcap && test_ge(g, PACK(seq, 0)) && UNSEQ(x = *(volatile long *)g) == seq) f = IBF;
             else continue;
             SHM_LOCK(); put_signalled(p, r, UNOFF(x), s, nb, PACK(seq, nb) | f); SHM_UNLOCK();
             dn[r] = 1; left--; any = 1;
@@ -1146,7 +1147,7 @@ static void push_any(shm_priv *p)
     free(dn);
     ofi_flush(p);
 }
-static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); if (p->ibcap && p->xo && p->px) push_any(p); else push_peers(p, p->next, -1); return 0; }
+static void *pusher(void *a) { comm *c = (comm *)a; shm_priv *p = PRIV(c); if ((p->ibcap || S.layv_any) && p->xo && p->px) push_any(p); else push_peers(p, p->next, -1); return 0; }
 /* post the pending exchange's puts: inline for the peers ready within the spin (only where nothing blocks: putsig /
  * fence), a helper thread for the rest */
 static void start_push(comm *c)
