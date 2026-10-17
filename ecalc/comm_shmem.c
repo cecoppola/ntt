@@ -130,7 +130,7 @@ static struct {
     size_t cur[3], peak[3], cur_all, peak_all;   /* pool accounting by kind: 0 control blocks, 1 staging, 2 the callers' symmetric buffers */
     size_t at_peak[3], nstage, nstage_at_peak, stage_blk_max, stage_rep;   /* the kinds at the moment of peak_all, live staging blocks, the largest one, the last staging peak reported */
     int verbose;                           /* COMM_SHMEM_VERBOSE=1 or ECALC_VERBOSE >= 2 -- a line per new staging peak (+5 %), every PE's summary */
-    int xstats, vslot_pool;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
+    int xstats, xsany, pts, vslot_pool;                               /* X1: COMM_XSTATS=1 (per-kind exchange stats, printed at finalize) */
     size_t round_bytes;                    /* COMM_SHMEM_ROUND_MB -- the staging of one alltoallv round, each way (0: off, one round) */
     long nrpath, nround_ex, nrounds; size_t round_stage_max;   /* exchanges through the rounds' path, those in more than one round, their rounds, the largest per-round staging (send + recv) */
     double tv; long nv;                    /* all-to-all time (alltoall, alltoallv), post to completion, summed over the APU threads; the count */
@@ -794,6 +794,7 @@ int comm_shmem_init(void)
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
+    S.pts = env_int("COMM_PHASE_TS", 0) > 0; S.xsany = S.xstats || S.pts;   /* N8 ts: per-PE phase enter/exit timestamps */
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }
     /* N7E value 2: the node-process maps the helpers' heap files page by page (px_map2): the pool must start on a page of the file (measured: shmem_malloc
@@ -920,6 +921,13 @@ static struct xs_row { long n, rounds; double bytes, tpost, tcall, twait, roff, 
 static struct xs_apu { long n; double bytes, tpost; } g_xa[8][XK_NK];
 static const char *const xs_ph[WST_NP] = { "other", "bs", "dm", "recip" };
 static const char *const xs_kn[XK_NK] = { "other", "redist", "result", "spill", "addsh", "layeq", "layv" };
+/* N8 ts, COMM_PHASE_TS=1 (default off): one stderr line per exchange enter and exit, phase.kind, wall clock in us (CLOCK_REALTIME: comparable across nodes) */
+static void pts_line(shm_priv *p, const char *ev)
+{
+    static __thread char host[64]; struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+    if (!host[0]) { gethostname(host, sizeof host - 1); char *d = strchr(host, '.'); if (d) *d = 0; if (!host[0]) strcpy(host, "?"); }
+    fprintf(stderr, "phase-ts pe %d host %s %s.%s %s %lld apu %d\n", S.me, host, xs_ph[p->xph], xs_kn[p->xk], ev, (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000, p->xapu);
+}
 static void xs_begin(shm_priv *p)
 {
     p->xk = comm_xtag; if (p->xk < 0 || p->xk >= XK_NK) p->xk = 0;
@@ -927,11 +935,13 @@ static void xs_begin(shm_priv *p)
 #ifndef COMM_HOST_ONLY
     { int d = 0; if (hipGetDevice(&d) == hipSuccess && d >= 0 && d < 8) p->xapu = d; }
 #endif
+    if (S.pts) pts_line(p, "enter");
 }
 /* at the completion: tw0 = when the caller entered s_wait, bytes = received, t = post to completion */
 static void xs_end(shm_priv *p, double tw0, double bytes, double t)
 {
     double now = now_s();
+    if (S.pts) pts_line(p, "exit");
     pthread_mutex_lock(&S.alloc_lock);
     struct xs_row *x = &g_xs[p->xph][p->xk]; x->n++; x->rounds += p->xK; x->bytes += bytes; x->tpost += t; x->tcall += tw0 - p->t0; x->twait += now - tw0; x->roff += p->xroff; x->sig += p->xsig;
     struct xs_apu *a = &g_xa[p->xapu][p->xk]; a->n++; a->bytes += bytes; a->tpost += t;
@@ -1181,7 +1191,7 @@ static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     if (p->pending) die("alltoall while one is pending");
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
-    p->t0 = now_s(); if (S.xstats) xs_begin(p);
+    p->t0 = now_s(); if (S.xsany) xs_begin(p);
     if (S.round_bytes) {                                  /* the equal exchange as an unequal one, in rounds when a slab exceeds the round's chunk */
         for (int r = 0; r < n; r++) { p->acnt[r] = bytes; p->adsp[r] = (size_t)r * bytes; }
         if (alltoallv_rounds(c, sb, p->acnt, p->adsp, rb, p->acnt, p->adsp, s, sin, rin)) return;
@@ -1300,7 +1310,7 @@ static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_
     if (p->pending) die("alltoallv while an exchange is pending");
     set_xo(p, 1);
     int sin = in_db(p, sb), rin = in_db(p, rb);
-    p->t0 = now_s(); if (S.xstats) xs_begin(p);
+    p->t0 = now_s(); if (S.xsany) xs_begin(p);
     if (!(sin && rin && S.vslot_pool) && alltoallv_rounds(c, sb, scnt, sdsp, rb, rcnt, rdsp, s, sin, rin)) return;   /* X2 COMM_LAYER_VSLOT_POOL: rounds only bound staging; an exchange from and into the pool stages nothing */
     size_t ts = comm_prefix(scnt, p->spre, n), tr = comm_prefix(rcnt, p->rpre, n);
     staging(p, sin ? 0 : ts + 8, rin ? 0 : tr + 8, "alltoallv");
@@ -1324,12 +1334,12 @@ static void s_wait(comm *c)
 {
     shm_priv *p = PRIV(c); int n = p->n, me = p->me;
     if (!p->pending) return;
-    double xtw0 = S.xstats ? now_s() : 0;                 /* X1 */
+    double xtw0 = S.xsany ? now_s() : 0;                 /* X1 */
     if (p->thread) { pthread_join(p->th, 0); p->thread = 0; }
     if (p->rounds) {                                      /* the rounds completed in the helper thread */
         p->rounds = 0; staging_drop(p); p->pending = 0;
         double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock);
-        if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t);
+        if (S.xsany) xs_end(p, xtw0, recv_bytes(p), t);
         return;
     }
     arrive(p, p->bytes, p->v ? p->rcnt : 0);
@@ -1348,7 +1358,7 @@ static void s_wait(comm *c)
     if (p->ibon) ibx_grant(p, 1);                        /* FA: the inbox is free for the next exchange */
     staging_drop(p);
     p->pending = 0;
-    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xstats) xs_end(p, xtw0, recv_bytes(p), t); }
+    { double t = now_s() - p->t0; pthread_mutex_lock(&S.alloc_lock); S.tv += t; S.nv++; S.bv += recv_bytes(p); pthread_mutex_unlock(&S.alloc_lock); if (S.xsany) xs_end(p, xtw0, recv_bytes(p), t); }
 }
 /* the host variants: complete on return; the source is the caller's buffer (a put may read private memory) */
 static void s_alltoallv_host(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp)
