@@ -22,9 +22,8 @@ project instructions). Within a class, rows are in the order to do them.
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
 
-Closed 2026-10-16 (SHMEM plan, results/N7G.md): huge-page default kept (items 37, 38, 39, 41); heap switch `COMM_SHMEM_HEAP_THP` (item 40: gates PASS, no gain, stays 0); merged fixes A and C timed (no gain, stays off). Open: slow-mode trace (item 43) and layered exchange (task 5, needs the trace first); libfabric baseline under the same conditions (item 44).
+SHMEM 2026-10-17 (summary in results/SHMEM.md): libfabric 184.5 s vs SHMEM default 286.0 s mean over 24 runs, best 4 220.5 s (m); huge-page default kept (D36), heap switch dropped (D39), fixes A/C no gain, COMM_SHMEM_LAYV_ANY and COMM_PHASE_TS merged (c3a469d, default 0, gates PASS item 55). Open: item 56 (LAYV_ANY pairs, collect when DONE); phase B, the 65 s run-to-run variance (slow runs lose time in node-local steps; test: node-process THP off); phase C, the 36 s steady gap (t_comm probe of the proxy path, zero-copy design note).
 
-Open 2026-10-17 (SHMEM plan, results/N7G.md): task 5 switch `COMM_SHMEM_LAYV_ANY` (default 0; commit 8f90012 on branch layv, not merged): digit gates PASS at 1 and 2 nodes and 6-node 1e10 identical; 2 pairs B - A -10.5 s, CI [-127, +106] (not significant); 2 more pairs queued (`50_layv2`). Timestamp switch `COMM_PHASE_TS` (default 0; commit 73705c4 on branch ts, not merged): queued as `51_ts`, to locate the straggler node and step. Libfabric baseline 184 s mean (4 runs). Default spread 221-397 s.
 
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
 

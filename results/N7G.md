@@ -81,12 +81,10 @@ Verdict: PASS. D36 (a) applied: COMM_SHMEM_PX_THP defaults to 1 in the COMM_OFI=
 - Compaction-stall increase per node during each run (items 48, four default runs): the largest per run was 6770, 4170, 708 and 501. The slowest run (339 s) had the largest value, but the second-fastest (240 s) had the second largest, so no link is shown (n = 4).
 - Straggler (item 43 analysis, n = 8): one node finishes late and the other five wait in layv; cause not identified.
 - Drivers 45-48 hung at exit after their runs (drivers without a done-marker); fixed for 48 by writing a done-marker before the exit path.
-- Verdict: the remaining SHMEM gap is mostly run-to-run variance; the cause of the lagging node is open. Task 5 (layered exchange) is not started.
+- Verdict and the consolidated story (phase breakdown, switch table, variance, open items): results/SHMEM.md.
 
 ## Items 49-51 (2026-10-17): layered-exchange switch and per-PE timestamps (measured)
 
 - Layered-exchange switch COMM_SHMEM_LAYV_ANY (item 49-50, 4 paired ABBA runs at 3.8646e11): B - A per pair -19.6, -1.3, -101.6, -57.5 s; mean -45.0 s, 95 % CI about [-116, +26]; switch-on faster in 4 of 4 pairs; not significant. Gates PASS at 1 and 2 nodes; 1e10 at 6 nodes identical.
 - Timestamp runs (item 51, 4 default runs): wall 223, 264, 186, 235 s.
-- No stable straggler: the last PE to enter layv changes by run (pe1 26 %, pe4 22 %, pe3 21 % of exchanges); the largest layv enter spreads are rare single events (0.4 to 6.9 s).
-- The slow run's extra time is mostly in the first bs step (+55 s of the +78 s): two PEs (pe4, pe5) start bs about 48 s late; the late pair varies by run. The cause of that startup lag is not identified.
-- Clock sync error inferred about 0.4 ms (not measured).
+- Timestamp analysis and the variance findings: results/SHMEM.md.
