@@ -72,3 +72,13 @@ Verdict: PASS. D36 (a) applied: COMM_SHMEM_PX_THP defaults to 1 in the COMM_OFI=
 - Item 40 (heap switch, COMM_SHMEM_HEAP_THP=1): gates PASS at 1 and 2 nodes and 6-node 1e10 identical; 2 pairs B - A +24.8 s (CI -179 to +229): no gain, stays 0.
 - Item 40 task-3 arm (COMM_SHMEM_OFFS_WITH_DATA=64 COMM_SHMEM_MESH_PAR=1): 2 pairs, +49 s: no gain, stays 0.
 - Verdict: huge-page default stays on; heap and task-3 switches stay off.
+
+## Items 45-48 (2026-10-16/17): libfabric baseline and default-run spread (measured)
+
+- Libfabric (COMM_OFI unset), 6 nodes, 3.8646e11, 4 runs (item 45): 178, 181, 186, 193 s; mean about 184 s.
+- Default SHMEM (huge pages on), item 46, 3 runs: 254, 256, 289 s; THP off, 1 run: 446 s.
+- Default SHMEM, items 47 and 48, 8 runs: 221-397 s (sd about 60 s). The spread is larger than the gap between the default and libfabric means.
+- Compaction-stall increase per node during each run (items 48, four default runs): the largest per run was 6770, 4170, 708 and 501. The slowest run (339 s) had the largest value, but the second-fastest (240 s) had the second largest, so no link is shown (n = 4).
+- Straggler (item 43 analysis, n = 8): one node finishes late and the other five wait in layv; cause not identified.
+- Drivers 45-48 hung at exit after their runs (drivers without a done-marker); fixed for 48 by writing a done-marker before the exit path.
+- Verdict: the remaining SHMEM gap is mostly run-to-run variance; the cause of the lagging node is open. Task 5 (layered exchange) is not started.
