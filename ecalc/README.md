@@ -289,8 +289,8 @@ The table below is generated from `switches_review.tsv` by `tools/switch_registr
 |---|---|---|---|
 | experiment | N7F | 2026-10-15 | `COMM_SHMEM_OFFS_WITH_DATA`, `COMM_SHMEM_PX_BLOCK_MB` |
 | experiment | N7G | 2026-10-15 | `COMM_SHMEM_PX_PIN` |
-| experiment | N8 ts | 2026-10-17 | `COMM_PHASE_TS` |
 | experiment | N8 task5 | 2026-10-17 | `COMM_SHMEM_LAYV_ANY` |
+| experiment | N8 ts | 2026-10-17 | `COMM_PHASE_TS` |
 | experiment | coordinator (TASKS S) | 2026-11-11 | `DM_TAIL_DEAD`, `ECALC_FAST_EXIT`, `ECALC_NP_AUTO_MIN`, `ECALC_PLANE_CAP`, `MN_OUT_WAVES`, `RNS_DIST_CACHE_MN`, `RNS_R3` |
 | experiment | N7 | 2026-11-12 | `COMM_SHMEM_PEER_ORDER` |
 | experiment | N7D | 2026-11-14 | `COMM_SHMEM_PX_INIT`, `COMM_SHMEM_PX_INIT_THREADS`, `COMM_SHMEM_PX_SEND` |
