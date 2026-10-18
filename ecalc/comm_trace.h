@@ -12,8 +12,12 @@
  * sequence on its communicator (the same on every member); the sampling (COMM_TRACE_SAMPLE=N: about every Nth exchange of a communicator, chosen by a
  * hash of xseq, so every member keeps the same ones) is decided at the exchange's post.
  *
+ * Node heartbeat (COMM_TRACE_HB=<ms>, tr_hb_start): a thread per process wakes every <ms>; a wake-up later than COMM_TRACE_HB_GAP_MS (default 20) after the previous one stamps H_GAP and a snapshot of cheap OS
+ * counters (/proc/vmstat compaction / THP / major faults / allocstall / swap / numa, /proc/pressure/*, the thread's own context switches and faults), and every 1000 ms a periodic snapshot (so a stall can be
+ * correlated even when the heartbeat thread itself stalled).  COMM_TRACE_HB_PX=1 also starts it in the proxy processes.  Nothing is pinned; the cost is one wake-up per <ms> (see ecalc/README.md).
+ *
  * Off: g_tr.on is 0 and every site is one predictable branch on it.  Switches: COMM_TRACE, COMM_TRACE_SAMPLE, COMM_TRACE_MAX_MB (node-process arena,
- * default 256; a proxy gets a quarter, at least 16), COMM_TRACE_DIR, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
+ * default 256; a proxy gets a quarter, at least 16), COMM_TRACE_DIR, COMM_TRACE_HB, COMM_TRACE_HB_GAP_MS, COMM_TRACE_HB_PX, COMM_TRACE_CLOCK_N (ping-pong iterations of the clock estimate, default 50). */
 #ifndef EC_COMM_TRACE_H
 #define EC_COMM_TRACE_H
 #include <stdint.h>
@@ -24,14 +28,20 @@
 #include <time.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
 /* event ids start at 1 (0 = an unused record slot).  E_: the exchange (peer -1); R_: a round of the rounds path (round = j); M_: one message (me = the rank
- * that stamps it, peer = the other end); P_: a proxy command (me = node, peer = destination node, aux = ring index k) */
+ * that stamps it, peer = the other end); P_: a proxy command (me = node, peer = destination node, aux = ring index k); H_: the heartbeat thread (COMM_TRACE_HB): H_GAP = one observed wake-up gap (bytes = gap ns, aux = snapshot id),
+ * H_CNT = one OS counter of a snapshot (aux = snapshot id, round = counter index into the JSON "hbnames", bytes = its value, seq = 0 snapshot taken at a gap, 1 the periodic one) */
 #define TR_EVENTS(X) \
     X(E_BEGIN) X(E_COPY_ISS) X(E_COPY_DONE) X(E_PUBLISHED) X(E_POSTED) X(E_WAIT) X(E_JOINED) X(E_SIGS_SEEN) X(E_QUIET_END) X(E_RCOPY_ISS) X(E_RCOPY_DONE) X(E_DONE) \
     X(R_BEGIN) X(R_PUBLISHED) X(R_SCOPY_ISS) X(R_SCOPY_DONE) X(R_SENDS_DONE) X(R_SIGS_DONE) X(R_QUIET_END) X(R_RCOPY_ISS) X(R_END) \
     X(M_ROFF_ISSUE) X(M_ROFF_WAIT) X(M_ROFF_SEEN) X(M_PUT_ISSUE) X(M_PUT_POSTED) X(M_PUT_DONE) X(M_SIG_ISSUE) X(M_SIG_WAIT) X(M_SIG_SEEN) X(M_FLUSH_BEG) X(M_FLUSH_END) \
-    X(P_PICKUP) X(P_BATCH) X(P_CHUNK) X(P_SIGNAL) X(P_QUIET_BEG) X(P_QUIET_END) X(P_DONE)
+    X(P_PICKUP) X(P_BATCH) X(P_CHUNK) X(P_SIGNAL) X(P_QUIET_BEG) X(P_QUIET_END) X(P_DONE) \
+    X(H_GAP) X(H_CNT)
 enum {
     TR_NONE = 0,
 #define X(n) n,
@@ -138,5 +148,93 @@ static long tr_write_file(const char *path, const char *json, size_t jlen)
     fseek(f, 0, SEEK_SET); fwrite(hd, 1, sizeof hd, f);
     int bad = ferror(f); if (fclose(f)) bad = 1;
     return bad ? -1 : (long)w;
+}
+
+/* ---- the node heartbeat (COMM_TRACE_HB) ---- */
+#define TR_HB_MAXC 96
+static struct {
+    pthread_t th; int run, started; uint32_t ms, gap_ms, snap; tr_buf b;
+    char names[TR_HB_MAXC][40]; int nn; int pfd[3]; char buf[65536];
+} g_hb;
+static int tr_hb_idx(const char *nm)                      /* the index of a counter name (assigned at first sight; the JSON "hbnames" lists them) */
+{
+    for (int i = 0; i < g_hb.nn; i++) if (!strcmp(g_hb.names[i], nm)) return i;
+    if (g_hb.nn >= TR_HB_MAXC) return -1;
+    snprintf(g_hb.names[g_hb.nn], sizeof g_hb.names[0], "%s", nm); return g_hb.nn++;
+}
+static void tr_hb_val(uint32_t snap, int kind, const char *nm, uint64_t v)
+{
+    int i = tr_hb_idx(nm); if (i < 0) return;
+    tr_put(&g_hb.b, H_CNT, 0, 0, (uint32_t)kind, 0, snap, (uint32_t)i, -1, -1, v);
+}
+static int tr_hb_slurp(const char *path, char *buf, size_t cap)
+{
+    int fd = open(path, O_RDONLY); if (fd < 0) return 0;
+    ssize_t n = read(fd, buf, cap - 1); close(fd); if (n < 0) n = 0; buf[n] = 0; return (int)n;
+}
+/* one snapshot of the counters, as H_CNT records of snapshot id snap */
+static void tr_hb_snap(uint32_t snap, int kind)
+{
+    static const char *const pref[] = { "compact_", "thp_fault", "thp_collapse", "pgmajfault", "allocstall", "pswpin", "pswpout", "numa_", "pgscan_direct", "pgsteal_direct", "pgmigrate_" };
+    if (tr_hb_slurp("/proc/vmstat", g_hb.buf, sizeof g_hb.buf)) {
+        for (char *l = g_hb.buf; l && *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            for (unsigned i = 0; i < sizeof pref / sizeof *pref; i++) if (!strncmp(l, pref[i], strlen(pref[i]))) {
+                char *sp = strchr(l, ' '); if (sp) { *sp = 0; tr_hb_val(snap, kind, l, strtoull(sp + 1, 0, 10)); } break; }
+            l = e ? e + 1 : 0;
+        }
+    }
+    static const char *const psi[3] = { "/proc/pressure/cpu", "/proc/pressure/memory", "/proc/pressure/io" }, *const pn[3] = { "psi_cpu", "psi_mem", "psi_io" };
+    for (int k = 0; k < 3; k++) if (tr_hb_slurp(psi[k], g_hb.buf, sizeof g_hb.buf)) {          /* "some avg10=.. total=N" / "full ..." lines */
+        for (char *l = g_hb.buf; l && *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            char *t = strstr(l, "total="); if (t && (!strncmp(l, "some", 4) || !strncmp(l, "full", 4))) { char nm[40]; snprintf(nm, sizeof nm, "%s_%.4s_us", pn[k], l); tr_hb_val(snap, kind, nm, strtoull(t + 6, 0, 10)); }
+            l = e ? e + 1 : 0;
+        }
+    }
+    struct rusage ru;
+    if (getrusage(RUSAGE_THREAD, &ru) == 0) {
+        tr_hb_val(snap, kind, "thr_nivcsw", (uint64_t)ru.ru_nivcsw); tr_hb_val(snap, kind, "thr_nvcsw", (uint64_t)ru.ru_nvcsw);
+        tr_hb_val(snap, kind, "thr_minflt", (uint64_t)ru.ru_minflt); tr_hb_val(snap, kind, "thr_majflt", (uint64_t)ru.ru_majflt);
+    }
+    if (getrusage(RUSAGE_SELF, &ru) == 0) {
+        tr_hb_val(snap, kind, "proc_nivcsw", (uint64_t)ru.ru_nivcsw); tr_hb_val(snap, kind, "proc_majflt", (uint64_t)ru.ru_majflt); tr_hb_val(snap, kind, "proc_minflt", (uint64_t)ru.ru_minflt);
+    }
+}
+static void *tr_hb_main(void *a)
+{
+    (void)a;
+    struct timespec rq = { (time_t)(g_hb.ms / 1000), (long)(g_hb.ms % 1000) * 1000000L };
+    uint64_t prev = tr_now(), lastsnap = prev; uint64_t thr = (uint64_t)g_hb.gap_ms * 1000000ull;
+    tr_hb_snap(g_hb.snap++, 1);                                                              /* the first periodic snapshot: the baseline */
+    while (__atomic_load_n(&g_hb.run, __ATOMIC_ACQUIRE)) {
+        nanosleep(&rq, 0);
+        uint64_t t = tr_now(), gap = t - prev; prev = t;
+        if (gap >= thr) {                                                                     /* a late wake-up: the gap and the counters right after it */
+            uint32_t id = g_hb.snap++; tr_put(&g_hb.b, H_GAP, 0, 0, 0, 0, id, 0, -1, -1, gap); tr_hb_snap(id, 0); }
+        if (t - lastsnap >= 1000000000ull) { lastsnap = t; tr_hb_snap(g_hb.snap++, 1); }
+    }
+    return 0;
+}
+/* COMM_TRACE_HB=<ms> (0 / unset: off); proxy = 1 from a proxy process (needs COMM_TRACE_HB_PX=1) */
+static void tr_hb_start(int proxy)
+{
+    if (!g_tr.on || g_hb.started) return;
+    const char *e = getenv("COMM_TRACE_HB"); if (!e || atoi(e) <= 0) return;
+    if (proxy) { const char *px = getenv("COMM_TRACE_HB_PX"); if (!px || atoi(px) <= 0) return; }
+    const char *g = getenv("COMM_TRACE_HB_GAP_MS"); g_hb.ms = (uint32_t)atoi(e); g_hb.gap_ms = g && atoi(g) > 0 ? (uint32_t)atoi(g) : 20;
+    g_hb.run = 1;
+    if (pthread_create(&g_hb.th, 0, tr_hb_main, 0)) { g_hb.run = 0; return; }
+    g_hb.started = 1;
+}
+static void tr_hb_stop(void)
+{
+    if (!g_hb.started) return;
+    __atomic_store_n(&g_hb.run, 0, __ATOMIC_RELEASE); pthread_join(g_hb.th, 0); g_hb.started = 0;
+}
+/* the counter names as a JSON array (after tr_hb_stop) */
+static void tr_json_hbnames(FILE *f)
+{
+    fputc('[', f); for (int i = 0; i < g_hb.nn; i++) fprintf(f, "%s\"%s\"", i ? "," : "", g_hb.names[i]); fputc(']', f);
 }
 #endif

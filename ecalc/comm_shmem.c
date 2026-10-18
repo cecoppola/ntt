@@ -365,14 +365,14 @@ static void tr_flush(int proxy)
 {
     extern char **environ;
     if (!g_tr.on || g_tr.flushed) return;
-    g_tr.flushed = 1;
+    g_tr.flushed = 1; tr_hb_stop();
     char path[400]; mkdir(g_tr.dir, 0777); snprintf(path, sizeof path, "%s/trace_pe%d.bin", g_tr.dir, S.pme);
     char *jb = 0; size_t jn = 0; FILE *f = open_memstream(&jb, &jn); if (!f) return;   /* the JSON text */
     uint64_t nrec = tr_count();
     fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":%d,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
             sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.shift, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
             (unsigned long long)nrec, (unsigned long long)g_tr.dropped, (unsigned long long)g_tr.m0, (unsigned long long)g_tr.r0);
-    tr_json_events(f); fprintf(f, ",\"comms\":[");
+    tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u", g_hb.ms, g_hb.gap_ms); fprintf(f, ",\"comms\":[");
     for (int i = 0; i < g_tr.ncomm; i++) { struct tr_comm *c = &g_tr.comm[i]; fprintf(f, "%s{\"id\":%d,\"n\":%d,\"rank\":%d,\"apu\":%d,\"node\":[", i ? "," : "", c->id, c->n, c->rank, c->apu); for (int r = 0; r < c->n; r++) fprintf(f, "%s%d", r ? "," : "", c->node[r]); fprintf(f, "]}"); }
     fprintf(f, "],\"clock\":[");
     for (int pass = 0, first = 1; pass < 2 && g_tr.nclk; pass++) { fprintf(f, "%s[", pass ? "," : ""); first = 1;
@@ -893,6 +893,7 @@ int comm_shmem_init(void)
     { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
     S.xstats = env_int("COMM_XSTATS", 0) > 0; S.hst = env_int("COMM_KTIME", 0) > 0;   /* HS: host-step timers (COMM_KTIME=1) */
     tr_init(S.proxy ? 4 : 0);                             /* COMM_TRACE=1: the trace arena (a proxy's is a quarter of COMM_TRACE_MAX_MB) */
+    tr_hb_start(S.proxy);                                 /* COMM_TRACE_HB=<ms>: the heartbeat thread (comm_trace.h) */
 #ifndef COMM_HOST_ONLY
     comm_ktime_set_pool(px_reg_in);                       /* KT (COMM_KTIME=1, comm_copy.c): which pointers are the proxy pool */
 #endif
@@ -1026,6 +1027,7 @@ typedef struct {
     double hs[HS_N]; double hcall0; int hpath, hxk;   /* HS: the exchange's host-step seconds (COMM_KTIME=1), when its post returned, its path (0 equal, 1 v, 2 rounds) and xtag kind */
     int xk, xph, xapu; long xK; double xroff, xsig;   /* X1 xstats: the pending exchange's kind, phase, APU, rounds, and the seconds blocked on offset words (skew) / signal words (transfer, tail) */
     int ofi, xo, sdb; char *db; ofi_dev *od; ofi_peers *op; long *ocnt, *osig;
+    void *tev[2]; int tev_ok;   /* COMM_TRACE: hipEvents around the staging copies (the GPU time of the copy, E_COPY_DONE / E_RCOPY_DONE bytes) */
     tr_buf tb; int tr_act, tr_kind, tr_path, tr_reg; uint32_t tr_xs;   /* COMM_TRACE: this communicator's record chunk; whether the pending exchange is traced (the sampling), its xtag kind and path; in the table; its sequence */
     px_dev *px; int *pxpe;                 /* N7b: the proxy data plane (ofi = 1 with px set): my APU's proxy, the members' proxies (physical PEs) */
     int nw, ibon, ibtried; size_t ib, ibcap; unsigned char *ibf;   /* FA: control words per rank (W_N, + 1 under the switch); my inbox (offset in db), bytes per sender, which senders' messages of the pending exchange are in it */
@@ -1033,6 +1035,32 @@ typedef struct {
 #define PRIV(c) ((shm_priv *)(c)->priv)
 /* COMM_TRACE: TR(p, event, round, peer rank, sequence, bytes, aux) stamps one event of the pending exchange when it is traced (comm_trace.h) */
 #define TR(p, ev, rd, peer, seq, nb, aux) do { if (__builtin_expect(g_tr.on, 0) && (p)->tr_act) tr_put(&(p)->tb, (ev), (uint8_t)((p)->tr_kind | (p)->tr_path << 4), (uint32_t)(p)->id, (uint32_t)(seq), (p)->tr_xs, (uint32_t)(aux), (uint32_t)(rd), (p)->me, (peer), (uint64_t)(nb)); } while (0)
+/* COMM_TRACE: the GPU time of a staging copy: an event before the copies and one after them on the same stream; after the stream sync (which the code already does) the elapsed time between
+ * the two is the copy's own time on the GPU (the wait for the caller's earlier kernels before it is not in it): E_COPY_DONE bytes (ns), against E_COPY_ISS -> E_COPY_DONE = issue + wait + copy */
+#ifndef COMM_HOST_ONLY
+static void tr_cev_beg(shm_priv *p, hipStream_t s)
+{
+    if (!g_tr.on || !p->tr_act) return;
+    if (!p->tev[0]) { hipEvent_t a, b; if (hipEventCreate(&a) != hipSuccess || hipEventCreate(&b) != hipSuccess) { (void)hipGetLastError(); p->tev[0] = (void *)1; return; } p->tev[0] = (void *)a; p->tev[1] = (void *)b; }
+    p->tev_ok = 0; if (p->tev[0] == (void *)1) return;
+    if (hipEventRecord((hipEvent_t)p->tev[0], s) != hipSuccess) (void)hipGetLastError();
+}
+static void tr_cev_end(shm_priv *p, hipStream_t s)
+{
+    if (!g_tr.on || !p->tr_act || !p->tev[1]) return;
+    if (hipEventRecord((hipEvent_t)p->tev[1], s) == hipSuccess) p->tev_ok = 1; else (void)hipGetLastError();
+}
+static uint64_t tr_cev_ns(shm_priv *p)                    /* after the sync */
+{
+    float ms = 0; if (!g_tr.on || !p->tr_act || !p->tev_ok) return 0; p->tev_ok = 0;
+    if (hipEventElapsedTime(&ms, (hipEvent_t)p->tev[0], (hipEvent_t)p->tev[1]) != hipSuccess) { (void)hipGetLastError(); return 0; }
+    return ms > 0 ? (uint64_t)((double)ms * 1e6) + 1 : 1;
+}
+#else
+#define tr_cev_beg(p, s) ((void)0)
+#define tr_cev_end(p, s) ((void)0)
+#define tr_cev_ns(p) ((uint64_t)0)
+#endif
 static void tr_comm_register(shm_priv *p)
 {
     p->tr_reg = 1; int apu = 0;
@@ -1364,11 +1392,11 @@ static void s_alltoall_i(comm *c, const void *sb, void *rb, size_t bytes, hipStr
     staging(p, sin ? 0 : bytes * n, rin ? 0 : bytes * n, "alltoall"); HA(p, H_STAGE, h0);
     seq_next(p); p->v = 0; p->bytes = bytes; p->stride = bytes; p->scnt = p->sdsp = 0; p->rb = rb; p->st = s; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : p->db + p->sst;
-    h0 = HT();
+    h0 = HT(); tr_cev_beg(p, s);
     if (!sin) COPY(p->db + p->sst, sb, bytes * n, s);                                         /* my slabs (all of them: simpler than skipping the self slab) */
     if ((const char *)sb + (size_t)me * bytes != (char *)rb + (size_t)me * bytes) COPY((char *)rb + (size_t)me * bytes, (const char *)sb + (size_t)me * bytes, bytes, s);   /* the self slab */
-    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, 0, 0);   /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the stream is done with sb and rb (a pool-resident rb may still be read by the caller's earlier kernels: publish only after) */
     HA(p, H_SYNC, h0); h0 = HT();
     ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, bytes, 0);
@@ -1497,10 +1525,10 @@ static int alltoallv_rounds(comm *c, const void *sb, const size_t *scnt, const s
 #ifndef COMM_HOST_ONLY
     if (!p->rs_made) { HIP_CHECK(hipGetDevice(&p->dev)); HIP_CHECK(hipStreamCreateWithFlags(&p->rs, hipStreamNonBlocking)); p->rs_made = 1; }
 #endif
-    h0 = HT();
+    h0 = HT(); tr_cev_beg(p, s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
-    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, 0, 0);   /* the caller's stream is done with sb and rb */
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);   /* the caller's stream is done with sb and rb */
     HA(p, H_SYNC, h0); h0 = HT();
     if (pthread_create(&p->th, 0, rounder, p)) die("pthread_create");
     p->thread = 1;
@@ -1523,11 +1551,11 @@ static void s_alltoallv_i(comm *c, const void *sb, const size_t *scnt, const siz
     if (scnt[me] != rcnt[me]) die("alltoallv self count mismatch");
     seq_next(p); p->v = 1; p->bytes = 0; p->rb = rb; p->st = s; p->rcnt = rcnt; p->rdsp = rdsp; p->scnt = scnt; p->rin = rin; p->pending = 1;
     p->src = sin ? (const char *)sb : p->db + p->sst; p->sdsp = sin ? sdsp : p->spre;
-    h0 = HT();
+    h0 = HT(); tr_cev_beg(p, s);
     if (!sin) for (int r = 0; r < n; r++) if (r != me && scnt[r]) COPY(p->db + p->sst + p->spre[r], (const char *)sb + sdsp[r], scnt[r], s);
     if (scnt[me] && (const char *)sb + sdsp[me] != (char *)rb + rdsp[me]) COPY((char *)rb + rdsp[me], (const char *)sb + sdsp[me], scnt[me], s);
-    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0);
-    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, 0, 0);
+    HA(p, H_CPY, h0); h0 = HT(); TR(p, E_COPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, s);
+    SYNC(s); TR(p, E_COPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);
     HA(p, H_SYNC, h0); h0 = HT();
     ibx_setup(p);                                         /* FA (off: returns) */
     publish(p, rin ? off_db(p, rb) : p->rst, 0, rin ? rdsp : p->rpre);
@@ -1577,12 +1605,12 @@ static void s_wait_i(comm *c)
     }
     if (ibn && p->rin) { SYNC(p->st); }
     if (!p->rin) {
-        h1 = HT();
+        h1 = HT(); tr_cev_beg(p, p->st);
         if (!p->v) { for (int r = 0; r < n; r++) if (r != me && !(ibn && p->ibf[r])) COPY((char *)p->rb + (size_t)r * p->bytes, p->db + p->rst + (size_t)r * p->bytes, p->bytes, p->st); }
         else for (int r = 0; r < n; r++) if (r != me && p->rcnt[r] && !(ibn && p->ibf[r])) COPY((char *)p->rb + p->rdsp[r], p->db + p->rst + p->rpre[r], p->rcnt[r], p->st);
-        HA(p, H_RCPY, h1); h1 = HT(); TR(p, E_RCOPY_ISS, 0, -1, p->tr_xs, 0, 0);
+        HA(p, H_RCPY, h1); h1 = HT(); TR(p, E_RCOPY_ISS, 0, -1, p->tr_xs, 0, 0); tr_cev_end(p, p->st);
         SYNC(p->st);
-        HA(p, H_RSYNC, h1); TR(p, E_RCOPY_DONE, 0, -1, p->tr_xs, 0, 0);
+        HA(p, H_RSYNC, h1); TR(p, E_RCOPY_DONE, 0, -1, p->tr_xs, tr_cev_ns(p), 0);
     }
     if (p->ibon) ibx_grant(p, 1);                        /* FA: the inbox is free for the next exchange */
     staging_drop(p);

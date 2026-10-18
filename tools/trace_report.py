@@ -16,7 +16,11 @@ plus compact per-message tables (capped at --max-msgs, uniformly thinned beyond)
   5 last       who is last: per receiver (the sender whose signal was seen last, by how much), per exchange (the sender node that issued last, the node that
                published its offset word last), which peer ended the waits, with the lag against the median
   6 slowest    the slowest exchanges: per rank stage breakdown, the slowest messages, and the raw event timeline of the slowest
+  6b skew      the slowest exchanges by arrival skew (last begin - first begin) with the late node; sections 6 and 7 rank by xt = last done - last begin (after the last arrival)
   7 time       whether slow exchanges / messages cluster in time (a node stalling) or are spread: per-bin counts, Fano factor, persistence, worst bins
+  8 stalls     (COMM_TRACE_HB) the heartbeat gaps of every node (node-process and proxy threads), the OS counters that moved at each gap (vmstat compaction / THP / faults / swap,
+               pressure, the thread's context switches) and the late exchanges of that node at that time; the skew-ranked exchanges against the heartbeat of their late node
+A communicator is identified by (id, the node of each rank): ids repeat across disjoint node groups (layeq pairs), shown as id@nodes.
 Times of different nodes are only as good as the clock estimate (bound = half the best round trip, printed); 'neg%' counts cross-node one-way latencies
 below zero (a measure of the clock error against the real latency)."""
 import sys, os, json, struct, glob, math, tempfile, shutil, argparse, collections
@@ -69,10 +73,20 @@ def load_run(d, label):
         if j in p0:
             a = p0[j]; b = p1.get(j)
             r.clock[j] = (a["off_m"], a["t0"], b["off_m"] if b else None, b["t0"] if b else None, min(a["rtt"], b["rtt"]) if b else a["rtt"], a["rtt_med"])
-    r.comms = {}                                   # id -> dict(n, node[], apu)
+    # a communicator id is only unique per group of nodes (the layeq pairs of nodes 0-1, 2-3, 4-5 all use id 8): the analysis unit is the group (id, node of each rank)
+    r.comms = {}                                   # group index -> dict(id, n, node[], apu, lab)
+    groups = {}
     for h in r.nodeproc:
+        lut = {}
         for c in h["meta"]["comms"]:
-            r.comms.setdefault(c["id"], dict(n=c["n"], node=c["node"], apu=c["apu"]))
+            key = (c["id"], tuple(c["node"]))
+            if key not in groups:
+                groups[key] = len(groups); r.comms[groups[key]] = dict(id=c["id"], n=c["n"], node=c["node"], apu=c["apu"])
+            lut[c["id"]] = groups[key]
+        h["lut"] = lut
+    idc = collections.Counter(c["id"] for c in r.comms.values())
+    for g, c in r.comms.items():
+        c["lab"] = str(c["id"]) if idc[c["id"]] == 1 else "%d@%s" % (c["id"], "-".join(str(x) for x in sorted(set(c["node"]))))
     return r
 
 
@@ -127,14 +141,20 @@ def load_proxies(run):
 
 # ---------------------------------------------------------------- spill the node-process records per communicator
 def spill(run, tmp):
-    fh = {}; counts = collections.Counter()
+    fh = {}; counts = collections.Counter(); evh = run.ev.get("H_GAP", 256)
     for h in run.nodeproc:
-        node = h["meta"]["node"]
+        node = h["meta"]["node"]; lut = np.full(4097, 0xFFFFFFFF, np.uint32)
+        for i, g in h["lut"].items():
+            if i < 4096:
+                lut[i] = g
         for c in chunks(h):
+            c = c[c["ev"] < evh]                    # the heartbeat records (H_*) are not exchange records
+            if len(c) == 0:
+                continue
             out = np.empty(len(c), REC2)
             for nme in REC.names[1:]:
                 out[nme] = c[nme]
-            out["t"] = to_clock0(run, c["t"], node)
+            out["t"] = to_clock0(run, c["t"], node); out["comm"] = lut[np.minimum(c["comm"], 4096)]
             order = np.argsort(out["comm"], kind="stable"); out = out[order]; cm = out["comm"]
             brk = np.flatnonzero(np.r_[True, cm[1:] != cm[:-1]]); ends = np.r_[brk[1:], len(out)]
             for s, e in zip(brk, ends):
@@ -201,6 +221,8 @@ def ex_table(R, E):
             uk, uv = last_per_key(k, (x["kp"] >> 4).astype(np.int64)); out["path"] = lookup(bk, uk, uv, np.int64, 0)
         if name == "E_POSTED":
             uk, uv = last_per_key(k, x["aux"].astype(np.int64)); out["K"] = lookup(bk, uk, uv, np.int64, 1)
+        if name in ("E_COPY_DONE", "E_RCOPY_DONE"):                    # bytes = the GPU time of the copy between two hipEvents (0: not recorded)
+            uk, uv = last_per_key(k, x["bytes"].astype(np.float64)); g = lookup(bk, uk, uv); g[g <= 0] = NAN; out["copy_gpu" if name == "E_COPY_DONE" else "rcopy_gpu"] = g
     return out
 
 
@@ -261,7 +283,7 @@ def msg_table(R, E, nodes_of_rank, apu, P):
 
 # ---------------------------------------------------------------- accumulation across communicators
 MSG_STAGES = ["roff_wait", "roff_oneway", "put_post", "wire", "px_ring", "px_chunks", "px_busy", "sig_oneway", "sig_wait", "e2e"]
-EX_STAGES = [("post", lambda e: e["t_posted"] - e["t_begin"]), ("copy", lambda e: e["t_copy"] - e["t_begin"]), ("publish", lambda e: e["t_pub"] - e["t_copy"]),
+EX_STAGES = [("copy_sync", lambda e: e["t_copy"] - e["t_copy_iss"]), ("copy_gpu", lambda e: e["copy_gpu"]), ("rcopy_gpu", lambda e: e["rcopy_gpu"]), ("post", lambda e: e["t_posted"] - e["t_begin"]), ("copy", lambda e: e["t_copy"] - e["t_begin"]), ("publish", lambda e: e["t_pub"] - e["t_copy"]),
              ("call", lambda e: e["t_wait"] - e["t_posted"]), ("join", lambda e: e["t_joined"] - e["t_wait"]), ("sigs", lambda e: e["t_sigs"] - e["t_joined"]),
              ("quiet", lambda e: e["t_quiet"] - e["t_sigs"]), ("rcopy", lambda e: e["t_rcopy"] - e["t_rciss"]), ("wait", lambda e: e["t_done"] - e["t_wait"]), ("total", lambda e: e["t_done"] - e["t_begin"])]
 RD_STAGES = [("publish", lambda r: r["pub"] - r["t_begin"]), ("scopy", lambda r: r["scopy"] - r["pub"]), ("sends", lambda r: r["sends"] - np.where(np.isfinite(r["scopy"]), r["scopy"], r["pub"])),
@@ -272,7 +294,7 @@ class Acc:
     def __init__(self, cap):
         self.cap = cap; self.stage = collections.defaultdict(list); self.msgs = []; self.nmsg = 0; self.exs = []; self.nex = 0
         self.last = collections.defaultdict(list); self.top = []; self.vol = collections.defaultdict(lambda: [0, 0, 0.0, 0.0, 1e30, 0.0]); self.keep = 1.0
-        self.ncomm = 0
+        self.ncomm = 0; self.topskew = []
 
 
 def thin(arr_dict, frac, rng):
@@ -347,16 +369,22 @@ def add_comm(R, run, cid, cinfo, P, acc, rng, top_k):
                 if s.any():
                     a = acc.vol[(int(kd), int(pa))]; a[0] += int(s.sum()); a[2] += float(ex["bytes"][s].sum())
         order, st, uk = grp(ex["xseq"]); n = len(uk)
-        tb = np.fmin.reduceat(ex["t_begin"][order], st); td = np.fmax.reduceat(ex["t_done"][order], st); skew = np.fmax.reduceat(ex["t_begin"][order], st) - tb
+        tb = np.fmin.reduceat(ex["t_begin"][order], st); td = np.fmax.reduceat(ex["t_done"][order], st); tl = np.fmax.reduceat(ex["t_begin"][order], st); skew = tl - tb
         dur_rank = np.fmax.reduceat((ex["t_done"] - ex["t_begin"])[order], st)
+        o2 = np.lexsort((ex["t_begin"], ex["xseq"])); xs2 = ex["xseq"][o2]; en = np.flatnonzero(np.r_[xs2[1:] != xs2[:-1], True]); st2 = np.r_[0, en[:-1] + 1]
+        nodes_arr = np.array(cinfo["node"], np.int64); late_node = nodes_arr[ex["me"][o2][en]]; first_node = nodes_arr[ex["me"][o2][st2]]
+        # skew = last arrival (E_BEGIN) - first arrival; xt = the exchange time after the last arrival = last done - last begin (what the transport and the copies cost)
         e = dict(comm=np.full(n, cid), xseq=uk, kind=ex["kind"][order][st], path=ex["path"][order][st], bytes=np.add.reduceat(ex["bytes"][order], st), t_start=tb, t_end=td, dur=td - tb,
-                 durmax=dur_rank, skew=skew, K=ex["K"][order][st])
+                 durmax=dur_rank, skew=skew, K=ex["K"][order][st], t_last=tl, xt=td - tl, late_node=late_node, first_node=first_node)
         acc.exs.append(e); acc.nex += n
-        cand = np.argsort(-np.nan_to_num(e["dur"], nan=-1))[:top_k]
+        cand = np.argsort(-np.nan_to_num(e["xt"], nan=-1))[:top_k]
         for i in cand:
             sub = R[R["xseq"] == e["xseq"][i]]
-            acc.top.append((float(e["dur"][i]), cid, int(e["xseq"][i]), sub.copy()))
+            acc.top.append((float(e["xt"][i]), cid, int(e["xseq"][i]), sub.copy()))
         acc.top.sort(key=lambda x: -x[0]); del acc.top[top_k:]
+        for i in np.argsort(-np.nan_to_num(skew, nan=-1))[:15]:
+            acc.topskew.append(dict(skew=float(skew[i]), cid=cid, xseq=int(uk[i]), kind=int(e["kind"][i]), late=int(late_node[i]), first=int(first_node[i]), t_start=float(tb[i]), t_last=float(tl[i]), xt=float(e["xt"][i]), bytes=float(e["bytes"][i])))
+        acc.topskew.sort(key=lambda x: -x["skew"]); del acc.topskew[15:]
     if rd is not None:
         for name, f in RD_STAGES:
             v = f(rd); acc.stage[("rd", name, -1)].append(v[np.isfinite(v)].astype(np.float32))
@@ -491,14 +519,14 @@ def fmt_hdr_ex(run, cid, x):
 
 
 def section_slowest(run, acc, L, P, nshow, ntl):
-    L.append("6 slowest exchanges (duration = first begin -> last done over the ranks; stage values ms on each rank):")
+    L.append("6 slowest exchanges by exchange time (xt = last done - last begin, i.e. after the last rank arrived: transport, copies, waits; the arrival skew is listed with each and ranked in 6b; stage values ms on each rank):")
     top = acc.top[:nshow]
     for rank_i, (dur, cid, xs, sub) in enumerate(top):
         cinfo = run.comms[cid]; E = run.ev
         ex = ex_table(sub, E); mt = msg_table(sub, E, cinfo["node"], cinfo["apu"], P)
         t0 = float(np.nanmin(ex["t_begin"])) if ex is not None else float(sub["t"].min())
         k = int(ex["K"].max()) if ex is not None else 1
-        L.append(" #%d comm %d (APU %d) xseq %d kind %s path %s rounds %d: %.2f ms; begin skew %.2f ms" % (rank_i + 1, cid, cinfo["apu"], xs, KIND[int(ex["kind"][0])] if ex is not None else "?", PATH[int(ex["path"].max())] if ex is not None else "?", k,
+        L.append(" #%d comm %s (APU %d) xseq %d kind %s path %s rounds %d: xt %.2f ms; arrival skew %.2f ms" % (rank_i + 1, cinfo["lab"], cinfo["apu"], xs, KIND[int(ex["kind"][0])] if ex is not None else "?", PATH[int(ex["path"].max())] if ex is not None else "?", k,
                                                                                                           dur / 1e6, (np.nanmax(ex["t_begin"]) - t0) / 1e6 if ex is not None else NAN))
         if ex is not None:
             L.append("     rank node | begin  post  call   join  sigs  quiet rcopy | done (ms from the first begin) | send MiB")
@@ -523,11 +551,14 @@ def section_slowest(run, acc, L, P, nshow, ntl):
 
 
 def section_time(run, acc, L, binw, ratio):
-    L.append("7 clustering in time (slow = exchange duration > %.1f x the median of its kind / path / size class; bins of %.1f s of exchange start on node 0's clock):" % (ratio, binw))
+    L.append("7 clustering in time (slow = exchange time xt > %.1f x the median of its kind / path / size class; bins of %.1f s of exchange start on node 0's clock):" % (ratio, binw))
     if not acc.exs:
         L.append("   no exchanges"); return
     E = {k: np.concatenate([e[k] for e in acc.exs]) for k in acc.exs[0]}
-    dur = E["dur"]; ok = np.isfinite(dur) & (dur > 0)
+    dur = E["xt"]; ok = np.isfinite(dur) & (dur > 0)             # the exchange time after the last arrival (the arrival skew is separate: see 6b)
+    sk = E["skew"][np.isfinite(E["skew"])]
+    L.append("   arrival skew (last begin - first begin) ms: p50 %.3f p90 %.3f p99 %.3f max %.3f; exchange time after the last arrival (xt) ms: p50 %.3f p90 %.3f p99 %.3f max %.3f" % (
+        *(np.percentile(sk, [50, 90, 99]) / 1e6), sk.max() / 1e6, *(np.percentile(dur[ok], [50, 90, 99]) / 1e6), dur[ok].max() / 1e6))
     cls = E["kind"] * 1000 + E["path"] * 100 + np.floor(np.log2(np.maximum(E["bytes"], 1))).astype(np.int64)
     med = {}
     for c in np.unique(cls[ok]):
@@ -557,7 +588,7 @@ def section_time(run, acc, L, binw, ratio):
                 s = tb == b_
                 L.append("     %8.1f | %4d / %-5d | %8.2f" % (b_ * binw, sl[b_], tot[b_], dur[s].max() / 1e6))
         # which node is last in the slow exchanges: by the last-begin skew (entry) of the exchange
-        L.append("   slow exchanges: median entry skew %.2f ms (all: %.2f ms); median duration %.2f ms (all: %.2f ms)" % (np.nanmedian(E["skew"][slow]) / 1e6, np.nanmedian(E["skew"][ok]) / 1e6, np.median(dur[slow]) / 1e6, np.median(dur[ok]) / 1e6))
+        L.append("   slow exchanges (by xt): median entry skew %.2f ms (all: %.2f ms); median duration %.2f ms (all: %.2f ms)" % (np.nanmedian(E["skew"][slow]) / 1e6, np.nanmedian(E["skew"][ok]) / 1e6, np.median(dur[slow]) / 1e6, np.median(dur[ok]) / 1e6))
     # messages
     if acc.msgs:
         M = {k: np.concatenate([x[k] for x in acc.msgs]) for k in acc.msgs[0]}
@@ -577,6 +608,118 @@ def section_time(run, acc, L, binw, ratio):
             L.append("   slow messages per bin: Fano %.1f; worst bins (start s: slow msgs): %s" % (fano, "  ".join("%.0f: %d" % (b * binw, c2[b]) for b in np.argsort(-c2)[:6] if c2[b])))
             # a stalled node: bins where one sender node holds most slow messages
             L.append("   (a node stall shows as a bin whose slow messages all share one sender or receiver node; compare the per-node shares above)")
+
+
+def section_skew(run, acc, L):
+    L.append("6b slowest exchanges by arrival skew (last begin - first begin over the ranks; late = node whose rank began last; xt = exchange time after the last arrival; times in s / ms on node 0's clock):")
+    L.append("   skew ms |  xt ms | comm xseq kind | late node | first node | first begin s | MiB sent (sum)")
+    t0 = run.t_first
+    for x in acc.topskew:
+        L.append("   %8.1f | %6.2f | %s %d %s | n%-2d | n%-2d | %9.3f | %9.1f" % (x["skew"] / 1e6, x["xt"] / 1e6, run.comms[x["cid"]]["lab"], x["xseq"], KIND[x["kind"]] if x["kind"] < len(KIND) else x["kind"], x["late"], x["first"], (x["t_start"] - t0) / 1e9, x["bytes"] / 1048576.0))
+    if acc.exs:
+        E = {k: np.concatenate([e[k] for e in acc.exs]) for k in ("skew", "late_node", "xt")}
+        big = E["skew"] > 50e6
+        L.append("   exchanges with skew > 50 ms: %d of %d; by late node: %s" % (int(big.sum()), len(E["skew"]), "  ".join("n%d %d" % (n, int((E["late_node"][big] == n).sum())) for n in range(run.nodes) if (E["late_node"][big] == n).any()) or "-"))
+
+
+HB_KEY = ["compact_stall", "compact_fail", "thp_fault_alloc", "thp_fault_fallback", "thp_collapse_alloc", "pgmajfault", "pswpin", "pswpout", "allocstall", "numa_pages_migrated", "numa_hint_faults", "pgscan_direct", "pgsteal_direct",
+          "psi_cpu_some_us", "psi_mem_some_us", "psi_mem_full_us", "psi_io_some_us", "psi_io_full_us", "thr_nivcsw", "thr_majflt", "proc_nivcsw", "proc_majflt"]
+
+
+def load_hb(run):
+    """heartbeat records (COMM_TRACE_HB): {file index: dict(node, proc, gaps [(t_end, gap_ns, snap)], snaps {id: (t, kind, {name: value})})}; times on node 0's clock"""
+    out = []
+    if "H_GAP" not in run.ev:
+        return out
+    eg, ec = run.ev["H_GAP"], run.ev["H_CNT"]
+    for h in run.files:
+        names = h["meta"].get("hbnames") or []
+        if not names or h["nrec"] == 0:
+            continue
+        node = h["meta"]["node"]; gaps = []; snaps = {}
+        for c in chunks(h):
+            m = (c["ev"] == eg) | (c["ev"] == ec)
+            if not m.any():
+                continue
+            c = c[m]; t = to_clock0(run, c["t"], node)
+            for r, tt in zip(c, t):
+                if r["ev"] == eg:
+                    gaps.append((float(tt), float(r["bytes"]), int(r["aux"])))
+                else:
+                    sn = snaps.setdefault(int(r["aux"]), [float(tt), int(r["seq"]), {}])
+                    sn[2][names[int(r["round"])] if int(r["round"]) < len(names) else "?%d" % int(r["round"])] = int(r["bytes"])
+        if gaps or snaps:
+            out.append(dict(node=node, proc=("px%d" % h["meta"]["apu"]) if h["meta"]["proxy"] else "np", gaps=sorted(gaps), snaps=snaps, gap_ms=h["meta"].get("hb_gap_ms"), hb_ms=h["meta"].get("hb_ms")))
+    return out
+
+
+def hb_delta(hb, t_a, snap_b):
+    """counter deltas between the last snapshot that ended before t_a and snapshot snap_b (the gap's own)"""
+    sb = hb["snaps"].get(snap_b)
+    if sb is None:
+        return None
+    prev = None
+    for i, sn in hb["snaps"].items():
+        if i != snap_b and sn[0] <= t_a and (prev is None or sn[0] > prev[0]):
+            prev = sn
+    if prev is None:
+        return None
+    d = {}
+    for k, v in sb[2].items():
+        if k in prev[2] and v != prev[2][k] and (k in HB_KEY or k.startswith("allocstall") or k.startswith("compact_") or k.startswith("numa_")):
+            d[k] = v - prev[2][k]
+    return d, (t_a - prev[0]) / 1e9
+
+
+def fmt_delta(d, lim=9):
+    if d is None:
+        return "(no earlier snapshot)"
+    items = sorted(d.items(), key=lambda kv: -abs(kv[1]))[:lim]
+    return " ".join("%s+%d" % (k.replace("_us", "us"), v) for k, v in items) or "no counter moved"
+
+
+def section_stalls(run, acc, L, hbs):
+    L.append("8 stalls: heartbeat wake-up gaps (COMM_TRACE_HB) joined with OS counters and the late node of the exchanges (times s on node 0's clock):")
+    if not hbs:
+        L.append("   no heartbeat records (COMM_TRACE_HB unset, or an older trace)"); return
+    h0 = hbs[0]; L.append("   heartbeat every %s ms, gap threshold %s ms; threads: %d (%s); gaps seen: %d" % (h0["hb_ms"], h0["gap_ms"], len(hbs), ",".join(sorted(set(h["proc"] for h in hbs))), sum(len(h["gaps"]) for h in hbs)))
+    L.append("   per node: gaps (heartbeat thread of the node-process / of the proxies), longest ms, counter totals over the run (last - first snapshot of the node-process):")
+    for nd in range(run.nodes):
+        mine = [h for h in hbs if h["node"] == nd]
+        if not mine:
+            continue
+        gnp = sum(len(h["gaps"]) for h in mine if h["proc"] == "np"); gpx = sum(len(h["gaps"]) for h in mine if h["proc"] != "np")
+        lg = max([g[1] for h in mine for g in h["gaps"]] or [0]) / 1e6
+        tot = ""
+        for h in mine:
+            if h["proc"] == "np" and len(h["snaps"]) >= 2:
+                ids = sorted(h["snaps"], key=lambda i: h["snaps"][i][0]); a, b = h["snaps"][ids[0]][2], h["snaps"][ids[-1]][2]
+                tot = fmt_delta({k: b[k] - a[k] for k in b if k in a and b[k] != a[k] and (k in HB_KEY or k.startswith("allocstall") or k.startswith("compact_") or k.startswith("numa_"))}, 12)
+        L.append("     node %2d: gaps np %4d px %4d  longest %9.1f ms | %s" % (nd, gnp, gpx, lg, tot))
+    t0 = run.t_first
+    allg = sorted([(g[1], g[0], h, g) for h in hbs for g in h["gaps"]], key=lambda x: -x[0])[:30]
+    allg.sort(key=lambda x: x[1])
+    E = {k: np.concatenate([e[k] for e in acc.exs]) for k in ("t_start", "t_last", "skew", "late_node", "xt", "kind")} if acc.exs else None
+    L.append("   the %d longest gaps in time order: time s | node proc | gap ms | procs of the node with a gap overlapping | OS counters moved since the previous snapshot | late exchanges (node = late node, begin within the gap +-50 ms): n, max skew ms" % len(allg))
+    for gap, tend, h, g in allg:
+        ta = g[0] - g[1]; dl = hb_delta(h, ta, g[2])
+        over = sorted(set(h2["proc"] for h2 in hbs if h2["node"] == h["node"] for g2 in h2["gaps"] if g2[0] - g2[1] <= g[0] and g2[0] >= ta))
+        late = ""
+        if E is not None:
+            s = (E["late_node"] == h["node"]) & (E["t_last"] >= ta - 50e6) & (E["t_last"] <= g[0] + 50e6) & (E["skew"] > 2e6)
+            late = "%d, %.1f" % (int(s.sum()), E["skew"][s].max() / 1e6) if s.any() else "0"
+        L.append("   %9.3f | n%-2d %-3s | %8.1f | %-14s | %s%s | %s" % ((g[0] - t0) / 1e9, h["node"], h["proc"], g[1] / 1e6, ",".join(over), fmt_delta(dl[0] if dl else None), " (over %.1fs)" % dl[1] if dl else "", late))
+    L.append("   the slowest exchanges by skew against the heartbeat of their late node (a gap that ended between the first and the last begin):")
+    for x in acc.topskew[:10]:
+        hit = [(h["proc"], g) for h in hbs if h["node"] == x["late"] for g in h["gaps"] if g[0] >= x["t_start"] and g[0] - g[1] <= x["t_last"] + 20e6]
+        if hit:
+            best = max(hit, key=lambda z: z[1][1]); dl = None
+            for h in hbs:
+                if h["node"] == x["late"] and h["proc"] == best[0]:
+                    dl = hb_delta(h, best[1][0] - best[1][1], best[1][2])
+            L.append("     skew %8.1f ms comm %s xseq %d late n%d: gap %.1f ms on %s at %.3f s; %s" % (x["skew"] / 1e6, run.comms[x["cid"]]["lab"], x["xseq"], x["late"], best[1][1] / 1e6, best[0], (best[1][0] - t0) / 1e9, fmt_delta(dl[0] if dl else None)))
+        else:
+            L.append("     skew %8.1f ms comm %s xseq %d late n%d: no heartbeat gap on that node in the window" % (x["skew"] / 1e6, run.comms[x["cid"]]["lab"], x["xseq"], x["late"]))
 
 
 def run_report(run, args, L):
@@ -599,8 +742,11 @@ def run_report(run, args, L):
         section_stages(S, L)
         section_links(run, acc, L)
         section_last(run, acc, L)
+        run.t_first = float(np.nanmin(np.concatenate([e["t_start"] for e in acc.exs]))) if acc.exs else 0.0
         section_slowest(run, acc, L, P, args.top, args.timeline)
+        section_skew(run, acc, L)
         section_time(run, acc, L, args.bin_s, args.slow_ratio)
+        section_stalls(run, acc, L, load_hb(run))
         L.append("")
         return S
     finally:
@@ -629,7 +775,8 @@ def synth(d, nodes=3, nex=60, seed=3):
     rng = np.random.default_rng(seed); EVN = ["E_BEGIN", "E_COPY_ISS", "E_COPY_DONE", "E_PUBLISHED", "E_POSTED", "E_WAIT", "E_JOINED", "E_SIGS_SEEN", "E_QUIET_END", "E_RCOPY_ISS", "E_RCOPY_DONE", "E_DONE",
                                            "R_BEGIN", "R_PUBLISHED", "R_SCOPY_ISS", "R_SCOPY_DONE", "R_SENDS_DONE", "R_SIGS_DONE", "R_QUIET_END", "R_RCOPY_ISS", "R_END",
                                            "M_ROFF_ISSUE", "M_ROFF_WAIT", "M_ROFF_SEEN", "M_PUT_ISSUE", "M_PUT_POSTED", "M_PUT_DONE", "M_SIG_ISSUE", "M_SIG_WAIT", "M_SIG_SEEN", "M_FLUSH_BEG", "M_FLUSH_END",
-                                           "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE"]
+                                           "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE", "H_GAP", "H_CNT"]
+    HBN = ["compact_stall", "thr_nivcsw", "pgmajfault"]
     EV = {n: i + 1 for i, n in enumerate(EVN)}
     base = 5_000_000_000_000; off = lambda j, t: int(j * 1_500_000 + j * 40e-6 * (t - base))        # node j's clock minus true, ns
     recs = collections.defaultdict(list); prec = collections.defaultdict(list); kcount = collections.defaultdict(int)
@@ -670,13 +817,21 @@ def synth(d, nodes=3, nex=60, seed=3):
                 seen = sig_issue[(s, r)] + 40_000 + int(rng.integers(0, 5_000)); put(r, "M_SIG_SEEN", seen, 4, r, s, x, x); last = max(last, seen)
             put(r, "R_SENDS_DONE", last - 300_000, 4, r, -1, x, x, 0); put(r, "R_SIGS_DONE", last, 4, r, -1, x, x, 0); put(r, "R_QUIET_END", last + 20_000, 4, r, -1, x, x, 0); put(r, "R_END", last + 120_000, 4, r, -1, x, x, 0)
             put(r, "E_WAIT", begin[r] + 700_000, 4, r, -1, x, x); put(r, "E_JOINED", last + 130_000, 4, r, -1, x, x); put(r, "E_DONE", last + 140_000, 4, r, -1, x, x); done_t = max(done_t, last + 140_000)
+        if x == 20:
+            tstall = begin[2]
         t = done_t + 2_000_000
+    def hbsnap(node, tt, sid, kind, vals):
+        for i, v in enumerate(vals):
+            put(node, "H_CNT", tt, 0, -1, -1, kind, 0, rnd=i, nb=v, aux=sid, kp=0)
+    for j in range(nodes):                       # the heartbeat: periodic snapshots at the start and the end, and on node 2 a 40 ms gap that ends when its rank 2 begins exchange 20 late
+        hbsnap(j, base, 0, 1, [100, 5, 0]); hbsnap(j, t + 1_000_000, 3, 1, [100 + (30 if j == 2 else 0), 5 + (4 if j == 2 else 0), 0])
+    put(2, "H_GAP", tstall - 1_000_000, 0, -1, -1, 0, 0, nb=40_000_000, aux=1, kp=0); hbsnap(2, tstall - 1_000_000, 1, 0, [130, 9, 0])
     os.makedirs(d, exist_ok=True)
     clock0 = [{"node": j, "off_m": j * 1_500_000, "off_r": 0, "rtt": 8000 + 100 * j, "rtt_med": 12000, "t0": base} for j in range(1, nodes)]
     clock1 = [{"node": j, "off_m": int(j * 1_500_000 + j * 40e-6 * (t - base)), "off_r": 0, "rtt": 8100, "rtt_med": 12000, "t0": int(t)} for j in range(1, nodes)]
     def wr(pe, node, proxy, apu, rows, comms, clock):
         meta = {"version": 1, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "ppn": 5, "ppa": 1, "proxy": proxy, "apu": apu, "pxsend": 3, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
-                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
+                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
         js = json.dumps(meta).encode(); js += b" " * ((8 - len(js) % 8) % 8)
         arr = np.array(rows, dtype=REC) if rows else np.zeros(0, REC)
         with open(os.path.join(d, "trace_pe%d.bin" % pe), "wb") as f:
@@ -707,6 +862,11 @@ def selftest():
         if not m2 or float(m2.group(1)) < 3000: bad.append("the straggler node 2 was not flagged (p90 lag >= 3000 us)")
         if "persistence" not in txt or "Fano" not in txt:
             bad.append("no clustering section")
+        if "6b slowest" not in txt or "arrival skew" not in txt:
+            bad.append("no skew section")
+        st = txt.split("8 stalls")[1] if "8 stalls" in txt else ""
+        if "n2  np" not in st or "compact_stall+30" not in st or not re.search(r"late exchanges.*", st) or not re.search(r"\|\s+n2\s+np\s+\|\s+40\.0 .*\|\s+[1-9]\d*, [0-9.]+\s*$", st, re.M):
+            bad.append("the heartbeat stall of node 2 was not joined with its late exchange")
         print(txt if "-v" in sys.argv else "selftest: report %d lines" % len(L))
         for b in bad:
             print("selftest FAIL:", b)
