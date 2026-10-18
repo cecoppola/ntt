@@ -114,6 +114,7 @@ comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks shar
 hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
 /* KT (COMM_KTIME=1, default off, comm_copy.c): hipEvent timing of the exchange kernels k_btrans / k_bcopy / k_ccopy in place, per kernel and
  * source/destination memory kind (dev | host = registered host | pool = proxy pool), printed once per process at exit as `ktime` lines.
+ * ms, n and bytes are SUMMED over the process's APU threads (4 per node: divide ms by 4 for one APU's time; the gbps column is per APU); `ktimeb` lines split k_ccopy by launch size (log2 bytes).
  * Off: comm_ktime_begin is one flag test and the token stays empty. */
 struct comm_kt { hipEvent_t a; int k, sk, dk; size_t bytes; int on; };
 enum { KT_BTRANS, KT_BCOPY, KT_CCOPY };

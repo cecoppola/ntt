@@ -45,6 +45,14 @@ int g_comm_ktime = 0;
 #define KT_NDEV 8
 #define KT_MAXP 4096
 struct kt_pend { hipEvent_t a, b; int k, sk, dk; size_t bytes; };
+#define KT_NB 28                                                                                 /* size buckets: floor(log2(bytes)) of a k_ccopy launch */
+static double g_ktbms[3][3][KT_NB]; static long g_ktbn[3][3][KT_NB]; static double g_ktbb[3][3][KT_NB];   /* k_ccopy only: [src kind][dst kind][bucket] */
+static inline int kt_bk(size_t b) { int k = 0; while (b > 1 && k < KT_NB - 1) { b >>= 1; k++; } return k; }
+static void kt_acc(const struct kt_pend *q, float ms)    /* the caller holds g_ktmx or is single-threaded at exit */
+{
+    g_ktms[q->k][q->sk][q->dk] += ms; g_ktn[q->k][q->sk][q->dk]++; g_ktb[q->k][q->sk][q->dk] += (double)q->bytes;
+    if (q->k == KT_CCOPY) { int b = kt_bk(q->bytes); g_ktbms[q->sk][q->dk][b] += ms; g_ktbn[q->sk][q->dk][b]++; g_ktbb[q->sk][q->dk][b] += (double)q->bytes; }
+}
 struct kt_dev { struct kt_pend p[KT_MAXP]; int head, n; hipEvent_t freev[2 * KT_MAXP]; int nfree; pthread_mutex_t mx; };
 static struct kt_dev *g_ktd[KT_NDEV];
 static pthread_mutex_t g_ktmx = PTHREAD_MUTEX_INITIALIZER;
@@ -62,13 +70,15 @@ void comm_ktime_report(void)                                                    
     for (int d = 0; d < KT_NDEV; d++) if (g_ktd[d]) {                                          /* fold the rest: the process is ending, waiting is fine */
         hipSetDevice(d);
         while (g_ktd[d]->n) { struct kt_pend *q = &g_ktd[d]->p[g_ktd[d]->head]; float ms; hipEventSynchronize(q->b);
-            if (hipEventElapsedTime(&ms, q->a, q->b) == hipSuccess) { g_ktms[q->k][q->sk][q->dk] += ms; g_ktn[q->k][q->sk][q->dk]++; g_ktb[q->k][q->sk][q->dk] += (double)q->bytes; }
+            if (hipEventElapsedTime(&ms, q->a, q->b) == hipSuccess) kt_acc(q, ms);
             g_ktd[d]->head = (g_ktd[d]->head + 1) % KT_MAXP; g_ktd[d]->n--; } }
     double tms = 0, tb = 0; long tn = 0;
     for (int k = 0; k < 3; k++) for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) if (g_ktn[k][a][b]) {
         printf("ktime pe %ld kernel %s src %s dst %s n %ld ms %.3f bytes %.0f gbps %.1f\n", pe, kt_kn[k], kt_mk[a], kt_mk[b], g_ktn[k][a][b], g_ktms[k][a][b], g_ktb[k][a][b],
                g_ktms[k][a][b] > 0 ? g_ktb[k][a][b] / (g_ktms[k][a][b] * 1e6) : 0.0);
         tn += g_ktn[k][a][b]; tms += g_ktms[k][a][b]; tb += g_ktb[k][a][b]; }
+    for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) for (int k = 0; k < KT_NB; k++) if (g_ktbn[a][b][k])   /* k_ccopy by launch size: 2^k <= bytes < 2^(k+1) */
+        printf("ktimeb pe %ld kernel k_ccopy src %s dst %s log2b %d n %ld ms %.3f bytes %.0f gbps %.1f\n", pe, kt_mk[a], kt_mk[b], k, g_ktbn[a][b][k], g_ktbms[a][b][k], g_ktbb[a][b][k], g_ktbms[a][b][k] > 0 ? g_ktbb[a][b][k] / (g_ktbms[a][b][k] * 1e6) : 0.0);
     printf("ktime pe %ld total n %ld ms %.3f bytes %.0f\n", pe, tn, tms, tb); fflush(stdout);
 }
 static void kt_fold(struct kt_dev *v, int all)
@@ -77,7 +87,7 @@ static void kt_fold(struct kt_dev *v, int all)
         struct kt_pend *q = &v->p[v->head];
         if (hipEventQuery(q->b) != hipSuccess) { (void)hipGetLastError(); break; }
         float ms; if (hipEventElapsedTime(&ms, q->a, q->b) == hipSuccess) {
-            pthread_mutex_lock(&g_ktmx); g_ktms[q->k][q->sk][q->dk] += ms; g_ktn[q->k][q->sk][q->dk]++; g_ktb[q->k][q->sk][q->dk] += (double)q->bytes; pthread_mutex_unlock(&g_ktmx); }
+            pthread_mutex_lock(&g_ktmx); kt_acc(q, ms); pthread_mutex_unlock(&g_ktmx); }
         v->freev[v->nfree++] = q->a; v->freev[v->nfree++] = q->b;
         v->head = (v->head + 1) % KT_MAXP; v->n--;
     }
