@@ -45,6 +45,7 @@ int g_comm_ktime = 0;
 #define KT_NDEV 8
 #define KT_MAXP 4096
 struct kt_pend { hipEvent_t a, b; int k, sk, dk; size_t bytes; };
+static double g_ktms[3][3][3]; static long g_ktn[3][3][3]; static double g_ktb[3][3][3];     /* [kernel][src kind][dst kind] */
 #define KT_NB 28                                                                                 /* size buckets: floor(log2(bytes)) of a k_ccopy launch */
 static double g_ktbms[3][3][KT_NB]; static long g_ktbn[3][3][KT_NB]; static double g_ktbb[3][3][KT_NB];   /* k_ccopy only: [src kind][dst kind][bucket] */
 static inline int kt_bk(size_t b) { int k = 0; while (b > 1 && k < KT_NB - 1) { b >>= 1; k++; } return k; }
@@ -56,7 +57,6 @@ static void kt_acc(const struct kt_pend *q, float ms)    /* the caller holds g_k
 struct kt_dev { struct kt_pend p[KT_MAXP]; int head, n; hipEvent_t freev[2 * KT_MAXP]; int nfree; pthread_mutex_t mx; };
 static struct kt_dev *g_ktd[KT_NDEV];
 static pthread_mutex_t g_ktmx = PTHREAD_MUTEX_INITIALIZER;
-static double g_ktms[3][3][3]; static long g_ktn[3][3][3]; static double g_ktb[3][3][3];     /* [kernel][src kind][dst kind] */
 static int (*g_ktpool)(const void *);
 static int g_ktinit;
 void comm_ktime_set_pool(int (*in_pool)(const void *)) { g_ktpool = in_pool; }
