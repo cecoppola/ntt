@@ -8,7 +8,7 @@
 # it never run), optional NOT_BEFORE / NOT_AFTER (epoch), EXCLUSIVE=1 (only when none of our jobs run, and nothing else starts meanwhile),
 # ALLOW_SLOW=1 (do not apply $AQ/exclude_slow), GROUP=<name> (members start only when all fit at once, e.g. concurrent A/B arms).  See tools/aac7q_item_template.sh.
 # Scheduling: largest-first (a GROUP is one unit of its members' summed nodes); items that do not fit are skipped and later ones that fit start (backfill), until a skipped item has waited
-#   AQ_STARVE_MIN (45) min: then it holds a reservation at the earliest time running items free its nodes (start + EXPECT_MIN, else EST_MIN); later items start only if they end by then (EXPECT_MIN, else EST_MIN).
+#   AQ_STARVE_MIN (45) min: then it holds a reservation at the earliest time running items free its nodes (start + EXPECT_MIN, else EST_MIN); later items start only if they end by then (EXPECT_MIN, else EST_MIN) or need no more than the nodes still extra then.
 # Per item: own sbatch hold, item run with SLURM_JOB_ID=<hold> (steps must use --overlap --mem=0), hold scancelled afterwards, <item>.rc/.log.
 # Node exclusion (sbatch -x): host names from the private files $AQ/exclude (always) and $AQ/exclude_slow (unless ALLOW_SLOW=1);
 #   comma/newline separated, # comments allowed; a missing file excludes nothing (logged once).
@@ -87,7 +87,7 @@ expect_min() { local e; e=$(hdr $Q/$1.sh EXPECT_MIN); case $e in ''|*[!0-9]*) e=
 shadow_time() { local need=$1 f b a st nn have=$free r=$(now)
   for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved|*/.no_*) continue;; esac; b=$(basename $f)
     st=$(awk '{for(i=1;i<NF;i++) if($i=="since"||$i=="submitted") {print $(i+1); exit}} /^starting/{print $2}' $f); nn=$(awk '{for(i=1;i<NF;i++) if($i=="nodes") {print $(i+1); exit}}' $f)
-    a=$(( ${st:-$r} + $(expect_min $b) * EST_UNIT )); [ $a -lt $r ] && a=$r; echo "$a ${nn:-0}"; done | sort -n | while read -r a nn; do have=$((have + nn)); [ $have -ge $need ] && { echo $a; return; }; done | head -1 | { read -r x; echo ${x:-$r}; }; }
+    a=$(( ${st:-$r} + $(expect_min $b) * EST_UNIT )); [ $a -lt $r ] && a=$r; echo "$a ${nn:-0}"; done | sort -n | while read -r a nn; do have=$((have + nn)); [ $have -ge $need ] && { echo "$a $((have - need))"; return; }; done | head -1 | { read -r x y; echo "${x:-$r} ${y:-0}"; }; }   # prints "<time> <extra nodes free then beyond the need>"
 RUNPIDS=""
 cleanup() { say "daemon exit: killing runners"; for p in $RUNPIDS; do kill_tree $p; done; for f in $ST/*; do [ -e "$f" ] || continue
     case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved) ;; *) h=$(awk '{print $2}' $f); [ -n "$h" ] && hold_kill $h; rm -f $f;; esac; done; exit 0; }
@@ -102,7 +102,7 @@ while :; do
   if [ -e $AQ/STOP ]; then [ -z "$RUNPIDS" ] && { say "STOP: no running items, exit"; break; }; sleep $POLL; continue; fi
   budget_refresh; used=$(used_nodes); free=$((BUDGET - used)); idle=$(part_idle); 
   # nodes of a just-cancelled hold are still completing, not idle: a smaller item must not jump ahead of a larger one, wait a poll (<= KILL_SETTLE_S)
-  if [ "$free" -gt "$idle" ]; then free=$idle; [ $(( $(now) - $(cat $AQ/lastkill 2>/dev/null || echo 0) )) -lt ${KILL_SETTLE_S:-60} ] && { sleep $POLL; continue; }; fi; t=$(now); cand=""; waiting=0; started=0; SHADOW=
+  if [ "$free" -gt "$idle" ]; then free=$idle; [ $(( $(now) - $(cat $AQ/lastkill 2>/dev/null || echo 0) )) -lt ${KILL_SETTLE_S:-60} ] && { sleep $POLL; continue; }; fi; t=$(now); cand=""; waiting=0; started=0; SHADOW=; EXTRA=0
   for f in $ST/*.wait $ST/*.since $ST/*.starved; do [ -e "$f" ] && [ ! -e "$Q/$(basename ${f%.*}).sh" ] && rm -f $f; done   # withdrawn item: its state blocks nothing
   for f in $Q/*.sh; do [ -e "$f" ] || continue; b=$(basename $f .sh)
     [ -e $Q/$b.rc ] || [ -e $ST/$b ] && continue
@@ -138,9 +138,10 @@ while :; do
       [ -e $ST/$b.wait ] || echo $t > $ST/$b.wait
       if [ $((t - $(cat $ST/$b.wait))) -ge $STARVE_S ]; then
         [ -e $ST/$b.starved ] || { say "$b: waited $(( (t - $(cat $ST/$b.wait)) / 60 )) min for $need nodes: reserved, later items start only if they end before it"; : > $ST/$b.starved; }
-        [ -n "$SHADOW" ] || SHADOW=$(shadow_time $need)               # reserve: later items start only if they end before it
+        [ -n "$SHADOW" ] || { SHADOW=$(shadow_time $need); EXTRA=${SHADOW#* }; SHADOW=${SHADOW% *}; }   # reserve: later items start only if they end before it, or fit in the nodes still extra at that time
       fi; continue; fi
-    [ -n "$SHADOW" ] && for c2 in $members; do [ $((t + $(expect_min ${c2#*:}) * EST_UNIT)) -le "$SHADOW" ] || continue 2; done
+    if [ -n "$SHADOW" ]; then ok=1; for c2 in $members; do [ $((t + $(expect_min ${c2#*:}) * EST_UNIT)) -le "$SHADOW" ] || ok=0; done
+      if [ $ok = 0 ]; then [ "$need" -le "${EXTRA:-0}" ] || continue; EXTRA=$((EXTRA - need)); fi; fi   # EASY extra-nodes rule
     for c2 in $members; do n2=${c2%%:*}; b2=${c2#*:}
       run_item $Q/$b2.sh & RUNPIDS="$RUNPIDS $!"; echo "starting $(now)" > $ST/$b2; free=$((free - n2)); used=$((used + n2)); started=$((started + 1))
       rm -f $ST/$b2.since $ST/$b2.wait $ST/$b2.starved; done
