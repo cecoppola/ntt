@@ -120,6 +120,7 @@ enum { KT_BTRANS, KT_BCOPY, KT_CCOPY };
 extern int g_comm_ktime;
 void comm_ktime_begin_(struct comm_kt *t, int kern, const void *dst, const void *src, size_t bytes, hipStream_t st);
 void comm_ktime_end_(struct comm_kt *t, hipStream_t st);
+void comm_ktime_report(void);
 void comm_ktime_set_pool(int (*in_pool)(const void *));
 static inline void comm_ktime_begin(struct comm_kt *t, int kern, const void *dst, const void *src, size_t bytes, hipStream_t st) { t->on = 0; if (g_comm_ktime) comm_ktime_begin_(t, kern, dst, src, bytes, st); }
 static inline void comm_ktime_end(struct comm_kt *t, hipStream_t st) { if (t->on) comm_ktime_end_(t, st); }

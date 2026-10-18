@@ -53,8 +53,11 @@ static int (*g_ktpool)(const void *);
 static int g_ktinit;
 void comm_ktime_set_pool(int (*in_pool)(const void *)) { g_ktpool = in_pool; }
 static const char *kt_kn[3] = { "k_btrans", "k_bcopy", "k_ccopy" }, *kt_mk[3] = { "dev", "host", "pool" };
-static void kt_print(void)
+static int g_ktdone;
+void comm_ktime_report(void)                                                                     /* once per process (atexit, or earlier from ecalc.c / comm_shmem_finalize) */
 {
+    if (!g_comm_ktime) return;
+    pthread_mutex_lock(&g_ktmx); int done = g_ktdone; g_ktdone = 1; pthread_mutex_unlock(&g_ktmx); if (done) return;
     const char *sp = getenv("SLURM_PROCID"); long pe = sp ? atol(sp) : (long)getpid();
     for (int d = 0; d < KT_NDEV; d++) if (g_ktd[d]) {                                          /* fold the rest: the process is ending, waiting is fine */
         hipSetDevice(d);
@@ -93,7 +96,7 @@ static struct kt_dev *kt_get(int *dv)
     int d = 0; if (hipGetDevice(&d) != hipSuccess || d < 0 || d >= KT_NDEV) { (void)hipGetLastError(); return 0; }
     *dv = d;
     pthread_mutex_lock(&g_ktmx);
-    if (!g_ktinit) { g_ktinit = 1; atexit(kt_print); }                                           /* registered after the HIP runtime's own hook: runs before it */
+    if (!g_ktinit) { g_ktinit = 1; atexit(comm_ktime_report); }                                           /* registered after the HIP runtime's own hook: runs before it */
     if (!g_ktd[d]) { g_ktd[d] = (struct kt_dev *)calloc(1, sizeof(struct kt_dev)); }
     pthread_mutex_unlock(&g_ktmx);
     return g_ktd[d];
