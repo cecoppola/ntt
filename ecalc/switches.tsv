@@ -92,6 +92,7 @@ ECALC_FATAL_WAIT	int	60	60		built-in default	-	C314.md	Y	ecalc	fatal.c	1	-	-
 ECALC_INIT_ONLY	int	unset	unset		test-only	-	L114.md+P13b.md	prose	ecalc	binsplit.c,ecalc.c	4	diagnostics (TESTING.md)	2027-04-12	
 ECALC_INIT_TL	bool	0	0	0|1	launch-line	-	MAP15.md	Y	ecalc	dbig.c	2	-	-	dbig.c
 ECALC_LIVE	bool	unset	unset	0|1	test-only	-	T114.md+M615.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	
+ECALC_MEMPREP_ONLY	int	unset	unset		unclassified	-	-	Y	ecalc	ecalc.c	2	FRAGFIX	2026-11-16	
 ECALC_MEM_GUARD_GB	float	0	derived	>=0 GB	launch-line	aac7	IO15.md+DOC15.md	Y	ecalc	memsample.c	1	-	-	memsample.c:113; 0 = guard off
 ECALC_MEM_GUARD_PERIOD	float	1	1		test-only	-	IO15.md	prose	ecalc	memsample.c	2	diagnostics (TESTING.md)	2027-04-12	
 ECALC_MEM_SAMPLE	bool	derived	derived	0|1	test-only	-	IO15.md+S114.md	Y	ecalc	memsample.c	1	diagnostics (TESTING.md)	2027-04-12	

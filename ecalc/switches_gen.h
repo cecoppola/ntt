@@ -91,6 +91,7 @@ static const char *const cfg_names[] = {
     "ECALC_INIT_ONLY",
     "ECALC_INIT_TL",
     "ECALC_LIVE",
+    "ECALC_MEMPREP_ONLY",
     "ECALC_MEM_GUARD_GB",
     "ECALC_MEM_GUARD_PERIOD",
     "ECALC_MEM_SAMPLE",
@@ -171,4 +172,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 169
+#define CFG_NAMES_N 170

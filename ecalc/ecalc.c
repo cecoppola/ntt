@@ -415,6 +415,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 }
 int main(int argc, char **argv)
 {
+    if (getenv("ECALC_MEMPREP_ONLY") && atoi(getenv("ECALC_MEMPREP_ONLY"))) { mem_precompact(); return 0; }   /* FRAGFIX: the memory-preparation step (mnrun.sh MNRUN_MEMPREP_GB): nothing else runs, no HIP, no comm */
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs
@@ -474,7 +475,6 @@ int main(int argc, char **argv)
      * in 3 of 23 launches of 10^10 at 2 nodes with 45 GB of VMM arenas and the seeds already live (results/A16.md step 7).  The
      * pool rule needs only N and the size (MN_PLAN_ONLY runs it with no device); mn_init needs the pool's size from it and HIP
      * (streams, hipHostRegister), nothing of rns_init.  The self-tests stay after rns_init. */
-    mem_precompact(verbose >= 1);                   /* FRAGFIX: MEM_PRECOMPACT_GB (default off; one process per node): compact the nodes' free memory before the heaps and the pools */
     int mn_size_ = 1;
     {
         binsplit_shmem_pool_rule(N, getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 1, 0);   /* the pool from the model */

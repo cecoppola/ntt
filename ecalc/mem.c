@@ -248,7 +248,7 @@ void mem_hstage_free(void *p)
 
 /* FRAGFIX (Phase B, 2026-10-17): MEM_PRECOMPACT_GB=<GiB per NUMA node> (default 0 = off): before the transport and the pools, one
  * anonymous mapping per NUMA node (an APU's node; at most that node's own MemFree - 16 GiB, none below it) is advised MADV_HUGEPAGE and populated by
- * 4 threads pinned to the node (MADV_POPULATE_WRITE, a page touch only when the kernel lacks it, EINVAL/ENOSYS; any other error stops that thread and is reported), then unmapped; run by one process per node (see mem_precompact).  Why: on the APU the
+ * 4 threads pinned to the node (MADV_POPULATE_WRITE, a page touch only when the kernel lacks it, EINVAL/ENOSYS; any other error stops that thread and is reported), then unmapped.  Run as a SEPARATE step (ECALC_MEMPREP_ONLY=1, ecalc exits right after, before any HIP / comm call; mnrun.sh MNRUN_MEMPREP_GB runs it as one srun task per node before the real launch), so nothing else of the run allocates meanwhile.  Why: on the APU the
  * device pools (hipMalloc, ~97 GB per NUMA node) are kernel pages taken by the driver in the largest free blocks it finds, with no
  * retry; on a fragmented node (few free 2 MiB blocks) they land in small pages, the arenas took 3.5 x longer to allocate and the
  * GPU steps ran slower for the whole run, and the state outlived the run (item 76_frag2).  Writing /proc/sys/vm/compact_memory
@@ -292,27 +292,13 @@ static size_t map_huge_bytes(const void *p)         /* AnonHugePages of the mapp
     }
     fclose(f); return kb << 10;
 }
-static char g_pc_mark[160];
-static void precompact_unmark(void) { if (g_pc_mark[0]) unlink(g_pc_mark); }
-void mem_precompact(int verbose)
+void mem_precompact(void)
 {
-    (void)verbose;
     const char *e = getenv("MEM_PRECOMPACT_GB"); long gb = e ? atol(e) : 0;
-    if (gb <= 0) return;
-    /* one process per node: the first local process (SLURM_LOCALID 0; mnrun.sh and the SHMEM srun launch place the tasks in blocks, so
-     * every node has one; unset = a run outside srun = the only process).  The others skip silently.  It runs before mn_init of this
-     * process; the others WAIT (node-local barrier: a done marker in /dev/shm, polled every 50 ms, 600 s bound then a warning) until it
-     * has unmapped, because the mapping takes up to MemFree - 16 GiB of each NUMA node and the heaps and pools must not overlap it. */
-    char mark[160]; { const char *j = getenv("SLURM_JOB_ID"), *st = getenv("SLURM_STEP_ID");   /* /dev/shm is node-local; job + step in the name: an earlier step's marker cannot release this wait */
-        snprintf(mark, sizeof mark, "/dev/shm/ecalc_px_%s_pc%s", j ? j : "0", st ? st : "0"); }   /* ecalc_px_<job>_ : the items' shmclean removes leftovers */
-    { const char *l = getenv("SLURM_LOCALID");
-      if (l && atoi(l) != 0) {   /* barrier: wait for the elected process to finish and unmap before anything big is allocated here (mn_init, the heaps, the pools) */
-          double tb = mem_now(); struct timespec ts = {0, 50 * 1000 * 1000};
-          while (access(mark, F_OK)) { if (mem_now() - tb > 600) { fprintf(stderr, "mem: precompact: local %s waited 600 s for %s, continuing\n", l, mark); return; } nanosleep(&ts, 0); }
-          return; } }
-    unlink(mark);                                      /* elected: a stale file of the same name (none expected) must not release the others */
+    if (gb <= 0) { printf("mem: precompact off (MEM_PRECOMPACT_GB unset)\n"); return; }
     const size_t GiB = (size_t)1 << 30, margin = 16 * GiB, T = 4, HP = (size_t)2 << 20;
-    int nd = mem_device_count(); if (nd < 1) nd = 1; if (nd > MEM_MAX_DEV) nd = MEM_MAX_DEV;
+    int nd = 0; for (; nd < MEM_MAX_DEV; nd++) { char q[80]; snprintf(q, sizeof q, "/sys/devices/system/node/node%d/meminfo", mem_numa_node_of_device(nd)); if (access(q, R_OK)) break; }   /* no HIP here: the NUMA nodes present (an APU's node = its device index) */
+    if (nd < 1) nd = 1;
     char pol[160] = "?"; { FILE *f = fopen("/sys/kernel/mm/transparent_hugepage/enabled", "r"); char a[64] = "?", b[64] = "?";
         if (f) { if (fgets(a, sizeof a, f)) a[strcspn(a, "\n")] = 0; fclose(f); }
         f = fopen("/sys/kernel/mm/transparent_hugepage/defrag", "r"); if (f) { if (fgets(b, sizeof b, f)) b[strcspn(b, "\n")] = 0; fclose(f); }
@@ -357,20 +343,18 @@ void mem_precompact(int verbose)
         if (n < nd && map[n] && k == 0) { t1[n] = mem_now(); hp[n] = map_huge_bytes(map[n]); }
     }
     for (int n = 0; n < nd; n++) if (raw[n]) { munmap(raw[n], len[n] + HP); big1[n] = node_big_blocks(mem_numa_node_of_device(n)); }
-    { int fd = open(mark, O_CREAT | O_WRONLY, 0600); if (fd >= 0) close(fd); else fprintf(stderr, "mem: precompact: cannot write %s: %s (the other local processes will wait 600 s)\n", mark, strerror(errno));
-      atexit(precompact_unmark); snprintf(g_pc_mark, sizeof g_pc_mark, "%s", mark); }   /* the others are released; the file goes at exit */
     /* stderr: a helper that is the first local process has its stdout sent to /dev/null by mnrun.sh */
-    fprintf(stderr, "mem: precompact MEM_PRECOMPACT_GB=%ld: THP %s; %.2f s over %d nodes (team %d of %d threads):", gb, pol, mem_now() - tw, nd, team, (int)(nd * T));
+    printf("mem: precompact MEM_PRECOMPACT_GB=%ld: THP %s; %.2f s over %d nodes (team %d of %d threads):", gb, pol, mem_now() - tw, nd, team, (int)(nd * T));
     for (int n = 0; n < nd; n++) {
-        fprintf(stderr, "%s node %d %.1f GiB populated of %.1f (huge %.1f GiB) %.2f s, free >= 2 MiB blocks %ld -> %ld", n ? ";" : "", mem_numa_node_of_device(n),
+        printf("%s node %d %.1f GiB populated of %.1f (huge %.1f GiB) %.2f s, free >= 2 MiB blocks %ld -> %ld", n ? ";" : "", mem_numa_node_of_device(n),
                done[n] / (double)GiB, len[n] / (double)GiB, hp[n] / (double)GiB, t1[n] - t0[n], big0[n], big1[n]);
-        if (err[n] == -1) fprintf(stderr, " skipped (< %zu GiB free)", margin / GiB);
-        else if (err[n]) fprintf(stderr, " err %s", strerror(err[n]));
-        if (perr[n]) fprintf(stderr, " populate stopped: %s", strerror(perr[n]));
-        if (map[n] && covered[n] != (1 << T) - 1) fprintf(stderr, " NOT COVERED (threads mask %x of %x)", covered[n], (1 << (int)T) - 1);
-        if (pinerr[n]) fprintf(stderr, " pin to node failed: %s", strerror(pinerr[n]));
+        if (err[n] == -1) printf(" skipped (< %zu GiB free)", margin / GiB);
+        else if (err[n]) printf(" err %s", strerror(err[n]));
+        if (perr[n]) printf(" populate stopped: %s", strerror(perr[n]));
+        if (map[n] && covered[n] != (1 << T) - 1) printf(" NOT COVERED (threads mask %x of %x)", covered[n], (1 << (int)T) - 1);
+        if (pinerr[n]) printf(" pin to node failed: %s", strerror(pinerr[n]));
     }
-    fprintf(stderr, "\n"); fflush(stderr);
+    printf("\n"); fflush(stdout);
 }
 
 int mem_pool_guard = 0;                               /* see mem.h */
