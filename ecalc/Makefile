@@ -115,7 +115,7 @@ tests/t_patch: tests/t_patch.c $(OBJS) mn_out.h verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_mn_grid: tests/t_mn_grid.c $(OBJS) dbig.h mdb.h mn.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-mem.o: mem.c mem.h comm_phase.h
+mem.o: mem.c mem.h
 	$(HIPC) -c -o $@ $<
 comm_local.o: comm_local.c comm.h
 	$(HIPC) -c $< -o $@
