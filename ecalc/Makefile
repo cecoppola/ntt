@@ -124,7 +124,7 @@ comm_sim4.o: comm_sim4.c comm.h
 	$(HIPC) -c $< -o $@
 
 
-comm_shmem.o: comm_shmem.c comm.h comm_ofi.h
+comm_shmem.o: comm_shmem.c comm.h comm_ofi.h comm_trace.h
 	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
 
 comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
@@ -148,7 +148,10 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h fatal.h
+tests/t_trace: tests/t_trace.c comm_trace.h
+	$(CC) -O2 -I. $< -lpthread -o $@
+
+tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h comm_trace.h fatal.h
 	$(CC) -O2 -DCOMM_HOST_ONLY -DEC_FATAL_NO_HIP $(SHMEM_CFLAGS) $(OFI_CFLAGS) -I. $< comm_shmem.c comm_ofi.c comm_util.c fatal.c -lpthread $(SHMEM_LIBS) -o $@
 
 ntt_dist.o: ntt_dist.c ntt_dist.h ntt.h comm.h modarith.h

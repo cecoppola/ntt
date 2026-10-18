@@ -108,6 +108,10 @@ Digits against a reference:
     ecalc/digcmp.sh <outfile> <ASCII reference>          # prints identical / DIFFERS (packed or ASCII, any parts)
     tools/unpack_digits --cmp <reference> <parts…>       # same, without an ASCII copy; -n only checks residues
 
+Message trace (`COMM_TRACE=1`, `ecalc/README.md`): `make -C ecalc tests/t_trace && COMM_TRACE=1 COMM_TRACE_MAX_MB=16 ecalc/tests/t_trace <dir>` (no GPU, no SHMEM: writer, arena
+overflow and drop count; prints PASS) and `python3 -I tools/trace_report.py --selftest` (reader and analysis on a synthetic 3-node trace with a known straggler and clock skew; exit 0).
+The gate for the switch itself is the usual 1-node and 2-node digit compare with `COMM_TRACE=1`.
+
 A run's own checks (`VERIFY OK`: T1 residues, T2 windows) are described in `ALGORITHM.md` §10; they do not replace the
 reference compare, they replace it only where no reference exists.
 

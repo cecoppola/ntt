@@ -55,6 +55,11 @@ static const char *const cfg_names[] = {
     "COMM_SHMEM_STAGE_SLOT_MB",
     "COMM_SHMEM_VERBOSE",
     "COMM_SIZE",
+    "COMM_TRACE",
+    "COMM_TRACE_CLOCK_N",
+    "COMM_TRACE_DIR",
+    "COMM_TRACE_MAX_MB",
+    "COMM_TRACE_SAMPLE",
     "COMM_TRANSPORT",
     "COMM_XGMI_STATS",
     "COMM_XSTATS",
@@ -172,4 +177,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 170
+#define CFG_NAMES_N 175
