@@ -319,6 +319,7 @@ static uint32_t *px_ts_of(char *base) { return (uint32_t *)(px_dn_of(base) + PXR
 static uint32_t hs_us(void) { return (uint32_t)(uint64_t)(now_s() * 1e6); }
 static double g_hxs[2], g_hxmax[2]; static long g_hxn[2];            /* proxy side: [0 pickup, 1 post-to-done]: sum ms, max ms, commands */
 static void hx_add(int k, uint32_t ts) { double ms = (double)(uint32_t)(hs_us() - ts) * 1e-3; g_hxs[k] += ms; g_hxn[k]++; if (ms > g_hxmax[k]) g_hxmax[k] = ms; }
+static void hs_print(void);                           /* (below: the node-process's per-APU table) */
 static void hx_print(void)
 {
     static const char *const nm[2] = { "pickup", "post_to_done" };
