@@ -59,6 +59,9 @@ COMM_SIZE	int	1	conflict:0|1|4096	>=1	launch-line	-	MS15.md+S16.md	Y	ecalc	binsp
 COMM_TRACE	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_CLOCK_N	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_DIR	bool	derived	derived	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_GAP_MS	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
+COMM_TRACE_HB_PX	bool	1	1	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_MAX_MB	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRACE_SAMPLE	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_trace.h	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_TRANSPORT	enum	unset	derived	shmem	launch-line	aac7	S.md+OFI17.md	Y	ecalc	binsplit.c,mn.c	3	-	-	mn.c: shmem is needed for COMM_SIZE > 1 (mnrun.sh sets it); tcp removed 2026-10-12

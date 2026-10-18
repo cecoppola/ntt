@@ -13,7 +13,7 @@
  * hash of xseq, so every member keeps the same ones) is decided at the exchange's post.
  *
  * Node heartbeat (COMM_TRACE_HB=<ms>, tr_hb_start): a thread per process wakes every <ms>; a wake-up later than COMM_TRACE_HB_GAP_MS (default 20) after the previous one stamps H_GAP and a snapshot of cheap OS
- * counters (/proc/vmstat compaction / THP / major faults / allocstall / swap / numa, /proc/pressure/*, the thread's own context switches and faults), and every 1000 ms a periodic snapshot (so a stall can be
+ * counters (/proc/vmstat compaction / THP / major faults / allocstall / swap / numa, /proc/pressure (cpu, memory, io), the thread's own context switches and faults), and every 1000 ms a periodic snapshot (so a stall can be
  * correlated even when the heartbeat thread itself stalled).  COMM_TRACE_HB_PX=1 also starts it in the proxy processes.  Nothing is pinned; the cost is one wake-up per <ms> (see ecalc/README.md).
  *
  * Off: g_tr.on is 0 and every site is one predictable branch on it.  Switches: COMM_TRACE, COMM_TRACE_SAMPLE, COMM_TRACE_MAX_MB (node-process arena,
@@ -32,6 +32,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#ifndef RUSAGE_THREAD
+#define RUSAGE_THREAD 1                               /* (Linux; needs _GNU_SOURCE in the headers) */
+#endif
 
 /* event ids start at 1 (0 = an unused record slot).  E_: the exchange (peer -1); R_: a round of the rounds path (round = j); M_: one message (me = the rank
  * that stamps it, peer = the other end); P_: a proxy command (me = node, peer = destination node, aux = ring index k); H_: the heartbeat thread (COMM_TRACE_HB): H_GAP = one observed wake-up gap (bytes = gap ns, aux = snapshot id),
