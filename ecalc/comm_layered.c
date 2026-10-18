@@ -238,7 +238,9 @@ static void lst_unregister(lay_priv *p)
 }
 static int y_rank(comm *c) { return c->rank; }
 static int y_size(comm *c) { return c->size; }
-static void need_tmp(comm *c, size_t bytes)
+static void need_tmp_i(comm *c, size_t bytes);
+static void need_tmp(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_HIP_MALLOC); need_tmp_i(c, bytes); ec_ph(ph_); }   /* (comm_phase.h) */
+static void need_tmp_i(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->tmp_cap >= bytes) return;
@@ -326,7 +328,7 @@ static void complete_oldest(comm *c)
     if (!e->inter_posted) inter_post(c, e);
     double f1 = lst_inter_wait(p, p->inter, e->w, &e->w_on, &e->wf1);
     HIP_CHECK(hipSetDevice(p->dev));
-    block_transpose(e->rb, e->tmp, e->bytes, p->g, p->na, e->s); HIP_CHECK(hipStreamSynchronize(e->s));   /* -> [d][r] = source rank order */
+    block_transpose(e->rb, e->tmp, e->bytes, p->g, p->na, e->s); HIP_SYNC(e->s);   /* -> [d][r] = source rank order */
     if (lst_mode) { struct lst_rec *r = LREC(p, e->rec); r->f1 = f1; r->c1 = lst_now(); }
     p->head ^= 1; p->npend--;
 }
@@ -355,7 +357,7 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
     if (lst_mode) { LREC(p, e->rec)->x1 = lst_now(); lst_link(p, LREC(p, e->rec)); }
     /* 2: [d][r'] -> [r'][d] into rb, then the inter-node exchange of blocks of na slabs, received into the slot */
     block_transpose(rb, e->tmp, bytes, na, g, s);
-    HIP_CHECK(hipStreamSynchronize(s));
+    HIP_SYNC(s);
     if (lst_mode) LREC(p, e->rec)->r1 = lst_now();
     if (p->npend == 2) complete_oldest(c);               /* the inter transport takes one exchange at a time */
     inter_post(c, e);
@@ -366,7 +368,9 @@ static void y_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStrea
 static size_t g_vlive[16];
 static void vlive_add(int dev, size_t add, size_t sub) { if (dev >= 0 && dev < 16) { __atomic_add_fetch(&g_vlive[dev], add, __ATOMIC_RELAXED); __atomic_sub_fetch(&g_vlive[dev], sub, __ATOMIC_RELAXED); } }
 extern "C" size_t comm_layered_vbytes(int dev) { return dev >= 0 && dev < 16 ? __atomic_load_n(&g_vlive[dev], __ATOMIC_RELAXED) : 0; }
-static void need_vtmp(comm *c, size_t bytes)
+static void need_vtmp_i(comm *c, size_t bytes);
+static void need_vtmp(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_VTMP_ALLOC); need_vtmp_i(c, bytes); ec_ph(ph_); }
+static void need_vtmp_i(comm *c, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->vcap >= bytes) return;
@@ -417,7 +421,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     size_t *sdI = (size_t *)malloc(2 * (size_t)na * sizeof(size_t)), *rdI = sdI + na; for (int dd = 0; dd < na; dd++) { sdI[dd] = soff0 + t->sIoff[dd]; rdI[dd] = t->rIoff[dd]; }
     if (st) { st->x0 = lst_now(); for (int dd = 0; dd < na; dd++) if (dd != d) st->xb += t->sI[dd]; }   /* (the stats: the xGMI stage) */
     if (host) comm_alltoallv_host(p->intra, src, t->sI, sdI, x1, t->rI, rdI);
-    else { HIP_CHECK(hipStreamSynchronize(s)); comm_alltoallv(p->intra, src, t->sI, sdI, x1, t->rI, rdI, s); comm_wait(p->intra); }
+    else { HIP_SYNC(s); comm_alltoallv(p->intra, src, t->sI, sdI, x1, t->rI, rdI, s); comm_wait(p->intra); }
     if (st) { st->x1 = lst_now(); if (!host) lst_link(p, st); }
     free(sdI);
     /* x1: block dd = slabs (dd -> (d, r')) for r' = 0..g-1 back to back; x2: node r' = its na slabs dd = 0..na-1 */
@@ -430,7 +434,7 @@ static void v_stages(comm *c, const void *sb, const size_t *scnt, const size_t *
     }
     free(offd);
     if (tk) bcopy_run(p, x2, x1, m, s);
-    if (!host) HIP_CHECK(hipStreamSynchronize(s));
+    if (!host) HIP_SYNC(s);
     if (st) { st->r1 = lst_now(); int me = comm_rank(p->inter); for (int r = 0; r < g; r++) if (r != me) st->fb += t->cnt2[r]; }   /* (the fabric stage) */
 }
 /* the inter stage's post (after v_stages; at depth 2 after the previous v-exchange's completion) */
@@ -459,7 +463,7 @@ static void complete_v(comm *c)
     HIP_CHECK(hipSetDevice(p->dev));
     struct vtab t; t.dsp2 = v->cnt2 + 2 * p->g;         /* only dsp2 is needed by the scatter */
     v_scatter(c, &t, v->x3, v->rb, v->rcnt, v->rdsp, v->s, 0);
-    HIP_CHECK(hipStreamSynchronize(v->s));
+    HIP_SYNC(v->s);
     if (lst_mode) { struct lst_rec *r = LREC(p, v->rec); r->f1 = f1; r->c1 = lst_now(); }
     free(v->cnt2); v->pend = 0;
 }
@@ -502,7 +506,9 @@ static void need_vslot_shared(comm *c, int k, size_t bytes)
     p->vx[k] = S->vx[k]; p->vxcap[k] = S->cap[k];          /* (a stale view of the other slot is refreshed too: only the owner's view is used) */
     p->vx[k ^ 1] = S->vx[k ^ 1]; p->vxcap[k ^ 1] = S->cap[k ^ 1];
 }
-static void need_vslot(comm *c, int k, size_t bytes)
+static void need_vslot_i(comm *c, int k, size_t bytes);
+static void need_vslot(comm *c, int k, size_t bytes) { int ph_ = ec_ph(EC_PH_VSLOT_ALLOC); need_vslot_i(c, k, bytes); ec_ph(ph_); }
+static void need_vslot_i(comm *c, int k, size_t bytes)
 {
     lay_priv *p = PRIV(c);
     if (p->vshare) { need_vslot_shared(c, k, bytes); return; }
@@ -525,7 +531,9 @@ static void need_vslot(comm *c, int k, size_t bytes)
  * same pool, so the pool rule sizes it for the larger of the two, not their sum.  The slots are scratch (every exchange writes its x2 / x3 before reading them): nothing carries over;
  * the next product's first v-exchange allocates them again (need_vslot*: at the pool rule's size, so the same size; the receivers publish where a slab lands, so the offset need not match).
  * Digits cannot change.  No-op without the switch. */
-void comm_layered_release_vslots(comm *c)
+static void release_vslots_i(comm *c);
+void comm_layered_release_vslots(comm *c) { int ph_ = ec_ph(EC_PH_VSLOT_RELEASE); release_vslots_i(c); ec_ph(ph_); }
+static void release_vslots_i(comm *c)
 {
     lay_priv *p = PRIV(c);
     if (!p->vrel) return;
@@ -659,7 +667,9 @@ static void lay_opts(lay_priv *p) {
       { p->vrel = comm_layered_vslot_release_on();   /* M3 (results/C06.md): the pool slots are released after each product's v-phase */
         if (p->vrel && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_VSLOT_RELEASE=1 needs COMM_LAYER_VSLOT_POOL=1 (hipMalloc'd slots would be allocated again for every product)\n"); }
       if (p->i2 && !p->vpool) ec_fatal(EC_RC_FATAL, "comm_layered: COMM_LAYER_INTER2=1 needs COMM_LAYER_VSLOT_POOL=1 (two staged inter exchanges would double the staging)\n");} }
-comm *comm_layered_create(comm *intra, comm *inter, int d)
+static comm *layered_create_i(comm *intra, comm *inter, int d);
+comm *comm_layered_create(comm *intra, comm *inter, int d) { int ph_ = ec_ph(EC_PH_LAYER_CREATE); comm *r = layered_create_i(intra, inter, d); ec_ph(ph_); return r; }
+static comm *layered_create_i(comm *intra, comm *inter, int d)
 {
     if (comm_size(intra) != NA) { ec_fatal(EC_RC_FATAL, "comm_layered: the intra communicator must have %d ranks\n", NA); }
     comm *c = (comm *)calloc(1, sizeof *c); lay_priv *p = (lay_priv *)calloc(1, sizeof *p);
@@ -693,7 +703,7 @@ extern "C" int comm_layered_tbench(int g, size_t bytes, int reps)
             double t0 = lst_now();
             if (form) k_btrans<<<dim3(gx_of(bytes >> 4), (unsigned)(NA * g)), 256, 0, s>>>((uint4 *)c2, (const uint4 *)a, bytes >> 4, NA, g);   /* [x][y] (4 x g) -> [y][x] */
             else for (int x = 0; x < NA; x++) for (int y = 0; y < g; y++) HIP_CHECK(hipMemcpyAsync(b + ((size_t)y * NA + x) * bytes, a + ((size_t)x * g + y) * bytes, bytes, hipMemcpyDefault, s));
-            HIP_CHECK(hipStreamSynchronize(s));
+            HIP_SYNC(s);
             if (r) t[r - 1] = lst_now() - t0;
         }
         qsort(t, reps, sizeof(double), lst_cmp); tm[form] = t[reps / 2];

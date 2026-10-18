@@ -1,6 +1,7 @@
 /* t_trace.c - the COMM_TRACE writer of comm_trace.h without SHMEM: 4 threads stamp records through tr_put (with a chunk-claim race and an arena that fills),
  * then tr_write_file writes the file.  Usage: COMM_TRACE=1 COMM_TRACE_MAX_MB=16 tests/t_trace OUTDIR   (prints "records N dropped D"; exits 1 on a wrong count).
  * tools/trace_report.py reads the file back (TESTING.md).  First the heartbeat (COMM_TRACE_HB=5, GAP_MS=1: every wake-up is a gap): H_GAP and H_CNT records of a periodic and a gap snapshot must appear. */
+int ec_ph_on = 0; int (*ec_ph_fn)(int);
 #include "../comm_trace.h"
 #include <unistd.h>
 #define NT 4
@@ -14,14 +15,19 @@ static void *th(void *a)
 int main(int argc, char **argv)
 {
     if (argc < 2) return 2;
+    setenv("COMM_TRACE_WD_MS", "50", 1); setenv("COMM_TRACE_THR", "1", 1); setenv("COMM_TRACE_PH", "1", 1);
     tr_init(0);
     if (!g_tr.on) { fprintf(stderr, "t_trace: set COMM_TRACE=1\n"); return 2; }
     setenv("COMM_TRACE_HB", "5", 1); setenv("COMM_TRACE_HB_GAP_MS", "1", 1); tr_hb_start(0);
     if (!g_hb.started) { printf("FAIL: no heartbeat thread\n"); return 1; }
-    usleep(1300000); tr_hb_stop();
-    { uint32_t nc = g_tr.next < g_tr.nchunks ? g_tr.next : g_tr.nchunks; uint64_t ng = 0, nk = 0, nper = 0;
-      for (uint32_t c = 0; c < nc; c++) { const struct tr_rec *r = (const struct tr_rec *)g_tr.arena + (size_t)c * TR_CHUNK_RECS; for (uint32_t k = 0; k < TR_CHUNK_RECS && r[k].ev; k++) { ng += r[k].ev == H_GAP; nk += r[k].ev == H_CNT; nper += r[k].ev == H_CNT && r[k].seq == 1; } }
+    if (!ec_ph_on) { printf("FAIL: phase tags not on\n"); return 1; }
+    { int p0 = ec_ph(EC_PH_HIP_MALLOC); usleep(400000); int p1 = ec_ph(EC_PH_VSLOT_RELEASE); ec_ph(p1); ec_ph(p0); if (p0 != 0 || p1 != EC_PH_HIP_MALLOC) { printf("FAIL: ec_ph return value\n"); return 1; } }
+    usleep(900000); tr_hb_stop();
+    { uint32_t nc = g_tr.next < g_tr.nchunks ? g_tr.next : g_tr.nchunks; uint64_t ng = 0, nk = 0, nper = 0, nph = 0, nthr = 0, nwd = 0;
+      for (uint32_t c = 0; c < nc; c++) { const struct tr_rec *r = (const struct tr_rec *)g_tr.arena + (size_t)c * TR_CHUNK_RECS; for (uint32_t k = 0; k < TR_CHUNK_RECS && r[k].ev; k++) { ng += r[k].ev == H_GAP; nk += r[k].ev == H_CNT; nper += r[k].ev == H_CNT && r[k].seq == 1; nph += r[k].ev == H_PHASE; nthr += r[k].ev == H_THR; nwd += r[k].ev == H_WD; } }
       printf("heartbeat: %llu gaps, %llu counters (%llu periodic), %d names\n", (unsigned long long)ng, (unsigned long long)nk, (unsigned long long)nper, g_hb.nn);
+      printf("phase/watchdog: %llu phase events, %llu thread records, %llu watchdog firings\n", (unsigned long long)nph, (unsigned long long)nthr, (unsigned long long)nwd);
+      if (nph < 4 || nthr < 2 * nwd || nwd < 3) { printf("FAIL: phase / watchdog\n"); return 1; }
       if (ng < 50 || nk < ng || nper < 2 || g_hb.nn < 4) { printf("FAIL: heartbeat\n"); return 1; } }
     pthread_t t[NT]; for (long i = 0; i < NT; i++) pthread_create(&t[i], 0, th, (void *)i); for (int i = 0; i < NT; i++) pthread_join(t[i], 0);
     int node[2] = {0, 1}; tr_comm_add(7, 2, 0, 0, node);

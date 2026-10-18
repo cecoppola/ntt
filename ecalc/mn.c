@@ -58,7 +58,9 @@ void mn_wait_stats_print(void)
 int mn_size(void) { return g_size; }
 comm *mn_comm(int apu) { return g_size > 1 ? g_cm[apu] : 0; }
 int mn_transport_shmem(void) { return g_shmem; }
-int mn_init(void)
+static int mn_init_i(void);
+int mn_init(void) { int ph_ = ec_ph(EC_PH_MN_INIT); int r = mn_init_i(); ec_ph(ph_); return r; }   /* (comm_phase.h) */
+static int mn_init_i(void)
 {
     const char *es = getenv("COMM_SIZE"), *et = getenv("COMM_TRANSPORT");
     g_shmem = et && !strcmp(et, "shmem") && es && atoi(es) > 1;   /* (a single process -- no launcher, COMM_SIZE unset by mnrun.sh -- stays size 1 with the variable exported) */
@@ -68,7 +70,7 @@ int mn_init(void)
         g_size = comm_shmem_init(); g_rank = comm_shmem_rank();
         if (g_size <= 1) { g_size = 1; g_rank = 0; comm_shmem_finalize(); return 1; }
 #pragma omp parallel for num_threads(NA) schedule(static)
-        for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); }
+        for (int d = 0; d < NA; d++) { HIP_CHECK(hipSetDevice(d)); int ph_ = ec_ph(EC_PH_MESH_CREATE); g_cm[d] = comm_shmem_create_at(0, 1, g_size, d); ec_ph(ph_); }
         HIP_CHECK(hipSetDevice(0));
         printf("mn: node %d of %d, four meshes of %d PEs over SHMEM: created in %.2f s\n", g_rank, g_size, g_size, mem_now() - t0);
         mn_comm_mark("start (the meshes created)");   /* the marks' origin */
@@ -152,7 +154,7 @@ static mn_group *g_groups[MN_MAXL];
 static comm *sub_mesh(int g0, int g, int slot, int d)
 {
     if (g0 == 0 && g == g_size) return g_cm[d];
-    return comm_shmem_create_at(g0, 1, g, NA + NA * slot + d);   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
+    int ph_ = ec_ph(EC_PH_MESH_CREATE); comm *r = comm_shmem_create_at(g0, 1, g, NA + NA * slot + d); ec_ph(ph_); return r;   /* S: the PE set [g0, g0+g); id unique per (slot, d) -- the base meshes hold ids 0..3 */
 }
 static int pow2_floor(int g) { int p = 1; while (2 * p <= g) p *= 2; return p; }
 /* this node's group at level l >= 1: the nodes [k 2^l, min((k+1) 2^l, size)), k = rank >> l; its meshes are

@@ -20,10 +20,12 @@ plus compact per-message tables (capped at --max-msgs, uniformly thinned beyond)
   7 time       whether slow exchanges / messages cluster in time (a node stalling) or are spread: per-bin counts, Fano factor, persistence, worst bins
   8 stalls     (COMM_TRACE_HB) the heartbeat gaps of every node (node-process and proxy threads), the OS counters that moved at each gap (vmstat compaction / THP / faults / swap,
                pressure, the thread's context switches) and the late exchanges of that node at that time; the skew-ranked exchanges against the heartbeat of their late node
+  8b           (COMM_TRACE_PH, _THR, _WD_MS) the progress-watchdog firings and the slowest exchanges' late nodes: the phase tag of every thread of the node-process at the onset (ecalc/comm_phase.h),
+               the thread snapshot (state, wchan, run_delay, CPU) and the heartbeat state (alive / gaps)
 A communicator is identified by (id, the node of each rank): ids repeat across disjoint node groups (layeq pairs), shown as id@nodes.
 Times of different nodes are only as good as the clock estimate (bound = half the best round trip, printed); 'neg%' counts cross-node one-way latencies
 below zero (a measure of the clock error against the real latency)."""
-import sys, os, json, struct, glob, math, tempfile, shutil, argparse, collections
+import sys, os, json, struct, glob, math, tempfile, shutil, argparse, collections, bisect
 
 try:
     import numpy as np
@@ -632,24 +634,34 @@ def load_hb(run):
     if "H_GAP" not in run.ev:
         return out
     eg, ec = run.ev["H_GAP"], run.ev["H_CNT"]
+    ep, et, ew = run.ev.get("H_PHASE", 255), run.ev.get("H_THR", 255), run.ev.get("H_WD", 255)      # (v2 records; absent in older traces)
     for h in run.files:
         names = h["meta"].get("hbnames") or []
         if not names or h["nrec"] == 0:
             continue
-        node = h["meta"]["node"]; gaps = []; snaps = {}
+        node = h["meta"]["node"]; gaps = []; snaps = {}; phraw = collections.defaultdict(list); thr = collections.defaultdict(list); wds = []
+        strs = h["meta"].get("hbstrs") or []; ss = lambda i: strs[i] if 0 <= i < len(strs) else "?"
         for c in chunks(h):
-            m = (c["ev"] == eg) | (c["ev"] == ec)
+            m = (c["ev"] == eg) | (c["ev"] == ec) | (c["ev"] == ep) | (c["ev"] == et) | (c["ev"] == ew)
             if not m.any():
                 continue
             c = c[m]; t = to_clock0(run, c["t"], node)
             for r, tt in zip(c, t):
-                if r["ev"] == eg:
+                if r["ev"] == ep:
+                    phraw[int(r["comm"])].append((float(tt), int(r["aux"])))
+                elif r["ev"] == et:
+                    b = int(r["bytes"]); thr[int(r["comm"])].append(dict(tid=int(r["seq"]), wchan=ss(int(r["xseq"])), name=ss(int(r["peer"])), age=int(r["aux"]), ph=int(r["round"]), cpu=int(r["me"]),
+                                                                       kind=int(r["kp"]) & 3, me=bool(int(r["kp"]) & 128), delay=(b & 0x00ffffffffffffff) / 1e6, state=chr(b >> 56) if b >> 56 else "?"))
+                elif r["ev"] == ew:
+                    wds.append((float(tt), float(r["bytes"]), int(r["aux"])))
+                elif r["ev"] == eg:
                     gaps.append((float(tt), float(r["bytes"]), int(r["aux"])))
                 else:
                     sn = snaps.setdefault(int(r["aux"]), [float(tt), int(r["seq"]), {}])
                     sn[2][names[int(r["round"])] if int(r["round"]) < len(names) else "?%d" % int(r["round"])] = int(r["bytes"])
         if gaps or snaps:
-            out.append(dict(node=node, proc=("px%d" % h["meta"]["apu"]) if h["meta"]["proxy"] else "np", gaps=sorted(gaps), snaps=snaps, gap_ms=h["meta"].get("hb_gap_ms"), hb_ms=h["meta"].get("hb_ms")))
+            phtl = {tid: ([x[0] for x in sorted(v)], [x[1] for x in sorted(v)]) for tid, v in phraw.items()}
+            out.append(dict(node=node, proc=("px%d" % h["meta"]["apu"]) if h["meta"]["proxy"] else "np", gaps=sorted(gaps), snaps=snaps, phtl=phtl, thr=thr, wds=sorted(wds), phnames=h["meta"].get("phases") or [], gap_ms=h["meta"].get("hb_gap_ms"), hb_ms=h["meta"].get("hb_ms")))
     return out
 
 
@@ -676,6 +688,58 @@ def fmt_delta(d, lim=9):
         return "(no earlier snapshot)"
     items = sorted(d.items(), key=lambda kv: -abs(kv[1]))[:lim]
     return " ".join("%s+%d" % (k.replace("_us", "us"), v) for k, v in items) or "no counter moved"
+
+
+def phase_at(h, t):
+    """the phase tag of every thread of the process at time t (node 0's clock), from the H_PHASE timeline: [(tid, tag name, ms since it was set)]"""
+    out = []; pn = h["phnames"]
+    for tid in sorted(h["phtl"]):
+        ts, tags = h["phtl"][tid]; i = bisect.bisect_right(ts, t) - 1
+        if i >= 0:
+            out.append((tid, pn[tags[i]] if tags[i] < len(pn) else "?%d" % tags[i], (t - ts[i]) / 1e6))
+    return out
+
+
+def fmt_phases(ph):
+    return " ".join("t%d:%s(%.0fms)" % (tid, nm, ms) for tid, nm, ms in ph) or "(no phase events)"
+
+
+def fmt_thr(h, snap):
+    """the per-thread snapshot: tid name state wchan phase(age) run_delay cpu; the heartbeat thread itself is left out"""
+    rows = sorted(h["thr"].get(snap, []), key=lambda r: r["tid"]); pn = h["phnames"]; out = []
+    for r in rows:
+        if r["me"]:
+            continue
+        out.append("%d/%s:%s,%s,%s(%dms),dly %.1fms,cpu%d" % (r["tid"], r["name"], r["state"], r["wchan"], pn[r["ph"]] if r["ph"] < len(pn) else "?%d" % r["ph"], r["age"], r["delay"], r["cpu"]))
+    return "; ".join(out) or "(no thread snapshot)"
+
+
+def section_stall_phases(run, acc, L, hbs):
+    """8b: the watchdog firings and the slowest exchanges' late nodes, each with the phase tag of every thread of the node-process, the thread snapshot (state, wchan, run_delay) and the heartbeat state"""
+    nps = [h for h in hbs if h["proc"] == "np"]; t0 = run.t_first
+    L.append("8b stall classification (COMM_TRACE_PH phase tags, COMM_TRACE_THR thread snapshots, COMM_TRACE_WD_MS progress watchdog; node-process only):")
+    if not any(h["phtl"] or h["wds"] or h["thr"] for h in nps):
+        L.append("   no phase, thread-snapshot or watchdog records"); return
+    L.append("   per node: watchdog firings, phase events, thread snapshots: " + "  ".join("n%d %d/%d/%d" % (h["node"], len(h["wds"]), sum(len(v[0]) for v in h["phtl"].values()), len(h["thr"])) for h in nps))
+    wl = sorted([(w[1], h, w) for h in nps for w in h["wds"]], key=lambda x: -x[0])[:12]; wl.sort(key=lambda x: x[2][0])
+    L.append("   the %d longest watchdog firings in time order (idle = no exchange / round / message record on the node-process for that long; onset = the time the last record was stamped):" % len(wl))
+    for idle, h, w in wl:
+        on = w[0] - w[1]; gp = [g for g in h["gaps"] if g[0] >= on and g[0] - g[1] <= w[0]]
+        L.append("   %9.3f | n%-2d | idle %8.1f ms | heartbeat: %s" % ((w[0] - t0) / 1e9, h["node"], idle / 1e6, "gaps %s ms" % ",".join("%.0f" % (g[1] / 1e6) for g in gp[:6]) if gp else "alive (no gap)"))
+        L.append("       phases at onset: %s" % fmt_phases(phase_at(h, on)))
+        L.append("       snapshot: %s" % fmt_thr(h, w[2]))
+    L.append("   the slowest exchanges by skew: the late node's threads just before its late begin (phase tags from the timeline), the watchdog firing and heartbeat gap in the window:")
+    for x in acc.topskew[:10]:
+        h = next((h for h in nps if h["node"] == x["late"]), None)
+        if h is None:
+            continue
+        lo, hi = x["t_last"] - x["skew"], x["t_last"] + 20e6
+        wd = [w for w in h["wds"] if lo <= w[0] <= hi]; gp = [g for g in h["gaps"] if g[0] >= lo and g[0] - g[1] <= hi]
+        L.append("     skew %8.1f ms comm %s xseq %d late n%d at %.3f s: heartbeat %s; watchdog %s" % (x["skew"] / 1e6, run.comms[x["cid"]]["lab"], x["xseq"], x["late"], (x["t_last"] - t0) / 1e9,
+                 "gaps %s ms" % ",".join("%.0f" % (g[1] / 1e6) for g in gp[:6]) if gp else "alive (no gap)", "%d firing(s), idle up to %.0f ms" % (len(wd), max(w[1] for w in wd) / 1e6) if wd else "none"))
+        L.append("         phases at the late begin - 1 ms: %s" % fmt_phases(phase_at(h, x["t_last"] - 1e6)))
+        if wd:
+            L.append("         snapshot of the first firing: %s" % fmt_thr(h, wd[0][2]))
 
 
 def section_stalls(run, acc, L, hbs):
@@ -746,7 +810,7 @@ def run_report(run, args, L):
         section_slowest(run, acc, L, P, args.top, args.timeline)
         section_skew(run, acc, L)
         section_time(run, acc, L, args.bin_s, args.slow_ratio)
-        section_stalls(run, acc, L, load_hb(run))
+        hbs = load_hb(run); section_stalls(run, acc, L, hbs); section_stall_phases(run, acc, L, hbs)
         L.append("")
         return S
     finally:
@@ -775,7 +839,8 @@ def synth(d, nodes=3, nex=60, seed=3):
     rng = np.random.default_rng(seed); EVN = ["E_BEGIN", "E_COPY_ISS", "E_COPY_DONE", "E_PUBLISHED", "E_POSTED", "E_WAIT", "E_JOINED", "E_SIGS_SEEN", "E_QUIET_END", "E_RCOPY_ISS", "E_RCOPY_DONE", "E_DONE",
                                            "R_BEGIN", "R_PUBLISHED", "R_SCOPY_ISS", "R_SCOPY_DONE", "R_SENDS_DONE", "R_SIGS_DONE", "R_QUIET_END", "R_RCOPY_ISS", "R_END",
                                            "M_ROFF_ISSUE", "M_ROFF_WAIT", "M_ROFF_SEEN", "M_PUT_ISSUE", "M_PUT_POSTED", "M_PUT_DONE", "M_SIG_ISSUE", "M_SIG_WAIT", "M_SIG_SEEN", "M_FLUSH_BEG", "M_FLUSH_END",
-                                           "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE", "H_GAP", "H_CNT"]
+                                           "P_PICKUP", "P_BATCH", "P_CHUNK", "P_SIGNAL", "P_QUIET_BEG", "P_QUIET_END", "P_DONE", "H_GAP", "H_CNT", "H_PHASE", "H_THR", "H_WD"]
+    PHN = ["NONE", "HIP_MALLOC", "VSLOT_RELEASE", "RD_FWD"]; STR = ["ecalc", "futex_wait_queue", "hrtimer_nanosleep"]
     HBN = ["compact_stall", "thr_nivcsw", "pgmajfault"]
     EV = {n: i + 1 for i, n in enumerate(EVN)}
     base = 5_000_000_000_000; off = lambda j, t: int(j * 1_500_000 + j * 40e-6 * (t - base))        # node j's clock minus true, ns
@@ -826,12 +891,16 @@ def synth(d, nodes=3, nex=60, seed=3):
     for j in range(nodes):                       # the heartbeat: periodic snapshots at the start and the end, and on node 2 a 40 ms gap that ends when its rank 2 begins exchange 20 late
         hbsnap(j, base, 0, 1, [100, 5, 0]); hbsnap(j, t + 1_000_000, 3, 1, [100 + (30 if j == 2 else 0), 5 + (4 if j == 2 else 0), 0])
     put(2, "H_GAP", tstall - 1_000_000, 0, -1, -1, 0, 0, nb=40_000_000, aux=1, kp=0); hbsnap(2, tstall - 1_000_000, 1, 0, [130, 9, 0])
+    put(2, "H_PHASE", tstall - 60_000_000, 101, 0, -1, 0, 0, nb=0, aux=3, kp=0); put(2, "H_PHASE", tstall - 50_000_000, 101, 0, -1, 0, 0, nb=3, aux=2, kp=0); put(2, "H_PHASE", tstall - 55_000_000, 102, 1, -1, 0, 0, nb=0, aux=3, kp=0)
+    put(2, "H_WD", tstall - 500_000, 0, -1, -1, 0, 0, nb=30_000_000, aux=7, kp=0)
+    for tid, wc, ph, st in ((101, 1, 2, "S"), (102, 2, 3, "R")):
+        put(2, "H_THR", tstall - 500_000, 7, 3, 1, tid, wc, rnd=ph, nb=(2_500_000 | (ord(st) << 56)), aux=30, kp=2)
     os.makedirs(d, exist_ok=True)
     clock0 = [{"node": j, "off_m": j * 1_500_000, "off_r": 0, "rtt": 8000 + 100 * j, "rtt_med": 12000, "t0": base} for j in range(1, nodes)]
     clock1 = [{"node": j, "off_m": int(j * 1_500_000 + j * 40e-6 * (t - base)), "off_r": 0, "rtt": 8100, "rtt_med": 12000, "t0": int(t)} for j in range(1, nodes)]
     def wr(pe, node, proxy, apu, rows, comms, clock):
         meta = {"version": 1, "rec_bytes": 40, "pe": pe, "node": node, "nodes": nodes, "ppn": 5, "ppa": 1, "proxy": proxy, "apu": apu, "pxsend": 3, "order": 2, "shift": 1, "round_mb": 1024.0, "sample": 1, "arena_mb": 256,
-                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
+                "nrec": len(rows), "dropped": 0, "m0": base + off(node, base), "r0": 0, "events": EVN, "hbnames": HBN, "hbstrs": STR, "phases": PHN, "hb_ms": 1, "hb_gap_ms": 20, "comms": comms, "clock": clock, "env": {"COMM_TRACE": "1", "COMM_SHMEM_PX_SEND": "3"}}
         js = json.dumps(meta).encode(); js += b" " * ((8 - len(js) % 8) % 8)
         arr = np.array(rows, dtype=REC) if rows else np.zeros(0, REC)
         with open(os.path.join(d, "trace_pe%d.bin" % pe), "wb") as f:
@@ -867,6 +936,9 @@ def selftest():
         st = txt.split("8 stalls")[1] if "8 stalls" in txt else ""
         if "n2  np" not in st or "compact_stall+30" not in st or not re.search(r"late exchanges.*", st) or not re.search(r"\|\s+n2\s+np\s+\|\s+40\.0 .*\|\s+[1-9]\d*, [0-9.]+\s*$", st, re.M):
             bad.append("the heartbeat stall of node 2 was not joined with its late exchange")
+        s8 = txt.split("8b stall classification")[1] if "8b stall classification" in txt else ""
+        if "t101:VSLOT_RELEASE" not in s8 or "t102:RD_FWD" not in s8 or "futex_wait_queue" not in s8 or "dly 2.5ms" not in s8 or "n2 1/3/1" not in s8:
+            bad.append("the phase tags / watchdog snapshot of node 2 were not reported (8b)")
         print(txt if "-v" in sys.argv else "selftest: report %d lines" % len(L))
         for b in bad:
             print("selftest FAIL:", b)

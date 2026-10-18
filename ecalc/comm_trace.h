@@ -32,19 +32,25 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <dirent.h>
+#include <sys/syscall.h>
+#include "comm_phase.h"
 #ifndef RUSAGE_THREAD
 #define RUSAGE_THREAD 1                               /* (Linux; needs _GNU_SOURCE in the headers) */
 #endif
 
 /* event ids start at 1 (0 = an unused record slot).  E_: the exchange (peer -1); R_: a round of the rounds path (round = j); M_: one message (me = the rank
  * that stamps it, peer = the other end); P_: a proxy command (me = node, peer = destination node, aux = ring index k); H_: the heartbeat thread (COMM_TRACE_HB): H_GAP = one observed wake-up gap (bytes = gap ns, aux = snapshot id),
- * H_CNT = one OS counter of a snapshot (aux = snapshot id, round = counter index into the JSON "hbnames", bytes = its value, seq = 0 snapshot taken at a gap, 1 the periodic one) */
+ * H_CNT = one OS counter of a snapshot (aux = snapshot id, round = counter index into the JSON "hbnames", bytes = its value, seq = 0 snapshot taken at a gap, 1 the periodic one, 2 a watchdog one),
+ * H_PHASE = a thread changed its phase tag (comm_phase.h; comm = tid, aux = new tag, bytes = old tag, me = thread slot), H_THR = one thread of a snapshot (comm = snapshot id, seq = tid, xseq = wchan index and
+ * peer = thread name index into the JSON "hbstrs", me = last CPU, round = phase tag, aux = ms in that phase, kp = snapshot kind | 128 for the heartbeat thread itself, bytes = run_delay ns | state char << 56),
+ * H_WD = the progress watchdog fired (bytes = ns since the last exchange / round / message record, aux = snapshot id) */
 #define TR_EVENTS(X) \
     X(E_BEGIN) X(E_COPY_ISS) X(E_COPY_DONE) X(E_PUBLISHED) X(E_POSTED) X(E_WAIT) X(E_JOINED) X(E_SIGS_SEEN) X(E_QUIET_END) X(E_RCOPY_ISS) X(E_RCOPY_DONE) X(E_DONE) \
     X(R_BEGIN) X(R_PUBLISHED) X(R_SCOPY_ISS) X(R_SCOPY_DONE) X(R_SENDS_DONE) X(R_SIGS_DONE) X(R_QUIET_END) X(R_RCOPY_ISS) X(R_END) \
     X(M_ROFF_ISSUE) X(M_ROFF_WAIT) X(M_ROFF_SEEN) X(M_PUT_ISSUE) X(M_PUT_POSTED) X(M_PUT_DONE) X(M_SIG_ISSUE) X(M_SIG_WAIT) X(M_SIG_SEEN) X(M_FLUSH_BEG) X(M_FLUSH_END) \
     X(P_PICKUP) X(P_BATCH) X(P_CHUNK) X(P_SIGNAL) X(P_QUIET_BEG) X(P_QUIET_END) X(P_DONE) \
-    X(H_GAP) X(H_CNT)
+    X(H_GAP) X(H_CNT) X(H_PHASE) X(H_THR) X(H_WD)
 enum {
     TR_NONE = 0,
 #define X(n) n,
@@ -74,7 +80,7 @@ static struct {
     char *arena; uint32_t nchunks; uint32_t next; uint64_t dropped;
     char dir[256];
     pthread_mutex_t lock; struct tr_comm comm[TR_MAXCOMM]; int ncomm;
-    uint64_t m0, r0;                                      /* this process's CLOCK_MONOTONIC and CLOCK_REALTIME ns read together at init */
+    uint32_t wd_ms; uint64_t m0, r0;                                      /* this process's CLOCK_MONOTONIC and CLOCK_REALTIME ns read together at init */
     struct tr_clk clk[2][TR_MAXNODE]; int nclk;           /* node 0 only: [pass 0 init, 1 finalize][node] */
     int flushed;
 } g_tr = { .lock = PTHREAD_MUTEX_INITIALIZER };
@@ -82,6 +88,7 @@ static struct {
 static inline uint64_t tr_now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 static inline uint64_t tr_now_real(void) { struct timespec t; clock_gettime(CLOCK_REALTIME, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 
+static void tr_ph_init(void);
 /* the arena (COMM_TRACE_MAX_MB / div MiB; a proxy passes 4); on = 0 when COMM_TRACE is off or the mapping fails */
 static void tr_init(size_t div)
 {
@@ -96,11 +103,14 @@ static void tr_init(size_t div)
     const char *d = getenv("COMM_TRACE_DIR");
     if (d && *d) snprintf(g_tr.dir, sizeof g_tr.dir, "%s", d);
     else snprintf(g_tr.dir, sizeof g_tr.dir, "/tmp/ecalc_trace_%s_%s", getenv("SLURM_JOB_ID") ? getenv("SLURM_JOB_ID") : "0", getenv("SLURM_STEP_ID") ? getenv("SLURM_STEP_ID") : "0");
-    g_tr.on = 1;
+    { const char *w = getenv("COMM_TRACE_WD_MS"); g_tr.wd_ms = w && atoi(w) > 0 ? (uint32_t)atoi(w) : 0; }
+    g_tr.on = 1; tr_ph_init();
 }
+static struct { _Alignas(64) uint64_t last; char pad[56]; } g_wdl;   /* the watchdog's progress stamp (own cache line; written only when COMM_TRACE_WD_MS is set) */
 static inline void tr_put(tr_buf *b, uint8_t ev, uint8_t kp, uint32_t comm, uint32_t seq, uint32_t xseq, uint32_t aux, uint32_t round, int me, int peer, uint64_t bytes)
 {
     uint64_t t = tr_now();
+    if (g_tr.wd_ms && ev < H_GAP) __atomic_store_n(&g_wdl.last, t, __ATOMIC_RELAXED);
     if (b->chunk == UINT32_MAX) { __atomic_fetch_add(&g_tr.dropped, 1, __ATOMIC_RELAXED); return; }
     if (b->chunk == 0 || b->pos >= TR_CHUNK_RECS) {
         uint32_t c = __atomic_fetch_add(&g_tr.next, 1, __ATOMIC_RELAXED) + 1;
@@ -117,6 +127,41 @@ static void tr_comm_add(int id, int n, int rank, int apu, const int *node)
     pthread_mutex_lock(&g_tr.lock);
     if (g_tr.ncomm < TR_MAXCOMM) { struct tr_comm *c = &g_tr.comm[g_tr.ncomm++]; c->id = id; c->n = n; c->rank = rank; c->apu = apu; c->node = (int *)malloc((size_t)n * sizeof(int)); memcpy(c->node, node, (size_t)n * sizeof(int)); }
     pthread_mutex_unlock(&g_tr.lock);
+}
+
+/* ---- phase tags (comm_phase.h): COMM_TRACE_PH = 1 words + H_PHASE events, 2 words only; the watchdog (COMM_TRACE_WD_MS) and COMM_TRACE_THR also turn the words on ---- */
+#define TR_PH_SLOTS 64
+struct tr_slot { int tid, noev; uint32_t ph; uint64_t since; tr_buf b; };
+static struct { int ev; uint32_t n; struct tr_slot s[TR_PH_SLOTS + 1]; } g_ph;
+static __thread struct tr_slot *tr_my_slot;
+static const char *const tr_ph_name[EC_PH_N] = {
+#define X(n) #n,
+    EC_PH_LIST(X)
+#undef X
+};
+static int tr_ph_set(int id)
+{
+    struct tr_slot *s = tr_my_slot;
+    if (!s) {
+        uint32_t i = __atomic_fetch_add(&g_ph.n, 1, __ATOMIC_RELAXED);
+        s = &g_ph.s[i < TR_PH_SLOTS ? i : TR_PH_SLOTS]; if (i >= TR_PH_SLOTS) s->noev = 1;      /* (the spare slot is shared: no events, the word is approximate) */
+        else s->tid = (int)syscall(SYS_gettid);
+        tr_my_slot = s;
+    }
+    uint32_t old = __atomic_load_n(&s->ph, __ATOMIC_RELAXED); if (old == (uint32_t)id) return (int)old;
+    __atomic_store_n(&s->since, tr_now(), __ATOMIC_RELAXED); __atomic_store_n(&s->ph, (uint32_t)id, __ATOMIC_RELAXED);
+    if (g_ph.ev && !s->noev) tr_put(&s->b, H_PHASE, 0, (uint32_t)s->tid, 0, 0, (uint32_t)id, 0, (int)(s - g_ph.s), -1, old);
+    return (int)old;
+}
+static void tr_ph_init(void)
+{
+    const char *e = getenv("COMM_TRACE_PH"), *t = getenv("COMM_TRACE_THR"); int m = e ? atoi(e) : 0;
+    g_ph.ev = m == 1;
+    if (m > 0 || g_tr.wd_ms || (t && atoi(t) > 0)) { ec_ph_fn = tr_ph_set; __atomic_store_n(&ec_ph_on, 1, __ATOMIC_RELEASE); }
+}
+static void tr_json_phases(FILE *f)
+{
+    fputc('[', f); for (int i = 0; i < EC_PH_N; i++) fprintf(f, "%s\"%s\"", i ? "," : "", tr_ph_name[i]); fputc(']', f);
 }
 /* one record of the clock table at node 0 after a ping-pong series (see comm_shmem.c tr_clock_sync) */
 static int tr_cmp_i64(const void *a, const void *b) { int64_t x = *(const int64_t *)a, y = *(const int64_t *)b; return x < y ? -1 : x > y; }
@@ -154,9 +199,9 @@ static long tr_write_file(const char *path, const char *json, size_t jlen)
 }
 
 /* ---- the node heartbeat (COMM_TRACE_HB) ---- */
-#define TR_HB_MAXC 96
+#define TR_HB_MAXC 384
 static struct {
-    pthread_t th; int run, started; uint32_t ms, gap_ms, snap; tr_buf b;
+    pthread_t th; int run, started; uint32_t ms, gap_ms, snap; int thr; tr_buf b;
     char names[TR_HB_MAXC][40]; int nn; int pfd[3]; char buf[65536];
 } g_hb;
 static int tr_hb_idx(const char *nm)                      /* the index of a counter name (assigned at first sight; the JSON "hbnames" lists them) */
@@ -204,18 +249,84 @@ static void tr_hb_snap(uint32_t snap, int kind)
         tr_hb_val(snap, kind, "proc_nivcsw", (uint64_t)ru.ru_nivcsw); tr_hb_val(snap, kind, "proc_majflt", (uint64_t)ru.ru_majflt); tr_hb_val(snap, kind, "proc_minflt", (uint64_t)ru.ru_minflt);
     }
 }
+/* per-thread snapshot (heartbeat v2, COMM_TRACE_THR=1; every watchdog firing): for every thread of the process the state, wchan, run_delay (schedstat), last CPU and phase tag as an H_THR
+ * record, then the irq / softirq / steal ticks of /proc/stat for the CPUs those threads last ran on (H_CNT "cpuN_irq" ...) */
+#define TR_HB_STRS 96
+static char g_hb_strs[TR_HB_STRS][24]; static int g_hb_nstr; static int g_hb_tid;
+static int tr_hb_str(const char *s)
+{
+    for (int i = 0; i < g_hb_nstr; i++) if (!strncmp(g_hb_strs[i], s, 23)) return i;
+    if (g_hb_nstr >= TR_HB_STRS) return TR_HB_STRS - 1;
+    snprintf(g_hb_strs[g_hb_nstr], sizeof g_hb_strs[0], "%s", s); return g_hb_nstr++;
+}
+static void tr_json_hbstrs(FILE *f)
+{
+    fputc('[', f); for (int i = 0; i < g_hb_nstr; i++) fprintf(f, "%s\"%s\"", i ? "," : "", g_hb_strs[i]); fputc(']', f);
+}
+static void tr_thr_snap(uint32_t snap, int kind)
+{
+    DIR *d = opendir("/proc/self/task"); if (!d) return;
+    static unsigned char cpus[1024 / 8]; memset(cpus, 0, sizeof cpus); uint64_t now = tr_now(); char path[64], buf[1024];
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        int tid = atoi(de->d_name); if (tid <= 0) continue;
+        snprintf(path, sizeof path, "/proc/self/task/%d/stat", tid);
+        int n = tr_hb_slurp(path, buf, sizeof buf); if (n <= 0) continue;
+        char *cp = strrchr(buf, ')'); if (!cp || !cp[1]) continue;
+        char *nm = strchr(buf, '('); char comm[24] = "?"; if (nm && nm < cp) { size_t l = (size_t)(cp - nm - 1); if (l > 23) l = 23; memcpy(comm, nm + 1, l); comm[l] = 0; }
+        char *p = cp + 2; char state = *p; int cpu = -1;
+        for (int f = 3; f < 39 && p; f++) { p = strchr(p, ' '); if (p) p++; }                         /* field 39: the processor last run on */
+        if (p) cpu = atoi(p);
+        if (cpu >= 0 && cpu < 1024) cpus[cpu >> 3] |= (unsigned char)(1u << (cpu & 7));
+        uint64_t delay = 0;
+        snprintf(path, sizeof path, "/proc/self/task/%d/schedstat", tid);
+        if (tr_hb_slurp(path, buf, sizeof buf) > 0) { char *sp = strchr(buf, ' '); if (sp) delay = strtoull(sp + 1, 0, 10); }
+        char wc[24] = "-"; snprintf(path, sizeof path, "/proc/self/task/%d/wchan", tid);
+        { int w = tr_hb_slurp(path, buf, sizeof buf); if (w > 0) { if (buf[w - 1] == '\n') buf[w - 1] = 0; snprintf(wc, sizeof wc, "%s", buf); } }
+        uint32_t ph = 0, age = 0;
+        for (uint32_t i = 0; i < g_ph.n && i < TR_PH_SLOTS; i++) if (g_ph.s[i].tid == tid) {
+            ph = __atomic_load_n(&g_ph.s[i].ph, __ATOMIC_RELAXED); uint64_t sn = __atomic_load_n(&g_ph.s[i].since, __ATOMIC_RELAXED); age = sn && now > sn ? (uint32_t)((now - sn) / 1000000ull) : 0; break; }
+        tr_put(&g_hb.b, H_THR, (uint8_t)(kind | (tid == g_hb_tid ? 128 : 0)), snap, (uint32_t)tid, (uint32_t)tr_hb_str(wc), age, ph, cpu, tr_hb_str(comm), (delay & 0x00ffffffffffffffull) | ((uint64_t)(unsigned char)state << 56));
+        (void)n;
+    }
+    closedir(d);
+    if (tr_hb_slurp("/proc/stat", g_hb.buf, sizeof g_hb.buf)) {
+        for (char *l = g_hb.buf; l && *l; ) {
+            char *e = strchr(l, '\n'); if (e) *e = 0;
+            if (!strncmp(l, "cpu", 3) && l[3] >= '0' && l[3] <= '9') {
+                int c = atoi(l + 3);
+                if (c >= 0 && c < 1024 && (cpus[c >> 3] & (1u << (c & 7)))) {
+                    unsigned long long v[8] = { 0 }; char *q = strchr(l, ' '); if (q) sscanf(q, "%llu %llu %llu %llu %llu %llu %llu %llu", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]);
+                    char nm[40]; snprintf(nm, sizeof nm, "cpu%d_irq", c); tr_hb_val(snap, kind, nm, v[5]);
+                    snprintf(nm, sizeof nm, "cpu%d_softirq", c); tr_hb_val(snap, kind, nm, v[6]);
+                    snprintf(nm, sizeof nm, "cpu%d_steal", c); tr_hb_val(snap, kind, nm, v[7]);
+                }
+            }
+            l = e ? e + 1 : 0;
+        }
+    }
+}
 static void *tr_hb_main(void *a)
 {
-    (void)a;
+    (void)a; g_hb_tid = (int)syscall(SYS_gettid);
     struct timespec rq = { (time_t)(g_hb.ms / 1000), (long)(g_hb.ms % 1000) * 1000000L };
     uint64_t prev = tr_now(), lastsnap = prev; uint64_t thr = (uint64_t)g_hb.gap_ms * 1000000ull;
+    uint64_t wdn = (uint64_t)g_tr.wd_ms * 1000000ull, wdlast = 0, wdthr = wdn; int wdfires = 0;
     tr_hb_snap(g_hb.snap++, 1);                                                              /* the first periodic snapshot: the baseline */
+    if (g_hb.thr) tr_thr_snap(g_hb.snap - 1, 1);
     while (__atomic_load_n(&g_hb.run, __ATOMIC_ACQUIRE)) {
         nanosleep(&rq, 0);
         uint64_t t = tr_now(), gap = t - prev; prev = t;
         if (gap >= thr) {                                                                     /* a late wake-up: the gap and the counters right after it */
-            uint32_t id = g_hb.snap++; tr_put(&g_hb.b, H_GAP, 0, 0, 0, 0, id, 0, -1, -1, gap); tr_hb_snap(id, 0); }
-        if (t - lastsnap >= 1000000000ull) { lastsnap = t; tr_hb_snap(g_hb.snap++, 1); }
+            uint32_t id = g_hb.snap++; tr_put(&g_hb.b, H_GAP, 0, 0, 0, 0, id, 0, -1, -1, gap); tr_hb_snap(id, 0); if (g_hb.thr) tr_thr_snap(id, 0); }
+        if (wdn) {                                                                            /* the progress watchdog: no exchange / round / message record for wd_ms */
+            uint64_t last = __atomic_load_n(&g_wdl.last, __ATOMIC_RELAXED); if (!last) last = g_tr.m0;
+            if (last != wdlast) { wdlast = last; wdthr = wdn; }
+            else if (t - last >= wdthr && wdfires < 400) {                                    /* once per episode, again at 2x, 4x ... the first threshold */
+                uint32_t id = g_hb.snap++; wdfires++; wdthr *= 2;
+                tr_put(&g_hb.b, H_WD, 0, 0, 0, 0, id, 0, -1, -1, t - last); tr_hb_snap(id, 2); tr_thr_snap(id, 2); }
+        }
+        if (t - lastsnap >= 1000000000ull) { lastsnap = t; tr_hb_snap(g_hb.snap++, 1); if (g_hb.thr) tr_thr_snap(g_hb.snap - 1, 1); }
     }
     return 0;
 }
@@ -223,9 +334,12 @@ static void *tr_hb_main(void *a)
 static void tr_hb_start(int proxy)
 {
     if (!g_tr.on || g_hb.started) return;
-    const char *e = getenv("COMM_TRACE_HB"); if (!e || atoi(e) <= 0) return;
+    const char *e = getenv("COMM_TRACE_HB"), *th = getenv("COMM_TRACE_THR"); int ms = e ? atoi(e) : 0;
+    if (ms <= 0 && g_tr.wd_ms) ms = 2;                                                       /* the watchdog needs the thread */
+    if (ms <= 0) return;
+    g_hb.thr = th && atoi(th) > 0;
     if (proxy) { const char *px = getenv("COMM_TRACE_HB_PX"); if (!px || atoi(px) <= 0) return; }
-    const char *g = getenv("COMM_TRACE_HB_GAP_MS"); g_hb.ms = (uint32_t)atoi(e); g_hb.gap_ms = g && atoi(g) > 0 ? (uint32_t)atoi(g) : 20;
+    const char *g = getenv("COMM_TRACE_HB_GAP_MS"); g_hb.ms = (uint32_t)ms; g_hb.gap_ms = g && atoi(g) > 0 ? (uint32_t)atoi(g) : 20;
     g_hb.run = 1;
     if (pthread_create(&g_hb.th, 0, tr_hb_main, 0)) { g_hb.run = 0; return; }
     g_hb.started = 1;

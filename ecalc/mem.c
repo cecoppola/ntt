@@ -4,6 +4,7 @@
 #endif
 #include <stdio.h>
 #include "fatal.h"
+#include "comm_phase.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sched.h>
@@ -101,7 +102,7 @@ int mem_dev_of(const void *p)
 void *mem_dev_malloc(int dev, size_t bytes)
 {
     void *p = 0; int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    if (hipMalloc(&p, bytes) != hipSuccess) p = 0;   /* plain hipMalloc only (results/I.md) */
+    { int ph_ = ec_ph(EC_PH_HIP_MALLOC); if (hipMalloc(&p, bytes) != hipSuccess) p = 0; ec_ph(ph_); }   /* plain hipMalloc only (results/I.md) */
     HIP_CHECK(hipSetDevice(cur));
     return p;
 }
@@ -109,7 +110,7 @@ void mem_dev_release(int dev, void *p)
 {
     if (!p) return;
     int cur; HIP_CHECK(hipGetDevice(&cur)); HIP_CHECK(hipSetDevice(dev));
-    HIP_CHECK(hipFree(p));
+    { int ph_ = ec_ph(EC_PH_HIP_FREE); HIP_CHECK(hipFree(p)); ec_ph(ph_); }
     HIP_CHECK(hipSetDevice(cur));
 }
 void mem_oom(const char *where, int dev, size_t bytes)

@@ -15,6 +15,7 @@
 #include <time.h>
 #include <stdlib.h>
 int comm_wst_on = -1;
+int ec_ph_on = 0; static int ph_none(int id) { (void)id; return 0; } int (*ec_ph_fn)(int) = ph_none;   /* comm_phase.h: set by comm_trace.h */
 static int wst_phase = WST_OTHER;
 static uint64_t wst_ns[WST_NP][3], wst_nn[WST_NP][3];   /* [phase][0 barrier, 1 wait, 2 ready] */
 static __thread int wst_depth;

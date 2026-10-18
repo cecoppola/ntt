@@ -115,7 +115,7 @@ tests/t_patch: tests/t_patch.c $(OBJS) mn_out.h verify.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
 tests/t_mn_grid: tests/t_mn_grid.c $(OBJS) dbig.h mdb.h mn.h tests/harness.h
 	$(HIPC) $< -x none $(OBJS) -o $@ $(GMP_LIBS) $(SHMEM_LIBS)
-mem.o: mem.c mem.h
+mem.o: mem.c mem.h comm_phase.h
 	$(HIPC) -c -o $@ $<
 comm_local.o: comm_local.c comm.h
 	$(HIPC) -c $< -o $@
@@ -124,7 +124,7 @@ comm_sim4.o: comm_sim4.c comm.h
 	$(HIPC) -c $< -o $@
 
 
-comm_shmem.o: comm_shmem.c comm.h comm_ofi.h comm_trace.h
+comm_shmem.o: comm_shmem.c comm.h comm_ofi.h comm_trace.h comm_phase.h
 	$(HIPC) $(SHMEM_CFLAGS) -c $< -o $@
 
 comm_ofi.o: comm_ofi.c comm_ofi.h fatal.h
@@ -148,7 +148,7 @@ comm_util.o: comm_util.c comm.h
 comm_xgmi.o: comm_xgmi.c comm.h
 	$(HIPC) -c $< -o $@
 
-tests/t_trace: tests/t_trace.c comm_trace.h
+tests/t_trace: tests/t_trace.c comm_trace.h comm_phase.h
 	$(CC) -O2 -I. $< -lpthread -o $@
 
 tests/t_comm: tests/t_comm.c comm_shmem.c comm_ofi.c comm_util.c fatal.c comm.h comm_ofi.h comm_trace.h fatal.h

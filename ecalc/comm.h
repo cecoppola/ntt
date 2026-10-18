@@ -18,6 +18,7 @@
 #define EC_COMM_H
 #include <stddef.h>
 #include <stdint.h>
+#include "comm_phase.h"
 #ifdef COMM_HOST_ONLY
 typedef void *hipStream_t;              /* host-only build of the TCP communicator (no GPU) */
 #else

@@ -112,7 +112,7 @@ int   comm_shmem_pe_per_apu(void) { return 0; }
     ec_fatal(e_ == hipErrorOutOfMemory ? EC_RC_OOM : EC_RC_FATAL, "HIP %s at %s:%d\n", hipGetErrorString(e_), __FILE__, __LINE__); } } while (0)
 static hipError_t pcopy(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: COMM_SHMEM_PX_KCOPY (below) */
 #define COPY(d, s, n, st) HIP_CHECK(pcopy(d, s, n, st))
-#define SYNC(st) HIP_CHECK(hipStreamSynchronize(st))
+#define SYNC(st) do { int ph_ = ec_ph(EC_PH_HIP_SYNC); HIP_CHECK(hipStreamSynchronize(st)); ec_ph(ph_); } while (0)
 #endif
 #define MAXID 1024                         /* communicator ids (mailbox rows) */
 #define ALIGN 256
@@ -372,7 +372,7 @@ static void tr_flush(int proxy)
     fprintf(f, "{\"version\":1,\"rec_bytes\":%zu,\"pe\":%d,\"node\":%d,\"nodes\":%d,\"ppn\":%d,\"ppa\":%d,\"proxy\":%d,\"apu\":%d,\"pxsend\":%d,\"order\":%d,\"shift\":%d,\"round_mb\":%.6g,\"sample\":%u,\"arena_mb\":%zu,\"nrec\":%llu,\"dropped\":%llu,\"m0\":%llu,\"r0\":%llu,\"events\":",
             sizeof(struct tr_rec), S.pme, S.me, S.npes, S.ppn, S.ppa, proxy, proxy ? S.pme % S.ppn : -1, S.pxsend, S.order, S.shift, S.round_bytes / 1048576.0, g_tr.sample, g_tr.mb,
             (unsigned long long)nrec, (unsigned long long)g_tr.dropped, (unsigned long long)g_tr.m0, (unsigned long long)g_tr.r0);
-    tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u", g_hb.ms, g_hb.gap_ms); fprintf(f, ",\"comms\":[");
+    tr_json_events(f); fprintf(f, ",\"hbnames\":"); tr_json_hbnames(f); fprintf(f, ",\"hb_ms\":%u,\"hb_gap_ms\":%u,\"wd_ms\":%u,\"thr\":%d,\"ph\":%d,\"hbstrs\":", g_hb.ms, g_hb.gap_ms, g_tr.wd_ms, g_hb.thr, ec_ph_on + g_ph.ev); tr_json_hbstrs(f); fprintf(f, ",\"phases\":"); tr_json_phases(f); fprintf(f, ",\"comms\":[");
     for (int i = 0; i < g_tr.ncomm; i++) { struct tr_comm *c = &g_tr.comm[i]; fprintf(f, "%s{\"id\":%d,\"n\":%d,\"rank\":%d,\"apu\":%d,\"node\":[", i ? "," : "", c->id, c->n, c->rank, c->apu); for (int r = 0; r < c->n; r++) fprintf(f, "%s%d", r ? "," : "", c->node[r]); fprintf(f, "]}"); }
     fprintf(f, "],\"clock\":[");
     for (int pass = 0, first = 1; pass < 2 && g_tr.nclk; pass++) { fprintf(f, "%s[", pass ? "," : ""); first = 1;
@@ -703,7 +703,7 @@ static void pin_start(void)   /* before shmem_init: a helper pins itself, the no
 #ifndef COMM_HOST_ONLY
 struct reg_job { char *p; size_t n; hipError_t he; int dpok; double t; };
 static void *reg_thread(void *a) { struct reg_job *j = (struct reg_job *)a; double t = now_s(); void *dp = 0;
-    j->he = hipHostRegister(j->p, j->n, hipHostRegisterPortable); j->dpok = 0;
+    { int ph_ = ec_ph(EC_PH_HIP_HOSTREG); j->he = hipHostRegister(j->p, j->n, hipHostRegisterPortable); ec_ph(ph_); } j->dpok = 0;
     if (j->he != hipSuccess) (void)hipGetLastError();
     else { j->dpok = hipHostGetDevicePointer(&dp, j->p, 0) == hipSuccess && dp == (void *)j->p; if (!j->dpok) (void)hipGetLastError(); }
     j->t = now_s() - t; return 0; }
@@ -831,7 +831,9 @@ int comm_shmem_pool_in_heap(void) { return 1; }
 int comm_shmem_rank(void) { return S.me; }
 void comm_shmem_counters(double *t, long *n, double *b) { pthread_mutex_lock(&S.alloc_lock); *t = S.tv; *n = S.nv; *b = S.bv; pthread_mutex_unlock(&S.alloc_lock); }
 static int env_int(const char *name, int def) { const char *e = getenv(name); return e ? atoi(e) : def; }
-int comm_shmem_init(void)
+static int comm_shmem_init_i(void);
+int comm_shmem_init(void) { int ph_ = ec_ph(EC_PH_SHMEM_INIT); int r = comm_shmem_init_i(); ec_ph(ph_); return r; }
+static int comm_shmem_init_i(void)
 {
     if (S.inited) return S.npes;
     int prov = -1; g_t0 = now_s();
@@ -932,15 +934,17 @@ int comm_shmem_init(void)
         (void)hipGetLastError();
         if (!dev) { if (S.me == 0) fprintf(stderr, "comm_shmem: COMM_SHMEM_DEVHEAP=%d but the library's shmem_malloc returned host memory (%s): the pool is HIP-registered host memory instead\n", S.devheap, pe == hipSuccess ? "known to HIP, not device" : hipGetErrorString(pe)); S.devheap = 0; }
     }
+    int phpool_ = ec_ph(EC_PH_POOL_REG);
     if (g_pxinit && !S.devheap) { double tp = now_s(); pool_populate(S.pool, S.pool_bytes, g_pxthr); g_t_pop = now_s() - tp;   /* N7D: pre-faulted here; registered after the barrier with the proxy pools */
         if (g_pop_err && S.verbose) fprintf(stderr, "comm_shmem: pe %d: madvise(MADV_POPULATE_WRITE) failed (%s): pages touched instead\n", S.me, strerror(g_pop_err > 0 ? g_pop_err : EINVAL)); }
     else if (!S.devheap) {
-        double tr = now_s(); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable);
+        double tr = now_s(); int ph_ = ec_ph(EC_PH_HIP_HOSTREG); hipError_t he = hipHostRegister(S.pool, S.pool_bytes, hipHostRegisterPortable); ec_ph(ph_);
         S.registered = he == hipSuccess;
         if (!S.registered) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: hipHostRegister of the pool failed (%s): pageable copies, no symmetric slabs\n", hipGetErrorString(he)); }
         else { void *dp = 0; if (hipHostGetDevicePointer(&dp, S.pool, 0) != hipSuccess || dp != S.pool) { (void)hipGetLastError(); if (S.me == 0) fprintf(stderr, "comm_shmem: the pool's device pointer differs from its host pointer: no symmetric slabs\n"); S.registered = 2; } }
         g_t_own = now_s() - tr;
     }
+    ec_ph(phpool_);
 #endif
     S.blocks = (struct blk *)malloc(sizeof *S.blocks); S.blocks->off = S.mb_bytes; S.blocks->len = S.pool_bytes - S.mb_bytes; S.blocks->used = 0; S.blocks->next = 0;
 #ifndef COMM_HOST_ONLY
@@ -956,7 +960,7 @@ int comm_shmem_init(void)
     shmem_barrier_all();                                  /* every mailbox is zeroed before anyone posts */
     S.inited = 1;
     if (S.verbose && S.ppa) printf("comm_shmem: pe %d: init timeline: shmem_init %.2f, pool alloc+pre-fault/registration done at %.2f, barrier took %.2f s, passed at %.2f\n", S.me, g_t_shinit, t_bar - g_t0, now_s() - t_bar, now_s() - g_t0);
-    if (S.ppa) px_attach();                               /* N7b: (after the barrier: the proxies' control is zeroed) */
+    if (S.ppa) { int ph_ = ec_ph(EC_PH_PX_ATTACH); px_attach(); ec_ph(ph_); }                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
     if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 2 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=2: 4 MiB put-with-signal chunks, a context per peer node)" : S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
@@ -1031,6 +1035,7 @@ typedef struct {
     tr_buf tb; int tr_act, tr_kind, tr_path, tr_reg; uint32_t tr_xs;   /* COMM_TRACE: this communicator's record chunk; whether the pending exchange is traced (the sampling), its xtag kind and path; in the table; its sequence */
     px_dev *px; int *pxpe;                 /* N7b: the proxy data plane (ofi = 1 with px set): my APU's proxy, the members' proxies (physical PEs) */
     int nw, ibon, ibtried; size_t ib, ibcap; unsigned char *ibf;   /* FA: control words per rank (W_N, + 1 under the switch); my inbox (offset in db), bytes per sender, which senders' messages of the pending exchange are in it */
+    int phk;                                          /* phase tag kind of the last post (comm_phase.h) */
 } shm_priv;
 #define PRIV(c) ((shm_priv *)(c)->priv)
 /* COMM_TRACE: TR(p, event, round, peer rank, sequence, bytes, aux) stamps one event of the pending exchange when it is traced (comm_trace.h) */
@@ -1412,11 +1417,11 @@ static void hs_post_begin(shm_priv *p, int path)       /* HS wrappers: the excha
 }
 static void s_alltoall(comm *c, const void *sb, void *rb, size_t bytes, hipStream_t s)
 {
-    shm_priv *p = PRIV(c);
-    if (!S.hst) { s_alltoall_i(c, sb, rb, bytes, s); return; }
+    shm_priv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    if (!S.hst) { s_alltoall_i(c, sb, rb, bytes, s); ec_ph(ph_); return; }
     hs_post_begin(p, 0); double t0 = now_s();
     s_alltoall_i(c, sb, rb, bytes, s);
-    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0;
+    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0; ec_ph(ph_);
 }
 /* ---- the all-to-alls in rounds (COMM_SHMEM_ROUND_MB; results/V114.md; the equal one as an unequal one) ----
  * The staging of an ordinary exchange is its whole send and receive, so the pool's high-water is 4 APU threads x the largest
@@ -1567,11 +1572,11 @@ static void s_alltoallv_i(comm *c, const void *sb, const size_t *scnt, const siz
 }
 static void s_alltoallv(comm *c, const void *sb, const size_t *scnt, const size_t *sdsp, void *rb, const size_t *rcnt, const size_t *rdsp, hipStream_t s)
 {
-    shm_priv *p = PRIV(c);
-    if (!S.hst) { s_alltoallv_i(c, sb, scnt, sdsp, rb, rcnt, rdsp, s); return; }
+    shm_priv *p = PRIV(c); p->phk = comm_xtag < 0 || comm_xtag >= XK_NK ? 0 : comm_xtag; int ph_ = ec_ph(EC_PH_POST(p->phk));
+    if (!S.hst) { s_alltoallv_i(c, sb, scnt, sdsp, rb, rcnt, rdsp, s); ec_ph(ph_); return; }
     hs_post_begin(p, 1); double t0 = now_s();
     s_alltoallv_i(c, sb, scnt, sdsp, rb, rcnt, rdsp, s);
-    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0;
+    p->hcall0 = now_s(); p->hs[H_POST] = p->hcall0 - t0; ec_ph(ph_);
 }
 /* the bytes an exchange brought in from the other PEs (alltoall: (n - 1) slabs; alltoallv: the counts) */
 static double recv_bytes(const shm_priv *p)
@@ -1621,10 +1626,10 @@ static void s_wait_i(comm *c)
 static struct hs_row { long n; double s[HS_N]; } g_hsd[8][XK_NK][3];
 static void s_wait(comm *c)
 {
-    shm_priv *p = PRIV(c);
-    if (!S.hst || !p->pending) { s_wait_i(c); return; }
+    shm_priv *p = PRIV(c); int ph_ = ec_ph(EC_PH_WAIT(p->phk));
+    if (!S.hst || !p->pending) { s_wait_i(c); ec_ph(ph_); return; }
     double t0 = now_s(); p->hs[H_CALL] = t0 - p->hcall0;
-    s_wait_i(c);
+    s_wait_i(c); ec_ph(ph_);
     p->hs[H_WAIT] = now_s() - t0;
     int d = 0;
 #ifndef COMM_HOST_ONLY
@@ -1752,7 +1757,9 @@ static void s_recv(comm *c, int from, void *b, size_t n)
     }
 }
 /* S12: the callers' symmetric buffers (device-accessible: the registered host pool, or the device heap) */
-static void *s_sym_alloc(comm *c, size_t bytes)
+static void *s_sym_alloc_i(comm *c, size_t bytes);
+static void *s_sym_alloc(comm *c, size_t bytes) { int ph_ = ec_ph(EC_PH_SYM_ALLOC); void *r = s_sym_alloc_i(c, bytes); ec_ph(ph_); return r; }
+static void *s_sym_alloc_i(comm *c, size_t bytes)
 {
     shm_priv *op = PRIV(c);
     if (op->px) return op->px->reg ? op->px->base + px_alloc(op->px, bytes, 1) : 0;   /* N7b: the proxy's pool (when HIP could register it) */
@@ -1765,7 +1772,9 @@ static void *s_sym_alloc(comm *c, size_t bytes)
     size_t off = pool_alloc(bytes, K_SYM);
     return S.pool + off;
 }
-static void s_sym_free(comm *c, void *ptr)
+static void s_sym_free_i(comm *c, void *ptr);
+static void s_sym_free(comm *c, void *ptr) { int ph_ = ec_ph(EC_PH_SYM_FREE); s_sym_free_i(c, ptr); ec_ph(ph_); }
+static void s_sym_free_i(comm *c, void *ptr)
 {
     (void)c;
     for (int d = 0; d < 4; d++) if (px_in(g_px[d], ptr)) { px_free(g_px[d], (size_t)((char *)ptr - g_px[d]->base)); return; }   /* N7b */
