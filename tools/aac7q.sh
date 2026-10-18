@@ -6,10 +6,12 @@
 #   aac7q.sh start|run|stop|status      (start = setsid nohup of "run"; stop = touch STOP: no new items, exit when running ones end)
 # Queue dir $AQ/queue/*.sh (AQ=~/aac7q).  Item headers (comment lines): OWNER, NODES (1..budget), EST_MIN, APPROVED (who/date; items without
 # it never run), optional NOT_BEFORE / NOT_AFTER (epoch), EXCLUSIVE=1 (only when none of our jobs run, and nothing else starts meanwhile),
-# ALLOW_SLOW=1 (do not exclude aac7-n01), GROUP=<name> (members start only when all fit at once, e.g. concurrent A/B arms).  See tools/aac7q_item_template.sh.
+# ALLOW_SLOW=1 (do not apply $AQ/exclude_slow), GROUP=<name> (members start only when all fit at once, e.g. concurrent A/B arms).  See tools/aac7q_item_template.sh.
 # Scheduling: largest-first; items that do not fit are skipped and later ones that fit start (backfill), until a skipped item has waited
 #   AQ_STARVE_MIN (45) min: then nothing starts behind it until it does.
 # Per item: own sbatch hold, item run with SLURM_JOB_ID=<hold> (steps must use --overlap --mem=0), hold scancelled afterwards, <item>.rc/.log.
+# Node exclusion (sbatch -x): host names from the private files $AQ/exclude (always) and $AQ/exclude_slow (unless ALLOW_SLOW=1);
+#   comma/newline separated, # comments allowed; a missing file excludes nothing (logged once).
 # STUB=1: no Slurm; holds are files under $AQ/stub (a file stub/ext_* of N nodes simulates a foreign job of ours).
 AQ=${AQ:-$HOME/aac7q}; Q=$AQ/queue; ST=$AQ/state; STUB=${STUB:-0}; BUDGET_CAP=${BUDGET:-}; BUDGET=6; BUDGET_T=0; BUDGET_TTL=${BUDGET_TTL:-600}
 POLL=${POLL:-20}; EST_UNIT=${EST_UNIT:-60}          # seconds per EST_MIN (stub tests shrink it)
@@ -38,7 +40,7 @@ hold_state() { if [ "$STUB" = 1 ]; then [ -e $AQ/stub/hold_$1 ] || { echo GONE; 
   else local s; s=$(squeue -j $1 -h -o %T 2>/dev/null); echo ${s:-GONE}; fi; }
 hold_new() { # nodes minutes name -> id
   if [ "$STUB" = 1 ]; then local id=9$RANDOM; echo "$1 $(( $(now) + ${STUB_PEND_S:-1} ))" > $AQ/stub/hold_$id; echo $id
-  else sbatch -p $PART -N $1 --exclusive --gpus-per-node=4 -x $EXCL -t $2 -J aq_$3 --parsable --wrap "sleep $(( $2 * 60 ))" 2>>$AQ/log; fi; }
+  else sbatch -p $PART -N $1 --exclusive --gpus-per-node=4 ${EXCL:+-x $EXCL} -t $2 -J aq_$3 --parsable --wrap "sleep $(( $2 * 60 ))" 2>>$AQ/log; fi; }
 # per-user node limit from Slurm: smallest node=N over the user's associations (maxtres, grptres) and their QOS (maxtrespu, grptres)
 slurm_limit() { local l q n best= src= a
   a=$(sacctmgr -n -P show assoc user=$USR format=maxtres,grptres,qos 2>/dev/null) || return 1; [ -n "$a" ] || return 1
@@ -56,10 +58,13 @@ part_idle() { local o; [ "$STUB" = 1 ] && { echo 999; return; }; o=$(sinfo -p $P
   [ -n "$o" ] && echo "$o" | awk '$1 ~ /^idle/ {s+=$2} END{print s+0}' || echo 999; }
 hold_kill() { if [ "$STUB" = 1 ]; then rm -f $AQ/stub/hold_$1; else scancel $1 2>/dev/null; fi; }
 kill_tree() { local p=$1 c; for c in $(pgrep -P $p 2>/dev/null); do kill_tree $c; done; kill -TERM $p 2>/dev/null; }
+# exclusion lists: excl_list <file> -> comma-joined host names from $AQ/<file> (comments stripped; missing file = empty, said once)
+excl_list() { [ -e $AQ/$1 ] || { [ -e $ST/.no_$1 ] || { say "no $AQ/$1: nothing excluded from it"; touch $ST/.no_$1; }; return; }
+  rm -f $ST/.no_$1; sed 's/#.*//' $AQ/$1 | tr ', \t' '\n\n\n' | grep -v '^$' | paste -sd, -; }
 # ---- one item, run in a background subshell: hold -> wait RUNNING -> run -> scancel
-run_item() { local f=$1 b n est own nodes ex slow J EXCL_L t0 w pid rc to hmin
-  b=$(basename $f .sh); own=$(hdr $f OWNER); nodes=$(hdr $f NODES); est=$(hdr $f EST_MIN); slow=$(hdr $f ALLOW_SLOW)
-  EXCL=aac7-n61; [ "$slow" = 1 ] || EXCL=$EXCL,aac7-n01
+run_item() { local f=$1 b n est own nodes ex slow J EXCL EXCL_S t0 w pid rc to hmin
+  b=$(basename $f .sh); own=$(hdr $f OWNER); nodes=$(hdr $f NODES); est=$(hdr $f EST_MIN); slow=$(hdr $f ALLOW_SLOW); EXCL_S=$(excl_list exclude_slow)
+  EXCL=$(excl_list exclude); [ "$slow" = 1 ] || EXCL=$EXCL${EXCL:+${EXCL_S:+,}}$EXCL_S
   hmin=$(( est * 3 / 2 + 5 )); to=$(( est * EST_UNIT * 3 / 2 + 5 * EST_UNIT ))
   J=$(hold_new $nodes $hmin $b); [ -n "$J" ] || { say "$b: sbatch failed"; echo "retry $(( $(now) + RETRY_DELAY ))" > $ST/$b.retry; rm -f $ST/$b; return; }
   echo "hold $J submitted $(now) nodes $nodes owner $own" > $ST/$b; say "$b: hold $J ($nodes nodes, -t $hmin min, owner $own)"

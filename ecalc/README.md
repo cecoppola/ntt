@@ -10,7 +10,7 @@ and status in `../PLAN.md`; what is in force and its evidence in `../RESULTS.md`
 `../profiles/README.md`.
 
 **Machine notes.**
-- aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user (`sacctmgr show qos normal format=maxtrespu`; the queue runner `tools/aac7q.sh` reads this limit from Slurm every 10 min and runs items side by side while they fit).
+- aac7: `source aac7env.sh` (ROCm 7.2.4). The QOS allows 6 nodes per user (`sacctmgr show qos normal format=maxtrespu`; the queue runner `tools/aac7q.sh` reads this limit from Slurm every 10 min and runs items side by side while they fit; it excludes the hosts listed in the private files `~/aac7q/exclude` (always) and `~/aac7q/exclude_slow` (unless the item sets `ALLOW_SLOW=1`); a missing file excludes nothing).
 - aac6 SH5 nodes in CPX mode (6 XCDs of 22.9 GB per device) run up to 4 × 10⁹ digits with
   `RNS_INIT_POOL_LOG=29 ECALC_PLANE_CAP=2^30 BS_SEED_PULL=0` (the seed pull kernel needs more co-resident blocks than
   one XCD holds, a; results/CAND.md).
