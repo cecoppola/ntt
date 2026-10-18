@@ -1,7 +1,7 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
 Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-89, to 2026-10-18 01:35 ET). Labels: (m) measured,
+send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-89 and 72j-75d, to 2026-10-18 11:45 ET). Labels: (m) measured,
 (mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
@@ -50,19 +50,21 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
 | `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
-| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect | 0 |
+| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect; removed 2026-10-18 (nothing uses it) | — |
 | `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 80 (ppa2s, 4 pairs, 2026-10-17): value 2 +5.6 s [+2.5, +8.6] slower than 1 (116.8 vs 122.4 s, CV 1.0 % both, m) | fixed; value 2 slower at 2 n, off | 1 |
 | `ECALC_HOST_THP=0` (transparent huge pages off for the node process; branch hthp, unmerged) | item 65 (pb1, 2 n, 2026-10-17 22:07): D 124.6, C 125.8, H 146.0 s; H − D +21.4 (rounds +31, -6, +17, +44), C − D +1.2 (m) | not adopted; branch kept for reference | 1 |
 | `COMM_SHMEM_POOL_MB=6144` (symmetric pool 6144 MiB vs the default) | item 78 (pool2, 2 n, 2 pairs): +18.6 s [-93, +130] (pairs +9.8, +27.4); init 46-61 vs 37-39 s (m) | not adopted | default |
 | `COMM_SHMEM_PX_WORKERS=<n>` (n worker threads per proxy, each on a private SHMEM context; branch pxpeer, unmerged) | gates PASS on adb1343 (item 87: 1 and 2 n with 8, 2 n off). t_comm 4 n (item 72c): per-proxy busy rate 22.6 vs 18.5 GB/s/NIC, node throughput W/D 1.00-1.05, W/L 0.71-0.78 (m) | not adopted: raises the proxy rate, not the node throughput | 0 |
-| `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PEER_ORDER=shift` (SS) | t_comm 4 n: SS/L 1.00-1.05 (item 72b). ecalc 4 n (item 72d, 4 pairs): SS − D −52.8 s [-158, +52], faster 4/4, nodes stall-heavy (D up to 280 s) (m) | candidate; confirmation pairs pending | 0 / 0 |
-| `MEM_HSTAGE_THP=0` + `MEM_PRECOMPACT_GB` (host staging without huge pages; in-process precompaction; branch fragfix) | item 72g (2 n, a99feb5): gates PASS; after the fragmenter F 504 vs FX 308 s, init still about 165 s (m) | partial; see "Phase B results" | 0 |
-| `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix) | items 72i, 72h: see "Phase B results" | partial | 0 |
+| `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PEER_ORDER=shift` (SS) | t_comm 4 n: SS/L 1.00-1.05 (item 72b). ecalc 4 n (item 72d, 4 pairs): SS − D −52.8 s [-158, +52], faster 4/4, nodes stall-heavy (D up to 280 s) (m) | candidate; mpss4 (72j, 4 n, memprep both arms): SM − DM +11.5 s [−50, +73]; mpss4b (72l) −56.3 and mpss4c (72p) −15.6 s per 4-pair set (12 pairs in all); SM saves 4-7 s of dm only (m) | not adopted: no separation from the noise | 0 / 0 |
+| `COMM_SHMEM_PX_SEND=3` (PX3: plain `shmem_ctx_putmem_nbi` chunks on a context per peer node, one fence + signal word per command; branch pxgap, merged ead367d) | gates PASS at 1 and 2 n (72q pxgate3, 75c). t_comm 4 n, 64 MiB exchange (72o tcomm4fix, T64 = PX3 + shift + BLOCK_MB=64): T64 17.46 ms vs libfabric 18.38 vs D 19.85 (m). ecalc 4 n (72r pxgap4, TM = PX3 + memprep): TM − DM −21.5 s [−94, +51]. ecalc 2 n (75c, T6 = PX3 + shift + BLOCK_MB=64 + memprep, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5], clean pairs (2) +0.1 s; the two slow-mode pairs hit either arm (m) | candidate; 4 n statistics running (75a, 75b, 75d) | 0 |
+| `MEM_HSTAGE_THP=0` + `MEM_PRECOMPACT_GB` (host staging without huge pages; in-process precompaction; branch fragfix, merged ead367d) | item 72g (2 n, a99feb5): gates PASS; after the fragmenter F 504 vs FX 308 s, init still about 165 s (m) | partial; see "Phase B results" | 0 |
+| `MEM_DEV_COMPACT` (per-allocation compaction of device arenas; branch fragfix2, 2a6e867, unmerged) | item 73d (fix2g2, 2 n): after the fragmenter FY 1220 s and one run killed at the 1800 s limit, against F 244 / 306 s; on a node with 0-90 free 2 MiB blocks each populate takes 25-869 s with no huge pages. Item 73e (fix2c2, clean nodes): DY − D −3.0 s (m) | dropped (the compaction cannot create blocks on an exhausted node); branch deleted | — |
+| `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix, merged ead367d) | items 72i, 72h, 72n: see "Phase B results" | partial; design confirmed by the allocation bench (item 73c) | 0 |
 | `COMM_PHASE_TS` (per-PE timestamps) | diagnostics only; items 51, 52, 54 vs 53: no measurable cost (m, 12 vs 4 runs) | merged c3a469d | 0 |
 | earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/N7C.md to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off | 0 |
 
 Item 55 (commit 3ff1c22): gates PASS at 1 and 2 nodes with the switches off and on, comm_ofi 2 nodes PASS, 6-node 1e10
-compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m).
+compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m). The switch was removed afterwards: eight pooled pairs showed no effect and no other switch depends on it.
 
 ## Node-count results (items 57, 66, 67; m unless marked)
 
@@ -81,7 +83,7 @@ count, not on per-node work alone. Item 71 (4 n): gap about +30 to +36 s excludi
 Tooling: item 60 (hangtest) passed with the patched driver library (re-entrancy-guarded `nl_on_exit`: DONE, then rc 0,
 52 s). Item 61 (hthp) stopped after its gates passed; the pb1 campaign (item 65) replaces it and is running.
 
-## Phase B results: the stall is host-memory fragmentation (items 65, 78, 76, 72g, 72i, 72h; m unless marked)
+## Phase B results: the stall is host-memory fragmentation (items 65, 78, 76, 72g, 72i, 72h, 72n, 73c-73e; m unless marked)
 
 - Reproduced (item 76, frag2, 2 n, 2026-10-17 22:58): a tmpfs fragmenter run before the job turns a 115-125 s 2 n run into a
   stall run. Arms (total s, n): X no fragmenter 143.8 (1); F right after the fragmenter 336.3 / 284.8 (init 194 / 146 vs
@@ -101,11 +103,31 @@ Tooling: item 60 (hangtest) passed with the patched driver library (re-entrancy-
   the comparison is weak). Item 72h (memprep2, 2 n): F 396.7 (one run killed at its 900 s limit), FX 445.7 / 295.2, FP
   289.3 / 347.4, C 118.1 / 214.0; in two runs (FP r6, FX r7) init was 40 s but bs 222 / 160 s: the cost moves to the
   next memory-touching step.
+- Item 72n (mpl4, 4 n, memprep in both arms, DM vs LM): DM 207-250 s (4 runs, mean 230), libfabric LM 162.6 / 165.2 s
+  (2 ok runs, mean 164) (m). The other two LM runs were BAD (rc 8, no crash): the program's host-memory budget check stopped
+  every rank before compute because node n1 held 1.2-1.4 GB less MemAvailable than the 33.8 GB needed (LM needs about
+  10 GB more host than DM for its pools). Not a code fault; it shows the margin: LM runs sat 7-40 GB from the limit, DM
+  passed by 2.9 GB in one run. Memprep ran in every run (huge 100 %) but took 4-158 s per node (slowest where only 80-88 GiB
+  per NUMA node could be populated). Diagnosis, doubt moderate: the node, not libfabric.
+- Item 73d (fix2g2, 2 n, MEM_DEV_COMPACT=2, branch fragfix2): after the fragmenter FY took 1220 s (init 1072 s) in one run
+  and was killed at the 1800 s limit in another, against F 244 / 306 s, C 172 / 255 s and the clean X 142 s. The first ~40
+  calls are fast (17 GiB in 1.1-1.7 s), but on a node with 0-90 free 2 MiB blocks each populate takes 25-60 s (one 13 GiB
+  call 869 s) with 0 % huge pages and gives back no blocks; the calls repeat for every 2.15 GB chunk and the five
+  processes of a node queue on the mapper lock. Compaction cannot create blocks on an exhausted node, so the switch was
+  dropped and the branch deleted. Item 73e (fix2c2, clean nodes): DY − D −3.0 s (no cost when blocks are plentiful).
+- Item 73c (fragbench1, 1 n, 64 GiB first touch, clean vs fragmented host memory, 2 repeats): the only lever is threading.
+  thp_pop_mt4 (4 pinned threads, MADV_HUGEPAGE + MADV_POPULATE_WRITE) is best on fragmented memory: 7.1 s, 9.7 GB/s,
+  100 % huge pages (clean 10.3 GB/s); 16 threads 8.7 GB/s on fragmented memory (more compaction stalls); single-thread
+  patterns 6.0-7.4 GB/s; MADV_COLLAPSE no faster and lost 448 pages to fallback. No pattern repairs the fragmentation.
+  Limit: the fragmented state still held 31-45k free 2 MiB blocks (32768 needed); exhausted memory was not tested.
+  This matches the design of the memory preparation step (4 threads per NUMA node). Inference (a): prepare once before the
+  large allocations, take the huge-page-sensitive regions first (device arenas, seed buffers, plane pools), never repeat
+  the preparation per allocation.
 - Status: partial. The preparation step removes about a third of the loss; the remainder reappears in the next step
-  that touches host or GPU memory. Fix #2 (start-up dissection per allocation path, then a second remedy) is in
-  progress on branch fragfix2.
+  that touches host or GPU memory. MEM_DEV_COMPACT is dropped. Problem A is now the own-allocation design (the process
+  reserves and prepares its large regions itself in a good order); design in progress, nothing measured yet.
 
-## Phase C results: the proxy path against libfabric (items 72, 73, 72b, 72c, 72d, 87; m unless marked)
+## Phase C results: the proxy path against libfabric (items 72, 73, 72b, 72c, 72d, 87, 72j-72r, 75c; m unless marked)
 
 - t_comm bandwidth probe (proxy D vs libfabric L, sizes 16-256 MiB): at 2 n D/L about 1.0 and proxy put rate 23.2
   GB/s per NIC. At 4 n with every peer in flight D/L 0.71-0.93 across probes (0.77-0.78 at 16-64 MiB in item 73, 0.88-0.93
@@ -118,8 +140,19 @@ Tooling: item 60 (hangtest) passed with the patched driver library (re-entrancy-
 - PX_SEND=2 with PEER_ORDER=shift (SS): matches libfabric in the probe (SS/L 1.00-1.05, item 72b) and was faster in
   4 of 4 ecalc pairs at 4 n (item 72d: −52.8 s [−158, +52]; the nodes were stall-heavy, D up to 280 s, so the
   interval is wide and part of the difference may be stall luck). Whether SS is real is the pending question.
-- Pending: items 72j (mpss4, 4 n) and 72k (mpss2, 2 n), SS against D with the memory preparation step in both arms, to
-  remove the stall noise.
+- SS against D with the memory preparation step in both arms (items 72j, 72l, 72p, 4 n; 12 pairs in three sets): SM − DM
+  +11.5 s [−50, +73], −56.3 and −15.6 s per set; SM saves 4-7 s of the dm phase only, the totals do not separate. Item
+  72k (mpss2, 2 n): +6.3 s [−82, +95], stalls in both arms. SS is not confirmed.
+- PX3 (COMM_SHMEM_PX_SEND=3, plain put chunks on a context per peer node, one fence + signal per command). Why: the default
+  proxy posts at 19-20 GB/s per NIC while busy but idles inside the exchange, and PX_SEND=2's put-with-signal chunks post
+  at only 14.9 GB/s (item 72b-era probes). Gates PASS at 1 and 2 n (items 72q, 75c). t_comm probe at 4 n (item 72o): the
+  64 MiB exchange takes 17.46 ms with T64 (PX3 + shift + 64 MiB chunks) against 18.38 ms libfabric and 19.85 ms default
+  (m), i.e. the probe gap closes. ecalc at 4 n (item 72r, 4 pairs, memprep in both arms): TM − DM −21.5 s [−94, +51], not
+  significant. ecalc at 2 n (item 75c, 4 pairs): T6 − DM +24.1 s [−34.3, +82.5]; the two clean pairs differ by +0.1 s
+  (dm phase 38.3-38.6 s in both arms, same comm time), the two slow-mode pairs (roffmax 112-143 s) hit either arm, so one
+  pair does not attribute the loss to the arm. Neutral at 2 n is expected (one peer node).
+- Pending: 4 n statistics for PX3 (items 75a t64m4 with T6 against DM, 75b t64m4b, 75d px64g2b at 2 n); a 6 n confirmation
+  only after at least 8 pairs at 4 n with a CI that excludes 0.
 
 ## Scaling model to 576 nodes (mod)
 
@@ -171,12 +204,14 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 
 ## Open questions and next experiments
 
-- Problem A (stalls): finish the start-up dissection (which allocation path stays slow after the preparation step;
-  GPU-side pools suspected) and a second remedy (fragfix2, 2 n items); then re-test at 4 n on clean and fragmented
-  nodes. A node-count-independent fix must remove the stall, not shrink it (see the scaling model).
-- Problem B (steady gap): confirm or reject SS (PX_SEND=2 + PEER_ORDER=shift) with 4 n pairs with the memory
-  preparation step in both arms (items 72j, 72k), then 4 n confirmation pairs and SS gates (1 and 2 n); if SS fails,
-  probe the hand-off between the node process and the proxy. A combined candidate (clean and fragmented, 4 n)
-  against D and L, then a 6-n confirmation against the item 45 and 57 baselines.
+- Problem A (stalls): the own-allocation design is in progress (the process takes and prepares its large host and
+  device regions itself, large huge-page-sensitive ones first, once). The per-allocation compaction (MEM_DEV_COMPACT) is
+  dropped. Open: an exhausted-node test of the preparation step (a ballast holding all but about 1 GiB of free 2 MiB
+  blocks, n >= 4 nodes), and the node-to-node spread in MemAvailable that stops a run at the budget check (item 72n). A
+  node-count-independent fix must remove the stall, not shrink it (see the scaling model).
+- Problem B (steady gap): PX3 statistics at 4 n are running (items 75a, 75b, 75d). SS is not confirmed (12 pairs, no
+  separation). If PX3 + shift + 64 MiB chunks separates from the default at 4 n (at least 8 pairs, CI excluding 0), a
+  6-n confirmation against the item 45 and 57 baselines follows; if it does not, probe the hand-off between the node
+  process and the proxy.
 - Item 51's wall times in results/N7G.md (223, 264, 186, 235 s, from the timestamp lines) differ from the
   `summary.txt` totals used here (259.8, 291.2, 212.3, 275.2 s); the totals are the comparable figure.
