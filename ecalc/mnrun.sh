@@ -255,8 +255,10 @@ kopt=(); [ "$nn" -gt 1 ] && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--ki
 # a failed step is a warning, the real launch follows.  The command ("$@") is the real one; the real run does not see the two variables.
 if [ -n "${MNRUN_MEMPREP_GB:-}" ] && [ "${MNRUN_MEMPREP_GB:-0}" != 0 ]; then
     echo "mnrun.sh: MNRUN_MEMPREP_GB=$MNRUN_MEMPREP_GB: memory preparation step on $nn node(s)"
-    ECALC_MEMPREP_ONLY=1 MEM_PRECOMPACT_GB="$MNRUN_MEMPREP_GB" timeout "${MNRUN_MEMPREP_TIMEOUT:-600}" \
-      srun --jobid="$SLURM_JOB_ID" -N "$nn" -w "$list" --ntasks="$nn" --ntasks-per-node=1 --distribution=block --gpus-per-node=4 --overlap --export=ALL \
+    # the one task needs every cpu of its node (its threads pin to each NUMA node's cpus): -c all cpus, no binding
+    pc=(); pn=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$pn" ] && pc=(-c "$pn"); pc+=(--cpu-bind=none)
+    ECALC_MEMPREP_ONLY=1 MEM_PRECOMPACT_GB="$MNRUN_MEMPREP_GB" timeout -k 30 "${MNRUN_MEMPREP_TIMEOUT:-600}" \
+      srun --jobid="$SLURM_JOB_ID" --kill-on-bad-exit=1 -N "$nn" -w "$list" --ntasks="$nn" --ntasks-per-node=1 "${pc[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
          bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; exec "$@"' _ "$@" \
       || echo "mnrun.sh: WARNING: the memory preparation step failed (rc $?): continuing with the real launch" >&2
 fi
