@@ -7,7 +7,7 @@
 # Queue dir $AQ/queue/*.sh (AQ=~/aac7q).  Item headers (comment lines): OWNER, NODES (1..budget), EST_MIN, APPROVED (who/date; items without
 # it never run), optional NOT_BEFORE / NOT_AFTER (epoch), EXCLUSIVE=1 (only when none of our jobs run, and nothing else starts meanwhile),
 # ALLOW_SLOW=1 (do not apply $AQ/exclude_slow), GROUP=<name> (members start only when all fit at once, e.g. concurrent A/B arms).  See tools/aac7q_item_template.sh.
-# Scheduling: largest-first; items that do not fit are skipped and later ones that fit start (backfill), until a skipped item has waited
+# Scheduling: largest-first (a GROUP is one unit of its members' summed nodes); items that do not fit are skipped and later ones that fit start (backfill), until a skipped item has waited
 #   AQ_STARVE_MIN (45) min: then nothing starts behind it until it does.
 # Per item: own sbatch hold, item run with SLURM_JOB_ID=<hold> (steps must use --overlap --mem=0), hold scancelled afterwards, <item>.rc/.log.
 # Node exclusion (sbatch -x): host names from the private files $AQ/exclude (always) and $AQ/exclude_slow (unless ALLOW_SLOW=1);
@@ -108,9 +108,11 @@ while :; do
   blk=0; for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved) continue;; esac
     [ "$(hdr $Q/$(basename $f).sh EXCLUSIVE)" = 1 ] && blk=1; done      # an EXCLUSIVE item is active: nothing else starts
   [ $blk = 1 ] && cand=""
-  # largest-first (ties by name); an item that does not fit is skipped and later ones that fit start (backfill) until a skipped item
+  # largest-first by unit size (single item = its nodes, GROUP = sum of its unstarted members; ties by name); an item that does not fit is skipped and later ones that fit start (backfill) until a skipped item
   # has waited AQ_STARVE_MIN: then nothing starts behind it until it does.  GROUP=<g> items start only when all members fit at once.
-  sorted=$(echo $cand | tr ' ' '\n' | sort -t: -k1,1nr -k2,2)
+  sorted=$(for c in $cand; do u=${c%%:*}; g=$(hdr $Q/${c#*:}.sh GROUP)       # unit size: a GROUP counts as the sum of its members
+      [ -n "$g" ] && { u=0; for c2 in $cand; do [ "$(hdr $Q/${c2#*:}.sh GROUP)" = "$g" ] && u=$((u + ${c2%%:*})); done; }; echo "$u:$c"; done \
+    | sort -t: -k1,1nr -k3,3 | cut -d: -f2-)
   for c in $sorted; do n=${c%%:*}; b=${c#*:}; f=$Q/$b.sh; ex=$(hdr $f EXCLUSIVE); g=$(hdr $f GROUP)
     [ -e $ST/$b ] && continue                                        # started earlier in this cycle (as a group member)
     if [ "$ex" = 1 ]; then
