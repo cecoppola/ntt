@@ -35,7 +35,7 @@ exec 9> $AQ/lock; flock -n 9 || { echo "another aac7q daemon holds $AQ/lock"; ex
 rm -f $AQ/STOP
 # ---- slurm layer (real or stub)
 used_nodes() { if [ "$STUB" = 1 ]; then local s=0 f; for f in $AQ/stub/*; do [ -e "$f" ] && s=$((s + $(head -1 $f | awk '{print $1}'))); done; echo $s
-  else squeue -u $USR -h -o %D 2>/dev/null | awk '{s+=$1} END{print s+0}'; fi; }
+  else squeue -u $USR -h -t R,PD,CF -o %D 2>/dev/null | awk '{s+=$1} END{print s+0}'; fi; }
 hold_state() { if [ "$STUB" = 1 ]; then [ -e $AQ/stub/hold_$1 ] || { echo GONE; return; }; [ $(now) -ge $(awk '{print $2}' $AQ/stub/hold_$1) ] && echo RUNNING || echo PENDING
   else local s; s=$(squeue -j $1 -h -o %T 2>/dev/null); echo ${s:-GONE}; fi; }
 hold_new() { # nodes minutes name -> id
@@ -54,9 +54,9 @@ budget_refresh() { local r n src; [ $(( $(now) - BUDGET_T )) -ge $BUDGET_TTL ] |
   r=$(slurm_limit) && [ -n "$r" ] || { say "budget: Slurm limit query failed, keeping $BUDGET"; return 0; }
   n=${r%% *}; src=${r#* }; [ -n "$BUDGET_CAP" ] && [ "$BUDGET_CAP" -lt "$n" ] && { n=$BUDGET_CAP; src="$src, capped by BUDGET=$BUDGET_CAP"; }
   [ "$n" = "$BUDGET" ] || { say "budget $BUDGET -> $n ($src)"; BUDGET=$n; }; }
-part_idle() { local o; [ "$STUB" = 1 ] && { echo 999; return; }; o=$(sinfo -p $PART -h -o '%T %D' 2>/dev/null)   # idle nodes; unknown (query failed) = no cap
+part_idle() { local o; [ "$STUB" = 1 ] && { cat $AQ/stub_idle 2>/dev/null || echo 999; return; }; o=$(sinfo -p $PART -h -o '%T %D' 2>/dev/null)   # idle nodes; unknown (query failed) = no cap
   [ -n "$o" ] && echo "$o" | awk '$1 ~ /^idle/ {s+=$2} END{print s+0}' || echo 999; }
-hold_kill() { if [ "$STUB" = 1 ]; then rm -f $AQ/stub/hold_$1; else scancel $1 2>/dev/null; fi; }
+hold_kill() { date +%s > $AQ/lastkill; if [ "$STUB" = 1 ]; then rm -f $AQ/stub/hold_$1; else scancel $1 2>/dev/null; fi; }
 kill_tree() { local p=$1 c; for c in $(pgrep -P $p 2>/dev/null); do kill_tree $c; done; kill -TERM $p 2>/dev/null; }
 # exclusion lists: excl_list <file> -> comma-joined host names from $AQ/<file> (comments stripped; missing file = empty, said once)
 excl_list() { [ -e $AQ/$1 ] || { [ -e $ST/.no_$1 ] || { say "no $AQ/$1: nothing excluded from it"; touch $ST/.no_$1; }; return; }
@@ -93,7 +93,9 @@ while :; do
   date +%s > $AQ/heartbeat
   RUNPIDS=$(for p in $RUNPIDS; do kill -0 $p 2>/dev/null && echo $p; done | tr '\n' ' ')
   if [ -e $AQ/STOP ]; then [ -z "$RUNPIDS" ] && { say "STOP: no running items, exit"; break; }; sleep $POLL; continue; fi
-  budget_refresh; used=$(used_nodes); free=$((BUDGET - used)); idle=$(part_idle); [ "$free" -gt "$idle" ] && free=$idle; t=$(now); cand=""; waiting=0; started=0
+  budget_refresh; used=$(used_nodes); free=$((BUDGET - used)); idle=$(part_idle); 
+  # nodes of a just-cancelled hold are still completing, not idle: a smaller item must not jump ahead of a larger one, wait a poll (<= KILL_SETTLE_S)
+  if [ "$free" -gt "$idle" ]; then free=$idle; [ $(( $(now) - $(cat $AQ/lastkill 2>/dev/null || echo 0) )) -lt ${KILL_SETTLE_S:-60} ] && { sleep $POLL; continue; }; fi; t=$(now); cand=""; waiting=0; started=0
   for f in $Q/*.sh; do [ -e "$f" ] || continue; b=$(basename $f .sh)
     [ -e $Q/$b.rc ] || [ -e $ST/$b ] && continue
     ap=$(hdr $f APPROVED); [ -n "$ap" ] || { [ -e $ST/$b.warn ] || { say "$b: no APPROVED header, skipped"; : > $ST/$b.warn; }; continue; }
