@@ -8,6 +8,7 @@
 # NOT_AFTER=                     (optional epoch; the item must be able to end before it)
 # EXCLUSIVE=0                    (1 = needs a quiet aac7: none of our other jobs; nothing else starts meanwhile)
 # ALLOW_SLOW=0                   (1 = do not exclude aac7-n01)
+# GROUP=                        (optional name: items with the same GROUP start only when all of them fit at once, e.g. concurrent A/B arms)
 #
 # Environment given by the daemon: SLURM_JOB_ID (= your hold, NODES nodes, already RUNNING), AQ_HOLD, AQ_NODES, AQ_ITEM.
 # OUT and HOLD are removed from the environment.  cwd = ~/aac7q/work.  Write your own output under ~/<task>/.

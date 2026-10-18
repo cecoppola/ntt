@@ -6,12 +6,15 @@
 #   aac7q.sh start|run|stop|status      (start = setsid nohup of "run"; stop = touch STOP: no new items, exit when running ones end)
 # Queue dir $AQ/queue/*.sh (AQ=~/aac7q).  Item headers (comment lines): OWNER, NODES (1..budget), EST_MIN, APPROVED (who/date; items without
 # it never run), optional NOT_BEFORE / NOT_AFTER (epoch), EXCLUSIVE=1 (only when none of our jobs run, and nothing else starts meanwhile),
-# ALLOW_SLOW=1 (do not exclude aac7-n01).  See tools/aac7q_item_template.sh.
+# ALLOW_SLOW=1 (do not exclude aac7-n01), GROUP=<name> (members start only when all fit at once, e.g. concurrent A/B arms).  See tools/aac7q_item_template.sh.
+# Scheduling: largest-first; items that do not fit are skipped and later ones that fit start (backfill), until a skipped item has waited
+#   AQ_STARVE_MIN (45) min: then nothing starts behind it until it does.
 # Per item: own sbatch hold, item run with SLURM_JOB_ID=<hold> (steps must use --overlap --mem=0), hold scancelled afterwards, <item>.rc/.log.
 # STUB=1: no Slurm; holds are files under $AQ/stub (a file stub/ext_* of N nodes simulates a foreign job of ours).
 AQ=${AQ:-$HOME/aac7q}; Q=$AQ/queue; ST=$AQ/state; STUB=${STUB:-0}; BUDGET_CAP=${BUDGET:-}; BUDGET=6; BUDGET_T=0; BUDGET_TTL=${BUDGET_TTL:-600}
 POLL=${POLL:-20}; EST_UNIT=${EST_UNIT:-60}          # seconds per EST_MIN (stub tests shrink it)
 PEND_MAX=${PEND_MAX:-600}; RETRY_DELAY=${RETRY_DELAY:-300}; MAX_RETRY=${MAX_RETRY:-5}; EXCL_PATIENCE=${EXCL_PATIENCE:-3600}
+AQ_STARVE_MIN=${AQ_STARVE_MIN:-45}; STARVE_S=${STARVE_S:-$((AQ_STARVE_MIN * 60))}   # a non-fitting item older than this blocks backfill
 PART=${AAC7_PARTITION:-192C4G1H_MI300A_RHEL9_A1}; USR=${USER:-<user>}
 say() { echo "$(TZ=America/New_York date '+%m-%d %H:%M:%S') $*" >> $AQ/log; }
 now() { date +%s; }
@@ -75,10 +78,10 @@ run_item() { local f=$1 b n est own nodes ex slow J EXCL_L t0 w pid rc to hmin
   say "$b: rc $rc after $(( $(now) - t0 )) s, hold $J cancelled"; echo "done rc $rc" > $ST/$b.done; rm -f $ST/$b; }
 RUNPIDS=""
 cleanup() { say "daemon exit: killing runners"; for p in $RUNPIDS; do kill_tree $p; done; for f in $ST/*; do [ -e "$f" ] || continue
-    case $f in *.retry|*.done|*.since|*.warn) ;; *) h=$(awk '{print $2}' $f); [ -n "$h" ] && hold_kill $h; rm -f $f;; esac; done; exit 0; }
+    case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved) ;; *) h=$(awk '{print $2}' $f); [ -n "$h" ] && hold_kill $h; rm -f $f;; esac; done; exit 0; }
 trap cleanup TERM INT
 # stale state from a crashed daemon: cancel recorded holds, mark the items rc 125
-for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn) continue;; esac
+for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved) continue;; esac
   b=$(basename $f); h=$(awk '{print $2}' $f); [ -n "$h" ] && hold_kill $h; echo 125 > $Q/$b.rc; echo "[aac7q] daemon restarted while item was active" >> $Q/$b.log; say "$b: stale state, hold $h cancelled, rc 125"; rm -f $f; done
 budget_refresh; say "daemon start pid $$ STUB=$STUB budget $BUDGET${BUDGET_CAP:+ (cap BUDGET=$BUDGET_CAP)}"
 while :; do
@@ -97,19 +100,33 @@ while :; do
     rc_n=$(cut -d' ' -f3 $ST/$b.retry 2>/dev/null); [ "${rc_n:-0}" -ge $MAX_RETRY ] && { echo 126 > $Q/$b.rc; say "$b: gave up after $MAX_RETRY pending-timeouts, rc 126"; continue; }
     [ -n "$na" ] && [ $((t + est * 60)) -gt "$na" ] && { [ -e $ST/$b.warn ] || { say "$b: would end after NOT_AFTER, skipped"; : > $ST/$b.warn; }; continue; }
     cand="$cand $n:$b"; waiting=$((waiting + 1)); done
-  blk=0; for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn) continue;; esac
+  blk=0; for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn|*.wait|*.starved) continue;; esac
     [ "$(hdr $Q/$(basename $f).sh EXCLUSIVE)" = 1 ] && blk=1; done      # an EXCLUSIVE item is active: nothing else starts
   [ $blk = 1 ] && cand=""
-  # largest-first (ties by name)
-  for c in $(echo $cand | tr ' ' '\n' | sort -t: -k1,1nr -k2,2); do n=${c%%:*}; b=${c#*:}; f=$Q/$b.sh; ex=$(hdr $f EXCLUSIVE)
+  # largest-first (ties by name); an item that does not fit is skipped and later ones that fit start (backfill) until a skipped item
+  # has waited AQ_STARVE_MIN: then nothing starts behind it until it does.  GROUP=<g> items start only when all members fit at once.
+  sorted=$(echo $cand | tr ' ' '\n' | sort -t: -k1,1nr -k2,2)
+  for c in $sorted; do n=${c%%:*}; b=${c#*:}; f=$Q/$b.sh; ex=$(hdr $f EXCLUSIVE); g=$(hdr $f GROUP)
+    [ -e $ST/$b ] && continue                                        # started earlier in this cycle (as a group member)
     if [ "$ex" = 1 ]; then
       if [ "$used" = 0 ] && [ $started = 0 ] && [ -z "$RUNPIDS" ]; then : ; else
         [ -e $ST/$b.since ] || echo $t > $ST/$b.since
         if [ $((t - $(cat $ST/$b.since))) -ge $EXCL_PATIENCE ]; then DRAIN=$b; fi; continue; fi
     fi
     [ -n "${DRAIN:-}" ] && [ "${DRAIN:-}" != "$b" ] && continue      # an EXCLUSIVE item waited past patience: drain
-    [ "$n" -le "$free" ] || continue
-    run_item $f & RUNPIDS="$RUNPIDS $!"; echo "starting $(now)" > $ST/$b; free=$((free - n)); used=$((used + n)); started=$((started + 1)); rm -f $ST/$b.since
+    need=$n; members="$n:$b"
+    if [ -n "$g" ]; then need=0; members=""; for c2 in $sorted; do b2=${c2#*:}; [ -e $ST/$b2 ] && continue
+        [ "$(hdr $Q/$b2.sh GROUP)" = "$g" ] && { need=$((need + ${c2%%:*})); members="$members $c2"; }; done; fi
+    if [ "$need" -gt "$free" ]; then
+      [ -e $ST/$b.wait ] || echo $t > $ST/$b.wait
+      if [ $((t - $(cat $ST/$b.wait))) -ge $STARVE_S ]; then
+        [ -e $ST/$b.starved ] || { say "$b: waited $(( (t - $(cat $ST/$b.wait)) / 60 )) min for $need nodes: backfill blocked until it starts"; : > $ST/$b.starved; }
+        break; fi
+      continue; fi
+    for c2 in $members; do n2=${c2%%:*}; b2=${c2#*:}
+      run_item $Q/$b2.sh & RUNPIDS="$RUNPIDS $!"; echo "starting $(now)" > $ST/$b2; free=$((free - n2)); used=$((used + n2)); started=$((started + 1))
+      rm -f $ST/$b2.since $ST/$b2.wait $ST/$b2.starved; done
+    [ -n "$g" ] && say "group $g: started $(echo $members | sed "s/[0-9]*://g")"
     [ "$ex" = 1 ] && break; done
   DRAIN=
   # idle report: nodes free, nothing started
