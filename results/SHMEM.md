@@ -50,7 +50,7 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
 | `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
-| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect; removed 2026-10-18 (nothing uses it) | — |
+| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect; removal prepared, merges after its 1 n and 2 n gates | — |
 | `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 80 (ppa2s, 4 pairs, 2026-10-17): value 2 +5.6 s [+2.5, +8.6] slower than 1 (116.8 vs 122.4 s, CV 1.0 % both, m) | fixed; value 2 slower at 2 n, off | 1 |
 | `ECALC_HOST_THP=0` (transparent huge pages off for the node process; branch hthp, unmerged) | item 65 (pb1, 2 n, 2026-10-17 22:07): D 124.6, C 125.8, H 146.0 s; H − D +21.4 (rounds +31, -6, +17, +44), C − D +1.2 (m) | not adopted; branch kept for reference | 1 |
 | `COMM_SHMEM_POOL_MB=6144` (symmetric pool 6144 MiB vs the default) | item 78 (pool2, 2 n, 2 pairs): +18.6 s [-93, +130] (pairs +9.8, +27.4); init 46-61 vs 37-39 s (m) | not adopted | default |
@@ -64,7 +64,7 @@ runs wait on peers, they do not compute more.
 | earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/N7C.md to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off | 0 |
 
 Item 55 (commit 3ff1c22): gates PASS at 1 and 2 nodes with the switches off and on, comm_ofi 2 nodes PASS, 6-node 1e10
-compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m). The switch was removed afterwards: eight pooled pairs showed no effect and no other switch depends on it.
+compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m). Removal is prepared (eight pooled pairs showed no effect and no other switch depends on it) and merges after its 1 n and 2 n gates.
 
 ## Node-count results (items 57, 66, 67; m unless marked)
 
