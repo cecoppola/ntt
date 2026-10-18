@@ -860,7 +860,7 @@ def selftest():
         sec = txt.split("exchange: node that published")[1].split("sender waits")[0]
         m2 = re.search(r"node  2:.*p90\s+([0-9.]+)", sec)
         if not m2 or float(m2.group(1)) < 3000: bad.append("the straggler node 2 was not flagged (p90 lag >= 3000 us)")
-        if "persistence" not in txt or "Fano" not in txt:
+        if "Fano" not in txt:   # (the synthetic slowness is skew, which section 7 no longer counts: no persistence line)
             bad.append("no clustering section")
         if "6b slowest" not in txt or "arrival skew" not in txt:
             bad.append("no skew section")
