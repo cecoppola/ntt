@@ -11,6 +11,8 @@
 #include <omp.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <hip/hip_runtime.h>
 #include "mem.h"
 
@@ -290,6 +292,8 @@ static size_t map_huge_bytes(const void *p)         /* AnonHugePages of the mapp
     }
     fclose(f); return kb << 10;
 }
+static char g_pc_mark[160];
+static void precompact_unmark(void) { if (g_pc_mark[0]) unlink(g_pc_mark); }
 void mem_precompact(int verbose)
 {
     (void)verbose;
@@ -297,9 +301,16 @@ void mem_precompact(int verbose)
     if (gb <= 0) return;
     /* one process per node: the first local process (SLURM_LOCALID 0; mnrun.sh and the SHMEM srun launch place the tasks in blocks, so
      * every node has one; unset = a run outside srun = the only process).  The others skip silently.  It runs before mn_init of this
-     * process, the others start their transport and pools meanwhile (no barrier: the step needs no comm layer); its mapping is per NUMA
-     * node at most MemFree - 16 GiB of that node, so a concurrent small allocation of a helper still finds room. */
-    { const char *l = getenv("SLURM_LOCALID"); if (l && atoi(l) != 0) return; }
+     * process; the others WAIT (node-local barrier: a done marker in /dev/shm, polled every 50 ms, 600 s bound then a warning) until it
+     * has unmapped, because the mapping takes up to MemFree - 16 GiB of each NUMA node and the heaps and pools must not overlap it. */
+    char mark[160]; { const char *j = getenv("SLURM_JOB_ID"), *st = getenv("SLURM_STEP_ID");   /* /dev/shm is node-local; job + step in the name: an earlier step's marker cannot release this wait */
+        snprintf(mark, sizeof mark, "/dev/shm/ecalc_px_%s_pc%s", j ? j : "0", st ? st : "0"); }   /* ecalc_px_<job>_ : the items' shmclean removes leftovers */
+    { const char *l = getenv("SLURM_LOCALID");
+      if (l && atoi(l) != 0) {   /* barrier: wait for the elected process to finish and unmap before anything big is allocated here (mn_init, the heaps, the pools) */
+          double tb = mem_now(); struct timespec ts = {0, 50 * 1000 * 1000};
+          while (access(mark, F_OK)) { if (mem_now() - tb > 600) { fprintf(stderr, "mem: precompact: local %s waited 600 s for %s, continuing\n", l, mark); return; } nanosleep(&ts, 0); }
+          return; } }
+    unlink(mark);                                      /* elected: a stale file of the same name (none expected) must not release the others */
     const size_t GiB = (size_t)1 << 30, margin = 16 * GiB, T = 4, HP = (size_t)2 << 20;
     int nd = mem_device_count(); if (nd < 1) nd = 1; if (nd > MEM_MAX_DEV) nd = MEM_MAX_DEV;
     char pol[160] = "?"; { FILE *f = fopen("/sys/kernel/mm/transparent_hugepage/enabled", "r"); char a[64] = "?", b[64] = "?";
@@ -346,6 +357,8 @@ void mem_precompact(int verbose)
         if (n < nd && map[n] && k == 0) { t1[n] = mem_now(); hp[n] = map_huge_bytes(map[n]); }
     }
     for (int n = 0; n < nd; n++) if (raw[n]) { munmap(raw[n], len[n] + HP); big1[n] = node_big_blocks(mem_numa_node_of_device(n)); }
+    { int fd = open(mark, O_CREAT | O_WRONLY, 0600); if (fd >= 0) close(fd); else fprintf(stderr, "mem: precompact: cannot write %s: %s (the other local processes will wait 600 s)\n", mark, strerror(errno));
+      atexit(precompact_unmark); snprintf(g_pc_mark, sizeof g_pc_mark, "%s", mark); }   /* the others are released; the file goes at exit */
     /* stderr: a helper that is the first local process has its stdout sent to /dev/null by mnrun.sh */
     fprintf(stderr, "mem: precompact MEM_PRECOMPACT_GB=%ld: THP %s; %.2f s over %d nodes (team %d of %d threads):", gb, pol, mem_now() - tw, nd, team, (int)(nd * T));
     for (int n = 0; n < nd; n++) {
