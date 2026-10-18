@@ -92,7 +92,7 @@ list=$(echo "$use" | paste -sd,)
 # Phase 16 A: COMM_TRANSPORT given as a leading VAR=value word of the command (`mnrun.sh 2 env COMM_TRANSPORT=shmem ... ./ecalc`, the
 # launch line's form) counts as well -- without this the non-SHMEM path launched it (no heap variable: the library's default heap);
 # the same for ECALC_LOG_CLOCKS, which the wrappers test before the command runs
-for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
+for a in "$@"; do case "$a" in env|-*) continue;; COMM_TRANSPORT=*) COMM_TRANSPORT=${a#*=};; ECALC_LOG_CLOCKS=*) export ECALC_LOG_CLOCKS=${a#*=};; COMM_SHMEM_PE_PER_APU=*) COMM_SHMEM_PE_PER_APU=${a#*=};; COMM_OFI=*) COMM_OFI=${a#*=};; MNRUN_MEMPREP_GB=*) MNRUN_MEMPREP_GB=${a#*=};; *=*) continue;; *) break;; esac; done   # (ECALC_LOG_CLOCKS: the wrapper reads it)
 # 2026-10-12 (TCP removed): SHMEM is the only multi-process transport -- the default for <procs> > 1; any other value is refused
 [ "$P" -gt 1 ] && COMM_TRANSPORT=${COMM_TRANSPORT:-shmem}
 if [ "$P" -gt 1 ] && [ "$COMM_TRANSPORT" != shmem ]; then echo "mnrun.sh: COMM_TRANSPORT=$COMM_TRANSPORT: only shmem runs more than one process (the TCP transport was removed)" >&2; exit 1; fi
@@ -248,6 +248,20 @@ fi
 # D34 (user 2026-10-15): multi-node runs launch with srun --kill-on-bad-exit=1 (a dead rank ends the step in seconds, not at the timeout);
 # COMM_KILL_ON_BAD_EXIT=0 is the only override.
 kopt=(); [ "$nn" -gt 1 ] && [ "${COMM_KILL_ON_BAD_EXIT:-1}" != 0 ] && kopt=(--kill-on-bad-exit=1)
+# FRAGFIX memory preparation (MNRUN_MEMPREP_GB=<GiB per NUMA node>, default unset = off, nothing below changes): ONE srun step first, one task per node
+# (same job, same nodes), runs the command's ecalc with ECALC_MEMPREP_ONLY=1 MEM_PRECOMPACT_GB=<n>: it populates and unmaps up to n GiB of huge pages on
+# each NUMA node (at most that node's MemFree - 16 GiB; the compaction a user process can ask for), prints the 'mem: precompact' line and exits 0
+# before any HIP / comm call -- so it has finished before a single process of the real run starts.  Bounded by MNRUN_MEMPREP_TIMEOUT (default 600 s);
+# a failed step is a warning, the real launch follows.  The command ("$@") is the real one; the real run does not see the two variables.
+if [ -n "${MNRUN_MEMPREP_GB:-}" ] && [ "${MNRUN_MEMPREP_GB:-0}" != 0 ]; then
+    echo "mnrun.sh: MNRUN_MEMPREP_GB=$MNRUN_MEMPREP_GB: memory preparation step on $nn node(s)"
+    # the one task needs every cpu of its node (its threads pin to each NUMA node's cpus): -c all cpus, no binding
+    pc=(); pn=$(scontrol show node "$(echo "$use" | head -1)" -o 2>/dev/null | sed -n 's/.*CPUTot=\([0-9]*\).*/\1/p'); [ -n "$pn" ] && pc=(-c "$pn"); pc+=(--cpu-bind=none)
+    ECALC_MEMPREP_ONLY=1 MEM_PRECOMPACT_GB="$MNRUN_MEMPREP_GB" timeout -k 30 "${MNRUN_MEMPREP_TIMEOUT:-600}" \
+      srun --jobid="$SLURM_JOB_ID" --kill-on-bad-exit=1 -N "$nn" -w "$list" --ntasks="$nn" --ntasks-per-node=1 "${pc[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
+         bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; exec "$@"' _ "$@" \
+      || echo "mnrun.sh: WARNING: the memory preparation step failed (rc $?): continuing with the real launch" >&2
+fi
 # the one launch of every path: the tasks block-placed on the listed nodes; each task loads the modules, sets its rank and runs the command
 exec srun --jobid="$SLURM_JOB_ID" "${kopt[@]}" "${mpi[@]}" -N "$nn" -w "$list" --ntasks="$((P * PPN))" --ntasks-per-node="$((per * PPN))" "${copt[@]}" --distribution=block --gpus-per-node=4 --overlap --export=ALL \
      bash -lc '[ -n "${MNRUN_UNLOAD:-}" ] && module unload $MNRUN_UNLOAD > /dev/null 2>&1; module load $MNRUN_MODULES; if [ "${MNRUN_NICS_AUTO:-0}" = 1 ]; then n=$(ls -d /sys/class/cxi/cxi[0-9]* 2>/dev/null | wc -l); [ "$n" -gt 0 ] && [ "${SHMEM_OFI_NUM_NICS:-0}" -gt "$n" ] && export SHMEM_OFI_NUM_NICS=$n; fi; k=${MNRUN_PPN:-1}; export COMM_RANK=$((SLURM_PROCID / k)) COMM_SIZE=$((SLURM_NTASKS / k)); if [ "$k" -gt 1 ] && [ $((SLURM_PROCID % k)) -ne $((k - 1)) ]; then export COMM_SHMEM_PROXY=1 ECALC_LOG_CLOCKS=0; exec > /dev/null; fi; [ "${ECALC_LOG_CLOCKS:-0}" != 0 ] && bash "$MNRUN_DIR/aac7env.sh" --log; exec '"$pre"'"$@"' _ "$@"

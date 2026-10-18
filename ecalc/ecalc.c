@@ -415,6 +415,7 @@ static int plane_cap_switch(int pool_log, unsigned long N, int verbose)
 }
 int main(int argc, char **argv)
 {
+    if (getenv("ECALC_MEMPREP_ONLY") && atoi(getenv("ECALC_MEMPREP_ONLY"))) { mem_precompact(); return 0; }   /* FRAGFIX: the memory-preparation step (mnrun.sh MNRUN_MEMPREP_GB): nothing else runs, no HIP, no comm */
     cfg_snapshot();                                   /* L5: record the registered switches set in the environment, before ecalc sets any itself (print-only) */
     /* MN_PLAN_ONLY=<total digits>:<g> -- the plan of a run of that size on g node-processes (mn_plan.c): every
      * large product's grid, pieces and planes from the code's own decisions, no device, no communicator; exits after the knobs

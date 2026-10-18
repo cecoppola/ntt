@@ -137,7 +137,7 @@ static struct {
     double bv;                             /* the bytes this PE received from the other PEs in those exchanges (the off-process traffic), summed */
     int ppa, ppn, pme, pnpes, proxy;       /* N7b COMM_SHMEM_PE_PER_APU: proxies per APU (0 off), PEs per node (1 + 4 ppa), my physical PE and the count, 1 = this PE is a proxy */
     size_t pxch;                           /* COMM_SHMEM_PX_BLOCK_MB: the chunk of a PX_SEND=2 put (default PXCH = 4 MiB; the same on every PE) */
-    int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (default) the proxy's batch-then-quiet, 2 chunked put-with-signal into the receiving proxy (px_serve2) */
+    int pxsend;                            /* N7D COMM_SHMEM_PX_SEND: 1 (default) the proxy's batch-then-quiet, 2 chunked put-with-signal into the receiving proxy (px_serve2), 3 (PX3) plain chunks + one fence and signal word per command (px_serve2 too) */
 } S;
 enum { K_CTRL, K_STAGE, K_SYM };
 static void site_print(void);                           /* (below) */
@@ -314,7 +314,7 @@ struct px_ent { long pe; size_t roff, soff, n; long sigidx, sig; };   /* sigidx,
 _Static_assert(sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent) + PXRING * sizeof(long) <= PXCTL, "proxy control");
 static long *px_dn_of(char *base) { return (long *)(base + S.mb_bytes + sizeof(struct px_hdr) + PXRING * sizeof(struct px_ent)); }
 static long *px_sigw(char *base, int w, long idx) { return (long *)base + (size_t)w * MAXID * S.npes + (size_t)idx; }
-static size_t px_last_len(size_t n) { return n ? n - ((n - 1) / S.pxch) * S.pxch : 0; }   /* (PX_SEND=2 only: S.pxch, COMM_SHMEM_PX_BLOCK_MB, is PXCH by default) */
+static size_t px_last_len(size_t n) { return S.pxsend == 3 ? n : n ? n - ((n - 1) / S.pxch) * S.pxch : 0; }   /* (PX_SEND=3: the one signal word announces it all; PX_SEND=2: S.pxch, COMM_SHMEM_PX_BLOCK_MB, is PXCH by default) */
 /* N7E COMM_SHMEM_PE_PER_APU=2: an APU's two helper PEs h = 0, 1 (local PEs 2d, 2d + 1, on their own NICs).  The APU's staging/slab area is ONE virtual
  * range `base` (span bytes) mapped by the node-process: [0, PXDATA) is helper 0's control, then 4 MiB blocks (PXCH) alternate between the
  * helpers' heaps (block b of the data area = helper b & 1, local offset PXDATA + (b >> 1) PXCH + ...).  Every offset in the protocol is a
@@ -381,7 +381,7 @@ static void px_progress_hl(px_dev *x, px_hl *l)
     struct px_hdr *h = px_hdr_of(l->base);
     pthread_mutex_lock(&l->lock);
     int any = 0; long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
-    if (S.pxsend == 2) {                                  /* N7D: each command as soon as its own stamp says done (out of order) */
+    if (S.pxsend >= 2) {                                  /* N7D: each command as soon as its own stamp says done (out of order) */
         long *dn = px_dn_of(l->base);
         for (long k = l->retired; k < hd; k++) { long **c = &l->cnt[k % PXRING];
             if (*c && __atomic_load_n(&dn[k % PXRING], __ATOMIC_ACQUIRE) == k + 1) { __atomic_sub_fetch(*c, 1, __ATOMIC_RELEASE); *c = 0; any = 1; } }
@@ -434,7 +434,11 @@ static void px_write(px_dev *x, int dst_pe, size_t roff, const void *src, size_t
  * commands in the ring (so the peers' transfers interleave) on the context of its destination node (up to PXNCTX contexts: a slow peer's
  * completion does not hold the others').  Each chunk is a put-with-signal into the receiving proxy's pool: the chunks before the last add
  * their bytes to word 0, the last sets word 1 to PACK(seq, n) -- the receiver needs no second hop through the sending node-process.  A
- * command is reported done (its stamp) after the quiet of its own context; between two contexts' quiets new commands are taken and posted. */
+ * command is reported done (its stamp) after the quiet of its own context; between two contexts' quiets new commands are taken and posted.
+ * PX3 (COMM_SHMEM_PX_SEND=3, Phase C step 3): the same loop with plain shmem_ctx_putmem_nbi chunks and, after a command's last chunk, one
+ * shmem_ctx_fence on the peer's context + the signal word (set to PACK(seq, n)): the receiver waits for that word alone (px_last_len = n, no
+ * chunk-byte word).  Measured 2026-10-18 (ecalc mpss4, t_comm 72b): the 4 MiB put-with-signal chunks of PX_SEND=2 post at 14.8-14.9 GB/s per NIC
+ * against 19-20 for whole puts; PX3 keeps 2's structure (no batch coupling, every peer in flight) with the plain put's rate. */
 static void px_serve2(void)
 {
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool); long *dn = px_dn_of(S.pool);
@@ -443,7 +447,7 @@ static void px_serve2(void)
     while (nc < peers && shmem_ctx_create(SHMEM_CTX_PRIVATE, &cx[nc]) == 0) nc++;
     int own = nc; if (!nc) { cx[0] = SHMEM_CTX_DEFAULT; nc = 1; }
     static size_t posted[PXRING]; static unsigned char fp[PXRING], fd[PXRING], co[PXRING];   /* bytes posted, fully posted, done, context */
-    long t = 0, tp = 0, tl = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
+    long t = 0, tp = 0, tl = 0, nput = 0, nq = 0, nsig = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
     for (;;) {
         long hd = __atomic_load_n(&h->head, __ATOMIC_ACQUIRE);
         for (; t < hd; t++) { int s = (int)(t % PXRING); int node = (int)ring[s].pe / S.ppn; posted[s] = 0; fp[s] = fd[s] = 0; co[s] = (unsigned char)(((node - S.me - 1 + S.npes) % S.npes) % nc); }
@@ -454,6 +458,10 @@ static void px_serve2(void)
                     struct px_ent *e = &ring[s]; shmem_ctx_t c = cx[co[s]];
                     if (!e->n) { shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); fp[s] = 1; continue; }
                     size_t o = posted[s], len = e->n - o < S.pxch ? e->n - o : S.pxch; int last = o + len == e->n;
+                    if (S.pxsend == 3) {                  /* PX3: a plain chunk; the command's last chunk is followed by a fence and its signal word */
+                        shmem_ctx_putmem_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (int)e->pe);
+                        if (last) { shmem_ctx_fence(c); shmem_ctx_long_p(c, px_sigw(S.pool, 1, e->sigidx), e->sig, (int)e->pe); nsig++; }
+                    } else
                     shmem_ctx_putmem_signal_nbi(c, S.pool + e->roff + o, S.pool + e->soff + o, len, (uint64_t *)px_sigw(S.pool, last, e->sigidx),
                                                 last ? (uint64_t)e->sig : (uint64_t)len, last ? SHMEM_SIGNAL_SET : SHMEM_SIGNAL_ADD, (int)e->pe);
                     posted[s] = o + len; nput++; bytes += (double)len;
@@ -480,15 +488,15 @@ static void px_serve2(void)
         }
     }
     for (int i = 0; i < own; i++) shmem_ctx_destroy(cx[i]);
-    if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=2, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %.2f s posting + quiet = %.2f GB/s while busy\n",
-                                           S.pme, S.pme / S.ppn, S.pme % S.ppn, own, nput, bytes / 1e9, nq, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
+    if (S.verbose || S.pme < S.ppn) fprintf(stderr, "comm_shmem: proxy pe %d (node %d, APU %d): COMM_SHMEM_PX_SEND=%d, %d contexts: %ld chunks, %.2f GB, %ld context quiets, %ld fence+signal, %.2f s posting + quiet = %.2f GB/s while busy\n",
+                                           S.pme, S.pme / S.ppn, S.pme % S.ppn, S.pxsend, own, nput, bytes / 1e9, nq, nsig, tbusy, tbusy > 0 ? bytes / 1e9 / tbusy : 0);
 }
 /* the receiver's half under COMM_SHMEM_PX_SEND=2: sender r's message of sequence seq (want bytes) has arrived in my proxy's pool */
 static void px_spin_ge(long *w, long v) { for (unsigned spins = 0; __atomic_load_n(w, __ATOMIC_ACQUIRE) < v; spins++) if (spins > 64) sched_yield(); }
 /* a proxy's life: post every command in its ring, quiet, report them done; leave on quit (or when the node-process is gone) */
 static void px_serve(void)
 {
-    if (S.pxsend == 2) { px_serve2(); return; }
+    if (S.pxsend >= 2) { px_serve2(); return; }
     struct px_hdr *h = px_hdr_of(S.pool); struct px_ent *ring = px_ring_of(S.pool);
     __atomic_store_n(&h->ppid, (long)getpid(), __ATOMIC_RELEASE);
     long t = 0, nput = 0, nq = 0; double bytes = 0, tchk = now_s(), tbusy = 0; unsigned idle = 0;
@@ -753,14 +761,14 @@ int comm_shmem_init(void)
     int npes_hint = getenv("SLURM_NTASKS") ? atoi(getenv("SLURM_NTASKS")) / S.ppn : getenv("PMI_SIZE") ? atoi(getenv("PMI_SIZE")) / S.ppn : getenv("COMM_SIZE") ? atoi(getenv("COMM_SIZE")) : 4096;
     if (npes_hint < 1) npes_hint = 4096;
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", 1);
-    if (S.pxsend < 1 || S.pxsend > 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet) or 2 (chunked put-with-signal)\n", S.pxsend);
-    if (S.pxsend == 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 is not built for COMM_SHMEM_PE_PER_APU=2\n");
-    if (S.pxsend == 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=2 needs COMM_SHMEM_PE_PER_APU=1 and OpenSHMEM 1.5 put-with-signal\n");
+    if (S.pxsend < 1 || S.pxsend > 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet), 2 (chunked put-with-signal) or 3 (chunked puts, one fence + signal per command)\n", S.pxsend);
+    if (S.pxsend >= 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
+    if (S.pxsend >= 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
     { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=2 chunk (fewer chunks and signal adds per peer); value 2's 4 MiB heap alternation keeps PXCH */
       if (!(mb >= 1 && mb <= 1024)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB=%s: 1..1024 (MiB; default 4)\n", e ? e : "");
       S.pxch = (size_t)(mb * 1048576.0);
-      if (S.pxch != PXCH && S.pxsend != 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=2 (COMM_SHMEM_PE_PER_APU=1); value 2 keeps the 4 MiB heap blocks\n"); }
-    S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend == 2 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
+      if (S.pxch != PXCH && S.pxsend < 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB needs COMM_SHMEM_PX_SEND=2 or 3 (COMM_SHMEM_PE_PER_APU=1); value 2 keeps the 4 MiB heap blocks\n"); }
+    S.mb_bytes = ((size_t)MAXID * npes_hint * 8 * (S.pxsend >= 2 ? 2 : 1) + ALIGN - 1) & ~(size_t)(ALIGN - 1);   /* (N7D: a proxy's signal words in its second half) */
     S.pool_bytes = (mb << 20) + S.mb_bytes;
     { const char *ex = getenv("COMM_SHMEM_PROXY"); if (S.ppa && ex && atoi(ex)) {   /* N7b: a proxy's heap as a named file (heap_mmap) */
         g_heap_min = comm_shmem_heap_env(0); if (!g_heap_min) { fprintf(stderr, "comm_shmem: a proxy needs SHMEM_SYMMETRIC_SIZE (mnrun.sh sets it)\n"); exit(1); }
@@ -857,7 +865,7 @@ int comm_shmem_init(void)
     if (S.ppa) px_attach();                               /* N7b: (after the barrier: the proxies' control is zeroed) */
     if (S.me == 0 && S.round_bytes) printf("comm_shmem: COMM_SHMEM_ROUND_MB=%.6g: an all-to-all above it is carried in rounds of at most that staging each way\n", S.round_bytes / 1048576.0);
     if (S.me == 0 && S.nslot) printf("comm_shmem: staging in %d regions of %.1f MiB (one per APU) + a general area of %.1f MiB\n", S.nslot, S.slot_bytes / 1048576.0, S.blocks->len / 1048576.0);
-    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 2 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=2: 4 MiB put-with-signal chunks, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
+    if (S.me == 0) printf("comm_shmem: %s, %d PEs%s, thread level %d (%s), pool %zu MiB%s%s, order %s%s, spin %ld us, peer order %s\n", comm_shmem_impl(), S.npes, S.ppa ? (S.pxsend == 2 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=2: 4 MiB put-with-signal chunks, a context per peer node)" : S.pxsend == 3 ? " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1; proxy send COMM_SHMEM_PX_SEND=3: plain chunks, one fence + signal per command, a context per peer node)" : " (nodes; + 4 proxy PEs each, COMM_SHMEM_PE_PER_APU=1)") : "", prov, S.serial ? "calls serialised" : "concurrent, a context per communicator", S.pool_bytes >> 20,
                           S.devheap ? " (device heap)" : "", S.registered == 1 ? ", HIP-registered" : "",
                           S.order == ORDER_PUTSIG ? "putsig" : S.order == ORDER_FENCE ? "fence" : "quiet", S.order == ORDER_QUIET ? " (helper thread)" : " (inline)", S.spin_us, S.shift ? "shift" : "rank");
     return S.npes;
@@ -1006,7 +1014,7 @@ static void putmem(shm_priv *p, int r, size_t off, const void *src, size_t n) { 
 static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_t n, long sig)
 {
     long *sw = W(p, p->rbase[r], W_SIG, p->me);
-    if (p->xo && p->px && S.pxsend == 2) { px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); return; }   /* N7D: the signal travels with the data */
+    if (p->xo && p->px && S.pxsend >= 2) { px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], (long)p->id * S.npes + p->me, sig); return; }   /* N7D: the signal travels with the data */
     if (p->xo) { if (p->px) { if (n) px_write(p->px, p->pxpe[r], off, src, n, &p->ocnt[r], 0, 0); } else comm_ofi_write(p->op, r, off, src, n, &p->ocnt[r]); p->osig[r] = sig; return; }   /* the signal after delivery (ofi_flush) */
 #if HAVE_PUT_SIGNAL
     if (S.order == ORDER_PUTSIG) {
@@ -1022,7 +1030,7 @@ static void put_signalled(shm_priv *p, int r, size_t off, const void *src, size_
  * Returns when every recorded signal is sent (the data of this exchange is in the receivers' memory) */
 static void ofi_flush(shm_priv *p)
 {
-    if (p->px && S.pxsend == 2) {                         /* N7D: the signals went with the data; wait until the proxy is done with my sources */
+    if (p->px && S.pxsend >= 2) {                         /* N7D: the signals went with the data; wait until the proxy is done with my sources */
         for (unsigned spins = 0;; spins++) {
             int left = 0; for (int r = 0; r < p->n && !left; r++) left = __atomic_load_n(&p->ocnt[r], __ATOMIC_ACQUIRE) != 0;
             if (!left) return;
@@ -1174,7 +1182,7 @@ static void publish(shm_priv *p, size_t base, size_t bytes, const size_t *dsp)
 static void arrive(shm_priv *p, size_t bytes, const size_t *rcnt)
 {
     PEERS(p, k, r, 0, -1) {
-        if (p->xo && p->px && S.pxsend == 2) { px_arrive(p, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); continue; }
+        if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r], rcnt ? rcnt[r] : bytes, 0); continue; }
         long *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(p->iseq[r], 0));
         long x = *(volatile long *)sw, want = (long)(rcnt ? rcnt[r] : bytes);
         if (UNSEQ(x) != p->iseq[r]) die("signal sequence mismatch");
@@ -1259,7 +1267,7 @@ static void *rounder(void *a)
             SHM_UNLOCK();
         }
         PEERS(p, k, r, 0, -1) if (j < round_count(rcnt[r], c)) {   /* the signals of round j */
-            if (p->xo && p->px && S.pxsend == 2) { px_arrive(p, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, j); continue; }
+            if (p->xo && p->px && S.pxsend >= 2) { px_arrive(p, r, p->iseq[r] + 1 + j, rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0, j); continue; }
             long seq = p->iseq[r] + 1 + j, *sw = W(p, p->base, W_SIG, r); XWAIT(p, xsig, sw, PACK(seq, 0));
             long x = *(volatile long *)sw; size_t want = rcnt[r] > o ? (rcnt[r] - o < c ? rcnt[r] - o : c) : 0;
             if (UNSEQ(x) != seq) die("round signal sequence mismatch");
