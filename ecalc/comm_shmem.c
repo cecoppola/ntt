@@ -763,7 +763,7 @@ int comm_shmem_init(void)
     S.pxsend = env_int("COMM_SHMEM_PX_SEND", 1);
     if (S.pxsend < 1 || S.pxsend > 3) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d: 1 (default, batch then quiet), 2 (chunked put-with-signal) or 3 (chunked puts, one fence + signal per command)\n", S.pxsend);
     if (S.pxsend >= 2 && S.ppa == 2) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d is not built for COMM_SHMEM_PE_PER_APU=2\n", S.pxsend);
-    if (S.pxsend >= 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and OpenSHMEM 1.5 contexts\n", S.pxsend);
+    if (S.pxsend >= 2 && (!S.ppa || !HAVE_PUT_SIGNAL)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_SEND=%d needs COMM_SHMEM_PE_PER_APU=1 and an OpenSHMEM 1.5 build (the proxy's context code is compiled only with 1.5 headers; PX_SEND=3 itself uses plain puts, not put-with-signal)\n", S.pxsend);
     { const char *e = getenv("COMM_SHMEM_PX_BLOCK_MB"); double mb = e ? atof(e) : 4;   /* the PX_SEND=2 chunk (fewer chunks and signal adds per peer); value 2's 4 MiB heap alternation keeps PXCH */
       if (!(mb >= 1 && mb <= 1024)) ec_fatal(EC_RC_FATAL, "comm_shmem: COMM_SHMEM_PX_BLOCK_MB=%s: 1..1024 (MiB; default 4)\n", e ? e : "");
       S.pxch = (size_t)(mb * 1048576.0);
