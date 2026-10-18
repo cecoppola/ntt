@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/trace_report.py -- the report of a COMM_TRACE=1 run (ecalc/comm_trace.h; switches in ecalc/README.md).
 
-  python3 -I tools/trace_report.py [options] RUN [RUN ...]       RUN = DIR or LABEL=DIR; DIR holds the run's trace_pe<PE>.bin files
-  python3 -I tools/trace_report.py --selftest                    a synthetic 3-node trace through the whole analysis (exit 1 on a failure)
+  python3 tools/trace_report.py [options] RUN [RUN ...]       RUN = DIR or LABEL=DIR; DIR holds the run's trace_pe<PE>.bin files
+  python3 tools/trace_report.py --selftest                    a synthetic 3-node trace through the whole analysis (exit 1 on a failure)
 
 Reads the per-process files (node-processes and proxies) with numpy memory maps in chunks, puts every stamp on node 0's clock (the ping-pong offsets of the
 header, linear in time between the init and the finalize estimate), spills the node-process records per communicator to a temporary directory
