@@ -27,7 +27,7 @@ extern int mem_par_init;                 /* parallel per-device init (touch team
 void *mem_hstage_alloc(int dev, size_t bytes, double *touch_s, double *reg_s);
 void  mem_hstage_free(void *p);
 /* FRAGFIX: MEM_PRECOMPACT_GB=<GiB per NUMA node> (0 = off): a one-shot huge-page populate + unmap per node before the transport and the
- * pools, the one compaction a user process can ask for; prints the THP policy and the free 2 MiB blocks before / after (mem.c) */
+ * pools, the one compaction a user process can ask for; prints (stderr) the THP policy and the free 2 MiB blocks before / after (mem.c) */
 void  mem_precompact(int verbose);
 
 /* registered host memory not tied to a node (level pools, batch operands/results);
