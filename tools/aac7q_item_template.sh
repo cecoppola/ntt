@@ -2,7 +2,8 @@
 # aac7q queue item.  Copy to ~/aac7q/queue/<NN>_<owner>_<what>.sh (filename order breaks ties); the daemon only reads the "# KEY=" lines.
 # OWNER=a99
 # NODES=2
-# EST_MIN=30
+# EST_MIN=30                     (worst-case run time: hold and kill at 1.5*EST_MIN+5 min)
+# EXPECT_MIN=20                  (optional, informational: expected run time; used only to fit a backfill before a waiting larger item, never to kill)
 # APPROVED=<who>/<date>          (items without it are never run; the coordinator/user fills it in)
 # NOT_BEFORE=                    (optional epoch)
 # NOT_AFTER=                     (optional epoch; the item must be able to end before it)
