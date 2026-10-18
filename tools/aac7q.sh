@@ -1,12 +1,15 @@
 #!/bin/bash
-# aac7q.sh - standing work-queue runner for the aac7 login node (keeps the 6-node QOS allowance busy with approved work).
+# aac7q.sh - standing work-queue runner for the aac7 login node (keeps the per-user node allowance busy with approved work).
+# Budget per cycle = the account's per-user node limit read from Slurm (sacctmgr assoc maxtres/grptres and qos maxtrespu/grptres,
+#   smallest node=N; re-read every BUDGET_TTL s, last value kept on failure, start 6; BUDGET=<n> in the environment caps it; items
+#   run concurrently while they fit); free nodes never exceed the partition's idle count (sinfo). Never bypasses the Slurm limits.
 #   aac7q.sh start|run|stop|status      (start = setsid nohup of "run"; stop = touch STOP: no new items, exit when running ones end)
-# Queue dir $AQ/queue/*.sh (AQ=~/aac7q).  Item headers (comment lines): OWNER, NODES (1-6), EST_MIN, APPROVED (who/date; items without
+# Queue dir $AQ/queue/*.sh (AQ=~/aac7q).  Item headers (comment lines): OWNER, NODES (1..budget), EST_MIN, APPROVED (who/date; items without
 # it never run), optional NOT_BEFORE / NOT_AFTER (epoch), EXCLUSIVE=1 (only when none of our jobs run, and nothing else starts meanwhile),
 # ALLOW_SLOW=1 (do not exclude aac7-n01).  See tools/aac7q_item_template.sh.
 # Per item: own sbatch hold, item run with SLURM_JOB_ID=<hold> (steps must use --overlap --mem=0), hold scancelled afterwards, <item>.rc/.log.
 # STUB=1: no Slurm; holds are files under $AQ/stub (a file stub/ext_* of N nodes simulates a foreign job of ours).
-AQ=${AQ:-$HOME/aac7q}; Q=$AQ/queue; ST=$AQ/state; STUB=${STUB:-0}; BUDGET=${BUDGET:-6}
+AQ=${AQ:-$HOME/aac7q}; Q=$AQ/queue; ST=$AQ/state; STUB=${STUB:-0}; BUDGET_CAP=${BUDGET:-}; BUDGET=6; BUDGET_T=0; BUDGET_TTL=${BUDGET_TTL:-600}
 POLL=${POLL:-20}; EST_UNIT=${EST_UNIT:-60}          # seconds per EST_MIN (stub tests shrink it)
 PEND_MAX=${PEND_MAX:-600}; RETRY_DELAY=${RETRY_DELAY:-300}; MAX_RETRY=${MAX_RETRY:-5}; EXCL_PATIENCE=${EXCL_PATIENCE:-3600}
 PART=${AAC7_PARTITION:-192C4G1H_MI300A_RHEL9_A1}; USR=${USER:-<user>}
@@ -33,6 +36,21 @@ hold_state() { if [ "$STUB" = 1 ]; then [ -e $AQ/stub/hold_$1 ] || { echo GONE; 
 hold_new() { # nodes minutes name -> id
   if [ "$STUB" = 1 ]; then local id=9$RANDOM; echo "$1 $(( $(now) + ${STUB_PEND_S:-1} ))" > $AQ/stub/hold_$id; echo $id
   else sbatch -p $PART -N $1 --exclusive --gpus-per-node=4 -x $EXCL -t $2 -J aq_$3 --parsable --wrap "sleep $(( $2 * 60 ))" 2>>$AQ/log; fi; }
+# per-user node limit from Slurm: smallest node=N over the user's associations (maxtres, grptres) and their QOS (maxtrespu, grptres)
+slurm_limit() { local l q n best= src= a
+  a=$(sacctmgr -n -P show assoc user=$USR format=maxtres,grptres,qos 2>/dev/null) || return 1; [ -n "$a" ] || return 1
+  while IFS='|' read -r mt gt qs; do
+    for n in $(echo "$mt,$gt" | tr ',' '\n' | sed -n 's/^node=\([0-9]\+\)$/\1/p'); do [ -z "$best" ] || [ "$n" -lt "$best" ] && { best=$n; src="assoc node=$n"; }; done
+    for q in $(echo "$qs" | tr ',' ' '); do l=$(sacctmgr -n -P show qos "$q" format=maxtrespu,grptres 2>/dev/null) || continue
+      for n in $(echo "$l" | tr '|,' '\n\n' | sed -n 's/^node=\([0-9]\+\)$/\1/p'); do [ -z "$best" ] || [ "$n" -lt "$best" ] && { best=$n; src="qos $q node=$n"; }; done; done
+  done <<< "$a"
+  [ -n "$best" ] && echo "$best $src"; }
+budget_refresh() { local r n src; [ $(( $(now) - BUDGET_T )) -ge $BUDGET_TTL ] || return 0; BUDGET_T=$(now)
+  r=$(slurm_limit) && [ -n "$r" ] || { say "budget: Slurm limit query failed, keeping $BUDGET"; return 0; }
+  n=${r%% *}; src=${r#* }; [ -n "$BUDGET_CAP" ] && [ "$BUDGET_CAP" -lt "$n" ] && { n=$BUDGET_CAP; src="$src, capped by BUDGET=$BUDGET_CAP"; }
+  [ "$n" = "$BUDGET" ] || { say "budget $BUDGET -> $n ($src)"; BUDGET=$n; }; }
+part_idle() { local o; [ "$STUB" = 1 ] && { echo 999; return; }; o=$(sinfo -p $PART -h -o '%T %D' 2>/dev/null)   # idle nodes; unknown (query failed) = no cap
+  [ -n "$o" ] && echo "$o" | awk '$1 ~ /^idle/ {s+=$2} END{print s+0}' || echo 999; }
 hold_kill() { if [ "$STUB" = 1 ]; then rm -f $AQ/stub/hold_$1; else scancel $1 2>/dev/null; fi; }
 kill_tree() { local p=$1 c; for c in $(pgrep -P $p 2>/dev/null); do kill_tree $c; done; kill -TERM $p 2>/dev/null; }
 # ---- one item, run in a background subshell: hold -> wait RUNNING -> run -> scancel
@@ -62,17 +80,17 @@ trap cleanup TERM INT
 # stale state from a crashed daemon: cancel recorded holds, mark the items rc 125
 for f in $ST/*; do [ -e "$f" ] || continue; case $f in *.retry|*.done|*.since|*.warn) continue;; esac
   b=$(basename $f); h=$(awk '{print $2}' $f); [ -n "$h" ] && hold_kill $h; echo 125 > $Q/$b.rc; echo "[aac7q] daemon restarted while item was active" >> $Q/$b.log; say "$b: stale state, hold $h cancelled, rc 125"; rm -f $f; done
-say "daemon start pid $$ STUB=$STUB budget $BUDGET"
+budget_refresh; say "daemon start pid $$ STUB=$STUB budget $BUDGET${BUDGET_CAP:+ (cap BUDGET=$BUDGET_CAP)}"
 while :; do
   date +%s > $AQ/heartbeat
   RUNPIDS=$(for p in $RUNPIDS; do kill -0 $p 2>/dev/null && echo $p; done | tr '\n' ' ')
   if [ -e $AQ/STOP ]; then [ -z "$RUNPIDS" ] && { say "STOP: no running items, exit"; break; }; sleep $POLL; continue; fi
-  used=$(used_nodes); free=$((BUDGET - used)); t=$(now); cand=""; waiting=0; started=0
+  budget_refresh; used=$(used_nodes); free=$((BUDGET - used)); idle=$(part_idle); [ "$free" -gt "$idle" ] && free=$idle; t=$(now); cand=""; waiting=0; started=0
   for f in $Q/*.sh; do [ -e "$f" ] || continue; b=$(basename $f .sh)
     [ -e $Q/$b.rc ] || [ -e $ST/$b ] && continue
     ap=$(hdr $f APPROVED); [ -n "$ap" ] || { [ -e $ST/$b.warn ] || { say "$b: no APPROVED header, skipped"; : > $ST/$b.warn; }; continue; }
     n=$(hdr $f NODES); est=$(hdr $f EST_MIN)
-    case $n in [1-6]) ;; *) n=; esac; case $est in ''|*[!0-9]*) est=;; esac
+    case $n in ''|*[!0-9]*|0) n=;; *) [ "$n" -le "$BUDGET" ] || n=;; esac; case $est in ''|*[!0-9]*) est=;; esac
     [ -n "$n" ] && [ -n "$est" ] || { [ -e $ST/$b.warn ] || { say "$b: bad NODES/EST_MIN, skipped"; : > $ST/$b.warn; }; continue; }
     nb=$(hdr $f NOT_BEFORE); na=$(hdr $f NOT_AFTER); [ -n "$nb" ] && [ "$t" -lt "$nb" ] && continue
     rt=$(cut -d' ' -f2 $ST/$b.retry 2>/dev/null); [ -n "$rt" ] && [ "$t" -lt "$rt" ] && continue
