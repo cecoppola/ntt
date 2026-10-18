@@ -118,6 +118,8 @@ static const char *const cfg_names[] = {
     "ECALC_WINDOWS",
     "MDB_SHIFT_CHUNK_MB",
     "MEM_DPOOL_FILL",
+    "MEM_HSTAGE_THP",
+    "MEM_PRECOMPACT_GB",
     "MEM_REPORT_DEVS",
     "MN_COMM_MARK",
     "MN_GROUPS",
@@ -169,4 +171,4 @@ static const char *const cfg_names[] = {
     "RNS_STRATEGY_CHECK",
     "RNS_VERBOSE",
 };
-#define CFG_NAMES_N 167
+#define CFG_NAMES_N 169

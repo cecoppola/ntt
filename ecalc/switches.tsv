@@ -119,6 +119,8 @@ ECALC_VMM_BG	bool	unset	unset	0|1	built-in default	-	S34.md	Y	ecalc	dbig.c	1	-	-
 ECALC_WINDOWS	bool	derived	derived	0|1	test-only	-	A-out.md+H.md	Y	ecalc	verify.c	1	diagnostics (TESTING.md)	2027-04-12	
 MDB_SHIFT_CHUNK_MB	float	1024	1024		built-in default	-	P214.md	Y	ecalc	binsplit.c,newton_db.c	4	-	-	
 MEM_DPOOL_FILL	int	0	0		test-only	-	V.md+R.md	Y	ecalc	mem.c	2	diagnostics (TESTING.md)	2027-04-12	
+MEM_HSTAGE_THP	bool	1	1	0|1	unclassified	-	-	Y	ecalc	mem.c	1	FRAGFIX	2026-11-16	
+MEM_PRECOMPACT_GB	int	0	0		unclassified	-	-	Y	ecalc	mem.c	1	FRAGFIX	2026-11-16	
 MEM_REPORT_DEVS	bool	0	unset	0|1	launch-line	aac7	B7ACCT.md+TC15.md	Y	ecalc	ecalc.c,mem.c	2	-	-	ecalc.c:372/537 (presence test)
 MN_COMM_MARK	bool	0	unset	0|1	launch-line	-	D16.md	Y	ecalc	mn.c	1	-	-	mn.c:28 (atoi > 0)
 MN_GROUPS	str	unset	derived	group list	launch-line	-	T114.md+SC15.md	Y	ecalc	rns_dist.c	1	-	-	rns_dist.c:2315; unset = the automatic schedule
