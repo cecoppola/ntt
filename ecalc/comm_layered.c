@@ -280,7 +280,9 @@ static unsigned gx_of(size_t w) { size_t b = (w + 255) / 256; return (unsigned)(
 static void block_transpose(void *dst, const void *src, size_t bytes, int na, int nb, hipStream_t s)
 {
     if (bytes && !(bytes & 15) && (size_t)na * nb <= 65535 && dev_ok(dst) && dev_ok(src)) {
+        struct comm_kt kt; comm_ktime_begin(&kt, KT_BTRANS, dst, src, bytes * (size_t)na * nb, s);
         k_btrans<<<dim3(gx_of(bytes >> 4), (unsigned)(na * nb)), 256, 0, s>>>((uint4 *)dst, (const uint4 *)src, bytes >> 4, na, nb);
+        comm_ktime_end(&kt, s);
         HIP_CHECK(hipGetLastError()); return;
     }
     for (int a = 0; a < na; a++) for (int b = 0; b < nb; b++)
@@ -296,7 +298,12 @@ static void bcopy_run(lay_priv *p, char *dst, const char *src, int n, hipStream_
 {
     struct cpy *t = p->ctab; size_t mx = 0; int ok = n > 0 && n <= 65535 && dev_ok(dst) && dev_ok(src);
     for (int i = 0; i < n && ok; i++) { if ((t[i].dst | t[i].src | t[i].len) & 7) ok = 0; if (t[i].len > mx) mx = t[i].len; }
-    if (ok) { k_bcopy<<<dim3(gx_of(mx >> 3), (unsigned)n), 256, 0, s>>>(dst, src, t); HIP_CHECK(hipGetLastError()); return; }
+    if (ok) {
+        struct comm_kt kt; size_t tot = 0; if (g_comm_ktime) for (int i = 0; i < n; i++) tot += t[i].len;
+        comm_ktime_begin(&kt, KT_BCOPY, dst, src, tot, s);
+        k_bcopy<<<dim3(gx_of(mx >> 3), (unsigned)n), 256, 0, s>>>(dst, src, t);
+        comm_ktime_end(&kt, s);
+        HIP_CHECK(hipGetLastError()); return; }
     for (int i = 0; i < n; i++) if (t[i].len) HIP_CHECK(hipMemcpyAsync(dst + t[i].dst, src + t[i].src, t[i].len, hipMemcpyDefault, s));
 }
 /* the inter-node stage of the oldest pending exchange (its intra stage and transpose are done) */

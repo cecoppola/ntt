@@ -112,6 +112,17 @@ comm *comm_local_create(void);                 /* size 1 */
 comm *comm_sim4_create(int rank_of_this_apu);  /* WP5: four synthetic ranks sharing one APU (created four times, one per simulated rank) */
 #ifndef COMM_HOST_ONLY
 hipError_t comm_copy_async(void *d, const void *s, size_t n, hipStream_t st);   /* N7D: copy kernel (comm_copy.c) for copies that touch host-registered pools */
+/* KT (COMM_KTIME=1, default off, comm_copy.c): hipEvent timing of the exchange kernels k_btrans / k_bcopy / k_ccopy in place, per kernel and
+ * source/destination memory kind (dev | host = registered host | pool = proxy pool), printed once per process at exit as `ktime` lines.
+ * Off: comm_ktime_begin is one flag test and the token stays empty. */
+struct comm_kt { hipEvent_t a; int k, sk, dk; size_t bytes; int on; };
+enum { KT_BTRANS, KT_BCOPY, KT_CCOPY };
+extern int g_comm_ktime;
+void comm_ktime_begin_(struct comm_kt *t, int kern, const void *dst, const void *src, size_t bytes, hipStream_t st);
+void comm_ktime_end_(struct comm_kt *t, hipStream_t st);
+void comm_ktime_set_pool(int (*in_pool)(const void *));
+static inline void comm_ktime_begin(struct comm_kt *t, int kern, const void *dst, const void *src, size_t bytes, hipStream_t st) { t->on = 0; if (g_comm_ktime) comm_ktime_begin_(t, kern, dst, src, bytes, st); }
+static inline void comm_ktime_end(struct comm_kt *t, hipStream_t st) { if (t->on) comm_ktime_end_(t, st); }
 #endif
 comm *comm_xgmi_create(int rank);              /* WP5: four real ranks = four APUs of one node, driven by four host threads; safe to create concurrently */
 /* M3: the layered communicator of a node group: intra (the four APUs, xGMI, size 4) x inter (mesh d over the

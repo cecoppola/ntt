@@ -18,6 +18,7 @@ COMM_PHASE_TS	experiment	N8 ts	2026-10-17	per-PE exchange enter/exit timestamps 
 COMM_SHMEM_POOL_NEED_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_STAGE_SLOT_MB	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_SHMEM_VERBOSE	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
+COMM_KTIME	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XGMI_STATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 COMM_XSTATS	diagnostic	diagnostics (TESTING.md)	2027-04-12	diagnostic or fault-injection setting; changes no digit
 DBIG_SMALL_BOUNCE	fallback	coordinator (TASKS S)	2026-11-11	=0 fallback; default since 2026-10-12 (CAND)

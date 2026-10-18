@@ -802,6 +802,9 @@ int comm_shmem_init(void)
     S.spin_us = env_int("COMM_SHMEM_SPIN_US", 2000);
     { const char *ep = getenv("COMM_SHMEM_PEER_ORDER"); S.shift = ep && !strcmp(ep, "shift"); }   /* N7: peers as a shifted ring, not in rank order */
     S.xstats = env_int("COMM_XSTATS", 0) > 0;
+#ifndef COMM_HOST_ONLY
+    comm_ktime_set_pool(px_reg_in);                       /* KT (COMM_KTIME=1, comm_copy.c): which pointers are the proxy pool */
+#endif
     S.pts = env_int("COMM_PHASE_TS", 0) > 0; S.xsany = S.xstats || S.pts;   /* N8 ts: per-PE phase enter/exit timestamps */
     S.vslot_pool = env_int("COMM_LAYER_VSLOT_POOL", 1) > 0;   /* X2: no rounds for an exchange from and into the pool (default 1) */
     { const char *er = getenv("COMM_SHMEM_ROUND_MB"); double rm = er ? atof(er) : 0; S.round_bytes = rm > 0 ? (size_t)(rm * 1048576.0) : 0; }

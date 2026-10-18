@@ -14,6 +14,7 @@ BS_SEED_FILL	bool	unset	unset	0|1	built-in default	-	T215.md+DOC15.md	Y	ecalc	bi
 BS_SEED_PULL	int	1	1	0|1	built-in default	-	-	Y	ecalc	dbig.c	2	coordinator (TASKS S)	2026-11-11	dbig.c; K8b+CAND, user-adopted 2026-10-12 (acts with DB_POOL_VMM); 0 = old path
 BS_SEED_TERMS	int	derived	derived		built-in default	-	T215.md+WP7.md	Y	ecalc	binsplit.c	5	-	-	
 BS_SEED_THREADS	int	all	all		built-in default	-	I.md+S22.md	Y	ecalc	binsplit.c	6	-	-	
+COMM_KTIME	bool	unset	unset	0|1	unclassified	-	-	Y	ecalc	comm_copy.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_INTER2	bool	derived	derived	0|1	built-in default	-	XEFF.md+S47.md	Y	ecalc	comm_layered.c	1	coordinator (TASKS S)	2026-11-11	comm_layered.c; default since 2026-10-12 (TASKS 27): follows COMM_LAYER_VSLOT_POOL (1)
 COMM_LAYER_STATS	int	0	0		test-only	-	X13.md+C16.md	Y	ecalc	comm_layered.c	1	diagnostics (TESTING.md)	2027-04-12	
 COMM_LAYER_VSLOT_MB	bool	derived	derived	0|1	built-in default	-	-	prose	ecalc	comm_layered.c	2	-	-	
