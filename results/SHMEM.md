@@ -1,8 +1,8 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
 Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-55). Labels: (m) measured,
-(mod) modelled, (a) assumed. All runs: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
+send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-67). Labels: (m) measured,
+(mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
 
@@ -50,13 +50,55 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_HEAP_THP` (huge-page SHMEM heap) | item 40, 2 pairs: +24.8 s [−179, +229]; gates PASS | dropped (D39), not merged | — |
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
 | `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
-| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, not significant | 0 |
+| `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect | 0 |
+| `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 70 (pending) | fixed; timing pending | 1 |
 | `COMM_PHASE_TS` (per-PE timestamps) | diagnostics only; items 51, 52, 54 vs 53: no measurable cost (m, 12 vs 4 runs) | merged c3a469d | 0 |
 | earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/N7C.md to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off | 0 |
 
 Item 55 (commit 3ff1c22): gates PASS at 1 and 2 nodes with the switches off and on, comm_ofi 2 nodes PASS, 6-node 1e10
-compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m). Item 56 (more LAYV_ANY pairs) had no done-marker when
-this file was written and is not included.
+compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m).
+
+## Node-count results (items 57, 66, 67; m unless marked)
+
+| item | nodes | digits | result |
+|---|---|---|---|
+| 57 (paired) | 6 | 3.8646e11 | SHMEM − libfabric +39.9 s [+2.5, +77.4] (dm +23, bs +13, recip +7, init +3.5) |
+| 67 gap2 (4 rounds x 2 slots) | 2 | 1.2882e11 | SHMEM default D 120.5 s (n 4, sd 5.1, CV 4.2 %, 114.9-126.2) vs libfabric L 123.3 s (n 4, sd 8.1, CV 6.5 %, 117.1-135.2); paired D − L by round −17.5, +5.1, −5.0, +6.0 (mean −2.9 s): no gap, no stalls. Slot b ran about 8 s slower than slot a in both arms |
+| 66 sn1 (six independent items, 3 runs each) | 1 | 6.441e10 | SHMEM default 65.9 s (n 18, sd 1.6, CV 2.5 %, 63.5-69.7; items 1-4 alone 66.3, sd 1.8, n 12): no stalls |
+| 71 gap4 | 4 | pending | queued (first attempt 68/69 failed in 4-26 s on a driver check, not a code fault) |
+
+Item 57 agrees with the steady gap above (about +36 to +40 s at 6 n). Observation (mod): the fitted per-node stall
+rate below (p 0.41 per node per run, variant i) predicts at 2 nodes a stall in about 65 % of runs of 40+ s; item 67
+(4 runs per arm) and item 66 (18 runs at 1 n) show none and no gap. So the stall and the gap depend on the node
+count, not on per-node work alone. Item 71 (4 n) will place the onset. This is a finding, not a conclusion about cause.
+
+Tooling: item 60 (hangtest) passed with the patched driver library (re-entrancy-guarded `nl_on_exit`: DONE, then rc 0,
+52 s). Item 61 (hthp) stopped after its gates passed; the pb1 campaign (item 65) replaces it and is running.
+
+## Scaling model to 576 nodes (mod)
+
+Fit on the 24 SHMEM runs (16 per-run, 8 partly assumed): base 212.3 s (fastest run, a), a node stalls with probability p
+per opportunity with Exponential(mu) size, the run loses the slowest node's stall. Variant (i), one opportunity per
+node per run: p 0.41, mu 42 s. Variant (ii), 3 node-local phases: p 0.17, mu 28 s. Both reproduce mean, sd and
+P(< 30 s excess) of the data; 24 runs cannot separate them. Libfabric: 184.5 s base plus the max of N per-node jitters
+(Normal, 9.9 s). Steady gap 36 s at 6 n scaled to 576 n as low x 0.30 (exposed fabric time ratio) or high x 2.25 (NIC
+bytes per node). Target 3.82e13 digits, 576 nodes x 4 APUs; estimate.py inputs `aac7_l4` g 6 and `target_l4` g 576.
+
+| N | libfabric | gap low..high | stall excess (i) / (ii) | SHMEM (i) / (ii) | SHMEM / libfabric |
+|---|---|---|---|---|---|
+| 6 | 184.5 | 36 | 67 / 69 | 288 / 290 | 1.56-1.57 |
+| 24 | 191.3 | 28..50 | 122 / 166 | 342 / 407 | 1.79-2.13 |
+| 96 | 196.8 | 21..63 | 182 / 278 | 399 / 538 | 2.03-2.74 |
+| 288 | 200.5 | 15..74 | 227 / 370 | 442 / 645 | 2.20-3.22 |
+| 576 | 202.5 | 11..81 | 256 / 426 | 469 / 709 | 2.32-3.50 |
+
+The excess grows as mu ln(N p). Sensitivity at 576 n: halving p buys only 29-58 s; p x 0.1 gives x 1.84-2.57; p x 0.01
+gives x 1.36-1.72; stalls removed leaves x 1.05 (low gap) to x 1.40 (high gap); halving mu gives x 1.69-2.45.
+Conclusion (mod): at 576 n the stall variance (+256 to +427 s) dominates the steady gap (11-81 s); staying within 10 %
+of libfabric needs the stall mechanism removed (about 0.1 % of today's rate), not reduced, so phase B precedes phase C.
+Caveat: the model assumes the stall rate per node is node-count independent; the 1 n and 2 n results above do not
+support that, so the 576-n excess is an upper-leaning estimate until item 71 places the onset (mod). Uncertainty: 24 runs
+and an assumed size law; the absolute 576-n excess is about ±40 %.
 
 ## Variance findings (items 43, 48, 51, 52, 54; m unless marked)
 
@@ -89,6 +131,5 @@ this file was written and is not included.
   Candidates: the extra host copy of the proxy path against libfabric's direct device puts (zero-copy design, a), and
   the put chunk (`COMM_SHMEM_PX_BLOCK_MB` above 4, untimed). First step: a t_comm bandwidth probe of the proxy path
   against comm_ofi at 6 nodes, then a zero-copy design note before any code.
-- Item 56: collect when its done-marker exists and add its pairs to the `COMM_SHMEM_LAYV_ANY` row.
 - Item 51's wall times in results/N7G.md (223, 264, 186, 235 s, from the timestamp lines) differ from the
   `summary.txt` totals used here (259.8, 291.2, 212.3, 275.2 s); the totals are the comparable figure.
