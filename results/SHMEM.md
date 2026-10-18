@@ -1,7 +1,7 @@
 # SHMEM — the SHMEM proxy mode against libfabric at 6 nodes: one summary (2026-10-17)
 
 Owner of the SHMEM-vs-libfabric story. Per-item records: results/N7B.md to N7E.md (proxy mode, NUMA, copy kernel,
-send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-67). Labels: (m) measured,
+send and init variants), results/N7G.md (huge pages, items 37-51), this file (items 52-89, to 2026-10-18 01:35 ET). Labels: (m) measured,
 (mod) modelled, (a) assumed. Unless a section says otherwise: aac7, 6 nodes, 3.8646e11 digits, the aac7 launch line, SHMEM arm `COMM_OFI=0`
 with the defaults (huge-page proxy pools, D36), libfabric arm `COMM_OFI` unset. Raw data stay on aac7 in the day
 directories named per item (`summary.txt`, `digest/`).
@@ -51,7 +51,13 @@ runs wait on peers, they do not compute more.
 | `COMM_SHMEM_OFFS_WITH_DATA=64` + `COMM_SHMEM_MESH_PAR=1` (N7F fixes A and C) | item 40 task-3 arm, 2 pairs: +49 s | off, no gain | 0 / 0 |
 | `COMM_SHMEM_PX_BLOCK_MB` (N7F fix B, put chunk) | not timed; default 4 MiB equals the comm_ofi chunk | off (unchanged) | 4 |
 | `COMM_SHMEM_LAYV_ANY` (layered exchange, any-order push) | items 49-50, 4 pairs: −45.0 s [−116, +26], faster 4/4; item 56, 4 pairs: +4.6 s [−174, +183]; pooled over 8 pairs: no effect; gates PASS 1 and 2 n, 6-n 1e10 identical (item 55) | merged c3a469d, no effect | 0 |
-| `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 70 (pending) | fixed; timing pending | 1 |
+| `COMM_SHMEM_PE_PER_APU=2` | item 58 found an abort, not a timing: Cray SHMEM kills the job when `SHMEM_OFI_NUM_NICS` exceeds the NICs present (aac7: 4; the default 4 x PE_PER_APU asked for 8). Fixed in bbf471e/f67baf7 (mnrun.sh caps the default at the node's NIC count); item 63 gates PASS (1 and 2 n with value 2, 2 n default). Timing at 2 n: item 80 (ppa2s, 4 pairs, 2026-10-17): value 2 +5.6 s [+2.5, +8.6] slower than 1 (116.8 vs 122.4 s, CV 1.0 % both, m) | fixed; value 2 slower at 2 n, off | 1 |
+| `ECALC_HOST_THP=0` (transparent huge pages off for the node process; branch hthp, unmerged) | item 65 (pb1, 2 n, 2026-10-17 22:07): D 124.6, C 125.8, H 146.0 s; H − D +21.4 (rounds +31, -6, +17, +44), C − D +1.2 (m) | not adopted; branch kept for reference | 1 |
+| `COMM_SHMEM_POOL_MB=6144` (symmetric pool 6144 MiB vs the default) | item 78 (pool2, 2 n, 2 pairs): +18.6 s [-93, +130] (pairs +9.8, +27.4); init 46-61 vs 37-39 s (m) | not adopted | default |
+| `COMM_SHMEM_PX_WORKERS=<n>` (n worker threads per proxy, each on a private SHMEM context; branch pxpeer, unmerged) | gates PASS on adb1343 (item 87: 1 and 2 n with 8, 2 n off). t_comm 4 n (item 72c): per-proxy busy rate 22.6 vs 18.5 GB/s/NIC, node throughput W/D 1.00-1.05, W/L 0.71-0.78 (m) | not adopted: raises the proxy rate, not the node throughput | 0 |
+| `COMM_SHMEM_PX_SEND=2` + `COMM_SHMEM_PEER_ORDER=shift` (SS) | t_comm 4 n: SS/L 1.00-1.05 (item 72b). ecalc 4 n (item 72d, 4 pairs): SS − D −52.8 s [-158, +52], faster 4/4, nodes stall-heavy (D up to 280 s) (m) | candidate; confirmation pairs pending | 0 / 0 |
+| `MEM_HSTAGE_THP=0` + `MEM_PRECOMPACT_GB` (host staging without huge pages; in-process precompaction; branch fragfix) | item 72g (2 n, a99feb5): gates PASS; after the fragmenter F 504 vs FX 308 s, init still about 165 s (m) | partial; see "Phase B results" | 0 |
+| `ECALC_MEMPREP_ONLY=1` + `MNRUN_MEMPREP_GB` (memory preparation as a separate step per node before the launch; branch fragfix) | items 72i, 72h: see "Phase B results" | partial | 0 |
 | `COMM_PHASE_TS` (per-PE timestamps) | diagnostics only; items 51, 52, 54 vs 53: no measurable cost (m, 12 vs 4 runs) | merged c3a469d | 0 |
 | earlier: `PX_NUMA`, `PX_KCOPY`, `PX_INIT`, `PX_SEND`, `PEER_ORDER` | results/N7C.md to N7E.md: N7E 28 pairs +129.3 s [+92.9, +165.7] against comm_ofi; none adopted | off | 0 |
 
@@ -65,15 +71,55 @@ compare identical with `COMM_SHMEM_LAYV_ANY` off and on (m).
 | 57 (paired) | 6 | 3.8646e11 | SHMEM − libfabric +39.9 s [+2.5, +77.4] (dm +23, bs +13, recip +7, init +3.5) |
 | 67 gap2 (4 rounds x 2 slots) | 2 | 1.2882e11 | SHMEM default D 120.5 s (n 4, sd 5.1, CV 4.2 %, 114.9-126.2) vs libfabric L 123.3 s (n 4, sd 8.1, CV 6.5 %, 117.1-135.2); paired D − L by round −17.5, +5.1, −5.0, +6.0 (mean −2.9 s): no gap, no stalls. Slot b ran about 8 s slower than slot a in both arms |
 | 66 sn1 (six independent items, 3 runs each) | 1 | 6.441e10 | SHMEM default 65.9 s (n 18, sd 1.6, CV 2.5 %, 63.5-69.7; items 1-4 alone 66.3, sd 1.8, n 12): no stalls |
-| 71 gap4 | 4 | pending | queued (first attempt 68/69 failed in 4-26 s on a driver check, not a code fault) |
+| 71 gap4 (4 pairs, 21:26 ET) | 4 | 2.5764e11 | L 256.2 (first run, stalled) / 143.9 / 145.9 / 164.6 s vs D 171.0 / 206.8 / 182.9 / 172.8 s: D − L gap about +30 s without L's first run; D − L by pair −85.2, +62.9, +37.0, +8.2 (mean +5.7 s over all four, +36.0 s over pairs 2-4). Layered-exchange rate (per APU, GB / t_post): D 11.72 vs L 14.53 GB/s, D/L 0.81 at 4 n (2 n, items 67: 16.08 vs 16.51, D/L 0.97) |
 
 Item 57 agrees with the steady gap above (about +36 to +40 s at 6 n). Observation (mod): the fitted per-node stall
 rate below (p 0.41 per node per run, variant i) predicts at 2 nodes a stall in about 65 % of runs of 40+ s; item 67
 (4 runs per arm) and item 66 (18 runs at 1 n) show none and no gap. So the stall and the gap depend on the node
-count, not on per-node work alone. Item 71 (4 n) will place the onset. This is a finding, not a conclusion about cause.
+count, not on per-node work alone. Item 71 (4 n): gap about +30 to +36 s excluding the stalled run; 2 n −3 s, 6 n +36 to +40 s, so the steady gap grows with the node count (the layered-exchange rate D/L 0.97 at 2 n, 0.81 at 4 n). Libfabric also had a stalled first run at 4 n, so stalls are not specific to the proxy mode.
 
 Tooling: item 60 (hangtest) passed with the patched driver library (re-entrancy-guarded `nl_on_exit`: DONE, then rc 0,
 52 s). Item 61 (hthp) stopped after its gates passed; the pb1 campaign (item 65) replaces it and is running.
+
+## Phase B results: the stall is host-memory fragmentation (items 65, 78, 76, 72g, 72i, 72h; m unless marked)
+
+- Reproduced (item 76, frag2, 2 n, 2026-10-17 22:58): a tmpfs fragmenter run before the job turns a 115-125 s 2 n run into a
+  stall run. Arms (total s, n): X no fragmenter 143.8 (1); F right after the fragmenter 336.3 / 284.8 (init 194 / 146 vs
+  49-71); Q after a quiet wait 192.6 / 184.5; C control afterwards 158.2 / 162.4. The F run on one node showed
+  compact_stall 8707 and thp_fault_fallback 4083. The node does not recover after F (Q, C stay above the 2 n baseline).
+  So host-memory fragmentation produces the node-local stalls (the first run after a busy period is the slowest, as seen
+  at 6 n).
+- Mechanism (from the item 76 logs): start-up steps that touch host memory slow down: arena allocation 23-27 s vs 7,
+  rns_init 35-37 vs 14-15, the layered self-test 77 / 124 vs 9 / 14. Host staging buffers request huge pages
+  (madvise); with the kernel's defrag setting this means direct compaction per fault, and the huge-page request falls
+  back to small pages when compaction fails. The device pools (hipMalloc, about 97 GB per NUMA domain) are inferred
+  to land in small pages as well (a, GPU-side allocations suspected). Not a SHMEM-only effect (libfabric stalled at 4 n).
+- Not the cause or not a cure: node-process THP off (item 65: +21.4 s, slower); a larger symmetric pool (item 78: +18.6 s).
+- Fixes tried (fragmenter then run, total s per run; m): item 72g (fragfix, 2 n, a99feb5, precompaction in the node
+  process): F 504 vs FX 308, init still about 165 s. Item 72i (memprep4, 4 n, e05ce42, separate preparation step): F 634 /
+  891, FX 560 / 417, D 414 / 309, DX 569 / 229 (the nodes were left in a bad state by the item's own fragmenter, so
+  the comparison is weak). Item 72h (memprep2, 2 n): F 396.7 (one run killed at its 900 s limit), FX 445.7 / 295.2, FP
+  289.3 / 347.4, C 118.1 / 214.0; in two runs (FP r6, FX r7) init was 40 s but bs 222 / 160 s: the cost moves to the
+  next memory-touching step.
+- Status: partial. The preparation step removes about a third of the loss; the remainder reappears in the next step
+  that touches host or GPU memory. Fix #2 (start-up dissection per allocation path, then a second remedy) is in
+  progress on branch fragfix2.
+
+## Phase C results: the proxy path against libfabric (items 72, 73, 72b, 72c, 72d, 87; m unless marked)
+
+- t_comm bandwidth probe (proxy D vs libfabric L, sizes 16-256 MiB): at 2 n D/L about 1.0 and proxy put rate 23.2
+  GB/s per NIC. At 4 n with every peer in flight D/L 0.71-0.93 across probes (0.77-0.78 at 16-64 MiB in item 73, 0.88-0.93
+  in item 72b, 0.71-0.74 in item 72c), with pairs only 0.94-1.03; the proxy's busy put rate falls to 17.5-18.8 GB/s per NIC against
+  23.2 with one peer. The put chunk size and the host copy are not the cause (per the probes).
+- Mechanism: the one-loop proxy posts a put and blocks in shmem_quiet on one destination at a time, so with several
+  peers the first batch holds one peer and, in rank order, every node's first put hits rank 0 (incast).
+- Worker threads (COMM_SHMEM_PX_WORKERS=8, branch pxpeer): per-proxy busy rate 22.6 vs 18.5 GB/s per NIC, but node throughput
+  unchanged (W/D 1.00-1.05, W/L 0.71-0.78): the bottleneck is elsewhere. Not adopted, branch unmerged.
+- PX_SEND=2 with PEER_ORDER=shift (SS): matches libfabric in the probe (SS/L 1.00-1.05, item 72b) and was faster in
+  4 of 4 ecalc pairs at 4 n (item 72d: −52.8 s [−158, +52]; the nodes were stall-heavy, D up to 280 s, so the
+  interval is wide and part of the difference may be stall luck). Whether SS is real is the pending question.
+- Pending: items 72j (mpss4, 4 n) and 72k (mpss2, 2 n), SS against D with the memory preparation step in both arms, to
+  remove the stall noise.
 
 ## Scaling model to 576 nodes (mod)
 
@@ -96,8 +142,10 @@ The excess grows as mu ln(N p). Sensitivity at 576 n: halving p buys only 29-58 
 gives x 1.36-1.72; stalls removed leaves x 1.05 (low gap) to x 1.40 (high gap); halving mu gives x 1.69-2.45.
 Conclusion (mod): at 576 n the stall variance (+256 to +427 s) dominates the steady gap (11-81 s); staying within 10 %
 of libfabric needs the stall mechanism removed (about 0.1 % of today's rate), not reduced, so phase B precedes phase C.
-Caveat: the model assumes the stall rate per node is node-count independent; the 1 n and 2 n results above do not
-support that, so the 576-n excess is an upper-leaning estimate until item 71 places the onset (mod). Uncertainty: 24 runs
+Caveat: the model assumes the stall rate per node is node-count independent. The stall depends on node state (host
+memory fragmentation, reproduced in item 76) and on how many nodes are in a run, not on node count alone: the 1 n and 2 n runs on clean
+nodes showed none, while a fragmented node stalls at 2 n. The fitted p is therefore a property of the nodes' recent
+history, and the 576-n excess is an upper-leaning estimate (mod). Uncertainty: 24 runs
 and an assumed size law; the absolute 576-n excess is about ±40 %.
 
 ## Variance findings (items 43, 48, 51, 52, 54; m unless marked)
@@ -123,13 +171,12 @@ and an assumed size law; the absolute 576-n excess is about ±40 %.
 
 ## Open questions and next experiments
 
-- Phase B (variance, about 65 s on average): test the memory hypothesis. Experiment: 4 ABBA pairs at 6 n with
-  `COMM_PHASE_TS=1`, A default vs B with transparent huge pages off for the node process only (proposed switch
-  `ECALC_HOST_THP=0`, `prctl(PR_SET_THP_DISABLE)` before `mn_init()`; the proxies keep `COMM_SHMEM_PX_THP=1`), with
-  per-node vmstat compaction/allocstall deltas, buddyinfo and a 1 s memory and GPU sampler.
-- Phase C (steady gap, about 36 s): the bs and dm exchanges are 13 and 21 s slower than libfabric in the best runs.
-  Candidates: the extra host copy of the proxy path against libfabric's direct device puts (zero-copy design, a), and
-  the put chunk (`COMM_SHMEM_PX_BLOCK_MB` above 4, untimed). First step: a t_comm bandwidth probe of the proxy path
-  against comm_ofi at 6 nodes, then a zero-copy design note before any code.
+- Problem A (stalls): finish the start-up dissection (which allocation path stays slow after the preparation step;
+  GPU-side pools suspected) and a second remedy (fragfix2, 2 n items); then re-test at 4 n on clean and fragmented
+  nodes. A node-count-independent fix must remove the stall, not shrink it (see the scaling model).
+- Problem B (steady gap): confirm or reject SS (PX_SEND=2 + PEER_ORDER=shift) with 4 n pairs with the memory
+  preparation step in both arms (items 72j, 72k), then 4 n confirmation pairs and SS gates (1 and 2 n); if SS fails,
+  probe the hand-off between the node process and the proxy. A combined candidate (clean and fragmented, 4 n)
+  against D and L, then a 6-n confirmation against the item 45 and 57 baselines.
 - Item 51's wall times in results/N7G.md (223, 264, 186, 235 s, from the timestamp lines) differ from the
   `summary.txt` totals used here (259.8, 291.2, 212.3, 275.2 s); the totals are the comparable figure.

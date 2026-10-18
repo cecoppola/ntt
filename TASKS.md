@@ -22,7 +22,7 @@ project instructions). Within a class, rows are in the order to do them.
 
 Closed 2026-10-13: 23, RECIP, SHM, S, SH3, SIMP, 27, SH4, D, FIT (pre-launch memory fit, automatic DM_MN_WRAP; results/FIT.md), STAT (static-analysis fixes; results/STAT.md) — details in archive:TASKS_HISTORY_2026-10-12.md.
 
-SHMEM 2026-10-17 (summary in results/SHMEM.md): libfabric 184.5 s vs SHMEM default 286.0 s mean over 24 runs, best 4 220.5 s (m); huge-page default kept (D36), heap switch dropped (D39), fixes A/C no gain, COMM_SHMEM_LAYV_ANY and COMM_PHASE_TS merged (c3a469d, default 0, gates PASS item 55). Items 56-67 recorded in results/SHMEM.md (LAYV_ANY no effect; no stalls or gap at 1 and 2 n; scaling model); open: items 70, 71 (PE_PER_APU=2 timing, 4 n), pb1 campaign (item 65); phase B, the 65 s run-to-run variance (slow runs lose time in node-local steps; test: node-process THP off); phase C, the 36 s steady gap (t_comm probe of the proxy path, zero-copy design note).
+SHMEM 2026-10-17 (summary in results/SHMEM.md): libfabric 184.5 s vs SHMEM default 286.0 s mean over 24 runs, best 4 220.5 s (m); huge-page default kept (D36), heap switch dropped (D39), fixes A/C no gain, COMM_SHMEM_LAYV_ANY and COMM_PHASE_TS merged (c3a469d, default 0, gates PASS item 55). Items 56-67 recorded in results/SHMEM.md (LAYV_ANY no effect; no stalls or gap at 1 and 2 n; scaling model); items 70-89 recorded too (stall reproduced as host-memory fragmentation, memory-preparation fix partial; proxy path loses about 20 % at 4 n, SS candidate, workers not adopted); open: fix #2 for the stalls, SS confirmation (items 72j, 72k).
 
 
 Closed 2026-10-12 and earlier (waves 0+1, user decisions, plan rev 2): details in `archive:TASKS_HISTORY_2026-10-12.md`.
